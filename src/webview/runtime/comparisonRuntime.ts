@@ -119,6 +119,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     const testBridge = new ComparisonTestBridge(window, messaging);
     const runtimeEvents = new RuntimeEventFeed();
     testBridge.observe(runtimeEvents);
+    testBridge.provide({ build: buildTestSnapshot, fallback: fallbackTestSnapshot });
     const requestAnimationFrame = window.requestAnimationFrame.bind(window);
     const cancelAnimationFrame = window.cancelAnimationFrame.bind(window);
     const setTimeout = (handler: () => void, timeout?: number) => window.setTimeout(handler, timeout);
@@ -856,7 +857,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             mergeDetailSpectrograms(state.results[i].channels, msg.channels);
             scheduleRender();
             scheduleSpectrumRefresh('immediate');
-            requestAnimationFrame(function () { publishTestSnapshot(); });
+            testBridge.publishAfterFrame();
         }
     });
     messaging.onMessage(function (msg) {
@@ -903,12 +904,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         spectrumRequests.scheduleFrame(false, false);
         scheduleRender();
-        requestAnimationFrame(function () { publishTestSnapshot(); });
+        testBridge.publishAfterFrame();
         spectrumRequests.pump();
     });
     messaging.onMessage(function (msg) {
         if (msg && pairPanel.handleMessage(msg)) {
-            requestAnimationFrame(function () { publishTestSnapshot(); });
+            testBridge.publishAfterFrame();
         }
     });
     messaging.onMessage(function (msg) {
@@ -936,9 +937,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }
         }
         finally {
-            publishTestSnapshotSafe(msg.actionId);
+            testBridge.publishFor(msg.actionId);
             requestAnimationFrame(function () {
-                publishTestSnapshotSafe(msg.actionId);
+                testBridge.publishFor(msg.actionId);
             });
         }
     });
@@ -1380,7 +1381,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     requestAnimationFrame(function () {
         renderAll();
         scheduleSpectrumRefresh('immediate');
-        publishTestSnapshot();
+        testBridge.publish();
         messaging.post({
             type: 'comparison-panel-ready',
             calibrationRevisions: state.results.map(function(result) {
@@ -1417,7 +1418,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const prefix = value > 0 ? '+' : value < 0 ? '-' : '';
         return prefix + formatAmplitudeValue(value);
     }
-    function publishTestSnapshot(actionId?: string) {
+    function buildTestSnapshot(): Record<string, unknown> {
         const trackSnapshot = buildTrackSnapshot({
             tracks: trackStore.activeIds().map(function (trackId) {
                 const record = trackStore.require(trackId);
@@ -1445,61 +1446,56 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             latestSpectrogram = latestSpectrogramSnapshot(firstChannel?.spectrogram, spectrogramSettings.settings);
         }
         catch { /* ignore */ }
-        testBridge.publish({
-                ...domSnapshotBase(document),
-                zoomStart: waveformView.start,
-                zoomEnd: waveformView.end,
-                amplitudeZoomMinNorm: waveformView.amplitudeMin,
-                amplitudeZoomMaxNorm: waveformView.amplitudeMax,
-                rectZoomSelection: rectZoomSelection ? Object.assign({}, rectZoomSelection) : null,
-                cursorNorm: viewState.cursor,
-                visibleSpectrumTrackCount: trackSnapshot.visibleSpectrumTrackCount,
-                contentType: contentType,
-                spectrumBandsPerOctave: spectrumBandsPerOctave,
-                reanalyzeBusy: isReanalyzeBusy(),
-                latestSpectrogram: latestSpectrogram,
-                axisLabels: trackSnapshot.axisLabels,
-                displayOrder: trackStore.displayOrder.slice(),
-                specFreqStart: spectrumView.freqStart,
-                specFreqEnd: spectrumView.freqEnd,
-                trackHeight: layout.trackHeight,
-                spectrumOverlayHeight: layout.spectrumOverlayHeight,
-                waveformMode: waveformMode,
-                lastAnnounce: (function () {
-                    const el = document.getElementById('a11y-announce');
-                    return el ? (el.textContent || '') : '';
-                })(),
-                tracks: trackSnapshot.tracks,
-                entry: entryScreen.snapshot(),
-                comparison: stageMode?.snapshot() ?? null,
-                ...shellSnapshot(document, audioFader.contextState()),
-                lastPlayRejection: playback.lastPlayRejection,
-            }, actionId);
+        return {
+            ...domSnapshotBase(document),
+            zoomStart: waveformView.start,
+            zoomEnd: waveformView.end,
+            amplitudeZoomMinNorm: waveformView.amplitudeMin,
+            amplitudeZoomMaxNorm: waveformView.amplitudeMax,
+            rectZoomSelection: rectZoomSelection ? Object.assign({}, rectZoomSelection) : null,
+            cursorNorm: viewState.cursor,
+            visibleSpectrumTrackCount: trackSnapshot.visibleSpectrumTrackCount,
+            contentType: contentType,
+            spectrumBandsPerOctave: spectrumBandsPerOctave,
+            reanalyzeBusy: isReanalyzeBusy(),
+            latestSpectrogram: latestSpectrogram,
+            axisLabels: trackSnapshot.axisLabels,
+            displayOrder: trackStore.displayOrder.slice(),
+            specFreqStart: spectrumView.freqStart,
+            specFreqEnd: spectrumView.freqEnd,
+            trackHeight: layout.trackHeight,
+            spectrumOverlayHeight: layout.spectrumOverlayHeight,
+            waveformMode: waveformMode,
+            lastAnnounce: (function () {
+                const el = document.getElementById('a11y-announce');
+                return el ? (el.textContent || '') : '';
+            })(),
+            tracks: trackSnapshot.tracks,
+            entry: entryScreen.snapshot(),
+            comparison: stageMode?.snapshot() ?? null,
+            ...shellSnapshot(document, audioFader.contextState()),
+            lastPlayRejection: playback.lastPlayRejection,
+        };
     }
-    function publishTestSnapshotSafe(actionId?: string) {
-        try {
-            publishTestSnapshot(actionId);
-        }
-        catch (e) {
-            testBridge.publish({
-                    ...domSnapshotBase(document),
-                    zoomStart: waveformView.start,
-                    zoomEnd: waveformView.end,
-                    cursorNorm: viewState.cursor,
-                    visibleSpectrumTrackCount: 0,
-                    contentType: contentType,
-                    reanalyzeBusy: isReanalyzeBusy(),
-                    axisLabels: { spectrumOverlay: [], spectrogramPerTrack: [], spectrumPerTrack: [], waveformPerTrack: [] },
-                    displayOrder: trackStore.displayOrder.slice(),
-                    specFreqStart: spectrumView.freqStart,
-                    specFreqEnd: spectrumView.freqEnd,
-                    trackHeight: layout.trackHeight,
-                    spectrumOverlayHeight: layout.spectrumOverlayHeight,
-                    waveformMode: waveformMode,
-                    lastAnnounce: e instanceof Error ? e.message : String(e),
-                    tracks: [],
-                }, actionId);
-        }
+    function fallbackTestSnapshot(e: unknown): Record<string, unknown> {
+        return {
+            ...domSnapshotBase(document),
+            zoomStart: waveformView.start,
+            zoomEnd: waveformView.end,
+            cursorNorm: viewState.cursor,
+            visibleSpectrumTrackCount: 0,
+            contentType: contentType,
+            reanalyzeBusy: isReanalyzeBusy(),
+            axisLabels: { spectrumOverlay: [], spectrogramPerTrack: [], spectrumPerTrack: [], waveformPerTrack: [] },
+            displayOrder: trackStore.displayOrder.slice(),
+            specFreqStart: spectrumView.freqStart,
+            specFreqEnd: spectrumView.freqEnd,
+            trackHeight: layout.trackHeight,
+            spectrumOverlayHeight: layout.spectrumOverlayHeight,
+            waveformMode: waveformMode,
+            lastAnnounce: e instanceof Error ? e.message : String(e),
+            tracks: [],
+        };
     }
     function buildLayout() {
         if (isSelectionMode) {
@@ -3693,7 +3689,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         trackStore.clearDetailErrors();
         scheduleRender();
         scheduleSpectrumRefresh('immediate');
-        requestAnimationFrame(function () { publishTestSnapshot(); });
+        testBridge.publishAfterFrame();
     }
     const specSettingsPopover = installSpectrogramSettingsPopover(document, {
         strings: STR,
@@ -3792,7 +3788,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         entryScreen.tracksChanged();
         scheduleRender();
         scheduleSpectrumRefresh('immediate');
-        requestAnimationFrame(function () { publishTestSnapshot(); });
+        testBridge.publishAfterFrame();
     }
     // ── Track drag reorder ──
     function reorderTracks(fromTrackId: TrackId, toTrackId: TrackId) {

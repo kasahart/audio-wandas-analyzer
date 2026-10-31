@@ -6,6 +6,7 @@ import { AnalysisOrchestrator } from './analysisOrchestrator';
 import { ExportFlows } from './exportFlows';
 import { autoOpenDebugTarget, registerExtensionContributions } from './extensionContributions';
 import { PanelController } from './panelController';
+import { ComparisonPanel } from '../webview/panels/ComparisonPanel';
 import { PythonEnvironment, setStatusBarImporting } from './pythonEnvironment';
 import { PythonBackendServer } from './pythonBackendServer';
 import { RecipeFlow } from './recipeFlow';
@@ -23,6 +24,7 @@ function hasAnalyzerPanel(): boolean {
 /** `calibration` is the activation's one calibration store; bootstrap.ts shares it with the calibration command. */
 export function activate(context: vscode.ExtensionContext, calibration = new CalibrationStore(context)): void {
     let deactivated = false;
+    if (context.extensionMode === vscode.ExtensionMode.Test) ComparisonPanel.enableTestHooks();
     const perfChannel = vscode.window.createOutputChannel('Audio Wandas Analyzer (perf)');
     const logPerf = (line: string): void => { perfChannel.appendLine(line); };
     const logChannel = vscode.window.createOutputChannel('Audio Wandas Analyzer', { log: true });

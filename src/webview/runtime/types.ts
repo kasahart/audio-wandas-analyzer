@@ -88,6 +88,8 @@ export interface UiSmokeState {
 export interface RuntimeWindow extends Omit<Window, 'addEventListener' | 'removeEventListener'> {
     ResizeObserver: typeof ResizeObserver;
     __uiSmokeState?: UiSmokeState;
+    /** Set by a page the tests open: the runtime then publishes its rendered UI (`comparison-panel-test-snapshot`). */
+    __AWA_TEST_HOOKS__?: boolean;
     renderWaveformPipeline?: (
         context: CanvasRenderingContext2D,
         width: number,

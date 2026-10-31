@@ -12,6 +12,8 @@ export interface ComparisonAssets {
     cspSource: string;
     language: string;
     appVersion: string;
+    /** The runtime publishes its rendered UI for the tests (the VS Code host in its test mode). */
+    testHooks?: boolean;
 }
 
 export function renderComparisonDocument(state: ComparisonState, assets: ComparisonAssets): string {
@@ -45,7 +47,7 @@ export function renderComparisonDocument(state: ComparisonState, assets: Compari
         };
         window.__APP_STATE__ = ${serializeForScript(state)};
         window.__APP_STRINGS__ = ${serializeForScript(strings)};
-        window.__APP_LOCALE__ = ${serializeForScript(locale)};
+        window.__APP_LOCALE__ = ${serializeForScript(locale)};${assets.testHooks ? '\n        window.__AWA_TEST_HOOKS__ = true;' : ''}
     </script>
     <script src="${assets.waveformScriptUri}"></script>
     ${assets.hostScriptUri ? `<script src="${assets.hostScriptUri}"></script>` : ''}

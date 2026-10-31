@@ -9,6 +9,7 @@ import type {
 export interface ComparisonWindow extends RuntimeWindow {
     __APP_STATE__?: ComparisonState;
     __APP_STRINGS__?: UiStrings;
+    __APP_LOCALE__?: string;
     __AWA_HOST__?: WebviewHostApi;
     /**
      * The optional Python packages the host's runtime cannot import, as its Worker reports them when it

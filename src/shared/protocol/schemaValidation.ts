@@ -18,9 +18,11 @@ export interface SchemaNode {
     items?: SchemaNode;
     /** Only the nullable form `[schema, { type: 'null' }]`; see protocol_schema.py. */
     anyOf?: readonly [SchemaNode, SchemaNode];
+    /** A definition the generated types take from the hand-written contracts; it carries no constraint. */
+    'x-tsType'?: string;
 }
 
-const DEFINITIONS = BACKEND_PROTOCOL_SCHEMA.$defs as unknown as Readonly<Record<string, SchemaNode>>;
+const DEFINITIONS: Readonly<Record<string, SchemaNode>> = BACKEND_PROTOCOL_SCHEMA.$defs;
 
 function resolve(node: SchemaNode): SchemaNode {
     let current = node;

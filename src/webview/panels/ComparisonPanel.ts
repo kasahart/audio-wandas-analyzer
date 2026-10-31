@@ -123,6 +123,12 @@ export class ComparisonPanel {
     private static activePanel: vscode.WebviewPanel | undefined;
     private static testMessageDisposables = new WeakMap<vscode.WebviewPanel, vscode.Disposable>();
     private static shownListener: ((panel: vscode.WebviewPanel) => void) | undefined;
+    private static testHooks = false;
+
+    /** The Webviews opened from now on publish their rendered UI, which `getTestSnapshot` keeps for the E2E suite. */
+    public static enableTestHooks(): void {
+        ComparisonPanel.testHooks = true;
+    }
 
     public static setShownListener(listener: (panel: vscode.WebviewPanel) => void): void {
         ComparisonPanel.shownListener = listener;
@@ -225,7 +231,7 @@ export class ComparisonPanel {
             })),
             spectrogramSettings,
         };
-        const html = renderComparisonHtml(panel.webview, state, extensionUri);
+        const html = renderComparisonHtml(panel.webview, state, extensionUri, ComparisonPanel.testHooks);
         panel.webview.html = html;
         ComparisonPanel.testSnapshot = {
             title,
@@ -291,7 +297,7 @@ export class ComparisonPanel {
             spectrogramSettings,
             entry: true,
         };
-        const html = renderComparisonHtml(panel.webview, state, extensionUri);
+        const html = renderComparisonHtml(panel.webview, state, extensionUri, ComparisonPanel.testHooks);
         panel.webview.html = html;
         ComparisonPanel.testSnapshot = {
             title,
@@ -390,7 +396,7 @@ export class ComparisonPanel {
 
 }
 
-export function renderComparisonHtml(webview: vscode.Webview, state: ComparisonState, extensionUri: vscode.Uri): string {
+export function renderComparisonHtml(webview: vscode.Webview, state: ComparisonState, extensionUri: vscode.Uri, testHooks = false): string {
     return renderComparisonDocument(state, {
         waveformScriptUri: webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'webview', 'comparisonWaveform.js')).toString(),
         runtimeScriptUri: webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'webview', 'comparisonRuntime.js')).toString(),
@@ -398,5 +404,6 @@ export function renderComparisonHtml(webview: vscode.Webview, state: ComparisonS
         language: typeof vscode.env?.language === 'string' ? vscode.env.language : 'en',
         // eslint-disable-next-line @typescript-eslint/no-require-imports -- package.json sits outside rootDir, so it cannot be imported
         appVersion: (require('../../../package.json') as { version: string }).version,
+        testHooks,
     });
 }

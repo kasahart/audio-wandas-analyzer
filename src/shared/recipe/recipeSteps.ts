@@ -142,7 +142,7 @@ export function encodeNumber(value: number, kind: 'float' | 'int', plain = false
 
 /** Whether the Recipe's schema stores floats as plain JSON numbers (wandas 0.10's schema 3 and later). */
 export function plainFloats(recipe: RecipeDocument): boolean {
-    return ((recipe as unknown as { version?: number }).version ?? 0) >= 3;
+    return typeof recipe.version === 'number' && recipe.version >= 3;
 }
 
 export function decodeParam(value: unknown): ParamValue {
@@ -169,7 +169,7 @@ const lastSegment = (id: string): string => id.slice(id.lastIndexOf('.') + 1);
 export function recipeChain(recipe: RecipeDocument): RecipeNode[] {
     const byId = new Map(recipeNodes(recipe).map(node => [node.id, node]));
     const chain: RecipeNode[] = [];
-    let id = (recipe as unknown as { output?: string }).output;
+    let id = typeof recipe.output === 'string' ? recipe.output : undefined;
     for (let node = id ? byId.get(id) : undefined; node; node = id ? byId.get(id) : undefined) {
         chain.unshift(node);
         id = node.inputs[0];
@@ -499,17 +499,17 @@ export function withoutSteps(recipe: RecipeDocument, stepIds: readonly string[])
 export const BYPASS_KEY = 'awaBypassed';
 
 export function bypassedSteps(recipe: RecipeDocument): string[] {
-    const list = (recipe as unknown as Record<string, unknown>)[BYPASS_KEY];
+    const list = recipe[BYPASS_KEY];
     const ids = new Set(recipeNodes(recipe).map(node => node.id));
     return Array.isArray(list) ? list.filter((id): id is string => typeof id === 'string' && ids.has(id)) : [];
 }
 
 /** The Recipe with `stepId` bypassed (or no longer). */
 export function withBypass(recipe: RecipeDocument, stepId: string, on: boolean): RecipeDocument {
-    const copy = JSON.parse(JSON.stringify(recipe)) as Record<string, unknown>;
+    const copy = JSON.parse(JSON.stringify(recipe)) as RecipeDocument;
     const next = bypassedSteps(recipe).filter(id => id !== stepId).concat(on ? [stepId] : []);
     if (next.length) copy[BYPASS_KEY] = next; else delete copy[BYPASS_KEY];
-    return copy as unknown as RecipeDocument;
+    return copy;
 }
 
 /**
@@ -517,13 +517,12 @@ export function withBypass(recipe: RecipeDocument, stepId: string, on: boolean):
  * stays: it is where the region goes, and a bypassed region is the whole file (the screen sends no region).
  */
 export function withoutBypassed(recipe: RecipeDocument): RecipeDocument {
-    const keys = recipe as unknown as Record<string, unknown>;
-    if (!(BYPASS_KEY in keys) && !(REFERENCE_KEY in keys)) return recipe;
+    if (!(BYPASS_KEY in recipe) && !(REFERENCE_KEY in recipe)) return recipe;
     const skipped = bypassedSteps(recipe).filter(id => recipeNodes(recipe).find(node => node.id === id)?.operation !== TIME_SLICE);
-    const copy = JSON.parse(JSON.stringify(withoutSteps(recipe, skipped))) as Record<string, unknown>;
+    const copy = JSON.parse(JSON.stringify(withoutSteps(recipe, skipped))) as RecipeDocument;
     delete copy[BYPASS_KEY];
     delete copy[REFERENCE_KEY];
-    return copy as unknown as RecipeDocument;
+    return copy;
 }
 
 /**
@@ -535,7 +534,7 @@ export const REFERENCE_KEY = 'awaSlotReference';
 
 export function slotReferenced(recipe: RecipeDocument | null | undefined): string[] {
     if (!recipe) return [];
-    const list = (recipe as unknown as Record<string, unknown>)[REFERENCE_KEY];
+    const list = recipe[REFERENCE_KEY];
     const ids = new Set(recipeNodes(recipe).filter(node => SLOT_REFERABLE.has(node.operation)).map(node => node.id));
     return Array.isArray(list) ? list.filter((id): id is string => typeof id === 'string' && ids.has(id)) : [];
 }
@@ -557,10 +556,10 @@ export function withSlotReference(recipe: RecipeDocument, stepId: string, on: bo
     // Back to a channel: the pair chip again, where adding the step gives one (a CSD keeps its auto-spectra).
     const operation = recipeNodes(recipe).find(node => node.id === stepId)?.operation ?? '';
     if (!on && !pair && select && PAIRED_ON_ADD.has(operation)) next = withStep(next, stepId, select).recipe;
-    const copy = JSON.parse(JSON.stringify(next)) as Record<string, unknown>;
+    const copy = JSON.parse(JSON.stringify(next)) as RecipeDocument;
     const list = slotReferenced(recipe).filter(id => id !== stepId).concat(on ? [stepId] : []);
     if (list.length) copy[REFERENCE_KEY] = list; else delete copy[REFERENCE_KEY];
-    return copy as unknown as RecipeDocument;
+    return copy;
 }
 
 /** A short stable key for a Recipe, so stored scan results are reused only for the same Recipe. */
