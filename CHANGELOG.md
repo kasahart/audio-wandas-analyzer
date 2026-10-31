@@ -11,8 +11,14 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 - Trackpad sideways swipe pans the timeline (#471).
 - Python backend answers requests for different recordings concurrently and reads audio straight into float32 (#462, #464).
 - Updated to wandas 0.12.0 (#409, #446, #468).
-- Review fixes: stuck spectrogram errors, cache thrash, UTF-8 stdio, VSIX contents.
-- Tooling: CI runs verify on Linux, Windows and macOS; releases publish only after every CI job passes; pinned CI Python packages; Dependabot.
+- Python starts only when a command, view or panel needs it; Select Python Environment can create a `.venv` and install the packages, detects PEP 668 interpreters and uses the Python extension's interpreter; Restricted Mode is supported with the user-level interpreter.
+- Every analysis request can be cancelled and times out; Python's errors go to the "Audio Wandas Analyzer" output channel.
+- A spectrogram or cursor spectrum that fails says why in its lane and is retried after a pause instead of on every frame; files larger than the cache are no longer re-read on every zoom; non-ASCII paths work on Windows code pages.
+- Keyboard: one help (`?`) for every view; Compare toggles its base with `B` (was `0`); entry-table track marks are ☐/☑ (`T` toggles the focused row); canvases and resize edges are focusable and keyboard-resizable.
+- Entry table keeps file names' ends in view with the full path as a tooltip; disabled controls say why; PNG/CSV export shows progress; settings popovers use plain labels; light-theme contrast and High Contrast Light role colours fixed; the transfer-function reference is called 参照 in Japanese.
+- The webview may read, scan and export only files its panel lists; large folders are listed with a cap, skip symlinked folders and can be cancelled.
+- The VSIX no longer ships scripts, tests, agent files or the debug WAV (about 10 MB → 4 MB).
+- Tooling: CI runs verify on Linux, Windows and macOS; releases publish only after every CI job passes; pinned CI Python packages; Dependabot; type-aware ESLint and pyright in verify; wall-clock budgets only with `AWA_PERF=1`.
 
 ## 0.0.14
 
