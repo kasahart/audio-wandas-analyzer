@@ -684,7 +684,10 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const base = resolveBase(comparePath, byGroup);
         const source = over ?? results;
         const picked = new Map(source);
-        const pick = (path: string, ch: number | null): void => { if (ch) picked.set(path, channelResult(source.get(path), ch)!); };
+        const pick = (path: string, ch: number | null): void => {
+            const result = ch ? channelResult(source.get(path), ch) : undefined;
+            if (result) picked.set(path, result);
+        };
         pick(comparePath, channelOfRow(slotRowOf(comparePath)));
         for (const path of base.paths) pick(path, base.channel);
         const single = slots[0] && !byGroup ? fileOfKey(slots[0]) : null;
@@ -1573,9 +1576,10 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             const base = resolveBase(comparePath, byGroup);
             const levels = base.paths.flatMap(path => {
                 const result = base.channel ? channelResult(results.get(path), base.channel) : results.get(path);
-                if (!result?.ok || isStale(path) || !result.thirdOctDb?.length) return [];
+                const bands = result?.ok ? result.thirdOctDb : undefined;
+                if (!bands?.length || isStale(path)) return [];
                 // A recording's channels together, power-averaged, as the comparison's sides are.
-                return [result.thirdOctDb[0].map((_, band) => powerMeanOrNull(result.thirdOctDb!.map(channel => channel[band])))];
+                return [bands[0].map((_, band) => powerMeanOrNull(bands.map(channel => channel[band])))];
             });
             if (!levels.length) return null;
             const values = levels[0].map((_, band) => median(levels.map(item => item[band]).filter((level): level is number => level !== null)));

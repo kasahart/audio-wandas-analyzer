@@ -21,7 +21,6 @@ const NON_NULL_ASSERTION_BURN_DOWN = [
     'src/webview/runtime/chartSpecRuntime.ts',
     'src/webview/runtime/comparePanes.ts',
     'src/webview/runtime/compareReport.ts',
-    'src/webview/runtime/entryRuntime.ts',
     'src/webview/runtime/pairSpectrumPanel.ts',
     'src/webview/runtime/separatorKeys.ts',
     'src/webview/runtime/spectrogramSettingsPopover.ts',
