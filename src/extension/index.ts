@@ -75,66 +75,74 @@ export function activate(context: vscode.ExtensionContext): void {
     let preparation: PythonPreparation = 'idle';
     let preparedCommand: string | undefined;
     let defaultInterpreterLookup: Promise<unknown> | undefined;
+    // The check→install→warmup run for `preparedCommand`; resolves to whether its dependencies are importable.
+    let preparationTask: Promise<boolean> = Promise.resolve(true);
 
-    const warmPythonBackend = (pythonCommand: string): void => {
+    const runPythonPreparation = async (pythonCommand: string): Promise<boolean> => {
+        const dependenciesReady = await checkAndPromptInstallDependencies(pythonCommand, pythonStatusBarItem);
+        if (deactivated || getPythonCommand() !== pythonCommand) { return dependenciesReady; }
+        if (!dependenciesReady) {
+            preparation = 'failed';
+            return false;
+        }
+        setStatusBarImporting(pythonStatusBarItem, pythonCommand);
+        try {
+            await backend.warmup();
+            if (deactivated) { return true; }
+            if (getPythonCommand() === pythonCommand) {
+                preparation = 'ready';
+                setStatusBarNormal(pythonStatusBarItem, pythonCommand);
+            }
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            logPerf(`[ts] backend warmup failed error=${message}`);
+            if (getPythonCommand() === pythonCommand) {
+                preparation = 'failed';
+                setStatusBarWarning(
+                    pythonStatusBarItem,
+                    pythonCommand,
+                    fillTemplate(getStrings(vscode.env.language).pyTooltipBackendFailed, { message }),
+                );
+            }
+        }
+        // The packages are there; a failed warmup is reported by the analysis that respawns the backend.
+        return true;
+    };
+    const warmPythonBackend = (pythonCommand: string): Promise<boolean> => {
         preparation = 'checking';
         preparedCommand = pythonCommand;
-        void checkAndPromptInstallDependencies(pythonCommand, pythonStatusBarItem).then(async (dependenciesReady) => {
-            const currentPythonCommand = getPythonCommand();
-            if (deactivated || currentPythonCommand !== pythonCommand) { return; }
-            if (!dependenciesReady) {
-                preparation = 'failed';
-                return;
-            }
-            setStatusBarImporting(pythonStatusBarItem, pythonCommand);
-            try {
-                await backend.warmup();
-                if (deactivated) { return; }
-                if (getPythonCommand() === pythonCommand) {
-                    preparation = 'ready';
-                    setStatusBarNormal(pythonStatusBarItem, pythonCommand);
-                }
-            } catch (error) {
-                const message = error instanceof Error ? error.message : String(error);
-                logPerf(`[ts] backend warmup failed error=${message}`);
-                if (getPythonCommand() === pythonCommand) {
-                    preparation = 'failed';
-                    setStatusBarWarning(
-                        pythonStatusBarItem,
-                        pythonCommand,
-                        fillTemplate(getStrings(vscode.env.language).pyTooltipBackendFailed, { message }),
-                    );
-                }
-            }
-        });
+        preparationTask = runPythonPreparation(pythonCommand);
+        return preparationTask;
     };
 
     /**
      * Checks the environment and starts the backend once per interpreter. `retryFailed` is set for explicit user
      * commands, so a fixed environment (e.g. packages installed in a terminal) is picked up without a restart.
      */
-    const preparePython = async (retryFailed: boolean): Promise<void> => {
+    const preparePython = async (retryFailed: boolean): Promise<boolean> => {
         defaultInterpreterLookup ??= refreshDefaultInterpreter();
         await defaultInterpreterLookup;
-        if (deactivated) { return; }
+        if (deactivated) { return false; }
         const pythonCommand = getPythonCommand();
         if (preparedCommand === pythonCommand) {
             if (preparation === 'ready') { analysis.warmup(); }
-            if (preparation !== 'failed' || !retryFailed) { return; }
+            if (preparation !== 'failed' || !retryFailed) { return preparationTask; }
         }
-        warmPythonBackend(pythonCommand);
+        return warmPythonBackend(pythonCommand);
     };
     const restartPython = (): void => {
         backend.dispose();
         const pythonCommand = getPythonCommand();
         setStatusBarNormal(pythonStatusBarItem, pythonCommand);
         if (preparation === 'idle') { return; }
-        warmPythonBackend(pythonCommand);
+        void warmPythonBackend(pythonCommand);
     };
 
     const panelController = new PanelController(context, backend, {
         analyzeFiles: async (...args) => {
-            await preparePython(false);
+            // Wait for the check (and any install the user accepts) so the backend never spawns without wandas.
+            // When the environment is not usable, the check has already shown its Install/Select prompt.
+            if (!await preparePython(false)) { throw new vscode.CancellationError(); }
             return analysis.analyzeFiles(...args);
         },
         warmup: () => { void preparePython(false); },
@@ -154,7 +162,7 @@ export function activate(context: vscode.ExtensionContext): void {
         onDidChangePythonEnvironmentState(updateStatusBarVisibility),
         onDidReselectPythonCommand(() => {
             backend.dispose();
-            warmPythonBackend(getPythonCommand());
+            void warmPythonBackend(getPythonCommand());
         }),
         onDidChangeDefaultInterpreter(() => {
             if (preparedCommand !== getPythonCommand()) { restartPython(); }
@@ -174,7 +182,7 @@ export function activate(context: vscode.ExtensionContext): void {
         pythonStatusBarItem,
         panelController,
         recipeFlow,
-        (reason) => preparePython(reason === 'command'),
+        async (reason) => { await preparePython(reason === 'command'); },
     );
 
     try {
