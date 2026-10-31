@@ -196,8 +196,12 @@ export function visibleRows(view: DatasetView, results: Results): DatasetRow[] {
     const rank = nameRanks(rows);
     const keyOf = (row: DatasetRow, place: number): string | number | null => (by === 'name' ? place : by === 'ch' ? row.ch : by === 'group' ? groupOf(row, view.group) : valueOf(row, view.value, results));
     const sign = view.sort.descending ? -1 : 1;
-    // nameRanks ranks every row's name; a name it somehow missed sorts first rather than throwing.
-    const keyed = rows.map(row => { const place = rank.get(row.name) ?? 0; return { row, key: keyOf(row, place), place }; });
+    const keyed = rows.map(row => {
+        const place = rank.get(row.name);
+        // nameRanks has just ranked every one of these rows' names.
+        if (place === undefined) throw new Error(`nameRanks left out ${row.name}`);
+        return { row, key: keyOf(row, place), place };
+    });
     keyed.sort((a, b) => {
         // A missing value sorts last whichever way.
         if (a.key === null || b.key === null) return a.key === b.key ? 0 : a.key === null ? 1 : -1;
