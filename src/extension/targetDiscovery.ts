@@ -103,6 +103,8 @@ export async function buildDirectoryTree(
 
     async function list(currentUri: vscode.Uri): Promise<DirectoryTreeNode[]> {
         if (options.isCancelled?.()) { throw new vscode.CancellationError(); }
+        // Past the cap a folder adds nothing, so its read (perhaps failed or stalled) is not awaited.
+        if (truncated) { return []; }
         const pending = reads.get(currentUri.fsPath) ?? startRead(currentUri);
         const entries = await pending;
         reads.delete(currentUri.fsPath);

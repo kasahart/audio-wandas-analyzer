@@ -289,6 +289,19 @@ test('a folder with more subfolders than the cap queues no more than the cap of 
     assert.ok(joinedUris <= 2 * 10 + 1, `queued ${joinedUris} folders for a listing capped at 10`);
 });
 
+test('a truncated listing does not wait on a subfolder it has no room left for', async () => {
+    const fileSystem: TargetFileSystem = {
+        stat: async () => ({ type: FileType.Directory }) as vscode.FileStat,
+        readDirectory: async (source) => {
+            if (posixPath(source.fsPath) === '/r') return [['a.wav', FileType.File], ['b.wav', FileType.File], ['broken', FileType.Directory]];
+            throw new Error('unreadable');
+        },
+    };
+    const { tree, truncated } = await buildDirectoryTree(uri('/r') as vscode.Uri, fileSystem, { maxEntries: 2 });
+    assert.equal(truncated, true);
+    assert.deepEqual(tree.map(node => node.relativePath), ['a.wav']);
+});
+
 test('directory listing stops when cancelled', async () => {
     let reads = 0;
     const fileSystem = directoryFileSystem({ '/r': [['a', FileType.Directory]], '/r/a': [['b', FileType.Directory]], '/r/a/b': [['x.wav', FileType.File]] });
