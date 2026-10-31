@@ -62,6 +62,8 @@ test(clearSources ? 'clearing a pending browser recipe keeps the cleared status'
                 }
                 const result = command.cmd === 'load' ? { filePath: '/sources/' + command.sourceId }
                     : command.cmd === 'limits' ? { maxInputBytes: 16777216, maxSources: 8, maxTotalInputBytes: 67108864, maxExportBytes: 33554432 }
+                    // browser_service.py answers the Worker's own release and export-plan commands with an empty object.
+                    : ['unload', 'clear', 'export-plan'].includes(command.cmd) ? {}
                     : { ...fixtures.find(entry => entry.command === command.cmd)?.response, filePath: command.filePath };
                 queueMicrotask(() => this.onmessage({ data: { requestId: command.requestId, result } }));
             }
@@ -105,6 +107,7 @@ function staticWorkerInit(): string {
             postMessage(command) {
                 const result = command.cmd === 'load' ? { filePath: '/sources/' + command.sourceId }
                     : command.cmd === 'limits' ? { maxInputBytes: 16777216, maxSources: 8, maxTotalInputBytes: 67108864, maxExportBytes: 33554432 }
+                    : ['unload', 'clear', 'export-plan'].includes(command.cmd) ? {}
                     : command.cmd === 'run-recipe' ? { charts: [{ kind: 'scalar', title: 'Peak', rows: [] }] }
                     : command.cmd === 'scan' ? { ok: true, conditionId: 'c', input: { id: 'i', fs: 16000, channels: [0], durationS: 2, unit: 'FS', ref: 1 },
                         leqDbA: [-20], peakHz: [1000], spectrumDb: [[-20]], thirdOctDb: [[-23]], crest: [1.4], specVersion: 1, wandasVersion: '0.9.0', elapsedMs: 1 }

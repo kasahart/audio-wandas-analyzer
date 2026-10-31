@@ -542,6 +542,18 @@ test('browser-only Worker commands reject success envelopes with extra outer key
     assert.match(app.status, /Invalid load response envelope/);
 });
 
+test('a load reply without the loaded path is a protocol error, not a track', async () => {
+    const app = harness();
+    app.blockedWorkerCommands.add('load');
+    await app.load();
+    const worker = app.workers[0];
+    const load = worker.commands.find(command => command.cmd === 'load')!;
+    worker.onmessage({ data: { requestId: load.requestId, result: {} } });
+    await flush(); await flush();
+    assert.equal(worker.commands.some(command => command.cmd === 'analyze'), false);
+    assert.match(app.status, /Invalid load success response/);
+});
+
 test('browser recipes run on loaded tracks through the Worker and render charts in a fresh frame', async () => {
     const app = harness();
     app.host.postMessage({ type: 'run-recipe' });

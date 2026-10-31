@@ -2,9 +2,9 @@ import { createIdbStore } from './idbStore';
 import { SessionRequests, SourceResults } from '../../shared/analysis/analysisSession';
 import { runAnalysisBatch } from '../../shared/analysis/analysisCoordinator';
 import { AnalysisClient, type AnalysisCancellationSignal, type AnalysisContextPolicy } from '../../shared/analysis/analysisClient';
-import { BackendProtocolError, parseBackendResult, type ScanResult, PendingBackendRequests, rejectPendingRequests, settleBackendRequest, type BackendCommand, type BackendPayload, type BackendResult } from '../../shared/protocol/backendProtocol';
+import { BackendProtocolError, type ScanResult, PendingBackendRequests, rejectPendingRequests, settleBackendRequest, type BackendCommand, type BackendPayload, type BackendResult } from '../../shared/protocol/backendProtocol';
 import type { BrowserLimits, StageDetail } from '../../shared/protocol/generated/backendProtocolSchema';
-import { schemaViolation, withoutResponseEnvelope } from '../../shared/protocol/schemaValidation';
+import { parseWorkerMessage, parseWorkerResult, type WorkerCommand, type WorkerMessage, type WorkerRequest, type WorkerResult } from './workerProtocol';
 import type { PanelMessage } from '../../shared/protocol/panelMessages';
 import { hasPlayableAudio, isConfigureCalibrationMessage, isSupportedAudioFile, SUPPORTED_AUDIO_FILE_EXTENSIONS } from '../../shared/utils/audioTarget';
 import { getStrings, pickLocale } from '../../shared/i18n/strings';
@@ -127,17 +127,12 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     const sources = new SourceResults<Source>(new Map(), source => URL.revokeObjectURL(source.url));
     const inboundListeners = new Set<(message: unknown) => void>();
     let loading = false;
-    const pending = new PendingBackendRequests<Record<string, unknown>>('browser-');
+    const pending = new PendingBackendRequests<unknown, WorkerCommand>('browser-');
     // Session limits come from browser_service.py through the Worker so pre-checks, the backend and the README agree.
     let browserLimits: BrowserLimits | undefined;
     /** Caches the Worker's limits only when every field is a positive safe integer, so a skewed Worker cannot disable the pre-checks. */
     async function limits(): Promise<BrowserLimits> {
-        if (browserLimits) return browserLimits;
-        const reply = await request({ cmd: 'limits' });
-        if (schemaViolation('BrowserLimits', reply) !== null) {
-            throw new BackendProtocolError('Invalid limits response from the audio Worker');
-        }
-        return browserLimits = reply as unknown as BrowserLimits;
+        return browserLimits ??= await request({ cmd: 'limits' });
     }
     const mib = (bytes: number): string => String(bytes / (1024 * 1024));
     // The status line, About and the Python dot share the footer row with the hint text, so the page has no header row.
@@ -349,7 +344,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             const loaded: string[] = [];
             const workerPath = async (listed: string, bytes: File): Promise<string> => {
                 if (sources.get(listed)) return listed;
-                const into = String((await request({ cmd: 'load', sourceId: listed.slice('/sources/'.length) }, await bytes.arrayBuffer())).filePath);
+                const into = (await request({ cmd: 'load', sourceId: listed.slice('/sources/'.length) }, await bytes.arrayBuffer())).filePath;
                 loaded.push(into);
                 return into;
             };
@@ -418,9 +413,9 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         pendingTreePaths.clear();
         sources.clear();
     }
-    async function request(
-        command: Record<string, unknown>, bytes?: ArrayBuffer, forcedRequestId?: string, cancellation?: AnalysisCancellationSignal,
-    ): Promise<Record<string, unknown>> {
+    async function request<K extends WorkerCommand>(
+        command: WorkerRequest<K>, bytes?: ArrayBuffer, forcedRequestId?: string, cancellation?: AnalysisCancellationSignal,
+    ): Promise<WorkerResult<K>> {
         // A Worker whose boot failed is replaced first, so retained sources are replayed into its successor.
         if (bootFailed) resetWorker(new Error(strings.browserPythonFailed));
         if (!worker && !recovery && sources.size) {
@@ -450,20 +445,19 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     }
     /** Routes a Worker's replies to the pending requests while it is the current one. */
     function attachWorker(activeWorker: Worker): void {
-        activeWorker.onmessage = (event: MessageEvent<{ requestId: string; result?: Record<string, unknown>; error?: unknown; ready?: boolean }>): void => {
+        activeWorker.onmessage = (event: MessageEvent<unknown>): void => {
             if (worker !== activeWorker) return;
-            if (event.data.ready !== undefined) {
-                bootFailed = !event.data.ready;
+            const message = parseWorkerMessage(event.data);
+            if (!message) return;
+            if (message.kind === 'ready') {
+                bootFailed = !message.ready;
                 // The optional packages the runtime cannot import: the step bar greys out what needs them.
-                const lacks = (event.data as { lacks?: unknown }).lacks;
-                if (Array.isArray(lacks)) browserWindow.__AWA_RUNTIME_LACKS__ = lacks.filter((name): name is string => typeof name === 'string');
-                showPythonState(event.data.ready ? 'ready' : 'failed');
+                if (message.lacks) browserWindow.__AWA_RUNTIME_LACKS__ = message.lacks;
+                showPythonState(message.ready ? 'ready' : 'failed');
                 return;
             }
             // A Worker reply is `{requestId, result}` or `{requestId, error}`; `result` holds no envelope keys.
-            const { requestId, result, error } = event.data;
-            const envelope: Record<string, unknown> = withoutResponseEnvelope(event.data);
-            const wellFormed = Object.keys(envelope).every(key => key === 'result' || envelope[key] === undefined);
+            const { requestId, result, error, envelope, wellFormed } = message;
             if (error === undefined && !wellFormed) {
                 // Rejected here because browser-only commands (load, unload, export-plan) settle without a result schema.
                 const request = pending.get(requestId);
@@ -472,7 +466,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
                 request.reject(new BackendProtocolError(`Invalid ${request.command} response envelope`));
                 return;
             }
-            settleBackendRequest(pending, requestId, error === undefined ? result! : envelope, error);
+            settleBackendRequest(pending, requestId, error === undefined ? result : envelope, error);
         };
         activeWorker.onerror = (): void => {
             if (worker !== activeWorker) return;
@@ -493,17 +487,25 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         const generation = sourceGeneration.current;
         const next = new Worker('./audio.worker.js', { type: 'module' });
         spare = next;
-        const replies = new Map<string, (data: { error?: unknown }) => void>();
+        const replies = new Map<string, (reply: Extract<WorkerMessage, { kind: 'reply' }>) => void>();
         let calls = 0;
         const abandon = (): void => { if (spare === next) spare = undefined; next.terminate(); };
-        next.onmessage = (event: MessageEvent<{ requestId?: string; ready?: boolean; error?: unknown }>): void => {
-            if (event.data.ready === false) { abandon(); return; }
-            if (event.data.requestId) replies.get(event.data.requestId)?.(event.data);
+        next.onmessage = (event: MessageEvent<unknown>): void => {
+            const message = parseWorkerMessage(event.data);
+            if (message?.kind === 'ready') { if (!message.ready) abandon(); return; }
+            if (message) replies.get(message.requestId)?.(message);
         };
         next.onerror = (): void => abandon();
-        const call = (command: Record<string, unknown>, bytes?: ArrayBuffer): Promise<void> => new Promise((resolve, reject) => {
+        const call = (command: WorkerRequest<'limits' | 'load'>, bytes?: ArrayBuffer): Promise<void> => new Promise((resolve, reject) => {
             const requestId = `spare-${++calls}`;
-            replies.set(requestId, data => { replies.delete(requestId); if (data.error === undefined) resolve(); else reject(new Error('spare Worker refused a command')); });
+            replies.set(requestId, reply => {
+                replies.delete(requestId);
+                try {
+                    if (reply.error !== undefined || !reply.wellFormed) throw new Error('refused');
+                    parseWorkerResult(command.cmd, reply.result);
+                    resolve();
+                } catch { reject(new Error('spare Worker refused a command')); }
+            });
             next.postMessage({ ...command, requestId, bytes }, bytes ? [bytes] : []);
         });
         const loaded = new Set<string>();
@@ -534,14 +536,16 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             } catch { abandon(); }
         })();
     }
-    function sendRequest(command: Record<string, unknown>, bytes?: ArrayBuffer, forcedRequestId?: string): Promise<Record<string, unknown>> {
+    /** Every success reply is checked before it settles: the shared commands by the native validator, the Worker's own by theirs. */
+    function sendRequest<K extends WorkerCommand>(command: WorkerRequest<K>, bytes?: ArrayBuffer, forcedRequestId?: string): Promise<WorkerResult<K>> {
         if (!worker) {
             if (command.cmd !== 'load' && command.cmd !== 'limits') throw new Error('No selected source; choose the file again.');
             worker = startWorker();
         }
+        const target = worker;
         const requestId = forcedRequestId ?? pending.nextId();
-        return pending.dispatch(String(command.cmd), requestId, response => response, () => {
-            worker!.postMessage({ ...command, requestId, bytes }, bytes ? [bytes] : []);
+        return pending.dispatch(command.cmd, requestId, response => parseWorkerResult(command.cmd, response), () => {
+            target.postMessage({ ...command, requestId, bytes }, bytes ? [bytes] : []);
         });
     }
     function stft() {
@@ -560,8 +564,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             announce(failedWith(strings.browserAnalysisStopped, reason));
         }
         protected async request<K extends BackendCommand>(command: K, payload: BackendPayload<K>, requestId?: string, cancellation?: AnalysisCancellationSignal): Promise<BackendResult<K>> {
-            const result = await request({ ...payload, cmd: command }, undefined, requestId, cancellation);
-            return parseBackendResult(command, result);
+            return request({ ...payload, cmd: command }, undefined, requestId, cancellation);
         }
     }({ current: filePath => {
         const result = sources.get(filePath)?.result;
@@ -877,7 +880,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
                     if (!sourceGeneration.isCurrent(myGeneration)) throw new Error('Analysis cancelled');
                     const loaded = await request({ cmd: 'load', sourceId }, bytes);
                     if (!sourceGeneration.isCurrent(myGeneration)) throw new Error('Analysis cancelled');
-                    loadedPath = String(loaded.filePath);
+                    loadedPath = loaded.filePath;
                     const result = await analysisClient.analyze(loadedPath, stft());
                     return { path: loadedPath, sourceId, result };
                 } catch (error) {
