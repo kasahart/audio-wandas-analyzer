@@ -488,8 +488,8 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             root.dataset.held = held_ ? heldStep!.id : '';
             root.dataset.channels = files.map(path => `${baseName(path)}:${channelFor(path) ?? '*'}`).join(',');
             // The pictures share one request: asked for one after another, the tracks on screen before a base group's
-            // recordings and the whole pictures before the zoom's detail, then the region's metrics. No spec supersedes
-            // another on every repaint, which would leave both unfinished.
+            // recordings and the whole pictures before the zoom's detail, the region's metrics before the base group's
+            // detail. No spec supersedes another on every repaint, which would leave both unfinished.
             let asking = false;
             const lacks = (wanted: StageSpec, paths: readonly string[]): boolean => paths.some(path => source.result(wanted, path) === undefined);
             const want = (wanted: StageSpec, paths: readonly string[]): boolean => {
@@ -549,6 +549,10 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
                 }
             }
             for (const [ch, paths] of byChannel) want(specOf(ch), paths);
+            // Over a region, the files' metrics over it too, for D and the report (before a base group's detail, which a
+            // new zoom asks for again); the base recording measured against is not a track here, but D and the report
+            // read its region values too.
+            if (region && !waiting && !broken) want(regionSpec(), referencePath ? [...files, referencePath] : files);
             for (const [ch, paths] of byChannel) {
                 const fineSpec = fineSpecs.get(ch);
                 if (fineSpec) fineMissing = want(fineSpec, paths) || fineMissing;
@@ -560,9 +564,6 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             const shown = (path: string) => fine(path) ?? coarse(path);
             // A base group's median: of its recordings' detail once every one has it, of their whole pictures until then.
             const baseShown = basePaths.every(path => fine(path)) ? shown : coarse;
-            // Over a region, the files' metrics over it too, for D and the report; the base recording measured against
-            // is not a track here, but D and the report read its region values too.
-            if (region && !waiting && !broken) want(regionSpec(), referencePath ? [...files, referencePath] : files);
             stepBar.element.dataset.stage = id;
             stepBar.element.dataset.detail = String(fineSpecs.size > 0 && !fineMissing);
             // How many of the tracks are drawn from their detail, for tests.
