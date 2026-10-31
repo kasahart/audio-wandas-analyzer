@@ -53,6 +53,10 @@ function loadPythonEnvironmentModule(options: {
     currentPythonCommand?: string;
     pythonExtensionPath?: string;
     cancelProgress?: boolean;
+    /** vscode.workspace.isTrusted; Restricted Mode when false. */
+    trusted?: boolean;
+    /** A pythonCommand stored in the workspace settings, which Restricted Mode ignores. */
+    workspacePythonCommand?: string;
     spawnImpl?: (...args: unknown[]) => FakeProcess;
 }) {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -167,6 +171,7 @@ function loadPythonEnvironmentModule(options: {
                 : undefined),
         },
         workspace: {
+            isTrusted: options.trusted ?? true,
             workspaceFolders: options.workspaceFolderRoot
                 ? [{ uri: { fsPath: options.workspaceFolderRoot } }]
                 : undefined,
@@ -174,7 +179,7 @@ function loadPythonEnvironmentModule(options: {
                 get: <T>(_key: string, defaultValue: T) => {
                     return (options.currentPythonCommand as T | undefined) ?? defaultValue;
                 },
-                inspect: () => ({ globalValue: options.currentPythonCommand }),
+                inspect: () => ({ globalValue: options.currentPythonCommand, workspaceValue: options.workspacePythonCommand }),
                 update: async (key: string, value: string, target: unknown) => {
                     updates.push({ key, value, target });
                 },
@@ -484,6 +489,79 @@ test('selectPythonEnvironment falls back to global config for browsed environmen
         }]);
     } finally {
         restore();
+    }
+});
+
+test('in Restricted Mode the pick is saved to the user settings, and the user is told so', async () => {
+    const { pythonEnvironment, updates, infoMessages, restore } = loadPythonEnvironmentModule({
+        showQuickPickResult: { label: '$(folder) Browse...', action: 'browse' },
+        showOpenDialogResult: [{ fsPath: '/opt/envs/audio' }],
+        workspaceFolderRoot: '/workspace/project',
+        trusted: false,
+    });
+
+    try {
+        await pythonEnvironment.selectPythonEnvironment(statusItem() as never);
+        assert.deepEqual(updates, [{ key: 'pythonCommand', value: '/opt/envs/audio', target: 'global' }]);
+        assert.deepEqual(infoMessages, ['This workspace is in Restricted Mode, so /opt/envs/audio was saved to your user settings.']);
+    } finally {
+        restore();
+    }
+});
+
+test('in Restricted Mode no interpreter from inside the workspace is offered or used', async () => {
+    const root = makeWorkspace(['.venv', 'active-env']);
+    const originalVirtualEnv = process.env['VIRTUAL_ENV'];
+    process.env['VIRTUAL_ENV'] = path.join(root, 'active-env');
+    const { pythonEnvironment, quickPickCalls, restore } = loadPythonEnvironmentModule({
+        workspaceFolderRoot: root,
+        pythonExtensionPath: path.join(root, '.venv', 'bin', 'python'),
+        workspacePythonCommand: '.venv',
+        trusted: false,
+    });
+
+    try {
+        assert.equal(await pythonEnvironment.refreshDefaultInterpreter(), false);
+        assert.equal(pythonEnvironment.getPythonCommand(), 'python3', 'the ignored workspace value and workspace interpreters are skipped');
+        await pythonEnvironment.selectPythonEnvironment(statusItem() as never);
+        assert.deepEqual(quickPickCalls[0]?.items, [
+            { label: 'Other', kind: -1 },
+            { label: '$(folder) Browse...', action: 'browse' },
+        ]);
+    } finally {
+        restore();
+        if (originalVirtualEnv === undefined) { delete process.env['VIRTUAL_ENV']; } else { process.env['VIRTUAL_ENV'] = originalVirtualEnv; }
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test('in Restricted Mode a workspace-relative pythonCommand is refused instead of started', async () => {
+    const root = makeWorkspace(['.venv']);
+    let spawned = 0;
+    const { pythonEnvironment, warningMessages, warningButtons, restore } = loadPythonEnvironmentModule({
+        workspaceFolderRoot: root,
+        currentPythonCommand: '.venv',
+        trusted: false,
+        spawnImpl: () => { spawned++; return fakeProcess(); },
+    });
+    const item = statusItem();
+
+    try {
+        assert.throws(() => pythonEnvironment.resolveConfiguredPythonCommand('.venv'), /Restricted Mode/u);
+        assert.equal(pythonEnvironment.resolveConfiguredPythonCommand('python3'), 'python3');
+        assert.equal(pythonEnvironment.resolveConfiguredPythonCommand('/opt/envs/audio'), '/opt/envs/audio/bin/python');
+
+        assert.equal(await pythonEnvironment.checkAndPromptInstallDependencies('.venv', item as never), false);
+        await settle();
+        assert.equal(spawned, 0);
+        assert.equal(item.tooltip, 'Restricted Mode: the interpreter path points into this workspace. Click to select another environment.');
+        assert.deepEqual(warningMessages, [
+            '.venv is a path inside this workspace, and Restricted Mode does not start programs from an untrusted workspace. Trust the workspace or select an interpreter by its full path.',
+        ]);
+        assert.deepEqual(warningButtons, [['Select Environment']]);
+    } finally {
+        restore();
+        rmSync(root, { recursive: true, force: true });
     }
 });
 

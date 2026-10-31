@@ -686,6 +686,9 @@ export interface UiStrings {
     pyInstallCancelled: string;
     pyVenvFailed: string;
     pyVenvNoEnsurepip: string;
+    pySavedToUserSettings: string;
+    pyUntrustedWorkspacePath: string;
+    pyTooltipUntrustedWorkspacePath: string;
     welcomeDropLabel: string;
     welcomeDropDescription: string;
     welcomeDropCommand: string;
@@ -1381,6 +1384,9 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         pyInstallCancelled: 'Installing the Python packages was cancelled.',
         pyVenvFailed: 'Creating {path} failed. See the log for details.',
         pyVenvNoEnsurepip: 'Creating {path} failed because the venv module is unavailable (on Debian or Ubuntu, install python3-venv).',
+        pySavedToUserSettings: 'This workspace is in Restricted Mode, so {command} was saved to your user settings.',
+        pyUntrustedWorkspacePath: '{command} is a path inside this workspace, and Restricted Mode does not start programs from an untrusted workspace. Trust the workspace or select an interpreter by its full path.',
+        pyTooltipUntrustedWorkspacePath: 'Restricted Mode: the interpreter path points into this workspace. Click to select another environment.',
         welcomeDropLabel: 'Drop audio files or folders here',
         welcomeDropDescription: 'Click to choose a file or folder',
         welcomeDropCommand: 'Analyze File or Folder',
@@ -2074,6 +2080,9 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         pyInstallCancelled: 'Python パッケージのインストールを取り消しました。',
         pyVenvFailed: '{path} を作成できませんでした。詳細はログを参照してください。',
         pyVenvNoEnsurepip: 'venv モジュールを使えないため {path} を作成できませんでした (Debian や Ubuntu では python3-venv をインストールしてください)。',
+        pySavedToUserSettings: 'このワークスペースは制限モードのため、{command} をユーザー設定に保存しました。',
+        pyUntrustedWorkspacePath: '{command} はこのワークスペース内のパスです。制限モードでは信頼されていないワークスペースのプログラムを起動しません。ワークスペースを信頼するか、インタープリターをフルパスで選択してください。',
+        pyTooltipUntrustedWorkspacePath: '制限モード: インタープリターのパスがこのワークスペース内を指しています。クリックして別の環境を選択します。',
         welcomeDropLabel: 'ここに音声ファイルやフォルダをドロップ',
         welcomeDropDescription: 'クリックしてファイルまたはフォルダを選択',
         welcomeDropCommand: 'ファイルまたはフォルダを解析',

@@ -18,6 +18,7 @@ function loadActivation() {
         dependencyChecks: [] as string[],
         backendWarmupCalls: 0,
         backendDisposeCalls: 0,
+        defaultInterpreterLookups: 0,
         statusShown: false,
         statusShowCalls: 0,
         pythonCommand: 'python3',
@@ -29,6 +30,7 @@ function loadActivation() {
         tabs?: Listener;
         environment?: Listener;
         reselected?: Listener<string>;
+        trustGranted?: Listener;
         welcomeVisibility?: Listener<{ visible: boolean }>;
     } = {};
     let treeViewOptions: { treeDataProvider?: { getChildren(): unknown[] } } | undefined;
@@ -85,6 +87,10 @@ function loadActivation() {
                 listeners.configuration = listener;
                 return { dispose() {} };
             },
+            onDidGrantWorkspaceTrust: (listener: Listener) => {
+                listeners.trustGranted = listener;
+                return { dispose() {} };
+            },
             workspaceFolders: undefined,
         },
         StatusBarAlignment: { Left: 1 },
@@ -138,7 +144,10 @@ function loadActivation() {
                 },
                 disposePythonSetupLog: () => {},
                 getPythonCommand: () => state.pythonCommand,
-                refreshDefaultInterpreter: async () => false,
+                refreshDefaultInterpreter: async () => {
+                    state.defaultInterpreterLookups += 1;
+                    return false;
+                },
                 getCurrentPythonEnvironmentState: () => ({
                     pythonCommand: state.pythonCommand,
                     status: state.environmentStatus,
@@ -292,6 +301,29 @@ test('pythonCommand, cacheMemoryMb and a reselection restart a backend that was 
         assert.equal(harness.state.backendDisposeCalls, 3);
         assert.deepEqual(harness.state.dependencyChecks, ['python3', '.venv', '.venv']);
         assert.equal(harness.state.backendWarmupCalls, 4);
+    } finally {
+        harness.restore();
+    }
+});
+
+test('granting workspace trust looks for the interpreter again and restarts a backend that was in use', async () => {
+    const harness = loadActivation();
+    try {
+        harness.activate();
+        harness.listeners.trustGranted?.(undefined);
+        await settle();
+        assert.deepEqual(harness.state.dependencyChecks, [], 'an idle window still does not start Python');
+
+        await harness.state.commandHandlers.get('audioWandasAnalyzer.analyzeFile')?.();
+        await settle();
+        assert.equal(harness.state.defaultInterpreterLookups, 1, 'the lookup after the grant is reused');
+
+        harness.state.pythonCommand = '.venv';
+        harness.listeners.trustGranted?.(undefined);
+        await settle();
+        assert.equal(harness.state.defaultInterpreterLookups, 2);
+        assert.deepEqual(harness.state.dependencyChecks, ['python3', '.venv']);
+        assert.equal(harness.state.backendWarmupCalls, 2);
     } finally {
         harness.restore();
     }
