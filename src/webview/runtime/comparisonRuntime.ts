@@ -167,6 +167,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     const SIDEBAR_WIDTH_MIN = 160;
     /** The window keeps this much beside a widened side panel. */
     const SIDEBAR_WIDTH_SPARE = 80;
+    /** Widened past this share of the window (by a drag or by the keys), the side panel's table is maximized instead. */
+    const SIDEBAR_MAXIMIZE_SHARE = 0.6;
+    const sidebarMaximizes = (width: number): boolean => width > window.innerWidth * SIDEBAR_MAXIMIZE_SHARE;
     const WAVE_SHARE_MIN = 0.15;
     const WAVE_SHARE_MAX = 0.85;
     const LANE_PLOT_MIN = 40;
@@ -2566,7 +2569,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 else if (action === 'spectrum-height-drag') setSpectrumHeight(value);
                 else if (action === 'track-split-drag') setWaveShare(value / 100, true);
                 else if (action === 'pair-divider-drag') pairPanel.setSplit(value / 100);
-                else { const sidebar = document.getElementById('selection-sidebar'); if (sidebar) sidebar.style.width = value + 'px'; }
+                else {
+                    // As a drag let go past 60 %: the table is maximized and the panel keeps the width it had.
+                    const sidebar = document.getElementById('selection-sidebar');
+                    if (sidebar && sidebarMaximizes(value)) entryScreen.setMaximized(true);
+                    else if (sidebar) sidebar.style.width = value + 'px';
+                }
             },
             growKey(handle) {
                 const action = handle.getAttribute('data-action');
@@ -2732,7 +2740,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             document.removeEventListener('pointermove', move);
             document.removeEventListener('pointerup', up);
             document.removeEventListener('pointercancel', up);
-            if (sidebar.getBoundingClientRect().width > window.innerWidth * 0.6) {
+            if (sidebarMaximizes(sidebar.getBoundingClientRect().width)) {
                 sidebar.style.width = startWidth + 'px';
                 entryScreen.setMaximized(true);
             }
