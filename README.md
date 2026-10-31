@@ -87,6 +87,8 @@ When you open a folder, its audio files are listed in a table beside the tracks.
 
 Folder listing skips hidden folders (such as `.git` or `.venv`), `node_modules` and symbolic links to folders, and stops after 50,000 entries with a message; open a subfolder to see the rest. A notification shows the listing's progress and can cancel it.
 
+Folder listing skips hidden folders (such as `.git` or `.venv`), `node_modules` and symbolic links to folders, and stops after 50,000 entries with a message; open a subfolder to see the rest. A notification shows the listing's progress and can cancel it.
+
 ## Working In The Panel
 
 - **Compare:** view tracks on one shared timeline, each row showing its waveform over its spectrogram (drag the line between them to share the height)
