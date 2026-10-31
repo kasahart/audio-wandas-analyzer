@@ -383,7 +383,7 @@ test('native injected calibration retry preserves cancellation token and request
     class CancellationError extends Error {}
     NodeModule._load = function(request, parent, isMain): unknown {
         if (request === 'vscode') return { CancellationError };
-        if (request === './pythonEnvironment') return { getPythonCommand: () => 'python3', resolveConfiguredPythonCommand: (command: string) => command };
+        if (request === './pythonEnvironment') return { resolveConfiguredPythonCommand: (command: string) => command };
         return originalLoad.call(this, request, parent, isMain);
     };
     let backendModule: typeof import('../extension/pythonBackendServer');
@@ -411,7 +411,7 @@ test('native injected calibration retry preserves cancellation token and request
     const server = new class extends backendModule.PythonBackendServer {
         failCancellation = false;
         constructor() {
-            super('unused', () => {}, () => {}, {
+            super('unused', () => 'python3', () => {}, () => {}, {
                 current: () => ({ calibrationProfile: profile, analysisRevision: revision }),
                 discardStale: async (filePath, error, attempted) => {
                     if (!(error instanceof backendModule.AnalysisRequestError)) return false;

@@ -3,7 +3,7 @@ import test from 'node:test';
 import * as path from 'node:path';
 import type * as vscode from 'vscode';
 import type { AnalysisResultWithError, AnalysisUpdateMessage } from '../shared/analysis/analysisTypes';
-import type { PanelBackend, PanelControllerHost, PanelFactory, PanelHandle } from '../extension/panelController';
+import type { PanelBackend, PanelControllerHost, PanelFactory, PanelHandle, PanelPythonEnvironment } from '../extension/panelController';
 import type { ExportFlows } from '../extension/exportFlows';
 import type { SpectrogramSettingsContext } from '../shared/analysis/savedSpectrogramSettings';
 
@@ -73,10 +73,12 @@ test('directory selection uses live result updates with resource URIs, cache reu
         },
         showOpenDialog: async () => picked as vscode.Uri[] | undefined, executeCommand: async () => undefined,
         showInformation() {}, showError: message => { errors.push(message); },
-        getPythonEnvironment: () => ({ pythonCommand: 'python3', status: 'normal', tooltip: 'python3' }),
-        onPythonEnvironmentChange: () => ({ dispose() {} }),
         language: () => 'ja',
         withProgress: (_options, task) => task({ report() {} }, { isCancellationRequested: false } as vscode.CancellationToken),
+    };
+    const pythonEnvironment: PanelPythonEnvironment = {
+        getCurrentPythonEnvironmentState: () => ({ pythonCommand: 'python3', status: 'normal', tooltip: 'python3' }),
+        onDidChangePythonEnvironmentState: () => ({ dispose() {} }),
     };
     const progressTitles: string[] = [];
     let analysisGate: Promise<void> | undefined;
@@ -90,7 +92,7 @@ test('directory selection uses live result updates with resource URIs, cache reu
                 durationSeconds: 1, channelCount: 0, sampleCount: 16000, channels: [], analysisRevision: 0,
             } satisfies AnalysisResultWithError));
         },
-    }, {} as ExportFlows, { analysisRevision: () => 0, onDidChange: () => ({ dispose() {} }), configureTrack: async () => undefined }, factory, host);
+    }, {} as ExportFlows, { analysisRevision: () => 0, onDidChange: () => ({ dispose() {} }), configureTrack: async () => undefined }, pythonEnvironment, factory, host);
     const tick = () => new Promise<void>(resolve => setImmediate(resolve));
     let sequence = 0;
     const select = async (filePaths: string[]) => {

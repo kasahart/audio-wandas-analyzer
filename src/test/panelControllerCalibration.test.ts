@@ -217,8 +217,6 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
         executeCommand: async () => undefined,
         showInformation: () => undefined,
         showError: (message) => { throw new Error(message); },
-        getPythonEnvironment: () => ({ pythonCommand: 'python3', status: 'normal', tooltip: 'python3' }),
-        onPythonEnvironmentChange: () => ({ dispose: () => undefined }),
         language: () => 'en',
         withProgress: (_options, task) => task({ report() {} }, { isCancellationRequested: false } as vscode.CancellationToken),
     };
@@ -247,6 +245,10 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
         { analyzeFiles, warmup: () => undefined },
         {} as ExportFlows,
         calibration,
+        {
+            getCurrentPythonEnvironmentState: () => ({ pythonCommand: 'python3', status: 'normal', tooltip: 'python3' }),
+            onDidChangePythonEnvironmentState: () => ({ dispose: () => undefined }),
+        },
         panelFactory,
         host,
     );
@@ -373,8 +375,6 @@ test('a calibration change refreshes every lane that shows the file, under each 
             executeCommand: async () => undefined,
             showInformation: () => undefined,
             showError: (message) => { throw new Error(message); },
-            getPythonEnvironment: () => ({ pythonCommand: 'python3', status: 'normal', tooltip: 'python3' }),
-            onPythonEnvironmentChange: () => ({ dispose: () => undefined }),
             language: () => 'en',
             withProgress: (_options, task) => task({ report() {} }, { isCancellationRequested: false } as vscode.CancellationToken),
         };
@@ -404,6 +404,10 @@ test('a calibration change refreshes every lane that shows the file, under each 
                     return { dispose: () => undefined };
                 },
                 configureTrack: async () => undefined,
+            },
+            {
+                getCurrentPythonEnvironmentState: () => ({ pythonCommand: 'python3', status: 'normal', tooltip: 'python3' }),
+                onDidChangePythonEnvironmentState: () => ({ dispose: () => undefined }),
             },
             panelFactory,
             host,

@@ -596,7 +596,7 @@ function recipeRestartHarness(
                 workspace: { getConfiguration: () => ({ get: (_key: string, fallback: unknown) => fallback }) },
                 CancellationError: class CancellationError extends Error { constructor() { super('Canceled'); this.name = 'Canceled'; } },
             };
-            if (name === './pythonEnvironment') return { getPythonCommand: () => 'python3', resolveConfiguredPythonCommand: (command: string) => command };
+            if (name === './pythonEnvironment') return { resolveConfiguredPythonCommand: (command: string) => command };
             return localRequire(name);
         },
         process, setTimeout, clearTimeout, setInterval, clearInterval,
@@ -605,7 +605,7 @@ function recipeRestartHarness(
     const server = new class extends backendModule.PythonBackendServer {
         protected override recipeTimeoutMs = 30;
         constructor() {
-            super('unused', undefined, undefined, preflight ? {
+            super('unused', () => 'python3', undefined, undefined, preflight ? {
                 current: () => ({ calibrationProfile: { schemaVersion: 1, channels: [] } }),
                 discardStale: async () => false,
             } : undefined, options.events);

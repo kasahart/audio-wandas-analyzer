@@ -2,7 +2,6 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { fileCountLabel, fillTemplate, getStrings } from '../shared/i18n/strings';
 import { isSupportedAudioFile } from '../shared/utils/audioTarget';
-import { selectPythonEnvironment } from './pythonEnvironment';
 import type { RecipeFlow } from './recipeFlow';
 import { getDebugTargetUri, pickAudioTarget } from './targetDiscovery';
 
@@ -131,7 +130,7 @@ export async function autoOpenDebugTarget(
 
 export function registerExtensionContributions(
     context: vscode.ExtensionContext,
-    pythonStatusBarItem: vscode.StatusBarItem,
+    selectPythonEnvironment: () => Promise<void>,
     controller: AudioTargetController,
     recipeFlow: RecipeFlow,
     /** Resolves false when the environment is not usable; the check has then shown its Install/Select prompt. */
@@ -193,7 +192,7 @@ export function registerExtensionContributions(
         ),
         vscode.commands.registerCommand(
             'audioWandasAnalyzer.selectPythonEnvironment',
-            async () => { await selectPythonEnvironment(pythonStatusBarItem); },
+            selectPythonEnvironment,
         ),
         vscode.commands.registerCommand(
             'audioWandasAnalyzer.runRecipe',

@@ -25,7 +25,7 @@ import {
     type BackendResult,
 } from '../shared/protocol/backendProtocol';
 import type { BackendCancelControl } from '../shared/protocol/generated/backendProtocolSchema';
-import { getPythonCommand, resolveConfiguredPythonCommand } from './pythonEnvironment';
+import { resolveConfiguredPythonCommand } from './pythonEnvironment';
 import { AnalysisRequestError } from './analysisRequestError';
 
 export { AnalysisRequestError };
@@ -87,6 +87,8 @@ export class PythonBackendServer extends AnalysisClient {
 
     constructor(
         private readonly extensionPath: string,
+        /** The interpreter to spawn, read again at every start so a changed selection takes effect. */
+        private readonly pythonCommand: () => string,
         private readonly onPerfLine: (line: string) => void = () => { /* no-op */ },
         private readonly onReady: () => void = () => { /* no-op */ },
         contextPolicy?: AnalysisContextPolicy,
@@ -246,7 +248,7 @@ export class PythonBackendServer extends AnalysisClient {
     private startServer(): Promise<void> {
         return new Promise<void>((resolve, reject) => {
             const config = vscode.workspace.getConfiguration('audioWandasAnalyzer');
-            const pythonCommand = resolveConfiguredPythonCommand(getPythonCommand());
+            const pythonCommand = resolveConfiguredPythonCommand(this.pythonCommand());
             const cacheMb = Math.max(64, config.get<number>('cacheMemoryMb', 1024));
             const scriptPath = path.join(this.extensionPath, 'python-backend', 'backend_server.py');
             const importTimingEnabled = globalThis.process.env['AWA_IMPORT_TIME'] === '1';

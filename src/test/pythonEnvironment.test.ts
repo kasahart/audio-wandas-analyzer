@@ -233,10 +233,11 @@ function loadPythonEnvironmentModule(options: {
     };
 
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const pythonEnvironment = require('../extension/pythonEnvironment') as typeof import('../extension/pythonEnvironment');
+    const pythonEnvironmentModule = require('../extension/pythonEnvironment') as typeof import('../extension/pythonEnvironment');
 
     return {
-        pythonEnvironment,
+        pythonEnvironmentModule,
+        pythonEnvironment: new pythonEnvironmentModule.PythonEnvironment(),
         updates,
         warningMessages,
         warningButtons,
@@ -251,6 +252,7 @@ function loadPythonEnvironmentModule(options: {
         openDialogCalls,
         restore: () => {
             NodeModule._load = originalLoad;
+            // The module captured this harness's vscode stub, so the next harness loads it afresh.
             delete require.cache[require.resolve('../extension/pythonEnvironment')];
         },
     };
@@ -277,11 +279,11 @@ test('setStatusBarNormal clears warning state without forcing the item visible',
 });
 
 test('setStatusBarImporting shows background module import progress', () => {
-    const { pythonEnvironment, restore } = loadPythonEnvironmentModule({});
+    const { pythonEnvironmentModule, restore } = loadPythonEnvironmentModule({});
     const item = { ...statusItem(), backgroundColor: 'warning' as unknown };
 
     try {
-        pythonEnvironment.setStatusBarImporting(item as never, '.venv/bin/python');
+        pythonEnvironmentModule.setStatusBarImporting(item as never, '.venv/bin/python');
         assert.equal(item.text, '$(sync~spin) Python: importing modules');
         assert.equal(item.tooltip, 'Importing the Python analysis modules in the background.\n.venv/bin/python');
         assert.equal(item.backgroundColor, undefined);
@@ -363,16 +365,16 @@ test('status bar texts follow the VS Code display language', () => {
 });
 
 test('resolvePythonCommand maps virtual environment folders and keeps existing interpreter values', () => {
-    const { pythonEnvironment, restore } = loadPythonEnvironmentModule({});
+    const { pythonEnvironmentModule, restore } = loadPythonEnvironmentModule({});
 
     try {
-        assert.equal(pythonEnvironment.resolvePythonCommand('.venv', 'linux'), '.venv/bin/python');
-        assert.equal(pythonEnvironment.resolvePythonCommand('venv', 'linux'), 'venv/bin/python');
-        assert.equal(pythonEnvironment.resolvePythonCommand('.venv', 'linux', '/workspace/project'), '/workspace/project/.venv/bin/python');
-        assert.equal(pythonEnvironment.resolvePythonCommand('C:\\work\\.venv', 'win32'), 'C:\\work\\.venv\\Scripts\\python.exe');
-        assert.equal(pythonEnvironment.resolvePythonCommand('.venv/bin/python', 'linux'), '.venv/bin/python');
-        assert.equal(pythonEnvironment.resolvePythonCommand('.venv/bin/python', 'linux', '/workspace/project'), '/workspace/project/.venv/bin/python');
-        assert.equal(pythonEnvironment.resolvePythonCommand('python3', 'linux'), 'python3');
+        assert.equal(pythonEnvironmentModule.resolvePythonCommand('.venv', 'linux'), '.venv/bin/python');
+        assert.equal(pythonEnvironmentModule.resolvePythonCommand('venv', 'linux'), 'venv/bin/python');
+        assert.equal(pythonEnvironmentModule.resolvePythonCommand('.venv', 'linux', '/workspace/project'), '/workspace/project/.venv/bin/python');
+        assert.equal(pythonEnvironmentModule.resolvePythonCommand('C:\\work\\.venv', 'win32'), 'C:\\work\\.venv\\Scripts\\python.exe');
+        assert.equal(pythonEnvironmentModule.resolvePythonCommand('.venv/bin/python', 'linux'), '.venv/bin/python');
+        assert.equal(pythonEnvironmentModule.resolvePythonCommand('.venv/bin/python', 'linux', '/workspace/project'), '/workspace/project/.venv/bin/python');
+        assert.equal(pythonEnvironmentModule.resolvePythonCommand('python3', 'linux'), 'python3');
     } finally {
         restore();
     }
@@ -548,7 +550,7 @@ test('in Restricted Mode no interpreter from inside the workspace is offered or 
 test('in Restricted Mode a workspace-relative pythonCommand is refused instead of started', async () => {
     const root = makeWorkspace(['.venv']);
     let spawned = 0;
-    const { pythonEnvironment, warningMessages, warningButtons, restore } = loadPythonEnvironmentModule({
+    const { pythonEnvironmentModule, pythonEnvironment, warningMessages, warningButtons, restore } = loadPythonEnvironmentModule({
         workspaceFolderRoot: root,
         currentPythonCommand: '.venv',
         trusted: false,
@@ -557,10 +559,10 @@ test('in Restricted Mode a workspace-relative pythonCommand is refused instead o
     const item = statusItem();
 
     try {
-        assert.throws(() => pythonEnvironment.resolveConfiguredPythonCommand('.venv'), /Restricted Mode/u);
-        assert.equal(pythonEnvironment.resolveConfiguredPythonCommand('python3'), 'python3');
+        assert.throws(() => pythonEnvironmentModule.resolveConfiguredPythonCommand('.venv'), /Restricted Mode/u);
+        assert.equal(pythonEnvironmentModule.resolveConfiguredPythonCommand('python3'), 'python3');
         // An absolute environment folder resolves to its interpreter in the host venv layout.
-        assert.equal(pythonEnvironment.resolveConfiguredPythonCommand('/opt/envs/audio'), pythonEnvironment.resolvePythonCommand('/opt/envs/audio'));
+        assert.equal(pythonEnvironmentModule.resolveConfiguredPythonCommand('/opt/envs/audio'), pythonEnvironmentModule.resolvePythonCommand('/opt/envs/audio'));
 
         assert.equal(await pythonEnvironment.checkAndPromptInstallDependencies('.venv', item as never), false);
         await settle();
@@ -709,7 +711,7 @@ test('checkMissingDependencies rejects when dependency check is terminated by si
 });
 
 test('checkAndPromptInstallDependencies warns when interpreter is missing and offers to select another', async () => {
-    const { pythonEnvironment, warningMessages, warningButtons, executedCommands, restore } = loadPythonEnvironmentModule({
+    const { pythonEnvironmentModule, pythonEnvironment, warningMessages, warningButtons, executedCommands, restore } = loadPythonEnvironmentModule({
         warningAnswers: ['Select Environment'],
         spawnImpl: () => fakeProcess((proc) => {
             const error = new Error('spawn ENOENT') as NodeJS.ErrnoException;
@@ -725,7 +727,7 @@ test('checkAndPromptInstallDependencies warns when interpreter is missing and of
         assert.equal(item.text, 'Python: missing-python $(warning)');
         assert.equal(item.tooltip, 'The Python interpreter was not found. Click to select another environment.');
         // The interpreter path follows the host venv layout (bin/python on POSIX, Scripts\\python.exe on Windows).
-        const expectedInterpreter = pythonEnvironment.resolvePythonCommand('missing-python');
+        const expectedInterpreter = pythonEnvironmentModule.resolvePythonCommand('missing-python');
         assert.deepEqual(warningMessages, [`Python interpreter not found: ${expectedInterpreter}`]);
         assert.deepEqual(warningButtons, [['Select Environment', 'Show Log']]);
         assert.deepEqual(executedCommands, ['audioWandasAnalyzer.selectPythonEnvironment']);
@@ -1051,12 +1053,12 @@ test('checkAndPromptInstallDependencies treats unexpected dependency check exit 
 test('checkAndPromptInstallDependencies ignores stale results from older requests', async () => {
     let oldProc: FakeProcess | undefined;
     let newProc: FakeProcess | undefined;
-    const { pythonEnvironment, warningMessages, restore } = loadPythonEnvironmentModule({
+    const { pythonEnvironmentModule, pythonEnvironment, warningMessages, restore } = loadPythonEnvironmentModule({
         spawnImpl: (pythonCommand?: unknown) => {
             const proc = fakeProcess();
-            if (pythonCommand === pythonEnvironment.resolvePythonCommand('old-env')) {
+            if (pythonCommand === pythonEnvironmentModule.resolvePythonCommand('old-env')) {
                 oldProc = proc;
-            } else if (pythonCommand === pythonEnvironment.resolvePythonCommand('new-env')) {
+            } else if (pythonCommand === pythonEnvironmentModule.resolvePythonCommand('new-env')) {
                 newProc = proc;
             }
             return proc;
@@ -1091,6 +1093,58 @@ test('checkAndPromptInstallDependencies ignores stale results from older request
             status: 'normal',
             tooltip: 'Click to select the Python environment',
         }]);
+    } finally {
+        disposable.dispose();
+        restore();
+    }
+});
+
+test('separate PythonEnvironment instances keep their own dependency checks and state', async () => {
+    const procs = new Map<unknown, FakeProcess>();
+    const { pythonEnvironmentModule, pythonEnvironment: first, restore } = loadPythonEnvironmentModule({
+        spawnImpl: (pythonCommand?: unknown) => {
+            const proc = fakeProcess();
+            procs.set(pythonCommand, proc);
+            return proc;
+        },
+    });
+    const second = new pythonEnvironmentModule.PythonEnvironment();
+    const firstItem = statusItem();
+    const secondItem = statusItem();
+    const secondStates: Array<{ pythonCommand: string; status: string; tooltip: string }> = [];
+    const disposable = second.onDidChangePythonEnvironmentState((state) => { secondStates.push(state); });
+
+    try {
+        const firstCheck = first.checkAndPromptInstallDependencies('first-env', firstItem as never);
+        const secondCheck = second.checkAndPromptInstallDependencies('second-env', secondItem as never);
+        const firstProc = procs.get(pythonEnvironmentModule.resolvePythonCommand('first-env'));
+        const secondProc = procs.get(pythonEnvironmentModule.resolvePythonCommand('second-env'));
+        assert.ok(firstProc);
+        assert.ok(secondProc);
+
+        firstProc.stdout.emit('data', Buffer.from(checkOutput([])));
+        firstProc.emit('close', 0);
+        assert.equal(await firstCheck, true, 'a later check on the other instance must not make this one stale');
+        assert.deepEqual(first.getCurrentPythonEnvironmentState(), {
+            pythonCommand: 'first-env',
+            status: 'normal',
+            tooltip: 'Click to select the Python environment',
+        });
+        assert.deepEqual(secondStates, []);
+
+        second.setStatusBarWarning(secondItem as never, 'second-env', 'Interpreter missing');
+        assert.equal(first.getCurrentPythonEnvironmentState().status, 'normal');
+        assert.deepEqual(second.getCurrentPythonEnvironmentState(), {
+            pythonCommand: 'second-env',
+            status: 'warning',
+            tooltip: 'Interpreter missing',
+        });
+
+        secondProc.stdout.emit('data', Buffer.from(checkOutput([])));
+        secondProc.emit('close', 0);
+        assert.equal(await secondCheck, true);
+        assert.equal(firstItem.text, 'Python: first-env');
+        assert.equal(secondItem.text, 'Python: second-env');
     } finally {
         disposable.dispose();
         restore();
