@@ -23,6 +23,10 @@ import type { AnalysisResult, AnalysisResultWithError } from '../../shared/analy
 import type { ScanReference } from '../../shared/analysis/entryScan';
 import { keyRouterFor } from './keyRouter';
 import { choose, showRecipeCharts } from './staticDialogs';
+import {
+    byPath, collectDroppedSourceFiles, collectSourceFiles, createFolderKeys, inputTooLarge, listingRoot, listOpenedFiles, listOpenedFolder,
+    LoadFailures, sessionFull, type FoundFile, type ShowDirectoryPicker, type SourceToLoad,
+} from './staticSources';
 
 interface Source {
     path: string;
@@ -36,39 +40,6 @@ interface Source {
 }
 
 class RecipeWorkerResetError extends Error {}
-
-/** The parts of a File System Access handle the folder picker walks. */
-interface FolderEntryHandle {
-    kind: 'file' | 'directory';
-    name: string;
-    getFile?(): Promise<File>;
-    values?(): AsyncIterable<FolderEntryHandle>;
-}
-type ShowDirectoryPicker = (options: { mode: 'read' }) => Promise<FolderEntryHandle>;
-
-async function collectSourceFiles(directory: FolderEntryHandle, prefix: string, found: Array<{ path: string; file: File }>): Promise<void> {
-    for await (const entry of directory.values!()) {
-        const path = `${prefix}/${entry.name}`;
-        if (entry.kind === 'directory') await collectSourceFiles(entry, path, found);
-        else if (isSupportedAudioFile(entry.name)) found.push({ path, file: await entry.getFile!() });
-    }
-}
-
-const readEntryBatch = (reader: FileSystemDirectoryReader): Promise<FileSystemEntry[]> => new Promise((resolve, reject) => reader.readEntries(resolve, reject));
-
-/** A dropped folder arrives as an entry whose reader returns its children in batches until an empty one. */
-async function collectDroppedSourceFiles(directory: FileSystemDirectoryEntry, prefix: string, found: Array<{ path: string; file: File }>): Promise<void> {
-    const reader = directory.createReader();
-    for (let batch = await readEntryBatch(reader); batch.length; batch = await readEntryBatch(reader)) {
-        for (const entry of batch) {
-            const path = `${prefix}/${entry.name}`;
-            if (entry.isDirectory) await collectDroppedSourceFiles(entry as FileSystemDirectoryEntry, path, found);
-            else if (isSupportedAudioFile(entry.name)) found.push({ path, file: await new Promise<File>((resolve, reject) => (entry as FileSystemFileEntry).file(resolve, reject)) });
-        }
-    }
-}
-
-const byPath = (a: { path: string }, b: { path: string }): number => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
 
 /** Browser globals the static host reaches; tests pass fakes instead of running the bundle in a vm. */
 export interface StaticHostDeps {
@@ -133,7 +104,6 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     async function limits(): Promise<BrowserLimits> {
         return browserLimits ??= await request({ cmd: 'limits' });
     }
-    const mib = (bytes: number): string => String(bytes / (1024 * 1024));
     // The status line, About and the Python dot share the footer row with the hint text, so the page has no header row.
     const bar = document.createElement('div');
     bar.style.cssText = 'display:flex;gap:10px;align-items:center;min-width:0;max-width:60%;padding-right:8px';
@@ -259,6 +229,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     const emit = (message: HostInboundMessage): void => { inboundListeners.forEach(listener => listener(message)); };
     /** The listed source files keyed by the `/sources/<relative path>` each one loads under. */
     const folder = new Map<string, File>();
+    const folderKeys = createFolderKeys(folder);
     /** Checked tree files that are still loading, so their checkboxes stay checked until they load or fail. */
     const pendingTreePaths = new Set<string>();
     let selectionRequests = 0;
@@ -290,7 +261,8 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         const file = folder.get(path);
         if (!file) return { ok: false, reason: strings.entrySourceGone };
         const limit = browserLimits ?? await limits();
-        if (file.size > limit.maxInputBytes) return { ok: false, reason: strings.browserInputTooLarge.replace('{mib}', mib(limit.maxInputBytes)) };
+        const tooLarge = inputTooLarge(file.size, limit, strings);
+        if (tooLarge) return { ok: false, reason: tooLarge };
         const pairedFile = reference ? folder.get(reference.filePath) : undefined;
         if (reference && !pairedFile) return { ok: false, reason: strings.entrySourceGone };
         entryRecipe ??= fetchJson('./recipes/entry-scan.recipe.json') as Promise<Record<string, unknown>>;
@@ -312,38 +284,6 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
                 for (const into of loaded) await request({ cmd: 'unload', filePath: into }).catch(() => undefined);
             }
         });
-    }
-    /** Hashes a listed file's bytes, which is what the Worker would name it by too. */
-    /**
-     * A picked folder is known by its name only (/sources/<name>): its stored index and session are also keyed by
-     * how many files it has and the first few files' content hashes, so another folder of the same name has its own.
-     */
-    const FOLDER_KEY = /^awa\.(scanIndex|session|sessionCsv)\./;
-    const folderTags = new Map<string, Promise<string>>();
-    function taggedKey(key: string): Promise<string> {
-        const root = key.slice(key.indexOf(':') + 1);
-        const paths = [...folder.keys()].filter(path => !root || path.startsWith(`${root}/`)).sort();
-        const listing = `${root}|${paths.length}|${paths.slice(0, 3).join('|')}`;
-        let tag = folderTags.get(listing);
-        if (!tag) {
-            tag = Promise.resolve(`${paths.length}:${shortHash(paths.slice(0, 3).map(path => fileIdentity(path) ?? '-').join('/'))}`);
-            folderTags.set(listing, tag);
-        }
-        return tag.then(value => `${key}#${value}`);
-    }
-    /**
-     * A picked file as the browser knows it without reading it: its name, size and time. Reading every file's
-     * content at open (to hash it) would read a folder of 10-minute recordings in full before showing a row.
-     */
-    function fileIdentity(path: string): string | undefined {
-        const file = folder.get(path);
-        return file ? `${file.name}|${file.size}|${(file as File & { lastModified?: number }).lastModified ?? ''}` : undefined;
-    }
-    /** FNV-1a, 32 bits, as hex: a short tag, not a security hash. */
-    function shortHash(text: string): string {
-        let hash = 0x811c9dc5;
-        for (let index = 0; index < text.length; index++) hash = Math.imul(hash ^ text.charCodeAt(index), 0x01000193) >>> 0;
-        return hash.toString(16).padStart(8, '0');
     }
 
     function resetWorker(reason: Error): void {
@@ -722,7 +662,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             announce(strings.reportSaved + folder + '.zip');
         },
         entry: {
-            identity: async path => fileIdentity(path),
+            identity: async path => folderKeys.identity(path),
             scan: (path, region, recipe, stage, detail, reference) => scanEntryFile(path, region, recipe, stage, detail, reference),
             recipe: async () => {
                 entryRecipe ??= fetchJson('./recipes/entry-scan.recipe.json') as Promise<Record<string, unknown>>;
@@ -741,8 +681,8 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
                 return new Uint8Array(await file.slice(0, length).arrayBuffer());
             },
             // A folder's index, session and CSV in IndexedDB (they outgrow localStorage); the rest as before.
-            read: async key => (FOLDER_KEY.test(key) ? folderStore.read(await taggedKey(key)) : readSaved(key)),
-            write: async (key, value) => (FOLDER_KEY.test(key) ? folderStore.write(await taggedKey(key), value) : save(key, value)),
+            read: async key => (folderKeys.isFolderKey(key) ? folderStore.read(await folderKeys.tagged(key)) : readSaved(key)),
+            write: async (key, value) => (folderKeys.isFolderKey(key) ? folderStore.write(await folderKeys.tagged(key), value) : save(key, value)),
             // Pyodide's heap never shrinks, so after a folder scan the Worker is replaced and the selected tracks reload into it.
             // A few files (a comparison region over a base group) leave Pyodide's heap as it was; a folder's worth does not.
             afterScan: scanned => { if (scanned >= (deps.restartAfterScans ?? 20) && worker && !recovery) replaceWorkerBehind(); },
@@ -774,10 +714,9 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
      * Loads and analyzes files as new tracks, keeping the tracks already loaded when one file fails.
      * A newer tree selection stops the batch before its next file and settles the shared loading state itself.
      */
-    async function loadBatch(files: Array<{ file: File; sourceId: string }>, isLatest: () => boolean): Promise<void> {
+    async function loadBatch(files: SourceToLoad[], isLatest: () => boolean): Promise<void> {
         const myGeneration = sourceGeneration.current;
-        // Files that fail for the same reason (the session limit, for many at once) are told once, with their count.
-        const failures = new Map<string, { first: string; count: number }>();
+        const failures = new LoadFailures();
         await runAnalysisBatch(files, {
             isCurrent: () => sourceGeneration.isCurrent(myGeneration),
             analyze: async ({ file, sourceId }) => {
@@ -785,11 +724,8 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
                 let loadedPath: string | undefined;
                 try {
                     const limit = browserLimits ?? await limits();
-                    if (file.size > limit.maxInputBytes) throw new Error(strings.browserInputTooLarge.replace('{mib}', mib(limit.maxInputBytes)));
-                    if (sources.size >= limit.maxSources || Array.from(sources.values()).reduce((sum, source) => sum + source.inputBytes, file.size) > limit.maxTotalInputBytes) {
-                        throw new Error(strings.browserAggregateLimit
-                            .replace('{count}', String(limit.maxSources)).replace('{mib}', mib(limit.maxTotalInputBytes)));
-                    }
+                    const refused = inputTooLarge(file.size, limit, strings) ?? sessionFull(file.size, sources.snapshot(source => source.inputBytes), limit, strings);
+                    if (refused) throw new Error(refused);
                     const bytes = await file.arrayBuffer();
                     if (!sourceGeneration.isCurrent(myGeneration)) throw new Error('Analysis cancelled');
                     const loaded = await request({ cmd: 'load', sourceId }, bytes);
@@ -818,9 +754,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             failed: ({ file, sourceId }, error) => {
                 if (error === superseded) return false;
                 pendingTreePaths.delete(`/sources/${sourceId}`);
-                const message = error instanceof Error ? error.message : String(error);
-                const group = failures.get(message);
-                if (group) group.count++; else failures.set(message, { first: file.name, count: 1 });
+                failures.add(file.name, error);
                 return true;
             },
         });
@@ -829,26 +763,15 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         loading = false; pick.disabled = false; pick.value = '';
         if (!sources.size) dispose();
         snapshot();
-        announce(failures.size ? [...failures].map(([message, { first, count }]) => strings.browserFileFailed.replace('{file}', `${first}${count > 1 ? ` (+${count - 1})` : ''}`).replace('{error}', message)).join(' | ') : `${files.at(-1)!.file.name}: ${strings.browserReady.replace('{count}', String(sources.size))}`);
+        announce(failures.announcement(strings, files.at(-1)?.file.name ?? '', sources.size));
     }
     /** Adds individually opened files to the list beside what is already listed and loads them as checked tracks. */
     function openFiles(files: File[]): void {
         if (loading) return;
         const readable = files.filter(file => isSupportedAudioFile(file.name));
         if (!readable.length) { announce(strings.browserDropNoWav); return; }
-        const listed = Array.from(folder);
-        const added = readable.map(file => {
-            // Picking an unchecked top-level file again checks its entry; a file from an opened folder, or one already loaded, gets its own top-level entry.
-            const same = listed.find(([path, entry]) => path.split('/').length === 3 && !sources.get(path) && !pendingTreePaths.has(path)
-                && entry.name === file.name && entry.size === file.size && entry.lastModified === file.lastModified);
-            if (same) { pendingTreePaths.add(same[0]); return { file, sourceId: same[0].slice('/sources/'.length) }; }
-            const extension = file.name.slice(file.name.lastIndexOf('.'));
-            const stem = file.name.slice(0, -extension.length).replace(/[\\/\u0000-\u001f]/g, '_');
-            let sourceId = `${stem}${extension}`;
-            for (let n = 2; folder.has(`/sources/${sourceId}`); n++) sourceId = `${stem} (${n})${extension}`;
-            folder.set(`/sources/${sourceId}`, file);
-            return { file, sourceId };
-        });
+        // Picking an unchecked top-level file again checks its entry; a file from an opened folder, or one already loaded, gets its own top-level entry.
+        const added = listOpenedFiles(folder, readable, path => !sources.get(path) && !pendingTreePaths.has(path));
         const myRequest = ++selectionRequests;
         emitListing();
         added.forEach(({ sourceId }) => pendingTreePaths.add(`/sources/${sourceId}`));
@@ -887,7 +810,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             void (async () => {
                 try {
                     for (const entry of folders) {
-                        const found: Array<{ path: string; file: File }> = [];
+                        const found: FoundFile[] = [];
                         await collectDroppedSourceFiles(entry, entry.name, found);
                         if (myList !== listGeneration) return;
                         openFolderFiles(entry.name, found.sort(byPath));
@@ -898,29 +821,15 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         });
     }
     acceptDrops(window);
-    /** A list that holds one folder and nothing else is shown under that folder's name; any other list is shown from /sources. */
     function emitListing(entry = false): void {
         const paths = Array.from(folder.keys());
-        const roots = new Set(paths.map(path => path.split('/')[2]));
-        const only = roots.size === 1 && paths.every(path => path.split('/').length > 3) ? Array.from(roots)[0] : '';
-        emit({ type: 'directory-selection', rootPath: only ? `/sources/${only}` : '/sources', rootLabel: only, filePaths: paths, ...(entry ? { entry } : {}) });
+        emit({ type: 'directory-selection', ...listingRoot(paths), filePaths: paths, ...(entry ? { entry } : {}) });
     }
     /** Adds an opened folder to the list beside what is already listed; its files stay unchecked until picked in the tree. */
-    function openFolderFiles(rootName: string, files: Array<{ path: string; file: File }>): void {
+    function openFolderFiles(rootName: string, files: FoundFile[]): void {
         if (!files.length) { announce(strings.selectionNoSupported); return; }
-        const inFolder = files.map(({ path, file }) => ({ rest: path.slice(rootName.length), file }));
-        const listedUnder = (name: string): string[] => Array.from(folder.keys()).filter(path => path === `/sources/${name}` || path.startsWith(`/sources/${name}/`));
         // Opening a listed folder again keeps its entries; a different folder with a taken name gets a suffix.
-        let name = rootName;
-        for (let n = 2; listedUnder(name).length; n++) {
-            const same = listedUnder(name).length === inFolder.length && inFolder.every(({ rest, file }) => {
-                const entry = folder.get(`/sources/${name}${rest}`);
-                return entry && entry.name === file.name && entry.size === file.size && entry.lastModified === file.lastModified;
-            });
-            if (same) { announce(strings.browserFolderOpened.replace('{count}', String(files.length))); return; }
-            name = `${rootName} (${n})`;
-        }
-        inFolder.forEach(({ rest, file }) => folder.set(`/sources/${name}${rest}`, file));
+        if (!listOpenedFolder(folder, rootName, files)) { announce(strings.browserFolderOpened.replace('{count}', String(files.length))); return; }
         // An opened folder starts on the entry table.
         emitListing(true);
         snapshot();
@@ -934,7 +843,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         const showDirectoryPicker = (window as unknown as { showDirectoryPicker?: ShowDirectoryPicker }).showDirectoryPicker;
         if (!showDirectoryPicker) { folderPick.click(); return; }
         void (async () => {
-            const files: Array<{ path: string; file: File }> = [];
+            const files: FoundFile[] = [];
             try {
                 const root = await showDirectoryPicker.call(window, { mode: 'read' });
                 const myList = listGeneration;
