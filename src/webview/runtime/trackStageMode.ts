@@ -448,6 +448,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             const referencePath = slotStep && !groupBase ? deps.slots()[0] ?? null : null;
             const needBase = !!slotStep && !referencePath;
             if (cannot || needBase) {
+                root.dataset.pending = '';
                 deps.showLanes(false);
                 panel.hidden = false;
                 query<HTMLElement>('[data-stage-headline]').textContent = '';
@@ -503,7 +504,8 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             // Before any picture is in, the step's Frame says whether it is an image: the comparison is shown at once,
             // computing, rather than the lanes until the first file is in.
             const frameShown = id === INPUT_STAGE ? INPUT_FRAME : id === OCTAVE_BRANCH ? 'NOctFrame' : steps.find(step => step.id === id)?.output;
-            const images = picture ? picture.kind === 'heatmap' || picture.kind === 'none' : !waiting || IMAGE_FRAMES.has(frameShown ?? '');
+            // (A step held draws the chain without it, another Frame: the lanes until its first picture, as before.)
+            const images = picture ? picture.kind === 'heatmap' || picture.kind === 'none' : !waiting || !!held_ || IMAGE_FRAMES.has(frameShown ?? '');
             // The files in of all asked for, said on the plots while any is missing.
             const done = files.filter(path => coarse(path) !== undefined).length;
             const pending = waiting ? { done, total: files.length, label: strings.dsComputing.replace('{done}', String(done)).replace('{n}', String(files.length)) } : undefined;
