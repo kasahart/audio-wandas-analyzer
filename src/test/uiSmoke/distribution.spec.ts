@@ -165,26 +165,36 @@ test('a group of two recordings is drawn as dots, and a dot goes to its row; a c
     expect((await snapshot(page)).visible).toBeGreaterThan(0);
 });
 
-test('the base chip picks a group whose median is the base: a dashed line on it and the legend says which; a new grouping resets it (I12)', async ({ page }) => {
+test('the base select picks a group whose median is the base: a dashed line on it and the legend says which; a new grouping resets it (I12)', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     const STR = getStrings('ja');
     await openEntry(page, scanned!, { language: 'ja' });
     await pickCsv(page, 'motor.csv', entry100Metadata());
     await page.locator('[data-action="entry-group"]').selectOption('csv:rpm');
-    await page.locator('[data-entry-slots] [data-action="entry-slot"][data-slot="0"]').click();
-    const menu = page.locator('[data-entry-basemenu]');
-    await expect(menu).toBeVisible();
-    await expect(menu.locator('[data-action="entry-base-group"]')).toHaveText([`${STR.dsBaseAuto} ✓`, ...['900', '1200', '1500', '1800', ''].map(name => STR.dsBaseGroupMedian.replace('{group}', `rpm ${name || STR.dsFilterBlank}`))]);
-    await menu.locator('[data-action="entry-base-group"][data-group="1500"]').click();
-    await expect(menu).toHaveCount(0);
+    const base = page.locator('[data-action="entry-base"]');
+    await expect(base).toBeVisible();
+    await expect(base.locator('option')).toHaveText([STR.dsBaseAuto, ...['900', '1200', '1500', '1800', ''].map(name => STR.dsBaseGroupMedian.replace('{group}', `rpm ${name || STR.dsFilterBlank}`))]);
+    await expect(base).toHaveValue('auto');
+    await base.selectOption('group:1500');
     await expect.poll(async () => (await dist(page))?.base).toBe('1500');
     await expect(page.locator('[data-dist-group="1500"] [data-dist-base]')).toHaveCount(1);
     await expect(page.locator('[data-entry-dist-legend]')).toContainText(STR.dsLegendBaseMedian.replace('{group}', '1500'));
-    await expect(page.locator('[data-entry-slots] [data-slot="0"]')).toContainText('rpm 1500');
+    await expect(base).toHaveValue('group:1500');
+    // Filtered out, the chosen group is still the base and the select still says so.
+    await page.locator('th[data-column="csv:rpm"] [data-action="entry-fhead"]').click();
+    await page.locator('[data-entry-flow]').fill('900');
+    await page.locator('[data-entry-fhigh]').fill('1200');
+    await page.locator('[data-action="entry-fok"]').click();
+    await expect(base).toHaveValue('group:1500');
+    await page.locator('[data-action="entry-fchip-clear"]').first().click();
     // Another grouping: the chosen group means nothing there, so the base goes back to slot 1's group.
     await page.locator('[data-action="entry-group"]').selectOption('csv:line');
     await expect.poll(async () => (await dist(page))?.base).toBeNull();
     await expect(page.locator('[data-dist-base]')).toHaveCount(0);
+    await expect(base).toHaveValue('auto');
+    // Ungrouped, there is no group to choose: the select goes.
+    await page.locator('[data-action="entry-group"]').selectOption('none');
+    await expect(base).toBeHidden();
 });
 
 test('a CSV value counts recordings once; slot 1 keeps its tick when another value is drawn; many long group names show what differs and scroll (I10, I13, I15)', async ({ page }) => {

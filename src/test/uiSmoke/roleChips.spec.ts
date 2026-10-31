@@ -10,7 +10,8 @@ test.beforeAll(() => { scanned = entry100Results(); });
 
 type Posted = { type: string; requestId: string; filePaths: string[] };
 const posted = (page: Page): Promise<Posted[]> => page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Posted[] }).__uiSmokePostedMessages);
-const slotText = (page: Page, slot: number) => page.locator(`[data-entry-slots] [data-action="entry-slot"][data-slot="${slot}"]`);
+/** The file in a slot, as the table's rows say it (its row's badge). */
+const slotText = (page: Page, slot: number) => page.locator('[data-entry-rows] tr.entry-row').filter({ has: page.locator(`.entry-badge.entry-slot-${slot}`) }).first();
 
 /** Shows two of the table's rows as tracks with ☐, as a host answers: the lanes are there, no role yet. */
 async function twoTracks(page: Page): Promise<string[]> {
@@ -65,7 +66,7 @@ test('a track\'s role chip sets the entry table\'s slots from the track view, by
     // None: the file leaves its slot, its track stays.
     await firstChip.locator('summary').click();
     await firstChip.locator('[data-action="track-role-set"][data-slot=""]').click();
-    await expect(page.locator('[data-entry-slots]')).not.toContainText(first.split('/').pop()!);
+    await expect(page.locator(`[data-entry-rows] tr.entry-row[data-file-path="${first}"] .entry-badge`)).toHaveCount(0);
     await expect(page.locator('.track-row')).toHaveCount(2);
     await expect(firstChip.locator('.role-chip-face')).toHaveText('·');
     // The row's exclusion says what it does.

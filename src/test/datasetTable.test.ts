@@ -5,7 +5,7 @@ import { CSVColumnCountError, csvColumnCountMessage } from '../shared/dataset/cs
 import { annotatedCsv, baseGroupMembers, columnValues, datasetRows, matchCsv, middleEllipsis, readDatasetCsv, valueOf, visibleRows, type ColumnId, type DatasetFilter, type DatasetRow } from '../shared/dataset/datasetTable';
 import type { ScanResult } from '../shared/protocol/backendProtocol';
 import { getStrings } from '../shared/i18n/strings';
-import { filterChipText, rowWindow } from '../webview/runtime/entryTableHtml';
+import { baseOptionsHtml, filterChipText, rowWindow } from '../webview/runtime/entryTableHtml';
 
 const file = (name: string): { name: string } => ({ name });
 const bytes = (text: string): Uint8Array => new TextEncoder().encode(text);
@@ -201,4 +201,21 @@ test('the rows drawn are those on screen with a margin, within the table, 600 px
     assert.deepEqual(rowWindow(2400, 0, 1000, 24), { first: 90, last: 135 });
     assert.deepEqual(rowWindow(23_990, 240, 1000, 24), { first: 989, last: 1000 });
     assert.deepEqual(rowWindow(0, 240, 3, 24), { first: 0, last: 3 });
+});
+
+test('the base select offers slot 1\'s group median, each group\'s median, and slot 0\'s recording while one is there', () => {
+    const strings = getStrings('en');
+    const groups = [{ name: '900', label: 'rpm 900' }, { name: '1500', label: 'rpm 1500' }];
+    const values = (html: string): string[] => [...html.matchAll(/value="([^"]*)"/g)].map(match => match[1] ?? '');
+    const selected = (html: string): string | undefined => /value="([^"]*)" selected/.exec(html)?.[1];
+    const auto = baseOptionsHtml(groups, null, null, strings);
+    assert.deepEqual(values(auto), ['auto', 'group:900', 'group:1500']);
+    assert.equal(selected(auto), 'auto');
+    assert.match(auto, />Median of rpm 1500</);
+    assert.equal(selected(baseOptionsHtml(groups, '1500', null, strings)), 'group:1500');
+    // A recording in slot 0 is the base: it comes first and is chosen; a median chosen takes it out.
+    const row = baseOptionsHtml(groups, '1500', 'a <b>.wav', strings);
+    assert.deepEqual(values(row), ['row', 'auto', 'group:900', 'group:1500']);
+    assert.equal(selected(row), 'row');
+    assert.match(row, />0 a &lt;b&gt;\.wav</);
 });
