@@ -146,6 +146,20 @@ test('the overlaid plot draws its difference under it only on request, with a co
     assert.equal(diff.hidden, true);
 });
 
+test('the difference is shown or hidden before the overlay is drawn: the overlay is measured at the height it keeps', () => {
+    const { dom_, lane } = page();
+    const tracks = [lane('base.wav'), lane('one.wav')];
+    const frame = frameFor(tracks, { 'base.wav': line([-20, -30]), 'one.wav': line([-10, -30]) });
+    const plots = plotsOf(frame.shown, tracks, 'one.wav', ['base.wav']);
+    const diff = dom_.query<HTMLElement>('[data-stage-diff]');
+    const overlay = dom_.query<HTMLCanvasElement>('[data-stage-canvas="overlay"]');
+    const hiddenWhenDrawn: boolean[] = [];
+    overlay.getContext = (() => { hiddenWhenDrawn.push(diff.hidden); return null; }) as HTMLCanvasElement['getContext'];
+    paintStageOverlay(dom_, frame, plots, overlayLayers(frame, plots), true);
+    paintStageOverlay(dom_, frame, plots, overlayLayers(frame, plots), false);
+    assert.deepEqual(hiddenWhenDrawn, [false, true]);
+});
+
 test('the legend is written only when it changed and no role chip is open, and keeps the focus on its ▶', () => {
     const { document, dom_ } = page();
     (globalThis as unknown as Record<string, unknown>)['CSS'] = { escape: (text: string) => text };
