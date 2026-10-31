@@ -20,14 +20,14 @@ import { frameAfter, INPUT_STAGE, OCTAVE_BRANCH, orderedSteps, removable, stepFl
 import { stepLabel } from './stepLabels';
 import { createStepHistory } from './stepHistory';
 import { stepChipsHtml } from './stepChips';
+import { attachStepDrag, attachStepHold } from './stepGestures';
 import { checkStepForm, regionFormDraft, regionLength, stepFormDraft, stepFormHtml, stepFormKey } from './stepForm';
 import { stepMenuAt, stepMenuHtml, stepMenuKey, stepMenuListHtml, type StepMenuContext, type StepMenuState } from './stepMenu';
 
 export { endsInSpectrum, INPUT_STAGE, OCTAVE_BRANCH, recipeWithout, runnableRecipe, stepLimits, unpairedRecipe, type RegionRange, type StepBarState, type StepBarStrings } from './stepBarModel';
 export { invalidReason, stepChipLabel } from './stepLabels';
 
-/** A press shorter than this is a tap (see the step's Frame); longer is a hold (what the step does) until release. */
-export const STEP_TAP_MS = 250;
+export { STEP_TAP_MS } from './stepGestures';
 
 export interface StepBar {
     element: HTMLElement;
@@ -266,18 +266,13 @@ export function createStepBar(deps: {
         return true;
     }
 
-    // Tap or hold on a chip's body: a press shorter than STEP_TAP_MS shows the step's Frame (the click that
-    // follows); a longer one shows what the step does until release, and its click is swallowed.
     const view = document.defaultView!;
-    let pressing: { step: RecipeStep; timer: number } | null = null;
-    let held: RecipeStep | null = null;
-    let swallowClick = false;
     element.addEventListener('click', event => {
         const target = (event.target as HTMLElement).closest<HTMLElement>('[data-action], [data-step-hold], [data-step-region]');
         if (!target) return;
         const action = target.getAttribute('data-action');
         if (target.hasAttribute('data-step-hold')) {
-            if (swallowClick) { swallowClick = false; return; }
+            if (hold.swallowed()) return;
             if (target.getAttribute('data-step-hold') === INPUT_STAGE) { deps.onInputSelect?.(); return; }
             const step = state.recipe ? all(state.recipe).find(item => item.id === target.getAttribute('data-step-hold')) : undefined;
             if (step) deps.onStepSelect?.(step);
@@ -355,80 +350,20 @@ export function createStepBar(deps: {
     element.addEventListener('change', event => { if (!(event.target as HTMLElement).matches('[data-step-menu-filter]')) checkForm(); });
     // A click anywhere else drops the draft and the menu, like Esc.
     document.addEventListener('pointerdown', event => { if ((open || menu) && !element.contains(event.target as Node)) close(); }, true);
-    element.addEventListener('pointerdown', event => {
-        const body = (event.target as HTMLElement).closest<HTMLElement>('[data-step-hold]');
-        swallowClick = false;
-        if (!body || !state.recipe || event.button !== 0) return;
-        const step = all(state.recipe).find(item => item.id === body.getAttribute('data-step-hold'));
-        if (!step || !(deps.canHold?.(step) ?? false)) return;
-        pressing = {
-            step,
-            timer: view.setTimeout(() => {
-                pressing = null;
-                held = step;
-                body.closest('.step-chip')?.classList.add('is-held');
-                deps.onStepHold?.(step);
-            }, STEP_TAP_MS),
-        };
+    const hold = attachStepHold(element, view, {
+        stepAt: id => (state.recipe ? all(state.recipe).find(item => item.id === id) : undefined),
+        canHold: step => deps.canHold?.(step) ?? false,
+        onHold: step => deps.onStepHold?.(step),
     });
-    // A hold also ends when the pointer is lost or the window loses focus, so nothing stays held.
-    for (const type of ['pointerup', 'pointercancel', 'blur']) view.addEventListener(type, () => {
-        if (pressing) { view.clearTimeout(pressing.timer); pressing = null; }
-        if (!held) return;
-        held = null;
-        swallowClick = type === 'pointerup';
-        element.querySelector('.step-chip.is-held')?.classList.remove('is-held');
-        deps.onStepHold?.(null);
+    attachStepDrag(element, document, {
+        steps: () => (state.recipe ? recipeSteps(state.recipe, limits()) : null),
+        move(step, after) {
+            if (!state.recipe) return;
+            emit(movedStep(state.recipe, step.id, after));
+            deps.onStepShown?.(step.id);
+            footer(strings.stepMoved.replace('{op}', step.name));
+        },
     });
-    // Dragging a chip moves its step: the mark shows where it lands (before or after the chip under the pointer).
-    let dragged: string | null = null;
-    let dropAfter: string | null | undefined;
-    const dropMark = (): HTMLElement => {
-        let mark = element.querySelector<HTMLElement>('.step-drop');
-        if (!mark) { mark = document.createElement('span'); mark.className = 'step-drop'; element.append(mark); }
-        return mark;
-    };
-    const clearDrop = (): void => { element.querySelector('.step-drop')?.remove(); dropAfter = undefined; };
-    element.addEventListener('dragstart', event => {
-        const chip = (event.target as HTMLElement).closest?.<HTMLElement>('.step-chip[draggable="true"]');
-        if (!chip || !state.recipe) return;
-        dragged = chip.getAttribute('data-step-id');
-        event.dataTransfer?.setData('text/plain', dragged ?? '');
-        if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move';
-        chip.classList.add('is-dragging');
-    });
-    element.addEventListener('dragover', event => {
-        if (!dragged || !state.recipe) return;
-        const target = (event.target as HTMLElement).closest?.<HTMLElement>('.step-chip, [data-step-input]');
-        const steps = recipeSteps(state.recipe, limits());
-        const id = target?.matches('[data-step-input]') ? null : target?.getAttribute('data-step-id');
-        if (!target || id === OCTAVE_BRANCH) return;
-        event.preventDefault();
-        const box = target.getBoundingClientRect();
-        const before = !!id && event.clientX < box.left + box.width / 2;
-        const index = id ? steps.findIndex(step => step.id === id) : -1;
-        dropAfter = !id ? null : before ? (index > 0 ? steps[index - 1].id : null) : id;
-        const mark = dropMark();
-        const bar = element.getBoundingClientRect();
-        mark.style.left = `${(before ? box.left - 4 : box.right + 1) - bar.left}px`;
-        mark.style.top = `${box.top - bar.top + 2}px`;
-        mark.style.height = `${box.height - 4}px`;
-    });
-    element.addEventListener('dragleave', event => { if (!element.contains(event.relatedTarget as Node | null)) clearDrop(); });
-    element.addEventListener('drop', event => {
-        if (!dragged || dropAfter === undefined || !state.recipe) return;
-        event.preventDefault();
-        const step = recipeSteps(state.recipe, limits()).find(item => item.id === dragged);
-        const after = dropAfter;
-        clearDrop();
-        if (!step || after === dragged) return;
-        const next = movedStep(state.recipe, dragged, after);
-        dragged = null;
-        emit(next);
-        deps.onStepShown?.(step.id);
-        footer(strings.stepMoved.replace('{op}', step.name));
-    });
-    element.addEventListener('dragend', () => { dragged = null; clearDrop(); element.querySelector('.is-dragging')?.classList.remove('is-dragging'); });
     return {
         element,
         set(next: StepBarState): void {
