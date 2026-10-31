@@ -446,3 +446,41 @@ test('toggling the reference lane again clears it', () => {
     assert.equal(fixture.doc.querySelector('[data-track-id="t2"]')?.getAttribute('aria-pressed'), 'false');
     fixture.panel.dispose();
 });
+
+test('a newer lazy request for the same track cancels the older one in flight, and only that one', async () => {
+    const signals = new Map<string, { isCancellationRequested: boolean }>();
+    const failed: string[] = [];
+    const published: SessionPublication[] = [];
+    const ports = {
+        scope: () => ({ isCurrent: () => true, canPublish: () => true }),
+        publish: (message: SessionPublication) => { published.push(message); },
+        stftOptions: () => undefined,
+        lazyContext: () => ({ analysisRevision: 0 }),
+        lazyFailed: (request: { requestId: string }) => { failed.push(request.requestId); },
+        client: {
+            requestRange: (_filePath: string, _start: number, _end: number, _points: number, requestId: string, _context: unknown,
+                cancellation: { isCancellationRequested: boolean; onCancellationRequested(listener: () => void): unknown }) => {
+                signals.set(requestId, cancellation);
+                return new Promise((resolve, reject) => {
+                    cancellation.onCancellationRequested(() => reject(new Error('cancelled')));
+                    if (requestId !== 'old') setImmediate(() => resolve({ analysisRevision: 0, channels: [] }));
+                });
+            },
+        },
+    } as unknown as ComparisonSessionPorts;
+    const controller = new ComparisonSessionController(ports);
+    const range = (requestId: string, trackIndex: number) => ({
+        type: 'request-waveform-range' as const, requestId, trackIndex, filePath: '/a.wav', startNorm: 0, endNorm: 1, points: 4,
+    });
+
+    const old = controller.handle(range('old', 0));
+    const otherTrack = controller.handle(range('other-track', 1));
+    const latest = controller.handle(range('new', 0));
+    await Promise.all([old, otherTrack, latest]);
+
+    assert.equal(signals.get('old')?.isCancellationRequested, true);
+    assert.equal(signals.get('other-track')?.isCancellationRequested, false);
+    assert.equal(signals.get('new')?.isCancellationRequested, false);
+    assert.deepEqual(failed, [], 'a superseded request is not a failure');
+    assert.deepEqual(published.map(message => 'requestId' in message ? message.requestId : ''), ['other-track', 'new']);
+});

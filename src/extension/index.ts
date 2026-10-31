@@ -19,6 +19,7 @@ export function activate(context: vscode.ExtensionContext): void {
     let deactivated = false;
     const perfChannel = vscode.window.createOutputChannel('Audio Wandas Analyzer (perf)');
     const logPerf = (line: string): void => { perfChannel.appendLine(line); };
+    const logChannel = vscode.window.createOutputChannel('Audio Wandas Analyzer', { log: true });
     const pythonStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 10);
     pythonStatusBarItem.command = 'audioWandasAnalyzer.selectPythonEnvironment';
     const backend = new PythonBackendServer(context.extensionPath, (line) => {
@@ -34,6 +35,13 @@ export function activate(context: vscode.ExtensionContext): void {
     }, {
         current: filePath => ({ calibrationProfile: getCalibrationProfile(context, filePath), analysisRevision: getAnalysisRevision(filePath) }),
         discardStale: (filePath, error, attempted) => discardStaleCalibrationProfile(context, filePath, error, attempted.calibrationProfile!),
+    }, {
+        log: line => { logChannel.warn(line); },
+        crashed: error => {
+            logChannel.error(error.message);
+            if (deactivated) { return; }
+            setStatusBarWarning(pythonStatusBarItem, getPythonCommand(), `Python backend stopped: ${error.message}`);
+        },
     });
     const analysis = new AnalysisOrchestrator(backend, logPerf);
     const exports = new ExportFlows(backend);
@@ -73,6 +81,7 @@ export function activate(context: vscode.ExtensionContext): void {
             backend.dispose();
         } },
         perfChannel,
+        logChannel,
         vscode.workspace.onDidChangeConfiguration((event) => {
             if (event.affectsConfiguration('audioWandasAnalyzer.pythonCommand')) {
                 backend.dispose();

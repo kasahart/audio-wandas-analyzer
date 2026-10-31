@@ -1558,6 +1558,26 @@ export const BACKEND_PROTOCOL_SCHEMA = {
             },
             "additionalProperties": false
         },
+        "BackendCancelControl": {
+            "type": "object",
+            "required": [
+                "cmd",
+                "requestIds"
+            ],
+            "properties": {
+                "cmd": {
+                    "type": "string",
+                    "const": "cancel"
+                },
+                "requestIds": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            },
+            "additionalProperties": false
+        },
         "BrowserLimits": {
             "type": "object",
             "required": [
@@ -2020,6 +2040,11 @@ export interface BackendReadyNotification {
 export interface BackendHeartbeatNotification {
     type: "heartbeat";
     ts: number;
+}
+
+export interface BackendCancelControl {
+    cmd: "cancel";
+    requestIds: string[];
 }
 
 export interface BrowserLimits {
