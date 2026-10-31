@@ -15,7 +15,6 @@ const NON_NULL_ASSERTION_BURN_DOWN = [
     'src/shared/recipe/recipeSteps.ts',
     'src/webview/plot/waveformLayer.ts',
     'src/webview/rangePopover.ts',
-    'src/webview/runtime/browserAdapter.ts',
     'src/webview/runtime/calibrationDecorations.ts',
     'src/webview/runtime/chartSpecRuntime.ts',
     'src/webview/runtime/comparePanes.ts',
