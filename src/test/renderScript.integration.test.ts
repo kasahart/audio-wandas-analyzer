@@ -196,31 +196,7 @@ const DUMMY_SELECTION_WITH_B_RESULT_STATE = JSON.stringify({
     ],
 });
 
-const DIFFERENT_SELECTION_STATE = JSON.stringify({
-    mode: 'directory-selection',
-    results: [],
-    rootPath: '/tmp/other-session',
-    allFilePaths: ['/tmp/other-session/c.wav'],
-    selectedFilePaths: [],
-    pythonEnvironmentState: {
-        pythonCommand: 'python3',
-        status: 'normal',
-        tooltip: 'Click to select Python environment',
-    },
-});
 
-const DIFFERENT_SELECTION_WITH_SUB_STATE = JSON.stringify({
-    mode: 'directory-selection',
-    results: [],
-    rootPath: '/tmp/other-session',
-    allFilePaths: ['/tmp/other-session/sub/c.flac'],
-    selectedFilePaths: [],
-    pythonEnvironmentState: {
-        pythonCommand: 'python3',
-        status: 'normal',
-        tooltip: 'Click to select Python environment',
-    },
-});
 
 function setupEnvWithState(stateJson: string, initialVsCodeState: unknown = null) {
     const script = getRenderScript();
@@ -290,7 +266,7 @@ test('初回実行後に #app 内に HTML が生成される', () => {
     const { dom } = setupEnv();
     const app = dom.window.document.getElementById('app');
     assert.ok(app, '#app が存在すること');
-    assert.ok(app!.innerHTML.length > 0, '#app 内に HTML が生成されていること');
+    assert.ok(app.innerHTML.length > 0, '#app 内に HTML が生成されていること');
 });
 
 test('2 トラック分の track-canvas が生成される', () => {
@@ -336,21 +312,21 @@ test('renderScript: monaural tracks keep waveform and power spectrum in one body
 
     const row = env.dom.window.document.getElementById('track-row-0');
     assert.ok(row, 'track-row-0 が存在すること');
-    assert.equal(row!.querySelector('.track-channel-lane-header'), null);
+    assert.equal(row.querySelector('.track-channel-lane-header'), null);
 
-    const meta = row!.querySelector('.track-meta');
+    const meta = row.querySelector('.track-meta');
     assert.match(meta?.textContent || '', /^1 ch.*Peak -6\.0 dB/,
         'mono track の概要値は下部凡例ではなく track meta に表示されること');
 
-    const waveWrap = env.dom.window.document.getElementById('track-canvas-wrap-0') as HTMLElement | null;
-    const spectrumWrap = env.dom.window.document.getElementById('track-spectrum-wrap-0') as HTMLElement | null;
+    const waveWrap = env.dom.window.document.getElementById('track-canvas-wrap-0');
+    const spectrumWrap = env.dom.window.document.getElementById('track-spectrum-wrap-0');
     assert.ok(waveWrap, 'track-canvas-wrap-0 が存在すること');
     assert.ok(spectrumWrap, 'track-spectrum-wrap-0 が存在すること');
-    const stack = waveWrap!.parentElement;
+    const stack = waveWrap.parentElement;
     assert.ok(stack?.classList.contains('track-canvas-stack'), 'waveform はスペクトログラムと縦に積まれること');
     assert.ok(stack?.parentElement?.classList.contains('track-channel-lane-body'), 'waveform はレーン本文に入ること');
     assert.equal(stack?.querySelector('#track-spec-canvas-0')?.closest('.track-canvas-stack'), stack, 'spectrogram は waveform の下に入ること');
-    assert.equal(spectrumWrap!.parentElement, stack?.parentElement, 'power spectrum は波形・スペクトログラムと横並びの本文に入ること');
+    assert.equal(spectrumWrap.parentElement, stack?.parentElement, 'power spectrum は波形・スペクトログラムと横並びの本文に入ること');
     env.dom.window.close();
 });
 
@@ -542,9 +518,9 @@ test('directory selection mode keeps the side panel while rendering selected tra
 test('directory selection mode keeps existing track color stable when a new earlier tree item appears', () => {
     const { dom } = setupEnvWithState(DUMMY_SELECTION_WITH_B_RESULT_STATE);
     // A track without a role: its chip shows the track's own colour.
-    const initialSwatch = dom.window.document.querySelector(
+    const initialSwatch = dom.window.document.querySelector<HTMLElement>(
         '.track-row[data-track-id="track-1"] .role-chip-face',
-    ) as HTMLElement | null;
+    );
 
     assert.ok(initialSwatch);
     const initialBColor = initialSwatch.style.getPropertyValue('--role-fallback');
@@ -675,7 +651,7 @@ test('waveform-range-result メッセージを受信しても例外が起きな�
 
 test('renderScript: the track view requests track detail when spectrogram is null', async () => {
     const env = setupEnvWithState(makeLazySpectrogramState());
-    const button = env.dom.window.document.querySelector('[data-action="content-waveform"]') as HTMLButtonElement | null;
+    const button = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="content-waveform"]');
     assert.ok(button);
     button.click();
     await nextAnimationFrame(env.dom);
@@ -692,7 +668,7 @@ test('renderScript: the waveform/spectrogram split survives Webview regeneration
     const env = setupEnv();
     await nextAnimationFrame(env.dom);
     const doc = env.dom.window.document;
-    const split = doc.querySelector('.track-split') as HTMLElement | null;
+    const split = doc.querySelector<HTMLElement>('.track-split');
     assert.ok(split, 'every lane has a split between its waveform and spectrogram');
     split.dispatchEvent(new env.dom.window.MouseEvent('pointerdown', { bubbles: true, button: 0, clientY: 100 }));
     // 32 px of the 160 px plots: the waveform's share goes from 40 % to 60 %.
@@ -714,7 +690,7 @@ test('renderScript: the waveform/spectrogram split survives Webview regeneration
 
 test('renderScript: track-detail-result merges spectrogram and stale detail is ignored', async () => {
     const env = setupEnvWithState(makeLazySpectrogramState());
-    const button = env.dom.window.document.querySelector('[data-action="content-waveform"]') as HTMLButtonElement | null;
+    const button = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="content-waveform"]');
     assert.ok(button);
     button.click();
     await nextAnimationFrame(env.dom);
@@ -751,7 +727,7 @@ test('renderScript: track-detail-result merges spectrogram and stale detail is i
 
 test('renderScript: removing a detailed track releases its spectrogram detail', () => {
     const env = setupEnv();
-    const removeButton = env.dom.window.document.querySelector('[data-action="remove-track"][data-track-id="track-1"]') as HTMLButtonElement | null;
+    const removeButton = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="remove-track"][data-track-id="track-1"]');
     assert.ok(removeButton);
     removeButton.click();
 
@@ -764,9 +740,9 @@ test('renderScript: display-only spectrogram changes do not request fresh track 
     const env = setupEnvWithState(makeLazySpectrogramState());
     await nextAnimationFrame(env.dom);
 
-    const specButton = env.dom.window.document.querySelector('[data-action="content-waveform"]') as HTMLButtonElement | null;
+    const specButton = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="content-waveform"]');
     assert.ok(specButton, 'spectrogram button should exist');
-    specButton!.click();
+    specButton.click();
     await nextAnimationFrame(env.dom);
 
     const requestCountBefore = env.postedMessages.filter((msg: any) => msg.type === 'request-track-detail').length;
@@ -787,7 +763,7 @@ test('renderScript: display-only spectrogram changes do not request fresh track 
 
 test('renderScript: analysis-update requests fresh spectrogram detail for new settings', async () => {
     const env = setupEnvWithState(makeLazySpectrogramState());
-    const button = env.dom.window.document.querySelector('[data-action="content-waveform"]') as HTMLButtonElement | null;
+    const button = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="content-waveform"]');
     assert.ok(button);
     button.click();
     await nextAnimationFrame(env.dom);
@@ -1046,7 +1022,7 @@ test('renderScript: lazy spectrum applies global backpressure and converges to t
         'the trailing request should target only the latest cursor: ' + requests[1].cursorNorm);
     const trackSpy = env.domCanvasContexts.get('track-spectrum-0');
     assert.ok(trackSpy, 'track spectrum canvas spy should exist');
-    const strokesBeforeLatest = trackSpy!.strokeCalls;
+    const strokesBeforeLatest = trackSpy.strokeCalls;
     env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
         type: 'spectrum-slice-result',
         requestId: requests[1].requestId,
@@ -1058,7 +1034,7 @@ test('renderScript: lazy spectrum applies global backpressure and converges to t
         frequencyBins: 2, maxFrequencyHz: 22050,
     } }));
     await nextAnimationFrame(env.dom);
-    assert.ok(trackSpy!.strokeCalls > strokesBeforeLatest,
+    assert.ok(trackSpy.strokeCalls > strokesBeforeLatest,
         'the latest successful slice should paint after the delayed backend response');
     env.dom.window.close();
 });
@@ -1111,7 +1087,7 @@ test('renderScript: waveform seek invalidates an in-flight spectrum response', a
     canvas.getBoundingClientRect = () => ({
         left: 0, top: 0, right: 800, bottom: 80, width: 800, height: 80,
     } as DOMRect);
-    const strokesBeforeSeekResponse = trackSpy!.strokeCalls;
+    const strokesBeforeSeekResponse = trackSpy.strokeCalls;
 
     canvas.dispatchEvent(new env.dom.window.MouseEvent('mousedown', {
         bubbles: true, button: 0, clientX: 600, clientY: 5,
@@ -1134,7 +1110,7 @@ test('renderScript: waveform seek invalidates an in-flight spectrum response', a
     await nextAnimationFrame(env.dom);
     await new Promise((resolve) => env.dom.window.setTimeout(resolve, 40));
 
-    assert.equal(trackSpy!.strokeCalls, strokesBeforeSeekResponse,
+    assert.equal(trackSpy.strokeCalls, strokesBeforeSeekResponse,
         'the response started before the seek must not be painted');
     const requests = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice') as any[];
     assert.equal(requests.length, 2, 'seek should retain only one replacement request');
@@ -1152,7 +1128,7 @@ test('renderScript: waveform seek invalidates an in-flight spectrum response', a
         maxFrequencyHz: 22050,
     } }));
     await nextAnimationFrame(env.dom);
-    assert.ok(trackSpy!.strokeCalls > strokesBeforeSeekResponse,
+    assert.ok(trackSpy.strokeCalls > strokesBeforeSeekResponse,
         'the response for the seek cursor should be painted');
     env.dom.window.close();
 });
@@ -1163,7 +1139,7 @@ test('renderScript: lazy spectrum slices apply display range settings', async ()
     const env = setupEnvWithState(JSON.stringify(state));
     await nextAnimationFrame(env.dom);
 
-    let req = env.postedMessages.find((msg: any) => msg.type === 'request-spectrum-slice') as any;
+    const req = env.postedMessages.find((msg: any) => msg.type === 'request-spectrum-slice') as any;
     assert.ok(req, 'initial request-spectrum-slice should be posted');
     env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
         type: 'spectrum-slice-result',
@@ -1269,10 +1245,10 @@ test('renderScript: lazy spectrum keeps previous drawing while a new cursor slic
     const trackSpy = env.domCanvasContexts.get('track-spectrum-0');
     assert.ok(overlaySpy, 'overlay canvas spy should exist');
     assert.ok(trackSpy, 'track spectrum canvas spy should exist');
-    const overlayClearBefore = overlaySpy!.clearRectCalls;
-    const trackClearBefore = trackSpy!.clearRectCalls;
-    const overlayStrokesBefore = overlaySpy!.strokeCalls;
-    const trackStrokesBefore = trackSpy!.strokeCalls;
+    const overlayClearBefore = overlaySpy.clearRectCalls;
+    const trackClearBefore = trackSpy.clearRectCalls;
+    const overlayStrokesBefore = overlaySpy.strokeCalls;
+    const trackStrokesBefore = trackSpy.strokeCalls;
 
     env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
         type: 'comparison-panel-test-action',
@@ -1284,8 +1260,8 @@ test('renderScript: lazy spectrum keeps previous drawing while a new cursor slic
     const requests = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice' && msg.trackIndex === 0) as any[];
     const latestReq = requests[requests.length - 1];
     assert.ok(latestReq.cursorNorm > 0.45 && latestReq.cursorNorm < 0.55, 'cursor move should request a new lazy slice');
-    assert.ok(trackSpy!.strokeCalls >= trackStrokesBefore, 'per-track spectrum should keep a successful slice visible while the new slice is pending');
-    assert.ok(overlaySpy!.strokeCalls >= overlayStrokesBefore, 'overlay spectrum should keep a successful slice visible while the new slice is pending');
+    assert.ok(trackSpy.strokeCalls >= trackStrokesBefore, 'per-track spectrum should keep a successful slice visible while the new slice is pending');
+    assert.ok(overlaySpy.strokeCalls >= overlayStrokesBefore, 'overlay spectrum should keep a successful slice visible while the new slice is pending');
 
     env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
         type: 'spectrum-slice-error',
@@ -1298,8 +1274,8 @@ test('renderScript: lazy spectrum keeps previous drawing while a new cursor slic
     } }));
     await nextAnimationFrame(env.dom);
 
-    assert.ok(trackSpy!.clearRectCalls >= trackClearBefore, 'per-track spectrum should remain drawable after a slice failure');
-    assert.ok(overlaySpy!.clearRectCalls >= overlayClearBefore, 'overlay spectrum should remain drawable after a slice failure');
+    assert.ok(trackSpy.clearRectCalls >= trackClearBefore, 'per-track spectrum should remain drawable after a slice failure');
+    assert.ok(overlaySpy.clearRectCalls >= overlayClearBefore, 'overlay spectrum should remain drawable after a slice failure');
     env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
         type: 'comparison-panel-test-action', actionId: 'slice-retry-after-error',
         actions: [{ action: 'set-cursor', payload: { cursorNorm: 0.7 } }],
@@ -1376,14 +1352,14 @@ test('renderScript: results pane rebuild preserves playback button state', async
     const env = setupMultichannelEnv();
     await nextAnimationFrame(env.dom);
     const audio = env.dom.window.document.getElementById('track-audio-0') as HTMLAudioElement | null;
-    const playButton = env.dom.window.document.querySelector('[data-action="toggle-playback"][data-track-id="track-1"]') as HTMLButtonElement | null;
+    const playButton = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="toggle-playback"][data-track-id="track-1"]');
     assert.ok(audio instanceof env.dom.window.HTMLAudioElement);
     assert.ok(playButton instanceof env.dom.window.HTMLButtonElement);
 
     (audio as HTMLAudioElement & { duration: number }).duration = 1;
-    playButton!.click();
+    playButton.click();
     await Promise.resolve();
-    assert.equal(playButton!.textContent, '⏸');
+    assert.equal(playButton.textContent, '⏸');
 
     env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
         type: 'analysis-update',
@@ -1391,8 +1367,8 @@ test('renderScript: results pane rebuild preserves playback button state', async
     } }));
     await nextAnimationFrame(env.dom);
 
-    const rebuiltPlayButton = env.dom.window.document.querySelector('[data-action="toggle-playback"][data-track-id="track-1"]') as HTMLButtonElement | null;
-    const rebuiltStopButton = env.dom.window.document.querySelector('[data-action="stop-playback"][data-track-id="track-1"]') as HTMLButtonElement | null;
+    const rebuiltPlayButton = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="toggle-playback"][data-track-id="track-1"]');
+    const rebuiltStopButton = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="stop-playback"][data-track-id="track-1"]');
     assert.equal(rebuiltPlayButton?.textContent, '⏸');
     assert.equal(rebuiltStopButton?.disabled, false);
 
@@ -1407,7 +1383,7 @@ test('renderScript: cursorNorm initializes as number (not null)', () => {
     // まず mousemove で hoverNorm をセットし、次に mouseleave で clearHover を発火させる。
     // #cursor-display が formatTime(0) = '0:00.00' を表示すれば cursorNorm が number であると確認できる。
     const { dom } = setupEnv();
-    const canvas = dom.window.document.getElementById('track-canvas-0') as HTMLElement | null;
+    const canvas = dom.window.document.getElementById('track-canvas-0');
     assert.ok(canvas, 'track-canvas-0 が存在すること');
 
     // mousemove on the canvas (bubbles to tracks-wrapper) → hoverNorm が設定される
@@ -1635,9 +1611,9 @@ test('renderScript: each track row contains a keyboard-focusable per-track spect
     assert.ok(c0, 'track-spectrum-0 が存在すること');
     assert.ok(c1, 'track-spectrum-1 が存在すること');
     assert.ok(overlay, '#spectrum-overlay-canvas が存在すること');
-    assert.equal(c0!.getAttribute('tabindex'), '0');
-    assert.equal(c1!.getAttribute('tabindex'), '0');
-    assert.equal(overlay!.getAttribute('tabindex'), '0');
+    assert.equal(c0.getAttribute('tabindex'), '0');
+    assert.equal(c1.getAttribute('tabindex'), '0');
+    assert.equal(overlay.getAttribute('tabindex'), '0');
     env.dom.window.close();
 });
 
@@ -1646,7 +1622,7 @@ test('renderScript: overlay spectrum canvas is drawn on initial render', async (
     await nextAnimationFrame(env.dom);
     const overlaySpy = env.domCanvasContexts.get('spectrum-overlay-canvas');
     assert.ok(overlaySpy, 'overlay canvas のスパイが取得できること');
-    assert.ok(overlaySpy!.strokeCalls > 0,
+    assert.ok(overlaySpy.strokeCalls > 0,
         '初期描画で重ね合わせスペクトルが少なくとも1本描かれること');
     env.dom.window.close();
 });
@@ -1666,15 +1642,15 @@ test('renderScript: mouseup click commits cursor and re-draws spectrum', async (
     await nextAnimationFrame(env.dom);
     const overlaySpy = env.domCanvasContexts.get('spectrum-overlay-canvas');
     assert.ok(overlaySpy);
-    const before = overlaySpy!.strokeCalls;
+    const before = overlaySpy.strokeCalls;
 
-    const canvas = env.dom.window.document.getElementById('track-canvas-0') as HTMLElement | null;
+    const canvas = env.dom.window.document.getElementById('track-canvas-0');
     assert.ok(canvas);
     // mousedown + mouseup (no movement) -> click branch in handleDocMouseUp
     canvas.dispatchEvent(new env.dom.window.MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 10, clientY: 5 }));
     env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mouseup', { bubbles: true, button: 0, clientX: 10, clientY: 5 }));
 
-    assert.ok(overlaySpy!.strokeCalls > before,
+    assert.ok(overlaySpy.strokeCalls > before,
         'クリック確定後に overlay canvas が再描画されること');
     env.dom.window.close();
 });
@@ -1685,17 +1661,17 @@ test('axes: 振幅軸ラベルが absolutePeak と unit から track-axis-canvas
 
     const int16Spy = env.domCanvasContexts.get('track-axis-canvas-0');
     assert.ok(int16Spy, 'track-axis-canvas-0 のスパイが取得できること');
-    assert.ok(int16Spy!.fillTextCalls.includes('+16383'), '+16383 ラベルが描かれること');
-    assert.ok(int16Spy!.fillTextCalls.includes('-16383'), '-16383 ラベルが描かれること');
-    assert.ok(int16Spy!.fillTextCalls.includes('0'), '0 ラベルが描かれること');
-    assert.ok(int16Spy!.fillTextCalls.includes('Amp'), '単位なし Amp タイトルが描かれること');
-    assert.ok(int16Spy!.fillRectCalls > 0, 'ラベル用の半透明バックプレートが描かれること');
+    assert.ok(int16Spy.fillTextCalls.includes('+16383'), '+16383 ラベルが描かれること');
+    assert.ok(int16Spy.fillTextCalls.includes('-16383'), '-16383 ラベルが描かれること');
+    assert.ok(int16Spy.fillTextCalls.includes('0'), '0 ラベルが描かれること');
+    assert.ok(int16Spy.fillTextCalls.includes('Amp'), '単位なし Amp タイトルが描かれること');
+    assert.ok(int16Spy.fillRectCalls > 0, 'ラベル用の半透明バックプレートが描かれること');
 
     const paSpy = env.domCanvasContexts.get('track-axis-canvas-1');
     assert.ok(paSpy, 'track-axis-canvas-1 のスパイが取得できること');
-    assert.ok(paSpy!.fillTextCalls.includes('+0.50'), '+0.50 ラベルが描かれること');
-    assert.ok(paSpy!.fillTextCalls.includes('-0.50'), '-0.50 ラベルが描かれること');
-    assert.ok(paSpy!.fillTextCalls.includes('Amp (Pa)'), 'Amp (Pa) タイトルが描かれること');
+    assert.ok(paSpy.fillTextCalls.includes('+0.50'), '+0.50 ラベルが描かれること');
+    assert.ok(paSpy.fillTextCalls.includes('-0.50'), '-0.50 ラベルが描かれること');
+    assert.ok(paSpy.fillTextCalls.includes('Amp (Pa)'), 'Amp (Pa) タイトルが描かれること');
     env.dom.window.close();
 });
 
@@ -1720,7 +1696,7 @@ test('#100: buildTrackRow が track-axis-canvas を track-canvas の前に生成
     const waveCanvas = doc.getElementById('track-canvas-0');
     assert.ok(axisCanvas, 'track-axis-canvas-0 が DOM に存在すること');
     assert.ok(waveCanvas, 'track-canvas-0 が DOM に存在すること');
-    const order = axisCanvas!.compareDocumentPosition(waveCanvas!);
+    const order = axisCanvas.compareDocumentPosition(waveCanvas);
     assert.ok(
         order & env.dom.window.Node.DOCUMENT_POSITION_FOLLOWING,
         'track-axis-canvas-0 が track-canvas-0 より DOM 上で前にあること',
@@ -1732,7 +1708,7 @@ test('axes: スペクトログラム表示で周波数軸 (Hz) とカラーバ�
     const env = setupSpectrumEnv();
     await nextAnimationFrame(env.dom);
     const win = env.dom.window as any;
-    const spectrogramBtn = env.dom.window.document.querySelector('[data-action="content-waveform"]') as HTMLButtonElement | null;
+    const spectrogramBtn = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="content-waveform"]');
     assert.ok(spectrogramBtn, 'スペクトログラム切替ボタンが存在すること');
     spectrogramBtn.click();
     await nextAnimationFrame(env.dom);
@@ -1741,7 +1717,7 @@ test('axes: スペクトログラム表示で周波数軸 (Hz) とカラーバ�
 
     const axisSpy = env.domCanvasContexts.get('track-spec-axis-canvas-0');
     assert.ok(axisSpy, 'track-spec-axis-canvas-0 のスパイが取得できること');
-    const axisLabels = axisSpy!.fillTextCalls;
+    const axisLabels = axisSpy.fillTextCalls;
     assert.ok(axisLabels.includes('0 Hz'), '0 Hz ラベルが描かれること: ' + JSON.stringify(axisLabels));
     assert.ok(
         axisLabels.some((s) => /\bkHz\b/.test(s) || /\bHz\b/.test(s)),
@@ -1750,10 +1726,10 @@ test('axes: スペクトログラム表示で周波数軸 (Hz) とカラーバ�
 
     const spy = env.domCanvasContexts.get('track-spec-canvas-0');
     assert.ok(spy, 'track-spec-canvas-0 のスパイが取得できること');
-    const labels = spy!.fillTextCalls;
+    const labels = spy.fillTextCalls;
     assert.ok(labels.some((s) => /\d+\s*dB$/.test(s)), 'カラーバーの dB ラベルが描かれること');
     assert.equal(labels.some((s) => /\bkHz\b/.test(s) || /\bHz\b/.test(s)), false, '周波数ラベルはプロット canvas に描かれないこと');
-    assert.ok(spy!.putImageDataCalls >= 2,
+    assert.ok(spy.putImageDataCalls >= 2,
         'プロット領域とカラーバーで putImageData が複数回呼ばれること');
     env.dom.window.close();
 });
@@ -1761,7 +1737,7 @@ test('axes: スペクトログラム表示で周波数軸 (Hz) とカラーバ�
 test('renderScript: spectrogram reuses its decimated base during playback and rebuilds for display changes', async () => {
     const env = setupSpectrumEnv();
     await nextAnimationFrame(env.dom);
-    const spectrogramBtn = env.dom.window.document.querySelector('[data-action="content-waveform"]') as HTMLButtonElement | null;
+    const spectrogramBtn = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="content-waveform"]');
     assert.ok(spectrogramBtn);
     spectrogramBtn.click();
     await nextAnimationFrame(env.dom);
@@ -1770,8 +1746,8 @@ test('renderScript: spectrogram reuses its decimated base during playback and re
     const overlaySpy = env.domCanvasContexts.get('track-spectrogram-overlay-0');
     assert.ok(baseSpy && baseSpy.putImageDataCalls > 0, 'spectrogram base should be rasterized once');
     assert.ok(overlaySpy, 'spectrogram cursor should use a separate overlay canvas');
-    const baseRendersBeforePlayback = baseSpy!.putImageDataCalls;
-    const overlayClearsBeforePlayback = overlaySpy!.clearRectCalls;
+    const baseRendersBeforePlayback = baseSpy.putImageDataCalls;
+    const overlayClearsBeforePlayback = overlaySpy.clearRectCalls;
 
     const audio = env.dom.window.document.getElementById('track-audio-0') as HTMLAudioElement;
     const playButton = env.dom.window.document.querySelector('[data-action="toggle-playback"][data-track-id="track-1"]') as HTMLButtonElement;
@@ -1782,9 +1758,9 @@ test('renderScript: spectrogram reuses its decimated base during playback and re
     await nextAnimationFrame(env.dom);
     stopButton.click();
 
-    assert.equal(baseSpy!.putImageDataCalls, baseRendersBeforePlayback,
+    assert.equal(baseSpy.putImageDataCalls, baseRendersBeforePlayback,
         'playback cursor updates must not rebuild the spectrogram base');
-    assert.ok(overlaySpy!.clearRectCalls > overlayClearsBeforePlayback,
+    assert.ok(overlaySpy.clearRectCalls > overlayClearsBeforePlayback,
         'playback cursor updates should repaint only the lightweight overlay');
 
     env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
@@ -1793,9 +1769,9 @@ test('renderScript: spectrogram reuses its decimated base during playback and re
         actionId: 'spectrogram-base-size-change',
     } }));
     await nextAnimationFrame(env.dom);
-    assert.ok(baseSpy!.putImageDataCalls > baseRendersBeforePlayback,
+    assert.ok(baseSpy.putImageDataCalls > baseRendersBeforePlayback,
         'canvas size changes must rebuild the display-sized spectrogram base');
-    const baseRendersBeforeDisplayChange = baseSpy!.putImageDataCalls;
+    const baseRendersBeforeDisplayChange = baseSpy.putImageDataCalls;
 
     env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
         type: 'comparison-panel-test-action',
@@ -1803,9 +1779,9 @@ test('renderScript: spectrogram reuses its decimated base during playback and re
         actions: [{ action: 'set-spectrogram-display', payload: { dbMin: -60, dbMax: 0, maxFrequencyHz: 1000 } }],
     } }));
     await nextAnimationFrame(env.dom);
-    assert.ok(baseSpy!.putImageDataCalls > baseRendersBeforeDisplayChange,
+    assert.ok(baseSpy.putImageDataCalls > baseRendersBeforeDisplayChange,
         'color scale or frequency range changes must rebuild the spectrogram base');
-    const baseRendersBeforeDataChange = baseSpy!.putImageDataCalls;
+    const baseRendersBeforeDataChange = baseSpy.putImageDataCalls;
     const updatedResults = JSON.parse(SPECTRUM_APP_STATE).results;
     updatedResults[0].channels[0].spectrogram.values = updatedResults[0].channels[0].spectrogram.values
         .map((row: number[]) => row.map((value: number) => value - 1));
@@ -1814,7 +1790,7 @@ test('renderScript: spectrogram reuses its decimated base during playback and re
         results: updatedResults,
     } }));
     await nextAnimationFrame(env.dom);
-    assert.ok(baseSpy!.putImageDataCalls > baseRendersBeforeDataChange,
+    assert.ok(baseSpy.putImageDataCalls > baseRendersBeforeDataChange,
         'analysis or calibration data changes must rebuild the spectrogram base');
     env.dom.window.close();
 });
@@ -1822,9 +1798,9 @@ test('renderScript: spectrogram reuses its decimated base during playback and re
 test('axes: スペクトログラム画像はカラーバー領域に重ならない', async () => {
     const env = setupSpectrumEnv();
     await nextAnimationFrame(env.dom);
-    const spectrogramBtn = env.dom.window.document.querySelector('[data-action="content-waveform"]') as HTMLButtonElement | null;
+    const spectrogramBtn = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="content-waveform"]');
     assert.ok(spectrogramBtn);
-    spectrogramBtn!.click();
+    spectrogramBtn.click();
     await nextAnimationFrame(env.dom);
     await new Promise((resolve) => env.dom.window.setTimeout(resolve, 0));
 
@@ -1832,12 +1808,12 @@ test('axes: スペクトログラム画像はカラーバー領域に重なら�
     assert.ok(canvas);
     const spy = env.domCanvasContexts.get('track-spec-canvas-0');
     assert.ok(spy);
-    const spectrogramImage = spy!.putImageDataArgs[0];
+    const spectrogramImage = spy.putImageDataArgs[0];
     assert.ok(spectrogramImage, 'スペクトログラム画像の putImageData が記録されること');
     assert.equal(spectrogramImage.x, 0);
     assert.ok(
-        spectrogramImage.width <= canvas!.width - 50,
-        `スペクトログラム画像幅 ${spectrogramImage.width} が canvas 幅 ${canvas!.width} のカラーバー領域まで伸びないこと`,
+        spectrogramImage.width <= canvas.width - 50,
+        `スペクトログラム画像幅 ${spectrogramImage.width} が canvas 幅 ${canvas.width} のカラーバー領域まで伸びないこと`,
     );
     env.dom.window.close();
 });
@@ -1845,20 +1821,20 @@ test('axes: スペクトログラム画像はカラーバー領域に重なら�
 test('spectrogram hit testing maps pointer positions to the plot width and ignores the colorbar', async () => {
     const env = setupSpectrumEnv();
     await nextAnimationFrame(env.dom);
-    const spectrogramBtn = env.dom.window.document.querySelector('[data-action="content-waveform"]') as HTMLButtonElement | null;
+    const spectrogramBtn = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="content-waveform"]');
     assert.ok(spectrogramBtn);
-    spectrogramBtn!.click();
+    spectrogramBtn.click();
     await nextAnimationFrame(env.dom);
 
     const canvas = env.dom.window.document.getElementById('track-spec-canvas-0') as HTMLCanvasElement | null;
     assert.ok(canvas);
-    canvas!.width = 800;
-    canvas!.height = 100;
-    canvas!.getBoundingClientRect = () => ({
+    canvas.width = 800;
+    canvas.height = 100;
+    canvas.getBoundingClientRect = () => ({
         left: 0, top: 0, right: 800, bottom: 100, width: 800, height: 100,
     } as DOMRect);
 
-    canvas!.dispatchEvent(new env.dom.window.MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 375, clientY: 50 }));
+    canvas.dispatchEvent(new env.dom.window.MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 375, clientY: 50 }));
     env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mouseup', { bubbles: true, button: 0, clientX: 375, clientY: 50 }));
     await nextAnimationFrame(env.dom);
     env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', {
@@ -1869,7 +1845,7 @@ test('spectrogram hit testing maps pointer positions to the plot width and ignor
     let snap = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any;
     assert.equal(snap.renderedUi.cursorNorm, 0.5, 'x=375 on an 800px canvas with a 50px colorbar maps to 50% plot time');
 
-    canvas!.dispatchEvent(new env.dom.window.MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 775, clientY: 50 }));
+    canvas.dispatchEvent(new env.dom.window.MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 775, clientY: 50 }));
     env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mouseup', { bubbles: true, button: 0, clientX: 775, clientY: 50 }));
     await nextAnimationFrame(env.dom);
     env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', {
@@ -1885,21 +1861,21 @@ test('spectrogram hit testing maps pointer positions to the plot width and ignor
 test('spectrogram Ctrl+wheel zoom uses the plot width and ignores the colorbar', async () => {
     const env = setupSpectrumEnv();
     await nextAnimationFrame(env.dom);
-    const spectrogramBtn = env.dom.window.document.querySelector('[data-action="content-waveform"]') as HTMLButtonElement | null;
+    const spectrogramBtn = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="content-waveform"]');
     assert.ok(spectrogramBtn);
-    spectrogramBtn!.click();
+    spectrogramBtn.click();
     await nextAnimationFrame(env.dom);
 
-    const wrapper = env.dom.window.document.getElementById('tracks-wrapper') as HTMLElement | null;
+    const wrapper = env.dom.window.document.getElementById('tracks-wrapper');
     const canvas = env.dom.window.document.getElementById('track-spec-canvas-0') as HTMLCanvasElement | null;
     assert.ok(wrapper);
     assert.ok(canvas);
-    wrapper!.getBoundingClientRect = () => ({
+    wrapper.getBoundingClientRect = () => ({
         left: 0, top: 0, right: 930, bottom: 100, width: 930, height: 100,
     } as DOMRect);
-    canvas!.width = 800;
-    canvas!.height = 100;
-    canvas!.getBoundingClientRect = () => ({
+    canvas.width = 800;
+    canvas.height = 100;
+    canvas.getBoundingClientRect = () => ({
         left: 130, top: 0, right: 930, bottom: 100, width: 800, height: 100,
     } as DOMRect);
 
@@ -1911,7 +1887,7 @@ test('spectrogram Ctrl+wheel zoom uses the plot width and ignores the colorbar',
         clientX: 505,
         clientY: 50,
     });
-    const plotWheelNotCanceled = canvas!.dispatchEvent(plotWheel);
+    const plotWheelNotCanceled = canvas.dispatchEvent(plotWheel);
     await nextAnimationFrame(env.dom);
     env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', {
         data: { type: 'comparison-panel-test-action', actions: [], actionId: 'spectrogram-wheel-plot' },
@@ -1933,7 +1909,7 @@ test('spectrogram Ctrl+wheel zoom uses the plot width and ignores the colorbar',
         clientX: 905,
         clientY: 50,
     });
-    canvas!.dispatchEvent(colorbarWheel);
+    canvas.dispatchEvent(colorbarWheel);
     await nextAnimationFrame(env.dom);
     env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', {
         data: { type: 'comparison-panel-test-action', actions: [], actionId: 'spectrogram-wheel-colorbar' },
@@ -1950,7 +1926,7 @@ test('spectrogram Ctrl+wheel zoom uses the plot width and ignores the colorbar',
 test('spectrogram ruler maps time ticks to the plot width', async () => {
     const env = setupSpectrumEnv();
     await nextAnimationFrame(env.dom);
-    const row = env.dom.window.document.getElementById('ruler-row') as HTMLElement | null;
+    const row = env.dom.window.document.getElementById('ruler-row');
     assert.ok(row);
     Object.defineProperty(row, 'clientWidth', { configurable: true, value: 994 });
     // The lane: 64 px amplitude axis, a 750 px waveform, then the spectrogram's 50 px colour bar.
@@ -1958,16 +1934,16 @@ test('spectrogram ruler maps time ticks to the plot width', async () => {
     const ruler = env.dom.window.document.getElementById('ruler-canvas') as HTMLCanvasElement | null;
     assert.ok(ruler);
 
-    const spectrogramBtn = env.dom.window.document.querySelector('[data-action="content-waveform"]') as HTMLButtonElement | null;
+    const spectrogramBtn = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="content-waveform"]');
     assert.ok(spectrogramBtn);
-    spectrogramBtn!.click();
+    spectrogramBtn.click();
     await nextAnimationFrame(env.dom);
 
     const rulerSpy = env.domCanvasContexts.get('ruler-canvas');
     assert.ok(rulerSpy);
-    const halfSecondTick = rulerSpy!.fillTextArgs.filter((call) => call.text === '0:00.50').at(-1);
+    const halfSecondTick = rulerSpy.fillTextArgs.filter((call) => call.text === '0:00.50').at(-1);
     assert.ok(halfSecondTick, '0.5 秒 tick が描画されること');
-    assert.equal(halfSecondTick!.x, 377, 'spectrogram ruler の中央 tick は 750px plot の中央 + label offset に描画されること');
+    assert.equal(halfSecondTick.x, 377, 'spectrogram ruler の中央 tick は 750px plot の中央 + label offset に描画されること');
     env.dom.window.close();
 });
 
@@ -1977,13 +1953,13 @@ test('axes: スペクトル (per-track / overlay) に Hz と dB のラベルが�
 
     const trackSpy = env.domCanvasContexts.get('track-spectrum-0');
     assert.ok(trackSpy, 'track-spectrum-0 のスパイが取得できること');
-    const trackLabels = trackSpy!.fillTextCalls;
+    const trackLabels = trackSpy.fillTextCalls;
     assert.ok(trackLabels.includes('0 Hz'), 'per-track: 0 Hz ラベルが描かれること');
     assert.ok(trackLabels.some((s) => /dB$/.test(s)), 'per-track: dB ラベルが描かれること');
 
     const overlaySpy = env.domCanvasContexts.get('spectrum-overlay-canvas');
     assert.ok(overlaySpy, 'overlay canvas のスパイが取得できること');
-    const overlayLabels = overlaySpy!.fillTextCalls;
+    const overlayLabels = overlaySpy.fillTextCalls;
     assert.ok(overlayLabels.includes('0 Hz'), 'overlay: 0 Hz ラベルが描かれること');
     assert.ok(overlayLabels.some((s) => /dB$/.test(s)), 'overlay: dB ラベルが描かれること');
     assert.ok(
@@ -2002,16 +1978,16 @@ test('spectrum cursor: per-track readout formats focused frequency in Hz', async
     assert.ok(canvas, 'track-spectrum-0 が存在すること');
     Object.defineProperty(canvas, 'width', { configurable: true, writable: true, value: 200 });
     Object.defineProperty(canvas, 'height', { configurable: true, writable: true, value: 140 });
-    canvas!.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
+    canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
 
-    canvas!.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 88, clientY: 30 }));
+    canvas.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 88, clientY: 30 }));
     await nextAnimationFrame(env.dom);
 
     const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
     assert.ok(readout, 'spectrum-freq-readout が存在すること');
-    assert.match(readout!.textContent || '', /^high\.wav \/ 1200 Hz \/ -60\.0 dB$/,
+    assert.match(readout.textContent || '', /^high\.wav \/ 1200 Hz \/ -60\.0 dB$/,
         'カーソル読み値はトラック名、Hz固定の周波数、dBをヘッダーに表示すること');
-    assert.doesNotMatch(readout!.textContent || '', /kHz/);
+    assert.doesNotMatch(readout.textContent || '', /kHz/);
     env.dom.window.close();
 });
 
@@ -2024,16 +2000,16 @@ test('spectrum cursor: overlay readout formats focused frequency in Hz', async (
     assert.ok(canvas, 'spectrum-overlay-canvas が存在すること');
     Object.defineProperty(canvas, 'width', { configurable: true, writable: true, value: 200 });
     Object.defineProperty(canvas, 'height', { configurable: true, writable: true, value: 140 });
-    canvas!.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
+    canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
 
-    canvas!.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 88, clientY: 30 }));
+    canvas.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 88, clientY: 30 }));
     await nextAnimationFrame(env.dom);
 
     const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
     assert.ok(readout, 'spectrum-freq-readout が存在すること');
-    assert.match(readout!.textContent || '', /^high\.wav \/ Channel 1 \(L\) \/ 1200 Hz \/ -60\.0 dB$/,
+    assert.match(readout.textContent || '', /^high\.wav \/ Channel 1 \(L\) \/ 1200 Hz \/ -60\.0 dB$/,
         'overlay のカーソル読み値も file/channel 付きで Hz 固定表示すること');
-    assert.doesNotMatch(readout!.textContent || '', /kHz/);
+    assert.doesNotMatch(readout.textContent || '', /kHz/);
     env.dom.window.close();
 });
 
@@ -2046,14 +2022,14 @@ test('spectrum cursor: overlay readout identifies the hovered file and channel',
     assert.ok(canvas, 'spectrum-overlay-canvas が存在すること');
     Object.defineProperty(canvas, 'width', { configurable: true, writable: true, value: 200 });
     Object.defineProperty(canvas, 'height', { configurable: true, writable: true, value: 140 });
-    canvas!.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
+    canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
 
-    canvas!.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 192, clientY: 12 }));
+    canvas.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 192, clientY: 12 }));
     await nextAnimationFrame(env.dom);
 
     const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
     assert.ok(readout, 'spectrum-freq-readout が存在すること');
-    assert.equal(readout!.textContent, 'stereo.wav / Channel 2 / 2 (Right) / 22050 Hz / -3.0 dB',
+    assert.equal(readout.textContent, 'stereo.wav / Channel 2 / 2 (Right) / 22050 Hz / -3.0 dB',
         'overlay hover readout は最寄り系列の fileName と channelLabel を含むこと');
     env.dom.window.close();
 });
@@ -2065,7 +2041,7 @@ test('spectrum cursor: overlay keyboard focus updates the header readout', async
 
     const canvas = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
     assert.ok(canvas, 'spectrum-overlay-canvas が存在すること');
-    canvas!.focus();
+    canvas.focus();
     env.dom.window.document.dispatchEvent(new env.dom.window.KeyboardEvent('keydown', { bubbles: true, code: 'ArrowRight' }));
     await nextAnimationFrame(env.dom);
 
@@ -2084,14 +2060,14 @@ test('spectrum cursor: per-track readout snaps to the hovered track frequency bi
     assert.ok(canvas, 'track-spectrum-0 が存在すること');
     Object.defineProperty(canvas, 'width', { configurable: true, writable: true, value: 200 });
     Object.defineProperty(canvas, 'height', { configurable: true, writable: true, value: 140 });
-    canvas!.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
+    canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
 
-    canvas!.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 88, clientY: 30 }));
+    canvas.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 88, clientY: 30 }));
     await nextAnimationFrame(env.dom);
 
     const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
     assert.ok(readout, 'spectrum-freq-readout が存在すること');
-    assert.match(readout!.textContent || '', /^coarse\.wav \/ 200 Hz \/ -60\.0 dB$/,
+    assert.match(readout.textContent || '', /^coarse\.wav \/ 200 Hz \/ -60\.0 dB$/,
         'coarse track ΔF=200 Hz の最寄りbinへ吸着すること');
     env.dom.window.close();
 });
@@ -2104,7 +2080,7 @@ test('spectrum cursor: per-track keyboard focus updates the header readout', asy
 
     const canvas = env.dom.window.document.getElementById('track-spectrum-0') as HTMLCanvasElement | null;
     assert.ok(canvas, 'track-spectrum-0 が存在すること');
-    canvas!.focus();
+    canvas.focus();
     env.dom.window.document.dispatchEvent(new env.dom.window.KeyboardEvent('keydown', { bubbles: true, code: 'ArrowRight' }));
     await nextAnimationFrame(env.dom);
 
@@ -2134,16 +2110,16 @@ test('spectrum cursor: per-track keyboard stepping uses the hovered channel bins
     assert.ok(trackCanvas, 'track-spectrum-0-1 が存在すること');
     Object.defineProperty(trackCanvas, 'width', { configurable: true, writable: true, value: 200 });
     Object.defineProperty(trackCanvas, 'height', { configurable: true, writable: true, value: 140 });
-    trackCanvas!.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
+    trackCanvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
 
-    trackCanvas!.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 113, clientY: 30 }));
+    trackCanvas.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 113, clientY: 30 }));
     await nextAnimationFrame(env.dom);
     env.dom.window.document.dispatchEvent(new env.dom.window.KeyboardEvent('keydown', { bubbles: true, code: 'ArrowRight' }));
     await nextAnimationFrame(env.dom);
 
     const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
     assert.ok(readout, 'spectrum-freq-readout が存在すること');
-    assert.match(readout!.textContent || '', /^stereo\.wav Channel 2 \/ 2 \(Right\) \/ 3000 Hz \/ -20\.0 dB$/,
+    assert.match(readout.textContent || '', /^stereo\.wav Channel 2 \/ 2 \(Right\) \/ 3000 Hz \/ -20\.0 dB$/,
         'ch1 の ΔF=1000 Hz の次binへ移動すること');
     env.dom.window.close();
 });
@@ -2156,9 +2132,9 @@ test('spectrum cursor: narrow canvas hover clears stale spectrum target', async 
     assert.ok(trackCanvas, 'track-spectrum-0 が存在すること');
     Object.defineProperty(trackCanvas, 'width', { configurable: true, writable: true, value: 200 });
     Object.defineProperty(trackCanvas, 'height', { configurable: true, writable: true, value: 140 });
-    trackCanvas!.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
+    trackCanvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
 
-    trackCanvas!.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 88, clientY: 30 }));
+    trackCanvas.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 88, clientY: 30 }));
     await nextAnimationFrame(env.dom);
 
     const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
@@ -2169,9 +2145,9 @@ test('spectrum cursor: narrow canvas hover clears stale spectrum target', async 
     assert.ok(overlayCanvas, 'spectrum-overlay-canvas が存在すること');
     Object.defineProperty(overlayCanvas, 'width', { configurable: true, writable: true, value: 20 });
     Object.defineProperty(overlayCanvas, 'height', { configurable: true, writable: true, value: 140 });
-    overlayCanvas!.getBoundingClientRect = () => ({ left: 0, top: 0, right: 20, bottom: 140, width: 20, height: 140 } as DOMRect);
+    overlayCanvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 20, bottom: 140, width: 20, height: 140 } as DOMRect);
 
-    overlayCanvas!.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 10, clientY: 30 }));
+    overlayCanvas.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 10, clientY: 30 }));
     await nextAnimationFrame(env.dom);
 
     assert.equal(readout!.textContent || '', '',
@@ -2187,14 +2163,14 @@ test('spectrum cursor: overlay snaps to the nearest visible series bin when delt
     assert.ok(canvas, 'spectrum-overlay-canvas が存在すること');
     Object.defineProperty(canvas, 'width', { configurable: true, writable: true, value: 200 });
     Object.defineProperty(canvas, 'height', { configurable: true, writable: true, value: 140 });
-    canvas!.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
+    canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
 
-    canvas!.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 73, clientY: 52 }));
+    canvas.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 73, clientY: 52 }));
     await nextAnimationFrame(env.dom);
 
     const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
     assert.ok(readout, 'spectrum-freq-readout が存在すること');
-    assert.match(readout!.textContent || '', /^fine\.wav \/ Channel 1 \(L\) \/ 180 Hz \/ -35\.0 dB$/,
+    assert.match(readout.textContent || '', /^fine\.wav \/ Channel 1 \(L\) \/ 180 Hz \/ -35\.0 dB$/,
         'fine track ΔF=180 Hz の最寄りbinへ吸着すること');
     env.dom.window.close();
 });
@@ -2208,9 +2184,9 @@ test('spectrum cursor: overlay remains snapped after frequency zoom changes the 
     assert.ok(canvas, 'spectrum-overlay-canvas が存在すること');
     Object.defineProperty(canvas, 'width', { configurable: true, writable: true, value: 200 });
     Object.defineProperty(canvas, 'height', { configurable: true, writable: true, value: 140 });
-    canvas!.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
+    canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
 
-    canvas!.dispatchEvent(new env.dom.window.MouseEvent('dblclick', { bubbles: true, clientX: 100, clientY: 135 }));
+    canvas.dispatchEvent(new env.dom.window.MouseEvent('dblclick', { bubbles: true, clientX: 100, clientY: 135 }));
     const minI = env.dom.window.document.getElementById('spec-range-min') as HTMLInputElement;
     const maxI = env.dom.window.document.getElementById('spec-range-max') as HTMLInputElement;
     minI.value = '100';
@@ -2218,12 +2194,12 @@ test('spectrum cursor: overlay remains snapped after frequency zoom changes the 
     (env.dom.window.document.getElementById('spec-range-apply') as HTMLElement).click();
     await nextAnimationFrame(env.dom);
 
-    canvas!.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 81, clientY: 52 }));
+    canvas.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 81, clientY: 52 }));
     await nextAnimationFrame(env.dom);
 
     const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
     assert.ok(readout, 'spectrum-freq-readout が存在すること');
-    assert.match(readout!.textContent || '', /^fine\.wav \/ Channel 1 \(L\) \/ 180 Hz \/ -35\.0 dB$/,
+    assert.match(readout.textContent || '', /^fine\.wav \/ Channel 1 \(L\) \/ 180 Hz \/ -35\.0 dB$/,
         '周波数ズーム後もfine trackの実binへ吸着すること');
     env.dom.window.close();
 });
@@ -2240,23 +2216,23 @@ test('renderScript: spectrum canvases are redrawn during playback as cursor adva
     assert.ok(overlaySpy, 'overlay canvas のスパイが取得できること');
     assert.ok(trackSpy, 'track-spectrum-0 のスパイが取得できること');
 
-    const overlayBefore = overlaySpy!.strokeCalls;
-    const trackBefore = trackSpy!.strokeCalls;
+    const overlayBefore = overlaySpy.strokeCalls;
+    const trackBefore = trackSpy.strokeCalls;
     const waveformSpy = env.domCanvasContexts.get('track-canvas-0');
     assert.ok(waveformSpy, 'track-canvas-0 のスパイが取得できること');
-    const waveformBefore = waveformSpy!.clearRectCalls;
+    const waveformBefore = waveformSpy.clearRectCalls;
 
     const audio = env.dom.window.document.getElementById('track-audio-0') as HTMLAudioElement | null;
-    const playButton = env.dom.window.document.querySelector('[data-action="toggle-playback"][data-track-id="track-1"]') as HTMLButtonElement | null;
-    const stopButton = env.dom.window.document.querySelector('[data-action="stop-playback"][data-track-id="track-1"]') as HTMLButtonElement | null;
+    const playButton = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="toggle-playback"][data-track-id="track-1"]');
+    const stopButton = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="stop-playback"][data-track-id="track-1"]');
     assert.ok(audio instanceof env.dom.window.HTMLAudioElement);
     assert.ok(playButton instanceof env.dom.window.HTMLButtonElement);
     assert.ok(stopButton instanceof env.dom.window.HTMLButtonElement);
 
     (audio as HTMLAudioElement & { duration: number }).duration = 1;
-    playButton!.click();
+    playButton.click();
     await Promise.resolve();
-    assert.equal(audio!.paused, false, '再生状態に切り替わっていること');
+    assert.equal(audio.paused, false, '再生状態に切り替わっていること');
 
     // 再生位置を進めてから rAF tick を消化する。
     // tick は paused=false の間 refreshSpectrumViews() を呼び、各スペクトル canvas を再描画する。
@@ -2265,17 +2241,17 @@ test('renderScript: spectrum canvases are redrawn during playback as cursor adva
     await new Promise((resolve) => env.dom.window.setTimeout(resolve, 0));
 
     // すぐに停止してループを止める（rAF はループ内で再スケジュールされ続けるため）。
-    stopButton!.click();
+    stopButton.click();
 
-    assert.ok(waveformSpy!.clearRectCalls > waveformBefore,
+    assert.ok(waveformSpy.clearRectCalls > waveformBefore,
         '再生中の tick で waveform canvas が再描画され、カーソル線が進むこと '
-        + '(before=' + waveformBefore + ', after=' + waveformSpy!.clearRectCalls + ')');
-    assert.ok(overlaySpy!.strokeCalls > overlayBefore,
+        + '(before=' + waveformBefore + ', after=' + waveformSpy.clearRectCalls + ')');
+    assert.ok(overlaySpy.strokeCalls > overlayBefore,
         '再生中の tick で overlay spectrum が再描画されること '
-        + '(before=' + overlayBefore + ', after=' + overlaySpy!.strokeCalls + ')');
-    assert.ok(trackSpy!.strokeCalls > trackBefore,
+        + '(before=' + overlayBefore + ', after=' + overlaySpy.strokeCalls + ')');
+    assert.ok(trackSpy.strokeCalls > trackBefore,
         '再生中の tick で per-track spectrum が再描画されること '
-        + '(before=' + trackBefore + ', after=' + trackSpy!.strokeCalls + ')');
+        + '(before=' + trackBefore + ', after=' + trackSpy.strokeCalls + ')');
     env.dom.window.close();
 });
 
@@ -2288,8 +2264,8 @@ test('renderScript: playback spectrum redraw waits for the latest backend respon
     assert.ok(overlaySpy, 'overlay canvas のスパイが取得できること');
 
     const audio = env.dom.window.document.getElementById('track-audio-0') as HTMLAudioElement | null;
-    const playButton = env.dom.window.document.querySelector('[data-action="toggle-playback"][data-track-id="track-1"]') as HTMLButtonElement | null;
-    const stopButton = env.dom.window.document.querySelector('[data-action="stop-playback"][data-track-id="track-1"]') as HTMLButtonElement | null;
+    const playButton = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="toggle-playback"][data-track-id="track-1"]');
+    const stopButton = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="stop-playback"][data-track-id="track-1"]');
     assert.ok(audio instanceof env.dom.window.HTMLAudioElement);
     assert.ok(playButton instanceof env.dom.window.HTMLButtonElement);
     assert.ok(stopButton instanceof env.dom.window.HTMLButtonElement);
@@ -2299,18 +2275,18 @@ test('renderScript: playback spectrum redraw waits for the latest backend respon
     await Promise.resolve();
     await nextAnimationFrame(env.dom);
 
-    const afterStart = overlaySpy!.clearRectCalls;
+    const afterStart = overlaySpy.clearRectCalls;
     clock.now = 1001;
     (audio as HTMLAudioElement & { currentTime: number }).currentTime = 0.2;
     await nextAnimationFrame(env.dom);
-    assert.equal(overlaySpy!.clearRectCalls, afterStart,
+    assert.equal(overlaySpy.clearRectCalls, afterStart,
         '31ms 未満の playback tick では spectrum 再描画を増やさないこと');
 
     clock.now = 1034;
     (audio as HTMLAudioElement & { currentTime: number }).currentTime = 0.5;
     await nextAnimationFrame(env.dom);
     await nextAnimationFrame(env.dom);
-    assert.equal(overlaySpy!.clearRectCalls, afterStart,
+    assert.equal(overlaySpy.clearRectCalls, afterStart,
         'playback tick alone must not redraw a stale power spectrum');
     const requests = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice') as any[];
     assert.equal(requests.length, 1, 'only one backend request may remain in flight during playback');
@@ -2327,7 +2303,7 @@ test('renderScript: playback spectrum redraw waits for the latest backend respon
         maxFrequencyHz: 22050,
     } }));
     await nextAnimationFrame(env.dom);
-    assert.ok(overlaySpy!.clearRectCalls > afterStart,
+    assert.ok(overlaySpy.clearRectCalls > afterStart,
         'a successful backend response should trigger the coalesced spectrum redraw');
 
     stopButton.click();
@@ -2382,15 +2358,15 @@ test('renderScript: spectrum hover mousemoves are coalesced to one animation fra
     assert.ok(overlay instanceof env.dom.window.HTMLCanvasElement);
     assert.ok(overlaySpy, 'overlay canvas のスパイが取得できること');
 
-    const before = overlaySpy!.clearRectCalls;
+    const before = overlaySpy.clearRectCalls;
     overlay.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 100, clientY: 20 }));
     overlay.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 120, clientY: 22 }));
     overlay.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 140, clientY: 24 }));
-    assert.equal(overlaySpy!.clearRectCalls, before,
+    assert.equal(overlaySpy.clearRectCalls, before,
         'mousemove handler 内では同期的に spectrum を再描画しないこと');
 
     await nextAnimationFrame(env.dom);
-    assert.equal(overlaySpy!.clearRectCalls, before + 1,
+    assert.equal(overlaySpy.clearRectCalls, before + 1,
         '同一フレーム内の mousemove 連打は 1 回の spectrum 更新に畳まれること');
     env.dom.window.close();
 });
@@ -2401,65 +2377,64 @@ test('renderScript: spectrum hover mousemoves are coalesced to one animation fra
 /** オフセット編集テスト用: setTimeout を即時実行に差し替えて 200ms 待ちを不要にする */
 function withSyncTimeout(env: ReturnType<typeof setupEnv>, fn: () => void) {
     const orig = env.dom.window.setTimeout;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (env.dom.window as any).setTimeout = (cb: () => void) => { cb(); return 0; };
     try { fn(); } finally { (env.dom.window as any).setTimeout = orig; }
 }
 
 test('renderScript: click .track-offset-val opens inline input', () => {
     const env = setupEnv();
-    const span = env.dom.window.document.querySelector('.track-offset-val') as HTMLElement | null;
+    const span = env.dom.window.document.querySelector<HTMLElement>('.track-offset-val');
     assert.ok(span, '.track-offset-val span が存在すること');
 
     withSyncTimeout(env, () => {
-        span!.dispatchEvent(new env.dom.window.MouseEvent('click', { bubbles: true, detail: 1 }));
+        span.dispatchEvent(new env.dom.window.MouseEvent('click', { bubbles: true, detail: 1 }));
     });
 
-    const input = span!.parentNode?.querySelector('input.track-offset-input') as HTMLInputElement | null;
+    const input = span.parentNode?.querySelector('input.track-offset-input') as HTMLInputElement | null;
     assert.ok(input, 'クリック後に .track-offset-input input が挿入されること');
-    assert.equal(span!.style.display, 'none', 'クリック後に span が非表示になること');
+    assert.equal(span.style.display, 'none', 'クリック後に span が非表示になること');
     env.dom.window.close();
 });
 
 test('renderScript: Enter commits inline offset edit', () => {
     const env = setupEnv();
-    const span = env.dom.window.document.querySelector('.track-offset-val') as HTMLElement | null;
+    const span = env.dom.window.document.querySelector<HTMLElement>('.track-offset-val');
     assert.ok(span, '.track-offset-val span が存在すること');
 
     withSyncTimeout(env, () => {
-        span!.dispatchEvent(new env.dom.window.MouseEvent('click', { bubbles: true, detail: 1 }));
+        span.dispatchEvent(new env.dom.window.MouseEvent('click', { bubbles: true, detail: 1 }));
     });
 
-    const input = span!.parentNode?.querySelector('input.track-offset-input') as HTMLInputElement | null;
+    const input = span.parentNode?.querySelector('input.track-offset-input') as HTMLInputElement | null;
     assert.ok(input, 'input が挿入されること');
 
-    input!.value = '500';
-    input!.dispatchEvent(new env.dom.window.KeyboardEvent('keydown', { bubbles: true, key: 'Enter' }));
+    input.value = '500';
+    input.dispatchEvent(new env.dom.window.KeyboardEvent('keydown', { bubbles: true, key: 'Enter' }));
 
-    assert.ok(!span!.parentNode?.querySelector('input.track-offset-input'), 'Enter 後に input が削除されること');
-    assert.equal(span!.style.display, '', 'Enter 後に span が再表示されること');
+    assert.ok(!span.parentNode?.querySelector('input.track-offset-input'), 'Enter 後に input が削除されること');
+    assert.equal(span.style.display, '', 'Enter 後に span が再表示されること');
     env.dom.window.close();
 });
 
 test('renderScript: Escape cancels inline offset edit', () => {
     const env = setupEnv();
-    const span = env.dom.window.document.querySelector('.track-offset-val') as HTMLElement | null;
+    const span = env.dom.window.document.querySelector<HTMLElement>('.track-offset-val');
     assert.ok(span, '.track-offset-val span が存在すること');
 
-    const originalText = span!.textContent;
+    const originalText = span.textContent;
     withSyncTimeout(env, () => {
-        span!.dispatchEvent(new env.dom.window.MouseEvent('click', { bubbles: true, detail: 1 }));
+        span.dispatchEvent(new env.dom.window.MouseEvent('click', { bubbles: true, detail: 1 }));
     });
 
-    const input = span!.parentNode?.querySelector('input.track-offset-input') as HTMLInputElement | null;
+    const input = span.parentNode?.querySelector('input.track-offset-input') as HTMLInputElement | null;
     assert.ok(input, 'input が挿入されること');
 
-    input!.value = '9999';
-    input!.dispatchEvent(new env.dom.window.KeyboardEvent('keydown', { bubbles: true, key: 'Escape' }));
+    input.value = '9999';
+    input.dispatchEvent(new env.dom.window.KeyboardEvent('keydown', { bubbles: true, key: 'Escape' }));
 
-    assert.ok(!span!.parentNode?.querySelector('input.track-offset-input'), 'Escape 後に input が削除されること');
-    assert.equal(span!.style.display, '', 'Escape 後に span が再表示されること');
-    assert.equal(span!.textContent, originalText, 'Escape 後に span のテキストが変化しないこと');
+    assert.ok(!span.parentNode?.querySelector('input.track-offset-input'), 'Escape 後に input が削除されること');
+    assert.equal(span.style.display, '', 'Escape 後に span が再表示されること');
+    assert.equal(span.textContent, originalText, 'Escape 後に span のテキストが変化しないこと');
     env.dom.window.close();
 });
 
@@ -2468,18 +2443,18 @@ test('renderScript: Escape cancels inline offset edit', () => {
 test('renderScript: export-png button does not throw', async () => {
     const env = setupEnv();
     await nextAnimationFrame(env.dom);
-    const btn = env.dom.window.document.querySelector('[data-action="export-png"]') as HTMLButtonElement | null;
+    const btn = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="export-png"]');
     assert.ok(btn, '[data-action="export-png"] ボタンが存在すること');
-    assert.doesNotThrow(() => { btn!.click(); }, 'export-png クリックが例外を投げないこと');
+    assert.doesNotThrow(() => { btn.click(); }, 'export-png クリックが例外を投げないこと');
     env.dom.window.close();
 });
 
 test('renderScript: export-csv button does not throw', async () => {
     const env = setupSpectrumEnv();
     await nextAnimationFrame(env.dom);
-    const btn = env.dom.window.document.querySelector('[data-action="export-csv"]') as HTMLButtonElement | null;
+    const btn = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="export-csv"]');
     assert.ok(btn, '[data-action="export-csv"] ボタンが存在すること');
-    assert.doesNotThrow(() => { btn!.click(); }, 'export-csv クリックが例外を投げないこと');
+    assert.doesNotThrow(() => { btn.click(); }, 'export-csv クリックが例外を投げないこと');
     env.dom.window.close();
 });
 
@@ -2493,7 +2468,7 @@ test('renderScript: export-csv creates a download anchor with data URI', async (
         const el = origCreate(tag);
         if (tag === 'a') { created.push(el as HTMLAnchorElement); }
         return el;
-    } as typeof document.createElement;
+    };
 
     try {
         env.dom.window.document.querySelector('[data-action="export-csv"]')?.dispatchEvent(
@@ -2502,7 +2477,7 @@ test('renderScript: export-csv creates a download anchor with data URI', async (
 
         const anchor = created.find((a) => a.download === 'spectrum-export.csv');
         assert.ok(anchor, 'spectrum-export.csv という download 属性を持つ <a> が作られること');
-        assert.ok(anchor!.href.startsWith('data:text/csv'), 'href が data:text/csv URI であること');
+        assert.ok(anchor.href.startsWith('data:text/csv'), 'href が data:text/csv URI であること');
     } finally {
         env.dom.window.document.createElement = origCreate;
         env.dom.window.close();
@@ -2567,7 +2542,7 @@ test('renderScript: multichannel CSV includes all spectrum channels', async () =
         const el = origCreate(tag);
         if (tag === 'a') { created.push(el as HTMLAnchorElement); }
         return el;
-    } as typeof document.createElement;
+    };
 
     try {
         env.dom.window.document.querySelector('[data-action="export-csv"]')?.dispatchEvent(
@@ -2576,7 +2551,7 @@ test('renderScript: multichannel CSV includes all spectrum channels', async () =
 
         const anchor = created.find((a) => a.download === 'spectrum-export.csv');
         assert.ok(anchor, 'CSV download anchor が作られること');
-        const csv = decodeDataUriPayload(anchor!.href);
+        const csv = decodeDataUriPayload(anchor.href);
         assert.equal(csv.split('\n')[0], 'stereo.wav Channel 1 / 2 (Left) frequency (Hz),stereo.wav Channel 1 / 2 (Left) Spectrum level [dB],stereo.wav Channel 2 / 2 (Right) frequency (Hz),stereo.wav Channel 2 / 2 (Right) Spectrum level [dB]');
     } finally {
         env.dom.window.document.createElement = origCreate;
@@ -2594,7 +2569,7 @@ test('renderScript: export-csv preserves each track frequency axis', async () =>
         const el = origCreate(tag);
         if (tag === 'a') { created.push(el as HTMLAnchorElement); }
         return el;
-    } as typeof document.createElement;
+    };
 
     try {
         env.dom.window.document.querySelector('[data-action="export-csv"]')?.dispatchEvent(
@@ -2603,7 +2578,7 @@ test('renderScript: export-csv preserves each track frequency axis', async () =>
 
         const anchor = created.find((a) => a.download === 'spectrum-export.csv');
         assert.ok(anchor, 'CSV download anchor が作られること');
-        const rows = decodeDataUriPayload(anchor!.href).split('\n');
+        const rows = decodeDataUriPayload(anchor.href).split('\n');
         assert.equal(rows[0], 'coarse.wav Channel 1 (L) frequency (Hz),coarse.wav Channel 1 (L) Spectrum level [dB],fine.wav Channel 1 (L) frequency (Hz),fine.wav Channel 1 (L) Spectrum level [dB]');
         assert.equal(rows[1], '0.0000,-80.000000,0.0000,-20.000000');
         assert.equal(rows[4], '600.0000,-20.000000,540.0000,-65.000000');
@@ -2632,7 +2607,7 @@ test('renderScript: export-csv keeps original frequency axis after display max f
         const el = origCreate(tag);
         if (tag === 'a') { created.push(el as HTMLAnchorElement); }
         return el;
-    } as typeof document.createElement;
+    };
 
     try {
         env.dom.window.document.querySelector('[data-action="export-csv"]')?.dispatchEvent(
@@ -2641,7 +2616,7 @@ test('renderScript: export-csv keeps original frequency axis after display max f
 
         const anchor = created.find((a) => a.download === 'spectrum-export.csv');
         assert.ok(anchor, 'CSV download anchor が作られること');
-        const rows = decodeDataUriPayload(anchor!.href).split('\n');
+        const rows = decodeDataUriPayload(anchor.href).split('\n');
         assert.equal(rows[4], '600.0000,-20.000000,540.0000,-65.000000');
         assert.equal(rows[6], ',,900.0000,-85.000000');
     } finally {
@@ -2800,34 +2775,34 @@ test('renderScript: report export skips locally removed tracks', async () => {
 
 test('renderScript: zoom-to-selection ボタンがツールバーに存在すること', () => {
     const env = setupEnv();
-    const btn = env.dom.window.document.querySelector('[data-action="zoom-to-selection"]') as HTMLButtonElement | null;
+    const btn = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="zoom-to-selection"]');
     assert.ok(btn, '[data-action="zoom-to-selection"] ボタンが存在すること');
     env.dom.window.close();
 });
 
 test('renderScript: zoom-to-selection ボタンはループがない状態で disabled であること', () => {
     const env = setupEnv();
-    const btn = env.dom.window.document.querySelector('[data-action="zoom-to-selection"]') as HTMLButtonElement | null;
+    const btn = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="zoom-to-selection"]');
     assert.ok(btn, '[data-action="zoom-to-selection"] ボタンが存在すること');
-    assert.equal(btn!.disabled, true, 'ループがない場合は disabled であること');
+    assert.equal(btn.disabled, true, 'ループがない場合は disabled であること');
     env.dom.window.close();
 });
 
 test('renderScript: F キーで follow-cursor ボタンの is-active が切り替わること', () => {
     const env = setupEnv();
-    const followBtn = env.dom.window.document.querySelector('[data-action="toggle-follow-cursor"]') as HTMLButtonElement | null;
+    const followBtn = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="toggle-follow-cursor"]');
     assert.ok(followBtn, '[data-action="toggle-follow-cursor"] ボタンが存在すること');
-    assert.equal(followBtn!.classList.contains('is-active'), false, '初期状態は非アクティブであること');
+    assert.equal(followBtn.classList.contains('is-active'), false, '初期状態は非アクティブであること');
 
     env.dom.window.document.dispatchEvent(
         new env.dom.window.KeyboardEvent('keydown', { bubbles: true, key: 'f' }),
     );
-    assert.equal(followBtn!.classList.contains('is-active'), true, 'F キー後に is-active になること');
+    assert.equal(followBtn.classList.contains('is-active'), true, 'F キー後に is-active になること');
 
     env.dom.window.document.dispatchEvent(
         new env.dom.window.KeyboardEvent('keydown', { bubbles: true, key: 'f' }),
     );
-    assert.equal(followBtn!.classList.contains('is-active'), false, 'F キー再押しで is-active が解除されること');
+    assert.equal(followBtn.classList.contains('is-active'), false, 'F キー再押しで is-active が解除されること');
     env.dom.window.close();
 });
 
@@ -2837,22 +2812,22 @@ test('renderScript: L キーはループがある場合に zoom-to-selection を
     assert.ok(canvas, 'track-canvas-0 が存在すること');
 
     // ループ区間をドラッグで作成（MouseEvent で loopRegion を設定する）
-    canvas!.dispatchEvent(new env.dom.window.MouseEvent('mousedown', { bubbles: true, clientX: 50, clientY: 5, buttons: 1 }));
+    canvas.dispatchEvent(new env.dom.window.MouseEvent('mousedown', { bubbles: true, clientX: 50, clientY: 5, buttons: 1 }));
     env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 200, clientY: 5, buttons: 1 }));
     env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mouseup', { bubbles: true, clientX: 200, clientY: 5 }));
 
-    const zoomBtn = env.dom.window.document.querySelector('[data-action="zoom-to-selection"]') as HTMLButtonElement | null;
+    const zoomBtn = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="zoom-to-selection"]');
     assert.ok(zoomBtn, '[data-action="zoom-to-selection"] ボタンが存在すること');
     // ループ作成後は disabled が解除されていることを検証
-    assert.equal(zoomBtn!.disabled, false, 'ループ作成後は zoom-to-selection ボタンが enabled になること');
+    assert.equal(zoomBtn.disabled, false, 'ループ作成後は zoom-to-selection ボタンが enabled になること');
 
     // follow-cursor を一旦有効化しておく
-    const followBtn = env.dom.window.document.querySelector('[data-action="toggle-follow-cursor"]') as HTMLButtonElement | null;
+    const followBtn = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="toggle-follow-cursor"]');
     assert.ok(followBtn, 'follow-cursor ボタンが存在すること');
     env.dom.window.document.dispatchEvent(
         new env.dom.window.KeyboardEvent('keydown', { bubbles: true, key: 'f' }),
     );
-    assert.equal(followBtn!.classList.contains('is-active'), true, 'follow-cursor が有効になっていること');
+    assert.equal(followBtn.classList.contains('is-active'), true, 'follow-cursor が有効になっていること');
 
     // L キーを押下して zoom-to-selection を実行
     env.dom.window.document.dispatchEvent(
@@ -2860,7 +2835,7 @@ test('renderScript: L キーはループがある場合に zoom-to-selection を
     );
 
     // 副作用の検証 1: follow-cursor が無効化されること
-    assert.equal(followBtn!.classList.contains('is-active'), false, 'zoom-to-selection により follow-cursor が無効化されること');
+    assert.equal(followBtn.classList.contains('is-active'), false, 'zoom-to-selection により follow-cursor が無効化されること');
 
     // テストスナップショットの送信を要求する
     env.dom.window.dispatchEvent(
@@ -2889,27 +2864,27 @@ test('renderScript: L キーはループがある場合に zoom-to-selection を
 
 test('renderScript: ショートカットキーは修飾キー (Ctrl/Meta/Alt) が押されている場合は動作しないこと', () => {
     const env = setupEnv();
-    const followBtn = env.dom.window.document.querySelector('[data-action="toggle-follow-cursor"]') as HTMLButtonElement | null;
+    const followBtn = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="toggle-follow-cursor"]');
     assert.ok(followBtn, '[data-action="toggle-follow-cursor"] ボタンが存在すること');
-    assert.equal(followBtn!.classList.contains('is-active'), false, '初期状態は非アクティブであること');
+    assert.equal(followBtn.classList.contains('is-active'), false, '初期状態は非アクティブであること');
 
     // Ctrl+F を押下
     env.dom.window.document.dispatchEvent(
         new env.dom.window.KeyboardEvent('keydown', { bubbles: true, key: 'f', ctrlKey: true }),
     );
-    assert.equal(followBtn!.classList.contains('is-active'), false, 'Ctrl+F キーでは is-active にならないこと');
+    assert.equal(followBtn.classList.contains('is-active'), false, 'Ctrl+F キーでは is-active にならないこと');
 
     // Alt+F を押下
     env.dom.window.document.dispatchEvent(
         new env.dom.window.KeyboardEvent('keydown', { bubbles: true, key: 'f', altKey: true }),
     );
-    assert.equal(followBtn!.classList.contains('is-active'), false, 'Alt+F キーでは is-active にならないこと');
+    assert.equal(followBtn.classList.contains('is-active'), false, 'Alt+F キーでは is-active にならないこと');
 
     // Meta+F を押下
     env.dom.window.document.dispatchEvent(
         new env.dom.window.KeyboardEvent('keydown', { bubbles: true, key: 'f', metaKey: true }),
     );
-    assert.equal(followBtn!.classList.contains('is-active'), false, 'Meta+F キーでは is-active にならないこと');
+    assert.equal(followBtn.classList.contains('is-active'), false, 'Meta+F キーでは is-active にならないこと');
 
     env.dom.window.close();
 });
@@ -2917,7 +2892,7 @@ test('renderScript: ショートカットキーは修飾キー (Ctrl/Meta/Alt) �
 
 test('renderScript: 修飾キーなし wheel はトラック領域の標準スクロールに渡すこと', async () => {
     const env = setupEnv();
-    const wrapper = env.dom.window.document.getElementById('tracks-wrapper') as HTMLElement | null;
+    const wrapper = env.dom.window.document.getElementById('tracks-wrapper');
     assert.ok(wrapper, '#tracks-wrapper が存在すること');
 
     const event = new env.dom.window.WheelEvent('wheel', {
@@ -2925,7 +2900,7 @@ test('renderScript: 修飾キーなし wheel はトラック領域の標準ス�
         cancelable: true,
         deltaY: 120,
     });
-    const wasNotCanceled = wrapper!.dispatchEvent(event);
+    const wasNotCanceled = wrapper.dispatchEvent(event);
 
     env.dom.window.dispatchEvent(
         new env.dom.window.MessageEvent('message', {
@@ -2947,7 +2922,7 @@ test('renderScript: 修飾キーなし wheel はトラック領域の標準ス�
 
 test('renderScript: Ctrl+wheel は従来どおり波形ズームを実行すること', async () => {
     const env = setupEnv();
-    const wrapper = env.dom.window.document.getElementById('tracks-wrapper') as HTMLElement | null;
+    const wrapper = env.dom.window.document.getElementById('tracks-wrapper');
     assert.ok(wrapper, '#tracks-wrapper が存在すること');
 
     const event = new env.dom.window.WheelEvent('wheel', {
@@ -2956,7 +2931,7 @@ test('renderScript: Ctrl+wheel は従来どおり波形ズームを実行する�
         ctrlKey: true,
         deltaY: -120,
     });
-    const wasNotCanceled = wrapper!.dispatchEvent(event);
+    const wasNotCanceled = wrapper.dispatchEvent(event);
 
     env.dom.window.dispatchEvent(
         new env.dom.window.MessageEvent('message', {
@@ -3062,9 +3037,9 @@ test('高さリサイズハンドルのドラッグがトラックとパワー�
     env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: { type: 'comparison-panel-test-action', actions: ['toggle-spectrum-panel'], actionId: 'open-dock' } }));
     await nextAnimationFrame(env.dom);
 
-    const trackHandle = env.dom.window.document.querySelector('[data-action="track-height-drag"]') as HTMLElement | null;
+    const trackHandle = env.dom.window.document.querySelector<HTMLElement>('[data-action="track-height-drag"]');
     assert.ok(trackHandle);
-    const spectrumHandle = env.dom.window.document.querySelector('[data-action="spectrum-height-drag"]') as HTMLElement | null;
+    const spectrumHandle = env.dom.window.document.querySelector<HTMLElement>('[data-action="spectrum-height-drag"]');
     assert.ok(spectrumHandle);
 
     env.dom.window.dispatchEvent(
@@ -3121,14 +3096,14 @@ test('renderScript: rect-zoom ドラッグはループではなくラバーバ�
     );
     await nextAnimationFrame(env.dom);
 
-    canvas!.width = 400;
-    canvas!.height = 100;
-    canvas!.getBoundingClientRect = () => ({
+    canvas.width = 400;
+    canvas.height = 100;
+    canvas.getBoundingClientRect = () => ({
         left: 0, top: 0, right: 400, bottom: 100, width: 400, height: 100, x: 0, y: 0,
         toJSON: () => ({}),
-    } as DOMRect);
+    });
 
-    canvas!.dispatchEvent(new env.dom.window.MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 100, clientY: 20, buttons: 1 }));
+    canvas.dispatchEvent(new env.dom.window.MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 100, clientY: 20, buttons: 1 }));
     env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, button: 0, clientX: 300, clientY: 80, buttons: 1 }));
 
     env.dom.window.dispatchEvent(
@@ -3156,21 +3131,21 @@ test('renderScript: rect-zoom ドラッグはループではなくラバーバ�
     assert.ok(ui.amplitudeZoomMinNorm < -0.6 && ui.amplitudeZoomMinNorm > -0.8, '矩形の下端が振幅ズーム下限になること');
     assert.ok(ui.amplitudeZoomMaxNorm > 0.6 && ui.amplitudeZoomMaxNorm < 0.8, '矩形の上端が振幅ズーム上限になること');
 
-    const zoomBtn = env.dom.window.document.querySelector('[data-action="zoom-to-selection"]') as HTMLButtonElement | null;
+    const zoomBtn = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="zoom-to-selection"]');
     assert.ok(zoomBtn, 'zoom-to-selection ボタンが存在すること');
-    assert.equal(zoomBtn!.disabled, true, 'rect-zoom ドラッグではループ選択を作らないこと');
+    assert.equal(zoomBtn.disabled, true, 'rect-zoom ドラッグではループ選択を作らないこと');
 
     env.dom.window.close();
 });
 
 test('wave-mode-rect-zoom ボタンがトグル動作すること', async () => {
     const env = setupEnv();
-    const btn = env.dom.window.document.querySelector('[data-action="wave-mode-rect-zoom"]') as HTMLButtonElement | null;
+    const btn = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="wave-mode-rect-zoom"]');
     assert.ok(btn, 'wave-mode-rect-zoom ボタンが存在すること');
 
     // 初期状態: aria-pressed=false, waveformMode=loop
-    assert.strictEqual(btn!.getAttribute('aria-pressed'), 'false', '初期状態の aria-pressed は false であること');
-    assert.strictEqual(btn!.classList.contains('is-active'), false, '初期状態では active 表示ではないこと');
+    assert.strictEqual(btn.getAttribute('aria-pressed'), 'false', '初期状態の aria-pressed は false であること');
+    assert.strictEqual(btn.classList.contains('is-active'), false, '初期状態では active 表示ではないこと');
 
     // 1 回目クリック → rect-zoom に切り替わること
     env.dom.window.dispatchEvent(
@@ -3182,8 +3157,8 @@ test('wave-mode-rect-zoom ボタンがトグル動作すること', async () => 
 
     const snap1 = env.postedMessages.filter((m: any) => m.type === 'comparison-panel-test-snapshot').at(-1) as any;
     assert.strictEqual(snap1?.renderedUi?.waveformMode, 'rect-zoom', '1 回目クリック後に waveformMode が rect-zoom になること');
-    assert.strictEqual(btn!.getAttribute('aria-pressed'), 'true',  '1 回目クリック後に aria-pressed が true になること');
-    assert.strictEqual(btn!.classList.contains('is-active'), true, '1 回目クリック後に active 表示になること');
+    assert.strictEqual(btn.getAttribute('aria-pressed'), 'true',  '1 回目クリック後に aria-pressed が true になること');
+    assert.strictEqual(btn.classList.contains('is-active'), true, '1 回目クリック後に active 表示になること');
 
     // 2 回目クリック → loop に戻ること
     env.dom.window.dispatchEvent(
@@ -3195,8 +3170,8 @@ test('wave-mode-rect-zoom ボタンがトグル動作すること', async () => 
 
     const snap2 = env.postedMessages.filter((m: any) => m.type === 'comparison-panel-test-snapshot').at(-1) as any;
     assert.strictEqual(snap2?.renderedUi?.waveformMode, 'loop',     '2 回目クリック後に waveformMode が loop に戻ること');
-    assert.strictEqual(btn!.getAttribute('aria-pressed'), 'false', '2 回目クリック後に aria-pressed が false に戻ること');
-    assert.strictEqual(btn!.classList.contains('is-active'), false, '2 回目クリック後に active 表示が解除されること');
+    assert.strictEqual(btn.getAttribute('aria-pressed'), 'false', '2 回目クリック後に aria-pressed が false に戻ること');
+    assert.strictEqual(btn.classList.contains('is-active'), false, '2 回目クリック後に active 表示が解除されること');
 
     env.dom.window.close();
 });
@@ -3232,9 +3207,9 @@ test('renderScript: 波形キャンバスの dblclick でズームがリセッ�
     assert.ok(pre.zoomStart > 0 || pre.zoomEnd < 1, 'ズームイン後は zoomStart/zoomEnd が変化していること');
 
     // .track-canvas への dblclick でリセット
-    const canvas = env.dom.window.document.querySelector('.track-canvas') as HTMLElement | null;
+    const canvas = env.dom.window.document.querySelector<HTMLElement>('.track-canvas');
     assert.ok(canvas, '.track-canvas が存在すること');
-    canvas!.dispatchEvent(new env.dom.window.MouseEvent('dblclick', { bubbles: true }));
+    canvas.dispatchEvent(new env.dom.window.MouseEvent('dblclick', { bubbles: true }));
 
     // スナップショットを再要求
     env.dom.window.dispatchEvent(
@@ -3273,9 +3248,9 @@ test('renderScript: スペクトログラムの周波数軸 dblclick は周波�
     assert.ok(pre && (pre.zoomStart > 0 || pre.zoomEnd < 1), 'ズームイン後は zoomStart/zoomEnd が変化していること');
 
     // .track-axis-canvas への dblclick でリセット
-    const axisCanvas = env.dom.window.document.querySelector('.track-spec-axis') as HTMLElement | null;
+    const axisCanvas = env.dom.window.document.querySelector<HTMLElement>('.track-spec-axis');
     assert.ok(axisCanvas, 'スペクトログラムの周波数軸が存在すること');
-    axisCanvas!.dispatchEvent(new env.dom.window.MouseEvent('dblclick', { bubbles: true }));
+    axisCanvas.dispatchEvent(new env.dom.window.MouseEvent('dblclick', { bubbles: true }));
 
     // dblclick 後スナップショット
     env.dom.window.dispatchEvent(
@@ -3288,7 +3263,7 @@ test('renderScript: スペクトログラムの周波数軸 dblclick は周波�
     const post = (snapshots2[snapshots2.length - 1] as any)?.renderedUi;
     assert.ok(post, 'dblclick 後のスナップショットが存在すること');
     assert.deepEqual([post.zoomStart, post.zoomEnd], [pre.zoomStart, pre.zoomEnd], '軸 dblclick では時間ズームが変わらないこと');
-    const popover = env.dom.window.document.getElementById('waveform-range-popover') as HTMLElement | null;
+    const popover = env.dom.window.document.getElementById('waveform-range-popover');
     assert.ok(popover && popover.style.display !== 'none', '周波数範囲の popover が開くこと');
 
     env.dom.window.close();
@@ -3367,10 +3342,10 @@ test('spectrum overlay preserves a compatible calibrated level unit', async () =
 test('spectrum overlay: Y軸(dB) dblclick → popover が開き dB レンジを適用できる', async () => {
     const env = setupEnv();
     await nextAnimationFrame(env.dom);
-    const overlay = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLElement | null;
+    const overlay = env.dom.window.document.getElementById('spectrum-overlay-canvas');
     assert.ok(overlay, 'overlay canvas が存在すること');
     // Y軸ゾーン: cx < padL(36) → clientX=10
-    overlay!.dispatchEvent(new env.dom.window.MouseEvent('dblclick', { bubbles: true, clientX: 10, clientY: 70 }));
+    overlay.dispatchEvent(new env.dom.window.MouseEvent('dblclick', { bubbles: true, clientX: 10, clientY: 70 }));
     const pop = env.dom.window.document.getElementById('spectrum-range-popover') as HTMLElement;
     assert.ok(pop, 'popover が存在すること');
     assert.notStrictEqual(pop.style.display, 'none', 'popover が表示されること');
@@ -3383,8 +3358,8 @@ test('spectrum overlay: Y軸(dB) dblclick → popover が開き dB レンジを�
     await nextAnimationFrame(env.dom);
     const labels = latestSpectrumOverlayLabels(env);
     assert.ok(labels && labels.length >= 3, 'overlay 軸ラベルが存在すること');
-    assert.strictEqual(labels![0], '-20 dB', 'dB Max ラベルが適用値になること');
-    assert.strictEqual(labels![2], '-80 dB', 'dB Min ラベルが適用値になること');
+    assert.strictEqual(labels[0], '-20 dB', 'dB Max ラベルが適用値になること');
+    assert.strictEqual(labels[2], '-80 dB', 'dB Min ラベルが適用値になること');
     env.dom.window.close();
 });
 
@@ -3393,10 +3368,10 @@ test('spectrum overlay: X軸(周波数) dblclick → popover が開き Hz レン
     await nextAnimationFrame(env.dom);
     const overlay = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
     assert.ok(overlay, 'overlay canvas が存在すること');
-    const H = overlay!.height || 140;
-    const W = overlay!.width || 800;
+    const H = overlay.height || 140;
+    const W = overlay.width || 800;
     // X軸ゾーン: cy > H-padB(18) かつ cx ∈ [36, W-8]
-    overlay!.dispatchEvent(new env.dom.window.MouseEvent('dblclick', { bubbles: true, clientX: Math.floor(W / 2), clientY: H - 5 }));
+    overlay.dispatchEvent(new env.dom.window.MouseEvent('dblclick', { bubbles: true, clientX: Math.floor(W / 2), clientY: H - 5 }));
     const pop = env.dom.window.document.getElementById('spectrum-range-popover') as HTMLElement;
     assert.notStrictEqual(pop.style.display, 'none', 'popover が表示されること');
     const minI = env.dom.window.document.getElementById('spec-range-min') as HTMLInputElement;
@@ -3409,8 +3384,8 @@ test('spectrum overlay: X軸(周波数) dblclick → popover が開き Hz レン
     await nextAnimationFrame(env.dom);
     const labels = latestSpectrumOverlayLabels(env);
     assert.ok(labels && labels.length >= 6, 'overlay 軸ラベルが存在すること');
-    assert.strictEqual(labels![3], '100 Hz', 'freq Min ラベルが適用値になること');
-    assert.strictEqual(labels![5], '900 Hz', 'freq Max ラベルが適用値になること');
+    assert.strictEqual(labels[3], '100 Hz', 'freq Min ラベルが適用値になること');
+    assert.strictEqual(labels[5], '900 Hz', 'freq Max ラベルが適用値になること');
     env.dom.window.close();
 });
 
@@ -3419,10 +3394,10 @@ test('spectrum overlay: プロット内部 dblclick で specZoomReset される'
     await nextAnimationFrame(env.dom);
     const overlay = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
     assert.ok(overlay, 'overlay canvas が存在すること');
-    const W = overlay!.width || 800;
-    const H = overlay!.height || 140;
+    const W = overlay.width || 800;
+    const H = overlay.height || 140;
     // まず Y軸 popover を開いて dB レンジを適用（state を変化させる）
-    overlay!.dispatchEvent(new env.dom.window.MouseEvent('dblclick', { bubbles: true, clientX: 10, clientY: 70 }));
+    overlay.dispatchEvent(new env.dom.window.MouseEvent('dblclick', { bubbles: true, clientX: 10, clientY: 70 }));
     const minI = env.dom.window.document.getElementById('spec-range-min') as HTMLInputElement;
     const maxI = env.dom.window.document.getElementById('spec-range-max') as HTMLInputElement;
     minI.value = '-80'; maxI.value = '-20';
@@ -3432,20 +3407,20 @@ test('spectrum overlay: プロット内部 dblclick で specZoomReset される'
     const before = latestSpectrumOverlayLabels(env);
     assert.strictEqual(before![0], '-20 dB', 'reset 前は適用した dB レンジであること');
     // 内部 dblclick で reset → dB/freq が auto に戻る
-    overlay!.dispatchEvent(new env.dom.window.MouseEvent('dblclick', { bubbles: true, clientX: Math.floor(W / 2), clientY: Math.floor(H / 2) }));
+    overlay.dispatchEvent(new env.dom.window.MouseEvent('dblclick', { bubbles: true, clientX: Math.floor(W / 2), clientY: Math.floor(H / 2) }));
     requestSpectrumSnapshot(env, 'post-spec-reset');
     await nextAnimationFrame(env.dom);
     const after = latestSpectrumOverlayLabels(env);
     assert.ok(after && after.length >= 6, 'reset 後スナップショットの軸ラベルが存在すること');
-    assert.notStrictEqual(after![0], '-20 dB', 'reset 後 dB Max が auto（適用値でない）に戻ること');
-    assert.strictEqual(after![3], '0 Hz', 'reset 後 freq Min が 0 Hz（全域）に戻ること');
+    assert.notStrictEqual(after[0], '-20 dB', 'reset 後 dB Max が auto（適用値でない）に戻ること');
+    assert.strictEqual(after[3], '0 Hz', 'reset 後 freq Min が 0 Hz（全域）に戻ること');
     env.dom.window.close();
 });
 
 test('spectrum overlay: min>=max は適用されず popover を閉じない', async () => {
     const env = setupEnv();
     await nextAnimationFrame(env.dom);
-    const overlay = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLElement | null;
+    const overlay = env.dom.window.document.getElementById('spectrum-overlay-canvas');
     overlay!.dispatchEvent(new env.dom.window.MouseEvent('dblclick', { bubbles: true, clientX: 10, clientY: 70 }));
     // 適用前のベースライン
     requestSpectrumSnapshot(env, 'pre-invalid');
@@ -3472,9 +3447,9 @@ test('spectrum overlay: clamp 後にゼロ幅になる周波数レンジは適�
     await nextAnimationFrame(env.dom);
     const overlay = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
     assert.ok(overlay, 'overlay canvas が存在すること');
-    const H = overlay!.height || 140;
-    const W = overlay!.width || 800;
-    overlay!.dispatchEvent(new env.dom.window.MouseEvent('dblclick', {
+    const H = overlay.height || 140;
+    const W = overlay.width || 800;
+    overlay.dispatchEvent(new env.dom.window.MouseEvent('dblclick', {
         bubbles: true, clientX: Math.floor(W / 2), clientY: H - 5,
     }));
 

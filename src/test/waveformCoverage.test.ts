@@ -31,11 +31,13 @@ test('traceXExtent: 何も描かなければ null を返す', () => {
 
 test('traceXExtent: 描画が例外を投げても moveTo/lineTo を元に戻す', () => {
     const { ctx } = makePathCtx();
+    /* eslint-disable @typescript-eslint/unbound-method -- compared by identity, never called */
     const originalMoveTo = ctx.moveTo;
     const originalLineTo = ctx.lineTo;
     assert.throws(() => traceXExtent(ctx, () => { throw new Error('boom'); }), /boom/);
     assert.equal(ctx.moveTo, originalMoveTo);
     assert.equal(ctx.lineTo, originalLineTo);
+    /* eslint-enable @typescript-eslint/unbound-method */
 });
 
 test('waveformCoverageFromExtent: 両端 1px 以内に届いていれば端を覆っているとみなす', () => {

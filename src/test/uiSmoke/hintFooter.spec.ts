@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { getStrings } from '../../shared/i18n/strings';
-import { buildUiSmokeHtml, buildUiSmokeSelectionHtml } from './buildHtml';
+import { buildUiSmokeHtml } from './buildHtml';
 
 const STR = getStrings('en');
 

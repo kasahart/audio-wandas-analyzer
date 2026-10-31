@@ -477,8 +477,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         return [
             ...(attached.csv?.attributes ?? []).map(column => ({ id: `csv:${column}` as GroupId, label: column })),
             ...Array.from({ length: folders }, (_, index) => ({ id: `folder:${index + 1}` as GroupId, label: strings.entryFolderLevel.replace('{n}', String(index + 1)) })),
-            { id: 'ch' as GroupId, label: strings.dsCh },
-            { id: 'none' as GroupId, label: strings.dsGroupNone },
+            { id: 'ch', label: strings.dsCh },
+            { id: 'none', label: strings.dsGroupNone },
         ];
     }
     const valueLabel = (id: ValueId): string => valueOptions().find(option => option.id === id)?.label ?? id;
@@ -1336,8 +1336,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     const sortKeyOf = (column: ColumnId): DatasetScreenView['sort']['column'] | undefined => (column === 'name' ? 'name' : column === 'ch' ? 'ch' : column === chosen.group ? 'group' : column === chosen.value ? 'value' : undefined);
     function filterColumns(): DatasetColumn[] {
         const own = (attached.csv?.attributes ?? []).map(column => ({ id: `csv:${column}` as ColumnId, label: column, numeric: !!attached.csv?.numeric[column] }));
-        const folders = groupOptions().filter(option => option.id.startsWith('folder:')).map(option => ({ id: option.id as ColumnId, label: option.label, numeric: false }));
-        const computed = valueOptions().filter(option => option.computed && rows.some(row => valueOf(row, option.id, results) !== null)).map(option => ({ id: option.id as ColumnId, label: option.label, numeric: true }));
+        const folders = groupOptions().filter(option => option.id.startsWith('folder:')).map(option => ({ id: option.id, label: option.label, numeric: false }));
+        const computed = valueOptions().filter(option => option.computed && rows.some(row => valueOf(row, option.id, results) !== null)).map(option => ({ id: option.id, label: option.label, numeric: true }));
         return [{ id: 'name', label: strings.entryColFile, numeric: false }, { id: 'ch', label: strings.dsCh, numeric: false }, ...own, ...folders, ...computed];
     }
     function openFilter(column: ColumnId, anchored: boolean): void {

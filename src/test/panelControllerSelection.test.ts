@@ -9,6 +9,7 @@ import type { SpectrogramSettingsContext } from '../shared/analysis/savedSpectro
 
 test('directory selection uses live result updates with resource URIs, cache reuse and stale-request protection', async () => {
     const uri = (fsPath: string) => ({ fsPath, toString: () => `file:${fsPath}` });
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const NodeModule = require('node:module') as { _load: (request: string, parent: unknown, isMain: boolean) => unknown };
     const originalLoad = NodeModule._load;
     NodeModule._load = function(request, parent, isMain) {
@@ -27,7 +28,9 @@ test('directory selection uses live result updates with resource URIs, cache reu
     let PanelController: typeof import('../extension/panelController').PanelController;
     let ComparisonPanel: typeof import('../webview/panels/ComparisonPanel').ComparisonPanel;
     try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         PanelController = require('../extension/panelController').PanelController;
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         ComparisonPanel = require('../webview/panels/ComparisonPanel').ComparisonPanel;
     } finally { NodeModule._load = originalLoad; }
 

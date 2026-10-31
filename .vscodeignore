@@ -19,6 +19,7 @@ CONTRIBUTING.md
 scripts/**
 tsconfig.json
 playwright.config.ts
+eslint.config.mjs
 pyproject.toml
 package-lock.json
 .editorconfig

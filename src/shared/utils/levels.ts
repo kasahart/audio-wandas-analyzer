@@ -5,5 +5,5 @@ export function powerMeanDb(levels: readonly number[]): number {
 
 /** The power mean, or null without levels or with one missing (not computed, no band there). */
 export function powerMeanOrNull(levels: readonly (number | null | undefined)[]): number | null {
-    return levels.length && levels.every(level => typeof level === 'number') ? powerMeanDb(levels as number[]) : null;
+    return levels.length && levels.every(level => typeof level === 'number') ? powerMeanDb(levels) : null;
 }

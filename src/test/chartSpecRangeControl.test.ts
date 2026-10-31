@@ -13,12 +13,9 @@ function applyCanvasStub(
     fillRectSpy?: (x: number, y: number, width: number, height: number) => void,
     imageSpy?: (image: { width: number; height: number; data: Uint8ClampedArray }) => void,
 ) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const origCreate = (doc as any).createElement.bind(doc);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (doc as any).createElement = function(tag: string) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const el = origCreate(tag) as any;
+        const el = origCreate(tag);
         if (tag === 'canvas') {
             el.getContext = () => new Proxy({}, {
                 get(_t: unknown, p: string | symbol) {
@@ -434,7 +431,7 @@ test('Line チャートの Y 軸エリアを canvas が拡大表示時もダブ�
     // canvas が 1440px 幅に拡大表示されているとシミュレート (論理 720px の 2 倍)
     // scaleX = 720 / 1440 = 0.5
     (canvas as unknown as { getBoundingClientRect: () => DOMRect }).getBoundingClientRect = () =>
-        ({ left: 0, top: 0, width: 1440, height: 480, right: 1440, bottom: 480, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+        ({ left: 0, top: 0, width: 1440, height: 480, right: 1440, bottom: 480, x: 0, y: 0, toJSON: () => ({}) });
 
     // CSS座標 x=60 → 論理座標 x=30 (scaleX=0.5) → plot.x=50 より左 → Y軸ゾーン
     // スケールなし (バグあり): raw cx=60 > plot.x=50 → Y軸外 → ポップアップが開かない (バグ)
@@ -727,12 +724,9 @@ test('Line チャートは null 値で線を切り、0 として描かない', (
     }];
     const pathOps: string[] = [];
     const doc = dom.window.document;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const origCreate = (doc as any).createElement.bind(doc);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (doc as any).createElement = function(tag: string) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const el = origCreate(tag) as any;
+        const el = origCreate(tag);
         if (tag === 'canvas') {
             let stroking = false;
             el.getContext = () => new Proxy({}, {

@@ -84,7 +84,7 @@ export function isRequestWaveformRangeMessage(message: unknown): message is Wave
         m['type'] === 'request-waveform-range' &&
         typeof m['requestId'] === 'string' &&
         typeof m['trackIndex'] === 'number' &&
-        typeof m['filePath'] === 'string' && (m['filePath'] as string).length > 0 &&
+        typeof m['filePath'] === 'string' && m['filePath'].length > 0 &&
         typeof m['startNorm'] === 'number' &&
         typeof m['endNorm'] === 'number' &&
         typeof m['points'] === 'number'
@@ -111,7 +111,7 @@ export function isRequestTrackDetailMessage(message: unknown): message is TrackD
         typeof m['analysisId'] === 'string' &&
         typeof m['settingsSignature'] === 'string' &&
         typeof m['trackIndex'] === 'number' &&
-        typeof m['filePath'] === 'string' && (m['filePath'] as string).length > 0
+        typeof m['filePath'] === 'string' && m['filePath'].length > 0
     );
 }
 
@@ -140,7 +140,7 @@ export function isRequestSpectrumSliceMessage(message: unknown): message is Spec
         typeof m['analysisId'] === 'string' &&
         typeof m['settingsSignature'] === 'string' &&
         typeof m['trackIndex'] === 'number' &&
-        typeof m['filePath'] === 'string' && (m['filePath'] as string).length > 0 &&
+        typeof m['filePath'] === 'string' && m['filePath'].length > 0 &&
         typeof m['cursorNorm'] === 'number' &&
         (m['bandsPerOctave'] === undefined || m['bandsPerOctave'] === 1 || m['bandsPerOctave'] === 3)
     );
@@ -170,7 +170,7 @@ function isPairSourceRef(value: unknown): value is PairSourceRef {
         return false;
     }
     const m = value as Record<string, unknown>;
-    return typeof m['filePath'] === 'string' && (m['filePath'] as string).length > 0
+    return typeof m['filePath'] === 'string' && m['filePath'].length > 0
         && Number.isInteger(m['channelIndex']) && (m['channelIndex'] as number) >= 0
         && typeof m['offsetSeconds'] === 'number' && Number.isFinite(m['offsetSeconds']);
 }
@@ -213,7 +213,7 @@ export function isReleaseTrackDetailMessage(message: unknown): message is TrackD
         typeof m['analysisId'] === 'string' &&
         typeof m['settingsSignature'] === 'string' &&
         typeof m['trackIndex'] === 'number' &&
-        typeof m['filePath'] === 'string' && (m['filePath'] as string).length > 0
+        typeof m['filePath'] === 'string' && m['filePath'].length > 0
     );
 }
 

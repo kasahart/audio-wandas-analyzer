@@ -58,7 +58,7 @@ export function createRecipeMenus(document: Document, window: Pick<Window, 'addE
             // Under a menu near the window's right edge it would run off screen: it moves left to stay in.
             const right = menu.getBoundingClientRect?.().right, width = document.documentElement?.clientWidth;
             if (right !== undefined && width && right > width - 8) menu.style.left = `${Math.max(8, (anchor ? anchor.left : 8) - (right - width + 8))}px`;
-            (menu.querySelector('select, button') as HTMLElement | null)?.focus();
+            menu.querySelector<HTMLElement>('select, button')?.focus();
         });
     }
     function button(menu: HTMLElement, label: string, onClick: () => void): HTMLButtonElement {

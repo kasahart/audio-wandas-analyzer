@@ -31,8 +31,8 @@ export function buildBucketPoints(
     offsetSeconds: number,
     dataStart: number,
     dataEnd: number,
-    zoomStart: number,
-    zoomEnd: number,
+    _zoomStart: number,
+    _zoomEnd: number,
 ): BucketPoint[] {
     const n = env.min.length;
     const minVal = env.min[bucketIndex] ?? 0;

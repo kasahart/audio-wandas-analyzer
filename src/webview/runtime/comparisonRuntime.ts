@@ -12,7 +12,7 @@ import { formatAmplitudeValue, formatWaveformAxisLabels, drawWaveformAmplitudeAx
 import { isCacheSufficient, computeReqBounds, isOverviewSufficient, rangeCacheCoversView, rangeRequestPointCount } from '../waveform/rangeRequestPolicy';
 import { extractSpectrumAtCursor as extractCursorSpectrum } from '../spectrum/cursorSpectrum';
 import { buildSpectrumCsv, wavLoopRegions } from './runtimeExports';
-import { audioById, buttonById, buttonMatching, canvasById, canvasesMatching, canvasTarget, eventTarget, inputMatching, requiredElementById } from './domAdapter';
+import { audioById, buttonById, buttonMatching, canvasById, canvasesMatching, canvasTarget, eventTarget, requiredElementById } from './domAdapter';
 import { HostMessenger } from './hostMessaging';
 import {
     createTrackTimeMapping,
@@ -117,7 +117,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     testBridge.observe(runtimeEvents);
     const requestAnimationFrame = window.requestAnimationFrame.bind(window);
     const cancelAnimationFrame = window.cancelAnimationFrame.bind(window);
-    const setTimeout = (handler: TimerHandler, timeout?: number) => window.setTimeout(handler, timeout);
+    const setTimeout = (handler: () => void, timeout?: number) => window.setTimeout(handler, timeout);
     const clearTimeout = (timeoutId: number) => window.clearTimeout(timeoutId);
     const performance = window.performance;
     const navigator = window.navigator;
@@ -138,7 +138,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     const allSelectableFilePaths = Array.isArray(state.allFilePaths) ? state.allFilePaths.slice() : [];
     const persistedStore = new PersistedStateStore(vscode);
-    var persistedWebviewState = persistedStore.snapshot;
+    let persistedWebviewState = persistedStore.snapshot;
     function persistWebviewState(patch: Partial<PersistedWebviewState>): void {
         persistedStore.update(patch);
         persistedWebviewState = persistedStore.snapshot;
@@ -601,7 +601,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const settings = __spectrogramSettings;
             return JSON.stringify({ auto: settings.auto, stft: settings.stft });
         }
-        catch (e) {
+        catch {
             return 'spectrum-data-settings';
         }
     }
@@ -791,7 +791,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         });
     }
     function trackColor(i: number) {
-        const runtime = trackRuntimeAt(i);
+        trackRuntimeAt(i);
         // Its role from the entry table's slots (base blue, slots 1–3); otherwise its own colour, never a role's.
         const filePath = state.results[i]?.filePath;
         const role = filePath && stageMode ? stageMode.role(filePath) : undefined;
@@ -1404,7 +1404,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         return formatWaveformAxisLabels(peak, ch && ch.unit, STR.waveformAmplitudeLabel);
     }
-    function waveformAxisLabelsForResult(result: ComparisonTrackState, trackIndex: number) {
+    function waveformAxisLabelsForResult(result: ComparisonTrackState, _trackIndex: number) {
         return waveformAxisLabelsForChannel(result, 0);
     }
     function formatSignedAmplitudeValue(value: number): string {
@@ -1463,7 +1463,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 (typeof __spectrogramSettings !== 'undefined' && __spectrogramSettings) ? __spectrogramSettings : null,
             );
         }
-        catch (e) { /* ignore */ }
+        catch { /* ignore */ }
         testBridge.publish({
                 ...domSnapshotBase(document),
                 zoomStart: waveformView.start,
@@ -1490,7 +1490,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 spectrumOverlayHeight: spectrumOverlayHeight,
                 waveformMode: waveformMode,
                 lastAnnounce: (function () {
-                    var el = document.getElementById('a11y-announce');
+                    const el = document.getElementById('a11y-announce');
                     return el ? (el.textContent || '') : '';
                 })(),
                 tracks: trackInfo,
@@ -2002,7 +2002,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         document.querySelectorAll<HTMLElement>('.track-row').forEach(function (row) {
             const trackId = trackIdFromElement(row);
             if (trackId) {
-                var isMuted = trackStore.require(trackId).runtime.hidden;
+                const isMuted = trackStore.require(trackId).runtime.hidden;
                 row.style.display = isMuted ? 'none' : 'flex';
             }
         });
@@ -2301,7 +2301,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 return action === 'spectrum-height-drag' ? 'ArrowUp' : action === 'track-height-drag' || action === 'track-split-drag' ? 'ArrowDown' : 'ArrowRight';
             },
         });
-        var stackedWrap = document.getElementById('stacked-wrap');
+        const stackedWrap = document.getElementById('stacked-wrap');
         if (stackedWrap) {
             installTrackReorderDrag(document, stackedWrap, {
                 trackIdFromElement,
@@ -2799,7 +2799,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
     }
     function updateZoomToSelectionBtn() {
-        var btn = buttonById(document, 'btn-zoom-to-selection');
+        const btn = buttonById(document, 'btn-zoom-to-selection');
         if (btn) {
             btn.disabled = !viewState.loop;
         }
@@ -3014,9 +3014,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             messaging.post({ type: 'show-info', message: STR.exportReportNoData });
             return;
         }
-        var mdContent = buildMarkdownReport(_reportTracks(), _reportLoopRegion(), new Date());
-        var nbContent = buildNotebook(_reportTracks());
-        var defaultName = (reportRecords[0].result.fileName || 'analysis').replace(/.[^.]+$/, '');
+        const mdContent = buildMarkdownReport(_reportTracks(), _reportLoopRegion(), new Date());
+        const nbContent = buildNotebook(_reportTracks());
+        const defaultName = (reportRecords[0].result.fileName || 'analysis').replace(/.[^.]+$/, '');
         messaging.post({
             type: 'export-report-options',
             defaultName: defaultName,
@@ -3677,8 +3677,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         releaseTrackDetail(idx);
         channelsForResult(record.result).forEach((_, channelIndex) => spectrogramRasterCache.delete(trackId + ':' + channelIndex));
         trackRuntimeAt(idx).hidden = true;
-        var pos = trackStore.displayOrder.indexOf(trackId);
-        var n = pos !== -1 ? pos + 1 : idx + 1;
+        const pos = trackStore.displayOrder.indexOf(trackId);
+        const n = pos !== -1 ? pos + 1 : idx + 1;
         trackStore.remove(trackId);
         messaging.releaseSource(record.result.filePath);
         // Off the track view is off the entry table's tracks and slots too.
@@ -3730,7 +3730,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         scheduleSpectrumRefresh('immediate');
         requestAnimationFrame(function () { publishTestSnapshot(); });
     }
-    var specSettingsPopover = installSpectrogramSettingsPopover(document, {
+    const specSettingsPopover = installSpectrogramSettingsPopover(document, {
         strings: STR,
         getSettings: () => __spectrogramSettings,
         onDisplayChange: __setSpectrogramDisplay,
@@ -3747,6 +3747,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             messaging.post({ type: 'request-reanalyze', settings: __spectrogramSettings });
         },
     });
+    // eslint-disable-next-line no-var -- hoisted on purpose: isReanalyzeBusy() reads it (as undefined) before it is installed
     var reanalyzeOverlay = installReanalyzeOverlay(document, {
         defaultMessage: STR.reanalyzingDefault,
         onShow(message) {
@@ -3785,7 +3786,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         if (msg.type === 'analysis-file-progress') {
-            var progMsg = '(' + msg.current + '/' + msg.total + ') ' + (msg.fileName || '');
+            const progMsg = '(' + msg.current + '/' + msg.total + ') ' + (msg.fileName || '');
             __setReanalyzeBusy(true, progMsg);
             return;
         }
@@ -3850,7 +3851,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const wrap = document.getElementById('stacked-wrap');
         if (wrap) {
             trackStore.displayOrder.forEach(function (trackId) {
-                var row = document.getElementById('track-row-' + trackIndexForId(trackId));
+                const row = document.getElementById('track-row-' + trackIndexForId(trackId));
                 if (row) {
                     wrap.appendChild(row);
                 }

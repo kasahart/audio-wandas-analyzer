@@ -396,6 +396,7 @@ export function renderComparisonHtml(webview: vscode.Webview, state: ComparisonS
         runtimeScriptUri: webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'dist', 'webview', 'comparisonRuntime.js')).toString(),
         cspSource: webview.cspSource,
         language: typeof vscode.env?.language === 'string' ? vscode.env.language : 'en',
+        // eslint-disable-next-line @typescript-eslint/no-require-imports -- package.json sits outside rootDir, so it cannot be imported
         appVersion: (require('../../../package.json') as { version: string }).version,
     });
 }

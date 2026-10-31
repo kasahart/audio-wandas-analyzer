@@ -29,9 +29,9 @@ function makeSource(overrides: Partial<SpectrumSource> = {}): SpectrumSource {
 test('extractSpectrumAtCursor: returns slice at correct time bin (cursor at t=0.0)', () => {
     const slice = extractSpectrumAtCursor(makeSource(), 0, 0, { startSec: 0, spanSec: 1 });
     assert.ok(slice);
-    assert.deepEqual(slice!.values, [-80, -60, -40, -20]);
-    assert.equal(slice!.frequencyBins, 4);
-    assert.equal(slice!.maxFrequencyHz, 22050);
+    assert.deepEqual(slice.values, [-80, -60, -40, -20]);
+    assert.equal(slice.frequencyBins, 4);
+    assert.equal(slice.maxFrequencyHz, 22050);
 });
 
 test('extractSpectrumAtCursor: cursor in middle picks middle bin', () => {
@@ -161,7 +161,7 @@ test('silent cursor spectrum preserves cached bins and units without a spectrogr
 });
 
 test('extractSpectrumAtCursor: a non-array channels payload yields no slice instead of throwing', () => {
-    const source = makeSource({ channels: { 0: makeSource().channels![0] } as unknown as SpectrumSource['channels'] });
+    const source = makeSource({ channels: { 0: makeSource().channels[0] } as unknown as SpectrumSource['channels'] });
     assert.equal(extractSpectrumAtCursor(source, 0, 0.5, { startSec: 0, spanSec: 1 }), null);
 });
 

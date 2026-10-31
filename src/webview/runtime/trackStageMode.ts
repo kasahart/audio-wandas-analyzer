@@ -17,7 +17,6 @@ import type { ScanResult, StageView } from '../../shared/protocol/backendProtoco
 import type { EntryRegion } from '../../shared/analysis/entryScan';
 import { activeSlotReferenced, brokenStep, chainEnd, recipeChain, recipeKey, recipeSteps, slotReferenced, TIME_SLICE, type RecipeStep } from '../../shared/recipe/recipeSteps';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
-import { hintAttr } from './hintFooter';
 import { createStepBar, endsInSpectrum, invalidReason, recipeWithout, stepChipLabel, unpairedRecipe, stepLimits, INPUT_STAGE, OCTAVE_BRANCH } from './stepBar';
 import { createStageSource, type StageSpec } from './stageSource';
 import { createDetailPlanner } from './stageDetail';

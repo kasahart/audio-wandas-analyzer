@@ -186,7 +186,7 @@ export class ComparisonSessionController {
                     if (!this.ports.saveReportFolder) { this.ports.unsupported(message.type); return; }
                     await this.ports.saveReportFolder(message.folder, message.files.map(file => ({
                         name: file.name,
-                        bytes: file.base64 !== undefined ? Uint8Array.from(atob(file.base64), char => char.charCodeAt(0)) : new TextEncoder().encode(file.text!),
+                        bytes: file.base64 !== undefined ? Uint8Array.from(atob(file.base64), char => char.charCodeAt(0)) : new TextEncoder().encode(file.text),
                     })));
                     return;
                 // The running entry scan stops after its current file: a newer scan number makes it stale.

@@ -12,6 +12,7 @@ function formField<T extends HTMLInputElement | HTMLSelectElement = HTMLInputEle
     return el;
 }
 
+/* eslint-disable @typescript-eslint/no-base-to-string -- test-action payloads carry JSON scalars */
 export function fillSpectrogramSettingsForm(doc: Document, payload: ActionPayload): void {
     formField(doc, 'spec-auto').checked = !!payload.auto;
     if (payload.nFft != null) {
@@ -38,6 +39,7 @@ export function fillSpectrogramDisplayForm(doc: Document, payload: ActionPayload
         maxFrequencyHz: typeof payload.maxFrequencyHz === 'number' ? payload.maxFrequencyHz : null,
     };
 }
+/* eslint-enable @typescript-eslint/no-base-to-string */
 
 export function loopRegionFromPayload(payload: ActionPayload): LoopRegion | null {
     const start = Math.max(0, Math.min(1, Number(payload.start)));

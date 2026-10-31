@@ -228,7 +228,9 @@ test('renderWaveformPipeline: i1 < i0 のとき何も描画しない (zoom 外)'
 test('renderWaveformPipeline: dist/webview/comparisonWaveform.js に同じ署名で公開される', () => {
     // 生成された JS が window.renderWaveformPipeline を提供することを担保するスモークテスト。
     // 実体検証は renderScript.integration.test.ts の jsdom 経由でも行う。
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const fs = require('node:fs') as typeof import('node:fs');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const path = require('node:path') as typeof import('node:path');
     const generated = path.join(__dirname, '..', 'webview', 'comparisonWaveform.js');
     const content = fs.readFileSync(generated, 'utf8');

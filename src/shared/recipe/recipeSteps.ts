@@ -444,7 +444,7 @@ export function movedStep(recipe: RecipeDocument, stepId: string, after: string 
     copy.nodes.forEach(item => { item.inputs = item.inputs.map(input => (input === source ? stepId : input)); });
     // A Recipe lists a node after the node it reads.
     const at = copy.nodes.findIndex(item => item.id === source) + 1;
-    copy.nodes.splice(at, 0, { ...JSON.parse(JSON.stringify(node)), inputs: [source] });
+    copy.nodes.splice(at, 0, { ...(JSON.parse(JSON.stringify(node)) as RecipeNode), inputs: [source] });
     if (copy.output === source) copy.output = stepId;
     return copy;
 }

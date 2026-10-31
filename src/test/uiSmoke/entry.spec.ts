@@ -127,7 +127,7 @@ test('a file added while the headers are read asks again for every header not re
     await openEntry(page, scanned!, { language: 'en', answered: 0, headers: null });
     const added = '/data/added.flac';
     await page.evaluate(({ added }) => window.postMessage({ type: 'directory-selection', rootPath: '', rootLabel: '', filePaths: [added] }, '*'), { added });
-    const probes = async (): Promise<Array<{ filePaths: string[] }>> => (await posted(page)).filter(message => message.type === 'entry-probe') as unknown as Array<{ filePaths: string[] }>;
+    const probes = async (): Promise<Array<{ filePaths: string[] }>> => (await posted(page)).filter(message => message.type === 'entry-probe');
     await expect.poll(async () => (await probes()).length).toBe(2);
     const last = (await probes()).at(-1)!;
     expect(last.filePaths).toContain(added);
@@ -296,7 +296,9 @@ test('a folder of 1000 recordings draws only the rows on screen', async ({ page 
     const STR = getStrings('ja');
     const many = Array.from({ length: 1000 }, (_, index) => ({ ...scanned![index % 90], filePath: `/many/f${String(index).padStart(4, '0')}.wav` }));
     const ms = await openEntry(page, many, { language: 'ja' });
-    expect(ms).toBeLessThan(3000);
+    test.info().annotations.push({ type: 'timing', description: `1000 recordings' first rows ${ms.toFixed(1)} ms (target 3000 ms)` });
+    // A wall-clock budget, held only with AWA_PERF=1 like scale100k.spec.ts; the row count below is always held.
+    if (process.env['AWA_PERF'] === '1') expect(ms).toBeLessThan(3000);
     expect(await page.locator('[data-entry-rows] tr.entry-row').count()).toBeLessThan(80);
     await expect(page.locator('.entry-th-count')).toHaveText(STR.dsRows.replace('{n}', '1,967'));
 });

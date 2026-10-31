@@ -52,9 +52,9 @@ Node 22 (`.nvmrc`, `engines.node`) and Python 3.11 are the supported versions (m
 
 ## 3. Canonical commands — the completion bar
 
-**An agent's work is "done" only when `npm run verify` exits 0.** This is the single source of truth for correctness. `scripts/verify.mjs` (plain Node, runs on Windows/macOS/Linux) lists every step: compile, Webview pattern lint, generated protocol types, single-source check, skills-copy check, GUI triggerability audit, node:test, ruff, pyright, pytest.
+**An agent's work is "done" only when `npm run verify` exits 0.** This is the single source of truth for correctness. `scripts/verify.mjs` (plain Node, runs on Windows/macOS/Linux) lists every step: compile, ESLint, Webview pattern lint, generated protocol types, single-source check, skills-copy check, GUI triggerability audit, node:test, ruff, pyright, pytest.
 
-pytest opt-ins: `AWA_SLOW=1` runs the slow operation-catalog probe (CI sets it on Linux); `AWA_PERF=1` holds wall-clock budgets, which are otherwise only reported (the same variable enables the `scale100k` Playwright spec).
+pytest opt-ins: `AWA_SLOW=1` runs the slow operation-catalog probe (CI sets it on Linux); `AWA_PERF=1` holds wall-clock budgets in pytest, node:test and the Playwright smoke, which are otherwise only reported (the same variable enables the `scale100k` Playwright spec).
 
 ```bash
 npm run verify        # see scripts/verify.mjs
@@ -68,6 +68,7 @@ Other useful commands:
 npm run compile       # tsc → dist/
 npm run watch         # tsc --watch + esbuild watch of the Webview bundles
 npm test              # node:test only (subset of verify)
+npm run lint          # ESLint (typescript-eslint, type-aware) over src/ and scripts/ (subset of verify)
 npm run lint:gui-triggerability   # static audit: every user-facing GUI feature must stay mapped
 ruff check python-backend
 ruff format python-backend
@@ -137,6 +138,7 @@ trackDurRatio  = durationSeconds / globalSpanSec
 ### TypeScript
 
 - `tsconfig` strict mode. No `any` unless interfacing with untyped third-party code.
+- ESLint (`eslint.config.mjs`) must pass; files on its `no-non-null-assertion` burn-down list only ever leave it.
 - Comments only when *why* is non-obvious; never restate *what*.
 - Edit existing files in preference to creating new ones.
 - Tests live in `src/test/` and `src/e2e/` and use `node:test` (no Jest, no Mocha).

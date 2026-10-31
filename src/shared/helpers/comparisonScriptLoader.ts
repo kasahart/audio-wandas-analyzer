@@ -24,7 +24,7 @@ function loadComparisonPanelModule(): ComparisonPanelModule {
     }
 
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const NodeModule = require('node:module');
+    const NodeModule = require('node:module') as { _load: (this: unknown, request: string, ...rest: unknown[]) => unknown };
     const originalLoad = NodeModule._load;
 
     try {
@@ -42,7 +42,6 @@ function loadComparisonPanelModule(): ComparisonPanelModule {
                     workspace: { getConfiguration: () => ({ get: (_k: string, d: unknown) => d }) },
                 };
             }
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             return originalLoad.call(this, id, ...rest);
         };
 

@@ -369,7 +369,6 @@ test('calibration profile lookup uses the same real filesystem path as the backe
             referenceValue: 2e-5,
         }],
     };
-    const storageKey = 'audioWandasAnalyzer.calibrationProfiles.v1';
     const extensionContext = {
         workspaceState: {
             get: <T>(_key: string, _fallback: T): T => ({
@@ -382,6 +381,7 @@ test('calibration profile lookup uses the same real filesystem path as the backe
 });
 
 test('native injected calibration retry preserves cancellation token and request error revision', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const NodeModule = require('node:module') as { _load: (request: string, parent: unknown, isMain: boolean) => unknown };
     const originalLoad = NodeModule._load;
     class CancellationError extends Error {}
@@ -393,7 +393,9 @@ test('native injected calibration retry preserves cancellation token and request
     let backendModule: typeof import('../extension/pythonBackendServer');
     let calibrationStore: typeof import('../extension/calibrationStore');
     try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         backendModule = require('../extension/pythonBackendServer');
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         calibrationStore = require('../extension/calibrationStore');
     } finally { NodeModule._load = originalLoad; }
     const { BackendStartupCancelledError } = await import('../extension/backendIpc');
@@ -433,7 +435,7 @@ test('native injected calibration retry preserves cancellation token and request
             tokens.push(cancellation);
             if (this.failCancellation) throw new BackendStartupCancelledError();
             if (tokens.length === 1) throw new BackendRequestError('stale-calibration', 'Calibration channel label mismatch');
-            return {} as import('../shared/protocol/backendProtocol').BackendResult<K>;
+            return {};
         }
     }();
     await server.analyze('source', {}, token);
@@ -445,6 +447,7 @@ test('native injected calibration retry preserves cancellation token and request
 });
 
 test('native calibration shown hook replaces listeners and follows live results and recreated panels', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const NodeModule = require('node:module') as { _load: (request: string, parent: unknown, isMain: boolean) => unknown };
     const originalLoad = NodeModule._load;
     const configured: Array<{ path: string; labels: string[] }> = [];
@@ -482,6 +485,7 @@ test('native calibration shown hook replaces listeners and follows live results 
         return originalLoad.call(this, request, parent, isMain);
     };
     let runtime: typeof import('../extension/calibrationPanelRuntime');
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     try { runtime = require('../extension/calibrationPanelRuntime'); }
     finally { NodeModule._load = originalLoad; }
     runtime.installCalibrationPanelRuntime({ subscriptions: [] } as unknown as import('vscode').ExtensionContext);
