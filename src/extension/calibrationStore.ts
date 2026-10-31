@@ -20,12 +20,16 @@ const profileWriteQueues = new WeakMap<vscode.ExtensionContext, Promise<void>>()
 const PROFILE_UNCHANGED = Symbol('profile-unchanged');
 
 export interface CalibrationChangeEvent {
+    /** Canonical key from {@link calibrationFileKey}; compare it to a panel's paths through that same function. */
     filePath: string;
     analysisRevision: number;
 }
 
-
-function fileKey(filePath: string): string {
+/**
+ * Canonical identity of an audio file for calibration state: absolute and symlink-free, so '/tmp/a.wav' and
+ * '/private/tmp/a.wav' (macOS) or 'c:\\x.wav' and 'C:\\x.wav' (Windows) share one profile and revision.
+ */
+export function calibrationFileKey(filePath: string): string {
     const resolved = path.resolve(filePath);
     try {
         return fs.realpathSync.native(resolved);
@@ -52,12 +56,12 @@ export function getCalibrationProfile(
     context: vscode.ExtensionContext,
     filePath: string,
 ): CalibrationProfile | undefined {
-    const stored = profiles(context)[fileKey(filePath)];
+    const stored = profiles(context)[calibrationFileKey(filePath)];
     return stored ? cloneProfile(stored) : undefined;
 }
 
 export function getAnalysisRevision(filePath: string): number {
-    return analysisRevisions.get(fileKey(filePath)) ?? 0;
+    return analysisRevisions.get(calibrationFileKey(filePath)) ?? 0;
 }
 
 export async function discardStaleCalibrationProfile(
@@ -94,7 +98,7 @@ async function persistProfile(
         current: CalibrationProfile | undefined,
     ) => CalibrationProfile | undefined | typeof PROFILE_UNCHANGED,
 ): Promise<void> {
-    const key = fileKey(filePath);
+    const key = calibrationFileKey(filePath);
     const previous = profileWriteQueues.get(context) ?? Promise.resolve();
     const operation = previous.catch(() => undefined).then(async () => {
         const next = { ...profiles(context) };

@@ -635,7 +635,9 @@ test('checkAndPromptInstallDependencies warns when interpreter is missing and of
         await settle();
         assert.equal(item.text, 'Python: missing-python $(warning)');
         assert.equal(item.tooltip, 'The Python interpreter was not found. Click to select another environment.');
-        assert.deepEqual(warningMessages, ['Python interpreter not found: missing-python/bin/python']);
+        // The interpreter path follows the host venv layout (bin/python on POSIX, Scripts\\python.exe on Windows).
+        const expectedInterpreter = pythonEnvironment.resolvePythonCommand('missing-python');
+        assert.deepEqual(warningMessages, [`Python interpreter not found: ${expectedInterpreter}`]);
         assert.deepEqual(warningButtons, [['Select Environment', 'Show Log']]);
         assert.deepEqual(executedCommands, ['audioWandasAnalyzer.selectPythonEnvironment']);
     } finally {
@@ -901,9 +903,9 @@ test('checkAndPromptInstallDependencies ignores stale results from older request
     const { pythonEnvironment, warningMessages, restore } = loadPythonEnvironmentModule({
         spawnImpl: (pythonCommand?: unknown) => {
             const proc = fakeProcess();
-            if (pythonCommand === 'old-env/bin/python') {
+            if (pythonCommand === pythonEnvironment.resolvePythonCommand('old-env')) {
                 oldProc = proc;
-            } else if (pythonCommand === 'new-env/bin/python') {
+            } else if (pythonCommand === pythonEnvironment.resolvePythonCommand('new-env')) {
                 newProc = proc;
             }
             return proc;
