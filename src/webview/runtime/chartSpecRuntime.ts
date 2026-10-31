@@ -137,7 +137,8 @@ export function startChartSpecRenderer(win: Window, doc: Document, globals: Part
         c.height = Math.round(height * dpr);
         c.style.width = width + 'px';
         c.style.height = height + 'px';
-        const ctx = c.getContext('2d')!;
+        const ctx = c.getContext('2d');
+        if (!ctx) throw new Error('chartSpecRuntime: no 2d canvas context');
         ctx.scale(dpr, dpr);
         return { canvas: c, ctx, width, height };
     }
@@ -360,7 +361,8 @@ export function startChartSpecRenderer(win: Window, doc: Document, globals: Part
             }, { min: vMin, max: vMin + vRange }, palette);
             const off = doc.createElement('canvas');
             off.width = raster.width; off.height = raster.height;
-            const offCtx = off.getContext('2d')!;
+            const offCtx = off.getContext('2d');
+            if (!offCtx) throw new Error('chartSpecRuntime: no 2d canvas context');
             const image = offCtx.createImageData(raster.width, raster.height);
             image.data.set(raster.pixels);
             offCtx.putImageData(image, 0, 0);
