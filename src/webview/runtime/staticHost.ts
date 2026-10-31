@@ -226,21 +226,16 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     status.style.cssText = 'min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap';
     // Web-only rules: room for the Python dot in the footer, and greyed-out actions the browser version cannot run.
     const webStyles = document.createElement('style');
-    webStyles.textContent = '#web-footer { display: flex; align-items: center; flex-shrink: 0; height: 22px; font-size: 11px; color: var(--muted);'
-        + ' background: var(--panel); border-top: 1px solid var(--line); }'
-        + ' #web-footer > #hint-footer { flex: 1; min-width: 0; border-top: 0; }'
-        // The lane view's status line ("3 tracks; add more") means nothing while the entry table covers the window;
-        // docked beside the lanes, the lanes are on screen and their status stays.
-        + ' body:has(#entry-screen.is-max:not([hidden])) #web-footer [role="status"] { visibility: hidden; }'
+    // The lane view's status line ("3 tracks; add more") means nothing while the entry table covers the window;
+    // docked beside the lanes, the lanes are on screen and their status stays.
+    webStyles.textContent = 'body:has(#entry-screen.is-max:not([hidden])) #app-footer [role="status"] { visibility: hidden; }'
         + ` ${UNAVAILABLE_ACTIONS} { opacity: 0.4; cursor: not-allowed; }`
         + ' @keyframes python-dot-pulse { 50% { opacity: 0.3; } }';
     bar.append(pick, folderPick, status, about, webStyles);
-    const footerRow = document.createElement('div');
-    footerRow.id = 'web-footer';
-    const hintFooter = document.getElementById('hint-footer');
-    if (hintFooter?.parentElement) { hintFooter.before(footerRow); footerRow.append(hintFooter); }
-    else document.body.append(footerRow);
-    footerRow.append(bar, pythonIndicator);
+    // The footer row keeps the version at its right end, after the Web controls.
+    const appVersion = document.getElementById('app-version');
+    if (appVersion) appVersion.before(bar, pythonIndicator);
+    else document.body.append(bar, pythonIndicator);
     // The toolbar text alone was easy to miss, so the boot also shows a centred card; it ignores pointer events because commands already wait for the boot.
     const pythonLoading = document.createElement('div');
     pythonLoading.setAttribute('data-python-loading', '');

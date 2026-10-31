@@ -4,7 +4,6 @@ import { hintAttr } from './hintFooter';
 
 export interface ToolbarSpec {
     contentType: 'waveform' | 'stage';
-    appVersion: string;
     linkScales?: boolean;
 }
 
@@ -47,6 +46,5 @@ export function toolbarHtml(spec: ToolbarSpec, strings: UiStrings): string {
         + '<span id="cursor-display" class="tb-track-only"' + hintAttr(strings.cursorDisplayHint) + '>—</span>'
         + '<span id="playback-display"' + hintAttr(strings.playbackDisplayTitle) + '></span>'
         + '<span id="loop-badge" style="display:none; color:#64a0ff; font-size:0.85em; margin-left:8px;">' + escapeHtml(strings.loopBadge) + '</span>'
-        + '<span id="loop-time-display"' + hintAttr(strings.loopTimeDisplayTitle) + ' style="display:none;"></span>'
-        + '<span class="tb-label tb-version" id="app-version">v' + escapeHtml(spec.appVersion) + '</span>';
+        + '<span id="loop-time-display"' + hintAttr(strings.loopTimeDisplayTitle) + ' style="display:none;"></span>';
 }

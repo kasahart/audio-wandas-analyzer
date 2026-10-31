@@ -103,9 +103,9 @@ test('i18n: __APP_LOCALE__ も注入される', () => {
     assert.match(renderHtmlWith('fr'), /window\.__APP_LOCALE__\s*=\s*"en";/);
 });
 
-test('VS Code panel injects the extension version from package.json', () => {
+test('VS Code panel shows the extension version from package.json in the footer', () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { version } = require('../../package.json') as { version: string };
-    assert.ok(renderHtmlWith('en').includes('window.__APP_VERSION__ = ' + JSON.stringify(version) + ';'));
+    assert.ok(renderHtmlWith('en').includes('<span id="app-version">v' + version + '</span>'));
 });
 

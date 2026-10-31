@@ -30,7 +30,10 @@ export function renderComparisonDocument(state: ComparisonState, assets: Compari
 <body>
     <div id="a11y-announce" role="status" aria-live="polite" aria-atomic="true" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0"></div>
     <div id="app"></div>
-    <div id="hint-footer" aria-hidden="true"></div>
+    <footer id="app-footer">
+        <div id="hint-footer" aria-hidden="true"></div>
+        <span id="app-version">v${escapeHtml(assets.appVersion)}</span>
+    </footer>
     <script nonce="${nonce}">
         const __AWA_NATIVE_ACQUIRE_VSCODE_API__ = window.acquireVsCodeApi;
         if (__AWA_NATIVE_ACQUIRE_VSCODE_API__) window.acquireVsCodeApi = function() {
@@ -42,7 +45,6 @@ export function renderComparisonDocument(state: ComparisonState, assets: Compari
         window.__APP_STATE__ = ${serializeForScript(state)};
         window.__APP_STRINGS__ = ${serializeForScript(strings)};
         window.__APP_LOCALE__ = ${serializeForScript(locale)};
-        window.__APP_VERSION__ = ${serializeForScript(assets.appVersion)};
     </script>
     <script src="${assets.waveformScriptUri}"></script>
     ${assets.hostScriptUri ? `<script src="${assets.hostScriptUri}"></script>` : ''}
@@ -143,7 +145,6 @@ export function renderComparisonStyles(): string {
         }
         .tb-btn.is-active { background: var(--accent); color: #fff; border-color: var(--accent); }
         .tb-btn:disabled { opacity: 0.4; cursor: default; }
-        .tb-version { margin-left: auto; font-family: var(--font-mono); }
         .tb-sep { width: 1px; height: 16px; background: var(--line); margin: 0 2px; }
         .tb-menu { position: relative; display: inline-flex; }
         .tb-menu > summary { list-style: none; }
@@ -581,11 +582,16 @@ export function renderComparisonStyles(): string {
         .awa-slot.is-flash, .entry-chip.is-flash { animation: awa-ring 0.9s ease-out; }
         /* Key hints: small, pressable, quiet. */
         .entry-keys .entry-key { min-height: 20px; font-size: 11px; border-radius: 3px; padding: 0 6px; }
-        #hint-footer {
-            flex-shrink: 0; height: 22px; line-height: 22px; padding: 0 10px;
+        /* The bottom row: hints on the left, the version small at the right end. */
+        #app-footer {
+            display: flex; align-items: center; flex-shrink: 0; height: 22px;
             font-size: 11px; color: var(--muted); background: var(--panel); border-top: 1px solid var(--line);
+        }
+        #hint-footer {
+            flex: 1; align-self: stretch; min-width: 0; line-height: 21px; padding: 0 10px;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
+        #app-version { flex: none; padding: 0 10px; font-family: var(--font-mono); font-size: 10px; opacity: 0.8; white-space: nowrap; }
         /* On the entry table and the comparison the footer is where symbols explain themselves, so it reads as text, not as a status line. */
         body:has(#entry-screen:not([hidden])) #hint-footer { color: var(--text); font-size: 12px; }
 
@@ -667,7 +673,7 @@ export function renderComparisonStyles(): string {
         body.is-stage-view [data-action="spectrum-height-drag"] { display: none !important; }
         /* Before anything is open: the side panel says what will be there, and the lanes' controls wait for a track. */
         #directory-selection-layout.is-empty #entry-dock::before { content: attr(data-empty-hint); display: block; padding: 48px 20px; color: var(--muted); text-align: center; line-height: 1.6; }
-        #directory-selection-layout.is-empty #toolbar > :not(#app-version), #directory-selection-layout.is-empty #spectrum-section,
+        #directory-selection-layout.is-empty #toolbar, #directory-selection-layout.is-empty #spectrum-section,
         #directory-selection-layout.is-empty [data-action="spectrum-height-drag"] { display: none !important; }
         /* The 書き出し menu offers what can be written now: the comparison in the steps view, the table's exports while it is open. */
         /* The table's exports show while the table does: not once the side panel holding it is folded. */

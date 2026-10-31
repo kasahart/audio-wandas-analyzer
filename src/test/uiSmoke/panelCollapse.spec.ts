@@ -15,7 +15,7 @@ test('the spectrum toggle folds the docked spectrum to its header and gives the 
     await expect(toggle).toHaveAttribute('aria-expanded', 'false');
     expect((await tracks.boundingBox())!.height).toBeGreaterThan(openTracksHeight + 100);
     const section = (await page.locator('#spectrum-section').boundingBox())!;
-    const footer = (await page.locator('#hint-footer').boundingBox())!;
+    const footer = (await page.locator('#app-footer').boundingBox())!;
     expect(Math.round(section.y + section.height)).toBe(Math.round(footer.y));
 
     // A collapsed panel has no height to drag.
@@ -113,13 +113,13 @@ test('maximizing the spectrum gives its plot the tracks\' room and Esc restores 
     expect(tracksBox.height).toBeLessThanOrEqual(900 * 0.3 + 1);
     await expect(page.locator('[data-action="spectrum-height-drag"]')).toBeHidden();
     const section = (await page.locator('#spectrum-section').boundingBox())!;
-    const footer = (await page.locator('#hint-footer').boundingBox())!;
+    const footer = (await page.locator('#app-footer').boundingBox())!;
     expect(Math.round(section.y + section.height)).toBe(Math.round(footer.y));
 
     // The plot follows the window while maximized.
     await page.setViewportSize({ width: 1200, height: 700 });
     await expect.poll(async () => Math.round((await page.locator('#spectrum-section').boundingBox())!.y + (await page.locator('#spectrum-section').boundingBox())!.height))
-        .toBe(Math.round((await page.locator('#hint-footer').boundingBox())!.y));
+        .toBe(Math.round((await page.locator('#app-footer').boundingBox())!.y));
 
     // Esc in a text field belongs to that field.
     await page.evaluate(() => {
@@ -170,6 +170,6 @@ test('dragging the spectrum edge can go past the old 320 px cap but keeps a stri
     await page.setViewportSize({ width: 1200, height: 600 });
     await expect.poll(async () => (await page.locator('#tracks-wrapper').boundingBox())!.height).toBeGreaterThanOrEqual(119);
     const section = (await page.locator('#spectrum-section').boundingBox())!;
-    const footer = (await page.locator('#hint-footer').boundingBox())!;
+    const footer = (await page.locator('#app-footer').boundingBox())!;
     expect(Math.round(section.y + section.height)).toBe(Math.round(footer.y));
 });

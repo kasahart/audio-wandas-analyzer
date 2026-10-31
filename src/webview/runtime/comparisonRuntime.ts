@@ -106,7 +106,7 @@ import {
 import type { ChannelSummary, SpectrogramData, SpectrogramDisplaySettings, } from '../../shared/analysis/analysisTypes';
 import type { ComparisonBootstrap, ComparisonTrackState, LazyRequestState, LoopRegion, PersistedWebviewState, RectZoomSelection, SpectrumSlice, TestAction, TrackFileView, TrackId, TrackRuntimeState, WaveformDragState, WaveformDrawOptions, } from './types';
 export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
-    const { host: vscode, state: injectedState, strings: STR, appVersion, window, document } = bootstrap;
+    const { host: vscode, state: injectedState, strings: STR, window, document } = bootstrap;
     const state = normalizeRuntimeState(injectedState);
     const messaging = new HostMessenger(vscode, window);
     const testBridge = new ComparisonTestBridge(window, messaging);
@@ -1631,7 +1631,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function buildToolbar() {
         return toolbarHtml({
             contentType,
-            appVersion,
             linkScales: scalesLinked,
         }, STR);
     }
