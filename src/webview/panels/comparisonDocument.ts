@@ -324,10 +324,12 @@ export function renderComparisonStyles(): string {
         .entry-rowtools { display: inline-flex; gap: 1px; flex: none; }
         .entry-screen .entry-rbtn { min-width: 20px; height: 20px; padding: 0 3px; border-color: transparent; font-family: var(--font-mono); font-size: 11px; line-height: 1; }
         .entry-screen .entry-rbtn:hover { border-color: var(--line); }
-        /* The selected row looks like the others: its tools come under the mouse, or while one of them has the keyboard. */
-        .entry-row:not(:hover) .entry-rowtools:not(:focus-within) .entry-rbtn.is-hover { visibility: hidden; }
+        .entry-row:not(:hover):not(.is-focused) .entry-rbtn.is-hover { visibility: hidden; }
         /* In the side panel a row's hidden tools take no room, so its name has it. */
-        .entry-screen:not(.is-max) .entry-row:not(:hover) .entry-rowtools:not(:focus-within) .entry-rbtn.is-hover { display: none; }
+        .entry-screen:not(.is-max) .entry-row:not(:hover):not(.is-focused) .entry-rbtn.is-hover { display: none; }
+        /* The selected row looks like the others: its tools come under the mouse, yet stay in Tab's reach and show while one has the keyboard. */
+        .entry-row.is-focused:not(:hover) .entry-rowtools:not(:focus-within) .entry-rbtn.is-hover { opacity: 0; }
+        .entry-screen:not(.is-max) .entry-row.is-focused:not(:hover) .entry-rowtools:not(:focus-within) .entry-rbtn.is-hover { position: absolute; width: 1px; min-width: 0; height: 1px; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); }
         .entry-screen .entry-rbtn-slot { color: var(--muted); }
         .entry-col-ch.is-single { color: var(--muted); }
         .entry-row.is-stale td:not(.entry-name) { color: var(--muted); }

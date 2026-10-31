@@ -699,7 +699,10 @@ test('docked, the selected row looks like the others: its name stays readable an
     await page.keyboard.press('ArrowDown');
     const row = page.locator('[data-entry-rows] tr.entry-row.is-focused');
     await page.mouse.move(0, 0);
-    for (const action of ['entry-row-play', 'entry-row-memo', 'entry-row-exclude']) await expect(row.locator(`[data-action="${action}"]`)).toBeHidden();
+    // Its tools take no room (a pixel at most) and show nothing.
+    for (const action of ['entry-row-play', 'entry-row-memo', 'entry-row-exclude']) {
+        expect((await row.locator(`[data-action="${action}"]`).boundingBox())?.width ?? 0, action).toBeLessThanOrEqual(1);
+    }
     const name = (await row.locator('.entry-nm').boundingBox())!;
     expect(name.width).toBeGreaterThan(60);
     // With no value column the name takes the room the channel leaves, and the header lines up with the rows.
@@ -711,6 +714,16 @@ test('docked, the selected row looks like the others: its name stays readable an
     await row.locator('.entry-nm').hover();
     await expect(row.locator('[data-action="entry-row-play"]')).toBeVisible();
     await expect(row.locator('[data-action="entry-row-exclude"]')).toBeVisible();
+    // The keyboard alone still reaches them: Tab from the row's ☐ / ☑ walks its tools, which show while they have the focus.
+    await page.mouse.move(0, 0);
+    await row.locator('[data-action="entry-row-track"]').focus();
+    const exclude = row.locator('[data-action="entry-row-exclude"]');
+    for (let step = 0; step < 6 && !(await exclude.evaluate(element => element === document.activeElement)); step++) await page.keyboard.press('Tab');
+    await expect(exclude).toBeFocused();
+    expect((await exclude.boundingBox())!.width).toBeGreaterThan(20);
+    const excludedKey = await row.getAttribute('data-key');
+    await page.keyboard.press('Enter');
+    await expect(page.locator(`[data-entry-rows] tr.entry-row[data-key="${excludedKey}"]`)).toHaveCount(0);
 });
 
 test('docked, Space on a row\'s ☐ / ☑ toggles it each time and never reaches the lanes\' playback', async ({ page }) => {
