@@ -87,11 +87,11 @@ export async function buildDirectoryTree(
             if (options.isCancelled?.() || truncated) { return Promise.resolve<[string, vscode.FileType][]>([]); }
             return Promise.resolve(fileSystem.readDirectory(folderUri));
         }).then((found) => {
-            // Reads waiting for their turn past the cap are mostly ones the listing will not reach, so stop adding more.
-            if (reads.size <= maxEntries && !options.isCancelled?.()) {
-                for (const [name, type] of sortEntries(found)) {
-                    if (listsFolder(name, type)) { void startRead(vscode.Uri.joinPath(folderUri, name)); }
-                }
+            // Reads waiting for their turn past the cap are ones the listing will not reach, so at most `maxEntries`
+            // wait at once, even under a folder with more subfolders than that; the listing reads the rest itself.
+            for (const [name, type] of sortEntries(found)) {
+                if (reads.size > maxEntries || options.isCancelled?.()) { break; }
+                if (listsFolder(name, type)) { void startRead(vscode.Uri.joinPath(folderUri, name)); }
             }
             return found;
         });

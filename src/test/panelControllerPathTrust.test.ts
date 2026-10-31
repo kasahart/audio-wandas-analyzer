@@ -15,13 +15,16 @@ class CancellationError extends Error {}
 const FileType = { File: 1, Directory: 2, SymbolicLink: 64 };
 const uri = (fsPath: string) => ({ fsPath, toString: () => `file:${fsPath}` });
 
+/** URIs the code under test built with `vscode.Uri.joinPath`: one per folder it queued a read for or listed. */
+let joinedUris = 0;
+
 function loadWithVscodeMock<T>(load: () => T): T {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const NodeModule = require('node:module') as { _load: (request: string, parent: unknown, isMain: boolean) => unknown };
     const originalLoad = NodeModule._load;
     NodeModule._load = function(request, parent, isMain) {
         if (request === 'vscode') return {
-            Uri: { file: uri, joinPath: (base: { fsPath: string }, ...parts: string[]) => uri(path.join(base.fsPath, ...parts)) },
+            Uri: { file: uri, joinPath: (base: { fsPath: string }, ...parts: string[]) => { joinedUris++; return uri(path.join(base.fsPath, ...parts)); } },
             FileType, ViewColumn: { One: 1 }, ProgressLocation: { Notification: 15 }, CancellationError,
             EventEmitter: class { readonly event = () => ({ dispose() {} }); fire() {} dispose() {} },
             commands: { executeCommand: async () => undefined }, workspace: { fs: {} }, env: { language: 'en' },
@@ -275,6 +278,15 @@ test('a large later folder that is read first does not slow the earlier subfolde
     assert.equal(truncated, true);
     assert.equal(tree[0]?.children?.length, 16);
     assert.equal(takeReadsPeak, 4, 'the archive, listed last but read first, must not stop the reads ahead in a/');
+});
+
+test('a folder with more subfolders than the cap queues no more than the cap of reads ahead', async () => {
+    const fileSystem = directoryFileSystem({ '/r': Array.from({ length: 1000 }, (_, i) => [`d${String(i).padStart(4, '0')}`, FileType.Directory]) });
+    joinedUris = 0;
+    const { truncated } = await buildDirectoryTree(uri('/r') as vscode.Uri, fileSystem, { concurrency: 4, maxEntries: 10 });
+    assert.equal(truncated, true);
+    // At most maxEntries + 1 reads ahead, plus the ten folders the listing itself reaches.
+    assert.ok(joinedUris <= 2 * 10 + 1, `queued ${joinedUris} folders for a listing capped at 10`);
 });
 
 test('directory listing stops when cancelled', async () => {
