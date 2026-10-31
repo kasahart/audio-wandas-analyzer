@@ -17,7 +17,7 @@ function setup(axisOpens = false) {
         drag: () => { calls.push('drag'); },
         release: () => { calls.push('release'); },
         zoomWheel: () => { calls.push('zoom'); },
-        panWheel: () => { calls.push('pan'); },
+        panWheel: (_e, swipe) => { calls.push(swipe ? 'swipe' : 'pan'); },
     });
     const at = (selector: string) => doc.querySelector(selector) as HTMLElement;
     return { window, doc, wrapper, calls, at };
@@ -62,16 +62,34 @@ test('attachTrackPointerListeners zooms with Ctrl+wheel, pans with Shift+wheel a
     assert.deepEqual(calls, ['zoom', 'pan']);
 });
 
-test('attachTrackPointerListeners pans with a sideways swipe on a plot and leaves it alone elsewhere', () => {
-    const { window, calls, at } = setup();
-    const wheel = (selector: string, init: WheelEventInit) => {
+function wheelAt(window: JSDOM['window'], at: (selector: string) => HTMLElement) {
+    return (selector: string, timeStamp: number, init: WheelEventInit) => {
         const event = new window.WheelEvent('wheel', { bubbles: true, cancelable: true, ...init });
+        Object.defineProperty(event, 'timeStamp', { value: timeStamp });
         at(selector).dispatchEvent(event);
         return event.defaultPrevented;
     };
-    assert.equal(wheel('.track-canvas', { deltaX: 12, deltaY: 2 }), true);
-    // Mostly vertical: the lanes scroll; off the plots: the page's own sideways scroll stays.
-    assert.equal(wheel('.track-canvas', { deltaX: 2, deltaY: 12 }), false);
-    assert.equal(wheel('.label', { deltaX: 12 }), false);
-    assert.deepEqual(calls, ['pan']);
+}
+
+test('attachTrackPointerListeners pans with a sideways swipe on a plot and leaves it alone elsewhere', () => {
+    const { window, calls, at } = setup();
+    const wheel = wheelAt(window, at);
+    assert.equal(wheel('.track-canvas', 0, { deltaX: 12, deltaY: 2 }), true);
+    // Mostly vertical (or exactly diagonal) after a pause: the lanes scroll; off the plots: the page's own sideways scroll stays.
+    assert.equal(wheel('.track-canvas', 1000, { deltaX: 2, deltaY: 12 }), false);
+    assert.equal(wheel('.track-canvas', 2000, { deltaX: 10, deltaY: 10 }), false);
+    assert.equal(wheel('.label', 3000, { deltaX: 12 }), false);
+    assert.deepEqual(calls, ['swipe']);
+});
+
+test('attachTrackPointerListeners keeps a swipe on the direction it started with until it pauses', () => {
+    const { window, calls, at } = setup();
+    const wheel = wheelAt(window, at);
+    // A sideways swipe drifting past the diagonal keeps panning…
+    assert.equal(wheel('.track-canvas', 0, { deltaX: 10, deltaY: 9 }), true);
+    assert.equal(wheel('.track-canvas', 16, { deltaX: 9, deltaY: 10 }), true);
+    // …and a vertical one drifting sideways keeps scrolling the lanes.
+    assert.equal(wheel('.track-canvas', 500, { deltaX: 9, deltaY: 10 }), false);
+    assert.equal(wheel('.track-canvas', 516, { deltaX: 10, deltaY: 9 }), false);
+    assert.deepEqual(calls, ['swipe', 'swipe']);
 });

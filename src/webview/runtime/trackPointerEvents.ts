@@ -8,7 +8,8 @@ export interface TrackPointerHandlers {
     drag(e: MouseEvent): void;
     release(e: MouseEvent): void;
     zoomWheel(e: WheelEvent): void;
-    panWheel(e: WheelEvent): void;
+    /** `swipe`: a sideways swipe, moved as far as the fingers went; else a Shift+wheel notch, by the lanes' step. */
+    panWheel(e: WheelEvent, swipe: boolean): void;
 }
 
 type PointerSurface = Pick<HTMLElement, 'addEventListener'>;
@@ -18,6 +19,9 @@ export interface PlotSelectors {
     plot: string;
     axis?: string;
 }
+
+/** Wheel events further apart than this start a new swipe. */
+const SWIPE_PAUSE_MS = 150;
 
 const TRACK_SELECTORS: PlotSelectors = { plot: '.track-canvas', axis: '.track-axis-canvas' };
 
@@ -49,15 +53,23 @@ export function attachTrackPointerListeners(tracksWrapper: PointerSurface, doc: 
     tracksWrapper.addEventListener('mousedown', function (e) { handlers.press(e); });
     doc.addEventListener('mousemove', function (e) { handlers.drag(e); });
     doc.addEventListener('mouseup', function (e) { handlers.release(e); });
+    // A swipe keeps the direction its first events took until it pauses, so a diagonal one does not
+    // alternate between panning the time and scrolling the lanes.
+    let swipe: { sideways: boolean; at: number } | null = null;
     tracksWrapper.addEventListener('wheel', function (e) {
-        if (e.ctrlKey) {
+        if (e.ctrlKey || e.shiftKey) {
+            swipe = null;
             e.preventDefault();
-            handlers.zoomWheel(e);
+            if (e.ctrlKey) handlers.zoomWheel(e);
+            else handlers.panWheel(e, false);
+            return;
         }
-        else if (e.shiftKey || (Math.abs(e.deltaX) > Math.abs(e.deltaY) && onPlot(e))) {
+        const sideways = swipe && e.timeStamp - swipe.at < SWIPE_PAUSE_MS ? swipe.sideways : Math.abs(e.deltaX) > Math.abs(e.deltaY);
+        swipe = { sideways, at: e.timeStamp };
+        if (sideways && onPlot(e)) {
             // A sideways swipe on a plot pans it rather than scrolling the page (or going back a page).
             e.preventDefault();
-            handlers.panWheel(e);
+            handlers.panWheel(e, true);
         }
     }, { passive: false });
 }

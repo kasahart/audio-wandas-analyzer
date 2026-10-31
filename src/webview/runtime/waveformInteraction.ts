@@ -57,13 +57,18 @@ export function panNormalizedRange(range: NormalizedRange, direction: -1 | 1): N
 /** One wheel line, in CSS pixels (a mouse notch is about three). */
 export const WHEEL_LINE_PX = 40;
 
+/** A sideways swipe's move in CSS pixels (positive: later), lines and pages converted. */
+export function wheelPanPixels(event: Pick<WheelEvent, 'deltaX' | 'deltaMode'>, pagePx: number): number {
+    return event.deltaX * (event.deltaMode === 1 ? WHEEL_LINE_PX : event.deltaMode === 2 ? pagePx : 1);
+}
+
 /**
- * A wheel event as a sideways move in CSS pixels (positive: later): its sideways part when that leads (a
- * trackpad's two-finger swipe, or Shift+wheel where the system turns it sideways), else its turn (Shift+wheel).
+ * A Shift+wheel notch's direction (1: later, 0: none): its leading part, which is sideways where the system
+ * turns Shift+wheel sideways (macOS).
  */
-export function wheelPanPixels(event: Pick<WheelEvent, 'deltaX' | 'deltaY' | 'deltaMode'>, pagePx: number): number {
+export function wheelStepDirection(event: Pick<WheelEvent, 'deltaX' | 'deltaY'>): -1 | 0 | 1 {
     const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
-    return delta * (event.deltaMode === 1 ? WHEEL_LINE_PX : event.deltaMode === 2 ? pagePx : 1);
+    return delta > 0 ? 1 : delta < 0 ? -1 : 0;
 }
 
 /** The range moved by `fraction` of its span (positive: later), stopping at the edges. */

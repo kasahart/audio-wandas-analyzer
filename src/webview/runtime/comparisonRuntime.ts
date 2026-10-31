@@ -101,6 +101,7 @@ import {
     normAtPlotX,
     rectZoomTarget,
     wheelPanPixels,
+    wheelStepDirection,
     wheelZoomFactor,
     ZOOM_IN_FACTOR,
 } from './waveformInteraction';
@@ -3421,8 +3422,16 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         waveformView.zoomAround(pivotNorm, scaleFactor);
         scheduleRender();
     }
-    function handlePanWheel(e: WheelEvent): void {
+    function handlePanWheel(e: WheelEvent, swipe: boolean): void {
         disableFollowCursor();
+        if (!swipe) {
+            const direction = wheelStepDirection(e);
+            if (direction !== 0) {
+                waveformView.pan(direction);
+                scheduleRender();
+            }
+            return;
+        }
         // Over a lane the plot's own width, so the waveform follows the fingers; elsewhere the lanes' width.
         const target = eventTarget(e);
         const canvas = target && typeof target.closest === 'function' ? target.closest<HTMLCanvasElement>('.track-canvas') : null;
