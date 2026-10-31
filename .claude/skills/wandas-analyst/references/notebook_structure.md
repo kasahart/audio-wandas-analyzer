@@ -14,7 +14,7 @@
     },
     "language_info": {
       "name": "python",
-      "version": "3.10.0"
+      "version": "3.11.0"
     }
   },
   "cells": [...]
@@ -149,7 +149,7 @@ def build_notebook(cells: list) -> dict:
             },
             "language_info": {
                 "name": "python",
-                "version": "3.10.0"
+                "version": "3.11.0"
             }
         },
         "cells": cells

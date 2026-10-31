@@ -48,27 +48,18 @@ function collectWebviewActionIdsFromSource(source) {
     return sortUnique([...literalActions, ...assignedActions]);
 }
 
+function webviewSourcePaths(dir) {
+    return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) { return webviewSourcePaths(full); }
+        return entry.name.endsWith('.ts') ? [full] : [];
+    }).sort();
+}
+
 function collectWebviewActionIds(repoRoot) {
-    const sourcePaths = [
-        path.join(repoRoot, 'src', 'webview', 'runtime', 'comparisonRuntime.ts'),
-        path.join(repoRoot, 'src', 'webview', 'runtime', 'calibrationDecorations.ts'),
-        path.join(repoRoot, 'src', 'webview', 'runtime', 'trackLaneHtml.ts'),
-        path.join(repoRoot, 'src', 'webview', 'runtime', 'toolbarHtml.ts'),
-        path.join(repoRoot, 'src', 'webview', 'runtime', 'resultsPaneHtml.ts'),
-        path.join(repoRoot, 'src', 'webview', 'runtime', 'selectionLayoutHtml.ts'),
-        path.join(repoRoot, 'src', 'webview', 'runtime', 'staticHost.ts'),
-        path.join(repoRoot, 'src', 'webview', 'runtime', 'recipePicker.ts'),
-        path.join(repoRoot, 'src', 'webview', 'runtime', 'panelCollapse.ts'),
-        path.join(repoRoot, 'src', 'webview', 'runtime', 'pairSpectrum.ts'),
-        path.join(repoRoot, 'src', 'webview', 'runtime', 'entryTableHtml.ts'),
-        path.join(repoRoot, 'src', 'webview', 'runtime', 'comparePanes.ts'),
-        path.join(repoRoot, 'src', 'webview', 'runtime', 'stepBar.ts'),
-        path.join(repoRoot, 'src', 'webview', 'runtime', 'entryRuntime.ts'),
-        path.join(repoRoot, 'src', 'webview', 'runtime', 'screenHelp.ts'),
-        path.join(repoRoot, 'src', 'webview', 'runtime', 'trackStageMode.ts'),
-        path.join(repoRoot, 'src', 'webview', 'runtime', 'roleChip.ts'),
-    ];
-    const source = sourcePaths.map((sourcePath) => fs.readFileSync(sourcePath, 'utf8')).join('\n');
+    const source = webviewSourcePaths(path.join(repoRoot, 'src', 'webview'))
+        .map((sourcePath) => fs.readFileSync(sourcePath, 'utf8'))
+        .join('\n');
     return collectWebviewActionIdsFromSource(source);
 }
 

@@ -13,25 +13,34 @@ const options = {
     logLevel: 'info',
 };
 
-esbuild.buildSync({
-    ...options,
-    stdin: {
-        contents: `import { renderWaveformPipeline, paintLoopRegion } from './dist/webview/waveform/waveformRenderer.js';
+// The bundles read tsc's output under dist/, so `npm run watch` rebuilds them when any file they import changes.
+const BUILDS = [
+    {
+        ...options,
+        stdin: {
+            contents: `import { renderWaveformPipeline, paintLoopRegion } from './dist/webview/waveform/waveformRenderer.js';
 window.renderWaveformPipeline = renderWaveformPipeline;
 window.paintLoopRegion = paintLoopRegion;`,
-        resolveDir: ROOT,
-        sourcefile: 'waveformWindow.js',
+            resolveDir: ROOT,
+            sourcefile: 'waveformWindow.js',
+        },
+        outfile: path.join(OUT_DIR, 'comparisonWaveform.js'),
     },
-    outfile: path.join(OUT_DIR, 'comparisonWaveform.js'),
-});
-for (const [entry, output] of [
-    ['comparisonEntry', 'comparisonRuntime'],
-    ['staticHostEntry', 'staticHost'],
-    ['chartSpecEntry', 'chartSpecRuntime'],
-]) {
-    esbuild.buildSync({
+    ...[
+        ['comparisonEntry', 'comparisonRuntime'],
+        ['staticHostEntry', 'staticHost'],
+        ['chartSpecEntry', 'chartSpecRuntime'],
+    ].map(([entry, output]) => ({
         ...options,
         entryPoints: [path.join(OUT_DIR, 'runtime', `${entry}.js`)],
         outfile: path.join(OUT_DIR, `${output}.js`),
-    });
+    })),
+];
+
+module.exports = { BUILDS };
+
+if (require.main === module) {
+    for (const build of BUILDS) {
+        esbuild.buildSync(build);
+    }
 }

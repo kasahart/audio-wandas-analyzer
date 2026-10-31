@@ -16,8 +16,9 @@
 
 - [ ] `npm run verify` passes locally
 - [ ] `npm run verify:e2e` passes locally (only if the change could affect the Webview / extension host)
-- [ ] If waveform rendering changed: BOTH `src/webview/waveform/waveformRenderer.ts` AND `media/comparisonWaveform.js` were updated
-- [ ] If conventions / commands changed: `AGENTS.md` (and `CLAUDE.md` / `.github/copilot-instructions.md` if applicable) updated
+- [ ] `npm run test:ui` passes locally (only if Webview runtime behavior changed)
+- [ ] If conventions / commands changed: `AGENTS.md` (and `CLAUDE.md` / `CODEX.md` / `.github/copilot-instructions.md` if applicable) updated
+- [ ] User-visible change noted in `CHANGELOG.md`
 
 ## Agent attribution
 

@@ -15,7 +15,7 @@ VS Code extension that analyzes audio files. The extension host is TypeScript; t
 
 ```
 User picks audio file
-  → src/extension/index.ts (command handler)
+  → src/extension/extensionContributions.ts (command handler; wired up in index.ts)
   → AnalysisClient → PythonBackendServer (persistent child process, NDJSON IPC)
   → python-backend/backend_server.py → command_dispatch.py → AnalysisService
   → src/webview/panels/ComparisonPanel.ts renders Webview
@@ -46,16 +46,18 @@ python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"      # installs ruff + pytest + runtime deps via pyproject.toml
 ```
 
-Node 22 and Python 3.11 are the supported versions (matches `.devcontainer/Dockerfile` and CI).
+Node 22 (`.nvmrc`, `engines.node`) and Python 3.11 are the supported versions (matches `.devcontainer/Dockerfile` and CI). CI installs Python packages with the pins in `python-backend/constraints.txt` (`pip install -c python-backend/constraints.txt -e ".[dev]"`).
 
 ---
 
 ## 3. Canonical commands — the completion bar
 
-**An agent's work is "done" only when `npm run verify` exits 0.** This is the single source of truth for correctness. That script now includes the Webview pattern lint (`node scripts/lint-webview-patterns.js`) and the GUI triggerability audit (`node scripts/verify-gui-triggerability.js`) in addition to compile + unit checks.
+**An agent's work is "done" only when `npm run verify` exits 0.** This is the single source of truth for correctness. `scripts/verify.mjs` (plain Node, runs on Windows/macOS/Linux) lists every step: compile, Webview pattern lint, generated protocol types, single-source check, skills-copy check, GUI triggerability audit, node:test, ruff, pytest.
+
+pytest opt-ins: `AWA_SLOW=1` runs the slow operation-catalog probe (CI sets it on Linux); `AWA_PERF=1` holds wall-clock budgets, which are otherwise only reported (the same variable holds the `scale100k` Playwright targets).
 
 ```bash
-npm run verify        # compile + webview pattern lint + GUI triggerability audit + node:test + ruff check + ruff format --check + pytest
+npm run verify        # see scripts/verify.mjs
 npm run test:ui       # Playwright Chromium smoke for real-browser Webview regressions
 npm run verify:e2e    # VS Code extension-host E2E (uses xvfb-run on Linux)
 ```
@@ -64,7 +66,7 @@ Other useful commands:
 
 ```bash
 npm run compile       # tsc → dist/
-npm run watch         # tsc --watch
+npm run watch         # tsc --watch + esbuild watch of the Webview bundles
 npm test              # node:test only (subset of verify)
 npm run lint:gui-triggerability   # static audit: every user-facing GUI feature must stay mapped
 ruff check python-backend
@@ -72,7 +74,7 @@ ruff format python-backend
 python -m pytest python-backend -q
 ```
 
-Do **not** invent ad-hoc verification recipes. If a check is worth running, add it to `scripts/verify.sh`.
+Do **not** invent ad-hoc verification recipes. If a check is worth running, add it to `scripts/verify.mjs`.
 
 ### 並行作業用ハーネス
 
@@ -94,7 +96,8 @@ TS/JS の役割分担は `src/**/*.ts` が編集対象のソース、`dist/**/*.
 
 | File | Role |
 |------|------|
-| `src/extension/index.ts` | Command registration, file picking, Python spawn, message routing |
+| `src/extension/index.ts` | `activate`: wires the backend, panels, flows and status bar together |
+| `src/extension/extensionContributions.ts` | Command, explorer-menu and welcome-view registration |
 | `src/extension/pythonBackendServer.ts` | Persistent Python child process for analysis requests; NDJSON IPC |
 | `src/webview/panels/ComparisonPanel.ts` | Multi-track comparison Webview shell and CSP-safe bootstrap data |
 | `src/webview/runtime/comparisonEntry.ts` | Strict TypeScript entry for the modular Comparison Webview runtime |
@@ -105,12 +108,12 @@ TS/JS の役割分担は `src/**/*.ts` が編集対象のソース、`dist/**/*.
 | `python-backend/decimator.py` | `decimated_waveform()` — bucket-level argmin/argmax |
 | `python-backend/analysis_service.py` | Initial summary, detail, spectrum slice, waveform range, WAV export and Recipe |
 | `python-backend/analysis_engine.py` | Cached audio frames and STFT by calibration/settings |
-| `python-backend/backend_server.py` | Persistent NDJSON server; dispatches the seven validated analysis commands |
+| `python-backend/backend_server.py` | Persistent NDJSON server; dispatches the validated commands in `command_dispatch.COMMANDS` (10 today) |
 | `python-backend/recipe_runner.py` | Loads and replays a wandas `RecipePlan`; called by `analysis_service` on the persistent backend |
 
 ### Waveform rendering pipeline
 
-`waveformRenderer.ts` is the **single source of truth**. `scripts/build-webview.js` wraps the compiled CJS output into an IIFE and emits `dist/webview/comparisonWaveform.js`, which the Webview loads via `<script src>`. Three pure layers:
+`waveformRenderer.ts` is the **single source of truth**. `scripts/build-webview.js` bundles tsc's output with esbuild (IIFE format) and emits `dist/webview/comparisonWaveform.js`, which the Webview loads via `<script src>`. Three pure layers:
 
 1. **CoordTransform** (`makeCoordTransform`) — file-normalized time `tNorm ∈ [0,1]` → canvas x, using `offsetNorm` and `trackDurRatio`.
 2. **Decimation** (`computeViewRange` + `decimateBuckets`) — choose bucket range and apply argmin/argmax.

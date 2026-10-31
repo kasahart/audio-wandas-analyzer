@@ -12,6 +12,8 @@
 CLAUDE.md
 AGENTS.md
 CODEX.md
+CONTRIBUTING.md
+.nvmrc
 .agents/**
 .codex/**
 scripts/**
@@ -38,6 +40,7 @@ dist/**/*.map
 python-backend/__pycache__/**
 **/__pycache__/**
 python-backend/conftest.py
+python-backend/constraints.txt
 python-backend/.pytest_cache/**
 python-backend/test_*.py
 .worktrees/**
