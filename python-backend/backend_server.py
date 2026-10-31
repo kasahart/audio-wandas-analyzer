@@ -8,15 +8,15 @@ import os
 import sys
 import threading
 import time
-from collections import deque
-from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
+import traceback
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from backend_errors import InputError, error_payload
 from command_dispatch import Command, dispatch, validate_request
 from perf import perf_log
+from protocol_schema import DEFINITIONS, first_violation
 
 if TYPE_CHECKING:
     from analysis_service import AnalysisService
@@ -67,90 +67,149 @@ def _worker_count() -> int:
 
 
 class _Job:
-    __slots__ = ("lanes", "run", "started")
+    __slots__ = ("barrier", "cancelled", "interactive", "lanes", "request_id", "run", "started")
 
-    def __init__(self, lanes: tuple[str, ...], run: Callable[[], None]) -> None:
+    def __init__(
+        self,
+        request_id: str,
+        lanes: frozenset[str],
+        run: Callable[[_Job], None],
+        barrier: bool,
+        interactive: bool,
+    ) -> None:
+        self.request_id = request_id
         self.lanes = lanes
         self.run = run
+        self.barrier = barrier
+        self.interactive = interactive
         self.started = False
+        self.cancelled = False
 
 
 class _Lanes:
-    """Runs requests for different files at once and the requests for one file in the order they came.
+    """Runs requests at once, except that a state-changing request keeps its place among those for its files.
 
-    A request that reads several files (a scan against a reference, a pair of recordings) holds the lane of
-    each, so it neither overlaps nor overtakes another request for any of them.
+    A barrier waits for every earlier request on its files, and every later request on them waits for it.
+    Interactive requests are started before the other ready ones, so a cursor never queues behind a long STFT.
+    A request that reads several files holds the lane of each.
     """
 
     def __init__(self, workers: int) -> None:
-        self._executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="awa-request")
-        self._lock = threading.Lock()
-        self._idle = threading.Condition(self._lock)
-        self._queued: dict[str, deque[_Job]] = {}
+        self._changed = threading.Condition(threading.Lock())
+        self._jobs: list[_Job] = []
+        self._closing = False
+        for index in range(workers):
+            threading.Thread(target=self._work, name=f"awa-request-{index}", daemon=True).start()
 
-    def submit(self, lanes: tuple[str, ...], run: Callable[[], None]) -> None:
-        job = _Job(lanes, run)
-        with self._lock:
-            for lane in lanes:
-                self._queued.setdefault(lane, deque()).append(job)
-            ready = self._take_if_ready(job)
-        if ready:
-            self._executor.submit(self._execute, job)
+    def submit(
+        self,
+        request_id: str,
+        lanes: frozenset[str],
+        run: Callable[[_Job], None],
+        *,
+        barrier: bool = False,
+        interactive: bool = False,
+    ) -> None:
+        with self._changed:
+            self._jobs.append(_Job(request_id, lanes, run, barrier, interactive))
+            self._changed.notify_all()
 
-    def _take_if_ready(self, job: _Job) -> bool:
-        if job.started or any(self._queued[lane][0] is not job for lane in job.lanes):
-            return False
-        job.started = True
-        return True
+    def cancel(self, request_ids: Iterable[str]) -> None:
+        """Drops the queued requests among ``request_ids``; a running one finishes without a reply."""
+        wanted = set(request_ids)
+        with self._changed:
+            for job in self._jobs:
+                job.cancelled = job.cancelled or job.request_id in wanted
+            self._jobs = [job for job in self._jobs if job.started or not job.cancelled]
+            self._changed.notify_all()
 
-    def _execute(self, job: _Job) -> None:
-        try:
-            job.run()
-        finally:
-            ready: list[_Job] = []
-            with self._lock:
-                for lane in job.lanes:
-                    queued = self._queued[lane]
-                    queued.popleft()
-                    if not queued:
-                        del self._queued[lane]
-                    elif self._take_if_ready(queued[0]):
-                        ready.append(queued[0])
-                if not self._queued:
-                    self._idle.notify_all()
-            for next_job in ready:
-                self._executor.submit(self._execute, next_job)
+    def _ready(self, index: int) -> bool:
+        job = self._jobs[index]
+        return not job.started and not any(
+            (earlier.barrier or job.barrier) and not earlier.lanes.isdisjoint(job.lanes)
+            for earlier in self._jobs[:index]
+        )
 
-    def close(self) -> None:
-        """Answers every request taken so far, then stops the threads."""
-        with self._idle:
-            while self._queued:
-                self._idle.wait()
-        self._executor.shutdown(wait=True)
+    def _take(self) -> _Job | None:
+        ready = [job for index, job in enumerate(self._jobs) if self._ready(index)]
+        job = next((job for job in ready if job.interactive), ready[0] if ready else None)
+        if job is not None:
+            job.started = True
+        return job
+
+    def _work(self) -> None:
+        while True:
+            with self._changed:
+                while (job := self._take()) is None:
+                    if self._closing:
+                        return
+                    self._changed.wait()
+            try:
+                job.run(job)
+            except Exception:  # noqa: BLE001 - one broken request must not take a worker with it.
+                traceback.print_exc(file=sys.stderr)
+            finally:
+                with self._changed:
+                    self._jobs.remove(job)
+                    self._changed.notify_all()
+
+    def close(self, *, drain: bool) -> None:
+        """Stops the workers once idle; ``drain`` answers the queued requests first instead of dropping them."""
+        with self._changed:
+            self._closing = True
+            if not drain:
+                self._jobs = [job for job in self._jobs if job.started]
+            self._changed.notify_all()
+            while drain and self._jobs:
+                self._changed.wait()
 
 
-def _lanes_of(command: Command) -> tuple[str, ...]:
+# These change what later requests for their files see: dropping a track's STFT, or a file a scan opened.
+_BARRIER_COMMANDS = frozenset({"release-track-detail", "scan"})
+_INTERACTIVE_COMMANDS = frozenset({"range", "spectrum-slice"})
+
+
+def _lane(path: str) -> str:
+    # The engine caches by resolved path, so two spellings of one file must share a lane.
+    return str(Path(path).expanduser().resolve())
+
+
+def _lanes_of(command: Command) -> frozenset[str]:
     """The files a request reads; one shared lane for a request without any."""
     paths: list[str] = []
     sources = [command, command.get("reference"), *(command.get("responses") or [])]
     for source in sources:
-        if isinstance(source, dict) and isinstance(source.get("filePath"), str) and source["filePath"] not in paths:
+        if isinstance(source, dict) and isinstance(source.get("filePath"), str):
             paths.append(source["filePath"])
-    return tuple(paths) or ("",)
+    inputs = command.get("inputs")
+    if isinstance(inputs, dict):
+        paths.extend(path for path in inputs.values() if isinstance(path, str))
+    return frozenset(_lane(path) for path in paths) or frozenset({""})
 
 
-def _run(command: Command, request_id: str, service: AnalysisService) -> None:
+def _run(command: Command, job: _Job, service: AnalysisService) -> None:
+    # The host has given up on a cancelled request; its reply would only be an orphan there.
     try:
         started = time.perf_counter()
         result = dispatch(command, service)
         name = command.get("cmd")
         perf_log(f"cmd_{name}", started, file=Path(str(command.get("filePath", ""))).name)
-        _emit({**result, "requestId": request_id})
+        if not job.cancelled:
+            _emit({**result, "requestId": job.request_id})
     except Exception as error:
-        _emit({"requestId": request_id, "error": error_payload(error)}, ensure_ascii=True)
+        if not job.cancelled:
+            _emit({"requestId": job.request_id, "error": error_payload(error)}, ensure_ascii=True)
 
 
-def main(service: AnalysisService | None = None, workers: int | None = None) -> None:
+def _cancelled_ids(parsed: dict[str, object]) -> list[str]:
+    violation = first_violation(DEFINITIONS["BackendCancelControl"], parsed)
+    if violation is not None:
+        raise InputError(f"invalid cancel control field {violation!r}")
+    return [str(request_id) for request_id in parsed["requestIds"]]  # type: ignore[union-attr]
+
+
+def main(service: AnalysisService | None = None, workers: int | None = None, *, drain: bool = False) -> None:
+    """Serves stdin until EOF; the host is gone then, so queued requests are dropped unless ``drain``."""
     perf_log("startup_begin", _PROCESS_STARTED, pid=os.getpid(), python=sys.executable)
     active_service = service or _load_default_service()
     _start_heartbeat()
@@ -168,18 +227,25 @@ def main(service: AnalysisService | None = None, workers: int | None = None) -> 
                     parsed: object = json.loads(line)
                 except json.JSONDecodeError as error:
                     raise InputError(f"request is not valid JSON: {error}") from error
+                if isinstance(parsed, dict) and parsed.get("cmd") == "cancel":
+                    lanes.cancel(_cancelled_ids(parsed))
+                    continue
                 if isinstance(parsed, dict) and isinstance(parsed.get("requestId"), str):
                     request_id = parsed["requestId"]
                 command = validate_request(parsed)
+                request_lanes = _lanes_of(command)
             except Exception as error:
                 _emit({"requestId": request_id, "error": error_payload(error)}, ensure_ascii=True)
                 continue
             lanes.submit(
-                _lanes_of(command),
-                lambda command=command, request_id=request_id: _run(command, request_id, active_service),
+                request_id,
+                request_lanes,
+                lambda job, command=command: _run(command, job, active_service),
+                barrier=command["cmd"] in _BARRIER_COMMANDS,
+                interactive=command["cmd"] in _INTERACTIVE_COMMANDS,
             )
     finally:
-        lanes.close()
+        lanes.close(drain=drain)
 
 
 if __name__ == "__main__":

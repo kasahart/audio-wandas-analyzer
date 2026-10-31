@@ -1,4 +1,4 @@
-import { executeLazyAnalysis, lazyAnalysisError, type AnalysisClient, type LazyAnalysisBackend, type LazyAnalysisRequest } from '../analysis/analysisClient';
+import { executeLazyAnalysis, lazyAnalysisError, RequestCancellation, type AnalysisClient, type LazyAnalysisBackend, type LazyAnalysisRequest } from '../analysis/analysisClient';
 import type {
     AnalysisResultWithError,
     AnalysisUpdateMessage,
@@ -115,6 +115,11 @@ export class ComparisonSessionController {
      */
     private readonly compareScans = new Map<string, number>();
     private compareScanCount = 0;
+    /**
+     * The lazy request in flight per kind and track. The Webview keeps one per slot and drops the answer to an
+     * older one, so a newer request cancels the older before the backend spends time on it.
+     */
+    private readonly lazyInFlight = new Map<string, RequestCancellation>();
 
     constructor(private readonly ports: ComparisonSessionPorts) {}
 
@@ -213,17 +218,24 @@ export class ComparisonSessionController {
 
     private async lazy(request: LazyAnalysisRequest, scope: SessionScope): Promise<void> {
         let context: CalibrationRequestContext | undefined;
+        const slot = `${request.type}\u0000${request.trackIndex}\u0000${request.filePath}`;
+        const cancellation = new RequestCancellation();
+        this.lazyInFlight.get(slot)?.cancel();
+        this.lazyInFlight.set(slot, cancellation);
         try {
             context = this.ports.lazyContext(request.filePath);
             if (!context) return;
             const { analysisRevision, ...result } = await executeLazyAnalysis(this.ports.client, request, {
                 ...context, stftOptions: this.ports.stftOptions(),
-            });
+            }, cancellation);
             if (scope.canPublish(request.filePath, analysisRevision)) { const pending = this.ports.publish(result); if (thenable(pending)) await pending; }
         } catch (error) {
+            if (cancellation.isCancellationRequested) return;
             if (!scope.canPublish(request.filePath, context?.analysisRevision)) return;
             this.ports.lazyFailed?.(request, reasonOf(error));
             if (request.type !== 'request-waveform-range') { const pending = this.ports.publish(lazyAnalysisError(request, error)); if (thenable(pending)) await pending; }
+        } finally {
+            if (this.lazyInFlight.get(slot) === cancellation) this.lazyInFlight.delete(slot);
         }
     }
 
