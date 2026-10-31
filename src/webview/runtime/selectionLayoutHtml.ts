@@ -13,7 +13,7 @@ export interface SelectionLayoutParts {
 
 export type SelectionLayoutStrings = Pick<UiStrings,
     | 'selectionEmptyHint' | 'btnOpenFile' | 'btnOpenFolder' | 'btnOpenAnotherFolder'
-    | 'hintOpenFile' | 'hintOpenFolder' | 'hintBrowserOpenFolder' | 'hintTreeResizer'> & PanelCollapseStrings;
+    | 'hintOpenFile' | 'hintOpenFolder' | 'hintBrowserOpenFolder' | 'hintTreeResizer' | 'ariaResizeSidebar'> & PanelCollapseStrings;
 
 /** Until the panel lists something there is no "another" folder to open. */
 export function selectionFolderButton(listed: boolean, strings: SelectionLayoutStrings): { text: string; hint: string } {
@@ -42,7 +42,7 @@ export function selectionLayoutHtml(parts: SelectionLayoutParts, strings: Select
         // The entry table sits here (entryRuntime mounts it); maximized, the same table covers the window.
         + '      <div id="entry-dock" data-empty-hint="' + escapeHtml(strings.selectionEmptyHint) + '"></div>'
         + '    </div>'
-        + '    <div class="tree-resizer" id="tree-resizer"' + hintAttr(strings.hintTreeResizer) + ' role="separator" aria-orientation="vertical"></div>'
+        + '    <div class="tree-resizer" id="tree-resizer"' + hintAttr(strings.hintTreeResizer) + ' role="separator" tabindex="0" aria-orientation="vertical" aria-label="' + escapeHtml(strings.ariaResizeSidebar) + '"></div>'
         + '    <div id="selection-results-pane">'
         + parts.resultsPaneHtml
         + '    </div>'

@@ -694,10 +694,10 @@ test('renderScript: the waveform/spectrogram split survives Webview regeneration
     const doc = env.dom.window.document;
     const split = doc.querySelector('.track-split') as HTMLElement | null;
     assert.ok(split, 'every lane has a split between its waveform and spectrogram');
-    split.dispatchEvent(new env.dom.window.MouseEvent('mousedown', { bubbles: true, button: 0, clientY: 100 }));
+    split.dispatchEvent(new env.dom.window.MouseEvent('pointerdown', { bubbles: true, button: 0, clientY: 100 }));
     // 32 px of the 160 px plots: the waveform's share goes from 40 % to 60 %.
-    doc.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientY: 132 }));
-    doc.dispatchEvent(new env.dom.window.MouseEvent('mouseup', { bubbles: true, clientY: 132 }));
+    doc.dispatchEvent(new env.dom.window.MouseEvent('pointermove', { bubbles: true, clientY: 132 }));
+    doc.dispatchEvent(new env.dom.window.MouseEvent('pointerup', { bubbles: true, clientY: 132 }));
     await nextAnimationFrame(env.dom);
     assert.equal((doc.getElementById('track-canvas-0') as HTMLCanvasElement).height, 96);
     assert.equal((doc.getElementById('track-spec-canvas-0') as HTMLCanvasElement).height, 64);
@@ -896,8 +896,13 @@ test('analysis-update rebinds rebuilt waveform and spectrum canvases', async () 
     await nextAnimationFrame(env.dom);
 
     const waveformCanvas = env.dom.window.document.getElementById('track-canvas-0') as HTMLCanvasElement;
+    // The rebuilt canvas's focus listener puts its keys in the footer, over what it said before.
+    const footer = env.dom.window.document.createElement('div');
+    footer.id = 'hint-footer';
+    footer.textContent = 'before focus';
+    env.dom.window.document.body.append(footer);
     waveformCanvas.focus();
-    assert.match(waveformCanvas.style.outline, /rgba?\(100, 160, 255/);
+    assert.notEqual(footer.textContent, 'before focus');
 
     const spectrumCanvas = env.dom.window.document.getElementById('track-spectrum-0') as HTMLCanvasElement;
     Object.defineProperty(spectrumCanvas, 'width', { configurable: true, writable: true, value: 200 });

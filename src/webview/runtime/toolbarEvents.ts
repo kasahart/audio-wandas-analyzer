@@ -1,5 +1,6 @@
 import { eventTarget } from './domAdapter';
 import type { HeightResize } from './heightResize';
+import { keyRouterFor } from './keyRouter';
 
 export interface ToolbarActionHandlers {
     onAction(action: string): void;
@@ -59,11 +60,16 @@ export function attachExclusiveMenus(toolbar: HTMLElement | null): void {
     toolbar.ownerDocument.addEventListener('pointerdown', function (e) {
         closeAll(eventTarget(e));
     }, true);
-    toolbar.ownerDocument.addEventListener('keydown', function (e) {
-        if (e.key === 'Escape' && toolbar.querySelector('details.tb-menu[open]')) {
+    keyRouterFor(toolbar.ownerDocument.defaultView!).add({
+        layer: 'popover',
+        keydown(e) {
+            if (e.key !== 'Escape' || !toolbar.querySelector('details.tb-menu[open]')) {
+                return false;
+            }
             closeAll();
-        }
-    }, true);
+            return true;
+        },
+    });
 }
 
 export function attachHeightResizeListeners(
@@ -72,7 +78,7 @@ export function attachHeightResizeListeners(
     doc: Document,
     win: Window,
 ): void {
-    function handleStart(e: MouseEvent): void {
+    function handleStart(e: PointerEvent): void {
         const target = eventTarget(e) && eventTarget(e).closest ? eventTarget(e).closest(HEIGHT_DRAG_HANDLE_SELECTOR) : null;
         if (!target) {
             return;
@@ -80,7 +86,7 @@ export function attachHeightResizeListeners(
         heightResize.begin(target.getAttribute('data-action') === 'track-height-drag' ? 'track' : 'spectrum', e.clientY || 0);
         e.preventDefault();
     }
-    function handleMove(e: MouseEvent): void {
+    function handleMove(e: PointerEvent): void {
         heightResize.update(e.clientY || 0);
         if (heightResize.isActive()) {
             e.preventDefault();
@@ -91,13 +97,14 @@ export function attachHeightResizeListeners(
     }
     for (const surface of surfaces) {
         if (surface) {
-            surface.addEventListener('mousedown', handleStart);
+            surface.addEventListener('pointerdown', handleStart);
         }
     }
-    doc.addEventListener('mousedown', handleStart);
-    win.addEventListener('mousedown', handleStart, true);
-    doc.addEventListener('mousemove', handleMove);
-    win.addEventListener('mousemove', handleMove, true);
-    doc.addEventListener('mouseup', handleEnd);
-    win.addEventListener('mouseup', handleEnd, true);
+    doc.addEventListener('pointerdown', handleStart);
+    win.addEventListener('pointerdown', handleStart, true);
+    doc.addEventListener('pointermove', handleMove);
+    win.addEventListener('pointermove', handleMove, true);
+    doc.addEventListener('pointerup', handleEnd);
+    win.addEventListener('pointerup', handleEnd, true);
+    win.addEventListener('pointercancel', handleEnd, true);
 }

@@ -286,7 +286,7 @@ test('the entry table speaks Japanese with few words: value and group, the CSV, 
     await openEntry(page, scanned!, { language: 'ja' });
     await expect(page.locator('.entry-pick')).toHaveText([new RegExp(`^${STR.dsValue}`), new RegExp(`^${STR.dsGroup}`)]);
     await expect(page.locator('[data-action="entry-value"] option:checked')).toHaveText(STR.dsLeq);
-    // ● (on a track), the file, ch, the value and the spare end, plus a group column when grouped.
+    // ☑ (on a track), the file, ch, the value and the spare end, plus a group column when grouped.
     await expect(page.locator('[data-entry-head] th')).toHaveCount(5 + (await page.locator('th.entry-col-group, th[data-column^="folder"], th[data-column^="csv"]').count()) );
     await expect(page.locator('[data-entry-head] th').nth(1)).toContainText(STR.entryColFile);
 });
@@ -622,4 +622,88 @@ test('「トラックのみ」 computes only the files on a track', async ({ pag
     const scan = (await entryScans(page)).at(-1)!;
     expect(scan.cachedOnly).toBeUndefined();
     expect(scan.filePaths).toEqual([await first.getAttribute('data-file-path')]);
+});
+
+test('the ☐ / ☑ of a row takes T, Enter and Space; widened, the table keeps Tab and clicks from the track view under it', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    const STR = getStrings('en');
+    await openEntry(page, scanned!);
+    // The track view under the widened table is inert: Tab never reaches its toolbar.
+    await expect(page.locator('#selection-results-pane')).toHaveAttribute('inert', '');
+    await expect(page.locator('#selection-toolbar')).toHaveAttribute('inert', '');
+    for (let step = 0; step < 30; step++) {
+        await page.keyboard.press('Tab');
+        expect(await page.evaluate(() => !!document.activeElement?.closest('#selection-results-pane, #selection-toolbar'))).toBe(false);
+    }
+    await page.locator('[data-entry-table]').focus();
+    await page.keyboard.press('ArrowDown');
+    const row = page.locator('[data-entry-rows] tr.entry-row.is-focused');
+    const mark = row.locator('[data-action="entry-row-track"]');
+    // The focused row's mark is the one Tab reaches; it is a checkbox, not the ● of a step's output.
+    await expect(mark).toHaveAttribute('role', 'checkbox');
+    await expect(mark).toHaveAttribute('tabindex', '0');
+    await expect(page.locator('[data-entry-rows] tr.entry-row:not(.is-focused) [data-action="entry-row-track"]').first()).toHaveAttribute('tabindex', '-1');
+    await expect(mark).toHaveText('☐');
+    const filePath = (await row.getAttribute('data-file-path'))!;
+    const shown = async (): Promise<string[] | undefined> => (await posted(page)).filter(message => message.type === 'analyze-selected-files').at(-1)?.filePaths;
+    await page.keyboard.press('t');
+    await expect.poll(shown).toEqual([filePath]);
+    await page.evaluate(filePath => window.dispatchEvent(new MessageEvent('message', { data: { type: 'analysis-update', results: [{
+        filePath, fileName: filePath.split('/').at(-1), audioSource: '', sampleRateHz: 16000, durationSeconds: 2, channelCount: 1, sampleCount: 32000,
+        channels: [{ label: 'L', peakAbsolute: 0.5, waveform: { min: [-0.5], max: [0.5], minT: [0.1], maxT: [0.4], absolutePeak: 0.5 } }],
+    }] } })), filePath);
+    await expect(mark).toHaveText('☑');
+    await expect(mark).toHaveAttribute('aria-checked', 'true');
+    // Space (or Enter) on the mark itself takes the track off again.
+    await mark.focus();
+    await page.keyboard.press(' ');
+    await expect(mark).toHaveText('☐');
+    await page.keyboard.press('Enter');
+    await expect.poll(async () => (await posted(page)).filter(message => message.type === 'analyze-selected-files').length).toBeGreaterThan(1);
+    // The help says so, in the entry table's section, which comes first.
+    await page.keyboard.press('?');
+    const help = page.locator('[data-screen-help]');
+    await expect(help.locator('[data-help-section]').first()).toHaveAttribute('data-help-section', 'entry');
+    await expect(help.locator('[data-help-section="entry"]')).toContainText(STR.helpEntryTrack);
+    await expect(help.locator('[data-screen-help-symbols]')).toContainText('☐ / ☑');
+    await page.keyboard.press('Escape');
+    await expect(help).toBeHidden();
+    // Shrunk into the side panel, the track view takes Tab again.
+    await page.locator('[data-action="entry-maximize"]').click();
+    await expect(page.locator('#selection-results-pane')).not.toHaveAttribute('inert', '');
+});
+
+test('typing in ＋\'s filter with an IME redraws only the list: the composition survives and its confirming Enter adds nothing', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    const recipe = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', '..', 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8'));
+    await openEntry(page, scanned!, { recipe });
+    await openStepsView(page, scanned!, SPECTRUM_VIEW);
+    const bar = page.locator('.track-stage-bar');
+    await bar.locator('[data-action="step-expand"]').click();
+    const link = bar.locator('[data-action="step-insert"][data-after="node-1"]');
+    await link.hover();
+    await link.click();
+    const filter = bar.locator('[data-step-menu-filter]');
+    await expect(filter).toBeFocused();
+    await filter.evaluate(element => { (window as unknown as { __filter: Element }).__filter = element; });
+    const sameField = (): Promise<boolean> => filter.evaluate(element => element === (window as unknown as { __filter: Element }).__filter && document.activeElement === element);
+    const chips = await bar.locator('.step-chip').count();
+    const cdp = await page.context().newCDPSession(page);
+    // A composition in progress: each update is an input event, and the list follows it without touching the field.
+    await cdp.send('Input.imeSetComposition', { text: 'ｆ', selectionStart: 1, selectionEnd: 1 });
+    await cdp.send('Input.imeSetComposition', { text: 'ｆｆ', selectionStart: 2, selectionEnd: 2 });
+    expect(await sameField()).toBe(true);
+    await expect(filter).toHaveValue('ｆｆ');
+    // The Enter that confirms the conversion comes while composing: it adds no operation.
+    await filter.evaluate(element => element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 229, isComposing: true, bubbles: true, cancelable: true })));
+    await expect(bar.locator('[data-step-menu]')).toBeVisible();
+    expect(await bar.locator('.step-chip').count()).toBe(chips);
+    await cdp.send('Input.insertText', { text: 'fft' });
+    await expect(filter).toHaveValue('fft');
+    expect(await sameField()).toBe(true);
+    await expect(bar.locator('.step-menu-item:not(.is-off)').first()).toHaveAttribute('data-op', /fft/);
+    // A plain Enter adds the first operation listed.
+    await filter.press('Enter');
+    await expect(bar.locator('[data-step-menu]')).toHaveCount(0);
+    await expect(bar.locator('.step-chip')).toHaveCount(chips + 1);
 });

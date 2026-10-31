@@ -14,10 +14,13 @@ export function reanalyzeOverlayHtml(defaultMessage: string): string {
     return '<div id="reanalyze-overlay" style="position:fixed;top:0;left:0;right:0;z-index:60;background:var(--panel);color:var(--text);'
         + 'padding:8px 14px;border-bottom:1px solid var(--line);font-family:var(--font-ui);font-size:12px;'
         + 'display:none;align-items:center;gap:10px;box-shadow:0 2px 8px rgba(0,0,0,0.3)">'
-        + '<span class="spinner" style="width:12px;height:12px;border:2px solid var(--muted);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite"></span>'
+        + '<span class="spinner reanalyze-spinner" style="width:12px;height:12px;border:2px solid var(--muted);border-top-color:var(--accent);border-radius:50%"></span>'
         + '<span id="reanalyze-overlay-msg">' + escapeHtml(defaultMessage) + '</span>'
         + '</div>'
-        + '<style>@keyframes spin { to { transform: rotate(360deg); } }</style>';
+        // Asked for less motion, the spinner fades in and out in place instead of turning.
+        + '<style>@keyframes spin { to { transform: rotate(360deg); } } @keyframes reanalyze-pulse { 50% { opacity: 0.35; } }'
+        + ' .reanalyze-spinner { animation: spin 0.8s linear infinite; }'
+        + ' @media (prefers-reduced-motion: reduce) { .reanalyze-spinner { animation: reanalyze-pulse 1.6s ease-in-out infinite; } }</style>';
 }
 
 export function installReanalyzeOverlay(document: Document, options: ReanalyzeOverlayOptions): ReanalyzeOverlay {

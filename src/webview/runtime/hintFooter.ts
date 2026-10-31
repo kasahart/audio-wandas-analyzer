@@ -1,7 +1,5 @@
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 
-const FOCUS_OUTLINE = '1px solid rgba(100, 160, 255, 0.4)';
-
 export interface HintFooter {
     show(text: string): void;
     clear(): void;
@@ -73,11 +71,9 @@ export function attachHoverHints(doc: Document, footer: HintFooter): void {
 export function attachCanvasFocusHint(canvas: HTMLElement, footer: HintFooter, text: string): void {
     canvas.addEventListener('focus', function () {
         footer.show(text);
-        canvas.style.outline = FOCUS_OUTLINE;
     });
     // A click elsewhere blurs the canvas after the new target's hint is already showing.
     canvas.addEventListener('blur', function () {
         footer.clearIfShowing(text);
-        canvas.style.outline = 'none';
     });
 }

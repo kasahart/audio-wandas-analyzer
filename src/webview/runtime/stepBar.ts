@@ -19,6 +19,7 @@ import { catalogOperation, INPUT_FRAME } from '../../shared/recipe/recipeCatalog
 import { outsideRecipe, reportOctaveRecipe } from './compareReport';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { titledHintAttr as hintAttr } from './hintFooter';
+import { keyRouterFor } from './keyRouter';
 
 export type StepBarStrings = Pick<UiStrings, 'stepAfterBroken' | 'stepOctaveBroken' | 'stepUndo' | 'stepRedo' | 'stepUndone' | 'stepRedone' | 'stepBypass' | 'stepBypassOff' | 'stepBypassed' | 'stepUnbypassed' | 'stepMenuEarlier' | 'stepGoesBefore' | 'stepMenuOff' | 'stepRegionStart' | 'stepRegionEnd' | 'stepRegionPurpose' | 'stepRegionAdded' | 'stepRegionImported' | 'stepRegionCleared' | 'stepRegionClear' | 'stepRegionOrder' | 'stepRegionThere' | 'stepInputHint' | 'stepNeedAbove' | 'stepNeedInteger' | 'stepRegion' | 'stepAll' | 'stepMetrics' | 'stepAverage' | 'stepSettings' | 'stepApply' | 'compareNotEntry' | 'stepNeedBelow' | 'stepNeedPow2' | 'hintStepChip' | 'stepRecipeName' | 'hintSpectrogramGroup' | 'stepNeedValue' | 'hintSpectrogram' | 'stepFrameHint' | 'hintRegionMark' | 'stepOpen' | 'stepClose' | 'stepOutsideHeading' | 'stepOctave' | 'stepHoldHint' | 'stepHintNoHold' | 'stepAdd' | 'entryColLeq' | 'outside192' | 'outsideMedian' | 'outsideDelta' | 'outsideOutliers' | 'stepNeedFrame' | 'stepFailedOn' | 'stepTapHint' | 'stepNoSettings' | 'stepRemove' | 'stepMenuTitle' | 'stepMenuFilter' | 'stepOffFrame' | 'stepOffRequired' | 'stepOffRefuses' | 'stepOffUnavailable' | 'stepDefaultsOnly' | 'stepMenuTitle' | 'stepAdded' | 'stepRemoved' | 'btnStage' | 'stepInputFiles' | 'stepInput' | 'stepHintLocale' | 'stepGroupFilter' | 'stepGroupPrepare' | 'stepGroupTime' | 'stepGroupFrequency' | 'stepGroupOther' | 'stepDragHint' | 'stepMoved' | 'stepRemoveChip' | 'stepHighpass' | 'stepLowpass' | 'stepBandpass' | 'stepAverageFft' | 'stepOctaveHint' | 'stepNeedChannels' | 'stepNarrowedChannels' | 'stepPairSelf' | 'stepNeedChannel' | 'stepOffChannels' | 'stepPair' | 'stepPairOutput' | 'stepPairInput' | 'stepReference' | 'stepReferenceChannel' | 'stepReferenceSlot' | 'stepReferenceSet' | 'stagePairBase'>;
 
@@ -426,7 +427,7 @@ export function createStepBar(deps: {
      * ＋'s menu: the operations that take the Frame here, by what they do; then those that cannot but fit an
      * earlier place, which go there ("goes in before …"); then the rest, greyed, with why.
      */
-    function menuHtml(): string {
+    function menuListHtml(): string {
         if (!menu || !state.recipe) return '';
         const needle = menu.filter.trim().toLowerCase();
         const locale = strings.stepHintLocale;
@@ -472,13 +473,16 @@ export function createStepBar(deps: {
         const groupName: Record<OperationGroup, string> = { filter: strings.stepGroupFilter, prepare: strings.stepGroupPrepare, time: strings.stepGroupTime, frequency: strings.stepGroupFrequency, other: strings.stepGroupOther };
         const groups = OPERATION_GROUPS.map(group => ({ group, html: (group === 'prepare' ? regionHere : '') + here.filter(entry => operationGroup(entry.operation.id) === group).map(entry => item(entry)).join('') })).filter(group => group.html);
         const section = (key: string, title: string, html: string): string => (html ? `<div class="step-menu-group" data-group="${key}"><span class="step-menu-group-name">${escapeHtml(title)}</span>${html}</div>` : '');
+        return groups.map(({ group, html }) => section(group, groupName[group], html)).join('')
+            + section('earlier', strings.stepMenuEarlier, regionEarlier + earlier.map(({ entry, after, next }) => item(entry, { after, next })).join(''))
+            + section('off', strings.stepMenuOff, regionOff + off.map(entry => item(entry)).join(''));
+    }
+    function menuHtml(): string {
+        if (!menu || !state.recipe) return '';
         return `<div class="step-menu" role="dialog" aria-label="${escapeHtml(strings.stepAdd)}" data-step-menu>`
             + `<div class="step-menu-title">${escapeHtml(strings.stepMenuTitle.replace('{frame}', menu.frame))}</div>`
             + `<input type="search" data-step-menu-filter placeholder="${escapeHtml(strings.stepMenuFilter)}" value="${escapeHtml(menu.filter)}">`
-            + `<div class="step-menu-list">${groups.map(({ group, html }) => section(group, groupName[group], html)).join('')}`
-            + section('earlier', strings.stepMenuEarlier, regionEarlier + earlier.map(({ entry, after, next }) => item(entry, { after, next })).join(''))
-            + section('off', strings.stepMenuOff, regionOff + off.map(entry => item(entry)).join(''))
-            + `</div></div>`;
+            + `<div class="step-menu-list">${menuListHtml()}</div></div>`;
     }
     function render(): void {
         const steps = state.recipe ? recipeSteps(state.recipe, limits()) : [];
@@ -726,7 +730,8 @@ export function createStepBar(deps: {
         else if (event.key === 'Escape') { event.stopPropagation(); (document.activeElement as HTMLElement | null)?.blur?.(); }
         else if (event.key === 'Enter' && open) { event.preventDefault(); event.stopPropagation(); apply(); }
         // The menu's filter: Enter adds the first operation that can go here.
-        else if (event.key === 'Enter' && menu && (event.target as HTMLElement).matches('[data-step-menu-filter]')) {
+        // The Enter that ends an IME composition only confirms the text.
+        else if (event.key === 'Enter' && menu && (event.target as HTMLElement).matches('[data-step-menu-filter]') && !event.isComposing && event.keyCode !== 229) {
             event.preventDefault();
             event.stopPropagation();
             const first = element.querySelector<HTMLElement>('.step-menu-item:not(.is-off)');
@@ -739,29 +744,30 @@ export function createStepBar(deps: {
     });
     // Ctrl+Z / Ctrl+Shift+Z (or Ctrl+Y) undo and redo the bar's edits: with the focus in the bar, or nowhere in
     // particular while this bar is the one in front (the comparison's over the table's).
-    document.addEventListener('keydown', event => {
-        if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
-        const key = event.key.toLowerCase();
-        if (key !== 'z' && key !== 'y') return;
-        const active = document.activeElement as HTMLElement | null;
-        const inBar = !!active && element.contains(active);
-        if (!inBar) {
-            if (!element.isConnected || !element.getClientRects().length || (active && active !== document.body && active.closest('input, select, textarea, [contenteditable]'))) return;
-            const front = document.querySelector<HTMLElement>('[data-step-bar="compare"]');
-            if (deps.mode === 'entry' && front && front.getClientRects().length) return;
-        } else if (active?.closest('input, select, textarea')) return;
-        event.preventDefault();
-        event.stopPropagation();
-        if (key === 'y' || event.shiftKey) redo(); else undo();
-    }, true);
+    keyRouterFor(view).add({
+        layer: 'step-bar',
+        keydown(event) {
+            if (!(event.ctrlKey || event.metaKey) || event.altKey) return false;
+            const key = event.key.toLowerCase();
+            if (key !== 'z' && key !== 'y') return false;
+            const active = document.activeElement as HTMLElement | null;
+            const inBar = !!active && element.contains(active);
+            if (!inBar) {
+                if (!element.isConnected || !element.getClientRects().length || (active && active !== document.body && active.closest('input, select, textarea, [contenteditable]'))) return false;
+                const front = document.querySelector<HTMLElement>('[data-step-bar="compare"]');
+                if (deps.mode === 'entry' && front && front.getClientRects().length) return false;
+            } else if (active?.closest('input, select, textarea')) return false;
+            event.preventDefault();
+            if (key === 'y' || event.shiftKey) redo(); else undo();
+            return true;
+        },
+    });
     element.addEventListener('input', event => {
         if ((event.target as HTMLElement).matches('[data-step-menu-filter]') && menu) {
+            // Only the list is drawn again: the field keeps its focus, its caret and an IME composition in progress.
             menu.filter = (event.target as HTMLInputElement).value;
-            const at = (event.target as HTMLInputElement).selectionStart;
-            render();
-            const filter = element.querySelector<HTMLInputElement>('[data-step-menu-filter]')!;
-            filter.focus();
-            filter.setSelectionRange(at, at);
+            const list = element.querySelector<HTMLElement>('[data-step-menu] .step-menu-list');
+            if (list) list.innerHTML = menuListHtml();
             return;
         }
         checkForm();

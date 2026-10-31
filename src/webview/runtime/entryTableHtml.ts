@@ -33,9 +33,9 @@ export interface DatasetScreenView {
     valueReady: boolean;
     /** Files whose results are of an earlier chain: greyed. */
     stale?: ReadonlySet<string>;
-    /** Files shown as tracks in the track view: ● in the first column and a bold name. */
+    /** Files shown as tracks in the track view: ☑ in the first column and a bold name. */
     shown?: ReadonlySet<string>;
-    /** The head's ◐ takes the listed files off: showing the rest was just tried and they did not all come (the browser's limit). */
+    /** The head's ⊟ takes the listed files off: showing the rest was just tried and they did not all come (the browser's limit). */
     tracksAllOff?: boolean;
     mode: 'all' | 'unmatched' | 'excluded';
     unmatched: readonly Unmatched[];
@@ -88,7 +88,7 @@ export function entryScreenHtml(strings: EntryStrings): string {
                     <canvas data-entry-held-canvas></canvas>
                 </div>
             </div>
-            <canvas class="entry-overview" data-entry-overview aria-label="1/3 oct"${hintAttr(strings.hintOverview)}></canvas>
+            <canvas class="entry-overview" data-entry-overview aria-label="${escapeHtml(strings.ariaEntryOverview)}"${hintAttr(strings.hintOverview)}></canvas>
         </aside>
     </div>
     <div class="entry-footer">
@@ -186,7 +186,7 @@ export function datasetHeadHtml(view: DatasetScreenView, strings: EntryStrings):
     return `<tr>${trackHeadHtml(view, strings)}${head('name', view.columns.name, count)}${head('ch', view.columns.ch)}${view.columns.group ? head('group', view.columns.group) : ''}${head('value', view.columns.value, '', !view.valueReady)}<th></th></tr>`;
 }
 
-/** The ○/◐/● over the marks: none, some or all of the listed files on a track; a click shows them all, or takes them all off. */
+/** The ☐/⊟/☑ over the marks: none, some or all of the listed files on a track; a click shows them all, or takes them all off. */
 function trackHeadHtml(view: DatasetScreenView, strings: EntryStrings): string {
     const files = new Set(view.rows.map(row => row.filePath));
     if (view.mode !== 'all' || !files.size) return '<th class="entry-mark"></th>';
@@ -195,7 +195,7 @@ function trackHeadHtml(view: DatasetScreenView, strings: EntryStrings): string {
     const label = state === 'all' || (state === 'some' && view.tracksAllOff) ? strings.dsTracksNone.replace('{n}', files.size.toLocaleString())
         : state === 'some' ? strings.dsTracksRest.replace('{n}', (files.size - on).toLocaleString())
             : strings.dsTracksAll.replace('{n}', files.size.toLocaleString());
-    return `<th class="entry-mark is-${state}"><button type="button" class="entry-mark-all" data-action="entry-tracks-all" aria-pressed="${state === 'all' ? 'true' : state === 'some' ? 'mixed' : 'false'}" aria-label="${escapeHtml(label)}"${hintAttr(label)}>${state === 'all' ? '●' : state === 'some' ? '◐' : '○'}</button></th>`;
+    return `<th class="entry-mark is-${state}"><button type="button" class="entry-mark-all" data-action="entry-tracks-all" aria-pressed="${state === 'all' ? 'true' : state === 'some' ? 'mixed' : 'false'}" aria-label="${escapeHtml(label)}"${hintAttr(label)}>${state === 'all' ? '☑' : state === 'some' ? '⊟' : '☐'}</button></th>`;
 }
 
 /** The value as the table shows it: one decimal for levels, whole hertz, two decimals for a ratio or a CSV number as written. */
@@ -239,8 +239,9 @@ export function datasetRowsHtml(view: DatasetScreenView, first: number, last: nu
         const value = view.valueReady || valueOf(row, view.value, view.results) !== null ? formatValue(view.value, valueOf(row, view.value, view.results)) : '—';
         const group = view.columns.group ? `<td class="entry-col-group" title="${escapeHtml(groupOf(row, view.group))}">${escapeHtml(middleEllipsis(groupOf(row, view.group), 16) || '—')}</td>` : '';
         return `<tr class="${classes.join(' ')}" data-key="${escapeHtml(row.key)}" data-file-path="${escapeHtml(row.filePath)}" aria-selected="${row.key === view.focused}">`
-            // ● on a track, ○ not: a click on the row (on ● when the table is maximized) shows or takes off its track.
-            + (view.mode === 'excluded' ? '<td class="entry-mark"></td>' : `<td class="entry-mark" data-action="entry-row-track" data-key="${escapeHtml(row.key)}" role="button" aria-pressed="${shown}" aria-label="${escapeHtml(`${strings.dsTrackMark}: ${row.name}`)}">${shown ? '●' : '○'}</td>`)
+            // ☑ on a track, ☐ not (not ●, a step's output): a click, T, or Enter / Space on it shows or takes off its track.
+            // The focused row's is the one Tab reaches.
+            + (view.mode === 'excluded' ? '<td class="entry-mark"></td>' : `<td class="entry-mark" data-action="entry-row-track" data-key="${escapeHtml(row.key)}" role="checkbox" tabindex="${row.key === view.focused ? 0 : -1}" aria-checked="${shown}" aria-label="${escapeHtml(`${strings.dsTrackMark}: ${row.name}`)}">${shown ? '☑' : '☐'}</td>`)
             + `<td class="entry-name"><span class="entry-ncell"><span class="entry-nm" title="${escapeHtml(row.name)}${(row.channels ?? 1) > 1 ? ` · ch ${row.ch} / ${row.channels}` : ''}">${escapeHtml(middleEllipsis(row.name))}</span><span class="entry-rowtools">${toolsHtml(row, view, strings)}</span></span></td>`
             + `<td class="entry-num entry-col-ch${(row.channels ?? 1) > 1 ? '' : ' is-single'}">${row.channels === undefined ? '—' : row.ch}</td>${group}`
             + `<td class="entry-num entry-col-value">${value}</td><td></td></tr>`;
