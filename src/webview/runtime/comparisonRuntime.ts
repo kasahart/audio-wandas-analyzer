@@ -2782,7 +2782,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 const pending = requests?.pending(slot);
                 if (pending) ids.add(pending.requestId);
             });
-            // Zoom detail is asked again on each redraw until it arrives: the same span is the same wait.
+            // A redraw asks again for zoom detail only past the range on its way or after RANGE_RETRY_MS: the same span is the same wait.
             const range = requests?.pending('range');
             if (range) ids.add('range:' + i + ':' + range.key);
         });
