@@ -15,7 +15,6 @@ const NON_NULL_ASSERTION_BURN_DOWN = [
     'src/shared/dataset/datasetTable.ts',
     'src/shared/protocol/backendProtocol.ts',
     'src/shared/protocol/schemaValidation.ts',
-    'src/shared/recipe/channelSelection.ts',
     'src/shared/recipe/recipeSteps.ts',
     'src/webview/plot/waveformLayer.ts',
     'src/webview/rangePopover.ts',
