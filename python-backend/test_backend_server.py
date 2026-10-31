@@ -80,6 +80,11 @@ def _write_sine_flac(path: Path, freq_hz: float = 440.0, seconds: float = 0.5, s
     sf.write(path, samples, sr, format="FLAC")
 
 
+def _replies(out: str) -> list[dict[str, Any]]:
+    """The request replies on ``out``, without the notifications around them."""
+    return [message for message in map(json.loads, out.splitlines()) if "type" not in message]
+
+
 class _ServerHandle:
     def __init__(self, proc: subprocess.Popen[str]) -> None:
         self.proc = proc
@@ -97,7 +102,7 @@ class _ServerHandle:
             if not line:
                 continue
             msg = json.loads(line)
-            if msg.get("type") == "ready":
+            if "type" in msg:
                 continue
             if msg.get("requestId") == payload["requestId"]:
                 return msg
@@ -182,7 +187,7 @@ def test_non_ascii_paths_survive_a_non_utf8_locale(tmp_path: Path) -> None:
         reply = next(
             message
             for message in (json.loads(line.decode("utf-8")) for line in proc.stdout)
-            if message.get("requestId") == "r1"
+            if message.get("requestId") == "r1" and "type" not in message
         )
     finally:
         proc.stdin.close()
@@ -1387,7 +1392,7 @@ def test_backend_has_no_scipy_stft_implementation() -> None:
     assert "get_window" not in source
 
 
-@pytest.mark.parametrize("points", [8192, 8193])
+@pytest.mark.parametrize("points", [32768, 32769])
 def test_waveform_point_limit_is_validated_before_dispatch(points: int) -> None:
     payload = {
         "cmd": "range",
@@ -1397,7 +1402,7 @@ def test_waveform_point_limit_is_validated_before_dispatch(points: int) -> None:
         "endNorm": 1,
         "points": points,
     }
-    if points == 8192:
+    if points == 32768:
         assert validate_request(payload) is payload
     else:
         with pytest.raises(ValueError, match="points"):
@@ -1516,10 +1521,10 @@ def test_surrogate_error_response_keeps_utf8_backend_alive(monkeypatch, field):
 
     main(FakeService(), drain=True)
     stream.flush()
-    messages = [json.loads(line) for line in output.getvalue().decode("utf-8").splitlines()]
-    assert messages[1]["requestId"] == requests[0]["requestId"]
-    assert "error" in messages[1]
-    assert messages[2] == {"requestId": "next", "filePath": "tone.wav"}
+    messages = _replies(output.getvalue().decode("utf-8"))
+    assert messages[0]["requestId"] == requests[0]["requestId"]
+    assert "error" in messages[0]
+    assert messages[1] == {"requestId": "next", "filePath": "tone.wav"}
 
 
 def test_pair_spectrum_result_satisfies_the_shared_schema(tmp_path: Path) -> None:
@@ -1620,7 +1625,7 @@ def test_requests_for_different_files_run_at_once(monkeypatch, capsys):
 
     main(FakeService(), workers=2, drain=True)  # type: ignore[arg-type]
 
-    responses = [json.loads(line) for line in capsys.readouterr().out.splitlines()[1:]]
+    responses = _replies(capsys.readouterr().out)
     assert sorted(response["requestId"] for response in responses) == ["a1", "a2", "b1"]
     assert all("error" not in response for response in responses)
 
@@ -1643,7 +1648,7 @@ def test_requests_for_one_file_are_answered_in_the_order_they_came(monkeypatch, 
 
     main(FakeService(), workers=4, drain=True)  # type: ignore[arg-type]
 
-    responses = [json.loads(line) for line in capsys.readouterr().out.splitlines()[1:]]
+    responses = _replies(capsys.readouterr().out)
     assert [response["requestId"] for response in responses] == ["first", "second"]
 
 
@@ -1698,7 +1703,7 @@ def test_a_scan_against_a_reference_holds_the_reference_files_requests_until_it_
 
     main(FakeService(), workers=2, drain=True)  # type: ignore[arg-type]
 
-    responses = [json.loads(line) for line in capsys.readouterr().out.splitlines()[1:]]
+    responses = _replies(capsys.readouterr().out)
     assert [response["requestId"] for response in responses] == ["scan", "panel"], responses
     assert spans["r.wav"][0] >= spans["scan"][1]
 
@@ -1777,7 +1782,7 @@ def test_a_range_does_not_wait_behind_a_track_detail_for_the_same_file(monkeypat
 
     main(FakeService(), workers=2, drain=True)  # type: ignore[arg-type]
 
-    responses = [json.loads(line) for line in capsys.readouterr().out.splitlines()[1:]]
+    responses = _replies(capsys.readouterr().out)
     assert [response["requestId"] for response in responses] == ["range", "detail"], responses
 
 
@@ -1835,7 +1840,7 @@ def test_cancel_drops_a_queued_request(monkeypatch, capsys):
 
     main(FakeService(), workers=1, drain=True)  # type: ignore[arg-type]
 
-    responses = [json.loads(line) for line in capsys.readouterr().out.splitlines()[1:]]
+    responses = _replies(capsys.readouterr().out)
     assert [response["requestId"] for response in responses] == ["first"]
     assert "b.wav" not in calls
 
@@ -1860,7 +1865,28 @@ def test_a_cancelled_running_request_sends_no_reply(capsys):
     proceed.set()
     lanes.close(drain=True)
 
-    assert capsys.readouterr().out == ""
+    assert _replies(capsys.readouterr().out) == []
+
+
+def test_a_request_queued_behind_a_barrier_reports_started_only_when_it_runs(monkeypatch, capsys):
+    class FakeService:
+        def scan(self, file_path, **_options):
+            time.sleep(0.1)
+            return {"filePath": file_path}
+
+        def waveform_range(self, file_path, *_args, **_options):
+            return {"filePath": file_path}
+
+    rng = {"cmd": "range", "requestId": "range", "filePath": "a.wav", "startNorm": 0, "endNorm": 1, "points": 10}
+    _stdin(monkeypatch, {"cmd": "scan", "requestId": "scan", "filePath": "a.wav", "recipe": {"schema": 3}}, rng)
+
+    main(FakeService(), workers=2, drain=True)  # type: ignore[arg-type]
+
+    messages = [json.loads(line) for line in capsys.readouterr().out.splitlines()[1:]]
+    order = [(message.get("type", "reply"), message["requestId"]) for message in messages]
+    assert order == [("started", "scan"), ("reply", "scan"), ("started", "range"), ("reply", "range")], messages
+    started = [message for message in messages if message.get("type") == "started"]
+    assert all(first_violation(DEFINITIONS["BackendStartedNotification"], message) is None for message in started)
 
 
 def test_an_invalid_cancel_control_is_an_input_error(monkeypatch, capsys):
@@ -1911,6 +1937,6 @@ def test_a_path_that_cannot_be_resolved_fails_only_its_own_request(monkeypatch, 
 
     main(FakeService(), drain=True)  # type: ignore[arg-type]
 
-    responses = {r["requestId"]: r for r in (json.loads(line) for line in capsys.readouterr().out.splitlines()[1:])}
+    responses = {r["requestId"]: r for r in _replies(capsys.readouterr().out)}
     assert "error" in responses["bad"]
     assert responses["good"] == {"requestId": "good", "filePath": "a.wav"}

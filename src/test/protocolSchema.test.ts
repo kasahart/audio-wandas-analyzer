@@ -119,6 +119,8 @@ test('error payloads, notifications and Worker limits come from the schema', () 
     assert.deepEqual(parseBackendNotification({ type: 'heartbeat', ts: 1.5 }), { type: 'heartbeat', ts: 1.5 });
     assert.equal(parseBackendNotification({ type: 'heartbeat', ts: Number.NaN }), null);
     assert.deepEqual(parseBackendNotification({ type: 'ready' }), { type: 'ready' });
+    assert.deepEqual(parseBackendNotification({ type: 'started', requestId: 'r1' }), { type: 'started', requestId: 'r1' });
+    assert.equal(parseBackendNotification({ type: 'started' }), null);
     const limits = { maxInputBytes: 1, maxSources: 1, maxTotalInputBytes: 1, maxExportBytes: 1 };
     assert.equal(schemaViolation('BrowserLimits', limits), null);
     assert.equal(schemaViolation('BrowserLimits', { ...limits, maxSources: 0 }), 'maxSources');

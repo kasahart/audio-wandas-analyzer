@@ -27,7 +27,7 @@ from typing import Any
 
 Schema = dict[str, Any]
 
-MAX_WAVEFORM_POINTS = 8192
+MAX_WAVEFORM_POINTS = 32768
 
 SUPPORTED_KEYWORDS = frozenset(
     {
@@ -635,6 +635,12 @@ DEFINITIONS: dict[str, Schema] = {
         "type": "object",
         "required": ["type", "ts"],
         "properties": {"type": {"type": "string", "const": "heartbeat"}, "ts": _NUMBER},
+    },
+    # Native backend → host when a worker begins a request; the host starts that request's timeout then.
+    "BackendStartedNotification": {
+        "type": "object",
+        "required": ["type", "requestId"],
+        "properties": {"type": {"type": "string", "const": "started"}, "requestId": {"type": "string"}},
     },
     # Native host → backend: drop these queued requests and send no reply for the running ones. No reply of its own.
     "BackendCancelControl": {

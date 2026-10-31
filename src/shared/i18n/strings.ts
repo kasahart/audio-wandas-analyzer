@@ -313,9 +313,6 @@ export interface UiStrings {
     dsFilterHead: string;
     dsFilterOn: string;
     dsChipRemove: string;
-    dsSlotEmptyHint: string;
-    dsSlotFilledHint: string;
-    dsSlotClear: string;
     dsBaseReset: string;
     dsCh: string;
     dsCancel: string;
@@ -339,7 +336,6 @@ export interface UiStrings {
     dsExportTable: string;
     toolbarMore: string;
     hintEntryExport: string;
-    dsSlotTrackChannel: string;
     dsBatch: string;
     stageBaseScan: string;
     stageBaseTableNote: string;
@@ -359,10 +355,8 @@ export interface UiStrings {
     dsDistPicked: string;
     dsComputeRest: string;
     dsLegendBaseMedian: string;
-    dsBaseMenu: string;
     dsBaseAuto: string;
     dsBaseGroupMedian: string;
-    dsBaseRow: string;
     dsBaseSet: string;
     dsBaseSetAuto: string;
     stepUndo: string;
@@ -1065,9 +1059,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dsFilterHead: 'Sort or filter by this column',
         dsFilterOn: 'Filtered: press to change',
         dsChipRemove: 'Remove this filter',
-        dsSlotEmptyHint: 'Slot {n}: press to put the selected row in (or its slot button, key {n})',
-        dsSlotFilledHint: 'Slot {n}: press to go to its row',
-        dsSlotClear: 'Empty slot {n}',
         dsBaseReset: 'The base was reset to the group median of the new grouping',
         dsCh: 'ch',
         dsCancel: 'Cancel',
@@ -1091,7 +1082,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dsExportTable: 'The table as CSV',
         toolbarMore: 'More zoom tools: box zoom, zoom to the selection, follow the cursor',
         hintEntryExport: 'The table\'s exports: the Recipe for many files, the table and its memos as CSV',
-        dsSlotTrackChannel: 'The track shows ch{ch}',
         dsBatch: 'Export the Recipe for many files',
         stageBaseScan: "Analyse the base group's {n} recordings with the same steps · about {time}",
         stageBaseTableNote: ' (table values · whole files)',
@@ -1111,10 +1101,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dsDistPicked: 'Narrowed to {n} rows: × on the chip takes it off',
         dsComputeRest: 'Compute the rest · about {time}',
         dsLegendBaseMedian: 'Base (median of {group})',
-        dsBaseMenu: 'Use as the base',
         dsBaseAuto: 'Median of the group of slot 1',
         dsBaseGroupMedian: 'Median of {group}',
-        dsBaseRow: 'The selected recording (0)',
         dsBaseSet: 'The base is now the median of {group}',
         dsBaseSetAuto: 'The base is now the median of the group of slot 1',
         stepUndo: 'Undo (Ctrl+Z)',
@@ -1814,9 +1802,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dsFilterHead: 'この列で並べ替え・絞り込み',
         dsFilterOn: '絞り込み中。押すと直せます',
         dsChipRemove: 'この絞り込みを外す',
-        dsSlotEmptyHint: 'スロット {n}：押すと選んでいる行を入れます（行のスロットボタン、キー {n} でも）',
-        dsSlotFilledHint: 'スロット {n}：押すとその行へ移ります',
-        dsSlotClear: 'スロット {n} を空ける',
         dsBaseReset: '群を変えたので、基準を群の中央値に戻しました',
         dsCh: 'ch',
         dsCancel: 'キャンセル',
@@ -1840,7 +1825,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dsExportTable: '表を CSV に書き出す',
         toolbarMore: 'ほかのズーム：矩形ズーム、選択範囲にズーム、追従',
         hintEntryExport: '表の書き出し：レシピのまとめ、表とメモの CSV',
-        dsSlotTrackChannel: 'トラックは ch{ch} で表示',
         dsBatch: 'レシピをまとめて書き出す',
         stageBaseScan: '基準群 {n} 本も同じ手順で解析・約 {time}',
         stageBaseTableNote: '（表の値・全区間）',
@@ -1860,10 +1844,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dsDistPicked: '{n} 行に絞りました。チップの × で外せます',
         dsComputeRest: '残りを計算 · 約 {time}',
         dsLegendBaseMedian: '基準（{group} の中央値）',
-        dsBaseMenu: '基準にする',
         dsBaseAuto: '比較 1 と同じ群の中央値',
         dsBaseGroupMedian: '{group} の中央値',
-        dsBaseRow: '選んでいる録音を基準にする（0）',
         dsBaseSet: '基準を {group} の中央値にしました',
         dsBaseSetAuto: '基準を比較 1 と同じ群の中央値にしました',
         stepUndo: '元に戻す（Ctrl+Z）',

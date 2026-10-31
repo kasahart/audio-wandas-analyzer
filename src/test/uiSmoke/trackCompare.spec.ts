@@ -107,7 +107,6 @@ test('Enter on the entry table compares the slotted files in the track view: ove
     };
     await slotZero();
     await expect(other.locator('.entry-badge.entry-slot-0')).toHaveCount(1);
-    await expect(page.locator('[data-entry-slots] [data-action="entry-slot"][data-slot="0"]')).toContainText(otherName);
     // The comparison's legend names that file as the base.
     await page.locator('[data-entry-table]').focus();
     await page.keyboard.press('Enter');
@@ -116,7 +115,6 @@ test('Enter on the entry table compares the slotted files in the track view: ove
     await expect(page.locator('#entry-screen')).toHaveClass(/is-max/);
     await slotZero();
     await expect(other.locator('.entry-badge.entry-slot-0')).toHaveCount(0);
-    await expect(page.locator('[data-entry-slots] [data-action="entry-slot"][data-slot="0"]')).toContainText(STR.entryBaseGroup);
     await page.keyboard.press('Enter');
     await expect(page.locator('[data-stage-legend] .compare-legend-item').first()).toContainText(new RegExp(STR.entryBaseMedian.replace('{count}', '\\d+')));
 });
@@ -133,10 +131,11 @@ test('the comparison shows the app\'s 1/3-octave branch as a step, and hides the
     await expect.poll(async () => (await stageScans(page)).at(-1)?.stage).toBe('node-noct');
     await answer(page, { frame: 'NOctFrame', kind: 'bar', x: 'band', xScale: 'log', quantity: 'level', xs: [100, 1000, 5000], values: [-40, -30, -50] });
     await expect(page.locator('.track-stage-bar')).toHaveAttribute('data-stage', 'node-noct');
-    // In the side panel the table keeps its four columns and never scrolls sideways; its ▾ sorts.
-    await page.locator('th[data-column="leq"] [data-action="entry-fhead"]').click();
+    // In the side panel the table leaves out the value column and never scrolls sideways; its ▾ sorts.
+    await expect(page.locator('th[data-column="leq"]')).toBeHidden();
+    await page.locator('th[data-column="name"] [data-action="entry-fhead"]').click();
     await page.locator('[data-action="entry-fsort"][data-descending="true"]').click();
-    await expect(page.locator('th[data-column="leq"]')).toHaveClass(/is-sorted/);
+    await expect(page.locator('th[data-column="name"]')).toHaveClass(/is-sorted/);
     expect(await page.locator('.entry-table-wrap').evaluate(wrap => wrap.scrollWidth - wrap.clientWidth)).toBeLessThanOrEqual(0);
     // A row's ▶ shows on the hovered row only, and shows its file as a track to play it.
     const row = page.locator('[data-entry-rows] tr.entry-row:not(.is-focused)').nth(3);
@@ -209,7 +208,7 @@ test('narrowed to ch 2, the base is the group\'s ch-2 recordings within the filt
     await page.keyboard.press('Escape');
     await page.locator('[data-entry-table]').focus();
     await page.keyboard.press('1');
-    await expect(page.locator('[data-entry-slots] [data-action="entry-slot"][data-slot="1"]')).toContainText(' ch2');
+    await expect(first.locator('.entry-badge.entry-slot-1')).toHaveCount(1);
     await page.keyboard.press('Enter');
     await showTracks(page, [filePath]);
     const legend = page.locator('[data-stage-legend] .compare-legend-item');

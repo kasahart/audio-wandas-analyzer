@@ -72,6 +72,20 @@ test('paintTrackWaveform passes the view and source to the pipeline and reports 
     assert.equal(options.zoomEnd, 1);
 });
 
+test('paintTrackWaveform draws finer detail over its own span and the overview only around it', () => {
+    const { ctx, calls } = recordingCtx();
+    const rects: number[][] = [];
+    (ctx as unknown as { rect: (...args: number[]) => void }).rect = (...args: number[]) => { rects.push(args); };
+    const drawn: Array<{ dataStart: unknown; rects: number }> = [];
+    const detail = { waveform, dataStart: 0.25, dataEnd: 0.5, amplitudeScale: undefined };
+    paintTrackWaveform(ctx, 200, 100, '#00ff00', { waveform, dataStart: 0, dataEnd: 1, amplitudeScale: undefined, detail }, view, (_c, _w, _h, _wf, opts) => {
+        drawn.push({ dataStart: opts.dataStart, rects: rects.length });
+    });
+    assert.deepEqual(drawn, [{ dataStart: 0, rects: 2 }, { dataStart: 0.25, rects: 3 }]);
+    assert.deepEqual(rects, [[0, 0, 50, 100], [100, 0, 100, 100], [50, 0, 50, 100]]);
+    assert.equal(calls.filter(call => call === 'clip').length, 2);
+});
+
 const spec: SpectrogramData = {
     values: [[-80, -20], [-60, -40]],
     timeBins: 2, frequencyBins: 2, windowSize: 1024, hopSize: 256,

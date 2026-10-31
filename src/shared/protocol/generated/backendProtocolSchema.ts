@@ -473,7 +473,7 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "points": {
                     "type": "integer",
                     "minimum": 1,
-                    "maximum": 8192
+                    "maximum": 32768
                 },
                 "calibrationProfile": {
                     "$ref": "#/$defs/CalibrationProfile"
@@ -1569,6 +1569,23 @@ export const BACKEND_PROTOCOL_SCHEMA = {
             },
             "additionalProperties": false
         },
+        "BackendStartedNotification": {
+            "type": "object",
+            "required": [
+                "type",
+                "requestId"
+            ],
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "const": "started"
+                },
+                "requestId": {
+                    "type": "string"
+                }
+            },
+            "additionalProperties": false
+        },
         "BackendCancelControl": {
             "type": "object",
             "required": [
@@ -2047,6 +2064,11 @@ export interface BackendReadyNotification {
 export interface BackendHeartbeatNotification {
     type: "heartbeat";
     ts: number;
+}
+
+export interface BackendStartedNotification {
+    type: "started";
+    requestId: string;
 }
 
 export interface BackendCancelControl {

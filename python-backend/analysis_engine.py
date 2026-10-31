@@ -4,6 +4,8 @@ import json
 import os
 import threading
 from collections import OrderedDict
+from collections.abc import Hashable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -78,10 +80,24 @@ class AnalysisEngine:
         self._files: OrderedDict[Path, CachedAnalysis] = OrderedDict()
         self.spectrum_slice_cache_entries = 64
         # Requests for different files run on several threads: the caches change under this lock, and one
-        # file is read once even when two requests for it arrive together.
+        # file is read, or one STFT built, once even when two requests for it arrive together.
         self._lock = threading.RLock()
-        # One read lock per path while requests for it are in flight; the last request out removes it.
-        self._loading: dict[Path, _LoadSlot] = {}
+        # One build lock per file path or STFT key while requests for it are in flight; the last one out removes it.
+        self._loading: dict[Hashable, _LoadSlot] = {}
+
+    @contextmanager
+    def _single_flight(self, key: Hashable) -> Iterator[None]:
+        with self._lock:
+            slot = self._loading.setdefault(key, _LoadSlot())
+            slot.users += 1
+        try:
+            with slot.lock:
+                yield
+        finally:
+            with self._lock:
+                slot.users -= 1
+                if slot.users == 0:
+                    del self._loading[key]
 
     def get_file(self, file_path: str | Path) -> CachedAnalysis:
         path = Path(file_path).expanduser().resolve()
@@ -89,21 +105,7 @@ class AnalysisEngine:
             raise UnreadableFileError(f"Audio file not found: {path}")
         stat = path.stat()
         identity = (stat.st_mtime_ns, stat.st_size)
-        with self._lock:
-            slot = self._loading.setdefault(path, _LoadSlot())
-            slot.users += 1
-        try:
-            return self._load_file(path, identity, stat, slot.lock)
-        finally:
-            with self._lock:
-                slot.users -= 1
-                if slot.users == 0:
-                    del self._loading[path]
-
-    def _load_file(
-        self, path: Path, identity: tuple[int, int], stat: os.stat_result, loading: threading.Lock
-    ) -> CachedAnalysis:
-        with loading:
+        with self._single_flight(path):
             with self._lock:
                 cached = self._files.get(path)
                 if cached is not None and cached.identity == identity:
@@ -155,16 +157,20 @@ class AnalysisEngine:
             # SciPy's padded STFT needs at least half a window of samples.
             raise AnalysisSettingsError("Audio is too short for this STFT window; choose a smaller window")
         key = (resolved.signature, n_fft, hop_length, window)
-        spectrogram = cached.spectrograms.get(key)
-        if spectrogram is None:
-            spectrogram = (
-                compute_spectrogram(analysis_frame, n_fft, hop_length, window).astype(SPECTROGRAM_CACHE_DTYPE).cache()
-            )
-            with self._lock:
-                cached.spectrograms[key] = spectrogram
-                cached.spectrogram_nbytes[key] = int(np.prod(spectrogram.shape)) * SPECTROGRAM_CACHE_DTYPE.itemsize
-                self._evict(cached.path)
-        return spectrogram
+        # Two track-detail requests for one file run at once; the second waits for the first's STFT, not a copy.
+        with self._single_flight((cached.path, key)):
+            spectrogram = cached.spectrograms.get(key)
+            if spectrogram is None:
+                spectrogram = (
+                    compute_spectrogram(analysis_frame, n_fft, hop_length, window)
+                    .astype(SPECTROGRAM_CACHE_DTYPE)
+                    .cache()
+                )
+                with self._lock:
+                    cached.spectrograms[key] = spectrogram
+                    cached.spectrogram_nbytes[key] = int(np.prod(spectrogram.shape)) * SPECTROGRAM_CACHE_DTYPE.itemsize
+                    self._evict(cached.path)
+            return spectrogram
 
     def get_cached_spectrogram(
         self,

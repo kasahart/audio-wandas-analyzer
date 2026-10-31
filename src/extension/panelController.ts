@@ -175,13 +175,14 @@ export class PanelController implements vscode.Disposable {
         this.calibrationChangeDisposable = calibration.onDidChange((event) => {
             for (const session of this.sessions.values()) {
                 // The event carries the canonical key, which differs from the panel's path on Windows (drive-letter
-                // case, resolved root) and for symlinked files; refresh under the path the panel actually shows.
-                const filePath = session.getActiveFilePaths()
-                    .find((activePath) => calibrationFileKey(activePath) === event.filePath);
-                if (filePath === undefined) { continue; }
-                void this.enqueueCalibrationRefresh(session, { ...event, filePath }).catch((error) => {
-                    this.host.showError(userErrorText(error, this.strings()));
-                });
+                // case, resolved root) and for symlinked files; refresh under every path the panel shows for it.
+                const filePaths = new Set(session.getActiveFilePaths()
+                    .filter((activePath) => calibrationFileKey(activePath) === event.filePath));
+                for (const filePath of filePaths) {
+                    void this.enqueueCalibrationRefresh(session, { ...event, filePath }).catch((error) => {
+                        this.host.showError(userErrorText(error, this.strings()));
+                    });
+                }
             }
         });
     }

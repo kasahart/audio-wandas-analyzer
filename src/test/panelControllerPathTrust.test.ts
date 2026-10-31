@@ -15,13 +15,16 @@ class CancellationError extends Error {}
 const FileType = { File: 1, Directory: 2, SymbolicLink: 64 };
 const uri = (fsPath: string) => ({ fsPath, toString: () => `file:${fsPath}` });
 
+/** URIs the code under test built with `vscode.Uri.joinPath`: one per folder it queued a read for or listed. */
+let joinedUris = 0;
+
 function loadWithVscodeMock<T>(load: () => T): T {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const NodeModule = require('node:module') as { _load: (request: string, parent: unknown, isMain: boolean) => unknown };
     const originalLoad = NodeModule._load;
     NodeModule._load = function(request, parent, isMain) {
         if (request === 'vscode') return {
-            Uri: { file: uri, joinPath: (base: { fsPath: string }, ...parts: string[]) => uri(path.join(base.fsPath, ...parts)) },
+            Uri: { file: uri, joinPath: (base: { fsPath: string }, ...parts: string[]) => { joinedUris++; return uri(path.join(base.fsPath, ...parts)); } },
             FileType, ViewColumn: { One: 1 }, ProgressLocation: { Notification: 15 }, CancellationError,
             EventEmitter: class { readonly event = () => ({ dispose() {} }); fire() {} dispose() {} },
             commands: { executeCommand: async () => undefined }, workspace: { fs: {} }, env: { language: 'en' },
@@ -189,6 +192,32 @@ test('directory listing stops at its entry cap and says so', async () => {
     assert.equal(files.length, 7, 'two folders plus seven files fill the cap of nine');
 });
 
+test('a truncated directory listing does not depend on which read finishes first', async () => {
+    const listing: Record<string, Array<[string, number]>> = {
+        '/r': [['d2', FileType.Directory], ['d1', FileType.Directory]],
+        '/r/d1': [['x.wav', FileType.File], ['s', FileType.Directory]],
+        '/r/d1/s': Array.from({ length: 3 }, (_, i) => [`${i}.wav`, FileType.File]),
+        '/r/d2': Array.from({ length: 5 }, (_, i) => [`${i}.wav`, FileType.File]),
+    };
+    const listWithDelays = async (delays: Record<string, number>) => {
+        const { tree, truncated } = await buildDirectoryTree(uri('/r') as vscode.Uri, {
+            stat: async () => ({ type: FileType.Directory }) as vscode.FileStat,
+            readDirectory: async (source) => {
+                const key = posixPath(source.fsPath);
+                for (let i = 0; i < (delays[key] ?? 0); i++) await tick();
+                return listing[key] ?? [];
+            },
+        }, { maxEntries: 9 });
+        const paths = (nodes: typeof tree): string[] => nodes.flatMap(node => node.children ? paths(node.children) : [node.relativePath]);
+        return { paths: paths(tree), truncated };
+    };
+    const laterFirst = await listWithDelays({ '/r/d1': 6, '/r/d1/s': 6 });
+    const earlierFirst = await listWithDelays({ '/r/d2': 12 });
+    // Two folders, then d1's two entries and its subfolder's three files, leave room for two of d2's five.
+    assert.deepEqual(laterFirst, { paths: ['d1/s/0.wav', 'd1/s/1.wav', 'd1/s/2.wav', 'd1/x.wav', 'd2/0.wav', 'd2/1.wav'], truncated: true });
+    assert.deepEqual(earlierFirst, laterFirst);
+});
+
 test('directory listing bounds reads in flight across nesting levels', async () => {
     const listing: Record<string, Array<[string, number]>> = { '/r': [] };
     for (let i = 0; i < 6; i++) {
@@ -209,6 +238,68 @@ test('directory listing bounds reads in flight across nesting levels', async () 
     const { tree } = await buildDirectoryTree(uri('/r') as vscode.Uri, fileSystem, { concurrency: 3 });
     assert.equal(tree.length, 6);
     assert.ok(peak <= 3, `at most 3 reads at once, saw ${peak}`);
+});
+
+test('a wide two-level folder keeps the read bound busy at the second level', async () => {
+    let secondLevelInFlight = 0, secondLevelPeak = 0;
+    const fileSystem: TargetFileSystem = {
+        stat: async () => ({ type: FileType.Directory }) as vscode.FileStat,
+        readDirectory: async (source) => {
+            const depth = posixPath(source.fsPath).split('/').filter(Boolean).length - 1;
+            if (depth === 2) secondLevelPeak = Math.max(secondLevelPeak, ++secondLevelInFlight);
+            for (let i = 0; i < 3; i++) await tick();
+            if (depth === 2) secondLevelInFlight--;
+            if (depth === 0) return Array.from({ length: 16 }, (_, i) => [`s${String(i).padStart(2, '0')}`, FileType.Directory]);
+            return depth === 1 ? [['take', FileType.Directory]] : [['a.wav', FileType.File]];
+        },
+    };
+    const { tree } = await buildDirectoryTree(uri('/r') as vscode.Uri, fileSystem, { concurrency: 4 });
+    assert.equal(tree.length, 16);
+    assert.equal(secondLevelPeak, 4, 'subfolders of subfolders are read side by side, not one at a time');
+});
+
+test('a large later folder that is read first does not slow the earlier subfolders', async () => {
+    let takeReadsInFlight = 0, takeReadsPeak = 0;
+    const fileSystem: TargetFileSystem = {
+        stat: async () => ({ type: FileType.Directory }) as vscode.FileStat,
+        readDirectory: async (source) => {
+            const parts = posixPath(source.fsPath).split('/').filter(Boolean);
+            if (parts[1] === 'z_archive') return Array.from({ length: 200 }, (_, i) => [`${i}.wav`, FileType.File]);
+            const isTake = parts.at(-1) === 'take';
+            if (isTake) takeReadsPeak = Math.max(takeReadsPeak, ++takeReadsInFlight);
+            for (let i = 0; i < 3; i++) await tick();
+            if (isTake) takeReadsInFlight--;
+            if (parts.length === 1) return [['a', FileType.Directory], ['z_archive', FileType.Directory]];
+            if (parts.length === 2) return Array.from({ length: 16 }, (_, i) => [`s${String(i).padStart(2, '0')}`, FileType.Directory]);
+            return isTake ? [['a.wav', FileType.File]] : [['take', FileType.Directory]];
+        },
+    };
+    const { tree, truncated } = await buildDirectoryTree(uri('/r') as vscode.Uri, fileSystem, { concurrency: 4, maxEntries: 100 });
+    assert.equal(truncated, true);
+    assert.equal(tree[0]?.children?.length, 16);
+    assert.equal(takeReadsPeak, 4, 'the archive, listed last but read first, must not stop the reads ahead in a/');
+});
+
+test('a folder with more subfolders than the cap queues no more than the cap of reads ahead', async () => {
+    const fileSystem = directoryFileSystem({ '/r': Array.from({ length: 1000 }, (_, i) => [`d${String(i).padStart(4, '0')}`, FileType.Directory]) });
+    joinedUris = 0;
+    const { truncated } = await buildDirectoryTree(uri('/r') as vscode.Uri, fileSystem, { concurrency: 4, maxEntries: 10 });
+    assert.equal(truncated, true);
+    // At most maxEntries + 1 reads ahead, plus the ten folders the listing itself reaches.
+    assert.ok(joinedUris <= 2 * 10 + 1, `queued ${joinedUris} folders for a listing capped at 10`);
+});
+
+test('a truncated listing does not wait on a subfolder it has no room left for', async () => {
+    const fileSystem: TargetFileSystem = {
+        stat: async () => ({ type: FileType.Directory }) as vscode.FileStat,
+        readDirectory: async (source) => {
+            if (posixPath(source.fsPath) === '/r') return [['a.wav', FileType.File], ['b.wav', FileType.File], ['broken', FileType.Directory]];
+            throw new Error('unreadable');
+        },
+    };
+    const { tree, truncated } = await buildDirectoryTree(uri('/r') as vscode.Uri, fileSystem, { maxEntries: 2 });
+    assert.equal(truncated, true);
+    assert.deepEqual(tree.map(node => node.relativePath), ['a.wav']);
 });
 
 test('directory listing stops when cancelled', async () => {

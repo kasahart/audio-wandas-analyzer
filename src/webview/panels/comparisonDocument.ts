@@ -187,7 +187,7 @@ export function renderComparisonStyles(): string {
         .entry-screen:is([data-cols="1"], [data-cols="2"]) .entry-col-group, .entry-screen:is([data-cols="1"], [data-cols="2"]) col.entry-col-group-w { display: none; }
         /* In the side panel the bar keeps the filter, the progress, Open and ⤢; the chain is one chip that widens the table. */
         .entry-screen:not(.is-max) .entry-bar { flex-wrap: wrap; row-gap: 4px; }
-        .entry-screen:not(.is-max):is([data-cols="1"], [data-cols="2"], [data-cols="3"]) .entry-keys { display: none; }
+        .entry-screen:not(.is-max):is([data-cols="1"], [data-cols="2"], [data-cols="3"]) .entry-footer { display: none; }
         /* Beside the tracks the slotted rows already are tracks: the table's Enter needs no button there. */
         .entry-screen:not(.is-max) [data-action="entry-open"] { display: none; }
         .entry-screen:not(.is-max) [data-step-bar] { display: none; }
@@ -289,17 +289,16 @@ export function renderComparisonStyles(): string {
         .entry-badge.entry-slot-3 { border-color: var(--entry-slot-3); color: var(--entry-slot-3); }
         /* The dataset table: four fixed columns (nothing scrolls sideways); a row's tools right after its name. */
         .entry-table { table-layout: fixed; }
-        /* Widened, the name takes the width the other columns leave (the filler at the right end then takes none). */
-        .entry-screen.is-max .entry-table col.entry-col-name-w { width: auto; }
-        .entry-screen.is-max .entry-table col.entry-col-fill-w { width: 0; }
-        .entry-screen.is-max .entry-row > td:last-child:empty { padding: 0; }
+        /* The name takes the width the other columns leave (the filler at the right end then takes none). */
+        .entry-table col.entry-col-name-w { width: auto; }
+        .entry-table col.entry-col-fill-w { width: 0; }
+        .entry-row > td:last-child:empty, .entry-table thead th:last-child:empty { padding: 0; }
         .entry-table col.entry-col-ch-w { width: 3.8em; }
         .entry-table col.entry-col-group-w { width: 8em; }
         .entry-table col.entry-col-value-w { width: 9.5em; }
         .entry-table col.entry-col-reason-w { width: 7em; }
-        /* In the side panel the name takes what the channel, group and value leave. */
-        .entry-screen:not(.is-max) .entry-table col.entry-col-name-w { width: 50%; }
-        .entry-screen:not(.is-max) .entry-table col.entry-col-value-w { width: 8em; }
+        /* Beside the tracks the table is for finding a file: the value column shows maximized (⤢). */
+        .entry-screen:not(.is-max) .entry-table :is(col.entry-col-value-w, .entry-col-value) { display: none; }
         .entry-screen:not(.is-max) .entry-table col.entry-col-group-w { width: 6em; }
         .entry-table tr { height: 24px; }
         .entry-table td { padding: 0 8px; overflow: hidden; text-overflow: ellipsis; }
@@ -328,6 +327,9 @@ export function renderComparisonStyles(): string {
         .entry-row:not(:hover):not(.is-focused) .entry-rbtn.is-hover { visibility: hidden; }
         /* In the side panel a row's hidden tools take no room, so its name has it. */
         .entry-screen:not(.is-max) .entry-row:not(:hover):not(.is-focused) .entry-rbtn.is-hover { display: none; }
+        /* The selected row looks like the others: its tools come under the mouse, yet stay in Tab's reach and show while one has the keyboard. */
+        .entry-row.is-focused:not(:hover) .entry-rowtools:not(:focus-within) .entry-rbtn.is-hover { opacity: 0; }
+        .entry-screen:not(.is-max) .entry-row.is-focused:not(:hover) .entry-rowtools:not(:focus-within) .entry-rbtn.is-hover { position: absolute; width: 1px; min-width: 0; height: 1px; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); }
         .entry-screen .entry-rbtn-slot { color: var(--muted); }
         .entry-col-ch.is-single { color: var(--muted); }
         .entry-row.is-stale td:not(.entry-name) { color: var(--muted); }
@@ -336,7 +338,9 @@ export function renderComparisonStyles(): string {
         .entry-why-detail { color: var(--muted); }
         .entry-spacer-row, .entry-spacer-row td { border: 0; padding: 0; }
         .entry-pick { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); }
+        .entry-pick[hidden] { display: none; }
         .entry-pick select { color: var(--text); max-width: 14em; }
+        .entry-pick select[data-action="entry-base"] { max-width: 18em; }
         .entry-compute { display: inline-flex; align-items: center; gap: 6px; }
         .entry-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 0 10px 4px; background: var(--panel); }
         .entry-chips:empty { display: none; }
@@ -369,8 +373,6 @@ export function renderComparisonStyles(): string {
         .entry-ck-n { margin-left: auto; color: var(--muted); font-family: var(--font-mono); font-size: 11px; }
         .entry-ck-more { color: var(--muted); font-size: 11px; padding: 4px 2px; }
         .entry-fpop-bar { display: flex; justify-content: flex-end; gap: 6px; margin-top: 4px; }
-        .entry-slot-wrap { display: inline-flex; align-items: center; gap: 2px; }
-        .entry-screen .entry-slot-x { border: 0; padding: 0 4px; color: var(--muted); }
         /* Step bar: the scan Recipe's chips; red = a step left out for invalid settings. */
         .step-bar { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 4px 10px; border-bottom: 1px solid var(--line); background: var(--panel); font-size: 12px; }
         .step-field.is-invalid input, .step-field.is-invalid select { border-color: var(--entry-flag) !important; color: var(--entry-flag); }
@@ -606,25 +608,6 @@ export function renderComparisonStyles(): string {
         /* Rows of an earlier chain: greyed, their outlier marks too, until scanned again. */
         .entry-row.is-stale td { color: var(--dim); }
         .entry-filter.is-stale [data-entry-count] { color: var(--dim); }
-        /* Slots (entry footer, comparison cards): a role-coloured number box and a label. */
-        .entry-screen .awa-slot { display: inline-flex; align-items: center; gap: 8px; padding: 0 10px 0 5px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); background: transparent; }
-        .awa-slot.role-base { --role: var(--entry-base); --role-tint: color-mix(in srgb, var(--entry-base) 16%, transparent); }
-        .awa-slot.role-compare { --role: var(--entry-compare); --role-tint: color-mix(in srgb, var(--entry-compare) 16%, transparent); }
-        /* Each slot keeps its colour everywhere: its card, its badge and its line on the comparison's overlay. */
-        .awa-slot.slot-2 { --role: var(--entry-slot-2); --role-tint: color-mix(in srgb, var(--entry-slot-2) 16%, transparent); }
-        .awa-slot.slot-3 { --role: var(--entry-slot-3); --role-tint: color-mix(in srgb, var(--entry-slot-3) 16%, transparent); }
-        .awa-slot-num { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; box-sizing: border-box; border-radius: 4px; font-size: 11px; font-weight: 700; background: var(--role); color: var(--surface); }
-        .awa-slot-label { overflow: hidden; text-overflow: ellipsis; }
-        .entry-screen button.awa-slot.is-empty, .track-stage-bar button.awa-slot.is-empty { border-style: dashed; }
-        .awa-slot.is-empty .awa-slot-num { background: transparent; border: 1px solid var(--role); color: var(--role); }
-        .awa-slot.is-empty .awa-slot-label { color: var(--muted); }
-        .entry-screen button.awa-slot.is-active, .track-stage-bar button.awa-slot.is-active { border-color: var(--role); background: var(--role-tint); }
-        .entry-screen button.awa-slot.is-held, .track-stage-bar button.awa-slot.is-held { border-color: var(--role); background: var(--role); color: #0b1220; }
-        .awa-slot.is-held .awa-slot-num { background: #0b1220; color: var(--role); }
-        .entry-chip { margin-right: 6px; }
-        /* A key that cannot act lights the focus ring once. */
-        @keyframes awa-ring { 0%, 60% { box-shadow: var(--ring); } 100% { box-shadow: none; } }
-        .awa-slot.is-flash, .entry-chip.is-flash { animation: awa-ring 0.9s ease-out; }
         /* Key hints: small, pressable, quiet. */
         .entry-keys .entry-key { min-height: 20px; font-size: 11px; border-radius: 3px; padding: 0 6px; }
         /* The bottom row: hints on the left, the version small at the right end. */

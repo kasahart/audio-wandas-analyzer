@@ -573,6 +573,9 @@ function recipeRestartHarness(
             const response = fixtures.find(fixture => fixture.command === command.cmd)!.response;
             this.stdout.write(JSON.stringify({ ...response, requestId: command.requestId }) + '\n');
         }
+        start(command: typeof this.commands[number]): void {
+            this.stdout.write(JSON.stringify({ type: 'started', requestId: command.requestId }) + '\n');
+        }
     }
     const modulePath = path.join(__dirname, '../extension/pythonBackendServer.js');
     const localRequire = createRequire(modulePath);
@@ -753,6 +756,8 @@ test('a request that outlives its command timeout restarts the backend and repla
         await server.warmup();
         const scan = server.scan({ filePath: '/stuck.wav', recipe: {} });
         const range = server.requestRange('/panel.wav', 0, 1, 4, 'panel-range');
+        await settle();
+        children[0].start(children[0].commands.find(command => command.cmd === 'scan')!);
         await assert.rejects(scan, /scan request timed out/);
         await settle();
         assert.equal(children[0].killed, true);
@@ -761,6 +766,28 @@ test('a request that outlives its command timeout restarts the backend and repla
         assert.deepEqual(fresh.commands.map(command => command.requestId), ['panel-range']);
         fresh.reply(fresh.commands[0]);
         await range;
+    } finally { server.dispose(); }
+});
+
+test('a request queued behind a long barrier is not timed until Python starts it', async () => {
+    const { server, children } = recipeRestartHarness(false, false, undefined, { timeoutsMs: { scan: 10_000, range: 20 } });
+    try {
+        await server.warmup();
+        const scan = server.scan({ filePath: '/a.wav', recipe: {} });
+        const range = server.requestRange('/a.wav', 0, 1, 4, 'queued-range');
+        await settle();
+        const backend = children[0];
+        const [scanCommand, rangeCommand] = backend.commands;
+        backend.start(scanCommand);
+        await new Promise(resolve => setTimeout(resolve, 80));
+        assert.equal(backend.killed, false);
+        assert.equal(children.length, 1);
+        backend.reply(scanCommand);
+        backend.start(rangeCommand);
+        backend.reply(rangeCommand);
+        await Promise.all([scan, range]);
+        assert.equal(children.length, 1);
+        assert.deepEqual(backend.commands.map(command => command.cmd), ['scan', 'range']);
     } finally { server.dispose(); }
 });
 

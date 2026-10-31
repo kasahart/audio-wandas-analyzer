@@ -94,3 +94,20 @@ test('a focused role chip keeps its digits from the lanes', () => {
     window.document.dispatchEvent(new window.KeyboardEvent('keydown', { key: '0', cancelable: true }));
     assert.deepEqual(calls, ['zoom-reset']);
 });
+
+test('two bundles on one window share its router: the help closes before a popover of the other bundle', async () => {
+    const { window } = new JSDOM('<!doctype html><body></body>');
+    // A second copy of the module, as the static build's host and comparison bundles each carry one.
+    delete require.cache[require.resolve('../webview/runtime/keyRouter')];
+    const second = await import('../webview/runtime/keyRouter');
+    assert.notEqual(keyRouterFor, second.keyRouterFor);
+    const calls: string[] = [];
+    keyRouterFor(window).add({ layer: 'popover', keydown: event => { calls.push(`about:${event.key}`); return event.key === 'Escape'; } });
+    const removeHelp = second.keyRouterFor(window).add({ layer: 'help', keydown: event => { calls.push(`help:${event.key}`); return event.key === 'Escape'; } });
+    const escape = () => window.document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', cancelable: true }));
+    escape();
+    removeHelp();
+    escape();
+    assert.deepEqual(calls, ['help:Escape', 'about:Escape']);
+    assert.equal(keyRouterFor(window), second.keyRouterFor(window));
+});
