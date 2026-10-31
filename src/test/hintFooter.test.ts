@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
-import { attachCanvasFocusHint, attachHoverHints, createHintFooter, hintAttr, setHint } from '../webview/runtime/hintFooter';
+import { attachCanvasFocusHint, attachHoverHints, createHintFooter, createTaskStatus, hintAttr, setHint } from '../webview/runtime/hintFooter';
 
 function setup(withFooter = true) {
     const dom = new JSDOM(`<!doctype html><body><button id="btn" data-hint="Export PNG"><span id="label">PNG</span></button><canvas class="track-canvas" tabindex="0"></canvas>${withFooter ? '<div id="hint-footer"></div>' : ''}</body>`);
@@ -66,4 +66,18 @@ test('hints are also exposed as accessible descriptions', () => {
     setHint(btn, 'Python');
     assert.equal(btn.dataset.hint, 'Python');
     assert.equal(btn.getAttribute('aria-description'), 'Python');
+});
+
+test('createTaskStatus announces a finished or failed task through the live region, not the busy state', () => {
+    const dom = new JSDOM('<!doctype html><body><div id="task-status" aria-hidden="true" hidden></div></body>');
+    const doc = dom.window.document;
+    const announced: string[] = [];
+    const timers = { setTimeout: (() => 1) as unknown as Window['setTimeout'], clearTimeout: (() => undefined) as Window['clearTimeout'] };
+    const status = createTaskStatus(doc, timers, text => announced.push(text));
+    status('Exporting PNG…', 'busy');
+    assert.deepEqual(announced, []);
+    status('Saved waveform-export.png', 'done');
+    status('PNG export failed', 'failed');
+    assert.deepEqual(announced, ['Saved waveform-export.png', 'PNG export failed']);
+    assert.equal(doc.getElementById('task-status')!.textContent, 'PNG export failed');
 });

@@ -7,6 +7,8 @@ export const ROLE_COLORS: Readonly<Record<number, string>> = { ...DARK_ROLE_COLO
 export const DIFF_COLOR = '#3fb950';
 export const FLAG_COLOR = '#e8833a';
 export const NO_ROLE_COLOR = '#8b949e';
+/** The body classes of a light theme, High Contrast Light included: the canvases and the stylesheet both take the light roles for these. */
+export const LIGHT_THEME_BODY_SELECTORS: readonly string[] = ['.vscode-light', '.vscode-high-contrast-light', '[data-theme-kind="light"]'];
 
 /** Switches ROLE_COLORS in place for the theme: every painter reads it when it paints, so a repaint follows the theme. */
 export function useLightRoleColors(light: boolean): void {

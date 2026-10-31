@@ -91,7 +91,7 @@ import { channelResult } from '../../shared/recipe/channelSelection';
 import { reportFiles } from './compareReport';
 import { regionLabel } from './entryTable';
 import { activeSlotReferenced, recipeKey } from '../../shared/recipe/recipeSteps';
-import { ROLE_COLORS, useLightRoleColors } from '../../shared/gui/roleColors';
+import { LIGHT_THEME_BODY_SELECTORS, ROLE_COLORS, useLightRoleColors } from '../../shared/gui/roleColors';
 import { createTrackStageMode, type StageTrack, type TrackStageDeps, type TrackStageMode } from './trackStageMode';
 import { attachRoleChips, roleChipHtml, roleChipText, type RoleChipRole } from './roleChip';
 import { triggerAnchorDownload as downloadEntryCsv } from './exportDownloads';
@@ -181,7 +181,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     // The same four darkened for a light background (each at least 3:1 against the lanes' background).
     const LIGHT_TRACK_COLORS = ['#1a8a7c', '#94704f', '#6f7d44', '#8f7a55'];
     function isLightTheme(): boolean {
-        return document.body.matches('.vscode-light, .vscode-high-contrast-light, [data-theme-kind="light"]');
+        return document.body.matches(LIGHT_THEME_BODY_SELECTORS.join(', '));
     }
     useLightRoleColors(isLightTheme());
     function announce(msg: string): void {
@@ -859,7 +859,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         });
     }
     const hintFooter = createHintFooter(document);
-    const taskStatus = createTaskStatus(document, window);
+    const taskStatus = createTaskStatus(document, window, announce);
     attachHoverHints(document, hintFooter);
     const updatePlaybackDisplay = createPlaybackDisplay(document, STR.playbackTimePrefix || '▶');
     // ── On-demand range cache ──
@@ -2600,8 +2600,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }, typeof ResizeObserver === 'function' ? ResizeObserver : undefined);
         // A theme switched while open (VS Code changes the body's class): the canvases repaint in its colours.
         if (typeof MutationObserver === 'function') {
+            // The runtime's own body classes (is-height-resizing, is-stage-view, …) change it too: only a change of light/dark repaints.
+            let lightTheme = isLightTheme();
             new MutationObserver(function () {
-                useLightRoleColors(isLightTheme());
+                if (isLightTheme() === lightTheme) return;
+                lightTheme = !lightTheme;
+                useLightRoleColors(lightTheme);
                 document.querySelectorAll('.track-header .role-chip-face').forEach(function (face) { face.removeAttribute('data-role'); });
                 syncRoleChips();
                 scheduleRender();
