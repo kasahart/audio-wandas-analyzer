@@ -85,6 +85,7 @@ import { replaceTrackAudio, retireAudio } from './trackAudioHost';
 import { installTrackReorderDrag } from './trackReorderDrag';
 import { installSpectrogramSettingsPopover } from './spectrogramSettingsPopover';
 import { installReanalyzeOverlay } from './reanalyzeOverlay';
+import { SpectrogramSettingsStore } from './spectrogramSettingsStore';
 import { createEntryScreen } from './entryRuntime';
 import { diffHeadline } from './comparePanes';
 import { baseName } from '../../shared/analysis/entryMetadata';
@@ -180,6 +181,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     // ── Runtime state ──
     let rafPending = false;
     const layout = new LayoutSettings(persistedWebviewState, persistWebviewState);
+    const spectrogramSettings = new SpectrogramSettingsStore(state.spectrogramSettings);
     layout.onChange(followLayoutChange);
     const audioFader = createAudioFader();
     const playback = new PlaybackController({
@@ -572,13 +574,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }, STR);
     let overlaySpectrumPainted = false;
     function currentSettingsSignature() {
-        try {
-            const settings = __spectrogramSettings;
-            return JSON.stringify({ auto: settings.auto, stft: settings.stft });
-        }
-        catch {
-            return 'spectrum-data-settings';
-        }
+        return spectrogramSettings.dataSignature;
     }
     function currentSpectrumDataSignature() {
         const signature = currentSettingsSignature();
@@ -749,7 +745,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         });
     }
     function applySpectrumDisplaySettings(slice: SpectrumSlice) {
-        const displaySettings = __spectrogramSettings.display;
+        const displaySettings = spectrogramSettings.display;
         const minDb = displaySettings.dbMin != null ? displaySettings.dbMin : slice.minDb;
         const maxDb = displaySettings.dbMax != null ? displaySettings.dbMax : slice.maxDb;
         const requestedMaxFreq = displaySettings.maxFrequencyHz;
@@ -993,7 +989,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 if (!specSettingsPopover.isOpen()) {
                     specSettingsPopover.open();
                 }
-                __setSpectrogramDisplay(fillSpectrogramDisplayForm(document, p));
+                setSpectrogramDisplay(fillSpectrogramDisplayForm(document, p));
             },
         };
         const trackAction = Object.hasOwn(trackActions, entry.action) ? trackActions[entry.action] : undefined;
@@ -1086,7 +1082,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     app.innerHTML = buildLayout();
     syncPythonEnvironmentButton();
     syncWaveformModeButton();
-    __updateSpecGearVisibility();
+    syncSpecGearVisibility();
     attachEvents();
     // The help lists the keys of the view on show first: the entry table, the comparison (the track view's steps mode), or the lanes.
     const help = installHelpOverlay(document, window, STR, () => {
@@ -1356,7 +1352,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         });
     });
     function isReanalyzeBusy() {
-        return !!reanalyzeOverlay && reanalyzeOverlay.isBusy();
+        return spectrogramSettings.reanalyzeBusy;
     }
 
     function waveformAxisLabelsForChannel(result: ComparisonTrackState, channelIndex: number) {
@@ -1399,17 +1395,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             zoomStart: waveformView.start,
             zoomEnd: waveformView.end,
             spectrumView: spectrumView.state(),
-            spectrogramDisplay: __spectrogramSettings.display,
+            spectrogramDisplay: spectrogramSettings.display,
             peekSlice: track => peekSpectrumAtCursor(track.result, track.trackIndex, track.offsetSeconds, spectrumCursorNorm),
             waveformAxisLabels: track => waveformAxisLabelsForResult(track.result, track.trackIndex),
         });
         let latestSpectrogram;
         try {
             const firstChannel = state.results[0] ? displayedChannel(state.results[0]) : undefined;
-            latestSpectrogram = latestSpectrogramSnapshot(
-                firstChannel?.spectrogram,
-                (typeof __spectrogramSettings !== 'undefined' && __spectrogramSettings) ? __spectrogramSettings : null,
-            );
+            latestSpectrogram = latestSpectrogramSnapshot(firstChannel?.spectrogram, spectrogramSettings.settings);
         }
         catch { /* ignore */ }
         testBridge.publish({
@@ -1854,7 +1847,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         const spec = ch.spectrogram;
         const { offsetNorm: trackStart, trackDurRatio } = trackTimelinePlacement(offsetSeconds, result.durationSeconds, trackStore.globalSpan());
-        const { dbLo, dbHi, maxFrequencyHz: maxFreq, minFrequencyHz: minFreq } = spectrogramDisplayBounds(spec, __spectrogramSettings.display, spectrogramAutoBounds(spec));
+        const { dbLo, dbHi, maxFrequencyHz: maxFreq, minFrequencyHz: minFreq } = spectrogramDisplayBounds(spec, spectrogramSettings.display, spectrogramAutoBounds(spec));
         const plotW = spectrogramPlotWidth(W);
         const record = trackRecordAtIndex(trackIndex);
         if (!record) {
@@ -2470,7 +2463,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         layout.invalidateCanvasSizes();
         buttonMatching(document, '[data-action="content-waveform"]')?.classList.toggle('is-active', next === 'waveform');
         buttonMatching(document, '[data-action="content-stage"]')?.classList.toggle('is-active', next === 'stage');
-        __updateSpecGearVisibility();
+        syncSpecGearVisibility();
         scheduleRender();
     }
     /** The pair view only has an FFT axis, so the octave bands are off while it shows. */
@@ -3039,7 +3032,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (!spec) {
             return false;
         }
-        const display = __spectrogramSettings.display;
+        const display = spectrogramSettings.display;
         const bounds = spectrogramDisplayBounds(spec, display, spectrogramAutoBounds(spec));
         const field = (value: number) => String(Number(value.toPrecision(4)));
         // An edge left as shown keeps its setting (auto, or a top clamped to this lane's Nyquist), so the clicked lane's
@@ -3054,10 +3047,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 max: field(bounds.dbHi),
                 clientX, clientY,
                 apply(min, max) {
-                    __setSpectrogramDisplay({ ...display, dbMin: typed(min, bounds.dbLo, display.dbMin), dbMax: typed(max, bounds.dbHi, display.dbMax) });
+                    setSpectrogramDisplay({ ...display, dbMin: typed(min, bounds.dbLo, display.dbMin), dbMax: typed(max, bounds.dbHi, display.dbMax) });
                 },
                 auto() {
-                    __setSpectrogramDisplay({ ...display, dbMin: null, dbMax: null });
+                    setSpectrogramDisplay({ ...display, dbMin: null, dbMax: null });
                 },
             });
             return true;
@@ -3073,10 +3066,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 if (max !== null && max <= (bottom ?? 0)) {
                     return STR.specRangeErrorMinMax;
                 }
-                __setSpectrogramDisplay({ ...display, minFrequencyHz: bottom, maxFrequencyHz: typed(max, bounds.maxFrequencyHz, display.maxFrequencyHz) });
+                setSpectrogramDisplay({ ...display, minFrequencyHz: bottom, maxFrequencyHz: typed(max, bounds.maxFrequencyHz, display.maxFrequencyHz) });
             },
             auto() {
-                __setSpectrogramDisplay({ ...display, minFrequencyHz: null, maxFrequencyHz: null });
+                setSpectrogramDisplay({ ...display, minFrequencyHz: null, maxFrequencyHz: null });
             },
         });
         return true;
@@ -3616,27 +3609,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (refreshSpectrum) scheduleSpectrumRefresh('immediate');
     }
     // ── Spectrogram settings popover ──
-    let __spectrogramSettings = state.spectrogramSettings || {
-        auto: true,
-        stft: { nFft: 1024, overlapPercent: 75, window: 'hann' },
-        display: { dbMin: null, dbMax: null, maxFrequencyHz: null }
-    };
-    function __updateSpecGearVisibility() {
+    function syncSpecGearVisibility() {
         const gear = buttonMatching(document, '[data-action="spectrogram-settings"]');
         if (gear) {
             gear.style.display = contentType === 'stage' ? 'none' : '';
         }
     }
-    function __setSpectrogramDisplay(display: SpectrogramDisplaySettings): void {
-        function n(v: number | null): number | null { return v == null ? null : Number(v); }
-        __spectrogramSettings.display = {
-            dbMin: n(display.dbMin),
-            dbMax: n(display.dbMax),
-            maxFrequencyHz: n(display.maxFrequencyHz),
-            // The ⚙ popover has no field for it, so it keeps the one set on the axis.
-            minFrequencyHz: display.minFrequencyHz !== undefined ? n(display.minFrequencyHz) : n(__spectrogramSettings.display.minFrequencyHz ?? null),
-        };
-        messaging.post({ type: 'update-spectrogram-settings', settings: __spectrogramSettings });
+    function setSpectrogramDisplay(display: SpectrogramDisplaySettings): void {
+        spectrogramSettings.setDisplay(display);
+        messaging.post({ type: 'update-spectrogram-settings', settings: spectrogramSettings.settings });
         // Touching the settings is the user's way to try a failed spectrogram again.
         trackStore.activeIds().forEach(function (id) { trackStore.require(id).detailError = null; });
         scheduleRender();
@@ -3645,29 +3626,28 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     const specSettingsPopover = installSpectrogramSettingsPopover(document, {
         strings: STR,
-        getSettings: () => __spectrogramSettings,
-        onDisplayChange: __setSpectrogramDisplay,
+        getSettings: () => spectrogramSettings.settings,
+        onDisplayChange: setSpectrogramDisplay,
         onReset() {
-            __spectrogramSettings = { auto: true, stft: { nFft: 1024, overlapPercent: 75, window: 'hann' }, display: { dbMin: null, dbMax: null, maxFrequencyHz: null } };
-            messaging.post({ type: 'update-spectrogram-settings', settings: __spectrogramSettings });
+            spectrogramSettings.reset();
+            messaging.post({ type: 'update-spectrogram-settings', settings: spectrogramSettings.settings });
             scheduleRender();
         },
         onApply(settings) {
-            // The ⚙ popover has no lower frequency: the one set on the axis survives a new STFT.
-            __spectrogramSettings = { ...settings, display: { ...settings.display, minFrequencyHz: __spectrogramSettings.display.minFrequencyHz ?? null } };
+            spectrogramSettings.applyStft(settings);
             invalidateDesiredSpectrumSliceRequests();
-            __setReanalyzeBusy(true, STR.reanalyzingStft);
-            messaging.post({ type: 'request-reanalyze', settings: __spectrogramSettings });
+            setReanalyzeBusy(true, STR.reanalyzingStft);
+            messaging.post({ type: 'request-reanalyze', settings: spectrogramSettings.settings });
         },
     });
-    // eslint-disable-next-line no-var -- hoisted on purpose: isReanalyzeBusy() reads it (as undefined) before it is installed
-    var reanalyzeOverlay = installReanalyzeOverlay(document, {
+    const reanalyzeOverlay = installReanalyzeOverlay(document, {
         defaultMessage: STR.reanalyzingDefault,
         onShow(message) {
             announce((STR.announceAnalyzing || 'Analyzing: {msg}').replace('{msg}', message || ''));
         },
     });
-    function __setReanalyzeBusy(busy: boolean, msg?: string): void {
+    function setReanalyzeBusy(busy: boolean, msg?: string): void {
+        spectrogramSettings.setReanalyzeBusy(busy);
         reanalyzeOverlay.setBusy(busy, msg);
         const applyBtn = buttonById(document, 'spec-apply');
         if (applyBtn) {
@@ -3691,16 +3671,16 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         if (msg.type === 'reanalyze-start') {
             const cnt = typeof msg.count === 'number' ? msg.count : 0;
-            __setReanalyzeBusy(true, STR.reanalyzingFiles.replace('{count}', String(cnt)));
+            setReanalyzeBusy(true, STR.reanalyzingFiles.replace('{count}', String(cnt)));
             return;
         }
         if (msg.type === 'reanalyze-end') {
-            __setReanalyzeBusy(false);
+            setReanalyzeBusy(false);
             return;
         }
         if (msg.type === 'analysis-file-progress') {
             const progMsg = '(' + msg.current + '/' + msg.total + ') ' + (msg.fileName || '');
-            __setReanalyzeBusy(true, progMsg);
+            setReanalyzeBusy(true, progMsg);
             return;
         }
         if (msg.type === 'analysis-update' && Array.isArray(msg.results)) {
@@ -3715,7 +3695,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             for (const path of selection.adoptHostSelection(hostSelectedFilePaths)) trackStore.allowExplicitSelection(path);
             syncSelectionSummary();
         }
-        __setReanalyzeBusy(false);
+        setReanalyzeBusy(false);
         invalidateDesiredSpectrumSliceRequests();
         // A host drops a request whose source was cleared, so waiting for its answer would block every later cursor spectrum.
         spectrumRequests.abandonActive();
@@ -3760,6 +3740,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         scheduleRender();
         scheduleSpectrumRefresh('immediate');
     }
-    __updateSpecGearVisibility();
+    syncSpecGearVisibility();
     ensureCalibrationStyles(document);
 }
