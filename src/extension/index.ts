@@ -80,13 +80,15 @@ export function activate(context: vscode.ExtensionContext, calibration = new Cal
     let defaultInterpreterLookup: Promise<unknown> | undefined;
     // The check→install→warmup run for `preparedCommand`; resolves to whether its dependencies are importable.
     let preparationTask: Promise<boolean> = Promise.resolve(true);
+    let preparationGeneration = 0;
 
-    const runPythonPreparation = async (pythonCommand: string): Promise<boolean> => {
+    const runPythonPreparation = async (pythonCommand: string, generation: number): Promise<boolean> => {
+        const isCurrent = (): boolean => generation === preparationGeneration;
         const dependenciesReady = await checkAndPromptInstallDependencies(pythonCommand, pythonStatusBarItem);
         if (deactivated) { return dependenciesReady; }
-        // The prompt switched interpreters (Create .venv and Install, Select Environment): what a waiting
-        // analysis needs is the new interpreter's preparation, not this one's answer.
-        if (getPythonCommand() !== pythonCommand) { return preparePython(false); }
+        // The prompt switched interpreters or started a newer check (Create .venv and Install, Select Environment,
+        // even of the same interpreter): what a waiting analysis needs is that preparation, not this one's answer.
+        if (!isCurrent() || getPythonCommand() !== pythonCommand) { return preparePython(false); }
         if (!dependenciesReady) {
             preparation = 'failed';
             return false;
@@ -95,14 +97,14 @@ export function activate(context: vscode.ExtensionContext, calibration = new Cal
         try {
             await backend.warmup();
             if (deactivated) { return true; }
-            if (getPythonCommand() === pythonCommand) {
+            if (isCurrent()) {
                 preparation = 'ready';
                 setStatusBarNormal(pythonStatusBarItem, pythonCommand);
             }
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             logPerf(`[ts] backend warmup failed error=${message}`);
-            if (getPythonCommand() === pythonCommand) {
+            if (isCurrent()) {
                 preparation = 'failed';
                 setStatusBarWarning(
                     pythonStatusBarItem,
@@ -117,7 +119,8 @@ export function activate(context: vscode.ExtensionContext, calibration = new Cal
     const warmPythonBackend = (pythonCommand: string): Promise<boolean> => {
         preparation = 'checking';
         preparedCommand = pythonCommand;
-        preparationTask = runPythonPreparation(pythonCommand);
+        preparationGeneration += 1;
+        preparationTask = runPythonPreparation(pythonCommand, preparationGeneration);
         return preparationTask;
     };
 
