@@ -150,7 +150,7 @@ export function decodeParam(value: unknown): ParamValue {
     const encoded = value as { $type?: string; kind?: string; data?: string };
     if (encoded?.$type === 'number' && encoded.kind === 'python-float' && typeof encoded.data === 'string' && /^[0-9a-f]{16}$/.test(encoded.data)) {
         const view = new DataView(new ArrayBuffer(8));
-        encoded.data.match(/../g)!.forEach((pair, index) => view.setUint8(index, parseInt(pair, 16)));
+        (encoded.data.match(/../g) ?? []).forEach((pair, index) => view.setUint8(index, parseInt(pair, 16)));
         return view.getFloat64(0);
     }
     return null;
@@ -162,13 +162,15 @@ export function recipeNodes(recipe: RecipeDocument | null | undefined): RecipeNo
     return Array.isArray(list) ? list as RecipeNode[] : [];
 }
 
+/** An operation's name: the last part of its dotted id ("wandas.audio.welch" → "welch"). */
+const lastSegment = (id: string): string => id.slice(id.lastIndexOf('.') + 1);
+
 /** The nodes from the input to the output, in order: the entry Recipe is one chain. */
 export function recipeChain(recipe: RecipeDocument): RecipeNode[] {
     const byId = new Map(recipeNodes(recipe).map(node => [node.id, node]));
     const chain: RecipeNode[] = [];
     let id = (recipe as unknown as { output?: string }).output;
-    while (id && byId.has(id)) {
-        const node = byId.get(id)!;
+    for (let node = id ? byId.get(id) : undefined; node; node = id ? byId.get(id) : undefined) {
         chain.unshift(node);
         id = node.inputs[0];
     }
@@ -300,7 +302,7 @@ export function recipeSteps(recipe: RecipeDocument, limits?: number | StepLimits
                 // A pairwise Frame's rows are its pairs (n² of n channels): get_channel there picks a row.
                 : invalidParam(params, editable, bounds, skipped.has(node.id) ? undefined : PAIRWISE_FRAMES.has(frame) && node.operation === 'wandas.frame.get_channel' && channels !== undefined ? channels * channels : channels);
         const step: RecipeStep = {
-            id: node.id, operation: node.operation, name: node.operation.split('.').pop()!, params, editable,
+            id: node.id, operation: node.operation, name: lastSegment(node.operation), params, editable,
             input: frame, output: output ?? declaredOutput(node.operation, frame), ...(invalid ? { invalid: invalid.param, reason: invalid.reason } : {}),
             ...(skipped.has(node.id) ? { bypassed: true } : {}),
             ...(slotted.has(node.id) ? { reference: 'slot' as const } : {}),
@@ -354,8 +356,7 @@ export function upToStep(recipe: RecipeDocument, stepId: string): RecipeDocument
     const copy = JSON.parse(JSON.stringify(recipe)) as RecipeDocument & { nodes: RecipeNode[]; output: string };
     const keep = new Set<string>();
     const pending = [stepId];
-    while (pending.length) {
-        const id = pending.pop()!;
+    for (let id = pending.pop(); id !== undefined; id = pending.pop()) {
         const node = copy.nodes.find(item => item.id === id);
         if (!node || keep.has(id)) continue;
         keep.add(id);
@@ -402,7 +403,7 @@ export function addableOperations(frame: string, lacks?: ReadonlySet<string>, ch
             // One channel: a cross-channel step goes against the base slot's recording, where it can.
             : lacking.length ? 'unavailable' : CROSS_CHANNEL.has(operation.id) && !SLOT_REFERABLE.has(operation.id) && channels !== undefined && channels < 2 ? 'channels' : needs.length ? 'required' : undefined;
         const why = refused ?? (lacking.length ? lacking.join(', ') : undefined);
-        return { operation, name: operation.id.split('.').pop()!, settable, ...(off ? { off } : {}), ...(why !== undefined ? { why } : {}) };
+        return { operation, name: lastSegment(operation.id), settable, ...(off ? { off } : {}), ...(why !== undefined ? { why } : {}) };
     }).sort((a, b) => Number(!!a.off) - Number(!!b.off));
 }
 
@@ -466,7 +467,8 @@ export function withParam(recipe: RecipeDocument, nodeId: string, param: StepPar
 export function withDefaults(recipe: RecipeDocument): RecipeDocument {
     let next = recipe;
     for (const step of recipeSteps(recipe)) {
-        const node = recipeNodes(recipe).find(item => item.id === step.id)!;
+        const node = recipeNodes(recipe).find(item => item.id === step.id);
+        if (!node) continue;
         for (const param of step.editable) {
             if (param.default === undefined || node.params.entries.some(([name]) => name === param.name)) continue;
             next = withParam(next, step.id, param, param.default);
