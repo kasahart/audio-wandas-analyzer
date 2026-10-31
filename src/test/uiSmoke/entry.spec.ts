@@ -702,6 +702,11 @@ test('docked, the selected row looks like the others: its name stays readable an
     for (const action of ['entry-row-play', 'entry-row-memo', 'entry-row-exclude']) await expect(row.locator(`[data-action="${action}"]`)).toBeHidden();
     const name = (await row.locator('.entry-nm').boundingBox())!;
     expect(name.width).toBeGreaterThan(60);
+    // With no value column the name takes the room the channel leaves, and the header lines up with the rows.
+    const table = (await page.locator('[data-entry-table]').boundingBox())!;
+    const cell = (await row.locator('td.entry-name').boundingBox())!;
+    expect(cell.width).toBeGreaterThan(table.width * 0.6);
+    expect((await page.locator('th[data-column="name"]').boundingBox())!.width).toBeCloseTo(cell.width, 0);
     // Under the mouse its tools are there, as on any row.
     await row.locator('.entry-nm').hover();
     await expect(row.locator('[data-action="entry-row-play"]')).toBeVisible();

@@ -289,16 +289,14 @@ export function renderComparisonStyles(): string {
         .entry-badge.entry-slot-3 { border-color: var(--entry-slot-3); color: var(--entry-slot-3); }
         /* The dataset table: four fixed columns (nothing scrolls sideways); a row's tools right after its name. */
         .entry-table { table-layout: fixed; }
-        /* Widened, the name takes the width the other columns leave (the filler at the right end then takes none). */
-        .entry-screen.is-max .entry-table col.entry-col-name-w { width: auto; }
-        .entry-screen.is-max .entry-table col.entry-col-fill-w { width: 0; }
-        .entry-screen.is-max .entry-row > td:last-child:empty { padding: 0; }
+        /* The name takes the width the other columns leave (the filler at the right end then takes none). */
+        .entry-table col.entry-col-name-w { width: auto; }
+        .entry-table col.entry-col-fill-w { width: 0; }
+        .entry-row > td:last-child:empty, .entry-table thead th:last-child:empty { padding: 0; }
         .entry-table col.entry-col-ch-w { width: 3.8em; }
         .entry-table col.entry-col-group-w { width: 8em; }
         .entry-table col.entry-col-value-w { width: 9.5em; }
         .entry-table col.entry-col-reason-w { width: 7em; }
-        /* In the side panel the name takes what the channel, group and value leave. */
-        .entry-screen:not(.is-max) .entry-table col.entry-col-name-w { width: 50%; }
         /* Beside the tracks the table is for finding a file: the value column shows maximized (⤢). */
         .entry-screen:not(.is-max) .entry-table :is(col.entry-col-value-w, .entry-col-value) { display: none; }
         .entry-screen:not(.is-max) .entry-table col.entry-col-group-w { width: 6em; }
