@@ -705,6 +705,23 @@ test('docked, Space on a row\'s ☐ / ☑ toggles it each time and never reaches
     await expect(page.locator('[data-action="toggle-playback"].is-playing')).toHaveCount(0);
 });
 
+test('↓ on a row\'s ☐ / ☑ takes the focus to the next row\'s mark, so Space toggles the row that is lit', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    await openEntry(page, scanned!, { docked: true });
+    await page.locator('[data-entry-table]').focus();
+    await page.keyboard.press('ArrowDown');
+    const firstMark = page.locator('[data-entry-rows] tr.entry-row.is-focused [data-action="entry-row-track"]');
+    await firstMark.focus();
+    const firstKey = await firstMark.getAttribute('data-key');
+    await page.keyboard.press('ArrowDown');
+    const litMark = page.locator('[data-entry-rows] tr.entry-row.is-focused [data-action="entry-row-track"]');
+    await expect(litMark).not.toHaveAttribute('data-key', firstKey ?? '');
+    await expect(litMark).toBeFocused();
+    await page.keyboard.press('Space');
+    await expect(litMark).toHaveAttribute('aria-checked', 'true');
+    await expect(page.locator(`[data-entry-rows] [data-action="entry-row-track"][data-key="${firstKey}"]`)).toHaveAttribute('aria-checked', 'false');
+});
+
 test('maximized, the help\'s Tab stays in the help: the table behind it does not take Tab', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     await openEntry(page, scanned!);
