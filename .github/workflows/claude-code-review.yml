@@ -41,7 +41,7 @@ jobs:
           fetch-depth: 1
 
       # Lets the reviewer compile, run tests and probe scripts to confirm what it reports.
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         if: steps.auth.outputs.ok == 'true'
         with:
           node-version: '22'
