@@ -25,6 +25,7 @@ import { LaneViewState } from './laneViewState';
 import { positionPopover } from './settingsPopover';
 import { composeTrackCanvases, triggerAnchorDownload, visibleExportCanvases } from './exportDownloads';
 import { clampHeight, createHeightResize, type HeightKind } from './heightResize';
+import { LayoutSettings, SPECTRUM_HEIGHT_MAX, SPECTRUM_HEIGHT_MIN, TRACK_HEIGHT_MAX, TRACK_HEIGHT_MIN, WAVE_SHARE_MAX, WAVE_SHARE_MIN, type LayoutChange } from './layoutSettings';
 import { installRangePopover } from '../rangePopover';
 import { buildMarkdownReport, buildNotebook, type ReportLoopRegion, type ReportTrack } from '../../shared/report/analysisReport';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
@@ -156,21 +157,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     const TRACK_HEADER_W = 130;
     const AXIS_W = 64;
-    // A lane's plot height: the waveform and the spectrogram under it share it (TRACK_SPLIT_H apart).
-    const TRACK_HEIGHT_DEFAULT = 160;
-    const TRACK_HEIGHT_MIN = 100;
-    const TRACK_HEIGHT_MAX = 440;
+    // The waveform and the spectrogram under it are TRACK_SPLIT_H apart.
     const TRACK_SPLIT_H = 5;
-    const WAVE_SHARE_DEFAULT = 0.4;
     const SIDEBAR_WIDTH_MIN = 160;
     /** The window keeps this much beside a widened side panel. */
     const SIDEBAR_WIDTH_SPARE = 80;
-    const WAVE_SHARE_MIN = 0.15;
-    const WAVE_SHARE_MAX = 0.85;
     const LANE_PLOT_MIN = 40;
-    const SPECTRUM_HEIGHT_DEFAULT = 140;
-    const SPECTRUM_HEIGHT_MIN = 80;
-    const SPECTRUM_HEIGHT_MAX = 1200;
     // A tall spectrum still leaves the tracks this much room so the cursor stays reachable.
     const TRACKS_MIN_VISIBLE = 120;
     // A track's own colour never looks like a role's: no blue (base), yellow / purple / magenta (slots 1–3),
@@ -192,7 +184,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     // ── Runtime state ──
     let rafPending = false;
-    const canvasWidthCache: Record<string, string> = {};
+    const layout = new LayoutSettings(persistedWebviewState, persistWebviewState);
+    layout.onChange(followLayoutChange);
     const audioFader = createAudioFader();
     const playback = new PlaybackController({
         fader: audioFader,
@@ -239,8 +232,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             snapshot: {
                 specFreqStart: spectrumView.freqStart,
                 specFreqEnd: spectrumView.freqEnd,
-                trackHeight: trackHeight,
-                spectrumOverlayHeight: spectrumOverlayHeight,
+                trackHeight: layout.trackHeight,
+                spectrumOverlayHeight: layout.spectrumOverlayHeight,
                 specDbMin: spectrumView.dbMin,
                 specDbMax: spectrumView.dbMax,
             },
@@ -411,24 +404,19 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             button.setAttribute('aria-pressed', String(scalesLinked));
         }
     }
-    let waveShare = typeof persistedWebviewState.waveShare === 'number'
-        ? Math.min(WAVE_SHARE_MAX, Math.max(WAVE_SHARE_MIN, persistedWebviewState.waveShare)) : WAVE_SHARE_DEFAULT;
     /** The waveform's and the spectrogram's heights; the steps view gives the whole lane to its plot. */
     function laneHeights(): { wave: number; spec: number } {
+        const trackHeight = layout.trackHeight;
         if (contentType === 'stage') return { wave: trackHeight, spec: 0 };
         // Each plot keeps room for its axis ticks and unit, however the share and the lane height are set.
-        const wave = Math.min(trackHeight - LANE_PLOT_MIN, Math.max(LANE_PLOT_MIN, Math.round(trackHeight * waveShare)));
+        const wave = Math.min(trackHeight - LANE_PLOT_MIN, Math.max(LANE_PLOT_MIN, Math.round(trackHeight * layout.waveShare)));
         return { wave, spec: trackHeight - wave };
     }
     function laneOuterHeight(): number {
-        return contentType === 'stage' ? trackHeight : trackHeight + TRACK_SPLIT_H;
+        return contentType === 'stage' ? layout.trackHeight : layout.trackHeight + TRACK_SPLIT_H;
     }
     let spectrumBandsPerOctave: SpectrumBandsSetting = persistedWebviewState.spectrumBandsPerOctave === 1 || persistedWebviewState.spectrumBandsPerOctave === 3
         ? persistedWebviewState.spectrumBandsPerOctave : 0;
-    let sidebarCollapsed = persistedWebviewState.sidebarCollapsed === true;
-    // The cursor spectrum starts folded: the tracks get the room until it is opened (and then it stays as left).
-    let spectrumCollapsed = persistedWebviewState.spectrumCollapsed !== false;
-    let spectrumMaximized = false;
     const waveformView = new WaveformView();
     const viewState = new LaneViewState({
         scheduleRender,
@@ -447,14 +435,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         viewState.setCursor(norm);
     }
     const spectrumHover = new SpectrumHover();
-    let trackHeight = TRACK_HEIGHT_DEFAULT;
-    let spectrumOverlayHeight = SPECTRUM_HEIGHT_DEFAULT;
     // ── スペクトルズーム ───────────────────────────────────
     const spectrumView = new SpectrumView();
     const specBoxDrag = new SpectrumBoxDrag();
     const heightResize = createHeightResize({
-        currentHeight: kind => kind === 'track' ? trackHeight : spectrumOverlayHeight,
-        canBegin: kind => kind === 'track' || (!spectrumCollapsed && !spectrumMaximized),
+        currentHeight: kind => kind === 'track' ? layout.trackHeight : layout.spectrumOverlayHeight,
+        canBegin: kind => kind === 'track' || (!layout.spectrumCollapsed && !layout.spectrumMaximized),
         setHeight,
         onActiveChange: active => document.body.classList.toggle('is-height-resizing', active),
     });
@@ -722,7 +708,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function requestSpectrumSlice(i: number, cursorNormValue: number) {
         // The folded cursor-spectrum panel leaves each lane's own small spectrum: only lanes near the view need theirs.
-        if (!spectrumRequests.allowsSliceRequests || (spectrumCollapsed && !laneInView(i))) {
+        if (!spectrumRequests.allowsSliceRequests || (layout.spectrumCollapsed && !laneInView(i))) {
             return;
         }
         const result = state.results[i];
@@ -1477,8 +1463,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 displayOrder: trackStore.displayOrder.slice(),
                 specFreqStart: spectrumView.freqStart,
                 specFreqEnd: spectrumView.freqEnd,
-                trackHeight: trackHeight,
-                spectrumOverlayHeight: spectrumOverlayHeight,
+                trackHeight: layout.trackHeight,
+                spectrumOverlayHeight: layout.spectrumOverlayHeight,
                 waveformMode: waveformMode,
                 lastAnnounce: (function () {
                     const el = document.getElementById('a11y-announce');
@@ -1508,8 +1494,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     displayOrder: trackStore.displayOrder.slice(),
                     specFreqStart: spectrumView.freqStart,
                     specFreqEnd: spectrumView.freqEnd,
-                    trackHeight: trackHeight,
-                    spectrumOverlayHeight: spectrumOverlayHeight,
+                    trackHeight: layout.trackHeight,
+                    spectrumOverlayHeight: layout.spectrumOverlayHeight,
                     waveformMode: waveformMode,
                     lastAnnounce: e instanceof Error ? e.message : String(e),
                     tracks: [],
@@ -1531,7 +1517,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         return selectionLayoutHtml({
             rootPath: rootLabel,
             isEmpty: !listedCount,
-            sidebarCollapsed,
+            sidebarCollapsed: layout.sidebarCollapsed,
             resultsPaneHtml,
             python: hasPythonEnvironmentPicker ? {
                 text: buildPythonButtonText(pythonEnvironmentState.pythonCommand, warning),
@@ -1582,7 +1568,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         updateVisibility();
         updateOffsetDisplays();
         updatePlaybackButtons();
-        Object.keys(canvasWidthCache).forEach(function (key) { delete canvasWidthCache[key]; });
+        layout.invalidateCanvasSizes();
     }
     function buildResultsPane(emptyMessage: string) {
         return resultsPaneHtml({
@@ -1592,7 +1578,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             emptyMessage,
             axisWidth: AXIS_W,
             spectrumBandsPerOctave,
-            spectrumCollapsed,
+            spectrumCollapsed: layout.spectrumCollapsed,
         }, STR);
     }
     function buildAudioElements() {
@@ -1700,10 +1686,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         readThenWrite(lanes, lane => lane.wrap.clientWidth || 800, function ({ i, channelIndex, canvas }, newW) {
             const cacheKey = newW + 'x' + heights.wave + 'x' + heights.spec + 'x' + channelIndex;
             const cacheIdx = i + ':' + channelIndex;
-            if (canvasWidthCache[cacheIdx] === cacheKey) {
+            if (!layout.canvasSizeChanged(cacheIdx, cacheKey)) {
                 return;
             }
-            canvasWidthCache[cacheIdx] = cacheKey;
             // Outside the steps view the waveform stops where the spectrogram's colour bar starts.
             const waveW = contentType === 'stage' ? newW - AXIS_W : spectrogramPlotWidth(newW - AXIS_W);
             syncCanvasSize(canvas, waveW, heights.wave);
@@ -2119,7 +2104,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         attachToolbarActions(document.getElementById('spectrum-section-header'), toolbarHandlers);
         document.getElementById('spectrum-section-header')?.addEventListener('click', function (e) {
             const target = eventTarget(e);
-            if (spectrumCollapsed && !(target && typeof target.closest === 'function' && target.closest('[data-action]'))) {
+            if (layout.spectrumCollapsed && !(target && typeof target.closest === 'function' && target.closest('[data-action]'))) {
                 setSpectrumCollapsed(false);
             }
         });
@@ -2128,7 +2113,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             layer: 'lanes',
             keydown(e) {
                 // A text field (the offset editor) uses Esc to cancel its own edit.
-                if (e.key !== 'Escape' || !spectrumMaximized || hasOpenOverlay() || isTextEntryTag(eventTarget(e)?.tagName)) return false;
+                if (e.key !== 'Escape' || !layout.spectrumMaximized || hasOpenOverlay() || isTextEntryTag(eventTarget(e)?.tagName)) return false;
                 setSpectrumMaximized(false);
                 return true;
             },
@@ -2140,10 +2125,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 return;
             }
             if (target.closest('[data-action="spectrum-height-drag"]')) {
-                setSpectrumCollapsed(!spectrumCollapsed);
+                setSpectrumCollapsed(!layout.spectrumCollapsed);
             }
             else if (target.closest('#tree-resizer')) {
-                setSidebarCollapsed(true);
+                layout.setSidebarCollapsed(true);
             }
         });
         attachExclusiveMenus(document.getElementById('toolbar'));
@@ -2214,7 +2199,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 if (Number.isInteger(channelIndex)) {
                     pairPanel.toggleReference(trackId, channelIndex);
                     // Its result (transfer function, phase, γ²) is drawn in the dock: a folded dock opens.
-                    if (spectrumCollapsed) setSpectrumCollapsed(false);
+                    if (layout.spectrumCollapsed) setSpectrumCollapsed(false);
                 }
             },
         });
@@ -2244,19 +2229,19 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         tracksWrapper.addEventListener('pointerdown', function (e) {
             const target = eventTarget(e);
             if (e.button !== 0 || !target || typeof target.closest !== 'function' || !target.closest('.track-split')) return;
-            splitDrag = { startY: e.clientY, startShare: waveShare };
+            splitDrag = { startY: e.clientY, startShare: layout.waveShare };
             document.body.classList.add('is-split-resizing');
             e.preventDefault();
         });
         document.addEventListener('pointermove', function (e) {
             if (!splitDrag) return;
-            setWaveShare(splitDrag.startShare + (e.clientY - splitDrag.startY) / trackHeight, false);
+            layout.setWaveShare(splitDrag.startShare + (e.clientY - splitDrag.startY) / layout.trackHeight, false);
         });
         const endSplitDrag = function () {
             if (!splitDrag) return;
             splitDrag = null;
             document.body.classList.remove('is-split-resizing');
-            persistWebviewState({ waveShare });
+            layout.persistWaveShare();
             separatorKeys.sync();
         };
         document.addEventListener('pointerup', endSplitDrag);
@@ -2265,18 +2250,18 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const separatorKeys = attachSeparatorKeys(document, {
             range(handle) {
                 const action = handle.getAttribute('data-action');
-                if (action === 'track-height-drag') return { now: trackHeight, min: TRACK_HEIGHT_MIN, max: TRACK_HEIGHT_MAX, step: 8 };
-                if (action === 'spectrum-height-drag') return spectrumCollapsed || spectrumMaximized ? null : { now: spectrumOverlayHeight, min: SPECTRUM_HEIGHT_MIN, max: spectrumHeightLimit(), step: 8 };
-                if (action === 'track-split-drag') return { now: waveShare * 100, min: WAVE_SHARE_MIN * 100, max: WAVE_SHARE_MAX * 100, step: 5 };
+                if (action === 'track-height-drag') return { now: layout.trackHeight, min: TRACK_HEIGHT_MIN, max: TRACK_HEIGHT_MAX, step: 8 };
+                if (action === 'spectrum-height-drag') return layout.spectrumCollapsed || layout.spectrumMaximized ? null : { now: layout.spectrumOverlayHeight, min: SPECTRUM_HEIGHT_MIN, max: spectrumHeightLimit(), step: 8 };
+                if (action === 'track-split-drag') return { now: layout.waveShare * 100, min: WAVE_SHARE_MIN * 100, max: WAVE_SHARE_MAX * 100, step: 5 };
                 if (action === 'pair-divider-drag') return { now: pairPanel.split * 100, min: PAIR_SPLIT_MIN * 100, max: PAIR_SPLIT_MAX * 100, step: 5 };
                 const sidebar = handle.id === 'tree-resizer' ? document.getElementById('selection-sidebar') : null;
                 return sidebar ? { now: sidebar.getBoundingClientRect().width, min: SIDEBAR_WIDTH_MIN, max: window.innerWidth - SIDEBAR_WIDTH_SPARE, step: 16 } : null;
             },
             set(handle, value) {
                 const action = handle.getAttribute('data-action');
-                if (action === 'track-height-drag') setTrackHeight(value);
+                if (action === 'track-height-drag') layout.setTrackHeight(value);
                 else if (action === 'spectrum-height-drag') setSpectrumHeight(value);
-                else if (action === 'track-split-drag') setWaveShare(value / 100, true);
+                else if (action === 'track-split-drag') layout.setWaveShare(value / 100, true);
                 else if (action === 'pair-divider-drag') pairPanel.setSplit(value / 100);
                 else { const sidebar = document.getElementById('selection-sidebar'); if (sidebar) sidebar.style.width = value + 'px'; }
             },
@@ -2304,8 +2289,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         });
         installLayoutResizeHandling(window, document, layoutElementIds, function () {
             // A shrinking window takes its height from the tracks first, so give them back their strip.
-            if (!spectrumCollapsed && !spectrumMaximized && spectrumOverlayHeight > spectrumHeightLimit()) {
-                setSpectrumHeight(spectrumOverlayHeight);
+            if (!layout.spectrumCollapsed && !layout.spectrumMaximized && layout.spectrumOverlayHeight > spectrumHeightLimit()) {
+                setSpectrumHeight(layout.spectrumOverlayHeight);
             }
             scheduleRender();
             scheduleSpectrumRefresh('interactive');
@@ -2411,12 +2396,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         })();
     }
     function attachDirectorySelectionEvents() {
-        const layout = document.getElementById('directory-selection-layout');
-        if (!layout) {
+        const selectionLayout = document.getElementById('directory-selection-layout');
+        if (!selectionLayout) {
             return;
         }
         syncSelectionSummary();
-        layout.addEventListener('click', function (event) {
+        selectionLayout.addEventListener('click', function (event) {
             const action = eventTarget(event)?.getAttribute?.('data-action');
             if (action) {
                 handleSelectionAction(action);
@@ -2462,7 +2447,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return true;
         }
         if (action === 'toggle-selection-sidebar') {
-            setSidebarCollapsed(!sidebarCollapsed);
+            layout.setSidebarCollapsed(!layout.sidebarCollapsed);
             return true;
         }
         return false;
@@ -2519,10 +2504,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function setContentType(next: 'waveform' | 'stage') {
         // The steps view takes the height for its plots, so both their axes stay in sight.
         if (next === 'stage' && contentType !== 'stage') {
-            spectrumBeforeStage = spectrumCollapsed;
-            if (!spectrumCollapsed) setSpectrumCollapsed(true);
+            spectrumBeforeStage = layout.spectrumCollapsed;
+            if (!layout.spectrumCollapsed) setSpectrumCollapsed(true);
         } else if (next !== 'stage' && contentType === 'stage' && spectrumBeforeStage !== null) {
-            if (spectrumCollapsed !== spectrumBeforeStage) setSpectrumCollapsed(spectrumBeforeStage);
+            if (layout.spectrumCollapsed !== spectrumBeforeStage) setSpectrumCollapsed(spectrumBeforeStage);
             spectrumBeforeStage = null;
         }
         if (next !== 'stage' && selectionBeforeStage) {
@@ -2532,7 +2517,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         contentType = next;
         stageMode?.setActive(next === 'stage');
         document.body.classList.toggle('is-stage-view', next === 'stage');
-        Object.keys(canvasWidthCache).forEach(function (key) { delete canvasWidthCache[key]; });
+        layout.invalidateCanvasSizes();
         buttonMatching(document, '[data-action="content-waveform"]')?.classList.toggle('is-active', next === 'waveform');
         buttonMatching(document, '[data-action="content-stage"]')?.classList.toggle('is-active', next === 'stage');
         __updateSpecGearVisibility();
@@ -2567,49 +2552,69 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         invalidateDesiredSpectrumSliceRequests();
         scheduleSpectrumRefresh('immediate');
     }
-    function setSidebarCollapsed(next: boolean) {
-        sidebarCollapsed = next;
-        persistWebviewState({ sidebarCollapsed: next });
-        const layout = document.getElementById('directory-selection-layout');
-        layout?.classList.toggle('sidebar-collapsed', next);
-        const button = layout?.querySelector<HTMLElement>('#selection-sidebar [data-action="toggle-selection-sidebar"]');
-        if (button) {
-            syncPanelToggle(button, 'sidebar', next, STR);
-        }
-    }
     function setSpectrumCollapsed(next: boolean) {
-        if (next && spectrumMaximized) {
-            setSpectrumMaximized(false);
-        }
-        spectrumCollapsed = next;
-        persistWebviewState({ spectrumCollapsed: next });
-        const section = document.getElementById('spectrum-section');
-        section?.classList.toggle('is-collapsed', next);
-        const button = section?.querySelector<HTMLElement>('[data-action="toggle-spectrum-panel"]');
-        if (button) {
-            syncPanelToggle(button, 'spectrum', next, STR);
-        }
-        syncSpectrumHeaderHint();
-        if (!next) {
-            scheduleSpectrumRefresh('immediate');
-        }
+        layout.setSpectrumCollapsed(next);
     }
     function setSpectrumMaximized(next: boolean) {
-        if (next && spectrumCollapsed) {
-            setSpectrumCollapsed(false);
+        layout.setSpectrumMaximized(next);
+    }
+    /** The DOM and the views follow each layout change. */
+    function followLayoutChange(change: LayoutChange): void {
+        switch (change) {
+            case 'track-height':
+                emitSpectrumZoom();
+                updatePlaybackButtons();
+                scheduleRender();
+                scheduleSpectrumRefresh('immediate');
+                return;
+            case 'spectrum-height':
+                emitSpectrumZoom();
+                syncSpectrumCanvasCssHeight();
+                scheduleSpectrumRefresh('immediate');
+                return;
+            case 'wave-share':
+                scheduleRender();
+                return;
+            case 'sidebar-collapsed': {
+                const next = layout.sidebarCollapsed;
+                const selectionLayout = document.getElementById('directory-selection-layout');
+                selectionLayout?.classList.toggle('sidebar-collapsed', next);
+                const button = selectionLayout?.querySelector<HTMLElement>('#selection-sidebar [data-action="toggle-selection-sidebar"]');
+                if (button) {
+                    syncPanelToggle(button, 'sidebar', next, STR);
+                }
+                return;
+            }
+            case 'spectrum-collapsed': {
+                const next = layout.spectrumCollapsed;
+                const section = document.getElementById('spectrum-section');
+                section?.classList.toggle('is-collapsed', next);
+                const button = section?.querySelector<HTMLElement>('[data-action="toggle-spectrum-panel"]');
+                if (button) {
+                    syncPanelToggle(button, 'spectrum', next, STR);
+                }
+                syncSpectrumHeaderHint();
+                if (!next) {
+                    scheduleSpectrumRefresh('immediate');
+                }
+                return;
+            }
+            case 'spectrum-maximized': {
+                const next = layout.spectrumMaximized;
+                const section = document.getElementById('spectrum-section');
+                section?.classList.toggle('is-maximized', next);
+                section?.parentElement?.classList.toggle('spectrum-maximized', next);
+                const button = section?.querySelector<HTMLElement>('[data-action="toggle-spectrum-maximize"]');
+                if (button) {
+                    syncSpectrumMaximize(button, next, STR);
+                }
+                // Leaving maximize puts back the height the user set before.
+                syncSpectrumCanvasCssHeight();
+                scheduleRender();
+                scheduleSpectrumRefresh('immediate');
+                return;
+            }
         }
-        spectrumMaximized = next;
-        const section = document.getElementById('spectrum-section');
-        section?.classList.toggle('is-maximized', next);
-        section?.parentElement?.classList.toggle('spectrum-maximized', next);
-        const button = section?.querySelector<HTMLElement>('[data-action="toggle-spectrum-maximize"]');
-        if (button) {
-            syncSpectrumMaximize(button, next, STR);
-        }
-        // Leaving maximize puts back the height the user set before.
-        syncSpectrumCanvasCssHeight();
-        scheduleRender();
-        scheduleSpectrumRefresh('immediate');
     }
     // Esc restores a maximized spectrum unless it is closing a popover or the help first.
     function hasOpenOverlay() {
@@ -2622,7 +2627,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (!header) {
             return;
         }
-        if (spectrumCollapsed) {
+        if (layout.spectrumCollapsed) {
             setHint(header, STR.hintExpandSpectrum);
         }
         else {
@@ -2670,8 +2675,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             'spectrum-fft': () => setSpectrumBands(0),
             'spectrum-octave-1': () => setSpectrumBands(1),
             'spectrum-octave-3': () => setSpectrumBands(3),
-            'toggle-spectrum-panel': () => setSpectrumCollapsed(!spectrumCollapsed),
-            'toggle-spectrum-maximize': () => setSpectrumMaximized(!spectrumMaximized),
+            'toggle-spectrum-panel': () => setSpectrumCollapsed(!layout.spectrumCollapsed),
+            'toggle-spectrum-maximize': () => setSpectrumMaximized(!layout.spectrumMaximized),
             'wave-mode-rect-zoom': () => {
                 waveformMode = waveformMode === 'rect-zoom' ? 'loop' : 'rect-zoom';
                 syncWaveformModeButton();
@@ -2696,38 +2701,17 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function setHeight(kind: HeightKind, value: number): void {
         if (kind === 'track') {
-            setTrackHeight(value);
+            layout.setTrackHeight(value);
         }
         else {
             setSpectrumHeight(value);
         }
     }
-    /** The waveform's share of a lane's plots, for every lane; `persist` keeps it across sessions (a drag keeps it as it ends). */
-    function setWaveShare(value: number, persist: boolean): void {
-        const next = Math.min(WAVE_SHARE_MAX, Math.max(WAVE_SHARE_MIN, value));
-        if (next === waveShare) return;
-        waveShare = next;
-        Object.keys(canvasWidthCache).forEach(function (key) { delete canvasWidthCache[key]; });
-        scheduleRender();
-        if (persist) persistWebviewState({ waveShare });
-    }
-    function setTrackHeight(value: number): void {
-        const next = clampHeight(value, TRACK_HEIGHT_MIN, TRACK_HEIGHT_MAX);
-        if (trackHeight === next) {
-            return;
-        }
-        trackHeight = next;
-        emitSpectrumZoom();
-        updatePlaybackButtons();
-        Object.keys(canvasWidthCache).forEach(function (key) { delete canvasWidthCache[key]; });
-        scheduleRender();
-        scheduleSpectrumRefresh('immediate');
-    }
     /** Maximized, the plot fills whatever its wrap gets from the flex layout; otherwise it keeps the height the user set. */
     function effectiveSpectrumHeight(): number {
-        const wrap = spectrumMaximized ? document.getElementById('spectrum-overlay-wrap') : null;
+        const wrap = layout.spectrumMaximized ? document.getElementById('spectrum-overlay-wrap') : null;
         if (!wrap || !wrap.clientHeight) {
-            return spectrumOverlayHeight;
+            return layout.spectrumOverlayHeight;
         }
         const style = window.getComputedStyle(wrap);
         const padding = (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0);
@@ -2758,15 +2742,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
     }
     function setSpectrumHeight(value: number): void {
-        const next = clampHeight(value, SPECTRUM_HEIGHT_MIN, spectrumHeightLimit());
-        if (spectrumOverlayHeight === next) {
+        // An unchanged height still has its canvas follow the maximized pane.
+        if (!layout.setSpectrumHeight(value, spectrumHeightLimit())) {
             syncSpectrumCanvasCssHeight();
-            return;
         }
-        spectrumOverlayHeight = next;
-        emitSpectrumZoom();
-        syncSpectrumCanvasCssHeight();
-        scheduleSpectrumRefresh('immediate');
     }
     function disableFollowCursor() {
         playback.setFollow(false);
@@ -3487,7 +3466,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const ranges = new Map<string, { minDb: number; maxDb: number }>();
         displayedLanes().forEach(function ({ record, channelIndex, ch }) {
             // A folded panel leaves lanes out of view on the spectrum of an earlier cursor: they do not set the shared axis.
-            if (spectrumCollapsed && !laneInView(record.protocolIndex)) {
+            if (layout.spectrumCollapsed && !laneInView(record.protocolIndex)) {
                 return;
             }
             const slice = extractSpectrumAtCursor(record.result, record.protocolIndex, record.runtime.offsetSeconds, spectrumCursorNorm, channelIndex);
