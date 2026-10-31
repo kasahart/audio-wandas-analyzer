@@ -177,3 +177,13 @@ test('TrackStore globalSpan falls back to a one-second span when no track is vis
     store.require(aId).runtime.offsetSeconds = 4;
     assert.deepEqual(store.globalSpan(), { startSec: 4, endSec: 5, spanSec: 1 });
 });
+
+test('TrackStore lets the remaining tracks ask for a failed spectrogram again when one is taken off', () => {
+    const store = new TrackStore([result('/a.wav'), result('/b.wav')], runtime);
+    const [aId, bId] = store.activeIds();
+    store.require(bId).detailError = { settingsSignature: 's', message: 'STFT exceeds the memory budget', at: 1 };
+
+    store.remove(aId);
+
+    assert.equal(store.require(bId).detailError, null);
+});
