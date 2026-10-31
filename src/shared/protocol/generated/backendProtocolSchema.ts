@@ -1572,11 +1572,6 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                     "minimum": 1,
                     "maximum": 9007199254740991
                 },
-                "maxDurationSeconds": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "maximum": 9007199254740991
-                },
                 "maxChannels": {
                     "type": "integer",
                     "minimum": 1,
@@ -2024,7 +2019,6 @@ export interface BackendHeartbeatNotification {
 
 export interface BrowserLimits {
     maxInputBytes: number;
-    maxDurationSeconds?: number;
     maxChannels?: number;
     minSampleRateHz?: number;
     maxSampleRateHz?: number;
