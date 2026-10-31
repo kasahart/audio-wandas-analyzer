@@ -83,7 +83,9 @@ Choose the virtual environment folder, for example `/path/to/your/.venv`. You ca
 | Activity Bar | Open the **Audio Analyzer** view and select files or a folder |
 | Drag and drop | Drop audio files or folders onto the Audio Analyzer sidebar view |
 
-When you open a folder, its audio files are listed in a table beside the tracks. Click ○ at the start of a row to show that file as a track and click ● to remove it; the ○/◐/● in the column head shows or removes every listed row at once (more than 30 asks first), and **Tracks only** narrows the table to the rows on a track.
+When you open a folder, its audio files are listed in a table beside the tracks. Tick ☐ at the start of a row (or press `T` on the focused row) to show that file as a track; ☑ removes it. The ☐/⊟/☑ in the column head shows or removes every listed row at once (more than 30 asks first), and **Tracks only** narrows the table to the rows on a track.
+
+Folder listing skips hidden folders (such as `.git` or `.venv`), `node_modules` and symbolic links to folders, and stops after 50,000 entries with a message; open a subfolder to see the rest. A notification shows the listing's progress and can cancel it.
 
 Folder listing skips hidden folders (such as `.git` or `.venv`), `node_modules` and symbolic links to folders, and stops after 50,000 entries with a message; open a subfolder to see the rest. A notification shows the listing's progress and can cancel it.
 
@@ -151,7 +153,7 @@ Select one or more files, then use the waveform, spectrogram, cursor, playback, 
 | WAV export | Uncalibrated PCM16 audio; up to 32 MiB in total |
 <!-- browser-limits:end -->
 
-The left panel lists your files as in the VS Code extension: **Open File**, **Open Folder** or dropping files or folders onto the page adds them to the list, and clicking ○ at the start of a file's row shows it as a track. Calibration settings are available in the VS Code extension only. Use a desktop browser for the full set of mouse controls; dragging to select a loop is not supported on touch screens.
+The left panel lists your files as in the VS Code extension: **Open File**, **Open Folder** or dropping files or folders onto the page adds them to the list, and ticking ☐ at the start of a file's row shows it as a track. Calibration settings are available in the VS Code extension only. Use a desktop browser for the full set of mouse controls; dragging to select a loop is not supported on touch screens.
 
 Display and spectrogram settings are remembered between visits. Audio files, cursor position and track offsets are not saved; select your files again after reloading. **Clear** in the left panel empties the list and removes all loaded audio. Exported notebooks refer to the audio file names listed in the report, so place copies of your audio beside the notebook using those names.
 

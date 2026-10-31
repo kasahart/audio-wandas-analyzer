@@ -1,5 +1,7 @@
 // Axis range popover shared by the comparison runtime and the recipe ChartSpec renderer.
 
+import { keyRouterFor } from './runtime/keyRouter';
+
 export interface RangePopoverStrings {
     title: string;
     min: string;
@@ -156,7 +158,14 @@ export function installRangePopover(doc: Document, config: RangePopoverConfig): 
         close();
     });
     closeButton.addEventListener('click', close);
-    doc.addEventListener('keydown', event => { if (event.key === 'Escape') { close(); } });
+    keyRouterFor(doc.defaultView!).add({
+        layer: 'popover',
+        keydown(event) {
+            if (event.key !== 'Escape' || pop.style.display === 'none') return false;
+            close();
+            return true;
+        },
+    });
     doc.addEventListener('mousedown', event => {
         if (pop.style.display !== 'none' && !pop.contains(event.target as Node | null)) { close(); }
     });

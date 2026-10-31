@@ -49,8 +49,8 @@ export interface PairPanelHost {
 }
 
 export const PAIR_REQUEST_DELAY_MS = 150;
-const PAIR_SPLIT_MIN = 0.25;
-const PAIR_SPLIT_MAX = 0.75;
+export const PAIR_SPLIT_MIN = 0.25;
+export const PAIR_SPLIT_MAX = 0.75;
 
 /**
  * The pair view next to the power spectrum: which lane is the reference, the request for its
@@ -364,14 +364,14 @@ export class PairSpectrumPanel {
         });
         const divider = this.doc.getElementById('pair-divider');
         const split = this.doc.getElementById('spectrum-split');
-        divider?.addEventListener('mousedown', event => {
-            if (!split) {
+        divider?.addEventListener('pointerdown', event => {
+            if (!split || event.button !== 0) {
                 return;
             }
             event.preventDefault();
             const body = this.doc.body;
             body.classList.add('is-pair-resizing');
-            const move = (moveEvent: MouseEvent) => {
+            const move = (moveEvent: PointerEvent) => {
                 const rect = split.getBoundingClientRect();
                 if (rect.width > 0) {
                     this.setSplit((moveEvent.clientX - rect.left) / rect.width);
@@ -379,11 +379,13 @@ export class PairSpectrumPanel {
             };
             const up = () => {
                 body.classList.remove('is-pair-resizing');
-                this.doc.removeEventListener('mousemove', move);
-                this.doc.removeEventListener('mouseup', up);
+                this.doc.removeEventListener('pointermove', move);
+                this.doc.removeEventListener('pointerup', up);
+                this.doc.removeEventListener('pointercancel', up);
             };
-            this.doc.addEventListener('mousemove', move);
-            this.doc.addEventListener('mouseup', up);
+            this.doc.addEventListener('pointermove', move);
+            this.doc.addEventListener('pointerup', up);
+            this.doc.addEventListener('pointercancel', up);
         });
     }
 

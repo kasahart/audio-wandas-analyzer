@@ -372,6 +372,9 @@ export function renderComparisonStyles(): string {
         .screen-help table { border-collapse: collapse; }
         .screen-help th { text-align: left; padding: 2px 12px 2px 0; font-family: var(--font-mono); font-weight: normal; white-space: nowrap; color: var(--accent); }
         .screen-help td { padding: 2px 0; }
+        .screen-help section { flex: 1 1 300px; }
+        .screen-help h3 { margin: 0 0 4px; font-size: 12px; color: var(--muted); }
+        .screen-help section[aria-current] h3 { color: var(--text); }
         .entry-footer [data-action="compare-report"]:disabled { opacity: 0.4; cursor: not-allowed; }
         /* The headline over the panes: both levels where they differ most among what is loud enough to hear. */
         .compare-legend { flex-wrap: wrap; row-gap: 2px; }
@@ -644,6 +647,12 @@ export function renderComparisonStyles(): string {
         .track-canvas-wrap { display: flex; position: relative; overflow: hidden; background: var(--track-bg); padding-right: ${SPECTROGRAM_COLORBAR_WIDTH}px; }
         .track-spec-wrap { display: flex; position: relative; overflow: hidden; background: var(--track-bg); }
         .track-split { flex: none; height: 5px; cursor: row-resize; background: var(--line); opacity: 0.5; }
+        /* The keyboard's place: a focused lane, spectrum or resize edge has a ring in the theme's focus colour (the mouse's focus has none). */
+        .track-canvas, .track-spectrum-canvas, #spectrum-overlay-canvas { outline: none; }
+        .track-canvas:focus-visible, .track-spectrum-canvas:focus-visible, #spectrum-overlay-canvas:focus-visible, .entry-table td.entry-mark:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+        [role="separator"] { touch-action: none; }
+        [role="separator"]:focus { outline: none; }
+        [role="separator"]:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; background: color-mix(in srgb, var(--accent) 45%, transparent); opacity: 1; }
         .track-split:hover, body.is-split-resizing .track-split { opacity: 1; background: color-mix(in srgb, var(--accent) 45%, transparent); }
         body.is-stage-view .track-split, body.is-stage-view .track-spec-wrap { display: none; }
         body.is-stage-view .track-canvas-wrap { padding-right: 0; }

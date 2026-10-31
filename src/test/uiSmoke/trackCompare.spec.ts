@@ -317,6 +317,14 @@ test('the comparison\'s step bar grows the chain with ＋, offers only what take
     await expect(root).toHaveAttribute('data-x-window', '0.150-0.850');
     await page.keyboard.press('-');
     await expect(root).toHaveAttribute('data-x-window', '0.000-1.000');
+    // 0 resets the zoom and _ zooms out, as on the lanes.
+    await page.keyboard.press('+');
+    await page.keyboard.press('+');
+    await page.keyboard.press('0');
+    await expect(root).toHaveAttribute('data-x-window', '0.000-1.000');
+    await page.keyboard.press('=');
+    await page.keyboard.press('_');
+    await expect(root).toHaveAttribute('data-x-window', '0.000-1.000');
     // A box shows while it is dragged.
     await page.mouse.down();
     await page.mouse.move(middle.x + 60, middle.y + 40, { steps: 4 });
@@ -620,4 +628,25 @@ test('with a one-channel recording, coherence is measured against the base slot:
     const written = JSON.parse(folder.files!.find(file => file.name === `${STR.stepRecipeName}.recipe.json`)!.text!) as { inputs: Array<{ name: string }>; nodes: Array<{ operation: string }> };
     expect(written.inputs.map(input => input.name)).toEqual(['signal', 'base']);
     expect(written.nodes.map(node => node.operation.split('.').pop()).slice(-3)).toEqual(['concat_frame', 'coherence', 'select_pair']);
+});
+
+test('B switches the base between the slot-0 file and the group median; 0 no longer does', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    await openComparison(page, 'en', scanned!, true);
+    const root = page.locator('.track-stage');
+    await expect(root).toHaveAttribute('data-base', 'file');
+    await page.keyboard.press('0');
+    await expect(root).toHaveAttribute('data-base', 'file');
+    await page.keyboard.press('b');
+    await expect(root).toHaveAttribute('data-base', 'group');
+    await page.keyboard.press('B');
+    await expect(root).toHaveAttribute('data-base', 'file');
+    // The help lists it in the comparison's section, first while comparing.
+    await page.keyboard.press('?');
+    const help = page.locator('[data-screen-help]');
+    await expect(help.locator('[data-help-section]').first()).toHaveAttribute('data-help-section', 'compare');
+    await expect(help.locator('[data-help-section="compare"] th', { hasText: /^B$/ })).toHaveCount(1);
+    await page.keyboard.press('F1');
+    await expect(help).toBeHidden();
+    await expect(root).toBeVisible();
 });

@@ -101,7 +101,6 @@ export interface UiStrings {
     reanalyzingDefault: string;
     reanalyzingFiles: string;
     configurePython: string;
-    helpTitle: string;
     helpClose: string;
     helpRowSpace: string;
     helpRowArrow: string;
@@ -428,8 +427,6 @@ export interface UiStrings {
     hintLeqUncalibrated: string;
     hintSpectrogramGroup: string;
     screenHelpTitle: string;
-    screenHelpEntry: string;
-    screenHelpCompare: string;
     screenHelpSymbols: string;
     keyHelp: string;
     hintOverview: string;
@@ -443,11 +440,43 @@ export interface UiStrings {
     hintRowStop: string;
     compareSingleBase: string;
     compareRegionDiffers: string;
-    helpRowEntryKeys: string;
-    helpRowCompareKeys: string;
     helpRowStepKeys: string;
     helpRowStepBypass: string;
     helpRowStepUndo: string;
+    helpSectionGeneral: string;
+    helpSectionLanes: string;
+    helpSectionEntry: string;
+    helpSectionCompare: string;
+    helpSectionSteps: string;
+    helpSectionSymbols: string;
+    helpRowResizeKeys: string;
+    helpRowStepMenuEnter: string;
+    helpEntryRows: string;
+    helpEntrySlot: string;
+    helpEntryBase: string;
+    helpEntryOpen: string;
+    helpEntryPlay: string;
+    helpEntryTrack: string;
+    helpEntryMemo: string;
+    helpEntryEsc: string;
+    helpCompareSlot: string;
+    helpCompareBase: string;
+    helpCompareZoom: string;
+    helpCompareFix: string;
+    helpComparePlay: string;
+    helpCompareEsc: string;
+    helpCompareLayoutKey: string;
+    helpCompareLayout: string;
+    helpCompareDiff: string;
+    ariaWaveformCanvas: string;
+    ariaSpectrogramCanvas: string;
+    ariaStageOverlayCanvas: string;
+    ariaStageDiffCanvas: string;
+    ariaStageLaneCanvas: string;
+    ariaResizeTrackHeight: string;
+    ariaResizeSpectrumHeight: string;
+    ariaResizeSidebar: string;
+    ariaEntryOverview: string;
     helpRowStepDrag: string;
     helpRowZoomKeys: string;
     playbackTimePrefix: string;
@@ -717,7 +746,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
     en: {
         panelTitle: 'Audio Wandas Analyzer',
         emptyAllExcluded: 'All tracks are excluded',
-        emptyNoTracks: 'Click ○ on a row of the table to show its file here as a track; click ● to remove it',
+        emptyNoTracks: 'Click ☐ on a row of the table to show its file here as a track; click ☑ to remove it',
         selectionEmptyHint: 'Open a folder to list every file here',
         btnOpenFile: '＋ Add files',
         browserEmptyPrompt: 'Drop audio or CSV files here, or open files or a folder, to start comparing',
@@ -801,7 +830,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         reanalyzingDefault: 'Recomputing…',
         reanalyzingFiles: 'Recomputing STFT… ({count} files)',
         configurePython: 'Configure Python environment',
-        helpTitle: 'Keyboard Shortcuts',
         helpClose: 'Close (Esc / ?)',
         helpRowSpace: 'play / pause',
         helpRowArrow: 'move cursor  (Shift: fast)',
@@ -1128,9 +1156,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintLeqUncalibrated: 'Uncalibrated: 0 dB is the file\'s full scale, so levels read below 0. Calibrate to read sound pressure.',
         hintSpectrogramGroup: 'Hold to show spectrograms; with a group as the base there is no single file to show, so put a file in slot 0',
         screenHelpTitle: 'Keys and symbols',
-        screenHelpEntry: '↑ / ↓\tmove between rows\n1–3\tput the row in a slot (hold: its Δ spectrum)\n0\tmake the row the base; on the base row, back to the group median (hold: show Δ)\nEnter\topen the slotted rows in Compare\nEsc\tclose a setting, a filter, then the focused row (the old screen: the last line of this list)\n? / F1\tthis list',
-        screenHelpCompare: '1–3\ttap: compare that slot; hold: compare it until released\n0\tswitch the base between the file in slot 0 and the group median\nD\tfix the comparison as a row of the entry table\nCompare / Overlay · One lane per track\tthe tracks as a step of the Recipe, drawn over one another or each in its lane\nShow Δ\tshow the difference (compare − base) under the overlay\nSpace\tplay the compared recording (▶ in the legend: any of them)\nEsc\tclose a setting, then go back to where Compare was opened from (the tracks or the entry table)\n? / F1\tthis list',
-        screenHelpSymbols: '● ■ ◆\ta step\'s output: a time signal / an image / a spectrum\ndistribution\tthe chosen value per group: bars, a dot per recording when a group has few, a tick per recording below them\ndrag on it\ta range of the value: a chip that narrows the table (× or Esc takes it off)\n┃ (coloured)\ta slotted row, in its slot\'s colour\n┆ (blue, dashed)\tthe base: the median of a group\nslot\tthe four places 0–3 at the bottom: 0 the base, 1–3 the files to compare\n└ Δ\ta difference fixed with D, under the row it was fixed on\nfilled / outlined step\ta headline band / its leak into the neighbouring band filter\nstrip\tthe table\'s rows as 1/3-octave levels (row = recording, bright = loud)\nblue\tbase\nyellow / purple / magenta\tslots 1 / 2 / 3 (card, badge and line)\ngreen\tΔ (compare − base), not good or bad\norange\ta step that cannot run, or a recording that could not be read',
+        screenHelpSymbols: '☐ / ☑ (first column)\ta row\'s file off / on a track (T, or Enter / Space on it); the head\'s ⊟: some of them\n● ■ ◆ (on a step)\ta step\'s output: a time signal / an image / a spectrum\ndistribution\tthe chosen value per group: bars, a dot per recording when a group has few, a tick per recording below them\ndrag on it\ta range of the value: a chip that narrows the table (× or Esc takes it off)\n┃ (coloured)\ta slotted row, in its slot\'s colour\n┆ (blue, dashed)\tthe base: the median of a group\nslot\tthe four places 0–3 at the bottom: 0 the base, 1–3 the files to compare\n└ Δ\ta difference fixed with D, under the row it was fixed on\nfilled / outlined step\ta headline band / its leak into the neighbouring band filter\nstrip\tthe table\'s rows as 1/3-octave levels (row = recording, bright = loud)\nblue\tbase\nyellow / purple / magenta\tslots 1 / 2 / 3 (card, badge and line)\ngreen\tΔ (compare − base), not good or bad\norange\ta step that cannot run, or a recording that could not be read',
         keyHelp: '?',
         hintOverview: 'Every file\'s 1/3-octave levels: one row per file, brighter is louder; the frame is the rows on screen',
         hintBaseCard: '0: the base the compared file is measured against',
@@ -1143,11 +1169,43 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintRowStop: 'Stop',
         compareSingleBase: 'n=1',
         compareRegionDiffers: '≠ region',
-        helpRowEntryKeys: 'entry table: 0 base (hold: Δ), 1–3 slot, Enter open, Esc close (old screen: from the ? list), ↑/↓ row',
-        helpRowCompareKeys: 'comparing: hold 1–3 to swap the compared file, tap 1–3 to keep it, 0 base on the compared file, D fix the difference, Space play the compared file, Esc back to where Compare was opened',
         helpRowStepKeys: 'step bar: press a step to see its Frame in the comparison, hold it to see what it does, ＋ adds a wandas operation, Delete on a step removes it',
         helpRowStepBypass: 'step bar: M on a step bypasses it (kept in place, skipped), M again brings it back',
         helpRowStepUndo: 'step bar: undo and redo its edits (↶ ↷)',
+        helpSectionGeneral: 'Everywhere',
+        helpSectionLanes: 'Tracks',
+        helpSectionEntry: 'Entry table',
+        helpSectionCompare: 'Compare',
+        helpSectionSteps: 'Step bar',
+        helpSectionSymbols: 'Symbols and colours',
+        helpRowResizeKeys: 'on a focused resize edge: move it (Shift: faster; Home / End: smallest / largest)',
+        helpRowStepMenuEnter: 'in ＋\'s filter: add the first operation listed',
+        helpEntryRows: 'move between rows',
+        helpEntrySlot: 'put the row in a slot (hold: its Δ spectrum)',
+        helpEntryBase: 'make the row the base; on the base row, back to the group median (hold: show Δ)',
+        helpEntryOpen: 'open the slotted rows in Compare',
+        helpEntryPlay: 'play the row\'s recording',
+        helpEntryTrack: 'show the row\'s file as a track, or take it off (as its ☐ / ☑)',
+        helpEntryMemo: 'write a memo on the row',
+        helpEntryEsc: 'close a setting, a filter, then the focused row; maximized, the table shrinks',
+        helpCompareSlot: 'tap: compare that slot; hold: compare it until released',
+        helpCompareBase: 'switch the base between the file in slot 0 and the group median',
+        helpCompareZoom: 'zoom the horizontal axis in / out / back to all of it',
+        helpCompareFix: 'fix the comparison as a row of the entry table',
+        helpComparePlay: 'play the compared recording (▶ in the legend: any of them)',
+        helpCompareEsc: 'close a setting, then go back to where Compare was opened from (the tracks or the entry table)',
+        helpCompareLayoutKey: 'Overlay / One lane per track',
+        helpCompareLayout: 'the tracks as a step of the Recipe, drawn over one another or each in its lane',
+        helpCompareDiff: 'show the difference (compare − base) under the overlay',
+        ariaWaveformCanvas: '{file} · {channel} · waveform',
+        ariaSpectrogramCanvas: '{file} · {channel} · spectrogram',
+        ariaStageOverlayCanvas: 'Compare: the tracks at the step shown',
+        ariaStageDiffCanvas: 'Compare: the difference (compare − base)',
+        ariaStageLaneCanvas: 'Compare: {file}',
+        ariaResizeTrackHeight: 'Track height',
+        ariaResizeSpectrumHeight: 'Spectrum panel height',
+        ariaResizeSidebar: 'Width of the file list',
+        ariaEntryOverview: '1/3-octave levels of the listed rows',
         helpRowStepDrag: 'step bar: drag a step to move it (the region stays where it is)',
         helpRowZoomKeys: 'zoom in / out / reset',
         playbackTimePrefix: '▶',
@@ -1414,7 +1472,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
     ja: {
         panelTitle: 'Audio Wandas Analyzer',
         emptyAllExcluded: 'すべてのトラックが除外されています',
-        emptyNoTracks: '表の行の ○ をクリックすると、そのファイルをここにトラックとして表示します。● をクリックで消えます',
+        emptyNoTracks: '表の行の ☐ をクリックすると、そのファイルをここにトラックとして表示します。☑ をクリックで消えます',
         selectionEmptyHint: 'フォルダを開くと、全ファイルの表がここに出ます',
         btnOpenFile: '＋ファイルを追加',
         browserEmptyPrompt: '音声ファイルやCSVをここにドロップするか、ファイルまたはフォルダを開いて比較を始めます',
@@ -1498,7 +1556,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         reanalyzingDefault: '再計算中…',
         reanalyzingFiles: 'STFT を再計算中… ({count} ファイル)',
         configurePython: 'Python 環境を設定する',
-        helpTitle: 'キーボードショートカット',
         helpClose: '閉じる (Esc / ?)',
         helpRowSpace: '再生 / 停止',
         helpRowArrow: 'カーソル移動 (Shift: 高速)',
@@ -1825,9 +1882,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintLeqUncalibrated: '未校正：0 dB はファイルのフルスケールなので、値は 0 より小さくなる。音圧として読むには校正が要る。',
         hintSpectrogramGroup: '長押しでスペクトログラム。基準が群のときは 1 本のファイルが無いので、スロット 0 にファイルを入れる',
         screenHelpTitle: 'キーと記号',
-        screenHelpEntry: '↑ / ↓\t行を移動\n1–3\t行をスロットに入れる（長押しの間は Δ スペクトル）\n0\t行を基準にする。基準の行でもう一度押すと群の中央値へ（長押しの間は Δ を表示）\nEnter\tスロットの行を比較解析で開く\nEsc\t設定 → 絞り込み → 行の選択の順に閉じる\n? / F1\tこの一覧',
-        screenHelpCompare: '1–3\t押して比較を切り替え、長押しの間だけ入れ替え\n0\t基準をスロット 0 のファイル ⇄ 群の中央値で切り替え\nD\t比較を一覧の行として固定\n比較解析 / 重ねる・トラックごとに並べる\tトラックを手順の段で描く。1 枚に重ねるか、トラックのレーンに並べる\n差も表示\t重ね描きの下に差（比較 − 基準）を出す\nSpace\t比べている録音を再生（凡例の ▶ でどれでも）\nEsc\t設定を閉じる → 比較解析を開いた画面（トラックか一覧）へ\n? / F1\tこの一覧',
-        screenHelpSymbols: '● ■ ◆\t手順の出力の種類：時間波形 / 画像 / スペクトル\n分布\t選んだ値の群ごとの分布。棒、録音が少ない群は 1 本ずつの点、下に 1 本ずつの目盛\n分布のドラッグ\t値の範囲。表を絞るチップになる（× か Esc で外す）\n┃（色付き）\tスロットに入れた行。スロットの色\n┆（青の破線）\t基準。群の中央値\nスロット\t下の 0–3 の 4 つの枠。0 が基準、1–3 が比べるファイル\n└ Δ\tD で固定した差。固定した行の下に出る\n塗りの帯 / 枠の帯\t見出しの帯域 / その隣の帯域フィルタへの漏れ\n俯瞰帯\t表の行の 1/3 oct（行＝録音、明るい＝大きい）\n青\t基準\n黄 / 紫 / 赤紫\tスロット 1 / 2 / 3（カード・番号・線）\n緑\tΔ（比較 − 基準）。良し悪しではない\n橙\t実行できない手順、読めなかった録音',
+        screenHelpSymbols: '☐ / ☑（先頭の列）\t行のファイルがトラックにない / ある（T、またはそこで Enter / Space）。見出しの ⊟ は一部だけ\n● ■ ◆（手順の上）\t手順の出力の種類：時間波形 / 画像 / スペクトル\n分布\t選んだ値の群ごとの分布。棒、録音が少ない群は 1 本ずつの点、下に 1 本ずつの目盛\n分布のドラッグ\t値の範囲。表を絞るチップになる（× か Esc で外す）\n┃（色付き）\tスロットに入れた行。スロットの色\n┆（青の破線）\t基準。群の中央値\nスロット\t下の 0–3 の 4 つの枠。0 が基準、1–3 が比べるファイル\n└ Δ\tD で固定した差。固定した行の下に出る\n塗りの帯 / 枠の帯\t見出しの帯域 / その隣の帯域フィルタへの漏れ\n俯瞰帯\t表の行の 1/3 oct（行＝録音、明るい＝大きい）\n青\t基準\n黄 / 紫 / 赤紫\tスロット 1 / 2 / 3（カード・番号・線）\n緑\tΔ（比較 − 基準）。良し悪しではない\n橙\t実行できない手順、読めなかった録音',
         keyHelp: '?',
         hintOverview: '全ファイルの 1/3 oct。1 行が 1 ファイル、明るいほど大きい。枠は表に見えている行',
         hintBaseCard: '0: 比較するファイルの基準',
@@ -1840,11 +1895,43 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintRowStop: '止める',
         compareSingleBase: 'n=1',
         compareRegionDiffers: '≠ 区間',
-        helpRowEntryKeys: 'ファイル一覧: 0 基準（長押しで差）、1–3 スロット、Enter 比較を表示、Esc 閉じる、↑/↓ 行',
-        helpRowCompareKeys: '比較: 1–3 長押しで比較を入れ替え、押して固定、0 比較中を基準に、D 差を残す、Space 比較中を再生、Esc 開いた画面へ',
         helpRowStepKeys: '手順バー: 手順を押すとその結果、長押しでその手順あり／なし、＋ で wandas の操作を足す、手順で Delete で外す',
         helpRowStepBypass: '手順バー: 手順で M を押すとバイパス（残したまま飛ばす）、もう一度で戻す',
         helpRowStepUndo: '手順バー: 編集を元に戻す／やり直す（↶ ↷）',
+        helpSectionGeneral: 'どこでも',
+        helpSectionLanes: 'トラック',
+        helpSectionEntry: 'ファイル一覧',
+        helpSectionCompare: '比較解析',
+        helpSectionSteps: '手順バー',
+        helpSectionSymbols: '記号と色',
+        helpRowResizeKeys: 'フォーカスした境界で: 動かす（Shift: 大きく、Home / End: 最小 / 最大）',
+        helpRowStepMenuEnter: '＋ の絞り込みで: 先頭の操作を足す',
+        helpEntryRows: '行を移動',
+        helpEntrySlot: '行をスロットに入れる（長押しの間は Δ スペクトル）',
+        helpEntryBase: '行を基準にする。基準の行でもう一度押すと群の中央値へ（長押しの間は Δ を表示）',
+        helpEntryOpen: 'スロットの行を比較解析で開く',
+        helpEntryPlay: '行の録音を再生',
+        helpEntryTrack: '行のファイルをトラックに表示・解除（行の ☐ / ☑ と同じ）',
+        helpEntryMemo: '行にメモを書く',
+        helpEntryEsc: '設定 → 絞り込み → 行の選択の順に閉じる。最大化中は表を戻す',
+        helpCompareSlot: '押して比較を切り替え、長押しの間だけ入れ替え',
+        helpCompareBase: '基準をスロット 0 のファイル ⇄ 群の中央値で切り替え',
+        helpCompareZoom: '横軸をズームイン / アウト / 全体に戻す',
+        helpCompareFix: '比較を一覧の行として固定',
+        helpComparePlay: '比べている録音を再生（凡例の ▶ でどれでも）',
+        helpCompareEsc: '設定を閉じる → 比較解析を開いた画面（トラックか一覧）へ',
+        helpCompareLayoutKey: '重ねる / トラックごとに並べる',
+        helpCompareLayout: 'トラックを手順の段で描く。1 枚に重ねるか、トラックのレーンに並べる',
+        helpCompareDiff: '重ね描きの下に差（比較 − 基準）を出す',
+        ariaWaveformCanvas: '{file} · {channel} · 波形',
+        ariaSpectrogramCanvas: '{file} · {channel} · スペクトログラム',
+        ariaStageOverlayCanvas: '比較解析: 表示中の手順でのトラック',
+        ariaStageDiffCanvas: '比較解析: 差（比較 − 基準）',
+        ariaStageLaneCanvas: '比較解析: {file}',
+        ariaResizeTrackHeight: 'トラックの高さ',
+        ariaResizeSpectrumHeight: 'スペクトル欄の高さ',
+        ariaResizeSidebar: 'ファイル一覧の幅',
+        ariaEntryOverview: '表の行の 1/3 オクターブレベル',
         helpRowStepDrag: '手順バー: 手順をドラッグして並べ替え（区間は動かせない）',
         helpRowZoomKeys: 'ズームイン / アウト / リセット',
         playbackTimePrefix: '▶',

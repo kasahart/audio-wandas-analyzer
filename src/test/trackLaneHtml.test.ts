@@ -13,6 +13,8 @@ const base: ChannelLaneSpec = {
     fileName: 'a<b>.wav',
     axisWidth: 64,
     spectrumTitle: 'Spectrum',
+    waveformLabel: 'a<b>.wav · Ch 1 · waveform',
+    spectrogramLabel: 'a<b>.wav · Ch 1 · spectrogram',
     axisHint: 'Double-click: reset',
     spectrogramAxisHint: 'Double-click: reset zoom',
     splitHint: 'Drag the split',
@@ -38,6 +40,14 @@ test('multi-channel lane shows the label header with the metric summary', () => 
     assert.equal(html.match(/data-track-id="t1" data-channel-index="1"/g)?.length, 8);
 });
 
+test('the waveform and spectrogram canvases are named by file, channel and kind, with no inline outline over the focus ring', () => {
+    const html = channelLaneHtml(base);
+    assert.ok(html.includes('class="track-canvas" id="track-canvas-1" data-track-id="t1" data-channel-index="0" tabindex="0" role="img" aria-label="a&lt;b&gt;.wav · Ch 1 · waveform"'));
+    assert.ok(html.includes('aria-label="a&lt;b&gt;.wav · Ch 1 · spectrogram"'));
+    assert.ok(!html.includes('outline:none'));
+    assert.ok(html.includes('role="separator" tabindex="0"'));
+});
+
 test('spectrum canvas aria-label escapes the file name', () => {
     const html = channelLaneHtml(base);
     assert.ok(html.includes('aria-label="a&lt;b&gt;.wav Ch 1 Spectrum"'));
@@ -49,7 +59,7 @@ const rowStrings = {
     ariaTrackMute: 'Mute', ariaRemoveTrack: 'Remove',
     calibrationButtonLabel: 'Cal', calibrationButtonTitle: 'Calibrate', calibrationButtonAria: 'Calibrate track',
     trackOffsetResetHint: 'Reset', ariaOffsetValue: 'Offset', ariaOffsetUp: 'Up', ariaOffsetDown: 'Down',
-    heightTrackLabel: 'Track height',
+    ariaResizeTrackHeight: 'Track height',
     hintRemoveTrack: 'Remove this track', hintOffsetUp: '+10 ms', hintOffsetDown: '-10 ms', hintTrackHeightResizer: 'Drag height',
     trackMoreHint: 'Time offset', offsetStepUp: '+10 ms', offsetStepDown: '−10 ms', offsetEdit: 'Type…', offsetReset: 'Reset to 0',
     peakLabel: 'Pk', calibrationBadgeUncalibratedHint: 'Full scale', calibrationBadgePartialHint: 'Partial', calibrationFactorLabel: 'k',
@@ -77,7 +87,7 @@ test('track row renders header, controls and the given lanes', () => {
     assert.ok(html.includes('<div class="track-meta">2 ch &nbsp;48.0kHz</div>'));
     assert.ok(html.includes('id="offset-val-2"'));
     assert.ok(html.includes('<div class="track-channel-lanes"><i>lanes</i></div>'));
-    assert.ok(html.includes('aria-label="Track height resize"'));
+    assert.ok(html.includes('aria-label="Track height"'));
     assert.ok(html.includes('aria-pressed="false">🔊</button>'));
     assert.ok(!html.includes(' disabled'));
     assert.ok(!html.includes('clip-badge'));

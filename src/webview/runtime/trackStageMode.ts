@@ -26,6 +26,8 @@ import { axisFractionOf, axisValueAt, medianView, paintOverlay, paintStage, rowF
 import { paintHoverMarks } from './plotHover';
 import { DIFF_COLOR, NO_ROLE_COLOR, ROLE_COLORS } from '../../shared/gui/roleColors';
 import { zoomNormalizedRange, ZOOM_IN_FACTOR } from './waveformInteraction';
+import { keyRouterFor } from './keyRouter';
+import { COMPARE_KEYS, keyAction } from './shortcuts';
 import { installRangePopover, linearAxis, openAxisPart, type AxisMapping } from '../rangePopover';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
 import { positionPopover } from './settingsPopover';
@@ -209,8 +211,8 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         + `<div class="compare-pane-head compare-legend" data-stage-legend></div>`
         + `<div class="track-stage-base-info" data-stage-base-info hidden><div>${escapeHtml(strings.stageBaseAggregate)}</div>`
         + `<button type="button" class="tb-link" data-action="stage-base-list">${escapeHtml(strings.stageBaseList)}</button></div>`
-        + `<canvas data-stage-canvas="overlay"></canvas>`
-        + `<div class="track-stage-diff" data-stage-diff hidden><span class="compare-value" data-stage-diff-headline></span><canvas data-stage-canvas="diff"></canvas></div>`
+        + `<canvas data-stage-canvas="overlay" role="img" aria-label="${escapeHtml(strings.ariaStageOverlayCanvas)}"></canvas>`
+        + `<div class="track-stage-diff" data-stage-diff hidden><span class="compare-value" data-stage-diff-headline></span><canvas data-stage-canvas="diff" role="img" aria-label="${escapeHtml(strings.ariaStageDiffCanvas)}"></canvas></div>`
         + `</div>`;
     root.prepend(stepBar.element);
     const query = <T extends Element>(selector: string): T => root.querySelector<T>(selector)!;
@@ -253,63 +255,69 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         const slot = held !== null && present(held) ? held : present(compared) ? compared : [1, 2, 3].find(present);
         return slot === undefined ? null : slots[slot]!;
     }
-    // The comparison's keys, as on the entry table and the old comparison screen: 1–3 tap = compare that slot, hold = compare
-    // it until released; 0 switches the base between the slot-0 file and the group median; D fixes the
-    // difference as a row of the entry table; Esc goes back to the entry table.
+    // The comparison's keys (COMPARE_KEYS): 1–3 tap = compare that slot, hold = compare it until released; B switches
+    // the base between the slot-0 file and the group median; + / − / 0 zoom as on the lanes; D fixes the difference
+    // as a row of the entry table; Esc goes back to the entry table.
     let pressing: { slot: number; at: number; timer: number } | null = null;
     const keysLive = (event: KeyboardEvent): boolean => on && deps.inFront() && !(event.target as Element | null)?.closest?.('input, select, textarea, [data-step-bar], #track-stage-range-popover, details.role-chip');
-    deps.window.addEventListener?.('keydown', ((event: KeyboardEvent) => {
-        if (!keysLive(event) || event.ctrlKey || event.metaKey || event.altKey) return;
-        if (/^[1-3]$/.test(event.key)) {
-            event.preventDefault(); event.stopImmediatePropagation();
-            if (event.repeat || pressing) return;
-            const slot = Number(event.key);
-            pressing = { slot, at: deps.window.performance.now(), timer: deps.window.setTimeout(() => { held = slot; deps.rerender(); }, TAP_MS) };
-        } else if (event.key === '+' || event.key === '=' || event.key === '-') {
-            // + / − zoom the horizontal axis about its middle, as on the lanes (a double-click resets).
-            event.preventDefault(); event.stopImmediatePropagation();
-            window_ = { ...window_, x: zoomNormalizedRange(window_.x, event.key === '-' ? 1 / ZOOM_IN_FACTOR : ZOOM_IN_FACTOR) };
-            detail.moved();
+    const router = keyRouterFor(deps.window);
+    router.add({
+        layer: 'stage',
+        keydown(event) {
+            if (!keysLive(event) || event.ctrlKey || event.metaKey || event.altKey) return false;
+            const action = keyAction(COMPARE_KEYS, event.key);
+            if (action === 'slot') {
+                event.preventDefault();
+                if (event.repeat || pressing) return true;
+                const slot = Number(event.key);
+                pressing = { slot, at: deps.window.performance.now(), timer: deps.window.setTimeout(() => { held = slot; deps.rerender(); }, TAP_MS) };
+            } else if (action === 'zoom-in' || action === 'zoom-out' || action === 'zoom-reset') {
+                // About the horizontal axis's middle, as on the lanes (a double-click resets too).
+                event.preventDefault();
+                window_ = { ...window_, x: action === 'zoom-reset' ? FULL_PLOT_WINDOW.x : zoomNormalizedRange(window_.x, action === 'zoom-out' ? 1 / ZOOM_IN_FACTOR : ZOOM_IN_FACTOR) };
+                detail.moved();
+                deps.rerender();
+            } else if (action === 'toggle-base') {
+                event.preventDefault();
+                groupBase = !groupBase;
+                deps.rerender();
+            } else if (action === 'fix') {
+                event.preventDefault();
+                const path = comparedPath(deps.tracks());
+                const region = liveRegion();
+                const recipe = deps.recipe()?.recipe;
+                const refused = recipe && brokenStep(recipe, stepLimits({ sampleRate: deps.sampleRate(), channels: deps.channels?.() })) ? strings.stepOctaveBroken
+                    : !path ? strings.compareRefuseSlot.replace('{n}', String(compared))
+                    : region && !measured().has(path) ? strings.compareRefuseFix.replace('{why}', strings.comparePending)
+                        : deps.fix(path, groupBase, region, measured());
+                deps.hint(refused ?? strings.compareFixedHint);
+            } else if (action === 'play' && (event.target as Element | null)?.closest?.('button, summary, a')) {
+                // A focused button (a legend ▶ among them) takes Space as its own press: the tracks' playback key leaves it alone.
+                return true;
+            } else if (action === 'play') {
+                // Space plays the recording compared (the legend's ▶ plays any of them).
+                const path = comparedPath(deps.tracks());
+                if (!path || !deps.play) return false;
+                event.preventDefault();
+                deps.play(path, liveRegion());
+            } else if (action === 'back') {
+                event.preventDefault();
+                deps.back();
+            } else {
+                return false;
+            }
+            return true;
+        },
+        keyup(event) {
+            if (!pressing || event.key !== String(pressing.slot)) return false;
+            deps.window.clearTimeout?.(pressing.timer);
+            if (held !== null) held = null;
+            else compared = pressing.slot;
+            pressing = null;
             deps.rerender();
-        } else if (event.key === '0') {
-            event.preventDefault(); event.stopImmediatePropagation();
-            groupBase = !groupBase;
-            deps.rerender();
-        } else if (event.key === 'd' || event.key === 'D') {
-            event.preventDefault(); event.stopImmediatePropagation();
-            const path = comparedPath(deps.tracks());
-            const region = liveRegion();
-            const recipe = deps.recipe()?.recipe;
-            const refused = recipe && brokenStep(recipe, stepLimits({ sampleRate: deps.sampleRate(), channels: deps.channels?.() })) ? strings.stepOctaveBroken
-                : !path ? strings.compareRefuseSlot.replace('{n}', String(compared))
-                : region && !measured().has(path) ? strings.compareRefuseFix.replace('{why}', strings.comparePending)
-                    : deps.fix(path, groupBase, region, measured());
-            deps.hint(refused ?? strings.compareFixedHint);
-        } else if (event.key === ' ' && (event.target as Element | null)?.closest?.('button, summary, a')) {
-            // A focused button (a legend ▶ among them) takes Space as its own press: the tracks' playback key leaves it alone.
-            event.stopImmediatePropagation();
-        } else if (event.key === ' ') {
-            // Space plays the recording compared (the legend's ▶ plays any of them).
-            const path = comparedPath(deps.tracks());
-            if (!path || !deps.play) return;
-            event.preventDefault(); event.stopImmediatePropagation();
-            deps.play(path, liveRegion());
-        } else if (event.key === 'Escape') {
-            // An open toolbar menu takes Esc first: it closes, and the comparison stays.
-            if (root.ownerDocument?.querySelector?.('details.tb-menu[open]')) return;
-            event.preventDefault(); event.stopImmediatePropagation();
-            deps.back();
-        }
-    }) as EventListener, true);
-    deps.window.addEventListener?.('keyup', ((event: KeyboardEvent) => {
-        if (!pressing || event.key !== String(pressing.slot)) return;
-        event.stopImmediatePropagation();
-        deps.window.clearTimeout?.(pressing.timer);
-        if (held !== null) held = null;
-        else compared = pressing.slot;
-        pressing = null;
-        deps.rerender();
-    }) as EventListener, true);
+            return true;
+        },
+    });
     function role(filePath: string): number | undefined {
         const at = deps.slots().indexOf(filePath);
         return at >= 0 ? at : undefined;
@@ -418,6 +426,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             on = next;
             root.hidden = !on;
             if (!on) deps.showLanes(true);
+            if (!on) document.querySelectorAll<HTMLElement>('[data-lane-label]').forEach(canvas => { canvas.setAttribute('aria-label', canvas.dataset.laneLabel!); delete canvas.dataset.laneLabel; });
             // A selection not yet taken as the region is not taken later, when the comparison is opened some other way.
             if (!on) pendingRegion = null;
             deps.rerender();
@@ -630,6 +639,9 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
                 tracks.forEach(track => {
                     track.axis?.getContext('2d')?.clearRect(0, 0, track.axis.width, track.axis.height);
                     if (!track.canvas) return;
+                    // The lane shows the step now, not its waveform: its name says so until the comparison closes.
+                    track.canvas.dataset.laneLabel ??= track.canvas.getAttribute('aria-label') ?? '';
+                    track.canvas.setAttribute('aria-label', strings.ariaStageLaneCanvas.replace('{file}', baseName(track.filePath)));
                     const view = shown(track.filePath) ?? null;
                     const missing = coarse(track.filePath) === undefined;
                     const empty = missing ? '' : strings.stepNotDrawable.replace('{frame}', picture?.frame ?? '');

@@ -267,14 +267,14 @@ test('static page opens a folder onto the entry table, whose rows become tracks 
     await page.locator('[data-action="remove-track"]').first().click();
     await expect(page.locator('.track-row')).toHaveCount(0);
     await expect(page.locator('#entry-dock tr[data-file-path]')).toHaveCount(2);
-    // A click on a row only picks it; its ○ shows the file as a track and ● takes it off. The empty view says so.
+    // A click on a row only picks it; its ☐ shows the file as a track and ☑ takes it off. The empty view says so.
     await expect(page.locator('#empty-state')).toHaveText(getStrings('en').emptyNoTracks);
     await entryRow(page, '/sources/rec/first.wav').locator('.entry-nm').click();
     await expect(page.locator('.track-row')).toHaveCount(0);
     await entryRow(page, '/sources/rec/first.wav').locator('td.entry-mark').click();
     await expect(page.locator('.track-row')).toHaveCount(1);
     await expect(entryRow(page, '/sources/rec/first.wav')).toHaveClass(/is-shown/);
-    await expect(entryRow(page, '/sources/rec/first.wav').locator('td.entry-mark')).toHaveText('●');
+    await expect(entryRow(page, '/sources/rec/first.wav').locator('td.entry-mark')).toHaveText('☑');
     // A file in a slot goes off the tracks and out of its slot together, as a lane's × does.
     await entryRow(page, '/sources/rec/first.wav').locator('td.entry-mark').click();
     await expect(page.locator('.track-row')).toHaveCount(0);
@@ -287,7 +287,7 @@ test('static page opens a folder onto the entry table, whose rows become tracks 
     await expect(entryRow(page, '/sources/rec/first.wav').locator('.entry-badge')).toHaveCount(0);
     await entryRow(page, '/sources/rec/first.wav').locator('td.entry-mark').click();
     await expect(page.locator('.track-row')).toHaveCount(1);
-    // A double click on ○/● counts once and does not open the comparison: on, then off.
+    // A double click on ☐/☑ counts once and does not open the comparison: on, then off.
     await entryRow(page, '/sources/rec/day2/second.wav').locator('td.entry-mark').dblclick();
     await expect(entryRow(page, '/sources/rec/day2/second.wav')).toHaveClass(/is-shown/);
     await expect(entryRow(page, '/sources/rec/day2/second.wav').locator('.entry-badge')).toHaveCount(0);
@@ -296,7 +296,7 @@ test('static page opens a folder onto the entry table, whose rows become tracks 
     await expect(entryRow(page, '/sources/rec/day2/second.wav').locator('.entry-badge')).toHaveCount(0);
     await entryRow(page, '/sources/rec/day2/second.wav').locator('td.entry-mark').click();
     await entryRow(page, '/sources/rec/day2/second.wav').locator('td.entry-mark').click();
-    await expect(entryRow(page, '/sources/rec/day2/second.wav').locator('td.entry-mark')).toHaveText('○');
+    await expect(entryRow(page, '/sources/rec/day2/second.wav').locator('td.entry-mark')).toHaveText('☐');
     // The row and its lane light up together under the mouse, from either side.
     await entryRow(page, '/sources/rec/first.wav').locator('.entry-col-ch').hover();
     await expect(page.locator('.track-row.is-linked')).toHaveCount(1);
@@ -315,17 +315,17 @@ test('static page opens a folder onto the entry table, whose rows become tracks 
     await expect(page.locator('#entry-dock tr[data-file-path]')).toHaveCount(2);
     await expect(entryRow(page, '/sources/rec/first.wav')).not.toHaveClass(/is-shown/);
     await expect(tracksOnly).toHaveCount(0);
-    // The head's ○/◐/● shows every listed row as a track, or takes them all off.
+    // The head's ☐/⊟/☑ shows every listed row as a track, or takes them all off.
     const headMark = page.locator('#entry-dock [data-action="entry-tracks-all"]');
-    await expect(headMark).toHaveText('○');
+    await expect(headMark).toHaveText('☐');
     await headMark.click();
     await expect(page.locator('.track-row')).toHaveCount(2);
-    await expect(headMark).toHaveText('●');
+    await expect(headMark).toHaveText('☑');
     await headMark.click();
     await expect(page.locator('.track-row')).toHaveCount(0);
-    await expect(headMark).toHaveText('○');
+    await expect(headMark).toHaveText('☐');
     await entryRow(page, '/sources/rec/first.wav').locator('td.entry-mark').click();
-    await expect(headMark).toHaveText('◐');
+    await expect(headMark).toHaveText('⊟');
     await expect(headMark).toHaveAttribute('aria-label', getStrings('en').dsTracksRest.replace('{n}', '1'));
     await headMark.click();
     await expect(page.locator('.track-row')).toHaveCount(2);
@@ -371,7 +371,7 @@ test('static page opens a folder onto the entry table, whose rows become tracks 
     await expect(page.locator('.track-row')).toHaveCount(2);
 });
 
-test('the head\'s ○ asks before it shows more than 30 files as tracks', async ({ page }) => {
+test('the head\'s ☐ asks before it shows more than 30 files as tracks', async ({ page }) => {
     const folder = mkdtempSync(join(tmpdir(), 'awa-folder-'));
     mkdirSync(join(folder, 'many'));
     for (let i = 0; i < 31; i++) writeFileSync(join(folder, 'many', `take${String(i).padStart(2, '0')}.wav`), tinyWav());
@@ -400,15 +400,15 @@ test('the head\'s ○ asks before it shows more than 30 files as tracks', async 
     await expect(confirm).toHaveCount(0);
     // The browser keeps its own limit on the tracks it holds (8): the rest stay off, the head half on.
     await expect(page.locator('.track-row')).toHaveCount(8, { timeout: 60_000 });
-    await expect(headMark).toHaveText('◐');
+    await expect(headMark).toHaveText('⊟');
     await expect(headMark).toBeFocused();
-    // Showing the rest was just tried, so ◐ now takes them all off.
+    // Showing the rest was just tried, so ⊟ now takes them all off.
     await expect(headMark).toHaveAttribute('aria-label', strings.dsTracksNone.replace('{n}', '31'));
     await page.keyboard.press('Enter');
     await expect(page.locator('.track-row')).toHaveCount(0);
-    await expect(headMark).toHaveText('○');
+    await expect(headMark).toHaveText('☐');
     await expect(headMark).toBeFocused();
-    // With none on, ○ shows them again (asking first).
+    // With none on, ☐ shows them again (asking first).
     await expect(headMark).toHaveAttribute('aria-label', strings.dsTracksAll.replace('{n}', '31'));
     await page.keyboard.press('Enter');
     await expect(confirm).toContainText(strings.dsTracksConfirm.replace('{n}', '31'));

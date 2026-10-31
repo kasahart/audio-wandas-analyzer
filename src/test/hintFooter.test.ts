@@ -43,10 +43,10 @@ test('attachCanvasFocusHint shows the key hint in the footer on focus and clears
     attachCanvasFocusHint(canvas, footer, 'Arrow keys move the cursor');
     canvas.dispatchEvent(new dom.window.FocusEvent('focus'));
     assert.equal(footerEl.textContent, 'Arrow keys move the cursor');
-    assert.notEqual(canvas.style.outline, '');
+    // The ring is the stylesheet's :focus-visible, so the mouse's focus has none.
+    assert.equal(canvas.style.outline, '');
     canvas.dispatchEvent(new dom.window.FocusEvent('blur'));
     assert.equal(footerEl.textContent, '');
-    assert.equal(canvas.style.outline, 'none');
 });
 
 test('blurring the canvas keeps a hint that replaced the focus hint', () => {
