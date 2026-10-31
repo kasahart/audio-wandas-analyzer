@@ -797,6 +797,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     const updatePlaybackDisplay = createPlaybackDisplay(document, STR.playbackTimePrefix || '▶');
     // ── On-demand range cache ──
     let rangeRequestTimer: number | null = null;
+    /** When each lane's range request on its way was sent; a failed one is never answered, so it is asked again after RANGE_RETRY_MS. */
+    const rangeAskedAt = new Map<string, number>();
+    const RANGE_RETRY_MS = 2000;
     // Receive high-res range data from Extension Host
     messaging.onMessage(function (msg) {
         if (!msg || msg.type !== 'waveform-range-result') {
@@ -814,6 +817,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         record.requests.settle(msg.requestId);
+        rangeAskedAt.delete(msg.requestId);
         record.rangeCache = { startNorm: msg.startNorm, endNorm: msg.endNorm, channels: msg.channels };
         renderAll();
     });
@@ -1078,12 +1082,16 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 return;
             }
             const pending = record.requests.pending('range');
-            const asked = pending ? parseRangeRequestKey(pending.key) : null;
+            // The host answers a failed range with nothing, so a range on its way stops counting after a while and is asked again.
+            const inFlight = pending && performance.now() - (rangeAskedAt.get(pending.requestId) ?? -Infinity) < RANGE_RETRY_MS;
+            const asked = pending && inFlight ? parseRangeRequestKey(pending.key) : null;
             if (asked && asked.startNorm <= keepStart && asked.endNorm >= keepEnd &&
                 rangeHasDetail(asked.points, asked.startNorm, asked.endNorm, pts, W, fileView.fileAtZoomStart, fileView.fileAtZoomEnd)) {
                 return; // the range on its way already covers it
             }
             const requestId = nextRequestId('range', record.id);
+            if (pending) rangeAskedAt.delete(pending.requestId);
+            rangeAskedAt.set(requestId, performance.now());
             record.requests.ask('range', requestId, `${reqStart}|${reqEnd}|${pts}`, null);
             messaging.post({
                 type: 'request-waveform-range',

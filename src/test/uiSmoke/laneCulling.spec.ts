@@ -275,3 +275,26 @@ test('a cursor moved while the CSV waits: the file holds every shown track at th
     expect(header).toContain('take00.wav');
     expect(header).toContain('take39.wav');
 });
+
+test('a zoom-detail range the host never answers is asked again by a later redraw', async ({ page }) => {
+    await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
+    await page.mouse.click(20, 20);
+    for (let i = 0; i < 9; i += 1) {
+        await page.locator('#toolbar [data-action="zoom-in"]').click({ force: true });
+    }
+    const rangeRequests = () => page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Array<Record<string, unknown>> }).__uiSmokePostedMessages
+        .filter((message) => message.type === 'request-waveform-range').length);
+    await expect.poll(rangeRequests).toBeGreaterThan(0);
+    await page.waitForTimeout(300);
+    const asked = await rangeRequests();
+    const canvas = (await page.locator('#track-canvas-0').boundingBox())!;
+    const redraw = (x: number) => page.mouse.click(canvas.x + canvas.width * x, canvas.y + canvas.height / 2);
+    // A failed range gets no answer; while it may still be on its way, a redraw does not ask again...
+    await redraw(0.4);
+    await page.waitForTimeout(300);
+    expect(await rangeRequests()).toBe(asked);
+    // ...but after a while it no longer counts, so the next redraw asks again.
+    await page.waitForTimeout(2000);
+    await redraw(0.6);
+    await expect.poll(rangeRequests).toBeGreaterThan(asked);
+});
