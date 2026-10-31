@@ -653,7 +653,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             const layers: StageLayer[] = [
                 // The grey lines (no role) under the roles' ones.
                 ...plots.others.filter(item => role(item.track.filePath) === undefined).flatMap(item => (item.view ? [{ view: item.view, color: NO_ROLE_COLOR, width: 1.2, label: nameOf(item.track.filePath) }] : [])),
-                ...(plots.base ? [{ view: plots.base, color: ROLE_COLORS[0], width: 2, ...(comparePath ? { label: deps.baseTitle(comparePath, groupBase) } : {}) }] : []),
+                ...(plots.base ? [{ view: plots.base, color: ROLE_COLORS[0], width: 2, ...(comparePath ? { label: deps.baseTitle(comparePath, groupBase) } : basePaths.length === 1 ? { label: nameOf(basePaths[0]) } : {}) }] : []),
                 ...plots.others.filter(item => role(item.track.filePath) !== undefined).flatMap(item => (item.view ? [{ view: item.view, color: colorOf(item.track.filePath), width: 1.8, label: nameOf(item.track.filePath) }] : [])),
                 ...(plots.compare && comparePath ? [{ view: plots.compare, color: colorOf(comparePath, ROLE_COLORS[1]), width: 2.2, label: nameOf(comparePath) }] : []),
             ];
