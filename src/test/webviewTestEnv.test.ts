@@ -45,13 +45,13 @@ test('canvas mock: 計測対象メソッドはカウンタを更新する', () =
 
     const spy = domCanvasContexts.get('counted-canvas');
     assert.ok(spy);
-    assert.equal(spy!.clearRectCalls, 1);
-    assert.equal(spy!.beginPathCalls, 1);
-    assert.equal(spy!.strokeCalls, 1);
-    assert.deepEqual(spy!.fillTextCalls, ['Hz']);
-    assert.equal(spy!.fillRectCalls, 1);
-    assert.equal(spy!.saveCalls, 1);
-    assert.equal(spy!.restoreCalls, 1);
+    assert.equal(spy.clearRectCalls, 1);
+    assert.equal(spy.beginPathCalls, 1);
+    assert.equal(spy.strokeCalls, 1);
+    assert.deepEqual(spy.fillTextCalls, ['Hz']);
+    assert.equal(spy.fillRectCalls, 1);
+    assert.equal(spy.saveCalls, 1);
+    assert.equal(spy.restoreCalls, 1);
 
     dom.window.close();
 });

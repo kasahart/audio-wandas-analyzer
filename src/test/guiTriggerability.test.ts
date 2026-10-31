@@ -38,6 +38,7 @@ interface GuiTriggerabilityAuditModule {
 }
 
 test('GUI triggerability collector distinguishes controls from selector guards', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const audit = require('../../scripts/verify-gui-triggerability.js') as GuiTriggerabilityAuditModule;
     const source = `
         root.querySelector('[data-action="guard-only"]');
@@ -52,6 +53,7 @@ test('GUI triggerability collector distinguishes controls from selector guards',
 });
 
 test('GUI triggerability inventory lists in-scope commands and excludes debug-only command', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const inventory = require('../shared/gui/guiTriggerabilityInventory') as GuiFeatureInventoryModule;
 
     assert.deepEqual(inventory.GUI_TRIGGERABILITY_SCOPED_COMMAND_IDS, [
@@ -76,6 +78,7 @@ test('GUI triggerability inventory lists in-scope commands and excludes debug-on
 });
 
 test('GUI triggerability inventory has no planned regression layer or uncovered feature', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const inventory = require('../shared/gui/guiTriggerabilityInventory') as GuiFeatureInventoryModule;
     const allLayers = inventory.GUI_TRIGGERABILITY_FEATURES.flatMap((feature) => feature.regressionLayers);
 
@@ -89,6 +92,7 @@ test('GUI triggerability inventory has no planned regression layer or uncovered 
 });
 
 test('GUI triggerability coverage debt references issue IDs in the accepted formats', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const inventory = require('../shared/gui/guiTriggerabilityInventory') as GuiFeatureInventoryModule;
     const issuePattern = /^(#\d+|https:\/\/github\.com\/[^\s/]+\/[^\s/]+\/issues\/\d+)$/u;
 
@@ -102,6 +106,7 @@ test('GUI triggerability coverage debt references issue IDs in the accepted form
 });
 
 test('GUI triggerability audit stays aligned with commands, webview actions, and shortcuts', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const audit = require('../../scripts/verify-gui-triggerability.js') as GuiTriggerabilityAuditModule;
     const report = audit.verifyGuiTriggerability(process.cwd());
 

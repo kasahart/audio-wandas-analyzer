@@ -55,12 +55,13 @@ test('desktop recipe saving writes the chosen destination and says where', async
     const exports: { ExportFlows?: typeof ExportFlows } = {};
     runInNewContext(readFileSync(join(__dirname, '../extension/exportFlows.js'), 'utf8'), {
         exports, Buffer,
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         require: (name: string) => name === 'vscode' ? {} : name === 'path' ? require('node:path') : require('../shared/i18n/strings'),
     });
     const writes: Array<[string, string]> = [];
     const notices: string[] = [];
     const asked: string[] = [];
-    let destination: { fsPath: string } | undefined;
+    let destination: { fsPath: string } | undefined = undefined;
     const host = {
         pickRecipeDestination: async (name: string) => { asked.push(name); return destination; },
         writeFile: async (uri: { fsPath: string }, content: Uint8Array) => { writes.push([uri.fsPath, Buffer.from(content).toString('utf-8')]); },

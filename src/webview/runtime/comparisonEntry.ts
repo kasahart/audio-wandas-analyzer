@@ -1,4 +1,4 @@
-import { readComparisonBootstrap, type ComparisonWindow } from './browserAdapter';
+import { readComparisonBootstrap } from './browserAdapter';
 import { startComparisonRuntime } from './comparisonRuntime';
 
-startComparisonRuntime(readComparisonBootstrap(window as unknown as ComparisonWindow));
+startComparisonRuntime(readComparisonBootstrap(window));

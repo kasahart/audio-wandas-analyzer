@@ -153,7 +153,7 @@ export interface EntryScanPorts {
     /** The bytes of a listed file, for reading the CSV/TSV files among them as metadata tables. */
     readFile?(filePath: string): Promise<Uint8Array>;
     /** A file's first `length` bytes, for its header. */
-    readHead?(filePath: string, length: number): Promise<Uint8Array>;
+    readHead?: (filePath: string, length: number) => Promise<Uint8Array>;
     /** Stored values: the folder's index and session (large) may come from a file or IndexedDB, so a read may wait. */
     read(key: string): unknown;
     write(key: string, value: unknown): void | PromiseLike<void>;

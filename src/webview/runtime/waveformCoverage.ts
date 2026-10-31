@@ -13,8 +13,10 @@ export interface XExtent {
 // The waveform pipeline draws through moveTo/lineTo only, so wrapping them is
 // the cheapest way to learn which horizontal span actually received samples.
 export function traceXExtent(ctx: PathCtx, draw: () => void): XExtent | null {
+    /* eslint-disable @typescript-eslint/unbound-method -- saved only to be called with ctx and restored onto it */
     const originalMoveTo = ctx.moveTo;
     const originalLineTo = ctx.lineTo;
+    /* eslint-enable @typescript-eslint/unbound-method */
     let minX = Number.POSITIVE_INFINITY;
     let maxX = Number.NEGATIVE_INFINITY;
     const track = function (x: number) {

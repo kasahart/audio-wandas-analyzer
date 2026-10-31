@@ -109,8 +109,8 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
         postMessage(command: Record<string, unknown>): void {
             this.commands.push(command);
             if (command.cmd === 'load') {
-                firstAnalysis.add(`/sources/${command.sourceId}`);
-                this.loadedSources.add(`/sources/${command.sourceId}`);
+                firstAnalysis.add(`/sources/${String(command.sourceId)}`);
+                this.loadedSources.add(`/sources/${String(command.sourceId)}`);
             }
             if (command.cmd === 'limits') {
                 if (spareBooting && workers.indexOf(this) > 0) return;
@@ -129,7 +129,7 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
             }
             if (['load','unload','export-plan'].includes(String(command.cmd)) || (command.cmd === 'analyze' && firstAnalysis.has(String(command.filePath)))) {
                 if (command.cmd === 'analyze') firstAnalysis.delete(String(command.filePath));
-                queueMicrotask(() => this.reply(command, command.cmd === 'load' ? { filePath: `/sources/${command.sourceId}` } : {}));
+                queueMicrotask(() => this.reply(command, command.cmd === 'load' ? { filePath: `/sources/${String(command.sourceId)}` } : {}));
             }
         }
         reply(command: Record<string, unknown>, result: Record<string, unknown> = {}, error?: string): void {
@@ -190,7 +190,7 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
         setRecipeAnswer(value: typeof recipeAnswer) { recipeAnswer = value; },
         get status() { return elements.find(element => element.attributes.role === 'status')!.textContent; },
         get footer() { return footer.textContent; },
-        get sourcePath() { return `/sources/${workers.at(-1)!.commands.filter(command => command.cmd === 'load').at(-1)!.sourceId}`; } };
+        get sourcePath() { return `/sources/${String(workers.at(-1)!.commands.filter(command => command.cmd === 'load').at(-1)!.sourceId)}`; } };
 }
 const flush = () => new Promise<void>(resolve => setImmediate(resolve));
 const identity = { filePath: '/sources/selected.wav', requestId: 'ui', analysisId: 'a', settingsSignature: 's', trackIndex: 0 };
@@ -376,14 +376,14 @@ test('a failed boot while restoring sources after a Recipe timeout replays them 
     await new Promise(resolve => setTimeout(resolve, 40));
     assert.equal(app.workers[0].terminated, true);
     app.blockedWorkerCommands.add('load');
-    app.host.postMessage({ ...identity, filePath: `/sources/${retainedIds[0]}`, type: 'request-track-detail' });
+    app.host.postMessage({ ...identity, filePath: `/sources/${String(retainedIds[0])}`, type: 'request-track-detail' });
     await flush(); await flush();
     const failed = app.workers[1];
     failed.onmessage({ data: { ready: false } });
     failed.reply(failed.commands.find(command => command.cmd === 'load')!, {}, 'Python failed to start');
     await flush(); await flush();
     app.blockedWorkerCommands.delete('load');
-    app.host.postMessage({ ...identity, filePath: `/sources/${retainedIds[0]}`, type: 'request-track-detail' });
+    app.host.postMessage({ ...identity, filePath: `/sources/${String(retainedIds[0])}`, type: 'request-track-detail' });
     await flush(); await flush(); await flush();
     assert.equal(failed.terminated, true);
     assert.equal(app.workers.length, 3);
@@ -536,7 +536,7 @@ test('browser-only Worker commands reject success envelopes with extra outer key
     await app.load();
     const worker = app.workers[0];
     const load = worker.commands.find(command => command.cmd === 'load')!;
-    worker.onmessage({ data: { requestId: load.requestId, result: { filePath: `/sources/${load.sourceId}` }, debug: 1 } });
+    worker.onmessage({ data: { requestId: load.requestId, result: { filePath: `/sources/${String(load.sourceId)}` }, debug: 1 } });
     await flush(); await flush();
     assert.equal(worker.commands.some(command => command.cmd === 'analyze'), false, 'a malformed load reply must not start analysis');
     assert.match(app.status, /Invalid load response envelope/);
@@ -613,7 +613,7 @@ test('a two-input browser recipe lets the user swap which track fills each input
     await app.load();
     await app.load();
     const worker = app.workers[0];
-    const [first, second] = worker.commands.filter(command => command.cmd === 'load').map(command => `/sources/${command.sourceId}`);
+    const [first, second] = worker.commands.filter(command => command.cmd === 'load').map(command => `/sources/${String(command.sourceId)}`);
     app.setRecipeAnswer(1);
     app.setAssignAnswer(menu => {
         const [reference, response] = menu.children.filter(child => child.tag === 'label').map(row => row.children[1]);
@@ -875,7 +875,7 @@ for (const operation of ['remove', 'add'] as const) {
         await flush(); await flush();
         const restored = app.workers[1];
         const expected = operation === 'remove' ? before.filter(source => source.filePath === remainingPath) : before;
-        assert.deepEqual(restored.commands.filter(command => command.cmd === 'load').map(command => `/sources/${command.sourceId}`), expected.map(source => source.filePath));
+        assert.deepEqual(restored.commands.filter(command => command.cmd === 'load').map(command => `/sources/${String(command.sourceId)}`), expected.map(source => source.filePath));
         assert.equal(restored.commands.some(command => command.cmd === 'unload'), false);
         const after = app.received.filter(message => message.type === 'analysis-update').at(-1)!.results as Array<{ filePath: string; audioSource: string }>;
         assert.deepEqual(Array.from(after, source => [source.filePath, source.audioSource]), expected.map(source => [source.filePath, source.audioSource]));
@@ -1043,7 +1043,7 @@ test('Open Folder walks the File System Access picker and ignores a cancelled pi
     const dir = (name: string, entries: unknown[]) => ({ kind: 'directory', name, values: async function* () { yield* entries; } });
     const status = app.status;
     (app.browser as unknown as Record<string, unknown>).showDirectoryPicker = async () => { throw Object.assign(new Error('cancelled'), { name: 'AbortError' }); };
-    openFolder.onclick!();
+    openFolder.onclick();
     await flush();
     assert.equal(app.status, status);
     assert.equal(app.received.some(message => message.type === 'directory-selection'), false);
@@ -1051,7 +1051,7 @@ test('Open Folder walks the File System Access picker and ignores a cancelled pi
     const folderBlob = { size: 100, name: 'b.wav', arrayBuffer: async () => new ArrayBuffer(100) };
     const folderFile = { kind: 'file', name: 'b.wav', getFile: async () => folderBlob };
     (app.browser as unknown as Record<string, unknown>).showDirectoryPicker = async () => dir('rec', [folderFile, file('notes.txt'), dir('day2', [file('a.WAV')])]);
-    openFolder.onclick!();
+    openFolder.onclick();
     await flush(); await flush();
     assert.deepEqual(app.received.find(message => message.type === 'directory-selection'),
         { type: 'directory-selection', rootPath: '/sources/rec', rootLabel: 'rec', filePaths: ['/sources/rec/b.wav', '/sources/rec/day2/a.WAV'], entry: true });
@@ -1068,7 +1068,7 @@ test('Open Folder walks the File System Access picker and ignores a cancelled pi
     let release!: () => void;
     const walking = new Promise<void>(resolve => { release = resolve; });
     (app.browser as unknown as Record<string, unknown>).showDirectoryPicker = async () => ({ kind: 'directory', name: 'slow', values: async function* () { await walking; yield file('c.wav'); } });
-    openFolder.onclick!();
+    openFolder.onclick();
     await flush();
     app.clear(true);
     await flush();

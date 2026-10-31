@@ -12,8 +12,8 @@ const LAYER_ORDER: readonly KeyLayer[] = ['help', 'popover', 'widget', 'step-bar
 export interface KeyContext {
     readonly layer: KeyLayer;
     /** True when the context took the key: no context behind it, nor any other listener, sees it. */
-    keydown(event: KeyboardEvent): boolean;
-    keyup?(event: KeyboardEvent): boolean;
+    keydown: (event: KeyboardEvent) => boolean;
+    keyup?: (event: KeyboardEvent) => boolean;
 }
 
 export interface KeyRouter {
@@ -44,8 +44,8 @@ function createKeyRouter(target: KeyWindow): KeyRouter {
             }
         }
     }
-    target.addEventListener('keydown', event => route(event as KeyboardEvent, 'keydown'), true);
-    target.addEventListener('keyup', event => route(event as KeyboardEvent, 'keyup'), true);
+    target.addEventListener('keydown', event => route(event, 'keydown'), true);
+    target.addEventListener('keyup', event => route(event, 'keyup'), true);
     return {
         add(context) {
             contexts.push(context);

@@ -4,7 +4,9 @@
 
 ## Completion bar
 
-A change is only finished when `npm run verify` exits 0. `scripts/verify.mjs` lists its steps: `tsc` compile and Webview bundles, Webview pattern lint, generated protocol types, single-source check, `.claude/skills` copy check, GUI triggerability audit, `node:test`, `ruff check` / `ruff format --check`, and `pytest`.
+A change is only finished when `npm run verify` exits 0. `scripts/verify.mjs` lists its steps: `tsc` compile and Webview bundles, ESLint, Webview pattern lint, generated protocol types, single-source check, `.claude/skills` copy check, GUI triggerability audit, `node:test`, `ruff check` / `ruff format --check`, and `pytest`.
+
+`npm run lint` (ESLint, `eslint.config.mjs`) is part of verify; fix findings rather than disabling rules, and never add files to its burn-down list.
 
 `npm run test:ui` (Playwright) is also required for Webview runtime changes. E2E (`npm run verify:e2e`) is a separate, slower job.
 

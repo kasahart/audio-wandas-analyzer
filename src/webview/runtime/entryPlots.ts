@@ -8,8 +8,6 @@ import { FULL_PLOT_WINDOW, type PlotMargins, type PlotWindow } from './plotInter
 /** The strip's margins (its colour scale and frequency axis), for placing the pointer on it. */
 export const OVERVIEW_MARGINS: PlotMargins = { left: 0, top: 14, right: 0, bottom: 26 };
 
-/** The part of [low, high] a window's range (0–1) shows. */
-const part = (low: number, high: number, range: { start: number; end: number }): [number, number] => [low + range.start * (high - low), low + range.end * (high - low)];
 
 /** Numbers on screen use the minus sign, as the table does. */
 export const minus = (text: string): string => text.replace(/^-/, '−');

@@ -18,16 +18,16 @@ export interface SpectrumCanvas {
 export interface SpectrumCursorDeps {
     hover: SpectrumHover;
     trackIdAtIndex(trackIndex: number): TrackId | null;
-    trackIndexFromElement(element: Pick<Element, 'getAttribute'>): number | null;
+    trackIndexFromElement: (element: Pick<Element, 'getAttribute'>) => number | null;
     activeElement(): FocusableElement | null;
     refresh(): void;
 }
 
 export interface SpectrumCursorHandlers {
     move(canvas: SpectrumCanvas, padLeft: number, padRight: number, pointer: { clientX: number; clientY: number }, trackIndex: number | null, channelIndex: number | null): void;
-    leave(): void;
+    leave: () => void;
     focus(trackIndex: number | null, channelIndex: number | null): void;
-    blur(): void;
+    blur: () => void;
 }
 
 export function spectrumFocusTargetFromElement(

@@ -8,7 +8,7 @@ function setup(axisOpens = false) {
     const doc = window.document;
     const wrapper = doc.getElementById('tracks') as HTMLElement;
     const calls: string[] = [];
-    attachTrackPointerListeners(wrapper, doc as unknown as Document, {
+    attachTrackPointerListeners(wrapper, doc, {
         resetZoom: () => { calls.push('reset'); },
         openAxisRange: () => { calls.push('axis'); return axisOpens; },
         hover: () => { calls.push('hover'); },

@@ -586,7 +586,7 @@ test('coherence compares two channels of each recording: it comes with its pair 
 test('with a one-channel recording, coherence is measured against the base slot: the compared recording over the base one, and ⚙ switches the reference', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     const STR = getStrings('en');
-    const [base, compared] = await openComparison(page, 'en', scanned!, true);
+    const [base, compared] = await openComparison(page, 'en', scanned, true);
     const bar = page.locator('.track-stage-bar');
     await bar.locator('.step-chip', { hasText: STR.stepAverage }).locator('[data-action="step-delete"]').click();
     await bar.locator('[data-action="step-add"]').click();
@@ -629,7 +629,7 @@ test('with a one-channel recording, coherence is measured against the base slot:
 
 test('B switches the base between the slot-0 file and the group median; 0 no longer does', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
-    await openComparison(page, 'en', scanned!, true);
+    await openComparison(page, 'en', scanned, true);
     const root = page.locator('.track-stage');
     await expect(root).toHaveAttribute('data-base', 'file');
     await page.keyboard.press('0');

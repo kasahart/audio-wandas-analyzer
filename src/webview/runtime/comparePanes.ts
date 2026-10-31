@@ -192,10 +192,10 @@ export function buildCompareModel(
             : single && basePath === comparePath ? 'self'
                 : !single && entryRegionBase ? 'region' : undefined;
     const comparable = !blocked && !!base && !!compare && base.spectrumDb.length === compare.spectrumDb.length;
-    const diffDb = comparable ? compare!.spectrumDb.map((level, index) => level - base!.spectrumDb[index]) : null;
-    const leq = comparable ? { base: round1(base!.leq), compare: round1(compare!.leq), delta: round1(round1(compare!.leq) - round1(base!.leq)) } : null;
+    const diffDb = comparable ? compare.spectrumDb.map((level, index) => level - base!.spectrumDb[index]) : null;
+    const leq = comparable ? { base: round1(base!.leq), compare: round1(compare.leq), delta: round1(round1(compare.leq) - round1(base!.leq)) } : null;
     const bandDeltas = comparable
-        ? compare!.bands.map((level, band) => {
+        ? compare.bands.map((level, band) => {
             const reference = base!.bands[band];
             return level === null || reference === null ? null : roundedDelta(level, reference);
         })
@@ -316,7 +316,7 @@ export interface PaneAxes {
  */
 export function paneAxes(strings: Pick<UiStrings, 'axisFrequency' | 'axisLevelUncal' | 'axisLevelCal' | 'axisDelta' | 'legendHeadline' | 'legendLeak' | 'legendLine'>, input: { unit?: string; ref?: number } | undefined): { level: PaneAxes; delta: PaneAxes } {
     const uncalibrated = !input || (input.unit === 'FS' && input.ref === 1);
-    const y = uncalibrated ? strings.axisLevelUncal : strings.axisLevelCal.replace('{ref}', String(input!.ref)).replace('{unit}', input!.unit ?? '');
+    const y = uncalibrated ? strings.axisLevelUncal : strings.axisLevelCal.replace('{ref}', String(input.ref)).replace('{unit}', input.unit ?? '');
     return {
         level: { x: strings.axisFrequency, y },
         delta: { x: strings.axisFrequency, y: strings.axisDelta, legend: { headline: strings.legendHeadline, leak: strings.legendLeak, line: strings.legendLine } },

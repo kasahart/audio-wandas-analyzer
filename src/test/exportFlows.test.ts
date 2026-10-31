@@ -25,6 +25,7 @@ function load() {
         exports, Buffer,
         require: (name: string) => name === 'vscode'
             ? { Uri: { joinPath: (folder: { fsPath: string }, name: string) => ({ fsPath: `${folder.fsPath}/${name}` }) } }
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
             : name === 'path' ? require('node:path') : name === '../shared/utils/exportArtifact' ? require('../shared/utils/exportArtifact') : require('../shared/i18n/strings'),
     });
     return exports.ExportFlows!;

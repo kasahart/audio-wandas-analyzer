@@ -24,14 +24,14 @@ export interface DistributionInputs {
     /** The range picked on the value. */
     range: { low: number; high: number } | null;
     /** Whether a row's value counts (a computed one only when it is of the current chain). */
-    usable(row: DatasetRow): boolean;
+    usable: (row: DatasetRow) => boolean;
     slots: readonly (string | null)[];
-    rowOf(key: string | null): DatasetRow | undefined;
+    rowOf: (key: string | null) => DatasetRow | undefined;
     /** The group whose median is the base (slot 0 empty, a grouping chosen), or null. */
     baseGroup: string | null;
     valueLabel: string;
-    format(value: number): string;
-    rowName(key: string): string;
+    format: (value: number) => string;
+    rowName: (key: string) => string;
 }
 
 export interface DistributionPaneDeps {

@@ -164,7 +164,7 @@ export class PlaybackController {
             }
         };
         const playPromise = audio.play();
-        if (playPromise && typeof playPromise.then === 'function') {
+        if (typeof playPromise?.then === 'function') {
             playPromise.then(fadeIn, (err: unknown) => {
                 this.rejection = err instanceof Error ? err.name + ': ' + err.message : String(err);
                 this.clear();

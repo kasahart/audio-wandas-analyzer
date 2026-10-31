@@ -17,7 +17,7 @@ function setup() {
             const id = el.getAttribute('data-track-id');
             return id === 'a' || id === 'b' ? id as TrackId : null;
         },
-        rowFor: id => document.getElementById('row-' + id) as unknown as HTMLElement | null,
+        rowFor: id => document.getElementById('row-' + id),
         onReorder: (from, to) => reorders.push([from, to]),
     });
     const fire = (type: string, id: string) => {

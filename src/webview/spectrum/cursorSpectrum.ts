@@ -34,7 +34,7 @@ export interface CursorSpectrumContext {
     /** Octave bands come only from the backend; the spectrogram column is an FFT and cannot stand in for them. */
     bands?: boolean;
     requestSlice(trackIndex: number, cursorNorm: number): void;
-    applyDisplaySettings(slice: SpectrumSlice): SpectrumSlice;
+    applyDisplaySettings: (slice: SpectrumSlice) => SpectrumSlice;
 }
 
 function makeSilentSpectrumSlice(
@@ -48,7 +48,7 @@ function makeSilentSpectrumSlice(
     const floorDb = spec && Number.isFinite(spec.minDb) ? spec.minDb : (cached && Number.isFinite(cached.minDb) ? cached.minDb : -120);
     const topDb = spec && Number.isFinite(spec.maxDb) ? spec.maxDb : (cached && Number.isFinite(cached.maxDb) ? cached.maxDb : 0);
     return applySpectrumDisplaySettings({
-        values: Array(Math.max(1, fallbackBins)).fill(floorDb),
+        values: new Array<number>(Math.max(1, fallbackBins)).fill(floorDb),
         frequencyBins: Math.max(1, fallbackBins),
         originalMaxFrequencyHz: fallbackMaxF,
         maxFrequencyHz: fallbackMaxF,

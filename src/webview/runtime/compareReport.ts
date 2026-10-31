@@ -26,7 +26,7 @@ export interface ReportFile {
 
 export type ReportStrings = CompareStrings & Pick<UiStrings,
     | 'entryColFile' | 'entryColCondition' | 'stepRegion' | 'entryColLeq' | 'entryColPeak' | 'entryCsvGroupSize' | 'entryBase' | 'entryBaseGroup'
-    | 'reportBase' | 'reportCompare' | 'reportDiff' | 'reportCsv' | 'reportBaseLeq' | 'reportBandDelta' | 'reportGroupFiles' | 'reportSpecVersion' | 'entryLeqUncalibrated' | 'reportSummary' | 'reportStepsLegend' | 'axisFrequency' | 'axisLevelUncal' | 'axisLevelCal' | 'axisDelta' | 'legendHeadline' | 'legendLeak' | 'legendLine' | 'hintLeqUncalibrated' | 'reportRegion' | 'reportRegionStart' | 'reportRegionEnd' | 'reportWhole' | 'reportDefinitions' | 'compareDelta' | 'defLeq' | 'defSpectrum' | 'defThirdOct' | 'defChannels' | 'defBase' | 'defDelta' | 'defRegion' | 'defHeadline' | 'defHeadlineEdges' | 'entryColLeq' | 'outside192' | 'outsideMedian' | 'outsideDelta' | 'outsideOutliers' | 'reportChain' | 'reportChainCurrent' | 'reportChainPrevious' | 'reportMemo' | 'dsCh' | 'reportBaseDefinition' | 'reportDerived'>;
+    | 'reportBase' | 'reportCompare' | 'reportDiff' | 'reportCsv' | 'reportBaseLeq' | 'reportBandDelta' | 'reportGroupFiles' | 'reportSpecVersion' | 'entryLeqUncalibrated' | 'reportSummary' | 'reportStepsLegend' | 'axisFrequency' | 'axisLevelUncal' | 'axisLevelCal' | 'axisDelta' | 'legendHeadline' | 'legendLeak' | 'legendLine' | 'hintLeqUncalibrated' | 'reportRegion' | 'reportRegionStart' | 'reportRegionEnd' | 'reportWhole' | 'reportDefinitions' | 'compareDelta' | 'defLeq' | 'defSpectrum' | 'defThirdOct' | 'defChannels' | 'defBase' | 'defDelta' | 'defRegion' | 'defHeadline' | 'defHeadlineEdges' | 'outside192' | 'outsideMedian' | 'outsideDelta' | 'outsideOutliers' | 'reportChain' | 'reportChainCurrent' | 'reportChainPrevious' | 'reportMemo' | 'dsCh' | 'reportBaseDefinition' | 'reportDerived'>;
 
 export interface ReportInput {
     model: EntryModel;
@@ -45,7 +45,7 @@ export interface ReportInput {
     /** A compared file's comparison as the entry table defines its base (its grouping, filters and channel). */
     compare?(path: string): CompareModel;
     /** A compared file as the table has it: its name with its channel, its value on show, its memo, and its base. */
-    rowInfo?(path: string): { label: string; value: string; memo: string; channel: number | null; base: BaseDefinition };
+    rowInfo?: (path: string) => { label: string; value: string; memo: string; channel: number | null; base: BaseDefinition };
     /** What the table was narrowed to. */
     selection?: { value: string; group: string; filters: string[]; excluded: number };
     /** The differences fixed with D, written after the comparisons. */
@@ -194,6 +194,7 @@ const PNG_SIZE = { width: 1200, height: 400 };
 export function outsideRecipe(strings: Pick<UiStrings, 'entryColLeq' | 'outside192' | 'outsideMedian' | 'outsideDelta' | 'outsideOutliers'>, welch?: Record<string, unknown>): Array<{ tag: string; text: string }> {
     return [
         { tag: strings.entryColLeq, text: 'Leq dB(A) = 20·log10(rms / ref) of the time slice\'s frame.a_weighting(): an RMS is an array, not a frame, so it is not a Recipe step' },
+        // eslint-disable-next-line @typescript-eslint/no-base-to-string, @typescript-eslint/restrict-template-expressions -- Recipe params are JSON scalars
         { tag: strings.outside192, text: `spectrum: the SpectralFrame's dB (n_fft ${welch?.['n_fft'] ?? 1024}, ${welch?.['window'] ?? 'hann'}), bins power-averaged into 192 log-spaced points from 20 Hz to Nyquist (narrower than a bin: interpolated); 1/3 octave: the NOctFrame's dB, bands centred outside the Recipe's filter passband left empty; channels: power mean (10·log10 of the mean of 10^(L/10))` },
         { tag: strings.outsideMedian, text: 'base: the slot-0 file, or the median per point and band of the compared file\'s condition without it' },
         { tag: strings.outsideDelta, text: 'Δ = round(compare, 0.1 dB) − round(base, 0.1 dB); Δ max band = the band with the largest |Δ|; headline: see "headline"' },
@@ -227,7 +228,7 @@ export function reportOctaveRecipe(recipe: RecipeDocument, region: EntryRegion |
             params: { $type: 'map', entries: [['fmax', encodeNumber(fmax, 'float', plainFloats(base))], ['fmin', encodeNumber(BAND_CENTERS_HZ[0], 'float', plainFloats(base))], ['n', 3]] },
         }],
         output: 'node-noct',
-    } as unknown as RecipeDocument;
+    };
 }
 
 /** The compared files' length, which the measured region is cut from. */
@@ -327,7 +328,6 @@ function paintDeltaFigure(canvas: HTMLCanvasElement, comparison: CompareModel, t
  * whether the levels are uncalibrated.
  */
 export function summaryPng(document: Document, input: ReportInput, comparisons: ReadonlyArray<{ slot: number; comparison: CompareModel }>, strings: ReportStrings): string {
-    const axesFor = (comparison: CompareModel) => paneAxes(strings, input.results.get(comparison.compare?.filePaths[0] ?? '')?.input);
     const width = 1200, pane = 300, head = 56;
     const perSlot = input.showDiff ? 2 : 1;
     const page = document.createElement('canvas');
@@ -359,7 +359,6 @@ export function summaryPng(document: Document, input: ReportInput, comparisons: 
 
 /** Every file of the report folder, in the order they are listed. */
 export function reportFiles(document: Document, input: ReportInput, strings: ReportStrings): { folder: string; files: ReportFile[] } {
-    const axesFor = (comparison: CompareModel) => paneAxes(strings, input.results.get(comparison.compare?.filePaths[0] ?? '')?.input);
     const files: ReportFile[] = [];
     const comparisons: Array<{ slot: number; comparison: CompareModel }> = [1, 2, 3]
         .filter(slot => input.slots[slot])

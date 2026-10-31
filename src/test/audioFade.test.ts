@@ -149,7 +149,7 @@ test('a delayed fade is queued behind the running ramp instead of cancelling it'
     const restart = fade.slice(-18, -16);
     assert.deepEqual(restart[0], ['cancel', 2]);
     assert.equal(restart[1][0], 'set');
-    assert.ok((restart[1][1] as number) < 0.01, 'still at the start of the fade-in at t=2');
+    assert.ok(restart[1][1] < 0.01, 'still at the start of the fade-in at t=2');
 });
 
 test('release disconnects the gain stages of a discarded element', () => {

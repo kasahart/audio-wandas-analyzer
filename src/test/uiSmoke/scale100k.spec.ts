@@ -25,7 +25,7 @@ function report(numbers: Record<string, number>, targets: Record<string, number>
 async function timed(page: Page, act: string): Promise<number> {
     return page.evaluate(async (script) => {
         const started = performance.now();
-        // eslint-disable-next-line no-new-func
+        // eslint-disable-next-line @typescript-eslint/no-implied-eval -- times the act script the spec hands the page
         new Function(script)();
         await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         return performance.now() - started;

@@ -48,7 +48,7 @@ export function withFilteredStderr<T>(action: () => Promise<T>): Promise<T> {
             return originalWrite(chunk, encoding);
         }
         return originalWrite(chunk, encoding as BufferEncoding, callback);
-    }) as typeof process.stderr.write;
+    });
 
     return action().finally(() => {
         process.stderr.write = originalWrite;
