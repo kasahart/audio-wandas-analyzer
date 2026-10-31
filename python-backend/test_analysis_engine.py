@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -50,6 +52,37 @@ def test_file_load_locks_are_released_after_each_read(tmp_path: Path) -> None:
     with ThreadPoolExecutor(max_workers=4) as executor:
         list(executor.map(engine.get_file, paths * 3))
 
+    assert engine._loading == {}
+
+
+def test_concurrent_requests_for_one_spectrogram_compute_the_stft_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import analysis_engine
+
+    wav = _write_tone(tmp_path / "tone.wav")
+    engine = AnalysisEngine(cache_limit_bytes=10_000_000)
+    engine.get_file(wav)
+    both_waiting = threading.Barrier(2, timeout=10)
+    calls = 0
+    original = analysis_engine.compute_spectrogram
+
+    def slow_compute(*args: object, **kwargs: object):
+        nonlocal calls
+        calls += 1
+        time.sleep(0.2)
+        return original(*args, **kwargs)  # type: ignore[arg-type]
+
+    def build(_index: int):
+        both_waiting.wait()
+        return engine.get_spectrogram(wav, 512, 128, "hann")
+
+    monkeypatch.setattr(analysis_engine, "compute_spectrogram", slow_compute)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first, second = executor.map(build, range(2))
+
+    assert calls == 1
+    assert first is second
     assert engine._loading == {}
 
 
