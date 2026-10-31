@@ -174,7 +174,7 @@ flowchart LR
 
 - `python-backend/backend_server.py` を常駐子プロセスとして起動・管理する
 - `AnalysisClient` の要求を request ID 付きの改行区切り JSON で送信し、応答を対応する Promise に返す
-- ready、heartbeat、タイムアウト、取消、終了時の pending request を管理する
+- ready、heartbeat、started、タイムアウト、取消、終了時の pending request を管理する。command ごとの timeout は、Python が request の実行を始めたと知らせる started から数え、同じファイルの barrier (scan など) の後ろで待つ時間は数えない
 
 同じプロセスで初期解析と遅延解析を扱い、`AnalysisEngine` のファイル・STFT キャッシュを再利用する。
 
@@ -187,7 +187,7 @@ flowchart LR
 - stdin の NDJSON リクエストを検証し、`AnalysisService` に渡す
 - 共通10コマンド（analyze、range、track-detail、release-track-detail、spectrum-slice、pair-spectrum、export-wav-loop、run-recipe、build-recipe、scan）を dispatch する
 - request ID 付きの結果または error を stdout に返す
-- 起動通知・heartbeat と stderr の診断を提供する
+- 起動通知・heartbeat・request ごとの実行開始通知 (started) と stderr の診断を提供する
 
 検証と dispatch は Web の `browser_service.py` からも使う。
 
