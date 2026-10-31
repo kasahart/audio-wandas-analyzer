@@ -29,7 +29,6 @@ const NON_NULL_ASSERTION_BURN_DOWN = [
     'src/webview/runtime/spectrogramSettingsPopover.ts',
     'src/webview/runtime/staticHost.ts',
     'src/webview/runtime/toolbarEvents.ts',
-    'src/webview/runtime/trackStageMode.ts',
 ];
 NON_NULL_ASSERTION_BURN_DOWN.forEach((file, index, list) => {
     if (!existsSync(new URL(file, import.meta.url))) throw new Error(`eslint.config.mjs: burn-down entry ${file} does not exist`);

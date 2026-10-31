@@ -319,7 +319,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             state.on = next;
             root.hidden = !state.on;
             if (!state.on) deps.showLanes(true);
-            if (!state.on) document.querySelectorAll<HTMLElement>('[data-lane-label]').forEach(canvas => { canvas.setAttribute('aria-label', canvas.dataset.laneLabel!); delete canvas.dataset.laneLabel; });
+            if (!state.on) document.querySelectorAll<HTMLElement>('[data-lane-label]').forEach(canvas => { canvas.setAttribute('aria-label', canvas.dataset.laneLabel ?? ''); delete canvas.dataset.laneLabel; });
             // A selection not yet taken as the region is not taken later, when the comparison is opened some other way.
             if (!state.on) state.pendingRegion = null;
             deps.rerender();
@@ -364,16 +364,18 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             const comparePath = comparedPath(tracks);
             const allBase = comparePath && !referencePath ? deps.basePaths(comparePath, state.groupBase) : [];
             // A base group of more than LARGE_BASE recordings is not scanned until 「基準の群 n 本を解析する」.
-            state.gateKey = comparePath ? `${comparePath}|${state.groupBase}|${allBase.length}|${allBase[0] ?? ''}|${allBase.at(-1) ?? ''}` : null;
+            const gateKey = comparePath ? `${comparePath}|${state.groupBase}|${allBase.length}|${allBase[0] ?? ''}|${allBase.at(-1) ?? ''}` : null;
+            state.gateKey = gateKey;
             const cost = deps.cost?.(allBase) ?? { seconds: 0, ms: allBase.length * 150 };
-            const gated = (allBase.length > LARGE_BASE || cost.seconds > LARGE_BASE_S) && !state.baseAllowed.has(state.gateKey!);
+            const gated = (allBase.length > LARGE_BASE || cost.seconds > LARGE_BASE_S) && !(gateKey !== null && state.baseAllowed.has(gateKey));
             const basePaths = gated ? [] : allBase;
             const files = [...new Set([...tracks.map(track => track.filePath), ...basePaths])];
             // A step held: the picture without it, as scanned for that (the lanes and the plot framed green meanwhile).
-            const held_ = state.heldStep ? holdSpec(state.heldStep) : undefined;
+            const heldStep = state.heldStep;
+            const held_ = heldStep ? holdSpec(heldStep) : undefined;
             // Each file is drawn as the channel it is compared as (a channel row's slot, and its base's members of that channel).
             const channelFor = (path: string): number | null => deps.stageChannel?.(path, comparePath, state.groupBase) ?? null;
-            const plain = (ch: number | null): StageSpec => (held_ ? holdSpec(state.heldStep!, ch) : undefined) ?? spec(id, ch);
+            const plain = (ch: number | null): StageSpec => (held_ && heldStep ? holdSpec(heldStep, ch) : undefined) ?? spec(id, ch);
             // Measured against the base slot: the base recording's chain up to that step goes with the request.
             const specOf = (ch: number | null): StageSpec => {
                 const own = plain(ch);
@@ -384,7 +386,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             const byChannel = new Map<number | null, string[]>();
             for (const path of files) byChannel.set(channelFor(path), [...(byChannel.get(channelFor(path)) ?? []), path]);
             root.classList.toggle('is-step-held', !!held_);
-            root.dataset.held = held_ ? state.heldStep!.id : '';
+            root.dataset.held = held_ && heldStep ? heldStep.id : '';
             root.dataset.channels = files.map(path => `${baseName(path)}:${channelFor(path) ?? '*'}`).join(',');
             let waiting = false;
             for (const [ch, paths] of byChannel) waiting = source.ensure(specOf(ch), paths) || waiting;
@@ -424,7 +426,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
                 }
             }
             const fineReady = fineSpecs.size > 0 && [...fineSpecs.values()].every(item => !!item);
-            const fine = fineReady ? (path: string) => source.view(fineSpecs.get(channelFor(path))!, path) : null;
+            const fine = fineReady ? (path: string) => { const fineSpec = fineSpecs.get(channelFor(path)); return fineSpec ? source.view(fineSpec, path) : undefined; } : null;
             const shown = (path: string) => (fine ? fine(path) : undefined) ?? coarse(path);
             stepBar.element.dataset.stage = id;
             stepBar.element.dataset.detail = String(!!fine);
