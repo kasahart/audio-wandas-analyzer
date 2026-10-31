@@ -11,14 +11,14 @@ import type { UiStrings } from '../../shared/i18n/strings';
 import type { ComparePublication, CompareScanMessage, EntryConditionTable, EntryProbeCancelMessage, EntryProbeMessage, EntryProbePublication, EntryPublication, EntryScanCancelMessage, EntryScanMessage, EntrySaveSessionMessage } from '../../shared/analysis/entryScan';
 import type { ScanResult } from '../../shared/protocol/backendProtocol';
 import { BAND_CENTERS_HZ, bandLabel, buildEntryModel, derivedKey, entryCsv, type BaseDefinition, type DerivedRow, type EntryModel } from './entryTable';
-import { channelResult } from '../../shared/recipe/channelSelection';
 import { batchBundle, batchCount } from '../../shared/batch/batchBundle';
-import { baseOf, buildCompareModel, type CompareModel } from './comparePanes';
-import { compareGroupNames, groupLabels, median } from '../../shared/dataset/distribution';
+import { baseOf, type CompareModel } from './comparePanes';
+import { compareGroupNames, groupLabels } from '../../shared/dataset/distribution';
 import { createDistributionPane } from './entryDistributionPane';
 import { createFilterPopover } from './entryFilterPopover';
 import { createHeldPlot } from './entryHeldPlot';
 import { createSidePlots } from './entrySidePlots';
+import { channelOfRow, createEntryBase } from './entryBase';
 import { HostRequests } from './hostRequests';
 import { LARGE_BASE, LARGE_BASE_S } from './trackStageMode';
 import { createStepBar, endsInSpectrum, runnableRecipe, stepLimits, unpairedRecipe } from './stepBar';
@@ -36,7 +36,7 @@ import { channelRowKey, comparedKeys, emptySlots, firstFreeCompareSlot, restored
 import { setHint } from './hintFooter';
 import { ENTRY_KEYS, keyAction } from './shortcuts';
 import {
-    annotatedCsv, baseGroupMembers, datasetRows, filteredRows, fileOfKey, groupOf as datasetGroupOf, isComputed, matchCsv, readDatasetCsv, valueOf, visibleRows,
+    annotatedCsv, datasetRows, filteredRows, fileOfKey, groupOf as datasetGroupOf, isComputed, matchCsv, readDatasetCsv, valueOf, visibleRows,
     type ColumnId, type CsvMatch, type DatasetCsv, type DatasetFilter, type DatasetRow, type GroupId, type ValueId,
 } from '../../shared/dataset/datasetTable';
 import {
@@ -557,10 +557,10 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     function paintSlots(): void {
         // One file in two slots as different channels: it is one track, drawn as the first slot's channel (1–3, then 0).
         const notes = slots.map(key => {
-            const shown = key ? slotRowOf(fileOfKey(key)) : undefined;
+            const shown = key ? entryBase.slotRowOf(fileOfKey(key)) : undefined;
             return key && shown && shown.key !== key && (shown.channels ?? 1) > 1 ? strings.dsSlotTrackChannel.replace('{ch}', String(shown.ch)) : null;
         });
-        slotBar.innerHTML = entrySlotsHtml(slots, key => rowName(key), baseText(), text, heldPlot.slot(), notes);
+        slotBar.innerHTML = entrySlotsHtml(slots, key => rowName(key), entryBase.text(), text, heldPlot.slot(), notes);
         markOpenable();
         notes.forEach((note, slot) => slotBar.querySelector(`[data-action="entry-slot"][data-slot="${slot}"]`)?.setAttribute('data-track-note', note ?? ''));
     }
@@ -634,68 +634,16 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const recipe = kept.recipe;
         if (recipe && recipeKey(recipe) !== recipeKey(recipeState.edited ?? undefined)) { recipeState.edited = recipe; deps.saveRecipe?.(recipe); loadStored(); }
     }
-    /** The slotted row of a file the comparison shows (slots 1–3 first, then 0). */
-    function slotRowOf(filePath: string): DatasetRow | undefined {
-        return rowOf(roleKey(slots, filePath) ?? null);
-    }
-    /** A channel row of a recording of several channels is compared as that channel; otherwise the channels together. */
-    const channelOfRow = (row: DatasetRow | undefined): number | null => (row && (row.channels ?? 1) > 1 ? row.ch : null);
     const chipText = (filter: DatasetFilter): string => filterChipText(filter, columnLabel, formatColumn, text);
-    /**
-     * What `comparePath` is measured against: the slot-0 recording (its channel when it is a channel row), else
-     * the median of a group (the one chosen on the base chip, else the compared row's) over the table's filters
-     * (not the value's own range), of the compared row's channel: recordings without it are left out and said.
-     */
-    function resolveBase(comparePath: string, byGroup = false): { paths: string[]; title: string; definition: BaseDefinition; channel: number | null } {
-        const compareRow = slotRowOf(comparePath) ?? rows.find(row => row.filePath === comparePath);
-        const channel = channelOfRow(compareRow);
-        const narrowedBy = chosen.filters.filter(filter => filter.column !== chosen.value).map(chipText);
-        const within = narrowedBy.length ? strings.dsBaseNarrowed.replace('{filters}', narrowedBy.join('・')) : '';
-        if (slots[0] && !byGroup) {
-            const row = rowOf(slots[0]);
-            const ch = channelOfRow(row);
-            return {
-                paths: [fileOfKey(slots[0])], title: `${strings.entryBase} · ${rowName(slots[0])}`, channel: ch,
-                definition: { kind: 'file', file: rowName(slots[0]), count: 1, channel: ch, filters: narrowedBy, fewerChannels: 0 },
-            };
-        }
-        const name = chosen.group === 'none' ? '' : chosen.baseGroup ?? (compareRow ? datasetGroupOf(compareRow, chosen.group) : '');
-        // The other compared recordings (slots 1–3) are compared themselves: not part of anyone's base.
-        const compared = new Set(comparedKeys(slots).map(fileOfKey));
-        const { paths, fewerChannels } = baseGroupMembers(distributionPool().filter(row => row.filePath === comparePath || !compared.has(row.filePath)), comparePath, chosen.group, name, channel);
-        const where = chosen.group === 'none' ? strings.dsDistAll : `${groupLabel(chosen.group)} ${name || '—'}`;
-        const title = `${strings.entryBaseGroup} ${where} · ${strings.entryBaseMedian.replace('{count}', String(paths.length))}${channel ? ` · ${strings.dsCh}${channel}` : ''}`
-            + (fewerChannels ? strings.dsBaseFewer.replace('{n}', String(fewerChannels)).replace('{ch}', String(channel)) : '') + within;
-        return {
-            paths, title, channel,
-            definition: { kind: 'group', group: { column: chosen.group === 'none' ? '' : groupLabel(chosen.group), name }, count: paths.length, channel, filters: narrowedBy, fewerChannels },
-        };
-    }
-    /** The channel a file is drawn and measured with in the comparison of `comparePath`. */
-    function stageChannel(path: string, comparePath: string | null, byGroup = false): number | null {
-        if (comparePath && path !== comparePath) {
-            const base = resolveBase(comparePath, byGroup);
-            if (base.paths.includes(path)) return base.channel;
-        }
-        return channelOfRow(slotRowOf(path));
-    }
-    /** The comparison of `comparePath` with its base, each file as the channel it is compared as. */
-    function comparisonOf(comparePath: string, byGroup = false, over?: ReadonlyMap<string, ScanResult>, entryRegionBase = false): CompareModel {
-        const base = resolveBase(comparePath, byGroup);
-        const source = over ?? results;
-        const picked = new Map(source);
-        const pick = (path: string, ch: number | null): void => {
-            const result = ch ? channelResult(source.get(path), ch) : undefined;
-            if (result) picked.set(path, result);
-        };
-        pick(comparePath, channelOfRow(slotRowOf(comparePath)));
-        for (const path of base.paths) pick(path, base.channel);
-        const single = slots[0] && !byGroup ? fileOfKey(slots[0]) : null;
-        return buildCompareModel(entryModel(), picked, comparePath, single, strings, entryRegionBase, undefined, single ? undefined : { paths: base.paths, title: base.title });
-    }
+    /** What a compared row is measured against: the slot-0 recording, else a group's median. */
+    const entryBase = createEntryBase({
+        strings, slots: () => slots, rows: () => rows, rowOf, pool: () => distributionPool(), group: () => chosen.group, baseGroup: () => chosen.baseGroup,
+        narrowedBy: () => chosen.filters.filter(filter => filter.column !== chosen.value).map(chipText),
+        groupLabel, rowName: key => rowName(key), results, isStale, entryModel,
+    });
     /** A compared file as the comparison names it: its name and channel, the value on show, its memo. */
     function rowInfo(path: string): { label: string; value: string; memo: string } {
-        const row = slotRowOf(path) ?? rows.find(item => item.filePath === path);
+        const row = entryBase.slotRowOf(path) ?? rows.find(item => item.filePath === path);
         if (!row) return { label: baseName(path), value: '', memo: '' };
         const number = usable(row) ? valueOf(row, chosen.value, results) : null;
         return { label: rowName(row.key), value: number === null ? '' : `${valueLabel(chosen.value)} ${formatColumn(chosen.value, number)}`, memo: memo.get(row.key) ?? '' };
@@ -721,26 +669,6 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
                 title: label, parentPath: item.parentPath, region: item.region, baseLabel: item.base.label ?? '',
             };
         });
-    }
-    /** Slot 0 empty: the base is the median of a group (by the table's grouping): the one chosen, else slot 1's. */
-    function baseText(): string {
-        if (slots[0]) return rowName(slots[0]);
-        if (slots[1]) return resolveBase(fileOfKey(slots[1])).title;
-        const name = baseGroupName();
-        if (name === null) return strings.entryBaseGroup;
-        const members = baseMembers(name).filter(item => item.key !== slots[1]);
-        return `${groupLabel(chosen.group)} ${name || '—'} · ${strings.entryBaseMedian.replace('{count}', String(members.length))}`;
-    }
-    /** The group whose median is the base: the one chosen, else slot 1's (slot 0 empty, a grouping chosen). */
-    function baseGroupName(): string | null {
-        if (slots[0] || chosen.group === 'none') return null;
-        if (chosen.baseGroup !== null) return chosen.baseGroup;
-        const anchor = rowOf(slots[1]);
-        return anchor ? datasetGroupOf(anchor, chosen.group) : null;
-    }
-    /** A group's rows (the table's grouping, its filters and exclusions applied, not the range on the value). */
-    function baseMembers(name: string): DatasetRow[] {
-        return distributionPool().filter(item => datasetGroupOf(item, chosen.group) === name);
     }
     /** The rows the distribution draws from: not excluded, through every filter but the one on the value itself. */
     function distributionPool(): DatasetRow[] {
@@ -907,7 +835,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     }
     function paintDistribution(): void {
         distPane.paint({
-            pool: distributionPool(), value: chosen.value, group: chosen.group, results, range: valueRange(), usable, slots, rowOf, baseGroup: baseGroupName(),
+            pool: distributionPool(), value: chosen.value, group: chosen.group, results, range: valueRange(), usable, slots, rowOf, baseGroup: entryBase.groupName(),
             valueLabel: valueLabel(chosen.value), format: number => formatColumn(chosen.value, number), rowName: key => rowName(key),
         });
     }
@@ -1339,10 +1267,10 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             return;
         }
         if (target === groupSelect) {
-            const baseBefore = baseText();
+            const baseBefore = entryBase.text();
             choose({ group: groupSelect.value as GroupId, baseGroup: null });
             // With slot 0 empty the base is slot 1's group median: a new grouping changes it, which is said.
-            if (!slots[0] && slots[1] && baseText() !== baseBefore) deps.announce(strings.dsBaseReset);
+            if (!slots[0] && slots[1] && entryBase.text() !== baseBefore) deps.announce(strings.dsBaseReset);
             return;
         }
         if (target.matches('[data-entry-batch-scope]')) { popovers.batch = (target as HTMLInputElement).value as 'filtered' | 'all'; return; }
@@ -1565,26 +1493,14 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             // The file the slot held before keeps its track: only the roles change.
             setSlot(slot, key, false);
         },
-        basePaths: (comparePath, byGroup = false) => resolveBase(comparePath, byGroup).paths,
-        baseTitle: (comparePath, byGroup = false) => resolveBase(comparePath, byGroup).title,
-        baseDefinition: (comparePath, byGroup = false) => resolveBase(comparePath, byGroup).definition,
-        stageChannel: (path, comparePath, byGroup = false) => stageChannel(path, comparePath, byGroup),
-        comparison: (comparePath, byGroup = false, over, entryRegionBase = false) => comparisonOf(comparePath, byGroup, over, entryRegionBase),
+        basePaths: (comparePath, byGroup = false) => entryBase.resolve(comparePath, byGroup).paths,
+        baseTitle: (comparePath, byGroup = false) => entryBase.resolve(comparePath, byGroup).title,
+        baseDefinition: (comparePath, byGroup = false) => entryBase.resolve(comparePath, byGroup).definition,
+        stageChannel: (path, comparePath, byGroup = false) => entryBase.stageChannel(path, comparePath, byGroup),
+        comparison: (comparePath, byGroup = false, over, entryRegionBase = false) => entryBase.comparison(comparePath, byGroup, over, entryRegionBase),
         rowInfo: path => rowInfo(path),
         cost: paths => ({ seconds: progress.seconds(paths), ms: progress.estimateMs(paths) }),
-        tableBaseBands: (comparePath, byGroup = false) => {
-            const base = resolveBase(comparePath, byGroup);
-            const levels = base.paths.flatMap(path => {
-                const result = base.channel ? channelResult(results.get(path), base.channel) : results.get(path);
-                const bands = result?.ok ? result.thirdOctDb : undefined;
-                if (!bands?.length || isStale(path)) return [];
-                // A recording's channels together, power-averaged, as the comparison's sides are.
-                return [bands[0].map((_, band) => powerMeanOrNull(bands.map(channel => channel[band])))];
-            });
-            if (!levels.length) return null;
-            const values = levels[0].map((_, band) => median(levels.map(item => item[band]).filter((level): level is number => level !== null)));
-            return { centers: BAND_CENTERS_HZ.slice(0, values.length), values, count: levels.length };
-        },
+        tableBaseBands: (comparePath, byGroup = false) => entryBase.tableBands(comparePath, byGroup),
         selection: () => ({
             value: valueLabel(chosen.value), group: chosen.group === 'none' ? strings.dsGroupNone : groupLabel(chosen.group),
             filters: chosen.filters.map(filter => chipText(filter)), excluded: excluded.size,
@@ -1613,7 +1529,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
                 csv: attached.csv?.name ?? null, playing: deps.playing?.() ?? null, visibleKeys: shownRows.slice(0, 200).map(row => row.key), scanning: progress.running,
                 dist: last ? {
                     groups: last.groups.map(item => ({ name: item.name, n: item.members.length, inRange: item.members.filter(member => member.inRange).length })),
-                    missing: last.missing, unit: last.unit, low: last.low, high: last.high, range: valueRange(), base: baseGroupName(),
+                    missing: last.missing, unit: last.unit, low: last.low, high: last.high, range: valueRange(), base: entryBase.groupName(),
                     strip: !maximized,
                 } : null,
             };
