@@ -9,7 +9,7 @@ in a notebook, so the result is ordinary ``RecipePlan.to_dict()`` JSON that
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, TypedDict
 
 import numpy as np
 import wandas as wd
@@ -25,6 +25,11 @@ class RecipeSource(NamedTuple):
     sampling_rate: float
 
 
+class _WelchOptions(TypedDict, total=False):
+    hop_length: int
+    window: str
+
+
 def _stand_in(source: RecipeSource, n_samples: int) -> wd.ChannelFrame:
     return wd.from_numpy(np.zeros((source.n_channels, n_samples)), sampling_rate=source.sampling_rate)
 
@@ -35,12 +40,11 @@ def spectrum_recipe(
     n_fft: int,
     hop_length: int | None = None,
     window: str | None = None,
-    band_centers_hz: Sequence[float] | None = None,
-    bands_per_octave: int | None = None,
+    bands: tuple[Sequence[float], int] | None = None,
     hpf_hz: float | None = None,
     trim: tuple[float, float | None] | None = None,
 ) -> dict[str, Any]:
-    """Every channel's Welch spectrum, or its octave band levels when bands are given.
+    """Every channel's Welch spectrum, or its octave band levels when ``bands`` (centres, bands per octave) are given.
 
     ``hpf_hz`` high-passes the signal first and ``trim`` (seconds, end ``None`` = to the end) slices it
     next, which is where ``scan`` cuts the Recipe to take its region. Unset Welch settings stay at
@@ -51,10 +55,15 @@ def spectrum_recipe(
         signal = signal.high_pass_filter(cutoff=hpf_hz)
     if trim is not None:
         signal = signal.trim(start=trim[0], end=trim[1])
-    if band_centers_hz:
-        result = signal.noct_spectrum(fmin=band_centers_hz[0], fmax=band_centers_hz[-1], n=bands_per_octave)
+    if bands:
+        centers_hz, bands_per_octave = bands
+        result = signal.noct_spectrum(fmin=centers_hz[0], fmax=centers_hz[-1], n=bands_per_octave)
     else:
-        options = {key: value for key, value in (("hop_length", hop_length), ("window", window)) if value is not None}
+        options: _WelchOptions = {}
+        if hop_length is not None:
+            options["hop_length"] = hop_length
+        if window is not None:
+            options["window"] = window
         result = signal.welch(n_fft=n_fft, **options)
     return RecipePlan.from_frame(result, input_names=("signal",)).to_dict()
 

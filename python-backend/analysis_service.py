@@ -6,7 +6,7 @@ import math
 import time
 from collections.abc import Mapping
 from pathlib import Path
-from typing import NamedTuple, NotRequired, TypedDict
+from typing import TYPE_CHECKING, NamedTuple, NotRequired, TypedDict
 
 import numpy as np
 import soundfile as sf
@@ -28,6 +28,10 @@ from analyzer import (
 )
 from backend_errors import InputError
 from chart_spec import ChartSpec
+from decimator import WaveformEnvelope
+
+if TYPE_CHECKING:
+    from stage_view import StageDetail
 
 
 class TrackDetailResult(TypedDict):
@@ -121,7 +125,7 @@ class _PairSpectrum(NamedTuple):
 class WaveformRangeResult(TypedDict):
     startNorm: float
     endNorm: float
-    channels: list[dict[str, object]]
+    channels: list[WaveformEnvelope]
     calibrationSignature: str
     analysisRevision: int
 
@@ -311,7 +315,8 @@ class AnalysisService:
             segment = analysis_frame[:, start_sample:end_sample]
             if end_sample - start_sample < _MIN_BAND_SLICE_SAMPLES:
                 segment = segment.fix_length(length=_MIN_BAND_SLICE_SAMPLES)
-            octave = segment.noct_spectrum(
+            # wandas annotates the transform mixin's self as TransformFrameProtocol, which ChannelFrame fails.
+            octave = segment.noct_spectrum(  # pyright: ignore[reportAttributeAccessIssue]
                 fmin=bands.centers_hz[0], fmax=bands.centers_hz[-1], n=bands.bands_per_octave
             )
             rows = np.asarray(octave.dB, dtype=np.float64).reshape(analysis_frame.n_channels, -1).astype(np.float32)
@@ -465,7 +470,7 @@ class AnalysisService:
         sample_count = analysis_frame.n_samples
         start_idx, end_idx = sample_range(start_norm, end_norm, sample_count)
 
-        channels: list[dict[str, object]] = []
+        channels: list[WaveformEnvelope] = []
         if end_idx > start_idx:
             range_frame = analysis_frame[:, start_idx:end_idx]
             data = channels_first(range_frame.data, analysis_frame.n_channels, end_idx - start_idx)
@@ -520,7 +525,7 @@ class AnalysisService:
         *,
         inputs: Mapping[str, str],
         recipe_path: str | None = None,
-        input_contexts: Mapping[str, object] | None = None,
+        input_contexts: Mapping[str, Mapping[str, object]] | None = None,
     ) -> RecipeRunResult:
         from recipe_runner import RecipeError, evaluate_recipe, frame_input_names, load_plan, recipe_title
 
@@ -565,8 +570,7 @@ class AnalysisService:
                 n_fft=n_fft,
                 hop_length=hop_length,
                 window=window,
-                band_centers_hz=bands.centers_hz,
-                bands_per_octave=bands_per_octave,
+                bands=(bands.centers_hz, bands_per_octave),
             )
             return {"name": f"octave-{bands_per_octave}", "recipe": recipe}
         if not responses:
@@ -602,7 +606,7 @@ class AnalysisService:
         channels: list[int] | None = None,
         calibration_profile: object = None,
         stage: str | None = None,
-        detail: Mapping[str, object] | None = None,
+        detail: StageDetail | None = None,
         reference: Mapping[str, object] | None = None,
     ) -> dict[str, object]:
         from scan_service import scan
@@ -701,7 +705,9 @@ def _compute_pair(
         .cache()
     )
     # The STFT pads the edges; averaging only frames inside the range matches Welch's segments.
-    first_center = int(round(spectrogram.frame_time_origin * rate))
+    origin = spectrogram.frame_time_origin
+    assert origin is not None, "an STFT of a time signal knows where its first frame is centred"
+    first_center = int(round(origin * rate))
     frame_starts = np.arange(spectrogram.n_frames) * hop_length + first_center - n_fft // 2
     inside = np.flatnonzero((frame_starts >= 0) & (frame_starts + n_fft <= length))
     end = start + length / rate
