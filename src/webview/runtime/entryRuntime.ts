@@ -48,7 +48,7 @@ import {
     type ColumnId, type CsvMatch, type DatasetCsv, type DatasetFilter, type DatasetRow, type GroupId, type ValueId,
 } from '../../shared/dataset/datasetTable';
 import {
-    closesEntryDialog, filterChipText, tableLines, type DerivedItem, datasetColsHtml, datasetHeadHtml, datasetRowsHtml, entryScreenHtml, entrySlotsHtml, filterChipsHtml, filterPopHtml, checkListHtml, formatValue,
+    closesEntryDialog, filterChipText, rowWindow, tableLines, type DerivedItem, datasetColsHtml, datasetHeadHtml, datasetRowsHtml, entryScreenHtml, entrySlotsHtml, filterChipsHtml, filterPopHtml, checkListHtml, formatValue,
     baseMenuHtml, batchPopHtml, groupOptionsHtml, memoPopHtml, slotMenuHtml, unmatchedRowsHtml, valueOptionsHtml,
     type DatasetColumn, type DatasetScreenView, type EntryStrings,
 } from './entryTableHtml';
@@ -230,7 +230,11 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     host.innerHTML = entryScreenHtml(text);
     const screen = host.firstElementChild as HTMLElement;
     (deps.dock ?? document.body).append(screen);
-    const query = <T extends Element>(selector: string): T => screen.querySelector<T>(selector)!;
+    const query = <T extends Element>(selector: string): T => {
+        const element = screen.querySelector<T>(selector);
+        if (!element) throw new Error(`entry screen: no ${selector}`);
+        return element;
+    };
     const head = query<HTMLElement>('[data-entry-head]');
     const body = query<HTMLElement>('[data-entry-rows]');
     const cols = query<HTMLElement>('[data-entry-cols]');
@@ -302,7 +306,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     function noteResult(filePath: string, result: ScanResult): void {
         results.set(filePath, result);
         overviewVersion++;
-        if (result.ok && result.thirdOctDb?.length) overviewLevels.set(filePath, result.thirdOctDb[0].map((_, bandIndex) => powerMeanOrNull(result.thirdOctDb!.map(channel => channel[bandIndex]))));
+        const bands = result.thirdOctDb;
+        if (result.ok && bands?.length) overviewLevels.set(filePath, bands[0].map((_, bandIndex) => powerMeanOrNull(bands.map(channel => channel[bandIndex]))));
         else overviewLevels.delete(filePath);
         if (result.ok && result.input?.unit !== undefined && result.input.unit !== 'FS') calibratedFiles.add(filePath);
         else calibratedFiles.delete(filePath);
@@ -384,11 +389,12 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     function entryModel(): EntryModel {
         if (builtModel) return builtModel;
         // The CSV's attributes and the subfolders as its condition table, grouped by the column the table groups by.
-        const attributes = attached.csv?.attributes ?? [];
-        const own: EntryConditionTable | null = attached.csv && attached.match ? {
+        const { csv, match } = attached;
+        const attributes = csv?.attributes ?? [];
+        const own: EntryConditionTable | null = csv && match ? {
             columns: attributes, checked: [],
-            rows: Object.fromEntries([...attached.match.attributes].map(([filePath, row]) => [filePath, attributes.map(column => row[column] ?? '')])),
-            numeric: attributes.map(column => attached.csv!.numeric[column] ?? false), source: attached.csv.name,
+            rows: Object.fromEntries([...match.attributes].map(([filePath, row]) => [filePath, attributes.map(column => row[column] ?? '')])),
+            numeric: attributes.map(column => csv.numeric[column] ?? false), source: csv.name,
         } : null;
         const folders = withFolderColumns(own, filePaths, rootPath, level => strings.entryFolderLevel.replace('{n}', String(level)));
         const checked = chosen.group.startsWith('csv:') ? [attributes.indexOf(chosen.group.slice(4))] : chosen.group.startsWith('folder:') ? [attributes.length + Number(chosen.group.slice(7)) - 1] : [];
@@ -456,7 +462,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     }
     /** The values the table can show: the CSV's numeric columns, then those computed from the sound. */
     function valueOptions(): Array<{ id: ValueId; label: string; computed: boolean; ready: boolean }> {
-        const own = (attached.csv?.attributes ?? []).filter(column => attached.csv!.numeric[column]).map(column => ({ id: `csv:${column}` as ValueId, label: column, computed: false, ready: true }));
+        const csv = attached.csv;
+        const own = (csv?.attributes ?? []).filter(column => csv?.numeric[column]).map(column => ({ id: `csv:${column}` as ValueId, label: column, computed: false, ready: true }));
         const computed: Array<{ id: ValueId; label: string }> = [
             { id: 'leq', label: strings.dsLeq },
             ...(spectral() ? [{ id: 'peak' as ValueId, label: strings.dsPeak }] : []),
@@ -568,12 +575,29 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         excludedButton.textContent = strings.dsExcluded.replace('{n}', String(excluded.size));
         excludedButton.setAttribute('aria-pressed', String(chosen.mode === 'excluded'));
         query('[data-entry-source]').textContent = attached.csv && attached.match ? strings.dsCsvSource.replace('{name}', attached.csv.name).replace('{matched}', String(attached.match.attributes.size)).replace('{total}', String(filePaths.length)) : strings.dsPickCsv;
-        cols.innerHTML = datasetColsHtml(view);
-        // The head is drawn again: a focus on its ☐/⊟/☑ stays there.
+        writeHtml(cols, datasetColsHtml(view));
+        // The head is drawn again only when it changed; then a focus on its ☐/⊟/☑ stays there.
         const headFocused = !!document.activeElement?.closest?.('[data-action="entry-tracks-all"]') && head.contains(document.activeElement);
-        head.innerHTML = datasetHeadHtml(view, text);
-        if (headFocused) focusHeadMark();
+        if (writeHtml(head, datasetHeadHtml(view, text)) && headFocused) focusHeadMark();
         renderRows(view);
+        paintSlots();
+        const wanted = `<button type="button" class="entry-key" data-action="entry-key-hint" data-key="help">${escapeHtml(strings.keyHelp)}</button>`;
+        if (keyHints.innerHTML !== wanted) keyHints.innerHTML = wanted;
+        stepBar.set({ recipe: recipeState.edited ?? recipeState.standard, sampleRate: sampleRate(), shortestSamples: shortestSamples(), channels: channelCount(), failed: recipeState.failed, files: filePaths.length });
+        screen.dataset.mode = chosen.mode;
+        scheduleSide();
+        session.schedule();
+    }
+    /** Markup last written to an element by writeHtml, which writes it again only when it changes. */
+    const written = new WeakMap<Element, string>();
+    function writeHtml(element: Element, html: string): boolean {
+        if (written.get(element) === html) return false;
+        element.innerHTML = html;
+        written.set(element, html);
+        return true;
+    }
+    /** The slots' chips: their rows, the base, the slot held, and a note where one file is two slots' channels. */
+    function paintSlots(): void {
         // One file in two slots as different channels: it is one track, drawn as the first slot's channel (1–3, then 0).
         const notes = slots.map(key => {
             const shown = key ? slotRowOf(fileOfKey(key)) : undefined;
@@ -582,21 +606,14 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         slotBar.innerHTML = entrySlotsHtml(slots, key => rowName(key), baseText(), text, hold.slot, notes);
         markOpenable();
         notes.forEach((note, slot) => slotBar.querySelector(`[data-action="entry-slot"][data-slot="${slot}"]`)?.setAttribute('data-track-note', note ?? ''));
-        const wanted = `<button type="button" class="entry-key" data-action="entry-key-hint" data-key="help">${escapeHtml(strings.keyHelp)}</button>`;
-        if (keyHints.innerHTML !== wanted) keyHints.innerHTML = wanted;
-        stepBar.set({ recipe: recipeState.edited ?? recipeState.standard, sampleRate: sampleRate(), shortestSamples: shortestSamples(), channels: channelCount(), failed: recipeState.failed, files: filePaths.length });
-        screen.dataset.mode = chosen.mode;
-        scheduleSide();
-        session.schedule();
     }
-    /** Only the rows on screen are drawn: the rest are spacers, so 100,000 rows scroll as 40 do. */
     /** The view the rows on screen were drawn from: scrolling and resizing draw more of it instead of building it again. */
     let rowsView: DatasetScreenView | null = null;
+    /** Only the rows on screen are drawn (rowWindow): the rest are spacers. */
     function renderRows(view = rowsView ?? datasetView()): void {
         rowsView = view;
         if (chosen.mode === 'unmatched') { body.innerHTML = unmatchedRowsHtml(unmatchedItems(), unreadable(), text); return; }
-        const first = Math.max(0, Math.floor(tableWrap.scrollTop / ROW_HEIGHT) - 10);
-        const last = Math.min(tableLines(view).length, first + Math.ceil((tableWrap.clientHeight || 600) / ROW_HEIGHT) + 20);
+        const { first, last } = rowWindow(tableWrap.scrollTop, tableWrap.clientHeight, tableLines(view).length, ROW_HEIGHT);
         body.innerHTML = datasetRowsHtml(view, first, last, ROW_HEIGHT, text);
         // Redrawn rows keep the light of the lane under the mouse.
         if (tracks.linked && document.querySelector(`.track-row[data-file-path="${CSS.escape(tracks.linked)}"]`)) {
@@ -814,14 +831,14 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         return [...new Set(pool.map(row => row.filePath))].filter(path => (!onTracks || onTracks.has(path)) && (!results.has(path) || isStale(path)));
     }
     function sampleRate(): number | undefined {
-        for (const result of results.values()) if (result.ok) return recipeState.knownRate = result.input!.fs;
+        for (const result of results.values()) if (result.ok && result.input) return recipeState.knownRate = result.input.fs;
         return recipeState.knownRate;
     }
     function shortestSamples(): number | undefined {
         let shortest: number | undefined;
         for (const result of results.values()) {
-            if (!result.ok) continue;
-            const samples = Math.floor(result.input!.durationS * result.input!.fs);
+            if (!result.ok || !result.input) continue;
+            const samples = Math.floor(result.input.durationS * result.input.fs);
             shortest = shortest === undefined ? samples : Math.min(shortest, samples);
         }
         if (shortest !== undefined) recipeState.knownShortest = shortest;
@@ -833,7 +850,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     /** The fewest channels of the scanned files, which a channel index must stay below. */
     function channelCount(): number | undefined {
         let fewest: number | undefined;
-        for (const result of results.values()) if (result.ok) fewest = Math.min(fewest ?? Infinity, result.input!.channels.length);
+        for (const result of results.values()) if (result.ok && result.input) fewest = Math.min(fewest ?? Infinity, result.input.channels.length);
         return fewest;
     }
     /** The Recipe the scans run; undefined is the host's own, unchanged (nothing edited, no step left out). */
@@ -880,8 +897,9 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     function remeasureStale(): void {
         if (broken()) return;
         derived.forEach(row => {
-            if (!row.stale || !row.base.paths?.length) return;
-            if (row.region !== 'all' && (row.base.paths.length > LARGE_BASE || progress.seconds(row.base.paths) > LARGE_BASE_S)) return;
+            const basePaths = row.base.paths;
+            if (!row.stale || !basePaths?.length) return;
+            if (row.region !== 'all' && (basePaths.length > LARGE_BASE || progress.seconds(basePaths) > LARGE_BASE_S)) return;
             if (row.region === 'all') {
                 const next = remeasured(row, results);
                 if (next) derived = derived.map(item => (item === row ? next : item));
@@ -890,7 +908,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             const [start, end] = row.region.split('–').map(Number);
             const recipe = scanRecipe();
             const id = `derived-${++requestCount}`;
-            remeasuring.ask(id, id, derivedKey(row), { row, results: new Map() }, () => deps.post({ type: 'compare-scan', requestId: id, filePaths: [row.parentPath, ...row.base.paths!], region: { start, end }, ...(recipe ? { recipe } : {}) }));
+            remeasuring.ask(id, id, derivedKey(row), { row, results: new Map() }, () => deps.post({ type: 'compare-scan', requestId: id, filePaths: [row.parentPath, ...basePaths], region: { start, end }, ...(recipe ? { recipe } : {}) }));
         });
         deps.saveDerived?.(derived);
     }
@@ -932,8 +950,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         paintOverlay(heldCanvas, { layers: view ? [{ view, color: options.color, width: 2 }] : [] }, narrowed(range, window), axes,
             { diff: options.diff, empty: options.empty ?? '', window: { x: window.x }, axisView: picture });
     }
-    function paintStepHeld(): void {
-        const { step, path } = hold.step!;
+    function paintStepHeld({ step, path }: { step: RecipeStep; path: string }): void {
         held.hidden = false;
         const row = buildCompareModel(entryModel(), results, path, null, strings);
         const input = results.get(path)?.input;
@@ -1044,7 +1061,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             const window = plotWindow(name);
             canvas.dataset.window = `${window.x.start.toFixed(3)}-${window.x.end.toFixed(3)}|${window.y.start.toFixed(3)}-${window.y.end.toFixed(3)}`;
         }
-        if (hold.step) { paintStepHeld(); return; }
+        if (hold.step) { paintStepHeld(hold.step); return; }
         held.hidden = hold.slot === null;
         held.classList.remove('is-pending');
         if (hold.slot !== null) {
@@ -1060,7 +1077,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const timer = window.setTimeout(() => {
             if (hold.releaseTimer !== undefined) { window.clearTimeout(hold.releaseTimer); hold.releaseTimer = undefined; }
             hold.slot = slot;
-            slotBar.innerHTML = entrySlotsHtml(slots, key => rowName(key), baseText(), text, hold.slot);
+            paintSlots();
             scheduleSide();
         }, TAP_MS);
         hold.pressing = { slot, at: window.performance.now(), timer };
@@ -1339,19 +1356,20 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const pop = document.createElement('div');
         pop.className = 'entry-pop';
         pop.setAttribute('data-entry-pop', '');
-        if (popovers.filter) {
-            const column = filterColumns().find(item => item.id === popovers.filter!.column) ?? { id: popovers.filter.column, label: columnLabel(popovers.filter.column), numeric: numericColumn(popovers.filter.column) };
-            const existing = chosen.filters.find(filter => filter.column === popovers.filter!.column);
+        const filter = popovers.filter;
+        if (filter) {
+            const column = filterColumns().find(item => item.id === filter.column) ?? { id: filter.column, label: columnLabel(filter.column), numeric: numericColumn(filter.column) };
+            const existing = chosen.filters.find(item => item.column === filter.column);
             const pool = rows.filter(row => !excluded.has(row.key));
             if (column.numeric) {
-                const numbers = pool.map(row => (popovers.filter!.column.startsWith('csv:') ? finiteNumber(row.attributes?.[popovers.filter!.column.slice(4)] ?? '') : valueOf(row, popovers.filter!.column as ValueId, results))).filter((item): item is number => item !== null);
-                const min = numbers.length ? formatColumn(popovers.filter.column, numbers.reduce((least, item) => Math.min(least, item))) : '', max = numbers.length ? formatColumn(popovers.filter.column, numbers.reduce((most, item) => Math.max(most, item))) : '';
-                pop.innerHTML = filterPopHtml({ column, anchored: popovers.filter.anchored, columns: filterColumns(), sortKey: sortKeyOf(popovers.filter.column), sort: chosen.sort, filter: existing, search: '',
-                    range: { low: existing?.kind === 'range' ? formatColumn(popovers.filter.column, existing.low) : '', high: existing?.kind === 'range' ? formatColumn(popovers.filter.column, existing.high) : '', min, max } }, text);
+                const numbers = pool.map(row => (filter.column.startsWith('csv:') ? finiteNumber(row.attributes?.[filter.column.slice(4)] ?? '') : valueOf(row, filter.column as ValueId, results))).filter((item): item is number => item !== null);
+                const min = numbers.length ? formatColumn(filter.column, numbers.reduce((least, item) => Math.min(least, item))) : '', max = numbers.length ? formatColumn(filter.column, numbers.reduce((most, item) => Math.max(most, item))) : '';
+                pop.innerHTML = filterPopHtml({ column, anchored: filter.anchored, columns: filterColumns(), sortKey: sortKeyOf(filter.column), sort: chosen.sort, filter: existing, search: '',
+                    range: { low: existing?.kind === 'range' ? formatColumn(filter.column, existing.low) : '', high: existing?.kind === 'range' ? formatColumn(filter.column, existing.high) : '', min, max } }, text);
             } else {
-                const values = columnValues(pool, popovers.filter.column, results);
-                popovers.filter.checked ??= new Set(values.map(([item]) => item));
-                pop.innerHTML = filterPopHtml({ column, anchored: popovers.filter.anchored, columns: filterColumns(), sortKey: sortKeyOf(popovers.filter.column), sort: chosen.sort, filter: existing, search: popovers.filter.search, values, checked: popovers.filter.checked }, text);
+                const values = columnValues(pool, filter.column, results);
+                filter.checked ??= new Set(values.map(([item]) => item));
+                pop.innerHTML = filterPopHtml({ column, anchored: filter.anchored, columns: filterColumns(), sortKey: sortKeyOf(filter.column), sort: chosen.sort, filter: existing, search: filter.search, values, checked: filter.checked }, text);
             }
         } else if (popovers.slotMenu) pop.innerHTML = slotMenuHtml(popovers.slotMenu, slots, text);
         else if (popovers.memoKey) pop.innerHTML = memoPopHtml(rowName(popovers.memoKey), memo.get(popovers.memoKey) ?? '', text);
@@ -1402,7 +1420,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         } else {
             const all = columnValues(rows.filter(row => !excluded.has(row.key)), column, results).map(([item]) => item);
             const needle = popovers.filter.search.trim().toLowerCase();
-            const keep = all.filter(item => (!needle || item.toLowerCase().includes(needle)) && popovers.filter!.checked?.has(item));
+            const checked = popovers.filter.checked;
+            const keep = all.filter(item => (!needle || item.toLowerCase().includes(needle)) && checked?.has(item));
             if (!keep.length) { deps.announce(strings.dsFilterPickOne); return; }
             if (keep.length < all.length) next = { column, kind: 'values', values: keep };
         }
@@ -1440,6 +1459,11 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         renderPopovers();
     }
 
+    /** A row's button: its action on the row's key. */
+    const withKey = (act: (key: string, target: HTMLElement) => void) => (target: HTMLElement): void => {
+        const key = target.getAttribute('data-key');
+        if (key) act(key, target);
+    };
     const actions: Record<string, (target: HTMLElement) => void> = {
         'entry-pick-csv': () => csvInput.click(),
         'entry-view-unmatched': () => choose({ mode: chosen.mode === 'unmatched' ? 'all' : 'unmatched' }, true),
@@ -1462,19 +1486,19 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         'entry-fclear': () => { if (popovers.filter) clearFilter(popovers.filter.column); },
         'entry-fok': () => applyFilter(),
         'entry-fcancel': () => closePopovers(),
-        'entry-row-play': target => deps.play?.(fileOfKey(target.getAttribute('data-key')!)),
-        'entry-row-track': target => { const key = target.getAttribute('data-key'); if (!key) return; focusOn(key); toggleTrack(key); },
+        'entry-row-play': withKey(key => deps.play?.(fileOfKey(key))),
+        'entry-row-track': withKey(key => { focusOn(key); toggleTrack(key); }),
         'entry-tracks-all': () => { if (chosen.mode === 'all') toggleAllTracks(); },
         // The rows listed now: a filter changed while the question was open counts.
         'entry-tracks-all-go': () => { tracks.pending = null; const listed = listedFiles(); const files = notShown(listed); if (files.length) showAll(listed, files); render(); redraw.after(focusHeadMark); },
         'entry-tracks-all-cancel': () => { tracks.pending = null; render(); redraw.after(focusHeadMark); },
         'entry-tracks-only': () => choose({ tracksOnly: !chosen.tracksOnly }, true),
-        'entry-row-slotmenu': target => { const key = target.getAttribute('data-key'); if (!key) return; popovers.filter = null; popovers.memoKey = null; popovers.slotMenu = popovers.slotMenu === key ? null : key; focusOn(key); redraw.after(renderPopovers); },
-        'entry-row-slot': target => { const key = target.getAttribute('data-key')!; popovers.slotMenu = null; renderPopovers(); setSlot(Number(target.getAttribute('data-slot')), key); },
-        'entry-row-memo': target => openMemo(target.getAttribute('data-key')!),
+        'entry-row-slotmenu': withKey(key => { popovers.filter = null; popovers.memoKey = null; popovers.slotMenu = popovers.slotMenu === key ? null : key; focusOn(key); redraw.after(renderPopovers); }),
+        'entry-row-slot': withKey((key, target) => { popovers.slotMenu = null; renderPopovers(); setSlot(Number(target.getAttribute('data-slot')), key); }),
+        'entry-row-memo': withKey(openMemo),
         'entry-memo-close': () => { saveMemo(); popovers.memoKey = null; renderPopovers(); render(); },
-        'entry-row-exclude': target => { excluded.add(target.getAttribute('data-key')!); rebuild(); },
-        'entry-row-restore': target => { excluded.delete(target.getAttribute('data-key')!); if (!excluded.size) chosen.mode = 'all'; rebuild(); },
+        'entry-row-exclude': withKey(key => { excluded.add(key); rebuild(); }),
+        'entry-row-restore': withKey(key => { excluded.delete(key); if (!excluded.size) chosen.mode = 'all'; rebuild(); }),
         // An empty slot takes the selected row; a filled one goes to its row (it is never overwritten by a press); × empties it.
         'entry-slot': target => {
             const slot = Number(target.getAttribute('data-slot'));
@@ -1494,7 +1518,10 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         'entry-batch': () => openBatch(),
         'entry-batch-go': () => exportBatch(),
         'entry-batch-cancel': () => closePopovers(),
-        'entry-derived-remove': target => removeDerived(target.getAttribute('data-parent')!, target.getAttribute('data-region')!, target.getAttribute('data-base') ?? undefined),
+        'entry-derived-remove': target => {
+            const parent = target.getAttribute('data-parent'), region = target.getAttribute('data-region');
+            if (parent !== null && region !== null) removeDerived(parent, region, target.getAttribute('data-base') ?? undefined);
+        },
         'entry-slot-clear': target => setSlot(Number(target.getAttribute('data-slot')), null),
         'entry-key-hint': target => { if (target.getAttribute('data-key') === 'help') deps.help?.(); },
     };
@@ -1506,8 +1533,10 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         if (action?.closest('#entry-export-menu')) closeExportMenu();
         // The second click of a double click on ☑ does not take the track off again.
         const repeated = event.detail > 1;
-        if (action && action.tagName !== 'SELECT' && action.tagName !== 'INPUT' && actions[action.getAttribute('data-action')!]) {
-            if (!(repeated && action.getAttribute('data-action') === 'entry-row-track')) actions[action.getAttribute('data-action')!](action);
+        const name = action?.getAttribute('data-action') ?? '';
+        const act = actions[name];
+        if (action && action.tagName !== 'SELECT' && action.tagName !== 'INPUT' && act) {
+            if (!(repeated && name === 'entry-row-track')) act(action);
             return;
         }
         if (target.closest('[data-entry-pop]')) return;
