@@ -28,7 +28,6 @@ const NON_NULL_ASSERTION_BURN_DOWN = [
     'src/webview/runtime/separatorKeys.ts',
     'src/webview/runtime/spectrogramSettingsPopover.ts',
     'src/webview/runtime/staticHost.ts',
-    'src/webview/runtime/stepBar.ts',
     'src/webview/runtime/toolbarEvents.ts',
     'src/webview/runtime/trackStageMode.ts',
 ];

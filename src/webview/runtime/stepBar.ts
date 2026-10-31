@@ -135,22 +135,22 @@ export function createStepBar(deps: {
     const regionDraft = (): RegionRange | null => regionFormDraft(element, lengthOf());
     const checkForm = (): void => checkStepForm(formElement(), { recipe: state.recipe, state, strings, footer });
     function apply(): void {
-        const form = element.querySelector<HTMLElement>('[data-step-form]');
-        if (form?.hasAttribute('data-step-form-region')) {
+        const form = formElement();
+        const stepId = form?.getAttribute('data-step-form');
+        if (!form || stepId == null) return;
+        if (form.hasAttribute('data-step-form-region')) {
             const range = regionDraft();
             if (!range || !state.recipe) { checkForm(); return; }
-            const stepId = form.getAttribute('data-step-form')!;
             open = null;
             emit(state.recipe, range);
             element.querySelector<HTMLElement>(`[data-action="step-settings"][data-step="${CSS.escape(stepId)}"]`)?.focus();
             return;
         }
         const next = draft();
-        if (!next || !form || !form.querySelector('[data-action="step-apply"]')) return;
+        if (!next || !form.querySelector('[data-action="step-apply"]')) return;
         // Invalid values never leave the form: the Recipe the scans run stays valid.
         const blank = Array.from(form.querySelectorAll<HTMLInputElement>('input[data-step-param]')).some(input => input.value.trim() === '');
-        if (blank || recipeSteps(next, limits()).find(item => item.id === form.getAttribute('data-step-form'))?.invalid) { checkForm(); return; }
-        const stepId = form.getAttribute('data-step-form')!;
+        if (blank || recipeSteps(next, limits()).find(item => item.id === stepId)?.invalid) { checkForm(); return; }
         open = null;
         emit(next);
         // Focus goes back to the gear the form came from, so the next Esc stays in the bar instead of leaving the screen.
@@ -266,11 +266,14 @@ export function createStepBar(deps: {
         return true;
     }
 
-    const view = document.defaultView!;
+    const view = document.defaultView;
+    if (!view) throw new Error('createStepBar: the document has no window');
     element.addEventListener('click', event => {
         const target = (event.target as HTMLElement).closest<HTMLElement>('[data-action], [data-step-hold], [data-step-region]');
         if (!target) return;
         const action = target.getAttribute('data-action');
+        // A button without the step (or operation) it names finds none: the edit's own lookup does nothing then.
+        const named = (attribute: string): string => target.getAttribute(attribute) ?? '';
         if (target.hasAttribute('data-step-hold')) {
             if (hold.swallowed()) return;
             if (target.getAttribute('data-step-hold') === INPUT_STAGE) { deps.onInputSelect?.(); return; }
@@ -286,11 +289,11 @@ export function createStepBar(deps: {
             element.querySelector<HTMLElement>('[data-step-param], [data-action="step-remove"]')?.focus();
         }
         else if (action === 'step-apply') apply();
-        else if (action === 'step-remove' || action === 'step-delete') remove(target.getAttribute('data-step')!);
-        else if (action === 'step-reference') setReference(target.getAttribute('data-step')!, target.getAttribute('data-mode') === 'slot');
+        else if (action === 'step-remove' || action === 'step-delete') remove(named('data-step'));
+        else if (action === 'step-reference') setReference(named('data-step'), target.getAttribute('data-mode') === 'slot');
         else if (action === 'step-add' || action === 'step-insert') openMenu(target.getAttribute('data-after') || null);
-        else if (action === 'step-add-op') add(target.getAttribute('data-op')!, target.hasAttribute('data-after') ? target.getAttribute('data-after') || null : undefined);
-        else if (action === 'step-bypass') bypass(target.getAttribute('data-step')!);
+        else if (action === 'step-add-op') add(named('data-op'), target.hasAttribute('data-after') ? target.getAttribute('data-after') || null : undefined);
+        else if (action === 'step-bypass') bypass(named('data-step'));
         else if (action === 'step-region-clear') clearRegion();
         else if (action === 'step-undo') undo();
         else if (action === 'step-redo') redo();
@@ -310,12 +313,12 @@ export function createStepBar(deps: {
             event.preventDefault();
             event.stopPropagation();
             const first = element.querySelector<HTMLElement>('.step-menu-item:not(.is-off)');
-            if (first) add(first.getAttribute('data-op')!, first.hasAttribute('data-after') ? first.getAttribute('data-after') || null : undefined);
+            if (first) add(first.getAttribute('data-op') ?? '', first.hasAttribute('data-after') ? first.getAttribute('data-after') || null : undefined);
         }
         // Delete on a chip takes its step out, as Remove does.
-        else if ((event.key === 'Delete' || event.key === 'Backspace') && body) { event.preventDefault(); event.stopPropagation(); remove(body.getAttribute('data-step-hold')!); }
+        else if ((event.key === 'Delete' || event.key === 'Backspace') && body) { event.preventDefault(); event.stopPropagation(); remove(body.getAttribute('data-step-hold') ?? ''); }
         // M on a chip bypasses its step (or brings it back).
-        else if ((event.key === 'm' || event.key === 'M') && body && !event.ctrlKey && !event.metaKey && !event.altKey) { event.preventDefault(); event.stopPropagation(); bypass(body.getAttribute('data-step-hold')!); }
+        else if ((event.key === 'm' || event.key === 'M') && body && !event.ctrlKey && !event.metaKey && !event.altKey) { event.preventDefault(); event.stopPropagation(); bypass(body.getAttribute('data-step-hold') ?? ''); }
     });
     // Ctrl+Z / Ctrl+Shift+Z (or Ctrl+Y) undo and redo the bar's edits: with the focus in the bar, or nowhere in
     // particular while this bar is the one in front (the comparison's over the table's).
