@@ -5,7 +5,7 @@
  * filters and the order are the user's; this module only answers them. Pure, so it is unit-tested.
  */
 import type { ScanResult } from '../protocol/backendProtocol';
-import { auditAudioMatches, finiteNumber, MAX_CSV_BYTES, parseCSV, profileColumns, resolveAudio, sourceColumns, summarizeAudioCandidates, type DataRow } from './asdData';
+import { auditAudioMatches, finiteNumber, MAX_CSV_BYTES, parseCSV, profileColumns, resolveAudio, sourceColumns, type DataRow } from './asdData';
 
 /** The CSV the user picked, read: its columns (the source columns left out) and which of them are numeric. */
 export interface DatasetCsv {
@@ -39,8 +39,10 @@ export interface Unmatched {
     row?: number;
     filePath?: string;
     reason: UnmatchedReason;
-    /** What was looked for, or the candidates, or the rows that named the same recording. */
+    /** What was looked for, or the rows that named the same recording. */
     detail: string;
+    /** For an ambiguous row, the recordings it could name (shown in the UI's words). */
+    candidates?: readonly string[];
 }
 
 export interface CsvMatch {
@@ -67,7 +69,7 @@ export function matchCsv(csv: DatasetCsv, filePaths: readonly string[], rootPath
     const audit = auditAudioMatches({ name: csv.name, columns: csv.columns, rows: csv.rows }, csv.idColumn, csv.audioColumn, files);
     const unmatched: Unmatched[] = [
         ...audit.missing.map(item => ({ row: item.row, reason: 'missing' as const, detail: item.expected })),
-        ...audit.ambiguous.map(item => ({ row: item.row, reason: 'ambiguous' as const, detail: summarizeAudioCandidates(item.candidates) })),
+        ...audit.ambiguous.map(item => ({ row: item.row, reason: 'ambiguous' as const, detail: '', candidates: item.candidates })),
         ...audit.repeated.flatMap(item => item.rows.slice(1).map(row => ({ row, reason: 'repeated' as const, detail: `${item.key} · ${item.rows[0]}` }))),
         ...audit.unused.map(key => ({ filePath: files.get(key)!, reason: 'no-row' as const, detail: key })),
     ];

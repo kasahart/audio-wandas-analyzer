@@ -10,7 +10,7 @@ export type SpectrogramSettingsPopoverStrings = Pick<UiStrings,
     | 'specSettingsDisplayLegend' | 'specSettingsDbMin' | 'specSettingsDbMax' | 'specSettingsMaxFreqHz'
     | 'btnZoomReset' | 'stepApply' | 'specSettingsPlaceholderAuto' | 'specSettingsPlaceholderNyquist'
     | 'settingsApplyHint' | 'hintSpecAuto' | 'hintSpecNFft' | 'hintSpecOverlap' | 'hintSpecWindow' | 'hintSpecDisplay'
-    | 'hintSpecReset' | 'hintSpecApply'>;
+    | 'hintSpecReset' | 'hintSpecApply' | 'specSettingsColorRange' | 'specSettingsWindowBoxcar'>;
 
 export interface SpectrogramSettingsPopoverOptions {
     strings: SpectrogramSettingsPopoverStrings;
@@ -33,27 +33,33 @@ const GEAR_SELECTOR = '[data-action="spectrogram-settings"], [data-action="spect
 export function spectrogramSettingsPopoverHtml(strings: SpectrogramSettingsPopoverStrings): string {
     const nfftOptions = NFFT_OPTIONS.map(v => '<option value="' + v + '">' + v + '</option>').join('');
     const overlapOptions = STFT_OVERLAP_PERCENT_OPTIONS.map(v => '<option value="' + v + '">' + v + '%</option>').join('');
-    return '<div id="spec-settings-popover" hidden style="position:absolute;z-index:50;background:var(--panel);border:1px solid var(--line);padding:12px;border-radius:6px;min-width:260px;color:var(--text);font-family:var(--font-ui);">'
-        + '<label style="display:block;margin-bottom:6px"' + hoverHintAttr(strings.hintSpecAuto) + '><input type="checkbox" id="spec-auto"' + hintAttr(strings.hintSpecAuto) + '> ' + escapeHtml(strings.specSettingsAuto) + '</label>'
-        + '<fieldset id="spec-stft-fields" style="border:1px solid var(--line);padding:6px;margin-bottom:8px">'
+    const row = (label: string, hint: string, control: string): string =>
+        '<label class="spec-pop-row"' + hoverHintAttr(hint) + '><span>' + escapeHtml(label) + '</span>' + control + '</label>';
+    const number = (id: string, placeholder: string, label: string, extra = ''): string =>
+        '<input type="number" class="spec-pop-field" id="' + id + '" step="1"' + extra + ' placeholder="' + escapeHtml(placeholder) + '" aria-label="' + escapeHtml(label) + '"' + hintAttr(strings.hintSpecDisplay) + '>';
+    return '<div id="spec-settings-popover" class="spec-pop" hidden>'
+        + '<label class="spec-pop-check"' + hoverHintAttr(strings.hintSpecAuto) + '><input type="checkbox" id="spec-auto"' + hintAttr(strings.hintSpecAuto) + '> ' + escapeHtml(strings.specSettingsAuto) + '</label>'
+        + '<fieldset id="spec-stft-fields" class="spec-pop-group">'
         + '<legend>' + escapeHtml(strings.specSettingsStftLegend) + '</legend>'
-        + '<label' + hoverHintAttr(strings.hintSpecNFft) + '>' + escapeHtml(strings.specSettingsNFft) + ' <select id="spec-nfft"' + hintAttr(strings.hintSpecNFft) + '>' + nfftOptions + '</select></label><br>'
-        + '<label' + hoverHintAttr(strings.hintSpecOverlap) + '>' + escapeHtml(strings.specSettingsOverlap) + ' <select id="spec-overlap"' + hintAttr(strings.hintSpecOverlap) + '>' + overlapOptions + '</select></label><br>'
-        + '<label' + hoverHintAttr(strings.hintSpecWindow) + '>' + escapeHtml(strings.specSettingsWindow) + ' <select id="spec-window"' + hintAttr(strings.hintSpecWindow) + '>'
-        + '<option value="hann">hann</option><option value="hamming">hamming</option>'
-        + '<option value="blackman">blackman</option><option value="boxcar">boxcar</option>'
-        + '</select></label>'
-        + '<div style="font-size:11px;color:var(--muted)">' + escapeHtml(strings.settingsApplyHint) + '</div>'
+        + row(strings.specSettingsNFft, strings.hintSpecNFft, '<select class="spec-pop-field" id="spec-nfft"' + hintAttr(strings.hintSpecNFft) + '>' + nfftOptions + '</select>')
+        + row(strings.specSettingsOverlap, strings.hintSpecOverlap, '<select class="spec-pop-field" id="spec-overlap"' + hintAttr(strings.hintSpecOverlap) + '>' + overlapOptions + '</select>')
+        + row(strings.specSettingsWindow, strings.hintSpecWindow, '<select class="spec-pop-field" id="spec-window"' + hintAttr(strings.hintSpecWindow) + '>'
+            + '<option value="hann">Hann</option><option value="hamming">Hamming</option>'
+            + '<option value="blackman">Blackman</option><option value="boxcar">' + escapeHtml(strings.specSettingsWindowBoxcar) + '</option>'
+            + '</select>')
+        + '<div class="spec-pop-note">' + escapeHtml(strings.settingsApplyHint) + '</div>'
         + '</fieldset>'
-        + '<fieldset style="border:1px solid var(--line);padding:6px;margin-bottom:8px"' + hoverHintAttr(strings.hintSpecDisplay) + '>'
+        + '<fieldset class="spec-pop-group"' + hoverHintAttr(strings.hintSpecDisplay) + '>'
         + '<legend>' + escapeHtml(strings.specSettingsDisplayLegend) + '</legend>'
-        + '<label>' + escapeHtml(strings.specSettingsDbMin) + ' <input type="number" id="spec-dbmin" step="1" placeholder="' + escapeHtml(strings.specSettingsPlaceholderAuto) + '"' + hintAttr(strings.hintSpecDisplay) + '></label><br>'
-        + '<label>' + escapeHtml(strings.specSettingsDbMax) + ' <input type="number" id="spec-dbmax" step="1" placeholder="' + escapeHtml(strings.specSettingsPlaceholderAuto) + '"' + hintAttr(strings.hintSpecDisplay) + '></label><br>'
-        + '<label>' + escapeHtml(strings.specSettingsMaxFreqHz) + ' <input type="number" id="spec-maxfreq" min="1" step="1" placeholder="' + escapeHtml(strings.specSettingsPlaceholderNyquist) + '"' + hintAttr(strings.hintSpecDisplay) + '></label>'
+        // The colour range is one row, low – high: either end left empty follows the data.
+        + '<div class="spec-pop-row"><span>' + escapeHtml(strings.specSettingsColorRange) + '</span><span class="spec-pop-pair">'
+        + number('spec-dbmin', strings.specSettingsPlaceholderAuto, strings.specSettingsDbMin) + '<span aria-hidden="true">–</span>'
+        + number('spec-dbmax', strings.specSettingsPlaceholderAuto, strings.specSettingsDbMax) + '</span></div>'
+        + row(strings.specSettingsMaxFreqHz, strings.hintSpecDisplay, number('spec-maxfreq', strings.specSettingsPlaceholderNyquist, strings.specSettingsMaxFreqHz, ' min="1"'))
         + '</fieldset>'
-        + '<div style="display:flex;gap:6px;justify-content:flex-end">'
-        + '<button class="tb-btn" id="spec-reset"' + hintAttr(strings.hintSpecReset) + '>' + escapeHtml(strings.btnZoomReset) + '</button>'
-        + '<button class="tb-btn" id="spec-apply"' + hintAttr(strings.hintSpecApply) + '>' + escapeHtml(strings.stepApply) + '</button>'
+        + '<div class="spec-pop-bar">'
+        + '<button type="button" class="tb-btn" id="spec-reset"' + hintAttr(strings.hintSpecReset) + '>' + escapeHtml(strings.btnZoomReset) + '</button>'
+        + '<button type="button" class="tb-btn spec-pop-apply" id="spec-apply"' + hintAttr(strings.hintSpecApply) + '>' + escapeHtml(strings.stepApply) + '</button>'
         + '</div>'
         + '</div>';
 }
@@ -80,6 +86,7 @@ export function installSpectrogramSettingsPopover(
     function applyAutoState(): void {
         field<HTMLFieldSetElement>('spec-stft-fields').disabled = field('spec-auto').checked;
     }
+    let reported = '';
     function syncFromSettings(): void {
         const settings = options.getSettings();
         const text = (v: number | null) => v == null ? '' : String(v);
@@ -90,6 +97,7 @@ export function installSpectrogramSettingsPopover(
         field('spec-dbmin').value = text(settings.display.dbMin);
         field('spec-dbmax').value = text(settings.display.dbMax);
         field('spec-maxfreq').value = text(settings.display.maxFrequencyHz);
+        reported = JSON.stringify(readDisplay());
         applyAutoState();
     }
     let anchor: Element | null = null;
@@ -122,8 +130,17 @@ export function installSpectrogramSettingsPopover(
     }
 
     field('spec-auto').addEventListener('change', applyAutoState);
+    // The display range is drawn as it is typed (no Apply): a half-typed number such as "-" waits for its digits.
     ['spec-dbmin', 'spec-dbmax', 'spec-maxfreq'].forEach(id => {
-        field(id).addEventListener('change', () => options.onDisplayChange(readDisplay()));
+        const report = () => {
+            if (field(id).validity?.badInput) return;
+            const display = readDisplay();
+            if (JSON.stringify(display) === reported) return;
+            reported = JSON.stringify(display);
+            options.onDisplayChange(display);
+        };
+        field(id).addEventListener('input', report);
+        field(id).addEventListener('change', report);
     });
     field('spec-reset').addEventListener('click', () => {
         options.onReset();

@@ -110,3 +110,24 @@ test('apply reports the form settings and closes; reset resyncs the form from th
     assert.equal(el('spec-dbmin').value, '');
     assert.equal(el<HTMLFieldSetElement>('spec-stft-fields').disabled, true);
 });
+
+test('the display range applies as it is typed, once per value, and a half-typed number waits', () => {
+    const { dom, popover, el, displays } = setup(CUSTOM);
+    popover.open();
+    const input = (id: string, value: string) => { el(id).value = value; el(id).dispatchEvent(new dom.window.Event('input')); };
+    input('spec-maxfreq', '4000');
+    el('spec-maxfreq').dispatchEvent(new dom.window.Event('change'));
+    assert.deepEqual(displays, [{ dbMin: -90, dbMax: null, maxFrequencyHz: 4000 }]);
+    // The STFT fields still wait for Apply.
+    el<HTMLSelectElement>('spec-nfft').value = '512';
+    el<HTMLSelectElement>('spec-nfft').dispatchEvent(new dom.window.Event('change'));
+    assert.equal(displays.length, 1);
+});
+
+test('the settings use plain words: FFT size, Colour range (dB), Max frequency (Hz)', () => {
+    const { document } = setup(CUSTOM);
+    const text = document.getElementById('spec-settings-popover')!.textContent ?? '';
+    for (const words of ['FFT size', 'Overlap', 'Window', 'Colour range (dB)', 'Max frequency (Hz)']) assert.ok(text.includes(words), words);
+    assert.ok(!text.includes('n_fft'));
+    assert.equal(document.getElementById('spec-dbmin')!.getAttribute('aria-label'), 'Colour range low (dB)');
+});

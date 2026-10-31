@@ -46,19 +46,23 @@ test('click ignores unknown tracks and inherited action names', () => {
 });
 
 
-test('a used … item and a press elsewhere close the track\'s … menu', () => {
+test('a used … item and a press elsewhere close the track\'s … menu; a ±10 ms nudge keeps it open', () => {
     const dom = new JSDOM(`<body><div id="wrap"><details id="menu" class="track-more" open><summary>…</summary>
-        <button id="up" data-action="offset-up" data-track-id="t1"></button></details></div><div id="outside"></div></body>`);
+        <button id="up" data-action="offset-up" data-track-id="t1"></button>
+        <button id="reset" data-action="offset-reset" data-track-id="t1"></button></details></div><div id="outside"></div></body>`);
     const doc = dom.window.document;
     const calls: string[] = [];
-    const handlers = { 'offset-up': () => calls.push('up') } as unknown as TrackLaneHandlers;
+    const handlers = { 'offset-up': () => calls.push('up'), 'offset-reset': () => calls.push('reset') } as unknown as TrackLaneHandlers;
     attachTrackLaneActions(doc.getElementById('wrap') as unknown as HTMLElement, {
         trackIdFromElement: el => (el.getAttribute('data-track-id') as TrackId | null),
         trackIndexForId: () => 0,
     }, handlers);
     const menu = doc.getElementById('menu') as HTMLDetailsElement;
     doc.getElementById('up')!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
-    assert.deepEqual(calls, ['up']);
+    doc.getElementById('up')!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+    assert.deepEqual(calls, ['up', 'up']);
+    assert.equal(menu.open, true);
+    doc.getElementById('reset')!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
     assert.equal(menu.open, false);
     menu.open = true;
     doc.getElementById('outside')!.dispatchEvent(new dom.window.Event('pointerdown', { bubbles: true }));

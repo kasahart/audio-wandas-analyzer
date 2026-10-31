@@ -32,9 +32,9 @@ function curve(overrides: Partial<PairSpectrumResponse> = {}, label = 'b.wav'): 
 
 test('pair strings exist in English and Japanese', () => {
     assert.equal(en.pairReferenceHint, 'Transfer function reference');
-    assert.equal(ja.pairReferenceHint, '伝達関数の基準');
+    assert.equal(ja.pairReferenceHint, '伝達関数の参照');
     assert.equal(en.pairReferenceBadge, 'Ref');
-    assert.equal(ja.pairReferenceBadge, '基準');
+    assert.equal(ja.pairReferenceBadge, '参照');
     assert.ok(ja.pairAverages.includes('{n}'));
 });
 

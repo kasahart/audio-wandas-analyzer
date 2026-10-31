@@ -736,3 +736,63 @@ test('static page opens a folder through the File System Access picker without t
     await showRow(page, '/sources/rec/day2/a.WAV');
     await expect(page.locator('.track-row')).toHaveCount(1);
 });
+
+test('the cursor readout is labelled and follows a loop drag to where it was released', async ({ page }) => {
+    await loadUi(page);
+    await expect(page.locator('#cursor-display')).toHaveAttribute('aria-label', getStrings('en').toolbarCursorLabel);
+    await expect(page.locator('#toolbar .tb-label', { hasText: getStrings('en').toolbarCursorLabel })).toBeVisible();
+    const wave = (await page.locator('#track-canvas-0').boundingBox())!;
+    const y = wave.y + wave.height / 2;
+    const readout = page.locator('#cursor-display');
+    await page.mouse.move(wave.x + wave.width * 0.2, y);
+    const atPress = await readout.textContent();
+    await page.mouse.down();
+    await page.mouse.move(wave.x + wave.width * 0.6, y, { steps: 6 });
+    // While dragging the readout is the pointer's time, not the time pressed.
+    await expect(readout).not.toHaveText(atPress ?? '');
+    const dragged = await readout.textContent();
+    await page.mouse.up();
+    await expect(readout).toHaveText(dragged ?? '');
+    // The same place hovered afresh reads the same time.
+    await page.mouse.move(0, 0);
+    await page.mouse.move(wave.x + wave.width * 0.6, y);
+    await expect(readout).toHaveText(dragged ?? '');
+});
+
+test('the track\'s … menu stays open through repeated ±10 ms nudges', async ({ page }) => {
+    await loadUi(page);
+    const menu = page.locator('#track-row-0 details.track-more');
+    await menu.locator('summary').click();
+    await menu.locator('[data-action="offset-up"]').click();
+    await menu.locator('[data-action="offset-up"]').click();
+    await menu.locator('[data-action="offset-down"]').click();
+    await menu.locator('[data-action="offset-up"]').click();
+    await expect(menu).toHaveAttribute('open', '');
+    await expect(page.locator('#track-row-0 .track-offset-val')).toContainText('0.020');
+    await menu.locator('[data-action="offset-reset"]').click();
+    await expect(menu).not.toHaveAttribute('open', '');
+});
+
+test('a theme switched while open repaints the lanes: the colour bar\'s strip takes the light background', async ({ page }) => {
+    await page.setContent(buildUiSmokeHtml().replace(/<body([^>]*)>/, '<body$1 data-theme-kind="dark">'), { waitUntil: 'domcontentloaded' });
+    const spec = page.locator('#track-spec-canvas-0');
+    await expect(spec).toBeVisible();
+    // The pixel in the colour bar's strip, right of the bar itself.
+    const strip = () => spec.evaluate((canvas: HTMLCanvasElement) => Array.from(canvas.getContext('2d')!.getImageData(canvas.width - 4, Math.floor(canvas.height / 2), 1, 1).data.slice(0, 3)));
+    await expect.poll(async () => (await strip())[0]).toBeLessThan(60);
+    await page.evaluate(() => document.body.setAttribute('data-theme-kind', 'light'));
+    await expect.poll(async () => (await strip())[0]).toBeGreaterThan(200);
+});
+
+test('a track without decoded audio shows ▶ ■ 🔊 as unavailable and says why', async ({ page }) => {
+    await loadUi(page);
+    const STR = getStrings('en');
+    for (const action of ['toggle-playback', 'stop-playback', 'toggle-mute']) {
+        const button = page.locator(`#track-row-0 [data-action="${action}"]`);
+        await expect(button).toBeDisabled();
+        await expect(button).toHaveCSS('cursor', 'not-allowed');
+        await expect(button).toHaveCSS('opacity', '0.4');
+        await button.hover({ force: true });
+        await expect(page.locator('#hint-footer')).toHaveText(STR.trackNoAudio);
+    }
+});

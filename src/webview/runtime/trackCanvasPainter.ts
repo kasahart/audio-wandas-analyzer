@@ -68,7 +68,7 @@ export interface SpectrogramRasterCacheEntry {
     key: string;
 }
 
-/** Repaints the raster and colorbar only when the spectrogram or its view changed; otherwise the canvas keeps the previous pixels. */
+/** Repaints the raster and colorbar only when the spectrogram, its view or the theme changed; otherwise the canvas keeps the previous pixels. */
 export function paintTrackSpectrogram(
     ctx: CanvasRenderingContext2D,
     W: number,
@@ -79,7 +79,7 @@ export function paintTrackSpectrogram(
     theme: DrawTheme,
 ): SpectrogramRasterCacheEntry {
     const plotW = spectrogramPlotWidth(W);
-    const key = [plotW, H, view.zoomStart, view.zoomEnd, view.trackStart, view.trackDurRatio, view.dbLo, view.dbHi, view.maxFrequencyHz, view.minFrequencyHz, view.durationSec].join(':');
+    const key = [plotW, H, view.zoomStart, view.zoomEnd, view.trackStart, view.trackDurRatio, view.dbLo, view.dbHi, view.maxFrequencyHz, view.minFrequencyHz, view.durationSec, theme.bgColor, theme.mutedColor].join(':');
     if (cached && cached.source === spec && cached.key === key) {
         return cached;
     }

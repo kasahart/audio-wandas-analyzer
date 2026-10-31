@@ -26,6 +26,10 @@ export interface UiStrings {
     browserAggregateLimit: string;
     browserReady: string;
     browserWorkerFailed: string;
+    browserAnalysisStopped: string;
+    browserRemoveFailed: string;
+    browserFolderReadFailed: string;
+    browserFileFailed: string;
     browserPythonStarting: string;
     browserPythonReady: string;
     browserPythonFailed: string;
@@ -78,6 +82,7 @@ export interface UiStrings {
     chartSpecScalarLabelHeader: string;
     chartSpecScalarUnitHeader: string;
     cursorDisplayHint: string;
+    toolbarCursorLabel: string;
     loopBadge: string;
     trackPlayTitle: string;
     trackStopTitle: string;
@@ -119,7 +124,7 @@ export interface UiStrings {
     entryBaseGroup: string;
     entryBase: string;
     entryCount: string;
-    entryKeySlot: string;
+    trackNoAudio: string;
     entryCsvGroupSize: string;
     entrySourceGone: string;
     entryFolderLevel: string;
@@ -247,6 +252,13 @@ export interface UiStrings {
     hintExcluded: string;
     dsReasonMissing: string;
     dsReasonAmbiguous: string;
+    dsListSeparator: string;
+    dsMoreCandidates: string;
+    csvColumnsMismatch: string;
+    csvColumnsHintExtra: string;
+    csvColumnsHintMissing: string;
+    csvDelimiterComma: string;
+    csvDelimiterTab: string;
     dsReasonRepeated: string;
     dsReasonNoRow: string;
     dsReasonUnreadable: string;
@@ -507,6 +519,8 @@ export interface UiStrings {
     specSettingsMaxFreqHz: string;
     specSettingsPlaceholderAuto: string;
     specSettingsPlaceholderNyquist: string;
+    specSettingsColorRange: string;
+    specSettingsWindowBoxcar: string;
     btnExportPng: string;
     btnExportPngTitle: string;
     btnExportCsv: string;
@@ -587,6 +601,10 @@ export interface UiStrings {
     announceExportPngFailed: string;
     announceExportCsvStarted: string;
     announceExportCsvFailed: string;
+    exportPngBusy: string;
+    exportPngDone: string;
+    exportCsvBusy: string;
+    exportCsvDone: string;
     ariaSpecZoomIn: string;
     ariaSpecZoomOut: string;
     ariaSpecZoomReset: string;
@@ -760,6 +778,10 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         browserPreparing: 'Preparing local Python Worker / adding files…',
         browserReady: 'waveform ready. {count} tracks; add more files to compare. No automatic playback.',
         browserWorkerFailed: 'Audio Worker failed; select the files again.',
+        browserAnalysisStopped: 'The analysis stopped: {error}',
+        browserRemoveFailed: 'Could not remove the track: {error}',
+        browserFolderReadFailed: 'Could not read the folder: {error}',
+        browserFileFailed: '{file} could not be opened: {error}',
         browserPythonStarting: 'Python: starting…',
         browserPythonReady: 'Python: ready',
         browserPythonFailed: 'Python: failed to start',
@@ -791,7 +813,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stageChooseRoles: 'Choose recordings to compare: their chips in the legend',
         stageCompareMinusBase: 'Compare {n} − base · ',
         stageLayoutOverlay: 'Overlay',
-        compareFixedHint: 'Fixed: the difference is now the └ Δ row of the entry table (Esc to see it)',
+        compareFixedHint: 'Fixed: the difference is now the └ Δ row of the table (Esc to see it)',
         hintContentStage: 'Compare the tracks through an analysis: build it from wandas steps and see every track at any step, overlaid',
         btnSpectrogramSettingsTitle: 'Spectrogram settings',
         btnSpectrumSettingsTitle: 'Frequency analysis settings (shared with the spectrogram)',
@@ -805,6 +827,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         chartSpecNoResults: 'Recipe returned no charts.',
         chartSpecScalarLabelHeader: 'Label',
         chartSpecScalarUnitHeader: 'Unit',
+        toolbarCursorLabel: 'Cursor',
         cursorDisplayHint: 'Cursor time: click a waveform, then fine-tune with ← → (Shift: 100 ms)',
         loopBadge: '🔁 Looping',
         trackPlayTitle: 'Play / pause',
@@ -818,13 +841,13 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         tooltipLoopResize: 'Drag to resize loop region',
         tooltipLoopClear: 'Click to clear loop',
         tooltipLoopOrShift: 'Drag: set loop region / Shift+Drag: shift track in time',
-        canvasOutOfRange: 'Out of range',
+        canvasOutOfRange: 'Cursor is outside this track',
         spectrumNoData: 'No track has data at the cursor position',
         spectrumAnalysisWindow: 'window',
         spectrumAnalysisWindowPerTrack: 'window differs per track (see the bands)',
         spectrogramLoading: 'Loading spectrogram...',
         spectrogramFailed: 'Spectrogram failed: {reason}',
-        settingsApplyHint: 'Click Apply to commit changes',
+        settingsApplyHint: 'These recompute when you press Apply; the display below changes as you type.',
         reanalyzingStft: 'Recomputing STFT…',
         reanalyzingDefault: 'Recomputing…',
         reanalyzingFiles: 'Recomputing STFT… ({count} files)',
@@ -847,12 +870,12 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         entryBaseGroup: 'Base group',
         entryBase: 'Base',
         entryCount: '{count} files',
-        entryKeySlot: '1–3 slot',
+        trackNoAudio: 'No playback: this track has no decoded audio.',
         entryCsvGroupSize: 'Base group n',
         entrySourceGone: 'The file is no longer listed',
         entryFolderLevel: 'Folder {n}',
         compareKeyHold: 'hold 1–3 swap',
-        compareKeyBack: 'Esc entry',
+        compareKeyBack: 'Esc table',
         comparePlay: 'Play',
         compareDelta: 'Δ = compare − base',
         stepNeedBelow: 'Must be below {max}',
@@ -860,7 +883,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         compareReport: 'Export (comparison folder)',
         entryBaseMedian: 'median of {count}',
         stageBaseAggregate: 'Aggregate: the median at each point',
-        stageBaseList: 'Show on the list',
+        stageBaseList: 'Show in the table',
         reportBase: 'base',
         reportCompare: 'compare',
         reportDiff: 'delta',
@@ -893,9 +916,9 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepSettings: 'Settings',
         stepApply: 'Apply',
         stepRecipeWarning: 'The saved recipe could not be read; the standard one is used.',
-        compareNotEntry: '≠ entry',
+        compareNotEntry: '≠ table',
         comparePending: 'computing…',
-        compareBaseEntryRegion: 'base = entry region',
+        compareBaseEntryRegion: 'base = table region',
         compareSelfBase: '≠ same file',
         stepRecipeName: 'Standard',
         stepHoldHint: 'Hold to see what this step does',
@@ -934,9 +957,9 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepReferenceSet: '{op}: reference {reference}',
         stagePairBase: 'vs base',
         stageVsBase: 'Measured against the base: {file}',
-        stageBaseLane: 'Base (the reference): {file}',
+        stageBaseLane: 'Base (compared against): {file}',
         entryBatchNoBase: 'A step here compares each file with the base recording, so it cannot be exported for many files. Set its reference to a channel (⚙) first.',
-        stageNeedBaseFile: 'This step compares each recording with the base recording: choose one recording as Base (a group cannot be the reference)',
+        stageNeedBaseFile: 'This step compares each recording with the base recording: choose one recording as Base (a group cannot be Base)',
         stepPairSelf: 'Choose two different channels: a channel with itself always gives the same',
         stepNeedChannel: 'Channel 1 to {n}',
         stepPair: 'ch{output} / ch{input}',
@@ -975,6 +998,13 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintExcluded: 'Recordings taken out of the table; restore them here',
         dsReasonMissing: 'No recording',
         dsReasonAmbiguous: 'Ambiguous',
+        dsListSeparator: ', ',
+        dsMoreCandidates: '{n} more',
+        csvColumnsMismatch: 'Data row {row} (line {lines} of the file) has {actual} columns, but the header (line {header}) has {expected}.',
+        csvColumnsHintExtra: 'Look for a delimiter at the end of the row, or a {delimiter} inside a cell that is not in double quotes.',
+        csvColumnsHintMissing: 'Keep a delimiter for every empty value, so the row has as many columns as the header.',
+        csvDelimiterComma: 'comma (,)',
+        csvDelimiterTab: 'tab',
         dsReasonRepeated: 'Repeated, not used',
         dsReasonNoRow: 'No CSV row',
         dsReasonUnreadable: 'Unreadable',
@@ -1149,8 +1179,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepNeedInteger: 'Must be a whole number',
         stepNeedValue: 'Enter a value (the field is empty)',
         hintSpectrogram: 'Average spectrum (n_fft, window): the curves of the comparison; hold to show the spectrograms instead',
-        compareRefuseFix: 'D: no Δ to fix ({why}). Put a file in slot 0 on the entry table, or wait for the scan.',
-        compareRefuseSlot: 'Slot {n} is empty: fill it on the entry table (1–3 on a row).',
+        compareRefuseFix: 'D: no Δ to fix ({why}). Put a file in slot 0 on the table, or wait for the scan.',
+        compareRefuseSlot: 'Slot {n} is empty: fill it on the table (1–3 on a row).',
         entryLeqUncalibrated: 'uncalibrated',
         hintLeqUncalibrated: 'Uncalibrated: 0 dB is the file\'s full scale, so levels read below 0. Calibrate to read sound pressure.',
         hintSpectrogramGroup: 'Hold to show spectrograms; with a group as the base there is no single file to show, so put a file in slot 0',
@@ -1160,7 +1190,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintOverview: 'Every file\'s 1/3-octave levels: one row per file, brighter is louder; the frame is the rows on screen',
         hintBaseCard: '0: the base the compared file is measured against',
         hintSlotCard: 'Tap to compare this file; hold to swap it in until released',
-        hintRegionMark: 'The comparison uses another region than the entry table; click to go back to it',
+        hintRegionMark: 'The comparison uses another region than the table; click to go back to it',
         hintCompareMark: 'No Δ to read against this base',
         hintStepChip: 'A step of the scan Recipe; ⚙ changes its settings',
         hintEntryMaximize: 'Widen the table to the whole window (⤢) or back into the side panel (⤡); a double click on this bar, or dragging the panel\'s edge past 60 % of the window, does the same. Esc shrinks it',
@@ -1173,7 +1203,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpRowStepUndo: 'step bar: undo and redo its edits (↶ ↷)',
         helpSectionGeneral: 'Everywhere',
         helpSectionLanes: 'Tracks',
-        helpSectionEntry: 'Entry table',
+        helpSectionEntry: 'Table',
         helpSectionCompare: 'Compare',
         helpSectionSteps: 'Step bar',
         helpSectionSymbols: 'Symbols and colours',
@@ -1190,9 +1220,9 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpCompareSlot: 'tap: compare that slot; hold: compare it until released',
         helpCompareBase: 'switch the base between the file in slot 0 and the group median',
         helpCompareZoom: 'zoom the horizontal axis in / out / back to all of it',
-        helpCompareFix: 'fix the comparison as a row of the entry table',
+        helpCompareFix: 'fix the comparison as a row of the table',
         helpComparePlay: 'play the compared recording (▶ in the legend: any of them)',
-        helpCompareEsc: 'close a setting, then go back to where Compare was opened from (the tracks or the entry table)',
+        helpCompareEsc: 'close a setting, then go back to where Compare was opened from (the tracks or the table)',
         helpCompareLayoutKey: 'Overlay / One lane per track',
         helpCompareLayout: 'the tracks as a step of the Recipe, drawn over one another or each in its lane',
         helpCompareDiff: 'show the difference (compare − base) under the overlay',
@@ -1224,17 +1254,19 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         btnFollowCursorTitle: 'Auto-scroll to keep cursor centered during playback (key: F)',
         btnLinkScales: 'Link scales',
         hintLinkScales: 'Same amplitude, colour (dB) and frequency scale on all tracks (per unit)',
-        specSettingsAuto: 'Auto (defaults)',
-        specSettingsStftLegend: 'STFT',
-        specSettingsNFft: 'n_fft',
-        specSettingsOverlap: 'overlap',
-        specSettingsWindow: 'window',
+        specSettingsAuto: 'Use the default analysis',
+        specSettingsStftLegend: 'Analysis',
+        specSettingsNFft: 'FFT size',
+        specSettingsOverlap: 'Overlap',
+        specSettingsWindow: 'Window',
         specSettingsDisplayLegend: 'Display',
-        specSettingsDbMin: 'dB min',
-        specSettingsDbMax: 'dB max',
-        specSettingsMaxFreqHz: 'max freq Hz',
+        specSettingsDbMin: 'Colour range low (dB)',
+        specSettingsDbMax: 'Colour range high (dB)',
+        specSettingsMaxFreqHz: 'Max frequency (Hz)',
         specSettingsPlaceholderAuto: 'auto',
         specSettingsPlaceholderNyquist: 'Nyquist',
+        specSettingsColorRange: 'Colour range (dB)',
+        specSettingsWindowBoxcar: 'Rectangular',
         btnExportPng: 'Export PNG',
         btnExportPngTitle: 'Export visible tracks as PNG',
         btnExportCsv: 'Export CSV',
@@ -1314,6 +1346,10 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         announceExportPngFailed: 'PNG export failed: no visible canvases',
         announceExportCsvStarted: 'CSV export started',
         announceExportCsvFailed: 'CSV export failed: no spectrum data at cursor',
+        exportPngBusy: 'Exporting PNG…',
+        exportPngDone: 'PNG exported: {name}',
+        exportCsvBusy: 'Exporting CSV…',
+        exportCsvDone: 'CSV exported: {name}',
         ariaSpecZoomIn: 'Spectrum zoom in',
         ariaSpecZoomOut: 'Spectrum zoom out',
         ariaSpecZoomReset: 'Spectrum zoom reset',
@@ -1367,7 +1403,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintExpandSpectrum: 'Show the power spectrum',
         hintMaximizeSpectrum: 'Maximize the power spectrum (Esc restores)',
         hintRestoreSpectrum: 'Restore the layout (Esc)',
-        hintOpenFile: 'Add audio files from anywhere: they join the entry table\'s "Added files" and are shown as tracks at once',
+        hintOpenFile: 'Add audio files from anywhere: they join the table\'s "Added files" and are shown as tracks at once',
         hintOpenFolder: 'Open another folder of audio files',
         hintWheelGestures: 'Wheel: scroll tracks / Ctrl+Wheel: zoom / Shift+Wheel, swipe sideways: scroll in time',
         hintDoubleClickResetZoom: 'Double-click: reset zoom',
@@ -1386,7 +1422,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintSpecDisplay: 'Display range, applied immediately (empty = auto)',
         hintSpecReset: 'Restore the default settings',
         hintSpecApply: 'Recompute the spectrogram with these STFT settings',
-        hintBrowserOpenFolder: 'Open a folder on the entry table',
+        hintBrowserOpenFolder: 'Open a folder in the table',
         hintBrowserAbout: 'Show limits, unavailable features and how audio is handled',
         pairReferenceHint: 'Transfer function reference',
         pairReferenceClearHint: 'Clear the reference',
@@ -1485,6 +1521,10 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         browserPreparing: 'ローカルPython Workerを準備・ファイルを追加しています…',
         browserReady: '波形の準備完了。{count}トラック。ファイルを追加して比較できます。自動再生は行いません。',
         browserWorkerFailed: '音声Workerで障害が発生しました。ファイルを選択し直してください。',
+        browserAnalysisStopped: '解析を中断しました: {error}',
+        browserRemoveFailed: 'トラックを外せませんでした: {error}',
+        browserFolderReadFailed: 'フォルダを読めませんでした: {error}',
+        browserFileFailed: '{file} を開けませんでした: {error}',
         browserPythonStarting: 'Python: 起動中…',
         browserPythonReady: 'Python: 準備完了',
         browserPythonFailed: 'Python: 起動に失敗',
@@ -1530,6 +1570,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         chartSpecNoResults: 'レシピは何もチャートを返しませんでした。',
         chartSpecScalarLabelHeader: '項目',
         chartSpecScalarUnitHeader: '単位',
+        toolbarCursorLabel: 'カーソル',
         cursorDisplayHint: 'カーソル時刻: 波形をクリックし、← → で微調整（Shift: 100 ms）',
         loopBadge: '🔁 ループ再生中',
         trackPlayTitle: '再生 / 一時停止',
@@ -1543,13 +1584,13 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         tooltipLoopResize: 'ドラッグでループ区間をリサイズ',
         tooltipLoopClear: 'クリックでループ解除',
         tooltipLoopOrShift: 'ドラッグ: ループ区間を設定 / Shift+ドラッグ: トラックの時間をずらす',
-        canvasOutOfRange: '範囲外',
+        canvasOutOfRange: 'カーソルがこのトラックの外です',
         spectrumNoData: 'カーソル位置にデータがあるトラックがありません',
         spectrumAnalysisWindow: '解析窓',
         spectrumAnalysisWindowPerTrack: '解析窓はトラックごとに異なります（帯を参照）',
         spectrogramLoading: 'スペクトログラムを読み込み中...',
         spectrogramFailed: 'スペクトログラムを計算できませんでした: {reason}',
-        settingsApplyHint: '変更は「適用」で反映',
+        settingsApplyHint: 'ここは「適用」で再計算します。下の表示は入力するとすぐ変わります',
         reanalyzingStft: 'STFT を再計算中…',
         reanalyzingDefault: '再計算中…',
         reanalyzingFiles: 'STFT を再計算中… ({count} ファイル)',
@@ -1572,7 +1613,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         entryBaseGroup: '基準群',
         entryBase: '基準',
         entryCount: '{count} 件',
-        entryKeySlot: '1–3 スロット',
+        trackNoAudio: '再生できません: このトラックには復号済みの音声がありません',
         entryCsvGroupSize: '基準群 n',
         entrySourceGone: 'ファイルが一覧から外れました',
         entryFolderLevel: 'フォルダ階層{n}',
@@ -1650,17 +1691,17 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepBandpass: 'バンドパス',
         stepAverageFft: '{name}（FFT {n} 点）',
         stepOctaveHint: '表の帯域列の値',
-        stepNeedChannels: '2 チャンネルが必要ですが、1 チャンネルのファイルがあります。⚙ で基準を「基準の録音」にするか、外してください',
+        stepNeedChannels: '2 チャンネルが必要ですが、1 チャンネルのファイルがあります。⚙ で参照を「基準の録音」にするか、外してください',
         stepNarrowedChannels: '{op} で 1 チャンネルになっています。この手順には 2 チャンネルが必要です。{op} より前に動かすか、どちらかを外してください',
         stepOffChannels: '2 チャンネルが必要です（1 チャンネルのファイルあり）',
-        stepReference: '基準',
+        stepReference: '参照',
         stepReferenceChannel: 'この録音のチャンネル',
         stepReferenceSlot: '基準の録音',
-        stepReferenceSet: '{op}：基準 = {reference}',
+        stepReferenceSet: '{op}：参照 = {reference}',
         stagePairBase: '対 基準',
         stageVsBase: '基準 {file} と比べた値',
         stageBaseLane: '基準（比べる相手）：{file}',
-        entryBatchNoBase: '各ファイルを基準の録音と比べる手順があるため、多数のファイル向けには書き出せません。先に ⚙ で基準を「この録音のチャンネル」にしてください',
+        entryBatchNoBase: '各ファイルを基準の録音と比べる手順があるため、多数のファイル向けには書き出せません。先に ⚙ で参照を「この録音のチャンネル」にしてください',
         stageNeedBaseFile: 'この手順は各録音を基準の録音と比べます。基準に録音を 1 本選んでください（群は基準にできません）',
         stepPairSelf: '別々のチャンネルを選んでください（同じチャンネル同士は常に同じ値）',
         stepNeedChannel: 'チャンネルは 1〜{n}',
@@ -1700,6 +1741,13 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintExcluded: '集計から外した録音。ここから戻せます',
         dsReasonMissing: '未対応',
         dsReasonAmbiguous: '曖昧',
+        dsListSeparator: '、',
+        dsMoreCandidates: 'ほか{n}件',
+        csvColumnsMismatch: 'データ行 {row}（ファイル{lines}行目）の列数がヘッダーと一致しません。ヘッダー（{header}行目）は{expected}列、実際は{actual}列です。',
+        csvColumnsHintExtra: '行末の余分な区切りや、引用符で囲まれていないセル内の{delimiter}がないか確認してください。',
+        csvColumnsHintMissing: '値が空でも区切りを省略せず、ヘッダーと同じ列位置を保っているか確認してください。',
+        csvDelimiterComma: 'カンマ（,）',
+        csvDelimiterTab: 'タブ',
         dsReasonRepeated: '重複で不採用',
         dsReasonNoRow: '属性なし',
         dsReasonUnreadable: '読めない',
@@ -1949,17 +1997,19 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         btnFollowCursorTitle: '再生中にカーソルを中央に保つ（キー: F）',
         btnLinkScales: 'スケール連動',
         hintLinkScales: '全トラックで振幅・カラー (dB)・周波数のスケールを揃える（単位ごと）',
-        specSettingsAuto: '自動 (デフォルト)',
-        specSettingsStftLegend: 'STFT',
-        specSettingsNFft: 'n_fft',
+        specSettingsAuto: '既定の解析設定を使う',
+        specSettingsStftLegend: '解析',
+        specSettingsNFft: 'FFT サイズ',
         specSettingsOverlap: '重なり率',
-        specSettingsWindow: 'ウィンドウ',
-        specSettingsDisplayLegend: '表示設定',
-        specSettingsDbMin: 'dB 最小',
-        specSettingsDbMax: 'dB 最大',
-        specSettingsMaxFreqHz: '最大周波数 Hz',
+        specSettingsWindow: '窓関数',
+        specSettingsDisplayLegend: '表示',
+        specSettingsDbMin: 'カラー範囲の下限 (dB)',
+        specSettingsDbMax: 'カラー範囲の上限 (dB)',
+        specSettingsMaxFreqHz: '最大周波数 (Hz)',
         specSettingsPlaceholderAuto: '自動',
         specSettingsPlaceholderNyquist: 'ナイキスト',
+        specSettingsColorRange: 'カラー範囲 (dB)',
+        specSettingsWindowBoxcar: '矩形',
         btnExportPng: 'PNG 出力',
         btnExportPngTitle: '表示中のトラックを PNG として出力',
         btnExportCsv: 'CSV 出力',
@@ -2039,6 +2089,10 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         announceExportPngFailed: 'PNG 出力失敗：表示中のキャンバスがありません',
         announceExportCsvStarted: 'CSV 出力を開始しました',
         announceExportCsvFailed: 'CSV 出力失敗：カーソル位置にスペクトルデータがありません',
+        exportPngBusy: 'PNG を書き出し中…',
+        exportPngDone: 'PNG を書き出しました: {name}',
+        exportCsvBusy: 'CSV を書き出し中…',
+        exportCsvDone: 'CSV を書き出しました: {name}',
         ariaSpecZoomIn: 'スペクトル拡大',
         ariaSpecZoomOut: 'スペクトル縮小',
         ariaSpecZoomReset: 'スペクトルズームリセット',
@@ -2113,23 +2167,23 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintSpecApply: 'この STFT 設定でスペクトログラムを再計算',
         hintBrowserOpenFolder: 'フォルダを開き、一覧で選ぶ',
         hintBrowserAbout: '制限・未対応機能・音声の扱いを表示',
-        pairReferenceHint: '伝達関数の基準',
-        pairReferenceClearHint: '基準を解除',
-        pairReferenceBadge: '基準',
+        pairReferenceHint: '伝達関数の参照',
+        pairReferenceClearHint: '参照を解除',
+        pairReferenceBadge: '参照',
         pairAverages: '{n}平均',
         pairFewAveragesHint: '平均回数が少なく γ² が高めに出ます。範囲を広げるかオーバーラップを上げてください',
-        pairResampledHint: '基準のサンプルレートにリサンプル済み',
-        pairNoOverlapHint: '範囲内に基準との重なりがありません',
+        pairResampledHint: '参照のサンプルレートにリサンプル済み',
+        pairNoOverlapHint: '範囲内に参照との重なりがありません',
         pairTooShortHint: '重なりが FFT 1 フレームより短い',
         pairOtherUnitHint: '校正の単位が異なるため、このゲイン軸には描画しません',
         pairPhaseLabel: '位相 [°]',
         pairCoherenceLabel: 'γ²',
-        pairSectionTitle: '基準に対する伝達関数とコヒーレンス',
+        pairSectionTitle: '参照に対する伝達関数とコヒーレンス',
         pairWaiting: '計算中…',
-        pairNoResponses: '基準と比べる別のチャンネルを表示してください',
+        pairNoResponses: '参照と比べる別のチャンネルを表示してください',
         pairFailed: 'ペアスペクトルの計算に失敗しました: {error}',
         hintPairDivider: 'ドラッグで分割位置を変更',
-        hintOctaveDisabledByPair: '基準の設定中はオクターブバンドを使えません',
+        hintOctaveDisabledByPair: '参照の設定中はオクターブバンドを使えません',
         hintPairPlot: 'ループ範囲で平均。ループがなければ重なり全体で平均',
         pyTooltipSelect: 'クリックして Python 環境を選択',
         pyTooltipMissingDeps: 'Python パッケージが不足しているか互換性がありません。クリックして環境を選択するかインストールします。',

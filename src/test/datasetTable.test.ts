@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { auditAudioMatches, finiteNumber, parseCSV, resolveAudio, summarizeAudioCandidates, AUDIO_REASON_CANDIDATE_LIMIT } from '../shared/dataset/asdData';
+import { CSVColumnCountError, csvColumnCountMessage } from '../shared/dataset/csvDiagnostics';
 import { annotatedCsv, baseGroupMembers, columnValues, datasetRows, matchCsv, middleEllipsis, readDatasetCsv, valueOf, visibleRows, type ColumnId, type DatasetFilter, type DatasetRow } from '../shared/dataset/datasetTable';
 import type { ScanResult } from '../shared/protocol/backendProtocol';
 import { getStrings } from '../shared/i18n/strings';
@@ -43,10 +44,13 @@ test('folder keys distinguish equal names, and basename-only references require 
 
 test('ambiguous reasons show a bounded candidate sample and total', () => {
     const candidates = Array.from({ length: AUDIO_REASON_CANDIDATE_LIMIT + 17 }, (_, index) => `folder-${index}/shared.wav`);
-    const summary = summarizeAudioCandidates(candidates);
-    assert.ok(summary.includes(candidates[0]));
-    assert.ok(summary.includes('ほか17件'));
-    assert.ok(!summary.includes(candidates.at(-1)!));
+    for (const [language, more] of [['ja', 'ほか17件'], ['en', '17 more']] as const) {
+        const words = getStrings(language);
+        const summary = summarizeAudioCandidates(candidates, { separator: words.dsListSeparator, more: words.dsMoreCandidates });
+        assert.ok(summary.includes(candidates[0]));
+        assert.ok(summary.endsWith(words.dsListSeparator + more), summary);
+        assert.ok(!summary.includes(candidates.at(-1)!));
+    }
 });
 
 test('audit lists missing, ambiguous, unused and repeated attachments before import', () => {
@@ -72,7 +76,14 @@ test('a CSV is read as asd-insight reads it: strict numbers, one numeric column 
     assert.equal(finiteNumber('1.2e-3'), 0.0012);
     for (const text of ['1,000', '0x10', 'Inf', 'NaN', '']) assert.equal(finiteNumber(text), null);
     assert.throws(() => parseCSV('name,label\na,b'), /数値として読める列がありません/);
-    assert.throws(() => parseCSV('score,label\n1,OK,extra', 'bad.csv'), /列数がヘッダーと一致しません/);
+    assert.throws(() => parseCSV('score,label\n1,OK,extra', 'bad.csv'), (error: unknown) => {
+        assert.ok(error instanceof CSVColumnCountError);
+        // The message follows the UI's language: the same facts in English and Japanese.
+        assert.equal(csvColumnCountMessage(error.diagnostic, getStrings('en')),
+            'Data row 1 (line 2 of the file) has 3 columns, but the header (line 1) has 2. Look for a delimiter at the end of the row, or a comma (,) inside a cell that is not in double quotes.');
+        assert.match(csvColumnCountMessage(error.diagnostic, getStrings('ja')), /^データ行 1（ファイル2行目）の列数がヘッダーと一致しません。.*カンマ（,）/);
+        return true;
+    });
     assert.throws(() => parseCSV('score,score\n1,2'), /同じ列名/);
     const tsv = parseCSV('\n\nscore\tlabel\n0.5\t"a\tb"\n');
     assert.deepEqual(tsv.columns, ['score', 'label']);

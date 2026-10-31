@@ -36,7 +36,7 @@ import { contentBoxWidth, syncCanvasSize } from './canvasSizing';
 import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpecAxisCanvasId, trackSpecCanvasId, trackSpectrogramOverlayCanvasId, trackSpectrumCanvasId, trackSpectrumWrapId } from './trackCanvasIds';
 import { channelLaneHtml, trackRowHtml } from './trackLaneHtml';
 import { attachSpectrumBoxDrag, SpectrumBoxDrag } from './spectrumBoxDrag';
-import { attachCanvasFocusHint, attachHoverHints, createHintFooter, setHint } from './hintFooter';
+import { attachCanvasFocusHint, attachHoverHints, createHintFooter, createTaskStatus, setHint } from './hintFooter';
 import { attachSpectrumCursorListeners, createSpectrumCursorHandlers } from './spectrumCursorHandlers';
 import { attachTrackLaneActions } from './trackLaneActions';
 import { attachTrackAudioListeners } from './trackAudioEvents';
@@ -90,7 +90,7 @@ import { channelResult } from '../../shared/recipe/channelSelection';
 import { reportFiles } from './compareReport';
 import { regionLabel } from './entryTable';
 import { activeSlotReferenced, recipeKey } from '../../shared/recipe/recipeSteps';
-import { ROLE_COLORS } from '../../shared/gui/roleColors';
+import { ROLE_COLORS, useLightRoleColors } from '../../shared/gui/roleColors';
 import { createTrackStageMode, type StageTrack, type TrackStageDeps, type TrackStageMode } from './trackStageMode';
 import { attachRoleChips, roleChipHtml, roleChipText, type RoleChipRole } from './roleChip';
 import { triggerAnchorDownload as downloadEntryCsv } from './exportDownloads';
@@ -175,6 +175,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     // A track's own colour never looks like a role's: no blue (base), yellow / purple / magenta (slots 1–3),
     // green (Δ), orange (outliers) or grey (no role in Compare); those belong to the roles (ROLE_COLORS) and the entry table.
     const TRACK_COLORS = ['#2bb3a3', '#b08968', '#8a9a5b', '#c8b79c'];
+    // The same four darkened for a light background (each at least 3:1 against the lanes' background).
+    const LIGHT_TRACK_COLORS = ['#1a8a7c', '#94704f', '#6f7d44', '#8f7a55'];
+    function isLightTheme(): boolean {
+        return document.body.matches('.vscode-light, .vscode-high-contrast-light, [data-theme-kind="light"]');
+    }
+    useLightRoleColors(isLightTheme());
     function announce(msg: string): void {
         const el = document.getElementById('a11y-announce');
         if (!el) {
@@ -834,7 +840,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     /** The track's own colour, which it has without a role. */
     function ownTrackColor(i: number) {
         const runtime = trackRuntimeAt(i);
-        return (runtime && runtime.defaultColor) || TRACK_COLORS[i % TRACK_COLORS.length];
+        const color = (runtime && runtime.defaultColor) || TRACK_COLORS[i % TRACK_COLORS.length];
+        return isLightTheme() ? LIGHT_TRACK_COLORS[TRACK_COLORS.indexOf(color)] ?? color : color;
     }
     /** The role chips on the track headers follow the slots (set here, on the entry table or on the comparison's legend). */
     function syncRoleChips() {
@@ -848,6 +855,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         });
     }
     const hintFooter = createHintFooter(document);
+    const taskStatus = createTaskStatus(document, window);
     attachHoverHints(document, hintFooter);
     const updatePlaybackDisplay = createPlaybackDisplay(document, STR.playbackTimePrefix || '▶');
     // ── On-demand range cache ──
@@ -2582,6 +2590,16 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             scheduleRender();
             scheduleSpectrumRefresh('interactive');
         }, typeof ResizeObserver === 'function' ? ResizeObserver : undefined);
+        // A theme switched while open (VS Code changes the body's class): the canvases repaint in its colours.
+        if (typeof MutationObserver === 'function') {
+            new MutationObserver(function () {
+                useLightRoleColors(isLightTheme());
+                document.querySelectorAll('.track-header .role-chip-face').forEach(function (face) { face.removeAttribute('data-role'); });
+                syncRoleChips();
+                scheduleRender();
+                scheduleSpectrumRefresh('interactive');
+            }).observe(document.body, { attributes: true, attributeFilter: ['class', 'data-theme-kind'] });
+        }
         attachAudioEvents();
         updatePlaybackButtons();
         function attachTrackCanvasFocusEvents() {
@@ -3102,9 +3120,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const failed = STR.announceExportPngFailed || 'PNG export failed: no visible canvases';
         if (visibleExportCanvases(document.getElementById('tracks-wrapper') as unknown as Element | null).length === 0) {
             messaging.post({ type: 'show-info', message: failed });
+            taskStatus(failed, 'failed');
             return;
         }
         announce(STR.announceExportPngStarted || 'PNG export started');
+        taskStatus(STR.exportPngBusy, 'busy');
         composePngWhenDetailed(openDetailRequestIds(), Date.now() + 30000, failed);
     }
     function composePngWhenDetailed(waitFor: Set<string>, deadline: number, failed: string) {
@@ -3122,9 +3142,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }, AXIS_W);
             if (!composed) {
                 messaging.post({ type: 'show-info', message: failed });
+                taskStatus(failed, 'failed');
                 return;
             }
             triggerAnchorDownload(document as unknown as Document, composed.toDataURL('image/png'), 'waveform-export.png');
+            taskStatus(STR.exportPngDone.replace('{name}', 'waveform-export.png'), 'done');
         }, 0);
     }
     function exportCsv() {
@@ -3136,6 +3158,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         spectrumCursorNorm = cursorNorm;
         requestEveryCursorSpectrum();
         announce(STR.announceExportCsvStarted || 'CSV export started');
+        taskStatus(STR.exportCsvBusy, 'busy');
         writeCsvWhenDetailed(openDetailRequestIds(), Date.now() + 30000, cursorNorm);
     }
     /** Asks for the cursor spectrum of every shown track, whether or not its lane or its small spectrum is on screen. */
@@ -3187,9 +3210,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         if (tracks.length === 0) {
             messaging.post({ type: 'show-info', message: STR.announceExportCsvFailed || 'CSV export failed: no spectrum data at cursor' });
+            taskStatus(STR.announceExportCsvFailed, 'failed');
             return;
         }
         const csv = buildSpectrumCsv(tracks);
+        taskStatus(STR.exportCsvDone.replace('{name}', 'spectrum-export.csv'), 'done');
         if (messaging.downloadFile(csv, 'spectrum-export.csv', 'text/csv;charset=utf-8')) return;
         triggerAnchorDownload(document as unknown as Document, 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv), 'spectrum-export.csv');
     }
@@ -3624,6 +3649,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     const region = loopRegionForDrag(dragState.dragType, dragState.startNorm, loopRegion, norm);
                     if (region) setLoopRegion(region);
                 }
+                updateCursorDisplay(norm);
             }
         }
         scheduleRender();
@@ -3659,6 +3685,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         if (hadDrag) {
             scheduleSpectrumRefresh('immediate');
+            // The readout follows the pointer again from where the drag ended (or shows the cursor off the lanes).
+            const under = document.elementFromPoint(e.clientX, e.clientY);
+            const canvas = under instanceof HTMLCanvasElement && under.classList.contains('track-canvas') ? under : null;
+            const hit = canvas ? trackCanvasTimeHit(canvas, e.clientX) : null;
+            if (hit) renderWithHoverAt(hit.norm);
+            else { clearHover(); updateCursorDisplay(cursorNorm); }
         }
     }
     function renderWithHoverAt(norm: number) {

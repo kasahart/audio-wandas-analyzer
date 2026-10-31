@@ -77,3 +77,23 @@ export function attachCanvasFocusHint(canvas: HTMLElement, footer: HintFooter, t
         footer.clearIfShowing(text);
     });
 }
+
+export type TaskStatusState = 'busy' | 'done' | 'failed';
+
+/**
+ * A long task's state at the footer's right end ("Exporting PNG…", then done or failed), which hover hints do not
+ * overwrite. A finished state fades after a few seconds; screen readers hear it through the page's own announcer.
+ */
+export function createTaskStatus(doc: Document, win: Pick<Window, 'setTimeout' | 'clearTimeout'>): (text: string, state: TaskStatusState) => void {
+    let timer: number | undefined;
+    return function (text, state) {
+        const el = doc.getElementById('task-status');
+        if (!el) return;
+        if (timer !== undefined) win.clearTimeout(timer);
+        timer = undefined;
+        el.textContent = text;
+        el.dataset.state = state;
+        el.hidden = false;
+        if (state !== 'busy') timer = win.setTimeout(function () { el.hidden = true; timer = undefined; }, state === 'failed' ? 8000 : 4000);
+    };
+}
