@@ -15,20 +15,12 @@ const NON_NULL_ASSERTION_BURN_DOWN = [
     'src/shared/dataset/datasetTable.ts',
     'src/shared/protocol/backendProtocol.ts',
     'src/shared/protocol/schemaValidation.ts',
-    'src/webview/plot/waveformLayer.ts',
-    'src/webview/rangePopover.ts',
     'src/webview/runtime/browserAdapter.ts',
-    'src/webview/runtime/calibrationDecorations.ts',
-    'src/webview/runtime/chartSpecRuntime.ts',
     'src/webview/runtime/entryPlots.ts',
     'src/webview/runtime/entryRuntime.ts',
     'src/webview/runtime/entryTable.ts',
     'src/webview/runtime/entryTableHtml.ts',
-    'src/webview/runtime/pairSpectrumPanel.ts',
-    'src/webview/runtime/separatorKeys.ts',
-    'src/webview/runtime/spectrogramSettingsPopover.ts',
     'src/webview/runtime/staticHost.ts',
-    'src/webview/runtime/toolbarEvents.ts',
 ];
 NON_NULL_ASSERTION_BURN_DOWN.forEach((file, index, list) => {
     if (!existsSync(new URL(file, import.meta.url))) throw new Error(`eslint.config.mjs: burn-down entry ${file} does not exist`);

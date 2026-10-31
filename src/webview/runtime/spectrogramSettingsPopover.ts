@@ -175,16 +175,19 @@ export function installSpectrogramSettingsPopover(
             close();
         }
     });
-    keyRouterFor(document.defaultView!).add({
-        layer: 'popover',
-        keydown(ev) {
-            if (ev.key !== 'Escape' || !popover || popover.hidden) {
-                return false;
-            }
-            close();
-            return true;
-        },
-    });
+    const keyWindow = document.defaultView;
+    if (keyWindow) {
+        keyRouterFor(keyWindow).add({
+            layer: 'popover',
+            keydown(ev) {
+                if (ev.key !== 'Escape' || !popover || popover.hidden) {
+                    return false;
+                }
+                close();
+                return true;
+            },
+        });
+    }
 
     return { open, close, isOpen: () => !!popover && !popover.hidden, applyAutoState };
 }

@@ -36,18 +36,20 @@ export function channelMetricSummaryHtml(channel: Channel, peakLabel: string): s
 }
 
 export function calibrationSummary(channels: Channel[], strings: CalibrationBadgeStrings): CalibrationSummary {
-    const calibrated = channels.filter(channel => measurementFor(channel)?.calibrationStatus === 'calibrated') as ChannelSummary[];
+    const calibrated = channels.flatMap(channel => {
+        const measurement = measurementFor(channel);
+        return measurement?.calibrationStatus === 'calibrated' ? [measurement] : [];
+    });
     if (calibrated.length === 0) {
         return { text: 'FS', title: strings.calibrationBadgeUncalibratedHint };
     }
     if (calibrated.length !== channels.length) {
         return { text: 'PARTIAL', title: strings.calibrationBadgePartialHint };
     }
-    const units = Array.from(new Set(calibrated.map(channel => measurementFor(channel)!.linearUnit)));
+    const units = Array.from(new Set(calibrated.map(measurement => measurement.linearUnit)));
     return {
         text: units.length === 1 ? 'CAL: ' + units[0] : 'CAL',
-        title: calibrated.map(function (channel) {
-            const measurement = measurementFor(channel)!;
+        title: calibrated.map(function (measurement) {
             return measurement.linearUnit + '; ' + strings.calibrationFactorLabel + ' ' + measurement.factor + '; ' + measurement.levelReferenceLabel;
         }).join(' | '),
     };

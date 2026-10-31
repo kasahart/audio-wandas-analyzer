@@ -9,7 +9,7 @@ import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { baseName } from '../../shared/analysis/entryMetadata';
 import { DIFF_COLOR, NO_ROLE_COLOR, ROLE_COLORS } from '../../shared/gui/roleColors';
 import type { LegendItem, PaneRange } from './comparePanes';
-import { paintOverlay, paintStage, stageAxes, stageDiffRange, stageHeadline, stageLevelsHeadline, stageRange, type StageAxes, type StageLayer } from './stagePanes';
+import { paintOverlay, paintStage, stageAxes, stageDiffRange, stageHeadline, stageLevelsHeadline, stageRange, type StageAxes, type StageLayer, type StagePlot } from './stagePanes';
 import type { PlotWindow } from './plotInteraction';
 import type { StagePlots } from './trackStageModel';
 
@@ -24,9 +24,10 @@ export interface StageTrack {
 
 /**
  * What each plot last drew, for the pointer's readout and an axis's range: the whole picture whose axes it
- * uses, its level range before the vertical zoom, its axes' names, and the pictures read under the pointer.
+ * uses, its level range before the vertical zoom, its axes' names, the pictures read under the pointer, and
+ * where its lines are (the line nearest the pointer is picked from them).
  */
-export type Drawn = { picture: StageView | null; range: PaneRange; axes: StageAxes; views: { base: StageView | null; compare: StageView | null; diff: StageView | null } };
+export type Drawn = { picture: StageView | null; range: PaneRange; axes: StageAxes; views: { base: StageView | null; compare: StageView | null; diff: StageView | null }; plot?: StagePlot | null };
 
 /** The mode's own elements: its root (controls, overlaid plot, legend, diff) and the step bar in it. */
 export interface StageDom {
@@ -165,10 +166,10 @@ export function paintStageLanes(frame: StageFrame): number {
         const missing = coarse(track.filePath) === undefined;
         const empty = missing ? '' : strings.stepNotDrawable.replace('{frame}', picture?.frame ?? '');
         const axes = stageAxes(strings, coarse(track.filePath) ?? picture, track.input);
-        frame.drawnOn.set(track.canvas, { picture: coarse(track.filePath) ?? picture, range, axes, views: { base: coarsePlots.base, compare: coarse(track.filePath) ?? null, diff: null } });
         // A lane holds one picture, drawn as it is (1/3-octave levels as steps, without a fill).
-        paintOverlay(track.canvas, { layers: view ? [{ view, color: colorOf(frame.role, track.filePath), width: widthOf(frame.role, track.filePath, 2) }] : [] }, heat ? range : narrowed(range, window.y), axes,
+        const lanePlot = paintOverlay(track.canvas, { layers: view ? [{ view, color: colorOf(frame.role, track.filePath), width: widthOf(frame.role, track.filePath, 2), label: frame.named(track.filePath, frame.role(track.filePath)).label }] : [] }, heat ? range : narrowed(range, window.y), axes,
             { empty, window: { x: window.x, ...(heat ? { y: window.y } : {}) }, axisView: coarse(track.filePath) ?? picture, ...(regionMark ? { region: regionMark } : {}), ...((missing || track.filePath === progressLane) && pending ? { pending } : {}) });
+        frame.drawnOn.set(track.canvas, { picture: coarse(track.filePath) ?? picture, range, axes, views: { base: coarsePlots.base, compare: coarse(track.filePath) ?? null, diff: null }, plot: lanePlot });
         if (view) drawn++;
     });
     // The base slot's lane: the reference the others are measured against, not a picture of its own.
@@ -178,16 +179,20 @@ export function paintStageLanes(frame: StageFrame): number {
     return drawn;
 }
 
-/** The overlaid plot's lines: the grey ones (no role) under the roles' ones, the base, the other tracks, the compared file on top. */
-export function overlayLayers(frame: Pick<StageFrame, 'comparePath' | 'role'>, plots: StagePlots<StageTrack>): StageLayer[] {
+/**
+ * The overlaid plot's lines: the grey ones (no role) under the roles' ones, the base, the other tracks, the compared
+ * file on top. Each carries its legend name (the base's `baseLabel`), for the readout of the line under the pointer.
+ */
+export function overlayLayers(frame: Pick<StageFrame, 'comparePath' | 'role' | 'named'>, plots: StagePlots<StageTrack>, baseLabel?: string): StageLayer[] {
     const roleColor = (path: string, fallback?: string): string => colorOf(frame.role, path, fallback);
+    const nameOf = (path: string): string => frame.named(path, frame.role(path)).label;
     const { comparePath } = frame;
     return [
         // The grey lines (no role) under the roles' ones.
-        ...plots.others.filter(item => frame.role(item.track.filePath) === undefined).flatMap(item => (item.view ? [{ view: item.view, color: NO_ROLE_COLOR, width: 1.2 }] : [])),
-        ...(plots.base ? [{ view: plots.base, color: ROLE_COLORS[0], width: 2 }] : []),
-        ...plots.others.filter(item => frame.role(item.track.filePath) !== undefined).flatMap(item => (item.view ? [{ view: item.view, color: roleColor(item.track.filePath), width: 1.8 }] : [])),
-        ...(plots.compare && comparePath ? [{ view: plots.compare, color: roleColor(comparePath, ROLE_COLORS[1]), width: 2.2 }] : []),
+        ...plots.others.filter(item => frame.role(item.track.filePath) === undefined).flatMap(item => (item.view ? [{ view: item.view, color: NO_ROLE_COLOR, width: 1.2, label: nameOf(item.track.filePath) }] : [])),
+        ...(plots.base ? [{ view: plots.base, color: ROLE_COLORS[0], width: 2, ...(baseLabel !== undefined ? { label: baseLabel } : {}) }] : []),
+        ...plots.others.filter(item => frame.role(item.track.filePath) !== undefined).flatMap(item => (item.view ? [{ view: item.view, color: roleColor(item.track.filePath), width: 1.8, label: nameOf(item.track.filePath) }] : [])),
+        ...(plots.compare && comparePath ? [{ view: plots.compare, color: roleColor(comparePath, ROLE_COLORS[1]), width: 2.2, label: nameOf(comparePath) }] : []),
     ];
 }
 
@@ -239,15 +244,15 @@ export function paintStageOverlay(dom: StageDom, frame: StageFrame, plots: Stage
     const axes = stageAxes(strings, picture, tracks[0]?.input);
     const empty = waiting ? '' : strings.stepNotDrawable.replace('{frame}', picture?.frame ?? '');
     const overlay = dom.query<HTMLCanvasElement>('[data-stage-canvas="overlay"]');
-    frame.drawnOn.set(overlay, { picture, range, axes, views: { base: coarsePlots.base, compare: coarsePlots.compare, diff: coarsePlots.diff } });
-    paintOverlay(overlay, { layers }, narrowed(range, window.y), axes, { empty, window: { x: window.x }, axisView: picture, ...(regionMark ? { region: regionMark } : {}), ...(pending ? { pending } : {}) });
+    const overlayPlot = paintOverlay(overlay, { layers }, narrowed(range, window.y), axes, { empty, window: { x: window.x }, axisView: picture, ...(regionMark ? { region: regionMark } : {}), ...(pending ? { pending } : {}) });
+    frame.drawnOn.set(overlay, { picture, range, axes, views: { base: coarsePlots.base, compare: coarsePlots.compare, diff: coarsePlots.diff }, plot: overlayPlot });
     const diffBox = dom.query<HTMLElement>('[data-stage-diff]');
     diffBox.hidden = !showDiff || !!referencePath || !comparePath;
     if (!showDiff || referencePath || !comparePath) return;
     dom.query<HTMLElement>('[data-stage-diff-headline]').textContent = waiting ? '' : stageHeadline(plots.diff, strings);
     const diffAxes = stageAxes(strings, coarsePlots.diff, tracks[0]?.input, true);
     const diffCanvas = dom.query<HTMLCanvasElement>('[data-stage-canvas="diff"]');
-    frame.drawnOn.set(diffCanvas, { picture: coarsePlots.diff, range: stageDiffRange(coarsePlots.diff), axes: diffAxes, views: { base: coarsePlots.base, compare: coarsePlots.compare, diff: coarsePlots.diff } });
-    paintStage(diffCanvas, plots.diff, stageDiffRange(coarsePlots.diff), DIFF_COLOR, stageAxes(strings, coarsePlots.diff, tracks[0]?.input, true),
+    const diffPlot = paintStage(diffCanvas, plots.diff, stageDiffRange(coarsePlots.diff), DIFF_COLOR, stageAxes(strings, coarsePlots.diff, tracks[0]?.input, true),
         { diff: true, empty: waiting ? '' : strings.stageNoDelta, window: { x: window.x }, axisView: coarsePlots.diff, ...(pending ? { pending } : {}) });
+    frame.drawnOn.set(diffCanvas, { picture: coarsePlots.diff, range: stageDiffRange(coarsePlots.diff), axes: diffAxes, views: { base: coarsePlots.base, compare: coarsePlots.compare, diff: coarsePlots.diff }, plot: diffPlot });
 }

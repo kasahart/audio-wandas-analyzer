@@ -133,6 +133,21 @@ export class TrackStore {
         return true;
     }
 
+    /** The results of the active tracks, in protocol order: what the runtime's protocol indices point into. */
+    activeResults(): ComparisonTrackState[] {
+        return this.activeIds().map(id => this.require(id).result);
+    }
+
+    /**
+     * The host's new results replace the old ones: each track keeps its identity, its runtime state and the audio
+     * source it already plays from. Returns what changed and the new protocol-ordered results.
+     */
+    applyAnalysisUpdate(results: ComparisonTrackState[]): ReconcileResult & { results: ComparisonTrackState[] } {
+        const reconciliation = this.reconcile(results, (nextResult, previousResult) =>
+            Object.assign({}, nextResult, { audioSource: previousResult?.audioSource || nextResult.audioSource || '' }));
+        return { ...reconciliation, results: this.activeResults() };
+    }
+
     reconcile(
         results: ComparisonTrackState[],
         mergeResult: (next: ComparisonTrackState, previous?: ComparisonTrackState) => ComparisonTrackState,

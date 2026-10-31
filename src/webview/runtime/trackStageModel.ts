@@ -127,9 +127,9 @@ export function pictureSummary(view: StageView | null | undefined): { stageValue
 /** The pictures of one paint: the base, the compared file's, the other tracks' and the compared file's difference from the base. */
 export interface StagePlots<T> { base: StageView | null; compare: StageView | null; others: Array<{ track: T; view: StageView | null }>; diff: StageView | null }
 
-/** The base is the median of its files' pictures once all are in, else `fallback`. */
-export function plotsOf<T extends { filePath: string }>(views: (path: string) => StageView | null | undefined, tracks: readonly T[], comparePath: string | null, basePaths: readonly string[], fallback: StageView | null = null): StagePlots<T> {
-    const baseViews = basePaths.map(views).filter((view): view is StageView => !!view);
+/** The base is the median of its files' pictures (`baseOf`, else `views`) once all are in, else `fallback`. */
+export function plotsOf<T extends { filePath: string }>(views: (path: string) => StageView | null | undefined, tracks: readonly T[], comparePath: string | null, basePaths: readonly string[], fallback: StageView | null = null, baseOf = views): StagePlots<T> {
+    const baseViews = basePaths.map(baseOf).filter((view): view is StageView => !!view);
     const base = baseViews.length && baseViews.length === basePaths.length ? medianView(baseViews) : fallback;
     const compare = comparePath ? views(comparePath) ?? null : null;
     const others = tracks.filter(track => track.filePath !== comparePath && !basePaths.includes(track.filePath)).map(track => ({ track, view: views(track.filePath) ?? null }));

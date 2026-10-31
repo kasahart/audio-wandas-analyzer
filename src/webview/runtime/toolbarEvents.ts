@@ -60,16 +60,19 @@ export function attachExclusiveMenus(toolbar: HTMLElement | null): void {
     toolbar.ownerDocument.addEventListener('pointerdown', function (e) {
         closeAll(eventTarget(e));
     }, true);
-    keyRouterFor(toolbar.ownerDocument.defaultView!).add({
-        layer: 'popover',
-        keydown(e) {
-            if (e.key !== 'Escape' || !toolbar.querySelector('details.tb-menu[open]')) {
-                return false;
-            }
-            closeAll();
-            return true;
-        },
-    });
+    const keyWindow = toolbar.ownerDocument.defaultView;
+    if (keyWindow) {
+        keyRouterFor(keyWindow).add({
+            layer: 'popover',
+            keydown(e) {
+                if (e.key !== 'Escape' || !toolbar.querySelector('details.tb-menu[open]')) {
+                    return false;
+                }
+                closeAll();
+                return true;
+            },
+        });
+    }
 }
 
 export function attachHeightResizeListeners(
