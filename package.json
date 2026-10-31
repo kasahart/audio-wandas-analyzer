@@ -42,7 +42,7 @@
         "音響"
     ],
     "activationEvents": [
-        "onStartupFinished"
+        "workspaceContains:media/debug/chirp-200-3200.wav"
     ],
     "main": "./dist/extension/bootstrap.js",
     "icon": "media/Marketplace-icon.png",

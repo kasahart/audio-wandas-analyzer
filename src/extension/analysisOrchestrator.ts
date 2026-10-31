@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import type { AnalysisResult, AnalysisResultWithError, StftOptions } from '../shared/analysis/analysisTypes';
 import type { AnalyzeOptions } from '../shared/analysis/analysisClient';
+import { fileCountLabel, fillTemplate, getStrings } from '../shared/i18n/strings';
 import { AnalysisRequestError } from './analysisRequestError';
 
 export interface AnalysisBackend {
@@ -20,6 +21,7 @@ export interface ProgressMessageSink {
 }
 
 export interface AnalysisHost {
+    language?(): string;
     withProgress<T>(
         options: vscode.ProgressOptions,
         task: (
@@ -30,6 +32,7 @@ export interface AnalysisHost {
 }
 
 const defaultHost: AnalysisHost = {
+    language: () => vscode.env.language,
     withProgress: (options, task) => vscode.window.withProgress(options, task),
 };
 
@@ -60,10 +63,12 @@ export class AnalysisOrchestrator {
         progressSink?: ProgressMessageSink,
         cancellable = true,
     ): Promise<AnalysisResultWithError[]> {
+        const strings = getStrings(this.host.language?.());
         return this.host.withProgress(
             {
                 location: vscode.ProgressLocation.Notification,
-                title: titleOverride ?? `Analyzing ${filePaths.length} files with wandas`,
+                title: titleOverride
+                    ?? fillTemplate(strings.analysisProgressTitle, { files: fileCountLabel(strings, filePaths.length) }),
                 cancellable,
             },
             async (progress, token) => {
@@ -75,7 +80,7 @@ export class AnalysisOrchestrator {
                     },
                     progress: (filePath, index, total) => {
                         const fileName = path.basename(filePath);
-                        progress.report({ increment: Math.floor(100 / total), message: `(${index + 1}/${total}) ${fileName}` });
+                        progress.report({ increment: 100 / total, message: `(${index + 1}/${total}) ${fileName}` });
                         void progressSink?.postMessage({ type: 'analysis-file-progress', current: index + 1, total, fileName });
                     },
                     analyze: filePath => this.analyzeFile(filePath, stftOptions, cancellable ? token : undefined),
