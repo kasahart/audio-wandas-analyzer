@@ -72,6 +72,8 @@ test('the PNG export draws every lane: it asks for the spectrograms of lanes out
     }, { intervals: [50], timeout: 20000 }).toContain('waveform-export.png');
     await expect(status).toHaveText(getStrings('en').exportPngDone.replace('{name}', 'waveform-export.png'));
     await expect(status).toHaveAttribute('data-state', 'done');
+    // The footer is aria-hidden: a screen reader hears the finished export through the page's live region.
+    await expect(page.locator('#a11y-announce')).toHaveText(getStrings('en').exportPngDone.replace('{name}', 'waveform-export.png'));
 });
 
 test('a lane resized while out of view paints its spectrogram again when scrolled back', async ({ page }) => {

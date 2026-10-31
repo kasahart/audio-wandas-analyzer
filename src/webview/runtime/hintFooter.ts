@@ -82,9 +82,10 @@ export type TaskStatusState = 'busy' | 'done' | 'failed';
 
 /**
  * A long task's state at the footer's right end ("Exporting PNG…", then done or failed), which hover hints do not
- * overwrite. A finished state fades after a few seconds; screen readers hear it through the page's own announcer.
+ * overwrite. A finished state fades after a few seconds. The footer is aria-hidden, so a finished or failed state also
+ * goes to `announce` (the page's live region); the start is announced by the caller.
  */
-export function createTaskStatus(doc: Document, win: Pick<Window, 'setTimeout' | 'clearTimeout'>): (text: string, state: TaskStatusState) => void {
+export function createTaskStatus(doc: Document, win: Pick<Window, 'setTimeout' | 'clearTimeout'>, announce?: (text: string) => void): (text: string, state: TaskStatusState) => void {
     let timer: number | undefined;
     return function (text, state) {
         const el = doc.getElementById('task-status');
@@ -94,6 +95,7 @@ export function createTaskStatus(doc: Document, win: Pick<Window, 'setTimeout' |
         el.textContent = text;
         el.dataset.state = state;
         el.hidden = false;
+        if (state !== 'busy' && announce) announce(text);
         if (state !== 'busy') timer = win.setTimeout(function () { el.hidden = true; timer = undefined; }, state === 'failed' ? 8000 : 4000);
     };
 }
