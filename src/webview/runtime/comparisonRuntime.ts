@@ -16,13 +16,10 @@ import { HostMessenger } from './hostMessaging';
 import {
     createTrackTimeMapping,
     globalNormFromTrackTime as mapGlobalNormFromTrackTime,
-    loopRestartTime,
-    passFadeSeconds,
-    playbackEndFade,
-    playbackStartTime,
     trackTimeFromGlobalNorm,
 } from './playback';
-import { createAudioFader, FADE_SECONDS } from './audioFade';
+import { createAudioFader } from './audioFade';
+import { PlaybackController } from './playbackController';
 import { positionPopover } from './settingsPopover';
 import { composeTrackCanvases, triggerAnchorDownload, visibleExportCanvases } from './exportDownloads';
 import { clampHeight, createHeightResize, type HeightKind } from './heightResize';
@@ -39,7 +36,6 @@ import { attachSpectrumBoxDrag, SpectrumBoxDrag } from './spectrumBoxDrag';
 import { attachCanvasFocusHint, attachHoverHints, createHintFooter, createTaskStatus, setHint } from './hintFooter';
 import { attachSpectrumCursorListeners, createSpectrumCursorHandlers } from './spectrumCursorHandlers';
 import { attachTrackLaneActions } from './trackLaneActions';
-import { attachTrackAudioListeners } from './trackAudioEvents';
 import { attachOverlaySpectrumDoubleClick, attachOverlaySpectrumHints } from './overlaySpectrumEvents';
 import { attachGlobalKeyboardListeners } from './globalKeyboardEvents';
 import { keyRouterFor } from './keyRouter';
@@ -198,18 +194,36 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     // ── Runtime state ──
     let rafPending = false;
     const canvasWidthCache: Record<string, string> = {};
-    let playbackEl: HTMLAudioElement | null = null;
-    let playbackRafId: number | null = null;
     const audioFader = createAudioFader();
-    let endFadeTarget: number | null = null;
-    let lastPlayRejection: string | null = null;
-    let passFade = FADE_SECONDS;
-    // Queuing the end fade further ahead would let a media stall silence the track before it reaches the end.
-    const END_FADE_LOOKAHEAD_SECONDS = 0.25;
-    let playbackTrackId: TrackId | null = null;
+    const playback = new PlaybackController({
+        fader: audioFader,
+        audioFor: getTrackAudio,
+        indexOf: trackId => trackStore.protocolIndexForId(trackId),
+        requireIndex: trackIndexForId,
+        timeMapping: getTrackTimeMapping,
+        globalNormAt: globalNormFromTrackTime,
+        durationSeconds: idx => state.results[idx]?.durationSeconds || 0,
+        loopRegion: () => loopRegion,
+        cursorNorm: () => cursorNorm,
+        moveCursor,
+        centerOn: norm => waveformView.centerOn(norm),
+        invalidateSpectrumRequests: invalidateDesiredSpectrumSliceRequests,
+        scheduleRender,
+        refreshSpectrum: scheduleSpectrumRefresh,
+        showTime: seconds => updatePlaybackDisplay(seconds),
+        syncLoopBadge: updateLoopBadge,
+        requestAnimationFrame,
+        cancelAnimationFrame,
+    });
+    playback.onChange(function (change) {
+        if (change === 'playback') {
+            updatePlaybackButtons();
+            return;
+        }
+        buttonMatching(document, '[data-action="toggle-follow-cursor"]')?.classList.toggle('is-active', playback.follow);
+    });
     /** The file the entry table last drew as playing (its row's ■). */
     let entryPlaying: string | null = null;
-    let followCursor = false;
     const SPECTRUM_PLAYBACK_TARGET_FRAME_MS = 1000 / 32;
     let spectrumRafPending = false;
     let spectrumTimerId: number | null = null;
@@ -437,7 +451,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     // ── 波形モード ────────────────────────────────────────
     let waveformMode: 'loop' | 'rect-zoom' = 'loop';
     let rectZoomSelection: RectZoomSelection | null = null;
-    let playbackStartNorm = 0; // 再生開始位置の記憶
     let dragState: WaveformDragState | null = null;
     let loopRegion: LoopRegion | null = null;
     /** The loop region set or cleared: its time readout and the zoom-to-selection button follow. */
@@ -1209,7 +1222,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const filePath = pendingPlay;
         pendingPlay = null;
         const trackId = trackStore.activeIds().find(id => trackStore.require(id).result.filePath === filePath);
-        if (trackId) togglePlayback(trackId);
+        if (trackId) playback.toggle(trackId);
     }
     const entryScreen = createEntryScreen({
         document,
@@ -1235,7 +1248,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         setShownMany: (filePaths, shown) => setFilesShown(filePaths, shown),
         play(filePath) {
             const record = trackRecordForPath(filePath);
-            if (record && !record.runtime.hidden) { togglePlayback(record.id); return; }
+            if (record && !record.runtime.hidden) { playback.toggle(record.id); return; }
             // Not a track yet (or hidden): shown as one, it plays once analysed.
             pendingPlay = filePath;
             setFilesShown([filePath], true);
@@ -1248,7 +1261,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const record = trackRecordForPath(filePath);
             if (!record) return;
             record.runtime.hidden = hidden;
-            if (hidden && record.id === playbackTrackId) stopPlayback(record.id);
+            if (hidden && record.id === playback.trackId) playback.stop(record.id);
             updateVisibility();
             scheduleRender();
             scheduleSpectrumRefresh('immediate');
@@ -1365,7 +1378,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     setLoopRegion(next);
                 }
             }
-            togglePlayback(record.id);
+            playback.toggle(record.id);
             scheduleRender();
         },
         playing: () => playingPath(),
@@ -1537,7 +1550,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 entry: entryScreen.snapshot(),
                 comparison: stageMode?.snapshot() ?? null,
                 ...shellSnapshot(document, audioFader.contextState()),
-                lastPlayRejection,
+                lastPlayRejection: playback.lastPlayRejection,
             }, actionId);
     }
     function publishTestSnapshotSafe(actionId?: string) {
@@ -2001,7 +2014,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         };
     }
     function drawAnalysisWindowOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number, trackIndex: number, channelIndex: number) {
-        if (isPlaybackRunning()) {
+        if (playback.isRunning()) {
             return;
         }
         const band = analysisWindowBand(trackIndex, channelIndex);
@@ -2095,8 +2108,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }
             const playBtn = buttonMatching(document, '[data-action="toggle-playback"][data-track-id="' + trackId + '"]');
             const stopBtn = buttonMatching(document, '[data-action="stop-playback"][data-track-id="' + trackId + '"]');
-            const isActive = playbackTrackId === trackId && playbackEl !== null;
-            const isPlaying = isActive && isPlaybackRunning();
+            const isActive = playback.isActive(trackId);
+            const isPlaying = isActive && playback.isRunning();
             if (playBtn) {
                 playBtn.textContent = isPlaying ? '⏸' : '▶';
                 playBtn.classList.toggle('is-playing', !!isPlaying);
@@ -2113,15 +2126,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
     }
     function playingPath(): string | null {
-        if (playbackTrackId === null || !playbackEl || !isPlaybackRunning()) return null;
-        return trackStore.require(playbackTrackId).result.filePath ?? null;
+        const trackId = playback.playingTrackId();
+        return trackId === null ? null : trackStore.require(trackId).result.filePath ?? null;
     }
     function updateLoopBadge() {
         const badge = document.getElementById('loop-badge');
         if (!badge) {
             return;
         }
-        badge.style.display = (loopRegion && playbackEl && !playbackEl.paused) ? 'inline' : 'none';
+        badge.style.display = (loopRegion && playback.isElementPlaying()) ? 'inline' : 'none';
         updateLoopTimeDisplay();
     }
     function updateLoopTimeDisplay() {
@@ -2136,211 +2149,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         el.textContent = loopRegionClockText(loopRegion, trackStore.globalSpan());
         el.style.display = 'inline';
     }
-    function isPlaybackRunning(): boolean {
-        return playbackEl !== null && !playbackEl.paused && !audioFader.isPausing(playbackEl);
-    }
-    function clearPlaybackState() {
-        if (playbackEl) {
-            pauseSmoothly(playbackEl);
-        }
-        playbackEl = null;
-        playbackTrackId = null;
-        stopPlaybackLoop();
-        updatePlaybackButtons();
-        updateLoopBadge();
-        updatePlaybackDisplay(null);
-        scheduleRender();
-    }
-    function startPlaybackLoop() {
-        if (playbackRafId !== null) {
-            return;
-        }
-        function tick() {
-            const playbackTrackIndex = playbackTrackId ? trackStore.protocolIndexForId(playbackTrackId) : null;
-            if (playbackEl && playbackTrackIndex !== null && !playbackEl.paused && !audioFader.isPausing(playbackEl)) {
-                const mapping = getTrackTimeMapping(playbackTrackIndex);
-                const loopStartTime = loopRestartTime(mapping, playbackEl.currentTime, loopRegion);
-                if (loopStartTime !== null) {
-                    const fadeInSeconds = passFadeSeconds(mapping, loopStartTime, loopRegion, playbackDuration(playbackTrackIndex));
-                    passFade = fadeInSeconds;
-                    endFadeTarget = null;
-                    try {
-                        playbackEl.currentTime = loopStartTime;
-                        fadeInOnceSeeked(playbackEl, fadeInSeconds);
-                        invalidateDesiredSpectrumSliceRequests();
-                    }
-                    catch (_err) {
-                        audioFader.fadeTo(playbackEl, 1, fadeInSeconds);
-                    }
-                }
-                else {
-                    fadeBeforePlaybackEnd(playbackEl, playbackTrackIndex);
-                }
-                const nextCursor = globalNormFromTrackTime(playbackTrackIndex, playbackEl.currentTime);
-                if (nextCursor !== null) {
-                    if (followCursor) {
-                        waveformView.centerOn(nextCursor);
-                    }
-                    moveCursor(nextCursor, true);
-                    scheduleRender();
-                    scheduleSpectrumRefresh('playback');
-                }
-                updatePlaybackDisplay(playbackEl.currentTime);
-            }
-            else {
-                updatePlaybackDisplay(null);
-            }
-            updateLoopBadge();
-            playbackRafId = requestAnimationFrame(tick);
-        }
-        playbackRafId = requestAnimationFrame(tick);
-    }
-    function playbackDuration(idx: number): number {
-        return (playbackEl && playbackEl.duration) || state.results[idx]?.durationSeconds || 0;
-    }
-    function pauseSmoothly(audio: HTMLAudioElement, after?: () => void): void {
-        const idx = audio === playbackEl && playbackTrackId ? trackStore.protocolIndexForId(playbackTrackId) : null;
-        const fade = idx === null ? null : playbackEndFade(getTrackTimeMapping(idx), audio.currentTime, loopRegion, playbackDuration(idx));
-        // Never fade past the point where the track ends or the loop jumps back.
-        audioFader.pauseSmoothly(audio, after, fade ? Math.max(0, Math.min(FADE_SECONDS, fade.remaining)) : FADE_SECONDS);
-    }
-    function fadeInOnceSeeked(audio: HTMLAudioElement, seconds: number): void {
-        // The seek takes effect asynchronously; fading in before it lands would let the old position through.
-        audio.addEventListener('seeked', function () {
-            if (playbackEl === audio && !audioFader.isPausing(audio)) {
-                audioFader.fadeTo(audio, 1, seconds);
-                endFadeTarget = null;
-            }
-        }, { once: true });
-    }
-    function fadeBeforePlaybackEnd(audio: HTMLAudioElement, idx: number): void {
-        const fade = playbackEndFade(getTrackTimeMapping(idx), audio.currentTime, loopRegion, playbackDuration(idx));
-        if (!fade) {
-            return;
-        }
-        const endTime = audio.currentTime + fade.remaining;
-        if (endFadeTarget !== null && Math.abs(endFadeTarget - endTime) <= 1e-3) {
-            return;
-        }
-        const fadeSeconds = Math.min(fade.fadeSeconds, passFade);
-        if (endFadeTarget !== null && fade.remaining > fadeSeconds) {
-            audioFader.fadeTo(audio, 1, fadeSeconds);
-            endFadeTarget = null;
-        }
-        if (fade.remaining > fadeSeconds + END_FADE_LOOKAHEAD_SECONDS) {
-            return;
-        }
-        // Queued on the audio clock so a late animation frame cannot skip the fade.
-        audioFader.fadeTo(audio, 0, Math.max(0, Math.min(fadeSeconds, fade.remaining)), Math.max(0, fade.remaining - fadeSeconds));
-        endFadeTarget = endTime;
-    }
-    function stopPlaybackLoop() {
-        if (playbackRafId !== null) {
-            cancelAnimationFrame(playbackRafId);
-            playbackRafId = null;
-        }
-    }
-    function stopPlayback(trackId: TrackId | null, options: { keepCursor?: boolean } = {}): void {
-        const trackIndex = trackId ? trackStore.protocolIndexForId(trackId) : null;
-        const audio = trackIndex === null ? playbackEl : getTrackAudio(trackIndex);
-        if (audio) {
-            pauseSmoothly(audio, function () {
-                try {
-                    audio.currentTime = 0;
-                }
-                catch (_err) { }
-            });
-        }
-        if (trackId === playbackTrackId) {
-            if (!options || options.keepCursor !== true) moveCursor(playbackStartNorm);
-            invalidateDesiredSpectrumSliceRequests();
-            clearPlaybackState();
-            scheduleRender();
-            scheduleSpectrumRefresh('immediate');
-            return;
-        }
-        updatePlaybackButtons();
-    }
-    function togglePlayback(trackId: TrackId) {
-        const idx = trackIndexForId(trackId);
-        const audio = getTrackAudio(idx);
-        if (!audio) {
-            return;
-        }
-        if (playbackTrackId === trackId && playbackEl === audio && !audio.paused && !audioFader.isPausing(audio)) {
-            pauseSmoothly(audio, function () {
-                // Playback runs on through the fade-out, so resume from where it actually stopped.
-                const pausedCursor = playbackEl === audio && audio.paused ? globalNormFromTrackTime(idx, audio.currentTime) : null;
-                if (pausedCursor !== null) {
-                    moveCursor(pausedCursor);
-                    scheduleRender();
-                }
-            });
-            invalidateDesiredSpectrumSliceRequests();
-            updatePlaybackButtons();
-            stopPlaybackLoop();
-            scheduleSpectrumRefresh('immediate');
-            return;
-        }
-        if (playbackTrackId !== null && playbackTrackId !== trackId) {
-            // 再生開始位置にカーソルを戻してからトラックを切り替え
-            moveCursor(playbackStartNorm);
-            stopPlayback(playbackTrackId, { keepCursor: true });
-        }
-        if (playbackTrackId === trackId && playbackEl === audio && audioFader.isPausing(audio)) {
-            // Still playing through the pause fade-out: turn the fade around instead of seeking or zeroing the gain.
-            endFadeTarget = null;
-            audioFader.fadeTo(audio, 1, passFadeSeconds(getTrackTimeMapping(idx), audio.currentTime, loopRegion, playbackDuration(idx)));
-            invalidateDesiredSpectrumSliceRequests();
-            updatePlaybackButtons();
-            startPlaybackLoop();
-            scheduleSpectrumRefresh('immediate');
-            return;
-        }
-        playbackTrackId = trackId;
-        playbackEl = audio;
-        invalidateDesiredSpectrumSliceRequests();
-        const durationSeconds = audio.duration || state.results[idx].durationSeconds || 0;
-        const startNorm = loopRegion ? loopRegion.start : cursorNorm;
-        const startTime = playbackStartTime(getTrackTimeMapping(idx), startNorm, durationSeconds);
-        try {
-            audio.currentTime = startTime;
-        }
-        catch (_err) { }
-        playbackStartNorm = startNorm;
-        audioFader.prepare(audio);
-        audioFader.fadeTo(audio, 0, 0);
-        endFadeTarget = null;
-        const fadeInSeconds = passFadeSeconds(getTrackTimeMapping(idx), startTime, loopRegion, durationSeconds);
-        passFade = fadeInSeconds;
-        const fadeIn = function () {
-            if (playbackEl === audio && !audioFader.isPausing(audio)) {
-                audioFader.fadeTo(audio, 1, fadeInSeconds);
-                endFadeTarget = null;
-            }
-        };
-        const playPromise = audio.play();
-        if (playPromise && typeof playPromise.then === 'function') {
-            playPromise.then(fadeIn, function (err: unknown) {
-                lastPlayRejection = err instanceof Error ? err.name + ': ' + err.message : String(err);
-                clearPlaybackState();
-            });
-        }
-        else {
-            fadeIn();
-        }
-        const nextCursor = globalNormFromTrackTime(idx, audio.currentTime);
-        if (nextCursor !== null) moveCursor(nextCursor);
-        updatePlaybackButtons();
-        startPlaybackLoop();
-        scheduleRender();
-        scheduleSpectrumRefresh('immediate');
-    }
-    function finishPlaybackAtEnd(trackIndex: number, trackId: TrackId): void {
-        const endNorm = globalNormFromTrackTime(trackIndex, state.results[trackIndex].durationSeconds || 0);
-        if (endNorm !== null) moveCursor(endNorm);
-        stopPlayback(trackId, { keepCursor: true });
-    }
     function attachAudioEvents() {
         state.results.forEach(function (_, i: number) {
             const trackId = trackIdAtIndex(i);
@@ -2351,37 +2159,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             if (!audio) {
                 return;
             }
-            audio.addEventListener('playing', function () {
-                // A stall lets the queued end fade run ahead of the media; restore the gain and queue it again.
-                if (playbackEl === audio && endFadeTarget !== null && !audioFader.isPausing(audio)) {
-                    audioFader.fadeTo(audio, 1, passFade);
-                    endFadeTarget = null;
-                }
-            });
-            attachTrackAudioListeners(audio, trackId, {
-                isCurrent: (id) => playbackTrackId === id,
-                onPlay(el, id) {
-                    playbackEl = el;
-                    playbackTrackId = id;
-                    updatePlaybackButtons();
-                    startPlaybackLoop();
-                },
-                onPause(id, ended) {
-                    invalidateDesiredSpectrumSliceRequests();
-                    updatePlaybackButtons();
-                    if (ended) {
-                        // 'pause' fires before 'ended' and this clears the current track, so onEnded never runs after it.
-                        finishPlaybackAtEnd(i, id);
-                    }
-                },
-                onEnded(id) {
-                    finishPlaybackAtEnd(i, id);
-                },
-                onError() {
-                    invalidateDesiredSpectrumSliceRequests();
-                    clearPlaybackState();
-                },
-            });
+            playback.attachAudio(audio, trackId, i);
         });
     }
     // ── Events ──
@@ -2448,19 +2226,18 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             trackIdFromElement,
             trackIndexForId: (trackId) => trackStore.protocolIndexForId(trackId),
         }, {
-            'toggle-playback': ({ trackId }) => togglePlayback(trackId),
+            'toggle-playback': ({ trackId }) => playback.toggle(trackId),
             'toggle-mute': ({ trackIndex, target }) => {
                 if (trackIndex === null) {
                     return;
                 }
                 const runtime = trackRuntimeAt(trackIndex);
                 runtime.muted = !runtime.muted;
-                const audio = getTrackAudio(trackIndex);
-                if (audio) audioFader.setMuted(audio, runtime.muted);
+                playback.setMuted(trackIndex, runtime.muted);
                 target.setAttribute('aria-pressed', String(runtime.muted));
                 target.textContent = runtime.muted ? '🔇' : '🔊';
             },
-            'stop-playback': ({ trackId }) => stopPlayback(trackId),
+            'stop-playback': ({ trackId }) => playback.stop(trackId),
             'remove-track': ({ trackId }) => removeTrack(trackId),
             'configure-calibration': ({ trackId, trackIndex, event }) => {
                 if (trackIndex === null) {
@@ -2618,9 +2395,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             togglePlayback(target, active) {
                 const trackId = target === 'focused-track'
                     ? active && trackIdFromElement(active)
-                    : playbackTrackId ?? trackStore.activeIds()[0];
+                    : playback.trackId ?? trackStore.activeIds()[0];
                 if (trackId) {
-                    togglePlayback(trackId);
+                    playback.toggle(trackId);
                 }
             },
             stepCursor(direction, shiftKey, active) {
@@ -2912,11 +2689,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
     }
     function toggleFollowCursor() {
-        followCursor = !followCursor;
-        const btn = document.querySelector('[data-action="toggle-follow-cursor"]');
-        if (btn) {
-            btn.classList.toggle('is-active', followCursor);
-        }
+        playback.setFollow(!playback.follow);
         scheduleRender();
     }
     function handleToolbarAction(action: string) {
@@ -3054,14 +2827,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         scheduleSpectrumRefresh('immediate');
     }
     function disableFollowCursor() {
-        if (!followCursor) {
-            return;
-        }
-        followCursor = false;
-        const btn = document.querySelector('[data-action="toggle-follow-cursor"]');
-        if (btn) {
-            btn.classList.remove('is-active');
-        }
+        playback.setFollow(false);
     }
     function zoomToSelection() {
         if (loopRegion) {
@@ -3939,8 +3705,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const idx = record.protocolIndex;
-        if (trackId === playbackTrackId) {
-            stopPlayback(trackId);
+        if (trackId === playback.trackId) {
+            playback.stop(trackId);
         }
         const row = document.getElementById('track-row-' + idx);
         if (row) {
@@ -4090,12 +3856,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             state.results = trackStore.activeIds().map(function (trackId) {
                 return trackStore.require(trackId).result;
             });
-            if (playbackTrackId && !trackStore.get(playbackTrackId)?.active) {
-                clearPlaybackState();
+            if (playback.trackId && !trackStore.get(playback.trackId)?.active) {
+                playback.clear();
             }
             rebuildResultsPane();
             if (reconciliation.protocolOrderChanged) {
-                clearPlaybackState();
+                playback.clear();
                 const audioHost = document.getElementById('audio-host');
                 if (audioHost) {
                     audioHost.querySelectorAll('audio').forEach(function (audio) {
