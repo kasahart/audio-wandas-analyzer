@@ -55,9 +55,9 @@ export function medianView(views: readonly StageView[]): StageView | null {
     // A group has a median level, not a median signal: its waveform is not drawn.
     const { waveform: _signal, ...first } = views[0];
     if (first.matrix) {
-        return { ...first, matrix: first.matrix.map((row, r) => row.map((_, c) => medianOf(views.map(view => view.matrix![r][c])))) };
+        return { ...first, matrix: first.matrix.map((row, r) => row.map((_, c) => medianOf(views.map(view => view.matrix?.[r]?.[c] ?? null)))) };
     }
-    return { ...first, values: (first.values ?? []).map((_, index) => medianOf(views.map(view => view.values![index]))) };
+    return { ...first, values: (first.values ?? []).map((_, index) => medianOf(views.map(view => view.values?.[index] ?? null))) };
 }
 
 
@@ -67,8 +67,9 @@ export function medianView(views: readonly StageView[]): StageView | null {
  */
 export function loudPoints(base: StageView, compare: StageView, within = HEADLINE_WITHIN_DB): { values?: boolean[]; matrix?: boolean[][] } {
     const louder = (a: number | null, b: number | null): number | null => (a === null || b === null ? null : Math.max(a, b));
-    if (base.matrix && compare.matrix) {
-        const cells = base.matrix.map((row, r) => row.map((value, c) => louder(value, compare.matrix![r]?.[c] ?? null)));
+    const compareMatrix = compare.matrix;
+    if (base.matrix && compareMatrix) {
+        const cells = base.matrix.map((row, r) => row.map((value, c) => louder(value, compareMatrix[r]?.[c] ?? null)));
         const top = Math.max(...cells.flat().filter((value): value is number => value !== null && value > -250));
         return { matrix: cells.map(row => row.map(value => value !== null && (!isDb(base) || value >= top - within))) };
     }
@@ -104,12 +105,13 @@ export function stageDifference(base: StageView | null, compare: StageView | nul
     // The difference of two signals' levels: it has no waveform of its own.
     const { waveform: _signal, ...shape } = compare;
     const minus = (a: number | null, b: number | null): number | null => (a === null || b === null ? null : Math.round((a - b) * scale) / scale);
-    if (compare.matrix && base.matrix) {
+    const baseMatrix = base.matrix;
+    if (compare.matrix && baseMatrix) {
         // A column is a whole window only where it is one for both.
         const whole = compare.whole || base.whole ? compare.matrix[0]?.map((_, c) => compare.whole?.[c] !== false && base.whole?.[c] !== false) : undefined;
-        return { ...shape, matrix: compare.matrix.map((row, r) => row.map((value, c) => minus(value, base.matrix![r][c]))), ...(whole ? { whole } : {}) };
+        return { ...shape, matrix: compare.matrix.map((row, r) => row.map((value, c) => minus(value, baseMatrix[r][c]))), ...(whole ? { whole } : {}) };
     }
-    return { ...shape, values: (compare.values ?? []).map((value, index) => minus(value, base.values![index] ?? null)) };
+    return { ...shape, values: (compare.values ?? []).map((value, index) => minus(value, base.values?.[index] ?? null)) };
 }
 
 function points(view: StageView): Array<number | null> {
@@ -234,10 +236,11 @@ export function stageHeadline(diff: StageView | null, strings: Pick<StageStrings
 /** The point under the pointer (a fraction across the plot): where it is, then base, compare and Δ. */
 export function stageReadout(views: { base: StageView | null; compare: StageView | null; diff: StageView | null }, fraction: number): string {
     const view = views.compare ?? views.base;
-    if (!view?.xs?.length || view.kind === 'heatmap') return '';
+    const xs = view?.xs;
+    if (!view || !xs?.length || view.kind === 'heatmap') return '';
     const scale = axisScale(view);
     let index = 0;
-    view.xs.forEach((value, at) => { if (Math.abs(scale.fraction(value) - fraction) < Math.abs(scale.fraction(view.xs![index]) - fraction)) index = at; });
+    xs.forEach((value, at) => { if (Math.abs(scale.fraction(value) - fraction) < Math.abs(scale.fraction(xs[index]) - fraction)) index = at; });
     const value = (side: StageView | null): string => {
         const level = side?.values?.[index];
         return level === null || level === undefined ? '—' : Math.abs(level) >= 10 ? level.toFixed(1).replace(/^-/, '−') : level.toPrecision(3).replace(/^-/, '−');
@@ -456,8 +459,9 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
         const extentAbs = Math.max(Math.abs(range.min), Math.abs(range.max), 1e-9);
         // Which row and column each pixel shows (the nearest; none past the picture's ends), worked out once per
         // line, not per pixel, from the axes' values: a detail picture covers only part of them.
-        const rowOf = Array.from({ length: image.height }, (_, py) => nearestIndex(view.ys!, yAxis.at(1 - (py + 0.5) / image.height), yAxis.log));
-        const columnOf = Array.from({ length: image.width }, (_, px) => nearestIndex(view.xs!, xAxis.at((px + 0.5) / image.width), false));
+        const ys = view.ys ?? [], xs = view.xs ?? [];
+        const rowOf = Array.from({ length: image.height }, (_, py) => nearestIndex(ys, yAxis.at(1 - (py + 0.5) / image.height), yAxis.log));
+        const columnOf = Array.from({ length: image.width }, (_, px) => nearestIndex(xs, xAxis.at((px + 0.5) / image.width), false));
         const pixels = new Uint32Array(image.data.buffer);
         // One colour per cell (ABGR as the canvas stores it), looked up for every pixel of that cell.
         const colours = view.matrix.map((cells, row) => cells.map((cell, column) => {
@@ -504,7 +508,8 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
             context.beginPath(); context.moveTo(left, yAt(0)); context.lineTo(left + plotWidth, yAt(0)); context.stroke();
         }
         const bars = view.kind === 'bar';
-        const ratioStep = bars && view.xs!.length > 1 ? Math.sqrt(view.xs![1] / view.xs![0]) : 1.12;
+        const barXs = view.xs ?? [];
+        const ratioStep = bars && barXs.length > 1 ? Math.sqrt(barXs[1] / barXs[0]) : 1.12;
         plot.ratioStep = ratioStep;
         context.save();
         context.beginPath(); context.rect(left, top, plotWidth, plotHeight); context.clip();
@@ -514,6 +519,7 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
         const signals = overlay.layers.some(layer => layer.view.waveform);
         for (const layer of overlay.layers) {
             const values = layer.view.values ?? [];
+            const xs = layer.view.xs ?? [];
             if (layer.view.kind === 'heatmap' || layer.view.kind === 'none' || (signals && !layer.view.waveform)) continue;
             if (layer.view.waveform) {
                 // The signal itself, by the track lanes' own pipeline, on the same axes.
@@ -529,7 +535,7 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
                 context.globalAlpha = 0.3 * (layer.alpha ?? 1);
                 values.forEach((value, index) => {
                     if (value === null) return;
-                    const x0 = xAt(layer.view.xs![index] / ratioStep), x1 = xAt(layer.view.xs![index] * ratioStep);
+                    const x0 = xAt(xs[index] / ratioStep), x1 = xAt(xs[index] * ratioStep);
                     context.fillRect(x0, Math.min(floor, yAt(value)), Math.max(1, x1 - x0 - 1), Math.abs(floor - yAt(value)));
                 });
                 context.globalAlpha = layer.alpha ?? 1;
@@ -567,7 +573,7 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
 /** One picture of a pane as its line (or its bands as steps), `width` wide, clipped to the plot. */
 export function strokeStageLine(context: CanvasRenderingContext2D, plot: StagePlot, layer: StageLayer, width: number): void {
     const { xAt, yAt, ratioStep, frame } = plot;
-    const values = layer.view.values ?? [];
+    const values = layer.view.values ?? [], xs = layer.view.xs ?? [];
     context.save();
     context.beginPath(); context.rect(frame.left, frame.top, frame.width, frame.height); context.clip();
     context.strokeStyle = layer.color;
@@ -576,7 +582,7 @@ export function strokeStageLine(context: CanvasRenderingContext2D, plot: StagePl
     if (layer.view.kind === 'bar') {
         values.forEach((value, index) => {
             if (value === null) return;
-            const x0 = xAt(layer.view.xs![index] / ratioStep), x1 = xAt(layer.view.xs![index] * ratioStep);
+            const x0 = xAt(xs[index] / ratioStep), x1 = xAt(xs[index] * ratioStep);
             context.beginPath(); context.moveTo(x0, yAt(value)); context.lineTo(x1 - 1, yAt(value)); context.stroke();
         });
     } else {
@@ -584,7 +590,7 @@ export function strokeStageLine(context: CanvasRenderingContext2D, plot: StagePl
         let drawing = false;
         values.forEach((value, index) => {
             if (value === null || value <= -250) { drawing = false; return; }
-            const x = xAt(layer.view.xs![index]), y = yAt(value);
+            const x = xAt(xs[index]), y = yAt(value);
             if (drawing) context.lineTo(x, y); else context.moveTo(x, y);
             drawing = true;
         });
