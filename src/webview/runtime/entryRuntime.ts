@@ -37,6 +37,7 @@ import { powerMeanDb, powerMeanOrNull } from '../../shared/utils/levels';
 import { finiteNumber } from '../../shared/dataset/asdData';
 import { CSVColumnCountError, csvColumnCountMessage } from '../../shared/dataset/csvDiagnostics';
 import { keyRouterFor } from './keyRouter';
+import { createHeaderProbe, createScanProgress } from './entryScanQueue';
 import { channelRowKey, comparedKeys, emptySlots, firstFreeCompareSlot, restoredSlots, roleKey, roleSlot, slotFiles as filesOfSlots, slotsForFiles, slotsOfFile, trackChanges, withoutFile, withSlot, type Slots } from './entrySlots';
 import { setHint } from './hintFooter';
 import { ENTRY_KEYS, keyAction } from './shortcuts';
@@ -305,24 +306,11 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const key = currentKey();
         return new Set(filePaths.filter(path => results.has(path) && resultKeys.get(path) !== key));
     }
-    /**
-     * What a computation takes, for the estimate on 「計算」: a fixed part per file and a part per second of audio
-     * (a 10-minute recording takes far longer than a 2-second one). The per-second part is measured once a
-     * computation has done a few files. A file whose length is not known yet counts as UNKNOWN_DURATION_S.
-     */
-    const PER_FILE_MS = 100, UNKNOWN_DURATION_S = 10;
-    let perAudioSecondMs = 35;
-    let scanStarted = 0;
-    let scanCount = 0;
-    let scannedSeconds = 0;
+    /** The files' headers (channels, lengths), read at open; then the computation the user started, and what one costs. */
+    const headers = createHeaderProbe();
     /** Each file's length: from its result, else from its header (WAV, FLAC). */
-    const headerDurations = new Map<string, number>();
-    const durationOf = (path: string): number | undefined => results.get(path)?.input?.durationS ?? headerDurations.get(path);
-    function estimateMs(paths: readonly string[]): number {
-        return paths.reduce((sum, path) => sum + PER_FILE_MS + perAudioSecondMs * (durationOf(path) ?? UNKNOWN_DURATION_S), 0);
-    }
-    /** The files of the running computation, for its progress. */
-    let computingFiles = 0;
+    const durationOf = (path: string): number | undefined => results.get(path)?.input?.durationS ?? headers.durations.get(path);
+    const progress = createScanProgress(() => window.performance.now(), durationOf);
     let rootPath = '';
 
     // ---- the dataset: the CSV the user picked, and what the user chose to see
@@ -343,10 +331,6 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     let triedAll: string | null = null;
     /** The file whose row and lane are lit under the mouse. */
     let linkedPath: string | null = null;
-    /** Channels read from the files' headers at open (no audio decoded), and the files whose header could not be read. */
-    const headerChannels = new Map<string, number>();
-    const headerErrors = new Map<string, string>();
-    let probing: { requestId: string; done: number; total: number } | null = null;
     let rows: DatasetRow[] = [];
     let shownRows: DatasetRow[] = [];
     /** The column filter open (its column, whether it hangs from that column's header, its draft), the slot menu and the memo. */
@@ -382,8 +366,6 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     let pressing: { slot: number; at: number; timer: number } | undefined;
     let heldSlot: number | null = null;
     let heldTimer: number | undefined;
-    /** A computation the user started is running. */
-    let scanning = false;
     /**
      * The comparison's model of the files (their conditions, Δ, groups): built when the comparison, the overview
      * strip or the CSV export reads it, not on every redraw of the table (it costs a pass over every file).
@@ -478,7 +460,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     function unreadable(): Array<{ filePath: string; reason: string }> {
         return filePaths.flatMap(filePath => {
             const result = results.get(filePath);
-            if (headerErrors.has(filePath) && !result?.ok) return [{ filePath, reason: headerErrors.get(filePath)! }];
+            const headerError = headers.errors.get(filePath);
+            if (headerError !== undefined && !result?.ok) return [{ filePath, reason: headerError }];
             return result && !result.ok && !result.failedStep ? [{ filePath, reason: result.reason ?? '' }] : [];
         });
     }
@@ -502,8 +485,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         pool = null;
         if (rowsDirty) {
             rowsDirty = false;
-            rows = datasetRows(filePaths, rootPath, match?.attributes ?? new Map(), results, headerChannels)
-                .filter(row => !(headerErrors.has(row.filePath) && !results.get(row.filePath)?.ok) && (results.get(row.filePath)?.ok !== false || !!results.get(row.filePath)?.failedStep));
+            rows = datasetRows(filePaths, rootPath, match?.attributes ?? new Map(), results, headers.channels)
+                .filter(row => !(headers.errors.has(row.filePath) && !results.get(row.filePath)?.ok) && (results.get(row.filePath)?.ok !== false || !!results.get(row.filePath)?.failedStep));
             byKey = new Map(rows.map(row => [row.key, row]));
             followChannels();
         }
@@ -776,17 +759,18 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     function renderCompute(view: DatasetScreenView): void {
         let html = '';
         // Reading the headers (channels) comes first; it is quick but a large folder takes a moment, and it can be stopped.
+        const probing = headers.progress();
         if (probing) html += `<span class="awa-tag" data-entry-probing>${escapeHtml(strings.dsProbing.replace('{done}', String(probing.done)).replace('{n}', String(probing.total)))}</span>`
             + `<button type="button" data-action="entry-probe-cancel">${escapeHtml(strings.entryScanCancel)}</button>`;
-        if (scanning) {
-            html += `<span class="awa-tag" data-entry-progress>${escapeHtml(strings.dsComputing.replace('{done}', String(scanCount)).replace('{n}', String(computingFiles)))}</span>`
+        if (progress.running) {
+            html += `<span class="awa-tag" data-entry-progress>${escapeHtml(strings.dsComputing.replace('{done}', String(progress.done)).replace('{n}', String(progress.total)))}</span>`
                 + `<button type="button" data-action="entry-compute-cancel">${escapeHtml(strings.entryScanCancel)}</button>`;
         } else if (broken()) {
             html += `<span class="awa-tag entry-stale-tag is-broken">${escapeHtml(strings.entryChainBroken)}</span>`;
         } else {
             const pending = computeTargets();
             if (pending.length) {
-                const minutes = estimateMs(pending) / 60000;
+                const minutes = progress.estimateMs(pending) / 60000;
                 const estimate = minutes >= 1 ? strings.entryMinutes.replace('{n}', String(Math.ceil(minutes))) : strings.entrySeconds.replace('{n}', String(Math.max(1, Math.ceil(minutes * 60))));
                 // Some rows have the value: the rest is said in channels and offered (never started by itself).
                 const pool = isComputed(value) ? distributionPool() : view.rows;
@@ -856,7 +840,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const known = recipeNodes(recipe).some(node => node.id === step);
         if (!known || failed[step] !== undefined) return;
         failed = { ...failed, [step]: reason };
-        if (scanning) { deps.post({ type: 'entry-scan-cancel' }); scanning = false; }
+        if (progress.running) { deps.post({ type: 'entry-scan-cancel' }); progress.stop(); }
         rebuild();
         deps.stepsChanged?.();
     }
@@ -879,7 +863,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         if (broken()) return;
         derived.forEach(row => {
             if (!row.stale || !row.base.paths?.length) return;
-            if (row.region !== 'all' && (row.base.paths.length > LARGE_BASE || row.base.paths.reduce((sum, path) => sum + (durationOf(path) ?? UNKNOWN_DURATION_S), 0) > LARGE_BASE_S)) return;
+            if (row.region !== 'all' && (row.base.paths.length > LARGE_BASE || progress.seconds(row.base.paths) > LARGE_BASE_S)) return;
             if (row.region === 'all') {
                 const next = remeasured(row, results);
                 if (next) derived = derived.map(item => (item === row ? next : item));
@@ -1000,7 +984,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         deps.saveRecipe?.(recipe);
         // The folder is not scanned again by itself: the table keeps the previous chain's values, greyed,
         // until "Scan all"; the focused row and the comparison's files are measured at once.
-        if (scanning) { deps.post({ type: 'entry-scan-cancel' }); scanning = false; }
+        if (progress.running) { deps.post({ type: 'entry-scan-cancel' }); progress.stop(); }
         // The row on screen keeps the focus: re-sorted by its new value, the top row would take it and be measured next, and so on down the folder.
         if (focused) focusPicked = true;
         // Differences fixed under another Recipe stay, marked ≠ until measured again under this one
@@ -1200,11 +1184,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         if (!pending.length) return;
         const slotted = pending.filter(path => slotFiles().includes(path));
         const { requestId } = requests.ask('scan', `entry-${++requestCount}`, currentKey(), undefined);
-        scanning = true;
-        scanStarted = window.performance.now();
-        scanCount = 0;
-        scannedSeconds = 0;
-        computingFiles = pending.length;
+        progress.start(pending.length);
         const recipe = scanRecipe();
         deps.post({ type: 'entry-scan', requestId, rootPath, filePaths: [...slotted, ...pending.filter(path => !slotted.includes(path))], ...(recipe ? { recipe } : {}) });
         render();
@@ -1216,23 +1196,20 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     }
     /** Reads the files' headers for their channels, so rows split by channel before anything is computed. */
     function probe(paths: readonly string[]): void {
-        const pending = paths.filter(path => !headerChannels.has(path) && !headerErrors.has(path));
-        if (!pending.length) return;
-        const requestId = `probe-${++requestCount}`;
-        probing = { requestId, done: 0, total: pending.length };
-        deps.post({ type: 'entry-probe', requestId, filePaths: [...pending] });
+        const message = headers.start(paths, () => `probe-${++requestCount}`);
+        if (message) deps.post(message);
     }
     function cancelProbe(): void {
-        if (!probing) return;
+        if (!headers.progress()) return;
         deps.post({ type: 'entry-probe-cancel' });
-        probing = null;
+        headers.cancel();
         render();
     }
     /** 中止: what was computed stays; the rest keeps no value until computed. */
     function cancelCompute(): void {
-        if (!scanning) return;
+        if (!progress.running) return;
         deps.post({ type: 'entry-scan-cancel' });
-        scanning = false;
+        progress.stop();
         requests.settle(requests.pending('scan')?.requestId ?? '');
         rebuild();
     }
@@ -1905,7 +1882,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             applyCsv(csv);
             // What is stored for this chain comes back; nothing is computed until 「計算」. The headers say each file's channels.
             loadStored();
-            headerChannels.clear(); headerErrors.clear(); headerDurations.clear(); probing = null;
+            headers.clear();
             probe(filePaths);
             table.setAttribute('tabindex', '0');
             table.focus?.();
@@ -1950,13 +1927,9 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             if (message.type.startsWith('compare-')) return holdSource.handle(message) || handleRemeasure(message as ComparePublication);
             if (!message.type.startsWith('entry-')) return false;
             if (message.type === 'entry-probe-result' || message.type === 'entry-probe-done') {
-                const header = message as EntryProbePublication;
-                if (!probing || header.requestId !== probing.requestId) return true;
-                if (header.type === 'entry-probe-done') { probing = null; rebuild(); return true; }
-                probing.done++;
-                if (header.durationS !== undefined) headerDurations.set(header.filePath, header.durationS);
-                if (header.channels) headerChannels.set(header.filePath, header.channels);
-                else if (header.error) headerErrors.set(header.filePath, header.error);
+                const taken = headers.take(message as EntryProbePublication);
+                if (taken === 'stale') return true;
+                if (taken === 'done') { rebuild(); return true; }
                 rowsDirty = true;
                 scheduleRebuild();
                 return true;
@@ -1980,12 +1953,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
                 noteResult(publication.filePath, publication.result);
                 resultKeys.set(publication.filePath, requests.find(publication.requestId)?.key ?? currentKey());
                 rowsDirty = true;
-                if (scanning) {
-                    scanCount++;
-                    scannedSeconds += durationOf(publication.filePath) ?? UNKNOWN_DURATION_S;
-                    const elapsed = window.performance.now() - scanStarted;
-                    if (scanCount >= 5 && scannedSeconds > 0) perAudioSecondMs = Math.max(1, (elapsed - PER_FILE_MS * scanCount) / scannedSeconds);
-                }
+                progress.fileDone(publication.filePath);
                 const { failedStep, reason } = publication.result;
                 if (failedStep) { stepFailed(failedStep, reason ?? ''); return true; }
                 if (csv && !match?.attributes.size) match = matchCsv(csv, filePaths, rootPath);
@@ -1994,8 +1962,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
                 if (redrawTimer !== undefined) { window.clearTimeout(redrawTimer); redrawTimer = undefined; }
                 requests.settle(publication.requestId);
                 // Only a computation the user started measures fixed differences again; reading what is stored does not.
-                const started = scanning;
-                scanning = false;
+                const started = progress.stop();
                 if (started) remeasureStale();
                 rebuild();
             }
@@ -2029,7 +1996,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         stageChannel: (path, comparePath, byGroup = false) => stageChannel(path, comparePath, byGroup),
         comparison: (comparePath, byGroup = false, over, entryRegionBase = false) => comparisonOf(comparePath, byGroup, over, entryRegionBase),
         rowInfo: path => rowInfo(path),
-        cost: paths => ({ seconds: paths.reduce((sum, path) => sum + (durationOf(path) ?? UNKNOWN_DURATION_S), 0), ms: estimateMs(paths) }),
+        cost: paths => ({ seconds: progress.seconds(paths), ms: progress.estimateMs(paths) }),
         tableBaseBands: (comparePath, byGroup = false) => {
             const base = resolveBase(comparePath, byGroup);
             const levels = base.paths.flatMap(path => {
@@ -2066,7 +2033,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             open: !screen.hidden && maximized, docked: !screen.hidden && !maximized, cols: Number(screen.dataset.cols ?? 0), rows: rows.length, visible: shownRows.length,
             scanned: [...results.values()].filter(result => result.ok).length, slots: slots.slice(), focused, value, group, filters: filters.map(filter => ({ ...filter })),
             sort: { ...sort }, excluded: [...excluded], memo: Object.fromEntries(memo), mode, unmatched: unmatchedItems().length + unreadable().length,
-            csv: csv?.name ?? null, playing: deps.playing?.() ?? null, visibleKeys: shownRows.slice(0, 200).map(row => row.key), scanning,
+            csv: csv?.name ?? null, playing: deps.playing?.() ?? null, visibleKeys: shownRows.slice(0, 200).map(row => row.key), scanning: progress.running,
             dist: lastDistribution ? {
                 groups: lastDistribution.groups.map(item => ({ name: item.name, n: item.members.length, inRange: item.members.filter(member => member.inRange).length })),
                 missing: lastDistribution.missing, unit: lastDistribution.unit, low: lastDistribution.low, high: lastDistribution.high, range: valueRange(), base: baseGroupName(),
