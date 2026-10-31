@@ -88,6 +88,27 @@ def test_multiple_sources_add_failure_remove_and_recompute() -> None:
     assert service.engine.get_file("/sources/third.wav").frame.n_samples == 8000
 
 
+def test_eviction_drops_pair_spectra_of_other_sources_before_the_one_in_use() -> None:
+    engine = create_service().engine
+    engine.load("first.wav", FIXTURE.read_bytes())
+    engine.load("second.wav", FIXTURE.with_name("changing-stereo.wav").read_bytes())
+    first = engine.get_file("/sources/first.wav")
+    second = engine.get_file("/sources/second.wav")
+    pair_rows = np.zeros((3, 256))
+    engine.put_pair_spectrum(first, ("pair",), ("ok", 0.0, 1.0, 4, False, pair_rows, {"unit": "dB"}))
+    engine.cache_limit_bytes = first.frame_nbytes + second.frame_nbytes + pair_rows.nbytes
+    engine.put_pair_spectrum(second, ("pair",), ("ok", 0.0, 1.0, 4, False, pair_rows.copy(), {"unit": "dB"}))
+    assert not first.pair_spectra
+    assert second.pair_spectra
+    assert engine.cache_bytes <= engine.cache_limit_bytes
+
+    engine.cache_limit_bytes = first.frame_nbytes + second.frame_nbytes
+    engine.put_pair_spectrum(second, ("other",), ("ok", 0.0, 1.0, 4, False, pair_rows.copy(), {"unit": "dB"}))
+    assert not second.pair_spectra
+    assert engine.get_file(first.path) is first
+    assert engine.get_file(second.path) is second
+
+
 def test_aggregate_bounds_reject_before_decode_and_preserve_sources(monkeypatch) -> None:
     import browser_service as browser
 

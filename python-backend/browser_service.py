@@ -9,13 +9,13 @@ import traceback
 from collections.abc import Callable, Mapping
 from pathlib import Path
 
-import dask
+import dask.config
 import numpy as np
 import soundfile as sf
 import wandas as wd
 
 from analysis_engine import AUDIO_CACHE_DTYPE, AnalysisEngine, CachedAnalysis
-from analysis_service import AnalysisService, PairSpectrumResult, pair_overlap, pair_stft_params
+from analysis_service import AnalysisService, PairSpectrumResult, RecipeRunResult, pair_overlap, pair_stft_params
 from analyzer import resolve_stft_params, sample_range
 from backend_errors import INTERNAL_ERROR, InputError, error_payload
 from calibration_profile import finite_source_channel_peaks
@@ -161,6 +161,7 @@ class BrowserEngine(AnalysisEngine):
         cached.spectrograms.clear()
         cached.spectrogram_nbytes.clear()
         cached.spectrum_slices.clear()
+        cached.pair_spectra.clear()
 
     def _evict(self, protected_path: Path) -> None:
         # Selected sources stay resident; evict recomputable detail rather than user tracks.
@@ -185,6 +186,11 @@ class BrowserEngine(AnalysisEngine):
 
 
 class BrowserService(AnalysisService):
+    engine: BrowserEngine
+
+    def __init__(self, engine: BrowserEngine) -> None:
+        super().__init__(engine)
+
     def release_track_detail(self, file_path: str | Path) -> dict[str, object]:
         self.engine.discard_spectrograms(file_path)
         return {}
@@ -230,8 +236,8 @@ class BrowserService(AnalysisService):
         *,
         inputs: Mapping[str, str],
         recipe_path: str | None = None,
-        input_contexts: Mapping[str, object] | None = None,
-    ) -> dict[str, object]:
+        input_contexts: Mapping[str, Mapping[str, object]] | None = None,
+    ) -> RecipeRunResult:
         # Recipes allocate freely; drop recomputable detail so selected sources keep their budget.
         self.engine.discard_all_spectrograms()
         for file in inputs.values():
@@ -240,15 +246,15 @@ class BrowserService(AnalysisService):
         return super().run_recipe(recipe, inputs=inputs, recipe_path=recipe_path, input_contexts=input_contexts)
 
 
-def create_service() -> AnalysisService:
+def create_service() -> BrowserService:
     return BrowserService(BrowserEngine())
 
 
 # Built on first use, so importing this module (as the native tests do) leaves dask's scheduler alone.
-service: AnalysisService | None = None
+service: BrowserService | None = None
 
 
-def _service() -> AnalysisService:
+def _service() -> BrowserService:
     global service
     if service is None:
         # Pyodide has no threads; the Worker is this process's only user of dask.
@@ -274,7 +280,7 @@ def _json_reply(function: Callable[..., str]) -> Callable[..., str]:
 
 
 @_json_reply
-def load_source(source_id: str, payload: object) -> str:
+def load_source(source_id: str, payload: bytes | bytearray | memoryview) -> str:
     try:
         return json.dumps(_service().engine.load(source_id, bytes(payload)))
     except sf.LibsndfileError as error:

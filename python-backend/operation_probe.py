@@ -153,7 +153,9 @@ def probe(depth: int = 2, recordings: int = 2) -> list[ProbeRun]:
         and not any(p["required"] for p in operation["params"] if p["name"] not in INITIAL.get(operation["id"], {}))
     ]
     bases = {frame["name"]: list(frame["bases"]) for frame in frames()}
-    examples: dict[str, list[tuple[str, object]]] = {"ChannelFrame": list(_recordings().items())[:recordings]}
+    examples: dict[str, list[tuple[str, object]]] = {
+        "ChannelFrame": [(name, frame) for name, frame in list(_recordings().items())[:recordings]]
+    }
     runs: list[ProbeRun] = []
     tried: set[tuple[str, str]] = set()
     for _ in range(depth + 1):

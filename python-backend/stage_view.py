@@ -51,13 +51,16 @@ CORRELATION_DECIMALS = 4
 STAGE_FRAME_TYPES = (*CHART_FRAME_TYPES, CepstralFrame, CepstrogramFrame, CrossCorrelationFrame)
 
 
+Quantity = Literal["level", "gain", "coherence", "value", "roughness", "cepstrum", "correlation"]
+
+
 class StageView(TypedDict):
     frame: str
     kind: Literal["line", "bar", "heatmap", "none"]
     x: NotRequired[Literal["frequency", "time", "band", "quefrency", "lag"]]
     xScale: NotRequired[Literal["log", "linear"]]
     #: What the values are: dB levels (and gains) subtract to a difference in dB; the rest do not.
-    quantity: NotRequired[Literal["level", "gain", "coherence", "value", "roughness", "cepstrum", "correlation"]]
+    quantity: NotRequired[Quantity]
     unit: NotRequired[str]
     xs: NotRequired[list[float]]
     #: Heatmap rows: frequencies (Hz, log-spaced), critical-band rates (Bark) or quefrencies (s).
@@ -85,10 +88,10 @@ class StagePair(TypedDict):
 
 
 class StageWaveform(TypedDict):
-    min: list[float]
-    max: list[float]
-    minT: list[float]
-    maxT: list[float]
+    min: list[float | None]
+    max: list[float | None]
+    minT: list[float | None]
+    maxT: list[float | None]
     absolutePeak: float
     unit: str
     ref: float
@@ -129,6 +132,11 @@ def band_levels(levels_db: np.ndarray, freqs: np.ndarray, edges: np.ndarray) -> 
 
 def _json(values: np.ndarray) -> list[float | None]:
     return [float(value) if np.isfinite(value) else None for value in np.asarray(values, dtype=np.float64).tolist()]
+
+
+def _axis(values: np.ndarray) -> list[float]:
+    """An axis's coordinates, which are finite (frequencies, times, bands, lags)."""
+    return [float(value) for value in np.asarray(values, dtype=np.float64).tolist()]
 
 
 def power_mean_db(levels_db: np.ndarray, axis: int) -> np.ndarray:
@@ -198,7 +206,7 @@ def _channel_view(frame: ChannelFrame) -> StageView:
             "xScale": "linear",
             "quantity": "value",
             "unit": frame.channels[0].unit or "",
-            "xs": _json(times),
+            "xs": _axis(times),
             "values": _json(np.mean(data, axis=0)),
         }
     edges = np.linspace(0, data.shape[1], min(TIME_POINTS, data.shape[1]) + 1).astype(int)
@@ -214,7 +222,7 @@ def _channel_view(frame: ChannelFrame) -> StageView:
         "x": "time",
         "xScale": "linear",
         "quantity": "level",
-        "xs": _json(times[(edges[:-1] + edges[1:] - 1) // 2]),
+        "xs": _axis(times[(edges[:-1] + edges[1:] - 1) // 2]),
         "values": _json(rounded_db(_power_mean(levels))),
         "waveform": _waveform(frame),
     }
@@ -237,7 +245,7 @@ def _pair_of(frame: Any, row: int) -> StagePair:
     return {"output": int(pair.output.index) + 1, "input": int(pair.input.index) + 1}
 
 
-def _spectral_rows(frame: Any) -> tuple[str, np.ndarray]:
+def _spectral_rows(frame: Any) -> tuple[Quantity, np.ndarray]:
     """What a spectrum-like Frame measures, and its values: one row per channel (or channel pair)."""
     if isinstance(frame, CoherenceFrame):
         quantity, raw = "coherence", frame.coherence
@@ -279,7 +287,7 @@ def _spectral_view(frame: Any) -> StageView:
         "x": "frequency",
         "xScale": "log",
         "quantity": quantity,
-        "xs": _json(centres),
+        "xs": _axis(centres),
         "values": _json(line),
     }
     if pair is not None:
@@ -294,7 +302,7 @@ def _noct_view(frame: NOctFrame) -> StageView:
         "x": "band",
         "xScale": "log",
         "quantity": "level",
-        "xs": _json(np.asarray(frame.freqs, dtype=np.float64)),
+        "xs": _axis(np.asarray(frame.freqs, dtype=np.float64)),
         "values": _json(rounded_db(_power_mean(rounded_db(_rows(frame.dB, frame.n_channels))))),
     }
 
@@ -310,7 +318,11 @@ def _time_blocks(count: int) -> list[slice]:
     return [slice(start, end) for start, end in zip(edges[:-1], edges[1:], strict=True)]
 
 
-def _whole_columns(frame: Any, blocks: list[slice], signal_s: float | None) -> dict[str, list[bool]]:
+class _WholeColumns(TypedDict, total=False):
+    whole: list[bool]
+
+
+def _whole_columns(frame: Any, blocks: list[slice], signal_s: float | None) -> _WholeColumns:
     """``whole`` for an STFT's columns, when the length of the signal it was taken of is known."""
     if signal_s is None:
         return {}
@@ -339,8 +351,8 @@ def _spectrogram_view(frame: SpectrogramFrame, signal_s: float | None = None) ->
         "x": "time",
         "xScale": "linear",
         "quantity": "level",
-        "xs": _json(np.array([float(np.mean(times[block])) for block in blocks])),
-        "ys": _json(centres),
+        "xs": _axis(np.array([float(np.mean(times[block])) for block in blocks])),
+        "ys": _axis(centres),
         "yAxis": "frequency",
         # One decimal: an image of a dB level needs no more, and a base sends one per file.
         "matrix": [_json(row) for row in np.round(rounded_db(matrix).T, 1)],
@@ -360,8 +372,8 @@ def _roughness_view(frame: RoughnessFrame) -> StageView:
         "xScale": "linear",
         "quantity": "roughness",
         "unit": "asper",
-        "xs": _json(np.array([float(np.mean(times[block])) for block in blocks])),
-        "ys": _json(np.asarray(frame.bark_axis, dtype=np.float64)[: plane.shape[0]]),
+        "xs": _axis(np.array([float(np.mean(times[block])) for block in blocks])),
+        "ys": _axis(np.asarray(frame.bark_axis, dtype=np.float64)[: plane.shape[0]]),
         "yAxis": "bark",
         "matrix": [_json(np.array([np.mean(row[block]) for block in blocks])) for row in plane],
     }
@@ -408,7 +420,7 @@ def _cepstral_view(frame: CepstralFrame) -> StageView:
         "x": "quefrency",
         "xScale": "linear",
         "quantity": "cepstrum",
-        "xs": _json(np.asarray(frame.quefrencies, dtype=np.float64)[starts]),
+        "xs": _axis(np.asarray(frame.quefrencies, dtype=np.float64)[starts]),
         "values": _json(np.round(values, CEPSTRUM_DECIMALS)),
     }
 
@@ -433,7 +445,7 @@ def _correlation_view(frame: CrossCorrelationFrame) -> StageView:
         "x": "lag",
         "xScale": "linear",
         "quantity": "correlation",
-        "xs": _json(np.asarray(frame.lags, dtype=np.float64)[picked]),
+        "xs": _axis(np.asarray(frame.lags, dtype=np.float64)[picked]),
         "values": _json(np.round(values, CORRELATION_DECIMALS)),
         "pair": _pair_of(frame, row),
     }
@@ -452,8 +464,8 @@ def _cepstrogram_view(frame: CepstrogramFrame, signal_s: float | None = None) ->
         "x": "time",
         "xScale": "linear",
         "quantity": "cepstrum",
-        "xs": _json(np.array([float(np.mean(times[block])) for block in blocks])),
-        "ys": _json(np.asarray(frame.quefrencies, dtype=np.float64)[starts]),
+        "xs": _axis(np.array([float(np.mean(times[block])) for block in blocks])),
+        "ys": _axis(np.asarray(frame.quefrencies, dtype=np.float64)[starts]),
         "yAxis": "quefrency",
         "matrix": [_json(row) for row in np.round(rows.T, CEPSTRUM_DECIMALS)],
         **_whole_columns(frame, blocks, signal_s),
@@ -520,7 +532,7 @@ def _detail_view(frame: object, coarse: StageView, detail: StageDetail) -> Stage
         xs, values = _envelope(freqs[keep], line[keep], points)
         view.update(
             {
-                "xs": _json(xs),
+                "xs": _axis(xs),
                 "values": _json(np.round(values, 4 if coarse.get("quantity") == "coherence" else spec.DB_DECIMALS)),
             }
         )
@@ -531,7 +543,7 @@ def _detail_view(frame: object, coarse: StageView, detail: StageDetail) -> Stage
         keep = _inside(times, bounds)
         if coarse.get("quantity") != "level":
             xs, values = _envelope(times[keep], np.mean(data[:, keep], axis=0), points)
-            view.update({"xs": _json(xs), "values": _json(values)})
+            view.update({"xs": _axis(xs), "values": _json(values)})
             return view
         part = data[:, keep]
         view["waveform"] = _waveform(frame, keep, points)
@@ -546,7 +558,7 @@ def _detail_view(frame: object, coarse: StageView, detail: StageDetail) -> Stage
         centres = np.array([(a + b - 1) // 2 for a, b in zip(edges[:-1], edges[1:], strict=True) if b > a])
         with np.errstate(divide="ignore"):
             levels = 10.0 * np.log10(power / refs**2)
-        view.update({"xs": _json(times[keep][centres]), "values": _json(rounded_db(_power_mean(levels)))})
+        view.update({"xs": _axis(times[keep][centres]), "values": _json(rounded_db(_power_mean(levels)))})
         return view
     if isinstance(frame, CrossCorrelationFrame):
         lags = np.asarray(frame.lags, dtype=np.float64)
@@ -554,14 +566,14 @@ def _detail_view(frame: object, coarse: StageView, detail: StageDetail) -> Stage
         drawn = _correlation_rows(frame)
         if drawn is not None and keep.any():
             values, picked = _peak_points(drawn[1][keep], points)
-            view.update({"xs": _json(lags[keep][picked]), "values": _json(np.round(values, CORRELATION_DECIMALS))})
+            view.update({"xs": _axis(lags[keep][picked]), "values": _json(np.round(values, CORRELATION_DECIMALS))})
             return view
         return coarse
     if isinstance(frame, CepstralFrame):
         quefrencies = np.asarray(frame.quefrencies, dtype=np.float64)
         keep = _inside(quefrencies, bounds)
         values, starts = _signed_peaks(np.mean(_rows(frame.data, frame.n_channels), axis=0)[keep], points)
-        view.update({"xs": _json(quefrencies[keep][starts]), "values": _json(np.round(values, CEPSTRUM_DECIMALS))})
+        view.update({"xs": _axis(quefrencies[keep][starts]), "values": _json(np.round(values, CEPSTRUM_DECIMALS))})
         return view
     if isinstance(frame, (SpectrogramFrame, CepstrogramFrame, RoughnessFrame)):
         rows_bounds = [float(value) for value in detail.get("y", [-np.inf, np.inf])]
@@ -620,8 +632,8 @@ def _detail_view(frame: object, coarse: StageView, detail: StageDetail) -> Stage
             ys, matrix = bark[keep], columned[keep]
         view.update(
             {
-                "xs": _json(np.array([float(np.mean(times[block])) for block in blocks])),
-                "ys": _json(ys),
+                "xs": _axis(np.array([float(np.mean(times[block])) for block in blocks])),
+                "ys": _axis(ys),
                 "matrix": [_json(row) for row in np.asarray(matrix)],
             }
         )

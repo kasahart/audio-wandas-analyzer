@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from analysis_service import AnalysisService
 
 Command = dict[str, Any]
-CommandHandler = Callable[[Any, Command], dict[str, object]]
+CommandHandler = Callable[[Any, Command], Mapping[str, object]]
 FieldValidator = Callable[[object], bool]
 
 
@@ -114,7 +114,7 @@ def _analysis_revision(command: Command) -> object:
     return command.get("analysisRevision", 0)
 
 
-def handle_analyze(service: AnalysisService, command: Command) -> dict[str, object]:
+def handle_analyze(service: AnalysisService, command: Command) -> Mapping[str, object]:
     return service.analyze(
         str(command["filePath"]),
         stft_options=_stft_options(command),
@@ -123,7 +123,7 @@ def handle_analyze(service: AnalysisService, command: Command) -> dict[str, obje
     )
 
 
-def handle_track_detail(service: AnalysisService, command: Command) -> dict[str, object]:
+def handle_track_detail(service: AnalysisService, command: Command) -> Mapping[str, object]:
     return service.track_detail(
         str(command["filePath"]),
         track_index=int(command["trackIndex"]),
@@ -135,7 +135,7 @@ def handle_track_detail(service: AnalysisService, command: Command) -> dict[str,
     )
 
 
-def handle_spectrum_slice(service: AnalysisService, command: Command) -> dict[str, object]:
+def handle_spectrum_slice(service: AnalysisService, command: Command) -> Mapping[str, object]:
     return service.spectrum_slice(
         str(command["filePath"]),
         cursor_norm=float(command["cursorNorm"]),
@@ -149,7 +149,7 @@ def handle_spectrum_slice(service: AnalysisService, command: Command) -> dict[st
     )
 
 
-def handle_pair_spectrum(service: AnalysisService, command: Command) -> dict[str, object]:
+def handle_pair_spectrum(service: AnalysisService, command: Command) -> Mapping[str, object]:
     return service.pair_spectrum(
         command["reference"],
         command["responses"],
@@ -161,7 +161,7 @@ def handle_pair_spectrum(service: AnalysisService, command: Command) -> dict[str
     )
 
 
-def handle_range(service: AnalysisService, command: Command) -> dict[str, object]:
+def handle_range(service: AnalysisService, command: Command) -> Mapping[str, object]:
     return service.waveform_range(
         str(command["filePath"]),
         start_norm=float(command["startNorm"]),
@@ -172,7 +172,7 @@ def handle_range(service: AnalysisService, command: Command) -> dict[str, object
     )
 
 
-def handle_export_wav_loop(service: AnalysisService, command: Command) -> dict[str, object]:
+def handle_export_wav_loop(service: AnalysisService, command: Command) -> Mapping[str, object]:
     return service.export_wav_loop(
         str(command["filePath"]),
         start_norm=float(command["startNorm"]),
@@ -180,11 +180,11 @@ def handle_export_wav_loop(service: AnalysisService, command: Command) -> dict[s
     )
 
 
-def handle_release_track_detail(service: AnalysisService, command: Command) -> dict[str, object]:
+def handle_release_track_detail(service: AnalysisService, command: Command) -> Mapping[str, object]:
     return service.release_track_detail(str(command["filePath"]))
 
 
-def handle_run_recipe(service: AnalysisService, command: Command) -> dict[str, object]:
+def handle_run_recipe(service: AnalysisService, command: Command) -> Mapping[str, object]:
     return service.run_recipe(
         command["recipe"],
         inputs=command["inputs"],
@@ -193,7 +193,7 @@ def handle_run_recipe(service: AnalysisService, command: Command) -> dict[str, o
     )
 
 
-def handle_build_recipe(service: AnalysisService, command: Command) -> dict[str, object]:
+def handle_build_recipe(service: AnalysisService, command: Command) -> Mapping[str, object]:
     return service.build_recipe(
         str(command["filePath"]),
         stft_options=_stft_options(command),
@@ -203,7 +203,7 @@ def handle_build_recipe(service: AnalysisService, command: Command) -> dict[str,
     )
 
 
-def handle_scan(service: AnalysisService, command: Command) -> dict[str, object]:
+def handle_scan(service: AnalysisService, command: Command) -> Mapping[str, object]:
     return service.scan(
         str(command["filePath"]),
         recipe=command["recipe"],
@@ -230,9 +230,9 @@ COMMANDS: dict[str, CommandHandler] = {
 }
 
 
-def dispatch(command: Command, service: AnalysisService) -> dict[str, object]:
+def dispatch(command: Command, service: AnalysisService) -> Mapping[str, object]:
     name = command.get("cmd")
-    handler = COMMANDS.get(name)
+    handler = COMMANDS.get(name) if isinstance(name, str) else None
     if handler is None:
         raise InputError(f"unknown cmd: {name!r}")
     return handler(service, command)
