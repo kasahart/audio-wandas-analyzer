@@ -823,6 +823,47 @@ def test_a_failed_wav_write_of_a_readable_file_is_not_an_unreadable_file_error(t
     assert backend_errors.error_payload(overflow.value)["kind"] == "analysis-failed"
 
 
+def _short_recording(tmp_path: Path, name: str, channels: int = 1) -> Path:
+    path = tmp_path / name
+    sf.write(path, np.random.default_rng(0).normal(size=(1000, channels)) * 0.1, 48000)
+    return path
+
+
+def test_the_apps_spectrum_and_transfer_recipes_on_a_file_shorter_than_their_window_are_settings_errors(
+    tmp_path: Path,
+) -> None:
+    from recipe_builder import RecipeSource, spectrum_recipe, transfer_recipe
+
+    mono = _short_recording(tmp_path, "mono.wav")
+    stereo = _short_recording(tmp_path, "stereo.wav", channels=2)
+    spectrum = spectrum_recipe(RecipeSource(1, 48000.0), n_fft=4096, hop_length=1024, window="hann")
+    transfer = transfer_recipe([RecipeSource(2, 48000.0)], 0, [(0, 1)], n_fft=4096, hop_length=1024, window="hann")
+
+    for recipe, inputs in ((spectrum, {"signal": str(mono)}), (transfer, {"reference": str(stereo)})):
+        error = _error_reply({"cmd": "run-recipe", "requestId": "r", "recipe": recipe, "inputs": inputs})
+        assert (error["code"], error["kind"]) == ("input-error", "analysis-settings"), error
+        assert "noverlap" in error["message"]
+
+
+@pytest.mark.parametrize(
+    "operation",
+    [
+        pytest.param(lambda frame: frame.welch(n_fft=4096, hop_length=1024), id="welch"),
+        pytest.param(lambda frame: frame.csd(n_fft=4096, hop_length=1024), id="csd"),
+        pytest.param(lambda frame: frame.coherence(n_fft=4096, hop_length=1024), id="coherence"),
+        pytest.param(lambda frame: frame[:, :8].low_pass_filter(cutoff=1000), id="filter-shorter-than-padlen"),
+        pytest.param(lambda frame: frame.stft(n_fft=256, hop_length=64, window="nope"), id="unknown-window"),
+    ],
+)
+def test_scipy_parameter_checks_on_a_short_signal_are_settings_errors(operation) -> None:
+    frame = wd.from_numpy(np.random.default_rng(0).normal(size=(2, 1000)), sampling_rate=48000)
+
+    with pytest.raises(ValueError) as raised:
+        np.asarray(operation(frame).data)
+
+    assert backend_errors.error_payload(raised.value)["kind"] == "analysis-settings", raised.value
+
+
 def test_a_recipe_filter_cutoff_above_the_files_nyquist_is_an_analysis_settings_error(tmp_path: Path) -> None:
     low_rate = tmp_path / "16k.wav"
     _write_samples(low_rate, 16000, rate=16000)

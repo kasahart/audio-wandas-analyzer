@@ -17,9 +17,17 @@ INVALID_INPUT = "invalid-input"
 ANALYSIS_FAILED = "analysis-failed"
 
 # Where a ValueError means an operation's parameters do not fit this signal: wandas' operations check
-# cutoffs, bands and lengths against it, and scipy's ShortTimeFFT checks the window and hop
-# ("Parameter n must be >= ceil(m_num/2)"). Other scipy.signal errors are left as faults.
-_SETTINGS_MODULES = ("wandas.processing", "scipy.signal._short_time_fft")
+# cutoffs, bands and lengths against it; scipy's ShortTimeFFT ("Parameter n must be >= ceil(m_num/2)")
+# and Welch, CSD and coherence ("noverlap must be less than nperseg") check the window and hop, its
+# window functions the window name, and its zero-phase filters the length ("must be greater than
+# padlen"). Other scipy.signal modules are left as faults.
+_SETTINGS_MODULES = (
+    "wandas.processing",
+    "scipy.signal._short_time_fft",
+    "scipy.signal._spectral_py",
+    "scipy.signal.windows",
+    "scipy.signal._signaltools",
+)
 
 
 class InputError(ValueError):
