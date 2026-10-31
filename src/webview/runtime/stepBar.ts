@@ -15,13 +15,11 @@ import type { UiStrings } from '../../shared/i18n/strings';
 import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { addableOperations, CROSS_CHANNEL, PAIRED_ON_ADD, SLOT_REFERABLE, SELECT_PAIR, movedStep, recipeNodes, recipeSteps, withStep, withoutSteps, withBypass, withSlotReference, TIME_SLICE, type RecipeStep, type StepLimits } from '../../shared/recipe/recipeSteps';
 import { catalogOperation, INPUT_FRAME } from '../../shared/recipe/recipeCatalog';
-import { outsideRecipe } from './compareReport';
-import { escapeHtml } from '../../shared/utils/webviewEscaping';
-import { titledHintAttr as hintAttr } from './hintFooter';
 import { keyRouterFor } from './keyRouter';
-import { currentStepId, frameAfter, INPUT_STAGE, lastRunningStep, OCTAVE_BRANCH, orderedSteps, removable, shownStep as chipShown, stepFlow, stepLimits, type RegionRange, type StepBarState, type StepFlow } from './stepBarModel';
-import { invalidReason, stepLabel } from './stepLabels';
+import { frameAfter, INPUT_STAGE, OCTAVE_BRANCH, orderedSteps, removable, stepFlow, stepLimits, type RegionRange, type StepBarState } from './stepBarModel';
+import { stepLabel } from './stepLabels';
 import { createStepHistory } from './stepHistory';
+import { stepChipsHtml } from './stepChips';
 import { checkStepForm, regionFormDraft, regionLength, stepFormDraft, stepFormHtml, stepFormKey } from './stepForm';
 import { stepMenuAt, stepMenuHtml, stepMenuKey, stepMenuListHtml, type StepMenuContext, type StepMenuState } from './stepMenu';
 
@@ -78,17 +76,6 @@ export function createStepBar(deps: {
     const lacks = (): ReadonlySet<string> => new Set((document.defaultView as unknown as { __AWA_RUNTIME_LACKS__?: readonly string[] } | null)?.__AWA_RUNTIME_LACKS__ ?? []);
     const footer = (text: string): void => { document.getElementById('hint-footer')?.replaceChildren(text); };
 
-    /** Icons drawn in the text colour of the chip they sit in. */
-    const ICON = {
-        slider: '<svg class="step-icon" viewBox="0 0 12 12" aria-hidden="true"><path d="M1 3h10M1 9h10"/><circle cx="4" cy="3" r="1.6"/><circle cx="8" cy="9" r="1.6"/></svg>',
-        open: '<svg class="step-icon" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 5l3 3 3-3"/></svg>',
-        invalid: '<svg class="step-icon" viewBox="0 0 12 12" aria-hidden="true"><path d="M6 2v5M6 9.5v.5"/></svg>',
-        // An effect pedal's bypass: the signal's path arcs over the block.
-        bypass: '<svg class="step-icon step-bypass-icon" viewBox="0 0 16 14" aria-hidden="true"><rect x="5.5" y="8" width="5" height="4.5" rx=".8"/><path d="M2 12V6Q2 3 5 3H11Q14 3 14 6V12"/><path d="M12 10l2 2 2-2"/></svg>',
-    };
-    /** The region chip is there only while a region is set. */
-    const shownStep = (step: RecipeStep): boolean => chipShown(step, state);
-
     // ---- undo / redo: every edit from the bar keeps what was there before (the Recipe and the region).
     type Snapshot = { recipe: RecipeDocument; region: RegionRange | null };
     const edits = createStepHistory<Snapshot>();
@@ -116,85 +103,11 @@ export function createStepBar(deps: {
     }
     const undo = (): void => travel(edits.undo(now()), strings.stepUndone);
     const redo = (): void => travel(edits.redo(now()), strings.stepRedone);
-    function flow(): StepFlow { return stepFlow(state.recipe!, state); }
-    const all = (): RecipeStep[] => orderedSteps(flow());
-    function end(): RecipeStep | undefined { return lastRunningStep(state.recipe!, state); }
-    function currentId(): string | undefined { return currentStepId(state.recipe!, state, deps.mode); }
-    const ordered = all;
-    /**
-     * One step: a round chip with a dot in its Frame's colour. Its body is pressed to see the step's Frame and
-     * held to see what the step does; ⚙ (shown on the chip on screen) opens its settings and Remove; × (on
-     * hover) removes it; the chip is dragged to move it. On the comparison a region other than the entry table's has ↺.
-     */
-    function chipHtml(step: RecipeStep): string {
-        const comparison = deps.mode === 'compare';
-        const region = step.operation === TIME_SLICE && !!deps.onRegionSet;
-        const differs = comparison && step.operation === TIME_SLICE && !!state.regionDiffers;
-        const what = strings.stepFrameHint.replace('{op}', step.name).replace('{frame}', step.output);
-        const label = escapeHtml(stepLabel(step, strings, state, expanded));
-        const current = currentId();
-        const order = ordered();
-        const classes = ['step-chip'];
-        if (step.id === current) classes.push('is-current');
-        // The steps after the one on screen are dimmed; the app's branch stands beside the chain, not after it.
-        else if (step.id !== OCTAVE_BRANCH && current !== OCTAVE_BRANCH && order.findIndex(item => item.id === step.id) > order.findIndex(item => item.id === current)) classes.push('is-after');
-        if (step.invalid !== undefined) classes.push('is-invalid');
-        if (step.bypassed) classes.push('is-bypassed');
-        if (open === step.id) classes.push('is-open');
-        if (differs) classes.push('is-differs');
-        const movable = removable(step);
-        // The app's 1/3-octave branch is where the table's band column comes from.
-        const why = step.invalid !== undefined ? invalidReason(step, strings, recipeSteps(state.recipe!, limits())) : step.id === OCTAVE_BRANCH ? `${strings.stepOctaveHint} · ${strings.stepTapHint}` : strings.stepTapHint;
-        const dot = `<span class="step-dot" data-kind="${escapeHtml(step.invalid === undefined ? step.output : '')}" aria-hidden="true"></span>`;
-        const body = `<button type="button" class="step-body" data-step-hold="${escapeHtml(step.id)}" ${hintAttr(`${why} — ${what}${movable ? ` · ${strings.stepDragHint}` : ''}`)}>${dot}${label}</button>`;
-        const gearIcon = step.invalid !== undefined ? ICON.invalid : open === step.id ? ICON.open : ICON.slider;
-        const gear = removable(step) || region
-            ? `<button type="button" class="step-gear" data-action="step-settings" data-step="${escapeHtml(step.id)}" aria-label="${escapeHtml(strings.stepSettings)}" ${hintAttr(step.invalid !== undefined ? why : strings.stepSettings)}>${gearIcon}</button>` : '';
-        const reset = differs ? `<button type="button" class="step-reset" data-step-region ${hintAttr(strings.hintRegionMark)}>↺</button>` : '';
-        const cross = removable(step) ? `<button type="button" class="step-x" data-action="step-delete" data-step="${escapeHtml(step.id)}" aria-label="${escapeHtml(strings.stepRemoveChip)}" ${hintAttr(strings.stepRemoveChip)}></button>`
-            : region ? `<button type="button" class="step-x" data-action="step-region-clear" aria-label="${escapeHtml(strings.stepRegionClear)}" ${hintAttr(strings.stepRegionClear)}></button>` : '';
-        // Bypass sits beside ×: the step stays where it is but the chain runs without it.
-        const bypassHint = step.bypassed ? strings.stepBypassOff : strings.stepBypass;
-        const bypass = step.id !== OCTAVE_BRANCH && (removable(step) || region)
-            ? `<button type="button" class="step-bypass" data-action="step-bypass" data-step="${escapeHtml(step.id)}" aria-pressed="${!!step.bypassed}" aria-label="${escapeHtml(bypassHint)}" ${hintAttr(bypassHint)}>${ICON.bypass}</button>` : '';
-        return `<span class="${classes.join(' ')}" data-step-id="${escapeHtml(step.id)}"${movable ? ' draggable="true"' : ''}>${body}${gear}${reset}${bypass}${cross}</span>`;
-    }
-    function outsideTagsHtml(): string {
-        const welch = recipeSteps(state.recipe!).find(step => step.name === 'welch');
-        return outsideRecipe(strings, welch?.params).map(item => `<span class="awa-tag" ${hintAttr(item.text)}>${escapeHtml(item.tag)}</span>`).join('');
-    }
-    const addHtml = (after: RecipeStep | undefined, action: 'step-add' | 'step-insert' = 'step-add'): string => `<button type="button" class="step-add" ${action === 'step-add' ? 'data-action="step-add"' : 'data-action="step-insert"'} data-after="${escapeHtml(after?.id ?? '')}" aria-label="${escapeHtml(action === 'step-add' ? strings.stepAdd : strings.stepMenuTitle)}" aria-expanded="${!!menu && menu.after === (after?.id ?? null)}" ${hintAttr(strings.stepMenuTitle.replace('{frame}', after ? (after.invalid === undefined ? after.output : after.input) : INPUT_FRAME))}>＋</button>`;
-    function chipsHtml(): string {
-        if (!state.recipe) return '';
-        const { chain, tail, octave } = flow();
-        const version = state.specVersion !== undefined ? ` (${strings.stepMetrics} v${state.specVersion})` : '';
-        const toggle = `<button type="button" class="step-more" data-action="step-expand" aria-expanded="${expanded}" ${hintAttr(expanded ? strings.stepClose : strings.stepOpen)}>${expanded ? '‹' : '…'}</button>`;
-        const name = `<span class="step-label step-name" ${hintAttr(strings.stepRecipeName)}>${escapeHtml(strings.btnStage)}</span>`;
-        const current = currentId();
-        const inputText = `<span class="step-dot" data-kind="${INPUT_FRAME}" aria-hidden="true"></span>${escapeHtml(state.files ? strings.stepInputFiles.replace('{n}', String(state.files)) : strings.stepInput)}`;
-        // On the comparison the input is a chip too: pressed, it shows the files as they come in.
-        const input = deps.onInputSelect
-            ? `<span class="step-chip step-input${current === INPUT_STAGE ? ' is-current' : ''}" data-step-input data-step-id="${INPUT_STAGE}"><button type="button" class="step-body" data-step-hold="${INPUT_STAGE}" ${hintAttr(strings.stepInputHint)}>${inputText}</button></span>`
-            : `<span class="step-input" data-step-input>${inputText}</span>`;
-        const steps = [...chain, ...tail].filter(shownStep);
-        const last = end();
-        // Between two chips: → and ＋ to add a step there.
-        const link = (after: RecipeStep | null): string => `<span class="step-link"><span class="step-arrow" aria-hidden="true">→</span>`
-            + `<button type="button" class="step-insert" data-action="step-insert" data-after="${escapeHtml(after?.id ?? '')}" aria-label="${escapeHtml(strings.stepMenuTitle)}" ${hintAttr(strings.stepMenuTitle)}>＋</button></span>`;
-        const node = (step: RecipeStep): string => chipHtml(step);
-        const history = `<span class="step-history">`
-            + `<button type="button" class="step-undo" data-action="step-undo" aria-label="${escapeHtml(strings.stepUndo)}" ${hintAttr(strings.stepUndo)}${edits.canUndo() ? '' : ' disabled'}>↶</button>`
-            + `<button type="button" class="step-redo" data-action="step-redo" aria-label="${escapeHtml(strings.stepRedo)}" ${hintAttr(strings.stepRedo)}${edits.canRedo() ? '' : ' disabled'}>↷</button></span>`;
-        const parts: string[] = [history, name, input];
-        // A link adds right before the chip after it, behind a region chip that is not shown too.
-        const full = [...chain, ...tail];
-        steps.forEach(step => { const at = full.findIndex(item => item.id === step.id); parts.push(link(at > 0 ? full[at - 1] : null), node(step)); });
-        parts.push('<span class="step-arrow" aria-hidden="true">→</span>', addHtml(last));
-        // The app's 1/3-octave branch is not the chain's next step: it stands apart at the bar's end.
-        const branch = octave ? `<span class="step-branch">${node(octave)}</span>` : '';
-        const row = `<div class="step-row">${parts.join('')}<span class="step-gap"></span>${branch}${toggle}</div>`;
-        return expanded ? row + `<div class="step-row step-outside-row"><span class="step-outside-heading">${escapeHtml(strings.stepOutsideHeading)}${escapeHtml(version)}</span>${outsideTagsHtml()}</div>` : row;
-    }
+    /** The chain's steps in the order they run, then the app's 1/3-octave branch. */
+    const all = (recipe: RecipeDocument): RecipeStep[] => orderedSteps(stepFlow(recipe, state));
+    const chipsHtml = (): string => (state.recipe
+        ? stepChipsHtml({ recipe: state.recipe, state, strings, mode: deps.mode, expanded, open, menu, regionSettable: !!deps.onRegionSet, inputSelectable: !!deps.onInputSelect, canUndo: edits.canUndo(), canRedo: edits.canRedo() })
+        : '');
     const formHtml = (step: RecipeStep): string => stepFormHtml(step, state, strings);
     function menuContext(recipe: RecipeDocument): StepMenuContext {
         return { recipe, state, strings, expanded, lacks: lacks(), regionSettable: !!deps.onRegionSet };
@@ -366,7 +279,7 @@ export function createStepBar(deps: {
         if (target.hasAttribute('data-step-hold')) {
             if (swallowClick) { swallowClick = false; return; }
             if (target.getAttribute('data-step-hold') === INPUT_STAGE) { deps.onInputSelect?.(); return; }
-            const step = state.recipe ? all().find(item => item.id === target.getAttribute('data-step-hold')) : undefined;
+            const step = state.recipe ? all(state.recipe).find(item => item.id === target.getAttribute('data-step-hold')) : undefined;
             if (step) deps.onStepSelect?.(step);
         }
         else if (action === 'step-expand') { expanded = !expanded; render(); }
@@ -446,7 +359,7 @@ export function createStepBar(deps: {
         const body = (event.target as HTMLElement).closest<HTMLElement>('[data-step-hold]');
         swallowClick = false;
         if (!body || !state.recipe || event.button !== 0) return;
-        const step = all().find(item => item.id === body.getAttribute('data-step-hold'));
+        const step = all(state.recipe).find(item => item.id === body.getAttribute('data-step-hold'));
         if (!step || !(deps.canHold?.(step) ?? false)) return;
         pressing = {
             step,
