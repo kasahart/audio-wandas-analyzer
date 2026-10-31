@@ -31,7 +31,8 @@ MAX_SAMPLE_RATE_HZ = 96000
 MAX_TOTAL_INPUT_BYTES = 256 * MIB
 MAX_SOURCES = 8
 MAX_EXPORT_BYTES = 32 * MIB
-MAX_TOTAL_DECODED_BYTES = 512 * MIB
+# About as much decoded audio as the estimate below admits: three 5-minute 48 kHz stereo tracks load, a fourth does not.
+MAX_TOTAL_DECODED_BYTES = 384 * MIB
 # Measured peak wasm heaps stayed below 75 % of this estimate (four 5-minute 48 kHz stereo tracks: 1.5 GiB),
 # leaving room under the 4 GiB wasm32 ceiling. Length is bounded by these budgets, not by a fixed duration.
 MAX_ESTIMATED_BYTES = 2048 * MIB
