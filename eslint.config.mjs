@@ -10,8 +10,6 @@ import tseslint from 'typescript-eslint';
 const NON_NULL_ASSERTION_BURN_DOWN = [
     'src/extension/index.ts',
     'src/extension/pythonBackendServer.ts',
-    'src/shared/analysis/entryMetadata.ts',
-    'src/shared/analysis/entryScan.ts',
     'src/shared/dataset/datasetTable.ts',
     'src/shared/protocol/backendProtocol.ts',
     'src/shared/protocol/schemaValidation.ts',
