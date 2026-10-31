@@ -42,7 +42,8 @@ HEATMAP_FREQUENCIES = 128
 QUEFRENCY_POINTS = 800
 # Cepstral coefficients are small (around 0.01) and signed: kept to five decimals, not one.
 CEPSTRUM_DECIMALS = 5
-LAG_POINTS = 800
+# Every lag of a new step's ±0.1 s at 48 kHz, so its delay peak is at its own lag.
+LAG_POINTS = 9601
 # Normalized cross-correlation coefficients lie in [-1, 1].
 CORRELATION_DECIMALS = 4
 
@@ -376,16 +377,21 @@ def _signed_peaks(values: np.ndarray, count: int) -> tuple[np.ndarray, np.ndarra
 
 
 def _peak_points(values: np.ndarray, count: int) -> tuple[np.ndarray, np.ndarray]:
-    """`values` (1-D) in at most `count` blocks, each the value of largest magnitude, with its own index.
+    """`values` (1-D) in at most `count` blocks, each the value of largest magnitude, at its block's centre index.
 
-    A correlation peak's lag is the delay: the point keeps where the peak is, not where its block starts.
+    Every lag is kept when they fit, so a peak is at its own lag. Over more, the blocks' centres are the same for
+    every view of as many lags: the median and the difference pair values by index, so they meet at one lag.
     """
-    edges = np.linspace(0, values.size, min(count, values.size) + 1).astype(int)
-    picked = np.array(
-        [start + int(np.argmax(np.abs(values[start:end]))) for start, end in zip(edges[:-1], edges[1:], strict=True)],
-        dtype=int,
+    if values.size <= count:
+        return values, np.arange(values.size)
+    edges = np.linspace(0, values.size, count + 1).astype(int)
+    peaks = np.array(
+        [
+            values[start + int(np.argmax(np.abs(values[start:end])))]
+            for start, end in zip(edges[:-1], edges[1:], strict=True)
+        ]
     )
-    return values[picked], picked
+    return peaks, (edges[:-1] + edges[1:] - 1) // 2
 
 
 def _cepstral_view(frame: CepstralFrame) -> StageView:
@@ -416,7 +422,6 @@ def _correlation_view(frame: CrossCorrelationFrame) -> StageView:
     if drawn is None or frame.n_lags < 2:
         return {"frame": type(frame).__name__, "kind": "none"}
     row, coefficients = drawn
-    # The largest magnitude of each block at its own lag, so the peak that gives the delay is kept where it is.
     values, picked = _peak_points(coefficients, LAG_POINTS)
     return {
         "frame": type(frame).__name__,

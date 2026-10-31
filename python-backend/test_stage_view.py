@@ -86,7 +86,8 @@ def test_a_cross_correlation_is_its_coefficients_over_lag_with_the_delay_peak_ke
     view = _checked(correlation)
     assert (view["kind"], view["x"], view["xScale"], view["quantity"]) == ("line", "lag", "linear", "correlation")
     assert view["pair"] == {"output": 2, "input": 1}
-    assert len(view["xs"]) == LAG_POINTS and -0.1 <= view["xs"][0] < -0.1 + 0.2 / LAG_POINTS
+    # ±0.1 s at 16 kHz is 3,201 lags, under LAG_POINTS: every one is drawn.
+    assert len(view["xs"]) == 3201 < LAG_POINTS and view["xs"][0] == pytest.approx(-0.1)
     peak = int(np.argmax(view["values"]))
     assert view["xs"][peak] == pytest.approx(0.005, abs=1 / 16000 * 2) and view["values"][peak] > 0.99
     # Zoomed in, the lags on screen at full resolution.
@@ -98,14 +99,29 @@ def test_a_cross_correlation_is_its_coefficients_over_lag_with_the_delay_peak_ke
     assert stage_view(frame.get_channel(0).cross_correlation())["kind"] == "none"
 
 
-def test_a_long_cross_correlation_keeps_its_peak_at_its_own_lag() -> None:
-    rng = np.random.default_rng(1)
-    signal = rng.standard_normal(32000)
-    # ch2 is ch1 16 samples (1 ms) later; 32,001 lags over ±1 s are drawn in 800 points of 40 lags each.
-    frame = wd.from_numpy(np.vstack([signal, np.roll(signal, 16)]), sampling_rate=16000)
-    view = _checked(frame.cross_correlation(max_lag=1.0))
-    peak = int(np.argmax(view["values"]))
-    assert view["xs"][peak] == pytest.approx(0.001)
+def test_a_new_steps_cross_correlation_keeps_every_lag_so_its_peak_is_at_its_own_lag() -> None:
+    signal = np.random.default_rng(1).standard_normal(48000)
+    # ch2 is ch1 48 samples (1 ms) later; ±0.1 s at 48 kHz is 9,601 lags, all drawn.
+    frame = wd.from_numpy(np.vstack([signal, np.roll(signal, 48)]), sampling_rate=48000)
+    view = _checked(frame.cross_correlation(max_lag=0.1))
+    assert len(view["xs"]) == 9601
+    assert view["xs"][int(np.argmax(view["values"]))] == pytest.approx(0.001)
+
+
+def test_long_cross_correlations_share_their_lags_so_they_are_compared_at_one_lag() -> None:
+    signal = np.random.default_rng(1).standard_normal(64000)
+
+    def view(delay: int) -> dict:
+        frame = wd.from_numpy(np.vstack([signal, np.roll(signal, delay)]), sampling_rate=16000)
+        return _checked(frame.cross_correlation(max_lag=3.0))
+
+    # 96,001 lags over ±3 s are drawn in blocks of 10 (0.625 ms), each at its centre: 1 ms and 2 ms stay apart.
+    early, late = view(16), view(32)
+    assert early["xs"] == late["xs"]
+    block = 3.0 * 2 / 9601
+    for drawn, delay in ((early, 0.001), (late, 0.002)):
+        assert abs(drawn["xs"][int(np.argmax(drawn["values"]))] - delay) <= block / 2
+    assert int(np.argmax(early["values"])) != int(np.argmax(late["values"]))
 
 
 def test_a_cepstrogram_is_an_image_over_time_and_quefrency(signal: wd.ChannelFrame) -> None:
