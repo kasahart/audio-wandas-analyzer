@@ -49,8 +49,23 @@ export const onDidChangeDefaultInterpreter = defaultInterpreterEmitter.event;
 
 function hasExplicitPythonCommand(config: vscode.WorkspaceConfiguration): boolean {
     const inspected = config.inspect<string>('pythonCommand');
-    return [inspected?.globalValue, inspected?.workspaceValue, inspected?.workspaceFolderValue]
-        .some(value => value !== undefined);
+    // Restricted Mode ignores workspace values of this restricted setting, so only the user value is in effect.
+    const values = vscode.workspace.isTrusted
+        ? [inspected?.globalValue, inspected?.workspaceValue, inspected?.workspaceFolderValue]
+        : [inspected?.globalValue];
+    return values.some(value => value !== undefined);
+}
+
+function isInsideWorkspace(candidate: string): boolean {
+    return (vscode.workspace.workspaceFolders ?? []).some((folder) => {
+        const relative = path.relative(folder.uri.fsPath, candidate);
+        return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+    });
+}
+
+/** Drops an auto-detected interpreter that an untrusted workspace supplies. */
+function trustedCandidate(pythonCommand: string | undefined): string | undefined {
+    return pythonCommand && !vscode.workspace.isTrusted && isInsideWorkspace(pythonCommand) ? undefined : pythonCommand;
 }
 
 /**
@@ -68,7 +83,7 @@ export function getPythonCommand(): string {
 function virtualEnvInterpreter(): string | undefined {
     const virtualEnv = process.env['VIRTUAL_ENV'];
     if (!virtualEnv) { return undefined; }
-    return fs.existsSync(resolvePythonCommand(virtualEnv)) ? virtualEnv : undefined;
+    return fs.existsSync(resolvePythonCommand(virtualEnv)) ? trustedCandidate(virtualEnv) : undefined;
 }
 
 interface PythonExtensionApi {
@@ -101,7 +116,7 @@ async function pythonExtensionInterpreter(): Promise<string | undefined> {
             });
         }
         const active = environments?.getActiveEnvironmentPath?.(vscode.workspace.workspaceFolders?.[0]?.uri);
-        return typeof active?.path === 'string' && active.path ? active.path : undefined;
+        return typeof active?.path === 'string' && active.path ? trustedCandidate(active.path) : undefined;
     } catch {
         return undefined;
     }
@@ -214,6 +229,13 @@ class PythonNotFoundError extends Error {
     }
 }
 
+class UntrustedWorkspacePathError extends Error {
+    constructor(pythonCommand: string) {
+        super(fillTemplate(strings().pyUntrustedWorkspacePath, { command: pythonCommand }));
+        this.name = 'UntrustedWorkspacePathError';
+    }
+}
+
 class PipNotAvailableError extends Error {
     constructor(pythonCommand: string) {
         super(fillTemplate(strings().pyPipUnavailable, { command: pythonCommand }));
@@ -271,8 +293,17 @@ export function resolvePythonCommand(
     return relativeInterpreterPath;
 }
 
+/**
+ * Resolves `pythonCommand` against the workspace folder. While the workspace is untrusted a relative path is
+ * refused, because it would start a program the folder supplies.
+ */
 export function resolveConfiguredPythonCommand(pythonCommand: string): string {
-    return resolvePythonCommand(pythonCommand, process.platform, getWorkspaceRoot());
+    const root = getWorkspaceRoot();
+    const pathApi = process.platform === 'win32' ? path.win32 : path.posix;
+    if (root && !vscode.workspace.isTrusted && !isLikelyCommand(pythonCommand) && !pathApi.isAbsolute(pythonCommand)) {
+        throw new UntrustedWorkspacePathError(pythonCommand);
+    }
+    return resolvePythonCommand(pythonCommand, process.platform, root);
 }
 
 function getWorkspaceRoot(): string | undefined {
@@ -281,7 +312,7 @@ function getWorkspaceRoot(): string | undefined {
 
 function canCreateWorkspaceVenv(): boolean {
     const root = getWorkspaceRoot();
-    return root !== undefined && !fs.existsSync(path.join(root, '.venv'));
+    return root !== undefined && vscode.workspace.isTrusted && !fs.existsSync(path.join(root, '.venv'));
 }
 
 export function setStatusBarNormal(item: vscode.StatusBarItem, pythonCommand: string): void {
@@ -335,7 +366,7 @@ async function environmentChoices(): Promise<PythonQuickPickItem[]> {
     };
     add(await pythonExtensionInterpreter(), text.pyPickFromPythonExtension);
     add(virtualEnvInterpreter(), text.pyPickFromVirtualEnv);
-    for (const name of WORKSPACE_VENV_NAMES) {
+    for (const name of vscode.workspace.isTrusted ? WORKSPACE_VENV_NAMES : []) {
         if (root && interpreterExists(name, root)) { add(name, text.pyPickWorkspaceVenv); }
     }
     return [
@@ -393,10 +424,17 @@ async function storePythonCommand(chosen: string): Promise<void> {
         reselectedEmitter.fire(chosen);
         return;
     }
-    const target = vscode.workspace.workspaceFolders?.length
-        ? vscode.ConfigurationTarget.Workspace
-        : vscode.ConfigurationTarget.Global;
-    await config.update('pythonCommand', chosen, target);
+    if (!vscode.workspace.workspaceFolders?.length) {
+        await config.update('pythonCommand', chosen, vscode.ConfigurationTarget.Global);
+        return;
+    }
+    if (vscode.workspace.isTrusted) {
+        await config.update('pythonCommand', chosen, vscode.ConfigurationTarget.Workspace);
+        return;
+    }
+    // Restricted Mode would ignore a workspace value of this restricted setting.
+    await config.update('pythonCommand', chosen, vscode.ConfigurationTarget.Global);
+    void vscode.window.showInformationMessage(fillTemplate(strings().pySavedToUserSettings, { command: chosen }));
 }
 
 type ProblemAction = 'select' | 'create-venv' | 'show-log';
@@ -458,6 +496,11 @@ export async function checkAndPromptInstallDependencies(
         if (error instanceof PythonNotFoundError) {
             setStatusBarWarning(statusBarItem, pythonCommand, text.pyTooltipMissingInterpreter);
             void showProblem('warning', error.message, ['select', 'show-log'], statusBarItem);
+            return false;
+        }
+        if (error instanceof UntrustedWorkspacePathError) {
+            setStatusBarWarning(statusBarItem, pythonCommand, text.pyTooltipUntrustedWorkspacePath);
+            void showProblem('warning', error.message, ['select'], statusBarItem);
             return false;
         }
 
