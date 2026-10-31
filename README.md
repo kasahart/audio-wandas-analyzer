@@ -139,9 +139,9 @@ Select one or more files, then use the waveform, spectrogram, cursor, playback, 
 | Limit | Browser version |
 | --- | --- |
 | Formats | WAV, FLAC, OGG, OGA, Opus, MP3, AIFF, AU, SND, CAF, W64, RF64, CSV |
-| Per file | Up to 16 MiB and 30 seconds; mono or stereo |
+| Per file | Up to 128 MiB; mono or stereo |
 | Sample rate | 1–96 kHz |
-| Comparison | Up to 8 tracks and 64 MiB of input files in total |
+| Comparison | Up to 8 tracks, 256 MiB of input files and about 23 minutes of 48 kHz stereo audio in total |
 | WAV export | Uncalibrated PCM16 audio; up to 32 MiB in total |
 <!-- browser-limits:end -->
 

@@ -24,16 +24,17 @@ from command_dispatch import dispatch, validate_request
 MIB = 1024 * 1024
 # Browser session limits. This module is the single source; browser_limits() hands the
 # user-facing subset to the TypeScript host so its pre-checks and the README agree.
-MAX_INPUT_BYTES = 16 * MIB
-MAX_DURATION_SECONDS = 30
+MAX_INPUT_BYTES = 128 * MIB
 MAX_CHANNELS = 2
 MIN_SAMPLE_RATE_HZ = 1000
 MAX_SAMPLE_RATE_HZ = 96000
-MAX_TOTAL_INPUT_BYTES = 64 * MIB
+MAX_TOTAL_INPUT_BYTES = 256 * MIB
 MAX_SOURCES = 8
 MAX_EXPORT_BYTES = 32 * MIB
-MAX_TOTAL_DECODED_BYTES = 64 * MIB
-MAX_ESTIMATED_BYTES = 512 * MIB
+MAX_TOTAL_DECODED_BYTES = 512 * MIB
+# Measured peak wasm heaps stayed below 75 % of this estimate (four 5-minute 48 kHz stereo tracks: 1.5 GiB),
+# leaving room under the 4 GiB wasm32 ceiling. Length is bounded by these budgets, not by a fixed duration.
+MAX_ESTIMATED_BYTES = 2048 * MIB
 PYODIDE_BASELINE_BYTES = 192 * MIB
 DISPLAY_EXPORT_RESERVE = 64 * MIB
 
@@ -45,7 +46,6 @@ def _mib(value: int) -> str:
 def browser_limits() -> dict[str, int]:
     return {
         "maxInputBytes": MAX_INPUT_BYTES,
-        "maxDurationSeconds": MAX_DURATION_SECONDS,
         "maxChannels": MAX_CHANNELS,
         "minSampleRateHz": MIN_SAMPLE_RATE_HZ,
         "maxSampleRateHz": MAX_SAMPLE_RATE_HZ,
@@ -89,12 +89,10 @@ class BrowserEngine(AnalysisEngine):
             not length >= 32
             or not 1 <= channels <= MAX_CHANNELS
             or not MIN_SAMPLE_RATE_HZ <= rate <= MAX_SAMPLE_RATE_HZ
-            or length / rate > MAX_DURATION_SECONDS
         ):
             raise InputError(
-                f"Prototype limits: 32+ samples, 1–{MAX_CHANNELS} channels, "
-                f"{MIN_SAMPLE_RATE_HZ // 1000}–{MAX_SAMPLE_RATE_HZ // 1000} kHz, "
-                f"up to {MAX_DURATION_SECONDS} seconds"
+                f"Browser limits: 32+ samples, 1–{MAX_CHANNELS} channels, "
+                f"{MIN_SAMPLE_RATE_HZ // 1000}–{MAX_SAMPLE_RATE_HZ // 1000} kHz"
             )
         # Folder picks keep their relative path so the Web tree and the loaded track share one filePath.
         path = Path("/sources") / source_id

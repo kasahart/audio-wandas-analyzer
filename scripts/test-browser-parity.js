@@ -320,13 +320,16 @@ const server = http.createServer((req,res) => {
             return values.indexOf(Math.max(...values))*slice.maxFrequencyHz/(slice.frequencyBins-1);
         });
         assert.ok(Math.abs(peakHz-880)<80,`2.5s cursor should select the later 880Hz section, got ${peakHz}`);
-        await picker.setInputFiles({name:'oversized.wav',mimeType:'audio/wav',buffer:Buffer.alloc(16*1024*1024+1)});
-        await status.filter({hasText:S.browserInputTooLarge.replace('{mib}','16')}).waitFor();
+        // Playwright hands buffers over 50 MB only as files, so the oversized pick is a sparse file one byte past the limit.
+        const oversized=path.join(root,'test-results/oversized.wav'); fs.mkdirSync(path.dirname(oversized),{recursive:true}); fs.writeFileSync(oversized,''); fs.truncateSync(oversized,128*1024*1024+1);
+        await picker.setInputFiles(oversized);
+        await status.filter({hasText:S.browserInputTooLarge.replace('{mib}','128')}).waitFor();
         assert.equal(await page.locator('.track-row').count(),1);
-        const longWav=Buffer.alloc(44+31*8000*2*2);
-        bytes.copy(longWav,0,0,44); longWav.writeUInt32LE(longWav.length-8,4); longWav.writeUInt32LE(longWav.length-44,40);
-        await picker.setInputFiles({name:'long.wav',mimeType:'audio/wav',buffer:longWav});
-        await status.filter({hasText:'up to 30 seconds'}).waitFor();
+        // A header-level limit answers on one line: length is bounded only by the memory budget, the rate by 96 kHz.
+        const fastWav=Buffer.from(bytes);
+        fastWav.writeUInt32LE(192000,24); fastWav.writeUInt32LE(192000*fastWav.readUInt16LE(32),28);
+        await picker.setInputFiles({name:'fast.wav',mimeType:'audio/wav',buffer:fastWav});
+        await status.filter({hasText:'1–96 kHz'}).waitFor();
         assert.doesNotMatch(await page.locator('span[role="status"]').innerText(),/Traceback|PythonError|\n/);
         assert.equal(await page.locator('.track-row').count(),1);
         await clearAll();

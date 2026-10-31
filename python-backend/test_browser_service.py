@@ -21,7 +21,9 @@ def _input_error(reply: str) -> str:
     return error["message"]
 
 
-def test_browser_source_bounds_release_and_stale_identity() -> None:
+def test_browser_source_bounds_release_and_stale_identity(monkeypatch) -> None:
+    import browser_service as browser
+
     service = create_service()
     assert isinstance(service, BrowserService)
     with pytest.raises(ValueError, match="non-empty"):
@@ -38,6 +40,8 @@ def test_browser_source_bounds_release_and_stale_identity() -> None:
     assert service.engine.get_file(source.path) is source
     with pytest.raises(ValueError, match="too short"):
         service.engine.get_spectrogram(source.path, 16384, 1024, "hann")
+    # The fixture is short, so the budget is lowered until a hop-1 STFT no longer fits.
+    monkeypatch.setattr(browser, "MAX_ESTIMATED_BYTES", 512 * 1024 * 1024)
     with pytest.raises(ValueError, match="memory budget"):
         service.engine.get_spectrogram(source.path, 1024, 1, "hann")
     service.engine.clear()
@@ -246,16 +250,15 @@ def test_browser_limits_are_published_from_the_python_constants() -> None:
     limits = json.loads(browser.browser_limits_json())
     assert first_violation(DEFINITIONS["BrowserLimits"], limits) is None
     assert limits == {
-        "maxInputBytes": 16 * 1024 * 1024,
-        "maxDurationSeconds": 30,
+        "maxInputBytes": 128 * 1024 * 1024,
         "maxChannels": 2,
         "minSampleRateHz": 1000,
         "maxSampleRateHz": 96000,
         "maxSources": 8,
-        "maxTotalInputBytes": 64 * 1024 * 1024,
+        "maxTotalInputBytes": 256 * 1024 * 1024,
         "maxExportBytes": 32 * 1024 * 1024,
     }
-    with pytest.raises(ValueError, match="up to 16 MiB"):
+    with pytest.raises(ValueError, match="up to 128 MiB"):
         browser.create_service().engine.load("selected.wav", b"")
 
 
