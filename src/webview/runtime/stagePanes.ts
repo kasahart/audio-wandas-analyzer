@@ -200,8 +200,14 @@ const hz = (value: number): string => (value >= 1000 ? `${(value / 1000).toFixed
 /** A signed difference: dB to a tenth with its unit, other values to three significant digits. */
 const signed = (value: number, db = true): string => `${value >= 0 ? '+' : '−'}${db ? `${Math.abs(value).toFixed(1)} dB` : Math.abs(value).toPrecision(3)}`;
 const quefrency = (seconds: number): string => `${(seconds * 1000).toFixed(seconds < 0.01 ? 2 : 1)} ms`;
-/** A signed lag: the output channel later than the input when positive. */
-const lag = (seconds: number): string => `${seconds >= 0 ? '+' : '−'}${(Math.abs(seconds) * 1000).toFixed(Math.abs(seconds) < 0.01 ? 2 : 1)} ms`;
+/**
+ * A signed lag: the output channel later than the input when positive. To 10 µs at any lag (a sample at 96 kHz,
+ * since a delay is read sample by sample), and no sign on none.
+ */
+const lag = (seconds: number): string => {
+    const ms = (Math.abs(seconds) * 1000).toFixed(2);
+    return `${Number(ms) === 0 ? '' : seconds > 0 ? '+' : '−'}${ms} ms`;
+};
 
 /** Where along its axis a point of the picture is, for the readout and the headline. */
 function atText(view: StageView, index: number, row?: number): string {

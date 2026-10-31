@@ -58,6 +58,9 @@ const SETTABLE: Record<string, readonly StepParam[]> = {
         { name: 'hop_length', kind: 'int', min: 1, max: 65536 },
     ],
     'wandas.audio.fade': [{ name: 'fade_ms', kind: 'float', unit: 'ms', min: 0, max: 10000 }],
+    // Every channel pair over every lag is large (8 channels of 30 s: GBs): a new step keeps ±0.1 s, the delays
+    // a room or a machine gives.
+    'wandas.audio.cross_correlation': [{ name: 'max_lag', kind: 'float', unit: 's', min: 0, max: 3600, initial: 0.1 }],
     // The pair a cross-channel step is drawn and measured for: the compared channel over the reference (wandas'
     // source indices from 0; the step bar shows them from 1, as ch1, ch2).
     'wandas.frame.select_pair': [
