@@ -350,6 +350,28 @@ test('analysis does not start when the dependencies are not ready', async () => 
     }
 });
 
+test('an analysis waiting on a prompt that switches interpreters runs on the new one', async () => {
+    let harness: ReturnType<typeof loadActivation> | undefined;
+    harness = loadActivation({
+        capturePanelAnalysis: true,
+        // The first check's prompt creates and selects a .venv, then answers false for the old interpreter.
+        checkDependencies: async (pythonCommand) => {
+            if (pythonCommand !== 'python3') { return true; }
+            harness!.state.pythonCommand = '.venv';
+            return false;
+        },
+    });
+    try {
+        harness.activate();
+        const results = await harness.state.panelAnalysis!.analyzeFiles(['/audio/a.wav']);
+        assert.deepEqual(harness.state.dependencyChecks, ['python3', '.venv']);
+        assert.deepEqual(harness.state.analyzedFiles, [['/audio/a.wav']]);
+        assert.deepEqual(results, []);
+    } finally {
+        harness.restore();
+    }
+});
+
 test('a not-ready error track carries the file\'s current revision, so the panel takes it as live', async () => {
     const harness = loadActivation({ checkDependencies: async () => false, capturePanelAnalysis: true, analysisRevision: 3 });
     try {
