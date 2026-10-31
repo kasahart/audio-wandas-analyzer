@@ -64,7 +64,8 @@ const linesOf = new WeakMap<object, Array<DatasetRow | DerivedItem>>();
 export function tableLines(view: Pick<DatasetScreenView, 'rows' | 'derived' | 'mode'>): Array<DatasetRow | DerivedItem> {
     let lines = linesOf.get(view);
     if (!lines) {
-        lines = !view.derived || view.mode !== 'all' ? [...view.rows] : view.rows.flatMap(row => [row, ...view.derived!(row)]);
+        const derived = view.derived;
+        lines = !derived || view.mode !== 'all' ? [...view.rows] : view.rows.flatMap(row => [row, ...derived(row)]);
         linesOf.set(view, lines);
     }
     return lines;

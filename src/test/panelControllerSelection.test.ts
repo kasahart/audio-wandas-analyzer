@@ -90,7 +90,7 @@ test('directory selection uses live result updates with resource URIs, cache reu
                 durationSeconds: 1, channelCount: 0, sampleCount: 16000, channels: [], analysisRevision: 0,
             } satisfies AnalysisResultWithError));
         },
-    }, {} as ExportFlows, factory, host);
+    }, {} as ExportFlows, { analysisRevision: () => 0, onDidChange: () => ({ dispose() {} }), configureTrack: async () => undefined }, factory, host);
     const tick = () => new Promise<void>(resolve => setImmediate(resolve));
     let sequence = 0;
     const select = async (filePaths: string[]) => {

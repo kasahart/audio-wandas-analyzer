@@ -10,6 +10,7 @@ import type {
 } from '../analysis/analysisTypes';
 import {
     isAnalyzeSelectedFilesMessage,
+    isConfigureCalibrationMessage,
     isExportReportOptionsMessage,
     isExportWavLoopMessage,
     isReleaseTrackDetailMessage,
@@ -20,6 +21,7 @@ import {
     isSelectPythonEnvironmentMessage,
     isSelectTargetMessage,
     type AnalyzeSelectedFilesMessage,
+    type ConfigureCalibrationMessage,
     type ExportReportOptionsMessage,
     type ExportWavLoopMessage,
     type PairSpectrumRequest,
@@ -71,7 +73,8 @@ export type PanelMessage =
     | EntryProbeCancelMessage
     | EntrySaveSessionMessage
     | CompareScanMessage
-    | SaveReportFolderMessage;
+    | SaveReportFolderMessage
+    | ConfigureCalibrationMessage;
 
 function hasType(value: unknown, type: string): boolean {
     return !!value && typeof value === 'object' && (value as { type?: unknown }).type === type;
@@ -188,6 +191,7 @@ export function parsePanelMessage(value: unknown): PanelMessage | undefined {
         case 'entry-save-session': return isEntrySaveSessionMessage(value) ? value : undefined;
         case 'compare-scan': return isCompareScanMessage(value) ? value : undefined;
         case 'save-report-folder': return isSaveReportFolderMessage(value) ? value : undefined;
+        case 'configure-calibration': return isConfigureCalibrationMessage(value) ? value : undefined;
         case 'show-info': {
             const message = (value as { message?: unknown }).message;
             return typeof message === 'string' ? { type: 'show-info', message } : undefined;

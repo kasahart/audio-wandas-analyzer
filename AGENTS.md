@@ -138,7 +138,7 @@ trackDurRatio  = durationSeconds / globalSpanSec
 ### TypeScript
 
 - `tsconfig` strict mode. No `any` unless interfacing with untyped third-party code.
-- ESLint (`eslint.config.mjs`) must pass; files on its `no-non-null-assertion` burn-down list only ever leave it.
+- ESLint (`eslint.config.mjs`) must pass; `no-non-null-assertion` holds in every source file (tests may keep `!`).
 - Comments only when *why* is non-obvious; never restate *what*.
 - Edit existing files in preference to creating new ones.
 - Tests live in `src/test/` and `src/e2e/` and use `node:test` (no Jest, no Mocha).

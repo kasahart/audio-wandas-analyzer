@@ -71,7 +71,7 @@ export function matchCsv(csv: DatasetCsv, filePaths: readonly string[], rootPath
         ...audit.missing.map(item => ({ row: item.row, reason: 'missing' as const, detail: item.expected })),
         ...audit.ambiguous.map(item => ({ row: item.row, reason: 'ambiguous' as const, detail: '', candidates: item.candidates })),
         ...audit.repeated.flatMap(item => item.rows.slice(1).map(row => ({ row, reason: 'repeated' as const, detail: `${item.key} · ${item.rows[0]}` }))),
-        ...audit.unused.map(key => ({ filePath: files.get(key)!, reason: 'no-row' as const, detail: key })),
+        ...audit.unused.flatMap(key => { const filePath = files.get(key); return filePath === undefined ? [] : [{ filePath, reason: 'no-row' as const, detail: key }]; }),
     ];
     return { attributes, unmatched };
 }
@@ -96,7 +96,7 @@ export const fileOfKey = (key: string): string => key.replace(/#ch\d+$/, '');
 export function datasetRows(filePaths: readonly string[], rootPath: string, attributes: ReadonlyMap<string, DataRow>, results: Results, headers: ReadonlyMap<string, number> = new Map()): DatasetRow[] {
     return filePaths.flatMap(filePath => {
         const result = results.get(filePath);
-        const channels = result?.ok ? result.input!.channels.length : headers.get(filePath);
+        const channels = result?.ok && result.input ? result.input.channels.length : headers.get(filePath);
         const relative = recordingKey(filePath, rootPath);
         const folders = relative.split('/').slice(0, -1);
         const name = relative.slice(relative.lastIndexOf('/') + 1);
@@ -181,7 +181,11 @@ function nameRanks(rows: readonly DatasetRow[]): ReadonlyMap<string, number> {
     const names = [...new Set(rows.map(row => row.name))].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).sort(natural);
     nameOrder = new Map();
     // Names the collator holds equal share a place, so ties still fall to the channel.
-    names.forEach((name, index) => nameOrder.set(name, index > 0 && natural(names[index - 1], name) === 0 ? nameOrder.get(names[index - 1])! : index));
+    let place = 0;
+    names.forEach((name, index) => {
+        if (index === 0 || natural(names[index - 1], name) !== 0) place = index;
+        nameOrder.set(name, place);
+    });
     return nameOrder;
 }
 
@@ -190,9 +194,14 @@ export function visibleRows(view: DatasetView, results: Results): DatasetRow[] {
     const rows = filteredRows(view, results);
     const by = view.sort.column;
     const rank = nameRanks(rows);
-    const keyOf = (row: DatasetRow): string | number | null => (by === 'name' ? rank.get(row.name)! : by === 'ch' ? row.ch : by === 'group' ? groupOf(row, view.group) : valueOf(row, view.value, results));
+    const keyOf = (row: DatasetRow, place: number): string | number | null => (by === 'name' ? place : by === 'ch' ? row.ch : by === 'group' ? groupOf(row, view.group) : valueOf(row, view.value, results));
     const sign = view.sort.descending ? -1 : 1;
-    const keyed = rows.map(row => ({ row, key: keyOf(row), place: rank.get(row.name)! }));
+    const keyed = rows.map(row => {
+        const place = rank.get(row.name);
+        // nameRanks has just ranked every one of these rows' names.
+        if (place === undefined) throw new Error(`nameRanks left out ${row.name}`);
+        return { row, key: keyOf(row, place), place };
+    });
     keyed.sort((a, b) => {
         // A missing value sorts last whichever way.
         if (a.key === null || b.key === null) return a.key === b.key ? 0 : a.key === null ? 1 : -1;
@@ -240,7 +249,7 @@ export function annotatedCsv(csv: DatasetCsv | null, match: CsvMatch | null, fil
     for (const row of rows) keysOf.set(row.filePath, [...(keysOf.get(row.filePath) ?? []), row]);
     const memoOf = (filePath: string): string => {
         const own = (keysOf.get(filePath) ?? []).filter(row => memo.has(row.key));
-        if (own.length === 1 && (own[0].channels ?? 1) <= 1) return memo.get(own[0].key)!;
+        if (own.length === 1 && (own[0].channels ?? 1) <= 1) return memo.get(own[0].key) ?? '';
         return own.map(row => `ch${row.ch}: ${memo.get(row.key)}`).join('; ');
     };
     const excludedOf = (filePath: string): string => {

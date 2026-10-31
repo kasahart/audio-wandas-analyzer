@@ -48,21 +48,24 @@ export interface SeparatorKeys {
 
 export function attachSeparatorKeys(document: Document, control: SeparatorControl): SeparatorKeys {
     const handles = (): HTMLElement[] => Array.from(document.querySelectorAll<HTMLElement>('[role="separator"]'));
-    keyRouterFor(document.defaultView!).add({
-        layer: 'widget',
-        keydown(event) {
-            const handle = (event.target as Element | null)?.closest?.<HTMLElement>('[role="separator"]');
-            if (!handle || event.ctrlKey || event.metaKey || event.altKey) return false;
-            const range = control.range(handle);
-            if (!range) return false;
-            const next = separatorKeyValue(event.key, event.shiftKey, control.growKey(handle), range);
-            if (next === null) return false;
-            event.preventDefault();
-            control.set(handle, next);
-            syncHandle(handle, control);
-            return true;
-        },
-    });
+    const keyWindow = document.defaultView;
+    if (keyWindow) {
+        keyRouterFor(keyWindow).add({
+            layer: 'widget',
+            keydown(event) {
+                const handle = (event.target as Element | null)?.closest?.<HTMLElement>('[role="separator"]');
+                if (!handle || event.ctrlKey || event.metaKey || event.altKey) return false;
+                const range = control.range(handle);
+                if (!range) return false;
+                const next = separatorKeyValue(event.key, event.shiftKey, control.growKey(handle), range);
+                if (next === null) return false;
+                event.preventDefault();
+                control.set(handle, next);
+                syncHandle(handle, control);
+                return true;
+            },
+        });
+    }
     document.addEventListener('focusin', event => {
         const handle = (event.target as Element | null)?.closest?.<HTMLElement>('[role="separator"]');
         if (handle) syncHandle(handle, control);

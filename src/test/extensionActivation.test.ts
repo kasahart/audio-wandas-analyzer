@@ -136,8 +136,9 @@ function loadActivation(options: {
         }
         if (request === '../webview/panels/ComparisonPanel') { return { ComparisonPanel: {} }; }
         if (options.analysisRevision !== undefined && request === './calibrationStore') {
-            const real = originalLoad.call(this, request, parent, isMain) as Record<string, unknown>;
-            return { ...real, getAnalysisRevision: () => options.analysisRevision };
+            const real = originalLoad.call(this, request, parent, isMain) as typeof import('../extension/calibrationStore');
+            const revision = options.analysisRevision;
+            return { ...real, CalibrationStore: class extends real.CalibrationStore { analysisRevision(): number { return revision; } } };
         }
         if (options.capturePanelAnalysis && request === './panelController') {
             return {

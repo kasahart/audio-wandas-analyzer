@@ -226,10 +226,10 @@ test('the PNG export keeps waiting for zoom detail asked again by a redraw', asy
     // Everything else the export waits for is answered.
     await answerRounds(page, 12);
     expect(await downloads()).not.toContain('waveform-export.png');
-    // Answering the latest one lets the image be saved.
+    // Answering the latest one with the detail it asked for lets the image be saved.
     await page.evaluate((request) => {
         const span = Number(request.endNorm) - Number(request.startNorm);
-        const points = 64;
+        const points = Number(request.points);
         const at = Array.from({ length: points }, (_, index) => Number(request.startNorm) + ((index + 0.5) / points) * span);
         const waveform = { min: at.map(() => -0.5), max: at.map(() => 0.5), minT: at, maxT: at, samples: at.map(() => 0), absolutePeak: 0.5 };
         window.postMessage({ type: 'waveform-range-result', requestId: request.requestId, trackIndex: request.trackIndex, startNorm: request.startNorm, endNorm: request.endNorm, channels: [waveform, waveform] }, '*');
@@ -238,6 +238,19 @@ test('the PNG export keeps waiting for zoom detail asked again by a redraw', asy
         await answerWithErrors(page);
         return downloads();
     }, { intervals: [50], timeout: 20000 }).toContain('waveform-export.png');
+});
+
+test('a cursor spectrum the host failed is not asked again on every frame', async ({ page }) => {
+    await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
+    await page.mouse.click(20, 20);
+    const sliceRequestCount = () => page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Array<Record<string, unknown>> }).__uiSmokePostedMessages
+        .filter((message) => message.type === 'request-spectrum-slice').length);
+    await expect.poll(sliceRequestCount).toBeGreaterThan(0);
+    await answerRounds(page, 4);
+    const asked = await sliceRequestCount();
+    // Nothing moved: the failed spectrum stays failed until the cursor, the settings or the tracks change.
+    await answerRounds(page, 12);
+    expect(await sliceRequestCount()).toBe(asked);
 });
 
 test('a cursor moved while the CSV waits: the file holds every shown track at the new cursor', async ({ page }) => {

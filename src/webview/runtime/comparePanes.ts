@@ -54,13 +54,16 @@ const round1 = (value: number): number => Math.round(value * 10) / 10;
 /** A band's Δ must exceed this (dB), or 3 MAD of the condition's files where there are enough, to head the list. */
 export const MIN_HEADLINE_DB = 1.5;
 
+/** The median of levels there are some of (NaN for none, which callers never pass). */
+const medianOfSome = (values: readonly number[]): number => median(values) ?? Number.NaN;
+
 /** Per band, 3 MAD of these files' levels (scaled to σ), at least MIN_HEADLINE_DB. */
 function spreadOf(memberBands: ReadonlyArray<readonly (number | null)[]>): number[] {
     return BAND_CENTERS_HZ.map((_, band) => {
         const levels = memberBands.map(bands => bands[band]).filter((level): level is number => level !== null);
         if (levels.length < 2) return MIN_HEADLINE_DB;
-        const center = median(levels)!;
-        return Math.max(3 * median(levels.map(level => Math.abs(level - center)))! * 1.4826, MIN_HEADLINE_DB);
+        const center = medianOfSome(levels);
+        return Math.max(3 * medianOfSome(levels.map(level => Math.abs(level - center))) * 1.4826, MIN_HEADLINE_DB);
     });
 }
 
@@ -83,12 +86,13 @@ function topEdge(frequencies: readonly number[]): number {
 
 /** One spectrum, Leq and band row per file: channels are power-averaged, as in the entry table. */
 function fileSide(result: ScanOk): Omit<CompareSide, 'title' | 'filePaths'> {
-    const channels = result.spectrumDb!;
+    // A scan that succeeded carries its metrics; one without them has no levels to give.
+    const channels = result.spectrumDb ?? [];
     return {
-        spectrumDb: channels[0].map((_, point) => powerMeanDb(channels.map(row => row[point]))),
-        leq: powerMeanDb(result.leqDbA!),
+        spectrumDb: (channels[0] ?? []).map((_, point) => powerMeanDb(channels.map(row => row[point]))),
+        leq: powerMeanDb(result.leqDbA ?? []),
         bands: BAND_CENTERS_HZ.map((_, band) => {
-            return powerMeanOrNull(result.thirdOctDb!.map(row => row[band]));
+            return powerMeanOrNull((result.thirdOctDb ?? []).map(row => row[band]));
         }),
     };
 }
@@ -112,11 +116,11 @@ function medianSide(sides: Array<Omit<CompareSide, 'title' | 'filePaths'>>): Omi
     } : undefined;
     return {
         ...(spread ? { spread } : {}),
-        spectrumDb: sides[0].spectrumDb.map((_, point) => median(sides.map(side => side.spectrumDb[point]))!),
-        leq: median(sides.map(side => side.leq))!,
+        spectrumDb: sides[0].spectrumDb.map((_, point) => medianOfSome(sides.map(side => side.spectrumDb[point]))),
+        leq: medianOfSome(sides.map(side => side.leq)),
         bands: BAND_CENTERS_HZ.map((_, band) => {
             const levels = sides.map(side => side.bands[band]);
-            return levels.some(level => level === null) ? null : median(levels as number[])!;
+            return levels.some(level => level === null) ? null : medianOfSome(levels as number[]);
         }),
     };
 }
@@ -144,15 +148,15 @@ export function buildCompareModel(
         return result?.ok ? result as ScanOk : undefined;
     };
     const compared = ok(comparePath);
-    const compare: CompareSide | null = compared ? { title: baseName(comparePath!), filePaths: [comparePath!], ...fileSide(compared) } : null;
+    const compare: CompareSide | null = compared && comparePath ? { title: baseName(comparePath), filePaths: [comparePath], ...fileSide(compared) } : null;
     let base: CompareSide | null = null;
     /** The compared file is the only one of its condition: there is nothing to measure it against. */
     let loneGroup = false;
     /** Per band, how far a file of the base's condition typically sits from it by chance (3 MAD, at least 1.5 dB). */
     let bandSpread: number[] | null = null;
     const single = ok(basePath);
-    if (single) {
-        base = { title: `${strings.entryBase} · ${baseName(basePath!)}`, filePaths: [basePath!], ...fileSide(single) };
+    if (single && basePath) {
+        base = { title: `${strings.entryBase} · ${baseName(basePath)}`, filePaths: [basePath], ...fileSide(single) };
         // A single base file still belongs to a condition: its other files (not the base, not the compare)
         // tell how far files of that condition differ by chance. Too few of them: the 1.5 dB floor alone.
         const baseRow = model.rows.find(item => item.filePath === basePath);
@@ -181,7 +185,7 @@ export function buildCompareModel(
         } else if (row?.group) loneGroup = true;
     }
     // A member without any result yet is still being scanned; a failed one is simply left out.
-    const basePaths = single ? [basePath!] : base?.filePaths ?? [];
+    const basePaths = single && basePath ? [basePath] : base?.filePaths ?? [];
     const pending = !!comparePath && [comparePath, ...basePaths].some(path => !results.has(path));
     const fs = (compared ?? single)?.input?.fs ?? 0;
     const points = (compare ?? base)?.spectrumDb.length ?? 0;
@@ -191,12 +195,13 @@ export function buildCompareModel(
         : !base || !compare ? undefined
             : single && basePath === comparePath ? 'self'
                 : !single && entryRegionBase ? 'region' : undefined;
-    const comparable = !blocked && !!base && !!compare && base.spectrumDb.length === compare.spectrumDb.length;
-    const diffDb = comparable ? compare.spectrumDb.map((level, index) => level - base!.spectrumDb[index]) : null;
-    const leq = comparable ? { base: round1(base!.leq), compare: round1(compare.leq), delta: round1(round1(compare.leq) - round1(base!.leq)) } : null;
+    const baseSide: CompareSide | null = base;
+    const comparable = !blocked && !!baseSide && !!compare && baseSide.spectrumDb.length === compare.spectrumDb.length;
+    const diffDb = comparable ? compare.spectrumDb.map((level, index) => level - baseSide.spectrumDb[index]) : null;
+    const leq = comparable ? { base: round1(baseSide.leq), compare: round1(compare.leq), delta: round1(round1(compare.leq) - round1(baseSide.leq)) } : null;
     const bandDeltas = comparable
         ? compare.bands.map((level, band) => {
-            const reference = base!.bands[band];
+            const reference = baseSide.bands[band];
             return level === null || reference === null ? null : roundedDelta(level, reference);
         })
         : [];

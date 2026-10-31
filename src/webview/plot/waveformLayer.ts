@@ -32,10 +32,11 @@ export function paintWaveformLayer(
     const span = axis.high - axis.low || 1;
     const norm = (times: ReadonlyArray<number | null>): number[] => times.map(time => ((time ?? axis.low) - axis.low) / span);
     const value = (values: ReadonlyArray<number | null>): number[] => values.map(item => item ?? 0);
-    const env: WaveformEnv = { min: value(waveform.min), max: value(waveform.max), minT: norm(waveform.minT), maxT: norm(waveform.maxT), absolutePeak: waveform.absolutePeak };
+    const minT = norm(waveform.minT), maxT = norm(waveform.maxT);
+    const env: WaveformEnv = { min: value(waveform.min), max: value(waveform.max), minT, maxT, absolutePeak: waveform.absolutePeak };
     // The part of the axis the envelope covers (a zoomed request covers only the view and its margin), as the
     // lanes pass a range request's bounds.
-    const dataStart = Math.min(env.minT![0] ?? 0, env.maxT![0] ?? 0), dataEnd = Math.max(env.minT!.at(-1) ?? 1, env.maxT!.at(-1) ?? 1);
+    const dataStart = Math.min(minT[0] ?? 0, maxT[0] ?? 0), dataEnd = Math.max(minT.at(-1) ?? 1, maxT.at(-1) ?? 1);
     const range = computeViewRange(env, dataStart, dataEnd, 0, window.start, window.end, plot.width);
     if (range.i1 < range.i0) return;
     const points = decimateBuckets(env, range, dataStart, dataEnd);

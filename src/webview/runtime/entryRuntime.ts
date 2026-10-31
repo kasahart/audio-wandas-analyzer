@@ -9,32 +9,24 @@
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import type { UiStrings } from '../../shared/i18n/strings';
 import type { ComparePublication, CompareScanMessage, EntryConditionTable, EntryProbeCancelMessage, EntryProbeMessage, EntryProbePublication, EntryPublication, EntryScanCancelMessage, EntryScanMessage, EntrySaveSessionMessage } from '../../shared/analysis/entryScan';
-import type { ScanResult, StageView } from '../../shared/protocol/backendProtocol';
+import type { ScanResult } from '../../shared/protocol/backendProtocol';
 import { BAND_CENTERS_HZ, bandLabel, buildEntryModel, derivedKey, entryCsv, type BaseDefinition, type DerivedRow, type EntryModel } from './entryTable';
-import { channelResult } from '../../shared/recipe/channelSelection';
 import { batchBundle, batchCount } from '../../shared/batch/batchBundle';
-import { baseOf, buildCompareModel, sideView, type CompareModel } from './comparePanes';
-import { OVERVIEW_MARGINS, paintOverview } from './entryPlots';
-import { compareGroupNames, groupLabels, median } from '../../shared/dataset/distribution';
+import { baseOf, type CompareModel } from './comparePanes';
+import { compareGroupNames, groupLabels } from '../../shared/dataset/distribution';
 import { createDistributionPane } from './entryDistributionPane';
-import { attachPlotInteraction, FULL_PLOT_WINDOW, plotPointIn, type PlotMargins, type PlotWindow } from './plotInteraction';
-import { axisFractionOf, axisValueAt, paintOverlay, stageAxes, stageDiffRange, stageDifference, stageRange, STAGE_MARGINS, type StageAxes } from './stagePanes';
-import { DIFF_COLOR, ROLE_COLORS } from '../../shared/gui/roleColors';
-import { createStageSource, type StageSpec } from './stageSource';
+import { createFilterPopover } from './entryFilterPopover';
+import { createHeldPlot } from './entryHeldPlot';
+import { createSidePlots } from './entrySidePlots';
+import { channelOfRow, createEntryBase } from './entryBase';
 import { HostRequests } from './hostRequests';
-import { createDetailPlanner } from './stageDetail';
-import type { PaneRange } from './comparePanes';
-import { installRangePopover, linearAxis, openAxisPart, type AxisMapping } from '../rangePopover';
-import { rangePopoverStrings } from '../../shared/i18n/strings';
-import { positionPopover } from './settingsPopover';
 import { LARGE_BASE, LARGE_BASE_S } from './trackStageMode';
-import { createStepBar, endsInSpectrum, recipeWithout, runnableRecipe, stepChipLabel, stepLimits, unpairedRecipe, OCTAVE_BRANCH } from './stepBar';
+import { createStepBar, endsInSpectrum, runnableRecipe, stepLimits, unpairedRecipe } from './stepBar';
 import { leqLabel } from './compareReport';
-import { activeSlotReferenced, brokenStep, chainEnd, isRecipeChain, recipeKey, recipeNodes, recipeSteps, slotReferenced, timeSignalStep, TIME_SLICE, type RecipeStep } from '../../shared/recipe/recipeSteps';
+import { activeSlotReferenced, brokenStep, chainEnd, isRecipeChain, recipeKey, recipeNodes } from '../../shared/recipe/recipeSteps';
 import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { baseName, isMetadataCandidate, withFolderColumns } from '../../shared/analysis/entryMetadata';
 import { powerMeanDb, powerMeanOrNull } from '../../shared/utils/levels';
-import { finiteNumber } from '../../shared/dataset/asdData';
 import { CSVColumnCountError, csvColumnCountMessage } from '../../shared/dataset/csvDiagnostics';
 import { keyRouterFor } from './keyRouter';
 import { createHeaderProbe, createScanProgress } from './entryScanQueue';
@@ -44,19 +36,15 @@ import { channelRowKey, comparedKeys, emptySlots, firstFreeCompareSlot, restored
 import { setHint } from './hintFooter';
 import { ENTRY_KEYS, keyAction } from './shortcuts';
 import {
-    annotatedCsv, baseGroupMembers, columnValues, datasetRows, filteredRows, fileOfKey, groupOf as datasetGroupOf, isComputed, matchCsv, readDatasetCsv, valueOf, visibleRows,
+    annotatedCsv, datasetRows, filteredRows, fileOfKey, groupOf as datasetGroupOf, isComputed, matchCsv, readDatasetCsv, valueOf, visibleRows,
     type ColumnId, type CsvMatch, type DatasetCsv, type DatasetFilter, type DatasetRow, type GroupId, type ValueId,
 } from '../../shared/dataset/datasetTable';
 import {
-    closesEntryDialog, filterChipText, rowWindow, tableLines, type DerivedItem, datasetColsHtml, datasetHeadHtml, datasetRowsHtml, entryScreenHtml, entrySlotsHtml, filterChipsHtml, filterPopHtml, checkListHtml, formatValue,
+    closesEntryDialog, filterChipText, rowWindow, tableLines, type DerivedItem, datasetColsHtml, datasetHeadHtml, datasetRowsHtml, entryScreenHtml, entrySlotsHtml, filterChipsHtml, formatValue,
     baseMenuHtml, batchPopHtml, groupOptionsHtml, memoPopHtml, slotMenuHtml, unmatchedRowsHtml, valueOptionsHtml,
-    type DatasetColumn, type DatasetScreenView, type EntryStrings,
+    type DatasetScreenView, type EntryStrings,
 } from './entryTableHtml';
 
-/** A tap on a slot key shorter than this puts the row in; longer is a hold that shows the slot's Δ on the side. */
-const TAP_MS = 250;
-/** Releasing a held slot keeps its picture on screen this long, so a quick look does not flicker. */
-const DELTA_RELEASE_MS = 150;
 /** Scan results are redrawn at most this often (entryRedraw.ts' createThrottle). */
 const REDRAW_MS = 250;
 /** The table's rows are this tall (CSS: .entry-table tr), so only the rows on screen are drawn. */
@@ -252,19 +240,12 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     const heldCanvas = query<HTMLCanvasElement>('[data-entry-held-canvas]');
     const overview = query<HTMLCanvasElement>('[data-entry-overview]');
     const side = query<HTMLElement>('.entry-side');
-    /**
-     * The side panel's zoom, as the lanes keep theirs: per plot (held, overview strip), the part of each
-     * axis on screen. A plot on other axes (another column, another held picture) starts whole again.
-     */
-    const plotWindows = new Map<string, PlotWindow>();
-    const windowKeys = new Map<string, string>();
-    const plotWindow = (name: string): PlotWindow => plotWindows.get(name) ?? FULL_PLOT_WINDOW;
-    function keepWindow(name: string, key: string): PlotWindow {
-        if (windowKeys.get(name) !== key) { windowKeys.set(name, key); plotWindows.delete(name); }
-        return plotWindow(name);
-    }
-    /** A level range narrowed to a window's vertical part. */
-    const narrowed = (range: PaneRange, window: PlotWindow): PaneRange => ({ min: range.min + window.y.start * (range.max - range.min), max: range.min + window.y.end * (range.max - range.min) });
+    /** The overview strip and the held plot beside the distribution, each zoomed as the lanes are. */
+    const sidePlots = createSidePlots({
+        document, window, strings, screen, side, body, tableWrap, overview, heldCanvas,
+        rows: () => shownRows, focusedFile: () => focusedFile(), paintDistribution: () => paintDistribution(),
+        paintHeld: () => heldPlot.paint(), heldPicture: () => heldPlot.picture(), pickRow: key => redraw.batch(() => focusRow(key, true)),
+    });
     const distPane = createDistributionPane({
         screen, strings,
         // A range of the value: a chip, which narrows the table.
@@ -274,15 +255,15 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             deps.announce(strings.dsDistPicked.replace('{n}', shownRows.length.toLocaleString()));
         },
         dot(key) { if (shownRows.some(row => row.key === key)) focusRow(key, true); else focusFile(fileOfKey(key)); },
-        cancelled: () => scheduleSide(),
+        cancelled: () => sidePlots.schedule(),
     });
     const stepBar = createStepBar({
         document, strings, mode: 'entry', onChange: recipe => setRecipe(recipe),
         // A step pressed opens the comparison on that step's Frame.
         onStepSelect: step => openSlotted(step.id),
         // On the entry table a hold shows one row: without a step of its time signal, or its spectrum or bands.
-        canHold: step => canHoldStep(step),
-        onStepHold: step => holdStep(step),
+        canHold: step => heldPlot.canHold(step),
+        onStepHold: step => heldPlot.holdStep(step),
     });
     // The chain is edited where the analysis is decided: the track view's steps (trackStageMode.ts). The table
     // only keeps its state, so its values are measured with the same chain.
@@ -299,18 +280,9 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
 
     let filePaths: string[] = [];
     const results = new Map<string, ScanResult>();
-    /** Each scanned recording's bands (its channels' power mean) and the calibrated ones, kept as results arrive so scrolling does not redo them. */
-    const overviewLevels = new Map<string, (number | null)[]>();
-    const calibratedFiles = new Set<string>();
-    let overviewVersion = 0;
     function noteResult(filePath: string, result: ScanResult): void {
         results.set(filePath, result);
-        overviewVersion++;
-        const bands = result.thirdOctDb;
-        if (result.ok && bands?.length) overviewLevels.set(filePath, bands[0].map((_, bandIndex) => powerMeanOrNull(bands.map(channel => channel[bandIndex]))));
-        else overviewLevels.delete(filePath);
-        if (result.ok && result.input?.unit !== undefined && result.input.unit !== 'FS') calibratedFiles.add(filePath);
-        else calibratedFiles.delete(filePath);
+        sidePlots.noteResult(filePath, result);
     }
     /** The Recipe each result was measured with (recipeKey of the run): a result of another chain is greyed. */
     const resultKeys = new Map<string, string>();
@@ -348,15 +320,14 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     let rows: DatasetRow[] = [];
     let shownRows: DatasetRow[] = [];
     const popovers: {
-        /** The column filter open (its column, whether it hangs from that column's header, its draft), the slot menu and the memo. */
-        filter: { column: ColumnId; anchored: boolean; search: string; checked: Set<string> | null } | null;
+        /** The slot menu and the memo open (the column filter is filterPop's). */
         slotMenu: string | null;
         memoKey: string | null;
         /** The empty base's choice of group. */
         baseMenu: boolean;
         /** 「レシピをまとめて書き出す」 open: for the filtered rows or all. */
         batch: 'filtered' | 'all' | null;
-    } = { filter: null, slotMenu: null, memoKey: null, baseMenu: false, batch: null };
+    } = { slotMenu: null, memoKey: null, baseMenu: false, batch: null };
 
     let requestCount = 0;
     /** Row keys in slots 0–3: the base (or null for the group median) and the rows to compare. */
@@ -367,20 +338,6 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     /** The folder's session, kept by the host: saved a moment after each change once the stored one is back. */
     const session = createSessionSaver(window, SESSION_SAVE_MS, () => sessionOf(),
         (stored, csvToSave) => deps.post({ type: 'entry-save-session', rootPath, session: stored, ...(csvToSave !== undefined ? { csv: csvToSave } : {}) }));
-    /** The side plots are painted on the next frame (`pending`); `dist`: the distribution too, not only the strip's window. */
-    const sidePaint = { pending: false, dist: true };
-    const hold: {
-        /** The slot key or chip being pressed: a tap acts on release, a hold shows the slot's Δ until then. */
-        pressing?: { slot: number; at: number; timer: number };
-        /** The slot whose Δ is shown, and the timer that takes it away after a release. */
-        slot: number | null;
-        releaseTimer?: number;
-        /** A step chip held (its picture of one row), and the timer that takes it away after a release. */
-        step: { step: RecipeStep; path: string } | null;
-        stepRelease?: number;
-        /** What the held plot last drew, to place the pointer on it and to map an axis's values to its window. */
-        plot: { margins: PlotMargins; x: (fraction: number) => number; ofX: (value: number) => number; range: PaneRange; xLabel: string; yLabel: string } | null;
-    } = { slot: null, step: null, plot: null };
     /**
      * The comparison's model of the files (their conditions, Δ, groups): built when the comparison, the overview
      * strip or the CSV export reads it, not on every redraw of the table (it costs a pass over every file).
@@ -585,7 +542,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         if (keyHints.innerHTML !== wanted) keyHints.innerHTML = wanted;
         stepBar.set({ recipe: recipeState.edited ?? recipeState.standard, sampleRate: sampleRate(), shortestSamples: shortestSamples(), channels: channelCount(), failed: recipeState.failed, files: filePaths.length });
         screen.dataset.mode = chosen.mode;
-        scheduleSide();
+        sidePlots.schedule();
         session.schedule();
     }
     /** Markup last written to an element by writeHtml, which writes it again only when it changes. */
@@ -600,10 +557,10 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     function paintSlots(): void {
         // One file in two slots as different channels: it is one track, drawn as the first slot's channel (1–3, then 0).
         const notes = slots.map(key => {
-            const shown = key ? slotRowOf(fileOfKey(key)) : undefined;
+            const shown = key ? entryBase.slotRowOf(fileOfKey(key)) : undefined;
             return key && shown && shown.key !== key && (shown.channels ?? 1) > 1 ? strings.dsSlotTrackChannel.replace('{ch}', String(shown.ch)) : null;
         });
-        slotBar.innerHTML = entrySlotsHtml(slots, key => rowName(key), baseText(), text, hold.slot, notes);
+        slotBar.innerHTML = entrySlotsHtml(slots, key => rowName(key), entryBase.text(), text, heldPlot.slot(), notes);
         markOpenable();
         notes.forEach((note, slot) => slotBar.querySelector(`[data-action="entry-slot"][data-slot="${slot}"]`)?.setAttribute('data-track-note', note ?? ''));
     }
@@ -635,7 +592,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         return choice === 'filtered' ? visibleRows({ rows, group: chosen.group, value: chosen.value, filters: chosen.filters, sort: chosen.sort, excluded }, results) : rows.filter(row => !excluded.has(row.key));
     }
     function openBatch(): void {
-        popovers.filter = null; popovers.slotMenu = null; popovers.memoKey = null; popovers.baseMenu = false;
+        filterPop.close(); popovers.slotMenu = null; popovers.memoKey = null; popovers.baseMenu = false;
         popovers.batch = chosen.filters.length ? 'filtered' : 'all';
         renderPopovers();
     }
@@ -683,65 +640,16 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const recipe = kept.recipe;
         if (recipe && recipeKey(recipe) !== recipeKey(recipeState.edited ?? undefined)) { recipeState.edited = recipe; deps.saveRecipe?.(recipe); loadStored(); }
     }
-    /** The slotted row of a file the comparison shows (slots 1–3 first, then 0). */
-    function slotRowOf(filePath: string): DatasetRow | undefined {
-        return rowOf(roleKey(slots, filePath) ?? null);
-    }
-    /** A channel row of a recording of several channels is compared as that channel; otherwise the channels together. */
-    const channelOfRow = (row: DatasetRow | undefined): number | null => (row && (row.channels ?? 1) > 1 ? row.ch : null);
     const chipText = (filter: DatasetFilter): string => filterChipText(filter, columnLabel, formatColumn, text);
-    /**
-     * What `comparePath` is measured against: the slot-0 recording (its channel when it is a channel row), else
-     * the median of a group (the one chosen on the base chip, else the compared row's) over the table's filters
-     * (not the value's own range), of the compared row's channel: recordings without it are left out and said.
-     */
-    function resolveBase(comparePath: string, byGroup = false): { paths: string[]; title: string; definition: BaseDefinition; channel: number | null } {
-        const compareRow = slotRowOf(comparePath) ?? rows.find(row => row.filePath === comparePath);
-        const channel = channelOfRow(compareRow);
-        const narrowedBy = chosen.filters.filter(filter => filter.column !== chosen.value).map(chipText);
-        const within = narrowedBy.length ? strings.dsBaseNarrowed.replace('{filters}', narrowedBy.join('・')) : '';
-        if (slots[0] && !byGroup) {
-            const row = rowOf(slots[0]);
-            const ch = channelOfRow(row);
-            return {
-                paths: [fileOfKey(slots[0])], title: `${strings.entryBase} · ${rowName(slots[0])}`, channel: ch,
-                definition: { kind: 'file', file: rowName(slots[0]), count: 1, channel: ch, filters: narrowedBy, fewerChannels: 0 },
-            };
-        }
-        const name = chosen.group === 'none' ? '' : chosen.baseGroup ?? (compareRow ? datasetGroupOf(compareRow, chosen.group) : '');
-        // The other compared recordings (slots 1–3) are compared themselves: not part of anyone's base.
-        const compared = new Set(comparedKeys(slots).map(fileOfKey));
-        const { paths, fewerChannels } = baseGroupMembers(distributionPool().filter(row => row.filePath === comparePath || !compared.has(row.filePath)), comparePath, chosen.group, name, channel);
-        const where = chosen.group === 'none' ? strings.dsDistAll : `${groupLabel(chosen.group)} ${name || '—'}`;
-        const title = `${strings.entryBaseGroup} ${where} · ${strings.entryBaseMedian.replace('{count}', String(paths.length))}${channel ? ` · ${strings.dsCh}${channel}` : ''}`
-            + (fewerChannels ? strings.dsBaseFewer.replace('{n}', String(fewerChannels)).replace('{ch}', String(channel)) : '') + within;
-        return {
-            paths, title, channel,
-            definition: { kind: 'group', group: { column: chosen.group === 'none' ? '' : groupLabel(chosen.group), name }, count: paths.length, channel, filters: narrowedBy, fewerChannels },
-        };
-    }
-    /** The channel a file is drawn and measured with in the comparison of `comparePath`. */
-    function stageChannel(path: string, comparePath: string | null, byGroup = false): number | null {
-        if (comparePath && path !== comparePath) {
-            const base = resolveBase(comparePath, byGroup);
-            if (base.paths.includes(path)) return base.channel;
-        }
-        return channelOfRow(slotRowOf(path));
-    }
-    /** The comparison of `comparePath` with its base, each file as the channel it is compared as. */
-    function comparisonOf(comparePath: string, byGroup = false, over?: ReadonlyMap<string, ScanResult>, entryRegionBase = false): CompareModel {
-        const base = resolveBase(comparePath, byGroup);
-        const source = over ?? results;
-        const picked = new Map(source);
-        const pick = (path: string, ch: number | null): void => { if (ch) picked.set(path, channelResult(source.get(path), ch)!); };
-        pick(comparePath, channelOfRow(slotRowOf(comparePath)));
-        for (const path of base.paths) pick(path, base.channel);
-        const single = slots[0] && !byGroup ? fileOfKey(slots[0]) : null;
-        return buildCompareModel(entryModel(), picked, comparePath, single, strings, entryRegionBase, undefined, single ? undefined : { paths: base.paths, title: base.title });
-    }
+    /** What a compared row is measured against: the slot-0 recording, else a group's median. */
+    const entryBase = createEntryBase({
+        strings, slots: () => slots, rows: () => rows, rowOf, pool: () => distributionPool(), group: () => chosen.group, baseGroup: () => chosen.baseGroup,
+        narrowedBy: () => chosen.filters.filter(filter => filter.column !== chosen.value).map(chipText),
+        groupLabel, rowName: key => rowName(key), results, isStale, entryModel,
+    });
     /** A compared file as the comparison names it: its name and channel, the value on show, its memo. */
     function rowInfo(path: string): { label: string; value: string; memo: string } {
-        const row = slotRowOf(path) ?? rows.find(item => item.filePath === path);
+        const row = entryBase.slotRowOf(path) ?? rows.find(item => item.filePath === path);
         if (!row) return { label: baseName(path), value: '', memo: '' };
         const number = usable(row) ? valueOf(row, chosen.value, results) : null;
         return { label: rowName(row.key), value: number === null ? '' : `${valueLabel(chosen.value)} ${formatColumn(chosen.value, number)}`, memo: memo.get(row.key) ?? '' };
@@ -767,26 +675,6 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
                 title: label, parentPath: item.parentPath, region: item.region, baseLabel: item.base.label ?? '',
             };
         });
-    }
-    /** Slot 0 empty: the base is the median of a group (by the table's grouping): the one chosen, else slot 1's. */
-    function baseText(): string {
-        if (slots[0]) return rowName(slots[0]);
-        if (slots[1]) return resolveBase(fileOfKey(slots[1])).title;
-        const name = baseGroupName();
-        if (name === null) return strings.entryBaseGroup;
-        const members = baseMembers(name).filter(item => item.key !== slots[1]);
-        return `${groupLabel(chosen.group)} ${name || '—'} · ${strings.entryBaseMedian.replace('{count}', String(members.length))}`;
-    }
-    /** The group whose median is the base: the one chosen, else slot 1's (slot 0 empty, a grouping chosen). */
-    function baseGroupName(): string | null {
-        if (slots[0] || chosen.group === 'none') return null;
-        if (chosen.baseGroup !== null) return chosen.baseGroup;
-        const anchor = rowOf(slots[1]);
-        return anchor ? datasetGroupOf(anchor, chosen.group) : null;
-    }
-    /** A group's rows (the table's grouping, its filters and exclusions applied, not the range on the value). */
-    function baseMembers(name: string): DatasetRow[] {
-        return distributionPool().filter(item => datasetGroupOf(item, chosen.group) === name);
     }
     /** The rows the distribution draws from: not excluded, through every filter but the one on the value itself. */
     function distributionPool(): DatasetRow[] {
@@ -918,83 +806,13 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         });
         deps.saveDerived?.(derived);
     }
-    /**
-     * Holding a step chip on the entry table shows what the step does to one row (the focused one, else
-     * slot 1) in the distribution's frame: its average spectrum, its 1/3-octave levels, or, for a step of the time
-     * signal, the spectrum without it − with it. The pictures come as the steps view's do (stageSource, the
-     * Frame's full resolution once zoomed) and are drawn by its painter. Released, it goes 150 ms later.
-     */
-    const holdSource = createStageSource('entry-hold', message => deps.post(message), () => scheduleSide());
-    const holdDetail = createDetailPlanner(window.performance, window, () => scheduleSide());
-    function holdStep(step: RecipeStep | null): void {
-        if (!step) {
-            hold.stepRelease = window.setTimeout(() => { hold.stepRelease = undefined; hold.step = null; scheduleSide(); }, DELTA_RELEASE_MS);
-            return;
-        }
-        if (hold.stepRelease !== undefined) { window.clearTimeout(hold.stepRelease); hold.stepRelease = undefined; }
-        const path = focusedFile() ?? slotFiles()[1];
-        if (!path || !results.get(path)?.ok) { document.getElementById('hint-footer')?.replaceChildren(strings.stepHeldNoRow); return; }
-        hold.step = { step, path };
-        scheduleSide();
-    }
-    /** The step `id`'s picture under `recipe` (the whole file, as the table scans it). */
-    function holdSpec(recipe: RecipeDocument, id: string): StageSpec {
-        return { key: `hold|${recipeKey(recipe)}|${id}`, message: { recipe, stage: id } };
-    }
-    /** The specs a held step draws from: its own picture (the average spectrum), or the chain's end with and without it. */
-    function heldSpecs(step: RecipeStep): { with: StageSpec; without?: StageSpec } | null {
-        const recipe = runRecipe() ?? recipeState.edited ?? recipeState.standard;
-        if (!recipe) return null;
-        if (step.name === 'welch') return { with: holdSpec(recipe, step.id) };
-        const end = recipeSteps(recipe, limits()).filter(item => item.invalid === undefined).at(-1)?.id;
-        const without = end ? recipeWithout(recipe, step.id, end, limits(), slotReferenced(recipeState.edited ?? recipeState.standard)) : null;
-        return end && without ? { with: holdSpec(recipe, end), without: holdSpec(without, end) } : null;
-    }
-    /** The held plot's picture and what it was drawn on, for its readout and an axis's range. */
-    function paintHeldView(view: StageView | null, picture: StageView | null, range: PaneRange, axes: StageAxes, window: PlotWindow, options: { diff?: boolean; color: string; empty?: string }): void {
-        hold.plot = picture ? { margins: STAGE_MARGINS, x: f => axisValueAt(picture, f), ofX: number => axisFractionOf(picture, number), range, xLabel: axes.x, yLabel: axes.y } : null;
-        paintOverlay(heldCanvas, { layers: view ? [{ view, color: options.color, width: 2 }] : [] }, narrowed(range, window), axes,
-            { diff: options.diff, empty: options.empty ?? '', window: { x: window.x }, axisView: picture });
-    }
-    function paintStepHeld({ step, path }: { step: RecipeStep; path: string }): void {
-        held.hidden = false;
-        const row = buildCompareModel(entryModel(), results, path, null, strings);
-        const input = results.get(path)?.input;
-        const name = step.name === 'welch' ? strings.stepAverage : step.id === OCTAVE_BRANCH ? strings.stepOctave : strings.stepHeldWithout.replace('{step}', stepChipLabel(step, strings));
-        heldTitle.textContent = strings.stepHeldRow.replace('{what}', name).replace('{file}', baseName(path));
-        held.classList.remove('is-pending');
-        const window = keepWindow('held', step.id);
-        if (step.id === OCTAVE_BRANCH) {
-            // The app's bands, from the table's own scan.
-            const bands = sideView(row.compare, row.frequencies, true);
-            paintHeldView(bands, bands, stageRange([bands]), stageAxes(strings, bands, input), window, { color: ROLE_COLORS[1] });
-            return;
-        }
-        const specs = heldSpecs(step);
-        const waiting = !!specs && [specs.with, specs.without].some(spec => spec && holdSource.ensure(spec, [path]));
-        const coarse = specs ? holdSource.view(specs.with, path) ?? null : null;
-        const coarseWithout = specs?.without ? holdSource.view(specs.without, path) ?? null : null;
-        if (!specs || waiting || !coarse || (specs.without && !coarseWithout)) {
-            if (waiting) { held.classList.add('is-pending'); heldTitle.textContent += ` · ${strings.comparePending}`; }
-            paintHeldView(null, null, { min: 0, max: 1 }, stageAxes(strings, null, input), window, { color: ROLE_COLORS[1], empty: waiting ? '' : strings.stepNotDrawable.replace('{frame}', coarse?.frame ?? '') });
-            return;
-        }
-        // Zoomed, from the Frame's full resolution once it is in (the coarse picture until then).
-        const fine = (spec: StageSpec): StageView | null => {
-            if (coarse.kind === 'bar' || coarse.kind === 'none') return null;
-            const detail = holdDetail.spec(spec, coarse, window.x, window.y, heldCanvas.clientWidth || 300);
-            return detail && !holdSource.ensure(detail, [path]) ? holdSource.view(detail, path) ?? null : null;
-        };
-        if (!specs.without) {
-            paintHeldView(fine(specs.with) ?? coarse, coarse, stageRange([coarse]), stageAxes(strings, coarse, input), window, { color: ROLE_COLORS[1] });
-            return;
-        }
-        // Without the step − with it, point by point: what the step takes away (negative where it cuts).
-        const delta = stageDifference(coarse, coarseWithout);
-        const fineWith = fine(specs.with), fineWithout = fine(specs.without);
-        const shown = fineWith && fineWithout ? stageDifference(fineWith, fineWithout) ?? delta : delta;
-        paintHeldView(shown, delta, stageDiffRange(delta), stageAxes(strings, delta, input, true), window, { diff: true, color: DIFF_COLOR, empty: strings.stageNoDelta });
-    }
+    /** The held plot: a slot key or chip held shows its row's Δ, a step chip held what the step does to one row. */
+    const heldPlot = createHeldPlot({
+        document, window, strings, held, title: heldTitle, canvas: heldCanvas, post: message => deps.post(message), scheduleSide: () => sidePlots.schedule(),
+        keepWindow: (name, key) => sidePlots.keepWindow(name, key), entryModel, results, focusedFile, slotFiles, recipe: () => recipeState.edited ?? recipeState.standard, runRecipe: () => runRecipe(), limits, spectral,
+        slotHeld: () => paintSlots(),
+        tapped(slot) { if (focus.key && rows.some(row => row.key === focus.key)) setSlot(slot, focus.key); },
+    });
     function handleRemeasure(publication: ComparePublication): boolean {
         const pending = remeasuring.find(publication.requestId)?.meta;
         if (!pending) return false;
@@ -1003,18 +821,6 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const next = remeasured(pending.row, pending.results);
         if (next) setDerived(derived.map(item => (item === pending.row ? next : item)));
         return true;
-    }
-    /** A hold shows something on this screen for a step of the chain's time signal (not the region), its spectrum, and the app's bands. */
-    function canHoldStep(step: RecipeStep): boolean {
-        if (step.operation === TIME_SLICE) return false;
-        if (step.id === OCTAVE_BRANCH) return true;
-        const recipe = recipeState.edited ?? recipeState.standard;
-        if (!recipe) return false;
-        const steps = recipeNodes(recipe).map(node => node.id);
-        const signal = timeSignalStep(recipe, limits());
-        // The average spectrum the table reads (the chain's end), or a step up to the time signal.
-        if (step.name === 'welch') return spectral();
-        return !!signal && steps.indexOf(step.id) <= steps.indexOf(signal.id);
     }
     function setRecipe(recipe: RecipeDocument): void {
         recipeState.edited = recipe;
@@ -1033,71 +839,12 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         deps.saveDerived?.(derived);
         rebuild();
     }
-    function scheduleSide(distribution = true): void {
-        sidePaint.dist ||= distribution;
-        if (sidePaint.pending) return;
-        sidePaint.pending = true;
-        window.requestAnimationFrame(() => { sidePaint.pending = false; paintSide(); });
-    }
-    /** The held row's Δ spectrum (from the table's own scan), zoomed as its window says. */
-    function paintHeldDelta(comparison: CompareModel, key: string, input: { unit?: string; ref?: number } | undefined): void {
-        const window = keepWindow('held', `delta|${key}`);
-        const delta = comparison.diffDb ? sideView({ spectrumDb: comparison.diffDb, bands: [] }, comparison.frequencies) : null;
-        paintHeldView(delta, delta, stageDiffRange(delta), stageAxes(strings, delta, input, true), window, { diff: true, color: DIFF_COLOR, empty: strings.stageNoDelta });
-    }
     function paintDistribution(): void {
         distPane.paint({
-            pool: distributionPool(), value: chosen.value, group: chosen.group, results, range: valueRange(), usable, slots, rowOf, baseGroup: baseGroupName(),
+            pool: distributionPool(), value: chosen.value, group: chosen.group, results, range: valueRange(), usable, slots, rowOf, baseGroup: entryBase.groupName(),
             valueLabel: valueLabel(chosen.value), format: number => formatColumn(chosen.value, number), rowName: key => rowName(key),
         });
     }
-    /** The distribution, the held row's Δ spectrum and the overview strip. */
-    function paintSide(): void {
-        if (sidePaint.dist) { sidePaint.dist = false; paintDistribution(); }
-        // The side plots are drawn only while the table is wide enough to show them.
-        if (screen.hidden || !side.offsetWidth) return;
-        // The strip is the table's rows in the table's order (one per channel), each its recording's bands.
-        const rowsOnScreen = shownRows;
-        const rowHeight = (body.querySelector('tr') as HTMLElement | null)?.offsetHeight || 22;
-        const first = Math.floor(tableWrap.scrollTop / rowHeight);
-        paintOverview(overview, rowsOnScreen, overviewLevels, { first, last: first + Math.ceil(tableWrap.clientHeight / rowHeight) - 2 }, focusedFile(), keepWindow('overview', String(rowsOnScreen.length)),
-            calibratedFiles.size > 0, overviewVersion);
-        // The zoom on each plot, for tests: "x0-x1|y0-y1".
-        for (const [name, canvas] of [['overview', overview], ['held', heldCanvas]] as const) {
-            const window = plotWindow(name);
-            canvas.dataset.window = `${window.x.start.toFixed(3)}-${window.x.end.toFixed(3)}|${window.y.start.toFixed(3)}-${window.y.end.toFixed(3)}`;
-        }
-        if (hold.step) { paintStepHeld(hold.step); return; }
-        held.hidden = hold.slot === null;
-        held.classList.remove('is-pending');
-        if (hold.slot !== null) {
-            const path = slotFiles()[hold.slot] ?? focusedFile();
-            const comparison = buildCompareModel(entryModel(), results, path, null, strings);
-            heldTitle.textContent = path ? `${hold.slot} · ${baseName(path)}` : '';
-            paintHeldDelta(comparison, `slot|${hold.slot}`, path ? results.get(path)?.input : undefined);
-        }
-    }
-
-    function press(slot: number): void {
-        if (hold.pressing) return;
-        const timer = window.setTimeout(() => {
-            if (hold.releaseTimer !== undefined) { window.clearTimeout(hold.releaseTimer); hold.releaseTimer = undefined; }
-            hold.slot = slot;
-            paintSlots();
-            scheduleSide();
-        }, TAP_MS);
-        hold.pressing = { slot, at: window.performance.now(), timer };
-    }
-    /** A tap puts the focused row in the slot (in it already: takes it out); a hold only showed the slot's Δ, which goes 150 ms later. */
-    function release(slot: number): void {
-        if (!hold.pressing || hold.pressing.slot !== slot) return;
-        window.clearTimeout(hold.pressing.timer);
-        const tapped = window.performance.now() - hold.pressing.at < TAP_MS;
-        hold.pressing = undefined;
-        if (tapped) { if (focus.key && rows.some(row => row.key === focus.key)) setSlot(slot, focus.key); return; }
-        hold.releaseTimer = window.setTimeout(() => { hold.releaseTimer = undefined; hold.slot = null; scheduleSide(); }, DELTA_RELEASE_MS);
-    }
-
     /** The files shown as tracks now (a hidden track is not). */
     const shownFiles = (): Set<string> => new Set([...deps.shownTracks?.() ?? []].filter(([, hidden]) => !hidden).map(([filePath]) => filePath));
     const focusHeadMark = (): void => { head.querySelector<HTMLElement>('[data-action="entry-tracks-all"]')?.focus(); };
@@ -1219,7 +966,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const columns = maximized ? 6 : COLUMN_WIDTHS.filter(edge => width >= edge).length;
         if (screen.dataset.cols !== String(columns)) {
             screen.dataset.cols = String(columns);
-            if (columns >= 6) scheduleSide();
+            if (columns >= 6) sidePlots.schedule();
         }
     }
     const Observer = (globalThis as { ResizeObserver?: typeof ResizeObserver }).ResizeObserver;
@@ -1238,7 +985,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         syncColumns();
         deps.maximizedChanged?.(next);
         render();
-        scheduleSide();
+        sidePlots.schedule();
         // Maximized, the table takes the keys; shrunk, they go back to the track view (its lanes, its comparison).
         redraw.after(() => {
             if (next) table.focus?.();
@@ -1333,21 +1080,19 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     });
 
     // ---- the column filter: like a spreadsheet's ▾ (sort, clear, search + a check list or a range, OK / Cancel)
-    const sortKeyOf = (column: ColumnId): DatasetScreenView['sort']['column'] | undefined => (column === 'name' ? 'name' : column === 'ch' ? 'ch' : column === chosen.group ? 'group' : column === chosen.value ? 'value' : undefined);
-    function filterColumns(): DatasetColumn[] {
-        const own = (attached.csv?.attributes ?? []).map(column => ({ id: `csv:${column}` as ColumnId, label: column, numeric: !!attached.csv?.numeric[column] }));
-        const folders = groupOptions().filter(option => option.id.startsWith('folder:')).map(option => ({ id: option.id, label: option.label, numeric: false }));
-        const computed = valueOptions().filter(option => option.computed && rows.some(row => valueOf(row, option.id, results) !== null)).map(option => ({ id: option.id, label: option.label, numeric: true }));
-        return [{ id: 'name', label: strings.entryColFile, numeric: false }, { id: 'ch', label: strings.dsCh, numeric: false }, ...own, ...folders, ...computed];
-    }
+    const filterPop = createFilterPopover({
+        screen, head, chipsBox, text, rows: () => rows, excluded, results, csv: () => attached.csv, groupOptions, valueOptions,
+        filters: () => chosen.filters, sort: () => chosen.sort, group: () => chosen.group, value: () => chosen.value,
+        columnLabel, numericColumn, formatColumn, choose, after: fn => redraw.after(fn), renderPopovers: () => renderPopovers(),
+        announce: message => deps.announce(message), shownCount: () => shownRows.length,
+    });
     function openFilter(column: ColumnId, anchored: boolean): void {
         popovers.slotMenu = null; popovers.memoKey = null;
-        const existing = chosen.filters.find(filter => filter.column === column);
-        popovers.filter = { column, anchored, search: '', checked: existing?.kind === 'values' ? new Set(existing.values) : null };
+        filterPop.open(column, anchored);
         renderPopovers();
     }
     function popAnchor(): HTMLElement | null {
-        if (popovers.filter) return (popovers.filter.anchored ? head.querySelector<HTMLElement>(`th[data-column="${CSS.escape(popovers.filter.column)}"]`) : chipsBox.querySelector<HTMLElement>('[data-action="entry-fadd"]'));
+        if (filterPop.draft()) return filterPop.anchor();
         if (popovers.slotMenu) return body.querySelector<HTMLElement>(`tr[data-key="${CSS.escape(popovers.slotMenu)}"] [data-action="entry-row-slotmenu"]`);
         if (popovers.memoKey) return body.querySelector<HTMLElement>(`tr[data-key="${CSS.escape(popovers.memoKey)}"] .entry-nm`);
         if (popovers.baseMenu) return slotBar.querySelector<HTMLElement>('[data-action="entry-slot"][data-slot="0"]');
@@ -1358,26 +1103,12 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     /** The open popover, drawn only when it opens or changes, so what is typed in it is kept while the table redraws. */
     function renderPopovers(): void {
         screen.querySelector('[data-entry-pop]')?.remove();
-        if (!popovers.filter && !popovers.slotMenu && !popovers.memoKey && !popovers.baseMenu && !popovers.batch) return;
+        if (!filterPop.draft() && !popovers.slotMenu && !popovers.memoKey && !popovers.baseMenu && !popovers.batch) return;
         const pop = document.createElement('div');
         pop.className = 'entry-pop';
         pop.setAttribute('data-entry-pop', '');
-        const filter = popovers.filter;
-        if (filter) {
-            const column = filterColumns().find(item => item.id === filter.column) ?? { id: filter.column, label: columnLabel(filter.column), numeric: numericColumn(filter.column) };
-            const existing = chosen.filters.find(item => item.column === filter.column);
-            const pool = rows.filter(row => !excluded.has(row.key));
-            if (column.numeric) {
-                const numbers = pool.map(row => (filter.column.startsWith('csv:') ? finiteNumber(row.attributes?.[filter.column.slice(4)] ?? '') : valueOf(row, filter.column as ValueId, results))).filter((item): item is number => item !== null);
-                const min = numbers.length ? formatColumn(filter.column, numbers.reduce((least, item) => Math.min(least, item))) : '', max = numbers.length ? formatColumn(filter.column, numbers.reduce((most, item) => Math.max(most, item))) : '';
-                pop.innerHTML = filterPopHtml({ column, anchored: filter.anchored, columns: filterColumns(), sortKey: sortKeyOf(filter.column), sort: chosen.sort, filter: existing, search: '',
-                    range: { low: existing?.kind === 'range' ? formatColumn(filter.column, existing.low) : '', high: existing?.kind === 'range' ? formatColumn(filter.column, existing.high) : '', min, max } }, text);
-            } else {
-                const values = columnValues(pool, filter.column, results);
-                filter.checked ??= new Set(values.map(([item]) => item));
-                pop.innerHTML = filterPopHtml({ column, anchored: filter.anchored, columns: filterColumns(), sortKey: sortKeyOf(filter.column), sort: chosen.sort, filter: existing, search: filter.search, values, checked: filter.checked }, text);
-            }
-        } else if (popovers.slotMenu) pop.innerHTML = slotMenuHtml(popovers.slotMenu, slots, text);
+        if (filterPop.draft()) pop.innerHTML = filterPop.html();
+        else if (popovers.slotMenu) pop.innerHTML = slotMenuHtml(popovers.slotMenu, slots, text);
         else if (popovers.memoKey) pop.innerHTML = memoPopHtml(rowName(popovers.memoKey), memo.get(popovers.memoKey) ?? '', text);
         else if (popovers.batch) pop.innerHTML = batchPopHtml(batchCount(batchRows('filtered')), batchCount(batchRows('all')), popovers.batch, text);
         else if (popovers.baseMenu) {
@@ -1395,61 +1126,16 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         pop.style.top = `${below + pop.offsetHeight > screen.clientHeight - 4 && box ? Math.max(4, box.top - outer.top - pop.offsetHeight - 2) : below}px`;
         (pop.querySelector<HTMLElement>('[data-entry-memo-text], [data-entry-fsearch], [data-entry-flow], .entry-mi') ?? pop).focus?.();
     }
-    function redrawCheckList(): void {
-        if (!popovers.filter?.checked) return;
-        const list = screen.querySelector('[data-entry-flist]');
-        if (list) list.innerHTML = checkListHtml(columnValues(rows.filter(row => !excluded.has(row.key)), popovers.filter.column, results), popovers.filter.checked, popovers.filter.search, text);
-        const all = screen.querySelector<HTMLInputElement>('[data-entry-fall]');
-        if (all) all.indeterminate = all.getAttribute('aria-checked') === 'mixed';
-    }
     function closePopovers(): boolean {
-        if (!popovers.filter && !popovers.slotMenu && !popovers.memoKey && !popovers.baseMenu && !popovers.batch) return false;
+        if (!filterPop.draft() && !popovers.slotMenu && !popovers.memoKey && !popovers.baseMenu && !popovers.batch) return false;
         const hadMemo = !!popovers.memoKey;
         if (popovers.memoKey) saveMemo();
-        popovers.filter = null; popovers.slotMenu = null; popovers.memoKey = null; popovers.baseMenu = false; popovers.batch = null;
+        filterPop.close(); popovers.slotMenu = null; popovers.memoKey = null; popovers.baseMenu = false; popovers.batch = null;
         renderPopovers();
         // A memo kept shows on its row (✎ lit, its text as the hint).
         if (hadMemo) render();
         redraw.after(() => (body.querySelector<HTMLElement>('.is-focused') ?? table).focus?.());
         return true;
-    }
-    function applyFilter(): void {
-        if (!popovers.filter) return;
-        const column = popovers.filter.column;
-        let next: DatasetFilter | null = null;
-        if (numericColumn(column)) {
-            const low = parseFloat(screen.querySelector<HTMLInputElement>('[data-entry-flow]')?.value ?? ''), high = parseFloat(screen.querySelector<HTMLInputElement>('[data-entry-fhigh]')?.value ?? '');
-            if (!(Number.isNaN(low) && Number.isNaN(high))) {
-                next = { column, kind: 'range', low: Number.isNaN(low) ? -Infinity : low, high: Number.isNaN(high) ? Infinity : high };
-                if (next.low > next.high) next = { ...next, low: next.high, high: next.low };
-            }
-        } else {
-            const all = columnValues(rows.filter(row => !excluded.has(row.key)), column, results).map(([item]) => item);
-            const needle = popovers.filter.search.trim().toLowerCase();
-            const checked = popovers.filter.checked;
-            const keep = all.filter(item => (!needle || item.toLowerCase().includes(needle)) && checked?.has(item));
-            if (!keep.length) { deps.announce(strings.dsFilterPickOne); return; }
-            if (keep.length < all.length) next = { column, kind: 'values', values: keep };
-        }
-        popovers.filter = null;
-        choose({ filters: [...chosen.filters.filter(filter => filter.column !== column), ...(next ? [next] : [])], mode: 'all' }, true);
-        redraw.after(() => {
-            renderPopovers();
-            deps.announce(next ? strings.dsFilterApplied.replace('{n}', String(shownRows.length)) : strings.dsFilterRemoved.replace('{col}', columnLabel(column)));
-        });
-    }
-    function clearFilter(column: ColumnId): void {
-        popovers.filter = null;
-        choose({ filters: chosen.filters.filter(filter => filter.column !== column) });
-        redraw.after(() => {
-            renderPopovers();
-            deps.announce(strings.dsFilterRemoved.replace('{col}', columnLabel(column)));
-        });
-    }
-    function setSort(column: DatasetScreenView['sort']['column'], descending: boolean): void {
-        popovers.filter = null;
-        choose({ sort: { column, descending } }, true);
-        redraw.after(renderPopovers);
     }
     function saveMemo(): void {
         if (!popovers.memoKey) return;
@@ -1459,7 +1145,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         if (note) memo.set(popovers.memoKey, note); else memo.delete(popovers.memoKey);
     }
     function openMemo(key: string): void {
-        popovers.filter = null; popovers.slotMenu = null;
+        filterPop.close(); popovers.slotMenu = null;
         popovers.memoKey = key;
         focus.key = key; focus.picked = true;
         renderPopovers();
@@ -1484,13 +1170,13 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         },
         'entry-open': () => openSlotted(),
         'entry-maximize': () => setMaximized(!maximized),
-        'entry-fhead': target => { const column = target.getAttribute('data-column') as ColumnId; if (popovers.filter?.column === column) closePopovers(); else openFilter(column, true); },
-        'entry-fadd': () => openFilter(filterColumns().find(column => !chosen.filters.some(filter => filter.column === column.id) && column.id !== 'name')?.id ?? 'name', false),
+        'entry-fhead': target => { const column = target.getAttribute('data-column') as ColumnId; if (filterPop.draft()?.column === column) closePopovers(); else openFilter(column, true); },
+        'entry-fadd': () => openFilter(filterPop.nextColumn(), false),
         'entry-fchip': target => openFilter(target.getAttribute('data-column') as ColumnId, false),
-        'entry-fchip-clear': target => clearFilter(target.getAttribute('data-column') as ColumnId),
-        'entry-fsort': target => setSort(target.getAttribute('data-sort') as DatasetScreenView['sort']['column'], target.getAttribute('data-descending') === 'true'),
-        'entry-fclear': () => { if (popovers.filter) clearFilter(popovers.filter.column); },
-        'entry-fok': () => applyFilter(),
+        'entry-fchip-clear': target => filterPop.clear(target.getAttribute('data-column') as ColumnId),
+        'entry-fsort': target => filterPop.setSort(target.getAttribute('data-sort') as DatasetScreenView['sort']['column'], target.getAttribute('data-descending') === 'true'),
+        'entry-fclear': () => { const draft = filterPop.draft(); if (draft) filterPop.clear(draft.column); },
+        'entry-fok': () => filterPop.apply(),
         'entry-fcancel': () => closePopovers(),
         'entry-row-play': withKey(key => deps.play?.(fileOfKey(key))),
         'entry-row-track': withKey(key => { focusOn(key); toggleTrack(key); }),
@@ -1499,7 +1185,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         'entry-tracks-all-go': () => { tracks.pending = null; const listed = listedFiles(); const files = notShown(listed); if (files.length) showAll(listed, files); render(); redraw.after(focusHeadMark); },
         'entry-tracks-all-cancel': () => { tracks.pending = null; render(); redraw.after(focusHeadMark); },
         'entry-tracks-only': () => choose({ tracksOnly: !chosen.tracksOnly }, true),
-        'entry-row-slotmenu': withKey(key => { popovers.filter = null; popovers.memoKey = null; popovers.slotMenu = popovers.slotMenu === key ? null : key; focusOn(key); redraw.after(renderPopovers); }),
+        'entry-row-slotmenu': withKey(key => { filterPop.close(); popovers.memoKey = null; popovers.slotMenu = popovers.slotMenu === key ? null : key; focusOn(key); redraw.after(renderPopovers); }),
         'entry-row-slot': withKey((key, target) => { popovers.slotMenu = null; renderPopovers(); setSlot(Number(target.getAttribute('data-slot')), key); }),
         'entry-row-memo': withKey(openMemo),
         'entry-memo-close': () => { saveMemo(); popovers.memoKey = null; renderPopovers(); render(); },
@@ -1511,7 +1197,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             const key = slots[slot];
             if (key) { focusFile(fileOfKey(key)); focusRow(key, true); }
             // The empty base is a group's median: its chip says which and offers the others (or the selected row).
-            else if (slot === 0 && chosen.group !== 'none') { popovers.filter = null; popovers.slotMenu = null; popovers.memoKey = null; popovers.baseMenu = !popovers.baseMenu; renderPopovers(); }
+            else if (slot === 0 && chosen.group !== 'none') { filterPop.close(); popovers.slotMenu = null; popovers.memoKey = null; popovers.baseMenu = !popovers.baseMenu; renderPopovers(); }
             else if (focus.key) setSlot(slot, focus.key);
         },
         'entry-base-group': target => {
@@ -1531,7 +1217,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         'entry-slot-clear': target => setSlot(Number(target.getAttribute('data-slot')), null),
         'entry-key-hint': target => { if (target.getAttribute('data-key') === 'help') deps.help?.(); },
     };
-    tableWrap.addEventListener('scroll', () => { renderRows(); scheduleSide(false); });
+    tableWrap.addEventListener('scroll', () => { renderRows(); sidePlots.schedule(false); });
     screen.addEventListener('click', event => redraw.batch(() => {
         const target = event.target as HTMLElement;
         const action = target.closest<HTMLElement>('[data-action]');
@@ -1587,45 +1273,16 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             return;
         }
         if (target === groupSelect) {
-            const baseBefore = baseText();
+            const baseBefore = entryBase.text();
             choose({ group: groupSelect.value as GroupId, baseGroup: null });
             // With slot 0 empty the base is slot 1's group median: a new grouping changes it, which is said.
-            if (!slots[0] && slots[1] && baseText() !== baseBefore) deps.announce(strings.dsBaseReset);
+            if (!slots[0] && slots[1] && entryBase.text() !== baseBefore) deps.announce(strings.dsBaseReset);
             return;
         }
         if (target.matches('[data-entry-batch-scope]')) { popovers.batch = (target as HTMLInputElement).value as 'filtered' | 'all'; return; }
-        if (target.matches('[data-action="entry-fcol"]') && popovers.filter) {
-            const column = (target as HTMLSelectElement).value as ColumnId;
-            const existing = chosen.filters.find(filter => filter.column === column);
-            popovers.filter = { column, anchored: false, search: '', checked: existing?.kind === 'values' ? new Set(existing.values) : null };
-            renderPopovers();
-            return;
-        }
-        if (target.matches('[data-entry-fall]') && popovers.filter?.checked) {
-            const needle = popovers.filter.search.trim().toLowerCase();
-            for (const [item] of columnValues(rows.filter(row => !excluded.has(row.key)), popovers.filter.column, results)) {
-                if (needle && !item.toLowerCase().includes(needle)) continue;
-                if ((target as HTMLInputElement).checked) popovers.filter.checked.add(item); else popovers.filter.checked.delete(item);
-            }
-            redrawCheckList();
-            return;
-        }
-        const item = target.getAttribute('data-entry-fvalue');
-        if (item !== null && popovers.filter?.checked) {
-            if ((target as HTMLInputElement).checked) popovers.filter.checked.add(item); else popovers.filter.checked.delete(item);
-            redrawCheckList();
-        }
+        filterPop.change(target);
     }));
-    // The filter's search narrows the check list to what it finds, all of it checked, as a spreadsheet's does.
-    screen.addEventListener('input', event => {
-        const target = event.target as HTMLInputElement;
-        if (!target.matches('[data-entry-fsearch]') || !popovers.filter) return;
-        popovers.filter.search = target.value;
-        const needle = popovers.filter.search.trim().toLowerCase();
-        const values = columnValues(rows.filter(row => !excluded.has(row.key)), popovers.filter.column, results).map(([item]) => item);
-        popovers.filter.checked = new Set(needle ? values.filter(item => item.toLowerCase().includes(needle)) : values);
-        redrawCheckList();
-    });
+    screen.addEventListener('input', event => { filterPop.input(event.target as HTMLInputElement); });
     // A CSV dropped onto the screen is read like one picked with 「CSV を選ぶ」.
     screen.addEventListener('dragover', event => {
         if (!Array.from(event.dataTransfer?.types ?? []).includes('Files')) return;
@@ -1639,17 +1296,6 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         event.stopPropagation();
         readCsvFile(file);
     });
-    // A click on the strip goes to that file's row.
-    overview.addEventListener('click', event => redraw.batch(() => {
-        const rows = shownRows;
-        const box = overview.getBoundingClientRect();
-        // The strip's rows (top first) over the part of it on screen.
-        const window = plotWindow('overview');
-        const plotTop = box.top + OVERVIEW_MARGINS.top, plotHeight = box.height - OVERVIEW_MARGINS.top - OVERVIEW_MARGINS.bottom;
-        const row = rows[Math.floor(((1 - window.y.end) + (event.clientY - plotTop) / Math.max(1, plotHeight) * (window.y.end - window.y.start)) * rows.length)];
-        if (!row) return;
-        focusRow(row.key, true);
-    }));
     // A double click on a row slots it in the first free slot and opens the comparison, like 1 then Enter.
     body.addEventListener('dblclick', event => redraw.batch(() => {
         const target = event.target as HTMLElement;
@@ -1660,59 +1306,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     }));
     // The lanes' gestures on the side panel's plots: box zoom, Ctrl+wheel, Shift+wheel, double-click reset or
     // axis range. A press that stays put (within the lanes' 3 px) is still a click: a point picked, a row gone to.
-    const zoomBox = document.createElement('div');
-    zoomBox.className = 'entry-zoom-box';
-    zoomBox.hidden = true;
-    side.append(zoomBox);
-    const rangePopover = installRangePopover(document, { rootId: 'entry-range-popover', badgeId: 'entry-range-axis-badge', idPrefix: 'entry-range', strings: rangePopoverStrings(strings), position: positionPopover });
-    const plotName = (plot: HTMLElement): string => (plot === overview ? 'overview' : 'held');
-    const marginsOf = (plot: HTMLElement): PlotMargins => (plot === overview ? OVERVIEW_MARGINS : hold.plot?.margins ?? STAGE_MARGINS);
-    attachPlotInteraction(side, document, '[data-entry-held-canvas], [data-entry-overview]', {
-        locate(target, clientX, clientY) {
-            const plot = (target as HTMLElement | null)?.closest?.<HTMLElement>('[data-entry-held-canvas], [data-entry-overview]');
-            if (!plot || plot.closest('[hidden]')) return null;
-            const { fx, fy, axis } = plotPointIn(plot, marginsOf(plot), clientX, clientY);
-            return { plot, point: { fx, fy }, axis };
-        },
-        pointOn(plot, clientX, clientY) {
-            const { fx, fy } = plotPointIn(plot, marginsOf(plot), clientX, clientY);
-            return { fx, fy };
-        },
-        window: plot => plotWindow(plotName(plot)),
-        setWindow(plot, next) {
-            if (next) plotWindows.set(plotName(plot), next); else plotWindows.delete(plotName(plot));
-            scheduleSide();
-        },
-        hover(event, hit) {
-            // A point's name stays where hints go while the pointer is on it.
-            if (!hit) return;
-            // A plot that says what it is (the strip) keeps saying it, before the gestures.
-            const own = hit.plot.getAttribute('data-hint');
-            const gestures = hit.axis ? strings.compareHintAxis : strings.compareHintPlot;
-            document.getElementById('hint-footer')?.replaceChildren(own ? `${own} · ${gestures}` : gestures);
-        },
-        clearHover() { /* the panel's own hints stay */ },
-        showBox(plot, from, to) {
-            const box = plot.getBoundingClientRect(), outer = side.getBoundingClientRect(), margins = marginsOf(plot);
-            const width = box.width - margins.left - margins.right, height = box.height - margins.top - margins.bottom;
-            const [x0, x1] = [Math.min(from.fx, to.fx), Math.max(from.fx, to.fx)], [y0, y1] = [Math.min(from.fy, to.fy), Math.max(from.fy, to.fy)];
-            Object.assign(zoomBox.style, { left: `${box.left - outer.left + margins.left + x0 * width}px`, top: `${box.top - outer.top + margins.top + (1 - y1) * height}px`, width: `${(x1 - x0) * width}px`, height: `${(y1 - y0) * height}px` });
-            zoomBox.hidden = false;
-        },
-        hideBox() { zoomBox.hidden = true; },
-        openAxisRange(hit, clientX, clientY) {
-            const name = plotName(hit.plot);
-            const mapping: AxisMapping | null = name === 'held' && hold.plot ? (hit.axis === 'x' ? { at: hold.plot.x, of: hold.plot.ofX, label: hold.plot.xLabel } : linearAxis(hold.plot.range.min, hold.plot.range.max, hold.plot.yLabel))
-                    : null;
-            if (!mapping) return false;
-            const window = plotWindow(name);
-            openAxisPart(rangePopover, {
-                mapping, horizontal: hit.axis === 'x', current: hit.axis === 'x' ? window.x : window.y, clientX, clientY, invalid: strings.specRangeErrorMinMax,
-                set(range) { plotWindows.set(name, hit.axis === 'x' ? { ...window, x: range } : { ...window, y: range }); scheduleSide(); },
-            });
-            return true;
-        },
-    });
+    sidePlots.attach();
 
     /** Maximized, the table takes the keys; in the side panel, only keys pressed while it has the focus. */
     const keysHere = (event: Event): boolean => !screen.hidden && (maximized || screen.contains(event.target as Node));
@@ -1750,7 +1344,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             if (ownKeys(event) || event.ctrlKey || event.metaKey || event.altKey) return true;
             const action = keyAction(ENTRY_KEYS, event.key);
             if (action) event.preventDefault();
-            if (action === 'slot') { if (!event.repeat) press(Number(event.key)); }
+            if (action === 'slot') { if (!event.repeat) heldPlot.press(Number(event.key)); }
             else if (action === 'open') openSlotted();
             else if (action === 'play') { if (focus.key) deps.play?.(fileOfKey(focus.key)); }
             else if (action === 'memo') { if (focus.key) openMemo(focus.key); }
@@ -1760,7 +1354,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         }),
         keyup: event => redraw.batch(() => {
             if (!keysHere(event) || ownKeys(event)) return false;
-            if (keyAction(ENTRY_KEYS, event.key) === 'slot') release(Number(event.key));
+            if (keyAction(ENTRY_KEYS, event.key) === 'slot') heldPlot.release(Number(event.key));
             return true;
         }),
     });
@@ -1771,9 +1365,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             rootPath = root;
             recipeState.knownShortest = undefined;
             results.clear();
-            overviewLevels.clear();
-            calibratedFiles.clear();
-            overviewVersion++;
+            sidePlots.clear();
             resultKeys.clear();
             rowsDirty = true;
             recipeState.knownRate = undefined;
@@ -1783,7 +1375,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             chosen.tracksOnly = false;
             tracks.pending = null;
             chosen.mode = 'all';
-            popovers.filter = null; popovers.slotMenu = null; popovers.memoKey = null;
+            filterPop.close(); popovers.slotMenu = null; popovers.memoKey = null;
             chosen.baseGroup = null;
             session.reset();
             slots = restoredSlots(deps.loadSlots() ?? [], path => filePaths.includes(path));
@@ -1844,7 +1436,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             setMaximized(true);
         },
         handle(message): boolean {
-            if (message.type.startsWith('compare-')) return holdSource.handle(message) || handleRemeasure(message as ComparePublication);
+            if (message.type.startsWith('compare-')) return heldPlot.handle(message) || handleRemeasure(message as ComparePublication);
             if (!message.type.startsWith('entry-')) return false;
             if (message.type === 'entry-probe-result' || message.type === 'entry-probe-done') {
                 const taken = headers.take(message as EntryProbePublication);
@@ -1907,25 +1499,14 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             // The file the slot held before keeps its track: only the roles change.
             setSlot(slot, key, false);
         },
-        basePaths: (comparePath, byGroup = false) => resolveBase(comparePath, byGroup).paths,
-        baseTitle: (comparePath, byGroup = false) => resolveBase(comparePath, byGroup).title,
-        baseDefinition: (comparePath, byGroup = false) => resolveBase(comparePath, byGroup).definition,
-        stageChannel: (path, comparePath, byGroup = false) => stageChannel(path, comparePath, byGroup),
-        comparison: (comparePath, byGroup = false, over, entryRegionBase = false) => comparisonOf(comparePath, byGroup, over, entryRegionBase),
+        basePaths: (comparePath, byGroup = false) => entryBase.resolve(comparePath, byGroup).paths,
+        baseTitle: (comparePath, byGroup = false) => entryBase.resolve(comparePath, byGroup).title,
+        baseDefinition: (comparePath, byGroup = false) => entryBase.resolve(comparePath, byGroup).definition,
+        stageChannel: (path, comparePath, byGroup = false) => entryBase.stageChannel(path, comparePath, byGroup),
+        comparison: (comparePath, byGroup = false, over, entryRegionBase = false) => entryBase.comparison(comparePath, byGroup, over, entryRegionBase),
         rowInfo: path => rowInfo(path),
         cost: paths => ({ seconds: progress.seconds(paths), ms: progress.estimateMs(paths) }),
-        tableBaseBands: (comparePath, byGroup = false) => {
-            const base = resolveBase(comparePath, byGroup);
-            const levels = base.paths.flatMap(path => {
-                const result = base.channel ? channelResult(results.get(path), base.channel) : results.get(path);
-                if (!result?.ok || isStale(path) || !result.thirdOctDb?.length) return [];
-                // A recording's channels together, power-averaged, as the comparison's sides are.
-                return [result.thirdOctDb[0].map((_, band) => powerMeanOrNull(result.thirdOctDb!.map(channel => channel[band])))];
-            });
-            if (!levels.length) return null;
-            const values = levels[0].map((_, band) => median(levels.map(item => item[band]).filter((level): level is number => level !== null)));
-            return { centers: BAND_CENTERS_HZ.slice(0, values.length), values, count: levels.length };
-        },
+        tableBaseBands: (comparePath, byGroup = false) => entryBase.tableBands(comparePath, byGroup),
         selection: () => ({
             value: valueLabel(chosen.value), group: chosen.group === 'none' ? strings.dsGroupNone : groupLabel(chosen.group),
             filters: chosen.filters.map(filter => chipText(filter)), excluded: excluded.size,
@@ -1954,7 +1535,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
                 csv: attached.csv?.name ?? null, playing: deps.playing?.() ?? null, visibleKeys: shownRows.slice(0, 200).map(row => row.key), scanning: progress.running,
                 dist: last ? {
                     groups: last.groups.map(item => ({ name: item.name, n: item.members.length, inRange: item.members.filter(member => member.inRange).length })),
-                    missing: last.missing, unit: last.unit, low: last.low, high: last.high, range: valueRange(), base: baseGroupName(),
+                    missing: last.missing, unit: last.unit, low: last.low, high: last.high, range: valueRange(), base: entryBase.groupName(),
                     strip: !maximized,
                 } : null,
             };

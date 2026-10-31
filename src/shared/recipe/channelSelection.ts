@@ -90,17 +90,18 @@ export function withBaseInput(recipe: RecipeDocument, stepId: string, base: { ch
     const cloned = before.filter(node => node !== own || baseChannel).map(node => ({ ...JSON.parse(JSON.stringify(node)) as Node, id: renamed(node.id), inputs: node.inputs.map(renamed) }));
     const picked = cloned.find(node => node.id === `${CHANNEL_NODE}-base`);
     if (picked && baseChannel) picked.params = { $type: 'map', entries: [['channel_idx', baseChannel - 1]] };
-    for (const node of cloned.filter(item => item.operation === TIME_SLICE && base.endS !== undefined)) {
+    const baseEnd = base.endS;
+    if (baseEnd !== undefined) for (const node of cloned.filter(item => item.operation === TIME_SLICE)) {
         const entries = (node.params as { entries?: Array<[string, unknown]> } | undefined)?.entries ?? [];
         const end = entries.find(([name]) => name === 'end')?.[1];
-        const shortened = Math.min(typeof end === 'number' ? end : Infinity, base.endS!);
+        const shortened = Math.min(typeof end === 'number' ? end : Infinity, baseEnd);
         // wandas reads a map's keys in sorted order only.
         const sorted: Array<[string, unknown]> = [...entries.filter(([name]) => name !== 'end'), ['end', Math.round(shortened * 1e6) / 1e6]];
         node.params = { $type: 'map', entries: sorted.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)) };
     }
     const pick = (id: string, from: string): Node => ({ id, operation: GET_CHANNEL, version: 1, inputs: [from], params: { $type: 'map', entries: [['channel_idx', 0]] } });
     const added: Node[] = [
-        ...(ownPick ? [{ id: ownPick, operation: GET_CHANNEL, version: 1, inputs: [BASE_INPUT], params: { $type: 'map', entries: [['channel_idx', baseChannel! - 1]] } } as Node] : []),
+        ...(ownPick && baseChannel ? [{ id: ownPick, operation: GET_CHANNEL, version: 1, inputs: [BASE_INPUT], params: { $type: 'map', entries: [['channel_idx', baseChannel - 1]] } } as Node] : []),
         ...cloned,
         pick(`${stepId}-base-channel`, renamed(step.inputs[0])),
         pick(`${stepId}-channel`, step.inputs[0]),

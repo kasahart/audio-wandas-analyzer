@@ -105,7 +105,7 @@ export function leqLabel(model: EntryModel, strings: Pick<UiStrings, 'entryColLe
 /** The band with the largest |Δ| against this comparison's base, as "3150", "14.1". */
 function maxBandCells(comparison: CompareModel): [string, string] {
     let best = -1;
-    comparison.bandDeltas.forEach((delta, band) => { if (delta !== null && (best < 0 || Math.abs(delta) > Math.abs(comparison.bandDeltas[best]!))) best = band; });
+    comparison.bandDeltas.forEach((delta, band) => { if (delta !== null && (best < 0 || Math.abs(delta) > Math.abs(comparison.bandDeltas[best] ?? 0))) best = band; });
     return best < 0 || comparison.blocked ? ['', ''] : [csvNumber(BAND_CENTERS_HZ[best], 0), csvNumber(comparison.bandDeltas[best], 1)];
 }
 
@@ -205,7 +205,7 @@ export function outsideRecipe(strings: Pick<UiStrings, 'entryColLeq' | 'outside1
 function reportSampleRate(input: ReportInput): number | undefined {
     for (const path of input.slots.slice(1)) {
         const result = path ? input.results.get(path) : undefined;
-        if (result?.ok) return result.input!.fs;
+        if (result?.ok) return result.input?.fs;
     }
     return undefined;
 }
@@ -235,7 +235,7 @@ export function reportOctaveRecipe(recipe: RecipeDocument, region: EntryRegion |
 function reportDuration(input: ReportInput): number | undefined {
     for (const path of input.slots.slice(1)) {
         const result = path ? input.results.get(path) : undefined;
-        if (result?.ok) return result.input!.durationS;
+        if (result?.ok) return result.input?.durationS;
     }
     return undefined;
 }
@@ -268,9 +268,11 @@ export function reportDefinitions(input: ReportInput, specVersion: number | unde
         steps: input.recipe ? recipeSteps(reportRecipe(input.recipe, input.region, reportDuration(input))).map(step => ({ operation: step.operation, params: step.params })) : [],
         // What the comparison was taken from: the value and grouping on show, the filters, and each base.
         ...(input.selection ? { selection: input.selection } : {}),
-        comparisons: [1, 2, 3].filter(slot => input.slots[slot] && input.rowInfo).map(slot => {
-            const info = input.rowInfo!(input.slots[slot]!);
-            return { slot, file: info.label, channel: info.channel, base: info.base };
+        comparisons: [1, 2, 3].flatMap(slot => {
+            const path = input.slots[slot];
+            if (!path || !input.rowInfo) return [];
+            const info = input.rowInfo(path);
+            return [{ slot, file: info.label, channel: info.channel, base: info.base }];
         }),
     };
 }
@@ -360,9 +362,10 @@ export function summaryPng(document: Document, input: ReportInput, comparisons: 
 /** Every file of the report folder, in the order they are listed. */
 export function reportFiles(document: Document, input: ReportInput, strings: ReportStrings): { folder: string; files: ReportFile[] } {
     const files: ReportFile[] = [];
-    const comparisons: Array<{ slot: number; comparison: CompareModel }> = [1, 2, 3]
-        .filter(slot => input.slots[slot])
-        .map(slot => ({ slot, comparison: comparisonOf(input, input.slots[slot]!, strings) }));
+    const comparisons: Array<{ slot: number; path: string; comparison: CompareModel }> = [1, 2, 3].flatMap(slot => {
+        const path = input.slots[slot];
+        return path ? [{ slot, path, comparison: comparisonOf(input, path, strings) }] : [];
+    });
     const region = `${regionText(input.region, strings)}${input.region ? ' s' : ''}`;
     // Each figure says on its own what it is: role, file, region, and the base it is against.
     for (const { slot, comparison } of comparisons) {
@@ -381,7 +384,7 @@ export function reportFiles(document: Document, input: ReportInput, strings: Rep
     if (input.recipe) {
         // A compared channel row is that channel in wandas too: a get_channel step at the Recipe's head; slots
         // of different channels get one Recipe each (".ch2"), the channels together none.
-        const channels = [...new Set(comparisons.map(({ slot }) => input.rowInfo?.(input.slots[slot]!).channel ?? null))];
+        const channels = [...new Set(comparisons.map(({ path }) => input.rowInfo?.(path).channel ?? null))];
         // A chain that compares two channels names its own (withChannel leaves it as it is): one Recipe. One that
         // measures against the base slot takes a channel of each recording, the slots' rows'.
         const slotted = input.slotReference ?? [];

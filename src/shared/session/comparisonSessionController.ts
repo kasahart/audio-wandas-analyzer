@@ -9,7 +9,7 @@ import type {
 import { saveSession, runCompareScan, runEntryProbe, runEntryScan, type ComparePublication, type EntryProbePublication, type EntryPublication, type EntryScanPorts } from '../analysis/entryScan';
 import type { CalibrationRequestContext, PairSpectrumResult } from '../protocol/backendProtocol';
 import { parsePanelMessage, type PanelMessage, type SaveRecipeMessage } from '../protocol/panelMessages';
-import type { AnalyzeSelectedFilesMessage, ExportReportOptionsMessage, ExportWavLoopMessage, PairSpectrumRequest, SelectionTargetKind } from '../utils/audioTarget';
+import type { AnalyzeSelectedFilesMessage, ConfigureCalibrationMessage, ExportReportOptionsMessage, ExportWavLoopMessage, PairSpectrumRequest, SelectionTargetKind } from '../utils/audioTarget';
 import { exportWavRegions, reportArtifact, type ReportFormat, type WavExportSink, type WavExportSource } from '../utils/exportArtifact';
 
 type LazyPublication = Awaited<ReturnType<typeof executeLazyAnalysis>> | ReturnType<typeof lazyAnalysisError>;
@@ -87,6 +87,8 @@ export interface ComparisonSessionPorts {
     saveReportFolder?(folder: string, files: Array<{ name: string; bytes: Uint8Array }>): Promise<void>;
     /** The entry table's scan and storage; a host without it routes entry messages to `unsupported`. */
     entry?: EntryScanPorts;
+    /** A track's calibration button; the Web version has no calibration and routes it to `unsupported`. */
+    configureCalibration?(message: ConfigureCalibrationMessage): Promise<void>;
 }
 
 export function reasonOf(error: unknown): string {
@@ -193,6 +195,10 @@ export class ComparisonSessionController {
                 case 'entry-scan-cancel': this.entryScans++; return;
                 case 'entry-save-session':
                     if (this.ports.entry) await saveSession(this.ports.entry, message);
+                    else this.ports.unsupported(message.type);
+                    return;
+                case 'configure-calibration':
+                    if (this.ports.configureCalibration) await this.ports.configureCalibration(message);
                     else this.ports.unsupported(message.type);
                     return;
             }

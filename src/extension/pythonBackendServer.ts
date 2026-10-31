@@ -150,7 +150,8 @@ export class PythonBackendServer extends AnalysisClient {
         abandoned.reject(reason);
         this.abandoned.add(requestId);
         if (this.abandoned.size > PythonBackendServer.ABANDONED_LIMIT) {
-            this.abandoned.delete(this.abandoned.values().next().value!);
+            const oldest = this.abandoned.values().next();
+            if (!oldest.done) this.abandoned.delete(oldest.value);
         }
         const control: BackendCancelControl = { cmd: 'cancel', requestIds: [requestId] };
         // Without a backend there is nothing left to stop.

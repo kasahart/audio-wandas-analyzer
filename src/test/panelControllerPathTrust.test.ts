@@ -100,7 +100,7 @@ function folderPanel(options: { listing?: (root: string) => Record<string, Array
         analyzeFiles: async (filePaths: string[]) => filePaths.map(filePath => ({ filePath, fileName: path.basename(filePath), sampleRateHz: 16000,
             durationSeconds: 1, channelCount: 0, sampleCount: 16000, channels: [], analysisRevision: 0 } satisfies AnalysisResultWithError)),
     };
-    const controller = new PanelController(context, backend, analysis, exports, factory, host);
+    const controller = new PanelController(context, backend, analysis, exports, { analysisRevision: () => 0, onDidChange: () => ({ dispose() {} }), configureTrack: async () => undefined }, factory, host);
     // Waits for the reply that ends the request (entry-scan-done, ...) or, for an export, a few turns of the loop.
     const send = async (message: unknown, done?: string) => {
         const before = published.length;
@@ -274,4 +274,41 @@ test('a dropped item that cannot be read is reported, not thrown', async () => {
     await openDroppedTargets(controller, [uri('/untitled') as vscode.Uri], host);
     assert.deepEqual(opened, []);
     assert.deepEqual(shown, ['Could not open /untitled: Unable to resolve resource untitled:Untitled-1']);
+});
+
+test('a track\'s calibration button reaches the store through the panel\'s one message handler, with the shown track', async () => {
+    let receive: ((message: unknown) => unknown) | undefined;
+    let listeners = 0;
+    const panel: PanelHandle = {
+        webview: {
+            onDidReceiveMessage: (listener) => { receive = listener; listeners++; return { dispose() {} }; },
+            postMessage: async () => true,
+        },
+        onDidDispose: () => ({ dispose() {} }),
+    };
+    const shown: AnalysisResultWithError = { filePath: '/a.wav', fileName: 'a.wav', sampleRateHz: 16000, durationSeconds: 1, channelCount: 1,
+        sampleCount: 16000, channels: [{ label: 'shown label' }] as AnalysisResultWithError['channels'], analysisRevision: 0 };
+    const factory: PanelFactory = {
+        getResults: () => [shown], updateResults() {}, replaceResult: () => undefined,
+        showResults: () => panel, showDirectory: () => panel, updateDirectoryResults: async () => true,
+    };
+    const errors: string[] = [];
+    const host = {
+        showError: (message: string) => { errors.push(message); }, showInformation() {},
+        getPythonEnvironment: () => ({ pythonCommand: 'python3', status: 'normal', tooltip: 'python3' }),
+        onPythonEnvironmentChange: () => ({ dispose() {} }), language: () => 'en',
+    } as unknown as PanelControllerHost;
+    const configured: AnalysisResultWithError[] = [];
+    const calibration = { analysisRevision: () => 0, onDidChange: () => ({ dispose() {} }), configureTrack: async (result: AnalysisResultWithError) => { configured.push(result); } };
+    const context = { extensionUri: uri('/extension'), workspaceState: { get: <T>(_key: string, fallback?: T) => fallback, update: async () => undefined } } as unknown as SpectrogramSettingsContext & { extensionUri: vscode.Uri };
+    const controller = new PanelController(context, {} as PanelBackend, { warmup() {}, analyzeFiles: async () => [shown] }, {} as ExportFlows, calibration, factory, host);
+    await controller.analyzeFiles(['/a.wav']);
+    assert.equal(listeners, 1);
+    await receive!({ type: 'configure-calibration', trackIndex: 0, filePath: '/a.wav', channels: [{ channelIndex: 0, label: 'message label' }] });
+    assert.deepEqual(configured, [shown], 'the track as the panel shows it, not the message metadata');
+    await receive!({ type: 'configure-calibration', trackIndex: 0, filePath: '/other.wav', channels: [{ channelIndex: 0, label: 'x' }] });
+    await receive!({ type: 'configure-calibration', trackIndex: 0, filePath: '/a.wav', channels: [] });
+    assert.equal(configured.length, 1, 'a track the panel does not show, or a malformed message, configures nothing');
+    assert.deepEqual(errors, []);
+    controller.dispose();
 });

@@ -35,7 +35,10 @@ export function createStageSource(prefix: string, post: (message: CompareScanMes
         if (!results) {
             results = new Map();
             cache.set(key, results);
-            while (cache.size > CACHED_SPECS) cache.delete(cache.keys().next().value!);
+            for (const oldest of cache.keys()) {
+                if (cache.size <= CACHED_SPECS) break;
+                cache.delete(oldest);
+            }
         }
         return results;
     }

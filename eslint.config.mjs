@@ -1,47 +1,8 @@
 // Type-aware lint for src/ (TypeScript) and scripts/ (plain Node, no type info): `npm run lint`, run by verify.
 // Formatting is not ESLint's job here: .editorconfig covers whitespace, and no stylistic rules are enabled.
-import { existsSync } from 'node:fs';
 import js from '@eslint/js';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
-
-// Burn-down list for @typescript-eslint/no-non-null-assertion, which is an error everywhere else.
-// A file leaves this list once its `!` assertions are gone; none may be added. Kept alphabetised.
-const NON_NULL_ASSERTION_BURN_DOWN = [
-    'src/extension/index.ts',
-    'src/extension/pythonBackendServer.ts',
-    'src/shared/analysis/entryMetadata.ts',
-    'src/shared/analysis/entryScan.ts',
-    'src/shared/dataset/datasetTable.ts',
-    'src/shared/protocol/backendProtocol.ts',
-    'src/shared/protocol/schemaValidation.ts',
-    'src/shared/recipe/channelSelection.ts',
-    'src/shared/recipe/recipeSteps.ts',
-    'src/webview/plot/waveformLayer.ts',
-    'src/webview/rangePopover.ts',
-    'src/webview/runtime/browserAdapter.ts',
-    'src/webview/runtime/calibrationDecorations.ts',
-    'src/webview/runtime/chartSpecRuntime.ts',
-    'src/webview/runtime/comparePanes.ts',
-    'src/webview/runtime/compareReport.ts',
-    'src/webview/runtime/entryPlots.ts',
-    'src/webview/runtime/entryRuntime.ts',
-    'src/webview/runtime/entryTable.ts',
-    'src/webview/runtime/entryTableHtml.ts',
-    'src/webview/runtime/pairSpectrumPanel.ts',
-    'src/webview/runtime/separatorKeys.ts',
-    'src/webview/runtime/spectrogramSettingsPopover.ts',
-    'src/webview/runtime/stagePanes.ts',
-    'src/webview/runtime/stageSource.ts',
-    'src/webview/runtime/staticHost.ts',
-    'src/webview/runtime/stepBar.ts',
-    'src/webview/runtime/toolbarEvents.ts',
-    'src/webview/runtime/trackStageMode.ts',
-];
-NON_NULL_ASSERTION_BURN_DOWN.forEach((file, index, list) => {
-    if (!existsSync(new URL(file, import.meta.url))) throw new Error(`eslint.config.mjs: burn-down entry ${file} does not exist`);
-    if (index > 0 && list[index - 1] >= file) throw new Error(`eslint.config.mjs: burn-down list is not alphabetised at ${file}`);
-});
 
 const SHARED_RULES = {
     eqeqeq: ['error', 'always', { null: 'ignore' }],
@@ -84,10 +45,6 @@ export default tseslint.config(
             // they reject; dropping `async` would turn those rejections into synchronous throws.
             '@typescript-eslint/require-await': 'off',
         },
-    },
-    {
-        files: NON_NULL_ASSERTION_BURN_DOWN,
-        rules: { '@typescript-eslint/no-non-null-assertion': 'off' },
     },
     {
         // Written by scripts/generate-protocol-types.mjs: an empty result schema becomes an empty interface.

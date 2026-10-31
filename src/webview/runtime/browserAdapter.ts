@@ -25,10 +25,14 @@ export function readComparisonBootstrap(browserWindow: ComparisonWindow): Compar
     if (!state || !strings || !acquireHost && !browserWindow.__AWA_HOST__) {
         throw new Error('Comparison Webview bootstrap data is unavailable');
     }
+    const host = browserWindow.__AWA_HOST__ ?? (acquireHost && acquireHost());
+    if (!host) {
+        throw new Error('Comparison Webview bootstrap data is unavailable');
+    }
     return {
         state,
         strings,
-        host: browserWindow.__AWA_HOST__ ?? acquireHost!(),
+        host,
         window: browserWindow,
         document: browserWindow.document,
     };

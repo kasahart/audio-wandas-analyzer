@@ -20,7 +20,11 @@
 Comparison UI と DSP は同じソースを使う。解析コマンドの型・応答検証は
 `src/shared/protocol/backendProtocol.ts`、UI から host への型・入力検証は
 `src/shared/protocol/panelMessages.ts` に置く。Worker の正常応答も native IPC と同じ
-validator を通す。Web の load/unload/export-plan は Worker 専用であり共通10コマンド（`command_dispatch.COMMANDS`）と混同しない。
+validator を通す。Web の load/unload/clear/export-plan/limits は Worker 専用であり共通10コマンド（`command_dispatch.COMMANDS`）と混同しない。
+その応答は `src/webview/runtime/workerProtocol.ts` が検証し、共通コマンドは `parseBackendResult` に渡す。
+Web host（`staticHost.ts`）は port 実装と組み立てを持ち、Worker の起動・再読込・再起動・予備 Worker への交代は
+`staticWorker.ts`、ソースの一覧・上限・フォルダ鍵は `staticSources.ts`、ダウンロードと ZIP は `staticDownloads.ts`、
+選択肢と Recipe 結果の枠は `staticDialogs.ts`、フッターの操作部と Python 表示は `staticFooter.ts` に置く。
 
 - `AnalysisClient` は analyze/detail/slice/range/export/recipe の要求を組み立てる。
   `executeLazyAnalysis` は detail/slice/range の UI 結果へ変換する。host は
@@ -34,7 +38,10 @@ validator を通す。Web の load/unload/export-plan は Worker 専用であり
   lazy request の明示 revision（0 を含む）は表示済み context として優先する。analyze は現 store の
   context を使い、一致した stale profile の破棄後だけ1回再試行する。取消 token は初回と再試行で共通。
   Web は policy なしで入力 context を使う。校正 UI/persistence を Web に追加したことにはならない。
-  Panel は表示 hook で校正 listener を登録し、prototype や show メソッドを書き換えない。
+  校正 store（revision・変更 listener・書込み順序）は activate（`bootstrap.ts`）が1つ作り、backend の policy、
+  `PanelController`、校正コマンドへ渡す。トラックの校正ボタン（`configure-calibration`）も `parsePanelMessage` を
+  通り、`PanelController` の port が表示中の結果で store を呼ぶ。校正コマンドは表示 hook で前面の Panel を追うだけで、
+  Panel に別の message listener を登録せず、prototype や show メソッドも書き換えない。
 - `ComparisonSessionController`（`src/shared/session/`）は panel message の解釈を一度だけ持つ。
   設定保存、再解析の start/update/end 包絡と世代ゲート、lazy 結果への変換と公開判定、
   WAV 区間・レポートの書き出し手順、未対応操作の通知経路はここにある。host は
@@ -249,7 +256,7 @@ flowchart LR
 
 対象: [src/webview/runtime/entryRuntime.ts](../src/webview/runtime/entryRuntime.ts) / [entryTable.ts](../src/webview/runtime/entryTable.ts) / [entryTableHtml.ts](../src/webview/runtime/entryTableHtml.ts) / [src/shared/analysis/entryScan.ts](../src/shared/analysis/entryScan.ts)
 
-`entryRuntime.ts` の `createEntryScreen` は画面の配線だけを持ち、状態の変更は `choose` / `focusOn` / `setSlots` / `setDerived` を通す。描き直しは [entryRedraw.ts](../src/webview/runtime/entryRedraw.ts) がまとめ、クリック・キー・変更ごとに 1 回だけ描く（結果の到着は `createThrottle` で間引く）。部品: スロットと役割 [entrySlots.ts](../src/webview/runtime/entrySlots.ts)、ヘッダの読み取りと計算の進み・見積もり [entryScanQueue.ts](../src/webview/runtime/entryScanQueue.ts)、分布 [entryDistributionPane.ts](../src/webview/runtime/entryDistributionPane.ts)、フォルダのセッション [entrySession.ts](../src/webview/runtime/entrySession.ts)。
+`entryRuntime.ts` の `createEntryScreen` は画面の配線だけを持ち、状態の変更は `choose` / `focusOn` / `setSlots` / `setDerived` を通す。描き直しは [entryRedraw.ts](../src/webview/runtime/entryRedraw.ts) がまとめ、クリック・キー・変更ごとに 1 回だけ描く（結果の到着は `createThrottle` で間引く）。部品: スロットと役割 [entrySlots.ts](../src/webview/runtime/entrySlots.ts)、ヘッダの読み取りと計算の進み・見積もり [entryScanQueue.ts](../src/webview/runtime/entryScanQueue.ts)、分布 [entryDistributionPane.ts](../src/webview/runtime/entryDistributionPane.ts)、列の絞り込み [entryFilterPopover.ts](../src/webview/runtime/entryFilterPopover.ts)、押さえている間の図 [entryHeldPlot.ts](../src/webview/runtime/entryHeldPlot.ts)、俯瞰帯と横の図のズーム [entrySidePlots.ts](../src/webview/runtime/entrySidePlots.ts)、比較する行の基準（スロット 0 か群の中央値） [entryBase.ts](../src/webview/runtime/entryBase.ts)、フォルダのセッション [entrySession.ts](../src/webview/runtime/entrySession.ts)。
 
 フォルダを開くと（VS Code はディレクトリ解析、Web はフォルダ選択）、レーン表示の上に 1 行 1 ファイルの表が開く。Webview は `entry-scan` を 1 回送り、共通 controller の `runEntryScan` が保存済みの条件表を返したあと、1 件ずつ `scan`（固定レシピ `python-backend/recipes/entry-scan.recipe.json`）の結果を `entry-scan-result` で返す。同じファイル（VS Code はパス・size・mtime、Web は内容の sha256）と同じ校正なら保存済みの結果を使う。保存先は VS Code が workspaceState、Web が localStorage で、鍵は `awa.scanIndex.v1` / `awa.conditions.v1`（このフォルダの分だけ残す）。Web は 1 件ずつ load → scan → unload し、走査後に Worker を作り直して選択中のトラックを読み直す。表の数値・条件・Δ・外れ値・CSV は `entryTable.ts` の純関数。条件は諸元表から取る: フォルダ直下（VS Code は 1 つ上も）の CSV/TSV のうち、音源の 50% 以上に対応するものを自動で読み（`src/shared/analysis/entryMetadata.ts`、asd-insight と同じ規則: 区切りはタブとカンマの多い方、音声列 audio_file 等は開いたフォルダ直下からの相対パスで完全一致、ファイル名だけなら候補が 1 つのときだけ、無ければ sample_id 等に拡張子を補う、大小区別、1 音源に複数行なら最初の行、128 列・20 MiB まで）、表を貼る・表にドロップしても同じ規則で読む。サブフォルダの階層も条件列になる。諸元表もサブフォルダも無いときだけファイル名（`_`/`-` 区切りで最後のトークンの前の 2 つ）から取る。走査中は行をファイル（諸元の行）順に固定し、全件そろってから Δ 順に並べ直す。スロットに入れた未走査のファイルは先に走査する。キーは 0（押す: 基準、押さえる: Δ）、1–3（スロット）、Enter（比較台へ）、Esc（ファイルツリーへ）。入口が開いている間、レーン表示のショートカットは働かない。
 
@@ -266,6 +273,8 @@ flowchart LR
 ### 7.4 手順バー（PR 5）
 
 対象: [src/webview/runtime/stepBar.ts](../src/webview/runtime/stepBar.ts) / [src/shared/recipe/recipeSteps.ts](../src/shared/recipe/recipeSteps.ts)
+
+`stepBar.ts` は状態とイベントの配線だけを持ち、中身は同じフォルダのモジュールに分かれる: `stepBarModel.ts`（StepBarState・scan が走らせるレシピ・チェーンの並び）、`stepLabels.ts`（チップ名と走れない理由）、`stepChips.ts`（チップの行）、`stepMenu.ts`（＋のメニューと絞り込み。打つたびに描き直すのは一覧だけ）、`stepForm.ts`（⚙ のフォームとその検査）、`stepHistory.ts`（↶ ↷）、`stepGestures.ts`（タップ・長押し・ドラッグ）。トラック表示の「ステップ」モードも同様に `trackStageMode.ts` が配線、`trackStageModel.ts` が状態と scan の指定、`trackStagePainter.ts` が描画、`trackStageGestures.ts` がプロットの操作を持つ。
 
 入口と比較台の上に、scan のレシピをチップで並べる。入口は「entry-scan › … › 指標 v2」、比較台は「entry-scan › … › 区間 › 平均スペクトル」に畳み、「…」で全部を開く。レシピはホストが `entry-conditions` で送る固定レシピ（`recipes/entry-scan.recipe.json`）。⚙ で開くフォームの項目は `STEP_PARAMS`（HPF・LPF・BPF の cutoff と order、welch の n_fft と window）で、wandas 0.9.0 に `default_recipe_registry().describe()` が無いための仮の表（wandas の次のリリースで置き換える）。値は wandas の符号化（float は big-endian IEEE 754 の 16 進）でレシピに書き戻す。標本化周波数に対して無効な値（cutoff ≥ fs/2、2 の冪でない n_fft など）のチップは赤くなり、そのステップを抜いたレシピ（`runnableRecipe`）で入口を最初から scan し直す（保存済みの結果はレシピ鍵が違うので使わない）。編集したレシピは PersistedWebviewState に残り、読めなくなっていたら 1 行の警告を出して標準のレシピに戻す。比較台では区間チップが「≠ 入口」の点線になり、平均スペクトルのチップを押さえている間は、基準がスロット 0 の 1 件のときに限り、レーン表示が持つスペクトログラムで 3 段を描く。
 
@@ -440,7 +449,7 @@ interface AnalysisResultWithError extends AnalysisResult {
 ```text
 src/
   extension/
-    bootstrap.ts            package.json の main。index.ts を読み込む
+    bootstrap.ts            package.json の main。校正 store とコマンドを作り index.ts を呼ぶ
     index.ts                activate: 各部品の組み立て
     extensionContributions.ts コマンド・エクスプローラーメニュー・Welcome ビューの登録
     analysisOrchestrator.ts 解析要求の発行と進捗表示
@@ -449,8 +458,8 @@ src/
     targetDiscovery.ts      対象ファイル／ディレクトリの選択とツリー構築
     exportFlows.ts          WAV / PNG / CSV の書き出し
     recipeFlow.ts           Recipe の実行
-    calibrationStore.ts     校正プロファイルの保存と変更通知
-    calibrationPanelRuntime.ts 校正パネル（configureCalibration）
+    calibrationStore.ts     CalibrationStore: 校正プロファイルの保存・revision・変更通知
+    calibrationPanelRuntime.ts CalibrationPanels: 前面パネルへの校正コマンド（configureCalibration）
     folderStore.ts          フォルダ単位のスキャン索引・セッションの保存
     pythonEnvironment.ts    Python 実行環境の検出と依存パッケージの確認
     pythonBackendServer.ts  解析要求用の永続 Python 子プロセス

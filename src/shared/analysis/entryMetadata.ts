@@ -47,8 +47,8 @@ export function withFolderColumns(
     const width = base.columns.length;
     const added = Array.from({ length: levels }, (_, index) => label(index + 1));
     const rows: Record<string, string[]> = {};
-    for (const filePath of recordings) {
-        rows[filePath] = [...(base.rows[filePath] ?? Array(width).fill('')), ...added.map((_, level) => folders.get(filePath)![level] ?? '')];
+    for (const [filePath, parts] of folders) {
+        rows[filePath] = [...(base.rows[filePath] ?? Array(width).fill('')), ...added.map((_, level) => parts[level] ?? '')];
     }
     return {
         ...base,

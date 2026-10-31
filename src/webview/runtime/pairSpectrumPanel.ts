@@ -306,9 +306,10 @@ export class PairSpectrumPanel {
         }
         // The power spectrum's Hz window, not its zoom fractions: they scale to the fastest track's Nyquist, the pair view's to the reference's.
         const visible = this.visibleFrequencyHz(result);
-        const own = this.hoverPoint ? this.frequencyAt(this.hoverPoint.x, canvas.width, visible) : null;
+        const point = this.hoverPoint;
+        const own = point ? this.frequencyAt(point.x, canvas.width, visible) : null;
         const synced = own === null ? this.host.hoverFrequencyHz() : null;
-        const hover = own !== null ? { frequencyHz: own, y: this.hoverPoint!.y } : synced !== null ? { frequencyHz: synced, y: null } : null;
+        const hover = point && own !== null ? { frequencyHz: own, y: point.y } : synced !== null ? { frequencyHz: synced, y: null } : null;
         const readout = paintPairSpectrum(ctx, canvas.width, canvas.height,
             { frequencyBins: result.frequencyBins, maxFrequencyHz: result.maxFrequencyHz, curves },
             visible, hover, this.strings, this.host.theme());
