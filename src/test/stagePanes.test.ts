@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { loudPoints, medianView, stageAxes, stageLevelsHeadline, stageDifference, stageDiffRange, stageHeadline, stageRange, type StageStrings } from '../webview/runtime/stagePanes';
+import { loudPoints, medianView, stageAxes, stageLevelsHeadline, stageDifference, stageDiffRange, stageHeadline, stageRange, stageReadout, axisFractionOf, type StageStrings } from '../webview/runtime/stagePanes';
 import type { StageView } from '../shared/protocol/backendProtocol';
 
 const line = (values: number[], quantity: StageView['quantity'] = 'level'): StageView => ({ frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity, xs: [100, 1000, 10000], values });
@@ -51,6 +51,22 @@ test('a cepstrum is drawn on a quefrency axis, symmetric about zero without its 
     assert.deepEqual(stageAxes(names, diff, undefined, true), { x: 'Quefrency s', y: 'Δ Real cepstrum' });
     assert.equal(stageHeadline(diff, strings), '1.00 ms +0.0200');
     assert.deepEqual(stageDiffRange(diff), { min: -0.021, max: 0.021 });
+});
+
+const correlation = (values: number[]): StageView => ({ frame: 'CrossCorrelationFrame', kind: 'line', x: 'lag', xScale: 'linear', quantity: 'correlation', xs: [-0.002, -0.001, 0, 0.001], values, pair: { output: 2, input: 1 } });
+
+test('a cross-correlation is drawn over a signed lag axis on the fixed [-1, 1] coefficient range', () => {
+    const view = correlation([0.1, -0.2, 0.3, 0.95]);
+    assert.deepEqual(stageRange([view]), { min: -1, max: 1 });
+    const names = { axisLag: 'Lag s', axisCorrelation: 'Correlation coefficient', axisDelta: 'Δ dB' } as unknown as StageStrings;
+    assert.deepEqual(stageAxes(names, view, undefined), { x: 'Lag s', y: 'Correlation coefficient · ch2 / ch1' });
+    const diff = stageDifference(view, correlation([0.1, -0.2, 0.3, 0.55]))!;
+    assert.deepEqual(stageAxes(names, diff, undefined, true), { x: 'Lag s', y: 'Δ Correlation coefficient · ch2 / ch1' });
+    assert.equal(stageHeadline(diff, strings), '+1.00 ms −0.400');
+    // A delay is read to 10 µs at any lag, and none has no sign.
+    const long: StageView = { ...view, xs: [-0.0125, 0, 0.0125, 0.02] };
+    assert.match(stageReadout({ base: long, compare: long, diff: null }, 0), /^−12\.50 ms/);
+    assert.match(stageReadout({ base: long, compare: long, diff: null }, axisFractionOf(long, 0)), /^0\.00 ms/);
 });
 
 test('a step\'s headline names the largest difference among loud points only, with both values', () => {

@@ -296,7 +296,7 @@ def scan_plans(recipe: Mapping[str, object], start: float, end: float, sampling_
         nodes = list(full["nodes"])
         tail = nodes[-1]["id"] if nodes else full["inputs"][0]["id"]
         nodes.append(
-            {"id": target, "operation": TIME_SLICE_OPERATION, "version": 1, "inputs": [tail], "params": region_params}
+            {"id": target, "operation": TIME_SLICE_OPERATION, "version": 2, "inputs": [tail], "params": region_params}
         )
     region = RecipePlan.from_dict({**full, "nodes": nodes, "output": target})
     welch_node = next((node for node in full["nodes"] if node["operation"] == WELCH_OPERATION), None) or {

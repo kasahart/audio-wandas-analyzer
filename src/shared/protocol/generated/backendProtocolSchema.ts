@@ -1203,7 +1203,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                         "frequency",
                         "time",
                         "band",
-                        "quefrency"
+                        "quefrency",
+                        "lag"
                     ]
                 },
                 "xScale": {
@@ -1221,7 +1222,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                         "coherence",
                         "value",
                         "roughness",
-                        "cepstrum"
+                        "cepstrum",
+                        "correlation"
                     ]
                 },
                 "unit": {
@@ -1952,9 +1954,9 @@ export interface StageDetail {
 export interface StageView {
     frame: string;
     kind: "line" | "bar" | "heatmap" | "none";
-    x?: "frequency" | "time" | "band" | "quefrency";
+    x?: "frequency" | "time" | "band" | "quefrency" | "lag";
     xScale?: "log" | "linear";
-    quantity?: "level" | "gain" | "coherence" | "value" | "roughness" | "cepstrum";
+    quantity?: "level" | "gain" | "coherence" | "value" | "roughness" | "cepstrum" | "correlation";
     unit?: string;
     xs?: number[];
     ys?: number[];

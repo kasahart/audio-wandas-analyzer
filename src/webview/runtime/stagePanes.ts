@@ -1,7 +1,7 @@
 /**
  * The comparison's three panes for one step of the chain: the base's, the compared file's and their
  * difference, each drawn as its Frame type is (stage_view.py): a line over time, log frequency or
- * quefrency, bars per band, an image over time and frequency, Bark or quefrency. The base of a group is
+ * quefrency, a cross-correlation over lag, bars per band, an image over time and frequency, Bark or quefrency. The base of a group is
  * the median of its files' pictures, point by point. A difference is taken between two pictures of the
  * same quantity on the same axes, in what they measure (dB for levels); otherwise the Δ pane says why it
  * is empty. Pure apart from `paintStage`, which only draws.
@@ -20,7 +20,7 @@ import { niceTicks } from '../../shared/utils/ticks';
 /** Canvas x the level axis's turned title is centred on, in the gutter left of its tick labels. */
 const AXIS_TITLE_X = 10;
 
-export type StageStrings = Pick<UiStrings, 'axisFrequency' | 'axisTime' | 'axisBand' | 'axisBark' | 'axisQuefrency' | 'axisCepstrum' | 'axisLevel' | 'axisLevelUncal' | 'axisLevelCal' | 'axisDelta' | 'dsValue' | 'axisGain' | 'axisCoherence' | 'legendHeadline' | 'legendLeak' | 'legendLine' | 'stageNoDelta' | 'stageMaxDelta' | 'stepNotDrawable' | 'compareLevelsAt' | 'waveRangeAxisAmplitude' | 'stagePairBase'>;
+export type StageStrings = Pick<UiStrings, 'axisFrequency' | 'axisTime' | 'axisBand' | 'axisBark' | 'axisQuefrency' | 'axisCepstrum' | 'axisLag' | 'axisCorrelation' | 'axisLevel' | 'axisLevelUncal' | 'axisLevelCal' | 'axisDelta' | 'dsValue' | 'axisGain' | 'axisCoherence' | 'legendHeadline' | 'legendLeak' | 'legendLine' | 'stageNoDelta' | 'stageMaxDelta' | 'stepNotDrawable' | 'compareLevelsAt' | 'waveRangeAxisAmplitude' | 'stagePairBase'>;
 
 const DB_QUANTITIES = ['level', 'gain'];
 const isDb = (view: StageView | null): boolean => DB_QUANTITIES.includes(view?.quantity ?? '');
@@ -142,8 +142,10 @@ export function stageRange(views: ReadonlyArray<StageView | null>): PaneRange {
     const { low, high } = extent(views);
     const first = views.find(Boolean);
     const quantity = first?.quantity;
-    if (!Number.isFinite(high)) return quantity === 'coherence' ? { min: 0, max: 1 } : quantity === 'cepstrum' ? { min: -1, max: 1 } : { min: -100, max: 0 };
+    if (!Number.isFinite(high)) return quantity === 'coherence' ? { min: 0, max: 1 } : quantity === 'cepstrum' || quantity === 'correlation' ? { min: -1, max: 1 } : { min: -100, max: 0 };
     if (quantity === 'coherence') return { min: 0, max: 1 };
+    // A normalized correlation coefficient lies in [-1, 1].
+    if (quantity === 'correlation') return { min: -1, max: 1 };
     if (quantity === 'cepstrum') {
         // Signed coefficients around zero: symmetric, robust for an image, every peak for a line.
         const edge = (first?.kind === 'heatmap' ? robustEdge(views) : Math.max(Math.abs(low), Math.abs(high)) * 1.05) || 1;
@@ -177,7 +179,7 @@ export interface StageAxes { x: string; y: string }
 
 /** What each axis of a picture measures; a heatmap's y is its rows' axis, its colour the level. */
 export function stageAxes(strings: StageStrings, view: StageView | null, input: { unit?: string; ref?: number } | undefined, diff = false): StageAxes {
-    const x = view?.x === 'time' ? strings.axisTime : view?.x === 'band' ? strings.axisBand : view?.x === 'quefrency' ? strings.axisQuefrency : strings.axisFrequency;
+    const x = view?.x === 'time' ? strings.axisTime : view?.x === 'band' ? strings.axisBand : view?.x === 'quefrency' ? strings.axisQuefrency : view?.x === 'lag' ? strings.axisLag : strings.axisFrequency;
     if (view?.kind === 'heatmap') return { x, y: view.yAxis === 'bark' ? strings.axisBark : view.yAxis === 'quefrency' ? strings.axisQuefrency : strings.axisFrequency };
     if (diff && (!view || isDb(view))) return { x, y: strings.axisDelta };
     // A time signal is drawn as itself: its amplitude, in its unit (full scale while uncalibrated).
@@ -187,6 +189,7 @@ export function stageAxes(strings: StageStrings, view: StageView | null, input: 
         : view?.quantity === 'gain' ? strings.axisGain
             : view?.quantity === 'coherence' ? strings.axisCoherence
                 : view?.quantity === 'cepstrum' ? strings.axisCepstrum
+                    : view?.quantity === 'correlation' ? strings.axisCorrelation
                     : `${strings.dsValue}${unit}`;
     // A cross-channel Frame names its pair: which channel over which reference, or the recording over the base slot's.
     const pair = view?.pair?.base ? ` · ${strings.stagePairBase}` : view?.pair ? ` · ch${view.pair.output} / ch${view.pair.input}` : '';
@@ -197,11 +200,19 @@ const hz = (value: number): string => (value >= 1000 ? `${(value / 1000).toFixed
 /** A signed difference: dB to a tenth with its unit, other values to three significant digits. */
 const signed = (value: number, db = true): string => `${value >= 0 ? '+' : '−'}${db ? `${Math.abs(value).toFixed(1)} dB` : Math.abs(value).toPrecision(3)}`;
 const quefrency = (seconds: number): string => `${(seconds * 1000).toFixed(seconds < 0.01 ? 2 : 1)} ms`;
+/**
+ * A signed lag: the output channel later than the input when positive. To 10 µs at any lag (a sample at 96 kHz,
+ * since a delay is read sample by sample), and no sign on none.
+ */
+const lag = (seconds: number): string => {
+    const ms = (Math.abs(seconds) * 1000).toFixed(2);
+    return `${Number(ms) === 0 ? '' : seconds > 0 ? '+' : '−'}${ms} ms`;
+};
 
 /** Where along its axis a point of the picture is, for the readout and the headline. */
 function atText(view: StageView, index: number, row?: number): string {
     const x = view.xs?.[index] ?? 0;
-    const along = view.x === 'time' ? `${x.toFixed(2)} s` : view.x === 'quefrency' ? quefrency(x) : hz(x);
+    const along = view.x === 'time' ? `${x.toFixed(2)} s` : view.x === 'quefrency' ? quefrency(x) : view.x === 'lag' ? lag(x) : hz(x);
     if (row === undefined) return along;
     const y = view.ys?.[row] ?? 0;
     return `${along} · ${view.yAxis === 'bark' ? `${y.toFixed(1)} Bark` : view.yAxis === 'quefrency' ? quefrency(y) : hz(y)}`;
@@ -350,6 +361,11 @@ export interface StagePaintOptions {
      * same-signed neighbours (its leak through the band filters) outlined, the rest faint; `legend` names them.
      */
     bandSteps?: { deltas: readonly (number | null)[]; headline: readonly number[]; color: string; legend?: { headline: string; leak: string; line: string } };
+    /**
+     * The pictures still being computed: `label` (the files done of all) and a bar of `done` / `total`, in the
+     * middle of the pane while nothing is drawn, in its top right corner once some lines are in.
+     */
+    pending?: { done: number; total: number; label: string };
 }
 
 /** One picture on its own: the base, the compared file or their difference. */
@@ -394,8 +410,11 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
     }
     context.font = '10px sans-serif';
     const view = overlay.layers.find(layer => layer.view.kind !== 'none' && layer.view.xs?.length)?.view;
+    // Neutral: blue and the other colours are the roles'.
+    const pendingColors = { muted, line, fill: text, back: style?.getPropertyValue('--track-bg').trim() || '#0b0d10' };
     if (!view) {
-        if (options.empty) {
+        if (options.pending) paintPending(context, options.pending, left + plotWidth / 2, top + plotHeight / 2, 'center', pendingColors);
+        else if (options.empty) {
             context.fillStyle = muted;
             context.textAlign = 'center';
             context.fillText(options.empty, left + plotWidth / 2, top + plotHeight / 2);
@@ -534,6 +553,31 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
     const frame = { left, top, width: plotWidth, height: plotHeight };
     drawValueAxis(context, frame, levelTicks, '', { color: muted, font: context.font, titleX: AXIS_TITLE_X });
     drawValueAxis(context, frame, [], axes.y, { color: text, font: context.font, titleX: AXIS_TITLE_X });
+    // Under the region's corner tag when there is one.
+    if (options.pending) paintPending(context, options.pending, left + plotWidth - 6, top + (options.region?.mark === 'tag' ? 38 : 12), 'right', pendingColors);
+}
+
+/**
+ * "Computing 3 / 12" over a thin bar filled to the part done, centred at (x, y) or ending at x (`right`, over the
+ * lines: on a backing of the plot's background).
+ */
+function paintPending(context: CanvasRenderingContext2D, pending: { done: number; total: number; label: string }, x: number, y: number, align: 'center' | 'right', colors: { muted: string; line: string; fill: string; back: string }): void {
+    context.save();
+    context.font = '12px sans-serif';
+    const barWidth = Math.max(96, context.measureText(pending.label).width);
+    const left = align === 'center' ? x - barWidth / 2 : x - barWidth;
+    if (align === 'right') {
+        context.fillStyle = colors.back;
+        context.fillRect(left - 4, y - 12, barWidth + 8, 26);
+    }
+    context.fillStyle = colors.muted;
+    context.textAlign = align;
+    context.fillText(pending.label, x, y);
+    context.fillStyle = colors.line;
+    context.fillRect(left, y + 6, barWidth, 4);
+    context.fillStyle = colors.fill;
+    context.fillRect(left, y + 6, barWidth * Math.min(1, pending.done / Math.max(1, pending.total)), 4);
+    context.restore();
 }
 
 

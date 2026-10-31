@@ -101,6 +101,6 @@ def test_operations_a_chain_cannot_hold_are_left_out() -> None:
 
 def test_frames_list_what_they_derive_from() -> None:
     by_name = {frame["name"]: frame for frame in frames()}
-    assert by_name["CoherenceFrame"]["bases"] == ["PairwiseSpectralFrame"]
+    assert by_name["CoherenceFrame"]["bases"] == ["PairwiseSpectralFrame", "PairwiseFrame"]
     assert by_name["SpectralFrame"]["charted"] is True
     assert by_name["CepstralFrame"]["charted"] is True

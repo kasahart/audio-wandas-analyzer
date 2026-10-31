@@ -299,7 +299,7 @@ test('the comparison\'s step bar grows the chain with ＋, offers only what take
     await expect.poll(async () => (await stageScans(page)).at(-1)!.filePaths.length).toBeGreaterThan(30);
     await answer(page);
     await expect(page.locator('[data-stage-headline]')).toHaveText(/ base /);
-    // The overlaid plot: hover says what the pointer can do; Shift+wheel pans, Ctrl+wheel zooms, a double-click resets.
+    // The overlaid plot: hover says what the pointer can do; Shift+wheel or a sideways swipe pans, Ctrl+wheel zooms, a double-click resets.
     const root = page.locator('.track-stage');
     const plot = page.locator('[data-stage-canvas="overlay"]');
     const box = (await plot.boundingBox())!;
@@ -338,6 +338,9 @@ test('the comparison\'s step bar grows the chain with ＋, offers only what take
     await page.mouse.wheel(0, 100);
     await page.keyboard.up('Shift');
     await expect(root).toHaveAttribute('data-x-window', '0.150-1.000');
+    // A sideways trackpad swipe pans it as far as the fingers moved, its span kept.
+    await page.mouse.wheel(-40, 0);
+    await expect.poll(async () => { const [start, end] = (await root.getAttribute('data-x-window'))!.split('-').map(Number); return start < 0.15 && start > 0.05 && Math.abs(end - start - 0.85) < 0.002; }).toBe(true);
     await page.mouse.dblclick(middle.x, middle.y);
     await expect(root).toHaveAttribute('data-x-window', '0.000-1.000');
 });
