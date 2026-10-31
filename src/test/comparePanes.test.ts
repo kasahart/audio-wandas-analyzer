@@ -3,7 +3,7 @@ import test from 'node:test';
 import type { ScanResult } from '../shared/protocol/backendProtocol';
 import { getStrings } from '../shared/i18n/strings';
 import { BAND_CENTERS_HZ, buildEntryModel } from '../webview/runtime/entryTable';
-import { buildCompareModel, diffHeadline, levelsHeadline, paneAxes } from '../webview/runtime/comparePanes';
+import { buildCompareModel, diffHeadline, legendHtml, levelsHeadline, paneAxes } from '../webview/runtime/comparePanes';
 import { paintOverlay } from '../webview/runtime/stagePanes';
 import type { StageView } from '../shared/protocol/backendProtocol';
 
@@ -141,4 +141,14 @@ test('the headline gives both levels, and a band far below the loudest does not 
     assert.ok(levelsHeadline(heard, STR).startsWith('3.15 kHz base 60.0 / compare 65.0 · '));
     // A group of three or more files carries its quartiles for the band under its median.
     assert.equal(buildCompareModel(model, files, '/f/free.wav', '/f/L1_900rpm_run1.wav', STR).base!.spread, undefined);
+});
+
+test('a legend item ends with the markup its caller adds (the base group\'s ▾), after its label', () => {
+    const strings = getStrings('en');
+    const html = legendHtml([
+        { color: '#000', label: 'Base <group>', trailingHtml: '<button data-action="stage-base-info">▾</button>' },
+        { color: '#111', label: 'a.wav', path: '/a.wav', value: 'Leq 60.0' },
+    ], strings);
+    assert.match(html, /^<span class="compare-legend-item"><svg[^]*<span class="compare-legend-label">Base &lt;group&gt;<\/span><button data-action="stage-base-info">▾<\/button><\/span><span class="compare-legend-item">/);
+    assert.equal(html.split('stage-base-info').length, 2);
 });
