@@ -78,7 +78,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     function save(key: string, value: unknown): void {
         try { window.localStorage.setItem(key, JSON.stringify(value)); } catch { /* Storage may be denied or full; keep working in memory. */ }
     }
-    const folderStore = createIdbStore(window.indexedDB as IDBFactory | undefined, { read: readSaved, write: save });
+    const folderStore = createIdbStore(window.indexedDB, { read: readSaved, write: save });
     const settingsContext = { workspaceState: {
         get: readSaved,
         update: async (key: string, value: unknown): Promise<void> => { save(key, value); },
