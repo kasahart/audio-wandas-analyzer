@@ -139,7 +139,7 @@ export function filterChipText(filter: DatasetFilter, label: (column: ColumnId) 
     const name = label(filter.column);
     return filter.kind === 'range'
         ? `${name} ${format(filter.column, filter.low)} ${strings.dsFilterRangeSeparator} ${format(filter.column, filter.high)}`
-        : `${name} = ${filter.values.length > 2 ? strings.dsFilterMoreValues.replace('{first}', short(filter.values[0])).replace('{count}', String(filter.values.length - 1)) : filter.values.map(short).join(', ')}`;
+        : `${name} = ${filter.values.length > 2 ? strings.dsFilterMoreValues.replace('{first}', () => short(filter.values[0])).replace('{count}', String(filter.values.length - 1)) : filter.values.map(short).join(', ')}`;
 }
 
 /** The filters as chips (× takes one off), then ＋ to filter by a column that is not on screen. */
