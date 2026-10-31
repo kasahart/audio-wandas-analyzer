@@ -17,6 +17,7 @@ from calibration_profile import (
 )
 from decimator import decimated_waveform
 from perf import perf_log
+from stage_view import power_mean_db
 
 WAVEFORM_POINT_LIMIT = 1200
 SPECTROGRAM_TIME_BIN_LIMIT = 720
@@ -186,10 +187,12 @@ def _pick_window_size(sample_count: int) -> int:
     return window_size
 
 
+_MEAN_POWER_FLOOR_DB = -120.0
+
+
 def _mean_power_db(values_db: np.ndarray, axis: int) -> np.ndarray:
-    powers = np.power(10.0, values_db / 10.0)
-    mean_power = np.maximum(np.mean(powers, axis=axis), 1e-12)
-    return 10.0 * np.log10(mean_power)
+    # The display payload floors a bin's mean power at 1e-12 (-120 dB); the comparison floors at MIN_LEVEL_DB.
+    return np.maximum(power_mean_db(values_db, axis), _MEAN_POWER_FLOOR_DB)
 
 
 def resample_frequency_bins(spectrogram: np.ndarray, target_bin_count: int) -> np.ndarray:
