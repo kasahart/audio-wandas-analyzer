@@ -189,6 +189,32 @@ test('directory listing stops at its entry cap and says so', async () => {
     assert.equal(files.length, 7, 'two folders plus seven files fill the cap of nine');
 });
 
+test('a truncated directory listing does not depend on which read finishes first', async () => {
+    const listing: Record<string, Array<[string, number]>> = {
+        '/r': [['d2', FileType.Directory], ['d1', FileType.Directory]],
+        '/r/d1': [['x.wav', FileType.File], ['s', FileType.Directory]],
+        '/r/d1/s': Array.from({ length: 3 }, (_, i) => [`${i}.wav`, FileType.File]),
+        '/r/d2': Array.from({ length: 5 }, (_, i) => [`${i}.wav`, FileType.File]),
+    };
+    const listWithDelays = async (delays: Record<string, number>) => {
+        const { tree, truncated } = await buildDirectoryTree(uri('/r') as vscode.Uri, {
+            stat: async () => ({ type: FileType.Directory }) as vscode.FileStat,
+            readDirectory: async (source) => {
+                const key = posixPath(source.fsPath);
+                for (let i = 0; i < (delays[key] ?? 0); i++) await tick();
+                return listing[key] ?? [];
+            },
+        }, { maxEntries: 9 });
+        const paths = (nodes: typeof tree): string[] => nodes.flatMap(node => node.children ? paths(node.children) : [node.relativePath]);
+        return { paths: paths(tree), truncated };
+    };
+    const laterFirst = await listWithDelays({ '/r/d1': 6, '/r/d1/s': 6 });
+    const earlierFirst = await listWithDelays({ '/r/d2': 12 });
+    // Two folders, then d1's two entries and its subfolder's three files, leave room for two of d2's five.
+    assert.deepEqual(laterFirst, { paths: ['d1/s/0.wav', 'd1/s/1.wav', 'd1/s/2.wav', 'd1/x.wav', 'd2/0.wav', 'd2/1.wav'], truncated: true });
+    assert.deepEqual(earlierFirst, laterFirst);
+});
+
 test('directory listing bounds reads in flight across nesting levels', async () => {
     const listing: Record<string, Array<[string, number]>> = { '/r': [] };
     for (let i = 0; i < 6; i++) {
