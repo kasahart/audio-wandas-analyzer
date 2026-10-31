@@ -35,7 +35,9 @@ import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { baseName, isMetadataCandidate, withFolderColumns } from '../../shared/analysis/entryMetadata';
 import { powerMeanDb, powerMeanOrNull } from '../../shared/utils/levels';
 import { finiteNumber } from '../../shared/dataset/asdData';
+import { CSVColumnCountError, csvColumnCountMessage } from '../../shared/dataset/csvDiagnostics';
 import { keyRouterFor } from './keyRouter';
+import { setHint } from './hintFooter';
 import { ENTRY_KEYS, keyAction } from './shortcuts';
 import {
     annotatedCsv, baseGroupMembers, columnValues, datasetRows, filteredRows, fileOfKey, rowKey, groupOf as datasetGroupOf, isComputed, matchCsv, readDatasetCsv, valueOf, visibleRows,
@@ -556,6 +558,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             return key && shown && shown.key !== key && (shown.channels ?? 1) > 1 ? strings.dsSlotTrackChannel.replace('{ch}', String(shown.ch)) : null;
         });
         slotBar.innerHTML = entrySlotsHtml(slots, key => rowName(key), baseText(), text, heldSlot, notes);
+        markOpenable();
         notes.forEach((note, slot) => slotBar.querySelector(`[data-action="entry-slot"][data-slot="${slot}"]`)?.setAttribute('data-track-note', note ?? ''));
         const wanted = `<button type="button" class="entry-key" data-action="entry-key-hint" data-key="help">${escapeHtml(strings.keyHelp)}</button>`;
         if (keyHints.innerHTML !== wanted) keyHints.innerHTML = wanted;
@@ -1309,10 +1312,19 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         if ((event.target as Element).closest('button, select, input, label')) return;
         setMaximized(!maximized);
     });
+    const hasCompared = (): boolean => slots.slice(1).some(key => key && rows.some(row => row.key === key));
+    /** Open Compare looks unavailable while slots 1–3 are empty, and its hint says how to fill one; a press still flashes slot 1. */
+    function markOpenable(): void {
+        const open = query<HTMLButtonElement>('[data-action="entry-open"]');
+        const ready = hasCompared();
+        open.setAttribute('aria-disabled', String(!ready));
+        setHint(open, ready ? strings.entryOpen : strings.compareRefuseSlot.replace('{n}', '1'));
+    }
     function openSlotted(stage?: string): void {
         // The comparison compares slots 1–3; slot 0 alone has nothing to compare against.
-        if (!slots.slice(1).some(key => key && rows.some(row => row.key === key))) {
-            deps.announce(stage ? strings.stepOpenCompare : strings.entryKeySlot);
+        if (!hasCompared()) {
+            deps.announce(stage ? strings.stepOpenCompare : strings.compareRefuseSlot.replace('{n}', '1'));
+            if (!stage) document.getElementById('hint-footer')?.replaceChildren(strings.compareRefuseSlot.replace('{n}', '1'));
             const first = slotBar.querySelector('[data-slot="1"]');
             first?.classList.remove('is-flash'); void (first as HTMLElement | null)?.offsetWidth; first?.classList.add('is-flash');
             return;
@@ -1369,7 +1381,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
                 applyCsv(read, { name: file.name, text: new TextDecoder('utf-8').decode(bytes) });
                 deps.announce(strings.dsCsvRead.replace('{name}', file.name).replace('{matched}', String(match?.attributes.size ?? 0)).replace('{total}', String(filePaths.length)));
             } catch (error) {
-                deps.announce(strings.dsCsvError.replace('{reason}', error instanceof Error ? error.message : String(error)));
+                const reason = error instanceof CSVColumnCountError ? csvColumnCountMessage(error.diagnostic, strings) : error instanceof Error ? error.message : String(error);
+                deps.announce(strings.dsCsvError.replace('{reason}', reason));
             }
         });
     }

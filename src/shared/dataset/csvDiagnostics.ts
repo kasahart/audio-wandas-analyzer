@@ -1,6 +1,7 @@
 /**
- * CSV diagnostics, ported unchanged from asd-insight packages/domain/csv-diagnostics.ts (commit 40ea4a0):
+ * CSV diagnostics, ported from asd-insight packages/domain/csv-diagnostics.ts (commit 40ea4a0):
  * a data row whose column count differs from the header's is reported with the evidence around it.
+ * The words are the UI's (csvColumnCountMessage); the diagnostic carries only the facts.
  */
 export type CSVColumnCountDiagnostic = {
   kind: 'column-count';
@@ -20,7 +21,6 @@ export type CSVColumnCountDiagnostic = {
   omittedColumns: number;
   rawRecord: string;
   rawRecordTruncated: boolean;
-  hints: string[];
 };
 
 export const CSV_DIAGNOSTIC_LIMITS = {
@@ -109,7 +109,6 @@ export function columnCountDiagnostic({
           : null,
     }));
   const preview = recordPreview(rawRecord);
-  const delimiterName = delimiter === '\t' ? 'タブ' : 'カンマ（,）';
   return {
     kind: 'column-count',
     fileName: truncate(fileName, CSV_DIAGNOSTIC_LIMITS.fileNameCharacters),
@@ -124,13 +123,6 @@ export function columnCountDiagnostic({
     omittedColumns: total - columns.length,
     rawRecord: preview.text,
     rawRecordTruncated: preview.truncated,
-    hints: [
-      `区切り文字は${delimiterName}として読み取りました。ヘッダーと該当行で同じ区切りを使っているか確認してください。`,
-      `セル内に${delimiterName}や改行を含む場合は、セル全体を二重引用符（"）で囲み、セル内の " は "" と書いているか確認してください。`,
-      actualColumns > expectedColumns
-        ? '行末の余分な区切りや、引用符で囲まれていないセル内の区切りがないか確認してください。'
-        : '値が空でも区切りを省略せず、ヘッダーと同じ列位置を保っているか確認してください。',
-    ],
   };
 }
 
@@ -138,16 +130,42 @@ export class CSVColumnCountError extends Error {
   readonly diagnostic: CSVColumnCountDiagnostic;
 
   constructor(diagnostic: CSVColumnCountDiagnostic) {
-    const physicalLines =
-      diagnostic.startLine === diagnostic.endLine
-        ? `${diagnostic.startLine}行目`
-        : `${diagnostic.startLine}〜${diagnostic.endLine}行目`;
-    const difference = diagnostic.actualColumns - diagnostic.expectedColumns;
     super(
-      `データ行 ${diagnostic.dataRow}（ファイル${physicalLines}）の列数がヘッダーと一致しません。` +
-        `ヘッダー（${diagnostic.headerLine}行目）は${diagnostic.expectedColumns}列、実際は${diagnostic.actualColumns}列（${Math.abs(difference)}列${difference < 0 ? '不足' : '超過'}）です。`,
+      `Data row ${diagnostic.dataRow} has ${diagnostic.actualColumns} columns; the header has ${diagnostic.expectedColumns}.`,
     );
     this.name = 'CSVColumnCountError';
     this.diagnostic = diagnostic;
   }
+}
+
+export interface CSVColumnCountWords {
+  csvColumnsMismatch: string;
+  csvColumnsHintExtra: string;
+  csvColumnsHintMissing: string;
+  csvDelimiterComma: string;
+  csvDelimiterTab: string;
+}
+
+/** The diagnostic as one or two sentences in the UI's language: what differs, then what to look for. */
+export function csvColumnCountMessage(diagnostic: CSVColumnCountDiagnostic, words: CSVColumnCountWords): string {
+  const lines =
+    diagnostic.startLine === diagnostic.endLine
+      ? String(diagnostic.startLine)
+      : `${diagnostic.startLine}–${diagnostic.endLine}`;
+  const delimiter =
+    diagnostic.delimiter === '\t' ? words.csvDelimiterTab : words.csvDelimiterComma;
+  const hint =
+    diagnostic.actualColumns > diagnostic.expectedColumns
+      ? words.csvColumnsHintExtra.replace('{delimiter}', delimiter)
+      : words.csvColumnsHintMissing;
+  return (
+    words.csvColumnsMismatch
+      .replace('{row}', String(diagnostic.dataRow))
+      .replace('{lines}', lines)
+      .replace('{header}', String(diagnostic.headerLine))
+      .replace('{expected}', String(diagnostic.expectedColumns))
+      .replace('{actual}', String(diagnostic.actualColumns)) +
+    ' ' +
+    hint
+  );
 }

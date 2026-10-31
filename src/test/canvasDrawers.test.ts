@@ -278,6 +278,16 @@ test('drawSpectrumAxes: 0 Hz / 中央 / 最大の 3 周波数ラベルを描画'
     assert.equal(kHzLabels.length, 2);
 });
 
+test('drawSpectrumAxes: the right-end frequency label stays whole inside the canvas', () => {
+    const ctx = makeMockCtx();
+    drawSpectrumAxes(ctx, 180, 100, sampleSlice, 30, 2, 5, 15);
+    const labels = ctx._ops.filter((o) => o.op === 'fillText' && /Hz$/.test(o.args[0] as string));
+    for (const { args: [text, x] } of labels) {
+        const half = (text as string).length * 5 / 2;
+        assert.ok((x as number) - half >= 0 && (x as number) + half <= 180, `${text} at ${x}`);
+    }
+});
+
 test('drawSpectrumAxes: DEFAULT_THEME を渡しても theme なしと同じ挙動', () => {
     const a = makeMockCtx();
     const b = makeMockCtx();

@@ -227,10 +227,11 @@ export function resolveAudio<T>(row: DataRow, index: number, idColumn: string, a
 
 export const AUDIO_REASON_CANDIDATE_LIMIT = 5;
 
-export function summarizeAudioCandidates(candidates: readonly string[], limit = AUDIO_REASON_CANDIDATE_LIMIT): string {
+/** The first candidates and how many more, in the UI's words: `separator` between names, `more` with {n} for the rest. */
+export function summarizeAudioCandidates(candidates: readonly string[], words: { separator: string; more: string }, limit = AUDIO_REASON_CANDIDATE_LIMIT): string {
     const visible = candidates.slice(0, limit);
     const omitted = candidates.length - visible.length;
-    return `${visible.join('、')}${omitted ? `、ほか${omitted}件` : ''}`;
+    return [...visible, ...(omitted ? [words.more.replace('{n}', String(omitted))] : [])].join(words.separator);
 }
 
 /** A read-only preview of the complete prospective attachment set. */

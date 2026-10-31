@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { createStaticHost, type StaticHostDeps } from '../webview/runtime/staticHost';
 import { withoutResponseEnvelope } from '../shared/protocol/schemaValidation';
 import type { WebviewHostApi } from '../webview/runtime/types';
-import type { UiStrings } from '../shared/i18n/strings';
+import { getStrings, type UiStrings } from '../shared/i18n/strings';
 
 class MockElement {
     style = {};
@@ -329,7 +329,7 @@ test('worker errors clear results and stale requests cannot resurrect an unloade
     assert.equal(app.workers[1].commands.length, 2);
 });
 
-test('a failed release announces the backend message without the error class name', async () => {
+test('a failed release announces the backend message, in a sentence, without the error class name', async () => {
     const app = harness();
     await app.load();
     const firstPath = app.sourcePath;
@@ -337,7 +337,7 @@ test('a failed release announces the backend message without the error class nam
     app.workers[0].loadedSources.delete(firstPath);
     app.host.releaseSource!(firstPath);
     await flush();
-    assert.equal(app.status, 'Source is not loaded');
+    assert.equal(app.status, 'Could not remove the track: Source is not loaded');
 });
 
 test('a boot that fails after an idle clear is retried by the next WAV', async () => {
@@ -452,7 +452,7 @@ test('file pre-checks use the session limits published by the Worker once', asyn
     const app = harness();
     app.picker.files = [{ name: 'huge.wav', size: 16 * 1024 * 1024 + 1, arrayBuffer: async () => { throw new Error('must not read'); } }];
     app.picker.onchange!(); await flush();
-    assert.match(app.status, /huge\.wav: Each file must be 16 MiB or smaller\./);
+    assert.match(app.status, /huge\.wav could not be opened: Each file must be 16 MiB or smaller\./);
     await app.load(); await app.load();
     assert.deepEqual(app.workers.flatMap(worker => worker.commands).filter(command => command.cmd === 'limits').length, 1);
 });
@@ -654,6 +654,15 @@ test('a browser recipe opened from disk runs under its file name and reports unr
     await flush();
     assert.equal(app.status, 'Recipe execution failed: broken.json is not a recipe document');
     assert.equal(worker.commands.filter(entry => entry.cmd === 'run-recipe').length, 1);
+});
+
+test('the browser build\'s recipe messages follow the UI language', async () => {
+    const app = harness(new Map(), 'ja');
+    await app.load();
+    delete app.served['./recipes/manifest.json'];
+    app.host.postMessage({ type: 'run-recipe' });
+    await flush();
+    assert.equal(app.status, getStrings('ja').recipeReadFailed.replace('{message}', './recipes/manifest.json: HTTP 404'));
 });
 
 test('clearing sources during a recipe preserves the new status and ignores late charts', async () => {
@@ -964,7 +973,7 @@ test('a load failure unchecks that tree file and keeps the others', async () => 
     await flush(); await flush();
     const update = app.received.filter(message => message.type === 'analysis-update').at(-1)!;
     assert.deepEqual(update.selectedFilePaths, ['/sources/rec/a.wav']);
-    assert.match(app.status, /^big\.wav: /);
+    assert.match(app.status, /^big\.wav could not be opened: /);
 });
 
 test('folder tracks keep their folder path in reports, release unchecks them and a file pick joins the list', async () => {
