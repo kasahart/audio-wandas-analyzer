@@ -30,7 +30,7 @@ import { positionPopover } from './settingsPopover';
 import { LARGE_BASE, LARGE_BASE_S } from './trackStageMode';
 import { createStepBar, endsInSpectrum, recipeWithout, runnableRecipe, stepChipLabel, stepLimits, unpairedRecipe, OCTAVE_BRANCH } from './stepBar';
 import { leqLabel } from './compareReport';
-import { activeSlotReferenced, brokenStep, chainEnd, isRecipeChain, recipeKey, recipeSteps, slotReferenced, timeSignalStep, TIME_SLICE, type RecipeStep } from '../../shared/recipe/recipeSteps';
+import { activeSlotReferenced, brokenStep, chainEnd, isRecipeChain, recipeKey, recipeNodes, recipeSteps, slotReferenced, timeSignalStep, TIME_SLICE, type RecipeStep } from '../../shared/recipe/recipeSteps';
 import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { baseName, isMetadataCandidate, withFolderColumns } from '../../shared/analysis/entryMetadata';
 import { powerMeanDb, powerMeanOrNull } from '../../shared/utils/levels';
@@ -853,7 +853,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
      */
     function stepFailed(step: string, reason: string): void {
         const recipe = editedRecipe ?? standardRecipe;
-        const known = recipe && (recipe as unknown as { nodes?: Array<{ id: string }> }).nodes?.some(node => node.id === step);
+        const known = recipeNodes(recipe).some(node => node.id === step);
         if (!known || failed[step] !== undefined) return;
         failed = { ...failed, [step]: reason };
         if (scanning) { deps.post({ type: 'entry-scan-cancel' }); scanning = false; }
@@ -987,7 +987,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         if (step.id === OCTAVE_BRANCH) return true;
         const recipe = editedRecipe ?? standardRecipe;
         if (!recipe) return false;
-        const steps = (recipe as unknown as { nodes: Array<{ id: string }> }).nodes.map(node => node.id);
+        const steps = recipeNodes(recipe).map(node => node.id);
         const signal = timeSignalStep(recipe, limits());
         // The average spectrum the table reads (the chain's end), or a step up to the time signal.
         if (step.name === 'welch') return spectral();
