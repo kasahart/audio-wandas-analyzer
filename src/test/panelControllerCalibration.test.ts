@@ -169,9 +169,10 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
     };
     const calibrationProfilesKey = 'audioWandasAnalyzer.calibrationProfiles.v1';
     const workspaceValues: Record<string, unknown> = {
+        // The store keys profiles canonically ('/tmp/x.wav' resolves to 'D:\\tmp\\x.wav' on Windows), as it writes them.
         [calibrationProfilesKey]: {
-            [calibratedPath]: calibrationProfile,
-            [racingPath]: {
+            [calibrationStore.calibrationFileKey(calibratedPath)]: calibrationProfile,
+            [calibrationStore.calibrationFileKey(racingPath)]: {
                 schemaVersion: 1,
                 channels: [{
                     channelIndex: 0,

@@ -7,7 +7,8 @@ import { SUPPORTED_AUDIO_DIALOG_EXTENSIONS } from '../shared/utils/audioTarget';
 const repoRoot = path.resolve(__dirname, '../..');
 
 function readText(relativePath: string): string {
-    return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
+    // Windows checkouts may use CRLF (core.autocrlf); the line-anchored assertions below expect LF.
+    return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8').replace(/\r\n/gu, '\n');
 }
 
 function readJson<T>(relativePath: string): T {

@@ -524,7 +524,12 @@ test('checkAndPromptInstallDependencies warns when interpreter is missing', asyn
         assert.equal(item.text, 'Python: missing-python $(warning)');
         assert.equal(item.tooltip, 'Python interpreter was not found. Click to select another environment.');
         assert.equal(warningMessages.length, 1);
-        assert.match(warningMessages[0], /Python interpreter not found: missing-python\/bin\/python/u);
+        // The interpreter path follows the host venv layout (bin/python on POSIX, Scripts\\python.exe on Windows).
+        const expectedInterpreter = pythonEnvironment.resolvePythonCommand('missing-python');
+        assert.ok(
+            warningMessages[0].startsWith(`Python interpreter not found: ${expectedInterpreter}`),
+            warningMessages[0],
+        );
     } finally {
         restore();
     }
@@ -643,9 +648,9 @@ test('checkAndPromptInstallDependencies ignores stale results from older request
             proc.stdout = new EventEmitter();
             proc.stderr = new EventEmitter();
 
-            if (pythonCommand === 'old-env/bin/python') {
+            if (pythonCommand === pythonEnvironment.resolvePythonCommand('old-env')) {
                 oldProc = proc;
-            } else if (pythonCommand === 'new-env/bin/python') {
+            } else if (pythonCommand === pythonEnvironment.resolvePythonCommand('new-env')) {
                 newProc = proc;
             }
 
