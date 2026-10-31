@@ -321,9 +321,9 @@ const server = http.createServer((req,res) => {
         });
         assert.ok(Math.abs(peakHz-880)<80,`2.5s cursor should select the later 880Hz section, got ${peakHz}`);
         // Playwright hands buffers over 50 MB only as files, so the oversized pick is a sparse file one byte past the limit.
-        const oversized=path.join(root,'test-results/oversized.wav'); fs.mkdirSync(path.dirname(oversized),{recursive:true}); fs.writeFileSync(oversized,''); fs.truncateSync(oversized,128*1024*1024+1);
+        const oversized=path.join(root,'test-results/oversized.wav'); fs.mkdirSync(path.dirname(oversized),{recursive:true}); fs.writeFileSync(oversized,''); fs.truncateSync(oversized,80*1024*1024+1);
         await picker.setInputFiles(oversized);
-        await status.filter({hasText:S.browserInputTooLarge.replace('{mib}','128')}).waitFor();
+        await status.filter({hasText:S.browserInputTooLarge.replace('{mib}','80')}).waitFor();
         assert.equal(await page.locator('.track-row').count(),1);
         // A header-level limit answers on one line: length is bounded only by the memory budget, the rate by 96 kHz.
         const fastWav=Buffer.from(bytes);

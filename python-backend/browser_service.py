@@ -24,7 +24,9 @@ from command_dispatch import dispatch, validate_request
 MIB = 1024 * 1024
 # Browser session limits. This module is the single source; browser_limits() hands the
 # user-facing subset to the TypeScript host so its pre-checks and the README agree.
-MAX_INPUT_BYTES = 128 * MIB
+# About the largest 16-bit PCM file whose load and default STFT fit the estimate below on their own
+# (about 7 min of 48 kHz stereo).
+MAX_INPUT_BYTES = 80 * MIB
 MAX_CHANNELS = 2
 MIN_SAMPLE_RATE_HZ = 1000
 MAX_SAMPLE_RATE_HZ = 96000
@@ -56,6 +58,11 @@ def browser_limits() -> dict[str, int]:
     }
 
 
+def stft_working_bytes(length: int, channels: int, n_fft: int, hop_length: int) -> int:
+    """Peak bytes an STFT of ``length`` samples needs on top of the session."""
+    return length * channels * 32 + ((length // hop_length) + 5) * channels * (n_fft // 2 + 1) * 56
+
+
 class BrowserEngine(AnalysisEngine):
     def __init__(self) -> None:
         super().__init__(128 * MIB)
@@ -74,7 +81,7 @@ class BrowserEngine(AnalysisEngine):
             # takes at least two bytes, which caps its decoded frame at half the payload's byte count.
             worst_frame_bytes = len(payload) // 2 * AUDIO_CACHE_DTYPE.itemsize
             if self.estimated_bytes(len(payload) * 2 + worst_frame_bytes * 8) > MAX_ESTIMATED_BYTES:
-                raise InputError("Loading exceeds browser estimated memory budget; remove another track")
+                raise InputError(self._load_budget_message())
             try:
                 frame = wd.read(payload, file_type=suffix, source_name=source_id, dtype=AUDIO_CACHE_DTYPE).cache()
             except ValueError as error:
@@ -111,7 +118,7 @@ class BrowserEngine(AnalysisEngine):
         if decoded_bytes > MAX_TOTAL_DECODED_BYTES:
             raise InputError(f"Browser session exceeds {_mib(MAX_TOTAL_DECODED_BYTES)} decoded audio budget")
         if self.estimated_bytes(len(payload) * 2 + frame_bytes * 8) > MAX_ESTIMATED_BYTES:
-            raise InputError("Loading exceeds browser estimated memory budget; remove another track")
+            raise InputError(self._load_budget_message())
         if frame is None:
             frame = wd.read(payload, file_type=suffix, source_name=source_id, dtype=AUDIO_CACHE_DTYPE).cache()
         source_peaks = finite_source_channel_peaks(frame)
@@ -135,6 +142,12 @@ class BrowserEngine(AnalysisEngine):
     @property
     def input_bytes(self) -> int:
         return sum(entry.identity[1] for entry in self._files.values())
+
+    def _load_budget_message(self) -> str:
+        # With no other track there is nothing to remove: the file itself is too large for the browser.
+        if self._files:
+            return "Loading exceeds browser estimated memory budget; remove another track"
+        return "File is too large for the browser's memory budget; open it in the VS Code extension"
 
     def estimated_bytes(self, working_bytes: int) -> int:
         """Estimate peak Worker memory for an operation that needs ``working_bytes`` on top of the session."""
@@ -187,8 +200,7 @@ class BrowserEngine(AnalysisEngine):
         existing = self.get_cached_spectrogram(file_path, n_fft, hop_length, window, calibration_profile)
         if existing is not None:
             return existing
-        working = length * channels * 32 + ((length // hop_length) + 5) * channels * (n_fft // 2 + 1) * 56
-        if self.estimated_bytes(working) > MAX_ESTIMATED_BYTES:
+        if self.estimated_bytes(stft_working_bytes(length, channels, n_fft, hop_length)) > MAX_ESTIMATED_BYTES:
             raise InputError("STFT exceeds prototype estimated memory budget; lower the overlap")
         return super().get_spectrogram(file_path, n_fft, hop_length, window, calibration_profile)
 
