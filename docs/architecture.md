@@ -44,6 +44,9 @@ validator を通す。Web の load/unload/export-plan は Worker 専用であり
   設定保存のみで包絡を送らない。
 - `OrderedSelection` は順序・重複排除・再追加の規則を担当する。native の tree による
   パス許可検証を UI 側の選択状態で代替しない。
+  native host は Webview が名指ししたパスを `PanelSession.allowsFile`（表示中のトラックか、
+  フォルダが列挙した・追加したファイルだけを許す）で確かめてから disk や backend に渡す。
+  入口表の走査・識別・先頭読み、比較の走査、WAV 書き出しがこれを通る（`panelController.ts`）。
 - `exportWavRegions` は区間計画・順序・衝突しない名前を共有する。sink は書込み先と
   失敗方針を提供する。native は個別失敗後も継続し、Web は予算検証後に失敗で中断する。
 - spectrogram 設定は `SpectrogramSettingsStore.get/update` を通す。
@@ -144,6 +147,8 @@ flowchart LR
 - Webview から `select-target`、`analyze-selected-files`、`request-waveform-range` を受け取る
 - 設定値 `pythonCommand`、`cacheMemoryMb`、`debugFilePath` を読み込む
 - 常駐の `PythonBackendServer` を起動し、`AnalysisClient` 経由で解析要求を送る（詳細は 2 節）
+- Python は遅延起動する。ウィンドウを開いただけでは環境確認も backend 起動もせず、コマンド・ウェルカムビュー・
+  パネルが必要とした時点で `index.ts` の `preparePython` がインタープリターを決め、依存確認と warmup を行う
 - `AnalysisClient` から返った `AnalysisResult` を受け取り、失敗時は `error` 付きの結果へ変換して `AnalysisResultWithError[]` に蓄積する
 - ディレクトリ指定時は `ComparisonPanel` を選択モードで開き、チェック変更のたびに同じ panel 内のトラック表示を更新する
 - 失敗時は VS Code 通知にエラーを表示する
