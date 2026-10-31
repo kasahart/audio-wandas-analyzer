@@ -20,7 +20,6 @@ const NON_NULL_ASSERTION_BURN_DOWN = [
     'src/webview/runtime/browserAdapter.ts',
     'src/webview/runtime/calibrationDecorations.ts',
     'src/webview/runtime/chartSpecRuntime.ts',
-    'src/webview/runtime/compareReport.ts',
     'src/webview/runtime/entryPlots.ts',
     'src/webview/runtime/entryRuntime.ts',
     'src/webview/runtime/entryTable.ts',
