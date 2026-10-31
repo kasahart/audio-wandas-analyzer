@@ -20,3 +20,6 @@ UX_AUDIT_REPORT.md
 .ruff_cache/
 
 browser-dist/
+
+# Output of scripts/make-manual-check-files.py
+manual-check-files/
