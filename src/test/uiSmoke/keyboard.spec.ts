@@ -39,6 +39,27 @@ test('keyboard shortcut dialog traps focus on Tab and closes on Escape', async (
     await expect(page.locator('#help-overlay')).toBeHidden();
 });
 
+test('a help taller than the window scrolls with ↓, PageDown and End, Home goes back, and nothing behind it moves', async ({ page }) => {
+    await page.setViewportSize({ width: 900, height: 320 });
+    await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
+    await page.mouse.click(20, 20);
+    await page.keyboard.press('?');
+    const box = page.locator('#help-overlay .screen-help-box');
+    await expect(box).toBeVisible();
+    const scrollTop = () => box.evaluate(element => element.scrollTop);
+    expect(await box.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
+    await page.keyboard.press('ArrowDown');
+    await expect.poll(scrollTop).toBeGreaterThan(0);
+    const afterLine = await scrollTop();
+    await page.keyboard.press('PageDown');
+    await expect.poll(scrollTop).toBeGreaterThan(afterLine);
+    await page.keyboard.press('End');
+    await expect.poll(() => box.evaluate(element => Math.abs(element.scrollHeight - element.clientHeight - element.scrollTop) <= 1)).toBe(true);
+    await page.keyboard.press('Home');
+    await expect.poll(scrollTop).toBe(0);
+    await expect(page.locator('#help-close-btn')).toBeFocused();
+});
+
 test('toolbar buttons have aria-labels and toolbar has role=toolbar', async ({ page }) => {
     await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
 
