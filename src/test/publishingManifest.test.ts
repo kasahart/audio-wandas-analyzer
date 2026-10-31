@@ -22,6 +22,20 @@ test('package.json defines publish and packaging scripts for VS Code releases', 
     assert.equal(manifest.scripts?.['package:vsix'], 'vsce package --no-yarn');
 });
 
+test('engines.vscode is the VS Code release E2E runs, and @types/vscode stays within it', () => {
+    const manifest = readJson<{ engines?: { vscode?: string }; devDependencies?: Record<string, string> }>('package.json');
+    const e2eVersion = /VSCODE_VERSION = .*'(\d+)\.(\d+)\.\d+';/u.exec(readText('src/e2e/runnerHelpers.ts'));
+    assert.ok(e2eVersion, 'src/e2e/runnerHelpers.ts must name the VS Code release E2E downloads');
+    const [, major, minor] = e2eVersion;
+
+    // Only the latest VS Code is supported, so the extension claims the release E2E proves it on.
+    assert.equal(manifest.engines?.vscode, `^${major}.${minor}.0`);
+    const types = /^[~^]?(\d+)\.(\d+)\.\d+$/u.exec(manifest.devDependencies?.['@types/vscode'] ?? '');
+    assert.ok(types, '@types/vscode must be a plain version range');
+    assert.equal(types[1], major);
+    assert.ok(Number(types[2]) <= Number(minor), 'vsce rejects @types/vscode newer than engines.vscode');
+});
+
 test('Marketplace icon stays within the Marketplace upload limit', () => {
     const manifest = readJson<{ icon?: string }>('package.json');
     assert.ok(manifest.icon, 'package.json must name a Marketplace icon');
