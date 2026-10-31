@@ -14,7 +14,7 @@ import { RecipeFlow, recipeBaseName, type RecipeCatalogEntry } from '../../share
 import { describeInputs, isRecipeDocument, type RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { setHint } from './hintFooter';
 import { createRecipeMenus } from './recipePicker';
-import { zipStore } from './zipStore';
+import { createStaticDownloads } from './staticDownloads';
 import type { HostInboundMessage } from './hostMessaging';
 import type { ComparisonWindow } from './browserAdapter';
 import type { ComparisonTrackState, WebviewHostApi } from './types';
@@ -531,11 +531,6 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         // A source is reported by its unique path under /sources, so the notebook can read it from there.
         return { ...result, fileName: name, audioSource: hasPlayableAudio(name) ? url : '', reportSourcePath: sourceId };
     }
-    function download(bytes: Uint8Array, name: string, type: string): void {
-        const url = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>], { type }));
-        const link = document.createElement('a'); link.href = url; link.download = name; link.click();
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
-    }
     async function releaseSource(path: string): Promise<void> {
         const source = sources.get(path);
         if (!source) return;
@@ -555,6 +550,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         return response.json();
     }
     const recipeMenus = createRecipeMenus(document, window, strings);
+    const downloads = createStaticDownloads({ document, URL, setTimeout });
     /** Track names, or their paths under `/sources` where two of the given tracks share a name, as the file list shows them. */
     function trackLabels(paths: string[]): (path: string) => string {
         const nameOf = (path: string): string => sources.get(path)?.name ?? recipeBaseName(path);
@@ -639,7 +635,8 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         async wavExport(message, scope) {
             const selected = message.filePaths.map(path => sources.get(path)).filter((source): source is Source => !!source);
             if (!selected.length) return undefined;
-            const entries: Array<{ name: string; bytes: Uint8Array }> = [];
+            const limit = browserLimits ?? await limits();
+            const regions = downloads.wavRegions({ maxEntries: limit.maxSources, maxBytes: limit.maxExportBytes });
             return {
                 sources: selected.map(source => ({ filePath: source.path, fileName: source.name })),
                 sink: {
@@ -647,16 +644,10 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
                     isSelected: item => sources.get(item.filePath) === selected.find(source => source.path === item.filePath),
                     prepare: async commands => { await request({ cmd: 'export-plan', commands }); },
                     exportWavLoop: (filePath, start, end) => analysisClient.exportWavLoop(filePath, start, end),
-                    write: async (_source, name, result) => {
-                        const bytes = Uint8Array.from(atob(result.wavBase64), c => c.charCodeAt(0));
-                        entries.push({ name, bytes });
-                    },
+                    write: async (_source, name, result) => { regions.add(name, result.wavBase64); },
                 },
                 complete(): void {
-                    if (!entries.length) return;
-                    if (entries.length === 1) download(entries[0].bytes, entries[0].name, 'audio/wav');
-                    else download(zipStore(entries, { maxEntries: browserLimits!.maxSources, maxBytes: browserLimits!.maxExportBytes }), 'selected-regions.zip', 'application/zip');
-                    announce(strings.browserExported);
+                    if (regions.complete()) announce(strings.browserExported);
                 },
             };
         },
@@ -664,11 +655,11 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             return choose<'markdown' | 'notebook'>(document, window, strings.reportFormatPlaceholder, [['markdown', strings.reportFormatMarkdown], ['notebook', strings.reportFormatNotebook]]);
         },
         async saveReport(artifact) {
-            download(new TextEncoder().encode(artifact.content), artifact.name, artifact.type);
+            downloads.text(artifact.content, artifact.name, artifact.type);
             announce(strings.reportExportedPrefix + artifact.name);
         },
         async saveRecipe(file) {
-            download(new TextEncoder().encode(file.content), file.name, file.type);
+            downloads.text(file.content, file.name, file.type);
             announce(strings.recipeSavedPrefix + file.name);
         },
         selectTarget(targetKind): void {
@@ -727,7 +718,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         },
         // A browser cannot write a folder, so the report folder arrives as one zip named after it.
         async saveReportFolder(folder, files) {
-            download(zipStore(files, { maxEntries: 16, maxBytes: 64 * 1024 * 1024 }), `${folder}.zip`, 'application/zip');
+            downloads.folder(folder, files);
             announce(strings.reportSaved + folder + '.zip');
         },
         entry: {
@@ -759,7 +750,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     };
     const controller = new ComparisonSessionController(ports);
     const host: WebviewHostApi = {
-        downloadFile: (content, name, mimeType): void => { download(new TextEncoder().encode(content), name, mimeType); },
+        downloadFile: (content, name, mimeType): void => { downloads.text(content, name, mimeType); },
         releaseSource: (path): void => { void releaseSource(path); },
         onMessage: (listener): (() => void) => { inboundListeners.add(listener); return () => { inboundListeners.delete(listener); }; },
         postMessage: (message: unknown): void => {
