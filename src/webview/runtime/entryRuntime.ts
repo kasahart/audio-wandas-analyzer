@@ -39,6 +39,7 @@ import { CSVColumnCountError, csvColumnCountMessage } from '../../shared/dataset
 import { keyRouterFor } from './keyRouter';
 import { createHeaderProbe, createScanProgress } from './entryScanQueue';
 import { createRedraw, createThrottle } from './entryRedraw';
+import { createSessionSaver, readStoredSession, SESSION_VERSION } from './entrySession';
 import { channelRowKey, comparedKeys, emptySlots, firstFreeCompareSlot, restoredSlots, roleKey, roleSlot, slotFiles as filesOfSlots, slotsForFiles, slotsOfFile, trackChanges, withoutFile, withSlot, type Slots } from './entrySlots';
 import { setHint } from './hintFooter';
 import { ENTRY_KEYS, keyAction } from './shortcuts';
@@ -345,15 +346,9 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     let derived: DerivedRow[] = [];
     /** The group whose median is the base while slot 0 is empty; null: slot 1's group. */
     let baseGroup: string | null = null;
-    /**
-     * The folder's session, kept by the host (its workspace storage, IndexedDB on the Web): saved a moment after
-     * each change once the stored one has come back at open (so the defaults of a fresh open never overwrite it).
-     */
-    let sessionLoaded = false;
-    let sessionTimer: number | undefined;
-    let savedSession = '';
-    /** The CSV to save with the next session: undefined when unchanged since the last. */
-    let csvToSave: { name: string; text: string } | null | undefined;
+    /** The folder's session, kept by the host: saved a moment after each change once the stored one is back. */
+    const session = createSessionSaver(window, SESSION_SAVE_MS, () => sessionOf(),
+        (stored, csvToSave) => deps.post({ type: 'entry-save-session', rootPath, session: stored, ...(csvToSave !== undefined ? { csv: csvToSave } : {}) }));
     let baseMenu = false;
     /** 「レシピをまとめて書き出す」 open: for the filtered rows or all. */
     let batchChoice: 'filtered' | 'all' | null = null;
@@ -539,7 +534,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         stepBar.set({ recipe: editedRecipe ?? standardRecipe, sampleRate: sampleRate(), shortestSamples: shortestSamples(), channels: channelCount(), failed, files: filePaths.length });
         screen.dataset.mode = mode;
         scheduleSide();
-        scheduleSessionSave();
+        session.schedule();
     }
     /** Only the rows on screen are drawn: the rest are spacers, so 100,000 rows scroll as 40 do. */
     /** The view the rows on screen were drawn from: scrolling and resizing draw more of it instead of building it again. */
@@ -586,45 +581,31 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     }
     function sessionOf(): Record<string, unknown> {
         return {
-            version: 1, value, group, filters, sort, baseGroup, slots, memo: [...memo], excluded: [...excluded], derived,
+            version: SESSION_VERSION, value, group, filters, sort, baseGroup, slots, memo: [...memo], excluded: [...excluded], derived,
             ...(editedRecipe ? { recipe: editedRecipe } : {}),
         };
     }
-    function scheduleSessionSave(): void {
-        if (!sessionLoaded || sessionTimer !== undefined) return;
-        sessionTimer = window.setTimeout(() => {
-            sessionTimer = undefined;
-            const session = sessionOf();
-            const text = JSON.stringify(session);
-            if (text === savedSession && csvToSave === undefined) return;
-            savedSession = text;
-            deps.post({ type: 'entry-save-session', rootPath, session, ...(csvToSave !== undefined ? { csv: csvToSave } : {}) });
-            csvToSave = undefined;
-        }, SESSION_SAVE_MS);
-    }
     /** The stored session, as it came back at open: anything that no longer fits these files is left out. */
-    function applySession(session: Record<string, unknown> | undefined, stored: { name: string; text: string } | undefined): void {
-        if (stored) {
-            try { applyCsv(readDatasetCsv(new TextEncoder().encode(stored.text), stored.name)); } catch { /* A CSV that no longer reads is dropped. */ }
+    function applySession(stored: Record<string, unknown> | undefined, storedCsv: { name: string; text: string } | undefined): void {
+        if (storedCsv) {
+            try { applyCsv(readDatasetCsv(new TextEncoder().encode(storedCsv.text), storedCsv.name)); } catch { /* A CSV that no longer reads is dropped. */ }
         }
-        if (!session || session['version'] !== 1) return;
-        const files = new Set(filePaths);
-        const keyOk = (key: unknown): key is string => typeof key === 'string' && files.has(fileOfKey(key));
-        if (typeof session['value'] === 'string') value = session['value'] as ValueId;
-        if (typeof session['group'] === 'string') group = session['group'] as GroupId;
-        if (Array.isArray(session['filters'])) filters = (session['filters'] as DatasetFilter[]).filter(filter => !!filter && typeof filter.column === 'string' && (filter.kind === 'values' ? Array.isArray(filter.values) : filter.kind === 'range' && typeof filter.low === 'number' && typeof filter.high === 'number'));
-        const savedSort = session['sort'] as DatasetScreenView['sort'] | undefined;
-        if (savedSort && ['name', 'ch', 'group', 'value'].includes(savedSort.column)) sort = { column: savedSort.column, descending: !!savedSort.descending };
-        baseGroup = typeof session['baseGroup'] === 'string' ? session['baseGroup'] : null;
-        if (Array.isArray(session['slots'])) { slots = restoredSlots(session['slots'], path => files.has(path)); deps.saveSlots(slots); }
+        const kept = readStoredSession(stored, new Set(filePaths));
+        if (!kept) return;
+        if (kept.value !== undefined) value = kept.value;
+        if (kept.group !== undefined) group = kept.group;
+        if (kept.filters) filters = kept.filters;
+        if (kept.sort) sort = kept.sort;
+        baseGroup = kept.baseGroup;
+        if (kept.slots) { slots = kept.slots; deps.saveSlots(slots); }
         memo.clear();
-        if (Array.isArray(session['memo'])) for (const item of session['memo'] as unknown[]) if (Array.isArray(item) && keyOk(item[0]) && typeof item[1] === 'string') memo.set(item[0], item[1]);
+        for (const [key, note] of kept.memo) memo.set(key, note);
         excluded.clear();
-        if (Array.isArray(session['excluded'])) for (const key of session['excluded'] as unknown[]) if (keyOk(key)) excluded.add(key);
-        if (Array.isArray(session['derived'])) { derived = (session['derived'] as DerivedRow[]).filter(row => !!row && files.has(row.parentPath) && !!row.result && !!row.base); deps.saveDerived?.(derived); }
+        for (const key of kept.excluded) excluded.add(key);
+        if (kept.derived) { derived = kept.derived; deps.saveDerived?.(derived); }
         // A chain saved with the session is the one its stored values are of: they are asked for again under it.
-        const recipe = session['recipe'];
-        if (isRecipeChain(recipe) && recipeKey(recipe) !== recipeKey(editedRecipe ?? undefined)) { editedRecipe = recipe; deps.saveRecipe?.(recipe); loadStored(); }
+        const recipe = kept.recipe;
+        if (recipe && recipeKey(recipe) !== recipeKey(editedRecipe ?? undefined)) { editedRecipe = recipe; deps.saveRecipe?.(recipe); loadStored(); }
     }
     /** The slotted row of a file the comparison shows (slots 1–3 first, then 0). */
     function slotRowOf(filePath: string): DatasetRow | undefined {
@@ -1272,8 +1253,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             if (value.startsWith('csv:')) value = 'leq';
             if (group.startsWith('csv:')) group = 'none';
         }
-        if (keep !== undefined) { deps.saveCsv?.(keep.text.length <= KEEP_CSV_BYTES ? keep : undefined); csvToSave = keep; }
-        if (next === null) { deps.saveCsv?.(undefined); if (had) csvToSave = null; }
+        if (keep !== undefined) { deps.saveCsv?.(keep.text.length <= KEEP_CSV_BYTES ? keep : undefined); session.keepCsv(keep); }
+        if (next === null) { deps.saveCsv?.(undefined); if (had) session.keepCsv(null); }
         rebuild();
     }
     function readCsvFile(file: File): void {
@@ -1749,8 +1730,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             mode = 'all';
             fpop = null; slotMenu = null; memoKey = null;
             baseGroup = null;
-            sessionLoaded = false; savedSession = ''; csvToSave = undefined;
-            if (sessionTimer !== undefined) { window.clearTimeout(sessionTimer); sessionTimer = undefined; }
+            session.reset();
             slots = restoredSlots(deps.loadSlots() ?? [], path => filePaths.includes(path));
             focused = null; focusPicked = false;
             derived = (deps.loadDerived?.() ?? []).filter(row => filePaths.includes(row.parentPath));
@@ -1827,15 +1807,15 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             if (publication.type === 'entry-conditions') {
                 if (publication.recipe) standardRecipe = publication.recipe;
                 // At open the folder's session comes back with what is stored; from then on, changes are saved.
-                const loading = !sessionLoaded;
+                const loading = !session.loaded;
                 if (loading) {
                     applySession(publication.session, publication.csv);
                     // A CSV kept by the webview alone (before sessions) goes to the host's store with the next save.
-                    if (!publication.csv && csv) csvToSave = deps.loadCsv?.() ?? undefined;
+                    if (!publication.csv && csv) session.keepCsv(deps.loadCsv?.() ?? undefined);
                 }
                 rebuild();
                 // What the table settled on at open is what is stored: only a change after it is saved.
-                if (loading) { savedSession = JSON.stringify(sessionOf()); sessionLoaded = true; }
+                if (loading) session.markLoaded();
             } else if (publication.type === 'entry-scan-result') {
                 noteResult(publication.filePath, publication.result);
                 resultKeys.set(publication.filePath, requests.find(publication.requestId)?.key ?? currentKey());
