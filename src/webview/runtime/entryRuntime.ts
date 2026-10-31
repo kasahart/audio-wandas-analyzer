@@ -40,8 +40,8 @@ import {
     type ColumnId, type CsvMatch, type DatasetCsv, type DatasetFilter, type DatasetRow, type GroupId, type ValueId,
 } from '../../shared/dataset/datasetTable';
 import {
-    closesEntryDialog, filterChipText, rowWindow, tableLines, type DerivedItem, datasetColsHtml, datasetHeadHtml, datasetRowsHtml, entryScreenHtml, entrySlotsHtml, filterChipsHtml, formatValue,
-    baseMenuHtml, batchPopHtml, groupOptionsHtml, memoPopHtml, slotMenuHtml, unmatchedRowsHtml, valueOptionsHtml,
+    closesEntryDialog, filterChipText, rowWindow, tableLines, type DerivedItem, datasetColsHtml, datasetHeadHtml, datasetRowsHtml, entryScreenHtml, filterChipsHtml, formatValue,
+    baseOptionsHtml, batchPopHtml, groupOptionsHtml, memoPopHtml, slotMenuHtml, unmatchedRowsHtml, valueOptionsHtml,
     type DatasetScreenView, type EntryStrings,
 } from './entryTableHtml';
 
@@ -227,12 +227,13 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     const body = query<HTMLElement>('[data-entry-rows]');
     const cols = query<HTMLElement>('[data-entry-cols]');
     const table = query<HTMLElement>('[data-entry-table]');
-    const slotBar = query<HTMLElement>('[data-entry-slots]');
     const keyHints = query<HTMLElement>('[data-entry-keys]');
     const chipsBox = query<HTMLElement>('[data-entry-chips]');
     const computeBox = query<HTMLElement>('[data-entry-compute]');
     const valueSelect = query<HTMLSelectElement>('[data-action="entry-value"]');
     const groupSelect = query<HTMLSelectElement>('[data-action="entry-group"]');
+    const baseSelect = query<HTMLSelectElement>('[data-action="entry-base"]');
+    const basePick = query<HTMLElement>('[data-entry-base-pick]');
     const csvInput = query<HTMLInputElement>('[data-entry-csv-input]');
     const tableWrap = query<HTMLElement>('.entry-table-wrap');
     const held = query<HTMLElement>('[data-entry-held]');
@@ -323,11 +324,9 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         /** The slot menu and the memo open (the column filter is filterPop's). */
         slotMenu: string | null;
         memoKey: string | null;
-        /** The empty base's choice of group. */
-        baseMenu: boolean;
         /** 「レシピをまとめて書き出す」 open: for the filtered rows or all. */
         batch: 'filtered' | 'all' | null;
-    } = { slotMenu: null, memoKey: null, baseMenu: false, batch: null };
+    } = { slotMenu: null, memoKey: null, batch: null };
 
     let requestCount = 0;
     /** Row keys in slots 0–3: the base (or null for the group median) and the rows to compare. */
@@ -537,7 +536,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const headFocused = !!document.activeElement?.closest?.('[data-action="entry-tracks-all"]') && head.contains(document.activeElement);
         if (writeHtml(head, datasetHeadHtml(view, text)) && headFocused) focusHeadMark();
         renderRows(view);
-        paintSlots();
+        paintBase();
         const wanted = `<button type="button" class="entry-key" data-action="entry-key-hint" data-key="help">${escapeHtml(strings.keyHelp)}</button>`;
         if (keyHints.innerHTML !== wanted) keyHints.innerHTML = wanted;
         stepBar.set({ recipe: recipeState.edited ?? recipeState.standard, sampleRate: sampleRate(), shortestSamples: shortestSamples(), channels: channelCount(), failed: recipeState.failed, files: filePaths.length });
@@ -553,16 +552,20 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         written.set(element, html);
         return true;
     }
-    /** The slots' chips: their rows, the base, the slot held, and a note where one file is two slots' channels. */
-    function paintSlots(): void {
-        // One file in two slots as different channels: it is one track, drawn as the first slot's channel (1–3, then 0).
-        const notes = slots.map(key => {
-            const shown = key ? entryBase.slotRowOf(fileOfKey(key)) : undefined;
-            return key && shown && shown.key !== key && (shown.channels ?? 1) > 1 ? strings.dsSlotTrackChannel.replace('{ch}', String(shown.ch)) : null;
-        });
-        slotBar.innerHTML = entrySlotsHtml(slots, key => rowName(key), entryBase.text(), text, heldPlot.slot(), notes);
+    /** The base select beside the group one: shown while the rows are grouped (a group's median, or slot 0's recording). */
+    function paintBase(): void {
+        basePick.hidden = chosen.group === 'none';
         markOpenable();
-        notes.forEach((note, slot) => slotBar.querySelector(`[data-action="entry-slot"][data-slot="${slot}"]`)?.setAttribute('data-track-note', note ?? ''));
+        if (basePick.hidden) return;
+        // The chosen group stays offered (and shown) when filters or exclusions leave none of its rows.
+        const pool = new Set(distributionPool().map(row => datasetGroupOf(row, chosen.group)));
+        if (chosen.baseGroup !== null) pool.add(chosen.baseGroup);
+        const names = [...pool].sort(compareGroupNames);
+        const labels = groupLabels(names);
+        const grouping = groupLabel(chosen.group);
+        const html = baseOptionsHtml(names.map(name => ({ name, label: `${grouping} ${labels.get(name) || strings.dsFilterBlank}` })), chosen.baseGroup, slots[0] ? rowName(slots[0]) : null, text);
+        if (written.get(baseSelect) !== html) { baseSelect.innerHTML = html; written.set(baseSelect, html); }
+        baseSelect.value = slots[0] ? 'row' : chosen.baseGroup === null ? 'auto' : `group:${chosen.baseGroup}`;
     }
     /** The view the rows on screen were drawn from: scrolling and resizing draw more of it instead of building it again. */
     let rowsView: DatasetScreenView | null = null;
@@ -592,7 +595,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         return choice === 'filtered' ? visibleRows({ rows, group: chosen.group, value: chosen.value, filters: chosen.filters, sort: chosen.sort, excluded }, results) : rows.filter(row => !excluded.has(row.key));
     }
     function openBatch(): void {
-        filterPop.close(); popovers.slotMenu = null; popovers.memoKey = null; popovers.baseMenu = false;
+        filterPop.close(); popovers.slotMenu = null; popovers.memoKey = null;
         popovers.batch = chosen.filters.length ? 'filtered' : 'all';
         renderPopovers();
     }
@@ -810,7 +813,6 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     const heldPlot = createHeldPlot({
         document, window, strings, held, title: heldTitle, canvas: heldCanvas, post: message => deps.post(message), scheduleSide: () => sidePlots.schedule(),
         keepWindow: (name, key) => sidePlots.keepWindow(name, key), entryModel, results, focusedFile, slotFiles, recipe: () => recipeState.edited ?? recipeState.standard, runRecipe: () => runRecipe(), limits, spectral,
-        slotHeld: () => paintSlots(),
         tapped(slot) { if (focus.key && rows.some(row => row.key === focus.key)) setSlot(slot, focus.key); },
     });
     function handleRemeasure(publication: ComparePublication): boolean {
@@ -1010,9 +1012,13 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         if (!hasCompared()) {
             deps.announce(stage ? strings.stepOpenCompare : strings.compareRefuseSlot.replace('{n}', '1'));
             if (!stage) document.getElementById('hint-footer')?.replaceChildren(strings.compareRefuseSlot.replace('{n}', '1'));
+            // The selected row's 0–3 button lights up: that is where a recording goes into slot 1.
+            // A selected row scrolled out of the drawn window is brought back first.
+            const slotButton = (): HTMLElement | null => (focus.key ? body.querySelector<HTMLElement>(`tr[data-key="${CSS.escape(focus.key)}"] [data-action="entry-row-slotmenu"]`) : null);
+            if (focus.key && !slotButton()) focusRow(focus.key, true);
             redraw.after(() => {
-                const first = slotBar.querySelector<HTMLElement>('[data-slot="1"]');
-                first?.classList.remove('is-flash'); void first?.offsetWidth; first?.classList.add('is-flash');
+                const button = slotButton();
+                button?.classList.remove('is-flash'); void button?.offsetWidth; button?.classList.add('is-flash');
             });
             return;
         }
@@ -1095,7 +1101,6 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         if (filterPop.draft()) return filterPop.anchor();
         if (popovers.slotMenu) return body.querySelector<HTMLElement>(`tr[data-key="${CSS.escape(popovers.slotMenu)}"] [data-action="entry-row-slotmenu"]`);
         if (popovers.memoKey) return body.querySelector<HTMLElement>(`tr[data-key="${CSS.escape(popovers.memoKey)}"] .entry-nm`);
-        if (popovers.baseMenu) return slotBar.querySelector<HTMLElement>('[data-action="entry-slot"][data-slot="0"]');
         // The bundle is offered from the toolbar's 書き出し menu; beside the table's bar when that is not on screen.
         if (popovers.batch) return maximized ? query<HTMLElement>('#entry-export-menu > summary') : document.querySelector<HTMLElement>('#tb-export-menu > summary') ?? query<HTMLElement>('.entry-bar');
         return null;
@@ -1103,7 +1108,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     /** The open popover, drawn only when it opens or changes, so what is typed in it is kept while the table redraws. */
     function renderPopovers(): void {
         screen.querySelector('[data-entry-pop]')?.remove();
-        if (!filterPop.draft() && !popovers.slotMenu && !popovers.memoKey && !popovers.baseMenu && !popovers.batch) return;
+        if (!filterPop.draft() && !popovers.slotMenu && !popovers.memoKey && !popovers.batch) return;
         const pop = document.createElement('div');
         pop.className = 'entry-pop';
         pop.setAttribute('data-entry-pop', '');
@@ -1111,11 +1116,6 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         else if (popovers.slotMenu) pop.innerHTML = slotMenuHtml(popovers.slotMenu, slots, text);
         else if (popovers.memoKey) pop.innerHTML = memoPopHtml(rowName(popovers.memoKey), memo.get(popovers.memoKey) ?? '', text);
         else if (popovers.batch) pop.innerHTML = batchPopHtml(batchCount(batchRows('filtered')), batchCount(batchRows('all')), popovers.batch, text);
-        else if (popovers.baseMenu) {
-            const names = [...new Set(distributionPool().map(row => datasetGroupOf(row, chosen.group)))].sort(compareGroupNames);
-            const labels = groupLabels(names);
-            pop.innerHTML = baseMenuHtml(names.map(name => ({ name, label: `${groupLabel(chosen.group)} ${labels.get(name) || strings.dsFilterBlank}` })), chosen.baseGroup, !!focus.key, text);
-        }
         screen.append(pop);
         const anchor = popAnchor();
         const outer = screen.getBoundingClientRect();
@@ -1127,10 +1127,10 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         (pop.querySelector<HTMLElement>('[data-entry-memo-text], [data-entry-fsearch], [data-entry-flow], .entry-mi') ?? pop).focus?.();
     }
     function closePopovers(): boolean {
-        if (!filterPop.draft() && !popovers.slotMenu && !popovers.memoKey && !popovers.baseMenu && !popovers.batch) return false;
+        if (!filterPop.draft() && !popovers.slotMenu && !popovers.memoKey && !popovers.batch) return false;
         const hadMemo = !!popovers.memoKey;
         if (popovers.memoKey) saveMemo();
-        filterPop.close(); popovers.slotMenu = null; popovers.memoKey = null; popovers.baseMenu = false; popovers.batch = null;
+        filterPop.close(); popovers.slotMenu = null; popovers.memoKey = null; popovers.batch = null;
         renderPopovers();
         // A memo kept shows on its row (✎ lit, its text as the hint).
         if (hadMemo) render();
@@ -1191,22 +1191,6 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         'entry-memo-close': () => { saveMemo(); popovers.memoKey = null; renderPopovers(); render(); },
         'entry-row-exclude': withKey(key => { excluded.add(key); rebuild(); }),
         'entry-row-restore': withKey(key => { excluded.delete(key); if (!excluded.size) chosen.mode = 'all'; rebuild(); }),
-        // An empty slot takes the selected row; a filled one goes to its row (it is never overwritten by a press); × empties it.
-        'entry-slot': target => {
-            const slot = Number(target.getAttribute('data-slot'));
-            const key = slots[slot];
-            if (key) { focusFile(fileOfKey(key)); focusRow(key, true); }
-            // The empty base is a group's median: its chip says which and offers the others (or the selected row).
-            else if (slot === 0 && chosen.group !== 'none') { filterPop.close(); popovers.slotMenu = null; popovers.memoKey = null; popovers.baseMenu = !popovers.baseMenu; renderPopovers(); }
-            else if (focus.key) setSlot(slot, focus.key);
-        },
-        'entry-base-group': target => {
-            popovers.baseMenu = false;
-            renderPopovers();
-            choose({ baseGroup: target.getAttribute('data-auto') === 'true' ? null : target.getAttribute('data-group') ?? '' });
-            deps.announce(chosen.baseGroup === null ? strings.dsBaseSetAuto : strings.dsBaseSet.replace('{group}', `${groupLabel(chosen.group)} ${chosen.baseGroup || strings.dsFilterBlank}`));
-        },
-        'entry-base-row': () => { popovers.baseMenu = false; renderPopovers(); if (focus.key) setSlot(0, focus.key); },
         'entry-batch': () => openBatch(),
         'entry-batch-go': () => exportBatch(),
         'entry-batch-cancel': () => closePopovers(),
@@ -1214,7 +1198,6 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             const parent = target.getAttribute('data-parent'), region = target.getAttribute('data-region');
             if (parent !== null && region !== null) removeDerived(parent, region, target.getAttribute('data-base') ?? undefined);
         },
-        'entry-slot-clear': target => setSlot(Number(target.getAttribute('data-slot')), null),
         'entry-key-hint': target => { if (target.getAttribute('data-key') === 'help') deps.help?.(); },
     };
     tableWrap.addEventListener('scroll', () => { renderRows(); sidePlots.schedule(false); });
@@ -1263,7 +1246,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     document.addEventListener('pointerdown', event => {
         const target = event.target as Element;
         if (!exportMenu.contains(target)) closeExportMenu();
-        if (screen.hidden || target.closest?.('[data-entry-pop], [data-action="entry-fhead"], [data-action="entry-fadd"], [data-action="entry-fchip"], [data-action="entry-row-slotmenu"], [data-action="entry-row-memo"], [data-action="entry-slot"][data-slot="0"], [data-action="entry-batch"], #tb-export-menu, #entry-export-menu')) return;
+        if (screen.hidden || target.closest?.('[data-entry-pop], [data-action="entry-fhead"], [data-action="entry-fadd"], [data-action="entry-fchip"], [data-action="entry-row-slotmenu"], [data-action="entry-row-memo"], [data-action="entry-batch"], #tb-export-menu, #entry-export-menu')) return;
         closePopovers();
     }, true);
     screen.addEventListener('change', event => redraw.batch(() => {
@@ -1277,6 +1260,15 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             choose({ group: groupSelect.value as GroupId, baseGroup: null });
             // With slot 0 empty the base is slot 1's group median: a new grouping changes it, which is said.
             if (!slots[0] && slots[1] && entryBase.text() !== baseBefore) deps.announce(strings.dsBaseReset);
+            return;
+        }
+        if (target === baseSelect) {
+            const value = baseSelect.value;
+            if (value === 'row') return;
+            const group = value === 'auto' ? null : value.slice('group:'.length);
+            if (slots[0]) setSlot(0, null);
+            choose({ baseGroup: group });
+            deps.announce(group === null ? strings.dsBaseSetAuto : strings.dsBaseSet.replace('{group}', `${groupLabel(chosen.group)} ${group || strings.dsFilterBlank}`));
             return;
         }
         if (target.matches('[data-entry-batch-scope]')) { popovers.batch = (target as HTMLInputElement).value as 'filtered' | 'all'; return; }
