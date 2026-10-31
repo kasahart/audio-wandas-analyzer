@@ -3431,6 +3431,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function renderTrackSpectra() {
         const linkedDb = linkedTrackSpectrumDb();
+        const lanes: { trackId: TrackId; result: ComparisonTrackState; i: number; channelIndex: number; canvas: HTMLCanvasElement; wrap: HTMLElement }[] = [];
         trackStore.activeIds().forEach(function (trackId) {
             const record = trackStore.require(trackId);
             const result = record.result;
@@ -3447,48 +3448,54 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 if (!wrap) {
                     return;
                 }
-                const wrapStyle = (typeof window !== 'undefined' && typeof window.getComputedStyle === 'function')
-                    ? window.getComputedStyle(wrap)
-                    : null;
-                if (wrapStyle && wrapStyle.display === 'none') {
-                    return;
-                }
-                const w = wrap.clientWidth || 180;
-                const prevW = canvas.width;
-                const prevH = canvas.height;
-                syncCanvasSize(canvas, w, laneOuterHeight());
-                const paintedByChannel = record.spectrumPainted;
-                if (canvas.width !== prevW || canvas.height !== prevH) {
-                    paintedByChannel.set(channelIndex, false);
-                }
-                const ctx = canvas.getContext('2d');
-                if (!ctx) {
-                    return;
-                }
-                const W = canvas.width, H = canvas.height;
-                if (trackRuntimeAt(i).hidden) {
-                    ctx.clearRect(0, 0, W, H);
-                    paintedByChannel.set(channelIndex, false);
-                    return;
-                }
-                const ownSlice = extractSpectrumAtCursor(result, i, trackRuntimeAt(i).offsetSeconds, spectrumCursorNorm, channelIndex);
-                const shared = ownSlice && linkedDb ? linkedDb.get(amplitudeUnitKey(channelsForResult(result)[channelIndex])) : undefined;
-                const slice = ownSlice && shared ? { ...ownSlice, ...shared } : ownSlice;
-                if (!slice) {
-                    if (paintedByChannel.get(channelIndex) && isSpectrumSliceRequestPendingForCursor(i, spectrumCursorNorm)) {
-                        return;
-                    }
-                    drawCanvasMessage(ctx, W, H, STR.canvasOutOfRange, '9px sans-serif', drawTheme().mutedColor);
-                    paintedByChannel.set(channelIndex, false);
-                    return;
-                }
-                const hovered = spectrumHover.target === trackId && spectrumHover.channelIndex === channelIndex ? spectrumHover.norm : null;
-                const readout = paintTrackSpectrum(ctx, W, H, { slice, color: trackColor(i), label: spectrumReadoutTrackLabel(result, channelIndex) }, spectrumView.state(), hovered, drawTheme());
-                paintedByChannel.set(channelIndex, true);
-                if (readout) {
-                    setSpectrumReadout(document.getElementById('spectrum-freq-readout'), readout.text, readout.color);
-                }
+                lanes.push({ trackId, result, i, channelIndex, canvas, wrap });
             });
+        });
+        // Every spectrum's width is read before any canvas is resized, so the pass forces one layout rather than one per lane.
+        readThenWrite(lanes, function ({ wrap }) {
+            const wrapStyle = (typeof window !== 'undefined' && typeof window.getComputedStyle === 'function')
+                ? window.getComputedStyle(wrap)
+                : null;
+            return wrapStyle && wrapStyle.display === 'none' ? null : wrap.clientWidth || 180;
+        }, function ({ trackId, result, i, channelIndex, canvas }, w) {
+            if (w === null) {
+                return;
+            }
+            const record = trackStore.require(trackId);
+            const prevW = canvas.width;
+            const prevH = canvas.height;
+            syncCanvasSize(canvas, w, laneOuterHeight());
+            const paintedByChannel = record.spectrumPainted;
+            if (canvas.width !== prevW || canvas.height !== prevH) {
+                paintedByChannel.set(channelIndex, false);
+            }
+            const ctx = canvas.getContext('2d');
+            if (!ctx) {
+                return;
+            }
+            const W = canvas.width, H = canvas.height;
+            if (trackRuntimeAt(i).hidden) {
+                ctx.clearRect(0, 0, W, H);
+                paintedByChannel.set(channelIndex, false);
+                return;
+            }
+            const ownSlice = extractSpectrumAtCursor(result, i, trackRuntimeAt(i).offsetSeconds, spectrumCursorNorm, channelIndex);
+            const shared = ownSlice && linkedDb ? linkedDb.get(amplitudeUnitKey(channelsForResult(result)[channelIndex])) : undefined;
+            const slice = ownSlice && shared ? { ...ownSlice, ...shared } : ownSlice;
+            if (!slice) {
+                if (paintedByChannel.get(channelIndex) && isSpectrumSliceRequestPendingForCursor(i, spectrumCursorNorm)) {
+                    return;
+                }
+                drawCanvasMessage(ctx, W, H, STR.canvasOutOfRange, '9px sans-serif', drawTheme().mutedColor);
+                paintedByChannel.set(channelIndex, false);
+                return;
+            }
+            const hovered = spectrumHover.target === trackId && spectrumHover.channelIndex === channelIndex ? spectrumHover.norm : null;
+            const readout = paintTrackSpectrum(ctx, W, H, { slice, color: trackColor(i), label: spectrumReadoutTrackLabel(result, channelIndex) }, spectrumView.state(), hovered, drawTheme());
+            paintedByChannel.set(channelIndex, true);
+            if (readout) {
+                setSpectrumReadout(document.getElementById('spectrum-freq-readout'), readout.text, readout.color);
+            }
         });
     }
     function renderOverlaySpectrum() {
