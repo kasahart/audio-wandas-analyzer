@@ -177,3 +177,22 @@ test('TrackStore globalSpan falls back to a one-second span when no track is vis
     store.require(aId).runtime.offsetSeconds = 4;
     assert.deepEqual(store.globalSpan(), { startSec: 4, endSec: 5, spanSec: 1 });
 });
+
+test('an analysis update keeps the audio source a track already plays from and hands back the protocol-ordered results', () => {
+    const store = new TrackStore([{ ...result('/a.wav'), audioSource: 'blob:a' }], runtime);
+    const [aId] = store.activeIds();
+    const update = store.applyAnalysisUpdate([{ ...result('/b.wav'), audioSource: 'blob:b' }, { ...result('/a.wav', 0.9), audioSource: 'blob:new-a' }]);
+    assert.equal(update.protocolOrderChanged, true);
+    assert.deepEqual(update.results.map(item => item.filePath), ['/b.wav', '/a.wav']);
+    assert.deepEqual(update.results.map(item => item.audioSource), ['blob:b', 'blob:a']);
+    assert.equal(update.results[1].channels[0].peakAbsolute, 0.9);
+    assert.equal(update.results[1].trackId, aId);
+    assert.deepEqual(update.results, store.activeResults());
+});
+
+test('a new track without an audio source gets an empty one', () => {
+    const store = new TrackStore([], runtime);
+    const update = store.applyAnalysisUpdate([result('/a.wav')]);
+    assert.equal(update.results[0].audioSource, '');
+    assert.equal(update.added.length, 1);
+});

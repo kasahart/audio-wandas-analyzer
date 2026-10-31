@@ -80,6 +80,7 @@ import { normalizeRuntimeState, PersistedStateStore } from './stateStore';
 import { ComparisonTestBridge } from './testBridge';
 import { RuntimeEventFeed } from './runtimeEvents';
 import { TrackStore } from './trackStore';
+import { replaceTrackAudio, retireAudio } from './trackAudioHost';
 import { installTrackReorderDrag } from './trackReorderDrag';
 import { installSpectrogramSettingsPopover } from './spectrogramSettingsPopover';
 import { installReanalyzeOverlay } from './reanalyzeOverlay';
@@ -3599,11 +3600,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         const audio = getTrackAudio(idx);
         if (audio) {
-            audio.removeAttribute('id');
-            audioFader.pauseSmoothly(audio, function () {
-                audio.remove();
-                audioFader.release(audio);
-            });
+            retireAudio(audio, audioFader);
         }
         releaseTrackDetail(idx);
         channelsForResult(record.result).forEach((_, channelIndex) => spectrogramRasterCache.delete(trackId + ':' + channelIndex));
@@ -3722,55 +3719,45 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         if (msg.type === 'analysis-update' && Array.isArray(msg.results)) {
-            if (isSelectionMode && msg.selectedFilePaths) {
-                // A file the host newly selects (opened again with the picker after its track was taken off) is shown
-                // again; one it still reports from before (an update that crossed the removal) stays off.
-                for (const path of selection.adoptHostSelection(msg.selectedFilePaths)) trackStore.allowExplicitSelection(path);
-                syncSelectionSummary();
-            }
-            __setReanalyzeBusy(false);
-            invalidateDesiredSpectrumSliceRequests();
-            // A host drops a request whose source was cleared, so waiting for its answer would block every later cursor spectrum.
-            spectrumRequests.abandonActive();
-            const reconciliation = trackStore.reconcile(msg.results, function (nextResult, previousResult) {
-                return Object.assign({}, nextResult, { audioSource: previousResult?.audioSource || nextResult.audioSource || '' });
-            });
-            analysisId = createAnalysisId();
-            state.results = trackStore.activeIds().map(function (trackId) {
-                return trackStore.require(trackId).result;
-            });
-            if (playback.trackId && !trackStore.get(playback.trackId)?.active) {
-                playback.clear();
-            }
-            rebuildResultsPane();
-            if (reconciliation.protocolOrderChanged) {
-                playback.clear();
-                const audioHost = document.getElementById('audio-host');
-                if (audioHost) {
-                    audioHost.querySelectorAll('audio').forEach(function (audio) {
-                        // Moving it within the document keeps it playing until its fade-out ends; detaching would cut it off.
-                        audio.removeAttribute('id');
-                        document.body.appendChild(audio);
-                        audioFader.pauseSmoothly(audio, function () {
-                            audio.remove();
-                            audioFader.release(audio);
-                        });
-                    });
-                    audioHost.innerHTML = buildAudioElements();
-                    attachAudioEvents();
-                }
-            }
-            updateCursorDisplay(viewState.hover ?? viewState.cursor);
-            updateLoopTimeDisplay();
-            overlaySpectrumPainted = false;
-            announce((STR.announceAnalysisDone || 'Analysis complete: {count} tracks').replace('{count}', String(state.results.length)));
-            entryScreen.tracksChanged();
-            scheduleRender();
-            scheduleSpectrumRefresh('immediate');
-            requestAnimationFrame(function () { publishTestSnapshot(); });
-            return;
+            applyAnalysisUpdate(msg.results, isSelectionMode ? msg.selectedFilePaths : undefined);
         }
     });
+    /** The host's new results: the tracks are rebuilt around them, keeping each track's identity and runtime state. */
+    function applyAnalysisUpdate(results: ComparisonTrackState[], hostSelectedFilePaths: string[] | undefined) {
+        if (hostSelectedFilePaths) {
+            // A file the host newly selects (opened again with the picker after its track was taken off) is shown
+            // again; one it still reports from before (an update that crossed the removal) stays off.
+            for (const path of selection.adoptHostSelection(hostSelectedFilePaths)) trackStore.allowExplicitSelection(path);
+            syncSelectionSummary();
+        }
+        __setReanalyzeBusy(false);
+        invalidateDesiredSpectrumSliceRequests();
+        // A host drops a request whose source was cleared, so waiting for its answer would block every later cursor spectrum.
+        spectrumRequests.abandonActive();
+        const update = trackStore.applyAnalysisUpdate(results);
+        analysisId = createAnalysisId();
+        state.results = update.results;
+        if (playback.trackId && !trackStore.get(playback.trackId)?.active) {
+            playback.clear();
+        }
+        rebuildResultsPane();
+        if (update.protocolOrderChanged) {
+            playback.clear();
+            const audioHost = document.getElementById('audio-host');
+            if (audioHost) {
+                replaceTrackAudio(document, audioHost, buildAudioElements(), audioFader);
+                attachAudioEvents();
+            }
+        }
+        updateCursorDisplay(viewState.hover ?? viewState.cursor);
+        updateLoopTimeDisplay();
+        overlaySpectrumPainted = false;
+        announce((STR.announceAnalysisDone || 'Analysis complete: {count} tracks').replace('{count}', String(state.results.length)));
+        entryScreen.tracksChanged();
+        scheduleRender();
+        scheduleSpectrumRefresh('immediate');
+        requestAnimationFrame(function () { publishTestSnapshot(); });
+    }
     // ── Track drag reorder ──
     function reorderTracks(fromTrackId: TrackId, toTrackId: TrackId) {
         if (!trackStore.reorder(fromTrackId, toTrackId)) {
