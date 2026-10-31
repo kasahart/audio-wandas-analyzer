@@ -24,7 +24,11 @@ const DEFINITIONS = BACKEND_PROTOCOL_SCHEMA.$defs as unknown as Readonly<Record<
 
 function resolve(node: SchemaNode): SchemaNode {
     let current = node;
-    while (current.$ref) current = DEFINITIONS[current.$ref.replace('#/$defs/', '')]!;
+    while (current.$ref) {
+        const definition = DEFINITIONS[current.$ref.replace('#/$defs/', '')];
+        if (!definition) throw new Error(`Unknown protocol schema reference: ${current.$ref}`);
+        current = definition;
+    }
     return current;
 }
 

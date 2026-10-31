@@ -1,130 +1,74 @@
 import * as vscode from 'vscode';
-import type {
-    AnalysisResultWithError,
-} from '../shared/analysis/analysisTypes';
-import { fillTemplate, getStrings } from '../shared/i18n/strings';
-import { isConfigureCalibrationMessage } from '../shared/utils/audioTarget';
+import { getStrings } from '../shared/i18n/strings';
 import { ComparisonPanel } from '../webview/panels/ComparisonPanel';
-import {
-    configureCalibrationProfile,
-} from './calibrationStore';
-import type { CalibrationChannelDescriptor } from '../shared/analysis/calibrationModel';
+import type { CalibrationStore } from './calibrationStore';
 
-const panelMessageDisposables = new WeakMap<vscode.WebviewPanel, vscode.Disposable>();
-const panelLifecycleInstalled = new WeakSet<vscode.WebviewPanel>();
-let installed = false;
-let activePanel: vscode.WebviewPanel | undefined;
+/**
+ * The Configure Calibration command: it acts on the comparison panel in front. A panel's own calibration button
+ * reaches the store through that panel's message handler (PanelController), not through here.
+ */
+export class CalibrationPanels implements vscode.Disposable {
+    private readonly tracked = new WeakSet<vscode.WebviewPanel>();
+    private activePanel: vscode.WebviewPanel | undefined;
+    private readonly command: vscode.Disposable;
 
-function channelDescriptors(result: AnalysisResultWithError): CalibrationChannelDescriptor[] {
-    return (result.channels ?? []).map((channel, channelIndex) => ({
-        channelIndex,
-        label: channel.label || fillTemplate(getStrings(vscode.env.language).calibrationChannelFallback, { n: channelIndex + 1 }),
-        measurement: channel.measurement,
-        rawPeakFullScale: channel.rawPeakFullScale,
-    }));
-}
-
-async function configureChannels(
-    extensionContext: vscode.ExtensionContext,
-    filePath: string,
-    channels: CalibrationChannelDescriptor[],
-): Promise<void> {
-    await configureCalibrationProfile(
-        extensionContext,
-        filePath,
-        channels,
-    );
-}
-
-async function configureResult(
-    extensionContext: vscode.ExtensionContext,
-    result: AnalysisResultWithError,
-): Promise<void> {
-    await configureChannels(extensionContext, result.filePath, channelDescriptors(result));
-}
-
-async function configureActivePanel(extensionContext: vscode.ExtensionContext): Promise<void> {
-    const strings = getStrings(vscode.env.language);
-    const panel = activePanel;
-    if (!panel) {
-        void vscode.window.showInformationMessage(strings.calibrationNoPanel);
-        return;
+    constructor(private readonly store: Pick<CalibrationStore, 'configureTrack'>) {
+        ComparisonPanel.setShownListener((panel) => { this.track(panel); });
+        this.command = vscode.commands.registerCommand('audioWandasAnalyzer.configureCalibration', async () => {
+            await this.configureActivePanel();
+        });
     }
-    const available = ComparisonPanel.getResults(panel).filter((result) => !result.error && result.channels.length > 0);
-    if (available.length === 0) {
-        void vscode.window.showInformationMessage(strings.calibrationNoChannels);
-        return;
+
+    dispose(): void {
+        this.command.dispose();
+        this.activePanel = undefined;
     }
-    let selected = available[0];
-    if (available.length > 1) {
-        const picked = await vscode.window.showQuickPick(
-            available.map((result) => ({ label: result.fileName, description: result.filePath, result })),
-            { placeHolder: strings.calibrationPickTrack, matchOnDescription: true },
-        );
-        if (!picked) {
+
+    private track(panel: vscode.WebviewPanel): void {
+        if (panel.active) {
+            this.activePanel = panel;
+        }
+        if (this.tracked.has(panel)) {
             return;
         }
-        selected = picked.result;
-    }
-    await configureResult(extensionContext, selected);
-}
-
-let contextExtension: vscode.ExtensionContext;
-
-function installPanelLifecycle(panel: vscode.WebviewPanel): void {
-    if (panelLifecycleInstalled.has(panel)) {
-        return;
-    }
-    panelLifecycleInstalled.add(panel);
-    panel.onDidChangeViewState((event) => {
-        if (event.webviewPanel.active) {
-            activePanel = event.webviewPanel;
-        } else if (activePanel === event.webviewPanel) {
-            activePanel = undefined;
-        }
-    });
-    panel.onDidDispose(() => {
-        panelMessageDisposables.get(panel)?.dispose();
-        panelMessageDisposables.delete(panel);
-        if (activePanel === panel) {
-            activePanel = undefined;
-        }
-    });
-}
-
-function installOnPanel(panel: vscode.WebviewPanel): void {
-    if (panel.active) {
-        activePanel = panel;
-    }
-    installPanelLifecycle(panel);
-
-    panelMessageDisposables.get(panel)?.dispose();
-    const disposable = panel.webview.onDidReceiveMessage(async (message: unknown) => {
-        if (isConfigureCalibrationMessage(message)) {
-            const result = ComparisonPanel.getResults(panel).find(
-                (candidate) => candidate.filePath === message.filePath,
-            );
-            if (result) {
-                await configureResult(contextExtension, result);
+        this.tracked.add(panel);
+        panel.onDidChangeViewState((event) => {
+            if (event.webviewPanel.active) {
+                this.activePanel = event.webviewPanel;
+            } else if (this.activePanel === event.webviewPanel) {
+                this.activePanel = undefined;
             }
+        });
+        panel.onDidDispose(() => {
+            if (this.activePanel === panel) {
+                this.activePanel = undefined;
+            }
+        });
+    }
+
+    private async configureActivePanel(): Promise<void> {
+        const strings = getStrings(vscode.env.language);
+        const panel = this.activePanel;
+        if (!panel) {
+            void vscode.window.showInformationMessage(strings.calibrationNoPanel);
             return;
         }
-    });
-    panelMessageDisposables.set(panel, disposable);
-}
-
-export function installCalibrationPanelRuntime(extensionContext: vscode.ExtensionContext): void {
-    contextExtension = extensionContext;
-    if (installed) {
-        return;
+        const available = ComparisonPanel.getResults(panel).filter((result) => !result.error && result.channels.length > 0);
+        if (available.length === 0) {
+            void vscode.window.showInformationMessage(strings.calibrationNoChannels);
+            return;
+        }
+        let selected = available[0];
+        if (available.length > 1) {
+            const picked = await vscode.window.showQuickPick(
+                available.map((result) => ({ label: result.fileName, description: result.filePath, result })),
+                { placeHolder: strings.calibrationPickTrack, matchOnDescription: true },
+            );
+            if (!picked) {
+                return;
+            }
+            selected = picked.result;
+        }
+        await this.store.configureTrack(selected);
     }
-    installed = true;
-
-    ComparisonPanel.setShownListener(installOnPanel);
-
-    extensionContext.subscriptions.push(
-        vscode.commands.registerCommand('audioWandasAnalyzer.configureCalibration', async () => {
-            await configureActivePanel(extensionContext);
-        }),
-    );
 }

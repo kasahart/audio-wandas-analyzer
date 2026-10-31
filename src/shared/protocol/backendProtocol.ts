@@ -248,11 +248,11 @@ function isScanResult(value: unknown): value is ScanResult {
     if (result.stage !== undefined && result.leqDbA === undefined) {
         return result.reason === undefined && result.input !== undefined && STAGE_METRIC_KEYS.every(key => result[key] === undefined);
     }
-    if (result.reason !== undefined || !SCAN_SUCCESS_KEYS.every(key => result[key] !== undefined)) return false;
+    if (result.reason !== undefined || !SCAN_SUCCESS_KEYS.every(key => result[key] !== undefined) || result.input === undefined) return false;
     // Every per-channel array follows input.channels.
-    const channels = result.input!.channels.length;
+    const channels = result.input.channels.length;
     return [result.leqDbA, result.peakHz, result.spectrumDb, result.thirdOctDb, result.crest]
-        .every(values => values!.length === channels);
+        .every(values => values !== undefined && values.length === channels);
 }
 
 type ResultValidator<K extends BackendCommand> = (value: unknown) => value is BackendResult<K>;

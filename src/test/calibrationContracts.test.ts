@@ -122,7 +122,7 @@ test('calibration row helpers draw badges, peak text, requests and the overlay g
 test('calibration uses composition rather than global prototype or panel-method patches', () => {
     const source = readFileSync(path.resolve(process.cwd(), 'src/extension/calibrationPanelRuntime.ts'), 'utf8');
     assert.doesNotMatch(source, /prototype|ComparisonPanel\.show\s*=/u);
-    assert.match(source, /ComparisonPanel\.setShownListener\(installOnPanel\)/u);
+    assert.match(source, /ComparisonPanel\.setShownListener\(/u);
 });
 
 test('ComparisonPanel result ownership follows accepted in-place reanalysis', () => {
@@ -234,15 +234,14 @@ test('calibration profile writes serialize read-modify-write updates', async () 
             },
         },
     } as unknown as import('vscode').ExtensionContext;
+    const store = new calibrationStore.CalibrationStore(context);
 
-    const first = calibrationStore.discardStaleCalibrationProfile(
-        context,
+    const first = store.discardStale(
         firstPath,
         new BackendRequestError('stale-calibration', 'Calibration channel label mismatch'),
         firstProfile,
     );
-    const second = calibrationStore.discardStaleCalibrationProfile(
-        context,
+    const second = store.discardStale(
         secondPath,
         new BackendRequestError('stale-calibration', 'Calibration channel label mismatch'),
         secondProfile,
@@ -300,18 +299,17 @@ test('stale persisted calibration is discarded and advances the analysis revisio
             update: async (key: string, value: unknown): Promise<void> => { stored[key] = value; },
         },
     } as unknown as import('vscode').ExtensionContext;
+    const store = new calibrationStore.CalibrationStore(context);
 
-    assert.equal(await calibrationStore.discardStaleCalibrationProfile(
-        context,
+    assert.equal(await store.discardStale(
         filePath,
         new BackendRequestError('stale-calibration', 'Calibration channel label mismatch'),
         profile,
     ), true);
-    assert.equal(calibrationStore.getCalibrationProfile(context, filePath), undefined);
-    assert.equal(calibrationStore.getAnalysisRevision(filePath), 1);
+    assert.equal(store.profile(filePath), undefined);
+    assert.equal(store.analysisRevision(filePath), 1);
     stored[storageKey] = { [path.resolve(filePath)]: profile };
-    assert.equal(await calibrationStore.discardStaleCalibrationProfile(
-        context,
+    assert.equal(await store.discardStale(
         filePath,
         new BackendRequestError('stale-calibration', 'Calibration factor for channel 0 exceeds the safe limit 1e+24 for source peak 1e+10'),
         profile,
@@ -321,26 +319,23 @@ test('stale persisted calibration is discarded and advances the analysis revisio
         channels: [{ ...profile.channels[0], factor: 3 }],
     };
     stored[storageKey] = { [path.resolve(filePath)]: replacementProfile };
-    assert.equal(await calibrationStore.discardStaleCalibrationProfile(
-        context,
+    assert.equal(await store.discardStale(
         filePath,
         new BackendRequestError('stale-calibration', 'Calibration factor for channel 0 exceeds the safe limit 1e+24 for source peak 1e+10'),
         profile,
     ), false);
-    assert.deepEqual(calibrationStore.getCalibrationProfile(context, filePath), replacementProfile);
-    assert.equal(await calibrationStore.discardStaleCalibrationProfile(
-        context,
+    assert.deepEqual(store.profile(filePath), replacementProfile);
+    assert.equal(await store.discardStale(
         filePath,
         new Error('unrelated backend failure'),
         replacementProfile,
     ), false);
-    assert.equal(await calibrationStore.discardStaleCalibrationProfile(
-        context,
+    assert.equal(await store.discardStale(
         filePath,
         new BackendRequestError('input-error', 'Calibration channel label mismatch'),
         replacementProfile,
     ), false, 'only the stale-calibration code discards, whatever the message says');
-    assert.deepEqual(calibrationStore.getCalibrationProfile(context, filePath), replacementProfile);
+    assert.deepEqual(store.profile(filePath), replacementProfile);
 });
 
 test('calibration profile lookup uses the same real filesystem path as the backend', (context) => {
@@ -376,8 +371,9 @@ test('calibration profile lookup uses the same real filesystem path as the backe
             } as T),
         },
     } as unknown as import('vscode').ExtensionContext;
+    const store = new calibrationStore.CalibrationStore(extensionContext);
 
-    assert.deepEqual(calibrationStore.getCalibrationProfile(extensionContext, symlinkPath), profile);
+    assert.deepEqual(store.profile(symlinkPath), profile);
 });
 
 test('native injected calibration retry preserves cancellation token and request error revision', async () => {
@@ -408,6 +404,7 @@ test('native injected calibration retry preserves cancellation token and request
             update: async (key: string, value: unknown): Promise<void> => { stored[key] = value; },
         },
     } as unknown as import('vscode').ExtensionContext;
+    const store = new calibrationStore.CalibrationStore(extensionContext);
     let revision = 2;
     const tokens: unknown[] = [];
     const token = { isCancellationRequested: false } as import('vscode').CancellationToken;
@@ -420,8 +417,8 @@ test('native injected calibration retry preserves cancellation token and request
                     if (!(error instanceof backendModule.AnalysisRequestError)) return false;
                     assert.equal(error.analysisRevision, 2);
                     // The real predicate must still see the backend code through the wrapper.
-                    const discarded = await calibrationStore.discardStaleCalibrationProfile(
-                        extensionContext, filePath, error, attempted.calibrationProfile!,
+                    const discarded = await store.discardStale(
+                        filePath, error, attempted.calibrationProfile!,
                     );
                     if (discarded) revision = 3;
                     return discarded;
@@ -440,13 +437,13 @@ test('native injected calibration retry preserves cancellation token and request
     }();
     await server.analyze('source', {}, token);
     assert.deepEqual(tokens, [token, token]);
-    assert.equal(calibrationStore.getCalibrationProfile(extensionContext, 'source'), undefined);
+    assert.equal(store.profile('source'), undefined);
     server.failCancellation = true;
     await assert.rejects(server.analyze('source', {}, token), CancellationError);
     assert.equal(tokens.length, 3);
 });
 
-test('native calibration shown hook replaces listeners and follows live results and recreated panels', async () => {
+test('the calibration command follows the panel in front, its live results and recreated panels', async () => {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const NodeModule = require('node:module') as { _load: (request: string, parent: unknown, isMain: boolean) => unknown };
     const originalLoad = NodeModule._load;
@@ -477,28 +474,30 @@ test('native calibration shown hook replaces listeners and follows live results 
             setShownListener: (listener: typeof shown) => { shown = listener; },
             getResults: (value: object) => results.get(value) ?? [],
         } };
-        if (request === './calibrationStore') return {
-            configureCalibrationProfile: async (_context: unknown, filePath: string, channels: Array<{ label: string }>) => {
-                configured.push({ path: filePath, labels: channels.map(channel => channel.label) });
-            },
-        };
         return originalLoad.call(this, request, parent, isMain);
     };
     let runtime: typeof import('../extension/calibrationPanelRuntime');
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     try { runtime = require('../extension/calibrationPanelRuntime'); }
     finally { NodeModule._load = originalLoad; }
-    runtime.installCalibrationPanelRuntime({ subscriptions: [] } as unknown as import('vscode').ExtensionContext);
+    const store = { configureTrack: async (track: { filePath: string; channels: Array<{ label: string }> }) => {
+        configured.push({ path: track.filePath, labels: track.channels.map(channel => channel.label) });
+    } } as unknown as import('../extension/calibrationStore').CalibrationStore;
+    const panels = new runtime.CalibrationPanels(store);
     const first = panel(); results.set(first, [result('/a.wav', 'old')]);
     shown(first); shown(first);
-    assert.equal(first.messages.size, 1);
+    assert.equal(first.messages.size, 0, 'the panel button goes through PanelController, not a second listener');
     assert.equal(first.views.length, 1);
     assert.equal(first.disposals.length, 1);
     results.set(first, [result('/a.wav', 'updated')]);
-    await [...first.messages][0]({ type: 'configure-calibration', trackIndex: 0, filePath: '/a.wav', channels: [{ channelIndex: 0, label: 'ignored message metadata' }] });
+    await configureActive();
+    first.active = false;
+    first.views.forEach(view => view({ webviewPanel: first }));
+    await configureActive();
+    assert.equal(configured.length, 1, 'a panel that left the front is not configured');
     first.disposals.forEach(dispose => dispose());
-    assert.equal(first.messages.size, 0);
     const recreated = panel(); results.set(recreated, [result('/b.wav', 'new')]);
     shown(recreated); await configureActive();
     assert.deepEqual(configured, [{ path: '/a.wav', labels: ['updated'] }, { path: '/b.wav', labels: ['new'] }]);
+    panels.dispose();
 });

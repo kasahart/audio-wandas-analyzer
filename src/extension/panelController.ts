@@ -21,11 +21,7 @@ import { fileCountLabel, fillTemplate, getStrings, type UiStrings } from '../sha
 import type { AnalysisHost, AnalysisOrchestrator } from './analysisOrchestrator';
 import type { AnalysisClient } from '../shared/analysis/analysisClient';
 import type { CalibrationRequestContext } from '../shared/protocol/backendProtocol';
-import {
-    getAnalysisRevision,
-    onDidChangeCalibration,
-    type CalibrationChangeEvent,
-} from './calibrationStore';
+import type { CalibrationChangeEvent, CalibrationStore } from './calibrationStore';
 import type { ExportFlows } from './exportFlows';
 import type { RecipeDocument } from '../shared/recipe/recipeSelection';
 import type { PanelMessage } from '../shared/protocol/panelMessages';
@@ -159,6 +155,9 @@ const defaultHost: PanelControllerHost = {
     withProgress: (options, task) => vscode.window.withProgress(options, task),
 };
 
+/** The calibration revisions a panel's results are checked against, and their change events. */
+export type PanelCalibration = Pick<CalibrationStore, 'analysisRevision' | 'onDidChange' | 'configureTrack'>;
+
 export class PanelController implements vscode.Disposable {
     private readonly sessions = new Map<PanelHandle, PanelSession<PanelHandle>>();
     private readonly calibrationRefreshQueues = new WeakMap<PanelSession<PanelHandle>, Promise<void>>();
@@ -169,10 +168,11 @@ export class PanelController implements vscode.Disposable {
         private readonly backend: PanelBackend,
         private readonly analysis: PanelAnalysis,
         private readonly exports: ExportFlows,
+        private readonly calibration: PanelCalibration,
         private readonly panelFactory: PanelFactory = defaultPanelFactory,
         private readonly host: PanelControllerHost = defaultHost,
     ) {
-        this.calibrationChangeDisposable = onDidChangeCalibration((event) => {
+        this.calibrationChangeDisposable = calibration.onDidChange((event) => {
             for (const session of this.sessions.values()) {
                 if (!session.getActiveFilePaths().includes(event.filePath)) { continue; }
                 void this.enqueueCalibrationRefresh(session, event).catch((error) => {
@@ -297,7 +297,7 @@ export class PanelController implements vscode.Disposable {
     }
 
     private isLiveResult(result: AnalysisResultWithError): boolean {
-        return (result.analysisRevision ?? 0) === getAnalysisRevision(result.filePath);
+        return (result.analysisRevision ?? 0) === this.calibration.analysisRevision(result.filePath);
     }
 
     private async settleLiveResults(
@@ -398,6 +398,11 @@ export class PanelController implements vscode.Disposable {
             showError: (message) => this.host.showError(message),
             unsupported: () => undefined,
             selection: (message) => this.handleSelection(session, message),
+            // The channels come from the track the panel shows, not from the message.
+            configureCalibration: async (message) => {
+                const result = this.panelFactory.getResults(session.panel).find((candidate) => candidate.filePath === message.filePath);
+                if (result) { await this.calibration.configureTrack(result); }
+            },
             panelReady: (message) => this.handlePanelReady(session, message),
             selectPythonEnvironment: async () => { await this.host.executeCommand('audioWandasAnalyzer.selectPythonEnvironment'); },
             runRecipe: async () => { await this.host.executeCommand('audioWandasAnalyzer.runRecipe', session.getActiveFilePaths()); },
@@ -492,11 +497,11 @@ export class PanelController implements vscode.Disposable {
         const newlyAdded = new Set(delta.addedFilePaths);
         const uncached = [
             ...delta.addedFilePaths.filter((filePath) => (
-                !session.hasCachedResult(filePath, getAnalysisRevision(filePath))
+                !session.hasCachedResult(filePath, this.calibration.analysisRevision(filePath))
             )),
             ...selectedFilePaths.filter((filePath) => {
                 return !newlyAdded.has(filePath)
-                    && !session.hasCachedResult(filePath, getAnalysisRevision(filePath));
+                    && !session.hasCachedResult(filePath, this.calibration.analysisRevision(filePath));
             }),
         ];
         if (uncached.length > 0) {
@@ -605,7 +610,7 @@ export class PanelController implements vscode.Disposable {
         message: CalibrationChangeEvent,
     ): Promise<void> {
         if (!session.getActiveFilePaths().includes(message.filePath)
-            || getAnalysisRevision(message.filePath) !== message.analysisRevision) {
+            || this.calibration.analysisRevision(message.filePath) !== message.analysisRevision) {
             return;
         }
         const [result] = await this.analysis.analyzeFiles(
@@ -618,7 +623,7 @@ export class PanelController implements vscode.Disposable {
         if (!result
             || session.isDisposed
             || !session.getActiveFilePaths().includes(message.filePath)
-            || getAnalysisRevision(message.filePath) !== message.analysisRevision) {
+            || this.calibration.analysisRevision(message.filePath) !== message.analysisRevision) {
             return;
         }
         if (!this.isLiveResult(result) || result.analysisRevision !== message.analysisRevision) { return; }
@@ -633,7 +638,7 @@ export class PanelController implements vscode.Disposable {
         for (const result of stale) {
             await this.enqueueCalibrationRefresh(session, {
                 filePath: result.filePath,
-                analysisRevision: getAnalysisRevision(result.filePath),
+                analysisRevision: this.calibration.analysisRevision(result.filePath),
             });
         }
     }
