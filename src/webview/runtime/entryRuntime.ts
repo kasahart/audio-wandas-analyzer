@@ -9,29 +9,26 @@
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import type { UiStrings } from '../../shared/i18n/strings';
 import type { ComparePublication, CompareScanMessage, EntryConditionTable, EntryProbeCancelMessage, EntryProbeMessage, EntryProbePublication, EntryPublication, EntryScanCancelMessage, EntryScanMessage, EntrySaveSessionMessage } from '../../shared/analysis/entryScan';
-import type { ScanResult, StageView } from '../../shared/protocol/backendProtocol';
+import type { ScanResult } from '../../shared/protocol/backendProtocol';
 import { BAND_CENTERS_HZ, bandLabel, buildEntryModel, derivedKey, entryCsv, type BaseDefinition, type DerivedRow, type EntryModel } from './entryTable';
 import { channelResult } from '../../shared/recipe/channelSelection';
 import { batchBundle, batchCount } from '../../shared/batch/batchBundle';
-import { baseOf, buildCompareModel, sideView, type CompareModel } from './comparePanes';
+import { baseOf, buildCompareModel, type CompareModel } from './comparePanes';
 import { OVERVIEW_MARGINS, paintOverview } from './entryPlots';
 import { compareGroupNames, groupLabels, median } from '../../shared/dataset/distribution';
 import { createDistributionPane } from './entryDistributionPane';
 import { createFilterPopover } from './entryFilterPopover';
+import { createHeldPlot } from './entryHeldPlot';
 import { attachPlotInteraction, FULL_PLOT_WINDOW, plotPointIn, type PlotMargins, type PlotWindow } from './plotInteraction';
-import { axisFractionOf, axisValueAt, paintOverlay, stageAxes, stageDiffRange, stageDifference, stageRange, STAGE_MARGINS, type StageAxes } from './stagePanes';
-import { DIFF_COLOR, ROLE_COLORS } from '../../shared/gui/roleColors';
-import { createStageSource, type StageSpec } from './stageSource';
+import { STAGE_MARGINS } from './stagePanes';
 import { HostRequests } from './hostRequests';
-import { createDetailPlanner } from './stageDetail';
-import type { PaneRange } from './comparePanes';
 import { installRangePopover, linearAxis, openAxisPart, type AxisMapping } from '../rangePopover';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
 import { positionPopover } from './settingsPopover';
 import { LARGE_BASE, LARGE_BASE_S } from './trackStageMode';
-import { createStepBar, endsInSpectrum, recipeWithout, runnableRecipe, stepChipLabel, stepLimits, unpairedRecipe, OCTAVE_BRANCH } from './stepBar';
+import { createStepBar, endsInSpectrum, runnableRecipe, stepLimits, unpairedRecipe } from './stepBar';
 import { leqLabel } from './compareReport';
-import { activeSlotReferenced, brokenStep, chainEnd, isRecipeChain, recipeKey, recipeNodes, recipeSteps, slotReferenced, timeSignalStep, TIME_SLICE, type RecipeStep } from '../../shared/recipe/recipeSteps';
+import { activeSlotReferenced, brokenStep, chainEnd, isRecipeChain, recipeKey, recipeNodes } from '../../shared/recipe/recipeSteps';
 import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { baseName, isMetadataCandidate, withFolderColumns } from '../../shared/analysis/entryMetadata';
 import { powerMeanDb, powerMeanOrNull } from '../../shared/utils/levels';
@@ -53,10 +50,6 @@ import {
     type DatasetScreenView, type EntryStrings,
 } from './entryTableHtml';
 
-/** A tap on a slot key shorter than this puts the row in; longer is a hold that shows the slot's Δ on the side. */
-const TAP_MS = 250;
-/** Releasing a held slot keeps its picture on screen this long, so a quick look does not flicker. */
-const DELTA_RELEASE_MS = 150;
 /** Scan results are redrawn at most this often (entryRedraw.ts' createThrottle). */
 const REDRAW_MS = 250;
 /** The table's rows are this tall (CSS: .entry-table tr), so only the rows on screen are drawn. */
@@ -263,8 +256,6 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         if (windowKeys.get(name) !== key) { windowKeys.set(name, key); plotWindows.delete(name); }
         return plotWindow(name);
     }
-    /** A level range narrowed to a window's vertical part. */
-    const narrowed = (range: PaneRange, window: PlotWindow): PaneRange => ({ min: range.min + window.y.start * (range.max - range.min), max: range.min + window.y.end * (range.max - range.min) });
     const distPane = createDistributionPane({
         screen, strings,
         // A range of the value: a chip, which narrows the table.
@@ -281,8 +272,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         // A step pressed opens the comparison on that step's Frame.
         onStepSelect: step => openSlotted(step.id),
         // On the entry table a hold shows one row: without a step of its time signal, or its spectrum or bands.
-        canHold: step => canHoldStep(step),
-        onStepHold: step => holdStep(step),
+        canHold: step => heldPlot.canHold(step),
+        onStepHold: step => heldPlot.holdStep(step),
     });
     // The chain is edited where the analysis is decided: the track view's steps (trackStageMode.ts). The table
     // only keeps its state, so its values are measured with the same chain.
@@ -368,18 +359,6 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         (stored, csvToSave) => deps.post({ type: 'entry-save-session', rootPath, session: stored, ...(csvToSave !== undefined ? { csv: csvToSave } : {}) }));
     /** The side plots are painted on the next frame (`pending`); `dist`: the distribution too, not only the strip's window. */
     const sidePaint = { pending: false, dist: true };
-    const hold: {
-        /** The slot key or chip being pressed: a tap acts on release, a hold shows the slot's Δ until then. */
-        pressing?: { slot: number; at: number; timer: number };
-        /** The slot whose Δ is shown, and the timer that takes it away after a release. */
-        slot: number | null;
-        releaseTimer?: number;
-        /** A step chip held (its picture of one row), and the timer that takes it away after a release. */
-        step: { step: RecipeStep; path: string } | null;
-        stepRelease?: number;
-        /** What the held plot last drew, to place the pointer on it and to map an axis's values to its window. */
-        plot: { margins: PlotMargins; x: (fraction: number) => number; ofX: (value: number) => number; range: PaneRange; xLabel: string; yLabel: string } | null;
-    } = { slot: null, step: null, plot: null };
     /**
      * The comparison's model of the files (their conditions, Δ, groups): built when the comparison, the overview
      * strip or the CSV export reads it, not on every redraw of the table (it costs a pass over every file).
@@ -602,7 +581,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             const shown = key ? slotRowOf(fileOfKey(key)) : undefined;
             return key && shown && shown.key !== key && (shown.channels ?? 1) > 1 ? strings.dsSlotTrackChannel.replace('{ch}', String(shown.ch)) : null;
         });
-        slotBar.innerHTML = entrySlotsHtml(slots, key => rowName(key), baseText(), text, hold.slot, notes);
+        slotBar.innerHTML = entrySlotsHtml(slots, key => rowName(key), baseText(), text, heldPlot.slot(), notes);
         markOpenable();
         notes.forEach((note, slot) => slotBar.querySelector(`[data-action="entry-slot"][data-slot="${slot}"]`)?.setAttribute('data-track-note', note ?? ''));
     }
@@ -911,83 +890,13 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         });
         deps.saveDerived?.(derived);
     }
-    /**
-     * Holding a step chip on the entry table shows what the step does to one row (the focused one, else
-     * slot 1) in the distribution's frame: its average spectrum, its 1/3-octave levels, or, for a step of the time
-     * signal, the spectrum without it − with it. The pictures come as the steps view's do (stageSource, the
-     * Frame's full resolution once zoomed) and are drawn by its painter. Released, it goes 150 ms later.
-     */
-    const holdSource = createStageSource('entry-hold', message => deps.post(message), () => scheduleSide());
-    const holdDetail = createDetailPlanner(window.performance, window, () => scheduleSide());
-    function holdStep(step: RecipeStep | null): void {
-        if (!step) {
-            hold.stepRelease = window.setTimeout(() => { hold.stepRelease = undefined; hold.step = null; scheduleSide(); }, DELTA_RELEASE_MS);
-            return;
-        }
-        if (hold.stepRelease !== undefined) { window.clearTimeout(hold.stepRelease); hold.stepRelease = undefined; }
-        const path = focusedFile() ?? slotFiles()[1];
-        if (!path || !results.get(path)?.ok) { document.getElementById('hint-footer')?.replaceChildren(strings.stepHeldNoRow); return; }
-        hold.step = { step, path };
-        scheduleSide();
-    }
-    /** The step `id`'s picture under `recipe` (the whole file, as the table scans it). */
-    function holdSpec(recipe: RecipeDocument, id: string): StageSpec {
-        return { key: `hold|${recipeKey(recipe)}|${id}`, message: { recipe, stage: id } };
-    }
-    /** The specs a held step draws from: its own picture (the average spectrum), or the chain's end with and without it. */
-    function heldSpecs(step: RecipeStep): { with: StageSpec; without?: StageSpec } | null {
-        const recipe = runRecipe() ?? recipeState.edited ?? recipeState.standard;
-        if (!recipe) return null;
-        if (step.name === 'welch') return { with: holdSpec(recipe, step.id) };
-        const end = recipeSteps(recipe, limits()).filter(item => item.invalid === undefined).at(-1)?.id;
-        const without = end ? recipeWithout(recipe, step.id, end, limits(), slotReferenced(recipeState.edited ?? recipeState.standard)) : null;
-        return end && without ? { with: holdSpec(recipe, end), without: holdSpec(without, end) } : null;
-    }
-    /** The held plot's picture and what it was drawn on, for its readout and an axis's range. */
-    function paintHeldView(view: StageView | null, picture: StageView | null, range: PaneRange, axes: StageAxes, window: PlotWindow, options: { diff?: boolean; color: string; empty?: string }): void {
-        hold.plot = picture ? { margins: STAGE_MARGINS, x: f => axisValueAt(picture, f), ofX: number => axisFractionOf(picture, number), range, xLabel: axes.x, yLabel: axes.y } : null;
-        paintOverlay(heldCanvas, { layers: view ? [{ view, color: options.color, width: 2 }] : [] }, narrowed(range, window), axes,
-            { diff: options.diff, empty: options.empty ?? '', window: { x: window.x }, axisView: picture });
-    }
-    function paintStepHeld({ step, path }: { step: RecipeStep; path: string }): void {
-        held.hidden = false;
-        const row = buildCompareModel(entryModel(), results, path, null, strings);
-        const input = results.get(path)?.input;
-        const name = step.name === 'welch' ? strings.stepAverage : step.id === OCTAVE_BRANCH ? strings.stepOctave : strings.stepHeldWithout.replace('{step}', stepChipLabel(step, strings));
-        heldTitle.textContent = strings.stepHeldRow.replace('{what}', name).replace('{file}', baseName(path));
-        held.classList.remove('is-pending');
-        const window = keepWindow('held', step.id);
-        if (step.id === OCTAVE_BRANCH) {
-            // The app's bands, from the table's own scan.
-            const bands = sideView(row.compare, row.frequencies, true);
-            paintHeldView(bands, bands, stageRange([bands]), stageAxes(strings, bands, input), window, { color: ROLE_COLORS[1] });
-            return;
-        }
-        const specs = heldSpecs(step);
-        const waiting = !!specs && [specs.with, specs.without].some(spec => spec && holdSource.ensure(spec, [path]));
-        const coarse = specs ? holdSource.view(specs.with, path) ?? null : null;
-        const coarseWithout = specs?.without ? holdSource.view(specs.without, path) ?? null : null;
-        if (!specs || waiting || !coarse || (specs.without && !coarseWithout)) {
-            if (waiting) { held.classList.add('is-pending'); heldTitle.textContent += ` · ${strings.comparePending}`; }
-            paintHeldView(null, null, { min: 0, max: 1 }, stageAxes(strings, null, input), window, { color: ROLE_COLORS[1], empty: waiting ? '' : strings.stepNotDrawable.replace('{frame}', coarse?.frame ?? '') });
-            return;
-        }
-        // Zoomed, from the Frame's full resolution once it is in (the coarse picture until then).
-        const fine = (spec: StageSpec): StageView | null => {
-            if (coarse.kind === 'bar' || coarse.kind === 'none') return null;
-            const detail = holdDetail.spec(spec, coarse, window.x, window.y, heldCanvas.clientWidth || 300);
-            return detail && !holdSource.ensure(detail, [path]) ? holdSource.view(detail, path) ?? null : null;
-        };
-        if (!specs.without) {
-            paintHeldView(fine(specs.with) ?? coarse, coarse, stageRange([coarse]), stageAxes(strings, coarse, input), window, { color: ROLE_COLORS[1] });
-            return;
-        }
-        // Without the step − with it, point by point: what the step takes away (negative where it cuts).
-        const delta = stageDifference(coarse, coarseWithout);
-        const fineWith = fine(specs.with), fineWithout = fine(specs.without);
-        const shown = fineWith && fineWithout ? stageDifference(fineWith, fineWithout) ?? delta : delta;
-        paintHeldView(shown, delta, stageDiffRange(delta), stageAxes(strings, delta, input, true), window, { diff: true, color: DIFF_COLOR, empty: strings.stageNoDelta });
-    }
+    /** The held plot: a slot key or chip held shows its row's Δ, a step chip held what the step does to one row. */
+    const heldPlot = createHeldPlot({
+        document, window, strings, held, title: heldTitle, canvas: heldCanvas, post: message => deps.post(message), scheduleSide: () => scheduleSide(),
+        keepWindow, entryModel, results, focusedFile, slotFiles, recipe: () => recipeState.edited ?? recipeState.standard, runRecipe: () => runRecipe(), limits, spectral,
+        slotHeld: () => paintSlots(),
+        tapped(slot) { if (focus.key && rows.some(row => row.key === focus.key)) setSlot(slot, focus.key); },
+    });
     function handleRemeasure(publication: ComparePublication): boolean {
         const pending = remeasuring.find(publication.requestId)?.meta;
         if (!pending) return false;
@@ -996,18 +905,6 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const next = remeasured(pending.row, pending.results);
         if (next) setDerived(derived.map(item => (item === pending.row ? next : item)));
         return true;
-    }
-    /** A hold shows something on this screen for a step of the chain's time signal (not the region), its spectrum, and the app's bands. */
-    function canHoldStep(step: RecipeStep): boolean {
-        if (step.operation === TIME_SLICE) return false;
-        if (step.id === OCTAVE_BRANCH) return true;
-        const recipe = recipeState.edited ?? recipeState.standard;
-        if (!recipe) return false;
-        const steps = recipeNodes(recipe).map(node => node.id);
-        const signal = timeSignalStep(recipe, limits());
-        // The average spectrum the table reads (the chain's end), or a step up to the time signal.
-        if (step.name === 'welch') return spectral();
-        return !!signal && steps.indexOf(step.id) <= steps.indexOf(signal.id);
     }
     function setRecipe(recipe: RecipeDocument): void {
         recipeState.edited = recipe;
@@ -1032,12 +929,6 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         sidePaint.pending = true;
         window.requestAnimationFrame(() => { sidePaint.pending = false; paintSide(); });
     }
-    /** The held row's Δ spectrum (from the table's own scan), zoomed as its window says. */
-    function paintHeldDelta(comparison: CompareModel, key: string, input: { unit?: string; ref?: number } | undefined): void {
-        const window = keepWindow('held', `delta|${key}`);
-        const delta = comparison.diffDb ? sideView({ spectrumDb: comparison.diffDb, bands: [] }, comparison.frequencies) : null;
-        paintHeldView(delta, delta, stageDiffRange(delta), stageAxes(strings, delta, input, true), window, { diff: true, color: DIFF_COLOR, empty: strings.stageNoDelta });
-    }
     function paintDistribution(): void {
         distPane.paint({
             pool: distributionPool(), value: chosen.value, group: chosen.group, results, range: valueRange(), usable, slots, rowOf, baseGroup: baseGroupName(),
@@ -1060,35 +951,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             const window = plotWindow(name);
             canvas.dataset.window = `${window.x.start.toFixed(3)}-${window.x.end.toFixed(3)}|${window.y.start.toFixed(3)}-${window.y.end.toFixed(3)}`;
         }
-        if (hold.step) { paintStepHeld(hold.step); return; }
-        held.hidden = hold.slot === null;
-        held.classList.remove('is-pending');
-        if (hold.slot !== null) {
-            const path = slotFiles()[hold.slot] ?? focusedFile();
-            const comparison = buildCompareModel(entryModel(), results, path, null, strings);
-            heldTitle.textContent = path ? `${hold.slot} · ${baseName(path)}` : '';
-            paintHeldDelta(comparison, `slot|${hold.slot}`, path ? results.get(path)?.input : undefined);
-        }
-    }
-
-    function press(slot: number): void {
-        if (hold.pressing) return;
-        const timer = window.setTimeout(() => {
-            if (hold.releaseTimer !== undefined) { window.clearTimeout(hold.releaseTimer); hold.releaseTimer = undefined; }
-            hold.slot = slot;
-            paintSlots();
-            scheduleSide();
-        }, TAP_MS);
-        hold.pressing = { slot, at: window.performance.now(), timer };
-    }
-    /** A tap puts the focused row in the slot (in it already: takes it out); a hold only showed the slot's Δ, which goes 150 ms later. */
-    function release(slot: number): void {
-        if (!hold.pressing || hold.pressing.slot !== slot) return;
-        window.clearTimeout(hold.pressing.timer);
-        const tapped = window.performance.now() - hold.pressing.at < TAP_MS;
-        hold.pressing = undefined;
-        if (tapped) { if (focus.key && rows.some(row => row.key === focus.key)) setSlot(slot, focus.key); return; }
-        hold.releaseTimer = window.setTimeout(() => { hold.releaseTimer = undefined; hold.slot = null; scheduleSide(); }, DELTA_RELEASE_MS);
+        heldPlot.paint();
     }
 
     /** The files shown as tracks now (a hidden track is not). */
@@ -1569,7 +1432,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     side.append(zoomBox);
     const rangePopover = installRangePopover(document, { rootId: 'entry-range-popover', badgeId: 'entry-range-axis-badge', idPrefix: 'entry-range', strings: rangePopoverStrings(strings), position: positionPopover });
     const plotName = (plot: HTMLElement): string => (plot === overview ? 'overview' : 'held');
-    const marginsOf = (plot: HTMLElement): PlotMargins => (plot === overview ? OVERVIEW_MARGINS : hold.plot?.margins ?? STAGE_MARGINS);
+    const marginsOf = (plot: HTMLElement): PlotMargins => (plot === overview ? OVERVIEW_MARGINS : heldPlot.picture()?.margins ?? STAGE_MARGINS);
     attachPlotInteraction(side, document, '[data-entry-held-canvas], [data-entry-overview]', {
         locate(target, clientX, clientY) {
             const plot = (target as HTMLElement | null)?.closest?.<HTMLElement>('[data-entry-held-canvas], [data-entry-overview]');
@@ -1605,7 +1468,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         hideBox() { zoomBox.hidden = true; },
         openAxisRange(hit, clientX, clientY) {
             const name = plotName(hit.plot);
-            const mapping: AxisMapping | null = name === 'held' && hold.plot ? (hit.axis === 'x' ? { at: hold.plot.x, of: hold.plot.ofX, label: hold.plot.xLabel } : linearAxis(hold.plot.range.min, hold.plot.range.max, hold.plot.yLabel))
+            const picture = heldPlot.picture();
+            const mapping: AxisMapping | null = name === 'held' && picture ? (hit.axis === 'x' ? { at: picture.x, of: picture.ofX, label: picture.xLabel } : linearAxis(picture.range.min, picture.range.max, picture.yLabel))
                     : null;
             if (!mapping) return false;
             const window = plotWindow(name);
@@ -1653,7 +1517,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             if (ownKeys(event) || event.ctrlKey || event.metaKey || event.altKey) return true;
             const action = keyAction(ENTRY_KEYS, event.key);
             if (action) event.preventDefault();
-            if (action === 'slot') { if (!event.repeat) press(Number(event.key)); }
+            if (action === 'slot') { if (!event.repeat) heldPlot.press(Number(event.key)); }
             else if (action === 'open') openSlotted();
             else if (action === 'play') { if (focus.key) deps.play?.(fileOfKey(focus.key)); }
             else if (action === 'memo') { if (focus.key) openMemo(focus.key); }
@@ -1663,7 +1527,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         }),
         keyup: event => redraw.batch(() => {
             if (!keysHere(event) || ownKeys(event)) return false;
-            if (keyAction(ENTRY_KEYS, event.key) === 'slot') release(Number(event.key));
+            if (keyAction(ENTRY_KEYS, event.key) === 'slot') heldPlot.release(Number(event.key));
             return true;
         }),
     });
@@ -1747,7 +1611,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             setMaximized(true);
         },
         handle(message): boolean {
-            if (message.type.startsWith('compare-')) return holdSource.handle(message) || handleRemeasure(message as ComparePublication);
+            if (message.type.startsWith('compare-')) return heldPlot.handle(message) || handleRemeasure(message as ComparePublication);
             if (!message.type.startsWith('entry-')) return false;
             if (message.type === 'entry-probe-result' || message.type === 'entry-probe-done') {
                 const taken = headers.take(message as EntryProbePublication);
