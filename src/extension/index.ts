@@ -1,3 +1,4 @@
+import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { fillTemplate, getStrings } from '../shared/i18n/strings';
 import { getDebugStartupBehavior } from '../shared/utils/startupDebug';
@@ -141,8 +142,15 @@ export function activate(context: vscode.ExtensionContext): void {
     const panelController = new PanelController(context, backend, {
         analyzeFiles: async (...args) => {
             // Wait for the check (and any install the user accepts) so the backend never spawns without wandas.
-            // When the environment is not usable, the check has already shown its Install/Select prompt.
-            if (!await preparePython(false)) { throw new vscode.CancellationError(); }
+            // When the environment is not usable, the check has already shown its Install/Select prompt; each
+            // file becomes an error track saying so, as a backend that failed to start would.
+            if (!await preparePython(false)) {
+                const message = getStrings(vscode.env.language).analysisPythonNotReady;
+                return args[0].map(filePath => ({
+                    filePath, fileName: path.basename(filePath), sampleRateHz: 0, durationSeconds: 0, channelCount: 0,
+                    sampleCount: 0, channels: [], analysisRevision: 0, error: message,
+                }));
+            }
             return analysis.analyzeFiles(...args);
         },
         warmup: () => { void preparePython(false); },
@@ -189,7 +197,7 @@ export function activate(context: vscode.ExtensionContext): void {
         pythonStatusBarItem,
         panelController,
         recipeFlow,
-        async (reason) => { await preparePython(reason === 'command'); },
+        (reason) => preparePython(reason === 'command'),
     );
 
     try {
