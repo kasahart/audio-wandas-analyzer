@@ -179,6 +179,13 @@ export function activate(context: vscode.ExtensionContext): void {
         onDidChangeDefaultInterpreter(() => {
             if (preparedCommand !== getPythonCommand()) { restartPython(); }
         }),
+        // Trust makes the workspace's pythonCommand value and its interpreters usable, so look again.
+        vscode.workspace.onDidGrantWorkspaceTrust(() => {
+            defaultInterpreterLookup = refreshDefaultInterpreter();
+            void defaultInterpreterLookup.then(() => {
+                if (!deactivated) { restartPython(); }
+            });
+        }),
         vscode.workspace.onDidChangeConfiguration((event) => {
             if (event.affectsConfiguration('audioWandasAnalyzer.pythonCommand')) {
                 restartPython();
