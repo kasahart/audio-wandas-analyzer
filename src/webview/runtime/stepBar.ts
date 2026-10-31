@@ -22,6 +22,7 @@ import { titledHintAttr as hintAttr } from './hintFooter';
 import { keyRouterFor } from './keyRouter';
 import { currentStepId, earlierPlaces as placesBefore, frameAfter, INPUT_STAGE, lastRunningStep, OCTAVE_BRANCH, orderedSteps, removable, shownStep as chipShown, stepFlow, stepLimits, type RegionRange, type StepBarState, type StepFlow } from './stepBarModel';
 import { channelText, formatNumber, fromShown, invalidReason, stepLabel } from './stepLabels';
+import { createStepHistory } from './stepHistory';
 
 export { endsInSpectrum, INPUT_STAGE, OCTAVE_BRANCH, recipeWithout, runnableRecipe, stepLimits, unpairedRecipe, type RegionRange, type StepBarState, type StepBarStrings } from './stepBarModel';
 export { invalidReason, stepChipLabel } from './stepLabels';
@@ -89,7 +90,7 @@ export function createStepBar(deps: {
 
     // ---- undo / redo: every edit from the bar keeps what was there before (the Recipe and the region).
     type Snapshot = { recipe: RecipeDocument; region: RegionRange | null };
-    const past: Snapshot[] = [], future: Snapshot[] = [];
+    const edits = createStepHistory<Snapshot>();
     const now = (): Snapshot | null => (state.recipe ? { recipe: state.recipe, region: state.regionRange ?? null } : null);
     function applySnapshot(next: Snapshot): void {
         const recipeChanged = JSON.stringify(next.recipe) !== JSON.stringify(state.recipe);
@@ -103,20 +104,17 @@ export function createStepBar(deps: {
     }
     function emit(recipe: RecipeDocument, region: RegionRange | null = state.regionRange ?? null): void {
         const here = now();
-        if (here) { past.push(here); if (past.length > 50) past.shift(); future.length = 0; }
+        if (here) edits.record(here);
         applySnapshot({ recipe, region });
     }
-    function travel(from: Snapshot[], to: Snapshot[], said: string): void {
-        const target = from.pop();
-        const here = now();
-        if (!target || !here) return;
-        to.push(here);
+    function travel(target: Snapshot | undefined, said: string): void {
+        if (!target) return;
         open = null;
         applySnapshot(target);
         footer(said);
     }
-    const undo = (): void => travel(past, future, strings.stepUndone);
-    const redo = (): void => travel(future, past, strings.stepRedone);
+    const undo = (): void => travel(edits.undo(now()), strings.stepUndone);
+    const redo = (): void => travel(edits.redo(now()), strings.stepRedone);
     function flow(): StepFlow { return stepFlow(state.recipe!, state); }
     const all = (): RecipeStep[] => orderedSteps(flow());
     function end(): RecipeStep | undefined { return lastRunningStep(state.recipe!, state); }
@@ -184,8 +182,8 @@ export function createStepBar(deps: {
             + `<button type="button" class="step-insert" data-action="step-insert" data-after="${escapeHtml(after?.id ?? '')}" aria-label="${escapeHtml(strings.stepMenuTitle)}" ${hintAttr(strings.stepMenuTitle)}>＋</button></span>`;
         const node = (step: RecipeStep): string => chipHtml(step);
         const history = `<span class="step-history">`
-            + `<button type="button" class="step-undo" data-action="step-undo" aria-label="${escapeHtml(strings.stepUndo)}" ${hintAttr(strings.stepUndo)}${past.length ? '' : ' disabled'}>↶</button>`
-            + `<button type="button" class="step-redo" data-action="step-redo" aria-label="${escapeHtml(strings.stepRedo)}" ${hintAttr(strings.stepRedo)}${future.length ? '' : ' disabled'}>↷</button></span>`;
+            + `<button type="button" class="step-undo" data-action="step-undo" aria-label="${escapeHtml(strings.stepUndo)}" ${hintAttr(strings.stepUndo)}${edits.canUndo() ? '' : ' disabled'}>↶</button>`
+            + `<button type="button" class="step-redo" data-action="step-redo" aria-label="${escapeHtml(strings.stepRedo)}" ${hintAttr(strings.stepRedo)}${edits.canRedo() ? '' : ' disabled'}>↷</button></span>`;
         const parts: string[] = [history, name, input];
         // A link adds right before the chip after it, behind a region chip that is not shown too.
         const full = [...chain, ...tail];
