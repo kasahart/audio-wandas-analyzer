@@ -23,7 +23,6 @@ const NON_NULL_ASSERTION_BURN_DOWN = [
     'src/webview/runtime/compareReport.ts',
     'src/webview/runtime/entryPlots.ts',
     'src/webview/runtime/entryRuntime.ts',
-    'src/webview/runtime/entryTable.ts',
     'src/webview/runtime/entryTableHtml.ts',
     'src/webview/runtime/pairSpectrumPanel.ts',
     'src/webview/runtime/separatorKeys.ts',
