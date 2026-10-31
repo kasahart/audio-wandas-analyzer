@@ -1,4 +1,3 @@
-import { OrderedSelection } from '../../shared/utils/directorySelection';
 import { channelLabel, channelsForResult, formatClockTime } from '../../shared/utils/format';
 import { linkedSpectrogramBounds, spectrogramDisplayBounds } from './spectrogramRaster';
 import { paintTrackSpectrogram, paintTrackWaveform, spectrogramPlotWidth, type SpectrogramRasterCacheEntry } from './trackCanvasPainter';
@@ -22,6 +21,7 @@ import { createAudioFader } from './audioFade';
 import { PlaybackController } from './playbackController';
 import { SpectrumRequestScheduler } from './spectrumRequestScheduler';
 import { LaneViewState } from './laneViewState';
+import { SelectionSync } from './selectionSync';
 import { positionPopover } from './settingsPopover';
 import { composeTrackCanvases, triggerAnchorDownload, visibleExportCanvases } from './exportDownloads';
 import { clampHeight, createHeightResize, type HeightKind } from './heightResize';
@@ -126,26 +126,19 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     const isSelectionMode = state.mode === 'directory-selection' || vscode.selectionPanel === true;
     // Only a host that opened the page with a directory offers a Python environment picker; the Web host lists its sources without one.
     const hasPythonEnvironmentPicker = state.mode === 'directory-selection';
-    let rootLabel = state.mode === 'directory-selection' ? state.rootPath : '';
-    const selection = new OrderedSelection();
-    const selectedFilePaths = selection.paths;
-    if (Array.isArray(state.selectedFilePaths)) {
-        state.selectedFilePaths.forEach(function (filePath: string) {
-            if (typeof filePath === 'string') {
-                addSelectedFilePath(filePath);
-            }
-        });
-    }
-    const allSelectableFilePaths = Array.isArray(state.allFilePaths) ? state.allFilePaths.slice() : [];
+    const selection = new SelectionSync({
+        rootLabel: state.mode === 'directory-selection' ? state.rootPath : '',
+        listedFilePaths: Array.isArray(state.allFilePaths) ? state.allFilePaths : [],
+        selectedFilePaths: Array.isArray(state.selectedFilePaths) ? state.selectedFilePaths : [],
+        listsFiles: isSelectionMode,
+    });
+    const allSelectableFilePaths = selection.listedFilePaths;
     const persistedStore = new PersistedStateStore(vscode);
     let persistedWebviewState = persistedStore.snapshot;
     function persistWebviewState(patch: Partial<PersistedWebviewState>): void {
         persistedStore.update(patch);
         persistedWebviewState = persistedStore.snapshot;
     }
-    /** How many files the host lists (a folder's, or files opened on their own): the entry table's rows. */
-    let listedCount = isSelectionMode ? allSelectableFilePaths.length : 0;
-    let selectionMessageSeq = 0;
     let pythonEnvironmentState = state.pythonEnvironmentState || DEFAULT_PYTHON_ENVIRONMENT_STATE;
     function drawTheme(): DrawTheme {
         const style = getComputedStyle(document.body);
@@ -800,8 +793,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     // ── On-demand range cache ──
     let rangeRequestTimer: number | null = null;
     // Receive high-res range data from Extension Host
-    /** The files the host last reported selected: a file it newly selects is shown again even if its track was taken off. */
-    let hostSelection = new Set<string>();
     messaging.onMessage(function (msg) {
         if (!msg || msg.type !== 'waveform-range-result') {
             return;
@@ -980,7 +971,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             // Every listed file at once, shown or taken off (the e2e's folder-wide steps).
             'set-all-files-selected': p => {
                 if (p.selected) { selectTracks(allSelectableFilePaths, true); return; }
-                clearSelectedFilePaths();
+                selection.clear();
                 syncSelectionSummary();
                 postSelectedFiles(true);
             },
@@ -1102,12 +1093,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     });
     /** Tracks are analysed (waveform, spectrogram) for the files compared from the entry table, or the old screen's. */
     function selectTracks(filePaths: readonly string[], replace = false) {
-        if (replace) clearSelectedFilePaths();
-        const wanted = filePaths.filter(filePath => replace || !selectedFilePaths.includes(filePath));
+        if (replace) selection.clear();
+        const wanted = filePaths.filter(filePath => replace || !selection.has(filePath));
         if (!wanted.length && !replace) return;
         wanted.forEach(function (filePath) {
             trackStore.allowExplicitSelection(filePath);
-            addSelectedFilePath(filePath);
+            selection.add(filePath);
         });
         syncSelectionSummary();
         postSelectedFiles();
@@ -1124,9 +1115,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }
             selectTracks(filePaths);
         } else {
-            const leaving = filePaths.filter(hasSelectedFilePath);
+            const leaving = filePaths.filter(filePath => selection.has(filePath));
             if (leaving.length) {
-                leaving.forEach(removeSelectedFilePath);
+                leaving.forEach(filePath => selection.remove(filePath));
                 syncSelectionSummary();
                 postSelectedFiles();
             }
@@ -1139,12 +1130,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         return trackId ? trackStore.require(trackId) : undefined;
     }
     const trackReady = (filePath: string): boolean => trackStore.activeIds().some(id => trackStore.require(id).result.filePath === filePath);
-    /** A ▶ pressed before its file was analysed: it plays once the track is there. */
-    let pendingPlay: string | null = null;
     function playWhenReady() {
-        if (!pendingPlay || !trackReady(pendingPlay)) return;
-        const filePath = pendingPlay;
-        pendingPlay = null;
+        const filePath = selection.takeReadyPlay(trackReady);
+        if (!filePath) return;
         const trackId = trackStore.activeIds().find(id => trackStore.require(id).result.filePath === filePath);
         if (trackId) playback.toggle(trackId);
     }
@@ -1162,7 +1150,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         stepsChanged: () => scheduleRender(),
         shownTracks() {
             const shown = new Map<string, boolean>();
-            selectedFilePaths.forEach(function (filePath: string) {
+            selection.paths.forEach(function (filePath: string) {
                 const record = trackRecordForPath(filePath);
                 shown.set(filePath, !!record && record.runtime.hidden);
             });
@@ -1174,7 +1162,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const record = trackRecordForPath(filePath);
             if (record && !record.runtime.hidden) { playback.toggle(record.id); return; }
             // Not a track yet (or hidden): shown as one, it plays once analysed.
-            pendingPlay = filePath;
+            selection.queuePlay(filePath);
             setFilesShown([filePath], true);
             playWhenReady();
         },
@@ -1510,13 +1498,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     // A host with nothing listed yet shows its own start prompt where the tracks will appear.
     function selectionEmptyText() {
-        return listedCount || !vscode.emptyMessage ? STR.emptyNoTracks : vscode.emptyMessage;
+        return selection.listedCount || !vscode.emptyMessage ? STR.emptyNoTracks : vscode.emptyMessage;
     }
     function buildDirectorySelectionLayout(resultsPaneHtml = buildResultsPane(selectionEmptyText())) {
         const warning = pythonEnvironmentState.status === 'warning';
         return selectionLayoutHtml({
-            rootPath: rootLabel,
-            isEmpty: !listedCount,
+            rootPath: selection.rootLabel,
+            isEmpty: !selection.listedCount,
             sidebarCollapsed: layout.sidebarCollapsed,
             resultsPaneHtml,
             python: hasPythonEnvironmentPicker ? {
@@ -1532,9 +1520,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
      */
     function showDirectorySelection(rootPath: string, filePaths: string[], label = rootPath, newFolder = true) {
         state.rootPath = rootPath;
-        rootLabel = label;
-        if (newFolder) clearSelectedFilePaths();
-        listedCount = filePaths.length;
+        selection.showListing(label, filePaths.length, newFolder);
         const emptyMessage = function (text: string) {
             const el = document.querySelector('#empty-state p');
             if (el) {
@@ -1543,11 +1529,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         };
         const folderButton = requiredElementById(document, 'selection-toolbar').querySelector<HTMLElement>('[data-action="open-folder"]');
         if (folderButton) {
-            const folder = selectionFolderButton(Boolean(rootLabel) || listedCount > 0, STR);
+            const folder = selectionFolderButton(Boolean(selection.rootLabel) || selection.listedCount > 0, STR);
             folderButton.textContent = folder.text;
             setHint(folderButton, folder.hint);
         }
-        requiredElementById(document, 'directory-selection-layout').classList.toggle('is-empty', !listedCount);
+        requiredElementById(document, 'directory-selection-layout').classList.toggle('is-empty', !selection.listedCount);
         emptyMessage(selectionEmptyText());
         syncSelectionSummary();
         scheduleRender();
@@ -2452,15 +2438,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         return false;
     }
-    function hasSelectedFilePath(filePath: string) { return selection.has(filePath); }
-    function addSelectedFilePath(filePath: string) { selection.add(filePath); }
-    function removeSelectedFilePath(filePath: string) { selection.remove(filePath); }
-    function clearSelectedFilePaths() { selection.clear(); }
     /** The folded side panel's rail counts the tracks shown out of the files listed. */
     function syncSelectionSummary() {
         const railCountEl = document.getElementById('selection-rail-count');
         if (railCountEl) {
-            railCountEl.textContent = selectedFilePaths.length + '/' + listedCount;
+            railCountEl.textContent = selection.paths.length + '/' + selection.listedCount;
         }
     }
     function syncPythonEnvironmentButton() {
@@ -2487,17 +2469,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
     }
     function postSelectedFiles(clearAll = false) {
-        const orderedSelection = allSelectableFilePaths.slice(0, 0);
-        selectedFilePaths.forEach(function (filePath: string) {
-            orderedSelection.push(filePath);
-        });
-        selectionMessageSeq += 1;
-        messaging.post({
-            type: 'analyze-selected-files',
-            requestId: 'selection-' + runtimeSessionId + '-' + selectionMessageSeq,
-            filePaths: orderedSelection,
-            ...(clearAll ? { clearAll: true as const } : {}),
-        });
+        messaging.post({ type: 'analyze-selected-files', ...selection.nextRequest(runtimeSessionId, clearAll) });
     }
     /** The cursor spectrum's state before the steps view folded it (it belongs to the waveform view): restored on leaving. */
     let spectrumBeforeStage: boolean | null = null;
@@ -3641,7 +3613,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         trackStore.remove(trackId);
         messaging.releaseSource(record.result.filePath);
         // Off the track view is off the entry table's tracks and slots too.
-        removeSelectedFilePath(record.result.filePath);
+        selection.remove(record.result.filePath);
         syncSelectionSummary();
         entryScreen.trackRemoved(record.result.filePath);
         announce((STR.announceTrackRemoved || 'Track {n} removed').replace('{n}', String(n)));
@@ -3753,10 +3725,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             if (isSelectionMode && msg.selectedFilePaths) {
                 // A file the host newly selects (opened again with the picker after its track was taken off) is shown
                 // again; one it still reports from before (an update that crossed the removal) stays off.
-                for (const path of msg.selectedFilePaths) if (!hostSelection.has(path)) trackStore.allowExplicitSelection(path);
-                hostSelection = new Set(msg.selectedFilePaths);
-                clearSelectedFilePaths();
-                msg.selectedFilePaths.forEach(addSelectedFilePath);
+                for (const path of selection.adoptHostSelection(msg.selectedFilePaths)) trackStore.allowExplicitSelection(path);
                 syncSelectionSummary();
             }
             __setReanalyzeBusy(false);
