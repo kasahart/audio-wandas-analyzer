@@ -238,6 +238,19 @@ test('the PNG export keeps waiting for zoom detail asked again by a redraw', asy
     }, { intervals: [50], timeout: 20000 }).toContain('waveform-export.png');
 });
 
+test('a cursor spectrum the host failed is not asked again on every frame', async ({ page }) => {
+    await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
+    await page.mouse.click(20, 20);
+    const sliceRequestCount = () => page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Array<Record<string, unknown>> }).__uiSmokePostedMessages
+        .filter((message) => message.type === 'request-spectrum-slice').length);
+    await expect.poll(sliceRequestCount).toBeGreaterThan(0);
+    await answerRounds(page, 4);
+    const asked = await sliceRequestCount();
+    // Nothing moved: the failed spectrum stays failed until the cursor, the settings or the tracks change.
+    await answerRounds(page, 12);
+    expect(await sliceRequestCount()).toBe(asked);
+});
+
 test('a cursor moved while the CSV waits: the file holds every shown track at the new cursor', async ({ page }) => {
     await page.setViewportSize({ width: 1000, height: 600 });
     await page.setContent(buildUiSmokeManyTracksHtml(40).replace('<script', '<script>window.__uiSmokeViewState = {};</script><script'), { waitUntil: 'domcontentloaded' });

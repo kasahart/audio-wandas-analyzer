@@ -31,7 +31,8 @@ import { buildMarkdownReport, buildNotebook, type ReportLoopRegion, type ReportT
 import { rangePopoverStrings } from '../../shared/i18n/strings';
 import { installHelpOverlay } from './helpOverlay';
 import { arrowCursorStep, isTextEntryTag, type GlobalShortcutAction } from './shortcuts';
-import { domSnapshotBase, latestSpectrogramSnapshot, shellSnapshot, overlaySpectrumAxisLabels, sliceSpectrumAxisLabels, spectrogramAxisLabelTexts, visibleFileRange, waveformCoverageSnapshot } from './testSnapshot';
+import { domSnapshotBase, latestSpectrogramSnapshot, shellSnapshot } from './testSnapshot';
+import { buildTrackSnapshot } from './comparisonSnapshot';
 import { contentBoxWidth, readThenWrite, syncCanvasSize } from './canvasSizing';
 import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpecAxisCanvasId, trackSpecCanvasId, trackSpectrogramOverlayCanvasId, trackSpectrumCanvasId, trackSpectrumWrapId } from './trackCanvasIds';
 import { channelLaneHtml, trackRowHtml } from './trackLaneHtml';
@@ -1381,46 +1382,27 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         return prefix + formatAmplitudeValue(value);
     }
     function publishTestSnapshot(actionId?: string) {
-        const visibleSlices: SpectrumSlice[] = [];
-        const spectrogramPerTrack: string[][] = [];
-        const spectrumPerTrack: string[][] = [];
-        const waveformPerTrack: string[][] = [];
-        const trackInfo = trackStore.activeIds().map(function (trackId) {
-            const record = trackStore.require(trackId);
-            const result = record.result;
-            const trackIndex = record.protocolIndex;
-            const placement = trackTimelinePlacement(trackRuntimeAt(trackIndex).offsetSeconds, result.durationSeconds, trackStore.globalSpan());
-            const visibleFile = visibleFileRange(waveformView.start, waveformView.end, placement);
-            const spectrumCanvas = canvasById(document, trackSpectrumCanvasId(trackIndex, 0));
-            const slice = trackRuntimeAt(trackIndex).hidden
-                ? null
-                : extractSpectrumAtCursor(result, trackIndex, trackRuntimeAt(trackIndex).offsetSeconds, spectrumCursorNorm);
-            if (slice) {
-                visibleSlices.push(slice);
-            }
-            waveformPerTrack.push(waveformAxisLabelsForResult(result, trackIndex));
-            const ch = displayedChannel(result);
-            spectrogramPerTrack.push(spectrogramAxisLabelTexts(
-                ch && ch.spectrogram,
-                __spectrogramSettings.display,
-                result.sampleRateHz ? result.sampleRateHz / 2 : 0,
-            ));
-            spectrumPerTrack.push(sliceSpectrumAxisLabels(slice, spectrumView.state()));
-            return {
-                trackId: trackId,
-                trackIndex: trackIndex,
-                filePath: result.filePath,
-                offsetSeconds: trackRuntimeAt(trackIndex).offsetSeconds,
-                visibleFileStartNorm: visibleFile.startNorm,
-                visibleFileEndNorm: visibleFile.endNorm,
-                waveformFullyVisible: visibleFile.startNorm <= 0 && visibleFile.endNorm >= 1,
-                ...waveformCoverageSnapshot(record.waveformCoverage),
-                resultError: result.error || null,
-                spectrumCanvasPresent: !!spectrumCanvas,
-                spectrumSlicePresent: !!slice,
-            };
+        const trackSnapshot = buildTrackSnapshot({
+            tracks: trackStore.activeIds().map(function (trackId) {
+                const record = trackStore.require(trackId);
+                return {
+                    trackId,
+                    trackIndex: record.protocolIndex,
+                    result: record.result,
+                    offsetSeconds: record.runtime.offsetSeconds,
+                    hidden: record.runtime.hidden,
+                    waveformCoverage: record.waveformCoverage,
+                    spectrumCanvasPresent: !!canvasById(document, trackSpectrumCanvasId(record.protocolIndex, 0)),
+                };
+            }),
+            globalSpan: trackStore.globalSpan(),
+            zoomStart: waveformView.start,
+            zoomEnd: waveformView.end,
+            spectrumView: spectrumView.state(),
+            spectrogramDisplay: __spectrogramSettings.display,
+            peekSlice: track => peekSpectrumAtCursor(track.result, track.trackIndex, track.offsetSeconds, spectrumCursorNorm),
+            waveformAxisLabels: track => waveformAxisLabelsForResult(track.result, track.trackIndex),
         });
-        const visibleSpectrumTrackCount = visibleSlices.length;
         let latestSpectrogram;
         try {
             const firstChannel = state.results[0] ? displayedChannel(state.results[0]) : undefined;
@@ -1438,17 +1420,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 amplitudeZoomMaxNorm: waveformView.amplitudeMax,
                 rectZoomSelection: rectZoomSelection ? Object.assign({}, rectZoomSelection) : null,
                 cursorNorm: viewState.cursor,
-                visibleSpectrumTrackCount: visibleSpectrumTrackCount,
+                visibleSpectrumTrackCount: trackSnapshot.visibleSpectrumTrackCount,
                 contentType: contentType,
                 spectrumBandsPerOctave: spectrumBandsPerOctave,
                 reanalyzeBusy: isReanalyzeBusy(),
                 latestSpectrogram: latestSpectrogram,
-                axisLabels: {
-                    spectrumOverlay: overlaySpectrumAxisLabels(visibleSlices, spectrumView.state()),
-                    spectrogramPerTrack: spectrogramPerTrack,
-                    spectrumPerTrack: spectrumPerTrack,
-                    waveformPerTrack: waveformPerTrack,
-                },
+                axisLabels: trackSnapshot.axisLabels,
                 displayOrder: trackStore.displayOrder.slice(),
                 specFreqStart: spectrumView.freqStart,
                 specFreqEnd: spectrumView.freqEnd,
@@ -1459,7 +1436,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     const el = document.getElementById('a11y-announce');
                     return el ? (el.textContent || '') : '';
                 })(),
-                tracks: trackInfo,
+                tracks: trackSnapshot.tracks,
                 entry: entryScreen.snapshot(),
                 comparison: stageMode?.snapshot() ?? null,
                 ...shellSnapshot(document, audioFader.contextState()),
@@ -3367,7 +3344,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             el.textContent = formatClockTime(t);
         }
     }
+    /** The cursor spectrum a track draws; when it lacks the current one, it asks the host for it. */
     function extractSpectrumAtCursor(result: ComparisonTrackState, trackIndex: number, offsetSeconds: number, cursorNormValue: number, channelIndex = 0): SpectrumSlice | null {
+        return cursorSpectrumFor(result, trackIndex, offsetSeconds, cursorNormValue, channelIndex, requestSpectrumSlice);
+    }
+    /** The cursor spectrum a track draws, from what it already has: it never asks the host. */
+    function peekSpectrumAtCursor(result: ComparisonTrackState, trackIndex: number, offsetSeconds: number, cursorNormValue: number): SpectrumSlice | null {
+        return cursorSpectrumFor(result, trackIndex, offsetSeconds, cursorNormValue, 0, () => undefined);
+    }
+    function cursorSpectrumFor(result: ComparisonTrackState, trackIndex: number, offsetSeconds: number, cursorNormValue: number, channelIndex: number, requestSlice: (trackIndex: number, cursorNorm: number) => void): SpectrumSlice | null {
         const chIdx = Number.isInteger(channelIndex) ? channelIndex : 0;
         return extractCursorSpectrum(result, offsetSeconds, cursorNormValue, trackStore.globalSpan(), {
             trackIndex,
@@ -3375,7 +3360,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             cached: trackIndex >= 0 ? trackRecordAtIndex(trackIndex)?.spectrumSliceCache.get(chIdx) ?? null : null,
             settingsSignature: currentSpectrumDataSignature(),
             bands: spectrumBandsPerOctave !== 0,
-            requestSlice: requestSpectrumSlice,
+            requestSlice,
             applyDisplaySettings: applySpectrumDisplaySettings,
         });
     }
