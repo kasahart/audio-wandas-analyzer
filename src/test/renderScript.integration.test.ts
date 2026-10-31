@@ -3487,6 +3487,29 @@ test('recreated canvases repaint unchanged spectrogram data', async () => {
 });
 
 
+test('renderScript: a detail error is not asked again on every render until the settings change', async () => {
+    const env = setupEnvWithState(makeLazySpectrogramState());
+    const button = env.dom.window.document.querySelector('[data-action="content-waveform"]') as HTMLButtonElement;
+    button.click();
+    await nextAnimationFrame(env.dom);
+    const detailRequests = () => env.postedMessages.filter((msg: any) => msg.type === 'request-track-detail') as any[];
+    const initial = detailRequests()[0];
+    assert.ok(initial);
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        ...initial, type: 'track-detail-error', error: 'Out of memory',
+    } }));
+    for (const startNorm of [0.1, 0.2, 0.3]) {
+        env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+            type: 'comparison-panel-test-action', actionId: `rerender-${startNorm}`,
+            actions: [{ action: 'set-loop-region', payload: { start: startNorm, end: startNorm + 0.1 } }],
+        } }));
+        await nextAnimationFrame(env.dom);
+    }
+    const failedTrackRequests = detailRequests().filter((msg: any) => msg.filePath === initial.filePath);
+    assert.equal(failedTrackRequests.length, 1, 'renders after the error must not ask for the spectrogram again');
+    env.dom.window.close();
+});
+
 test('renderScript: terminal detail error permits retry with the same analysis settings', async () => {
     const env = setupEnvWithState(makeLazySpectrogramState());
     const button = env.dom.window.document.querySelector('[data-action="content-waveform"]') as HTMLButtonElement;

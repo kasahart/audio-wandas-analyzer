@@ -95,6 +95,7 @@ export interface UiStrings {
     spectrumAnalysisWindow: string;
     spectrumAnalysisWindowPerTrack: string;
     spectrogramLoading: string;
+    spectrogramFailed: string;
     settingsApplyHint: string;
     reanalyzingStft: string;
     reanalyzingDefault: string;
@@ -272,6 +273,8 @@ export interface UiStrings {
     dsFilterAll: string;
     dsFilterAllFound: string;
     dsFilterBlank: string;
+    dsFilterRangeSeparator: string;
+    dsFilterMoreValues: string;
     dsFilterMore: string;
     dsFilterNone: string;
     dsFilterRange: string;
@@ -727,6 +730,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         spectrumAnalysisWindow: 'window',
         spectrumAnalysisWindowPerTrack: 'window differs per track (see the bands)',
         spectrogramLoading: 'Loading spectrogram...',
+        spectrogramFailed: 'Spectrogram failed: {reason}',
         settingsApplyHint: 'Click Apply to commit changes',
         reanalyzingStft: 'Recomputing STFT…',
         reanalyzingDefault: 'Recomputing…',
@@ -904,6 +908,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dsFilterAll: '(Select all)',
         dsFilterAllFound: '(Select all found)',
         dsFilterBlank: '(Blank)',
+        dsFilterRangeSeparator: '–',
+        dsFilterMoreValues: '{first} +{count} more',
         dsFilterMore: '{n} more: narrow with the search',
         dsFilterNone: 'No matching values',
         dsFilterRange: 'Range',
@@ -1356,6 +1362,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         spectrumAnalysisWindow: '解析窓',
         spectrumAnalysisWindowPerTrack: '解析窓はトラックごとに異なります（帯を参照）',
         spectrogramLoading: 'スペクトログラムを読み込み中...',
+        spectrogramFailed: 'スペクトログラムを計算できませんでした: {reason}',
         settingsApplyHint: '変更は「適用」で反映',
         reanalyzingStft: 'STFT を再計算中…',
         reanalyzingDefault: '再計算中…',
@@ -1533,6 +1540,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dsFilterAll: '（すべて選択）',
         dsFilterAllFound: '（検索結果をすべて選択）',
         dsFilterBlank: '（空欄）',
+        dsFilterRangeSeparator: '〜',
+        dsFilterMoreValues: '{first} ほか {count}',
         dsFilterMore: 'ほか {n} 件。検索で絞ってください',
         dsFilterNone: '当たる値がありません',
         dsFilterRange: '範囲',

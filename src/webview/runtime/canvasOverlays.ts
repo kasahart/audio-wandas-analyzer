@@ -9,6 +9,11 @@ interface DashedLineStyle {
 export const CURSOR_LINE_STYLE: DashedLineStyle = { color: '#ffffff', alpha: 0.7 };
 export const HOVER_LINE_STYLE: DashedLineStyle = { color: '#aaaaaa', alpha: 0.4 };
 
+/** The cursor over a waveform lane takes the theme's text colour: white vanishes on a light lane. */
+export function waveformCursorLineStyle(textColor: string): DashedLineStyle {
+    return textColor ? { color: textColor, alpha: CURSOR_LINE_STYLE.alpha } : CURSOR_LINE_STYLE;
+}
+
 export interface CanvasTimeHit {
     x: number;
     timeWidth: number;

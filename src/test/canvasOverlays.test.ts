@@ -10,6 +10,7 @@ import {
     drawDashedTimeLine,
     drawRectZoomSelection,
     formatReadoutHz,
+    waveformCursorLineStyle,
 } from '../webview/runtime/canvasOverlays';
 
 function recordingContext() {
@@ -53,6 +54,11 @@ test('drawDashedTimeLine draws only when the time is inside the view', () => {
     const collapsed = recordingContext();
     drawDashedTimeLine(collapsed.ctx, 0.5, { start: 0.5, end: 0.5 }, 200, 40, CURSOR_LINE_STYLE);
     assert.equal(collapsed.calls.length, 0);
+});
+
+test('the waveform cursor takes the theme text colour and falls back to white without one', () => {
+    assert.deepEqual(waveformCursorLineStyle('#1e1e1e'), { color: '#1e1e1e', alpha: CURSOR_LINE_STYLE.alpha });
+    assert.equal(waveformCursorLineStyle(''), CURSOR_LINE_STYLE);
 });
 
 test('drawRectZoomSelection clips the selection rectangle to the canvas', () => {

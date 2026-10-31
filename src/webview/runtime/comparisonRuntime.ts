@@ -60,7 +60,7 @@ import { toolbarHtml } from './toolbarHtml';
 import { attachExclusiveMenus, attachHeightResizeListeners, attachToolbarActions } from './toolbarEvents';
 import { resultsPaneHtml, trackAudioHtml, type SpectrumBandsSetting } from './resultsPaneHtml';
 import { selectionFolderButton, selectionLayoutHtml } from './selectionLayoutHtml';
-import { type AnalysisWindowBand, canvasTimeHit, clampedCanvasNorm, CURSOR_LINE_STYLE, drawAnalysisWindowBand, drawDashedTimeLine, drawRectZoomSelection, HOVER_LINE_STYLE } from './canvasOverlays';
+import { type AnalysisWindowBand, canvasTimeHit, clampedCanvasNorm, CURSOR_LINE_STYLE, drawAnalysisWindowBand, drawDashedTimeLine, drawRectZoomSelection, HOVER_LINE_STYLE, waveformCursorLineStyle } from './canvasOverlays';
 import { applyOverlayCompatibility, calibrationRequest, channelMetricSummaryHtml, ensureCalibrationStyles, hasIncompatibleLevelReferences } from './calibrationDecorations';
 import {
     channelIndexAttribute,
@@ -634,6 +634,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const settingsSignature = currentSettingsSignature();
+        if (record.detailError?.settingsSignature === settingsSignature) {
+            return;
+        }
         const pending = record.requests.pending('detail')?.meta;
         if (pending && pending.settingsSignature === settingsSignature) {
             return;
@@ -881,8 +884,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         record.requests.settle(msg.requestId);
         if (msg.type === 'track-detail-error') {
+            record.detailError = { settingsSignature: pending.settingsSignature, message: msg.error };
+            scheduleRender();
             return;
         }
+        record.detailError = null;
         if (state.results[i] && state.results[i].filePath === msg.filePath && Array.isArray(msg.channels)) {
             mergeDetailSpectrograms(state.results[i].channels, msg.channels);
             scheduleRender();
@@ -1890,7 +1896,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (shouldDrawCursor) {
             drawLoopRegionOnCanvas(ctx, W, H);
             drawAnalysisWindowOnCanvas(ctx, W, H, trackIndex, channelIndex);
-            drawCursorOnCanvas(ctx, W, H);
+            drawCursorOnCanvas(ctx, W, H, waveformCursorLineStyle(getComputedStyle(document.body).getPropertyValue('--text').trim()));
             drawHoverLineOnCanvas(ctx, W, H);
             drawRectZoomSelectionOnCanvas(ctx, W, H, trackIndex);
         }
@@ -1922,7 +1928,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const ch = channelsForResult(result)[channelIndex];
         if (!ch || !ch.spectrogram) {
             requestTrackDetail(trackIndex);
-            drawCanvasMessage(ctx, W, H, STR.spectrogramLoading, '11px sans-serif', drawTheme().mutedColor);
+            const failure = trackRecordAtIndex(trackIndex)?.detailError;
+            const message = failure && failure.settingsSignature === currentSettingsSignature() ? STR.spectrogramFailed.replace('{reason}', failure.message) : STR.spectrogramLoading;
+            drawCanvasMessage(ctx, W, H, message, '11px sans-serif', drawTheme().mutedColor);
             return;
         }
         const spec = ch.spectrogram;
@@ -1983,8 +1991,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             drawAnalysisWindowBand(ctx, band, waveformView.timeRange(), W, H);
         }
     }
-    function drawCursorOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number) {
-        drawDashedTimeLine(ctx, cursorNorm, waveformView.timeRange(), W, H, CURSOR_LINE_STYLE);
+    function drawCursorOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number, style = CURSOR_LINE_STYLE) {
+        drawDashedTimeLine(ctx, cursorNorm, waveformView.timeRange(), W, H, style);
     }
     function drawHoverLineOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number) {
         if (hoverNorm !== null) {
@@ -3916,6 +3924,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             minFrequencyHz: display.minFrequencyHz !== undefined ? n(display.minFrequencyHz) : n(__spectrogramSettings.display.minFrequencyHz ?? null),
         };
         messaging.post({ type: 'update-spectrogram-settings', settings: __spectrogramSettings });
+        // Touching the settings is the user's way to try a failed spectrogram again.
+        trackStore.activeIds().forEach(function (id) { trackStore.require(id).detailError = null; });
         scheduleRender();
         scheduleSpectrumRefresh('immediate');
         requestAnimationFrame(function () { publishTestSnapshot(); });

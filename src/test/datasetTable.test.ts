@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { auditAudioMatches, finiteNumber, parseCSV, resolveAudio, summarizeAudioCandidates, AUDIO_REASON_CANDIDATE_LIMIT } from '../shared/dataset/asdData';
-import { annotatedCsv, baseGroupMembers, columnValues, datasetRows, matchCsv, middleEllipsis, readDatasetCsv, valueOf, visibleRows, type DatasetRow } from '../shared/dataset/datasetTable';
+import { annotatedCsv, baseGroupMembers, columnValues, datasetRows, matchCsv, middleEllipsis, readDatasetCsv, valueOf, visibleRows, type ColumnId, type DatasetFilter, type DatasetRow } from '../shared/dataset/datasetTable';
 import type { ScanResult } from '../shared/protocol/backendProtocol';
+import { getStrings } from '../shared/i18n/strings';
+import { filterChipText } from '../webview/runtime/entryTableHtml';
 
 const file = (name: string): { name: string } => ({ name });
 const bytes = (text: string): Uint8Array => new TextEncoder().encode(text);
@@ -168,4 +170,16 @@ test('memos and exclusions go back as the picked CSV with two columns after: per
     ]);
     // Without a CSV: one row per recording, by its path below the folder.
     assert.deepEqual(annotatedCsv(null, null, files, '/d', rows, memo, excluded).slice(1).trimEnd().split('\r\n')[0], 'audio_file,memo,excluded');
+});
+
+test('filter chips speak the panel language', () => {
+    const label = (column: ColumnId): string => (column === 'name' ? 'line' : 'score');
+    const format = (_column: ColumnId, value: number): string => value.toFixed(1);
+    const values: DatasetFilter = { column: 'name', kind: 'values', values: ['L1', 'L2', 'L3'] };
+    const range: DatasetFilter = { column: 'leq' as ColumnId, kind: 'range', low: 0.3, high: 0.9 };
+
+    assert.equal(filterChipText(values, label, format, getStrings('en')), 'line = L1 +2 more');
+    assert.equal(filterChipText(range, label, format, getStrings('en')), 'score 0.3 – 0.9');
+    assert.equal(filterChipText(values, label, format, getStrings('ja')), 'line = L1 ほか 2');
+    assert.equal(filterChipText(range, label, format, getStrings('ja')), 'score 0.3 〜 0.9');
 });

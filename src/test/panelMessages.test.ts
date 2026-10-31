@@ -84,3 +84,13 @@ test('parsePanelMessage rejects malformed and unknown messages', () => {
     }), undefined);
     assert.equal(parsePanelMessage({ type: 'unknown' }), undefined);
 });
+
+test('a report folder or file named . or .. is refused so the report stays inside the chosen folder', () => {
+    const report = (folder: string, name = 'report.md') => ({ type: 'save-report-folder', folder, files: [{ name, text: '# Report' }] });
+
+    assert.equal(parsePanelMessage(report('..'))?.type, undefined);
+    assert.equal(parsePanelMessage(report('.'))?.type, undefined);
+    assert.equal(parsePanelMessage(report('run', '..'))?.type, undefined);
+    assert.equal(parsePanelMessage(report('..run'))?.type, 'save-report-folder');
+    assert.equal(parsePanelMessage(report('run'))?.type, 'save-report-folder');
+});

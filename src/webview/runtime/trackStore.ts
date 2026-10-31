@@ -20,6 +20,8 @@ export interface TrackRecord {
     rangeCache: WaveformRangeCache | null;
     /** What the track asked the host for: its waveform range ('range'), spectrogram ('detail') and cursor spectrum ('slice'). */
     readonly requests: HostRequests<LazyRequestState | null>;
+    /** The host's answer when the spectrogram failed: shown in the lane, and not asked again for these settings. */
+    detailError: { settingsSignature: string; message: string } | null;
     readonly spectrumSliceCache: Map<number, SpectrumSlice>;
     readonly spectrumPainted: Map<number, boolean>;
 }
@@ -214,6 +216,7 @@ export class TrackStore {
             waveformCoverage: null,
             rangeCache: null,
             requests: new HostRequests(),
+            detailError: null,
             spectrumSliceCache: new Map(),
             spectrumPainted: new Map(),
         };
@@ -231,6 +234,7 @@ export class TrackStore {
 
     private clearAsyncState(record: TrackRecord): void {
         record.requests.clear();
+        record.detailError = null;
         record.spectrumSliceCache.clear();
     }
 }

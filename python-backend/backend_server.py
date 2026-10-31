@@ -183,4 +183,7 @@ def main(service: AnalysisService | None = None, workers: int | None = None) -> 
 
 
 if __name__ == "__main__":
+    # The extension speaks UTF-8; the locale encoding (cp932 on Japanese Windows) would garble non-ASCII paths.
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
     main()

@@ -133,13 +133,13 @@ export function groupOptionsHtml(options: ReadonlyArray<{ id: GroupId; label: st
     return options.map(option => `<option value="${escapeHtml(option.id)}"${option.id === chosen ? ' selected' : ''}>${escapeHtml(option.label)}</option>`).join('');
 }
 
-/** A filter as its chip says it: "ch = 2", "score 0.30 〜 0.90", "line = L1 ほか 2". */
+/** A filter as its chip says it: "ch = 2", "score 0.30 – 0.90", "line = L1 +2 more". */
 export function filterChipText(filter: DatasetFilter, label: (column: ColumnId) => string, format: (column: ColumnId, value: number) => string, strings: EntryStrings): string {
     const short = (text: string): string => middleEllipsis(text || strings.dsFilterBlank, 18);
     const name = label(filter.column);
     return filter.kind === 'range'
-        ? `${name} ${format(filter.column, filter.low)} 〜 ${format(filter.column, filter.high)}`
-        : `${name} = ${filter.values.length > 2 ? `${short(filter.values[0])} ほか ${filter.values.length - 1}` : filter.values.map(short).join(', ')}`;
+        ? `${name} ${format(filter.column, filter.low)} ${strings.dsFilterRangeSeparator} ${format(filter.column, filter.high)}`
+        : `${name} = ${filter.values.length > 2 ? strings.dsFilterMoreValues.replace('{first}', short(filter.values[0])).replace('{count}', String(filter.values.length - 1)) : filter.values.map(short).join(', ')}`;
 }
 
 /** The filters as chips (× takes one off), then ＋ to filter by a column that is not on screen. */
@@ -270,7 +270,7 @@ export function filterPopHtml(options: {
     const sort = options.sortKey ? [false, true].map(descending => `<button type="button" class="entry-mi" data-action="entry-fsort" data-sort="${options.sortKey}" data-descending="${descending}"><span class="entry-mi-ic">${column.numeric ? (descending ? '9↓' : '1↓') : (descending ? 'Z↓' : 'A↓')}</span>${escapeHtml(descending ? strings.dsSortDesc : strings.dsSortAsc)}${options.sort.column === options.sortKey && options.sort.descending === descending ? ' ✓' : ''}</button>`).join('') + '<hr>' : '';
     const clear = `<button type="button" class="entry-mi" data-action="entry-fclear"${options.filter ? '' : ' disabled'}><span class="entry-mi-ic">⊘</span>${escapeHtml(strings.dsFilterClear.replace('{col}', column.label))}</button>`;
     const body = options.range
-        ? `<div class="entry-fpop-label">${escapeHtml(strings.dsFilterRange)}</div><div class="entry-frange"><input type="number" step="any" data-entry-flow aria-label="${escapeHtml(strings.dsFilterLow)}" placeholder="${escapeHtml(options.range.min)}" value="${escapeHtml(options.range.low)}"> 〜 <input type="number" step="any" data-entry-fhigh aria-label="${escapeHtml(strings.dsFilterHigh)}" placeholder="${escapeHtml(options.range.max)}" value="${escapeHtml(options.range.high)}"></div>`
+        ? `<div class="entry-fpop-label">${escapeHtml(strings.dsFilterRange)}</div><div class="entry-frange"><input type="number" step="any" data-entry-flow aria-label="${escapeHtml(strings.dsFilterLow)}" placeholder="${escapeHtml(options.range.min)}" value="${escapeHtml(options.range.low)}"> ${escapeHtml(strings.dsFilterRangeSeparator)} <input type="number" step="any" data-entry-fhigh aria-label="${escapeHtml(strings.dsFilterHigh)}" placeholder="${escapeHtml(options.range.max)}" value="${escapeHtml(options.range.high)}"></div>`
         : `<input type="search" data-entry-fsearch aria-label="${escapeHtml(strings.dsFilterSearch)}" placeholder="${escapeHtml(strings.dsFilterSearch)}" value="${escapeHtml(options.search)}"><div class="entry-flist" data-entry-flist role="group" aria-label="${escapeHtml(column.label)}">${checkListHtml(options.values ?? [], options.checked ?? new Set(), options.search, strings)}</div>`;
     return `<div class="entry-fpop" role="dialog" aria-label="${escapeHtml(column.label)}" data-entry-fpop>${title}${sort}${clear}${body}`
         + `<div class="entry-fpop-bar"><button type="button" class="entry-primary" data-action="entry-fok">OK</button><button type="button" data-action="entry-fcancel">${escapeHtml(strings.dsCancel)}</button></div></div>`;

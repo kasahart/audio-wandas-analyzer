@@ -37,7 +37,7 @@ echo "==> gui triggerability audit"
 npm run lint:gui-triggerability
 
 echo "==> node:test"
-node --test dist/test/**/*.test.js
+node --test 'dist/test/**/*.test.js'
 
 if command -v ruff >/dev/null 2>&1; then
     echo "==> ruff check"
