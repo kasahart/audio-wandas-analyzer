@@ -534,9 +534,12 @@ DEFINITIONS: dict[str, Schema] = {
         "properties": {
             "frame": {"type": "string"},
             "kind": {"type": "string", "enum": ["line", "bar", "heatmap", "none"]},
-            "x": {"type": "string", "enum": ["frequency", "time", "band", "quefrency"]},
+            "x": {"type": "string", "enum": ["frequency", "time", "band", "quefrency", "lag"]},
             "xScale": {"type": "string", "enum": ["log", "linear"]},
-            "quantity": {"type": "string", "enum": ["level", "gain", "coherence", "value", "roughness", "cepstrum"]},
+            "quantity": {
+                "type": "string",
+                "enum": ["level", "gain", "coherence", "value", "roughness", "cepstrum", "correlation"],
+            },
             "unit": {"type": "string"},
             "xs": _NUMBERS,
             "ys": _NUMBERS,

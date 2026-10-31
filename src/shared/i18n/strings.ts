@@ -383,6 +383,8 @@ export interface UiStrings {
     axisBark: string;
     axisQuefrency: string;
     axisCepstrum: string;
+    axisLag: string;
+    axisCorrelation: string;
     stageNoDelta: string;
     stageMaxDelta: string;
     compareLevelsAt: string;
@@ -1013,6 +1015,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         axisBark: 'Critical band [Bark]',
         axisQuefrency: 'Quefrency [s]',
         axisCepstrum: 'Real cepstrum',
+        axisLag: 'Lag [s]',
+        axisCorrelation: 'Correlation coefficient',
         stageNoDelta: '— (Δ only between pictures of one kind on the same axes)',
         stageMaxDelta: 'largest Δ {at} {delta}',
         compareLevelsAt: '{at} base {base} / compare {compare}',
@@ -1640,6 +1644,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         axisBark: '臨界帯域 [Bark]',
         axisQuefrency: 'ケフレンシー [s]',
         axisCepstrum: '実ケプストラム',
+        axisLag: 'ラグ [s]',
+        axisCorrelation: '相関係数',
         stageNoDelta: '— 差は同じ種類・同じ軸の結果どうしでだけ出せます',
         stageMaxDelta: '最大 Δ {at} {delta}',
         compareLevelsAt: '{at} 基準 {base} / 比較 {compare}',

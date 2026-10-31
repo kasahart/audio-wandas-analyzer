@@ -66,7 +66,7 @@ def _owners() -> list[tuple[type[Any], str]]:
     from wandas.frames.channel import ChannelFrame
     from wandas.frames.mixins.channel_processing_mixin import ChannelProcessingMixin
     from wandas.frames.mixins.channel_transform_mixin import ChannelTransformMixin
-    from wandas.frames.pairwise import CrossSpectralFrame, PairwiseSpectralFrame
+    from wandas.frames.pairwise import CrossSpectralFrame, PairwiseFrame, PairwiseSpectralFrame
     from wandas.frames.spectral import SpectralFrame
     from wandas.frames.spectrogram import SpectrogramFrame
 
@@ -75,6 +75,7 @@ def _owners() -> list[tuple[type[Any], str]]:
         (ChannelProcessingMixin, "ChannelFrame"),
         (ChannelTransformMixin, "ChannelFrame"),
         (ChannelFrame, "ChannelFrame"),
+        (PairwiseFrame, "PairwiseFrame"),
         (PairwiseSpectralFrame, "PairwiseSpectralFrame"),
         (CrossSpectralFrame, "CrossSpectralFrame"),
         (CepstralFrame, "CepstralFrame"),

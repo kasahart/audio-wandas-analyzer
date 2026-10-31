@@ -58,6 +58,9 @@ const SETTABLE: Record<string, readonly StepParam[]> = {
         { name: 'hop_length', kind: 'int', min: 1, max: 65536 },
     ],
     'wandas.audio.fade': [{ name: 'fade_ms', kind: 'float', unit: 'ms', min: 0, max: 10000 }],
+    // Every channel pair over every lag is large (8 channels of 30 s: GBs): a new step keeps ±0.1 s, the delays
+    // a room or a machine gives.
+    'wandas.audio.cross_correlation': [{ name: 'max_lag', kind: 'float', unit: 's', min: 0, max: 3600, initial: 0.1 }],
     // The pair a cross-channel step is drawn and measured for: the compared channel over the reference (wandas'
     // source indices from 0; the step bar shows them from 1, as ch1, ch2).
     'wandas.frame.select_pair': [
@@ -67,13 +70,13 @@ const SETTABLE: Record<string, readonly StepParam[]> = {
 };
 
 /** Steps that compare the channels of one recording, pair by pair: they need two channels. */
-export const CROSS_CHANNEL: ReadonlySet<string> = new Set(['wandas.audio.coherence', 'wandas.audio.csd', 'wandas.audio.transfer_function', 'wandas.spectrogram.csd']);
+export const CROSS_CHANNEL: ReadonlySet<string> = new Set(['wandas.audio.coherence', 'wandas.audio.cross_correlation', 'wandas.audio.csd', 'wandas.audio.transfer_function', 'wandas.spectrogram.csd']);
 export const SELECT_PAIR = 'wandas.frame.select_pair';
 /**
  * Cross-channel steps that come with their pair (select_pair after them). A CSD does not: coherence and the
  * transfer function derived from it need its auto-spectra, which select_pair would leave out.
  */
-export const PAIRED_ON_ADD: ReadonlySet<string> = new Set(['wandas.audio.coherence', 'wandas.audio.transfer_function']);
+export const PAIRED_ON_ADD: ReadonlySet<string> = new Set(['wandas.audio.coherence', 'wandas.audio.cross_correlation', 'wandas.audio.transfer_function']);
 /**
  * Cross-channel steps that can take the base slot's recording as their reference: those on a time signal, which is
  * where the two recordings are joined (wandas joins time signals; a spectrogram's CSD has no such join).
@@ -83,8 +86,8 @@ export const SLOT_REFERABLE: ReadonlySet<string> = new Set([...CROSS_CHANNEL].fi
 /** Steps that leave one channel: one picked, or all summed or averaged into one. */
 const ONE_CHANNEL: ReadonlySet<string> = new Set(['wandas.audio.sum', 'wandas.audio.mean']);
 
-/** wandas' Frames of channel pairs (PairwiseSpectralFrame and its kinds). */
-const PAIRWISE_FRAMES: ReadonlySet<string> = new Set(['PairwiseSpectralFrame', 'CrossSpectralFrame', 'CoherenceFrame', 'TransferFunctionFrame']);
+/** wandas' Frames of channel pairs (PairwiseFrame, PairwiseSpectralFrame and its kinds). */
+const PAIRWISE_FRAMES: ReadonlySet<string> = new Set(['PairwiseFrame', 'PairwiseSpectralFrame', 'CrossSpectralFrame', 'CoherenceFrame', 'TransferFunctionFrame', 'CrossCorrelationFrame']);
 
 /**
  * The channels a step leaves of `channels`: one after sum or mean, one fewer after remove_channel, and after

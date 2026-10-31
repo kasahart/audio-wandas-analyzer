@@ -293,3 +293,12 @@ test('a step that compares two channels needs two: one channel (or one picked by
     const beyond = withParam(paired, pair, input, 2);
     assert.equal(recipeSteps(beyond, { sampleRate: 16000, channels: 2 }).find(step => step.id === pair)!.invalid, 'input');
 });
+
+test('a new cross-correlation keeps lags within ±0.1 s, and the limit can be set', () => {
+    const [, slice, welch] = recipeSteps(entry, 16000);
+    const { recipe, id } = withStep(withoutSteps(entry, [welch.id]), slice.id, catalogOperation('wandas.audio.cross_correlation')!);
+    const maxLag = (document: RecipeDocument) => recipeSteps(document, { sampleRate: 16000, channels: 2 }).find(item => item.id === id)!.params['max_lag'];
+    assert.equal(maxLag(recipe), 0.1);
+    assert.equal(addableOperations('ChannelFrame').find(item => item.name === 'cross_correlation')!.settable, true);
+    assert.equal(maxLag(withParam(recipe, id, STEP_PARAMS['wandas.audio.cross_correlation'][0], 0.5)), 0.5);
+});

@@ -29,7 +29,7 @@
     {
       "id": "node-1",
       "operation": "wandas.frame.time_slice",
-      "version": 1,
+      "version": 2,
       "inputs": [
         "node-0"
       ],
