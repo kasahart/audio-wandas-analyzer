@@ -207,10 +207,10 @@ test('on a narrow panel with the cursor-spectrum panel folded, the CSV still ask
     }, { intervals: [50], timeout: 20000 }).toBe(true);
 });
 
-test('the PNG export keeps waiting for zoom detail asked again by a redraw', async ({ page }) => {
+test('the PNG export keeps waiting for the zoom detail on its way across redraws', async ({ page }) => {
     await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
     await page.mouse.click(20, 20);
-    for (let i = 0; i < 5; i += 1) {
+    for (let i = 0; i < 9; i += 1) { // deep enough that the prefetched range is narrower than the file
         await page.locator('#toolbar [data-action="zoom-in"]').click({ force: true });
     }
     const rangeRequests = () => page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Array<Record<string, unknown>> }).__uiSmokePostedMessages
@@ -218,11 +218,13 @@ test('the PNG export keeps waiting for zoom detail asked again by a redraw', asy
     await expect.poll(async () => (await rangeRequests()).length).toBeGreaterThan(0);
     const downloads = () => page.evaluate(() => (window as unknown as { __uiSmokeDownloads: Array<{ download: string }> }).__uiSmokeDownloads.map((d) => d.download));
     await page.evaluate(() => document.querySelector<HTMLElement>('#toolbar [data-action="export-png"]')?.click());
-    // A redraw (here the cursor moving) asks for the same zoom detail again under a new request.
+    // A redraw (here the cursor moving) does not ask again for a range already on its way (#502); the export keeps waiting for it.
     const asked = (await rangeRequests()).length;
     const canvas = (await page.locator('#track-canvas-0').boundingBox())!;
     await page.mouse.click(canvas.x + canvas.width * 0.5, canvas.y + canvas.height / 2);
-    await expect.poll(async () => (await rangeRequests()).length).toBeGreaterThan(asked);
+    await nextFrames(page);
+    await page.waitForTimeout(200);
+    expect((await rangeRequests()).length).toBe(asked);
     // Everything else the export waits for is answered.
     await answerRounds(page, 12);
     expect(await downloads()).not.toContain('waveform-export.png');
@@ -272,4 +274,27 @@ test('a cursor moved while the CSV waits: the file holds every shown track at th
     const header = (await csv())!.split('\n')[0];
     expect(header).toContain('take00.wav');
     expect(header).toContain('take39.wav');
+});
+
+test('a zoom-detail range the host never answers is asked again by a later redraw', async ({ page }) => {
+    await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
+    await page.mouse.click(20, 20);
+    for (let i = 0; i < 9; i += 1) {
+        await page.locator('#toolbar [data-action="zoom-in"]').click({ force: true });
+    }
+    const rangeRequests = () => page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Array<Record<string, unknown>> }).__uiSmokePostedMessages
+        .filter((message) => message.type === 'request-waveform-range').length);
+    await expect.poll(rangeRequests).toBeGreaterThan(0);
+    await page.waitForTimeout(300);
+    const asked = await rangeRequests();
+    const canvas = (await page.locator('#track-canvas-0').boundingBox())!;
+    const redraw = (x: number) => page.mouse.click(canvas.x + canvas.width * x, canvas.y + canvas.height / 2);
+    // A failed range gets no answer; while it may still be on its way, a redraw does not ask again...
+    await redraw(0.4);
+    await page.waitForTimeout(300);
+    expect(await rangeRequests()).toBe(asked);
+    // ...but after a while it no longer counts, so the next redraw asks again.
+    await page.waitForTimeout(2000);
+    await redraw(0.6);
+    await expect.poll(rangeRequests).toBeGreaterThan(asked);
 });

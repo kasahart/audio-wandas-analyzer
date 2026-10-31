@@ -76,10 +76,10 @@ def test_vectorized_buckets_preserve_extrema_positions_and_midpoints(length, poi
 
 
 def test_decimation_point_limit_bounds_work_and_accepts_the_boundary():
-    samples = np.ones(9000)
-    assert len(decimated_waveform(samples, 8192, 0, len(samples))["min"]) == 8192
-    with pytest.raises(ValueError, match="8192"):
-        decimated_waveform(samples, 8193, 0, len(samples))
+    samples = np.ones(33000)
+    assert len(decimated_waveform(samples, 32768, 0, len(samples))["min"]) == 32768
+    with pytest.raises(ValueError, match="32768"):
+        decimated_waveform(samples, 32769, 0, len(samples))
 
 
 def test_vectorized_extrema_keep_first_nan_positions():

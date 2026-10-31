@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isCacheSufficient, computeReqBounds, isOverviewSufficient, isRangeCacheDrawable, OVERVIEW_POINTS, rangeCacheCoversView, visibleFileFraction } from '../webview/waveform/rangeRequestPolicy';
+import { isCacheSufficient, computeReqBounds, isOverviewSufficient, isRangeCacheDrawable, MAX_PREFETCH_POINTS, OVERVIEW_POINTS, parseRangeRequestKey, planLaneRange, rangeCacheCoversView, visibleFileFraction } from '../webview/waveform/rangeRequestPolicy';
 
 const W = 800;
 const points = 1600;
@@ -227,4 +227,42 @@ test('rangeCacheCoversView: 描画可能かつ [0, 1] にクリップした可�
     assert.equal(rangeCacheCoversView(makeCache(0, 1, 10), 0, -0.2, 1.4), true);
     assert.equal(rangeCacheCoversView(c, 1, 0.3, 0.5), false);
     assert.equal(rangeCacheCoversView(null, 0, 0.3, 0.5), false);
+});
+
+// ── Lanes prefetch screens around the view (#502) ──────────────────
+
+test('planLaneRange asks two screens either side at one screen\'s density and keeps one', () => {
+    const plan = planLaneRange(0.4, 0.5, 800);
+    assert.ok(Math.abs(plan.reqStart - 0.2) < 1e-12 && Math.abs(plan.reqEnd - 0.7) < 1e-12);
+    assert.ok(Math.abs(plan.keepStart - 0.3) < 1e-12 && Math.abs(plan.keepEnd - 0.6) < 1e-12);
+    assert.equal(plan.points, 5 * 1600);
+});
+
+test('planLaneRange clamps to the file and asks only for the screens there', () => {
+    const plan = planLaneRange(0, 0.1, 800);
+    assert.equal(plan.reqStart, 0);
+    assert.ok(Math.abs(plan.reqEnd - 0.3) < 1e-12);
+    assert.equal(plan.points, 3 * 1600);
+    assert.equal(planLaneRange(0, 1, 800).points, 1600);
+});
+
+test('planLaneRange stays within the backend point limit on wide canvases', () => {
+    assert.equal(planLaneRange(0.4, 0.5, 4000).points, MAX_PREFETCH_POINTS);
+});
+
+test('a prefetched range stays sufficient while the view pans less than a screen', () => {
+    const W = 800;
+    const first = planLaneRange(0.4, 0.5, W);
+    const cache = makeCache(first.reqStart, first.reqEnd, first.points);
+    const panned = planLaneRange(0.48, 0.58, W);
+    assert.equal(isCacheSufficient(cache, panned.keepStart, panned.keepEnd, panned.points, W, 0.48, 0.58, 1), true);
+    // The cache still draws the view at full detail after a whole screen, but asks for the next screens.
+    const far = planLaneRange(0.52, 0.62, W);
+    assert.equal(isCacheSufficient(cache, far.keepStart, far.keepEnd, far.points, W, 0.52, 0.62, 1), false);
+    assert.equal(rangeCacheCoversView(cache, 0, 0.52, 0.62), true);
+});
+
+test('parseRangeRequestKey reads back a lane request key', () => {
+    assert.deepEqual(parseRangeRequestKey('0.2|0.7|8000'), { startNorm: 0.2, endNorm: 0.7, points: 8000 });
+    assert.equal(parseRangeRequestKey('settings-signature'), null);
 });
