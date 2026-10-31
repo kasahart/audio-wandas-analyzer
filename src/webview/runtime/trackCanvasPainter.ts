@@ -66,8 +66,9 @@ export function paintTrackWaveform(
             }
             const span = Math.max(view.zoomEnd - view.zoomStart, 1e-12);
             const xAt = (fileNorm: number) => (view.offsetNorm + fileNorm * view.trackDurRatio - view.zoomStart) / span * W;
-            const x0 = Math.max(0, Math.min(W, xAt(detail.dataStart)));
-            const x1 = Math.max(x0, Math.min(W, xAt(detail.dataEnd)));
+            // Whole pixels, so the two clips meet without an anti-aliased crack between them.
+            const x0 = Math.max(0, Math.min(W, Math.round(xAt(detail.dataStart))));
+            const x1 = Math.max(x0, Math.min(W, Math.round(xAt(detail.dataEnd))));
             const clipped = (rects: Array<[number, number]>, part: WaveformPaintSource) => {
                 ctx.save();
                 try {

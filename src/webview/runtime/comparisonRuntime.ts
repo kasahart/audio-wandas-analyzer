@@ -800,6 +800,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     /** When each lane's range request on its way was sent; a failed one is never answered, so it is asked again after RANGE_RETRY_MS. */
     const rangeAskedAt = new Map<string, number>();
     const RANGE_RETRY_MS = 2000;
+    /** When the range each lane draws was asked for, so an older answer arriving late does not replace a newer one. */
+    const rangeLandedAskedAt = new Map<TrackId, number>();
     // Receive high-res range data from Extension Host
     messaging.onMessage(function (msg) {
         if (!msg || msg.type !== 'waveform-range-result') {
@@ -816,8 +818,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (!record.requests.find(msg.requestId)) {
             return;
         }
+        // ...but never over one asked for later that has already landed.
+        const askedAt = rangeAskedAt.get(msg.requestId) ?? -Infinity;
         record.requests.settle(msg.requestId);
         rangeAskedAt.delete(msg.requestId);
+        if (askedAt < (rangeLandedAskedAt.get(trackId) ?? -Infinity)) {
+            return;
+        }
+        rangeLandedAskedAt.set(trackId, askedAt);
         record.rangeCache = { startNorm: msg.startNorm, endNorm: msg.endNorm, channels: msg.channels };
         renderAll();
     });
