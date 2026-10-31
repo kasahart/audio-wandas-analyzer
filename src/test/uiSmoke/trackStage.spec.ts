@@ -74,6 +74,16 @@ test('the track view\'s steps mode draws every track as the chosen step\'s Frame
     await page.mouse.move(box.x + 52 + (box.width - 56) * 0.6, box.y + box.height * 0.7, { steps: 5 });
     await page.mouse.up();
     await expect.poll(async () => (await stageScans(page)).at(-1)?.detail?.x[0]).toBeGreaterThan(100);
+    // The track on screen is asked for first and drawn from its detail at once; the base group's recordings come after it.
+    expect((await stageScans(page)).at(-1)!.filePaths).toEqual([first]);
+    const zoomed = { ...view, xs: [400, 500, 600, 700], values: [-35, -31, -33, -36] };
+    await answer(page, zoomed);
+    await expect.poll(async () => (await stageScans(page)).at(-1)!.filePaths.length).toBeGreaterThan(1);
+    expect((await stageScans(page)).at(-1)!.detail).toBeDefined();
+    await expect(bar).toHaveAttribute('data-detail-lines', '1');
+    await expect(bar).toHaveAttribute('data-detail', 'false');
+    await answer(page, zoomed);
+    await expect(bar).toHaveAttribute('data-detail', 'true');
     // Side by side: every track in its lane again.
     await page.locator('[data-action="stage-layout"]').click();
     await expect(stage).toHaveAttribute('data-layout', 'lanes');
