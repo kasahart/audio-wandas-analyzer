@@ -23,7 +23,10 @@ SPECTROGRAM_CACHE_DTYPE = np.dtype("complex64")
 def compute_spectrogram(frame: wd.ChannelFrame, n_fft: int, hop_length: int, window: str) -> wd.SpectrogramFrame:
     # Auto display sampling can leave gaps between windows on long desktop files; Wandas then computes only the
     # kept frames, at their physical centres, rather than a dense STFT whose frames would be discarded.
-    return frame.stft(n_fft=n_fft, hop_length=hop_length, window=window, allow_sparse=hop_length > n_fft)
+    # wandas annotates its transform mixin's self as TransformFrameProtocol, which ChannelFrame does not satisfy.
+    return frame.stft(  # pyright: ignore[reportAttributeAccessIssue]
+        n_fft=n_fft, hop_length=hop_length, window=window, allow_sparse=hop_length > n_fft
+    )
 
 
 @dataclass(slots=True)

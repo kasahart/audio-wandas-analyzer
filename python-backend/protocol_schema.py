@@ -690,10 +690,11 @@ def _is_literal(value: object, declared_type: object) -> bool:
         return False
     if isinstance(value, float) and not math.isfinite(value):
         return False  # json.dump would emit NaN/Infinity, which JSON.parse rejects.
-    integral = (isinstance(value, int) and not isinstance(value, bool)) or (
-        isinstance(value, float) and value.is_integer()
-    )
-    if integral and abs(value) > _MAX_SAFE_INTEGER:  # Compared exactly; float(10**400) would overflow.
+    number = value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
+    integral = isinstance(number, int) or (isinstance(number, float) and number.is_integer())
+    if (
+        number is not None and integral and abs(number) > _MAX_SAFE_INTEGER
+    ):  # Compared exactly; float(10**400) would overflow.
         return False
     return declared_type is None or _matches_type(declared_type, value)  # type: ignore[arg-type]
 
@@ -751,15 +752,16 @@ def unsupported_keyword(schema: object = None, path: str = "$defs") -> str | Non
             or child[0] == _NULL
         ):
             return f"{path}.anyOf"
-        nested = (
-            child.items()
-            if key == "properties"
-            else [(key, child)]
-            if key == "items"
-            else [("anyOf[0]", child[0])]
-            if key == "anyOf"
-            else []
-        )
+        if key == "properties" and not isinstance(child, dict):
+            return f"{path}.properties"
+        if key == "properties" and isinstance(child, dict):
+            nested = list(child.items())
+        elif key == "items":
+            nested = [(key, child)]
+        elif key == "anyOf" and isinstance(child, list):
+            nested = [("anyOf[0]", child[0])]
+        else:
+            nested = []
         for name, node in nested:
             found = unsupported_keyword(node, f"{path}.{name}")
             if found is not None:

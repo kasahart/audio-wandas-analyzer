@@ -15,7 +15,7 @@ from calibration_profile import (
     ResolvedCalibrationProfile,
     ResolvedChannelCalibration,
 )
-from decimator import decimated_waveform
+from decimator import WaveformEnvelope, decimated_waveform
 from perf import perf_log
 from stage_view import power_mean_db
 
@@ -75,7 +75,7 @@ class ChannelSummary(TypedDict):
     peakLevelDb: float
     rawPeakFullScale: float
     clipped: bool
-    waveform: dict[str, object]
+    waveform: WaveformEnvelope
     spectrogram: SpectrogramPayload | None
 
 
@@ -167,7 +167,7 @@ def build_waveform_envelope(
     point_limit: int = WAVEFORM_POINT_LIMIT,
     start_sample: int = 0,
     total_samples: int | None = None,
-) -> dict[str, object]:
+) -> WaveformEnvelope:
     if total_samples is None:
         total_samples = len(samples)
     return decimated_waveform(samples, point_limit, start_sample, total_samples)
@@ -314,12 +314,19 @@ class StftOptions(TypedDict):
     window: str
 
 
+def _option_number(options: Mapping[str, object], snake: str, camel: str, default: float) -> float:
+    value = options.get(snake, options.get(camel, default))
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise InputError(f"{snake} must be a number, got {value!r}")
+    return value
+
+
 def normalize_stft_options(stft_options: Mapping[str, object] | None) -> StftOptions | None:
     if not stft_options:
         return None
 
-    n_fft = int(stft_options.get("n_fft", stft_options.get("nFft", 0)))
-    overlap_percent = float(stft_options.get("overlap_percent", stft_options.get("overlapPercent", -1)))
+    n_fft = int(_option_number(stft_options, "n_fft", "nFft", 0))
+    overlap_percent = float(_option_number(stft_options, "overlap_percent", "overlapPercent", -1))
     window = str(stft_options.get("window", "hann"))
     if n_fft < 64 or n_fft > 16384:
         raise InputError(f"n_fft must be in [64, 16384], got {n_fft}")

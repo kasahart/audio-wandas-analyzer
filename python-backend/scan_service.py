@@ -27,13 +27,14 @@ from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
 
-import dask
 import dask.array as da
+import dask.config
 import dask.local
 import dask.threaded
 import numpy as np
 import soundfile as sf
 import wandas as wd
+from wandas.frames.pairwise import PairwiseFrame
 from wandas.pipeline import RecipeExecutionError, RecipePlan
 from wandas.pipeline.model import RecipeNode
 from wandas.processing.semantic import thaw_params
@@ -41,7 +42,7 @@ from wandas.processing.semantic import thaw_params
 import analysis_spec as spec
 from backend_errors import InputError
 from calibration_profile import resolve_calibration_profile
-from stage_view import StageView, band_levels, rounded_db, stage_view
+from stage_view import StageDetail, StageView, band_levels, rounded_db, stage_view
 
 if TYPE_CHECKING:
     from analysis_engine import AnalysisEngine, CachedAnalysis
@@ -485,7 +486,7 @@ def scan_cached(
     channels: Sequence[int] | None,
     calibration_profile: object,
     stage: str | None = None,
-    detail: Mapping[str, object] | None = None,
+    detail: StageDetail | None = None,
     reference: tuple[CachedAnalysis, ScanReference] | None = None,
 ) -> ScanResult:
     source = cached.frame
@@ -548,7 +549,8 @@ def scan_cached(
         return _stage_result(described, stage_view(region_frame, None, detail))
     # The time signal the metrics read: the region, then each step after it while every step gives a time
     # signal at the file's rate (a loudness over time is a ChannelFrame too, but not a signal to take Leq of).
-    signal = current = region_frame
+    signal: wd.ChannelFrame = region_frame
+    current = region_frame
     leading = True
     # The last time signal in the chain: what an STFT after it was taken of, for its columns' windows.
     timed = region_frame
@@ -590,7 +592,10 @@ def scan_cached(
             current = parts.cache() if parts is not None else plan.apply({"region": current}).cache()
             if step == paired_at:
                 # The scanned recording over the reference: the pair's one row.
-                current = current if paired_csd else current.select_pair(1, 0).cache()
+                if not paired_csd:
+                    if not isinstance(current, PairwiseFrame):
+                        raise TypeError(f"{step} gives a {type(current).__name__}, not a cross-channel Frame")
+                    current = current.select_pair(1, 0).cache()
                 ref_current, vs_base = None, True
             elif ref_current is not None:
                 ref_current = _reference_step(ref_steps, step, ref_current)
@@ -603,8 +608,9 @@ def scan_cached(
             raise StepFailure(step, error) from error
         if isinstance(current, wd.ChannelFrame):
             timed = current
-        leading = leading and isinstance(current, wd.ChannelFrame) and current.sampling_rate == sampling_rate
-        if leading:
+        if not (isinstance(current, wd.ChannelFrame) and current.sampling_rate == sampling_rate):
+            leading = False
+        elif leading:
             signal = current
     spectrum = (
         current
@@ -754,7 +760,7 @@ def scan(
     channels: Sequence[int] | None = None,
     calibration_profile: object = None,
     stage: str | None = None,
-    detail: Mapping[str, object] | None = None,
+    detail: StageDetail | None = None,
     reference: tuple[str, ScanReference] | None = None,
 ) -> ScanResult:
     started = time.perf_counter()
@@ -781,7 +787,7 @@ def scan(
     except Exception as error:  # noqa: BLE001 - every failure becomes this file's ✕ row.
         if not isinstance(error, (InputError, OSError, sf.LibsndfileError)):
             traceback.print_exc(file=sys.stderr)
-        result = {"ok": False, "reason": _first_line(error)}
+        result: ScanResult = {"ok": False, "reason": _first_line(error)}
         if isinstance(error, StepFailure):
             result["failedStep"] = error.step
     finally:

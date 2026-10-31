@@ -8,6 +8,7 @@
 import type { UiStrings } from '../../shared/i18n/strings';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { titledHintAttr as hintAttr } from './hintFooter';
+import { summarizeAudioCandidates } from '../../shared/dataset/asdData';
 import { groupOf, middleEllipsis, valueOf, type ColumnId, type DatasetFilter, type DatasetRow, type GroupId, type Results, type Unmatched, type ValueId } from '../../shared/dataset/datasetTable';
 
 export type EntryStrings = UiStrings;
@@ -167,7 +168,7 @@ export function datasetColsHtml(view: Pick<DatasetScreenView, 'columns' | 'mode'
     const group = view.mode === 'all' && view.columns.group ? '<col class="entry-col-group-w">' : '';
     return view.mode === 'unmatched'
         ? '<col class="entry-col-name-w"><col class="entry-col-reason-w"><col>'
-        : `<col class="entry-col-mark-w"><col class="entry-col-name-w"><col class="entry-col-ch-w">${group}<col class="entry-col-value-w"><col>`;
+        : `<col class="entry-col-mark-w"><col class="entry-col-name-w"><col class="entry-col-ch-w">${group}<col class="entry-col-value-w"><col class="entry-col-fill-w">`;
 }
 
 export function datasetHeadHtml(view: DatasetScreenView, strings: EntryStrings): string {
@@ -203,6 +204,19 @@ export function formatValue(value: ValueId, number: number | null): string {
     if (number === null) return '—';
     const text = value === 'peak' ? String(Math.round(number)) : value === 'crest' ? number.toFixed(2) : value.startsWith('csv:') ? String(+number.toPrecision(6)) : number.toFixed(1);
     return text.replace(/^-/, '−');
+}
+
+/** How many of a name's last characters stay in sight however narrow its column: the run number and the extension. */
+const NAME_TAIL = 10;
+
+/** A file's name cut in its middle when the column is narrow (the head takes the ellipsis); the full path is its tooltip. */
+function nameHtml(name: string, title: string): string {
+    const short = middleEllipsis(name, 48);
+    const attrs = `title="${escapeHtml(title)}"`;
+    if (short.length <= NAME_TAIL + 4) return `<span class="entry-nm" ${attrs}>${escapeHtml(short)}</span>`;
+    const cut = short.length - NAME_TAIL;
+    // The two halves are separate boxes, which a screen reader would read with a space between: it reads the whole name instead.
+    return `<span class="entry-nm is-split" ${attrs}><span class="entry-nm-head" aria-hidden="true">${escapeHtml(short.slice(0, cut))}</span><span class="entry-nm-tail" aria-hidden="true">${escapeHtml(short.slice(cut))}</span><span class="entry-nm-full">${escapeHtml(name)}</span></span>`;
 }
 
 /** A row's tools right after its name: ▶, its slot (the badge once in one), ✎, 外す; those carrying state always show. */
@@ -242,7 +256,7 @@ export function datasetRowsHtml(view: DatasetScreenView, first: number, last: nu
             // ☑ on a track, ☐ not (not ●, a step's output): a click, T, or Enter / Space on it shows or takes off its track.
             // The focused row's is the one Tab reaches.
             + (view.mode === 'excluded' ? '<td class="entry-mark"></td>' : `<td class="entry-mark" data-action="entry-row-track" data-key="${escapeHtml(row.key)}" role="checkbox" tabindex="${row.key === view.focused ? 0 : -1}" aria-checked="${shown}" aria-label="${escapeHtml(`${strings.dsTrackMark}: ${row.name}`)}">${shown ? '☑' : '☐'}</td>`)
-            + `<td class="entry-name"><span class="entry-ncell"><span class="entry-nm" title="${escapeHtml(row.name)}${(row.channels ?? 1) > 1 ? ` · ch ${row.ch} / ${row.channels}` : ''}">${escapeHtml(middleEllipsis(row.name))}</span><span class="entry-rowtools">${toolsHtml(row, view, strings)}</span></span></td>`
+            + `<td class="entry-name"><span class="entry-ncell">${nameHtml(row.name, `${row.filePath}${(row.channels ?? 1) > 1 ? ` · ch ${row.ch} / ${row.channels}` : ''}`)}<span class="entry-rowtools">${toolsHtml(row, view, strings)}</span></span></td>`
             + `<td class="entry-num entry-col-ch${(row.channels ?? 1) > 1 ? '' : ' is-single'}">${row.channels === undefined ? '—' : row.ch}</td>${group}`
             + `<td class="entry-num entry-col-value">${value}</td><td></td></tr>`;
     }).join('');
@@ -253,10 +267,11 @@ export function datasetRowsHtml(view: DatasetScreenView, first: number, last: nu
 export function unmatchedRowsHtml(items: readonly Unmatched[], unreadable: ReadonlyArray<{ filePath: string; reason: string }>, strings: EntryStrings): string {
     const reason: Record<Unmatched['reason'], string> = { missing: strings.dsReasonMissing, ambiguous: strings.dsReasonAmbiguous, repeated: strings.dsReasonRepeated, 'no-row': strings.dsReasonNoRow };
     const name = (path: string): string => path.slice(path.replace(/\\/g, '/').lastIndexOf('/') + 1);
+    const detailOf = (item: Unmatched): string => item.candidates ? summarizeAudioCandidates(item.candidates, { separator: strings.dsListSeparator, more: strings.dsMoreCandidates }) : item.detail;
     return [
         ...unreadable.map(item => `<tr class="entry-row is-unmatched"><td class="entry-name" title="${escapeHtml(item.filePath)}">${escapeHtml(middleEllipsis(name(item.filePath)))}</td><td class="entry-why">${escapeHtml(strings.dsReasonUnreadable)}</td><td class="entry-why-detail">${escapeHtml(item.reason)}</td></tr>`),
         ...items.map(item => `<tr class="entry-row is-unmatched"${item.filePath ? ` data-file-path="${escapeHtml(item.filePath)}"` : ''}><td class="entry-name">${escapeHtml(item.filePath ? middleEllipsis(name(item.filePath)) : strings.dsCsvRow.replace('{n}', String(item.row)))}</td>`
-            + `<td class="entry-why">${escapeHtml(reason[item.reason])}</td><td class="entry-why-detail" title="${escapeHtml(item.detail)}">${escapeHtml(item.detail)}</td></tr>`),
+            + `<td class="entry-why">${escapeHtml(reason[item.reason])}</td><td class="entry-why-detail" title="${escapeHtml(detailOf(item))}">${escapeHtml(detailOf(item))}</td></tr>`),
     ].join('');
 }
 

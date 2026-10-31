@@ -66,6 +66,7 @@ def test_unsupported_keywords_are_rejected(monkeypatch: pytest.MonkeyPatch) -> N
     assert unsupported_keyword({"const": math.inf}, "x") == "x.const"
     assert unsupported_keyword({"type": "string", "enum": ["hann"], "const": "hamming"}, "x") == "x.const"
     assert unsupported_keyword({"oneOf": []}, "x") == "x.oneOf"
+    assert unsupported_keyword({"type": "object", "properties": ["mode"]}, "x") == "x.properties"
     assert unsupported_keyword({"anyOf": [{"type": "string"}, {"type": "null"}]}, "x") is None
     assert unsupported_keyword({"anyOf": [{"type": "string"}, {"type": "integer"}]}, "x") == "x.anyOf"
     assert unsupported_keyword({"anyOf": [{"type": "null"}, {"type": "string"}]}, "x") == "x.anyOf"

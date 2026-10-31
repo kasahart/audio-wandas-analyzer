@@ -75,7 +75,7 @@ export interface TrackRowSpec {
 
 export type TrackRowStrings = Pick<UiStrings,
     | 'ariaDragHandle' | 'clipBadgeTitle' | 'trackMoreHint' | 'offsetStepUp' | 'offsetStepDown' | 'offsetEdit' | 'offsetReset'
-    | 'trackPlayTitle' | 'ariaTrackPlay' | 'trackStopTitle' | 'ariaTrackStop' | 'ariaTrackMute' | 'ariaRemoveTrack'
+    | 'trackPlayTitle' | 'trackNoAudio' | 'ariaTrackPlay' | 'trackStopTitle' | 'ariaTrackStop' | 'ariaTrackMute' | 'ariaRemoveTrack'
     | 'calibrationButtonLabel' | 'calibrationButtonTitle' | 'calibrationButtonAria'
     | 'trackOffsetResetHint' | 'ariaOffsetValue' | 'ariaOffsetUp' | 'ariaOffsetDown' | 'ariaResizeTrackHeight'
     | 'hintRemoveTrack' | 'hintOffsetUp' | 'hintOffsetDown' | 'hintTrackHeightResizer'
@@ -87,6 +87,8 @@ export function trackRowHtml(spec: TrackRowSpec, strings: TrackRowStrings): stri
         ? ' &nbsp; ' + channelMetricSummaryHtml(channels[0], strings.peakLabel)
         : '';
     const disabled = spec.playable ? '' : ' disabled';
+    // Without decoded audio the buttons say why they do nothing (a disabled button still shows its hint).
+    const playHint = (hint: string): string => spec.playable ? hint : strings.trackNoAudio;
     return '<div class="track-row" id="track-row-' + i + '" data-track-id="' + trackId + '" data-file-path="' + escapeHtml(spec.filePath) + '">'
         + '<div class="track-header">'
         + '  <div class="track-title-row">'
@@ -99,9 +101,9 @@ export function trackRowHtml(spec: TrackRowSpec, strings: TrackRowStrings): stri
         + '  </div>'
         + '  <div class="track-meta">' + spec.channelCount + ' ch &nbsp;' + (spec.sampleRateHz / 1000).toFixed(1) + 'kHz' + monoSummary + '</div>'
         + '  <div class="track-btns">'
-        + '    <button class="track-btn" data-action="toggle-playback" data-track-id="' + trackId + '"' + hintAttr(strings.trackPlayTitle) + ' aria-label="' + escapeHtml(strings.ariaTrackPlay) + '"' + disabled + '>▶</button>'
-        + '    <button class="track-btn" data-action="stop-playback" data-track-id="' + trackId + '"' + hintAttr(strings.trackStopTitle) + ' aria-label="' + escapeHtml(strings.ariaTrackStop) + '"' + disabled + '>■</button>'
-        + '    <button class="track-btn" data-action="toggle-mute" data-track-id="' + trackId + '" aria-label="' + escapeHtml(strings.ariaTrackMute) + '" data-hint="' + escapeHtml(strings.ariaTrackMute) + '" aria-pressed="' + spec.muted + '"' + disabled + '>' + (spec.muted ? '🔇' : '🔊') + '</button>'
+        + '    <button class="track-btn" data-action="toggle-playback" data-track-id="' + trackId + '"' + hintAttr(playHint(strings.trackPlayTitle)) + ' aria-label="' + escapeHtml(strings.ariaTrackPlay) + '"' + disabled + '>▶</button>'
+        + '    <button class="track-btn" data-action="stop-playback" data-track-id="' + trackId + '"' + hintAttr(playHint(strings.trackStopTitle)) + ' aria-label="' + escapeHtml(strings.ariaTrackStop) + '"' + disabled + '>■</button>'
+        + '    <button class="track-btn" data-action="toggle-mute" data-track-id="' + trackId + '" aria-label="' + escapeHtml(strings.ariaTrackMute) + '" data-hint="' + escapeHtml(playHint(strings.ariaTrackMute)) + '" aria-pressed="' + spec.muted + '"' + disabled + '>' + (spec.muted ? '🔇' : '🔊') + '</button>'
         + '    <button class="track-btn" data-action="remove-track" data-track-id="' + trackId + '"' + hintAttr(strings.hintRemoveTrack) + ' aria-label="' + escapeHtml(strings.ariaRemoveTrack) + '">✕</button>'
         + '    ' + calibrationButtonHtml(trackId, strings)
         + (spec.referenceButtonHtml ? '    ' + spec.referenceButtonHtml : '')

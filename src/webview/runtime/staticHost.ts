@@ -93,6 +93,8 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     const { window, document, Worker, fetch, URL, setTimeout } = deps;
     const browserWindow = window as unknown as ComparisonWindow;
     const strings = getStrings(window.navigator?.language ?? 'en');
+    /** A Worker's or the browser's own error text inside a sentence in the UI's language. */
+    const failedWith = (sentence: string, error: unknown): string => sentence.replace('{error}', error instanceof Error ? error.message : String(error));
     browserWindow.__APP_STRINGS__ = strings;
     const locale = pickLocale(window.navigator?.language ?? 'en');
     (browserWindow as unknown as { __APP_LOCALE__: string }).__APP_LOCALE__ = locale;
@@ -555,7 +557,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             if (!pending.has(requestId) && !recovery) return;
             resetWorker(new RecipeWorkerResetError(reason.message));
             emit({ type: 'reanalyze-end' });
-            announce(reason.message);
+            announce(failedWith(strings.browserAnalysisStopped, reason));
         }
         protected async request<K extends BackendCommand>(command: K, payload: BackendPayload<K>, requestId?: string, cancellation?: AnalysisCancellationSignal): Promise<BackendResult<K>> {
             const result = await request({ ...payload, cmd: command }, undefined, requestId, cancellation);
@@ -586,7 +588,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         }
         const myGeneration = sourceGeneration.current;
         try { await request({ cmd: 'unload', filePath: path }); }
-        catch (error) { if (!(error instanceof RecipeWorkerResetError) && sourceGeneration.isCurrent(myGeneration)) { dispose(); snapshot(); emit({ type: 'reanalyze-end' }); announce(error instanceof Error ? error.message : String(error)); } }
+        catch (error) { if (!(error instanceof RecipeWorkerResetError) && sourceGeneration.isCurrent(myGeneration)) { dispose(); snapshot(); emit({ type: 'reanalyze-end' }); announce(failedWith(strings.browserRemoveFailed, error)); } }
     }
     async function fetchJson(url: string): Promise<unknown> {
         const response = await fetch(url);
@@ -669,7 +671,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             announce(strings.browserRecipeDone + title);
         },
         showError: announce,
-    });
+    }, strings);
     // Browser host: owned sources, Worker transport, localStorage and downloads behind the shared session contract.
     const ports: ComparisonSessionPorts = {
         scope(message: PanelMessage): SessionScope {
@@ -773,7 +775,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
                     catch (error) {
                         if (!sourceGeneration.isCurrent(myGeneration)) return;
                         if (error instanceof RecipeWorkerResetError) { snapshot(); return; }
-                        dispose(); snapshot(); announce(error instanceof Error ? error.message : String(error));
+                        dispose(); snapshot(); announce(failedWith(strings.browserRemoveFailed, error));
                         return;
                     }
                 }
@@ -910,7 +912,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         loading = false; pick.disabled = false; pick.value = '';
         if (!sources.size) dispose();
         snapshot();
-        announce(failures.size ? [...failures].map(([message, { first, count }]) => `${first}${count > 1 ? ` (+${count - 1})` : ''}: ${message}`).join(' | ') : `${files.at(-1)!.file.name}: ${strings.browserReady.replace('{count}', String(sources.size))}`);
+        announce(failures.size ? [...failures].map(([message, { first, count }]) => strings.browserFileFailed.replace('{file}', `${first}${count > 1 ? ` (+${count - 1})` : ''}`).replace('{error}', message)).join(' | ') : `${files.at(-1)!.file.name}: ${strings.browserReady.replace('{count}', String(sources.size))}`);
     }
     /** Adds individually opened files to the list beside what is already listed and loads them as checked tracks. */
     function openFiles(files: File[]): void {
@@ -974,7 +976,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
                         openFolderFiles(entry.name, found.sort(byPath));
                     }
                     if (files.length) openFiles(files);
-                } catch (error) { announce(error instanceof Error ? error.message : String(error)); }
+                } catch (error) { announce(failedWith(strings.browserFolderReadFailed, error)); }
             })();
         });
     }
@@ -1023,7 +1025,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
                 if (myList !== listGeneration) return;
                 openFolderFiles(root.name, files.sort(byPath));
             } catch (error) {
-                if ((error as { name?: unknown } | null)?.name !== 'AbortError') announce(error instanceof Error ? error.message : String(error));
+                if ((error as { name?: unknown } | null)?.name !== 'AbortError') announce(failedWith(strings.browserFolderReadFailed, error));
             }
         })();
     }

@@ -187,9 +187,7 @@ export function drawWaveformAmplitudeAxis(ctx: CanvasDrawCtx, W: number, H: numb
     const labelW = Math.max(30, Math.min(W, 64));
     ctx.save();
     ctx.fillStyle = bgColor;
-    ctx.globalAlpha = 0.7;
     ctx.fillRect(0, 0, labelW, H);
-    ctx.globalAlpha = 1;
     ctx.fillStyle = mutedColor;
     ctx.font = '9px monospace';
     ctx.textAlign = 'right';
@@ -217,9 +215,7 @@ export function drawSpectrogramFrequencyAxis(ctx: CanvasDrawCtx, W: number, H: n
     const minHz = o.minFreq != null && o.minFreq > 0 ? o.minFreq : 0;
     ctx.save();
     ctx.fillStyle = bgColor;
-    ctx.globalAlpha = 0.7;
     ctx.fillRect(0, 0, W, H);
-    ctx.globalAlpha = 1;
     ctx.fillStyle = mutedColor;
     ctx.font = '9px monospace';
     ctx.textAlign = 'right';
@@ -249,9 +245,7 @@ export function drawSpectrogramColorbar(ctx: CanvasDrawCtx, W: number, H: number
     const dbHi = (o.dbHi != null) ? o.dbHi : spec.maxDb;
     ctx.save();
     ctx.fillStyle = bgColor;
-    ctx.globalAlpha = 0.7;
     ctx.fillRect(W - SPECTROGRAM_COLORBAR_WIDTH, 0, SPECTROGRAM_COLORBAR_WIDTH, H);
-    ctx.globalAlpha = 1;
     const cbW = 10;
     const cbX = W - SPECTROGRAM_COLORBAR_WIDTH + 6;
     const cbY = 2;
@@ -455,9 +449,10 @@ export function drawSpectrumAxes(ctx: CanvasDrawCtx, W: number, H: number, slice
     ctx.textBaseline = 'bottom';
     // 9px monospace: about 5.5px per character. The edge labels always show; an inner tick is skipped when it would touch a label.
     const ticks = frequencyAxisTicks({ frequencyMin: _visFreqMin, frequencyMax: _visFreqMax, logFrequency });
+    // An edge label is moved inward rather than cut by the canvas edge ("4.0 kHz" at the right end stays whole).
     const span = (tick: FrequencyAxisTick) => {
-        const x = padL + tick.fraction * plotW;
-        const halfWidth = tick.text.length * 2.75;
+        const halfWidth = ctx.measureText(tick.text).width / 2 || tick.text.length * 2.75;
+        const x = Math.min(Math.max(padL + tick.fraction * plotW, halfWidth + 1), W - halfWidth - 1);
         return { x, left: x - halfWidth, right: x + halfWidth };
     };
     const lastLeft = span(ticks[ticks.length - 1]).left;

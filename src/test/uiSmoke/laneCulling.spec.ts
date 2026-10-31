@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { buildUiSmokeHtml, buildUiSmokeManyTracksHtml } from './buildHtml';
+import { getStrings } from '../../shared/i18n/strings';
 
 /** The track indexes whose spectrogram the webview has asked the host for. */
 function detailRequests(page: Page): Promise<number[]> {
@@ -55,6 +56,11 @@ test('the PNG export draws every lane: it asks for the spectrograms of lanes out
     await expect.poll(async () => (await detailRequests(page)).length).toBeGreaterThan(0);
     expect(await detailRequests(page)).not.toContain(39);
     await page.evaluate(() => document.querySelector<HTMLElement>('#toolbar [data-action="export-png"]')?.click());
+    // While it waits the footer says so, visibly (not only to a screen reader).
+    const status = page.locator('#task-status');
+    await expect(status).toBeVisible();
+    await expect(status).toHaveText(getStrings('en').exportPngBusy);
+    await expect(status).toHaveAttribute('data-state', 'busy');
     await expect.poll(async () => (await detailRequests(page)).includes(39)).toBe(true);
     const downloads = () => page.evaluate(() => (window as unknown as { __uiSmokeDownloads: Array<{ download: string }> }).__uiSmokeDownloads.map((d) => d.download));
     await nextFrames(page);
@@ -64,6 +70,10 @@ test('the PNG export draws every lane: it asks for the spectrograms of lanes out
         await answerWithErrors(page);
         return downloads();
     }, { intervals: [50], timeout: 20000 }).toContain('waveform-export.png');
+    await expect(status).toHaveText(getStrings('en').exportPngDone.replace('{name}', 'waveform-export.png'));
+    await expect(status).toHaveAttribute('data-state', 'done');
+    // The footer is aria-hidden: a screen reader hears the finished export through the page's live region.
+    await expect(page.locator('#a11y-announce')).toHaveText(getStrings('en').exportPngDone.replace('{name}', 'waveform-export.png'));
 });
 
 test('a lane resized while out of view paints its spectrogram again when scrolled back', async ({ page }) => {

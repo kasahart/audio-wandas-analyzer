@@ -789,3 +789,52 @@ test('typing in ＋\'s filter with an IME redraws only the list: the composition
     await expect(bar.locator('[data-step-menu]')).toHaveCount(0);
     await expect(bar.locator('.step-chip')).toHaveCount(chips + 1);
 });
+
+test('widened, the name takes the free width and keeps its end in sight; in a narrow window the distribution goes below the table', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await openEntry(page, scanned!, 'en');
+    const first = rows(page).first();
+    const nameCell = first.locator('td.entry-name');
+    const tableWidth = (await page.locator('[data-entry-table]').boundingBox())!.width;
+    // The name column has most of the table, not a fixed 21em with empty space beside the value.
+    expect((await nameCell.boundingBox())!.width).toBeGreaterThan(tableWidth * 0.5);
+    // Its tooltip is the full path, and a screen reader hears the name whole.
+    const filePath = (await first.getAttribute('data-file-path'))!;
+    await expect(first.locator('td.entry-name')).toHaveAccessibleName(new RegExp(`^${base(filePath).replace('.', '\\.')}`));
+    await expect(first.locator('.entry-nm')).toHaveAttribute('title', new RegExp(`^${filePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+    // Squeezed, the head gives way and the tail stays whole.
+    await page.setViewportSize({ width: 800, height: 800 });
+    await page.locator('[data-entry-table]').evaluate(table => { (table as HTMLElement).style.width = '360px'; });
+    const tail = first.locator('.entry-nm-tail');
+    if (await tail.count()) {
+        const fits = await tail.evaluate(element => element.scrollWidth <= element.clientWidth + 1);
+        expect(fits).toBe(true);
+        expect(base(filePath).endsWith((await tail.textContent())!)).toBe(true);
+    }
+    await page.locator('[data-entry-table]').evaluate(table => { (table as HTMLElement).style.width = ''; });
+    // At 800 px the value column is in sight, not behind the distribution, which sits under the table.
+    const value = (await first.locator('.entry-col-value').boundingBox())!;
+    const side = (await page.locator('.entry-side').boundingBox())!;
+    expect(value.x + value.width).toBeLessThanOrEqual(800);
+    expect(side.y).toBeGreaterThanOrEqual(value.y + value.height);
+});
+
+test('Open Compare looks unavailable while slots 1–3 are empty and says why; a filled slot enables it', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    const STR = getStrings('en');
+    await openEntry(page, scanned!, 'en');
+    const open = page.locator('[data-action="entry-open"]');
+    const why = STR.compareRefuseSlot.replace('{n}', '1');
+    await expect(open).toHaveAttribute('aria-disabled', 'true');
+    await expect(open).toHaveCSS('cursor', 'not-allowed');
+    await expect(open).toHaveAttribute('data-hint', why);
+    // It still answers a press (Playwright waits for an aria-disabled button unless forced; a user does not).
+    await open.click({ force: true });
+    await expect(page.locator('#hint-footer')).toHaveText(why);
+    await expect(page.locator('#entry-screen')).toHaveClass(/is-max/);
+    await rows(page).first().click();
+    await page.keyboard.press('1');
+    await expect(open).toHaveAttribute('aria-disabled', 'false');
+    await expect(open).not.toHaveCSS('cursor', 'not-allowed');
+});

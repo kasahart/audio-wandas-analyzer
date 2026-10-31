@@ -13,6 +13,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "ruff>=0.6",
+    "pyright>=1.1.414",
     "pytest>=8.0",
     "jsonschema>=4.18",
     # A recipe bundle's run_recipe.py saves its outputs as WDF (wandas[io]); its end-to-end test needs it.
@@ -44,3 +45,11 @@ markers = [
     "slow: runs every wandas operation (minutes); skipped unless AWA_SLOW=1, which CI sets",
     "perf: wall-clock budget on the developer's PC; skipped unless AWA_PERF=1, the timing is reported either way",
 ]
+
+[tool.pyright]
+# The backend modules import each other as top-level scripts, as backend_server.py and Pyodide load them.
+include = ["python-backend"]
+exclude = ["python-backend/test_*.py", "python-backend/conftest.py", "**/__pycache__"]
+extraPaths = ["python-backend"]
+pythonVersion = "3.11"
+typeCheckingMode = "basic"

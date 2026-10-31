@@ -2,7 +2,7 @@ import { escapeHtml, serializeForScript } from '../../shared/utils/webviewEscapi
 import { getStrings, pickLocale } from '../../shared/i18n/strings';
 import type { ComparisonState } from '../runtime/types';
 import { createNonce } from './nonce';
-import { DIFF_COLOR, FLAG_COLOR, ROLE_COLORS } from '../../shared/gui/roleColors';
+import { DIFF_COLOR, FLAG_COLOR, LIGHT_DIFF_COLOR, LIGHT_ROLE_COLORS, LIGHT_THEME_BODY_SELECTORS, ROLE_COLORS } from '../../shared/gui/roleColors';
 import { SPECTROGRAM_COLORBAR_WIDTH } from '../draw/canvasDrawers';
 
 export interface ComparisonAssets {
@@ -32,6 +32,7 @@ export function renderComparisonDocument(state: ComparisonState, assets: Compari
     <div id="app"></div>
     <footer id="app-footer">
         <div id="hint-footer" aria-hidden="true"></div>
+        <span id="task-status" aria-hidden="true" hidden></span>
         <span id="app-version">v${escapeHtml(assets.appVersion)}</span>
     </footer>
     <script nonce="${nonce}">
@@ -87,6 +88,10 @@ export function renderComparisonStyles(): string {
             --muted: #6e7681;
             --track-bg: #f5f5f5;
             --track-header-bg: #ebebeb;
+        }
+        /* The light role colours wherever the canvases take them (High Contrast Light too), so one role keeps one colour. */
+        ${LIGHT_THEME_BODY_SELECTORS.map(function (selector) { return 'body' + selector; }).join(', ')} {
+            --entry-base: ${LIGHT_ROLE_COLORS[0]}; --entry-compare: ${LIGHT_ROLE_COLORS[1]}; --entry-slot-2: ${LIGHT_ROLE_COLORS[2]}; --entry-slot-3: ${LIGHT_ROLE_COLORS[3]}; --entry-delta: ${LIGHT_DIFF_COLOR};
         }
         body.vscode-high-contrast,
         body.vscode-high-contrast-light {
@@ -144,7 +149,7 @@ export function renderComparisonStyles(): string {
             border-color: transparent;
         }
         .tb-btn.is-active { background: var(--accent); color: #fff; border-color: var(--accent); }
-        .tb-btn:disabled { opacity: 0.4; cursor: default; }
+        .tb-btn:disabled { opacity: 0.4; cursor: not-allowed; }
         .tb-sep { width: 1px; height: 16px; background: var(--line); margin: 0 2px; }
         .tb-menu { position: relative; display: inline-flex; }
         .tb-menu > summary { list-style: none; }
@@ -220,6 +225,14 @@ export function renderComparisonStyles(): string {
         .entry-key { color: var(--muted); font-variant-numeric: tabular-nums; }
         .entry-body { flex: 1; display: flex; min-height: 0; }
         .entry-table-wrap { flex: 1; overflow: auto; min-width: 0; }
+        /* In a narrow window the distribution goes below the table, so the table keeps its value column in sight. */
+        @media (max-width: 960px) {
+            .entry-screen.is-max .entry-body { flex-direction: column; }
+            .entry-screen.is-max .entry-table-wrap { flex: 1 1 0; min-height: 120px; }
+            .entry-screen.is-max .entry-side { width: auto; height: 300px; border-left: 0; border-top: 1px solid var(--line); flex-direction: row; }
+            .entry-screen.is-max .entry-side > * { flex: 1 1 0; min-width: 0; }
+            .entry-screen.is-max .entry-side .entry-overview { height: auto; align-self: stretch; }
+        }
         .entry-side { width: 420px; flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; padding: 8px; border-left: 1px solid var(--line); background: var(--panel); }
         /* The distribution: neutral bars (lighter where a picked range takes them), the slots as ticks in their role colours. */
         .entry-dist-area { position: relative; flex: 1; display: flex; flex-direction: column; min-height: 160px; }
@@ -276,14 +289,17 @@ export function renderComparisonStyles(): string {
         .entry-badge.entry-slot-3 { border-color: var(--entry-slot-3); color: var(--entry-slot-3); }
         /* The dataset table: four fixed columns (nothing scrolls sideways); a row's tools right after its name. */
         .entry-table { table-layout: fixed; }
-        .entry-table col.entry-col-name-w { width: 21em; }
+        /* Widened, the name takes the width the other columns leave (the filler at the right end then takes none). */
+        .entry-screen.is-max .entry-table col.entry-col-name-w { width: auto; }
+        .entry-screen.is-max .entry-table col.entry-col-fill-w { width: 0; }
+        .entry-screen.is-max .entry-row > td:last-child:empty { padding: 0; }
         .entry-table col.entry-col-ch-w { width: 3.8em; }
         .entry-table col.entry-col-group-w { width: 8em; }
-        .entry-table col.entry-col-value-w { width: 9em; }
+        .entry-table col.entry-col-value-w { width: 9.5em; }
         .entry-table col.entry-col-reason-w { width: 7em; }
         /* In the side panel the name takes what the channel, group and value leave. */
         .entry-screen:not(.is-max) .entry-table col.entry-col-name-w { width: 50%; }
-        .entry-screen:not(.is-max) .entry-table col.entry-col-value-w { width: 7em; }
+        .entry-screen:not(.is-max) .entry-table col.entry-col-value-w { width: 8em; }
         .entry-screen:not(.is-max) .entry-table col.entry-col-group-w { width: 6em; }
         .entry-table tr { height: 24px; }
         .entry-table td { padding: 0 8px; overflow: hidden; text-overflow: ellipsis; }
@@ -301,6 +317,11 @@ export function renderComparisonStyles(): string {
         .entry-screen .entry-fbtn:disabled { opacity: 0.4; cursor: default; }
         .entry-ncell { display: flex; align-items: center; gap: 6px; min-width: 0; }
         .entry-nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+        /* The name gives way in its middle: the head takes the ellipsis, the end (…run009.wav) stays in sight. */
+        .entry-nm.is-split { display: inline-flex; }
+        .entry-nm-head { overflow: hidden; text-overflow: ellipsis; min-width: 1.5em; }
+        .entry-nm-tail { flex: none; }
+        .entry-nm-full { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
         .entry-rowtools { display: inline-flex; gap: 1px; flex: none; }
         .entry-screen .entry-rbtn { min-width: 20px; height: 20px; padding: 0 3px; border-color: transparent; font-family: var(--font-mono); font-size: 11px; line-height: 1; }
         .entry-screen .entry-rbtn:hover { border-color: var(--line); }
@@ -422,7 +443,7 @@ export function renderComparisonStyles(): string {
            Anything one can press is 28 px high with 12 px text; information that cannot be pressed is a
            20 px tag without a border. Colour keeps to roles; focus is a white ring. Greys derive from the
            theme's text and surface, so the light and high-contrast themes follow. */
-        .entry-screen, .track-stage-bar {
+        .entry-screen, .track-stage-bar, .spec-pop {
             --chip-bg: color-mix(in srgb, var(--text) 6%, var(--surface));
             --chip-line: color-mix(in srgb, var(--text) 18%, var(--surface));
             --chip-hover-bg: color-mix(in srgb, var(--text) 10%, var(--surface));
@@ -431,15 +452,36 @@ export function renderComparisonStyles(): string {
             --dim-line: color-mix(in srgb, var(--text) 10%, var(--surface));
             --ring: 0 0 0 2px var(--surface), 0 0 0 4px var(--text);
         }
+        /* The spectrogram / spectrum ⚙: the same chips, 12 px text, a row per setting (label left, control right). */
+        .spec-pop { position: absolute; z-index: 50; width: 280px; display: grid; gap: 8px; padding: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 4px 16px rgba(0,0,0,0.35); color: var(--text); font: 12px var(--font-ui); }
+        .spec-pop[hidden] { display: none; }
+        .spec-pop-check { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+        .spec-pop-check input { accent-color: var(--text); margin: 0; }
+        .spec-pop-group { border: 0; border-top: 1px solid var(--line); padding: 6px 0 0; display: grid; gap: 6px; min-width: 0; }
+        .spec-pop-group:disabled .spec-pop-row { color: var(--dim); }
+        .spec-pop-group legend { padding: 0 6px 0 0; color: var(--muted); font-size: 11px; }
+        .spec-pop-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+        .spec-pop-pair { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); }
+        .spec-pop-pair .spec-pop-field { width: 64px; }
+        .spec-pop-field { min-height: 28px; width: 120px; box-sizing: border-box; padding: 0 8px; border: 1px solid var(--chip-line); border-radius: 6px; background: var(--chip-bg); color: var(--text); font: 12px var(--font-mono); }
+        .spec-pop-field:hover:not(:disabled) { border-color: var(--chip-hover-line); }
+        .spec-pop-field:focus-visible { outline: none; box-shadow: var(--ring); }
+        .spec-pop-field:disabled { color: var(--dim); border-color: var(--dim-line); cursor: not-allowed; }
+        .spec-pop-field::placeholder { color: var(--dim); }
+        .spec-pop-note { color: var(--muted); font-size: 11px; }
+        .spec-pop-bar { display: flex; gap: 6px; justify-content: flex-end; }
+        .spec-pop-bar .tb-btn { min-height: 28px; padding: 0 10px; border-radius: 6px; font-size: 12px; }
+        .spec-pop-bar .spec-pop-apply { background: var(--text); border-color: var(--text); color: var(--surface); font-weight: 600; }
         .entry-screen button, .entry-screen select, .track-stage-bar button {
             min-height: 28px; box-sizing: border-box; font-size: 12px; border-color: var(--chip-line); border-radius: 6px; padding: 0 10px;
         }
         .entry-screen button:hover:not(:disabled), .track-stage-bar button:hover:not(:disabled) { background: var(--chip-hover-bg); border-color: var(--chip-hover-line); }
         .entry-screen button:focus-visible, .entry-screen select:focus-visible, .track-stage-bar button:focus-visible, .track-stage-bar input:focus-visible { outline: none; box-shadow: var(--ring); }
-        .entry-screen button:disabled, .track-stage-bar button:disabled { color: var(--dim); border-color: var(--dim-line); cursor: default; }
+        .entry-screen button:disabled, .track-stage-bar button:disabled { color: var(--dim); border-color: var(--dim-line); cursor: not-allowed; }
         /* The next step of a screen is white, not blue: blue is the base's colour. */
         .entry-screen .entry-primary { background: var(--text); border-color: var(--text); color: var(--surface); font-weight: 600; }
-        .entry-screen .entry-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--text) 70%, #ffffff); border-color: transparent; }
+        .entry-screen .entry-primary:hover:not(:disabled):not([aria-disabled="true"]) { background: color-mix(in srgb, var(--text) 70%, #ffffff); border-color: transparent; }
+        .entry-screen .entry-primary[aria-disabled="true"] { background: var(--chip-hover-bg); border-color: transparent; color: var(--dim); cursor: not-allowed; }
         .entry-screen .entry-primary:disabled { background: var(--chip-hover-bg); border-color: transparent; color: var(--dim); opacity: 1; }
         .entry-screen .entry-primary kbd { opacity: 0.7; }
         /* The filters are one segmented control; on is the white inverse. */
@@ -594,6 +636,11 @@ export function renderComparisonStyles(): string {
             flex: 1; align-self: stretch; min-width: 0; line-height: 21px; padding: 0 10px;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
+        #task-status { flex: none; padding: 0 10px; white-space: nowrap; color: var(--text); }
+        #task-status[hidden] { display: none; }
+        #task-status[data-state="busy"]::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 6px; border: 1.5px solid var(--muted); border-top-color: transparent; border-radius: 50%; vertical-align: -1px; animation: awa-spin 0.8s linear infinite; }
+        #task-status[data-state="failed"] { color: var(--entry-flag); }
+        @keyframes awa-spin { to { transform: rotate(360deg); } }
         #app-version { flex: none; padding: 0 10px; font-family: var(--font-mono); white-space: nowrap; }
         /* On the entry table and the comparison the footer is where symbols explain themselves, so it reads as text, not as a status line. */
         body:has(#entry-screen:not([hidden])) #hint-footer { color: var(--text); font-size: 12px; }
@@ -627,6 +674,7 @@ export function renderComparisonStyles(): string {
             border: 1px solid var(--line); background: var(--surface);
             color: var(--muted); cursor: pointer;
         }
+        .track-btn:disabled { opacity: 0.4; cursor: not-allowed; }
         .track-btn.is-playing { background: var(--accent); color: #fff; border-color: var(--accent); }
         .track-offset { display: none; align-items: center; gap: 2px; margin-top: 3px; }
         .track-row.is-shifted .track-offset { display: flex; }

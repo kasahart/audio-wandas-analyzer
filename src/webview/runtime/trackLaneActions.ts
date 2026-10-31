@@ -42,9 +42,9 @@ export function attachTrackLaneActions(wrapper: HTMLElement, resolver: TrackLane
         const ctx = laneContext(e, resolver);
         if (ctx && Object.hasOwn(handlers, ctx.action)) {
             handlers[ctx.action as TrackLaneAction](ctx);
-            // An item used closes the track's … menu.
+            // An item used closes the track's … menu; the ±10 ms nudges keep it open for the next nudge.
             const menu = ctx.target.closest ? ctx.target.closest('details.track-more') as HTMLDetailsElement | null : null;
-            if (menu) menu.open = false;
+            if (menu && ctx.action !== 'offset-up' && ctx.action !== 'offset-down') menu.open = false;
         }
     });
     // A press anywhere else closes an open … menu, as the toolbar's menus do.

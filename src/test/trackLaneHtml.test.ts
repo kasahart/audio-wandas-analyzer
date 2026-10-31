@@ -62,6 +62,7 @@ const rowStrings = {
     ariaResizeTrackHeight: 'Track height',
     hintRemoveTrack: 'Remove this track', hintOffsetUp: '+10 ms', hintOffsetDown: '-10 ms', hintTrackHeightResizer: 'Drag height',
     trackMoreHint: 'Time offset', offsetStepUp: '+10 ms', offsetStepDown: '−10 ms', offsetEdit: 'Type…', offsetReset: 'Reset to 0',
+    trackNoAudio: 'No audio',
     peakLabel: 'Pk', calibrationBadgeUncalibratedHint: 'Full scale', calibrationBadgePartialHint: 'Partial', calibrationFactorLabel: 'k',
 } satisfies TrackRowStrings;
 
@@ -97,6 +98,8 @@ test('track row disables transport buttons without audio and shows the muted sta
     const html = trackRowHtml({ ...baseRow, playable: false, muted: true }, rowStrings);
     assert.equal(html.match(/ disabled>/g)?.length, 3);
     assert.ok(html.includes('aria-pressed="true" disabled>🔇</button>'));
+    // A disabled button says why in its hint.
+    assert.equal(html.match(/data-hint="No audio"/g)?.length, 3);
 });
 
 test('mono track row appends the channel summary to the meta line', () => {

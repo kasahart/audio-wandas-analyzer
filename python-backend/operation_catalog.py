@@ -127,10 +127,10 @@ def catalog() -> list[CatalogOperation]:
             method = member.fget if isinstance(member, property) else member
             parameters = [
                 parameter
-                for parameter in described[(definition.operation_id, definition.version)].parameters
+                for parameter in described[(definition.operation_id, definition.version)].parameters or ()
                 if parameter.kind != "VAR_KEYWORD"
             ]
-            if any(parameter.required and "Callable" in parameter.annotation for parameter in parameters):
+            if any(parameter.required and "Callable" in (parameter.annotation or "") for parameter in parameters):
                 continue
             entry: CatalogOperation = {
                 "id": definition.operation_id,

@@ -1,11 +1,22 @@
 from __future__ import annotations
 
+from typing import TypedDict
+
 import numpy as np
 
 from backend_errors import InputError
 from protocol_schema import MAX_WAVEFORM_POINTS
 
 _DECIMATION_BLOCK_SAMPLES = 65536
+
+
+class WaveformEnvelope(TypedDict):
+    min: list[float]
+    max: list[float]
+    minT: list[float]
+    maxT: list[float]
+    samples: list[float]
+    absolutePeak: float
 
 
 def _absolute_peak(samples: np.ndarray) -> float:
@@ -18,7 +29,7 @@ def decimated_waveform(
     point_limit: int,
     start_sample: int,
     total_samples: int,
-) -> dict[str, object]:
+) -> WaveformEnvelope:
     """バケット毎に argmin/argmax の値と正規化時刻を返す。
 
     minT/maxT は total_samples 全体における正規化位置 (0–1)。

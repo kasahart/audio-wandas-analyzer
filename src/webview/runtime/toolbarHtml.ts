@@ -43,7 +43,8 @@ export function toolbarHtml(spec: ToolbarSpec, strings: UiStrings): string {
         + '<div class="tb-sep"></div>'
         + toolbarMenu(strings.toolbarExportLabel, strings.hintMenuExport, exportMenu, '', 'tb-export-menu')
         + '<div class="tb-sep tb-track-only"></div>'
-        + '<span id="cursor-display" class="tb-track-only"' + hintAttr(strings.cursorDisplayHint) + '>—</span>'
+        + '<span class="tb-label tb-track-only" aria-hidden="true">' + escapeHtml(strings.toolbarCursorLabel) + '</span>'
+        + '<span id="cursor-display" class="tb-track-only" aria-label="' + escapeHtml(strings.toolbarCursorLabel) + '"' + hintAttr(strings.cursorDisplayHint) + '>—</span>'
         + '<span id="playback-display"' + hintAttr(strings.playbackDisplayTitle) + '></span>'
         + '<span id="loop-badge" style="display:none; color:#64a0ff; font-size:0.85em; margin-left:8px;">' + escapeHtml(strings.loopBadge) + '</span>'
         + '<span id="loop-time-display"' + hintAttr(strings.loopTimeDisplayTitle) + ' style="display:none;"></span>';

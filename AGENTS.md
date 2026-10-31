@@ -43,7 +43,7 @@ The repository ships with a working devcontainer. Use it whenever possible.
 ```bash
 npm install
 python -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"      # installs ruff + pytest + runtime deps via pyproject.toml
+pip install -e ".[dev]"      # installs ruff + pyright + pytest + runtime deps via pyproject.toml
 ```
 
 Node 22 (`.nvmrc`, `engines.node`) and Python 3.11 are the supported versions (matches `.devcontainer/Dockerfile` and CI). CI installs Python packages with the pins in `python-backend/constraints.txt` (`pip install -c python-backend/constraints.txt -e ".[dev]"`).
@@ -52,7 +52,7 @@ Node 22 (`.nvmrc`, `engines.node`) and Python 3.11 are the supported versions (m
 
 ## 3. Canonical commands — the completion bar
 
-**An agent's work is "done" only when `npm run verify` exits 0.** This is the single source of truth for correctness. `scripts/verify.mjs` (plain Node, runs on Windows/macOS/Linux) lists every step: compile, Webview pattern lint, generated protocol types, single-source check, skills-copy check, GUI triggerability audit, node:test, ruff, pytest.
+**An agent's work is "done" only when `npm run verify` exits 0.** This is the single source of truth for correctness. `scripts/verify.mjs` (plain Node, runs on Windows/macOS/Linux) lists every step: compile, Webview pattern lint, generated protocol types, single-source check, skills-copy check, GUI triggerability audit, node:test, ruff, pyright, pytest.
 
 pytest opt-ins: `AWA_SLOW=1` runs the slow operation-catalog probe (CI sets it on Linux); `AWA_PERF=1` holds wall-clock budgets, which are otherwise only reported (the same variable enables the `scale100k` Playwright spec).
 
@@ -144,6 +144,7 @@ trackDurRatio  = durationSeconds / globalSpanSec
 ### Python
 
 - Lint/format: **Ruff** (config in `pyproject.toml`). Run `ruff format` before committing.
+- Types: **pyright** basic mode over the non-test modules (`[tool.pyright]` in `pyproject.toml`). Silence a finding only where wandas' own annotations are wrong, with a narrow `# pyright: ignore[rule]` and the reason.
 - Prefer wandas APIs over reimplementing DSP. See `python-backend/analyzer.py` for the canonical entry point.
 - Tests use `pytest` and live alongside the module they test (`python-backend/test_*.py`).
 
