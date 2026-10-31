@@ -63,23 +63,25 @@ for (const [, name, expression] of browserService.matchAll(/^([A-Z_]+) = ([\d *A
 }
 const mib = bytes => bytes / constants.MIB;
 const khz = hz => hz / 1000;
+// Decoded audio is cached as float32 (analysis_engine.AUDIO_CACHE_DTYPE); the budget reads as minutes of 48 kHz stereo.
+const stereoMinutes = Math.floor(constants.MAX_TOTAL_DECODED_BYTES / (48000 * 2 * 4) / 60);
 const limitRows = {
     'README.md': [
         '| Limit | Browser version |',
         '| --- | --- |',
         '| Formats | WAV, FLAC, OGG, OGA, Opus, MP3, AIFF, AU, SND, CAF, W64, RF64, CSV |',
-        `| Per file | Up to ${mib(constants.MAX_INPUT_BYTES)} MiB and ${constants.MAX_DURATION_SECONDS} seconds; mono or stereo |`,
+        `| Per file | Up to ${mib(constants.MAX_INPUT_BYTES)} MiB; mono or stereo |`,
         `| Sample rate | ${khz(constants.MIN_SAMPLE_RATE_HZ)}–${khz(constants.MAX_SAMPLE_RATE_HZ)} kHz |`,
-        `| Comparison | Up to ${constants.MAX_SOURCES} tracks and ${mib(constants.MAX_TOTAL_INPUT_BYTES)} MiB of input files in total |`,
+        `| Comparison | Up to ${constants.MAX_SOURCES} tracks, ${mib(constants.MAX_TOTAL_INPUT_BYTES)} MiB of input files and about ${stereoMinutes} minutes of 48 kHz stereo audio in total |`,
         `| WAV export | Uncalibrated PCM16 audio; up to ${mib(constants.MAX_EXPORT_BYTES)} MiB in total |`,
     ],
     'README.ja.md': [
         '| 制限 | ブラウザー版 |',
         '| --- | --- |',
         '| 形式 | WAV、FLAC、OGG、OGA、Opus、MP3、AIFF、AU、SND、CAF、W64、RF64、CSV |',
-        `| 1 ファイル | ${mib(constants.MAX_INPUT_BYTES)} MiB・${constants.MAX_DURATION_SECONDS} 秒まで、モノラルまたはステレオ |`,
+        `| 1 ファイル | ${mib(constants.MAX_INPUT_BYTES)} MiB まで、モノラルまたはステレオ |`,
         `| サンプリング周波数 | ${khz(constants.MIN_SAMPLE_RATE_HZ)}–${khz(constants.MAX_SAMPLE_RATE_HZ)} kHz |`,
-        `| 比較 | 最大 ${constants.MAX_SOURCES} トラック、入力ファイルの合計 ${mib(constants.MAX_TOTAL_INPUT_BYTES)} MiB まで |`,
+        `| 比較 | 最大 ${constants.MAX_SOURCES} トラック、入力ファイルの合計 ${mib(constants.MAX_TOTAL_INPUT_BYTES)} MiB・48 kHz ステレオで合計約 ${stereoMinutes} 分まで |`,
         `| WAV 出力 | 校正を適用しない PCM16 音声、合計 ${mib(constants.MAX_EXPORT_BYTES)} MiB まで |`,
     ],
 };
@@ -88,12 +90,12 @@ if (constants.MAX_CHANNELS !== 2) problems.push('browser_service.py: README word
 const strings = read('src/shared/i18n/strings.ts');
 const aboutLimits = {
     browserAboutFileLimits: {
-        en: `Each file: up to ${mib(constants.MAX_INPUT_BYTES)} MiB, ${constants.MAX_DURATION_SECONDS} s and ${constants.MAX_CHANNELS} ch.`,
-        ja: `1ファイル: ${mib(constants.MAX_INPUT_BYTES)} MiB・${constants.MAX_DURATION_SECONDS}秒・${constants.MAX_CHANNELS}chまで`,
+        en: `Each file: up to ${mib(constants.MAX_INPUT_BYTES)} MiB and ${constants.MAX_CHANNELS} ch.`,
+        ja: `1ファイル: ${mib(constants.MAX_INPUT_BYTES)} MiB・${constants.MAX_CHANNELS}chまで`,
     },
     browserAboutSessionLimits: {
-        en: `Comparison: up to ${constants.MAX_SOURCES} tracks and ${mib(constants.MAX_TOTAL_INPUT_BYTES)} MiB of input in total.`,
-        ja: `比較: 最大${constants.MAX_SOURCES}トラック・入力合計${mib(constants.MAX_TOTAL_INPUT_BYTES)} MiBまで`,
+        en: `Comparison: up to ${constants.MAX_SOURCES} tracks, ${mib(constants.MAX_TOTAL_INPUT_BYTES)} MiB of input and about ${stereoMinutes} min of 48 kHz stereo in total.`,
+        ja: `比較: 最大${constants.MAX_SOURCES}トラック・入力合計${mib(constants.MAX_TOTAL_INPUT_BYTES)} MiB・48 kHzステレオで合計約${stereoMinutes}分まで`,
     },
 };
 for (const [key, fragments] of Object.entries(aboutLimits)) {

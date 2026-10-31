@@ -55,7 +55,6 @@ _MAX_SAFE_INTEGER = 2**53 - 1  # Number.MAX_SAFE_INTEGER: larger integers change
 
 _BROWSER_LIMIT_KEYS = (
     "maxInputBytes",
-    "maxDurationSeconds",
     "maxChannels",
     "minSampleRateHz",
     "maxSampleRateHz",
