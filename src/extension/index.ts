@@ -81,7 +81,10 @@ export function activate(context: vscode.ExtensionContext): void {
 
     const runPythonPreparation = async (pythonCommand: string): Promise<boolean> => {
         const dependenciesReady = await checkAndPromptInstallDependencies(pythonCommand, pythonStatusBarItem);
-        if (deactivated || getPythonCommand() !== pythonCommand) { return dependenciesReady; }
+        if (deactivated) { return dependenciesReady; }
+        // The prompt switched interpreters (Create .venv and Install, Select Environment): what a waiting
+        // analysis needs is the new interpreter's preparation, not this one's answer.
+        if (getPythonCommand() !== pythonCommand) { return preparePython(false); }
         if (!dependenciesReady) {
             preparation = 'failed';
             return false;
