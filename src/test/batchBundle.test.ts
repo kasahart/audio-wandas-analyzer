@@ -11,7 +11,9 @@ const repoRoot = path.resolve(__dirname, '..', '..');
 const recipe = JSON.parse(readFileSync(path.join(repoRoot, 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8')) as RecipeDocument;
 
 test('the bundle\'s run_recipe.py is python-backend/batch/run_recipe.py (node scripts/generate-run-recipe-script.mjs copies it)', () => {
-    assert.equal(RUN_RECIPE_PY, readFileSync(path.join(repoRoot, 'python-backend', 'batch', 'run_recipe.py'), 'utf8'));
+    // The copy is LF; a Windows checkout (core.autocrlf) may give the source CRLF line endings.
+    const source = readFileSync(path.join(repoRoot, 'python-backend', 'batch', 'run_recipe.py'), 'utf8');
+    assert.equal(RUN_RECIPE_PY, source.replace(/\r\n/gu, '\n'));
 });
 
 test('a recording whose channels are all targets runs whole; one with only some runs per channel, with that channel\'s Recipe', () => {
