@@ -49,6 +49,15 @@ export interface DatasetScreenView {
 /** A difference fixed on the comparison (D), as its row under its parent shows it. */
 export interface DerivedItem { key: string; label: string; value: string; stale: boolean; title: string; parentPath: string; region: string; baseLabel: string }
 
+/**
+ * The lines drawn for a scroll position: those on screen and a margin around them (10 above, 20 below), the
+ * rest left to spacers, so 100,000 rows scroll as 40 do. A height not known yet counts as 600 px.
+ */
+export function rowWindow(scrollTop: number, clientHeight: number, lines: number, rowHeight: number): { first: number; last: number } {
+    const first = Math.max(0, Math.floor(scrollTop / rowHeight) - 10);
+    return { first, last: Math.min(lines, first + Math.ceil((clientHeight || 600) / rowHeight) + 20) };
+}
+
 /** The table's lines: each row, then the differences fixed on it. */
 /** Each view's lines, made once: scrolling 100,000 rows asks for them on every frame. */
 const linesOf = new WeakMap<object, Array<DatasetRow | DerivedItem>>();

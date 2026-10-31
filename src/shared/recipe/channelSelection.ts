@@ -5,7 +5,7 @@
  */
 import type { RecipeDocument } from './recipeSelection';
 import type { ScanResult } from '../protocol/backendProtocol';
-import { CROSS_CHANNEL, PAIRED_ON_ADD, TIME_SLICE } from './recipeSteps';
+import { CROSS_CHANNEL, PAIRED_ON_ADD, recipeNodes, TIME_SLICE } from './recipeSteps';
 
 export const GET_CHANNEL = 'wandas.frame.get_channel';
 export const CHANNEL_NODE = 'node-channel';
@@ -32,7 +32,7 @@ export function withChannel(recipe: RecipeDocument, ch: number, paired = false):
 
 /** The channel a Recipe selects at its head (from 1), or null. */
 export function channelOfRecipe(recipe: RecipeDocument): number | null {
-    const node = (recipe as unknown as { nodes: Node[] }).nodes.find(item => item.id === CHANNEL_NODE && item.operation === GET_CHANNEL);
+    const node = recipeNodes(recipe).find(item => item.id === CHANNEL_NODE && item.operation === GET_CHANNEL);
     const entries = (node?.params as { entries?: Array<[string, unknown]> } | undefined)?.entries ?? [];
     const index = entries.find(([key]) => key === 'channel_idx')?.[1];
     return typeof index === 'number' ? index + 1 : null;

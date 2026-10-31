@@ -628,18 +628,19 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
                 ...(plots.compare && comparePath ? [{ view: plots.compare, color: colorOf(comparePath, ROLE_COLORS[1]), width: 2.2 }] : []),
             ];
             stepBar.element.dataset.drawn = String(layers.length);
+            // A base group (not a slot-0 file) has a ▾ that says how its curve is made.
+            const groupInfo = comparePath && (groupBase || !deps.slots()[0]);
             const items: LegendItem[] = [
                 // A base group not analysed: drawn from the table's whole-file values, or not drawn at all, as its entry says.
                 ...(comparePath && !referencePath ? [{ color: ROLE_COLORS[0], label: deps.baseTitle(comparePath, groupBase) + (!gated ? '' : tableBase ? strings.stageBaseTableNote : strings.stageBaseNoLine),
-                    ...(gated && tableBase ? { hint: strings.stageBaseTableHint.replace('{m}', String(tableBands!.count)).replace('{n}', String(allBase.length)) } : {}) }] : []),
+                    ...(gated && tableBase && tableBands ? { hint: strings.stageBaseTableHint.replace('{m}', String(tableBands.count)).replace('{n}', String(allBase.length)) } : {}),
+                    ...(groupInfo ? { trailingHtml: `<button type="button" class="tb-link stage-base-more" data-action="stage-base-info" aria-label="${escapeHtml(strings.stageBaseAggregate)}">▾</button>` } : {}) }] : []),
                 ...(comparePath ? [{ color: colorOf(comparePath, ROLE_COLORS[1]), ...named(comparePath, role(comparePath)), active: true, held: held !== null, ...playable(comparePath) }] : []),
                 ...plots.others.map(item => ({ color: colorOf(item.track.filePath), ...named(item.track.filePath, role(item.track.filePath)), ...playable(item.track.filePath) })),
             ];
             const legend = query<HTMLElement>('[data-stage-legend]');
             legend.dataset.memos = items.filter(item => item.memo).length.toString();
-            // A base group (not a slot-0 file) has a ▾ that says how its curve is made.
-            const groupInfo = comparePath && (groupBase || !deps.slots()[0]);
-            const html = legendHtml(items, strings).replace('</span></span>', groupInfo ? `</span><button type="button" class="tb-link stage-base-more" data-action="stage-base-info" aria-label="${escapeHtml(strings.stageBaseAggregate)}">▾</button></span>` : '</span></span>');
+            const html = legendHtml(items, strings);
             // An open role chip's menu stays open: the legend is drawn again once it closes.
             // Compared with what was written, not with innerHTML (which the browser serializes its own way): a redraw while
             // playing leaves the legend's buttons, and the focus on them, in place.

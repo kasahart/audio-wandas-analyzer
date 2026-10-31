@@ -5,7 +5,7 @@ import { CSVColumnCountError, csvColumnCountMessage } from '../shared/dataset/cs
 import { annotatedCsv, baseGroupMembers, columnValues, datasetRows, matchCsv, middleEllipsis, readDatasetCsv, valueOf, visibleRows, type ColumnId, type DatasetFilter, type DatasetRow } from '../shared/dataset/datasetTable';
 import type { ScanResult } from '../shared/protocol/backendProtocol';
 import { getStrings } from '../shared/i18n/strings';
-import { filterChipText } from '../webview/runtime/entryTableHtml';
+import { filterChipText, rowWindow } from '../webview/runtime/entryTableHtml';
 
 const file = (name: string): { name: string } => ({ name });
 const bytes = (text: string): Uint8Array => new TextEncoder().encode(text);
@@ -193,4 +193,12 @@ test('filter chips speak the panel language', () => {
     assert.equal(filterChipText(range, label, format, getStrings('en')), 'score 0.3 – 0.9');
     assert.equal(filterChipText(values, label, format, getStrings('ja')), 'line = L1 ほか 2');
     assert.equal(filterChipText(range, label, format, getStrings('ja')), 'score 0.3 〜 0.9');
+});
+
+test('the rows drawn are those on screen with a margin, within the table, 600 px tall before the height is known', () => {
+    assert.deepEqual(rowWindow(0, 240, 1000, 24), { first: 0, last: 30 });
+    assert.deepEqual(rowWindow(2400, 240, 1000, 24), { first: 90, last: 120 });
+    assert.deepEqual(rowWindow(2400, 0, 1000, 24), { first: 90, last: 135 });
+    assert.deepEqual(rowWindow(23_990, 240, 1000, 24), { first: 989, last: 1000 });
+    assert.deepEqual(rowWindow(0, 240, 3, 24), { first: 0, last: 3 });
 });
