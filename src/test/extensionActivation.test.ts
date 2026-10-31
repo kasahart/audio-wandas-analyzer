@@ -351,13 +351,12 @@ test('analysis does not start when the dependencies are not ready', async () => 
 });
 
 test('an analysis waiting on a prompt that switches interpreters runs on the new one', async () => {
-    let harness: ReturnType<typeof loadActivation> | undefined;
-    harness = loadActivation({
+    const harness: ReturnType<typeof loadActivation> = loadActivation({
         capturePanelAnalysis: true,
         // The first check's prompt creates and selects a .venv, then answers false for the old interpreter.
         checkDependencies: async (pythonCommand) => {
             if (pythonCommand !== 'python3') { return true; }
-            harness!.state.pythonCommand = '.venv';
+            harness.state.pythonCommand = '.venv';
             return false;
         },
     });
