@@ -13,8 +13,10 @@ test('directory selection uses live result updates with resource URIs, cache reu
     const NodeModule = require('node:module') as { _load: (request: string, parent: unknown, isMain: boolean) => unknown };
     const originalLoad = NodeModule._load;
     NodeModule._load = function(request, parent, isMain) {
+        // vscode.Uri.joinPath joins URI paths with '/' on every OS, so the fake must not use the host separator
+        // (path.join would yield '\\retention\\sub' on Windows and the '/sub' fixture below would recurse forever).
         if (request === 'vscode') return {
-            Uri: { file: uri, joinPath: (base: { fsPath: string }, ...parts: string[]) => uri(path.join(base.fsPath, ...parts)) },
+            Uri: { file: uri, joinPath: (base: { fsPath: string }, ...parts: string[]) => uri(path.posix.join(base.fsPath, ...parts)) },
             FileType: { File: 1, Directory: 2, SymbolicLink: 64 }, ViewColumn: { One: 1 }, ProgressLocation: { Notification: 15 },
             CancellationError: class extends Error {},
             EventEmitter: class { readonly event = () => ({ dispose() {} }); fire() {} dispose() {} },
