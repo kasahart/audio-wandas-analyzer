@@ -491,15 +491,15 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             // recordings and the whole pictures before the zoom's detail, then the region's metrics. No spec supersedes
             // another on every repaint, which would leave both unfinished.
             let asking = false;
-            const missing = (wanted: StageSpec, paths: readonly string[]): boolean => paths.some(path => source.result(wanted, path) === undefined);
+            const lacks = (wanted: StageSpec, paths: readonly string[]): boolean => paths.some(path => source.result(wanted, path) === undefined);
             const want = (wanted: StageSpec, paths: readonly string[]): boolean => {
-                const lacking = missing(wanted, paths);
+                const lacking = lacks(wanted, paths);
                 if (lacking && !asking) asking = source.ensure(wanted, paths);
                 return lacking;
             };
             const onScreen = new Set(tracks.map(track => track.filePath));
             const ownOf = (paths: readonly string[]): string[] => paths.filter(path => onScreen.has(path));
-            const waiting = [...byChannel].some(([ch, paths]) => missing(specOf(ch), paths));
+            const waiting = [...byChannel].some(([ch, paths]) => lacks(specOf(ch), paths));
             for (const [ch, paths] of byChannel) want(specOf(ch), ownOf(paths));
             const region = liveRegion();
             root.dataset.region = regionLabel(region);
