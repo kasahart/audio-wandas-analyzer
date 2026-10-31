@@ -139,9 +139,9 @@ Audio Analyzer: Select Python Environment
 | 制限 | ブラウザー版 |
 | --- | --- |
 | 形式 | WAV、FLAC、OGG、OGA、Opus、MP3、AIFF、AU、SND、CAF、W64、RF64、CSV |
-| 1 ファイル | 16 MiB・30 秒まで、モノラルまたはステレオ |
+| 1 ファイル | 80 MiB まで、モノラルまたはステレオ |
 | サンプリング周波数 | 1–96 kHz |
-| 比較 | 最大 8 トラック、入力ファイルの合計 64 MiB まで |
+| 比較 | 最大 8 トラック、入力ファイルの合計 256 MiB・48 kHz ステレオで合計約 17 分まで |
 | WAV 出力 | 校正を適用しない PCM16 音声、合計 32 MiB まで |
 <!-- browser-limits:end -->
 
