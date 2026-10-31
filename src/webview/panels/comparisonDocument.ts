@@ -289,17 +289,16 @@ export function renderComparisonStyles(): string {
         .entry-badge.entry-slot-3 { border-color: var(--entry-slot-3); color: var(--entry-slot-3); }
         /* The dataset table: four fixed columns (nothing scrolls sideways); a row's tools right after its name. */
         .entry-table { table-layout: fixed; }
-        /* Widened, the name takes the width the other columns leave (the filler at the right end then takes none). */
-        .entry-screen.is-max .entry-table col.entry-col-name-w { width: auto; }
-        .entry-screen.is-max .entry-table col.entry-col-fill-w { width: 0; }
-        .entry-screen.is-max .entry-row > td:last-child:empty { padding: 0; }
+        /* The name takes the width the other columns leave (the filler at the right end then takes none). */
+        .entry-table col.entry-col-name-w { width: auto; }
+        .entry-table col.entry-col-fill-w { width: 0; }
+        .entry-row > td:last-child:empty, .entry-table thead th:last-child:empty { padding: 0; }
         .entry-table col.entry-col-ch-w { width: 3.8em; }
         .entry-table col.entry-col-group-w { width: 8em; }
         .entry-table col.entry-col-value-w { width: 9.5em; }
         .entry-table col.entry-col-reason-w { width: 7em; }
-        /* In the side panel the name takes what the channel, group and value leave. */
-        .entry-screen:not(.is-max) .entry-table col.entry-col-name-w { width: 50%; }
-        .entry-screen:not(.is-max) .entry-table col.entry-col-value-w { width: 8em; }
+        /* Beside the tracks the table is for finding a file: the value column shows maximized (⤢). */
+        .entry-screen:not(.is-max) .entry-table :is(col.entry-col-value-w, .entry-col-value) { display: none; }
         .entry-screen:not(.is-max) .entry-table col.entry-col-group-w { width: 6em; }
         .entry-table tr { height: 24px; }
         .entry-table td { padding: 0 8px; overflow: hidden; text-overflow: ellipsis; }
@@ -328,6 +327,9 @@ export function renderComparisonStyles(): string {
         .entry-row:not(:hover):not(.is-focused) .entry-rbtn.is-hover { visibility: hidden; }
         /* In the side panel a row's hidden tools take no room, so its name has it. */
         .entry-screen:not(.is-max) .entry-row:not(:hover):not(.is-focused) .entry-rbtn.is-hover { display: none; }
+        /* The selected row looks like the others: its tools come under the mouse, yet stay in Tab's reach and show while one has the keyboard. */
+        .entry-row.is-focused:not(:hover) .entry-rowtools:not(:focus-within) .entry-rbtn.is-hover { opacity: 0; }
+        .entry-screen:not(.is-max) .entry-row.is-focused:not(:hover) .entry-rowtools:not(:focus-within) .entry-rbtn.is-hover { position: absolute; width: 1px; min-width: 0; height: 1px; padding: 0; border: 0; overflow: hidden; clip-path: inset(50%); }
         .entry-screen .entry-rbtn-slot { color: var(--muted); }
         .entry-col-ch.is-single { color: var(--muted); }
         .entry-row.is-stale td:not(.entry-name) { color: var(--muted); }

@@ -188,7 +188,7 @@ export function datasetHeadHtml(view: DatasetScreenView, strings: EntryStrings):
         const on = view.filtered.has(column.id);
         const arrow = sorted ? (view.sort.descending ? ' ↓' : ' ↑') : '';
         const hint = disabled ? strings.dsNotComputed : on ? strings.dsFilterOn : strings.dsFilterHead;
-        return `<th class="${column.numeric ? 'entry-num ' : ''}${sorted ? 'is-sorted' : ''}" data-column="${escapeHtml(column.id)}"><span class="entry-th">`
+        return `<th class="${column.numeric ? 'entry-num ' : ''}${sortKey === 'value' ? 'entry-col-value ' : sortKey === 'group' ? 'entry-col-group ' : ''}${sorted ? 'is-sorted' : ''}" data-column="${escapeHtml(column.id)}"><span class="entry-th">`
             + `<span class="entry-th-label"${disabled ? hintAttr(strings.dsNotComputed) : column.title ? hintAttr(column.title) : ''}>${escapeHtml(column.label)}${extra}${arrow}</span>`
             // A value not computed yet has nothing to sort or filter by: no ▾, and its header says why.
             + (disabled ? '' : `<button type="button" class="entry-fbtn${on ? ' is-on' : ''}" data-action="entry-fhead" data-column="${escapeHtml(column.id)}" data-sort="${sortKey}" aria-label="${escapeHtml(`${column.label} ${strings.dsFilterHead}`)}"${hintAttr(hint)}>${on ? '▼' : '▾'}</button>`) + '</span></th>';

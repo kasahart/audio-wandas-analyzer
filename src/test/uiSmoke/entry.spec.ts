@@ -578,35 +578,36 @@ const headerFit = (page: Page, column: string) => page.locator(`th[data-column="
 });
 
 for (const language of ['ja', 'en'] as const) {
-    test(`the value header keeps "A特性" whole and stays inside its column, docked or maximized (${language})`, async ({ page }) => {
+    test(`the value header keeps "A特性" whole and stays inside its column maximized; docked, the value column is not shown (${language})`, async ({ page }) => {
         test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
         await openEntry(page, scanned!, { language, docked: true });
         await expect(page.locator('th[data-column="leq"] .entry-th-label')).toHaveText(getStrings(language).dsLeq);
-        for (const maximized of [false, true]) {
-            if (maximized) await page.locator('.entry-size').click();
-            await expect(page.locator('#entry-screen')).toHaveClass(maximized ? /is-max/ : /^(?!.*is-max)/);
-            const fit = await headerFit(page, 'leq');
-            const where = maximized ? 'maximized' : 'docked';
-            expect(fit.wordLines, where).toBe(1);
-            expect(fit.inside, where).toBe(true);
-            // A word that fits is never broken: "ch" stays "ch", not "c / h".
-            expect((await headerFit(page, 'ch')).lines, `ch ${where}`).toBe(1);
-        }
+        // Beside the tracks the table is for finding a file: no value column, so the names have the room.
+        await expect(page.locator('#entry-screen')).not.toHaveClass(/is-max/);
+        await expect(page.locator('th[data-column="leq"]')).toBeHidden();
+        await expect(page.locator('[data-entry-rows] tr.entry-row .entry-col-value').first()).toBeHidden();
+        expect((await headerFit(page, 'ch')).lines, 'ch docked').toBe(1);
+        await page.locator('.entry-size').click();
+        await expect(page.locator('#entry-screen')).toHaveClass(/is-max/);
+        await expect(page.locator('[data-entry-rows] tr.entry-row .entry-col-value').first()).toBeVisible();
+        const fit = await headerFit(page, 'leq');
+        expect(fit.wordLines).toBe(1);
+        expect(fit.inside).toBe(true);
+        // A word that fits is never broken: "ch" stays "ch", not "c / h".
+        expect((await headerFit(page, 'ch')).lines, 'ch maximized').toBe(1);
     });
 }
 
-test('a CSV value with a long name with no spaces still stays inside its column, docked or maximized', async ({ page }) => {
+test('a CSV value with a long name with no spaces still stays inside its column maximized', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     await openEntry(page, scanned!, { language: 'ja', docked: true });
+    await page.locator('.entry-size').click();
     for (const name of ['異常度スコアの移動平均値', 'anomaly_score_moving_average']) {
         const readable = scanned!.filter(file => (file.result as { ok?: boolean }).ok);
         await pickCsv(page, `${name}.csv`, [`audio_file,${name}`, ...readable.map((file, index) => `${base(file.filePath)},${(index / 10).toFixed(1)}`)].join('\n') + '\n');
         await page.locator('[data-action="entry-value"]').selectOption(`csv:${name}`);
         await expect(page.locator(`th[data-column="csv:${name}"] .entry-th-label`)).toHaveText(name);
-        for (const maximized of [false, true]) {
-            if (maximized !== (await page.locator('#entry-screen.is-max').count() > 0)) await page.locator('.entry-size').click();
-            expect((await headerFit(page, `csv:${name}`)).inside, `${name} ${maximized ? 'maximized' : 'docked'}`).toBe(true);
-        }
+        expect((await headerFit(page, `csv:${name}`)).inside, name).toBe(true);
     }
 });
 
@@ -687,6 +688,40 @@ test('the ☐ / ☑ of a row takes T, Enter and Space; widened, the table keeps 
     // Shrunk into the side panel, the track view takes Tab again.
     await page.locator('[data-action="entry-maximize"]').click();
     await expect(page.locator('#selection-results-pane')).not.toHaveAttribute('inert', '');
+});
+
+test('docked, the selected row looks like the others: its name stays readable and its tools come only under the mouse', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    await openEntry(page, scanned!, { docked: true });
+    await page.locator('[data-entry-table]').focus();
+    await page.keyboard.press('ArrowDown');
+    const row = page.locator('[data-entry-rows] tr.entry-row.is-focused');
+    await page.mouse.move(0, 0);
+    // Its tools take no room (a pixel at most) and show nothing.
+    for (const action of ['entry-row-play', 'entry-row-memo', 'entry-row-exclude']) {
+        expect((await row.locator(`[data-action="${action}"]`).boundingBox())?.width ?? 0, action).toBeLessThanOrEqual(1);
+    }
+    const name = (await row.locator('.entry-nm').boundingBox())!;
+    expect(name.width).toBeGreaterThan(60);
+    // With no value column the name takes the room the channel leaves, and the header lines up with the rows.
+    const table = (await page.locator('[data-entry-table]').boundingBox())!;
+    const cell = (await row.locator('td.entry-name').boundingBox())!;
+    expect(cell.width).toBeGreaterThan(table.width * 0.6);
+    expect((await page.locator('th[data-column="name"]').boundingBox())!.width).toBeCloseTo(cell.width, 0);
+    // Under the mouse its tools are there, as on any row.
+    await row.locator('.entry-nm').hover();
+    await expect(row.locator('[data-action="entry-row-play"]')).toBeVisible();
+    await expect(row.locator('[data-action="entry-row-exclude"]')).toBeVisible();
+    // The keyboard alone still reaches them: Tab from the row's ☐ / ☑ walks its tools, which show while they have the focus.
+    await page.mouse.move(0, 0);
+    await row.locator('[data-action="entry-row-track"]').focus();
+    const exclude = row.locator('[data-action="entry-row-exclude"]');
+    for (let step = 0; step < 6 && !(await exclude.evaluate(element => element === document.activeElement)); step++) await page.keyboard.press('Tab');
+    await expect(exclude).toBeFocused();
+    expect((await exclude.boundingBox())!.width).toBeGreaterThan(20);
+    const excludedKey = await row.getAttribute('data-key');
+    await page.keyboard.press('Enter');
+    await expect(page.locator(`[data-entry-rows] tr.entry-row[data-key="${excludedKey}"]`)).toHaveCount(0);
 });
 
 test('docked, Space on a row\'s ☐ / ☑ toggles it each time and never reaches the lanes\' playback', async ({ page }) => {
