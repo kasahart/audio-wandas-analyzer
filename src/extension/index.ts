@@ -83,7 +83,10 @@ export function activate(context: vscode.ExtensionContext, calibration = new Cal
 
     const runPythonPreparation = async (pythonCommand: string): Promise<boolean> => {
         const dependenciesReady = await checkAndPromptInstallDependencies(pythonCommand, pythonStatusBarItem);
-        if (deactivated || getPythonCommand() !== pythonCommand) { return dependenciesReady; }
+        if (deactivated) { return dependenciesReady; }
+        // The prompt switched interpreters (Create .venv and Install, Select Environment): what a waiting
+        // analysis needs is the new interpreter's preparation, not this one's answer.
+        if (getPythonCommand() !== pythonCommand) { return preparePython(false); }
         if (!dependenciesReady) {
             preparation = 'failed';
             return false;
@@ -145,12 +148,13 @@ export function activate(context: vscode.ExtensionContext, calibration = new Cal
         analyzeFiles: async (...args) => {
             // Wait for the check (and any install the user accepts) so the backend never spawns without wandas.
             // When the environment is not usable, the check has already shown its Install/Select prompt; each
-            // file becomes an error track saying so, as a backend that failed to start would.
+            // file becomes an error track saying so, as a backend that failed to start would. The track carries the
+            // file's current revision, or the panel would take it as stale and ask again without end.
             if (!await preparePython(false)) {
                 const message = getStrings(vscode.env.language).analysisPythonNotReady;
                 return args[0].map(filePath => ({
                     filePath, fileName: path.basename(filePath), sampleRateHz: 0, durationSeconds: 0, channelCount: 0,
-                    sampleCount: 0, channels: [], analysisRevision: 0, error: message,
+                    sampleCount: 0, channels: [], analysisRevision: getAnalysisRevision(filePath), error: message,
                 }));
             }
             return analysis.analyzeFiles(...args);

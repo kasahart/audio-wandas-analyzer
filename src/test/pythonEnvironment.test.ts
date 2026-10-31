@@ -559,7 +559,8 @@ test('in Restricted Mode a workspace-relative pythonCommand is refused instead o
     try {
         assert.throws(() => pythonEnvironment.resolveConfiguredPythonCommand('.venv'), /Restricted Mode/u);
         assert.equal(pythonEnvironment.resolveConfiguredPythonCommand('python3'), 'python3');
-        assert.equal(pythonEnvironment.resolveConfiguredPythonCommand('/opt/envs/audio'), '/opt/envs/audio/bin/python');
+        // An absolute environment folder resolves to its interpreter in the host venv layout.
+        assert.equal(pythonEnvironment.resolveConfiguredPythonCommand('/opt/envs/audio'), pythonEnvironment.resolvePythonCommand('/opt/envs/audio'));
 
         assert.equal(await pythonEnvironment.checkAndPromptInstallDependencies('.venv', item as never), false);
         await settle();

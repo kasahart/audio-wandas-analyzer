@@ -40,13 +40,13 @@ const { buildDirectoryTree } = loadWithVscodeMock(() => require('../extension/ta
 const { openDroppedTargets, openTarget } = loadWithVscodeMock(() => require('../extension/extensionContributions') as typeof import('../extension/extensionContributions'));
 
 const tick = () => new Promise<void>(resolve => setImmediate(resolve));
-// The vscode mock joins URIs with the platform separator; the listings below are keyed by POSIX paths.
+// The vscode mock joins URIs with the platform separator; synthetic listings are keyed by POSIX paths, temp-folder ones by host paths.
 const posixPath = (fsPath: string) => fsPath.replace(/\\/gu, '/');
 
 function directoryFileSystem(listing: Record<string, Array<[string, number]>>): TargetFileSystem {
     return {
         stat: async () => ({ type: FileType.Directory, ctime: 0, mtime: 0, size: 0 }),
-        readDirectory: async (source) => (listing[posixPath(source.fsPath)] ?? []),
+        readDirectory: async (source) => ((listing[source.fsPath] ?? listing[posixPath(source.fsPath)]) ?? []),
     };
 }
 
@@ -203,7 +203,7 @@ test('directory listing bounds reads in flight across nesting levels', async () 
             peak = Math.max(peak, ++inFlight);
             await tick();
             inFlight--;
-            return (listing[posixPath(source.fsPath)] ?? []);
+            return ((listing[source.fsPath] ?? listing[posixPath(source.fsPath)]) ?? []);
         },
     };
     const { tree } = await buildDirectoryTree(uri('/r') as vscode.Uri, fileSystem, { concurrency: 3 });

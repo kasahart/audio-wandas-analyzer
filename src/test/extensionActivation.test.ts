@@ -11,6 +11,8 @@ function loadActivation(options: {
     checkDependencies?: (pythonCommand: string) => Promise<boolean>;
     /** Stubs the panel controller and orchestrator so the analysis wrapper handed to the panel can be driven. */
     capturePanelAnalysis?: boolean;
+    /** The calibration revision every file reports (default: the real store's). */
+    analysisRevision?: number;
 } = {}) {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const NodeModule = require('node:module') as {
@@ -133,6 +135,10 @@ function loadActivation(options: {
             };
         }
         if (request === '../webview/panels/ComparisonPanel') { return { ComparisonPanel: {} }; }
+        if (options.analysisRevision !== undefined && request === './calibrationStore') {
+            const real = originalLoad.call(this, request, parent, isMain) as Record<string, unknown>;
+            return { ...real, getAnalysisRevision: () => options.analysisRevision };
+        }
         if (options.capturePanelAnalysis && request === './panelController') {
             return {
                 PanelController: class {
@@ -339,6 +345,40 @@ test('analysis does not start when the dependencies are not ready', async () => 
         assert.ok(later[0].error);
         assert.deepEqual(harness.state.analyzedFiles, []);
         assert.deepEqual(harness.state.dependencyChecks, ['python3']);
+    } finally {
+        harness.restore();
+    }
+});
+
+test('an analysis waiting on a prompt that switches interpreters runs on the new one', async () => {
+    let harness: ReturnType<typeof loadActivation> | undefined;
+    harness = loadActivation({
+        capturePanelAnalysis: true,
+        // The first check's prompt creates and selects a .venv, then answers false for the old interpreter.
+        checkDependencies: async (pythonCommand) => {
+            if (pythonCommand !== 'python3') { return true; }
+            harness!.state.pythonCommand = '.venv';
+            return false;
+        },
+    });
+    try {
+        harness.activate();
+        const results = await harness.state.panelAnalysis!.analyzeFiles(['/audio/a.wav']);
+        assert.deepEqual(harness.state.dependencyChecks, ['python3', '.venv']);
+        assert.deepEqual(harness.state.analyzedFiles, [['/audio/a.wav']]);
+        assert.deepEqual(results, []);
+    } finally {
+        harness.restore();
+    }
+});
+
+test('a not-ready error track carries the file\'s current revision, so the panel takes it as live', async () => {
+    const harness = loadActivation({ checkDependencies: async () => false, capturePanelAnalysis: true, analysisRevision: 3 });
+    try {
+        harness.activate();
+        const results = await harness.state.panelAnalysis!.analyzeFiles(['/audio/a.wav']) as Array<{ analysisRevision: number; error?: string }>;
+        assert.equal(results[0].analysisRevision, 3);
+        assert.ok(results[0].error);
     } finally {
         harness.restore();
     }
