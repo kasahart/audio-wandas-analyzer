@@ -612,12 +612,17 @@ DEFINITIONS: dict[str, Schema] = {
             "failedStep": {"type": "string"},
         },
     },
-    # Codes from backend_errors.py; hosts branch on them, never on the message text.
+    # Codes and kinds from backend_errors.py; hosts branch on the code and word the user's summary from the
+    # kind, never from the message text, which they show as the detail.
     "BackendErrorPayload": {
         "type": "object",
-        "required": ["code", "message"],
+        "required": ["code", "kind", "message"],
         "properties": {
             "code": {"type": "string", "enum": ["input-error", "stale-calibration", "internal-error"]},
+            "kind": {
+                "type": "string",
+                "enum": ["analysis-settings", "unreadable-file", "out-of-memory", "invalid-input", "analysis-failed"],
+            },
             "message": {"type": "string"},
         },
     },

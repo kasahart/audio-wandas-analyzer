@@ -209,7 +209,9 @@ def test_browser_unexpected_load_failure_is_not_hidden(monkeypatch) -> None:
     monkeypatch.setattr(browser_service, "service", create_service())
     monkeypatch.setattr(browser_service.service.engine, "load", fail)
     reply = json.loads(browser_service.load_source("selected.wav", FIXTURE.read_bytes()))
-    assert reply == {"error": {"code": "internal-error", "message": "unexpected internal failure"}}
+    assert reply == {
+        "error": {"code": "internal-error", "kind": "analysis-failed", "message": "unexpected internal failure"}
+    }
 
 
 def test_release_all_sources_lets_the_same_identity_load_again() -> None:

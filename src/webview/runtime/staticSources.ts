@@ -1,5 +1,6 @@
 import type { UiStrings } from '../../shared/i18n/strings';
 import type { BrowserLimits } from '../../shared/protocol/generated/backendProtocolSchema';
+import { userErrorText } from '../../shared/protocol/backendProtocol';
 import { isSupportedAudioFile } from '../../shared/utils/audioTarget';
 
 /** A file found under a picked or dropped folder, by its path from that folder's name. */
@@ -102,19 +103,19 @@ export function sessionFull(size: number, loadedBytes: number[], limits: Browser
 
 /** Failures of one load batch; files that fail for the same reason (the session limit, for many at once) are told once, with their count. */
 export class LoadFailures {
-    private readonly byMessage = new Map<string, { first: string; count: number }>();
+    private readonly byMessage = new Map<string, { first: string; error: unknown; count: number }>();
 
     add(fileName: string, error: unknown): void {
         const message = error instanceof Error ? error.message : String(error);
         const group = this.byMessage.get(message);
-        if (group) group.count++; else this.byMessage.set(message, { first: fileName, count: 1 });
+        if (group) group.count++; else this.byMessage.set(message, { first: fileName, error, count: 1 });
     }
 
     /** What the status line says once the batch ends: the failures, else the last file and the track count. */
     announcement(strings: UiStrings, lastFileName: string, trackCount: number): string {
         if (!this.byMessage.size) return `${lastFileName}: ${strings.browserReady.replace('{count}', String(trackCount))}`;
-        return [...this.byMessage].map(([message, { first, count }]) => strings.browserFileFailed
-            .replace('{file}', `${first}${count > 1 ? ` (+${count - 1})` : ''}`).replace('{error}', message)).join(' | ');
+        return [...this.byMessage.values()].map(({ first, error, count }) => strings.browserFileFailed
+            .replace('{file}', `${first}${count > 1 ? ` (+${count - 1})` : ''}`).replace('{error}', () => userErrorText(error, strings))).join(' | ');
     }
 }
 

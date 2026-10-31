@@ -1,6 +1,8 @@
 import { rasterize, viridis, type RasterPlan } from '../../shared/gui-core/index';
 import type { SpectrogramData, SpectrogramDisplaySettings } from '../../shared/analysis/analysisTypes';
 import { spectrogramTimeBinEdges, spectrogramTimeBinSpan } from '../spectrum/spectrogramTimeBins';
+import { middleEllipsis } from '../../shared/dataset/datasetTable';
+import type { UiStrings } from '../../shared/i18n/strings';
 export interface SpectrogramRasterView {
     zoomStart: number;
     zoomEnd: number;
@@ -22,6 +24,13 @@ type SpectrogramAutoBounds = Pick<SpectrogramData, 'minDb' | 'maxDb' | 'maxFrequ
  * spectrogram, or the bounds shared by every lane while the scales are linked). Unlinked, the top stays at or below
  * the lane's Nyquist frequency; linked lanes keep the shared top and leave the band above their data blank.
  */
+/** The lane's two lines for a failed spectrogram: the summary in the sentence, then the backend's text, both shortened. */
+export function spectrogramFailureText(strings: Pick<UiStrings, 'spectrogramFailed'>, reason: string): string {
+    const [summary = '', ...detail] = reason.split('\n');
+    const first = strings.spectrogramFailed.replace('{reason}', () => middleEllipsis(summary, 120));
+    return detail.length ? `${first}\n${middleEllipsis(detail.join(' '), 120)}` : first;
+}
+
 export function spectrogramDisplayBounds(
     spec: SpectrogramAutoBounds,
     display: SpectrogramDisplaySettings,

@@ -112,8 +112,8 @@ test('analyze and track-detail results keep the invariants the schema cannot exp
 
 test('error payloads, notifications and Worker limits come from the schema', () => {
     assert.deepEqual([...BACKEND_ERROR_CODES], ['input-error', 'stale-calibration', 'internal-error']);
-    assert.deepEqual(parseBackendErrorPayload({ code: 'stale-calibration', message: 'm' }), { code: 'stale-calibration', message: 'm' });
-    assert.equal(parseBackendErrorPayload({ code: 'stale-calibration', message: 'm', extra: 1 }), null, 'keys the schema does not list are rejected');
+    assert.deepEqual(parseBackendErrorPayload({ code: 'stale-calibration', kind: 'invalid-input', message: 'm' }), { code: 'stale-calibration', kind: 'invalid-input', message: 'm' });
+    assert.equal(parseBackendErrorPayload({ code: 'stale-calibration', kind: 'invalid-input', message: 'm', extra: 1 }), null, 'keys the schema does not list are rejected');
     assert.equal(parseBackendNotification({ type: 'ready', version: 2 }), null);
     assert.equal(parseBackendErrorPayload({ code: 'unknown', message: 'm' }), null);
     assert.deepEqual(parseBackendNotification({ type: 'heartbeat', ts: 1.5 }), { type: 'heartbeat', ts: 1.5 });

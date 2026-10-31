@@ -101,6 +101,12 @@ export interface UiStrings {
     spectrumAnalysisWindowPerTrack: string;
     spectrogramLoading: string;
     spectrogramFailed: string;
+    /** Summaries of the backend error kinds; the backend's own text follows as the detail. */
+    errorAnalysisSettings: string;
+    errorUnreadableFile: string;
+    errorOutOfMemory: string;
+    errorInvalidInput: string;
+    errorAnalysisFailed: string;
     settingsApplyHint: string;
     reanalyzingStft: string;
     reanalyzingDefault: string;
@@ -848,6 +854,11 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         spectrumAnalysisWindowPerTrack: 'window differs per track (see the bands)',
         spectrogramLoading: 'Loading spectrogram...',
         spectrogramFailed: 'Spectrogram failed: {reason}',
+        errorAnalysisSettings: "These analysis settings don't fit this file. Choose a smaller FFT size, or a longer file or region.",
+        errorUnreadableFile: 'This file could not be read. Check that it exists and is a supported, undamaged audio or CSV file.',
+        errorOutOfMemory: 'Not enough memory for this analysis. Remove some tracks, choose a shorter region, or lower the overlap.',
+        errorInvalidInput: "This input can't be used.",
+        errorAnalysisFailed: 'The analysis failed unexpectedly. Try again; if it keeps failing, report the details.',
         settingsApplyHint: 'These recompute when you press Apply; the display below changes as you type.',
         reanalyzingStft: 'Recomputing STFT…',
         reanalyzingDefault: 'Recomputing…',
@@ -1592,6 +1603,11 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         spectrumAnalysisWindowPerTrack: '解析窓はトラックごとに異なります（帯を参照）',
         spectrogramLoading: 'スペクトログラムを読み込み中...',
         spectrogramFailed: 'スペクトログラムを計算できませんでした: {reason}',
+        errorAnalysisSettings: 'この解析設定はこのファイルに合いません。FFT サイズを小さくするか、より長いファイルや区間を選んでください。',
+        errorUnreadableFile: 'ファイルを読み込めませんでした。ファイルが存在し、対応形式の壊れていない音声または CSV であることを確認してください。',
+        errorOutOfMemory: 'この解析にはメモリが足りません。トラックを減らすか、短い区間を選ぶか、オーバーラップを下げてください。',
+        errorInvalidInput: 'この入力は使用できません。',
+        errorAnalysisFailed: '解析が予期せず失敗しました。もう一度試し、繰り返す場合は詳細を添えて報告してください。',
         settingsApplyHint: 'ここは「適用」で再計算します。下の表示は入力するとすぐ変わります',
         reanalyzingStft: 'STFT を再計算中…',
         reanalyzingDefault: '再計算中…',

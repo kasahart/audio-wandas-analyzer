@@ -1,4 +1,5 @@
 import type { ChartSpec } from '../chartSpec';
+import type { UiStrings } from '../i18n/strings';
 import type { RecipeDocument } from '../recipe/recipeSelection';
 import { isCalibrationProfile } from '../analysis/calibrationModel';
 import { BACKEND_PROTOCOL_SCHEMA } from './generated/backendProtocolSchema';
@@ -112,6 +113,19 @@ export type BackendSuccessEnvelope<K extends BackendCommand> = { requestId: stri
 /** Error codes from `python-backend/backend_errors.py`; hosts branch on these, never on the message text. */
 export const BACKEND_ERROR_CODES = BACKEND_PROTOCOL_SCHEMA.$defs.BackendErrorPayload.properties.code.enum;
 export type BackendErrorCode = BackendErrorPayload['code'];
+/** What went wrong, from `python-backend/backend_errors.py`; picks the summary the user reads. */
+export const BACKEND_ERROR_KINDS = BACKEND_PROTOCOL_SCHEMA.$defs.BackendErrorPayload.properties.kind.enum;
+export type BackendErrorKind = BackendErrorPayload['kind'];
+
+const ERROR_SUMMARY = {
+    'analysis-settings': 'errorAnalysisSettings',
+    'unreadable-file': 'errorUnreadableFile',
+    'out-of-memory': 'errorOutOfMemory',
+    'invalid-input': 'errorInvalidInput',
+    'analysis-failed': 'errorAnalysisFailed',
+} as const satisfies Record<BackendErrorKind, keyof UiStrings>;
+
+export type ErrorSummaryStrings = Pick<UiStrings, typeof ERROR_SUMMARY[BackendErrorKind]>;
 
 export interface BackendErrorEnvelope {
     requestId: string;
@@ -131,24 +145,38 @@ export class BackendProtocolError extends Error {
 
 /** A request the backend answered with an error envelope. */
 export class BackendRequestError extends Error {
-    constructor(readonly code: BackendErrorCode, message: string) {
+    constructor(readonly code: BackendErrorCode, readonly kind: BackendErrorKind, message: string) {
         super(message);
         this.name = 'BackendRequestError';
     }
 }
 
-/** The backend error code of `error` or of any error in its `cause` chain. */
-export function backendErrorCode(error: unknown): BackendErrorCode | undefined {
+function backendRequestError(error: unknown): BackendRequestError | undefined {
     for (let current = error, depth = 0; current instanceof Error && depth < 8; current = current.cause, depth++) {
-        if (current instanceof BackendRequestError) return current.code;
+        if (current instanceof BackendRequestError) return current;
     }
     return undefined;
 }
 
+/** The backend error code of `error` or of any error in its `cause` chain. */
+export function backendErrorCode(error: unknown): BackendErrorCode | undefined {
+    return backendRequestError(error)?.code;
+}
+
+/**
+ * What the user reads about `error`: for a backend error, the summary of its kind in the UI's language, then the
+ * backend's own text on the next line as the detail; any other error's message as it is.
+ */
+export function userErrorText(error: unknown, strings: ErrorSummaryStrings): string {
+    const backend = backendRequestError(error);
+    if (backend) return backend.message ? `${strings[ERROR_SUMMARY[backend.kind]]}\n${backend.message}` : strings[ERROR_SUMMARY[backend.kind]];
+    return error instanceof Error ? error.message : String(error);
+}
+
 export function parseBackendErrorPayload(value: unknown): BackendErrorPayload | null {
     if (schemaViolation('BackendErrorPayload', value) !== null) return null;
-    const { code, message } = value as BackendErrorPayload;
-    return { code, message };
+    const { code, kind, message } = value as BackendErrorPayload;
+    return { code, kind, message };
 }
 
 export function isBackendCommand(value: unknown): value is BackendCommand {
@@ -345,7 +373,7 @@ export function settleBackendRequest<T>(
         const extraKeys = isJsonObject(response) ? Object.keys(response).filter(key => key !== 'error' && response[key] !== undefined) : [];
         const payload = extraKeys.length === 0 ? parseBackendErrorPayload(failure) : null;
         if (payload) {
-            request.reject(new BackendRequestError(payload.code, payload.message));
+            request.reject(new BackendRequestError(payload.code, payload.kind, payload.message));
             return;
         }
         const error = new BackendProtocolError(`Invalid error response for ${request.command}`);
