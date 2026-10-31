@@ -299,7 +299,8 @@ export function renderComparisonStyles(): string {
         .entry-table col.entry-col-reason-w { width: 7em; }
         /* In the side panel the name takes what the channel, group and value leave. */
         .entry-screen:not(.is-max) .entry-table col.entry-col-name-w { width: 50%; }
-        .entry-screen:not(.is-max) .entry-table col.entry-col-value-w { width: 8em; }
+        /* Beside the tracks the table is for finding a file: the value column shows maximized (⤢). */
+        .entry-screen:not(.is-max) .entry-table :is(col.entry-col-value-w, .entry-col-value) { display: none; }
         .entry-screen:not(.is-max) .entry-table col.entry-col-group-w { width: 6em; }
         .entry-table tr { height: 24px; }
         .entry-table td { padding: 0 8px; overflow: hidden; text-overflow: ellipsis; }
@@ -325,9 +326,10 @@ export function renderComparisonStyles(): string {
         .entry-rowtools { display: inline-flex; gap: 1px; flex: none; }
         .entry-screen .entry-rbtn { min-width: 20px; height: 20px; padding: 0 3px; border-color: transparent; font-family: var(--font-mono); font-size: 11px; line-height: 1; }
         .entry-screen .entry-rbtn:hover { border-color: var(--line); }
-        .entry-row:not(:hover):not(.is-focused) .entry-rbtn.is-hover { visibility: hidden; }
+        /* The selected row looks like the others: its tools come under the mouse, or while one of them has the keyboard. */
+        .entry-row:not(:hover) .entry-rowtools:not(:focus-within) .entry-rbtn.is-hover { visibility: hidden; }
         /* In the side panel a row's hidden tools take no room, so its name has it. */
-        .entry-screen:not(.is-max) .entry-row:not(:hover):not(.is-focused) .entry-rbtn.is-hover { display: none; }
+        .entry-screen:not(.is-max) .entry-row:not(:hover) .entry-rowtools:not(:focus-within) .entry-rbtn.is-hover { display: none; }
         .entry-screen .entry-rbtn-slot { color: var(--muted); }
         .entry-col-ch.is-single { color: var(--muted); }
         .entry-row.is-stale td:not(.entry-name) { color: var(--muted); }

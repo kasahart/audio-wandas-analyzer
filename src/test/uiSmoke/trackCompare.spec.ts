@@ -133,10 +133,11 @@ test('the comparison shows the app\'s 1/3-octave branch as a step, and hides the
     await expect.poll(async () => (await stageScans(page)).at(-1)?.stage).toBe('node-noct');
     await answer(page, { frame: 'NOctFrame', kind: 'bar', x: 'band', xScale: 'log', quantity: 'level', xs: [100, 1000, 5000], values: [-40, -30, -50] });
     await expect(page.locator('.track-stage-bar')).toHaveAttribute('data-stage', 'node-noct');
-    // In the side panel the table keeps its four columns and never scrolls sideways; its ▾ sorts.
-    await page.locator('th[data-column="leq"] [data-action="entry-fhead"]').click();
+    // In the side panel the table leaves out the value column and never scrolls sideways; its ▾ sorts.
+    await expect(page.locator('th[data-column="leq"]')).toBeHidden();
+    await page.locator('th[data-column="name"] [data-action="entry-fhead"]').click();
     await page.locator('[data-action="entry-fsort"][data-descending="true"]').click();
-    await expect(page.locator('th[data-column="leq"]')).toHaveClass(/is-sorted/);
+    await expect(page.locator('th[data-column="name"]')).toHaveClass(/is-sorted/);
     expect(await page.locator('.entry-table-wrap').evaluate(wrap => wrap.scrollWidth - wrap.clientWidth)).toBeLessThanOrEqual(0);
     // A row's ▶ shows on the hovered row only, and shows its file as a track to play it.
     const row = page.locator('[data-entry-rows] tr.entry-row:not(.is-focused)').nth(3);
