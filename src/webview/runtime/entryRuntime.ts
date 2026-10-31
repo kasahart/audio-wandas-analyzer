@@ -1013,8 +1013,11 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             deps.announce(stage ? strings.stepOpenCompare : strings.compareRefuseSlot.replace('{n}', '1'));
             if (!stage) document.getElementById('hint-footer')?.replaceChildren(strings.compareRefuseSlot.replace('{n}', '1'));
             // The selected row's 0–3 button lights up: that is where a recording goes into slot 1.
+            // A selected row scrolled out of the drawn window is brought back first.
+            const slotButton = (): HTMLElement | null => (focus.key ? body.querySelector<HTMLElement>(`tr[data-key="${CSS.escape(focus.key)}"] [data-action="entry-row-slotmenu"]`) : null);
+            if (focus.key && !slotButton()) focusRow(focus.key, true);
             redraw.after(() => {
-                const button = focus.key ? body.querySelector<HTMLElement>(`tr[data-key="${CSS.escape(focus.key)}"] [data-action="entry-row-slotmenu"]`) : null;
+                const button = slotButton();
                 button?.classList.remove('is-flash'); void button?.offsetWidth; button?.classList.add('is-flash');
             });
             return;
