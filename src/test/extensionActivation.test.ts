@@ -162,7 +162,7 @@ function loadActivation(options: {
         if (request === './pythonBackendServer') {
             return {
                 PythonBackendServer: class {
-                    constructor(_extensionPath: string, _onPerfLine: unknown, private readonly onReady: () => void) {}
+                    constructor(_extensionPath: string, _pythonCommand: unknown, _onPerfLine: unknown, private readonly onReady: () => void) {}
                     async warmup(): Promise<void> {
                         state.backendWarmupCalls += 1;
                         this.onReady();
@@ -173,34 +173,34 @@ function loadActivation(options: {
         }
         if (request === './pythonEnvironment') {
             return {
-                selectPythonEnvironment: async () => undefined,
-                checkAndPromptInstallDependencies: async (pythonCommand: string) => {
-                    state.dependencyChecks.push(pythonCommand);
-                    return options.checkDependencies ? options.checkDependencies(pythonCommand) : true;
+                PythonEnvironment: class {
+                    async selectPythonEnvironment(): Promise<void> {}
+                    async checkAndPromptInstallDependencies(pythonCommand: string): Promise<boolean> {
+                        state.dependencyChecks.push(pythonCommand);
+                        return options.checkDependencies ? options.checkDependencies(pythonCommand) : true;
+                    }
+                    dispose(): void {}
+                    getPythonCommand(): string { return state.pythonCommand; }
+                    async refreshDefaultInterpreter(): Promise<boolean> {
+                        state.defaultInterpreterLookups += 1;
+                        return false;
+                    }
+                    getCurrentPythonEnvironmentState() {
+                        return { pythonCommand: state.pythonCommand, status: state.environmentStatus, tooltip: '' };
+                    }
+                    onDidChangePythonEnvironmentState(listener: Listener) {
+                        listeners.environment = listener;
+                        return { dispose() {} };
+                    }
+                    onDidReselectPythonCommand(listener: Listener<string>) {
+                        listeners.reselected = listener;
+                        return { dispose() {} };
+                    }
+                    onDidChangeDefaultInterpreter() { return { dispose() {} }; }
+                    setStatusBarNormal(): void { listeners.environment?.({}); }
+                    setStatusBarWarning(): void {}
                 },
-                disposePythonSetupLog: () => {},
-                getPythonCommand: () => state.pythonCommand,
-                refreshDefaultInterpreter: async () => {
-                    state.defaultInterpreterLookups += 1;
-                    return false;
-                },
-                getCurrentPythonEnvironmentState: () => ({
-                    pythonCommand: state.pythonCommand,
-                    status: state.environmentStatus,
-                    tooltip: '',
-                }),
-                onDidChangePythonEnvironmentState: (listener: Listener) => {
-                    listeners.environment = listener;
-                    return { dispose() {} };
-                },
-                onDidReselectPythonCommand: (listener: Listener<string>) => {
-                    listeners.reselected = listener;
-                    return { dispose() {} };
-                },
-                onDidChangeDefaultInterpreter: () => ({ dispose() {} }),
                 setStatusBarImporting: () => {},
-                setStatusBarNormal: () => { listeners.environment?.({}); },
-                setStatusBarWarning: () => {},
             };
         }
         if (request === '../shared/utils/audioTarget' || request === '../shared/utils/directorySelection') {

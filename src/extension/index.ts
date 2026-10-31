@@ -6,19 +6,7 @@ import { AnalysisOrchestrator } from './analysisOrchestrator';
 import { ExportFlows } from './exportFlows';
 import { autoOpenDebugTarget, registerExtensionContributions } from './extensionContributions';
 import { PanelController } from './panelController';
-import {
-    checkAndPromptInstallDependencies,
-    disposePythonSetupLog,
-    getCurrentPythonEnvironmentState,
-    getPythonCommand,
-    onDidChangeDefaultInterpreter,
-    onDidChangePythonEnvironmentState,
-    onDidReselectPythonCommand,
-    refreshDefaultInterpreter,
-    setStatusBarImporting,
-    setStatusBarNormal,
-    setStatusBarWarning,
-} from './pythonEnvironment';
+import { PythonEnvironment, setStatusBarImporting } from './pythonEnvironment';
 import { PythonBackendServer } from './pythonBackendServer';
 import { RecipeFlow } from './recipeFlow';
 import { CalibrationStore } from './calibrationStore';
@@ -38,16 +26,17 @@ export function activate(context: vscode.ExtensionContext, calibration = new Cal
     const perfChannel = vscode.window.createOutputChannel('Audio Wandas Analyzer (perf)');
     const logPerf = (line: string): void => { perfChannel.appendLine(line); };
     const logChannel = vscode.window.createOutputChannel('Audio Wandas Analyzer', { log: true });
+    const pythonEnvironment = new PythonEnvironment();
     const pythonStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 10);
     pythonStatusBarItem.command = 'audioWandasAnalyzer.selectPythonEnvironment';
     const updateStatusBarVisibility = (): void => {
-        if (hasAnalyzerPanel() || getCurrentPythonEnvironmentState().status === 'warning') {
+        if (hasAnalyzerPanel() || pythonEnvironment.getCurrentPythonEnvironmentState().status === 'warning') {
             pythonStatusBarItem.show();
         } else {
             pythonStatusBarItem.hide();
         }
     };
-    const backend = new PythonBackendServer(context.extensionPath, (line) => {
+    const backend = new PythonBackendServer(context.extensionPath, () => pythonEnvironment.getPythonCommand(), (line) => {
         if (line.startsWith('[ts]')) {
             logPerf(line);
             return;
@@ -55,8 +44,8 @@ export function activate(context: vscode.ExtensionContext, calibration = new Cal
         logPerf(`[py] ${line.startsWith('[perf]') ? line.slice(7) : line}`);
     }, () => {
         if (deactivated) { return; }
-        const pythonCommand = getPythonCommand();
-        setStatusBarNormal(pythonStatusBarItem, pythonCommand);
+        const pythonCommand = pythonEnvironment.getPythonCommand();
+        pythonEnvironment.setStatusBarNormal(pythonStatusBarItem, pythonCommand);
     }, {
         current: filePath => ({ calibrationProfile: calibration.profile(filePath), analysisRevision: calibration.analysisRevision(filePath) }),
         discardStale: async (filePath, error, attempted) => attempted.calibrationProfile !== undefined
@@ -66,7 +55,7 @@ export function activate(context: vscode.ExtensionContext, calibration = new Cal
         crashed: error => {
             logChannel.error(error.message);
             if (deactivated) { return; }
-            setStatusBarWarning(pythonStatusBarItem, getPythonCommand(), fillTemplate(getStrings(vscode.env.language).pyTooltipBackendStopped, { message: error.message }));
+            pythonEnvironment.setStatusBarWarning(pythonStatusBarItem, pythonEnvironment.getPythonCommand(), fillTemplate(getStrings(vscode.env.language).pyTooltipBackendStopped, { message: error.message }));
         },
     });
     const analysis = new AnalysisOrchestrator(backend, logPerf);
@@ -82,11 +71,11 @@ export function activate(context: vscode.ExtensionContext, calibration = new Cal
     let preparationTask: Promise<boolean> = Promise.resolve(true);
 
     const runPythonPreparation = async (pythonCommand: string): Promise<boolean> => {
-        const dependenciesReady = await checkAndPromptInstallDependencies(pythonCommand, pythonStatusBarItem);
+        const dependenciesReady = await pythonEnvironment.checkAndPromptInstallDependencies(pythonCommand, pythonStatusBarItem);
         if (deactivated) { return dependenciesReady; }
         // The prompt switched interpreters (Create .venv and Install, Select Environment): what a waiting
         // analysis needs is the new interpreter's preparation, not this one's answer.
-        if (getPythonCommand() !== pythonCommand) { return preparePython(false); }
+        if (pythonEnvironment.getPythonCommand() !== pythonCommand) { return preparePython(false); }
         if (!dependenciesReady) {
             preparation = 'failed';
             return false;
@@ -95,16 +84,16 @@ export function activate(context: vscode.ExtensionContext, calibration = new Cal
         try {
             await backend.warmup();
             if (deactivated) { return true; }
-            if (getPythonCommand() === pythonCommand) {
+            if (pythonEnvironment.getPythonCommand() === pythonCommand) {
                 preparation = 'ready';
-                setStatusBarNormal(pythonStatusBarItem, pythonCommand);
+                pythonEnvironment.setStatusBarNormal(pythonStatusBarItem, pythonCommand);
             }
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             logPerf(`[ts] backend warmup failed error=${message}`);
-            if (getPythonCommand() === pythonCommand) {
+            if (pythonEnvironment.getPythonCommand() === pythonCommand) {
                 preparation = 'failed';
-                setStatusBarWarning(
+                pythonEnvironment.setStatusBarWarning(
                     pythonStatusBarItem,
                     pythonCommand,
                     fillTemplate(getStrings(vscode.env.language).pyTooltipBackendFailed, { message }),
@@ -126,10 +115,10 @@ export function activate(context: vscode.ExtensionContext, calibration = new Cal
      * commands, so a fixed environment (e.g. packages installed in a terminal) is picked up without a restart.
      */
     const preparePython = async (retryFailed: boolean): Promise<boolean> => {
-        defaultInterpreterLookup ??= refreshDefaultInterpreter();
+        defaultInterpreterLookup ??= pythonEnvironment.refreshDefaultInterpreter();
         await defaultInterpreterLookup;
         if (deactivated) { return false; }
-        const pythonCommand = getPythonCommand();
+        const pythonCommand = pythonEnvironment.getPythonCommand();
         if (preparedCommand === pythonCommand) {
             if (preparation === 'ready') { analysis.warmup(); }
             if (preparation !== 'failed' || !retryFailed) { return preparationTask; }
@@ -138,8 +127,8 @@ export function activate(context: vscode.ExtensionContext, calibration = new Cal
     };
     const restartPython = (): void => {
         backend.dispose();
-        const pythonCommand = getPythonCommand();
-        setStatusBarNormal(pythonStatusBarItem, pythonCommand);
+        const pythonCommand = pythonEnvironment.getPythonCommand();
+        pythonEnvironment.setStatusBarNormal(pythonStatusBarItem, pythonCommand);
         if (preparation === 'idle') { return; }
         void warmPythonBackend(pythonCommand);
     };
@@ -160,7 +149,7 @@ export function activate(context: vscode.ExtensionContext, calibration = new Cal
             return analysis.analyzeFiles(...args);
         },
         warmup: () => { void preparePython(false); },
-    }, exports, calibration);
+    }, exports, calibration, pythonEnvironment);
 
     context.subscriptions.push(
         pythonStatusBarItem,
@@ -171,19 +160,19 @@ export function activate(context: vscode.ExtensionContext, calibration = new Cal
         } },
         perfChannel,
         logChannel,
-        { dispose: disposePythonSetupLog },
+        pythonEnvironment,
         vscode.window.tabGroups.onDidChangeTabs(updateStatusBarVisibility),
-        onDidChangePythonEnvironmentState(updateStatusBarVisibility),
-        onDidReselectPythonCommand(() => {
+        pythonEnvironment.onDidChangePythonEnvironmentState(updateStatusBarVisibility),
+        pythonEnvironment.onDidReselectPythonCommand(() => {
             backend.dispose();
-            void warmPythonBackend(getPythonCommand());
+            void warmPythonBackend(pythonEnvironment.getPythonCommand());
         }),
-        onDidChangeDefaultInterpreter(() => {
-            if (preparedCommand !== getPythonCommand()) { restartPython(); }
+        pythonEnvironment.onDidChangeDefaultInterpreter(() => {
+            if (preparedCommand !== pythonEnvironment.getPythonCommand()) { restartPython(); }
         }),
         // Trust makes the workspace's pythonCommand value and its interpreters usable, so look again.
         vscode.workspace.onDidGrantWorkspaceTrust(() => {
-            defaultInterpreterLookup = refreshDefaultInterpreter();
+            defaultInterpreterLookup = pythonEnvironment.refreshDefaultInterpreter();
             void defaultInterpreterLookup.then(() => {
                 if (!deactivated) { restartPython(); }
             });
@@ -200,7 +189,7 @@ export function activate(context: vscode.ExtensionContext, calibration = new Cal
     );
     registerExtensionContributions(
         context,
-        pythonStatusBarItem,
+        () => pythonEnvironment.selectPythonEnvironment(pythonStatusBarItem),
         panelController,
         recipeFlow,
         (reason) => preparePython(reason === 'command'),
@@ -226,7 +215,7 @@ export function activate(context: vscode.ExtensionContext, calibration = new Cal
         );
     }
 
-    setStatusBarNormal(pythonStatusBarItem, getPythonCommand());
+    pythonEnvironment.setStatusBarNormal(pythonStatusBarItem, pythonEnvironment.getPythonCommand());
     updateStatusBarVisibility();
 }
 

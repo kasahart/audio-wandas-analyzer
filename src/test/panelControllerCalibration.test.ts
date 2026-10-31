@@ -206,8 +206,6 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
         executeCommand: async () => undefined,
         showInformation: () => undefined,
         showError: (message) => { throw new Error(message); },
-        getPythonEnvironment: () => ({ pythonCommand: 'python3', status: 'normal', tooltip: 'python3' }),
-        onPythonEnvironmentChange: () => ({ dispose: () => undefined }),
         language: () => 'en',
         withProgress: (_options, task) => task({ report() {} }, { isCancellationRequested: false } as vscode.CancellationToken),
     };
@@ -236,6 +234,10 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
         { analyzeFiles, warmup: () => undefined },
         {} as ExportFlows,
         calibration,
+        {
+            getCurrentPythonEnvironmentState: () => ({ pythonCommand: 'python3', status: 'normal', tooltip: 'python3' }),
+            onDidChangePythonEnvironmentState: () => ({ dispose: () => undefined }),
+        },
         panelFactory,
         host,
     );

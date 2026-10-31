@@ -31,11 +31,7 @@ import {
     type DisposableLike,
     type PanelPort,
 } from './panelSession';
-import {
-    getCurrentPythonEnvironmentState,
-    onDidChangePythonEnvironmentState,
-    type PythonEnvironmentState,
-} from './pythonEnvironment';
+import type { PythonEnvironment, PythonEnvironmentState } from './pythonEnvironment';
 import {
     loadPersistedStftOptions,
     loadSpectrogramSettings,
@@ -103,8 +99,6 @@ export interface PanelControllerHost {
     executeCommand(command: string, ...args: unknown[]): Thenable<unknown>;
     showInformation(message: string): void;
     showError(message: string): void;
-    getPythonEnvironment(): PythonEnvironmentState;
-    onPythonEnvironmentChange(listener: (state: PythonEnvironmentState) => void): vscode.Disposable;
     language(): string;
     withProgress: AnalysisHost['withProgress'];
 }
@@ -149,14 +143,15 @@ const defaultHost: PanelControllerHost = {
     executeCommand: (command, ...args) => vscode.commands.executeCommand(command, ...args),
     showInformation: (message) => { void vscode.window.showInformationMessage(message); },
     showError: (message) => { void vscode.window.showErrorMessage(message); },
-    getPythonEnvironment: getCurrentPythonEnvironmentState,
-    onPythonEnvironmentChange: onDidChangePythonEnvironmentState,
     language: () => vscode.env.language,
     withProgress: (options, task) => vscode.window.withProgress(options, task),
 };
 
 /** The calibration revisions a panel's results are checked against, and their change events. */
 export type PanelCalibration = Pick<CalibrationStore, 'analysisRevision' | 'onDidChange' | 'configureTrack'>;
+
+/** The Python environment status a panel shows, and its change events. */
+export type PanelPythonEnvironment = Pick<PythonEnvironment, 'getCurrentPythonEnvironmentState' | 'onDidChangePythonEnvironmentState'>;
 
 export class PanelController implements vscode.Disposable {
     private readonly sessions = new Map<PanelHandle, PanelSession<PanelHandle>>();
@@ -169,6 +164,7 @@ export class PanelController implements vscode.Disposable {
         private readonly analysis: PanelAnalysis,
         private readonly exports: ExportFlows,
         private readonly calibration: PanelCalibration,
+        private readonly pythonEnvironment: PanelPythonEnvironment,
         private readonly panelFactory: PanelFactory = defaultPanelFactory,
         private readonly host: PanelControllerHost = defaultHost,
     ) {
@@ -225,7 +221,7 @@ export class PanelController implements vscode.Disposable {
                 filePaths,
                 [],
                 [],
-                this.host.getPythonEnvironment(),
+                this.pythonEnvironment.getCurrentPythonEnvironmentState(),
                 existingPanel,
                 loadSpectrogramSettings(this.context),
             );
@@ -238,7 +234,7 @@ export class PanelController implements vscode.Disposable {
                 cachedResultsByFilePath: new Map(),
             });
             session.setActiveResults([]);
-            this.postPythonEnvironmentState(session, this.host.getPythonEnvironment());
+            this.postPythonEnvironmentState(session, this.pythonEnvironment.getCurrentPythonEnvironmentState());
             return;
         }
 
@@ -361,7 +357,7 @@ export class PanelController implements vscode.Disposable {
         session.bindMessageListener(panel.webview.onDidReceiveMessage((message) => {
             void controller.dispatch(message);
         }));
-        session.bindPythonEnvironment(this.host.onPythonEnvironmentChange((state) => {
+        session.bindPythonEnvironment(this.pythonEnvironment.onDidChangePythonEnvironmentState((state) => {
             this.postPythonEnvironmentState(session, state);
         }));
         panel.onDidDispose(() => {
@@ -684,7 +680,7 @@ export class PanelController implements vscode.Disposable {
             session.panel,
             session.directorySelection?.selectedFilePaths,
         );
-        this.postPythonEnvironmentState(session, this.host.getPythonEnvironment());
+        this.postPythonEnvironmentState(session, this.pythonEnvironment.getCurrentPythonEnvironmentState());
     }
 
     private postPythonEnvironmentState(session: PanelSession<PanelHandle>, state: PythonEnvironmentState): void {

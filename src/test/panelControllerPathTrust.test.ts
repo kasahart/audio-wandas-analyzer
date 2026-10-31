@@ -6,10 +6,15 @@ import test from 'node:test';
 import type * as vscode from 'vscode';
 import type { AnalysisResultWithError } from '../shared/analysis/analysisTypes';
 import type { ExportWavLoopMessage } from '../shared/utils/audioTarget';
-import type { PanelBackend, PanelControllerHost, PanelFactory, PanelHandle } from '../extension/panelController';
+import type { PanelBackend, PanelControllerHost, PanelFactory, PanelHandle, PanelPythonEnvironment } from '../extension/panelController';
 import type { ExportFlows } from '../extension/exportFlows';
 import type { TargetFileSystem } from '../extension/targetDiscovery';
 import type { SpectrogramSettingsContext } from '../shared/analysis/savedSpectrogramSettings';
+
+const pythonEnvironment: PanelPythonEnvironment = {
+    getCurrentPythonEnvironmentState: () => ({ pythonCommand: 'python3', status: 'normal', tooltip: 'python3' }),
+    onDidChangePythonEnvironmentState: () => ({ dispose() {} }),
+};
 
 class CancellationError extends Error {}
 const FileType = { File: 1, Directory: 2, SymbolicLink: 64 };
@@ -76,8 +81,6 @@ function folderPanel(options: { listing?: (root: string) => Record<string, Array
         fileSystem: directoryFileSystem(options.listing?.(root) ?? { [root]: [['a.wav', FileType.File]] }),
         showOpenDialog: async () => undefined, executeCommand: async () => undefined,
         showInformation: message => { infos.push(message); }, showError: message => { errors.push(message); },
-        getPythonEnvironment: () => ({ pythonCommand: 'python3', status: 'normal', tooltip: 'python3' }),
-        onPythonEnvironmentChange: () => ({ dispose() {} }),
         language: () => 'en',
         withProgress: options.withProgress ?? ((_options, task) => task({ report() {} }, { isCancellationRequested: false } as vscode.CancellationToken)),
     };
@@ -100,7 +103,7 @@ function folderPanel(options: { listing?: (root: string) => Record<string, Array
         analyzeFiles: async (filePaths: string[]) => filePaths.map(filePath => ({ filePath, fileName: path.basename(filePath), sampleRateHz: 16000,
             durationSeconds: 1, channelCount: 0, sampleCount: 16000, channels: [], analysisRevision: 0 } satisfies AnalysisResultWithError)),
     };
-    const controller = new PanelController(context, backend, analysis, exports, { analysisRevision: () => 0, onDidChange: () => ({ dispose() {} }), configureTrack: async () => undefined }, factory, host);
+    const controller = new PanelController(context, backend, analysis, exports, { analysisRevision: () => 0, onDidChange: () => ({ dispose() {} }), configureTrack: async () => undefined }, pythonEnvironment, factory, host);
     // Waits for the reply that ends the request (entry-scan-done, ...) or, for an export, a few turns of the loop.
     const send = async (message: unknown, done?: string) => {
         const before = published.length;
@@ -295,13 +298,12 @@ test('a track\'s calibration button reaches the store through the panel\'s one m
     const errors: string[] = [];
     const host = {
         showError: (message: string) => { errors.push(message); }, showInformation() {},
-        getPythonEnvironment: () => ({ pythonCommand: 'python3', status: 'normal', tooltip: 'python3' }),
-        onPythonEnvironmentChange: () => ({ dispose() {} }), language: () => 'en',
+        language: () => 'en',
     } as unknown as PanelControllerHost;
     const configured: AnalysisResultWithError[] = [];
     const calibration = { analysisRevision: () => 0, onDidChange: () => ({ dispose() {} }), configureTrack: async (result: AnalysisResultWithError) => { configured.push(result); } };
     const context = { extensionUri: uri('/extension'), workspaceState: { get: <T>(_key: string, fallback?: T) => fallback, update: async () => undefined } } as unknown as SpectrogramSettingsContext & { extensionUri: vscode.Uri };
-    const controller = new PanelController(context, {} as PanelBackend, { warmup() {}, analyzeFiles: async () => [shown] }, {} as ExportFlows, calibration, factory, host);
+    const controller = new PanelController(context, {} as PanelBackend, { warmup() {}, analyzeFiles: async () => [shown] }, {} as ExportFlows, calibration, pythonEnvironment, factory, host);
     await controller.analyzeFiles(['/a.wav']);
     assert.equal(listeners, 1);
     await receive!({ type: 'configure-calibration', trackIndex: 0, filePath: '/a.wav', channels: [{ channelIndex: 0, label: 'message label' }] });
