@@ -2,9 +2,9 @@ import { createIdbStore } from './idbStore';
 import { SessionRequests, SourceResults } from '../../shared/analysis/analysisSession';
 import { runAnalysisBatch } from '../../shared/analysis/analysisCoordinator';
 import { AnalysisClient, type AnalysisCancellationSignal, type AnalysisContextPolicy } from '../../shared/analysis/analysisClient';
-import { BackendProtocolError, type ScanResult, PendingBackendRequests, rejectPendingRequests, settleBackendRequest, type BackendCommand, type BackendPayload, type BackendResult } from '../../shared/protocol/backendProtocol';
+import type { ScanResult, BackendCommand, BackendPayload, BackendResult } from '../../shared/protocol/backendProtocol';
 import type { BrowserLimits, StageDetail } from '../../shared/protocol/generated/backendProtocolSchema';
-import { parseWorkerMessage, parseWorkerResult, type WorkerCommand, type WorkerMessage, type WorkerRequest, type WorkerResult } from './workerProtocol';
+import { createWorkerConnection } from './staticWorker';
 import type { PanelMessage } from '../../shared/protocol/panelMessages';
 import { hasPlayableAudio, isConfigureCalibrationMessage, isSupportedAudioFile, SUPPORTED_AUDIO_FILE_EXTENSIONS } from '../../shared/utils/audioTarget';
 import { getStrings, pickLocale } from '../../shared/i18n/strings';
@@ -87,22 +87,28 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
     let persisted = sanitizePersistedState({ ...(readSaved(VIEW_STATE_KEY) as object | null), entryCsv: readSaved(CSV_STATE_KEY) });
     let savedCsv = persisted.entryCsv;
     browserWindow.__APP_STATE__!.spectrogramSettings = loadSpectrogramSettings(settingsContext);
-    let worker: Worker | undefined;
-    let recovery: Promise<void> | undefined;
-    let bootFailed = false;
-    /** A Worker booting behind the current one after a folder scan (replaceWorkerBehind). */
-    let spare: Worker | undefined;
     const sourceGeneration = new SessionRequests();
     const reanalysisGeneration = new SessionRequests();
     const sources = new SourceResults<Source>(new Map(), source => URL.revokeObjectURL(source.url));
     const inboundListeners = new Set<(message: unknown) => void>();
     let loading = false;
-    const pending = new PendingBackendRequests<unknown, WorkerCommand>('browser-');
+    const audioWorker = createWorkerConnection({
+        Worker, setTimeout, sources, sourceGeneration, exclusive,
+        showState: (state, quiet) => showPythonState(state, quiet),
+        reportLacks: lacks => { browserWindow.__AWA_RUNTIME_LACKS__ = lacks; },
+        cancelReanalysis: () => { reanalysisGeneration.advance(); },
+        crashed: () => {
+            dispose(); snapshot();
+            announce(strings.browserWorkerFailed);
+            emit({ type: 'reanalyze-end' });
+        },
+        bootFailedReason: strings.browserPythonFailed,
+    });
     // Session limits come from browser_service.py through the Worker so pre-checks, the backend and the README agree.
     let browserLimits: BrowserLimits | undefined;
     /** Caches the Worker's limits only when every field is a positive safe integer, so a skewed Worker cannot disable the pre-checks. */
     async function limits(): Promise<BrowserLimits> {
-        return browserLimits ??= await request({ cmd: 'limits' });
+        return browserLimits ??= await audioWorker.request({ cmd: 'limits' });
     }
     // The status line, About and the Python dot share the footer row with the hint text, so the page has no header row.
     const bar = document.createElement('div');
@@ -272,7 +278,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             const loaded: string[] = [];
             const workerPath = async (listed: string, bytes: File): Promise<string> => {
                 if (sources.get(listed)) return listed;
-                const into = (await request({ cmd: 'load', sourceId: listed.slice('/sources/'.length) }, await bytes.arrayBuffer())).filePath;
+                const into = (await audioWorker.request({ cmd: 'load', sourceId: listed.slice('/sources/'.length) }, await bytes.arrayBuffer())).filePath;
                 loaded.push(into);
                 return into;
             };
@@ -281,168 +287,18 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
                 const over = { ...(region ? { region } : {}), ...(stage ? { stage } : {}), ...(detail ? { detail } : {}), ...(paired ? { reference: paired } : {}) };
                 return await analysisClient.scan({ filePath: await workerPath(path, file), recipe, ...over });
             } finally {
-                for (const into of loaded) await request({ cmd: 'unload', filePath: into }).catch(() => undefined);
+                for (const into of loaded) await audioWorker.request({ cmd: 'unload', filePath: into }).catch(() => undefined);
             }
         });
     }
 
-    function resetWorker(reason: Error): void {
-        reanalysisGeneration.advance();
-        worker?.terminate(); worker = undefined;
-        spare?.terminate(); spare = undefined;
-        showPythonState('stopped');
-        recovery = undefined;
-        rejectPendingRequests(pending, reason);
-    }
     /** Drops every source; an idle Worker only releases them, so Pyodide boots once per page. */
     function dispose(): void {
         sourceGeneration.advance();
-        // Python cannot interrupt a running command, so work still in flight is cancelled by restarting the Worker.
-        if (pending.size || recovery) resetWorker(new Error('Analysis cancelled'));
-        else if (worker) {
-            reanalysisGeneration.advance();
-            const kept = worker;
-            // A Worker that cannot clear (a failed boot, or an older cached script) is replaced so no source outlives Clear.
-            sendRequest({ cmd: 'clear' }).catch(() => { if (worker === kept) resetWorker(new Error('Analysis cancelled')); });
-        }
+        audioWorker.clear();
         loading = false; pick.disabled = false; pick.value = ""; folderPick.value = "";
         pendingTreePaths.clear();
         sources.clear();
-    }
-    async function request<K extends WorkerCommand>(
-        command: WorkerRequest<K>, bytes?: ArrayBuffer, forcedRequestId?: string, cancellation?: AnalysisCancellationSignal,
-    ): Promise<WorkerResult<K>> {
-        // A Worker whose boot failed is replaced first, so retained sources are replayed into its successor.
-        if (bootFailed) resetWorker(new Error(strings.browserPythonFailed));
-        if (!worker && !recovery && sources.size) {
-            const generation = sourceGeneration.current;
-            const restoring = (async () => {
-                for (const source of sources.values()) {
-                    const bytes = await source.file.arrayBuffer();
-                    if (!sourceGeneration.isCurrent(generation) || !sources.owns(source.path, source)) {
-                        throw new Error('Analysis cancelled');
-                    }
-                    await sendRequest({ cmd: 'load', sourceId: source.sourceId }, bytes);
-                }
-            })();
-            recovery = restoring;
-            void restoring.finally(() => { if (recovery === restoring) recovery = undefined; }).catch(() => {});
-        }
-        if (recovery) await recovery;
-        if (cancellation?.isCancellationRequested) throw new Error('Recipe execution cancelled');
-        return sendRequest(command, bytes, forcedRequestId);
-    }
-    function startWorker(quiet = false): Worker {
-        const activeWorker = new Worker('./audio.worker.js', { type: 'module' });
-        bootFailed = false;
-        showPythonState('starting', quiet);
-        attachWorker(activeWorker);
-        return activeWorker;
-    }
-    /** Routes a Worker's replies to the pending requests while it is the current one. */
-    function attachWorker(activeWorker: Worker): void {
-        activeWorker.onmessage = (event: MessageEvent<unknown>): void => {
-            if (worker !== activeWorker) return;
-            const message = parseWorkerMessage(event.data);
-            if (!message) return;
-            if (message.kind === 'ready') {
-                bootFailed = !message.ready;
-                // The optional packages the runtime cannot import: the step bar greys out what needs them.
-                if (message.lacks) browserWindow.__AWA_RUNTIME_LACKS__ = message.lacks;
-                showPythonState(message.ready ? 'ready' : 'failed');
-                return;
-            }
-            // A Worker reply is `{requestId, result}` or `{requestId, error}`; `result` holds no envelope keys.
-            const { requestId, result, error, envelope, wellFormed } = message;
-            if (error === undefined && !wellFormed) {
-                // Rejected here because browser-only commands (load, unload, export-plan) settle without a result schema.
-                const request = pending.get(requestId);
-                if (!request) return;
-                pending.delete(requestId);
-                request.reject(new BackendProtocolError(`Invalid ${request.command} response envelope`));
-                return;
-            }
-            settleBackendRequest(pending, requestId, error === undefined ? result : envelope, error);
-        };
-        activeWorker.onerror = (): void => {
-            if (worker !== activeWorker) return;
-            resetWorker(new Error('Analysis cancelled'));
-            dispose(); snapshot();
-            announce(strings.browserWorkerFailed);
-            emit({ type: 'reanalyze-end' });
-        };
-    }
-    /**
-     * After a folder scan Pyodide's heap stays as large as the scan made it, so a fresh Worker takes over.
-     * It boots and loads the selected tracks behind the current one, which keeps answering meanwhile; it is
-     * swapped in at a moment no request is waiting, and the old one is then dropped. Nothing waits for the
-     * boot. A spare that fails, or whose tracks no longer match, is dropped and the current one stays.
-     */
-    function replaceWorkerBehind(): void {
-        if (spare || !worker) return;
-        const generation = sourceGeneration.current;
-        const next = new Worker('./audio.worker.js', { type: 'module' });
-        spare = next;
-        const replies = new Map<string, (reply: Extract<WorkerMessage, { kind: 'reply' }>) => void>();
-        let calls = 0;
-        const abandon = (): void => { if (spare === next) spare = undefined; next.terminate(); };
-        next.onmessage = (event: MessageEvent<unknown>): void => {
-            const message = parseWorkerMessage(event.data);
-            if (message?.kind === 'ready') { if (!message.ready) abandon(); return; }
-            if (message) replies.get(message.requestId)?.(message);
-        };
-        next.onerror = (): void => abandon();
-        const call = (command: WorkerRequest<'limits' | 'load'>, bytes?: ArrayBuffer): Promise<void> => new Promise((resolve, reject) => {
-            const requestId = `spare-${++calls}`;
-            replies.set(requestId, reply => {
-                replies.delete(requestId);
-                try {
-                    if (reply.error !== undefined || !reply.wellFormed) throw new Error('refused');
-                    parseWorkerResult(command.cmd, reply.result);
-                    resolve();
-                } catch { reject(new Error('spare Worker refused a command')); }
-            });
-            next.postMessage({ ...command, requestId, bytes }, bytes ? [bytes] : []);
-        });
-        const loaded = new Set<string>();
-        const loadMissing = async (): Promise<void> => {
-            for (const source of sources.values()) {
-                if (loaded.has(source.sourceId)) continue;
-                await call({ cmd: 'load', sourceId: source.sourceId }, await source.file.arrayBuffer());
-                loaded.add(source.sourceId);
-            }
-        };
-        void (async () => {
-            try {
-                // Answered once Pyodide has booted.
-                await call({ cmd: 'limits' });
-                await loadMissing();
-                await exclusive(async () => {
-                    while (pending.size) await new Promise(resolve => setTimeout(resolve, 20));
-                    // A track picked meanwhile is loaded too; one released meanwhile, or a Clear, drops the spare.
-                    const current = new Set(Array.from(sources.values(), source => source.sourceId));
-                    if (spare !== next || !worker || recovery || !sourceGeneration.isCurrent(generation) || [...loaded].some(id => !current.has(id))) { abandon(); return; }
-                    await loadMissing();
-                    const old = worker;
-                    attachWorker(next);
-                    worker = next;
-                    spare = undefined;
-                    old.terminate();
-                });
-            } catch { abandon(); }
-        })();
-    }
-    /** Every success reply is checked before it settles: the shared commands by the native validator, the Worker's own by theirs. */
-    function sendRequest<K extends WorkerCommand>(command: WorkerRequest<K>, bytes?: ArrayBuffer, forcedRequestId?: string): Promise<WorkerResult<K>> {
-        if (!worker) {
-            if (command.cmd !== 'load' && command.cmd !== 'limits') throw new Error('No selected source; choose the file again.');
-            worker = startWorker();
-        }
-        const target = worker;
-        const requestId = forcedRequestId ?? pending.nextId();
-        return pending.dispatch(command.cmd, requestId, response => parseWorkerResult(command.cmd, response), () => {
-            target.postMessage({ ...command, requestId, bytes }, bytes ? [bytes] : []);
-        });
     }
     function stft() {
         const state = browserWindow.__APP_STATE__!;
@@ -454,13 +310,13 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             if (deps.recipeTimeoutMs !== undefined) this.recipeTimeoutMs = deps.recipeTimeoutMs;
         }
         protected override cancelRequest(requestId: string, reason: Error): void {
-            if (!pending.has(requestId) && !recovery) return;
-            resetWorker(new RecipeWorkerResetError(reason.message));
+            if (!audioWorker.isWaiting(requestId)) return;
+            audioWorker.reset(new RecipeWorkerResetError(reason.message));
             emit({ type: 'reanalyze-end' });
             announce(failedWith(strings.browserAnalysisStopped, reason));
         }
         protected async request<K extends BackendCommand>(command: K, payload: BackendPayload<K>, requestId?: string, cancellation?: AnalysisCancellationSignal): Promise<BackendResult<K>> {
-            return request({ ...payload, cmd: command }, undefined, requestId, cancellation);
+            return audioWorker.request({ ...payload, cmd: command }, undefined, requestId, cancellation);
         }
     }({ current: filePath => {
         const result = sources.get(filePath)?.result;
@@ -481,7 +337,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             announce(strings.browserRemoved); return;
         }
         const myGeneration = sourceGeneration.current;
-        try { await request({ cmd: 'unload', filePath: path }); }
+        try { await audioWorker.request({ cmd: 'unload', filePath: path }); }
         catch (error) { if (!(error instanceof RecipeWorkerResetError) && sourceGeneration.isCurrent(myGeneration)) { dispose(); snapshot(); emit({ type: 'reanalyze-end' }); announce(failedWith(strings.browserRemoveFailed, error)); } }
     }
     async function fetchJson(url: string): Promise<unknown> {
@@ -560,7 +416,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         },
         lazyFailed: (_request, reason) => announce(reason),
         releaseTrackDetail(filePath): PromiseLike<unknown> | void {
-            if (worker && sources.get(filePath)) return analysisClient.releaseTrackDetail(filePath);
+            if (audioWorker.running && sources.get(filePath)) return analysisClient.releaseTrackDetail(filePath);
         },
         activeFilePaths: () => sources.snapshot(source => source.path),
         async reanalyze(stftOptions, scope) {
@@ -582,7 +438,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
                 sink: {
                     isCurrent: () => scope.isCurrent(),
                     isSelected: item => sources.get(item.filePath) === selected.find(source => source.path === item.filePath),
-                    prepare: async commands => { await request({ cmd: 'export-plan', commands }); },
+                    prepare: async commands => { await audioWorker.request({ cmd: 'export-plan', commands }); },
                     exportWavLoop: (filePath, start, end) => analysisClient.exportWavLoop(filePath, start, end),
                     write: async (_source, name, result) => { regions.add(name, result.wavBase64); },
                 },
@@ -628,7 +484,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
                 for (const path of tree.keys()) {
                     if (wanted.has(path) || !sources.get(path)) continue;
                     sources.delete(path);
-                    try { await request({ cmd: 'unload', filePath: path }); }
+                    try { await audioWorker.request({ cmd: 'unload', filePath: path }); }
                     catch (error) {
                         if (!sourceGeneration.isCurrent(myGeneration)) return;
                         if (error instanceof RecipeWorkerResetError) { snapshot(); return; }
@@ -685,7 +541,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             write: async (key, value) => (folderKeys.isFolderKey(key) ? folderStore.write(await folderKeys.tagged(key), value) : save(key, value)),
             // Pyodide's heap never shrinks, so after a folder scan the Worker is replaced and the selected tracks reload into it.
             // A few files (a comparison region over a base group) leave Pyodide's heap as it was; a folder's worth does not.
-            afterScan: scanned => { if (scanned >= (deps.restartAfterScans ?? 20) && worker && !recovery) replaceWorkerBehind(); },
+            afterScan: scanned => { if (scanned >= (deps.restartAfterScans ?? 20) && audioWorker.running && !audioWorker.recovering) audioWorker.replaceBehind(); },
         },
     };
     const controller = new ComparisonSessionController(ports);
@@ -728,14 +584,14 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
                     if (refused) throw new Error(refused);
                     const bytes = await file.arrayBuffer();
                     if (!sourceGeneration.isCurrent(myGeneration)) throw new Error('Analysis cancelled');
-                    const loaded = await request({ cmd: 'load', sourceId }, bytes);
+                    const loaded = await audioWorker.request({ cmd: 'load', sourceId }, bytes);
                     if (!sourceGeneration.isCurrent(myGeneration)) throw new Error('Analysis cancelled');
                     loadedPath = loaded.filePath;
                     const result = await analysisClient.analyze(loadedPath, stft());
                     return { path: loadedPath, sourceId, result };
                 } catch (error) {
                     if (!(error instanceof RecipeWorkerResetError) && sourceGeneration.isCurrent(myGeneration) && loadedPath) {
-                        try { await request({ cmd: 'unload', filePath: loadedPath }); }
+                        try { await audioWorker.request({ cmd: 'unload', filePath: loadedPath }); }
                         catch (releaseError) {
                             if (!(releaseError instanceof RecipeWorkerResetError) && sourceGeneration.isCurrent(myGeneration)) { dispose(); snapshot(); announce(String(releaseError)); }
                             throw releaseError;
@@ -861,7 +717,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         openFolderFiles(files[0]?.webkitRelativePath.split('/')[0] ?? '', files.map(file => ({ path: file.webkitRelativePath, file })));
     };
     // Pyodide boots when its Worker starts, so starting it with the page keeps that wait off the first file load.
-    worker = startWorker();
+    audioWorker.start();
     window.addEventListener('pointerdown', event => { if (about.open && !about.contains(event.target as Node)) about.open = false; });
     window.addEventListener('resize', clampAbout);
     keyRouterFor(window).add({
@@ -874,6 +730,6 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         },
     });
     // Leaving the page always stops Python, so a back-forward cached page does not keep the runtime resident.
-    window.addEventListener('pagehide', () => { resetWorker(new Error('Analysis cancelled')); dispose(); });
+    window.addEventListener('pagehide', () => { audioWorker.reset(new Error('Analysis cancelled')); dispose(); });
     return host;
 }
