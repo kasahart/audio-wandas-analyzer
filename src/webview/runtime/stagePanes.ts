@@ -361,6 +361,11 @@ export interface StagePaintOptions {
      * same-signed neighbours (its leak through the band filters) outlined, the rest faint; `legend` names them.
      */
     bandSteps?: { deltas: readonly (number | null)[]; headline: readonly number[]; color: string; legend?: { headline: string; leak: string; line: string } };
+    /**
+     * The pictures still being computed: `label` (the files done of all) and a bar of `done` / `total`, in the
+     * middle of the pane while nothing is drawn, in its top right corner once some lines are in.
+     */
+    pending?: { done: number; total: number; label: string };
 }
 
 /** One picture on its own: the base, the compared file or their difference. */
@@ -405,8 +410,11 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
     }
     context.font = '10px sans-serif';
     const view = overlay.layers.find(layer => layer.view.kind !== 'none' && layer.view.xs?.length)?.view;
+    // Neutral: blue and the other colours are the roles'.
+    const pendingColors = { muted, line, fill: text, back: style?.getPropertyValue('--track-bg').trim() || '#0b0d10' };
     if (!view) {
-        if (options.empty) {
+        if (options.pending) paintPending(context, options.pending, left + plotWidth / 2, top + plotHeight / 2, 'center', pendingColors);
+        else if (options.empty) {
             context.fillStyle = muted;
             context.textAlign = 'center';
             context.fillText(options.empty, left + plotWidth / 2, top + plotHeight / 2);
@@ -545,6 +553,31 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
     const frame = { left, top, width: plotWidth, height: plotHeight };
     drawValueAxis(context, frame, levelTicks, '', { color: muted, font: context.font, titleX: AXIS_TITLE_X });
     drawValueAxis(context, frame, [], axes.y, { color: text, font: context.font, titleX: AXIS_TITLE_X });
+    // Under the region's corner tag when there is one.
+    if (options.pending) paintPending(context, options.pending, left + plotWidth - 6, top + (options.region?.mark === 'tag' ? 38 : 12), 'right', pendingColors);
+}
+
+/**
+ * "Computing 3 / 12" over a thin bar filled to the part done, centred at (x, y) or ending at x (`right`, over the
+ * lines: on a backing of the plot's background).
+ */
+function paintPending(context: CanvasRenderingContext2D, pending: { done: number; total: number; label: string }, x: number, y: number, align: 'center' | 'right', colors: { muted: string; line: string; fill: string; back: string }): void {
+    context.save();
+    context.font = '12px sans-serif';
+    const barWidth = Math.max(96, context.measureText(pending.label).width);
+    const left = align === 'center' ? x - barWidth / 2 : x - barWidth;
+    if (align === 'right') {
+        context.fillStyle = colors.back;
+        context.fillRect(left - 4, y - 12, barWidth + 8, 26);
+    }
+    context.fillStyle = colors.muted;
+    context.textAlign = align;
+    context.fillText(pending.label, x, y);
+    context.fillStyle = colors.line;
+    context.fillRect(left, y + 6, barWidth, 4);
+    context.fillStyle = colors.fill;
+    context.fillRect(left, y + 6, barWidth * Math.min(1, pending.done / Math.max(1, pending.total)), 4);
+    context.restore();
 }
 
 

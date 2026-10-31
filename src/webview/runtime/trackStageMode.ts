@@ -32,6 +32,7 @@ import { legendHtml, type LegendItem, type PaneRange } from './comparePanes';
 import { regionLabel } from './entryTable';
 import { baseName } from '../../shared/analysis/entryMetadata';
 import { withChannel } from '../../shared/recipe/channelSelection';
+import { INPUT_FRAME } from '../../shared/recipe/recipeCatalog';
 
 /** The roles' colours: the base blue, slots 1–3 yellow, purple, magenta (as their cards and badges). */
 
@@ -149,6 +150,9 @@ const TAP_MS = 250;
 /** A base group of more recordings than this, or more audio (s), is not scanned for the comparison's pictures until the user asks. */
 export const LARGE_BASE = 30;
 export const LARGE_BASE_S = 30 * 60;
+
+/** The Frames drawn as images (stage_view.py's heatmaps): they are not overlaid, each stays in its track's lane. */
+const IMAGE_FRAMES = new Set(['SpectrogramFrame', 'CepstrogramFrame', 'RoughnessFrame']);
 
 const narrowed = (range: PaneRange, y: { start: number; end: number }): PaneRange => ({ min: range.min + y.start * (range.max - range.min), max: range.min + y.end * (range.max - range.min) });
 
@@ -444,6 +448,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             const referencePath = slotStep && !groupBase ? deps.slots()[0] ?? null : null;
             const needBase = !!slotStep && !referencePath;
             if (cannot || needBase) {
+                root.dataset.pending = '';
                 deps.showLanes(false);
                 panel.hidden = false;
                 query<HTMLElement>('[data-stage-headline]').textContent = '';
@@ -496,7 +501,15 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             root.dataset.regionMark = regionMark?.mark ?? '';
             const coarse = (path: string) => source.view(specOf(channelFor(path)), path);
             const picture = tracks.map(track => coarse(track.filePath)).find((view): view is StageView => !!view) ?? null;
-            const images = !picture || picture.kind === 'heatmap' || picture.kind === 'none';
+            // Before any picture is in, the step's Frame says whether it is an image: the comparison is shown at once,
+            // computing, rather than the lanes until the first file is in.
+            const frameShown = id === INPUT_STAGE ? INPUT_FRAME : id === OCTAVE_BRANCH ? 'NOctFrame' : steps.find(step => step.id === id)?.output;
+            // (A step held draws the chain without it, another Frame: the lanes until its first picture, as before.)
+            const images = picture ? picture.kind === 'heatmap' || picture.kind === 'none' : !waiting || !!held_ || IMAGE_FRAMES.has(frameShown ?? '');
+            // The files in of all asked for, said on the plots while any is missing.
+            const done = files.filter(path => coarse(path) !== undefined).length;
+            const pending = waiting ? { done, total: files.length, label: strings.dsComputing.replace('{done}', String(done)).replace('{n}', String(files.length)) } : undefined;
+            root.dataset.pending = pending ? `${done}/${files.length}` : '';
             const overlay = overlaid && !images;
             deps.showLanes(!overlay);
             panel.hidden = !overlay;
@@ -548,7 +561,8 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             const coarsePlots = plotsOf(coarse, tracks, comparePath, basePaths, tableBase);
             shownCompare = { path: comparePath, view: comparePath && !waiting ? coarse(comparePath) : undefined };
             const headline = query<HTMLElement>('[data-stage-headline]');
-            headline.textContent = waiting ? strings.comparePending
+            // While computing, the plots say so (with the files in): the headline waits for the levels.
+            headline.textContent = waiting ? ''
                 : referencePath ? strings.stageVsBase.replace('{file}', named(referencePath, 0).label)
                 // Which difference is shown: the compared slot against the base.
                 : comparePath ? (role(comparePath) ? strings.stageCompareMinusBase.replace('{n}', String(role(comparePath))) : '')
@@ -568,16 +582,20 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
                 const range = stageRange(tracks.map(track => coarse(track.filePath) ?? null));
                 const heat = picture?.kind === 'heatmap';
                 let drawn = 0;
+                // Every lane in while the base group is still computed: the first lane says so, in its corner.
+                const anyMissing = tracks.some(track => track.canvas && coarse(track.filePath) === undefined);
+                const progressLane = anyMissing ? null : tracks.find(track => track.canvas)?.filePath;
                 tracks.forEach(track => {
                     track.axis?.getContext('2d')?.clearRect(0, 0, track.axis.width, track.axis.height);
                     if (!track.canvas) return;
                     const view = shown(track.filePath) ?? null;
-                    const empty = coarse(track.filePath) === undefined ? '' : strings.stepNotDrawable.replace('{frame}', picture?.frame ?? '');
+                    const missing = coarse(track.filePath) === undefined;
+                    const empty = missing ? '' : strings.stepNotDrawable.replace('{frame}', picture?.frame ?? '');
                     const axes = stageAxes(strings, coarse(track.filePath) ?? picture, track.input);
                     drawnOn.set(track.canvas, { picture: coarse(track.filePath) ?? picture, range, axes, views: { base: coarsePlots.base, compare: coarse(track.filePath) ?? null, diff: null } });
                     // A lane holds one picture, drawn as it is (1/3-octave levels as steps, without a fill).
                     paintOverlay(track.canvas, { layers: view ? [{ view, color: colorOf(track.filePath), width: widthOf(track.filePath, 2) }] : [] }, heat ? range : narrowed(range, window_.y), axes,
-                        { empty, window: { x: window_.x, ...(heat ? { y: window_.y } : {}) }, axisView: coarse(track.filePath) ?? picture, ...(regionMark ? { region: regionMark } : {}) });
+                        { empty, window: { x: window_.x, ...(heat ? { y: window_.y } : {}) }, axisView: coarse(track.filePath) ?? picture, ...(regionMark ? { region: regionMark } : {}), ...((missing || track.filePath === progressLane) && pending ? { pending } : {}) });
                     if (view) drawn++;
                 });
                 // The base slot's lane: the reference the others are measured against, not a picture of its own.
@@ -626,15 +644,15 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             const axes = stageAxes(strings, picture, tracks[0]?.input);
             const empty = waiting ? '' : strings.stepNotDrawable.replace('{frame}', picture?.frame ?? '');
             drawnOn.set(query('[data-stage-canvas="overlay"]'), { picture, range, axes, views: { base: coarsePlots.base, compare: coarsePlots.compare, diff: coarsePlots.diff } });
-            paintOverlay(query<HTMLCanvasElement>('[data-stage-canvas="overlay"]'), { layers }, narrowed(range, window_.y), axes, { empty, window: { x: window_.x }, axisView: picture, ...(regionMark ? { region: regionMark } : {}) });
+            paintOverlay(query<HTMLCanvasElement>('[data-stage-canvas="overlay"]'), { layers }, narrowed(range, window_.y), axes, { empty, window: { x: window_.x }, axisView: picture, ...(regionMark ? { region: regionMark } : {}), ...(pending ? { pending } : {}) });
             const diffBox = query<HTMLElement>('[data-stage-diff]');
             diffBox.hidden = !showDiff || !!referencePath || !comparePath;
             if (showDiff && !referencePath && comparePath) {
-                query<HTMLElement>('[data-stage-diff-headline]').textContent = waiting ? strings.comparePending : stageHeadline(plots.diff, strings);
+                query<HTMLElement>('[data-stage-diff-headline]').textContent = waiting ? '' : stageHeadline(plots.diff, strings);
                 const diffAxes = stageAxes(strings, coarsePlots.diff, tracks[0]?.input, true);
                 drawnOn.set(query('[data-stage-canvas="diff"]'), { picture: coarsePlots.diff, range: stageDiffRange(coarsePlots.diff), axes: diffAxes, views: { base: coarsePlots.base, compare: coarsePlots.compare, diff: coarsePlots.diff } });
                 paintStage(query<HTMLCanvasElement>('[data-stage-canvas="diff"]'), plots.diff, stageDiffRange(coarsePlots.diff), DIFF_COLOR, stageAxes(strings, coarsePlots.diff, tracks[0]?.input, true),
-                    { diff: true, empty: waiting ? '' : strings.stageNoDelta, window: { x: window_.x }, axisView: coarsePlots.diff });
+                    { diff: true, empty: waiting ? '' : strings.stageNoDelta, window: { x: window_.x }, axisView: coarsePlots.diff, ...(pending ? { pending } : {}) });
             }
         },
         handle: message => source.handle(message),

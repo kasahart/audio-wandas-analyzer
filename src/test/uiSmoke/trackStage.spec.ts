@@ -49,12 +49,19 @@ test('the track view\'s steps mode draws every track as the chosen step\'s Frame
     const asked = (await stageScans(page)).at(-1)!;
     expect(asked.stage).toBe('node-noct');
     expect(asked.filePaths).toEqual([first]);
+    // While it is computed, the comparison is on screen already (not the lanes), saying how many files are in.
+    await expect(stage).toHaveAttribute('data-layout', 'overlay');
+    await expect(stage).toHaveAttribute('data-pending', '0/1');
+    await expect(page.locator('#stacked-wrap')).toBeHidden();
     const view = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity: 'level', xs: [100, 1000, 5000], values: [-40, -30, -50] };
     await answer(page, view);
     // The base (ungrouped: the folder's other recordings) is too large to scan unasked; asked, it is.
     await page.locator('[data-action="stage-base-scan"]').click();
     await expect.poll(async () => (await stageScans(page)).at(-1)!.filePaths.length).toBeGreaterThan(1);
+    // The track's line is in; the base group's files are counted as they come.
+    await expect(stage).toHaveAttribute('data-pending', /^1\/\d+$/);
     await answer(page, view);
+    await expect(stage).toHaveAttribute('data-pending', '');
     // Overlaid by default: the base group's median and the slotted track on one plot, the lanes out of the way.
     await expect(stage).toHaveAttribute('data-layout', 'overlay');
     await expect(bar).toHaveAttribute('data-drawn', '2');
