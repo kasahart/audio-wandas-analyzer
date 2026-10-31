@@ -27,7 +27,7 @@ from typing import Any
 
 Schema = dict[str, Any]
 
-MAX_WAVEFORM_POINTS = 8192
+MAX_WAVEFORM_POINTS = 32768
 
 SUPPORTED_KEYWORDS = frozenset(
     {

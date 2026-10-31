@@ -8,7 +8,7 @@ import { dispatchTestMouseEvent, fillSpectrogramDisplayForm, fillSpectrogramSett
 import { nextRequestId } from './hostRequests';
 import { DEFAULT_PYTHON_ENVIRONMENT_STATE, isResponseToLazyRequest, mergeDetailSpectrograms, pythonEnvironmentStateFromMessage } from './lazyResponses';
 import { formatAmplitudeValue, formatWaveformAxisLabels, drawWaveformAmplitudeAxis, drawSpectrogramFrequencyAxis, drawCanvasMessage, type DrawTheme } from '../draw/canvasDrawers';
-import { isCacheSufficient, computeReqBounds, isOverviewSufficient, rangeCacheCoversView, rangeRequestPointCount } from '../waveform/rangeRequestPolicy';
+import { isCacheSufficient, isOverviewSufficient, isRangeCacheDrawable, parseRangeRequestKey, planLaneRange, rangeCacheCoversView, rangeHasDetail } from '../waveform/rangeRequestPolicy';
 import { extractSpectrumAtCursor as extractCursorSpectrum } from '../spectrum/cursorSpectrum';
 import { buildSpectrumCsv, wavLoopRegions } from './runtimeExports';
 import { audioById, buttonById, buttonMatching, canvasById, canvasesMatching, canvasTarget, eventTarget, requiredElementById } from './domAdapter';
@@ -797,6 +797,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     const updatePlaybackDisplay = createPlaybackDisplay(document, STR.playbackTimePrefix || '▶');
     // ── On-demand range cache ──
     let rangeRequestTimer: number | null = null;
+    /** When each lane's range request on its way was sent; a failed one is never answered, so it is asked again after RANGE_RETRY_MS. */
+    const rangeAskedAt = new Map<string, number>();
+    const RANGE_RETRY_MS = 2000;
+    /** When the range each lane draws was asked for, so an older answer arriving late does not replace a newer one. */
+    const rangeLandedAskedAt = new Map<TrackId, number>();
     // Receive high-res range data from Extension Host
     messaging.onMessage(function (msg) {
         if (!msg || msg.type !== 'waveform-range-result') {
@@ -808,10 +813,19 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (!trackId || !record) {
             return;
         }
-        if (!record.requests.answering('range', msg.requestId)) {
+        // A range superseded during a pan still holds detail near the view: it is drawn until the newer one lands.
+        // Requests are forgotten on a new analysis, so an answer for an older analysis is still dropped here.
+        if (!record.requests.find(msg.requestId)) {
             return;
-        } // stale
+        }
+        // ...but never over one asked for later that has already landed.
+        const askedAt = rangeAskedAt.get(msg.requestId) ?? -Infinity;
         record.requests.settle(msg.requestId);
+        rangeAskedAt.delete(msg.requestId);
+        if (askedAt < (rangeLandedAskedAt.get(trackId) ?? -Infinity)) {
+            return;
+        }
+        rangeLandedAskedAt.set(trackId, askedAt);
         record.rangeCache = { startNorm: msg.startNorm, endNorm: msg.endNorm, channels: msg.channels };
         renderAll();
     });
@@ -1022,11 +1036,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }
         }
     }
+    /** Throttled, not debounced: a long continuous pan keeps asking for the screens ahead instead of waiting for it to stop. */
     function scheduleRangeRequests() {
         if (rangeRequestTimer) {
-            clearTimeout(rangeRequestTimer);
+            return;
         }
-        rangeRequestTimer = setTimeout(function () { checkAndRequestRanges(); }, 80);
+        rangeRequestTimer = setTimeout(function () { rangeRequestTimer = null; checkAndRequestRanges(); }, 80);
     }
     function computeTrackFileView(result: ComparisonTrackState, trackIndex: number, offsetSeconds?: number): TrackFileView {
         const offsetSec = offsetSeconds === undefined ? trackRuntimeAt(trackIndex).offsetSeconds : offsetSeconds;
@@ -1068,12 +1083,28 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             if (overviewIsSufficient(result, W, fileView)) {
                 return;
             }
-            const { reqStart, reqEnd } = computeReqBounds(fileView.fileAtZoomStart, fileView.fileAtZoomEnd);
-            const pts = rangeRequestPointCount(W);
-            if (isCacheSufficient(record.rangeCache, reqStart, reqEnd, pts, W, fileView.fileAtZoomStart, fileView.fileAtZoomEnd, channelsForResult(result).length)) {
+            // Detail is kept for a couple of screens either side, so a pan draws lines already decimated in full.
+            const { reqStart, reqEnd, points: pts, keepStart, keepEnd } = planLaneRange(fileView.fileAtZoomStart, fileView.fileAtZoomEnd, W);
+            const channelCount = channelsForResult(result).length;
+            if (isCacheSufficient(record.rangeCache, keepStart, keepEnd, pts, W, fileView.fileAtZoomStart, fileView.fileAtZoomEnd, channelCount)) {
                 return;
             }
+            const pending = record.requests.pending('range');
+            // The host answers a failed range with nothing, so a range on its way stops counting after a while and is asked again.
+            const inFlight = pending && performance.now() - (rangeAskedAt.get(pending.requestId) ?? -Infinity) < RANGE_RETRY_MS;
+            const asked = pending && inFlight ? parseRangeRequestKey(pending.key) : null;
+            if (asked && asked.startNorm <= keepStart && asked.endNorm >= keepEnd &&
+                rangeHasDetail(asked.points, asked.startNorm, asked.endNorm, pts, W, fileView.fileAtZoomStart, fileView.fileAtZoomEnd)) {
+                return; // the range on its way already covers it
+            }
             const requestId = nextRequestId('range', record.id);
+            // Superseded requests keep their time until answered (an answer may still land); the host cancels most, so
+            // the oldest are dropped once many are kept.
+            rangeAskedAt.set(requestId, performance.now());
+            if (rangeAskedAt.size > 256) {
+                const oldest = rangeAskedAt.keys().next().value;
+                if (oldest !== undefined) rangeAskedAt.delete(oldest);
+            }
             record.requests.ask('range', requestId, `${reqStart}|${reqEnd}|${pts}`, null);
             messaging.post({
                 type: 'request-waveform-range',
@@ -1784,9 +1815,17 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             rangeCacheCoversView(c, channelIndex, fileView.fileAtZoomStart, fileView.fileAtZoomEnd)) {
             return { waveform: cachedChannel, dataStart: c.startNorm, dataEnd: c.endNorm, amplitudeScale: amplitudeScale };
         }
-        return fullWaveform
-            ? { waveform: fullWaveform, dataStart: 0, dataEnd: 1, amplitudeScale: amplitudeScale }
-            : null;
+        if (!fullWaveform) {
+            return null;
+        }
+        // After a zoom out (or a pan past the fetched range) the part still fetched keeps its detail over the overview
+        // until the new range lands, instead of the whole lane dropping to the coarsest lines for a moment.
+        const overlapsView = !!c && !!cachedChannel && isRangeCacheDrawable(c, channelIndex) &&
+            c.endNorm > Math.max(0, fileView.fileAtZoomStart) && c.startNorm < Math.min(1, fileView.fileAtZoomEnd);
+        const detail = c && cachedChannel && overlapsView && !overviewIsSufficient(result, W, fileView)
+            ? { waveform: cachedChannel, dataStart: c.startNorm, dataEnd: c.endNorm, amplitudeScale: amplitudeScale }
+            : undefined;
+        return { waveform: fullWaveform, dataStart: 0, dataEnd: 1, amplitudeScale: amplitudeScale, ...(detail ? { detail } : {}) };
     }
     function drawTrackWaveform(canvas: HTMLCanvasElement, result: ComparisonTrackState, trackIndex: number, channelIndex: number, offsetSeconds: number, color: string, options: WaveformDrawOptions = {}): void {
         const ctx = canvas.getContext('2d');
@@ -2748,7 +2787,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 const pending = requests?.pending(slot);
                 if (pending) ids.add(pending.requestId);
             });
-            // Zoom detail is asked again on each redraw until it arrives: the same span is the same wait.
+            // A redraw asks again for zoom detail only past the range on its way or after RANGE_RETRY_MS: the same span is the same wait.
             const range = requests?.pending('range');
             if (range) ids.add('range:' + i + ':' + range.key);
         });

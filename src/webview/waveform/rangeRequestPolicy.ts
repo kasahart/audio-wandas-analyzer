@@ -9,6 +9,53 @@ export const RANGE_CACHE_MIN_POINTS_PER_PIXEL = 0.5;
 
 export const OVERVIEW_POINTS = 1200;
 
+/**
+ * The lanes fetch their detail for this many screens on each side of the view, so a pan stays on lines already
+ * decimated at full density instead of showing the coarse overview until the next range arrives...
+ */
+export const RANGE_PREFETCH_SCREENS = 2;
+/** ...and ask again once less than this many screens of fetched detail remain on a side. */
+export const RANGE_KEEP_SCREENS = 1;
+/** Upper bound on points of one prefetching range request (the backend's limit). */
+export const MAX_PREFETCH_POINTS = 32768;
+
+/** View ± `screens` visible spans, clamped to the file. */
+export function screensAround(viewStart: number, viewEnd: number, screens: number): { reqStart: number; reqEnd: number } {
+    const margin = screens * Math.max(0, viewEnd - viewStart);
+    return { reqStart: Math.max(0, viewStart - margin), reqEnd: Math.min(1, viewEnd + margin) };
+}
+
+/** Points for [reqStart, reqEnd] at the density one screen gets (rangeRequestPointCount), within MAX_PREFETCH_POINTS. */
+export function prefetchPointCount(canvasWidth: number, reqStart: number, reqEnd: number, viewStart: number, viewEnd: number): number {
+    const screens = Math.max(1, (reqEnd - reqStart) / Math.max(viewEnd - viewStart, 1e-12));
+    return Math.max(1, Math.min(MAX_PREFETCH_POINTS, Math.ceil(rangeRequestPointCount(canvasWidth) * screens - 1e-6)));
+}
+
+export interface LaneRangePlan {
+    /** The range to ask for, and how many points. */
+    reqStart: number;
+    reqEnd: number;
+    points: number;
+    /** The range a cached (or pending) answer must cover for the lane not to ask again. */
+    keepStart: number;
+    keepEnd: number;
+}
+
+/** What a lane showing file positions [viewStart, viewEnd] on a canvas `width` px wide fetches, and keeps using. */
+export function planLaneRange(viewStart: number, viewEnd: number, width: number): LaneRangePlan {
+    const { reqStart, reqEnd } = screensAround(viewStart, viewEnd, RANGE_PREFETCH_SCREENS);
+    const keep = screensAround(viewStart, viewEnd, RANGE_KEEP_SCREENS);
+    return { reqStart, reqEnd, points: prefetchPointCount(width, reqStart, reqEnd, viewStart, viewEnd), keepStart: keep.reqStart, keepEnd: keep.reqEnd };
+}
+
+/** The `start|end|points` key a lane's range request carries, read back; null for any other key. */
+export function parseRangeRequestKey(key: string): { startNorm: number; endNorm: number; points: number } | null {
+    const parts = key.split('|');
+    if (parts.length !== 3) return null;
+    const [startNorm, endNorm, points] = parts.map(Number) as [number, number, number];
+    return [startNorm, endNorm, points].every(Number.isFinite) ? { startNorm, endNorm, points } : null;
+}
+
 export function rangeRequestPointCount(canvasWidth: number): number {
     return Math.min(canvasWidth * 2, MAX_RANGE_REQUEST_POINTS);
 }

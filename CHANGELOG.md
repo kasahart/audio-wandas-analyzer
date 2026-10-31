@@ -10,6 +10,7 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 - Cursor spectrum snaps to the nearest STFT frame; spectrogram cells centred on their windows (#436, #438).
 - Trackpad sideways swipe pans the timeline (#471).
 - File table beside the tracks: the selected row's name stays readable (its tools show under the mouse, like other rows); the value column shows only when the table is maximized (#505).
+- Track lanes fetch the waveform detail two screens either side of the view, so a pan no longer flashes the coarse overview, and a zoom out keeps the detail already fetched until the new one lands (#502).
 - Entry table: the slot chips under the table are gone (roles show on the rows and the compare legend); the base group is chosen from a Base select beside Group (#504).
 - Compare view: showing Δ no longer leaves the overlaid plot stretched from its old height, so hovered lines are no longer drawn twice (#503).
 - Python backend answers requests for different recordings concurrently and reads audio straight into float32 (#462, #464).
