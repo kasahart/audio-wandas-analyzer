@@ -78,7 +78,6 @@ export async function buildDirectoryTree(
     let truncated = false;
 
     const reads = new Map<string, Promise<[string, vscode.FileType][]>>();
-    let prefetchedEntries = 0;
 
     // A folder's subfolders are read as soon as its own read returns, but folders take their share of `maxEntries`
     // in name-sorted depth-first order, so a truncated listing does not depend on which read finished first.
@@ -88,9 +87,8 @@ export async function buildDirectoryTree(
             if (options.isCancelled?.() || truncated) { return Promise.resolve<[string, vscode.FileType][]>([]); }
             return Promise.resolve(fileSystem.readDirectory(folderUri));
         }).then((found) => {
-            prefetchedEntries += found.length;
-            // Past the cap the listing ends before most of what is left, so the rest is read only when its turn comes.
-            if (prefetchedEntries <= maxEntries && !options.isCancelled?.()) {
+            // Reads waiting for their turn past the cap are mostly ones the listing will not reach, so stop adding more.
+            if (reads.size <= maxEntries && !options.isCancelled?.()) {
                 for (const [name, type] of sortEntries(found)) {
                     if (listsFolder(name, type)) { void startRead(vscode.Uri.joinPath(folderUri, name)); }
                 }

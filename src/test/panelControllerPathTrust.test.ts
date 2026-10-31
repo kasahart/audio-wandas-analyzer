@@ -255,6 +255,28 @@ test('a wide two-level folder keeps the read bound busy at the second level', as
     assert.equal(secondLevelPeak, 4, 'subfolders of subfolders are read side by side, not one at a time');
 });
 
+test('a large later folder that is read first does not slow the earlier subfolders', async () => {
+    let takeReadsInFlight = 0, takeReadsPeak = 0;
+    const fileSystem: TargetFileSystem = {
+        stat: async () => ({ type: FileType.Directory }) as vscode.FileStat,
+        readDirectory: async (source) => {
+            const parts = posixPath(source.fsPath).split('/').filter(Boolean);
+            if (parts[1] === 'z_archive') return Array.from({ length: 200 }, (_, i) => [`${i}.wav`, FileType.File]);
+            const isTake = parts.at(-1) === 'take';
+            if (isTake) takeReadsPeak = Math.max(takeReadsPeak, ++takeReadsInFlight);
+            for (let i = 0; i < 3; i++) await tick();
+            if (isTake) takeReadsInFlight--;
+            if (parts.length === 1) return [['a', FileType.Directory], ['z_archive', FileType.Directory]];
+            if (parts.length === 2) return Array.from({ length: 16 }, (_, i) => [`s${String(i).padStart(2, '0')}`, FileType.Directory]);
+            return isTake ? [['a.wav', FileType.File]] : [['take', FileType.Directory]];
+        },
+    };
+    const { tree, truncated } = await buildDirectoryTree(uri('/r') as vscode.Uri, fileSystem, { concurrency: 4, maxEntries: 100 });
+    assert.equal(truncated, true);
+    assert.equal(tree[0]?.children?.length, 16);
+    assert.equal(takeReadsPeak, 4, 'the archive, listed last but read first, must not stop the reads ahead in a/');
+});
+
 test('directory listing stops when cancelled', async () => {
     let reads = 0;
     const fileSystem = directoryFileSystem({ '/r': [['a', FileType.Directory]], '/r/a': [['b', FileType.Directory]], '/r/a/b': [['x.wav', FileType.File]] });
