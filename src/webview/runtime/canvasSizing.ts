@@ -25,6 +25,12 @@ export function syncCanvasSize(canvas: SizableCanvas, width: number, height: num
     }
 }
 
+/** Measures every item before writing any, so a pass over many elements forces one layout instead of one each. */
+export function readThenWrite<T, M>(items: readonly T[], read: (item: T) => M, write: (item: T, measured: M) => void): void {
+    const measured = items.map(item => read(item));
+    items.forEach((item, k) => write(item, measured[k]));
+}
+
 export interface HorizontalPadding {
     paddingLeft: string;
     paddingRight: string;

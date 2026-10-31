@@ -31,7 +31,7 @@ import { rangePopoverStrings } from '../../shared/i18n/strings';
 import { installHelpOverlay } from './helpOverlay';
 import { arrowCursorStep, isTextEntryTag, type GlobalShortcutAction } from './shortcuts';
 import { domSnapshotBase, latestSpectrogramSnapshot, shellSnapshot, overlaySpectrumAxisLabels, sliceSpectrumAxisLabels, spectrogramAxisLabelTexts, visibleFileRange, waveformCoverageSnapshot } from './testSnapshot';
-import { contentBoxWidth, syncCanvasSize } from './canvasSizing';
+import { contentBoxWidth, readThenWrite, syncCanvasSize } from './canvasSizing';
 import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpecAxisCanvasId, trackSpecCanvasId, trackSpectrogramOverlayCanvasId, trackSpectrumCanvasId, trackSpectrumWrapId } from './trackCanvasIds';
 import { channelLaneHtml, trackRowHtml } from './trackLaneHtml';
 import { attachSpectrumBoxDrag, SpectrumBoxDrag } from './spectrumBoxDrag';
@@ -1682,51 +1682,50 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
     }
     function resizeAllCanvases() {
+        const lanes: { i: number; channelIndex: number; canvas: HTMLCanvasElement; wrap: HTMLElement }[] = [];
         state.results.forEach(function (result: ComparisonTrackState, i: number) {
             channelsForResult(result).forEach(function (_, channelIndex: number) {
                 const canvas = canvasById(document, trackCanvasId(i, channelIndex));
-                if (!canvas) {
-                    return;
-                }
-                const wrap = document.getElementById(trackCanvasWrapId(i, channelIndex));
-                if (!wrap) {
-                    return;
-                }
-                const newW = wrap.clientWidth || 800;
-                const heights = laneHeights();
-                const cacheKey = newW + 'x' + heights.wave + 'x' + heights.spec + 'x' + channelIndex;
-                const cacheIdx = i + ':' + channelIndex;
-                if (canvasWidthCache[cacheIdx] === cacheKey) {
-                    return;
-                }
-                canvasWidthCache[cacheIdx] = cacheKey;
-                // Outside the steps view the waveform stops where the spectrogram's colour bar starts.
-                const waveW = contentType === 'stage' ? newW - AXIS_W : spectrogramPlotWidth(newW - AXIS_W);
-                syncCanvasSize(canvas, waveW, heights.wave);
-                const axisCanvas = canvasById(document, trackAxisCanvasId(i, channelIndex));
-                if (axisCanvas) {
-                    syncCanvasSize(axisCanvas, AXIS_W, heights.wave);
-                }
-                if (heights.spec > 0) {
-                    [trackSpecCanvasId(i, channelIndex), trackSpectrogramOverlayCanvasId(i, channelIndex)].forEach(function (id) {
-                        const c = canvasById(document, id);
-                        if (c) syncCanvasSize(c, newW - AXIS_W, heights.spec);
-                    });
-                    const specAxis = canvasById(document, trackSpecAxisCanvasId(i, channelIndex));
-                    if (specAxis) syncCanvasSize(specAxis, AXIS_W, heights.spec);
-                    // A resize clears the bitmap; a lane out of view is not repainted now, so its raster must not
-                    // look current when it is drawn again at the same size.
-                    const record = trackRecordAtIndex(i);
-                    if (record) spectrogramRasterCache.delete(record.id + ':' + channelIndex);
+                const wrap = canvas ? document.getElementById(trackCanvasWrapId(i, channelIndex)) : null;
+                if (canvas && wrap) {
+                    lanes.push({ i, channelIndex, canvas, wrap });
                 }
             });
         });
         const rulerCanvas = canvasById(document, 'ruler-canvas');
-        if (rulerCanvas) {
-            const row = document.getElementById('ruler-row');
-            if (row) {
-                syncCanvasSize(rulerCanvas, row.clientWidth - TRACK_HEADER_W - AXIS_W, 20);
+        const rulerRow = rulerCanvas ? document.getElementById('ruler-row') : null;
+        const rulerWidth = rulerRow ? rulerRow.clientWidth : null;
+        const heights = laneHeights();
+        // Every width is read before any canvas is resized, so the pass forces one layout rather than one per lane.
+        readThenWrite(lanes, lane => lane.wrap.clientWidth || 800, function ({ i, channelIndex, canvas }, newW) {
+            const cacheKey = newW + 'x' + heights.wave + 'x' + heights.spec + 'x' + channelIndex;
+            const cacheIdx = i + ':' + channelIndex;
+            if (canvasWidthCache[cacheIdx] === cacheKey) {
+                return;
             }
+            canvasWidthCache[cacheIdx] = cacheKey;
+            // Outside the steps view the waveform stops where the spectrogram's colour bar starts.
+            const waveW = contentType === 'stage' ? newW - AXIS_W : spectrogramPlotWidth(newW - AXIS_W);
+            syncCanvasSize(canvas, waveW, heights.wave);
+            const axisCanvas = canvasById(document, trackAxisCanvasId(i, channelIndex));
+            if (axisCanvas) {
+                syncCanvasSize(axisCanvas, AXIS_W, heights.wave);
+            }
+            if (heights.spec > 0) {
+                [trackSpecCanvasId(i, channelIndex), trackSpectrogramOverlayCanvasId(i, channelIndex)].forEach(function (id) {
+                    const c = canvasById(document, id);
+                    if (c) syncCanvasSize(c, newW - AXIS_W, heights.spec);
+                });
+                const specAxis = canvasById(document, trackSpecAxisCanvasId(i, channelIndex));
+                if (specAxis) syncCanvasSize(specAxis, AXIS_W, heights.spec);
+                // A resize clears the bitmap; a lane out of view is not repainted now, so its raster must not
+                // look current when it is drawn again at the same size.
+                const record = trackRecordAtIndex(i);
+                if (record) spectrogramRasterCache.delete(record.id + ':' + channelIndex);
+            }
+        });
+        if (rulerCanvas && rulerWidth !== null) {
+            syncCanvasSize(rulerCanvas, rulerWidth - TRACK_HEADER_W - AXIS_W, 20);
         }
     }
     function renderRuler() {
