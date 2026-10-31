@@ -98,7 +98,7 @@ function folderPanel(options: { listing?: (root: string) => Record<string, Array
         analyzeFiles: async (filePaths: string[]) => filePaths.map(filePath => ({ filePath, fileName: path.basename(filePath), sampleRateHz: 16000,
             durationSeconds: 1, channelCount: 0, sampleCount: 16000, channels: [], analysisRevision: 0 } satisfies AnalysisResultWithError)),
     };
-    const controller = new PanelController(context, backend, analysis, exports, factory, host);
+    const controller = new PanelController(context, backend, analysis, exports, { analysisRevision: () => 0, onDidChange: () => ({ dispose() {} }) }, factory, host);
     // Waits for the reply that ends the request (entry-scan-done, ...) or, for an export, a few turns of the loop.
     const send = async (message: unknown, done?: string) => {
         const before = published.length;

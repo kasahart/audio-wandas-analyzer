@@ -20,7 +20,7 @@ import {
 } from './pythonEnvironment';
 import { PythonBackendServer } from './pythonBackendServer';
 import { RecipeFlow } from './recipeFlow';
-import { getCalibrationProfile, getAnalysisRevision, discardStaleCalibrationProfile } from './calibrationStore';
+import { CalibrationStore } from './calibrationStore';
 
 const ANALYZER_VIEW_TYPE_PREFIX = 'audioWandasAnalyzer.';
 
@@ -31,7 +31,8 @@ function hasAnalyzerPanel(): boolean {
     )));
 }
 
-export function activate(context: vscode.ExtensionContext): void {
+/** `calibration` is the activation's one calibration store; bootstrap.ts shares it with the calibration command. */
+export function activate(context: vscode.ExtensionContext, calibration = new CalibrationStore(context)): void {
     let deactivated = false;
     const perfChannel = vscode.window.createOutputChannel('Audio Wandas Analyzer (perf)');
     const logPerf = (line: string): void => { perfChannel.appendLine(line); };
@@ -56,9 +57,9 @@ export function activate(context: vscode.ExtensionContext): void {
         const pythonCommand = getPythonCommand();
         setStatusBarNormal(pythonStatusBarItem, pythonCommand);
     }, {
-        current: filePath => ({ calibrationProfile: getCalibrationProfile(context, filePath), analysisRevision: getAnalysisRevision(filePath) }),
+        current: filePath => ({ calibrationProfile: calibration.profile(filePath), analysisRevision: calibration.analysisRevision(filePath) }),
         discardStale: async (filePath, error, attempted) => attempted.calibrationProfile !== undefined
-            && discardStaleCalibrationProfile(context, filePath, error, attempted.calibrationProfile),
+            && calibration.discardStale(filePath, error, attempted.calibrationProfile),
     }, {
         log: line => { logChannel.warn(line); },
         crashed: error => {
@@ -139,7 +140,7 @@ export function activate(context: vscode.ExtensionContext): void {
             return analysis.analyzeFiles(...args);
         },
         warmup: () => { void preparePython(false); },
-    }, exports);
+    }, exports, calibration);
 
     context.subscriptions.push(
         pythonStatusBarItem,

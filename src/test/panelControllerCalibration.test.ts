@@ -57,12 +57,12 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
     };
 
     let PanelController: typeof import('../extension/panelController').PanelController;
-    let calibrationStore: typeof import('../extension/calibrationStore');
+    let CalibrationStore: typeof import('../extension/calibrationStore').CalibrationStore;
     try {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         PanelController = require('../extension/panelController').PanelController;
         // eslint-disable-next-line @typescript-eslint/no-require-imports
-        calibrationStore = require('../extension/calibrationStore');
+        CalibrationStore = require('../extension/calibrationStore').CalibrationStore;
     } finally {
         NodeModule._load = originalLoad;
     }
@@ -113,7 +113,7 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
                 await racingGate;
                 return [result(racingPath, 0, 0.3)];
             }
-            return [result(racingPath, calibrationStore.getAnalysisRevision(racingPath), 0.7)];
+            return [result(racingPath, calibration.analysisRevision(racingPath), 0.7)];
         }
         if (filePaths.length === 1) {
             if (holdCalibrationRefresh) { await calibrationRefreshGate; }
@@ -197,6 +197,7 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
             keys: (): readonly string[] => Object.keys(workspaceValues),
         },
     } as unknown as SpectrogramSettingsContext & { extensionUri: vscode.Uri };
+    const calibration = new CalibrationStore(context as unknown as vscode.ExtensionContext);
     const host: PanelControllerHost = {
         fileSystem: {} as PanelControllerHost['fileSystem'],
         showOpenDialog: async () => undefined,
@@ -232,6 +233,7 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
         backend,
         { analyzeFiles, warmup: () => undefined },
         {} as ExportFlows,
+        calibration,
         panelFactory,
         host,
     );
@@ -240,13 +242,9 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
     assert.ok(receiveMessage);
     holdCalibrationRefresh = true;
     const refreshUpdate = nextAnalysisUpdate();
-    const failedCalibratedProfile = calibrationStore.getCalibrationProfile(
-        context as unknown as vscode.ExtensionContext,
-        calibratedPath,
-    );
+    const failedCalibratedProfile = calibration.profile(calibratedPath);
     assert.ok(failedCalibratedProfile);
-    await calibrationStore.discardStaleCalibrationProfile(
-        context as unknown as vscode.ExtensionContext,
+    await calibration.discardStale(
         calibratedPath,
         new BackendRequestError('stale-calibration', 'Calibration channel label mismatch'),
         failedCalibratedProfile,
@@ -300,13 +298,9 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
 
     const racingAnalysis = controller.analyzeFiles([racingPath]);
     await racingStarted;
-    const failedRacingProfile = calibrationStore.getCalibrationProfile(
-        context as unknown as vscode.ExtensionContext,
-        racingPath,
-    );
+    const failedRacingProfile = calibration.profile(racingPath);
     assert.ok(failedRacingProfile);
-    await calibrationStore.discardStaleCalibrationProfile(
-        context as unknown as vscode.ExtensionContext,
+    await calibration.discardStale(
         racingPath,
         new BackendRequestError('stale-calibration', 'Calibration channel label mismatch'),
         failedRacingProfile,

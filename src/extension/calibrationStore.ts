@@ -9,21 +9,18 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import type {
+    AnalysisResultWithError,
     CalibrationProfile,
     ChannelCalibrationDefinition,
 } from '../shared/analysis/analysisTypes';
 
 const CALIBRATION_PROFILES_KEY = 'audioWandasAnalyzer.calibrationProfiles.v1';
-const analysisRevisions = new Map<string, number>();
-const calibrationChangeListeners = new Set<(event: CalibrationChangeEvent) => void>();
-const profileWriteQueues = new WeakMap<vscode.ExtensionContext, Promise<void>>();
 const PROFILE_UNCHANGED = Symbol('profile-unchanged');
 
 export interface CalibrationChangeEvent {
     filePath: string;
     analysisRevision: number;
 }
-
 
 function fileKey(filePath: string): string {
     const resolved = path.resolve(filePath);
@@ -34,110 +31,14 @@ function fileKey(filePath: string): string {
     }
 }
 
-export function onDidChangeCalibration(
-    listener: (event: CalibrationChangeEvent) => void,
-): vscode.Disposable {
-    calibrationChangeListeners.add(listener);
-    return { dispose: () => { calibrationChangeListeners.delete(listener); } };
+function channelDescriptors(result: AnalysisResultWithError): CalibrationChannelDescriptor[] {
+    return (result.channels ?? []).map((channel, channelIndex) => ({
+        channelIndex,
+        label: channel.label || fillTemplate(getStrings(vscode.env.language).calibrationChannelFallback, { n: channelIndex + 1 }),
+        measurement: channel.measurement,
+        rawPeakFullScale: channel.rawPeakFullScale,
+    }));
 }
-
-
-function profiles(context: vscode.ExtensionContext): Record<string, CalibrationProfile> {
-    return context.workspaceState.get<Record<string, CalibrationProfile>>(CALIBRATION_PROFILES_KEY, {});
-}
-
-
-
-export function getCalibrationProfile(
-    context: vscode.ExtensionContext,
-    filePath: string,
-): CalibrationProfile | undefined {
-    const stored = profiles(context)[fileKey(filePath)];
-    return stored ? cloneProfile(stored) : undefined;
-}
-
-export function getAnalysisRevision(filePath: string): number {
-    return analysisRevisions.get(fileKey(filePath)) ?? 0;
-}
-
-export async function discardStaleCalibrationProfile(
-    context: vscode.ExtensionContext,
-    filePath: string,
-    error: unknown,
-    failedProfile: CalibrationProfile,
-): Promise<boolean> {
-    if (backendErrorCode(error) !== 'stale-calibration') {
-        return false;
-    }
-    let discarded = false;
-    await persistProfile(context, filePath, (current) => {
-        if (!current || !profilesEqual(current, failedProfile)) {
-            return PROFILE_UNCHANGED;
-        }
-        discarded = true;
-        return undefined;
-    });
-    return discarded;
-}
-
-
-function bumpAnalysisRevision(canonicalPath: string): number {
-    const next = (analysisRevisions.get(canonicalPath) ?? 0) + 1;
-    analysisRevisions.set(canonicalPath, next);
-    return next;
-}
-
-async function persistProfile(
-    context: vscode.ExtensionContext,
-    filePath: string,
-    updateProfile: (
-        current: CalibrationProfile | undefined,
-    ) => CalibrationProfile | undefined | typeof PROFILE_UNCHANGED,
-): Promise<void> {
-    const key = fileKey(filePath);
-    const previous = profileWriteQueues.get(context) ?? Promise.resolve();
-    const operation = previous.catch(() => undefined).then(async () => {
-        const next = { ...profiles(context) };
-        const current = next[key] ? cloneProfile(next[key]) : undefined;
-        const updated = updateProfile(current);
-        if (updated === PROFILE_UNCHANGED) { return; }
-        if (updated) {
-            next[key] = cloneProfile(updated);
-        } else {
-            delete next[key];
-        }
-        await context.workspaceState.update(CALIBRATION_PROFILES_KEY, next);
-        const analysisRevision = bumpAnalysisRevision(key);
-        for (const listener of calibrationChangeListeners) {
-            listener({ filePath: key, analysisRevision });
-        }
-    });
-    profileWriteQueues.set(context, operation);
-    try {
-        await operation;
-    } finally {
-        if (profileWriteQueues.get(context) === operation) {
-            profileWriteQueues.delete(context);
-        }
-    }
-}
-
-
-
-async function persistChannel(
-    context: vscode.ExtensionContext,
-    filePath: string,
-    channels: CalibrationChannelDescriptor[],
-    channelIndex: number,
-    channel: ChannelCalibrationDefinition,
-): Promise<void> {
-    await persistProfile(context, filePath, (stored) => {
-        const latest = profileForChannels(stored, channels);
-        latest.channels[channelIndex] = channel;
-        return latest.channels.some((entry) => entry.status === 'calibrated') ? latest : undefined;
-    });
-}
-
 
 function describeCalibration(strings: UiStrings, channel: ChannelCalibrationDefinition): string {
     if (channel.status === 'uncalibrated') {
@@ -149,127 +50,226 @@ function describeCalibration(strings: UiStrings, channel: ChannelCalibrationDefi
     return fillTemplate(strings.calSummary, { factor: channel.factor, unit: channel.unit, level });
 }
 
-export async function configureCalibrationProfile(
-    context: vscode.ExtensionContext,
-    filePath: string,
-    channels: CalibrationChannelDescriptor[],
-): Promise<boolean> {
-    const strings = getStrings(vscode.env.language);
-    const channelName = (index: number, label: string): string => fillTemplate(strings.calChannelLabel, { n: index + 1, label });
-    if (channels.length === 0) {
-        void vscode.window.showInformationMessage(strings.calNoChannels);
-        return false;
+/**
+ * The workspace's calibration profiles and their analysis revisions. One store per activation owns the revision
+ * counters, the change listeners and the write queue, so a test's store shares nothing with another's.
+ */
+export class CalibrationStore {
+    private readonly analysisRevisions = new Map<string, number>();
+    private readonly listeners = new Set<(event: CalibrationChangeEvent) => void>();
+    private writeQueue: Promise<void> | undefined;
+
+    constructor(private readonly context: Pick<vscode.ExtensionContext, 'workspaceState'>) {}
+
+    onDidChange(listener: (event: CalibrationChangeEvent) => void): vscode.Disposable {
+        this.listeners.add(listener);
+        return { dispose: () => { this.listeners.delete(listener); } };
     }
 
-    const current = profileForChannels(getCalibrationProfile(context, filePath), channels);
-    const resetAll = Symbol('reset-all');
-    const picked = await vscode.window.showQuickPick(
-        [
+    profile(filePath: string): CalibrationProfile | undefined {
+        const stored = this.profiles()[fileKey(filePath)];
+        return stored ? cloneProfile(stored) : undefined;
+    }
+
+    analysisRevision(filePath: string): number {
+        return this.analysisRevisions.get(fileKey(filePath)) ?? 0;
+    }
+
+    async discardStale(filePath: string, error: unknown, failedProfile: CalibrationProfile): Promise<boolean> {
+        if (backendErrorCode(error) !== 'stale-calibration') {
+            return false;
+        }
+        let discarded = false;
+        await this.persistProfile(filePath, (current) => {
+            if (!current || !profilesEqual(current, failedProfile)) {
+                return PROFILE_UNCHANGED;
+            }
+            discarded = true;
+            return undefined;
+        });
+        return discarded;
+    }
+
+    /** Asks for one channel's calibration of a displayed track and stores it; the channels come from the track, not the Webview. */
+    async configureTrack(result: AnalysisResultWithError): Promise<void> {
+        await this.configureProfile(result.filePath, channelDescriptors(result));
+    }
+
+    async configureProfile(filePath: string, channels: CalibrationChannelDescriptor[]): Promise<boolean> {
+        const strings = getStrings(vscode.env.language);
+        const channelName = (index: number, label: string): string => fillTemplate(strings.calChannelLabel, { n: index + 1, label });
+        if (channels.length === 0) {
+            void vscode.window.showInformationMessage(strings.calNoChannels);
+            return false;
+        }
+
+        const current = profileForChannels(this.profile(filePath), channels);
+        const resetAll = Symbol('reset-all');
+        const picked = await vscode.window.showQuickPick(
+            [
+                {
+                    label: `$(discard) ${strings.calResetAllLabel}`,
+                    description: strings.calResetAllDescription,
+                    value: resetAll,
+                },
+                ...channels.map((channel) => ({
+                    label: `$(settings-gear) ${channelName(channel.channelIndex, channel.label)}`,
+                    description: describeCalibration(strings, current.channels[channel.channelIndex]),
+                    value: channel.channelIndex,
+                })),
+            ],
             {
-                label: `$(discard) ${strings.calResetAllLabel}`,
-                description: strings.calResetAllDescription,
-                value: resetAll,
+                placeHolder: fillTemplate(strings.calConfigurePlaceholder, { file: path.basename(filePath) }),
+                matchOnDescription: true,
             },
-            ...channels.map((channel) => ({
-                label: `$(settings-gear) ${channelName(channel.channelIndex, channel.label)}`,
-                description: describeCalibration(strings, current.channels[channel.channelIndex]),
-                value: channel.channelIndex,
-            })),
-        ],
-        {
-            placeHolder: fillTemplate(strings.calConfigurePlaceholder, { file: path.basename(filePath) }),
-            matchOnDescription: true,
-        },
-    );
-    if (!picked) {
-        return false;
-    }
+        );
+        if (!picked) {
+            return false;
+        }
 
-    if (picked.value === resetAll) {
-        await persistProfile(context, filePath, () => undefined);
-        void vscode.window.showInformationMessage(fillTemplate(strings.calResetDone, { file: path.basename(filePath) }));
+        if (picked.value === resetAll) {
+            await this.persistProfile(filePath, () => undefined);
+            void vscode.window.showInformationMessage(fillTemplate(strings.calResetDone, { file: path.basename(filePath) }));
+            return true;
+        }
+
+        const channelIndex = picked.value as number;
+        const channel = channels.find((candidate) => candidate.channelIndex === channelIndex);
+        if (!channel) {
+            throw new Error(`Calibration channel was not found: ${channelIndex}`);
+        }
+        const existing = current.channels[channelIndex] ?? identityChannel(channel);
+        const name = channelName(channelIndex, channel.label);
+        const mode = await vscode.window.showQuickPick(
+            [
+                {
+                    label: strings.calModeCalibratedLabel,
+                    description: strings.calModeCalibratedDescription,
+                    value: 'calibrated' as const,
+                },
+                {
+                    label: strings.calModeUncalibratedLabel,
+                    description: strings.calModeUncalibratedDescription,
+                    value: 'uncalibrated' as const,
+                },
+            ],
+            {
+                placeHolder: name,
+            },
+        );
+        if (!mode) {
+            return false;
+        }
+
+        if (mode.value === 'uncalibrated') {
+            await this.persistChannel(filePath, channels, channelIndex, identityChannel(channel));
+            return true;
+        }
+
+        const factor = await vscode.window.showInputBox({
+            title: fillTemplate(strings.calFactorTitle, { channel: name }),
+            prompt: strings.calFactorPrompt,
+            value: existing.status === 'calibrated' ? String(existing.factor) : '1',
+            validateInput: (value) => validateCalibrationFactorInput(value, channel.rawPeakFullScale),
+        });
+        if (factor === undefined) {
+            return false;
+        }
+
+        const unit = await vscode.window.showInputBox({
+            title: fillTemplate(strings.calUnitTitle, { channel: name }),
+            prompt: strings.calUnitPrompt,
+            value: existing.status === 'calibrated' ? existing.unit : 'Pa',
+            validateInput: (value) => value.trim() ? undefined : strings.calUnitRequired,
+        });
+        if (unit === undefined) {
+            return false;
+        }
+        const normalizedUnit = unit.trim();
+
+        const defaultReference = existing.status === 'calibrated'
+            ? existing.referenceValue
+            : normalizedUnit === 'Pa'
+                ? 2e-5
+                : 1;
+        const referenceValue = await vscode.window.showInputBox({
+            title: fillTemplate(strings.calReferenceTitle, { channel: name }),
+            prompt: normalizedUnit === 'Pa'
+                ? strings.calReferencePromptPa
+                : fillTemplate(strings.calReferencePrompt, { unit: normalizedUnit }),
+            value: String(defaultReference),
+            validateInput: validateCalibrationValueInput,
+        });
+        if (referenceValue === undefined) {
+            return false;
+        }
+
+        await this.persistChannel(filePath, channels, channelIndex, {
+            channelIndex,
+            expectedLabel: channel.label,
+            status: 'calibrated',
+            source: 'manual',
+            factor: Number(factor),
+            unit: normalizedUnit,
+            referenceValue: Number(referenceValue),
+        });
         return true;
     }
 
-    const channelIndex = picked.value as number;
-    const channel = channels.find((candidate) => candidate.channelIndex === channelIndex);
-    if (!channel) {
-        throw new Error(`Calibration channel was not found: ${channelIndex}`);
-    }
-    const existing = current.channels[channelIndex] ?? identityChannel(channel);
-    const name = channelName(channelIndex, channel.label);
-    const mode = await vscode.window.showQuickPick(
-        [
-            {
-                label: strings.calModeCalibratedLabel,
-                description: strings.calModeCalibratedDescription,
-                value: 'calibrated' as const,
-            },
-            {
-                label: strings.calModeUncalibratedLabel,
-                description: strings.calModeUncalibratedDescription,
-                value: 'uncalibrated' as const,
-            },
-        ],
-        {
-            placeHolder: name,
-        },
-    );
-    if (!mode) {
-        return false;
+    private profiles(): Record<string, CalibrationProfile> {
+        return this.context.workspaceState.get<Record<string, CalibrationProfile>>(CALIBRATION_PROFILES_KEY, {});
     }
 
-    if (mode.value === 'uncalibrated') {
-        await persistChannel(context, filePath, channels, channelIndex, identityChannel(channel));
-        return true;
+    private bumpAnalysisRevision(canonicalPath: string): number {
+        const next = (this.analysisRevisions.get(canonicalPath) ?? 0) + 1;
+        this.analysisRevisions.set(canonicalPath, next);
+        return next;
     }
 
-    const factor = await vscode.window.showInputBox({
-        title: fillTemplate(strings.calFactorTitle, { channel: name }),
-        prompt: strings.calFactorPrompt,
-        value: existing.status === 'calibrated' ? String(existing.factor) : '1',
-        validateInput: (value) => validateCalibrationFactorInput(value, channel.rawPeakFullScale),
-    });
-    if (factor === undefined) {
-        return false;
+    private async persistProfile(
+        filePath: string,
+        updateProfile: (
+            current: CalibrationProfile | undefined,
+        ) => CalibrationProfile | undefined | typeof PROFILE_UNCHANGED,
+    ): Promise<void> {
+        const key = fileKey(filePath);
+        const previous = this.writeQueue ?? Promise.resolve();
+        const operation = previous.catch(() => undefined).then(async () => {
+            const next = { ...this.profiles() };
+            const current = next[key] ? cloneProfile(next[key]) : undefined;
+            const updated = updateProfile(current);
+            if (updated === PROFILE_UNCHANGED) { return; }
+            if (updated) {
+                next[key] = cloneProfile(updated);
+            } else {
+                delete next[key];
+            }
+            await this.context.workspaceState.update(CALIBRATION_PROFILES_KEY, next);
+            const analysisRevision = this.bumpAnalysisRevision(key);
+            for (const listener of this.listeners) {
+                listener({ filePath: key, analysisRevision });
+            }
+        });
+        this.writeQueue = operation;
+        try {
+            await operation;
+        } finally {
+            if (this.writeQueue === operation) {
+                this.writeQueue = undefined;
+            }
+        }
     }
 
-    const unit = await vscode.window.showInputBox({
-        title: fillTemplate(strings.calUnitTitle, { channel: name }),
-        prompt: strings.calUnitPrompt,
-        value: existing.status === 'calibrated' ? existing.unit : 'Pa',
-        validateInput: (value) => value.trim() ? undefined : strings.calUnitRequired,
-    });
-    if (unit === undefined) {
-        return false;
+    private async persistChannel(
+        filePath: string,
+        channels: CalibrationChannelDescriptor[],
+        channelIndex: number,
+        channel: ChannelCalibrationDefinition,
+    ): Promise<void> {
+        await this.persistProfile(filePath, (stored) => {
+            const latest = profileForChannels(stored, channels);
+            latest.channels[channelIndex] = channel;
+            return latest.channels.some((entry) => entry.status === 'calibrated') ? latest : undefined;
+        });
     }
-    const normalizedUnit = unit.trim();
-
-    const defaultReference = existing.status === 'calibrated'
-        ? existing.referenceValue
-        : normalizedUnit === 'Pa'
-            ? 2e-5
-            : 1;
-    const referenceValue = await vscode.window.showInputBox({
-        title: fillTemplate(strings.calReferenceTitle, { channel: name }),
-        prompt: normalizedUnit === 'Pa'
-            ? strings.calReferencePromptPa
-            : fillTemplate(strings.calReferencePrompt, { unit: normalizedUnit }),
-        value: String(defaultReference),
-        validateInput: validateCalibrationValueInput,
-    });
-    if (referenceValue === undefined) {
-        return false;
-    }
-
-    await persistChannel(context, filePath, channels, channelIndex, {
-        channelIndex,
-        expectedLabel: channel.label,
-        status: 'calibrated',
-        source: 'manual',
-        factor: Number(factor),
-        unit: normalizedUnit,
-        referenceValue: Number(referenceValue),
-    });
-    return true;
 }
