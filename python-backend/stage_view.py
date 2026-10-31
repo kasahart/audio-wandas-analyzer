@@ -375,6 +375,19 @@ def _signed_peaks(values: np.ndarray, count: int) -> tuple[np.ndarray, np.ndarra
     return np.stack(picked, axis=-1), edges[:-1]
 
 
+def _peak_points(values: np.ndarray, count: int) -> tuple[np.ndarray, np.ndarray]:
+    """`values` (1-D) in at most `count` blocks, each the value of largest magnitude, with its own index.
+
+    A correlation peak's lag is the delay: the point keeps where the peak is, not where its block starts.
+    """
+    edges = np.linspace(0, values.size, min(count, values.size) + 1).astype(int)
+    picked = np.array(
+        [start + int(np.argmax(np.abs(values[start:end]))) for start, end in zip(edges[:-1], edges[1:], strict=True)],
+        dtype=int,
+    )
+    return values[picked], picked
+
+
 def _cepstral_view(frame: CepstralFrame) -> StageView:
     # One line per channel in plot(); the comparison averages channels, as it does every value.
     coefficients = np.mean(_rows(frame.data, frame.n_channels), axis=0)
@@ -403,15 +416,15 @@ def _correlation_view(frame: CrossCorrelationFrame) -> StageView:
     if drawn is None or frame.n_lags < 2:
         return {"frame": type(frame).__name__, "kind": "none"}
     row, coefficients = drawn
-    # The largest magnitude of each block, so the peak that gives the delay is never averaged away.
-    values, starts = _signed_peaks(coefficients, LAG_POINTS)
+    # The largest magnitude of each block at its own lag, so the peak that gives the delay is kept where it is.
+    values, picked = _peak_points(coefficients, LAG_POINTS)
     return {
         "frame": type(frame).__name__,
         "kind": "line",
         "x": "lag",
         "xScale": "linear",
         "quantity": "correlation",
-        "xs": _json(np.asarray(frame.lags, dtype=np.float64)[starts]),
+        "xs": _json(np.asarray(frame.lags, dtype=np.float64)[picked]),
         "values": _json(np.round(values, CORRELATION_DECIMALS)),
         "pair": _pair_of(frame, row),
     }
@@ -527,8 +540,8 @@ def _detail_view(frame: object, coarse: StageView, detail: StageDetail) -> Stage
         keep = _inside(lags, bounds)
         drawn = _correlation_rows(frame)
         if drawn is not None and keep.any():
-            values, starts = _signed_peaks(drawn[1][keep], points)
-            view.update({"xs": _json(lags[keep][starts]), "values": _json(np.round(values, CORRELATION_DECIMALS))})
+            values, picked = _peak_points(drawn[1][keep], points)
+            view.update({"xs": _json(lags[keep][picked]), "values": _json(np.round(values, CORRELATION_DECIMALS))})
             return view
         return coarse
     if isinstance(frame, CepstralFrame):

@@ -86,7 +86,7 @@ def test_a_cross_correlation_is_its_coefficients_over_lag_with_the_delay_peak_ke
     view = _checked(correlation)
     assert (view["kind"], view["x"], view["xScale"], view["quantity"]) == ("line", "lag", "linear", "correlation")
     assert view["pair"] == {"output": 2, "input": 1}
-    assert len(view["xs"]) == LAG_POINTS and view["xs"][0] == pytest.approx(-0.1)
+    assert len(view["xs"]) == LAG_POINTS and -0.1 <= view["xs"][0] < -0.1 + 0.2 / LAG_POINTS
     peak = int(np.argmax(view["values"]))
     assert view["xs"][peak] == pytest.approx(0.005, abs=1 / 16000 * 2) and view["values"][peak] > 0.99
     # Zoomed in, the lags on screen at full resolution.
@@ -96,6 +96,16 @@ def test_a_cross_correlation_is_its_coefficients_over_lag_with_the_delay_peak_ke
     )
     # One channel has no pair of two: nothing to draw.
     assert stage_view(frame.get_channel(0).cross_correlation())["kind"] == "none"
+
+
+def test_a_long_cross_correlation_keeps_its_peak_at_its_own_lag() -> None:
+    rng = np.random.default_rng(1)
+    signal = rng.standard_normal(32000)
+    # ch2 is ch1 16 samples (1 ms) later; 32,001 lags over ±1 s are drawn in 800 points of 40 lags each.
+    frame = wd.from_numpy(np.vstack([signal, np.roll(signal, 16)]), sampling_rate=16000)
+    view = _checked(frame.cross_correlation(max_lag=1.0))
+    peak = int(np.argmax(view["values"]))
+    assert view["xs"][peak] == pytest.approx(0.001)
 
 
 def test_a_cepstrogram_is_an_image_over_time_and_quefrency(signal: wd.ChannelFrame) -> None:
