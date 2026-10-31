@@ -22,7 +22,8 @@ import { createStepBar, endsInSpectrum, invalidReason, recipeWithout, stepChipLa
 import { createStageSource, type StageSpec } from './stageSource';
 import { createDetailPlanner } from './stageDetail';
 import { attachPlotInteraction, FULL_PLOT_WINDOW, type PlotHit, type PlotWindow } from './plotInteraction';
-import { axisFractionOf, axisValueAt, medianView, paintOverlay, paintStage, rowFractionOf, rowValueAt, STAGE_MARGINS, stageAxes, stageDiffRange, stageDifference, stageHeadline, stageLevelsHeadline, stagePlotPoint, stageRange, stageReadout, type StageAxes, type StageLayer } from './stagePanes';
+import { axisFractionOf, axisValueAt, medianView, paintOverlay, paintStage, rowFractionOf, rowValueAt, STAGE_MARGINS, stageAxes, stageDiffRange, stageDifference, stageHeadline, stageLevelsHeadline, stagePlotPoint, stageRange, stageReadout, stageHover, strokeStageLine, type StageAxes, type StageLayer, type StagePlot } from './stagePanes';
+import { paintHoverMarks } from './plotHover';
 import { DIFF_COLOR, NO_ROLE_COLOR, ROLE_COLORS } from '../../shared/gui/roleColors';
 import { zoomNormalizedRange, ZOOM_IN_FACTOR } from './waveformInteraction';
 import { keyRouterFor } from './keyRouter';
@@ -370,10 +371,15 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
     let painted = false;
     /**
      * What each plot last drew, for the pointer's readout and an axis's range: the whole picture whose axes it
-     * uses, its level range before the vertical zoom, its axes' names, and the pictures read under the pointer.
+     * uses, its level range before the vertical zoom, its axes' names, the pictures read under the pointer, and
+     * where its lines are (the line nearest the pointer is picked from them).
      */
-    type Drawn = { picture: StageView | null; range: PaneRange; axes: StageAxes; views: { base: StageView | null; compare: StageView | null; diff: StageView | null } };
+    type Drawn = { picture: StageView | null; range: PaneRange; axes: StageAxes; views: { base: StageView | null; compare: StageView | null; diff: StageView | null }; plot?: StagePlot | null };
     const drawnOn = new Map<Element, Drawn>();
+    /** Where the pointer is over a plot, so its marks follow a plot drawn anew under a still pointer. */
+    let hovered: { plot: HTMLElement; clientX: number; clientY: number; fx: number } | null = null;
+    let redrawHover = (): void => {};
+    let redrawing = false;
     let shownCompare: { path: string | null; view: StageView | null | undefined } = { path: null, view: undefined };
     /** A recording's ▶ in the legend (■ while it plays); the base group has none. */
     /** The legend's markup as last written. */
@@ -388,8 +394,8 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         // With its role chip in front, the label is the file's name alone.
         return { label: chipHtml ? info.label : `${slot ?? '·'} · ${info.label}`, ...(info.value ? { value: info.value } : {}), ...(info.memo ? { memo: info.memo } : {}), ...(chipHtml ? { chipHtml } : {}) };
     }
-    function plotsOf(views: (path: string) => StageView | null | undefined, tracks: StageTrack[], comparePath: string | null, basePaths: readonly string[], fallback: StageView | null = null) {
-        const baseViews = basePaths.map(views).filter((view): view is StageView => !!view);
+    function plotsOf(views: (path: string) => StageView | null | undefined, tracks: StageTrack[], comparePath: string | null, basePaths: readonly string[], fallback: StageView | null = null, baseOf = views) {
+        const baseViews = basePaths.map(baseOf).filter((view): view is StageView => !!view);
         const base = baseViews.length && baseViews.length === basePaths.length ? medianView(baseViews) : fallback;
         const compare = comparePath ? views(comparePath) ?? null : null;
         const others = tracks.filter(track => track.filePath !== comparePath && !basePaths.includes(track.filePath)).map(track => ({ track, view: views(track.filePath) ?? null }));
@@ -427,6 +433,11 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         },
         paint() {
             if (!on) return;
+            // A plot drawn anew under a still pointer: its hover marks are drawn again on what it now shows.
+            if (hovered && !redrawing) {
+                redrawing = true;
+                deps.window.requestAnimationFrame(() => { redrawing = false; redrawHover(); });
+            }
             const recipe = deps.recipe();
             const id = chosen();
             const shownStage = stage && recipe && recipeSteps(recipe.recipe).find(step => step.id === stage)?.bypassed ? stage : id;
@@ -439,6 +450,8 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             }
             const allTracks = deps.tracks();
             painted = false;
+            // Each plot drawn below says again what it holds: one drawn empty keeps no lines to hover.
+            drawnOn.clear();
             stepBar.element.dataset.drawn = '0';
             if (!recipe || !id) {
                 deps.showLanes(true);
@@ -496,12 +509,21 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             root.classList.toggle('is-step-held', !!held_);
             root.dataset.held = held_ ? heldStep!.id : '';
             root.dataset.channels = files.map(path => `${baseName(path)}:${channelFor(path) ?? '*'}`).join(',');
-            let waiting = false;
-            for (const [ch, paths] of byChannel) waiting = source.ensure(specOf(ch), paths) || waiting;
-            // Over a region, the files' metrics over it too, for D and the report.
+            // The pictures share one request: asked for one after another, the tracks on screen before a base group's
+            // recordings and the whole pictures before the zoom's detail, the region's metrics before the base group's
+            // detail. No spec supersedes another on every repaint, which would leave both unfinished.
+            let asking = false;
+            const lacks = (wanted: StageSpec, paths: readonly string[]): boolean => paths.some(path => source.result(wanted, path) === undefined);
+            const want = (wanted: StageSpec, paths: readonly string[]): boolean => {
+                const lacking = lacks(wanted, paths);
+                if (lacking && !asking) asking = source.ensure(wanted, paths);
+                return lacking;
+            };
+            const onScreen = new Set(tracks.map(track => track.filePath));
+            const ownOf = (paths: readonly string[]): string[] => paths.filter(path => onScreen.has(path));
+            const waiting = [...byChannel].some(([ch, paths]) => lacks(specOf(ch), paths));
+            for (const [ch, paths] of byChannel) want(specOf(ch), ownOf(paths));
             const region = liveRegion();
-            // The base recording measured against is not a track here, but D and the report read its region values too.
-            if (region && !waiting && !broken) source.ensure(regionSpec(), referencePath ? [...files, referencePath] : files);
             root.dataset.region = regionLabel(region);
             // The region on the plots: its part of a whole-file picture (a step before the region's), else a corner tag.
             const sliceAt = steps.findIndex(step => step.operation === TIME_SLICE);
@@ -536,18 +558,38 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             diffButton.disabled = nothingCompared;
             // Zoomed, the plots draw from the Frames' full resolution once it is in, the coarse pictures until then.
             const width = (overlay ? query<HTMLCanvasElement>('[data-stage-canvas="overlay"]') : tracks.find(track => track.canvas)?.canvas)?.clientWidth || 600;
-            const fineSpecs = new Map<number | null, StageSpec | null>();
-            if (!waiting && !held_ && picture && picture.kind !== 'bar' && picture.kind !== 'none') {
+            // Each line is drawn from its own detail as soon as that is in, while a base group's recordings are still
+            // being asked for (its median switches once all of them have their detail).
+            const fineSpecs = new Map<number | null, StageSpec>();
+            let fineMissing = false;
+            if (!held_ && picture && picture.kind !== 'bar' && picture.kind !== 'none') {
                 for (const [ch, paths] of byChannel) {
                     const fineSpec = detail.spec(specOf(ch), picture, window_.x, window_.y, width);
-                    fineSpecs.set(ch, fineSpec && !source.ensure(fineSpec, paths) ? fineSpec : null);
+                    if (!fineSpec) continue;
+                    fineSpecs.set(ch, fineSpec);
+                    fineMissing = want(fineSpec, ownOf(paths)) || fineMissing;
                 }
             }
-            const fineReady = fineSpecs.size > 0 && [...fineSpecs.values()].every(item => !!item);
-            const fine = fineReady ? (path: string) => source.view(fineSpecs.get(channelFor(path))!, path) : null;
-            const shown = (path: string) => (fine ? fine(path) : undefined) ?? coarse(path);
+            for (const [ch, paths] of byChannel) want(specOf(ch), paths);
+            // Over a region, the files' metrics over it too, for D and the report (before a base group's detail, which a
+            // new zoom asks for again); the base recording measured against is not a track here, but D and the report
+            // read its region values too.
+            if (region && !waiting && !broken) want(regionSpec(), referencePath ? [...files, referencePath] : files);
+            for (const [ch, paths] of byChannel) {
+                const fineSpec = fineSpecs.get(ch);
+                if (fineSpec) fineMissing = want(fineSpec, paths) || fineMissing;
+            }
+            const fine = (path: string): StageView | null | undefined => {
+                const fineSpec = fineSpecs.get(channelFor(path));
+                return fineSpec ? source.view(fineSpec, path) : undefined;
+            };
+            const shown = (path: string) => fine(path) ?? coarse(path);
+            // A base group's median: of its recordings' detail once every one has it, of their whole pictures until then.
+            const baseShown = basePaths.every(path => fine(path)) ? shown : coarse;
             stepBar.element.dataset.stage = id;
-            stepBar.element.dataset.detail = String(!!fine);
+            stepBar.element.dataset.detail = String(fineSpecs.size > 0 && !fineMissing);
+            // How many of the tracks are drawn from their detail, for tests.
+            stepBar.element.dataset.detailLines = String(tracks.filter(track => fine(track.filePath)).length);
             root.dataset.layout = overlay ? 'overlay' : 'lanes';
             // The zoom, for tests: "start–end" of the horizontal axis.
             root.dataset.xWindow = `${window_.x.start.toFixed(3)}-${window_.x.end.toFixed(3)}`;
@@ -604,10 +646,10 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
                     const missing = coarse(track.filePath) === undefined;
                     const empty = missing ? '' : strings.stepNotDrawable.replace('{frame}', picture?.frame ?? '');
                     const axes = stageAxes(strings, coarse(track.filePath) ?? picture, track.input);
-                    drawnOn.set(track.canvas, { picture: coarse(track.filePath) ?? picture, range, axes, views: { base: coarsePlots.base, compare: coarse(track.filePath) ?? null, diff: null } });
                     // A lane holds one picture, drawn as it is (1/3-octave levels as steps, without a fill).
-                    paintOverlay(track.canvas, { layers: view ? [{ view, color: colorOf(track.filePath), width: widthOf(track.filePath, 2) }] : [] }, heat ? range : narrowed(range, window_.y), axes,
+                    const lanePlot = paintOverlay(track.canvas, { layers: view ? [{ view, color: colorOf(track.filePath), width: widthOf(track.filePath, 2), label: named(track.filePath, role(track.filePath)).label }] : [] }, heat ? range : narrowed(range, window_.y), axes,
                         { empty, window: { x: window_.x, ...(heat ? { y: window_.y } : {}) }, axisView: coarse(track.filePath) ?? picture, ...(regionMark ? { region: regionMark } : {}), ...((missing || track.filePath === progressLane) && pending ? { pending } : {}) });
+                    drawnOn.set(track.canvas, { picture: coarse(track.filePath) ?? picture, range, axes, views: { base: coarsePlots.base, compare: coarse(track.filePath) ?? null, diff: null }, plot: lanePlot });
                     if (view) drawn++;
                 });
                 // The base slot's lane: the reference the others are measured against, not a picture of its own.
@@ -617,15 +659,21 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
                 return;
             }
             // Overlaid: the base, the other tracks and the compared one on one plot, as the comparison draws them.
-            const plots = plotsOf(shown, tracks, comparePath, basePaths, tableBase);
+            const finePlots = plotsOf(shown, tracks, comparePath, basePaths, tableBase, baseShown);
+            // The difference of a line's detail and a base still whole is no difference (their points are at other places
+            // even where there are as many): the whole pictures' until both sides have their detail.
+            const bothFine = !!comparePath && !!fine(comparePath) && basePaths.length > 0 && baseShown === shown;
+            const plots = { ...finePlots, diff: bothFine ? finePlots.diff : coarsePlots.diff };
             root.dataset.compared = comparePath ? String(role(comparePath) ?? '') : '';
             root.dataset.base = groupBase || !deps.slots()[0] ? 'group' : 'file';
+            // Each line carries its legend name, for the readout of the line under the pointer.
+            const nameOf = (path: string): string => named(path, role(path)).label;
             const layers: StageLayer[] = [
                 // The grey lines (no role) under the roles' ones.
-                ...plots.others.filter(item => role(item.track.filePath) === undefined).flatMap(item => (item.view ? [{ view: item.view, color: NO_ROLE_COLOR, width: 1.2 }] : [])),
-                ...(plots.base ? [{ view: plots.base, color: ROLE_COLORS[0], width: 2 }] : []),
-                ...plots.others.filter(item => role(item.track.filePath) !== undefined).flatMap(item => (item.view ? [{ view: item.view, color: colorOf(item.track.filePath), width: 1.8 }] : [])),
-                ...(plots.compare && comparePath ? [{ view: plots.compare, color: colorOf(comparePath, ROLE_COLORS[1]), width: 2.2 }] : []),
+                ...plots.others.filter(item => role(item.track.filePath) === undefined).flatMap(item => (item.view ? [{ view: item.view, color: NO_ROLE_COLOR, width: 1.2, label: nameOf(item.track.filePath) }] : [])),
+                ...(plots.base ? [{ view: plots.base, color: ROLE_COLORS[0], width: 2, ...(comparePath ? { label: deps.baseTitle(comparePath, groupBase) } : basePaths.length === 1 ? { label: nameOf(basePaths[0]) } : {}) }] : []),
+                ...plots.others.filter(item => role(item.track.filePath) !== undefined).flatMap(item => (item.view ? [{ view: item.view, color: colorOf(item.track.filePath), width: 1.8, label: nameOf(item.track.filePath) }] : [])),
+                ...(plots.compare && comparePath ? [{ view: plots.compare, color: colorOf(comparePath, ROLE_COLORS[1]), width: 2.2, label: nameOf(comparePath) }] : []),
             ];
             stepBar.element.dataset.drawn = String(layers.length);
             const items: LegendItem[] = [
@@ -655,16 +703,16 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             const range = stageRange([coarsePlots.base, coarsePlots.compare, ...coarsePlots.others.map(item => item.view)]);
             const axes = stageAxes(strings, picture, tracks[0]?.input);
             const empty = waiting ? '' : strings.stepNotDrawable.replace('{frame}', picture?.frame ?? '');
-            drawnOn.set(query('[data-stage-canvas="overlay"]'), { picture, range, axes, views: { base: coarsePlots.base, compare: coarsePlots.compare, diff: coarsePlots.diff } });
-            paintOverlay(query<HTMLCanvasElement>('[data-stage-canvas="overlay"]'), { layers }, narrowed(range, window_.y), axes, { empty, window: { x: window_.x }, axisView: picture, ...(regionMark ? { region: regionMark } : {}), ...(pending ? { pending } : {}) });
+            const overlayPlot = paintOverlay(query<HTMLCanvasElement>('[data-stage-canvas="overlay"]'), { layers }, narrowed(range, window_.y), axes, { empty, window: { x: window_.x }, axisView: picture, ...(regionMark ? { region: regionMark } : {}), ...(pending ? { pending } : {}) });
+            drawnOn.set(query('[data-stage-canvas="overlay"]'), { picture, range, axes, views: { base: coarsePlots.base, compare: coarsePlots.compare, diff: coarsePlots.diff }, plot: overlayPlot });
             const diffBox = query<HTMLElement>('[data-stage-diff]');
             diffBox.hidden = !showDiff || !!referencePath || !comparePath;
             if (showDiff && !referencePath && comparePath) {
                 query<HTMLElement>('[data-stage-diff-headline]').textContent = waiting ? '' : stageHeadline(plots.diff, strings);
                 const diffAxes = stageAxes(strings, coarsePlots.diff, tracks[0]?.input, true);
-                drawnOn.set(query('[data-stage-canvas="diff"]'), { picture: coarsePlots.diff, range: stageDiffRange(coarsePlots.diff), axes: diffAxes, views: { base: coarsePlots.base, compare: coarsePlots.compare, diff: coarsePlots.diff } });
-                paintStage(query<HTMLCanvasElement>('[data-stage-canvas="diff"]'), plots.diff, stageDiffRange(coarsePlots.diff), DIFF_COLOR, stageAxes(strings, coarsePlots.diff, tracks[0]?.input, true),
+                const diffPlot = paintStage(query<HTMLCanvasElement>('[data-stage-canvas="diff"]'), plots.diff, stageDiffRange(coarsePlots.diff), DIFF_COLOR, stageAxes(strings, coarsePlots.diff, tracks[0]?.input, true),
                     { diff: true, empty: waiting ? '' : strings.stageNoDelta, window: { x: window_.x }, axisView: coarsePlots.diff, ...(pending ? { pending } : {}) });
+                drawnOn.set(query('[data-stage-canvas="diff"]'), { picture: coarsePlots.diff, range: stageDiffRange(coarsePlots.diff), axes: diffAxes, views: { base: coarsePlots.base, compare: coarsePlots.compare, diff: coarsePlots.diff }, plot: diffPlot });
             }
         },
         handle: message => source.handle(message),
@@ -683,8 +731,10 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             };
         },
         attach(surface) {
-            // The lanes' cursor line and readout, the box being dragged and an axis's range, for any plot of the mode.
-            const cursor = document.createElement('div');
+            // The pointer's marks (plotHover.ts: the nearest line thicker, the cursor at its point), its readout, the
+            // box being dragged and an axis's range, for any plot of the mode. The marks are drawn on a canvas laid
+            // over the plot, so a hover does not draw the plot again.
+            const cursor = document.createElement('canvas');
             cursor.className = 'track-stage-cursor';
             const readout = document.createElement('div');
             readout.className = 'compare-readout track-stage-readout';
@@ -698,6 +748,42 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
                 return { left: rect.left + STAGE_MARGINS.left, top: rect.top + STAGE_MARGINS.top, width: Math.max(1, rect.width - STAGE_MARGINS.left - STAGE_MARGINS.right), height: Math.max(1, rect.height - STAGE_MARGINS.top - STAGE_MARGINS.bottom) };
             };
             const across = (fx: number): number => window_.x.start + fx * (window_.x.end - window_.x.start);
+            const hideHover = (): void => { cursor.hidden = true; readout.hidden = true; };
+            /**
+             * The hover as the spectrum overlay under the tracks draws it: the line nearest the pointer thicker, a dashed
+             * cursor at its point and a dashed level line in its colour, its name, where and its value in the readout.
+             * An image has no lines: the cursor alone. A signal drawn as itself keeps its levels' readout (base, compare, Δ).
+             */
+            const showHover = (): void => {
+                const drawn = hovered ? drawnOn.get(hovered.plot) : undefined;
+                if (!hovered || !drawn || !hovered.plot.isConnected || hovered.plot.closest('[hidden]')) { hideHover(); return; }
+                const rect = hovered.plot.getBoundingClientRect();
+                const ratio = document.defaultView?.devicePixelRatio || 1;
+                Object.assign(cursor.style, { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px` });
+                cursor.width = Math.round(rect.width * ratio);
+                cursor.height = Math.round(rect.height * ratio);
+                const context = cursor.getContext('2d');
+                if (!context) return;
+                context.setTransform(ratio, 0, 0, ratio, 0, 0);
+                context.clearRect(0, 0, rect.width, rect.height);
+                const x = hovered.clientX - rect.left, y = hovered.clientY - rect.top;
+                const plot = drawn.plot;
+                const hit = plot ? stageHover(plot, x, y) : null;
+                const frame = plot?.frame ?? { left: STAGE_MARGINS.left, top: STAGE_MARGINS.top, width: plotBox(hovered.plot).width, height: plotBox(hovered.plot).height };
+                paintHoverMarks(context, frame, hit ? hit.x : x, hit ? hit.y : null, hit?.layer.color ?? '', hit && plot ? (ctx, width) => strokeStageLine(ctx as CanvasRenderingContext2D, plot, hit.layer, width) : undefined);
+                cursor.hidden = false;
+                const text = hit ? hit.text : drawn.picture?.waveform ? stageReadout(drawn.views, across(hovered.fx)) : '';
+                readout.textContent = text;
+                readout.style.color = hit?.layer.color ?? '';
+                readout.hidden = !text;
+                // Beside the pointer, on its left where the right of the plot has no room for it.
+                // Kept in the window: a plot scrolled partly out of view still shows it.
+                const right = hovered.clientX + 12 + readout.offsetWidth > rect.right;
+                Object.assign(readout.style, { left: `${Math.max(0, right ? hovered.clientX - 12 - readout.offsetWidth : hovered.clientX + 12)}px`, top: `${Math.max(4, rect.top + frame.top + 4)}px` });
+            };
+            redrawHover = showHover;
+            // The marks sit where the plot was on screen: a scroll under a still pointer takes them away.
+            document.addEventListener('scroll', () => { if (hovered) { hovered = null; hideHover(); } }, true);
             const gestures = (selector: string, container: HTMLElement): void => attachPlotInteraction(container, document, selector, {
                 locate(target, clientX, clientY): PlotHit | null {
                     const plot = (target as HTMLElement | null)?.closest?.<HTMLElement>(selector);
@@ -712,18 +798,12 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
                     // The lanes' surface holds the overlaid plot too: a miss there is the other plot's to answer.
                     if (!hit && (event.target as Element | null)?.closest?.('.track-canvas, [data-stage-canvas]')) return;
                     const drawn = hit ? drawnOn.get(hit.plot) : undefined;
-                    if (!hit || hit.axis || !drawn) { cursor.hidden = true; readout.hidden = true; if (hit) deps.hint(strings.compareHintAxis); return; }
+                    if (!hit || hit.axis || !drawn) { hovered = null; hideHover(); if (hit) deps.hint(strings.compareHintAxis); return; }
                     deps.hint(strings.compareHintPlot);
-                    // The cursor line across the plot, and the pictures' values where it is (the lanes' readout).
-                    const rect = plotBox(hit.plot);
-                    Object.assign(cursor.style, { left: `${event.clientX}px`, top: `${rect.top}px`, height: `${rect.height}px` });
-                    cursor.hidden = false;
-                    const text = drawn.picture?.kind === 'heatmap' ? '' : stageReadout(drawn.views, across(hit.point.fx));
-                    readout.textContent = text;
-                    Object.assign(readout.style, { left: `${event.clientX + 12}px`, top: `${rect.top + 4}px` });
-                    readout.hidden = !text;
+                    hovered = { plot: hit.plot, clientX: event.clientX, clientY: event.clientY, fx: hit.point.fx };
+                    showHover();
                 },
-                clearHover() { cursor.hidden = true; readout.hidden = true; },
+                clearHover() { hovered = null; hideHover(); },
                 showBox(plot, from, to) {
                     const rect = plotBox(plot);
                     const [x0, x1] = [Math.min(from.fx, to.fx), Math.max(from.fx, to.fx)], [y0, y1] = [Math.min(from.fy, to.fy), Math.max(from.fy, to.fy)];

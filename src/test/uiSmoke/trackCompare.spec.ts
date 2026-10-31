@@ -306,9 +306,12 @@ test('the comparison\'s step bar grows the chain with ＋, offers only what take
     const middle = { x: box.x + 52 + (box.width - 56) / 2, y: box.y + box.height / 2 };
     await page.mouse.move(middle.x, middle.y);
     await expect(page.locator('#hint-footer')).toHaveText(STR.compareHintPlot);
-    // As on the lanes: a cursor line and the values under the pointer (where, base, compare, Δ).
+    // As on the spectrum overlay under the tracks: the line nearest the pointer drawn thicker, the cursor at its
+    // point, and its name, where and its value in its colour.
     await expect(page.locator('.track-stage-cursor')).toBeVisible();
-    await expect(page.locator('.track-stage-readout')).toHaveText(/^[\d.]+ k?Hz \/ −?\d+\.\d \/ −?\d+\.\d \/ [+−]\d+\.\d dB$/);
+    await expect(page.locator('.track-stage-readout')).toHaveText(/^.+ \/ [\d.]+ k?Hz \/ −?\d+\.\d dB$/);
+    const readoutColor = await page.locator('.track-stage-readout').evaluate(element => (element as HTMLElement).style.color);
+    expect(readoutColor).not.toBe('');
     // + and − zoom about the middle.
     await page.keyboard.press('+');
     await expect(root).toHaveAttribute('data-x-window', '0.150-0.850');

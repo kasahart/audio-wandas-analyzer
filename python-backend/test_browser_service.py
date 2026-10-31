@@ -21,7 +21,9 @@ def _input_error(reply: str) -> str:
     return error["message"]
 
 
-def test_browser_source_bounds_release_and_stale_identity() -> None:
+def test_browser_source_bounds_release_and_stale_identity(monkeypatch) -> None:
+    import browser_service as browser
+
     service = create_service()
     assert isinstance(service, BrowserService)
     with pytest.raises(ValueError, match="non-empty"):
@@ -38,6 +40,8 @@ def test_browser_source_bounds_release_and_stale_identity() -> None:
     assert service.engine.get_file(source.path) is source
     with pytest.raises(ValueError, match="too short"):
         service.engine.get_spectrogram(source.path, 16384, 1024, "hann")
+    # The fixture is short, so the budget is lowered until a hop-1 STFT no longer fits.
+    monkeypatch.setattr(browser, "MAX_ESTIMATED_BYTES", 512 * 1024 * 1024)
     with pytest.raises(ValueError, match="memory budget"):
         service.engine.get_spectrogram(source.path, 1024, 1, "hann")
     service.engine.clear()
@@ -269,17 +273,47 @@ def test_browser_limits_are_published_from_the_python_constants() -> None:
     limits = json.loads(browser.browser_limits_json())
     assert first_violation(DEFINITIONS["BrowserLimits"], limits) is None
     assert limits == {
-        "maxInputBytes": 16 * 1024 * 1024,
-        "maxDurationSeconds": 30,
+        "maxInputBytes": 80 * 1024 * 1024,
         "maxChannels": 2,
         "minSampleRateHz": 1000,
         "maxSampleRateHz": 96000,
         "maxSources": 8,
-        "maxTotalInputBytes": 64 * 1024 * 1024,
+        "maxTotalInputBytes": 256 * 1024 * 1024,
         "maxExportBytes": 32 * 1024 * 1024,
     }
-    with pytest.raises(ValueError, match="up to 16 MiB"):
+    with pytest.raises(ValueError, match="up to 80 MiB"):
         browser.create_service().engine.load("selected.wav", b"")
+
+
+@pytest.mark.parametrize("channels", [1, 2])
+def test_the_largest_pcm16_file_loads_and_shows_its_spectrogram_on_its_own(channels: int) -> None:
+    import browser_service as browser
+    from analyzer import resolve_stft_params
+
+    # A 16-bit file decodes to float32 at twice its size; the published per-file limit must load and draw alone.
+    engine = create_service().engine
+    payload = browser.MAX_INPUT_BYTES
+    length = payload // 2 // channels
+    frame = length * channels * 4
+    assert engine.estimated_bytes(payload * 2 + frame * 8) <= browser.MAX_ESTIMATED_BYTES
+    n_fft, hop_length, _ = resolve_stft_params(length, None)
+    # Once loaded, the payload counts as session input and the frame as retained detail.
+    stft = browser.stft_working_bytes(length, channels, n_fft, hop_length)
+    assert engine.estimated_bytes(0) + payload + frame * 2 + stft <= browser.MAX_ESTIMATED_BYTES
+
+
+def test_an_over_budget_file_alone_is_told_it_is_too_large(monkeypatch) -> None:
+    import browser_service as browser
+
+    engine = create_service().engine
+    monkeypatch.setattr(browser, "MAX_ESTIMATED_BYTES", engine.estimated_bytes(0))
+    with pytest.raises(ValueError, match="File is too large"):
+        engine.load("selected.wav", FIXTURE.read_bytes())
+    monkeypatch.undo()
+    engine.load("selected.wav", FIXTURE.read_bytes())
+    monkeypatch.setattr(browser, "MAX_ESTIMATED_BYTES", engine.estimated_bytes(0))
+    with pytest.raises(ValueError, match="remove another track"):
+        engine.load("other.wav", FIXTURE.read_bytes())
 
 
 def test_estimated_bytes_counts_session_inputs_and_retained_detail() -> None:
