@@ -134,7 +134,8 @@ export function registerExtensionContributions(
     pythonStatusBarItem: vscode.StatusBarItem,
     controller: AudioTargetController,
     recipeFlow: RecipeFlow,
-    preparePython: (reason: PythonNeed) => Promise<void>,
+    /** Resolves false when the environment is not usable; the check has then shown its Install/Select prompt. */
+    preparePython: (reason: PythonNeed) => Promise<boolean>,
 ): void {
     const strings = getStrings(vscode.env.language);
     const needPython = (reason: PythonNeed): void => { void preparePython(reason); };
@@ -197,7 +198,8 @@ export function registerExtensionContributions(
         vscode.commands.registerCommand(
             'audioWandasAnalyzer.runRecipe',
             async (filePaths?: string[]) => {
-                needPython('command');
+                // A recipe runs in the backend, so it waits for the check (and any install) like an analysis does.
+                if (!await preparePython('command')) { return; }
                 await recipeFlow.run(filePaths);
             },
         ),

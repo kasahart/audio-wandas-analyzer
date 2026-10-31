@@ -67,7 +67,11 @@ export async function buildDirectoryTree(
     async function list(currentUri: vscode.Uri): Promise<DirectoryTreeNode[]> {
         if (options.isCancelled?.()) { throw new vscode.CancellationError(); }
         if (truncated) { return []; }
-        const entries = await read(() => fileSystem.readDirectory(currentUri));
+        // Checked again once a slot opens, so reads queued before a cancel are skipped rather than run.
+        const entries = await read(() => {
+            if (options.isCancelled?.() || truncated) { return Promise.resolve<[string, vscode.FileType][]>([]); }
+            return Promise.resolve(fileSystem.readDirectory(currentUri));
+        });
         if (options.isCancelled?.()) { throw new vscode.CancellationError(); }
         const room = Math.max(0, maxEntries - seen);
         if (entries.length > room) { truncated = true; }

@@ -34,12 +34,19 @@ function statusItem() {
     };
 }
 
+/** A venv's interpreter in the host layout: bin/python on POSIX, Scripts\\python.exe on Windows. */
+function venvInterpreter(venvPath: string): string {
+    return process.platform === 'win32' ? path.join(venvPath, 'Scripts', 'python.exe') : path.join(venvPath, 'bin', 'python');
+}
+
+function makeVenv(venvPath: string): void {
+    mkdirSync(path.dirname(venvInterpreter(venvPath)), { recursive: true });
+    writeFileSync(venvInterpreter(venvPath), '');
+}
+
 function makeWorkspace(venvs: string[] = []): string {
     const root = mkdtempSync(path.join(os.tmpdir(), 'awa-python-env-'));
-    for (const venv of venvs) {
-        mkdirSync(path.join(root, venv, 'bin'), { recursive: true });
-        writeFileSync(path.join(root, venv, 'bin', 'python'), '');
-    }
+    for (const venv of venvs) makeVenv(path.join(root, venv));
     return root;
 }
 
@@ -916,7 +923,7 @@ test('Create .venv and Install makes a workspace venv, installs the README packa
         assert.equal(await pythonEnvironment.checkAndPromptInstallDependencies('python3', statusItem() as never), false);
         const venvPath = path.join(root, '.venv');
         assert.deepEqual(spawned.slice(1, 2), [{ command: 'python3', args: ['-m', 'venv', venvPath] }]);
-        assert.equal(spawned[2].command, path.join(venvPath, 'bin', 'python'));
+        assert.equal(spawned[2].command, venvInterpreter(venvPath));
         assert.deepEqual(spawned[2].args.slice(0, 3), ['-m', 'pip', 'install']);
         assert.deepEqual(spawned[2].args.slice(3).sort(), readmePackages);
         assert.deepEqual(progressTitles, [`Creating ${venvPath}`, `Installing Python packages into ${venvPath}`]);
@@ -970,8 +977,7 @@ function partialVenvSpawn(finish: 'fail' | 'hang') {
                 return;
             }
             if (args[1] === 'venv') {
-                mkdirSync(path.join(args[2], 'bin'), { recursive: true });
-                writeFileSync(path.join(args[2], 'bin', 'python'), '');
+                makeVenv(args[2]);
             }
             if (finish === 'fail') { proc.emit('close', 1); }
         });
