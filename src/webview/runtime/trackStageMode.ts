@@ -380,8 +380,8 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         // With its role chip in front, the label is the file's name alone.
         return { label: chipHtml ? info.label : `${slot ?? '·'} · ${info.label}`, ...(info.value ? { value: info.value } : {}), ...(info.memo ? { memo: info.memo } : {}), ...(chipHtml ? { chipHtml } : {}) };
     }
-    function plotsOf(views: (path: string) => StageView | null | undefined, tracks: StageTrack[], comparePath: string | null, basePaths: readonly string[], fallback: StageView | null = null) {
-        const baseViews = basePaths.map(views).filter((view): view is StageView => !!view);
+    function plotsOf(views: (path: string) => StageView | null | undefined, tracks: StageTrack[], comparePath: string | null, basePaths: readonly string[], fallback: StageView | null = null, baseOf = views) {
+        const baseViews = basePaths.map(baseOf).filter((view): view is StageView => !!view);
         const base = baseViews.length && baseViews.length === basePaths.length ? medianView(baseViews) : fallback;
         const compare = comparePath ? views(comparePath) ?? null : null;
         const others = tracks.filter(track => track.filePath !== comparePath && !basePaths.includes(track.filePath)).map(track => ({ track, view: views(track.filePath) ?? null }));
@@ -487,12 +487,21 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             root.classList.toggle('is-step-held', !!held_);
             root.dataset.held = held_ ? heldStep!.id : '';
             root.dataset.channels = files.map(path => `${baseName(path)}:${channelFor(path) ?? '*'}`).join(',');
-            let waiting = false;
-            for (const [ch, paths] of byChannel) waiting = source.ensure(specOf(ch), paths) || waiting;
-            // Over a region, the files' metrics over it too, for D and the report.
+            // The pictures share one request: asked for one after another, the tracks on screen before a base group's
+            // recordings and the whole pictures before the zoom's detail, the region's metrics before the base group's
+            // detail. No spec supersedes another on every repaint, which would leave both unfinished.
+            let asking = false;
+            const lacks = (wanted: StageSpec, paths: readonly string[]): boolean => paths.some(path => source.result(wanted, path) === undefined);
+            const want = (wanted: StageSpec, paths: readonly string[]): boolean => {
+                const lacking = lacks(wanted, paths);
+                if (lacking && !asking) asking = source.ensure(wanted, paths);
+                return lacking;
+            };
+            const onScreen = new Set(tracks.map(track => track.filePath));
+            const ownOf = (paths: readonly string[]): string[] => paths.filter(path => onScreen.has(path));
+            const waiting = [...byChannel].some(([ch, paths]) => lacks(specOf(ch), paths));
+            for (const [ch, paths] of byChannel) want(specOf(ch), ownOf(paths));
             const region = liveRegion();
-            // The base recording measured against is not a track here, but D and the report read its region values too.
-            if (region && !waiting && !broken) source.ensure(regionSpec(), referencePath ? [...files, referencePath] : files);
             root.dataset.region = regionLabel(region);
             // The region on the plots: its part of a whole-file picture (a step before the region's), else a corner tag.
             const sliceAt = steps.findIndex(step => step.operation === TIME_SLICE);
@@ -527,18 +536,38 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             diffButton.disabled = nothingCompared;
             // Zoomed, the plots draw from the Frames' full resolution once it is in, the coarse pictures until then.
             const width = (overlay ? query<HTMLCanvasElement>('[data-stage-canvas="overlay"]') : tracks.find(track => track.canvas)?.canvas)?.clientWidth || 600;
-            const fineSpecs = new Map<number | null, StageSpec | null>();
-            if (!waiting && !held_ && picture && picture.kind !== 'bar' && picture.kind !== 'none') {
+            // Each line is drawn from its own detail as soon as that is in, while a base group's recordings are still
+            // being asked for (its median switches once all of them have their detail).
+            const fineSpecs = new Map<number | null, StageSpec>();
+            let fineMissing = false;
+            if (!held_ && picture && picture.kind !== 'bar' && picture.kind !== 'none') {
                 for (const [ch, paths] of byChannel) {
                     const fineSpec = detail.spec(specOf(ch), picture, window_.x, window_.y, width);
-                    fineSpecs.set(ch, fineSpec && !source.ensure(fineSpec, paths) ? fineSpec : null);
+                    if (!fineSpec) continue;
+                    fineSpecs.set(ch, fineSpec);
+                    fineMissing = want(fineSpec, ownOf(paths)) || fineMissing;
                 }
             }
-            const fineReady = fineSpecs.size > 0 && [...fineSpecs.values()].every(item => !!item);
-            const fine = fineReady ? (path: string) => source.view(fineSpecs.get(channelFor(path))!, path) : null;
-            const shown = (path: string) => (fine ? fine(path) : undefined) ?? coarse(path);
+            for (const [ch, paths] of byChannel) want(specOf(ch), paths);
+            // Over a region, the files' metrics over it too, for D and the report (before a base group's detail, which a
+            // new zoom asks for again); the base recording measured against is not a track here, but D and the report
+            // read its region values too.
+            if (region && !waiting && !broken) want(regionSpec(), referencePath ? [...files, referencePath] : files);
+            for (const [ch, paths] of byChannel) {
+                const fineSpec = fineSpecs.get(ch);
+                if (fineSpec) fineMissing = want(fineSpec, paths) || fineMissing;
+            }
+            const fine = (path: string): StageView | null | undefined => {
+                const fineSpec = fineSpecs.get(channelFor(path));
+                return fineSpec ? source.view(fineSpec, path) : undefined;
+            };
+            const shown = (path: string) => fine(path) ?? coarse(path);
+            // A base group's median: of its recordings' detail once every one has it, of their whole pictures until then.
+            const baseShown = basePaths.every(path => fine(path)) ? shown : coarse;
             stepBar.element.dataset.stage = id;
-            stepBar.element.dataset.detail = String(!!fine);
+            stepBar.element.dataset.detail = String(fineSpecs.size > 0 && !fineMissing);
+            // How many of the tracks are drawn from their detail, for tests.
+            stepBar.element.dataset.detailLines = String(tracks.filter(track => fine(track.filePath)).length);
             root.dataset.layout = overlay ? 'overlay' : 'lanes';
             // The zoom, for tests: "start–end" of the horizontal axis.
             root.dataset.xWindow = `${window_.x.start.toFixed(3)}-${window_.x.end.toFixed(3)}`;
@@ -605,7 +634,11 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
                 return;
             }
             // Overlaid: the base, the other tracks and the compared one on one plot, as the comparison draws them.
-            const plots = plotsOf(shown, tracks, comparePath, basePaths, tableBase);
+            const finePlots = plotsOf(shown, tracks, comparePath, basePaths, tableBase, baseShown);
+            // The difference of a line's detail and a base still whole is no difference (their points are at other places
+            // even where there are as many): the whole pictures' until both sides have their detail.
+            const bothFine = !!comparePath && !!fine(comparePath) && basePaths.length > 0 && baseShown === shown;
+            const plots = { ...finePlots, diff: bothFine ? finePlots.diff : coarsePlots.diff };
             root.dataset.compared = comparePath ? String(role(comparePath) ?? '') : '';
             root.dataset.base = groupBase || !deps.slots()[0] ? 'group' : 'file';
             const layers: StageLayer[] = [
