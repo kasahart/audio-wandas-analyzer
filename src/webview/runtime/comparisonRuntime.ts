@@ -3328,18 +3328,22 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }
             setLoopRegion(null);
             emitWaveformZoom();
+            followPointerAfterDrag(e);
             scheduleRender();
             return;
         }
         if (hadDrag) {
             scheduleSpectrumRefresh('immediate');
-            // The readout follows the pointer again from where the drag ended (or shows the cursor off the lanes).
-            const under = document.elementFromPoint(e.clientX, e.clientY);
-            const canvas = under instanceof HTMLCanvasElement && under.classList.contains('track-canvas') ? under : null;
-            const hit = canvas ? trackCanvasTimeHit(canvas, e.clientX) : null;
-            if (hit) renderWithHoverAt(hit.norm);
-            else { clearHover(); updateCursorDisplay(viewState.cursor); }
+            followPointerAfterDrag(e);
         }
+    }
+    /** The readout follows the pointer again from where the drag ended, in the view it leaves (a box zoom's zoomed one), or shows the cursor off the lanes. */
+    function followPointerAfterDrag(e: MouseEvent): void {
+        const under = document.elementFromPoint(e.clientX, e.clientY);
+        const canvas = under instanceof HTMLCanvasElement && under.classList.contains('track-canvas') ? under : null;
+        const hit = canvas ? trackCanvasTimeHit(canvas, e.clientX) : null;
+        if (hit) renderWithHoverAt(hit.norm);
+        else { clearHover(); updateCursorDisplay(viewState.cursor); }
     }
     function renderWithHoverAt(norm: number) {
         viewState.setHover(norm);
