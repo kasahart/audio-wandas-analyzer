@@ -289,7 +289,8 @@ export async function runEntryProbe(
     publish: (message: EntryProbePublication) => void | PromiseLike<unknown>,
     isCurrent: () => boolean,
 ): Promise<void> {
-    const read = ports.readHead ?? (ports.readFile ? (filePath: string) => ports.readFile!(filePath) : undefined);
+    const readFile = ports.readFile?.bind(ports);
+    const read = ports.readHead ?? (readFile ? (filePath: string) => readFile(filePath) : undefined);
     for (const filePath of message.filePaths) {
         if (!isCurrent()) return;
         let probe: ChannelProbe;

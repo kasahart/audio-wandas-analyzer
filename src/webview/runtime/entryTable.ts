@@ -140,14 +140,18 @@ function fileValues(result: ScanResult, band: number): Record<EntryColumn, numbe
     };
 }
 
-function profile(result: ScanResult): string {
-    const input = result.input!;
+/** A scan that read its file: the only kind the model compares. */
+type MeasuredResult = ScanResult & { input: NonNullable<ScanResult['input']> };
+const isMeasured = (result: ScanResult | undefined): result is MeasuredResult => !!result?.ok && result.input !== undefined;
+
+function profile(result: MeasuredResult): string {
+    const input = result.input;
     return JSON.stringify([input.channels.length, input.fs, input.unit, input.ref, result.specVersion]);
 }
 
-function mismatchLabel(result: ScanResult, reference: ScanResult): string {
-    const input = result.input!;
-    const base = reference.input!;
+function mismatchLabel(result: MeasuredResult, reference: MeasuredResult): string {
+    const input = result.input;
+    const base = reference.input;
     const parts: string[] = [];
     if (input.channels.length !== base.channels.length) parts.push(`${input.channels.length} ch`);
     if (input.fs !== base.fs) parts.push(`${input.fs % 1000 === 0 ? input.fs / 1000 : (input.fs / 1000).toFixed(1)} kHz`);
@@ -181,20 +185,22 @@ function rowConditions(filePath: string, table: EntryConditionTable | null, colu
 }
 
 /** The band whose Δ separates rows most, so the table opens on the band most worth a look. */
-function mostTellingBand(rows: EntryRow[], files: Map<string, ScanResult>): number {
+function mostTellingBand(rows: EntryRow[], files: Map<string, MeasuredResult>): number {
     let best = FALLBACK_BAND;
     let bestSpread = 0;
     BAND_CENTERS_HZ.forEach((_, band) => {
         const groups = new Map<string, number[]>();
         for (const row of rows) {
-            if (!row.group) continue;
-            const value = fileValues(files.get(row.filePath)!, band).band;
+            const result = files.get(row.filePath);
+            if (!row.group || !result) continue;
+            const value = fileValues(result, band).band;
             if (value === null) return;
             groups.set(row.group, [...(groups.get(row.group) ?? []), value]);
         }
         for (const values of groups.values()) {
             if (values.length < MIN_TELLING_GROUP) continue;
-            const center = median(values)!;
+            const center = median(values);
+            if (center === null) continue;
             const spread = values.reduce((most, value) => Math.max(most, Math.abs(value - center)), -Infinity);
             if (spread > bestSpread) { bestSpread = spread; best = band; }
         }
@@ -209,10 +215,10 @@ export function buildEntryModel(
     options: { band?: number; derived?: readonly DerivedRow[] } = {},
 ): EntryModel {
     const columns = conditionColumns(table);
-    const results = new Map<string, ScanResult>();
-    files.forEach(file => { if (file.result?.ok) results.set(file.filePath, file.result); });
+    const results = new Map<string, MeasuredResult>();
+    files.forEach(file => { if (isMeasured(file.result)) results.set(file.filePath, file.result); });
     // Rows are compared only with files of the most common shape (channels, rate, unit, spec version).
-    const counts = new Map<string, { count: number; result: ScanResult }>();
+    const counts = new Map<string, { count: number; result: MeasuredResult }>();
     results.forEach(result => {
         const key = profile(result);
         counts.set(key, { count: (counts.get(key)?.count ?? 0) + 1, result });
@@ -229,14 +235,15 @@ export function buildEntryModel(
         const result = file.result;
         if (!result) return row;
         if (!result.ok) { row.status = 'failed'; row.reason = result.reason; return row; }
+        if (!isMeasured(result)) return row;
         if (reference && profile(result) !== profile(reference)) {
             row.status = 'mismatch';
             row.mismatch = mismatchLabel(result, reference);
             return row;
         }
         row.status = 'ok';
-        row.durationS = result.input!.durationS;
-        row.uncalibrated = result.input!.unit === 'FS' && result.input!.ref === 1;
+        row.durationS = result.input.durationS;
+        row.uncalibrated = result.input.unit === 'FS' && result.input.ref === 1;
         if (conditions.length) row.group = JSON.stringify(conditions);
         return row;
     });
@@ -244,9 +251,10 @@ export function buildEntryModel(
     const groups = new Map<string, EntryRow[]>();
     const levels = new Map<string, (number | null)[]>();
     for (const row of rows) {
-        if (row.status !== 'ok') continue;
-        row.values = fileValues(results.get(row.filePath)!, band);
-        row.levels = bandLevels(results.get(row.filePath)!);
+        const result = results.get(row.filePath);
+        if (row.status !== 'ok' || !result) continue;
+        row.values = fileValues(result, band);
+        row.levels = bandLevels(result);
         levels.set(row.filePath, row.levels);
         if (row.group) groups.set(row.group, [...(groups.get(row.group) ?? []), row]);
     }
@@ -260,13 +268,16 @@ export function buildEntryModel(
             for (const column of ['leq', 'band'] as const) {
                 const value = row.values[column];
                 const values = others.map(member => member.values[column]).filter((item): item is number => item !== null);
-                if (value === null || !values.length) continue;
-                row.delta[column] = roundedDelta(value, median(values)!);
+                const center = median(values);
+                if (value === null || center === null) continue;
+                row.delta[column] = roundedDelta(value, center);
             }
-            const max = maxBandDelta(levels.get(row.filePath)!, others.map(member => levels.get(member.filePath)!));
-            if (max) {
+            const own = levels.get(row.filePath);
+            if (!own) continue;
+            const max = maxBandDelta(own, others.map(member => levels.get(member.filePath) ?? []));
+            const level = max ? own[max.band] : null;
+            if (max && level !== null) {
                 row.values.peak = BAND_CENTERS_HZ[max.band];
-                const level = levels.get(row.filePath)![max.band]!;
                 row.delta.peak = roundedDelta(level, level - max.delta);
             }
         }
@@ -293,7 +304,9 @@ function maxBandDelta(levels: readonly (number | null)[], others: ReadonlyArray<
     levels.forEach((level, band) => {
         const reference = others.map(item => item[band]).filter((item): item is number => item !== null && item !== undefined);
         if (level === null || !reference.length) return;
-        const delta = level - median(reference)!;
+        const center = median(reference);
+        if (center === null) return;
+        const delta = level - center;
         if (!best || Math.abs(delta) > Math.abs(best.delta)) best = { band, delta };
     });
     return best;
@@ -415,7 +428,7 @@ export function entryCsv(model: EntryModel, labels: { file: string; condition: (
             ...row.cells, ...regionCells(ok ? measuredRegion(row.derived?.region, row.durationS) : row.derived?.region),
             ok ? dB(row.values.leq) : null, ok ? csvNumber(row.values.peak, 0) : null, ok ? dB(row.delta.peak) : null, ok ? dB(row.values.band) : null,
             dB(row.delta.leq), dB(row.delta.band), row.groupSize ? String(row.groupSize) : null,
-            row.status === 'failed' ? '✕' : row.status === 'mismatch' ? row.mismatch! : '',
+            row.status === 'failed' ? '✕' : row.status === 'mismatch' ? row.mismatch ?? '' : '',
         ].map(csvCell).join(','));
     }
     return '﻿' + lines.join('\r\n') + '\r\n';
