@@ -17,6 +17,7 @@ import { baseOf, buildCompareModel, sideView, type CompareModel } from './compar
 import { OVERVIEW_MARGINS, paintOverview } from './entryPlots';
 import { compareGroupNames, groupLabels, median } from '../../shared/dataset/distribution';
 import { createDistributionPane } from './entryDistributionPane';
+import { createFilterPopover } from './entryFilterPopover';
 import { attachPlotInteraction, FULL_PLOT_WINDOW, plotPointIn, type PlotMargins, type PlotWindow } from './plotInteraction';
 import { axisFractionOf, axisValueAt, paintOverlay, stageAxes, stageDiffRange, stageDifference, stageRange, STAGE_MARGINS, type StageAxes } from './stagePanes';
 import { DIFF_COLOR, ROLE_COLORS } from '../../shared/gui/roleColors';
@@ -34,7 +35,6 @@ import { activeSlotReferenced, brokenStep, chainEnd, isRecipeChain, recipeKey, r
 import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { baseName, isMetadataCandidate, withFolderColumns } from '../../shared/analysis/entryMetadata';
 import { powerMeanDb, powerMeanOrNull } from '../../shared/utils/levels';
-import { finiteNumber } from '../../shared/dataset/asdData';
 import { CSVColumnCountError, csvColumnCountMessage } from '../../shared/dataset/csvDiagnostics';
 import { keyRouterFor } from './keyRouter';
 import { createHeaderProbe, createScanProgress } from './entryScanQueue';
@@ -44,13 +44,13 @@ import { channelRowKey, comparedKeys, emptySlots, firstFreeCompareSlot, restored
 import { setHint } from './hintFooter';
 import { ENTRY_KEYS, keyAction } from './shortcuts';
 import {
-    annotatedCsv, baseGroupMembers, columnValues, datasetRows, filteredRows, fileOfKey, groupOf as datasetGroupOf, isComputed, matchCsv, readDatasetCsv, valueOf, visibleRows,
+    annotatedCsv, baseGroupMembers, datasetRows, filteredRows, fileOfKey, groupOf as datasetGroupOf, isComputed, matchCsv, readDatasetCsv, valueOf, visibleRows,
     type ColumnId, type CsvMatch, type DatasetCsv, type DatasetFilter, type DatasetRow, type GroupId, type ValueId,
 } from '../../shared/dataset/datasetTable';
 import {
-    closesEntryDialog, filterChipText, rowWindow, tableLines, type DerivedItem, datasetColsHtml, datasetHeadHtml, datasetRowsHtml, entryScreenHtml, entrySlotsHtml, filterChipsHtml, filterPopHtml, checkListHtml, formatValue,
+    closesEntryDialog, filterChipText, rowWindow, tableLines, type DerivedItem, datasetColsHtml, datasetHeadHtml, datasetRowsHtml, entryScreenHtml, entrySlotsHtml, filterChipsHtml, formatValue,
     baseMenuHtml, batchPopHtml, groupOptionsHtml, memoPopHtml, slotMenuHtml, unmatchedRowsHtml, valueOptionsHtml,
-    type DatasetColumn, type DatasetScreenView, type EntryStrings,
+    type DatasetScreenView, type EntryStrings,
 } from './entryTableHtml';
 
 /** A tap on a slot key shorter than this puts the row in; longer is a hold that shows the slot's Δ on the side. */
@@ -348,15 +348,14 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     let rows: DatasetRow[] = [];
     let shownRows: DatasetRow[] = [];
     const popovers: {
-        /** The column filter open (its column, whether it hangs from that column's header, its draft), the slot menu and the memo. */
-        filter: { column: ColumnId; anchored: boolean; search: string; checked: Set<string> | null } | null;
+        /** The slot menu and the memo open (the column filter is filterPop's). */
         slotMenu: string | null;
         memoKey: string | null;
         /** The empty base's choice of group. */
         baseMenu: boolean;
         /** 「レシピをまとめて書き出す」 open: for the filtered rows or all. */
         batch: 'filtered' | 'all' | null;
-    } = { filter: null, slotMenu: null, memoKey: null, baseMenu: false, batch: null };
+    } = { slotMenu: null, memoKey: null, baseMenu: false, batch: null };
 
     let requestCount = 0;
     /** Row keys in slots 0–3: the base (or null for the group median) and the rows to compare. */
@@ -629,7 +628,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         return choice === 'filtered' ? visibleRows({ rows, group: chosen.group, value: chosen.value, filters: chosen.filters, sort: chosen.sort, excluded }, results) : rows.filter(row => !excluded.has(row.key));
     }
     function openBatch(): void {
-        popovers.filter = null; popovers.slotMenu = null; popovers.memoKey = null; popovers.baseMenu = false;
+        filterPop.close(); popovers.slotMenu = null; popovers.memoKey = null; popovers.baseMenu = false;
         popovers.batch = chosen.filters.length ? 'filtered' : 'all';
         renderPopovers();
     }
@@ -1327,21 +1326,19 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     });
 
     // ---- the column filter: like a spreadsheet's ▾ (sort, clear, search + a check list or a range, OK / Cancel)
-    const sortKeyOf = (column: ColumnId): DatasetScreenView['sort']['column'] | undefined => (column === 'name' ? 'name' : column === 'ch' ? 'ch' : column === chosen.group ? 'group' : column === chosen.value ? 'value' : undefined);
-    function filterColumns(): DatasetColumn[] {
-        const own = (attached.csv?.attributes ?? []).map(column => ({ id: `csv:${column}` as ColumnId, label: column, numeric: !!attached.csv?.numeric[column] }));
-        const folders = groupOptions().filter(option => option.id.startsWith('folder:')).map(option => ({ id: option.id, label: option.label, numeric: false }));
-        const computed = valueOptions().filter(option => option.computed && rows.some(row => valueOf(row, option.id, results) !== null)).map(option => ({ id: option.id, label: option.label, numeric: true }));
-        return [{ id: 'name', label: strings.entryColFile, numeric: false }, { id: 'ch', label: strings.dsCh, numeric: false }, ...own, ...folders, ...computed];
-    }
+    const filterPop = createFilterPopover({
+        screen, head, chipsBox, text, rows: () => rows, excluded, results, csv: () => attached.csv, groupOptions, valueOptions,
+        filters: () => chosen.filters, sort: () => chosen.sort, group: () => chosen.group, value: () => chosen.value,
+        columnLabel, numericColumn, formatColumn, choose, after: fn => redraw.after(fn), renderPopovers: () => renderPopovers(),
+        announce: message => deps.announce(message), shownCount: () => shownRows.length,
+    });
     function openFilter(column: ColumnId, anchored: boolean): void {
         popovers.slotMenu = null; popovers.memoKey = null;
-        const existing = chosen.filters.find(filter => filter.column === column);
-        popovers.filter = { column, anchored, search: '', checked: existing?.kind === 'values' ? new Set(existing.values) : null };
+        filterPop.open(column, anchored);
         renderPopovers();
     }
     function popAnchor(): HTMLElement | null {
-        if (popovers.filter) return (popovers.filter.anchored ? head.querySelector<HTMLElement>(`th[data-column="${CSS.escape(popovers.filter.column)}"]`) : chipsBox.querySelector<HTMLElement>('[data-action="entry-fadd"]'));
+        if (filterPop.draft()) return filterPop.anchor();
         if (popovers.slotMenu) return body.querySelector<HTMLElement>(`tr[data-key="${CSS.escape(popovers.slotMenu)}"] [data-action="entry-row-slotmenu"]`);
         if (popovers.memoKey) return body.querySelector<HTMLElement>(`tr[data-key="${CSS.escape(popovers.memoKey)}"] .entry-nm`);
         if (popovers.baseMenu) return slotBar.querySelector<HTMLElement>('[data-action="entry-slot"][data-slot="0"]');
@@ -1352,26 +1349,12 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     /** The open popover, drawn only when it opens or changes, so what is typed in it is kept while the table redraws. */
     function renderPopovers(): void {
         screen.querySelector('[data-entry-pop]')?.remove();
-        if (!popovers.filter && !popovers.slotMenu && !popovers.memoKey && !popovers.baseMenu && !popovers.batch) return;
+        if (!filterPop.draft() && !popovers.slotMenu && !popovers.memoKey && !popovers.baseMenu && !popovers.batch) return;
         const pop = document.createElement('div');
         pop.className = 'entry-pop';
         pop.setAttribute('data-entry-pop', '');
-        const filter = popovers.filter;
-        if (filter) {
-            const column = filterColumns().find(item => item.id === filter.column) ?? { id: filter.column, label: columnLabel(filter.column), numeric: numericColumn(filter.column) };
-            const existing = chosen.filters.find(item => item.column === filter.column);
-            const pool = rows.filter(row => !excluded.has(row.key));
-            if (column.numeric) {
-                const numbers = pool.map(row => (filter.column.startsWith('csv:') ? finiteNumber(row.attributes?.[filter.column.slice(4)] ?? '') : valueOf(row, filter.column as ValueId, results))).filter((item): item is number => item !== null);
-                const min = numbers.length ? formatColumn(filter.column, numbers.reduce((least, item) => Math.min(least, item))) : '', max = numbers.length ? formatColumn(filter.column, numbers.reduce((most, item) => Math.max(most, item))) : '';
-                pop.innerHTML = filterPopHtml({ column, anchored: filter.anchored, columns: filterColumns(), sortKey: sortKeyOf(filter.column), sort: chosen.sort, filter: existing, search: '',
-                    range: { low: existing?.kind === 'range' ? formatColumn(filter.column, existing.low) : '', high: existing?.kind === 'range' ? formatColumn(filter.column, existing.high) : '', min, max } }, text);
-            } else {
-                const values = columnValues(pool, filter.column, results);
-                filter.checked ??= new Set(values.map(([item]) => item));
-                pop.innerHTML = filterPopHtml({ column, anchored: filter.anchored, columns: filterColumns(), sortKey: sortKeyOf(filter.column), sort: chosen.sort, filter: existing, search: filter.search, values, checked: filter.checked }, text);
-            }
-        } else if (popovers.slotMenu) pop.innerHTML = slotMenuHtml(popovers.slotMenu, slots, text);
+        if (filterPop.draft()) pop.innerHTML = filterPop.html();
+        else if (popovers.slotMenu) pop.innerHTML = slotMenuHtml(popovers.slotMenu, slots, text);
         else if (popovers.memoKey) pop.innerHTML = memoPopHtml(rowName(popovers.memoKey), memo.get(popovers.memoKey) ?? '', text);
         else if (popovers.batch) pop.innerHTML = batchPopHtml(batchCount(batchRows('filtered')), batchCount(batchRows('all')), popovers.batch, text);
         else if (popovers.baseMenu) {
@@ -1389,61 +1372,16 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         pop.style.top = `${below + pop.offsetHeight > screen.clientHeight - 4 && box ? Math.max(4, box.top - outer.top - pop.offsetHeight - 2) : below}px`;
         (pop.querySelector<HTMLElement>('[data-entry-memo-text], [data-entry-fsearch], [data-entry-flow], .entry-mi') ?? pop).focus?.();
     }
-    function redrawCheckList(): void {
-        if (!popovers.filter?.checked) return;
-        const list = screen.querySelector('[data-entry-flist]');
-        if (list) list.innerHTML = checkListHtml(columnValues(rows.filter(row => !excluded.has(row.key)), popovers.filter.column, results), popovers.filter.checked, popovers.filter.search, text);
-        const all = screen.querySelector<HTMLInputElement>('[data-entry-fall]');
-        if (all) all.indeterminate = all.getAttribute('aria-checked') === 'mixed';
-    }
     function closePopovers(): boolean {
-        if (!popovers.filter && !popovers.slotMenu && !popovers.memoKey && !popovers.baseMenu && !popovers.batch) return false;
+        if (!filterPop.draft() && !popovers.slotMenu && !popovers.memoKey && !popovers.baseMenu && !popovers.batch) return false;
         const hadMemo = !!popovers.memoKey;
         if (popovers.memoKey) saveMemo();
-        popovers.filter = null; popovers.slotMenu = null; popovers.memoKey = null; popovers.baseMenu = false; popovers.batch = null;
+        filterPop.close(); popovers.slotMenu = null; popovers.memoKey = null; popovers.baseMenu = false; popovers.batch = null;
         renderPopovers();
         // A memo kept shows on its row (✎ lit, its text as the hint).
         if (hadMemo) render();
         redraw.after(() => (body.querySelector<HTMLElement>('.is-focused') ?? table).focus?.());
         return true;
-    }
-    function applyFilter(): void {
-        if (!popovers.filter) return;
-        const column = popovers.filter.column;
-        let next: DatasetFilter | null = null;
-        if (numericColumn(column)) {
-            const low = parseFloat(screen.querySelector<HTMLInputElement>('[data-entry-flow]')?.value ?? ''), high = parseFloat(screen.querySelector<HTMLInputElement>('[data-entry-fhigh]')?.value ?? '');
-            if (!(Number.isNaN(low) && Number.isNaN(high))) {
-                next = { column, kind: 'range', low: Number.isNaN(low) ? -Infinity : low, high: Number.isNaN(high) ? Infinity : high };
-                if (next.low > next.high) next = { ...next, low: next.high, high: next.low };
-            }
-        } else {
-            const all = columnValues(rows.filter(row => !excluded.has(row.key)), column, results).map(([item]) => item);
-            const needle = popovers.filter.search.trim().toLowerCase();
-            const checked = popovers.filter.checked;
-            const keep = all.filter(item => (!needle || item.toLowerCase().includes(needle)) && checked?.has(item));
-            if (!keep.length) { deps.announce(strings.dsFilterPickOne); return; }
-            if (keep.length < all.length) next = { column, kind: 'values', values: keep };
-        }
-        popovers.filter = null;
-        choose({ filters: [...chosen.filters.filter(filter => filter.column !== column), ...(next ? [next] : [])], mode: 'all' }, true);
-        redraw.after(() => {
-            renderPopovers();
-            deps.announce(next ? strings.dsFilterApplied.replace('{n}', String(shownRows.length)) : strings.dsFilterRemoved.replace('{col}', columnLabel(column)));
-        });
-    }
-    function clearFilter(column: ColumnId): void {
-        popovers.filter = null;
-        choose({ filters: chosen.filters.filter(filter => filter.column !== column) });
-        redraw.after(() => {
-            renderPopovers();
-            deps.announce(strings.dsFilterRemoved.replace('{col}', columnLabel(column)));
-        });
-    }
-    function setSort(column: DatasetScreenView['sort']['column'], descending: boolean): void {
-        popovers.filter = null;
-        choose({ sort: { column, descending } }, true);
-        redraw.after(renderPopovers);
     }
     function saveMemo(): void {
         if (!popovers.memoKey) return;
@@ -1453,7 +1391,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         if (note) memo.set(popovers.memoKey, note); else memo.delete(popovers.memoKey);
     }
     function openMemo(key: string): void {
-        popovers.filter = null; popovers.slotMenu = null;
+        filterPop.close(); popovers.slotMenu = null;
         popovers.memoKey = key;
         focus.key = key; focus.picked = true;
         renderPopovers();
@@ -1478,13 +1416,13 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         },
         'entry-open': () => openSlotted(),
         'entry-maximize': () => setMaximized(!maximized),
-        'entry-fhead': target => { const column = target.getAttribute('data-column') as ColumnId; if (popovers.filter?.column === column) closePopovers(); else openFilter(column, true); },
-        'entry-fadd': () => openFilter(filterColumns().find(column => !chosen.filters.some(filter => filter.column === column.id) && column.id !== 'name')?.id ?? 'name', false),
+        'entry-fhead': target => { const column = target.getAttribute('data-column') as ColumnId; if (filterPop.draft()?.column === column) closePopovers(); else openFilter(column, true); },
+        'entry-fadd': () => openFilter(filterPop.nextColumn(), false),
         'entry-fchip': target => openFilter(target.getAttribute('data-column') as ColumnId, false),
-        'entry-fchip-clear': target => clearFilter(target.getAttribute('data-column') as ColumnId),
-        'entry-fsort': target => setSort(target.getAttribute('data-sort') as DatasetScreenView['sort']['column'], target.getAttribute('data-descending') === 'true'),
-        'entry-fclear': () => { if (popovers.filter) clearFilter(popovers.filter.column); },
-        'entry-fok': () => applyFilter(),
+        'entry-fchip-clear': target => filterPop.clear(target.getAttribute('data-column') as ColumnId),
+        'entry-fsort': target => filterPop.setSort(target.getAttribute('data-sort') as DatasetScreenView['sort']['column'], target.getAttribute('data-descending') === 'true'),
+        'entry-fclear': () => { const draft = filterPop.draft(); if (draft) filterPop.clear(draft.column); },
+        'entry-fok': () => filterPop.apply(),
         'entry-fcancel': () => closePopovers(),
         'entry-row-play': withKey(key => deps.play?.(fileOfKey(key))),
         'entry-row-track': withKey(key => { focusOn(key); toggleTrack(key); }),
@@ -1493,7 +1431,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         'entry-tracks-all-go': () => { tracks.pending = null; const listed = listedFiles(); const files = notShown(listed); if (files.length) showAll(listed, files); render(); redraw.after(focusHeadMark); },
         'entry-tracks-all-cancel': () => { tracks.pending = null; render(); redraw.after(focusHeadMark); },
         'entry-tracks-only': () => choose({ tracksOnly: !chosen.tracksOnly }, true),
-        'entry-row-slotmenu': withKey(key => { popovers.filter = null; popovers.memoKey = null; popovers.slotMenu = popovers.slotMenu === key ? null : key; focusOn(key); redraw.after(renderPopovers); }),
+        'entry-row-slotmenu': withKey(key => { filterPop.close(); popovers.memoKey = null; popovers.slotMenu = popovers.slotMenu === key ? null : key; focusOn(key); redraw.after(renderPopovers); }),
         'entry-row-slot': withKey((key, target) => { popovers.slotMenu = null; renderPopovers(); setSlot(Number(target.getAttribute('data-slot')), key); }),
         'entry-row-memo': withKey(openMemo),
         'entry-memo-close': () => { saveMemo(); popovers.memoKey = null; renderPopovers(); render(); },
@@ -1505,7 +1443,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             const key = slots[slot];
             if (key) { focusFile(fileOfKey(key)); focusRow(key, true); }
             // The empty base is a group's median: its chip says which and offers the others (or the selected row).
-            else if (slot === 0 && chosen.group !== 'none') { popovers.filter = null; popovers.slotMenu = null; popovers.memoKey = null; popovers.baseMenu = !popovers.baseMenu; renderPopovers(); }
+            else if (slot === 0 && chosen.group !== 'none') { filterPop.close(); popovers.slotMenu = null; popovers.memoKey = null; popovers.baseMenu = !popovers.baseMenu; renderPopovers(); }
             else if (focus.key) setSlot(slot, focus.key);
         },
         'entry-base-group': target => {
@@ -1588,38 +1526,9 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             return;
         }
         if (target.matches('[data-entry-batch-scope]')) { popovers.batch = (target as HTMLInputElement).value as 'filtered' | 'all'; return; }
-        if (target.matches('[data-action="entry-fcol"]') && popovers.filter) {
-            const column = (target as HTMLSelectElement).value as ColumnId;
-            const existing = chosen.filters.find(filter => filter.column === column);
-            popovers.filter = { column, anchored: false, search: '', checked: existing?.kind === 'values' ? new Set(existing.values) : null };
-            renderPopovers();
-            return;
-        }
-        if (target.matches('[data-entry-fall]') && popovers.filter?.checked) {
-            const needle = popovers.filter.search.trim().toLowerCase();
-            for (const [item] of columnValues(rows.filter(row => !excluded.has(row.key)), popovers.filter.column, results)) {
-                if (needle && !item.toLowerCase().includes(needle)) continue;
-                if ((target as HTMLInputElement).checked) popovers.filter.checked.add(item); else popovers.filter.checked.delete(item);
-            }
-            redrawCheckList();
-            return;
-        }
-        const item = target.getAttribute('data-entry-fvalue');
-        if (item !== null && popovers.filter?.checked) {
-            if ((target as HTMLInputElement).checked) popovers.filter.checked.add(item); else popovers.filter.checked.delete(item);
-            redrawCheckList();
-        }
+        filterPop.change(target);
     }));
-    // The filter's search narrows the check list to what it finds, all of it checked, as a spreadsheet's does.
-    screen.addEventListener('input', event => {
-        const target = event.target as HTMLInputElement;
-        if (!target.matches('[data-entry-fsearch]') || !popovers.filter) return;
-        popovers.filter.search = target.value;
-        const needle = popovers.filter.search.trim().toLowerCase();
-        const values = columnValues(rows.filter(row => !excluded.has(row.key)), popovers.filter.column, results).map(([item]) => item);
-        popovers.filter.checked = new Set(needle ? values.filter(item => item.toLowerCase().includes(needle)) : values);
-        redrawCheckList();
-    });
+    screen.addEventListener('input', event => { filterPop.input(event.target as HTMLInputElement); });
     // A CSV dropped onto the screen is read like one picked with 「CSV を選ぶ」.
     screen.addEventListener('dragover', event => {
         if (!Array.from(event.dataTransfer?.types ?? []).includes('Files')) return;
@@ -1777,7 +1686,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             chosen.tracksOnly = false;
             tracks.pending = null;
             chosen.mode = 'all';
-            popovers.filter = null; popovers.slotMenu = null; popovers.memoKey = null;
+            filterPop.close(); popovers.slotMenu = null; popovers.memoKey = null;
             chosen.baseGroup = null;
             session.reset();
             slots = restoredSlots(deps.loadSlots() ?? [], path => filePaths.includes(path));
