@@ -923,13 +923,8 @@ function canSendXInput(): boolean {
 
 async function runZoomRecoveryScenario(): Promise<TestSnapshot> {
     const actionId = `zoom-recovery-${Date.now()}`;
-    await ComparisonPanel.postTestActions(actionId, [
-        'zoom-in',
-        'zoom-in',
-        'zoom-out',
-        'zoom-out',
-    ]);
-    return waitForSnapshotWhere((snapshot) => {
+    // Wait for the action's acknowledgement first: the snapshot before the zooms already shows 0..1.
+    return postActionsAndWait(actionId, ['zoom-in', 'zoom-in', 'zoom-out', 'zoom-out'], (snapshot) => {
         const track = snapshot.renderedUi?.tracks[0];
         return !!snapshot.renderedUi
             && snapshot.renderedUi.zoomStart === 0
