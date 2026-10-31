@@ -60,7 +60,8 @@ def test_an_exported_bundle_runs_its_recipe_over_its_targets_and_the_outputs_loa
         ["node", "-e", EXPORT, str(BUNDLE_JS), str(DATASET_JS)],
         input=json.dumps(payload),
         capture_output=True,
-        text=True,
+        # Node writes UTF-8 (the bundle has Japanese text); text=True alone decodes with the locale (cp1252 on Windows).
+        encoding="utf-8",
         check=True,
     )
     bundle = json.loads(made.stdout)
@@ -82,7 +83,8 @@ def test_an_exported_bundle_runs_its_recipe_over_its_targets_and_the_outputs_loa
     run = subprocess.run(
         [sys.executable, str(folder / "run_recipe.py"), "--root", str(root), "--out", str(out), "--jobs", "2"],
         capture_output=True,
-        text=True,
+        encoding="utf-8",
+        errors="replace",
     )
     assert run.returncode == 1, run.stderr
     with open(out / "results_index.csv", encoding="utf-8") as index:

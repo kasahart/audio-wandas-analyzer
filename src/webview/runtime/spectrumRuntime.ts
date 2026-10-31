@@ -1,6 +1,7 @@
 import { readoutText } from '../../shared/gui-core/index';
 import { binFrequencyHz, dbLevelUnitFor, frequencyAtFraction, frequencyFraction, nearestBinIndex, type SpectrumPlotFrame } from '../draw/canvasDrawers';
 import { formatReadoutHz } from './canvasOverlays';
+import { nearestLine } from './plotHover';
 import type { HostInboundMessage } from './hostMessaging';
 import type { DragPoint, SpectrumSlice, SpectrumSnap } from './types';
 import { type NormalizedRange, zoomNormalizedRange } from './waveformInteraction';
@@ -125,27 +126,11 @@ export function nearestSpectrumSnap<S extends { slice: SpectrumSlice }>(
     mouseY: number | null,
     frame: SpectrumPlotFrame,
 ): SpectrumSnapHit<S> | null {
-    let nearest: SpectrumSnapHit<S> | null = null;
-    let minDist = Infinity;
-    for (const s of series) {
+    const hit = nearestLine(series, s => {
         const snap = spectrumBinAtHover(s.slice, hoverNorm, frame);
-        if (!snap || snap.dbVal === undefined || snap.y === null) {
-            continue;
-        }
-        const item = { s, snap, dbVal: snap.dbVal, snapY: snap.y };
-        if (mouseY === null) {
-            if (!nearest) {
-                nearest = item;
-            }
-            continue;
-        }
-        const dist = Math.abs(snap.y - mouseY);
-        if (dist < minDist) {
-            minDist = dist;
-            nearest = item;
-        }
-    }
-    return nearest;
+        return snap && snap.dbVal !== undefined && snap.y !== null ? { snap, dbVal: snap.dbVal, y: snap.y } : null;
+    }, mouseY);
+    return hit ? { s: hit.s, snap: hit.point.snap, dbVal: hit.point.dbVal, snapY: hit.point.y } : null;
 }
 
 export function spectrumReadoutText(label: string, slice: SpectrumSlice, freqHz: number, dbVal: number): string {

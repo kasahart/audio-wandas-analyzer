@@ -1,5 +1,6 @@
-import { dbLevelUnitFor, drawSpectrumAxes, drawSpectrumCrosshair, drawSpectrumSelectionBox, strokeSpectrumSeries, type CanvasDrawCtx, type DrawTheme } from '../draw/canvasDrawers';
+import { dbLevelUnitFor, drawSpectrumAxes, drawSpectrumSelectionBox, strokeSpectrumSeries, type CanvasDrawCtx, type DrawTheme } from '../draw/canvasDrawers';
 import type { SpectrumBoxSpan } from './spectrumBoxDrag';
+import { paintHoverMarks } from './plotHover';
 import type { SpectrumHoverTarget } from './spectrumHover';
 import {
     nearestSpectrumSnap,
@@ -74,16 +75,14 @@ export function paintOverlaySpectrum(
     if (hover.norm !== null && hover.target === 'overlay') {
         // With no pointer height (the cursor follows the pair plot) no line is nearest, so only the frequency line shows.
         nearest = hover.yFrac !== null ? nearestSpectrumSnap(slices, hover.norm, hover.yFrac * H, frame) : null;
-        if (nearest) {
-            strokeSpectrumSeries(ctx, frame, [nearest.s], 2.5, maxFrequencyHz);
-        }
-        drawSpectrumCrosshair(
+        const hit = nearest;
+        paintHoverMarks(
             ctx,
-            frame,
-            nearest ? nearest.snap.x : frame.padLeft + hover.norm * frame.plotWidth,
-            nearest ? nearest.snapY : null,
-            'rgba(255,255,255,0.7)',
-            nearest ? nearest.s.color : '',
+            { left: frame.padLeft, top: frame.padTop, width: frame.plotWidth, height: frame.plotHeight },
+            hit ? hit.snap.x : frame.padLeft + hover.norm * frame.plotWidth,
+            hit ? hit.snapY : null,
+            hit ? hit.s.color : '',
+            hit ? (context, width) => strokeSpectrumSeries(context, frame, [hit.s], width, maxFrequencyHz) : undefined,
         );
     }
     if (box !== null) {
