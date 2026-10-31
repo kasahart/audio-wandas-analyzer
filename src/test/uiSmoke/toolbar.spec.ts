@@ -427,12 +427,10 @@ test('the table shows where a recording goes, keeps its exports reachable by key
     await page.locator('#selection-toolbar [data-action="open-folder"]').click();
     await (await chooser).setFiles(join(folder, 'rec'));
     await leaveEntryTable(page);
-    // Nothing compared yet: an empty slot 1 shows where a recording goes, and Enter lights it up.
-    const slot1 = page.locator('[data-entry-slots] [data-action="entry-slot"][data-slot="1"]');
-    await expect(slot1).toHaveClass(/is-empty/);
+    // Nothing compared yet: Enter lights up the selected row's 0–3 button, where a recording goes into slot 1.
     await page.locator('[data-entry-table]').focus();
     await page.keyboard.press('Enter');
-    await expect(slot1).toHaveClass(/is-flash/);
+    await expect(page.locator('[data-entry-rows] tr.entry-row').first().locator('[data-action="entry-row-slotmenu"]')).toHaveClass(/is-flash/);
 
     // The maximized table's 書き出し opens from the keyboard; Esc closes the menu before it shrinks the table.
     await page.locator('#entry-screen [data-action="entry-maximize"]').click();
@@ -761,6 +759,25 @@ test('the cursor readout is labelled and follows a loop drag to where it was rel
     await page.mouse.move(0, 0);
     await page.mouse.move(wave.x + wave.width * 0.6, y);
     await expect(readout).toHaveText(dragged ?? '');
+});
+
+test('after a box zoom the cursor readout is the time under the pointer in the zoomed view', async ({ page }) => {
+    await loadUi(page);
+    await page.locator('#tb-more-menu > summary').click();
+    await page.locator('#toolbar [data-action="wave-mode-rect-zoom"]').click();
+    const wave = (await page.locator('#track-canvas-0').boundingBox())!;
+    const y = wave.y + wave.height / 2;
+    const readout = page.locator('#cursor-display');
+    await page.mouse.move(wave.x + wave.width * 0.2, y - 20);
+    await page.mouse.down();
+    await page.mouse.move(wave.x + wave.width * 0.6, y + 20, { steps: 6 });
+    const dragged = await readout.textContent();
+    await page.mouse.up();
+    await expect(readout).not.toHaveText(dragged ?? '');
+    const released = await readout.textContent();
+    await page.mouse.move(0, 0);
+    await page.mouse.move(wave.x + wave.width * 0.6, y + 20);
+    await expect(readout).toHaveText(released ?? '');
 });
 
 test('the track\'s … menu stays open through repeated ±10 ms nudges', async ({ page }) => {

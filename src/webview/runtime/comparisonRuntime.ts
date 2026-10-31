@@ -2838,8 +2838,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }, 0);
     }
     function exportCsv() {
-        if (typeof state === 'undefined' || !state.results || state.results.length === 0) {
-            messaging.post({ type: 'show-info', message: STR.announceExportCsvFailed || 'CSV export failed: no spectrum data at cursor' });
+        if (state.results.length === 0) {
+            messaging.post({ type: 'show-info', message: STR.announceExportCsvFailed });
+            taskStatus(STR.announceExportCsvFailed, 'failed');
             return;
         }
         // Like the PNG: lanes out of view ask for their cursor spectra first, and the file is written once those arrived.
@@ -3367,18 +3368,22 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }
             setLoopRegion(null);
             emitWaveformZoom();
+            followPointerAfterDrag(e);
             scheduleRender();
             return;
         }
         if (hadDrag) {
             scheduleSpectrumRefresh('immediate');
-            // The readout follows the pointer again from where the drag ended (or shows the cursor off the lanes).
-            const under = document.elementFromPoint(e.clientX, e.clientY);
-            const canvas = under instanceof HTMLCanvasElement && under.classList.contains('track-canvas') ? under : null;
-            const hit = canvas ? trackCanvasTimeHit(canvas, e.clientX) : null;
-            if (hit) renderWithHoverAt(hit.norm);
-            else { clearHover(); updateCursorDisplay(viewState.cursor); }
+            followPointerAfterDrag(e);
         }
+    }
+    /** The readout follows the pointer again from where the drag ended, in the view it leaves (a box zoom's zoomed one), or shows the cursor off the lanes. */
+    function followPointerAfterDrag(e: MouseEvent): void {
+        const under = document.elementFromPoint(e.clientX, e.clientY);
+        const canvas = under instanceof HTMLCanvasElement && under.classList.contains('track-canvas') ? under : null;
+        const hit = canvas ? trackCanvasTimeHit(canvas, e.clientX) : null;
+        if (hit) renderWithHoverAt(hit.norm);
+        else { clearHover(); updateCursorDisplay(viewState.cursor); }
     }
     function renderWithHoverAt(norm: number) {
         viewState.setHover(norm);

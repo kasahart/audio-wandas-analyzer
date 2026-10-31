@@ -23,9 +23,11 @@ export interface KeyRouter {
     layers(): KeyLayer[];
 }
 
-type KeyWindow = Pick<Window, 'addEventListener'>;
+// On the window itself, not in this module: the static build loads the host and the comparison as separate bundles,
+// each with its own copy of this module, and one router has to order the contexts of both.
+const ROUTER_KEY = Symbol.for('audio-wandas-analyzer.keyRouter');
 
-const routers = new WeakMap<object, KeyRouter>();
+type KeyWindow = Pick<Window, 'addEventListener'> & { [ROUTER_KEY]?: KeyRouter };
 
 function createKeyRouter(target: KeyWindow): KeyRouter {
     // Later additions to a layer sit in front of earlier ones: the newest popover closes first.
@@ -58,14 +60,9 @@ function createKeyRouter(target: KeyWindow): KeyRouter {
     };
 }
 
-/** The window's router, made with the first context added to it. */
+/** The window's router, made with the first context added to it by any bundle. */
 export function keyRouterFor(target: KeyWindow): KeyRouter {
-    let router = routers.get(target);
-    if (!router) {
-        router = createKeyRouter(target);
-        routers.set(target, router);
-    }
-    return router;
+    return target[ROUTER_KEY] ??= createKeyRouter(target);
 }
 
 /** A field, a select or editable text takes its own characters. */

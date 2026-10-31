@@ -60,7 +60,6 @@ function setup(results = new Map<string, ScanResult>()) {
         entryModel: () => buildEntryModel([...results].map(([filePath, result]) => ({ filePath, result })), null),
         results, focusedFile: () => state.focused, slotFiles: () => state.slots,
         recipe: () => null, runRecipe: () => undefined, limits: () => ({}), spectral: () => true,
-        slotHeld: () => calls.push(['slotHeld', null]),
         tapped: slot => calls.push(['tapped', slot]),
     };
     const plot = createHeldPlot(deps);
@@ -82,7 +81,7 @@ test('a short press on a slot key is a tap; a long one shows the slot until 150 
     assert.deepEqual(calls, [], 'a second key while one is pressed is not a press, nor its release');
     window.advance(TAP_MS);
     assert.equal(plot.slot(), 1);
-    assert.deepEqual(calls, [['slotHeld', null], ['side', null]]);
+    assert.deepEqual(calls, [['side', null]]);
     plot.release(1);
     window.advance(DELTA_RELEASE_MS - 1);
     assert.equal(plot.slot(), 1, 'the picture stays a moment');

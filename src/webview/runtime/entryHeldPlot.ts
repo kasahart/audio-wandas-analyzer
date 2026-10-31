@@ -59,8 +59,6 @@ export interface HeldPlotDeps {
     limits(): ReturnType<typeof stepLimits>;
     /** Whether the chain ends in a spectrum or band levels. */
     spectral(): boolean;
-    /** A slot key began or stopped showing its Δ: the slot chips light it. */
-    slotHeld(): void;
     /** A slot key tapped (not held). */
     tapped(slot: number): void;
 }
@@ -175,7 +173,6 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
             const timer = window.setTimeout(() => {
                 if (hold.releaseTimer !== undefined) { window.clearTimeout(hold.releaseTimer); hold.releaseTimer = undefined; }
                 hold.slot = slot;
-                deps.slotHeld();
                 deps.scheduleSide();
             }, TAP_MS);
             hold.pressing = { slot, at: window.performance.now(), timer };

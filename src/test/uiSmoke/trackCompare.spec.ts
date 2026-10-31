@@ -107,7 +107,6 @@ test('Enter on the entry table compares the slotted files in the track view: ove
     };
     await slotZero();
     await expect(other.locator('.entry-badge.entry-slot-0')).toHaveCount(1);
-    await expect(page.locator('[data-entry-slots] [data-action="entry-slot"][data-slot="0"]')).toContainText(otherName);
     // The comparison's legend names that file as the base.
     await page.locator('[data-entry-table]').focus();
     await page.keyboard.press('Enter');
@@ -116,7 +115,6 @@ test('Enter on the entry table compares the slotted files in the track view: ove
     await expect(page.locator('#entry-screen')).toHaveClass(/is-max/);
     await slotZero();
     await expect(other.locator('.entry-badge.entry-slot-0')).toHaveCount(0);
-    await expect(page.locator('[data-entry-slots] [data-action="entry-slot"][data-slot="0"]')).toContainText(STR.entryBaseGroup);
     await page.keyboard.press('Enter');
     await expect(page.locator('[data-stage-legend] .compare-legend-item').first()).toContainText(new RegExp(STR.entryBaseMedian.replace('{count}', '\\d+')));
 });
@@ -209,7 +207,7 @@ test('narrowed to ch 2, the base is the group\'s ch-2 recordings within the filt
     await page.keyboard.press('Escape');
     await page.locator('[data-entry-table]').focus();
     await page.keyboard.press('1');
-    await expect(page.locator('[data-entry-slots] [data-action="entry-slot"][data-slot="1"]')).toContainText(' ch2');
+    await expect(first.locator('.entry-badge.entry-slot-1')).toHaveCount(1);
     await page.keyboard.press('Enter');
     await showTracks(page, [filePath]);
     const legend = page.locator('[data-stage-legend] .compare-legend-item');

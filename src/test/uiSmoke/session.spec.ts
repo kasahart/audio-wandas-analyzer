@@ -31,8 +31,7 @@ test('the CSV, value, group, filters, base, slots, memo and exclusions are saved
     await page.locator('th[data-column="ch"] [data-action="entry-fhead"]').click();
     await page.locator('[data-entry-fvalue="1"]').uncheck();
     await page.locator('[data-action="entry-fok"]').click();
-    await page.locator('[data-entry-slots] [data-action="entry-slot"][data-slot="0"]').click();
-    await page.locator('[data-action="entry-base-group"][data-group="1500"]').click();
+    await page.locator('[data-action="entry-base"]').selectOption('group:1500');
     const rows = page.locator('[data-entry-rows] tr.entry-row');
     const [first, second] = [await rows.nth(0).getAttribute('data-key'), await rows.nth(1).getAttribute('data-key')];
     await page.locator('[data-entry-table]').focus();
@@ -64,7 +63,7 @@ test('the CSV, value, group, filters, base, slots, memo and exclusions are saved
     expect((restored.filters as Array<{ column: string }>).map(filter => filter.column)).toEqual(['ch']);
     expect((restored.slots as string[])[1]).toBe(first);
     expect(restored.dist?.base).toBe('1500');
-    await expect(page.locator('[data-entry-slots] [data-action="entry-slot"][data-slot="0"]')).toContainText('rpm 1500');
+    await expect(page.locator('[data-action="entry-base"]')).toHaveValue('group:1500');
     // setContent keeps the window: the saves posted so far are the first page's; the reopening adds none.
     const before = (await saves(page)).length;
     await page.waitForTimeout(800);

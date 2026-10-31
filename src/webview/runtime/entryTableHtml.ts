@@ -103,7 +103,6 @@ export function entryScreenHtml(strings: EntryStrings): string {
         </aside>
     </div>
     <div class="entry-footer">
-        <span data-entry-slots></span>
         <span class="entry-spacer"></span>
         <span class="entry-keys" data-entry-keys></span>
     </div>
@@ -119,6 +118,7 @@ function distributionHtml(strings: EntryStrings): string {
                     <div class="entry-dist-head">
                         <label class="entry-pick">${escapeHtml(strings.dsValue)} <select data-action="entry-value" aria-label="${escapeHtml(strings.dsValue)}"></select></label>
                         <label class="entry-pick">${escapeHtml(strings.dsGroup)} <select data-action="entry-group" aria-label="${escapeHtml(strings.dsGroup)}"></select></label>
+                        <label class="entry-pick" data-entry-base-pick hidden>${escapeHtml(strings.entryBase)} <select data-action="entry-base" aria-label="${escapeHtml(strings.entryBase)}"></select></label>
                         <span class="entry-dist-n" data-entry-dist-count></span>
                         <span class="entry-compute" data-entry-compute></span>
                         <span class="entry-spacer"></span>
@@ -334,55 +334,21 @@ export function batchPopHtml(filtered: { recordings: number; channels: number },
         + `<div class="entry-fpop-bar"><button type="button" class="entry-primary" data-action="entry-batch-go">${escapeHtml(strings.dsBatchGo)}</button><button type="button" data-action="entry-batch-cancel">${escapeHtml(strings.dsCancel)}</button></div></div>`;
 }
 
-/** The empty base chip's menu: which group's median is the base (slot 1's by default), or the selected recording. */
-export function baseMenuHtml(groups: ReadonlyArray<{ name: string; label: string }>, chosen: string | null, canUseRow: boolean, strings: EntryStrings): string {
-    const item = (name: string | null, label: string): string => `<button type="button" role="menuitemradio" aria-checked="${chosen === name}" class="entry-mi" data-action="entry-base-group" data-group="${escapeHtml(name ?? '')}" data-auto="${name === null}">${escapeHtml(label)}${chosen === name ? ' ✓' : ''}</button>`;
-    return `<div class="entry-slotmenu entry-basemenu" role="menu" aria-label="${escapeHtml(strings.dsBaseMenu)}" data-entry-basemenu><b>${escapeHtml(strings.dsBaseMenu)}</b>`
-        + item(null, strings.dsBaseAuto)
-        + groups.map(group => item(group.name, strings.dsBaseGroupMedian.replace('{group}', group.label))).join('')
-        + `<button type="button" role="menuitem" class="entry-mi" data-action="entry-base-row"${canUseRow ? '' : ' disabled'}>${escapeHtml(strings.dsBaseRow)}</button></div>`;
+/**
+ * The base select beside the group one: slot 1's group median (auto), a chosen group's median, or the recording in
+ * slot 0 when one is there (choosing a median takes it out). A recording is made the base from its row's 0–3 menu.
+ */
+export function baseOptionsHtml(groups: ReadonlyArray<{ name: string; label: string }>, chosen: string | null, slotRow: string | null, strings: EntryStrings): string {
+    const option = (value: string, label: string, selected: boolean): string => `<option value="${escapeHtml(value)}"${selected ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+    return (slotRow !== null ? option('row', `0 ${slotRow}`, true) : '')
+        + option('auto', strings.dsBaseAuto, slotRow === null && chosen === null)
+        + groups.map(group => option(`group:${group.name}`, strings.dsBaseGroupMedian.replace('{group}', group.label), slotRow === null && chosen === group.name)).join('');
 }
 
 export function memoPopHtml(name: string, text: string, strings: EntryStrings): string {
     return `<div class="entry-memo" role="dialog" aria-label="${escapeHtml(strings.dsRowMemo)}" data-entry-memo><b>${escapeHtml(name)}</b>`
         + `<textarea data-entry-memo-text aria-label="${escapeHtml(strings.dsRowMemo)}" placeholder="${escapeHtml(strings.dsMemoPlaceholder)}">${escapeHtml(text)}</textarea>`
         + `<div class="entry-fpop-bar"><button type="button" class="entry-primary" data-action="entry-memo-close">${escapeHtml(strings.dsMemoClose)}</button></div></div>`;
-}
-
-/**
- * One slot as both screens draw it: a number box in its role's colour (0 blue, 1–3 yellow) and a label.
- * Empty is a dashed outline with an outlined box; in use is the box filled; active (the base, the file
- * compared) is tinted in the role colour; held is filled with it.
- */
-export function slotHtml(options: {
-    slot: number; label: string; empty?: boolean; active?: boolean; held?: boolean; classes?: string; attributes?: string; disabled?: boolean;
-}): string {
-    const role = options.slot === 0 ? 'base' : 'compare';
-    const states = [options.empty ? 'is-empty' : '', options.active ? 'is-active' : '', options.held ? 'is-held' : ''].filter(Boolean).join(' ');
-    return `<button type="button" class="awa-slot role-${role} slot-${options.slot} ${options.classes ?? ''} ${states}"${options.attributes ?? ''}${options.disabled ? ' disabled' : ''}>`
-        + `<span class="awa-slot-num">${options.slot}</span> <span class="awa-slot-label">${escapeHtml(options.label)}</span></button>`;
-}
-
-/**
- * The slots 0–3: an empty one puts the selected row in when pressed; a filled one goes to its row (it is never
- * overwritten by a press); × empties it. Slot 0 empty is the group's median, which compares need no choice for.
- */
-export function entrySlotsHtml(slots: readonly (string | null)[], label: (key: string) => string, baseLabel: string, strings: EntryStrings, heldSlot: number | null = null,
-    /** Per slot, a note on its chip: e.g. its file is another slot's track, shown as that slot's channel. */
-    notes: readonly (string | null)[] = []): string {
-    // The base (a file, or a group's median when slot 0 is empty), then only the slots in use: an empty one says nothing the keys 1–3 do not.
-    // While nothing is compared, an empty slot 1 shows where a recording goes (and lights up when Enter finds nothing to compare).
-    const comparing = slots.slice(1).some(Boolean);
-    return [0, 1, 2, 3].filter(slot => slot === 0 || slots[slot] || (slot === 1 && !comparing)).map(slot => {
-        const key = slots[slot] ?? null;
-        const hint = (key ? strings.dsSlotFilledHint : strings.dsSlotEmptyHint) + (notes[slot] ? ` · ${notes[slot]}` : '');
-        const chip = slotHtml({
-            slot, label: key ? label(key) : slot === 0 ? baseLabel : strings.slotEmpty, empty: !key && slot !== 0, active: slot === 0, held: heldSlot === slot && !!key, classes: 'entry-chip',
-            attributes: ` data-action="entry-slot" data-slot="${slot}"${hintAttr(hint.replaceAll('{n}', String(slot)))}`,
-        });
-        const clear = key ? `<button type="button" class="entry-slot-x" data-action="entry-slot-clear" data-slot="${slot}" aria-label="${escapeHtml(strings.dsSlotClear.replace('{n}', String(slot)))}"${hintAttr(strings.dsSlotClear.replace('{n}', String(slot)))}>×</button>` : '';
-        return `<span class="entry-slot-wrap">${chip}${clear}</span>`;
-    }).join('');
 }
 
 /** Dialogs close on Escape, like every dialog in the panel. */

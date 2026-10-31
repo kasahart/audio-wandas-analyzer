@@ -93,7 +93,7 @@ export function countTextElements(page: Page, root = 'entry-screen'): Promise<nu
         for (let node = walker.nextNode(); node; node = walker.nextNode()) {
             const element = node.parentElement!;
             const text = (node.textContent ?? '').trim();
-            if (!text || element.closest('tbody, [hidden], option, [data-entry-slots] button:not(.entry-chip-base)')) continue;
+            if (!text || element.closest('tbody, [hidden], option')) continue;
             if (/^[\d\s./·+−\-—✕Δ▼]*$/u.test(text)) continue;
             count++;
         }

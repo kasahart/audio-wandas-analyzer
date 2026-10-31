@@ -212,7 +212,7 @@ test('a column not on screen filters through ＋, a name search keeps 1500rpm, �
     await expect(page.locator('[data-entry-rows] .entry-col-group')).not.toContainText(['OK']);
 });
 
-test('a row\'s tools: its slot, a memo kept on Esc, and taken out then put back (I6, I7); only slots in use show a chip', async ({ page }) => {
+test('a row\'s tools: its slot, a memo kept on Esc, and taken out then put back (I6, I7)', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     const STR = getStrings('ja');
     await openEntry(page, scanned!, { language: 'ja' });
@@ -223,16 +223,14 @@ test('a row\'s tools: its slot, a memo kept on Esc, and taken out then put back 
     await page.locator('[data-action="entry-row-slot"][data-slot="1"]').click();
     await expect(row.locator('.entry-badge.entry-slot-1')).toHaveCount(1);
     expect((await snapshot(page))?.slots).toEqual([null, key, null, null]);
-    // Only slots in use have a chip; a key puts the selected row in, and a filled chip only goes to its row.
-    await expect(page.locator('[data-action="entry-slot"][data-slot="2"]')).toHaveCount(0);
+    // A key puts the selected row in; the row's menu takes it out again (the panel has no slot chips of its own).
+    await expect(page.locator('[data-action="entry-slot"]')).toHaveCount(0);
     await rows(page).nth(4).click();
     const other = (await rows(page).nth(4).getAttribute('data-key'))!;
     await page.keyboard.press('2');
     expect((await snapshot(page))?.slots).toEqual([null, key, other, null]);
-    await page.locator('[data-action="entry-slot"][data-slot="1"]').click();
-    expect((await snapshot(page))?.slots).toEqual([null, key, other, null]);
-    expect((await snapshot(page))?.focused).toBe(key);
-    await page.locator('[data-action="entry-slot-clear"][data-slot="2"]').click();
+    await rows(page).nth(4).locator('[data-action="entry-row-slotmenu"]').click();
+    await page.locator('[data-action="entry-row-slot"][data-slot="-1"]').click();
     expect((await snapshot(page))?.slots).toEqual([null, key, null, null]);
     // I7: M opens the memo; Esc keeps what was written.
     await rows(page).nth(1).click();
@@ -284,7 +282,7 @@ test('the entry table speaks Japanese with few words: value and group, the CSV, 
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     const STR = getStrings('ja');
     await openEntry(page, scanned!, { language: 'ja' });
-    await expect(page.locator('.entry-pick')).toHaveText([new RegExp(`^${STR.dsValue}`), new RegExp(`^${STR.dsGroup}`)]);
+    await expect(page.locator('.entry-pick:not([hidden])')).toHaveText([new RegExp(`^${STR.dsValue}`), new RegExp(`^${STR.dsGroup}`)]);
     await expect(page.locator('[data-action="entry-value"] option:checked')).toHaveText(STR.dsLeq);
     // ☑ (on a track), the file, ch, the value and the spare end, plus a group column when grouped.
     await expect(page.locator('[data-entry-head] th')).toHaveCount(5 + (await page.locator('th.entry-col-group, th[data-column^="folder"], th[data-column^="csv"]').count()) );
