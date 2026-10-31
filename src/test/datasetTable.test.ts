@@ -1,8 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { auditAudioMatches, finiteNumber, parseCSV, resolveAudio, summarizeAudioCandidates, AUDIO_REASON_CANDIDATE_LIMIT } from '../shared/dataset/asdData';
-import { annotatedCsv, baseGroupMembers, columnValues, datasetRows, matchCsv, middleEllipsis, readDatasetCsv, valueOf, visibleRows, type DatasetRow } from '../shared/dataset/datasetTable';
+import { annotatedCsv, baseGroupMembers, columnValues, csvErrorMessage, datasetRows, matchCsv, middleEllipsis, readDatasetCsv, valueOf, visibleRows, type DatasetRow } from '../shared/dataset/datasetTable';
+import { CSVColumnCountError, columnCountMessage } from '../shared/dataset/csvDiagnostics';
+import { getStrings } from '../shared/i18n/strings';
 import type { ScanResult } from '../shared/protocol/backendProtocol';
+
+const en = getStrings('en');
+const ja = getStrings('ja');
 
 const file = (name: string): { name: string } => ({ name });
 const bytes = (text: string): Uint8Array => new TextEncoder().encode(text);
@@ -41,10 +46,30 @@ test('folder keys distinguish equal names, and basename-only references require 
 
 test('ambiguous reasons show a bounded candidate sample and total', () => {
     const candidates = Array.from({ length: AUDIO_REASON_CANDIDATE_LIMIT + 17 }, (_, index) => `folder-${index}/shared.wav`);
-    const summary = summarizeAudioCandidates(candidates);
+    const summary = summarizeAudioCandidates(candidates, ja);
     assert.ok(summary.includes(candidates[0]));
-    assert.ok(summary.includes('ほか17件'));
+    assert.ok(summary.includes('、ほか17件'));
     assert.ok(!summary.includes(candidates.at(-1)!));
+    const english = summarizeAudioCandidates(candidates, en);
+    assert.equal(english, `${candidates.slice(0, AUDIO_REASON_CANDIDATE_LIMIT).join(', ')}, and 17 more`);
+    assert.ok(!/[、ほ件]/.test(english));
+    assert.equal(summarizeAudioCandidates(candidates.slice(0, 2), ja), `${candidates[0]}、${candidates[1]}`);
+});
+
+test('a column-count error is worded in the panel language from its diagnostic', () => {
+    let caught: unknown;
+    try { parseCSV('score,label\n1,OK,extra', 'bad.csv'); } catch (error) { caught = error; }
+    assert.ok(caught instanceof CSVColumnCountError);
+    assert.equal(csvErrorMessage(caught, en), 'Data row 1 (line 2 of the file) does not have as many columns as the header. The header (line 1) has 2 columns; this row has 3 (1 extra).');
+    assert.equal(csvErrorMessage(caught, ja), 'データ行 1（ファイル2行目）の列数がヘッダーと一致しません。ヘッダー（1行目）は2列、実際は3列（1列超過）です。');
+    // The thrown message itself is the English wording.
+    assert.equal(caught.message, csvErrorMessage(caught, en));
+    // A record spanning lines (a quoted newline) that is short of columns.
+    const diagnostic = { ...caught.diagnostic, dataRow: 4, startLine: 5, endLine: 7, headerLine: 2, expectedColumns: 5, actualColumns: 3 };
+    assert.equal(columnCountMessage(diagnostic, en), 'Data row 4 (lines 5–7 of the file) does not have as many columns as the header. The header (line 2) has 5 columns; this row has 3 (2 missing).');
+    assert.equal(columnCountMessage(diagnostic, ja), 'データ行 4（ファイル5〜7行目）の列数がヘッダーと一致しません。ヘッダー（2行目）は5列、実際は3列（2列不足）です。');
+    // Other errors keep their own message.
+    assert.equal(csvErrorMessage(new Error('plain'), en), 'plain');
 });
 
 test('audit lists missing, ambiguous, unused and repeated attachments before import', () => {
@@ -70,7 +95,7 @@ test('a CSV is read as asd-insight reads it: strict numbers, one numeric column 
     assert.equal(finiteNumber('1.2e-3'), 0.0012);
     for (const text of ['1,000', '0x10', 'Inf', 'NaN', '']) assert.equal(finiteNumber(text), null);
     assert.throws(() => parseCSV('name,label\na,b'), /数値として読める列がありません/);
-    assert.throws(() => parseCSV('score,label\n1,OK,extra', 'bad.csv'), /列数がヘッダーと一致しません/);
+    assert.throws(() => parseCSV('score,label\n1,OK,extra', 'bad.csv'), CSVColumnCountError);
     assert.throws(() => parseCSV('score,score\n1,2'), /同じ列名/);
     const tsv = parseCSV('\n\nscore\tlabel\n0.5\t"a\tb"\n');
     assert.deepEqual(tsv.columns, ['score', 'label']);
@@ -96,7 +121,7 @@ const ok = (channels: number, leq: number[]): ScanResult => ({
 test('rows are a recording and its channel; CSV attributes follow every channel, computed values are per channel', () => {
     const csv = readDatasetCsv(bytes('audio_file,line,score\nL1/a.wav,L1,0.2\nL2/b.wav,L2,0.9\nL2/b.wav,L2,0.1\nzzz.wav,L3,0.5\n'), 'm.csv');
     const files = ['/d/L1/a.wav', '/d/L2/b.wav', '/d/L2/c.wav'];
-    const match = matchCsv(csv, files, '/d');
+    const match = matchCsv(csv, files, '/d', en);
     assert.deepEqual([...match.attributes.keys()], ['/d/L1/a.wav', '/d/L2/b.wav']);
     // The first row for a recording wins; the rest are said why.
     assert.equal(match.attributes.get('/d/L2/b.wav')!.score, '0.9');
@@ -153,7 +178,7 @@ test('a base group is the group\'s other recordings in the pool, of the compared
 test('memos and exclusions go back as the picked CSV with two columns after: per channel when a recording has several', () => {
     const csv = readDatasetCsv(bytes('audio_file,line,score\nL1/a.wav,L1,0.2\nL2/b.wav,L2,0.9\nmissing.wav,L3,0.5\nL1/m.wav,L1,0.1\n'), 'm.csv');
     const files = ['/d/L1/a.wav', '/d/L2/b.wav', '/d/L1/m.wav'];
-    const match = matchCsv(csv, files, '/d');
+    const match = matchCsv(csv, files, '/d', en);
     const rows = datasetRows(files, '/d', match.attributes, new Map(), new Map([['/d/L1/a.wav', 2], ['/d/L2/b.wav', 2], ['/d/L1/m.wav', 1]]));
     const memo = new Map([['/d/L1/a.wav#ch2', 'rattle, 3 kHz'], ['/d/L1/m.wav', 'quiet']]);
     const excluded = new Set(['/d/L2/b.wav#ch1', '/d/L2/b.wav#ch2', '/d/L1/a.wav#ch1']);

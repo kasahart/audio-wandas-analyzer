@@ -36,7 +36,7 @@ import { baseName, isMetadataCandidate, withFolderColumns } from '../../shared/a
 import { powerMeanDb, powerMeanOrNull } from '../../shared/utils/levels';
 import { finiteNumber } from '../../shared/dataset/asdData';
 import {
-    annotatedCsv, baseGroupMembers, columnValues, datasetRows, filteredRows, fileOfKey, rowKey, groupOf as datasetGroupOf, isComputed, matchCsv, readDatasetCsv, valueOf, visibleRows,
+    annotatedCsv, baseGroupMembers, columnValues, csvErrorMessage, datasetRows, filteredRows, fileOfKey, rowKey, groupOf as datasetGroupOf, isComputed, matchCsv, readDatasetCsv, valueOf, visibleRows,
     type ColumnId, type CsvMatch, type DatasetCsv, type DatasetFilter, type DatasetRow, type GroupId, type ValueId,
 } from '../../shared/dataset/datasetTable';
 import {
@@ -1342,7 +1342,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     function applyCsv(next: DatasetCsv | null, keep?: { name: string; text: string }): void {
         const had = csv !== null;
         csv = next;
-        match = next ? matchCsv(next, filePaths, rootPath) : null;
+        match = next ? matchCsv(next, filePaths, rootPath, strings) : null;
         rowsDirty = true;
         filters = filters.filter(filter => !filter.column.startsWith('csv:') || !!next?.columns.includes(filter.column.slice(4)));
         // A new CSV opens on its first numeric column, grouped by its first column that is not a number.
@@ -1367,7 +1367,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
                 applyCsv(read, { name: file.name, text: new TextDecoder('utf-8').decode(bytes) });
                 deps.announce(strings.dsCsvRead.replace('{name}', file.name).replace('{matched}', String(match?.attributes.size ?? 0)).replace('{total}', String(filePaths.length)));
             } catch (error) {
-                deps.announce(strings.dsCsvError.replace('{reason}', error instanceof Error ? error.message : String(error)));
+                deps.announce(strings.dsCsvError.replace('{reason}', csvErrorMessage(error, strings)));
             }
         });
     }
@@ -1905,7 +1905,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             if (screen.hidden) { this.open(fresh, '', false); return; }
             filePaths = [...filePaths, ...fresh];
             rowsDirty = true;
-            if (csv) match = matchCsv(csv, filePaths, rootPath);
+            if (csv) match = matchCsv(csv, filePaths, rootPath, strings);
             // A new probe replaces one still running, so it asks again for every header not read yet.
             probe(filePaths);
             rebuild();
@@ -1974,7 +1974,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
                 }
                 const { failedStep, reason } = publication.result;
                 if (failedStep) { stepFailed(failedStep, reason ?? ''); return true; }
-                if (csv && !match?.attributes.size) match = matchCsv(csv, filePaths, rootPath);
+                if (csv && !match?.attributes.size) match = matchCsv(csv, filePaths, rootPath, strings);
                 scheduleRebuild();
             } else if (publication.type === 'entry-scan-done') {
                 if (redrawTimer !== undefined) { window.clearTimeout(redrawTimer); redrawTimer = undefined; }

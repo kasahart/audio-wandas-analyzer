@@ -4,7 +4,9 @@
  * sound (per channel, never averaged over channels). Which column groups the rows, which value is shown, the
  * filters and the order are the user's; this module only answers them. Pure, so it is unit-tested.
  */
+import type { UiStrings } from '../i18n/strings';
 import type { ScanResult } from '../protocol/backendProtocol';
+import { CSVColumnCountError, columnCountMessage } from './csvDiagnostics';
 import { auditAudioMatches, finiteNumber, MAX_CSV_BYTES, parseCSV, profileColumns, resolveAudio, sourceColumns, summarizeAudioCandidates, type DataRow } from './asdData';
 
 /** The CSV the user picked, read: its columns (the source columns left out) and which of them are numeric. */
@@ -29,6 +31,12 @@ export function readDatasetCsv(bytes: Uint8Array, name: string): DatasetCsv {
     const { idColumn, audioColumn } = sourceColumns(data.columns);
     const numeric = Object.fromEntries(profileColumns(data).map(profile => [profile.column, profile.numeric]));
     return { name, columns: data.columns, rows: data.rows, attributes: data.columns.filter(column => column !== idColumn && column !== audioColumn), numeric, idColumn, audioColumn };
+}
+
+/** Why a picked CSV could not be read, in the panel's language where the reason is structured. */
+export function csvErrorMessage(error: unknown, strings: UiStrings): string {
+    if (error instanceof CSVColumnCountError) return columnCountMessage(error.diagnostic, strings);
+    return error instanceof Error ? error.message : String(error);
 }
 
 /** Why a CSV row or a recording has no partner. */
@@ -57,7 +65,7 @@ export function recordingKey(filePath: string, rootPath: string): string {
 }
 
 /** Matches the CSV's rows to the recordings by asd-insight's rule; the first row for a recording wins. */
-export function matchCsv(csv: DatasetCsv, filePaths: readonly string[], rootPath: string): CsvMatch {
+export function matchCsv(csv: DatasetCsv, filePaths: readonly string[], rootPath: string, strings: UiStrings): CsvMatch {
     const files = new Map(filePaths.map(filePath => [recordingKey(filePath, rootPath), filePath]));
     const attributes = new Map<string, DataRow>();
     csv.rows.forEach((row, index) => {
@@ -67,7 +75,7 @@ export function matchCsv(csv: DatasetCsv, filePaths: readonly string[], rootPath
     const audit = auditAudioMatches({ name: csv.name, columns: csv.columns, rows: csv.rows }, csv.idColumn, csv.audioColumn, files);
     const unmatched: Unmatched[] = [
         ...audit.missing.map(item => ({ row: item.row, reason: 'missing' as const, detail: item.expected })),
-        ...audit.ambiguous.map(item => ({ row: item.row, reason: 'ambiguous' as const, detail: summarizeAudioCandidates(item.candidates) })),
+        ...audit.ambiguous.map(item => ({ row: item.row, reason: 'ambiguous' as const, detail: summarizeAudioCandidates(item.candidates, strings) })),
         ...audit.repeated.flatMap(item => item.rows.slice(1).map(row => ({ row, reason: 'repeated' as const, detail: `${item.key} · ${item.rows[0]}` }))),
         ...audit.unused.map(key => ({ filePath: files.get(key)!, reason: 'no-row' as const, detail: key })),
     ];

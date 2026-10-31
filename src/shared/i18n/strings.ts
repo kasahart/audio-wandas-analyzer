@@ -252,6 +252,15 @@ export interface UiStrings {
     dsReasonUnreadable: string;
     dsCsvRow: string;
     dsReason: string;
+    /** The ambiguous candidates' separator and the count left out ({n}). */
+    dsCandidateSeparator: string;
+    dsCandidatesMore: string;
+    /** A CSV row whose column count differs from the header's: {row}, {lines}, {headerLine}, {expected}, {actual}, {difference}. */
+    csvColumnCount: string;
+    csvColumnCountLine: string;
+    csvColumnCountLines: string;
+    csvColumnCountMissing: string;
+    csvColumnCountExtra: string;
     dsCompute: string;
     hintCompute: string;
     dsComputing: string;
@@ -884,6 +893,13 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dsReasonUnreadable: 'Unreadable',
         dsCsvRow: 'CSV row {n}',
         dsReason: 'Reason',
+        dsCandidateSeparator: ', ',
+        dsCandidatesMore: ', and {n} more',
+        csvColumnCount: 'Data row {row} ({lines} of the file) does not have as many columns as the header. The header (line {headerLine}) has {expected} columns; this row has {actual} ({difference}).',
+        csvColumnCountLine: 'line {line}',
+        csvColumnCountLines: 'lines {start}–{end}',
+        csvColumnCountMissing: '{n} missing',
+        csvColumnCountExtra: '{n} extra',
         dsCompute: 'Compute {n} files · about {time}',
         hintCompute: 'Compute the chosen value for the recordings in the table (its filters applied)',
         dsComputing: 'Computing {done} / {n}',
@@ -1513,6 +1529,13 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dsReasonUnreadable: '読めない',
         dsCsvRow: 'CSV {n} 行目',
         dsReason: '理由',
+        dsCandidateSeparator: '、',
+        dsCandidatesMore: '、ほか{n}件',
+        csvColumnCount: 'データ行 {row}（ファイル{lines}）の列数がヘッダーと一致しません。ヘッダー（{headerLine}行目）は{expected}列、実際は{actual}列（{difference}）です。',
+        csvColumnCountLine: '{line}行目',
+        csvColumnCountLines: '{start}〜{end}行目',
+        csvColumnCountMissing: '{n}列不足',
+        csvColumnCountExtra: '{n}列超過',
         dsCompute: '計算 {n} 本 · 約 {time}',
         hintCompute: '選んでいる値を、表に出ている録音で計算する（絞り込みのとおり）',
         dsComputing: '計算中 {done} / {n}',

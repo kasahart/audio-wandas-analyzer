@@ -2,6 +2,8 @@
  * CSV diagnostics, ported unchanged from asd-insight packages/domain/csv-diagnostics.ts (commit 40ea4a0):
  * a data row whose column count differs from the header's is reported with the evidence around it.
  */
+import { getStrings, type UiStrings } from '../i18n/strings';
+
 export type CSVColumnCountDiagnostic = {
   kind: 'column-count';
   fileName: string;
@@ -134,19 +136,30 @@ export function columnCountDiagnostic({
   };
 }
 
+type ColumnCountStrings = Pick<UiStrings, 'csvColumnCount' | 'csvColumnCountLine' | 'csvColumnCountLines' | 'csvColumnCountMissing' | 'csvColumnCountExtra'>;
+
+/** The diagnostic's summary in the panel's language. */
+export function columnCountMessage(diagnostic: CSVColumnCountDiagnostic, strings: ColumnCountStrings): string {
+  const lines =
+    diagnostic.startLine === diagnostic.endLine
+      ? strings.csvColumnCountLine.replace('{line}', String(diagnostic.startLine))
+      : strings.csvColumnCountLines.replace('{start}', String(diagnostic.startLine)).replace('{end}', String(diagnostic.endLine));
+  const difference = diagnostic.actualColumns - diagnostic.expectedColumns;
+  return strings.csvColumnCount
+    .replace('{row}', String(diagnostic.dataRow))
+    .replace('{lines}', lines)
+    .replace('{headerLine}', String(diagnostic.headerLine))
+    .replace('{expected}', String(diagnostic.expectedColumns))
+    .replace('{actual}', String(diagnostic.actualColumns))
+    .replace('{difference}', (difference < 0 ? strings.csvColumnCountMissing : strings.csvColumnCountExtra).replace('{n}', String(Math.abs(difference))));
+}
+
+/** Carries the diagnostic so the UI words it in its own language (columnCountMessage); `message` is English. */
 export class CSVColumnCountError extends Error {
   readonly diagnostic: CSVColumnCountDiagnostic;
 
   constructor(diagnostic: CSVColumnCountDiagnostic) {
-    const physicalLines =
-      diagnostic.startLine === diagnostic.endLine
-        ? `${diagnostic.startLine}行目`
-        : `${diagnostic.startLine}〜${diagnostic.endLine}行目`;
-    const difference = diagnostic.actualColumns - diagnostic.expectedColumns;
-    super(
-      `データ行 ${diagnostic.dataRow}（ファイル${physicalLines}）の列数がヘッダーと一致しません。` +
-        `ヘッダー（${diagnostic.headerLine}行目）は${diagnostic.expectedColumns}列、実際は${diagnostic.actualColumns}列（${Math.abs(difference)}列${difference < 0 ? '不足' : '超過'}）です。`,
-    );
+    super(columnCountMessage(diagnostic, getStrings('en')));
     this.name = 'CSVColumnCountError';
     this.diagnostic = diagnostic;
   }

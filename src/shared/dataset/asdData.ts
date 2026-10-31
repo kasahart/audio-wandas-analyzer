@@ -5,6 +5,7 @@
  * asd-insight has it; only the type names, the derived-column support (unused here) and the import paths
  * differ.
  */
+import type { UiStrings } from '../i18n/strings';
 import { CSVColumnCountError, columnCountDiagnostic } from './csvDiagnostics';
 
 export type DataRow = Record<string, string>;
@@ -227,10 +228,10 @@ export function resolveAudio<T>(row: DataRow, index: number, idColumn: string, a
 
 export const AUDIO_REASON_CANDIDATE_LIMIT = 5;
 
-export function summarizeAudioCandidates(candidates: readonly string[], limit = AUDIO_REASON_CANDIDATE_LIMIT): string {
+export function summarizeAudioCandidates(candidates: readonly string[], strings: Pick<UiStrings, 'dsCandidateSeparator' | 'dsCandidatesMore'>, limit = AUDIO_REASON_CANDIDATE_LIMIT): string {
     const visible = candidates.slice(0, limit);
     const omitted = candidates.length - visible.length;
-    return `${visible.join('、')}${omitted ? `、ほか${omitted}件` : ''}`;
+    return visible.join(strings.dsCandidateSeparator) + (omitted ? strings.dsCandidatesMore.replace('{n}', String(omitted)) : '');
 }
 
 /** A read-only preview of the complete prospective attachment set. */
