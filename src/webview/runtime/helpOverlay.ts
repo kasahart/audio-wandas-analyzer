@@ -1,6 +1,6 @@
 /**
  * "?" / F1: the keys of every view, the one on show first, and what the screens' symbols and colours mean.
- * It is modal: while it is open it takes every key but Tab, and ?, F1, Esc or a click outside closes it.
+ * It is modal: while it is open it takes every key (Tab moves within it), and ?, F1, Esc or a click outside closes it.
  */
 import type { UiStrings } from '../../shared/i18n/strings';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
@@ -62,23 +62,25 @@ export function installHelpOverlay(document: Document, window: Pick<Window, 'add
         const target = eventTarget(event);
         if (target === overlay || target?.closest?.('[data-action="help-close"]')) close();
     });
-    // aria-modal: Tab stays in the dialog.
-    overlay.addEventListener('keydown', event => {
-        if (event.key !== 'Tab') return;
+    /** aria-modal: Tab stays in the dialog. It runs in the help's key context: a context behind it (the maximized
+     * entry table) would otherwise take Tab on the close button, and the router stops every other listener. */
+    function trapTab(event: KeyboardEvent): void {
         const focusable = Array.from(overlay.querySelectorAll<HTMLElement>('button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'));
         const first = focusable[0], last = focusable[focusable.length - 1];
         if (!first) { event.preventDefault(); return; }
-        if (event.shiftKey ? document.activeElement === first : document.activeElement === last) {
+        const at = focusable.indexOf(document.activeElement as HTMLElement);
+        const wraps = at < 0 || (event.shiftKey ? at === 0 : at === focusable.length - 1);
+        if (wraps) {
             (event.shiftKey ? last : first).focus();
             event.preventDefault();
         }
-    });
+    }
     keyRouterFor(window).add({
         layer: 'help',
         keydown(event) {
             const toggle = event.key === '?' || event.key === 'F1';
             if (!overlay.hidden) {
-                if (event.key === 'Tab') return false;
+                if (event.key === 'Tab') { trapTab(event); return true; }
                 // Enter and Space still press the close button.
                 const pressing = (event.key === 'Enter' || event.key === ' ') && overlay.contains(event.target as Node);
                 if (!pressing) event.preventDefault();

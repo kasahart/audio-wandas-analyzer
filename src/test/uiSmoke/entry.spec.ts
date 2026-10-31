@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import { getStrings } from '../../shared/i18n/strings';
 import { answerProbe, entry100Metadata, entry100Results, openEntry, openStepsView, pickCsv, type ScannedFile } from './entryHelpers';
 
@@ -624,6 +624,18 @@ test('「トラックのみ」 computes only the files on a track', async ({ pag
     expect(scan.filePaths).toEqual([await first.getAttribute('data-file-path')]);
 });
 
+/** Space on a focused ☑: off, then on again with no new focus — the redrawn mark keeps the focus. */
+async function pressMarkTwice(page: Page, mark: Locator): Promise<void> {
+    const checked = await mark.getAttribute('aria-checked');
+    const other = checked === 'true' ? 'false' : 'true';
+    await page.keyboard.press(' ');
+    await expect(mark).toHaveAttribute('aria-checked', other);
+    await expect(mark).toBeFocused();
+    await page.keyboard.press(' ');
+    await expect(mark).toHaveAttribute('aria-checked', checked!);
+    await expect(mark).toBeFocused();
+}
+
 test('the ☐ / ☑ of a row takes T, Enter and Space; widened, the table keeps Tab and clicks from the track view under it', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     const STR = getStrings('en');
@@ -654,12 +666,16 @@ test('the ☐ / ☑ of a row takes T, Enter and Space; widened, the table keeps 
     }] } })), filePath);
     await expect(mark).toHaveText('☑');
     await expect(mark).toHaveAttribute('aria-checked', 'true');
-    // Space (or Enter) on the mark itself takes the track off again.
+    // Space (or Enter) on the mark itself takes the track off again, and the focus stays on the redrawn mark.
     await mark.focus();
-    await page.keyboard.press(' ');
-    await expect(mark).toHaveText('☐');
+    await pressMarkTwice(page, mark);
     await page.keyboard.press('Enter');
-    await expect.poll(async () => (await posted(page)).filter(message => message.type === 'analyze-selected-files').length).toBeGreaterThan(1);
+    await expect(mark).toHaveAttribute('aria-checked', 'false');
+    await expect(mark).toHaveText('☐');
+    await expect(mark).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(mark).toHaveAttribute('aria-checked', 'true');
+    await expect(mark).toBeFocused();
     // The help says so, in the entry table's section, which comes first.
     await page.keyboard.press('?');
     const help = page.locator('[data-screen-help]');
@@ -671,6 +687,55 @@ test('the ☐ / ☑ of a row takes T, Enter and Space; widened, the table keeps 
     // Shrunk into the side panel, the track view takes Tab again.
     await page.locator('[data-action="entry-maximize"]').click();
     await expect(page.locator('#selection-results-pane')).not.toHaveAttribute('inert', '');
+});
+
+test('docked, Space on a row\'s ☐ / ☑ toggles it each time and never reaches the lanes\' playback', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    await openEntry(page, scanned!, { docked: true });
+    await page.locator('[data-entry-table]').focus();
+    await page.keyboard.press('ArrowDown');
+    const mark = page.locator('[data-entry-rows] tr.entry-row.is-focused [data-action="entry-row-track"]');
+    await mark.focus();
+    await expect(mark).toHaveText('☐');
+    await pressMarkTwice(page, mark);
+    await expect(mark).toHaveText('☐');
+    await page.keyboard.press('Enter');
+    await expect(mark).toHaveAttribute('aria-checked', 'true');
+    await expect(mark).toBeFocused();
+    await expect(page.locator('[data-action="toggle-playback"].is-playing')).toHaveCount(0);
+});
+
+test('maximized, the help\'s Tab stays in the help: the table behind it does not take Tab', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    await openEntry(page, scanned!);
+    await page.locator('[data-entry-table]').focus();
+    await page.keyboard.press('?');
+    await expect(page.locator('#help-overlay')).toBeVisible();
+    for (const key of ['Tab', 'Tab', 'Tab', 'Shift+Tab', 'Shift+Tab', 'Tab']) {
+        await page.keyboard.press(key);
+        expect(await page.evaluate(() => !!document.activeElement?.closest('#help-overlay'))).toBe(true);
+    }
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#help-overlay')).toBeHidden();
+});
+
+test('the side panel\'s edge from the keyboard: End past 60 % of the window maximizes the table, as a drag does', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    await openEntry(page, scanned!, { docked: true });
+    const edge = page.locator('#tree-resizer');
+    const sidebar = page.locator('#selection-sidebar');
+    const width = (await sidebar.boundingBox())!.width;
+    await edge.focus();
+    await page.keyboard.press('ArrowRight');
+    await expect(page.locator('#entry-screen')).not.toHaveClass(/is-max/);
+    const widened = (await sidebar.boundingBox())!.width;
+    expect(widened).toBeGreaterThan(width);
+    await page.keyboard.press('End');
+    await expect(page.locator('#entry-screen')).toHaveClass(/is-max/);
+    // The panel keeps the width it had.
+    await page.locator('[data-action="entry-maximize"]').click();
+    await expect(page.locator('#entry-screen')).not.toHaveClass(/is-max/);
+    expect(Math.round((await sidebar.boundingBox())!.width)).toBe(Math.round(widened));
 });
 
 test('typing in ＋\'s filter with an IME redraws only the list: the composition survives and its confirming Enter adds nothing', async ({ page }) => {
