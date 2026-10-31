@@ -21,6 +21,9 @@ _MIN_SAFE_CALIBRATION_VALUE = 1e-150
 _MAX_SAFE_CALIBRATION_VALUE = 1e150
 # The largest supported STFT has 16384 samples and is cached as complex64.
 _MAX_SAFE_CALIBRATED_SAMPLE = 1e34
+# Below float32's smallest normal number the complex64 STFT flushes the calibrated peak to zero, which then
+# reads as the -240 dB floor instead of being rejected.
+_MIN_SAFE_CALIBRATED_PEAK = float(np.finfo(np.float32).tiny)
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,6 +123,12 @@ def _validate_factor_for_source(
         raise StaleCalibrationError(
             f"Calibration factor for channel {channel_index} exceeds the safe limit "
             f"{maximum:.6g} for source peak {source_peak:.6g}"
+        )
+    minimum = _MIN_SAFE_CALIBRATED_PEAK / source_peak
+    if factor < minimum:
+        raise StaleCalibrationError(
+            f"Calibration factor for channel {channel_index} is below the safe limit "
+            f"{minimum:.6g} for source peak {source_peak:.6g}"
         )
 
 

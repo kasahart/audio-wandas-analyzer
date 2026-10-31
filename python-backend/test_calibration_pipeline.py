@@ -157,6 +157,15 @@ def test_calibration_factor_is_bounded_by_source_peak() -> None:
         resolve_calibration_profile(_profile(["input"], [1.1e24], ["Pa"], [1.0]), source)
 
 
+def test_calibration_factor_that_would_flush_the_peak_to_zero_is_rejected() -> None:
+    # A 16-bit LSB peak times 1e-33 stays a normal float32; times 1e-35 it would read as the -240 dB floor.
+    source = wd.from_numpy(np.array([[2**-15, -(2**-15)]], dtype=np.float32), sampling_rate=8_000, ch_labels=["in"])
+
+    resolve_calibration_profile(_profile(["in"], [1e-33], ["Pa"], [1.0]), source)
+    with pytest.raises(StaleCalibrationError, match="below the safe limit.*source peak"):
+        resolve_calibration_profile(_profile(["in"], [1e-35], ["Pa"], [1.0]), source)
+
+
 def test_calibration_rejects_non_finite_source_samples() -> None:
     source = wd.from_numpy(
         np.array([[0.0, np.inf]], dtype=np.float64),

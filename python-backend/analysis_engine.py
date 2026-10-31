@@ -7,11 +7,10 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import dask.array as da
 import numpy as np
 import wandas as wd
-from scipy.signal import ShortTimeFFT, get_window
 
+from backend_errors import InputError
 from calibration_profile import ResolvedCalibrationProfile, finite_source_channel_peaks, resolve_calibration_profile
 
 StftKey = tuple[str, int, int, str]
@@ -21,68 +20,10 @@ AUDIO_CACHE_DTYPE = np.dtype("float32")
 SPECTROGRAM_CACHE_DTYPE = np.dtype("complex64")
 
 
-class SparseSpectrogram:
-    """Display-only sparse STFT; Wandas retains spectral levels and calibration, and delegated attributes
-    (``plot``, ``to_dataframe``, ...) see the wrapped frame's ``hop = n_fft``, so they describe the sparse frames.
-    """
-
-    def __init__(self, spectral_frame: wd.SpectrogramFrame, centers: np.ndarray, hop_length: int) -> None:
-        self.spectral_frame = spectral_frame
-        self.frame_center_times = centers
-        self.hop_length = hop_length
-
-    @property
-    def times(self) -> np.ndarray:
-        return np.arange(self.n_frames) * self.hop_length / self.sampling_rate
-
-    @property
-    def source_times(self) -> np.ndarray:
-        return self.source_time_offset[:, None] + self.times[None, :]
-
-    def __getattr__(self, name):
-        return getattr(self.spectral_frame, name)
-
-    def astype(self, dtype):
-        return SparseSpectrogram(self.spectral_frame.astype(dtype), self.frame_center_times, self.hop_length)
-
-    def cache(self):
-        return SparseSpectrogram(self.spectral_frame.cache(), self.frame_center_times, self.hop_length)
-
-
-def compute_spectrogram(
-    frame: wd.ChannelFrame, n_fft: int, hop_length: int, window: str
-) -> wd.SpectrogramFrame | SparseSpectrogram:
-    if hop_length <= n_fft:
-        return frame.stft(n_fft=n_fft, hop_length=hop_length, window=window)
-    # Auto display sampling can leave gaps between windows on long desktop files.
-    # Wandas rejects these hops, although its SciPy backend supports them. Keep
-    # the same window, one-sided amplitude scaling and physical frame centers,
-    # without first materializing a dense STFT merely to discard its frames.
-    transform = ShortTimeFFT(
-        get_window(window, n_fft), hop=hop_length, fs=frame.sampling_rate, mfft=n_fft, scale_to="magnitude"
-    )
-    values = transform.stft(np.asarray(frame.data).reshape(frame.n_channels, -1))
-    values[:, 1:-1, :] *= 2  # even n_fft: preserve DC and Nyquist
-    spectral_frame = wd.SpectrogramFrame(
-        da.from_array(values, chunks=values.shape),
-        sampling_rate=frame.sampling_rate,
-        n_fft=n_fft,
-        hop_length=n_fft,
-        window=window,
-        # frame.data already contains calibrated physical samples.
-        channel_metadata=[
-            {
-                "label": channel.label,
-                "calibration": wd.ChannelCalibration(factor=1.0, unit=channel.unit, ref=channel.ref),
-                "extra": channel.extra,
-            }
-            for channel in frame.channels
-        ],
-        source_time_offset=frame.source_time_offset,
-        frame_time_origin=float(transform.p_min * transform.delta_t),
-    )
-    centers = transform.t(frame.n_samples)[None, :] + np.asarray(frame.source_time_offset)[:, None]
-    return SparseSpectrogram(spectral_frame, centers, hop_length)
+def compute_spectrogram(frame: wd.ChannelFrame, n_fft: int, hop_length: int, window: str) -> wd.SpectrogramFrame:
+    # Auto display sampling can leave gaps between windows on long desktop files; Wandas then computes only the
+    # kept frames, at their physical centres, rather than a dense STFT whose frames would be discarded.
+    return frame.stft(n_fft=n_fft, hop_length=hop_length, window=window, allow_sparse=hop_length > n_fft)
 
 
 @dataclass(slots=True)
@@ -101,7 +42,28 @@ class CachedAnalysis:
 
     @property
     def nbytes(self) -> int:
-        return self.frame_nbytes + sum(self.spectrogram_nbytes.values())
+        """Bytes this file holds in the cache: its frame, STFTs, spectrum slices and pair spectra."""
+        return (
+            self.frame_nbytes
+            + sum(self.spectrogram_nbytes.values())
+            + sum(_array_nbytes(value) for value in self.spectrum_slices.values())
+            + sum(_array_nbytes(value) for value in self.pair_spectra.values())
+        )
+
+
+def _array_nbytes(value: object) -> int:
+    """Sum the NumPy arrays held in a cached value, including inside (named) tuples."""
+    if isinstance(value, np.ndarray):
+        return int(value.nbytes)
+    if isinstance(value, tuple):
+        return sum(_array_nbytes(item) for item in value)
+    return 0
+
+
+@dataclass(slots=True)
+class _LoadSlot:
+    lock: threading.Lock = field(default_factory=threading.Lock)
+    users: int = 0
 
 
 class AnalysisEngine:
@@ -114,7 +76,8 @@ class AnalysisEngine:
         # Requests for different files run on several threads: the caches change under this lock, and one
         # file is read once even when two requests for it arrive together.
         self._lock = threading.RLock()
-        self._loading: dict[Path, threading.Lock] = {}
+        # One read lock per path while requests for it are in flight; the last request out removes it.
+        self._loading: dict[Path, _LoadSlot] = {}
 
     def get_file(self, file_path: str | Path) -> CachedAnalysis:
         path = Path(file_path).expanduser().resolve()
@@ -123,7 +86,19 @@ class AnalysisEngine:
         stat = path.stat()
         identity = (stat.st_mtime_ns, stat.st_size)
         with self._lock:
-            loading = self._loading.setdefault(path, threading.Lock())
+            slot = self._loading.setdefault(path, _LoadSlot())
+            slot.users += 1
+        try:
+            return self._load_file(path, identity, stat, slot.lock)
+        finally:
+            with self._lock:
+                slot.users -= 1
+                if slot.users == 0:
+                    del self._loading[path]
+
+    def _load_file(
+        self, path: Path, identity: tuple[int, int], stat: os.stat_result, loading: threading.Lock
+    ) -> CachedAnalysis:
         with loading:
             with self._lock:
                 cached = self._files.get(path)
@@ -167,6 +142,9 @@ class AnalysisEngine:
         calibration_profile: object = None,
     ) -> wd.SpectrogramFrame:
         cached, analysis_frame, resolved = self.get_analysis(file_path, calibration_profile)
+        if analysis_frame.n_samples < n_fft // 2:
+            # SciPy's padded STFT needs at least half a window of samples.
+            raise InputError("Audio is too short for this STFT window; choose a smaller window")
         key = (resolved.signature, n_fft, hop_length, window)
         spectrogram = cached.spectrograms.get(key)
         if spectrogram is None:
@@ -228,6 +206,7 @@ class AnalysisEngine:
             cached.spectrum_slices.move_to_end(key)
             while len(cached.spectrum_slices) > self.spectrum_slice_cache_entries:
                 cached.spectrum_slices.popitem(last=False)
+            self._evict(cached.path)
 
     def get_pair_spectrum(self, cached: CachedAnalysis, key: PairSpectrumKey) -> object | None:
         with self._lock:
@@ -242,6 +221,7 @@ class AnalysisEngine:
             cached.pair_spectra.move_to_end(key)
             while len(cached.pair_spectra) > self.spectrum_slice_cache_entries:
                 cached.pair_spectra.popitem(last=False)
+            self._evict(cached.path)
 
     def clear(self) -> None:
         with self._lock:
