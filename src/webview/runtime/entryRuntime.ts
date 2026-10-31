@@ -557,9 +557,13 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         basePick.hidden = chosen.group === 'none';
         markOpenable();
         if (basePick.hidden) return;
-        const names = [...new Set(distributionPool().map(row => datasetGroupOf(row, chosen.group)))].sort(compareGroupNames);
+        // The chosen group stays offered (and shown) when filters or exclusions leave none of its rows.
+        const pool = new Set(distributionPool().map(row => datasetGroupOf(row, chosen.group)));
+        if (chosen.baseGroup !== null) pool.add(chosen.baseGroup);
+        const names = [...pool].sort(compareGroupNames);
         const labels = groupLabels(names);
-        const html = baseOptionsHtml(names.map(name => ({ name, label: `${groupLabel(chosen.group)} ${labels.get(name) || strings.dsFilterBlank}` })), chosen.baseGroup, slots[0] ? rowName(slots[0]) : null, text);
+        const grouping = groupLabel(chosen.group);
+        const html = baseOptionsHtml(names.map(name => ({ name, label: `${grouping} ${labels.get(name) || strings.dsFilterBlank}` })), chosen.baseGroup, slots[0] ? rowName(slots[0]) : null, text);
         if (written.get(baseSelect) !== html) { baseSelect.innerHTML = html; written.set(baseSelect, html); }
         baseSelect.value = slots[0] ? 'row' : chosen.baseGroup === null ? 'auto' : `group:${chosen.baseGroup}`;
     }
