@@ -18,7 +18,6 @@ const NON_NULL_ASSERTION_BURN_DOWN = [
     'src/shared/recipe/channelSelection.ts',
     'src/shared/recipe/recipeSteps.ts',
     'src/webview/plot/waveformLayer.ts',
-    'src/webview/rangePopover.ts',
     'src/webview/runtime/browserAdapter.ts',
     'src/webview/runtime/calibrationDecorations.ts',
     'src/webview/runtime/chartSpecRuntime.ts',
@@ -29,13 +28,10 @@ const NON_NULL_ASSERTION_BURN_DOWN = [
     'src/webview/runtime/entryTable.ts',
     'src/webview/runtime/entryTableHtml.ts',
     'src/webview/runtime/pairSpectrumPanel.ts',
-    'src/webview/runtime/separatorKeys.ts',
-    'src/webview/runtime/spectrogramSettingsPopover.ts',
     'src/webview/runtime/stagePanes.ts',
     'src/webview/runtime/stageSource.ts',
     'src/webview/runtime/staticHost.ts',
     'src/webview/runtime/stepBar.ts',
-    'src/webview/runtime/toolbarEvents.ts',
     'src/webview/runtime/trackStageMode.ts',
 ];
 NON_NULL_ASSERTION_BURN_DOWN.forEach((file, index, list) => {
