@@ -140,7 +140,7 @@ class BrowserEngine(AnalysisEngine):
     def estimated_bytes(self, working_bytes: int) -> int:
         """Estimate peak Worker memory for an operation that needs ``working_bytes`` on top of the session."""
         return (
-            PYODIDE_BASELINE_BYTES + DISPLAY_EXPORT_RESERVE + self.input_bytes + self.retained_bytes * 2 + working_bytes
+            PYODIDE_BASELINE_BYTES + DISPLAY_EXPORT_RESERVE + self.input_bytes + self.cache_bytes * 2 + working_bytes
         )
 
     def discard_all_spectrograms(self) -> None:
@@ -164,16 +164,10 @@ class BrowserEngine(AnalysisEngine):
         cached.spectrogram_nbytes.clear()
         cached.spectrum_slices.clear()
 
-    @property
-    def retained_bytes(self) -> int:
-        return self.cache_bytes + sum(
-            int(rows.nbytes) for entry in self._files.values() for rows, _ in entry.spectrum_slices.values()
-        )
-
     def _evict(self, protected_path: Path) -> None:
         # Selected sources stay resident; evict recomputable detail rather than user tracks.
         for path in [p for p in self._files if p != protected_path] + [protected_path]:
-            if self.retained_bytes <= self.cache_limit_bytes:
+            if self.cache_bytes <= self.cache_limit_bytes:
                 break
             self.discard_spectrograms(path)
 

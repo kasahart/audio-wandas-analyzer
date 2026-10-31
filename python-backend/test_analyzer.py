@@ -410,3 +410,20 @@ def test_sparse_spectrogram_time_centers_use_the_display_hop() -> None:
     centers = spectrogram_frame_centers(sparse)
     assert centers is not None
     np.testing.assert_allclose(centers, sparse.frame_center_times[0])
+
+
+@pytest.mark.parametrize("n_fft", [255, 256])
+def test_sparse_stft_matches_dense_frames_for_odd_and_even_windows(n_fft: int) -> None:
+    # The sparse frames are the dense STFT's every fourth frame: an odd window's last bin is not Nyquist
+    # and keeps the one-sided doubling, and float32 audio stays single precision.
+    samples = (0.2 * np.sin(2 * np.pi * 997 * np.arange(8000) / 8000)).astype(np.float32)
+    frame = wd.from_numpy(samples, sampling_rate=8000)
+    dense = frame.stft(n_fft=n_fft, hop_length=n_fft, window="hann")
+    sparse = compute_spectrogram(frame, n_fft, 4 * n_fft, "hann")
+    count = min(sparse.n_frames, (dense.n_frames + 3) // 4)
+    values = np.asarray(sparse.data)
+    assert values.dtype == np.complex64
+    np.testing.assert_allclose(
+        values[..., :count], np.asarray(dense.data)[..., ::4][..., :count], rtol=1e-5, atol=1e-7
+    )
+    np.testing.assert_allclose(sparse.frame_center_times, dense.frame_center_times[:, ::4][:, :count])

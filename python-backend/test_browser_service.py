@@ -269,7 +269,7 @@ def test_estimated_bytes_counts_session_inputs_and_retained_detail() -> None:
     engine.load("selected.wav", payload)
     assert engine.is_loaded("/sources/selected.wav")
     assert not engine.is_loaded("/sources/other.wav")
-    assert engine.estimated_bytes(10) == baseline + len(payload) + engine.retained_bytes * 2 + 10
+    assert engine.estimated_bytes(10) == baseline + len(payload) + engine.cache_bytes * 2 + 10
 
 
 @pytest.mark.parametrize("source_id", ["/etc/a.wav", "a/../b.wav", "a//b.wav", "a/./b.wav"])
