@@ -5,21 +5,19 @@ import { pickCsv } from './entryHelpers';
 /**
  * 100,000 recordings with no audio: paths, headers answered at once, and an attribute CSV. Measures what the
  * user waits for on a large dataset (first rows, the header probe, a filter, a sort, a new value drawn, the
- * table's scrolling) and reports them as annotations. The targets are the developer's PC's: they are held only
- * with AWA_PERF=1, since a shared runner's speed varies.
+ * table's scrolling) and holds them to the developer's PC's targets. Runs only with AWA_PERF=1 (playwright.config.ts),
+ * since a shared runner's speed varies; the numbers are also reported as annotations.
  */
 const N = 100_000;
 const LINES = ['L1', 'L2', 'L3'];
 const RPMS = ['900', '1200', '1500'];
 const nameOf = (index: number): string => `${LINES[index % 3]}_${RPMS[(index >> 1) % 3]}rpm_${String(index).padStart(6, '0')}.wav`;
 const pathOf = (index: number): string => `/entry100/${LINES[index % 3]}/${nameOf(index)}`;
-const HOLD_TARGETS = process.env['AWA_PERF'] === '1';
-
-/** Reports `numbers` on the test, and holds each to its target in ms when AWA_PERF=1. */
+/** Reports `numbers` on the test and holds each to its target in ms. */
 function report(numbers: Record<string, number>, targets: Record<string, number>): void {
     for (const [name, target] of Object.entries(targets)) {
         test.info().annotations.push({ type: 'timing', description: `${name} ${numbers[name].toFixed(1)} ms (target ${target} ms)` });
-        if (HOLD_TARGETS) { expect(numbers[name], name).toBeLessThan(target); }
+        expect.soft(numbers[name], name).toBeLessThan(target);
     }
 }
 

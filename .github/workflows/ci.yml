@@ -95,6 +95,13 @@ jobs:
       - name: Run UI smoke
         run: npm run test:ui
 
+      # The 100,000-recording timings: a shared runner's speed varies, so they inform and never block.
+      - name: Run 100,000-recording timings (non-blocking)
+        continue-on-error: true
+        env:
+          AWA_PERF: '1'
+        run: node scripts/playwright.mjs test --project scale --no-deps
+
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

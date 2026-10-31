@@ -54,7 +54,7 @@ Node 22 (`.nvmrc`, `engines.node`) and Python 3.11 are the supported versions (m
 
 **An agent's work is "done" only when `npm run verify` exits 0.** This is the single source of truth for correctness. `scripts/verify.mjs` (plain Node, runs on Windows/macOS/Linux) lists every step: compile, Webview pattern lint, generated protocol types, single-source check, skills-copy check, GUI triggerability audit, node:test, ruff, pytest.
 
-pytest opt-ins: `AWA_SLOW=1` runs the slow operation-catalog probe (CI sets it on Linux); `AWA_PERF=1` holds wall-clock budgets, which are otherwise only reported (the same variable holds the `scale100k` Playwright targets).
+pytest opt-ins: `AWA_SLOW=1` runs the slow operation-catalog probe (CI sets it on Linux); `AWA_PERF=1` holds wall-clock budgets, which are otherwise only reported (the same variable enables the `scale100k` Playwright spec).
 
 ```bash
 npm run verify        # see scripts/verify.mjs
@@ -158,6 +158,8 @@ trackDurRatio  = durationSeconds / globalSpanSec
 | TS webview browser smoke | `@playwright/test` + Chromium | `src/test/uiSmoke/*.spec.ts` |
 | Python unit | `pytest` | `python-backend/test_*.py` |
 | VS Code E2E | `@vscode/test-electron` (xvfb on Linux) | `src/e2e/suite/index.ts` |
+
+The 100,000-recording timing spec (`src/test/uiSmoke/scale100k.spec.ts`) runs only with `AWA_PERF=1 npm run test:ui`; CI runs it as a separate non-blocking step.
 
 `npm run verify` runs the static lint plus the unit layers above except Playwright browser smoke and VS Code E2E. `npm run test:ui` is the real-browser smoke layer for Webview regressions. VS Code E2E remains separate (`npm run verify:e2e`) because it needs a full extension host and is slower; CI runs both as separate jobs.
 
