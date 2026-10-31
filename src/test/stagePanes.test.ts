@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { loudPoints, medianView, stageAxes, stageLevelsHeadline, stageDifference, stageDiffRange, stageHeadline, stageRange, stageReadout, axisFractionOf, type StageStrings } from '../webview/runtime/stagePanes';
+import { loudPoints, medianView, stageAxes, stageLevelsHeadline, stageDifference, stageDiffRange, stageHeadline, stageRange, stageReadout, axisFractionOf, stageHover, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
 import type { StageView } from '../shared/protocol/backendProtocol';
 
 const line = (values: number[], quantity: StageView['quantity'] = 'level'): StageView => ({ frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity, xs: [100, 1000, 10000], values });
@@ -89,4 +89,21 @@ test('an STFT column whose window sticks out of the signal is drawn but never he
     assert.equal(stageHeadline(diff, at), '1.00 s · 100 Hz +2.0 dB');
     assert.equal(stageLevelsHeadline(base, compare, diff, at), '1.00 s · 100 Hz base −40.0 / compare −38.0 dB');
     assert.deepEqual(diff.matrix![0], [0, 2, 15]);
+});
+
+test('the line nearest the pointer is picked as the spectrum overlay picks it, and a band zoomed past its centre still answers', () => {
+    // 1 px per Hz from 0, the level axis 1 px per dB downwards from 0 dB.
+    const plotOf = (lines: StagePlot['lines'], from = 0): StagePlot => ({ frame: { left: 0, top: 0, width: 100, height: 100 }, xAt: value => value - from, yAt: value => -value, ratioStep: 1.12, lines, diff: false });
+    const a = { view: { ...line([-10, -20, -30]), xs: [10, 50, 90] }, color: 'blue', label: 'base' };
+    const b = { view: { ...line([-40, -60, -80]), xs: [10, 50, 90] }, color: 'gold', label: 'compare' };
+    const near = stageHover(plotOf([a, b]), 48, 55)!;
+    assert.equal(near.layer, b);
+    assert.deepEqual([near.x, near.y, near.text], [50, 60, 'compare / 50 Hz / −60.0 dB']);
+    assert.equal(stageHover(plotOf([a, b]), 48, 25)!.layer, a);
+    // Zoomed to 105–110 Hz of bands at 100 and 125 Hz: the 100 Hz step spans the plot, its centre left of it.
+    const bands = { view: { frame: 'NOctFrame', kind: 'bar' as const, x: 'band' as const, xScale: 'log' as const, quantity: 'level' as const, xs: [100, 125], values: [-30, -35] }, color: 'gold' };
+    const zoomed = { ...plotOf([bands], 105), ratioStep: Math.sqrt(1.25) };
+    const band = stageHover(zoomed, 3, 30)!;
+    assert.equal(band.text, '100 Hz / −30.0 dB');
+    assert.equal(band.x, 0);
 });

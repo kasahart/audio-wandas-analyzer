@@ -602,11 +602,14 @@ function linePointAt(plot: StagePlot, layer: StageLayer, x: number): { index: nu
         const middle = (low + high) >> 1;
         if (plot.xAt(xs[middle]) <= x) low = middle; else high = middle;
     }
-    const index = Math.abs(plot.xAt(xs[high]) - x) < Math.abs(plot.xAt(xs[low]) - x) ? high : low;
+    // A band is the one whose step the pointer is over (its centre may be off the plot, zoomed into part of it).
+    const inBand = (index: number): boolean => x >= plot.xAt(xs[index] / plot.ratioStep) && x <= plot.xAt(xs[index] * plot.ratioStep);
+    const index = layer.view.kind === 'bar' && (inBand(low) || inBand(high)) ? (inBand(high) ? high : low)
+        : Math.abs(plot.xAt(xs[high]) - x) < Math.abs(plot.xAt(xs[low]) - x) ? high : low;
     const value = values[index];
     if (value === null || value === undefined || value <= -250) return null;
-    const at = plot.xAt(xs[index]);
-    if (at < plot.frame.left || at > plot.frame.left + plot.frame.width) return null;
+    // A point off the plot (zoomed between two points) keeps its cursor at the plot's edge.
+    const at = Math.max(plot.frame.left, Math.min(plot.frame.left + plot.frame.width, plot.xAt(xs[index])));
     return { index, x: at, y: plot.yAt(value), value };
 }
 
