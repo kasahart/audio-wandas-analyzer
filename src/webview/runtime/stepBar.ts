@@ -13,15 +13,16 @@
  */
 import type { UiStrings } from '../../shared/i18n/strings';
 import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
-import { addableOperations, CROSS_CHANNEL, PAIRED_ON_ADD, SLOT_REFERABLE, SELECT_PAIR, movedStep, recipeNodes, recipeSteps, withParam, withStep, withoutSteps, withBypass, withSlotReference, TIME_SLICE, type RecipeStep, type StepLimits, type StepParam } from '../../shared/recipe/recipeSteps';
+import { addableOperations, CROSS_CHANNEL, PAIRED_ON_ADD, SLOT_REFERABLE, SELECT_PAIR, movedStep, recipeNodes, recipeSteps, withStep, withoutSteps, withBypass, withSlotReference, TIME_SLICE, type RecipeStep, type StepLimits } from '../../shared/recipe/recipeSteps';
 import { catalogOperation, INPUT_FRAME } from '../../shared/recipe/recipeCatalog';
 import { outsideRecipe } from './compareReport';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { titledHintAttr as hintAttr } from './hintFooter';
 import { keyRouterFor } from './keyRouter';
 import { currentStepId, frameAfter, INPUT_STAGE, lastRunningStep, OCTAVE_BRANCH, orderedSteps, removable, shownStep as chipShown, stepFlow, stepLimits, type RegionRange, type StepBarState, type StepFlow } from './stepBarModel';
-import { channelText, formatNumber, fromShown, invalidReason, stepLabel } from './stepLabels';
+import { invalidReason, stepLabel } from './stepLabels';
 import { createStepHistory } from './stepHistory';
+import { checkStepForm, regionFormDraft, regionLength, stepFormDraft, stepFormHtml, stepFormKey } from './stepForm';
 import { stepMenuAt, stepMenuHtml, stepMenuKey, stepMenuListHtml, type StepMenuContext, type StepMenuState } from './stepMenu';
 
 export { endsInSpectrum, INPUT_STAGE, OCTAVE_BRANCH, recipeWithout, runnableRecipe, stepLimits, unpairedRecipe, type RegionRange, type StepBarState, type StepBarStrings } from './stepBarModel';
@@ -194,42 +195,7 @@ export function createStepBar(deps: {
         const row = `<div class="step-row">${parts.join('')}<span class="step-gap"></span>${branch}${toggle}</div>`;
         return expanded ? row + `<div class="step-row step-outside-row"><span class="step-outside-heading">${escapeHtml(strings.stepOutsideHeading)}${escapeHtml(version)}</span>${outsideTagsHtml()}</div>` : row;
     }
-    function formHtml(step: RecipeStep): string {
-        // The region chip's form: where the region starts and ends; Remove gives the whole file back.
-        if (step.operation === TIME_SLICE) {
-            const range = state.regionRange ?? { start: 0, end: 1 };
-            const field = (name: 'start' | 'end', label: string, value: number): string => `<label class="step-field">${escapeHtml(label)} <input type="number" data-step-region-param="${name}" value="${value.toFixed(2)}" step="0.01" min="0"></label>`;
-            return `<div class="step-form" role="dialog" aria-label="${escapeHtml(strings.stepRegion)}" data-step-form="${escapeHtml(step.id)}" data-step-form-region><div class="step-form-title">${escapeHtml(strings.stepRegion)}</div>`
-                + field('start', strings.stepRegionStart, range.start) + field('end', strings.stepRegionEnd, range.end)
-                + `<div class="step-form-bar"><button type="button" data-action="step-region-clear">${escapeHtml(strings.stepRemove)}</button><button type="button" class="entry-primary" data-action="step-apply">${escapeHtml(strings.stepApply)}</button></div></div>`;
-        }
-        // The channels at this step (a selection before it may leave fewer than the files have).
-        const channels = step.channels ?? state.channels;
-        const field = (param: StepParam): string => {
-            const value = step.params[param.name];
-            const input = param.kind === 'enum'
-                ? `<select data-step-param="${param.name}">${param.options.map(option => `<option${option === value ? ' selected' : ''}>${option}</option>`).join('')}</select>`
-                : `<input type="number" data-step-param="${param.name}" value="${escapeHtml(param.kind === 'int' && param.channel ? channelText(value, channels) : formatNumber(value))}" step="${param.kind === 'int' ? 1 : 'any'}"${param.kind === 'int' && param.channel ? ` min="1"${channels ? ` max="${channels}"` : ''}` : ''}>`;
-            const bad = step.invalid === param.name;
-            const name = param.kind === 'int' && param.channel ? (param.channel === 'output' ? strings.stepPairOutput : strings.stepPairInput) : param.name;
-            return `<label class="step-field${bad ? ' is-invalid' : ''}"${bad ? ` ${hintAttr(invalidReason(step, strings))}` : ''}>${escapeHtml(name)} ${input}${param.kind === 'float' && param.unit ? ` ${param.unit}` : ''}</label>`;
-        };
-        const title = `<div class="step-form-title">${escapeHtml(step.name)}</div>`;
-        // A step left out for a reason other than one of its values says why at the top.
-        const why = step.invalid === '' ? `<div class="step-form-why">${escapeHtml(invalidReason(step, strings, state.recipe ? recipeSteps(state.recipe, limits()) : []))}</div>` : '';
-        // A cross-channel step's reference: a channel of the same recording (its pair chip) or the base slot's recording.
-        const choice = (mode: 'channel' | 'slot', label: string): string => {
-            const on = (mode === 'slot') === (step.reference === 'slot');
-            return `<button type="button" class="step-reference-choice" data-action="step-reference" data-step="${escapeHtml(step.id)}" data-mode="${mode}" aria-pressed="${on}">${escapeHtml(label)}</button>`;
-        };
-        const reference = SLOT_REFERABLE.has(step.operation)
-            ? `<div class="step-field step-reference" role="group" aria-label="${escapeHtml(strings.stepReference)}">${escapeHtml(strings.stepReference)} ${choice('channel', strings.stepReferenceChannel)}${choice('slot', strings.stepReferenceSlot)}</div>`
-            : '';
-        const fields = reference + (step.editable.length ? step.editable.map(field).join('') : reference ? '' : `<div class="step-form-note">${escapeHtml(strings.stepNoSettings)}</div>`);
-        const apply = step.editable.length ? `<button type="button" class="entry-primary" data-action="step-apply"${step.invalid ? ' disabled' : ''}>${escapeHtml(strings.stepApply)}</button>` : '';
-        const remove = removable(step) ? `<button type="button" data-action="step-remove" data-step="${escapeHtml(step.id)}">${escapeHtml(strings.stepRemove)}</button>` : '';
-        return `<div class="step-form" role="dialog" aria-label="${escapeHtml(step.name)}" data-step-form="${escapeHtml(step.id)}">${title}${why}${fields}<div class="step-form-bar">${remove}${apply}</div></div>`;
-    }
+    const formHtml = (step: RecipeStep): string => stepFormHtml(step, state, strings);
     function menuContext(recipe: RecipeDocument): StepMenuContext {
         return { recipe, state, strings, expanded, lacks: lacks(), regionSettable: !!deps.onRegionSet };
     }
@@ -250,62 +216,11 @@ export function createStepBar(deps: {
         const left = anchor.getBoundingClientRect().left - element.getBoundingClientRect().left;
         popup.style.left = `${Math.max(0, Math.min(left, element.clientWidth - popup.offsetWidth))}px`;
     }
-    /** The Recipe the open form would give, to check it before Apply. */
-    function draft(): RecipeDocument | null {
-        const form = element.querySelector<HTMLElement>('[data-step-form]');
-        if (!form || !state.recipe) return null;
-        const step = recipeSteps(state.recipe, limits()).find(item => item.id === form.getAttribute('data-step-form'));
-        if (!step) return null;
-        let next = state.recipe;
-        for (const param of step.editable) {
-            const input = form.querySelector<HTMLInputElement | HTMLSelectElement>(`[data-step-param="${param.name}"]`);
-            // An untouched field keeps the stored value: a pair channel counted from the end stays relative on every recording.
-            if (!input || input.value === '' || (input instanceof HTMLInputElement && input.value === input.defaultValue)) continue;
-            next = withParam(next, step.id, param, param.kind === 'enum' ? input.value : fromShown(param, Number(input.value)));
-        }
-        return next;
-    }
-    /** The files' length (s): a region must end within it. */
-    const lengthOf = (): number | undefined => (state.shortestSamples && state.sampleRate ? state.shortestSamples / state.sampleRate : state.lengthS);
-    /** The region the region chip's form would give, or null when it is not one (start < end, within the file). */
-    function regionDraft(): RegionRange | null {
-        const [start, end] = ['start', 'end'].map(name => element.querySelector<HTMLInputElement>(`[data-step-region-param="${name}"]`)?.value.trim() ?? '').map(text => (text === '' ? NaN : Math.round(Number(text) * 100) / 100));
-        const length = lengthOf();
-        return Number.isFinite(start) && Number.isFinite(end) && start >= 0 && end > start && (length === undefined || end <= length) ? { start, end } : null;
-    }
-    /** Marks the field that the typed values break, with its reason, and keeps Apply off until it is fixed. */
-    function checkForm(): void {
-        const form = element.querySelector<HTMLElement>('[data-step-form]');
-        if (form?.hasAttribute('data-step-form-region')) {
-            const ok = !!regionDraft();
-            form.querySelectorAll('.step-field').forEach(label => label.classList.toggle('is-invalid', !ok));
-            form.querySelector<HTMLButtonElement>('[data-action="step-apply"]')!.disabled = !ok;
-            if (!ok) footer(strings.stepRegionOrder);
-            return;
-        }
-        const next = draft();
-        const applyButton = form?.querySelector<HTMLButtonElement>('[data-action="step-apply"]');
-        if (!form || !next || !applyButton) return;
-        const step = recipeSteps(next, limits()).find(item => item.id === form.getAttribute('data-step-form'));
-        const badParam = step?.invalid ? step.invalid : undefined;
-        form.querySelectorAll<HTMLElement>('.step-field').forEach(label => {
-            // The reference's choice is a field of its own, without a value to check.
-            const input = label.querySelector('[data-step-param]');
-            if (!input) return;
-            const name = input.getAttribute('data-step-param');
-            const bad = !!step && !!badParam && badParam === name;
-            label.classList.toggle('is-invalid', bad);
-            const text = bad ? invalidReason(step, strings) : '';
-            label.setAttribute('data-hint', text);
-            input.setAttribute('aria-description', text);
-            if (bad) footer(text);
-        });
-        // An emptied field is not a value: Apply waits for one instead of quietly keeping the old.
-        const empty = Array.from(form.querySelectorAll<HTMLInputElement>('input[data-step-param]')).filter(input => input.value.trim() === '');
-        empty.forEach(input => { input.closest('.step-field')?.classList.add('is-invalid'); });
-        if (empty.length) footer(strings.stepNeedValue);
-        applyButton.disabled = !!badParam || empty.length > 0;
-    }
+    const formElement = (): HTMLElement | null => element.querySelector<HTMLElement>('[data-step-form]');
+    const draft = (): RecipeDocument | null => stepFormDraft(formElement(), state.recipe, limits());
+    const lengthOf = (): number | undefined => regionLength(state);
+    const regionDraft = (): RegionRange | null => regionFormDraft(element, lengthOf());
+    const checkForm = (): void => checkStepForm(formElement(), { recipe: state.recipe, state, strings, footer });
     function apply(): void {
         const form = element.querySelector<HTMLElement>('[data-step-form]');
         if (form?.hasAttribute('data-step-form-region')) {
@@ -475,12 +390,13 @@ export function createStepBar(deps: {
     });
     element.addEventListener('keydown', event => {
         const body = (event.target as HTMLElement).closest?.('[data-step-hold]');
-        // In the open menu, the keys are the menu's (stepMenuKey).
+        // In the open form or menu, the keys are theirs (stepFormKey, stepMenuKey).
+        const formKey = open ? stepFormKey(event) : null;
         const menuKey = menu ? stepMenuKey(event) : null;
-        if ((event.key === 'Escape' && open) || menuKey === 'close') { event.stopPropagation(); close(); }
+        if (formKey === 'close' || menuKey === 'close') { event.stopPropagation(); close(); }
         // Esc on a chip only leaves the bar; the screen's own Esc needs focus outside it.
         else if (event.key === 'Escape') { event.stopPropagation(); (document.activeElement as HTMLElement | null)?.blur?.(); }
-        else if (event.key === 'Enter' && open) { event.preventDefault(); event.stopPropagation(); apply(); }
+        else if (formKey === 'apply') { event.preventDefault(); event.stopPropagation(); apply(); }
         // The menu's filter: Enter adds the first operation that can go here.
         else if (menuKey === 'add-first') {
             event.preventDefault();
