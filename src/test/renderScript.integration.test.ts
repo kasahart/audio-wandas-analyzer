@@ -3510,6 +3510,32 @@ test('renderScript: a detail error is not asked again on every render until the 
     env.dom.window.close();
 });
 
+test('renderScript: a failed spectrogram is asked for again once the retry pause has passed', async () => {
+    const env = setupEnvWithState(makeLazySpectrogramState());
+    const button = env.dom.window.document.querySelector('[data-action="content-waveform"]') as HTMLButtonElement;
+    button.click();
+    await nextAnimationFrame(env.dom);
+    const detailRequests = () => env.postedMessages.filter((msg: any) => msg.type === 'request-track-detail') as any[];
+    const initial = detailRequests()[0];
+    assert.ok(initial);
+    const realNow = env.dom.window.Date.now;
+    let now = realNow.call(env.dom.window.Date);
+    env.dom.window.Date.now = () => now;
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        ...initial, type: 'track-detail-error', error: 'Python backend restarting',
+    } }));
+    now += 11_000;
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'comparison-panel-test-action', actionId: 'rerender-after-pause',
+        actions: [{ action: 'set-loop-region', payload: { start: 0.1, end: 0.2 } }],
+    } }));
+    await nextAnimationFrame(env.dom);
+    const failedTrackRequests = detailRequests().filter((msg: any) => msg.filePath === initial.filePath);
+    assert.equal(failedTrackRequests.length, 2, 'after the pause the lane asks for its spectrogram again');
+    env.dom.window.Date.now = realNow;
+    env.dom.window.close();
+});
+
 test('renderScript: terminal detail error permits retry with the same analysis settings', async () => {
     const env = setupEnvWithState(makeLazySpectrogramState());
     const button = env.dom.window.document.querySelector('[data-action="content-waveform"]') as HTMLButtonElement;
