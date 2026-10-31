@@ -18,11 +18,16 @@ const CALIBRATION_PROFILES_KEY = 'audioWandasAnalyzer.calibrationProfiles.v1';
 const PROFILE_UNCHANGED = Symbol('profile-unchanged');
 
 export interface CalibrationChangeEvent {
+    /** Canonical key from {@link calibrationFileKey}; compare it to a panel's paths through that same function. */
     filePath: string;
     analysisRevision: number;
 }
 
-function fileKey(filePath: string): string {
+/**
+ * Canonical identity of an audio file for calibration state: absolute and symlink-free, so '/tmp/a.wav' and
+ * '/private/tmp/a.wav' (macOS) or 'c:\\x.wav' and 'C:\\x.wav' (Windows) share one profile and revision.
+ */
+export function calibrationFileKey(filePath: string): string {
     const resolved = path.resolve(filePath);
     try {
         return fs.realpathSync.native(resolved);
@@ -67,12 +72,12 @@ export class CalibrationStore {
     }
 
     profile(filePath: string): CalibrationProfile | undefined {
-        const stored = this.profiles()[fileKey(filePath)];
+        const stored = this.profiles()[calibrationFileKey(filePath)];
         return stored ? cloneProfile(stored) : undefined;
     }
 
     analysisRevision(filePath: string): number {
-        return this.analysisRevisions.get(fileKey(filePath)) ?? 0;
+        return this.analysisRevisions.get(calibrationFileKey(filePath)) ?? 0;
     }
 
     async discardStale(filePath: string, error: unknown, failedProfile: CalibrationProfile): Promise<boolean> {
@@ -232,7 +237,7 @@ export class CalibrationStore {
             current: CalibrationProfile | undefined,
         ) => CalibrationProfile | undefined | typeof PROFILE_UNCHANGED,
     ): Promise<void> {
-        const key = fileKey(filePath);
+        const key = calibrationFileKey(filePath);
         const previous = this.writeQueue ?? Promise.resolve();
         const operation = previous.catch(() => undefined).then(async () => {
             const next = { ...this.profiles() };

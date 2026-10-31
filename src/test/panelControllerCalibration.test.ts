@@ -58,11 +58,12 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
 
     let PanelController: typeof import('../extension/panelController').PanelController;
     let CalibrationStore: typeof import('../extension/calibrationStore').CalibrationStore;
+    let calibrationFileKey: typeof import('../extension/calibrationStore').calibrationFileKey;
     try {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         PanelController = require('../extension/panelController').PanelController;
         // eslint-disable-next-line @typescript-eslint/no-require-imports
-        CalibrationStore = require('../extension/calibrationStore').CalibrationStore;
+        ({ CalibrationStore, calibrationFileKey } = require('../extension/calibrationStore') as typeof import('../extension/calibrationStore'));
     } finally {
         NodeModule._load = originalLoad;
     }
@@ -169,9 +170,10 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
     };
     const calibrationProfilesKey = 'audioWandasAnalyzer.calibrationProfiles.v1';
     const workspaceValues: Record<string, unknown> = {
+        // The store keys profiles canonically ('/tmp/x.wav' resolves to 'D:\\tmp\\x.wav' on Windows), as it writes them.
         [calibrationProfilesKey]: {
-            [calibratedPath]: calibrationProfile,
-            [racingPath]: {
+            [calibrationFileKey(calibratedPath)]: calibrationProfile,
+            [calibrationFileKey(racingPath)]: {
                 schemaVersion: 1,
                 channels: [{
                     channelIndex: 0,

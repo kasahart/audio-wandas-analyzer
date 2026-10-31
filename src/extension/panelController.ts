@@ -21,7 +21,7 @@ import { fileCountLabel, fillTemplate, getStrings, type UiStrings } from '../sha
 import type { AnalysisHost, AnalysisOrchestrator } from './analysisOrchestrator';
 import type { AnalysisClient } from '../shared/analysis/analysisClient';
 import type { CalibrationRequestContext } from '../shared/protocol/backendProtocol';
-import type { CalibrationChangeEvent, CalibrationStore } from './calibrationStore';
+import { calibrationFileKey, type CalibrationChangeEvent, type CalibrationStore } from './calibrationStore';
 import type { ExportFlows } from './exportFlows';
 import type { RecipeDocument } from '../shared/recipe/recipeSelection';
 import type { PanelMessage } from '../shared/protocol/panelMessages';
@@ -174,8 +174,12 @@ export class PanelController implements vscode.Disposable {
     ) {
         this.calibrationChangeDisposable = calibration.onDidChange((event) => {
             for (const session of this.sessions.values()) {
-                if (!session.getActiveFilePaths().includes(event.filePath)) { continue; }
-                void this.enqueueCalibrationRefresh(session, event).catch((error) => {
+                // The event carries the canonical key, which differs from the panel's path on Windows (drive-letter
+                // case, resolved root) and for symlinked files; refresh under the path the panel actually shows.
+                const filePath = session.getActiveFilePaths()
+                    .find((activePath) => calibrationFileKey(activePath) === event.filePath);
+                if (filePath === undefined) { continue; }
+                void this.enqueueCalibrationRefresh(session, { ...event, filePath }).catch((error) => {
                     this.host.showError(error instanceof Error ? error.message : String(error));
                 });
             }

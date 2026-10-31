@@ -746,6 +746,8 @@ async function createWorkspaceVenvAndInstall(baseCommand: string, statusBarItem:
     const root = getWorkspaceRoot();
     if (!root) { return; }
     const venvPath = path.join(root, '.venv');
+    // Only a .venv this call made is ours to remove; a half-made one (no pip) would hide "Create .venv" for good.
+    const createdHere = !fs.existsSync(venvPath);
     try {
         pythonSetupLog().show(true);
         const run = await vscode.window.withProgress(
@@ -774,6 +776,11 @@ async function createWorkspaceVenvAndInstall(baseCommand: string, statusBarItem:
         void vscode.window.showInformationMessage(text.pyInstallSucceeded);
         await storePythonCommand('.venv');
     } catch (error) {
+        if (createdHere) {
+            await fs.promises.rm(venvPath, { recursive: true, force: true }).catch((removeError: unknown) => {
+                pythonSetupLog().appendLine(`[venv] could not remove ${venvPath}: ${String(removeError)}`);
+            });
+        }
         reportSetupFailure(error, baseCommand, statusBarItem);
     }
 }

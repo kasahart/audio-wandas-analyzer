@@ -4,7 +4,14 @@ import test from 'node:test';
 
 type Listener<T = unknown> = (event: T) => void;
 
-function loadActivation() {
+type PanelAnalysisStub = { analyzeFiles(filePaths: string[]): Promise<unknown> };
+
+function loadActivation(options: {
+    /** Replaces the dependency check (default: resolves true at once). */
+    checkDependencies?: (pythonCommand: string) => Promise<boolean>;
+    /** Stubs the panel controller and orchestrator so the analysis wrapper handed to the panel can be driven. */
+    capturePanelAnalysis?: boolean;
+} = {}) {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const NodeModule = require('node:module') as {
         _load: (request: string, parent: unknown, isMain: boolean) => unknown;
@@ -24,6 +31,8 @@ function loadActivation() {
         pythonCommand: 'python3',
         environmentStatus: 'normal' as 'normal' | 'warning',
         openTabs: [] as unknown[],
+        analyzedFiles: [] as string[][],
+        panelAnalysis: undefined as PanelAnalysisStub | undefined,
     };
     const listeners: {
         configuration?: Listener<{ affectsConfiguration(section: string): boolean }>;
@@ -94,6 +103,7 @@ function loadActivation() {
             workspaceFolders: undefined,
         },
         StatusBarAlignment: { Left: 1 },
+        CancellationError: class CancellationError extends Error {},
         Uri: { parse: (value: string) => ({ fsPath: value }), file: (value: string) => ({ fsPath: value }) },
         FileType: { Directory: 2 },
         TabInputWebview,
@@ -123,6 +133,25 @@ function loadActivation() {
             };
         }
         if (request === '../webview/panels/ComparisonPanel') { return { ComparisonPanel: {} }; }
+        if (options.capturePanelAnalysis && request === './panelController') {
+            return {
+                PanelController: class {
+                    constructor(_context: unknown, _backend: unknown, analysis: PanelAnalysisStub) { state.panelAnalysis = analysis; }
+                    dispose(): void {}
+                },
+            };
+        }
+        if (options.capturePanelAnalysis && request === './analysisOrchestrator') {
+            return {
+                AnalysisOrchestrator: class {
+                    async analyzeFiles(filePaths: string[]): Promise<unknown[]> {
+                        state.analyzedFiles.push(filePaths);
+                        return [];
+                    }
+                    warmup(): void {}
+                },
+            };
+        }
         if (request === './pythonBackendServer') {
             return {
                 PythonBackendServer: class {
@@ -140,7 +169,7 @@ function loadActivation() {
                 selectPythonEnvironment: async () => undefined,
                 checkAndPromptInstallDependencies: async (pythonCommand: string) => {
                     state.dependencyChecks.push(pythonCommand);
-                    return true;
+                    return options.checkDependencies ? options.checkDependencies(pythonCommand) : true;
                 },
                 disposePythonSetupLog: () => {},
                 getPythonCommand: () => state.pythonCommand,
@@ -257,6 +286,53 @@ test('the first command checks the environment and warms the backend once; later
 
         await harness.state.commandHandlers.get('audioWandasAnalyzer.runRecipe')?.([]);
         await settle();
+        assert.deepEqual(harness.state.dependencyChecks, ['python3']);
+    } finally {
+        harness.restore();
+    }
+});
+
+function deferred<T>(): { promise: Promise<T>; resolve(value: T): void } {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((done) => { resolve = done; });
+    return { promise, resolve };
+}
+
+test('analysis waits for the dependency check (and install) before starting the backend', async () => {
+    const check = deferred<boolean>();
+    const harness = loadActivation({ checkDependencies: () => check.promise, capturePanelAnalysis: true });
+    try {
+        harness.activate();
+        const analyzing = harness.state.panelAnalysis!.analyzeFiles(['/audio/a.wav']);
+        await settle();
+        assert.deepEqual(harness.state.dependencyChecks, ['python3']);
+        assert.deepEqual(harness.state.analyzedFiles, [], 'the backend must not spawn while the check is still running');
+        assert.equal(harness.state.backendWarmupCalls, 0);
+
+        check.resolve(true);
+        await analyzing;
+        assert.deepEqual(harness.state.analyzedFiles, [['/audio/a.wav']]);
+        assert.equal(harness.state.backendWarmupCalls, 1);
+    } finally {
+        harness.restore();
+    }
+});
+
+test('analysis does not start when the dependencies are not ready', async () => {
+    const check = deferred<boolean>();
+    const harness = loadActivation({ checkDependencies: () => check.promise, capturePanelAnalysis: true });
+    try {
+        harness.activate();
+        const analyzing = harness.state.panelAnalysis!.analyzeFiles(['/audio/a.wav']);
+        await settle();
+        check.resolve(false);
+        await assert.rejects(analyzing, (error: Error) => error.constructor.name === 'CancellationError');
+        assert.deepEqual(harness.state.analyzedFiles, []);
+        assert.equal(harness.state.backendWarmupCalls, 0);
+
+        // A later analysis reuses the failed result instead of spawning a backend that cannot import wandas.
+        await assert.rejects(harness.state.panelAnalysis!.analyzeFiles(['/audio/b.wav']));
+        assert.deepEqual(harness.state.analyzedFiles, []);
         assert.deepEqual(harness.state.dependencyChecks, ['python3']);
     } finally {
         harness.restore();
