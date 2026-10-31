@@ -10,6 +10,7 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 - Cursor spectrum snaps to the nearest STFT frame; spectrogram cells centred on their windows (#436, #438).
 - Trackpad sideways swipe pans the timeline (#471).
 - Track lanes fetch the waveform detail two screens either side of the view, so a pan no longer flashes the coarse overview, and a zoom out keeps the detail already fetched until the new one lands (#502).
+- Compare view: showing Δ no longer leaves the overlaid plot stretched from its old height, so hovered lines are no longer drawn twice (#503).
 - Python backend answers requests for different recordings concurrently and reads audio straight into float32 (#462, #464).
 - Updated to wandas 0.12.0 (#409, #446, #468).
 - Python starts only when a command, view or panel needs it; Select Python Environment can create a `.venv` and install the packages, detects PEP 668 interpreters and uses the Python extension's interpreter; Restricted Mode is supported with the user-level interpreter.

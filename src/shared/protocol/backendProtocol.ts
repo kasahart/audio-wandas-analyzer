@@ -7,6 +7,7 @@ import type {
     BackendErrorPayload,
     BackendHeartbeatNotification,
     BackendReadyNotification,
+    BackendStartedNotification,
     BuildRecipePayload,
     BuildRecipeResult,
     ExportWavLoopPayload,
@@ -39,6 +40,7 @@ export type {
     BackendErrorPayload,
     BackendHeartbeatNotification,
     BackendReadyNotification,
+    BackendStartedNotification,
     BuildRecipePayload,
     BuildRecipeResult,
     ExportWavLoopPayload,
@@ -118,7 +120,7 @@ export interface BackendErrorEnvelope {
     error: BackendErrorPayload;
 }
 
-export type BackendNotification = BackendReadyNotification | BackendHeartbeatNotification;
+export type BackendNotification = BackendReadyNotification | BackendHeartbeatNotification | BackendStartedNotification;
 export type BackendResponseEnvelope<K extends BackendCommand> = BackendSuccessEnvelope<K> | BackendErrorEnvelope;
 export type BackendEnvelope<K extends BackendCommand> = BackendNotification | BackendResponseEnvelope<K>;
 
@@ -282,6 +284,9 @@ export function parseBackendNotification(value: unknown): BackendNotification | 
     if (schemaViolation('BackendReadyNotification', value) === null) return { type: 'ready' };
     if (schemaViolation('BackendHeartbeatNotification', value) === null) {
         return { type: 'heartbeat', ts: (value as BackendHeartbeatNotification).ts };
+    }
+    if (schemaViolation('BackendStartedNotification', value) === null) {
+        return { type: 'started', requestId: (value as BackendStartedNotification).requestId };
     }
     return null;
 }

@@ -243,12 +243,14 @@ export function paintStageOverlay(dom: StageDom, frame: StageFrame, plots: Stage
     const range = stageRange([coarsePlots.base, coarsePlots.compare, ...coarsePlots.others.map(item => item.view)]);
     const axes = stageAxes(strings, picture, tracks[0]?.input);
     const empty = waiting ? '' : strings.stepNotDrawable.replace('{frame}', picture?.frame ?? '');
+    // The difference shown or hidden first: it takes part of the overlay's height, which the overlay is measured at.
+    const diffBox = dom.query<HTMLElement>('[data-stage-diff]');
+    const withDiff = showDiff && !referencePath && !!comparePath;
+    diffBox.hidden = !withDiff;
     const overlay = dom.query<HTMLCanvasElement>('[data-stage-canvas="overlay"]');
     const overlayPlot = paintOverlay(overlay, { layers }, narrowed(range, window.y), axes, { empty, window: { x: window.x }, axisView: picture, ...(regionMark ? { region: regionMark } : {}), ...(pending ? { pending } : {}) });
     frame.drawnOn.set(overlay, { picture, range, axes, views: { base: coarsePlots.base, compare: coarsePlots.compare, diff: coarsePlots.diff }, plot: overlayPlot });
-    const diffBox = dom.query<HTMLElement>('[data-stage-diff]');
-    diffBox.hidden = !showDiff || !!referencePath || !comparePath;
-    if (!showDiff || referencePath || !comparePath) return;
+    if (!withDiff) return;
     dom.query<HTMLElement>('[data-stage-diff-headline]').textContent = waiting ? '' : stageHeadline(plots.diff, strings);
     const diffAxes = stageAxes(strings, coarsePlots.diff, tracks[0]?.input, true);
     const diffCanvas = dom.query<HTMLCanvasElement>('[data-stage-canvas="diff"]');

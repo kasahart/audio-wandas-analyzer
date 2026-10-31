@@ -189,6 +189,9 @@ def _lanes_of(command: Command) -> frozenset[str]:
 
 def _run(command: Command, job: _Job, service: AnalysisService) -> None:
     # The host has given up on a cancelled request; its reply would only be an orphan there.
+    if not job.cancelled:
+        # The host times a request from here, so time spent queued behind a barrier is not held against it.
+        _emit({"type": "started", "requestId": job.request_id})
     try:
         started = time.perf_counter()
         result = dispatch(command, service)
