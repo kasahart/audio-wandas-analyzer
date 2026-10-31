@@ -38,6 +38,7 @@ import { finiteNumber } from '../../shared/dataset/asdData';
 import { CSVColumnCountError, csvColumnCountMessage } from '../../shared/dataset/csvDiagnostics';
 import { keyRouterFor } from './keyRouter';
 import { createHeaderProbe, createScanProgress } from './entryScanQueue';
+import { createRedraw, createThrottle } from './entryRedraw';
 import { channelRowKey, comparedKeys, emptySlots, firstFreeCompareSlot, restoredSlots, roleKey, roleSlot, slotFiles as filesOfSlots, slotsForFiles, slotsOfFile, trackChanges, withoutFile, withSlot, type Slots } from './entrySlots';
 import { setHint } from './hintFooter';
 import { ENTRY_KEYS, keyAction } from './shortcuts';
@@ -55,10 +56,7 @@ import {
 const TAP_MS = 250;
 /** Releasing a held slot keeps its picture on screen this long, so a quick look does not flicker. */
 const DELTA_RELEASE_MS = 150;
-/**
- * Scan results are redrawn at most this often: each redraw sorts every row, so redrawing per result would
- * cost the square of the folder size.
- */
+/** Scan results are redrawn at most this often (entryRedraw.ts' createThrottle). */
 const REDRAW_MS = 250;
 /** The table's rows are this tall (CSS: .entry-table tr), so only the rows on screen are drawn. */
 const ROW_HEIGHT = 24;
@@ -388,26 +386,20 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     let pool: DatasetRow[] | null = null;
     /** The rows are made again only when the files, their results, their headers or the CSV change, not on every redraw. */
     let rowsDirty = true;
-    let redrawTimer: number | undefined;
-    let lastRedraw = 0;
-    let redrawCost = 0;
     const focusedFile = (): string | null => (focused ? fileOfKey(focused) : null);
     const slotFiles = (): (string | null)[] => filesOfSlots(slots);
     let byKey = new Map<string, DatasetRow>();
     const rowOf = (key: string | null): DatasetRow | undefined => (key ? byKey.get(key) : undefined);
-    function scheduleRebuild(): void {
-        if (redrawTimer !== undefined) return;
-        // A big table takes longer to draw, so it waits longer: drawing stays under a fifth of the time.
-        const interval = Math.max(REDRAW_MS, 4 * redrawCost);
-        const wait = Math.max(0, interval - (window.performance.now() - lastRedraw));
-        redrawTimer = window.setTimeout(() => {
-            redrawTimer = undefined;
-            const started = window.performance.now();
-            rebuild();
-            lastRedraw = window.performance.now();
-            redrawCost = lastRedraw - started;
-        }, wait);
-    }
+    /** Results and headers as they arrive: a big table takes longer to draw, so it waits longer. */
+    const resultsRedraw = createThrottle(window, () => window.performance.now(), REDRAW_MS, () => rebuild());
+    /**
+     * The table drawn again (the bar, the head, the rows, the slots) and the comparison told its data changed:
+     * once per click, key or change however many things it changes.
+     */
+    const redraw = createRedraw([['paint', () => paint()], ['compare', () => deps.compareChanged?.()]] as const);
+    const render = (): void => redraw.request('paint');
+    /** The comparison follows the table's data only while the table is in the side panel beside it. */
+    const tellCompare = (): void => { if (!maximized) redraw.request('compare'); };
 
     /** Whether the chain ends in a spectrum or band levels, so there are band values and a peak. */
     function spectral(): boolean {
@@ -500,10 +492,10 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         // An open question about showing the listed files counts the rows listed now.
         if (pendingAll) { const adding = mode === 'all' ? notShown(listedFiles()) : []; pendingAll = adding.length ? adding : null; }
         render();
-        if (!maximized) deps.compareChanged?.();
+        tellCompare();
     }
     /** Redraws the bar, the head and the rows; popovers that are open stay as they are (what is typed in them is kept). */
-    function render(): void {
+    function paint(): void {
         const view = datasetView();
         const values = valueOptions();
         if (!values.some(option => option.id === value)) value = values[0]?.id ?? 'leq';
@@ -1083,7 +1075,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         if (adding.length > LARGE_BASE) {
             pendingAll = adding;
             render();
-            screen.querySelector<HTMLElement>('[data-action="entry-tracks-all-go"]')?.focus();
+            redraw.after(() => screen.querySelector<HTMLElement>('[data-action="entry-tracks-all-go"]')?.focus());
             return;
         }
         if (adding.length) { showAll(listed, adding); return; }
@@ -1113,7 +1105,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             for (const path of hide) deps.setShown?.(path, false);
         }
         render();
-        if (!maximized) deps.compareChanged?.();
+        tellCompare();
     }
     /** 「計算」: the value for the rows on screen that have none of this chain, slotted rows first. */
     function compute(): void {
@@ -1211,8 +1203,10 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         render();
         scheduleSide();
         // Maximized, the table takes the keys; shrunk, they go back to the track view (its lanes, its comparison).
-        if (next) table.focus?.();
-        else if (screen.contains(document.activeElement)) (document.activeElement as HTMLElement).blur?.();
+        redraw.after(() => {
+            if (next) table.focus?.();
+            else if (screen.contains(document.activeElement)) (document.activeElement as HTMLElement | null)?.blur?.();
+        });
     }
     // A double click on the bar's empty part widens or shrinks the table, like ⤢ / ⤡.
     query('.entry-bar').addEventListener('dblclick', event => {
@@ -1232,14 +1226,16 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         if (!hasCompared()) {
             deps.announce(stage ? strings.stepOpenCompare : strings.compareRefuseSlot.replace('{n}', '1'));
             if (!stage) document.getElementById('hint-footer')?.replaceChildren(strings.compareRefuseSlot.replace('{n}', '1'));
-            const first = slotBar.querySelector('[data-slot="1"]');
-            first?.classList.remove('is-flash'); void (first as HTMLElement | null)?.offsetWidth; first?.classList.add('is-flash');
+            redraw.after(() => {
+                const first = slotBar.querySelector<HTMLElement>('[data-slot="1"]');
+                first?.classList.remove('is-flash'); void first?.offsetWidth; first?.classList.add('is-flash');
+            });
             return;
         }
         const chosen = slotFiles().filter((path): path is string => !!path && filePaths.includes(path));
         // The tracks are compared in the track view; the table goes back into the side panel beside them.
         setMaximized(false);
-        deps.openFiles(Array.from(new Set(chosen)), compareData(stage));
+        redraw.after(() => deps.openFiles(Array.from(new Set(chosen)), compareData(stage)));
     }
     function exportCsv(): void {
         const model = entryModel();
@@ -1376,7 +1372,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         renderPopovers();
         // A memo kept shows on its row (✎ lit, its text as the hint).
         if (hadMemo) render();
-        (body.querySelector<HTMLElement>('.is-focused') ?? table).focus?.();
+        redraw.after(() => (body.querySelector<HTMLElement>('.is-focused') ?? table).focus?.());
         return true;
     }
     function applyFilter(): void {
@@ -1401,22 +1397,26 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         mode = 'all';
         tableWrap.scrollTop = 0;
         rebuild();
-        renderPopovers();
-        deps.announce(next ? strings.dsFilterApplied.replace('{n}', String(shownRows.length)) : strings.dsFilterRemoved.replace('{col}', columnLabel(column)));
+        redraw.after(() => {
+            renderPopovers();
+            deps.announce(next ? strings.dsFilterApplied.replace('{n}', String(shownRows.length)) : strings.dsFilterRemoved.replace('{col}', columnLabel(column)));
+        });
     }
     function clearFilter(column: ColumnId): void {
         filters = filters.filter(filter => filter.column !== column);
         fpop = null;
         rebuild();
-        renderPopovers();
-        deps.announce(strings.dsFilterRemoved.replace('{col}', columnLabel(column)));
+        redraw.after(() => {
+            renderPopovers();
+            deps.announce(strings.dsFilterRemoved.replace('{col}', columnLabel(column)));
+        });
     }
     function setSort(column: DatasetScreenView['sort']['column'], descending: boolean): void {
         sort = { column, descending };
         fpop = null;
         tableWrap.scrollTop = 0;
         rebuild();
-        renderPopovers();
+        redraw.after(renderPopovers);
     }
     function saveMemo(): void {
         if (!memoKey) return;
@@ -1458,10 +1458,10 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         'entry-row-track': target => { focused = target.getAttribute('data-key')!; focusPicked = true; toggleTrack(focused); render(); },
         'entry-tracks-all': () => { if (mode === 'all') toggleAllTracks(); },
         // The rows listed now: a filter changed while the question was open counts.
-        'entry-tracks-all-go': () => { pendingAll = null; const listed = listedFiles(); const files = notShown(listed); if (files.length) showAll(listed, files); render(); focusHeadMark(); },
-        'entry-tracks-all-cancel': () => { pendingAll = null; render(); focusHeadMark(); },
+        'entry-tracks-all-go': () => { pendingAll = null; const listed = listedFiles(); const files = notShown(listed); if (files.length) showAll(listed, files); render(); redraw.after(focusHeadMark); },
+        'entry-tracks-all-cancel': () => { pendingAll = null; render(); redraw.after(focusHeadMark); },
         'entry-tracks-only': () => { tracksOnly = !tracksOnly; tableWrap.scrollTop = 0; rebuild(); },
-        'entry-row-slotmenu': target => { const key = target.getAttribute('data-key')!; fpop = null; memoKey = null; slotMenu = slotMenu === key ? null : key; focused = key; focusPicked = true; render(); renderPopovers(); },
+        'entry-row-slotmenu': target => { const key = target.getAttribute('data-key')!; fpop = null; memoKey = null; slotMenu = slotMenu === key ? null : key; focused = key; focusPicked = true; render(); redraw.after(renderPopovers); },
         'entry-row-slot': target => { const key = target.getAttribute('data-key')!; slotMenu = null; renderPopovers(); setSlot(Number(target.getAttribute('data-slot')), key); },
         'entry-row-memo': target => openMemo(target.getAttribute('data-key')!),
         'entry-memo-close': () => { saveMemo(); memoKey = null; renderPopovers(); render(); },
@@ -1492,7 +1492,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         'entry-key-hint': target => { if (target.getAttribute('data-key') === 'help') deps.help?.(); },
     };
     tableWrap.addEventListener('scroll', () => { renderRows(); scheduleSide(false); });
-    screen.addEventListener('click', event => {
+    screen.addEventListener('click', event => redraw.batch(() => {
         const target = event.target as HTMLElement;
         const action = target.closest<HTMLElement>('[data-action]');
         // A choice in the table's 書き出し menu closes it, the focus back on its summary.
@@ -1509,7 +1509,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         focused = row.getAttribute('data-key');
         focusPicked = true;
         render();
-    });
+    }));
     /** The maximized table's 書き出し menu: closed by a press outside it and by Esc, like the toolbar's menus. */
     const exportMenu = query<HTMLDetailsElement>('#entry-export-menu');
     function closeExportMenu(): boolean {
@@ -1540,7 +1540,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         if (screen.hidden || target.closest?.('[data-entry-pop], [data-action="entry-fhead"], [data-action="entry-fadd"], [data-action="entry-fchip"], [data-action="entry-row-slotmenu"], [data-action="entry-row-memo"], [data-action="entry-slot"][data-slot="0"], [data-action="entry-batch"], #tb-export-menu, #entry-export-menu')) return;
         closePopovers();
     }, true);
-    screen.addEventListener('change', event => {
+    screen.addEventListener('change', event => redraw.batch(() => {
         const target = event.target as HTMLElement;
         if (target === valueSelect) {
             value = valueSelect.value as ValueId;
@@ -1579,7 +1579,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             if ((target as HTMLInputElement).checked) fpop.checked.add(item); else fpop.checked.delete(item);
             redrawCheckList();
         }
-    });
+    }));
     // The filter's search narrows the check list to what it finds, all of it checked, as a spreadsheet's does.
     screen.addEventListener('input', event => {
         const target = event.target as HTMLInputElement;
@@ -1604,7 +1604,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         readCsvFile(file);
     });
     // A click on the strip goes to that file's row.
-    overview.addEventListener('click', event => {
+    overview.addEventListener('click', event => redraw.batch(() => {
         const rows = shownRows;
         const box = overview.getBoundingClientRect();
         // The strip's rows (top first) over the part of it on screen.
@@ -1613,15 +1613,15 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const row = rows[Math.floor(((1 - window.y.end) + (event.clientY - plotTop) / Math.max(1, plotHeight) * (window.y.end - window.y.start)) * rows.length)];
         if (!row) return;
         focusRow(row.key, true);
-    });
+    }));
     // A double click on a row slots it in the first free slot and opens the comparison, like 1 then Enter.
-    body.addEventListener('dblclick', event => {
+    body.addEventListener('dblclick', event => redraw.batch(() => {
         const target = event.target as HTMLElement;
         const key = target.closest<HTMLElement>('tr[data-key]')?.getAttribute('data-key');
         if (!key || mode !== 'all' || target.closest('button, [data-action="entry-row-track"]')) return;
         if (!slots.slice(1).includes(key)) setSlot(firstFreeCompareSlot(slots), key);
         openSlotted();
-    });
+    }));
     // The lanes' gestures on the side panel's plots: box zoom, Ctrl+wheel, Shift+wheel, double-click reset or
     // axis range. A press that stays put (within the lanes' 3 px) is still a click: a point picked, a row gone to.
     const zoomBox = document.createElement('div');
@@ -1686,7 +1686,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     // switched screens does not act on the other one too.
     keyRouterFor(window).add({
         layer: 'entry',
-        keydown(event) {
+        keydown: event => redraw.batch(() => {
             if (!keysHere(event)) return false;
             if ((event.target as Element | null)?.closest?.('[data-step-bar], #entry-range-popover')) return false;
             if (closesEntryDialog(event)) {
@@ -1694,7 +1694,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
                 // Esc closes the innermost thing: a popover, the step bar's form, the unmatched or excluded list;
                 // then the maximized table shrinks into the side panel, and the side panel hands the keys back.
                 if (closePopovers()) return true;
-                if (pendingAll) { pendingAll = null; render(); focusHeadMark(); return true; }
+                if (pendingAll) { pendingAll = null; render(); redraw.after(focusHeadMark); return true; }
                 if (closeExportMenu()) return true;
                 if (stepBar.close()) return true;
                 if (mode !== 'all') { mode = 'all'; rebuild(); return true; }
@@ -1721,12 +1721,12 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             else if (action === 'track') { if (focused && mode === 'all') { toggleTrack(focused); render(); } }
             else if (action === 'row-up' || action === 'row-down') moveFocus(action === 'row-down' ? 1 : -1);
             return true;
-        },
-        keyup(event) {
+        }),
+        keyup: event => redraw.batch(() => {
             if (!keysHere(event) || ownKeys(event)) return false;
             if (keyAction(ENTRY_KEYS, event.key) === 'slot') release(Number(event.key));
             return true;
-        },
+        }),
     });
 
     return {
@@ -1790,13 +1790,13 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         },
         // With "tracks only" on, the rows follow the tracks.
         tracksChanged: () => { if (tracksOnly) rebuild(); else if (!screen.hidden) render(); },
-        trackRemoved(filePath) {
+        trackRemoved: filePath => redraw.batch(() => {
             triedAll = null;
             const [slot] = slotsOfFile(slots, filePath);
             if (slot !== undefined) setSlot(slot, null, false); else if (!screen.hidden) render();
             // With 「トラックのみ」 on, the row leaves with its lane.
             if (tracksOnly) rebuild();
-        },
+        }),
         setRecipe,
         stepFailed,
         addDerived(row: DerivedRow): void {
@@ -1818,7 +1818,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
                 if (taken === 'stale') return true;
                 if (taken === 'done') { rebuild(); return true; }
                 rowsDirty = true;
-                scheduleRebuild();
+                resultsRedraw.schedule();
                 return true;
             }
             const publication = message as EntryPublication;
@@ -1844,9 +1844,9 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
                 const { failedStep, reason } = publication.result;
                 if (failedStep) { stepFailed(failedStep, reason ?? ''); return true; }
                 if (csv && !match?.attributes.size) match = matchCsv(csv, filePaths, rootPath);
-                scheduleRebuild();
+                resultsRedraw.schedule();
             } else if (publication.type === 'entry-scan-done') {
-                if (redrawTimer !== undefined) { window.clearTimeout(redrawTimer); redrawTimer = undefined; }
+                resultsRedraw.cancel();
                 requests.settle(publication.requestId);
                 // Only a computation the user started measures fixed differences again; reading what is stored does not.
                 const started = progress.stop();
@@ -1869,7 +1869,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
                 slots = withoutFile(slots, filePath);
                 deps.saveSlots(slots);
                 render();
-                if (!maximized) deps.compareChanged?.();
+                tellCompare();
                 return;
             }
             const key = own ?? rows.find(row => row.filePath === filePath)?.key ?? filePath;
