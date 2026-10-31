@@ -81,7 +81,7 @@ jobs:
           node-version: '22'
           cache: npm
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         if: steps.auth.outputs.ok == 'true'
         with:
           python-version: '3.11'
