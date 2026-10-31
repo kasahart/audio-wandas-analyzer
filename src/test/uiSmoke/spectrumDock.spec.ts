@@ -3,7 +3,7 @@ import { buildUiSmokeHtml, buildUiSmokeSelectionHtml } from './buildHtml';
 
 async function expectSpectrumDockedAboveFooter(page: Page): Promise<void> {
     const section = await page.locator('#spectrum-section').boundingBox();
-    const footer = await page.locator('#hint-footer').boundingBox();
+    const footer = await page.locator('#app-footer').boundingBox();
     if (!section || !footer) throw new Error('spectrum section or footer has no layout box');
     expect(Math.round(section.y + section.height)).toBe(Math.round(footer.y));
 }

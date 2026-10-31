@@ -7,7 +7,6 @@ import { toolbarHtml, type ToolbarSpec } from '../webview/runtime/toolbarHtml';
 const strings = getStrings('en');
 const spec: ToolbarSpec = {
     contentType: 'waveform',
-    appVersion: '1.2.3 (abc1234)',
 };
 
 test('toolbar marks the active view; the tracks show waveform and spectrogram together, so there is no spectrogram toggle', () => {
@@ -36,8 +35,8 @@ test('toolbar has two menus, the other zoom tools (⋯) and Export, which holds 
     assert.ok(html.includes('id="loop-time-display"'));
 });
 
-test('toolbar shows the app version', () => {
-    assert.ok(toolbarHtml(spec, strings).includes('<span class="tb-label tb-version" id="app-version">v1.2.3 (abc1234)</span>'));
+test('the version is not in the toolbar: it sits in the footer', () => {
+    assert.ok(!toolbarHtml(spec, strings).includes('app-version'));
 });
 
 test('every toolbar control carries a footer hint', () => {

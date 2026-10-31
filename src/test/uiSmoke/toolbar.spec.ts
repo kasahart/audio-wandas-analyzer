@@ -181,9 +181,13 @@ test('static page prompts in the empty results pane and keeps limits behind the 
     await expect(page.getByRole('button', { name: strings.btnOpenFile, exact: true })).toHaveCount(1);
     const indicator = page.locator('[data-python-indicator]');
     await expect(indicator).toHaveAttribute('data-hint', strings.browserPythonStarting);
-    // The page has no header row: the status line, About and the Python dot sit in the footer row.
-    const footerBox = (await page.locator('#web-footer').boundingBox())!;
-    for (const part of ['span[role="status"]', '[data-action="browser-about"]']) {
+    // The page has no header row: the status line, About, the Python dot and the version sit in the footer row.
+    const footerBox = (await page.locator('#app-footer').boundingBox())!;
+    await expect(page.locator('#app-version')).toHaveText('v0.0.0');
+    await expect(page.locator('#toolbar #app-version')).toHaveCount(0);
+    const versionBox = (await page.locator('#app-version').boundingBox())!;
+    expect(versionBox.x + versionBox.width).toBeCloseTo(footerBox.x + footerBox.width, 0);
+    for (const part of ['span[role="status"]', '[data-action="browser-about"]', '#app-version']) {
         const partBox = (await page.locator(part).boundingBox())!;
         expect(partBox.y).toBeGreaterThanOrEqual(footerBox.y);
     }
