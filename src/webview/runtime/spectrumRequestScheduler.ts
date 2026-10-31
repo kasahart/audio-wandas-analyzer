@@ -126,6 +126,9 @@ export class SpectrumRequestScheduler<R extends ScheduledSliceRequest> {
 
     scheduleFrame(allowSliceRequests: boolean, advanceCursor: boolean): void {
         if (this.frame) {
+            // Callers sharing a frame get the widest of what they asked for: a hover first must not suppress a scroll's slices.
+            this.frame.allowSliceRequests ||= allowSliceRequests;
+            this.frame.advanceCursor ||= advanceCursor;
             return;
         }
         const frame = { allowSliceRequests, advanceCursor };

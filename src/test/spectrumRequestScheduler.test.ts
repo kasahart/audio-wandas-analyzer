@@ -112,3 +112,13 @@ test('an immediate repaint leaves the frame already scheduled to run as well', (
     runFrames();
     assert.equal(refreshes.length, 3);
 });
+
+test('a frame shared by several callers runs with the widest of their requests', () => {
+    const { scheduler, frames, refreshes, runFrames } = setup();
+    scheduler.scheduleFrame(false, false);
+    scheduler.scheduleFrame(true, true);
+    scheduler.scheduleFrame(false, false);
+    assert.equal(frames.length, 1);
+    runFrames();
+    assert.deepEqual(refreshes, [{ advance: true, allows: true }]);
+});
