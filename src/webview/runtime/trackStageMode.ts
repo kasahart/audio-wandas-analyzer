@@ -580,6 +580,9 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
                 const range = stageRange(tracks.map(track => coarse(track.filePath) ?? null));
                 const heat = picture?.kind === 'heatmap';
                 let drawn = 0;
+                // Every lane in while the base group is still computed: the first lane says so, in its corner.
+                const anyMissing = tracks.some(track => track.canvas && coarse(track.filePath) === undefined);
+                const progressLane = anyMissing ? null : tracks.find(track => track.canvas)?.filePath;
                 tracks.forEach(track => {
                     track.axis?.getContext('2d')?.clearRect(0, 0, track.axis.width, track.axis.height);
                     if (!track.canvas) return;
@@ -590,7 +593,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
                     drawnOn.set(track.canvas, { picture: coarse(track.filePath) ?? picture, range, axes, views: { base: coarsePlots.base, compare: coarse(track.filePath) ?? null, diff: null } });
                     // A lane holds one picture, drawn as it is (1/3-octave levels as steps, without a fill).
                     paintOverlay(track.canvas, { layers: view ? [{ view, color: colorOf(track.filePath), width: widthOf(track.filePath, 2) }] : [] }, heat ? range : narrowed(range, window_.y), axes,
-                        { empty, window: { x: window_.x, ...(heat ? { y: window_.y } : {}) }, axisView: coarse(track.filePath) ?? picture, ...(regionMark ? { region: regionMark } : {}), ...(missing && pending ? { pending } : {}) });
+                        { empty, window: { x: window_.x, ...(heat ? { y: window_.y } : {}) }, axisView: coarse(track.filePath) ?? picture, ...(regionMark ? { region: regionMark } : {}), ...((missing || track.filePath === progressLane) && pending ? { pending } : {}) });
                     if (view) drawn++;
                 });
                 // The base slot's lane: the reference the others are measured against, not a picture of its own.
