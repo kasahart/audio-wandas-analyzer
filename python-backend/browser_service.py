@@ -161,6 +161,7 @@ class BrowserEngine(AnalysisEngine):
         cached.spectrograms.clear()
         cached.spectrogram_nbytes.clear()
         cached.spectrum_slices.clear()
+        cached.pair_spectra.clear()
 
     def _evict(self, protected_path: Path) -> None:
         # Selected sources stay resident; evict recomputable detail rather than user tracks.
