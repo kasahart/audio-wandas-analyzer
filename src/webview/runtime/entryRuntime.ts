@@ -265,11 +265,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         screen, strings,
         // A range of the value: a chip, which narrows the table.
         pick({ low, high }) {
-            chosen.filters = [...chosen.filters.filter(filter => filter.column !== chosen.value), { column: chosen.value, kind: 'range', low, high }];
-            chosen.mode = 'all';
-            tableWrap.scrollTop = 0;
             focus.picked = false;
-            rebuild();
+            choose({ filters: [...chosen.filters.filter(filter => filter.column !== chosen.value), { column: chosen.value, kind: 'range', low, high }], mode: 'all' }, true);
             deps.announce(strings.dsDistPicked.replace('{n}', shownRows.length.toLocaleString()));
         },
         dot(key) { if (shownRows.some(row => row.key === key)) focusRow(key, true); else focusFile(fileOfKey(key)); },
@@ -417,6 +414,40 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     const render = (): void => redraw.request('paint');
     /** The comparison follows the table's data only while the table is in the side panel beside it. */
     const tellCompare = (): void => { if (!maximized) redraw.request('compare'); };
+    /** What the user chose to see changed: the rows are listed again (from the top for a new order or filter). */
+    function choose(patch: Partial<EntryChoices>, toTop = false): void {
+        Object.assign(chosen, patch);
+        if (toTop) tableWrap.scrollTop = 0;
+        rebuild();
+    }
+    /** A row the user picked takes the focus. */
+    function focusOn(key: string | null): void {
+        focus.key = key;
+        focus.picked = true;
+        render();
+    }
+    /**
+     * New slots, kept for the next session; with `follow`, the tracks follow them: a slotted file is shown, a file
+     * that leaves every slot leaves the tracks. The comparison open follows, and stays open.
+     */
+    function setSlots(next: Slots, follow = false): void {
+        const before = slotFiles();
+        slots = next;
+        deps.saveSlots(slots);
+        if (follow) {
+            const { show, hide } = trackChanges(before, slotFiles());
+            for (const path of show) deps.setShown?.(path, true);
+            for (const path of hide) deps.setShown?.(path, false);
+        }
+        render();
+        tellCompare();
+    }
+    /** The differences fixed with D changed: kept, and their rows drawn. */
+    function setDerived(next: DerivedRow[]): void {
+        derived = next;
+        deps.saveDerived?.(derived);
+        rebuild();
+    }
 
     /** Whether the chain ends in a spectrum or band levels, so there are band values and a peak. */
     function spectral(): boolean {
@@ -693,9 +724,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         return { label: rowName(row.key), value: number === null ? '' : `${valueLabel(chosen.value)} ${formatColumn(chosen.value, number)}`, memo: memo.get(row.key) ?? '' };
     }
     function removeDerived(parentPath: string, region: string, baseLabel?: string): void {
-        derived = derived.filter(item => item.parentPath !== parentPath || item.region !== region || (baseLabel !== undefined && (item.base.label ?? '') !== baseLabel));
-        deps.saveDerived?.(derived);
-        rebuild();
+        setDerived(derived.filter(item => item.parentPath !== parentPath || item.region !== region || (baseLabel !== undefined && (item.base.label ?? '') !== baseLabel)));
     }
     /** The differences fixed on a row (D), under it: their Δ of the value on show when it is Leq or a band. */
     function derivedItems(row: DatasetRow): DerivedItem[] {
@@ -949,7 +978,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         if (publication.type === 'compare-scan-result') { pending.results.set(publication.filePath, publication.result); return true; }
         remeasuring.settle(publication.requestId);
         const next = remeasured(pending.row, pending.results);
-        if (next) { derived = derived.map(item => (item === pending.row ? next : item)); deps.saveDerived?.(derived); rebuild(); }
+        if (next) setDerived(derived.map(item => (item === pending.row ? next : item)));
         return true;
     }
     /** A hold shows something on this screen for a step of the chain's time signal (not the region), its spectrum, and the app's bands. */
@@ -1090,17 +1119,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     const notShown = (filePaths: readonly string[]): string[] => { const shown = shownFiles(); return filePaths.filter(filePath => !shown.has(filePath)); };
     /** Puts a row in a slot (out of any other); the same row again takes it out. The comparison open follows, and stays open. */
     function setSlot(slot: number, key: string | null, follow = true): void {
-        const before = slotFiles();
-        slots = withSlot(slots, slot, key);
-        deps.saveSlots(slots);
-        // The tracks follow the slots: a slotted file is shown, a file that leaves every slot leaves the tracks.
-        if (follow) {
-            const { show, hide } = trackChanges(before, slotFiles());
-            for (const path of show) deps.setShown?.(path, true);
-            for (const path of hide) deps.setShown?.(path, false);
-        }
-        render();
-        tellCompare();
+        setSlots(withSlot(slots, slot, key), follow);
     }
     /** 「計算」: the value for the rows on screen that have none of this chain, slotted rows first. */
     function compute(): void {
@@ -1157,7 +1176,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     function focusFile(filePath: string): void {
         const key = shownRows.find(row => row.filePath === filePath)?.key ?? rows.find(row => row.filePath === filePath)?.key;
         if (!key) return;
-        if (!shownRows.some(row => row.key === key)) { chosen.mode = 'all'; chosen.filters = []; chosen.tracksOnly = false; rebuild(); }
+        if (!shownRows.some(row => row.key === key)) choose({ mode: 'all', filters: [], tracksOnly: false });
         focusRow(key, true);
     }
     function moveFocus(step: number): void {
@@ -1387,30 +1406,24 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             if (!keep.length) { deps.announce(strings.dsFilterPickOne); return; }
             if (keep.length < all.length) next = { column, kind: 'values', values: keep };
         }
-        chosen.filters = [...chosen.filters.filter(filter => filter.column !== column), ...(next ? [next] : [])];
         popovers.filter = null;
-        chosen.mode = 'all';
-        tableWrap.scrollTop = 0;
-        rebuild();
+        choose({ filters: [...chosen.filters.filter(filter => filter.column !== column), ...(next ? [next] : [])], mode: 'all' }, true);
         redraw.after(() => {
             renderPopovers();
             deps.announce(next ? strings.dsFilterApplied.replace('{n}', String(shownRows.length)) : strings.dsFilterRemoved.replace('{col}', columnLabel(column)));
         });
     }
     function clearFilter(column: ColumnId): void {
-        chosen.filters = chosen.filters.filter(filter => filter.column !== column);
         popovers.filter = null;
-        rebuild();
+        choose({ filters: chosen.filters.filter(filter => filter.column !== column) });
         redraw.after(() => {
             renderPopovers();
             deps.announce(strings.dsFilterRemoved.replace('{col}', columnLabel(column)));
         });
     }
     function setSort(column: DatasetScreenView['sort']['column'], descending: boolean): void {
-        chosen.sort = { column, descending };
         popovers.filter = null;
-        tableWrap.scrollTop = 0;
-        rebuild();
+        choose({ sort: { column, descending } }, true);
         redraw.after(renderPopovers);
     }
     function saveMemo(): void {
@@ -1429,8 +1442,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
 
     const actions: Record<string, (target: HTMLElement) => void> = {
         'entry-pick-csv': () => csvInput.click(),
-        'entry-view-unmatched': () => { chosen.mode = chosen.mode === 'unmatched' ? 'all' : 'unmatched'; tableWrap.scrollTop = 0; rebuild(); },
-        'entry-view-excluded': () => { chosen.mode = chosen.mode === 'excluded' ? 'all' : 'excluded'; tableWrap.scrollTop = 0; rebuild(); },
+        'entry-view-unmatched': () => choose({ mode: chosen.mode === 'unmatched' ? 'all' : 'unmatched' }, true),
+        'entry-view-excluded': () => choose({ mode: chosen.mode === 'excluded' ? 'all' : 'excluded' }, true),
         'entry-compute': () => compute(),
         'entry-compute-cancel': () => cancelCompute(),
         'entry-probe-cancel': () => cancelProbe(),
@@ -1450,13 +1463,13 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         'entry-fok': () => applyFilter(),
         'entry-fcancel': () => closePopovers(),
         'entry-row-play': target => deps.play?.(fileOfKey(target.getAttribute('data-key')!)),
-        'entry-row-track': target => { focus.key = target.getAttribute('data-key')!; focus.picked = true; toggleTrack(focus.key); render(); },
+        'entry-row-track': target => { const key = target.getAttribute('data-key'); if (!key) return; focusOn(key); toggleTrack(key); },
         'entry-tracks-all': () => { if (chosen.mode === 'all') toggleAllTracks(); },
         // The rows listed now: a filter changed while the question was open counts.
         'entry-tracks-all-go': () => { tracks.pending = null; const listed = listedFiles(); const files = notShown(listed); if (files.length) showAll(listed, files); render(); redraw.after(focusHeadMark); },
         'entry-tracks-all-cancel': () => { tracks.pending = null; render(); redraw.after(focusHeadMark); },
-        'entry-tracks-only': () => { chosen.tracksOnly = !chosen.tracksOnly; tableWrap.scrollTop = 0; rebuild(); },
-        'entry-row-slotmenu': target => { const key = target.getAttribute('data-key')!; popovers.filter = null; popovers.memoKey = null; popovers.slotMenu = popovers.slotMenu === key ? null : key; focus.key = key; focus.picked = true; render(); redraw.after(renderPopovers); },
+        'entry-tracks-only': () => choose({ tracksOnly: !chosen.tracksOnly }, true),
+        'entry-row-slotmenu': target => { const key = target.getAttribute('data-key'); if (!key) return; popovers.filter = null; popovers.memoKey = null; popovers.slotMenu = popovers.slotMenu === key ? null : key; focusOn(key); redraw.after(renderPopovers); },
         'entry-row-slot': target => { const key = target.getAttribute('data-key')!; popovers.slotMenu = null; renderPopovers(); setSlot(Number(target.getAttribute('data-slot')), key); },
         'entry-row-memo': target => openMemo(target.getAttribute('data-key')!),
         'entry-memo-close': () => { saveMemo(); popovers.memoKey = null; renderPopovers(); render(); },
@@ -1472,10 +1485,9 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             else if (focus.key) setSlot(slot, focus.key);
         },
         'entry-base-group': target => {
-            chosen.baseGroup = target.getAttribute('data-auto') === 'true' ? null : target.getAttribute('data-group') ?? '';
             popovers.baseMenu = false;
             renderPopovers();
-            rebuild();
+            choose({ baseGroup: target.getAttribute('data-auto') === 'true' ? null : target.getAttribute('data-group') ?? '' });
             deps.announce(chosen.baseGroup === null ? strings.dsBaseSetAuto : strings.dsBaseSet.replace('{group}', `${groupLabel(chosen.group)} ${chosen.baseGroup || strings.dsFilterBlank}`));
         },
         'entry-base-row': () => { popovers.baseMenu = false; renderPopovers(); if (focus.key) setSlot(0, focus.key); },
@@ -1501,9 +1513,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         if (target.closest('[data-entry-pop]')) return;
         const row = target.closest<HTMLElement>('tr[data-key]');
         if (!row) return;
-        focus.key = row.getAttribute('data-key');
-        focus.picked = true;
-        render();
+        focusOn(row.getAttribute('data-key'));
     }));
     /** The maximized table's 書き出し menu: closed by a press outside it and by Esc, like the toolbar's menus. */
     const exportMenu = query<HTMLDetailsElement>('#entry-export-menu');
@@ -1538,16 +1548,12 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     screen.addEventListener('change', event => redraw.batch(() => {
         const target = event.target as HTMLElement;
         if (target === valueSelect) {
-            chosen.value = valueSelect.value as ValueId;
-            if (chosen.sort.column === 'value') tableWrap.scrollTop = 0;
-            rebuild();
+            choose({ value: valueSelect.value as ValueId }, chosen.sort.column === 'value');
             return;
         }
         if (target === groupSelect) {
             const baseBefore = baseText();
-            chosen.group = groupSelect.value as GroupId;
-            chosen.baseGroup = null;
-            rebuild();
+            choose({ group: groupSelect.value as GroupId, baseGroup: null });
             // With slot 0 empty the base is slot 1's group median: a new grouping changes it, which is said.
             if (!slots[0] && slots[1] && baseText() !== baseBefore) deps.announce(strings.dsBaseReset);
             return;
@@ -1692,9 +1698,9 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
                 if (tracks.pending) { tracks.pending = null; render(); redraw.after(focusHeadMark); return true; }
                 if (closeExportMenu()) return true;
                 if (stepBar.close()) return true;
-                if (chosen.mode !== 'all') { chosen.mode = 'all'; rebuild(); return true; }
+                if (chosen.mode !== 'all') { choose({ mode: 'all' }); return true; }
                 // The range picked on the distribution goes before the table shrinks.
-                if (maximized && valueRange()) { chosen.filters = chosen.filters.filter(filter => filter.column !== chosen.value); rebuild(); return true; }
+                if (maximized && valueRange()) { choose({ filters: chosen.filters.filter(filter => filter.column !== chosen.value) }); return true; }
                 if (maximized) { setMaximized(false); return true; }
                 (document.activeElement as HTMLElement | null)?.blur?.();
                 return true;
@@ -1794,9 +1800,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         setRecipe,
         stepFailed,
         addDerived(row: DerivedRow): void {
-            derived = [...derived.filter(item => derivedKey(item) !== derivedKey(row)), row];
-            deps.saveDerived?.(derived);
-            rebuild();
+            setDerived([...derived.filter(item => derivedKey(item) !== derivedKey(row)), row]);
         },
         removeDerived: (parentPath: string, region: string, baseLabel?: string) => removeDerived(parentPath, region, baseLabel),
         show(next: (string | null)[]): void {
@@ -1860,10 +1864,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             const own = roleKey(slots, filePath);
             if (slot === null) {
                 if (!own) return;
-                slots = withoutFile(slots, filePath);
-                deps.saveSlots(slots);
-                render();
-                tellCompare();
+                setSlots(withoutFile(slots, filePath));
                 return;
             }
             const key = own ?? rows.find(row => row.filePath === filePath)?.key ?? filePath;
@@ -1903,8 +1904,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             if (!compared.length) return;
             // The compared rows and their base: as a filter on the file column, which a chip shows and × takes off.
             const wanted = new Set(compared.map(fileOfKey).flatMap(file => [file, ...this.basePaths(file)]));
-            chosen.filters = [{ column: 'name', kind: 'values', values: [...new Set(rows.filter(row => wanted.has(row.filePath)).map(row => row.name))] }];
-            chosen.mode = 'all'; chosen.tracksOnly = false; tableWrap.scrollTop = 0; rebuild();
+            choose({ filters: [{ column: 'name', kind: 'values', values: [...new Set(rows.filter(row => wanted.has(row.filePath)).map(row => row.name))] }], mode: 'all', tracksOnly: false }, true);
         },
         recipes(channels) {
             const recipe = recipeState.edited ?? recipeState.standard;
