@@ -37,10 +37,11 @@ import { powerMeanDb, powerMeanOrNull } from '../../shared/utils/levels';
 import { finiteNumber } from '../../shared/dataset/asdData';
 import { CSVColumnCountError, csvColumnCountMessage } from '../../shared/dataset/csvDiagnostics';
 import { keyRouterFor } from './keyRouter';
+import { channelRowKey, comparedKeys, emptySlots, firstFreeCompareSlot, restoredSlots, roleKey, roleSlot, slotFiles as filesOfSlots, slotsForFiles, slotsOfFile, trackChanges, withoutFile, withSlot, type Slots } from './entrySlots';
 import { setHint } from './hintFooter';
 import { ENTRY_KEYS, keyAction } from './shortcuts';
 import {
-    annotatedCsv, baseGroupMembers, columnValues, datasetRows, filteredRows, fileOfKey, rowKey, groupOf as datasetGroupOf, isComputed, matchCsv, readDatasetCsv, valueOf, visibleRows,
+    annotatedCsv, baseGroupMembers, columnValues, datasetRows, filteredRows, fileOfKey, groupOf as datasetGroupOf, isComputed, matchCsv, readDatasetCsv, valueOf, visibleRows,
     type ColumnId, type CsvMatch, type DatasetCsv, type DatasetFilter, type DatasetRow, type GroupId, type ValueId,
 } from '../../shared/dataset/datasetTable';
 import {
@@ -355,7 +356,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
 
     let requestCount = 0;
     /** Row keys in slots 0–3: the base (or null for the group median) and the rows to compare. */
-    let slots: (string | null)[] = [null, null, null, null];
+    let slots: Slots = emptySlots();
     let focused: string | null = null;
     /** Until the user picks a row, the focus follows the top of the table. */
     let focusPicked = false;
@@ -411,7 +412,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     let lastRedraw = 0;
     let redrawCost = 0;
     const focusedFile = (): string | null => (focused ? fileOfKey(focused) : null);
-    const slotFiles = (): (string | null)[] => slots.map(key => (key ? fileOfKey(key) : null));
+    const slotFiles = (): (string | null)[] => filesOfSlots(slots);
     let byKey = new Map<string, DatasetRow>();
     const rowOf = (key: string | null): DatasetRow | undefined => (key ? byKey.get(key) : undefined);
     function scheduleRebuild(): void {
@@ -490,7 +491,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     /** A row taken (slotted, left out, noted, focused) before its file's channels were known follows it to its ch 1 once they are. */
     function followChannels(): void {
         const keys = new Set(rows.map(row => row.key));
-        const moved = (key: string): string | null => (!keys.has(key) && fileOfKey(key) === key && keys.has(rowKey(key, 1, 2)) ? rowKey(key, 1, 2) : null);
+        const moved = (key: string): string | null => channelRowKey(key, keys);
         slots = slots.map(key => (key && moved(key)) || key);
         for (const key of [...excluded]) { const to = moved(key); if (to) { excluded.delete(key); excluded.add(to); } }
         for (const [key, note] of [...memo]) { const to = moved(key); if (to) { memo.delete(key); if (!memo.has(to)) memo.set(to, note); } }
@@ -642,7 +643,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const savedSort = session['sort'] as DatasetScreenView['sort'] | undefined;
         if (savedSort && ['name', 'ch', 'group', 'value'].includes(savedSort.column)) sort = { column: savedSort.column, descending: !!savedSort.descending };
         baseGroup = typeof session['baseGroup'] === 'string' ? session['baseGroup'] : null;
-        if (Array.isArray(session['slots'])) { slots = [0, 1, 2, 3].map(slot => { const key = (session['slots'] as unknown[])[slot]; return keyOk(key) ? key : null; }); deps.saveSlots(slots); }
+        if (Array.isArray(session['slots'])) { slots = restoredSlots(session['slots'], path => files.has(path)); deps.saveSlots(slots); }
         memo.clear();
         if (Array.isArray(session['memo'])) for (const item of session['memo'] as unknown[]) if (Array.isArray(item) && keyOk(item[0]) && typeof item[1] === 'string') memo.set(item[0], item[1]);
         excluded.clear();
@@ -654,8 +655,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     }
     /** The slotted row of a file the comparison shows (slots 1–3 first, then 0). */
     function slotRowOf(filePath: string): DatasetRow | undefined {
-        const key = [1, 2, 3, 0].map(slot => slots[slot]).find(item => item && fileOfKey(item) === filePath);
-        return rowOf(key ?? null);
+        return rowOf(roleKey(slots, filePath) ?? null);
     }
     /** A channel row of a recording of several channels is compared as that channel; otherwise the channels together. */
     const channelOfRow = (row: DatasetRow | undefined): number | null => (row && (row.channels ?? 1) > 1 ? row.ch : null);
@@ -680,7 +680,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         }
         const name = group === 'none' ? '' : baseGroup ?? (compareRow ? datasetGroupOf(compareRow, group) : '');
         // The other compared recordings (slots 1–3) are compared themselves: not part of anyone's base.
-        const compared = new Set(slots.slice(1).filter((key): key is string => !!key).map(fileOfKey));
+        const compared = new Set(comparedKeys(slots).map(fileOfKey));
         const { paths, fewerChannels } = baseGroupMembers(distributionPool().filter(row => row.filePath === comparePath || !compared.has(row.filePath)), comparePath, group, name, channel);
         const where = group === 'none' ? strings.dsDistAll : `${groupLabel(group)} ${name || '—'}`;
         const title = `${strings.entryBaseGroup} ${where} · ${strings.entryBaseMedian.replace('{count}', String(paths.length))}${channel ? ` · ${strings.dsCh}${channel}` : ''}`
@@ -1145,7 +1145,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const filePath = fileOfKey(key);
         if (!shownFiles().has(filePath)) { deps.setShown?.(filePath, true); return; }
         // Off the tracks is out of its slots too, as a lane's × does; the last slot it leaves takes the track off.
-        const held = slots.flatMap((item, slot) => (item && fileOfKey(item) === filePath ? [slot] : []));
+        const held = slotsOfFile(slots, filePath);
         if (!held.length) { deps.setShown?.(filePath, false); return; }
         for (const slot of held) setSlot(slot, null);
     }
@@ -1182,15 +1182,13 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     /** Puts a row in a slot (out of any other); the same row again takes it out. The comparison open follows, and stays open. */
     function setSlot(slot: number, key: string | null, follow = true): void {
         const before = slotFiles();
-        const next = slots.map(item => (item === key ? null : item));
-        if (slot >= 0) next[slot] = slots[slot] === key ? null : key;
-        slots = next;
+        slots = withSlot(slots, slot, key);
         deps.saveSlots(slots);
         // The tracks follow the slots: a slotted file is shown, a file that leaves every slot leaves the tracks.
         if (follow) {
-            const after = slotFiles();
-            for (const path of after) if (path && !before.includes(path)) deps.setShown?.(path, true);
-            for (const path of before) if (path && !after.includes(path)) deps.setShown?.(path, false);
+            const { show, hide } = trackChanges(before, slotFiles());
+            for (const path of show) deps.setShown?.(path, true);
+            for (const path of hide) deps.setShown?.(path, false);
         }
         render();
         if (!maximized) deps.compareChanged?.();
@@ -1312,7 +1310,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         if ((event.target as Element).closest('button, select, input, label')) return;
         setMaximized(!maximized);
     });
-    const hasCompared = (): boolean => slots.slice(1).some(key => key && rows.some(row => row.key === key));
+    const hasCompared = (): boolean => comparedKeys(slots).some(key => rows.some(row => row.key === key));
     /** Open Compare looks unavailable while slots 1–3 are empty, and its hint says how to fill one; a press still flashes slot 1. */
     function markOpenable(): void {
         const open = query<HTMLButtonElement>('[data-action="entry-open"]');
@@ -1712,7 +1710,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const target = event.target as HTMLElement;
         const key = target.closest<HTMLElement>('tr[data-key]')?.getAttribute('data-key');
         if (!key || mode !== 'all' || target.closest('button, [data-action="entry-row-track"]')) return;
-        if (!slots.slice(1).includes(key)) setSlot([1, 2, 3].find(slot => !slots[slot]) ?? 1, key);
+        if (!slots.slice(1).includes(key)) setSlot(firstFreeCompareSlot(slots), key);
         openSlotted();
     });
     // A drag on the distribution picks a range of the value (a chip, which narrows the table); a press that
@@ -1889,8 +1887,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             baseGroup = null;
             sessionLoaded = false; savedSession = ''; csvToSave = undefined;
             if (sessionTimer !== undefined) { window.clearTimeout(sessionTimer); sessionTimer = undefined; }
-            const saved = deps.loadSlots() ?? [];
-            slots = [0, 1, 2, 3].map(slot => (saved[slot] && filePaths.includes(fileOfKey(saved[slot]!)) ? saved[slot]! : null));
+            slots = restoredSlots(deps.loadSlots() ?? [], path => filePaths.includes(path));
             focused = null; focusPicked = false;
             derived = (deps.loadDerived?.() ?? []).filter(row => filePaths.includes(row.parentPath));
             const savedRecipe = deps.loadRecipe?.();
@@ -1931,8 +1928,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         tracksChanged: () => { if (tracksOnly) rebuild(); else if (!screen.hidden) render(); },
         trackRemoved(filePath) {
             triedAll = null;
-            const slot = slots.findIndex(key => key && fileOfKey(key) === filePath);
-            if (slot >= 0) setSlot(slot, null, false); else if (!screen.hidden) render();
+            const [slot] = slotsOfFile(slots, filePath);
+            if (slot !== undefined) setSlot(slot, null, false); else if (!screen.hidden) render();
             // With 「トラックのみ」 on, the row leaves with its lane.
             if (tracksOnly) rebuild();
         },
@@ -1945,7 +1942,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         },
         removeDerived: (parentPath: string, region: string, baseLabel?: string) => removeDerived(parentPath, region, baseLabel),
         show(next: (string | null)[]): void {
-            slots = next.map(path => (path ? slots.find(key => key && fileOfKey(key) === path) ?? path : null));
+            slots = slotsForFiles(next, slots);
             screen.hidden = false;
             setMaximized(true);
         },
@@ -2007,15 +2004,15 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         compareData: () => compareData(),
         slots: () => slotFiles(),
         trackRole(filePath) {
-            const slot = [1, 2, 3, 0].find(at => slots[at] && fileOfKey(slots[at]!) === filePath);
+            const slot = roleSlot(slots, filePath);
             return slot === undefined ? undefined : { slot, ch: channelOfRow(rowOf(slots[slot])) };
         },
         setTrackRole(filePath, slot) {
             // The row trackRole shows (compare slots first), so a chip moves the channel it names.
-            const own = [1, 2, 3, 0].map(at => slots[at]).find(key => key && fileOfKey(key) === filePath);
+            const own = roleKey(slots, filePath);
             if (slot === null) {
                 if (!own) return;
-                slots = slots.map(key => (key && fileOfKey(key) === filePath ? null : key));
+                slots = withoutFile(slots, filePath);
                 deps.saveSlots(slots);
                 render();
                 if (!maximized) deps.compareChanged?.();
@@ -2054,7 +2051,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         exportTable: () => actions['entry-export-csv'](screen),
         exportNotes: () => actions['entry-export-notes'](screen),
         showCompared() {
-            const compared = slots.slice(1).filter((key): key is string => !!key);
+            const compared = comparedKeys(slots);
             if (!compared.length) return;
             // The compared rows and their base: as a filter on the file column, which a chip shows and × takes off.
             const wanted = new Set(compared.map(fileOfKey).flatMap(file => [file, ...this.basePaths(file)]));
