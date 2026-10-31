@@ -18,6 +18,7 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 - Entry table keeps file names' ends in view with the full path as a tooltip; disabled controls say why; PNG/CSV export shows progress; settings popovers use plain labels; light-theme contrast and High Contrast Light role colours fixed; the transfer-function reference is called 参照 in Japanese.
 - The webview may read, scan and export only files its panel lists; large folders are listed with a cap, skip symlinked folders and can be cancelled.
 - The VSIX no longer ships scripts, tests, agent files or the debug WAV (about 10 MB → 4 MB).
+- Requires VS Code 1.122 or later; only the latest VS Code release is supported.
 - Tooling: CI runs verify on Linux, Windows and macOS; releases publish only after every CI job passes; pinned CI Python packages; Dependabot; type-aware ESLint and pyright in verify; wall-clock budgets only with `AWA_PERF=1`.
 
 ## 0.0.14
