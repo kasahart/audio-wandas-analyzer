@@ -83,11 +83,14 @@ test('the track view\'s steps mode draws every track as the chosen step\'s Frame
     await expect.poll(async () => (await stageScans(page)).at(-1)?.detail?.x[0]).toBeGreaterThan(100);
     // The track on screen is asked for first and drawn from its detail at once; the base group's recordings come after it.
     expect((await stageScans(page)).at(-1)!.filePaths).toEqual([first]);
-    const zoomed = { ...view, xs: [400, 500, 600, 700], values: [-35, -31, -33, -36] };
+    // As many points as the whole picture, at other frequencies: until the base has its detail too, Δ stays the whole pictures'.
+    const zoomed = { ...view, xs: [400, 500, 600], values: [-35, -31, -33] };
+    const wholeDelta = await page.locator('[data-stage-diff-headline]').textContent();
     await answer(page, zoomed);
     await expect.poll(async () => (await stageScans(page)).at(-1)!.filePaths.length).toBeGreaterThan(1);
     expect((await stageScans(page)).at(-1)!.detail).toBeDefined();
     await expect(bar).toHaveAttribute('data-detail-lines', '1');
+    await expect(page.locator('[data-stage-diff-headline]')).toHaveText(wholeDelta!);
     await expect(bar).toHaveAttribute('data-detail', 'false');
     await answer(page, zoomed);
     await expect(bar).toHaveAttribute('data-detail', 'true');

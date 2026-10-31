@@ -634,8 +634,10 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             }
             // Overlaid: the base, the other tracks and the compared one on one plot, as the comparison draws them.
             const finePlots = plotsOf(shown, tracks, comparePath, basePaths, tableBase, baseShown);
-            // The difference of a line's detail and a base still whole is no difference: the whole pictures' until both are in.
-            const plots = { ...finePlots, diff: finePlots.diff ?? coarsePlots.diff };
+            // The difference of a line's detail and a base still whole is no difference (their points are at other places
+            // even where there are as many): the whole pictures' until both sides have their detail.
+            const bothFine = !!comparePath && !!fine(comparePath) && basePaths.length > 0 && baseShown === shown;
+            const plots = { ...finePlots, diff: bothFine ? finePlots.diff : coarsePlots.diff };
             root.dataset.compared = comparePath ? String(role(comparePath) ?? '') : '';
             root.dataset.base = groupBase || !deps.slots()[0] ? 'group' : 'file';
             const layers: StageLayer[] = [
