@@ -2,7 +2,7 @@ import { escapeHtml, serializeForScript } from '../../shared/utils/webviewEscapi
 import { getStrings, pickLocale } from '../../shared/i18n/strings';
 import type { ComparisonState } from '../runtime/types';
 import { createNonce } from './nonce';
-import { DIFF_COLOR, FLAG_COLOR, LIGHT_DIFF_COLOR, LIGHT_ROLE_COLORS, ROLE_COLORS } from '../../shared/gui/roleColors';
+import { DIFF_COLOR, FLAG_COLOR, LIGHT_DIFF_COLOR, LIGHT_ROLE_COLORS, LIGHT_THEME_BODY_SELECTORS, ROLE_COLORS } from '../../shared/gui/roleColors';
 import { SPECTROGRAM_COLORBAR_WIDTH } from '../draw/canvasDrawers';
 
 export interface ComparisonAssets {
@@ -88,6 +88,9 @@ export function renderComparisonStyles(): string {
             --muted: #6e7681;
             --track-bg: #f5f5f5;
             --track-header-bg: #ebebeb;
+        }
+        /* The light role colours wherever the canvases take them (High Contrast Light too), so one role keeps one colour. */
+        ${LIGHT_THEME_BODY_SELECTORS.map(function (selector) { return 'body' + selector; }).join(', ')} {
             --entry-base: ${LIGHT_ROLE_COLORS[0]}; --entry-compare: ${LIGHT_ROLE_COLORS[1]}; --entry-slot-2: ${LIGHT_ROLE_COLORS[2]}; --entry-slot-3: ${LIGHT_ROLE_COLORS[3]}; --entry-delta: ${LIGHT_DIFF_COLOR};
         }
         body.vscode-high-contrast,
