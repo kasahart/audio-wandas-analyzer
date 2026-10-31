@@ -75,12 +75,26 @@ export function installHelpOverlay(document: Document, window: Pick<Window, 'add
             event.preventDefault();
         }
     }
+    const SCROLL_LINE = 40;
+    function scrollHelp(key: string): boolean {
+        const box = overlay.querySelector<HTMLElement>('.screen-help-box');
+        if (!box) return false;
+        const page = Math.max(SCROLL_LINE, box.clientHeight - SCROLL_LINE);
+        const by: Record<string, number> = { ArrowDown: SCROLL_LINE, ArrowUp: -SCROLL_LINE, PageDown: page, PageUp: -page };
+        if (key === 'Home') box.scrollTop = 0;
+        else if (key === 'End') box.scrollTop = box.scrollHeight;
+        else if (key in by) box.scrollTop += by[key];
+        else return false;
+        return true;
+    }
     keyRouterFor(window).add({
         layer: 'help',
         keydown(event) {
             const toggle = event.key === '?' || event.key === 'F1';
             if (!overlay.hidden) {
                 if (event.key === 'Tab') { trapTab(event); return true; }
+                // The help can be taller than the window: the scrolling keys scroll it, and reach nothing behind it.
+                if (scrollHelp(event.key)) { event.preventDefault(); return true; }
                 // Enter and Space still press the close button.
                 const pressing = (event.key === 'Enter' || event.key === ' ') && overlay.contains(event.target as Node);
                 if (!pressing) event.preventDefault();
