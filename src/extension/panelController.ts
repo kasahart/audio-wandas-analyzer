@@ -20,7 +20,7 @@ import { ComparisonPanel } from '../webview/panels/ComparisonPanel';
 import { fileCountLabel, fillTemplate, getStrings, type UiStrings } from '../shared/i18n/strings';
 import type { AnalysisHost, AnalysisOrchestrator } from './analysisOrchestrator';
 import type { AnalysisClient } from '../shared/analysis/analysisClient';
-import type { CalibrationRequestContext } from '../shared/protocol/backendProtocol';
+import { userErrorText, type CalibrationRequestContext } from '../shared/protocol/backendProtocol';
 import { calibrationFileKey, type CalibrationChangeEvent, type CalibrationStore } from './calibrationStore';
 import type { ExportFlows } from './exportFlows';
 import type { RecipeDocument } from '../shared/recipe/recipeSelection';
@@ -176,7 +176,7 @@ export class PanelController implements vscode.Disposable {
                     .filter((activePath) => calibrationFileKey(activePath) === event.filePath));
                 for (const filePath of filePaths) {
                     void this.enqueueCalibrationRefresh(session, { ...event, filePath }).catch((error) => {
-                        this.host.showError(error instanceof Error ? error.message : String(error));
+                        this.host.showError(userErrorText(error, this.strings()));
                     });
                 }
             }
@@ -372,6 +372,7 @@ export class PanelController implements vscode.Disposable {
     // behind the shared session contract.
     private sessionPorts(session: PanelSession<PanelHandle>): ComparisonSessionPorts {
         return {
+            strings: this.strings(),
             scope: (message: PanelMessage): SessionScope => {
                 const revision = message.type === 'request-reanalyze' ? session.beginStateRequest() : undefined;
                 return {

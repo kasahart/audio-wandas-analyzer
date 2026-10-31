@@ -1511,6 +1511,7 @@ export const BACKEND_PROTOCOL_SCHEMA = {
             "type": "object",
             "required": [
                 "code",
+                "kind",
                 "message"
             ],
             "properties": {
@@ -1520,6 +1521,16 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                         "input-error",
                         "stale-calibration",
                         "internal-error"
+                    ]
+                },
+                "kind": {
+                    "type": "string",
+                    "enum": [
+                        "analysis-settings",
+                        "unreadable-file",
+                        "out-of-memory",
+                        "invalid-input",
+                        "analysis-failed"
                     ]
                 },
                 "message": {
@@ -2042,6 +2053,7 @@ export interface ScanResult {
 
 export interface BackendErrorPayload {
     code: "input-error" | "stale-calibration" | "internal-error";
+    kind: "analysis-settings" | "unreadable-file" | "out-of-memory" | "invalid-input" | "analysis-failed";
     message: string;
 }
 

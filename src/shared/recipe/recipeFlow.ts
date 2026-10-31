@@ -1,5 +1,6 @@
 import type { ChartSpec } from '../chartSpec';
 import { fillTemplate, getStrings, type UiStrings } from '../i18n/strings';
+import { userErrorText, type ErrorSummaryStrings } from '../protocol/backendProtocol';
 import { bindSelection, needsAssignment, type RecipeDocument } from './recipeSelection';
 
 export interface RecipeCatalogEntry {
@@ -58,7 +59,7 @@ export function recipeTitle(location: string): string {
 export class RecipeFlow {
     constructor(
         private readonly ports: RecipeFlowPorts,
-        private readonly strings: Pick<UiStrings, 'recipeReadFailed' | 'recipeRunFailed' | 'recipeRunning'> = getStrings('en'),
+        private readonly strings: Pick<UiStrings, 'recipeReadFailed' | 'recipeRunFailed' | 'recipeRunning'> & ErrorSummaryStrings = getStrings('en'),
     ) {}
 
     async run(selectionFilePaths?: string[], isCurrent: () => boolean = () => true): Promise<void> {
@@ -81,7 +82,7 @@ export class RecipeFlow {
 
         const title = recipeTitle(location);
         const failed = (error: unknown): void => {
-            if (isCurrent()) this.ports.showError(fillTemplate(this.strings.recipeRunFailed, { message: error instanceof Error ? error.message : String(error) }));
+            if (isCurrent()) this.ports.showError(fillTemplate(this.strings.recipeRunFailed, { message: userErrorText(error, this.strings) }));
         };
         let document: RecipeDocument;
         let inputs: Record<string, string> | undefined;

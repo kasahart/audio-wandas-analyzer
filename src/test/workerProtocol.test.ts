@@ -41,7 +41,7 @@ test('Worker messages are a boot report or a correlated reply; anything else is 
     assert.equal(parseWorkerMessage({ result: {} }), undefined);
     assert.deepEqual(parseWorkerMessage({ requestId: 'browser-1', result: { filePath: 'x' } }),
         { kind: 'reply', requestId: 'browser-1', result: { filePath: 'x' }, error: undefined, envelope: { result: { filePath: 'x' } }, wellFormed: true });
-    const error = { code: 'input-error', message: 'm' };
+    const error = { code: 'input-error', kind: 'invalid-input', message: 'm' };
     assert.equal(parseWorkerMessage({ requestId: 'browser-2', error })?.kind, 'reply');
     const extra = parseWorkerMessage({ requestId: 'browser-3', result: {}, debug: 1 });
     assert.equal(extra?.kind === 'reply' && extra.wellFormed, false);

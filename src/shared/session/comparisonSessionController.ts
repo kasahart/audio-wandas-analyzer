@@ -7,7 +7,7 @@ import type {
     StftOptions,
 } from '../analysis/analysisTypes';
 import { saveSession, runCompareScan, runEntryProbe, runEntryScan, type ComparePublication, type EntryProbePublication, type EntryPublication, type EntryScanPorts } from '../analysis/entryScan';
-import type { CalibrationRequestContext, PairSpectrumResult } from '../protocol/backendProtocol';
+import { userErrorText, type CalibrationRequestContext, type ErrorSummaryStrings, type PairSpectrumResult } from '../protocol/backendProtocol';
 import { parsePanelMessage, type PanelMessage, type SaveRecipeMessage } from '../protocol/panelMessages';
 import type { AnalyzeSelectedFilesMessage, ConfigureCalibrationMessage, ExportReportOptionsMessage, ExportWavLoopMessage, PairSpectrumRequest, SelectionTargetKind } from '../utils/audioTarget';
 import { exportWavRegions, reportArtifact, type ReportFormat, type WavExportSink, type WavExportSource } from '../utils/exportArtifact';
@@ -55,6 +55,8 @@ export interface ReportArtifactFile { name: string; content: string; type: strin
  * routes the message to `unsupported`.
  */
 export interface ComparisonSessionPorts {
+    /** Words backend failures in the UI's language before they reach a notification or a lane. */
+    strings: ErrorSummaryStrings;
     scope(message: PanelMessage): SessionScope;
     publish(message: SessionPublication): void | PromiseLike<unknown>;
     saveSettings(settings: SpectrogramSettings): void | PromiseLike<void>;
@@ -91,10 +93,6 @@ export interface ComparisonSessionPorts {
     configureCalibration?(message: ConfigureCalibrationMessage): Promise<void>;
 }
 
-export function reasonOf(error: unknown): string {
-    return error instanceof Error ? error.message : String(error);
-}
-
 // Synchronous ports keep the message pipeline synchronous: a host that stores settings in memory and
 // posts straight to a Worker observes the backend command in the same tick, as before sharing.
 function thenable(value: unknown): value is PromiseLike<unknown> {
@@ -124,6 +122,10 @@ export class ComparisonSessionController {
     private readonly lazyInFlight = new Map<string, RequestCancellation>();
 
     constructor(private readonly ports: ComparisonSessionPorts) {}
+
+    private reasonOf(error: unknown): string {
+        return userErrorText(error, this.ports.strings);
+    }
 
     /** Parses and handles one raw Webview message; unknown shapes are ignored. */
     async dispatch(raw: unknown): Promise<void> {
@@ -203,7 +205,7 @@ export class ComparisonSessionController {
                     return;
             }
         } catch (error) {
-            if (scope.isCurrent()) this.ports.showError(reasonOf(error));
+            if (scope.isCurrent()) this.ports.showError(this.reasonOf(error));
         }
     }
 
@@ -238,8 +240,9 @@ export class ComparisonSessionController {
         } catch (error) {
             if (cancellation.isCancellationRequested) return;
             if (!scope.canPublish(request.filePath, context?.analysisRevision)) return;
-            this.ports.lazyFailed?.(request, reasonOf(error));
-            if (request.type !== 'request-waveform-range') { const pending = this.ports.publish(lazyAnalysisError(request, error)); if (thenable(pending)) await pending; }
+            const reason = this.reasonOf(error);
+            this.ports.lazyFailed?.(request, reason);
+            if (request.type !== 'request-waveform-range') { const pending = this.ports.publish(lazyAnalysisError(request, reason)); if (thenable(pending)) await pending; }
         } finally {
             if (this.lazyInFlight.get(slot) === cancellation) this.lazyInFlight.delete(slot);
         }
@@ -265,7 +268,7 @@ export class ComparisonSessionController {
         } catch (error) {
             if (!sources.every(source => scope.canPublish(source.filePath, contexts.get(source.filePath)?.analysisRevision))) return;
             const pending = this.ports.publish({ type: 'pair-spectrum-error', requestId: request.requestId,
-                analysisId: request.analysisId, settingsSignature: request.settingsSignature, error: reasonOf(error) });
+                analysisId: request.analysisId, settingsSignature: request.settingsSignature, error: this.reasonOf(error) });
             if (thenable(pending)) await pending;
         }
     }

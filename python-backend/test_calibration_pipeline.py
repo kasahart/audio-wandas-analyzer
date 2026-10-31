@@ -314,14 +314,23 @@ def test_profile_validation_is_strict_about_channel_labels() -> None:
 
 
 def test_error_payload_codes_and_messages() -> None:
-    assert error_payload(InputError("bad points")) == {"code": "input-error", "message": "bad points"}
+    assert error_payload(InputError("bad points")) == {
+        "code": "input-error",
+        "kind": "invalid-input",
+        "message": "bad points",
+    }
     # Library and programming errors are backend faults, not something the user can fix.
     assert error_payload(ValueError("Out of range float values are not JSON compliant")) == {
         "code": "internal-error",
+        "kind": "analysis-failed",
         "message": "Out of range float values are not JSON compliant",
     }
-    assert error_payload(KeyError("file")) == {"code": "internal-error", "message": "'file'"}
-    assert error_payload(RuntimeError()) == {"code": "internal-error", "message": "RuntimeError"}
+    assert error_payload(KeyError("file")) == {"code": "internal-error", "kind": "analysis-failed", "message": "'file'"}
+    assert error_payload(RuntimeError()) == {
+        "code": "internal-error",
+        "kind": "analysis-failed",
+        "message": "RuntimeError",
+    }
 
 
 def test_spectrogram_cache_is_partitioned_by_calibration_signature(tmp_path) -> None:

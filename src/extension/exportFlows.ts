@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 import { fileCountLabel, fillTemplate, getStrings } from '../shared/i18n/strings';
 import type { ExportReportOptionsMessage, ExportWavLoopMessage } from '../shared/utils/audioTarget';
 import type { ReportFormat } from '../shared/utils/exportArtifact';
-import type { ExportWavLoopResult } from '../shared/protocol/backendProtocol';
+import { userErrorText, type ExportWavLoopResult } from '../shared/protocol/backendProtocol';
 import type { ReportArtifactFile, WavExportPlan } from '../shared/session/comparisonSessionController';
 
 export interface WavExportBackend {
@@ -91,7 +91,7 @@ export class ExportFlows {
                     successCount++;
                 },
                 failed: (source, error) => {
-                    errors.push(`${source.fileName}: ${error instanceof Error ? error.message : String(error)}`);
+                    errors.push(`${source.fileName}: ${userErrorText(error, getStrings(this.host.language()))}`);
                     return true;
                 },
             },

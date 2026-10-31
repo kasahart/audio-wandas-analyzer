@@ -1129,6 +1129,13 @@
     "stale-calibration",
     "internal-error"
   ],
+  "errorKinds": [
+    "analysis-settings",
+    "unreadable-file",
+    "out-of-memory",
+    "invalid-input",
+    "analysis-failed"
+  ],
   "schemaCases": [
     {
       "schema": {

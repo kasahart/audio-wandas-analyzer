@@ -4,6 +4,7 @@ import * as vscode from 'vscode';
 import type { AnalysisResult, AnalysisResultWithError, StftOptions } from '../shared/analysis/analysisTypes';
 import type { AnalyzeOptions } from '../shared/analysis/analysisClient';
 import { fileCountLabel, fillTemplate, getStrings } from '../shared/i18n/strings';
+import { userErrorText } from '../shared/protocol/backendProtocol';
 import { AnalysisRequestError } from './analysisRequestError';
 
 export interface AnalysisBackend {
@@ -87,7 +88,7 @@ export class AnalysisOrchestrator {
                     commit: (_filePath, result) => { results.push(result); },
                     failed: (filePath, error, remaining) => {
                         if (error instanceof vscode.CancellationError) throw error;
-                        const message = error instanceof Error ? error.message : String(error);
+                        const message = userErrorText(error, strings);
                         results.push(this.errorResult(filePath, message, errorAnalysisRevision(error)));
                         if (!this.isBackendStartupFailure(error)) return true;
                         for (const skippedPath of remaining) {

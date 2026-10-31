@@ -261,7 +261,7 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
     assert.ok(failedCalibratedProfile);
     await calibration.discardStale(
         calibratedPath,
-        new BackendRequestError('stale-calibration', 'Calibration channel label mismatch'),
+        new BackendRequestError('stale-calibration', 'invalid-input', 'Calibration channel label mismatch'),
         failedCalibratedProfile,
     );
     const waveformResult = new Promise<unknown>((resolve) => { resolveWaveformResult = resolve; });
@@ -317,7 +317,7 @@ test('calibration refresh reanalyzes one file without persisting panel settings'
     assert.ok(failedRacingProfile);
     await calibration.discardStale(
         racingPath,
-        new BackendRequestError('stale-calibration', 'Calibration channel label mismatch'),
+        new BackendRequestError('stale-calibration', 'invalid-input', 'Calibration channel label mismatch'),
         failedRacingProfile,
     );
     resolveRacingAnalysis?.();

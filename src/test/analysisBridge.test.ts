@@ -37,7 +37,7 @@ test('all analysis paths carry the same settings/calibration context; range carr
         assert.equal(payload.filePath, 'source');
         assert.deepEqual(payload.stftOptions, call.command === 'range' ? undefined : context.stftOptions);
     }
-    assert.equal(lazyAnalysisError({ ...identity, type: 'request-spectrum-slice', cursorNorm: 0.5 }, new Error('failed')).type, 'spectrum-slice-error');
+    assert.equal(lazyAnalysisError({ ...identity, type: 'request-spectrum-slice', cursorNorm: 0.5 }, 'failed').type, 'spectrum-slice-error');
 });
 
 test('batch ignores removed sources and late results after a newer request', async () => {

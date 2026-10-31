@@ -388,3 +388,12 @@ test('drawCanvasMessage: キャンバスを消去してから中央にメッセ�
     assert.equal(ctx.font, '11px sans-serif');
     assert.equal(ctx.textAlign, 'center');
 });
+
+test('drawCanvasMessage: 改行ごとに 1 行ずつ、まとまりを中央に描く', () => {
+    const ctx = makeMockCtx();
+    drawCanvasMessage(ctx, 200, 80, 'Summary\nDetail', '11px sans-serif', '#888');
+    assert.deepEqual(ctx._ops.filter((o) => o.op === 'fillText'), [
+        { op: 'fillText', args: ['Summary', 100, 33] },
+        { op: 'fillText', args: ['Detail', 100, 47] },
+    ]);
+});

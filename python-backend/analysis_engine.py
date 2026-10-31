@@ -10,9 +10,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
+import soundfile as sf
 import wandas as wd
 
-from backend_errors import InputError
+from backend_errors import AnalysisSettingsError, UnreadableFileError
 from calibration_profile import ResolvedCalibrationProfile, finite_source_channel_peaks, resolve_calibration_profile
 
 StftKey = tuple[str, int, int, str]
@@ -101,7 +102,7 @@ class AnalysisEngine:
     def get_file(self, file_path: str | Path) -> CachedAnalysis:
         path = Path(file_path).expanduser().resolve()
         if not path.exists():
-            raise FileNotFoundError(f"Audio file not found: {path}")
+            raise UnreadableFileError(f"Audio file not found: {path}")
         stat = path.stat()
         identity = (stat.st_mtime_ns, stat.st_size)
         with self._single_flight(path):
@@ -110,7 +111,12 @@ class AnalysisEngine:
                 if cached is not None and cached.identity == identity:
                     self._files.move_to_end(path)
                     return cached
-            frame = wd.read(path, dtype=AUDIO_CACHE_DTYPE).cache()
+            try:
+                frame = wd.read(path, dtype=AUDIO_CACHE_DTYPE).cache()
+            except sf.LibsndfileError as error:
+                raise UnreadableFileError(f"Unable to read audio: {error.error_string}") from error
+            except (OSError, RuntimeError, ValueError) as error:
+                raise UnreadableFileError(f"Unable to read {path.name}: {error}") from error
             source_peaks = finite_source_channel_peaks(frame)
             cached = CachedAnalysis(
                 path=path,
@@ -149,7 +155,7 @@ class AnalysisEngine:
         cached, analysis_frame, resolved = self.get_analysis(file_path, calibration_profile)
         if analysis_frame.n_samples < n_fft // 2:
             # SciPy's padded STFT needs at least half a window of samples.
-            raise InputError("Audio is too short for this STFT window; choose a smaller window")
+            raise AnalysisSettingsError("Audio is too short for this STFT window; choose a smaller window")
         key = (resolved.signature, n_fft, hop_length, window)
         # Two track-detail requests for one file run at once; the second waits for the first's STFT, not a copy.
         with self._single_flight((cached.path, key)):

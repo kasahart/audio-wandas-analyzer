@@ -139,7 +139,7 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
             const echoed = 'filePath' in base ? { filePath: command.filePath } : {};
             this.onmessage({ data: error === undefined
                 ? { requestId: command.requestId, result: { ...base, ...echoed, ...result } }
-                : { requestId: command.requestId, error: { code: 'input-error', message: error } } });
+                : { requestId: command.requestId, error: { code: 'input-error', kind: 'invalid-input', message: error } } });
         }
     }
     const browser = {
@@ -337,7 +337,7 @@ test('a failed release announces the backend message, in a sentence, without the
     app.workers[0].loadedSources.delete(firstPath);
     app.host.releaseSource!(firstPath);
     await flush();
-    assert.equal(app.status, 'Could not remove the track: Source is not loaded');
+    assert.equal(app.status, `Could not remove the track: ${getStrings('en').errorInvalidInput}\nSource is not loaded`);
 });
 
 test('a boot that fails after an idle clear is retried by the next WAV', async () => {
@@ -511,10 +511,10 @@ test('Worker error envelopes use the native correlation contract and empty error
     worker.reply(worker.commands.at(-1)!, {}, '');
     await flush();
     assert.equal(app.received.at(-1)?.type, 'track-detail-error');
-    assert.equal(app.received.at(-1)?.error, '');
+    assert.equal(app.received.at(-1)?.error, getStrings('en').errorInvalidInput, 'an empty backend text leaves the summary alone');
     app.host.postMessage({ ...identity, filePath: app.sourcePath, type: 'request-track-detail' });
     const mixed = worker.commands.at(-1)!;
-    worker.onmessage({ data: { requestId: mixed.requestId, result: {}, error: { code: 'input-error', message: 'm' } } });
+    worker.onmessage({ data: { requestId: mixed.requestId, result: {}, error: { code: 'input-error', kind: 'invalid-input', message: 'm' } } });
     await flush();
     assert.equal(app.received.at(-1)?.error, 'Invalid error response for track-detail', 'a reply with result and error is malformed');
 });
@@ -599,7 +599,7 @@ test('browser recipes run on loaded tracks through the Worker and render charts 
     await flush();
     worker.reply(worker.commands.at(-1)!, {}, 'recipe error: Unknown name');
     await flush();
-    assert.equal(app.status, 'Recipe execution failed: recipe error: Unknown name');
+    assert.equal(app.status, `Recipe execution failed: ${getStrings('en').errorInvalidInput}\nrecipe error: Unknown name`);
 });
 
 test('Save as recipe builds the Recipe in the Worker and downloads it as a .recipe.json', async () => {

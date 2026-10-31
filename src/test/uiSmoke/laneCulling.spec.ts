@@ -276,6 +276,31 @@ test('a cursor moved while the CSV waits: the file holds every shown track at th
     expect(header).toContain('take39.wav');
 });
 
+test('a failed spectrogram lane shows the host\'s summary on one line and the backend\'s text below it', async ({ page }) => {
+    const strings = getStrings('en');
+    const recordText = '<script>window.__drawnText = []; const fill = CanvasRenderingContext2D.prototype.fillText;'
+        + ' CanvasRenderingContext2D.prototype.fillText = function (text, x, y) { window.__drawnText.push({ id: this.canvas.id, text: String(text), y }); return fill.apply(this, arguments); };</script><script';
+    await page.setViewportSize({ width: 1000, height: 600 });
+    await page.setContent(buildUiSmokeManyTracksHtml(2).replace('<script', recordText), { waitUntil: 'domcontentloaded' });
+    await expect.poll(async () => (await detailRequests(page)).length).toBeGreaterThan(0);
+    const detail = 'Parameter n must be >= ceil(m_num/2) = 32!';
+    await page.evaluate((error) => {
+        const posted = (window as unknown as { __uiSmokePostedMessages: Array<Record<string, unknown>> }).__uiSmokePostedMessages;
+        posted.filter((message) => message.type === 'request-track-detail').forEach((message) => {
+            window.postMessage({ type: 'track-detail-error', requestId: message.requestId, analysisId: message.analysisId, settingsSignature: message.settingsSignature,
+                trackIndex: message.trackIndex, filePath: message.filePath, error }, '*');
+        });
+    }, `${strings.errorAnalysisSettings}\n${detail}`);
+    const summary = strings.spectrogramFailed.replace('{reason}', strings.errorAnalysisSettings);
+    const drawn = () => page.evaluate(() => (window as unknown as { __drawnText: Array<{ id: string; text: string; y: number }> }).__drawnText
+        .filter((entry) => entry.id.startsWith('track-spec-canvas-0')));
+    await expect.poll(async () => (await drawn()).map((entry) => entry.text)).toEqual(expect.arrayContaining([summary, detail]));
+    const lines = await drawn();
+    const summaryY = lines.filter((entry) => entry.text === summary).at(-1)?.y ?? NaN;
+    const detailY = lines.filter((entry) => entry.text === detail).at(-1)?.y ?? NaN;
+    expect(detailY).toBeGreaterThan(summaryY);
+});
+
 test('a zoom-detail range the host never answers is asked again by a later redraw', async ({ page }) => {
     await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
     await page.mouse.click(20, 20);
