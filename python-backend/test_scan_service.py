@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
-import os
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -283,8 +283,10 @@ def entry100_scan(tmp_path_factory: pytest.TempPathFactory) -> tuple[list[Path],
 
 def test_scan_of_the_entry100_fixture_finds_its_outliers(
     entry100_scan: tuple[list[Path], dict[str, dict], float],
+    record_property: Callable[[str, object], None],
 ) -> None:
-    files, results, _ = entry100_scan
+    files, results, elapsed = entry100_scan
+    record_property("timing", f"100 scans took {elapsed:.2f}s (budget 10 s)")
     assert len(files) == 100
     assert [name for name, result in results.items() if not result["ok"]] == ["Rec_0012.wav"]
     assert results["mono_48k.wav"]["input"]["channels"] == [0]
@@ -295,11 +297,8 @@ def test_scan_of_the_entry100_fixture_finds_its_outliers(
         assert _band(results[outlier], 0, 3150.0) - float(np.median(levels)) >= 10
 
 
-@pytest.mark.skipif(
-    bool(os.environ.get("CI")),
-    reason="10 s is the requirement on the developer's PC; CI runners' speed varies (10.9-17.4 s seen). "
-    "Run locally only, as the maintainer decided on 2026-10-23.",
-)
+# 10 s is the requirement on the developer's PC; runners' and loaded machines' speed varies (10.9-21 s seen).
+@pytest.mark.perf
 def test_scan_of_the_entry100_fixture_takes_under_ten_seconds(
     entry100_scan: tuple[list[Path], dict[str, dict], float],
 ) -> None:

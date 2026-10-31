@@ -545,8 +545,7 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             }
         ],
         "needs": [
-            "librosa",
-            "scikit_learn"
+            "librosa"
         ]
     },
     {
@@ -600,8 +599,7 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             }
         ],
         "needs": [
-            "librosa",
-            "scikit_learn"
+            "librosa"
         ]
     },
     {

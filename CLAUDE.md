@@ -4,7 +4,7 @@
 
 ## Skills available in this repo
 
-The `.claude/skills/` tree provides wandas-focused skills. Invoke them via the Skill tool when the task matches:
+The `.claude/skills/` tree is a copy of `.agents/skills/` (edit there, then run `node scripts/sync-skills.mjs`; verify checks the copy). Invoke them via the Skill tool when the task matches:
 
 | Skill | Use when |
 |-------|----------|
@@ -13,7 +13,9 @@ The `.claude/skills/` tree provides wandas-focused skills. Invoke them via the S
 | `wandas-spectral-analysis` | FFT, STFT, PSD, octave bands, coherence, transfer functions |
 | `wandas-visualization` | Waveform / spectrogram / octave plots, `describe()` configuration |
 | `wandas-analyst` | End-to-end analysis reports, multi-condition comparison, anomaly detection |
+| `pr-review-watch` | Post-PR review/CI monitoring loops, review-thread replies, and bounded no-review wait windows |
 | `ui-smoke-agent` | Real-browser Webview smoke checks, Playwright regression reproduction, and L1/L2 dogfooding for runtime-only UI bugs |
+| `ux-cognitive-auditor` | Screenshot-based UX cognitive-load and heuristics audits |
 
 Prefer these over recreating DSP code by hand.
 

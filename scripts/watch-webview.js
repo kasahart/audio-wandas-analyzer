@@ -1,49 +1,37 @@
 #!/usr/bin/env node
 /**
- * Webview の tsc 出力が更新されるたびに scripts/build-webview.js を再実行する。
+ * `npm run watch`: tsc --watch for dist/, and esbuild watch contexts for the Webview bundles.
  *
- * npm run watch (tsc -watch) と併走させる前提のサイドカー。
- * 単体実行も可能。Ctrl+C で終了。
+ * esbuild watches every file a bundle imports (dist/shared included), so a change anywhere a Webview
+ * bundle reaches is re-bundled once tsc has re-emitted it. Plain Node, so it runs the same on Windows.
  */
 
-const fs = require('node:fs');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
+const esbuild = require('esbuild');
+const { BUILDS } = require('./build-webview.js');
 
 const ROOT = path.resolve(__dirname, '..');
-const TARGET = path.join(ROOT, 'dist', 'webview', 'waveform', 'waveformRenderer.js');
-const WATCH_DIRS = [
-    path.join(ROOT, 'dist', 'webview', 'waveform'),
-    path.join(ROOT, 'dist', 'webview', 'draw'),
-    path.join(ROOT, 'dist', 'webview', 'runtime'),
-];
-const BUILD_SCRIPT = path.join(__dirname, 'build-webview.js');
+const TSC = require.resolve('typescript/bin/tsc');
 
-function rebuild(reason) {
-    const result = spawnSync(process.execPath, [BUILD_SCRIPT], { stdio: 'inherit' });
-    if (result.status !== 0) {
-        console.error(`watch-webview: build failed (${reason})`);
-    }
+// The bundles' entry points must exist before esbuild can watch them.
+const first = spawnSync(process.execPath, [TSC, '-p', ROOT], { stdio: 'inherit' });
+if (first.status !== 0) {
+    console.error('watch-webview: tsc reported errors; it keeps watching, and the bundles use the last emitted output.');
 }
 
-function startWatcher() {
-    // 初回ビルド
-    if (fs.existsSync(TARGET)) {
-        rebuild('initial');
-    } else {
-        console.log(`watch-webview: waiting for ${path.relative(ROOT, TARGET)} to appear...`);
-    }
+const tsc = spawn(process.execPath, [TSC, '-p', ROOT, '--watch', '--preserveWatchOutput'], { stdio: 'inherit' });
 
-    let debounceTimer = null;
-    WATCH_DIRS.forEach((dir) => {
-        if (!fs.existsSync(dir)) { fs.mkdirSync(dir, { recursive: true }); }
-        fs.watch(dir, { persistent: true }, (_event, fname) => {
-            if (!fname || !fname.endsWith('.js')) { return; }
-            if (debounceTimer) { clearTimeout(debounceTimer); }
-            debounceTimer = setTimeout(() => rebuild('change'), 150);
-        });
-    });
-    console.log(`watch-webview: watching ${WATCH_DIRS.map((dir) => path.relative(ROOT, dir)).join(', ')}`);
-}
-
-startWatcher();
+(async () => {
+    const contexts = await Promise.all(BUILDS.map((build) => esbuild.context(build)));
+    await Promise.all(contexts.map((context) => context.watch()));
+    console.log(`watch-webview: watching ${contexts.length} Webview bundles`);
+    const stop = async () => {
+        tsc.kill();
+        await Promise.all(contexts.map((context) => context.dispose()));
+        process.exit(0);
+    };
+    process.on('SIGINT', stop);
+    process.on('SIGTERM', stop);
+    tsc.on('exit', stop);
+})();

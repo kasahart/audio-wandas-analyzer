@@ -10,7 +10,7 @@
 
 ## Skills available in this repo
 
-Codex discovers repo skills from `.agents/skills/` when launched inside this repository. Use them when the task matches:
+Codex discovers repo skills from `.agents/skills/` when launched inside this repository. It is the single source: `.claude/skills/` is copied from it by `node scripts/sync-skills.mjs`. Use them when the task matches:
 
 | Skill | Use when |
 |-------|----------|
@@ -37,7 +37,7 @@ Prefer these over recreating DSP, charting, or UI-smoke workflows by hand.
 Codex project config should not grant machine-local privileges. For a smoother local loop, add narrow approvals or rules in your user-level Codex config for the same standard commands allowed by `.claude/settings.json`:
 
 - `npm run *`, `npm test *`, `npm ci`, `npm install *`, `npm list *`
-- `npx tsc *`, `node --test *`, `node dist/*`, `bash scripts/verify.sh`
+- `npx tsc *`, `node --test *`, `node dist/*`, `bash scripts/verify.sh` (it runs `scripts/verify.mjs`)
 - `ruff check *`, `ruff format *`
 - `python -m pytest *`, `python3 -m pytest *`, `.venv/bin/python -m pytest *`
 - read-only git commands: `git status *`, `git diff *`, `git log *`, `git show *`, `git branch *`

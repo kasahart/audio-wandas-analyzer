@@ -8,7 +8,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const read = relative => readFileSync(join(root, relative), 'utf8');
+// A Windows checkout has CRLF line endings; the generated blocks compare as LF.
+const read = relative => readFileSync(join(root, relative), 'utf8').replace(/\r\n/g, '\n');
 const write = process.argv.includes('--write');
 const problems = [];
 

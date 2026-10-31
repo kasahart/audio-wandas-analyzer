@@ -382,7 +382,8 @@ def test_pair_spectrum_averages_the_welch_segments_inside_the_range(tmp_path: Pa
     samples = sf.read(audio, dtype="float64")[0].T
     _, expected = coherence(samples[0], samples[1], rate, window="hann", nperseg=1024, noverlap=1024 - hop)
     bins = np.round(np.linspace(0, 512, result["frequencyBins"])).astype(int)
-    np.testing.assert_allclose(response["coherence"], expected[bins], rtol=1e-6, atol=1e-9)
+    # The engine works on float32 samples: macOS's BLAS lands single bins ~2e-6 from SciPy's float64 coherence.
+    np.testing.assert_allclose(response["coherence"], expected[bins], rtol=1e-5, atol=1e-9)
 
 
 def test_browser_pair_spectrum_does_not_reuse_a_reloaded_response(tmp_path: Path) -> None:

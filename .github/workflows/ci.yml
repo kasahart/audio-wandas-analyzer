@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  # release.yml runs these jobs on the tagged commit before it publishes.
+  workflow_call:
 
 permissions:
   contents: read
@@ -14,15 +16,22 @@ concurrency:
 
 jobs:
   verify:
-    name: verify (compile + lint + node:test + ruff + pytest)
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    name: verify (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    env:
+      # The operation catalog's probe (minutes) runs once, on Linux; its result does not depend on the OS.
+      AWA_SLOW: ${{ matrix.os == 'ubuntu-latest' && '1' || '0' }}
     steps:
       - uses: actions/checkout@v5
 
       - uses: actions/setup-node@v5
         with:
-          node-version: '22'
+          node-version-file: .nvmrc
           cache: npm
 
       - uses: actions/setup-python@v6
@@ -30,10 +39,11 @@ jobs:
           python-version: '3.11'
           cache: pip
           cache-dependency-path: |
-            python-backend/requirements.txt
+            python-backend/constraints.txt
             pyproject.toml
 
       - name: Install Linux runtime libraries
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends libsndfile1
@@ -42,12 +52,17 @@ jobs:
         run: npm ci
 
       - name: Install Python dev dependencies
-        run: pip install -e ".[dev]"
+        run: pip install -c python-backend/constraints.txt -e ".[dev]"
 
       - name: Run verify
         run: npm run verify
 
+      - name: Audit authored runtime source sharing
+        if: runner.os == 'Linux'
+        run: python scripts/audit-runtime-sharing.py --output test-results/runtime-sharing.json
+
       - name: Upload runtime source audit
+        if: runner.os == 'Linux'
         uses: actions/upload-artifact@v4
         with:
           name: runtime-sharing-audit
@@ -62,17 +77,30 @@ jobs:
 
       - uses: actions/setup-node@v5
         with:
-          node-version: '22'
+          node-version-file: .nvmrc
           cache: npm
 
       - name: Install Node dependencies
         run: npm ci
 
+      - name: Restore Playwright browsers
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
       - name: Install Playwright Chromium
-        run: npx playwright install --with-deps chromium
+        run: npm run test:ui:install
 
       - name: Run UI smoke
         run: npm run test:ui
+
+      # The 100,000-recording timings: a shared runner's speed varies, so they inform and never block.
+      - name: Run 100,000-recording timings (non-blocking)
+        continue-on-error: true
+        env:
+          AWA_PERF: '1'
+        run: node scripts/playwright.mjs test --project scale --no-deps
 
       - uses: actions/upload-artifact@v4
         if: failure()
@@ -89,7 +117,7 @@ jobs:
 
       - uses: actions/setup-node@v5
         with:
-          node-version: '22'
+          node-version-file: .nvmrc
           cache: npm
 
       - uses: actions/setup-python@v6
@@ -97,7 +125,7 @@ jobs:
           python-version: '3.11'
           cache: pip
           cache-dependency-path: |
-            python-backend/requirements.txt
+            python-backend/constraints.txt
             pyproject.toml
 
       - name: Install Linux + xvfb dependencies
@@ -128,7 +156,7 @@ jobs:
         run: |
           python -m venv .venv
           ./.venv/bin/pip install --upgrade pip
-          ./.venv/bin/pip install -e ".[dev]"
+          ./.venv/bin/pip install -c python-backend/constraints.txt -e ".[dev]"
 
       - name: Restore the pinned VS Code download
         uses: actions/cache@v5
@@ -148,18 +176,23 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
-          node-version: '22'
+          node-version-file: .nvmrc
           cache: npm
       - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
           cache: pip
           cache-dependency-path: |
-            python-backend/requirements.txt
+            python-backend/constraints.txt
             pyproject.toml
       - run: npm ci
-      - run: python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
-      - run: npx playwright install --with-deps chromium
+      - run: python3 -m venv .venv && .venv/bin/pip install -c python-backend/constraints.txt -e ".[dev]"
+      - name: Restore Playwright browsers
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - run: npm run test:ui:install
       - name: Restore hash-locked browser runtime downloads
         uses: actions/cache@v5
         with:

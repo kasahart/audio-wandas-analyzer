@@ -130,7 +130,8 @@ class BrowserEngine(AnalysisEngine):
             source_peaks=source_peaks,
             input_id=f"sha256:{hashlib.sha256(payload).hexdigest()}",
         )
-        return {"filePath": str(path)}
+        # POSIX on every host (the Pyodide FS is POSIX; str() of a WindowsPath would give backslashes).
+        return {"filePath": path.as_posix()}
 
     def is_loaded(self, file_path: str | Path) -> bool:
         return Path(file_path) in self._files

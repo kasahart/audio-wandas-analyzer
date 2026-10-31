@@ -1,0 +1,21 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      npm-dev:
+        dependency-type: development
+  # pyproject.toml lower bounds and the CI pins in python-backend/constraints.txt.
+  - package-ecosystem: pip
+    directories: [/, /python-backend]
+    schedule:
+      interval: weekly
+    groups:
+      python:
+        patterns: ['*']
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

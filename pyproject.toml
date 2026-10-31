@@ -40,3 +40,7 @@ quote-style = "double"
 testpaths = ["python-backend"]
 python_files = "test_*.py"
 addopts = "-q"
+markers = [
+    "slow: runs every wandas operation (minutes); skipped unless AWA_SLOW=1, which CI sets",
+    "perf: wall-clock budget on the developer's PC; skipped unless AWA_PERF=1, the timing is reported either way",
+]

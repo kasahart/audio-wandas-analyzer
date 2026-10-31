@@ -13,6 +13,7 @@ Use this skill when a Webview bug can slip past jsdom or unit tests and must be 
 2. **Chromium over jsdom**: Prefer `npm run test:ui` for modal visibility, keyboard focus, and console/runtime regressions that depend on actual browser behavior.
 3. **Dogfood the guardrails**: When fixing a known bug, temporarily recreate the buggy state and confirm L1 and/or L2 fail before restoring the good state.
 4. **Keep HTML self-contained**: UI smoke fixtures should inline the built waveform script and use deterministic dummy analysis data so Playwright failures are easy to reproduce.
+5. **Contract before fix**: Capture the failing runtime values first, then name the data contract the fix must preserve. For waveform/audio UI bugs, record scale/unit, normalization, payload source, and hot-path read size before changing code.
 
 ## Standard workflow
 
@@ -35,8 +36,11 @@ npm run verify
 ### Phase 1: Diff analysis
 
 - inspect the touched Webview HTML / script generation paths first
+- inspect the touched Webview/Python payload path end-to-end, not only the rendering path
 - list which visibility, focus, or runtime behaviors changed
+- capture one concrete failing value pair from reproduction, such as overview peak vs range peak
 - decide whether the risk is static-pattern only, real-browser only, or both
+- identify whether the fix touches a hot path; if yes, preserve bounded reads unless the plan explicitly justifies full-file loading
 
 ### Phase 2: L1 static lint
 
@@ -54,6 +58,8 @@ npm run verify
 
 - derive a focused Playwright case directly from the regression shape instead of only reusing existing smoke coverage
 - add or extend fixture HTML so the failing UI state can be recreated without VS Code extension-host setup
+- make the focused regression reproduce the production-scale fixture, not just a visually similar fixture
+- confirm the focused test would fail against the observed bad payload before relying on it as coverage
 - cover each independent close/open path separately when behavior can regress asymmetrically (keyboard toggle, Escape, close button, backdrop click)
 
 ### Phase 5: Decision report

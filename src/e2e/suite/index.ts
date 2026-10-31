@@ -376,12 +376,12 @@ export async function run(): Promise<void> {
                     { action: 'set-all-files-selected', payload: { selected: true } },
                     { action: 'set-all-files-selected', payload: { selected: false } },
                 ]);
-                await delay(2000);
-                const settled = await waitForSnapshotWhere((snapshot) => {
-                    return snapshot.resultCount === 0
-                        && !!snapshot.renderedUi
-                        && snapshot.renderedUi.trackRowCount === 0;
-                });
+                const cleared = (snapshot: TestSnapshot) => snapshot.resultCount === 0
+                    && !!snapshot.renderedUi
+                    && snapshot.renderedUi.trackRowCount === 0;
+                await waitForSnapshotWhere(cleared);
+                // The analysis the first action started completes within this window; it must not bring the tracks back.
+                const settled = await snapshotHolding(cleared, 2000);
                 assert.equal(settled.resultCount, 0, 'stale analysis completion must not restore cleared tracks');
                 assert.equal(settled.renderedUi?.trackRowCount, 0, 'cleared selection must remain empty');
             },
@@ -923,14 +923,8 @@ function canSendXInput(): boolean {
 
 async function runZoomRecoveryScenario(): Promise<TestSnapshot> {
     const actionId = `zoom-recovery-${Date.now()}`;
-    await ComparisonPanel.postTestActions(actionId, [
-        'zoom-in',
-        'zoom-in',
-        'zoom-out',
-        'zoom-out',
-    ]);
-    await delay(250);
-    return waitForSnapshotWhere((snapshot) => {
+    // Wait for the action's acknowledgement first: the snapshot before the zooms already shows 0..1.
+    return postActionsAndWait(actionId, ['zoom-in', 'zoom-in', 'zoom-out', 'zoom-out'], (snapshot) => {
         const track = snapshot.renderedUi?.tracks[0];
         return !!snapshot.renderedUi
             && snapshot.renderedUi.zoomStart === 0
@@ -954,7 +948,6 @@ async function runZoomInEdgeCoverageScenario(): Promise<TestSnapshot> {
         'zoom-in',
         'zoom-in',
     ]);
-    await delay(250);
     return waitForSnapshotWhere((snapshot) => {
         const track = snapshot.renderedUi?.tracks[0];
         return !!snapshot.renderedUi
@@ -1049,6 +1042,19 @@ async function waitForSnapshotWhere(
     }
 
     throwSnapshotTimeout(expectedActionId);
+}
+
+/** The latest snapshot once `predicate` has held on every poll for `holdMs`; fails at the first poll it does not. */
+async function snapshotHolding(predicate: (snapshot: TestSnapshot) => boolean, holdMs: number): Promise<TestSnapshot> {
+    const until = Date.now() + holdMs;
+    for (;;) {
+        const snapshot = ComparisonPanel.getTestSnapshot();
+        assert.ok(snapshot && predicate(snapshot), `snapshot stopped matching: ${JSON.stringify(snapshot?.renderedUi ?? null).slice(0, 400)}`);
+        if (Date.now() >= until) {
+            return snapshot;
+        }
+        await delay(250);
+    }
 }
 
 function throwSnapshotTimeout(expectedActionId?: string): never {

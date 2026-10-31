@@ -12,8 +12,10 @@ type cannot follow that type; one that fails on some only depends on the file (e
 
 from __future__ import annotations
 
+import importlib.metadata
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 import warnings
@@ -251,7 +253,41 @@ def needs(runs: list[ProbeRun]) -> dict[str, list[str]]:
         for operation, by_frame in verdicts(blocked_runs).items():
             if operation in ran and by_frame.get("ChannelFrame") == "fails":
                 found.setdefault(operation, []).append(distribution)
-    return found
+    return {operation: _direct(packages) for operation, packages in found.items()}
+
+
+def _normalized(name: str) -> str:
+    return re.sub(r"[-_.]+", "_", name).lower()
+
+
+def _requirements(distribution: str) -> set[str]:
+    """The distributions `distribution` installs with it (not its extras), transitively, by normalized name."""
+    seen: set[str] = set()
+    pending = [distribution]
+    while pending:
+        try:
+            declared = importlib.metadata.requires(pending.pop()) or []
+        except importlib.metadata.PackageNotFoundError:
+            continue
+        for requirement in declared:
+            spec, _, marker = requirement.partition(";")
+            if "extra" in marker:
+                continue
+            name = _normalized(re.split(r"[\s<>=!~\[(]", spec.strip(), maxsplit=1)[0])
+            if name not in seen:
+                seen.add(name)
+                pending.append(name)
+    return seen
+
+
+def _direct(packages: list[str]) -> list[str]:
+    """`packages` without those another of them brings: the Web runtime installs librosa with scikit-learn.
+
+    Whether blocking a dependency breaks an operation depends on how the installed version imports it, so
+    listing only the packages the operation reaches first keeps the generated catalog the same everywhere.
+    """
+    brought = set().union(*(_requirements(package) for package in packages))
+    return [package for package in packages if package not in brought]
 
 
 if __name__ == "__main__":
