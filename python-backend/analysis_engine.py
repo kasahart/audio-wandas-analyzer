@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
+import soundfile as sf
 import wandas as wd
 
 from backend_errors import AnalysisSettingsError, UnreadableFileError
@@ -108,7 +109,12 @@ class AnalysisEngine:
                 if cached is not None and cached.identity == identity:
                     self._files.move_to_end(path)
                     return cached
-            frame = wd.read(path, dtype=AUDIO_CACHE_DTYPE).cache()
+            try:
+                frame = wd.read(path, dtype=AUDIO_CACHE_DTYPE).cache()
+            except sf.LibsndfileError as error:
+                raise UnreadableFileError(f"Unable to read audio: {error.error_string}") from error
+            except (OSError, RuntimeError, ValueError) as error:
+                raise UnreadableFileError(f"Unable to read {path.name}: {error}") from error
             source_peaks = finite_source_channel_peaks(frame)
             cached = CachedAnalysis(
                 path=path,

@@ -804,6 +804,39 @@ def test_missing_and_undecodable_files_are_unreadable_file_errors(tmp_path: Path
     assert "Format not recognised" in undecodable["message"]
 
 
+def test_a_failed_wav_write_of_a_readable_file_is_not_an_unreadable_file_error(tmp_path: Path) -> None:
+    wide = tmp_path / "wide.csv"
+    rows = [",".join(["time", *(f"c{index}" for index in range(1100))])]
+    rows += [",".join([f"{row / 8000:.6f}", *(["0.1"] * 1100)]) for row in range(200)]
+    wide.write_text("\n".join(rows) + "\n", encoding="utf-8")
+    service = AnalysisService(AnalysisEngine(cache_limit_bytes=64 * 1024 * 1024))
+    assert "error" not in _dispatch({"cmd": "analyze", "requestId": "a", "filePath": str(wide)}, service)
+
+    with pytest.raises(Exception) as raised:
+        _dispatch(
+            {"cmd": "export-wav-loop", "requestId": "e", "filePath": str(wide), "startNorm": 0, "endNorm": 1}, service
+        )
+
+    assert backend_errors.error_payload(raised.value)["kind"] == "analysis-failed", raised.value
+    with pytest.raises(OverflowError) as overflow:
+        sf.write(io.BytesIO(), np.zeros((10, 2)), 3_000_000_000, format="WAV")
+    assert backend_errors.error_payload(overflow.value)["kind"] == "analysis-failed"
+
+
+def test_a_recipe_filter_cutoff_above_the_files_nyquist_is_an_analysis_settings_error(tmp_path: Path) -> None:
+    low_rate = tmp_path / "16k.wav"
+    _write_samples(low_rate, 16000, rate=16000)
+    stand_in = wd.from_numpy(np.zeros((1, 48000)), sampling_rate=48000, ch_labels=["signal0"])
+    recipe = wd.pipeline.RecipePlan.from_frame(
+        stand_in.low_pass_filter(cutoff=20000), input_names=("signal",)
+    ).to_dict()
+
+    error = _error_reply({"cmd": "run-recipe", "requestId": "r", "recipe": recipe, "inputs": {"signal": str(low_rate)}})
+
+    assert (error["code"], error["kind"]) == ("input-error", "analysis-settings"), error
+    assert "Cutoff frequency" in error["message"]
+
+
 @pytest.mark.parametrize(
     ("error", "code", "kind"),
     [

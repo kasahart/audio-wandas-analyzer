@@ -16,10 +16,10 @@ OUT_OF_MEMORY = "out-of-memory"
 INVALID_INPUT = "invalid-input"
 ANALYSIS_FAILED = "analysis-failed"
 
-# Library modules whose ValueError means the parameters do not fit the signal (scipy's
-# "Parameter n must be >= ceil(m_num/2)") or the bytes are not audio wandas can read.
-_SETTINGS_MODULES = ("scipy.signal", "wandas.processing")
-_READER_MODULES = ("soundfile", "wandas.io")
+# Where a ValueError means an operation's parameters do not fit this signal: wandas' operations check
+# cutoffs, bands and lengths against it, and scipy's ShortTimeFFT checks the window and hop
+# ("Parameter n must be >= ceil(m_num/2)"). Other scipy.signal errors are left as faults.
+_SETTINGS_MODULES = ("wandas.processing", "scipy.signal._short_time_fft")
 
 
 class InputError(ValueError):
@@ -40,13 +40,13 @@ class StaleCalibrationError(InputError):
 
 
 class AnalysisSettingsError(InputError):
-    """The STFT or analysis settings do not fit this file, e.g. a window longer than the audio."""
+    """The analysis settings do not fit this file, e.g. an STFT window longer than the audio."""
 
     kind = ANALYSIS_SETTINGS
 
 
 class UnreadableFileError(InputError):
-    """The file is missing, unsupported or not decodable."""
+    """Reading the file failed: it is missing, unsupported or not decodable. Raised only where a file is read."""
 
     kind = UNREADABLE_FILE
 
@@ -72,8 +72,6 @@ def _link_kind(error: BaseException) -> str | None:
         return OUT_OF_MEMORY
     if isinstance(error, InputError) and error.kind != INVALID_INPUT:
         return error.kind
-    if _raised_in(error, _READER_MODULES):
-        return UNREADABLE_FILE
     if isinstance(error, ValueError) and _raised_in(error, _SETTINGS_MODULES):
         return ANALYSIS_SETTINGS
     return None

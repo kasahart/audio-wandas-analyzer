@@ -25,8 +25,12 @@ function rejectedWith(payload: unknown): Error {
 test('a backend error reads as the summary of its kind in the UI language, then the backend text', () => {
     const error = rejectedWith({ code: 'input-error', kind: 'analysis-settings', message: SCIPY });
 
-    assert.equal(userErrorText(error, en), `These analysis settings don't fit this file. Choose a smaller FFT size, or a longer file or region.\n${SCIPY}`);
-    assert.equal(userErrorText(error, ja), `この解析設定はこのファイルに合いません。FFT サイズを小さくするか、より長いファイルや区間を選んでください。\n${SCIPY}`);
+    assert.equal(userErrorText(error, en), `These settings don't fit this file (e.g. its length or sample rate). Review the settings, Recipe or region.\n${SCIPY}`);
+    assert.equal(userErrorText(error, ja), `この解析設定はこのファイルに合いません（長さやサンプリングレートなど）。設定・Recipe・区間を見直してください。\n${SCIPY}`);
+});
+
+test('the settings summary names no single cause: a filter cutoff above Nyquist is not fixed by a smaller FFT', () => {
+    for (const strings of [en, ja]) assert.doesNotMatch(strings.errorAnalysisSettings, /FFT/);
 });
 
 test('every error kind has its own summary in English and Japanese', () => {
