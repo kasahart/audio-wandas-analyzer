@@ -15,8 +15,8 @@ import { channelResult } from '../../shared/recipe/channelSelection';
 import { batchBundle, batchCount } from '../../shared/batch/batchBundle';
 import { baseOf, buildCompareModel, sideView, type CompareModel } from './comparePanes';
 import { OVERVIEW_MARGINS, paintOverview } from './entryPlots';
-import { compareGroupNames, distribution, DISTRIBUTION_BINS, groupLabels, median, type Distribution } from '../../shared/dataset/distribution';
-import { DIST_ROW_MAX, DIST_ROW_MIN, DIST_STRIP_ROW, distributionSvg, type DistributionScale } from './entryDistribution';
+import { compareGroupNames, groupLabels, median } from '../../shared/dataset/distribution';
+import { createDistributionPane } from './entryDistributionPane';
 import { attachPlotInteraction, FULL_PLOT_WINDOW, plotPointIn, type PlotMargins, type PlotWindow } from './plotInteraction';
 import { axisFractionOf, axisValueAt, paintOverlay, stageAxes, stageDiffRange, stageDifference, stageRange, STAGE_MARGINS, type StageAxes } from './stagePanes';
 import { DIFF_COLOR, ROLE_COLORS } from '../../shared/gui/roleColors';
@@ -229,15 +229,6 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     const groupSelect = query<HTMLSelectElement>('[data-action="entry-group"]');
     const csvInput = query<HTMLInputElement>('[data-entry-csv-input]');
     const tableWrap = query<HTMLElement>('.entry-table-wrap');
-    const distBox = query<HTMLElement>('[data-entry-dist]');
-    const distArea = query<HTMLElement>('[data-entry-dist-area]');
-    const distGroups = query<HTMLElement>('[data-entry-dist-groups]');
-    const distAxis = query<HTMLElement>('[data-entry-dist-axis]');
-    const distEmpty = query<HTMLElement>('[data-entry-dist-empty]');
-    const distNote = query<HTMLElement>('[data-entry-dist-note]');
-    const distCount = query<HTMLElement>('[data-entry-dist-count]');
-    const distLegend = query<HTMLElement>('[data-entry-dist-legend]');
-    const entryBody = query<HTMLElement>('.entry-body');
     const held = query<HTMLElement>('[data-entry-held]');
     const heldTitle = query<HTMLElement>('[data-entry-held-title]');
     const heldCanvas = query<HTMLCanvasElement>('[data-entry-held-canvas]');
@@ -258,11 +249,20 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     const narrowed = (range: PaneRange, window: PlotWindow): PaneRange => ({ min: range.min + window.y.start * (range.max - range.min), max: range.min + window.y.end * (range.max - range.min) });
     /** What the held plot last drew, to place the pointer on it and to map an axis's values to its window. */
     let heldPlot: { margins: PlotMargins; x: (fraction: number) => number; ofX: (value: number) => number; range: PaneRange; xLabel: string; yLabel: string } | null = null;
-    /** The axis strip below the groups, and the room it needs. */
-    const DIST_AXIS_SPACE = 44;
-    /** What the distribution last drew, to map a drag on it to the value's range. */
-    let distScale: DistributionScale | null = null;
-    let lastDistribution: Distribution | null = null;
+    const distPane = createDistributionPane({
+        screen, strings,
+        // A range of the value: a chip, which narrows the table.
+        pick({ low, high }) {
+            filters = [...filters.filter(filter => filter.column !== value), { column: value, kind: 'range', low, high }];
+            mode = 'all';
+            tableWrap.scrollTop = 0;
+            focusPicked = false;
+            rebuild();
+            deps.announce(strings.dsDistPicked.replace('{n}', shownRows.length.toLocaleString()));
+        },
+        dot(key) { if (shownRows.some(row => row.key === key)) focusRow(key, true); else focusFile(fileOfKey(key)); },
+        cancelled: () => scheduleSide(),
+    });
     const stepBar = createStepBar({
         document, strings, mode: 'entry', onChange: recipe => setRecipe(recipe),
         // A step pressed opens the comparison on that step's Frame.
@@ -356,8 +356,6 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     let savedSession = '';
     /** The CSV to save with the next session: undefined when unchanged since the last. */
     let csvToSave: { name: string; text: string } | null | undefined;
-    /** Just folded above the table: its two rows in view go to the compared row's group. */
-    let stripToSlot = false;
     let baseMenu = false;
     /** 「レシピをまとめて書き出す」 open: for the filtered rows or all. */
     let batchChoice: 'filtered' | 'all' | null = null;
@@ -1008,71 +1006,11 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const delta = comparison.diffDb ? sideView({ spectrumDb: comparison.diffDb, bands: [] }, comparison.frequencies) : null;
         paintHeldView(delta, delta, stageDiffRange(delta), stageAxes(strings, delta, input, true), window, { diff: true, color: DIFF_COLOR, empty: strings.stageNoDelta });
     }
-    /**
-     * The distribution of the value over the groups: on the right while choosing, folded above the table (low
-     * rows, two in view) while a comparison is open. Rows without the value are counted, not drawn.
-     */
     function paintDistribution(): void {
-        if (screen.hidden) return;
-        const pool = distributionPool();
-        const range = valueRange();
-        const dist = distribution(pool, value, group, results, range, usable);
-        lastDistribution = dist;
-        const drawn = dist.groups.reduce((sum, item) => sum + item.members.length, 0);
-        const strip = !maximized;
-        const unit = dist.unit === 'ch' ? strings.dsCh : strings.dsUnitRecording;
-        const labels = groupLabels(dist.groups.map(item => item.name));
-        if (group === 'none') labels.set('', strings.dsDistAll);
-        const prefix = group === 'ch' ? `${strings.dsCh} ` : '';
-        distCount.textContent = drawn
-            ? `${drawn.toLocaleString()} ${unit}${dist.groups.length > 4 ? ` · ${strings.dsDistGroups.replace('{n}', String(dist.groups.length))}` : ''}`
-            : strings.dsRows.replace('{n}', pool.length.toLocaleString());
-        // The legend: what the coloured ticks are (only the slots carry colour).
-        const base = baseGroupName();
-        const swatch = (slot: number, dashed = false): string => `<span class="entry-dist-swatch slot-${slot}${dashed ? ' is-dashed' : ''}"></span>`;
-        const legend = drawn ? [
-            slots[0] ? `${swatch(0)}${escapeHtml(strings.entryBase)}` : base !== null ? `${swatch(0, true)}${escapeHtml(strings.dsLegendBaseMedian.replace('{group}', `${prefix}${labels.get(base) ?? base}`))}` : '',
-            ...[1, 2, 3].filter(slot => slots[slot]).map(slot => `${swatch(slot)}${escapeHtml(strings.dsSlotCompare.replace('{n}', String(slot)))}`),
-        ].filter(Boolean).map(item => `<span class="entry-dist-key">${item}</span>`).join('') : '';
-        if (distLegend.innerHTML !== legend) distLegend.innerHTML = legend;
-        distNote.textContent = drawn && !range && !strip ? strings.dsDistDrag : '';
-        distBox.dataset.groups = String(dist.groups.length);
-        distBox.dataset.drawn = String(drawn);
-        distBox.dataset.missing = String(dist.missing);
-        distBox.dataset.unit = dist.unit;
-        if (!drawn) {
-            distGroups.innerHTML = ''; distAxis.innerHTML = ''; distScale = null;
-            // Folded beside the tracks, nothing drawn says nothing: 「計算」 in the head is the way on.
-            distEmpty.hidden = strip;
-            distEmpty.textContent = isComputed(value) && dist.missing ? strings.dsDistNotComputed.replace('{value}', valueLabel(value)) : strings.dsDistEmpty;
-            return;
-        }
-        distEmpty.hidden = true;
-        // On the right the groups share the height (taller bars read better); above the table they stay low.
-        const available = Math.max(0, distArea.clientHeight - distGroups.offsetTop - DIST_AXIS_SPACE);
-        const rowHeight = strip ? DIST_STRIP_ROW : Math.max(DIST_ROW_MIN, Math.min(DIST_ROW_MAX, Math.floor(available / dist.groups.length)));
-        distGroups.style.maxHeight = `${strip ? 2 * DIST_STRIP_ROW + 8 : Math.max(available, 2 * DIST_ROW_MIN)}px`;
-        const width = Math.max(240, distGroups.clientWidth || distBox.clientWidth || 400);
-        const keys = new Set(pool.map(row => row.key));
-        const slotted = slots.flatMap((key, slot) => {
-            const row = rowOf(key);
-            const number = row && keys.has(row.key) && usable(row) ? valueOf(row, value, results) : null;
-            return row && number !== null ? [{ slot, key: row.key, group: datasetGroupOf(row, group), value: number }] : [];
+        distPane.paint({
+            pool: distributionPool(), value, group, results, range: valueRange(), usable, slots, rowOf, baseGroup: baseGroupName(),
+            valueLabel: valueLabel(value), format: number => formatColumn(value, number), rowName: key => rowName(key),
         });
-        const picture = distributionSvg(dist, {
-            width, rowHeight, strip, range, slots: slotted, baseGroup: base, labels, groupPrefix: prefix, unitLabel: unit,
-            axisLabel: value.startsWith('csv:') ? strings.dsDistCsvAxis.replace('{col}', value.slice(4)) : valueLabel(value),
-            format: number => formatColumn(value, number), name: key => rowName(key),
-        }, strings);
-        distScale = picture.scale;
-        distGroups.innerHTML = picture.plot;
-        distAxis.innerHTML = picture.axis;
-        if (strip && stripToSlot) {
-            stripToSlot = false;
-            const compared = slotted.find(item => item.slot > 0) ?? slotted[0];
-            const index = compared ? dist.groups.findIndex(item => item.name === compared.group) : -1;
-            if (index >= 0) distGroups.scrollTop = Math.max(0, index * rowHeight - 4);
-        }
     }
     /** The distribution, the held row's Δ spectrum and the overview strip. */
     function paintSide(): void {
@@ -1258,19 +1196,13 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     const Observer = (globalThis as { ResizeObserver?: typeof ResizeObserver }).ResizeObserver;
     if (Observer) new Observer(() => { syncColumns(); renderRows(); }).observe(screen);
     /** Choosing, the distribution fills the right side; while a comparison is open it folds above the table. */
-    function placeDistribution(): void {
-        if (maximized) { if (distBox.parentElement !== distArea) distArea.prepend(distBox); }
-        else if (distBox.nextElementSibling !== entryBody) entryBody.before(distBox);
-        if (!maximized && !screen.classList.contains('is-dist-strip')) stripToSlot = true;
-        screen.classList.toggle('is-dist-strip', !maximized);
-    }
-    placeDistribution();
+    distPane.place(maximized);
     function setMaximized(next: boolean): void {
         if (!next) stepBar.close();
         // The table's 書き出し menu shows only maximized: it does not come back open.
         if (!next) query<HTMLDetailsElement>('#entry-export-menu').open = false;
         maximized = next;
-        placeDistribution();
+        distPane.place(maximized);
         screen.classList.toggle('is-max', next);
         sizeButton.textContent = next ? '⤡' : '⤢';
         sizeButton.setAttribute('aria-pressed', String(next));
@@ -1690,51 +1622,6 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         if (!slots.slice(1).includes(key)) setSlot(firstFreeCompareSlot(slots), key);
         openSlotted();
     });
-    // A drag on the distribution picks a range of the value (a chip, which narrows the table); a press that
-    // stays put picks that bin; on a dot, it goes to that recording's row.
-    let distDrag: { x0: number; left: number; moved: boolean; dot: string | null } | null = null;
-    distGroups.addEventListener('pointerdown', event => {
-        const plot = (event.target as Element).closest?.('[data-entry-dist-plot]');
-        if (!plot || !distScale || event.button !== 0) return;
-        const box = plot.getBoundingClientRect();
-        distDrag = { x0: event.clientX - box.left, left: box.left, moved: false, dot: (event.target as Element).closest?.('[data-dist-dot]')?.getAttribute('data-key') ?? null };
-        (plot as Element & { setPointerCapture?(id: number): void }).setPointerCapture?.(event.pointerId);
-        event.preventDefault();
-    });
-    distGroups.addEventListener('pointermove', event => {
-        if (!distDrag) return;
-        const x = event.clientX - distDrag.left;
-        if (Math.abs(x - distDrag.x0) >= 4) distDrag.moved = true;
-        const brush = distGroups.querySelector('[data-dist-brush]');
-        brush?.setAttribute('x', String(Math.min(x, distDrag.x0)));
-        brush?.setAttribute('width', String(Math.abs(x - distDrag.x0)));
-        brush?.setAttribute('visibility', distDrag.moved ? 'visible' : 'hidden');
-    });
-    distGroups.addEventListener('pointerup', event => {
-        const drag = distDrag, scale = distScale;
-        distDrag = null;
-        if (!drag || !scale) return;
-        if (!drag.moved && drag.dot) {
-            if (shownRows.some(row => row.key === drag.dot)) focusRow(drag.dot, true); else focusFile(fileOfKey(drag.dot));
-            return;
-        }
-        const x = event.clientX - drag.left;
-        let low = scale.at(Math.min(x, drag.x0)), high = scale.at(Math.max(x, drag.x0));
-        if (!drag.moved) {
-            const width = (scale.high - scale.low) / DISTRIBUTION_BINS;
-            low = scale.low + Math.floor((low - scale.low) / width) * width;
-            high = low + width;
-        }
-        low = Math.max(low, scale.low); high = Math.min(high, scale.high);
-        if (!(high > low)) return;
-        filters = [...filters.filter(filter => filter.column !== value), { column: value, kind: 'range', low, high }];
-        mode = 'all';
-        tableWrap.scrollTop = 0;
-        focusPicked = false;
-        rebuild();
-        deps.announce(strings.dsDistPicked.replace('{n}', shownRows.length.toLocaleString()));
-    });
-    distGroups.addEventListener('pointercancel', () => { distDrag = null; scheduleSide(); });
     // The lanes' gestures on the side panel's plots: box zoom, Ctrl+wheel, Shift+wheel, double-click reset or
     // axis range. A press that stays put (within the lanes' 3 px) is still a click: a point picked, a row gone to.
     const zoomBox = document.createElement('div');
@@ -2029,16 +1916,19 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             const recipe = editedRecipe ?? standardRecipe;
             return recipe ? { recipe, runRecipe: runRecipe(channels), failed } : null;
         },
-        snapshot: () => ({
-            open: !screen.hidden && maximized, docked: !screen.hidden && !maximized, cols: Number(screen.dataset.cols ?? 0), rows: rows.length, visible: shownRows.length,
-            scanned: [...results.values()].filter(result => result.ok).length, slots: slots.slice(), focused, value, group, filters: filters.map(filter => ({ ...filter })),
-            sort: { ...sort }, excluded: [...excluded], memo: Object.fromEntries(memo), mode, unmatched: unmatchedItems().length + unreadable().length,
-            csv: csv?.name ?? null, playing: deps.playing?.() ?? null, visibleKeys: shownRows.slice(0, 200).map(row => row.key), scanning: progress.running,
-            dist: lastDistribution ? {
-                groups: lastDistribution.groups.map(item => ({ name: item.name, n: item.members.length, inRange: item.members.filter(member => member.inRange).length })),
-                missing: lastDistribution.missing, unit: lastDistribution.unit, low: lastDistribution.low, high: lastDistribution.high, range: valueRange(), base: baseGroupName(),
-                strip: !maximized,
-            } : null,
-        }),
+        snapshot: () => {
+            const last = distPane.last();
+            return {
+                open: !screen.hidden && maximized, docked: !screen.hidden && !maximized, cols: Number(screen.dataset.cols ?? 0), rows: rows.length, visible: shownRows.length,
+                scanned: [...results.values()].filter(result => result.ok).length, slots: slots.slice(), focused, value, group, filters: filters.map(filter => ({ ...filter })),
+                sort: { ...sort }, excluded: [...excluded], memo: Object.fromEntries(memo), mode, unmatched: unmatchedItems().length + unreadable().length,
+                csv: csv?.name ?? null, playing: deps.playing?.() ?? null, visibleKeys: shownRows.slice(0, 200).map(row => row.key), scanning: progress.running,
+                dist: last ? {
+                    groups: last.groups.map(item => ({ name: item.name, n: item.members.length, inRange: item.members.filter(member => member.inRange).length })),
+                    missing: last.missing, unit: last.unit, low: last.low, high: last.high, range: valueRange(), base: baseGroupName(),
+                    strip: !maximized,
+                } : null,
+            };
+        },
     };
 }

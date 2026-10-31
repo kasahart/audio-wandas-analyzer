@@ -2,7 +2,7 @@
  * Markup for the entry screen's distribution: one row per group, a histogram of the chosen value (a dot per
  * recording when a group has few), a rug tick per member, the slotted rows as ticks in their role colours and
  * the base as a dashed median. The x axis sits in its own strip, so many groups scroll and the axis stays.
- * Bars are neutral; only the slots carry colour. Pure markup: entryRuntime.ts handles the drag that picks a range.
+ * Bars are neutral; only the slots carry colour. Pure markup and scale math: entryDistributionPane.ts handles the drag that picks a range.
  */
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import type { UiStrings } from '../../shared/i18n/strings';
@@ -39,6 +39,33 @@ export interface DistributionPicture {
 export interface DistributionScale { low: number; high: number; width: number; height: number; x(value: number): number; at(x: number): number }
 
 const num = (value: number): string => value.toFixed(1);
+
+/**
+ * What a drag over the plot from `x0` to `x` picks: the values between (clipped to the axis), or the bin under a
+ * press that stayed put; null when that leaves nothing.
+ */
+export function pickedRange(scale: Pick<DistributionScale, 'low' | 'high' | 'at'>, x0: number, x: number, moved: boolean): { low: number; high: number } | null {
+    let low = scale.at(Math.min(x, x0)), high = scale.at(Math.max(x, x0));
+    if (!moved) {
+        const width = (scale.high - scale.low) / DISTRIBUTION_BINS;
+        low = scale.low + Math.floor((low - scale.low) / width) * width;
+        high = low + width;
+    }
+    low = Math.max(low, scale.low); high = Math.min(high, scale.high);
+    return high > low ? { low, high } : null;
+}
+
+/**
+ * The legend: what the coloured ticks are (only the slots carry colour): the slot-0 file, or the group whose
+ * median is the base (`baseGroup`, its label), then the filled compared slots.
+ */
+export function distributionLegendHtml(slots: readonly (string | null)[], baseGroup: string | null, strings: Pick<UiStrings, 'entryBase' | 'dsLegendBaseMedian' | 'dsSlotCompare'>): string {
+    const swatch = (slot: number, dashed = false): string => `<span class="entry-dist-swatch slot-${slot}${dashed ? ' is-dashed' : ''}"></span>`;
+    return [
+        slots[0] ? `${swatch(0)}${escapeHtml(strings.entryBase)}` : baseGroup !== null ? `${swatch(0, true)}${escapeHtml(strings.dsLegendBaseMedian.replace('{group}', baseGroup))}` : '',
+        ...[1, 2, 3].filter(slot => slots[slot]).map(slot => `${swatch(slot)}${escapeHtml(strings.dsSlotCompare.replace('{n}', String(slot)))}`),
+    ].filter(Boolean).map(item => `<span class="entry-dist-key">${item}</span>`).join('');
+}
 
 export function distributionScale(dist: Distribution, width: number, height: number): DistributionScale {
     const { left, right } = DIST_MARGINS;
