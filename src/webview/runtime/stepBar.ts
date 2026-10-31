@@ -289,12 +289,15 @@ export function createStepBar(deps: {
         const step = recipeSteps(next, limits()).find(item => item.id === form.getAttribute('data-step-form'));
         const badParam = step?.invalid ? step.invalid : undefined;
         form.querySelectorAll<HTMLElement>('.step-field').forEach(label => {
-            const name = label.querySelector('[data-step-param]')!.getAttribute('data-step-param');
-            const bad = !!badParam && badParam === name;
+            // The reference's choice is a field of its own, without a value to check.
+            const input = label.querySelector('[data-step-param]');
+            if (!input) return;
+            const name = input.getAttribute('data-step-param');
+            const bad = !!step && !!badParam && badParam === name;
             label.classList.toggle('is-invalid', bad);
-            const text = bad ? invalidReason(step!, strings) : '';
+            const text = bad ? invalidReason(step, strings) : '';
             label.setAttribute('data-hint', text);
-            label.querySelector('[data-step-param]')!.setAttribute('aria-description', text);
+            input.setAttribute('aria-description', text);
             if (bad) footer(text);
         });
         // An emptied field is not a value: Apply waits for one instead of quietly keeping the old.
