@@ -698,6 +698,9 @@ test('the first opening shows the input: a base group draws each of its waveform
     await expect(baseEntry).toContainText(STR.entryBaseCount.replace('{count}', String(members)));
     await expect(baseEntry).not.toContainText(STR.entryBaseMedian.replace('{count}', String(members)));
     await expect(baseEntry.locator('[data-action="stage-base-info"]')).toHaveAttribute('aria-label', STR.stageBaseEach);
+    // No level difference against a median that is on no line: no headline numbers, no Δ.
+    await expect(page.locator('[data-stage-headline]')).toHaveText('');
+    await expect(page.locator('[data-action="stage-diff"]')).toBeHidden();
     await baseEntry.locator('[data-action="stage-base-info"]').click();
     await expect(page.locator('[data-stage-base-aggregate]')).toHaveText(STR.stageBaseEach);
     // The 1/3-octave bands chosen, then back to the tracks and the comparison opened again: the bands, not the input.

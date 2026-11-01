@@ -73,6 +73,8 @@ test('the toggles: images cannot be overlaid, the difference needs an overlay, a
     assert.deepEqual([layout.textContent, layout.getAttribute('aria-pressed'), layout.hidden, diff.textContent, diff.hidden, diff.disabled], [strings.stageLayoutOverlay, 'false', true, strings.compareDiffHide, true, true]);
     paintStageControls(dom_, strings, { overlaid: true, images: false, showDiff: false, overlay: true, measuredAgainstBase: true, nothingCompared: false });
     assert.equal(diff.hidden, true);
+    paintStageControls(dom_, strings, { overlaid: true, images: false, showDiff: false, overlay: true, measuredAgainstBase: false, nothingCompared: false, baseEach: true });
+    assert.equal(diff.hidden, true, 'a base group drawn as its waveforms: no Δ against its median');
 });
 
 test('a gated base group\'s button says how many recordings and about how long', () => {
@@ -96,6 +98,8 @@ test('the headline: the difference shown and where it is largest, then the steps
     assert.equal(stageModeHeadline({ ...frame, waiting: true }, ['x'], null), '');
     assert.equal(stageModeHeadline({ ...frame, comparePath: null }, [], null), strings.stageChooseRoles);
     assert.equal(stageModeHeadline({ ...frame, referencePath: 'base.wav' }, [], null), strings.stageVsBase.replace('{file}', '0 · base.wav'));
+    // A base group drawn as its waveforms: its median level is on no line, so no difference is named.
+    assert.equal(stageModeHeadline({ ...frame, baseEach: true }, [], null), '');
 });
 
 test('side by side, every lane draws its own picture and says it shows the step; the base measured against says so', () => {

@@ -432,7 +432,10 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             deps.showLanes(!overlay);
             panel.hidden = !overlay;
             // Without a compared file there is no difference to show.
-            paintStageControls(dom, strings, { overlaid: state.overlaid, images, showDiff: state.showDiff, overlay, measuredAgainstBase: !!referencePath, nothingCompared: !comparedPath(tracks) });
+            // A base group of waveforms is drawn each as it is (also while gated or still coming in): its title counts
+            // its files rather than naming a median, and no level difference is measured against it.
+            const each = !!picture?.waveform && allBase.length > 1;
+            paintStageControls(dom, strings, { overlaid: state.overlaid, images, showDiff: state.showDiff, overlay, measuredAgainstBase: !!referencePath, nothingCompared: !comparedPath(tracks), baseEach: each });
             // Zoomed, the plots draw from the Frames' full resolution once it is in, the coarse pictures until then.
             const width = (overlay ? query<HTMLCanvasElement>('[data-stage-canvas="overlay"]') : tracks.find(track => track.canvas)?.canvas)?.clientWidth || 600;
             // Each line is drawn from its own detail as soon as that is in, while a base group's recordings are still
@@ -479,7 +482,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             paintBaseGate(dom, strings, { gated, count: allBase.length, ms: cost.ms });
             const coarsePlots = plotsOf(coarse, tracks, comparePath, basePaths, tableBase);
             shownCompare = { path: comparePath, view: comparePath && !waiting ? coarse(comparePath) : undefined };
-            const frame: StageFrame = { strings, tracks, allTracks, referencePath, comparePath, coarse, shown, picture, coarsePlots, window: state.window, regionMark, pending, waiting, role, named, drawnOn };
+            const frame: StageFrame = { strings, tracks, allTracks, referencePath, comparePath, coarse, shown, picture, coarsePlots, window: state.window, regionMark, pending, waiting, role, named, drawnOn, baseEach: each };
             const bypassed = steps.filter(step => step.bypassed).map(step => stepChipLabel(step, strings, state.regionSet));
             query<HTMLElement>('[data-stage-headline]').textContent = stageModeHeadline(frame, bypassed, region);
             if (!overlay) {
@@ -494,9 +497,6 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             const plots = { ...finePlots, diff: bothFine ? finePlots.diff : coarsePlots.diff };
             root.dataset.compared = comparePath ? String(role(comparePath) ?? '') : '';
             root.dataset.base = state.groupBase || !deps.slots()[0] ? 'group' : 'file';
-            // A base group of waveforms is drawn each as it is (also while gated or still coming in): its title counts
-            // its files rather than naming a median.
-            const each = !!picture?.waveform && allBase.length > 1;
             const baseTitle = (path: string): string => { const title = deps.baseTitle(path, state.groupBase); return each ? eachBaseTitle(title, allBase.length, strings) : title; };
             const aggregate = each ? strings.stageBaseEach : strings.stageBaseAggregate;
             query<HTMLElement>('[data-stage-base-aggregate]').textContent = aggregate;
