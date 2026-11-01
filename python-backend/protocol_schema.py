@@ -275,6 +275,8 @@ DEFINITIONS: dict[str, Schema] = {
             "cursorNorm": _NUMBER,
             # Absent for the FFT spectrum; 1 or 3 asks for 1/1 or 1/3 octave bands of the same samples instead.
             "bandsPerOctave": {"type": "integer", "enum": [1, 3]},
+            # true asks for every FFT bin (the CSV export); otherwise a long row is cut for display (frequenciesHz).
+            "fullResolution": {"type": "boolean"},
             "stftOptions": {"$ref": "#/$defs/StftOptions"},
             "calibrationProfile": {"$ref": "#/$defs/CalibrationProfile"},
             "analysisRevision": {"$ref": "#/$defs/AnalysisRevision"},
@@ -333,6 +335,9 @@ DEFINITIONS: dict[str, Schema] = {
             "bandsPerOctave": {"type": "integer", "enum": [1, 3]},
             "bandCentersHz": _NUMBERS,
             "minFrequencyHz": _NUMBER,
+            # FFT results cut for display only: each point's frequency, the peak bin of its log-spaced group.
+            # Absent when the values hold every FFT bin, evenly spaced from 0 Hz to maxFrequencyHz.
+            "frequenciesHz": _NUMBERS,
             "windowStartNorm": _NUMBER,
             "windowEndNorm": _NUMBER,
             "window": {"type": "string", "enum": ["hann", "hamming", "blackman", "boxcar"]},

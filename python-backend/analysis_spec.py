@@ -20,7 +20,7 @@ ANALYSIS_SPEC_VERSION = 5
 # much of a region where it touches the file's start or end, which brings the tone back within 0.1 %.
 EDGE_GUARD_S = 0.15
 WELCH_N_FFT = 1024
-# Same display resolution as the comparison view's spectra (analyzer.SPECTROGRAM_FREQUENCY_BIN_LIMIT).
+# Same point count as the lanes' spectrogram frequency axis (analyzer.SPECTROGRAM_FREQUENCY_BIN_LIMIT).
 SPECTRUM_POINTS = 192
 # The spectrum's lowest point edge; points are geometric means of log-spaced edges up to Nyquist.
 SPECTRUM_MIN_HZ = 20.0

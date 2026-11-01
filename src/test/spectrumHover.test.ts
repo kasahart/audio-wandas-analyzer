@@ -9,7 +9,7 @@ test('focus without a prior position seeds the cursor and clears the mouse flag'
     const hover = new SpectrumHover();
     hover.hasMouse = true;
     hover.focus(trackA, 2);
-    assert.deepEqual({ ...hover }, { norm: 0, yFrac: 0.5, target: trackA, channelIndex: 2, hasMouse: false });
+    assert.deepEqual({ ...hover }, { norm: 0, yFrac: 0.5, target: trackA, channelIndex: 2, hasMouse: false, stepped: false });
 });
 
 test('focus keeps an existing cursor position', () => {
@@ -23,7 +23,7 @@ test('focus keeps an existing cursor position', () => {
 test('move records the point and marks the mouse as present', () => {
     const hover = new SpectrumHover();
     hover.move({ hoverNorm: 0.25, yFrac: 0.1 }, trackA, 1);
-    assert.deepEqual({ ...hover }, { norm: 0.25, yFrac: 0.1, target: trackA, channelIndex: 1, hasMouse: true });
+    assert.deepEqual({ ...hover }, { norm: 0.25, yFrac: 0.1, target: trackA, channelIndex: 1, hasMouse: true, stepped: false });
 });
 
 test('non-integer channel indices are stored as null', () => {
@@ -38,5 +38,12 @@ test('clear hides the cursor but leaves the mouse flag alone', () => {
     const hover = new SpectrumHover();
     hover.move({ hoverNorm: 0.5, yFrac: 0.5 }, trackA, 0);
     hover.clear();
-    assert.deepEqual({ ...hover }, { norm: null, yFrac: null, target: null, channelIndex: null, hasMouse: true });
+    assert.deepEqual({ ...hover }, { norm: null, yFrac: null, target: null, channelIndex: null, hasMouse: true, stepped: false });
+});
+
+test('an arrow-key step marks the hover stepped until the pointer moves again', () => {
+    const hover = new SpectrumHover();
+    hover.stepped = true;
+    hover.move({ hoverNorm: 0.25, yFrac: 0.1 }, trackA, 1);
+    assert.equal(hover.stepped, false);
 });

@@ -42,6 +42,7 @@ export function spectrumBinAtFrequency(
     visibleDbMin: number,
     visibleDbMax: number,
     logFrequency = false,
+    pixelPeak = false,
 ): SpectrumSnap | null {
     const frequencyBins = slice.frequencyBins;
     const originalMaxFrequency = slice.originalMaxFrequencyHz || slice.maxFrequencyHz;
@@ -53,8 +54,9 @@ export function spectrumBinAtFrequency(
     const maxVisibleFrequency = Math.min(visibleFrequencyMax, slice.maxFrequencyHz);
     let minIndex: number;
     let maxIndex: number;
-    if (slice.bandCentersHz) {
-        const visible = slice.bandCentersHz.flatMap((centerHz, index) => centerHz >= visibleFrequencyMin && centerHz <= maxVisibleFrequency ? [index] : []);
+    const points = slice.bandCentersHz ?? slice.frequenciesHz;
+    if (points) {
+        const visible = points.flatMap((centerHz, index) => centerHz >= visibleFrequencyMin && centerHz <= maxVisibleFrequency ? [index] : []);
         minIndex = visible.length > 0 ? visible[0] : 0;
         maxIndex = visible.length > 0 ? visible[visible.length - 1] : frequencyBins - 1;
     }
@@ -68,10 +70,23 @@ export function spectrumBinAtFrequency(
         minIndex = 0;
         maxIndex = frequencyBins - 1;
     }
-    const binIndex = Math.max(minIndex, Math.min(maxIndex, nearestBinIndex(slice, targetFreqHz)));
+    const scale = { frequencyMin: visibleFrequencyMin, frequencyMax: visibleFrequencyMax, logFrequency };
+    const nearest = Math.max(minIndex, Math.min(maxIndex, nearestBinIndex(slice, targetFreqHz)));
+    let binIndex = nearest;
+    if (pixelPeak) {
+        // Bins denser than pixels: the line drawn under the pointer peaks at the loudest bin within a pixel of it
+        // (pointer positions are whole pixels), so the readout shows that bin rather than a sidelobe beside it.
+        const pointerX = frequencyFraction(targetFreqHz, scale) * plotWidth;
+        const near = (index: number) => Math.abs(frequencyFraction(binFrequencyHz(slice, index), scale) * plotWidth - pointerX) <= 1;
+        for (let index = nearest - 1; index >= minIndex && near(index); index--) {
+            if (slice.values[index] > slice.values[binIndex]) binIndex = index;
+        }
+        for (let index = nearest + 1; index <= maxIndex && near(index); index++) {
+            if (slice.values[index] > slice.values[binIndex]) binIndex = index;
+        }
+    }
     const frequencyHz = binFrequencyHz(slice, binIndex);
     const dbValue = slice.values[binIndex];
-    const scale = { frequencyMin: visibleFrequencyMin, frequencyMax: visibleFrequencyMax, logFrequency };
     const x = padLeft + frequencyFraction(frequencyHz, scale) * plotWidth;
     const y = dbValue === undefined || dbRange <= 0
         ? null
@@ -114,10 +129,14 @@ export interface SpectrumSnapHit<S> {
     snapY: number;
 }
 
-export function spectrumBinAtHover(slice: SpectrumSlice, hoverNorm: number, frame: SpectrumPlotFrame): SpectrumSnap | null {
+/**
+ * `pixelPeak` is for a readout under the pointer on a canvas frame. Keyboard steps leave it off: they move bin by
+ * bin from the nearest bin, which a readout snapping to the loudest bin of its pixel would hold in place.
+ */
+export function spectrumBinAtHover(slice: SpectrumSlice, hoverNorm: number, frame: SpectrumPlotFrame, pixelPeak = false): SpectrumSnap | null {
     const targetFreqHz = frequencyAtFraction(hoverNorm, frame);
     return spectrumBinAtFrequency(slice, targetFreqHz, frame.padLeft, frame.plotWidth, frame.padTop, frame.plotHeight,
-        frame.frequencyMin, frame.frequencyMax, frame.dbMin, frame.dbMax, frame.logFrequency);
+        frame.frequencyMin, frame.frequencyMax, frame.dbMin, frame.dbMax, frame.logFrequency, pixelPeak);
 }
 
 export function nearestSpectrumSnap<S extends { slice: SpectrumSlice }>(
@@ -125,9 +144,10 @@ export function nearestSpectrumSnap<S extends { slice: SpectrumSlice }>(
     hoverNorm: number,
     mouseY: number | null,
     frame: SpectrumPlotFrame,
+    pixelPeak = false,
 ): SpectrumSnapHit<S> | null {
     const hit = nearestLine(series, s => {
-        const snap = spectrumBinAtHover(s.slice, hoverNorm, frame);
+        const snap = spectrumBinAtHover(s.slice, hoverNorm, frame, pixelPeak);
         return snap && snap.dbVal !== undefined && snap.y !== null ? { snap, dbVal: snap.dbVal, y: snap.y } : null;
     }, mouseY);
     return hit ? { s: hit.s, snap: hit.point.snap, dbVal: hit.point.dbVal, snapY: hit.point.y } : null;
@@ -169,6 +189,7 @@ export function spectrumSlicesFromResult(msg: SpectrumSliceResultMessage, cursor
         windowEndNorm: msg.windowEndNorm,
         window: msg.window,
         ...(msg.bandCentersHz ? { bandsPerOctave: msg.bandsPerOctave, bandCentersHz: msg.bandCentersHz, minFrequencyHz: msg.minFrequencyHz } : {}),
+        ...(msg.frequenciesHz ? { frequenciesHz: msg.frequenciesHz } : {}),
     }));
 }
 
@@ -290,10 +311,22 @@ export function steppedSpectrumHoverNorm(slice: SpectrumSlice, binIdx: number, d
 
 const UNIT_PLOT = { padLeft: 0, plotWidth: 1, padTop: 0, plotHeight: 1 };
 
-export function steppedTrackSpectrumHoverNorm(slice: SpectrumSlice, hoverNorm: number, freqStart: number, freqEnd: number, deltaIdx: number): number | null {
+/**
+ * `pointerCanvas` is the lane's canvas when the hover was last moved by the pointer: the step then starts from the
+ * bin its readout shows (its pixel's loudest), not from the bin nearest the pointer.
+ */
+export function steppedTrackSpectrumHoverNorm(
+    slice: SpectrumSlice,
+    hoverNorm: number,
+    freqStart: number,
+    freqEnd: number,
+    deltaIdx: number,
+    pointerCanvas: { width: number; height: number } | null = null,
+): number | null {
     const visible = spectrumVisibleWindow(slice.maxFrequencyHz, slice.minDb, slice.maxDb,
         { freqStart, freqEnd, dbMin: null, dbMax: null }, sliceLogMinFrequencyHz(slice));
-    const snap = spectrumBinAtHover(slice, hoverNorm, { ...UNIT_PLOT, ...visible });
+    const frame = pointerCanvas ? spectrumPlotFrame(pointerCanvas.width, pointerCanvas.height, TRACK_SPECTRUM_PAD, visible) : { ...UNIT_PLOT, ...visible };
+    const snap = spectrumBinAtHover(slice, hoverNorm, frame, pointerCanvas !== null);
     return snap ? steppedSpectrumHoverNorm(slice, snap.binIdx, deltaIdx, visible.frequencyMin, visible.frequencyMax, visible.logFrequency) : null;
 }
 
@@ -308,6 +341,7 @@ export function steppedOverlaySpectrumHoverNorm(
     canvas: { width: number; height: number } | null,
     visible: SpectrumVisibleWindow,
     deltaIdx: number,
+    fromPointer = false,
 ): number | null {
     if (series.length === 0) {
         return null;
@@ -315,9 +349,11 @@ export function steppedOverlaySpectrumHoverNorm(
     // mouseY must be in the same pixel space as the painter's frame, or the nearest series differs from the highlighted one.
     const frame = canvas ? spectrumPlotFrame(canvas.width, canvas.height, OVERLAY_SPECTRUM_PAD, visible) : { ...UNIT_PLOT, ...visible };
     const mouseY = canvas && yFrac !== null ? yFrac * canvas.height : null;
-    const nearest = nearestSpectrumSnap(series, hoverNorm, mouseY, frame);
+    // After the pointer, the first step starts from the bin its readout shows, which reads its pixel's loudest bin.
+    const pixelPeak = fromPointer && canvas !== null;
+    const nearest = nearestSpectrumSnap(series, hoverNorm, mouseY, frame, pixelPeak);
     const chosen = nearest ? nearest.s : series[0];
-    const snap = nearest ? nearest.snap : spectrumBinAtHover(chosen.slice, hoverNorm, frame);
+    const snap = nearest ? nearest.snap : spectrumBinAtHover(chosen.slice, hoverNorm, frame, pixelPeak);
     return snap ? steppedSpectrumHoverNorm(chosen.slice, snap.binIdx, deltaIdx, visible.frequencyMin, visible.frequencyMax, visible.logFrequency) : null;
 }
 

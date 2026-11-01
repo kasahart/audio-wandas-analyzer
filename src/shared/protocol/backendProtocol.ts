@@ -231,7 +231,8 @@ function isSpectrumSliceResult(value: unknown): value is SpectrumSliceResult {
     if (schemaViolation('SpectrumSliceResult', value) !== null) return false;
     const result = value as SpectrumSliceResult;
     return result.channels.length > 0 && result.channels.every(channel => channel.values.length === result.frequencyBins)
-        && (result.bandCentersHz === undefined || result.bandCentersHz.length === result.frequencyBins);
+        && (result.bandCentersHz === undefined || result.bandCentersHz.length === result.frequencyBins)
+        && (result.frequenciesHz === undefined || (result.bandCentersHz === undefined && result.frequenciesHz.length === result.frequencyBins));
 }
 
 function isPairSpectrumResult(value: unknown): value is PairSpectrumResult {

@@ -52,6 +52,8 @@ export interface SpectrumSliceLike {
     originalMaxFrequencyHz?: number;
     bandsPerOctave?: number;
     bandCentersHz?: number[];
+    /** FFT slices cut for display: each point's frequency; absent on a whole row, which is evenly spaced. */
+    frequenciesHz?: number[];
     unit?: string;
     axisLabel?: string;
 }
@@ -75,15 +77,23 @@ export function frequencyAtFraction(fraction: number, scale: FrequencyScale): nu
         : scale.frequencyMin + fraction * (scale.frequencyMax - scale.frequencyMin);
 }
 
-export function binFrequencyHz(slice: Pick<SpectrumSliceLike, 'frequencyBins' | 'maxFrequencyHz' | 'originalMaxFrequencyHz' | 'bandCentersHz'>, index: number): number {
+type SpectrumBinGrid = Pick<SpectrumSliceLike, 'frequencyBins' | 'maxFrequencyHz' | 'originalMaxFrequencyHz' | 'bandCentersHz' | 'frequenciesHz'>;
+
+export function binFrequencyHz(slice: SpectrumBinGrid, index: number): number {
     if (slice.bandCentersHz) {
         return slice.bandCentersHz[index];
+    }
+    if (slice.frequenciesHz) {
+        return slice.frequenciesHz[index];
     }
     return (index / Math.max(slice.frequencyBins - 1, 1)) * (slice.originalMaxFrequencyHz || slice.maxFrequencyHz);
 }
 
-/** The bin closest to a frequency, unclamped on the FFT grid; for bands the centre closest on the log axis. */
-export function nearestBinIndex(slice: Pick<SpectrumSliceLike, 'frequencyBins' | 'maxFrequencyHz' | 'originalMaxFrequencyHz' | 'bandCentersHz'>, frequencyHz: number): number {
+/**
+ * The bin closest to a frequency, unclamped on the FFT grid; for bands the centre closest on the log axis;
+ * for a row cut for display the closest of its points.
+ */
+export function nearestBinIndex(slice: SpectrumBinGrid, frequencyHz: number): number {
     const centers = slice.bandCentersHz;
     if (centers) {
         let best = 0;
@@ -93,6 +103,16 @@ export function nearestBinIndex(slice: Pick<SpectrumSliceLike, 'frequencyBins' |
             }
         }
         return best;
+    }
+    const points = slice.frequenciesHz;
+    if (points) {
+        let low = 0, high = points.length - 1;
+        while (high - low > 1) {
+            const middle = Math.floor((low + high) / 2);
+            if (points[middle] <= frequencyHz) low = middle;
+            else high = middle;
+        }
+        return Math.abs(points[high] - frequencyHz) <= Math.abs(points[low] - frequencyHz) ? high : low;
     }
     return Math.round((frequencyHz / (slice.originalMaxFrequencyHz || slice.maxFrequencyHz)) * Math.max(slice.frequencyBins - 1, 1));
 }

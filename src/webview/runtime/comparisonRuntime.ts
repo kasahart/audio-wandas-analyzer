@@ -267,6 +267,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         cursorNorm: number;
         globalCursorNorm: number;
         requestedAt: number;
+        fullResolution: boolean;
     }
     const spectrumRequests = new SpectrumRequestScheduler<DesiredSpectrumSliceRequest>({
         now: spectrumNow,
@@ -299,6 +300,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 filePath: request.filePath,
                 cursorNorm: request.cursorNorm,
                 ...(request.bandsPerOctave ? { bandsPerOctave: request.bandsPerOctave } : {}),
+                ...(request.fullResolution ? { fullResolution: true as const } : {}),
             });
         },
     });
@@ -704,6 +706,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         return pending.settingsSignature === currentSpectrumDataSignature()
             && Math.abs((pending.cursorNorm ?? -1) - localNorm) < spectrumCursorTolerance(result);
     }
+    /** While a CSV export waits, the cursor spectra asked for hold every FFT bin rather than the row cut for display. */
+    let spectrumCsvExportOpen = false;
     function requestSpectrumSlice(i: number, cursorNormValue: number) {
         // The folded cursor-spectrum panel leaves each lane's own small spectrum: only lanes near the view need theirs.
         if (!spectrumRequests.allowsSliceRequests || (layout.spectrumCollapsed && !laneInView(i))) {
@@ -720,12 +724,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         const settingsSignature = currentSpectrumDataSignature();
         const cached = record.spectrumSliceCache.get(0);
-        if (cached && cached.settingsSignature === settingsSignature && Math.abs((cached.cursorNorm ?? -1) - localNorm) < spectrumCursorTolerance(result)) {
+        if (cached && cached.settingsSignature === settingsSignature && Math.abs((cached.cursorNorm ?? -1) - localNorm) < spectrumCursorTolerance(result)
+            && !(spectrumCsvExportOpen && cached.frequenciesHz)) {
             return;
         }
         const key = spectrumSliceRequestKey(record.id);
         const pending = spectrumRequests.desiredFor(key) || record.requests.pending('slice')?.meta;
-        if (pending && pending.settingsSignature === settingsSignature && Math.abs((pending.cursorNorm ?? -1) - localNorm) < spectrumCursorTolerance(result)) {
+        if (pending && pending.settingsSignature === settingsSignature && Math.abs((pending.cursorNorm ?? -1) - localNorm) < spectrumCursorTolerance(result)
+            && (pending.fullResolution || !spectrumCsvExportOpen)) {
             return;
         }
         const requestId = nextRequestId('slice', i);
@@ -741,6 +747,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             filePath: result.filePath,
             generation: spectrumRequests.generation,
             requestedAt: spectrumNow(),
+            fullResolution: spectrumCsvExportOpen,
         });
     }
     function queuePlaybackSpectrumRequests(cursorNormValue: number) {
@@ -2844,6 +2851,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         // Like the PNG: lanes out of view ask for their cursor spectra first, and the file is written once those arrived.
         spectrumCursorNorm = viewState.cursor;
+        spectrumCsvExportOpen = true;
         requestEveryCursorSpectrum();
         announce(STR.announceExportCsvStarted || 'CSV export started');
         taskStatus(STR.exportCsvBusy, 'busy');
@@ -2872,6 +2880,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         let missing = false;
         const tracks: Array<{ name: string; slice: SpectrumSlice }> = [];
+        const omitted: string[] = [];
         trackStore.activeIds().forEach(function (trackId) {
             const record = trackStore.require(trackId);
             const result = record.result;
@@ -2883,12 +2892,19 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 const slice = extractSpectrumAtCursor(result, i, trackRuntimeAt(i).offsetSeconds, viewState.cursor, channelIndex);
                 // A lane out of view may still hold the spectrum of an earlier cursor position while this one is on its way.
                 const cached = record.spectrumSliceCache.get(channelIndex);
-                const stale = cached?.settingsSignature === currentSpectrumDataSignature() && isSpectrumSliceRequestPendingForCursor(i, viewState.cursor);
-                if (stale || !slice || !slice.values || slice.values.length === 0) {
-                    missing = missing || stale || trackLocalCursorNorm(i, viewState.cursor) !== null;
+                const current = cached?.settingsSignature === currentSpectrumDataSignature();
+                const stale = current && isSpectrumSliceRequestPendingForCursor(i, viewState.cursor);
+                // Inside the track only the backend's every-bin row is written: never the row cut for display, nor
+                // the spectrogram column drawn while that row is on its way.
+                const inside = trackLocalCursorNorm(i, viewState.cursor) !== null;
+                const waiting = stale || (inside && (!current || !!cached.frequenciesHz));
+                const name = (result.fileName || ('track' + (i + 1))) + ' ' + channelLabel(result, channelIndex);
+                if (waiting || !slice || !slice.values || slice.values.length === 0) {
+                    missing = missing || waiting || inside;
+                    if (waiting || inside) omitted.push(name);
                     return;
                 }
-                tracks.push({ name: (result.fileName || ('track' + (i + 1))) + ' ' + channelLabel(result, channelIndex), slice: slice });
+                tracks.push({ name, slice: slice });
             });
         });
         // A spectrum still on its way: write once the requests the export asked for are answered (or after a while).
@@ -2896,13 +2912,17 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             setTimeout(function () { writeCsvWhenDetailed(waitFor, deadline, exportCursorNorm); }, 100);
             return;
         }
+        spectrumCsvExportOpen = false;
         if (tracks.length === 0) {
             messaging.post({ type: 'show-info', message: STR.announceExportCsvFailed || 'CSV export failed: no spectrum data at cursor' });
             taskStatus(STR.announceExportCsvFailed, 'failed');
             return;
         }
         const csv = buildSpectrumCsv(tracks);
-        taskStatus(STR.exportCsvDone.replace('{name}', 'spectrum-export.csv'), 'done');
+        // A spectrum the backend failed (or never answered) is left out rather than written from the row cut for display.
+        const left = omitted.length > 0 ? STR.exportCsvOmitted.replace('{count}', String(omitted.length)).replace('{names}', omitted.join(', ')) : '';
+        if (left) messaging.post({ type: 'show-info', message: left });
+        taskStatus(STR.exportCsvDone.replace('{name}', 'spectrum-export.csv') + (left ? ' — ' + left : ''), 'done');
         if (messaging.downloadFile(csv, 'spectrum-export.csv', 'text/csv;charset=utf-8')) return;
         triggerAnchorDownload(document, 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv), 'spectrum-export.csv');
     }
@@ -3438,6 +3458,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         return collectSpectrumSeries(tracks, norm, spectrumSeriesSource);
     }
     function moveSpectrumHoverByBin(deltaIdx: number) {
+        const fromPointer = !spectrumHover.stepped;
+        spectrumHover.stepped = true;
         if (spectrumHover.norm === null) {
             spectrumHover.norm = 0.5;
         }
@@ -3450,7 +3472,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const result = record.result;
             const channelIndex = typeof spectrumHover.channelIndex === 'number' ? spectrumHover.channelIndex : 0;
             const slice = extractSpectrumAtCursor(result, trackIndex, record.runtime.offsetSeconds, viewState.cursor, channelIndex);
-            const nextNorm = slice ? steppedTrackSpectrumHoverNorm(slice, spectrumHover.norm, spectrumView.freqStart, spectrumView.freqEnd, deltaIdx) : null;
+            const laneCanvas = fromPointer ? canvasById(document, trackSpectrumCanvasId(trackIndex, channelIndex)) : null;
+            const nextNorm = slice ? steppedTrackSpectrumHoverNorm(slice, spectrumHover.norm, spectrumView.freqStart, spectrumView.freqEnd, deltaIdx, laneCanvas) : null;
             if (nextNorm !== null) {
                 spectrumHover.norm = nextNorm;
             }
@@ -3463,7 +3486,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const range = spectrumSeriesRange(slices);
         const vis = spectrumVisibleWindow(range.maxFrequencyHz, range.minDb, range.maxDb, spectrumView.state(), range.logMinFrequencyHz);
         const overlayC = canvasById(document, 'spectrum-overlay-canvas');
-        const nextNorm = steppedOverlaySpectrumHoverNorm(slices, spectrumHover.norm, spectrumHover.yFrac, overlayC, vis, deltaIdx);
+        const nextNorm = steppedOverlaySpectrumHoverNorm(slices, spectrumHover.norm, spectrumHover.yFrac, overlayC, vis, deltaIdx, fromPointer);
         if (nextNorm === null) {
             return;
         }
@@ -3554,7 +3577,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 return;
             }
             const hovered = spectrumHover.target === trackId && spectrumHover.channelIndex === channelIndex ? spectrumHover.norm : null;
-            const readout = paintTrackSpectrum(ctx, W, H, { slice, color: trackColor(i), label: spectrumReadoutTrackLabel(result, channelIndex) }, spectrumView.state(), hovered, drawTheme());
+            const readout = paintTrackSpectrum(ctx, W, H, { slice, color: trackColor(i), label: spectrumReadoutTrackLabel(result, channelIndex) }, spectrumView.state(), hovered, drawTheme(), spectrumHover.stepped);
             paintedByChannel.set(channelIndex, true);
             if (readout) {
                 setSpectrumReadout(document.getElementById('spectrum-freq-readout'), readout.text, readout.color);

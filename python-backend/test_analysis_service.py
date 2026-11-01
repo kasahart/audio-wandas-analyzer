@@ -4,7 +4,9 @@ import base64
 import io
 import math
 import wave
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 import dask.array as da
 import numpy as np
@@ -15,7 +17,7 @@ from scipy.signal import ShortTimeFFT, get_window
 
 from analysis_engine import AnalysisEngine, compute_spectrogram
 from analysis_service import AnalysisService
-from analyzer import normalize_stft_options
+from analyzer import SPECTRUM_DISPLAY_POINT_LIMIT, normalize_stft_options
 from backend_errors import InputError
 
 
@@ -54,16 +56,46 @@ def test_known_tones_keep_physical_frequency_in_live_fft_and_cached_stft(tmp_pat
                         rate / 2 / 191 / 2 + rate / n_fft
                     )
             result = service.spectrum_slice(path, cursor_norm=0.5, stft_options=options)
-            assert result["frequencyBins"] == 192
+            assert result["frequencyBins"] == min(n_fft // 2 + 1, SPECTRUM_DISPLAY_POINT_LIMIT)
+            assert ("frequenciesHz" in result) == (n_fft // 2 + 1 > SPECTRUM_DISPLAY_POINT_LIMIT)
             for tone, channel in zip(tones, result["channels"], strict=False):
-                peak = np.argmax(channel["values"])
-                assert abs(peak * result["maxFrequencyHz"] / 191 - tone) <= rate / 2 / 191 / 2 + rate / n_fft
+                assert abs(_slice_frequencies(result)[np.argmax(channel["values"])] - tone) <= rate / n_fft / 2
 
     sf.write(audio, samples[:, 2], rate, subtype="PCM_16")
     third = AnalysisService(AnalysisEngine()).spectrum_slice(audio, cursor_norm=0.5, stft_options=options)
-    assert abs(np.argmax(third["channels"][0]["values"]) * third["maxFrequencyHz"] / 191 - tones[2]) <= (
-        rate / 2 / 191 / 2 + rate / n_fft
-    )
+    assert abs(_slice_frequencies(third)[np.argmax(third["channels"][0]["values"])] - tones[2]) <= rate / n_fft / 2
+
+
+def _slice_frequencies(result: Mapping[str, Any]) -> np.ndarray:
+    if "frequenciesHz" in result:
+        return np.asarray(result["frequenciesHz"])
+    return np.linspace(0.0, result["maxFrequencyHz"], result["frequencyBins"])
+
+
+@pytest.mark.parametrize("n_fft", [1024, 8192, 16384])
+def test_cursor_spectrum_keeps_a_tone_at_its_frequency_and_level(tmp_path: Path, n_fft: int) -> None:
+    rate = 12000
+    audio = tmp_path / "tone.csv"
+    times = np.arange(2 * rate) / rate
+    tone = np.sqrt(2) * np.sin(2 * np.pi * 80 * times)
+    np.savetxt(audio, np.column_stack([times, tone]), delimiter=",", header="time,ch0", comments="")
+    options = {"nFft": n_fft, "overlapPercent": 75, "window": "hann"}
+    service = AnalysisService(AnalysisEngine())
+
+    shown = service.spectrum_slice(audio, cursor_norm=0.5, stft_options=options)
+    full = service.spectrum_slice(audio, cursor_norm=0.5, stft_options=options, full_resolution=True)
+
+    frame = service.engine.get_analysis(audio, None)[1]
+    start = int(round(shown["windowStartNorm"] * frame.n_samples))
+    expected = np.asarray(frame[:, start : start + n_fft].fft(n_fft=n_fft, window="hann").dB).reshape(-1)
+    assert full["frequencyBins"] == n_fft // 2 + 1 and "frequenciesHz" not in full
+    assert full["maxFrequencyHz"] / (full["frequencyBins"] - 1) == pytest.approx(rate / n_fft)
+    np.testing.assert_allclose(full["channels"][0]["values"], expected, atol=1e-3)
+    assert shown["frequencyBins"] <= SPECTRUM_DISPLAY_POINT_LIMIT
+    values = np.asarray(shown["channels"][0]["values"])
+    peak = int(np.argmax(values))
+    assert abs(_slice_frequencies(shown)[peak] - 80.0) <= max(1.5, rate / n_fft / 2)
+    assert abs(values[peak] - np.max(expected)) <= 0.5
 
 
 def test_service_exposes_all_use_cases_without_server_loop(tmp_path: Path) -> None:

@@ -467,6 +467,26 @@ def test_spectrum_slice_does_not_build_track_detail(monkeypatch, tmp_path: Path)
     assert len(resp["channels"][0]["values"]) == resp["frequencyBins"]
 
 
+@pytest.mark.parametrize("full_resolution", [False, True])
+def test_spectrum_slice_cuts_long_rows_for_display_unless_every_bin_is_asked_for(
+    tmp_path: Path, full_resolution: bool
+) -> None:
+    wav = tmp_path / "tone.wav"
+    _write_sine_wav(wav)
+    request = {
+        "filePath": str(wav),
+        "trackIndex": 0,
+        "cursorNorm": 0.5,
+        "stftOptions": {"nFft": 4096, "overlapPercent": 50, "window": "hann"},
+        **({"fullResolution": True} if full_resolution else {}),
+    }
+    resp = handle_spectrum_slice(request, AnalysisService(AnalysisEngine(cache_limit_bytes=10_000_000)))
+
+    assert resp["frequencyBins"] == (2049 if full_resolution else 1025)
+    assert ("frequenciesHz" in resp) is not full_resolution
+    assert len(resp["channels"][0]["values"]) == resp["frequencyBins"]
+
+
 @pytest.mark.parametrize("cached_detail", [False, True])
 def test_spectrum_slice_window_steps_with_the_stft_frames(tmp_path: Path, cached_detail: bool) -> None:
     wav = tmp_path / "tone.wav"

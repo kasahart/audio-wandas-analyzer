@@ -2471,9 +2471,16 @@ test('renderScript: export-csv creates a download anchor with data URI', async (
     };
 
     try {
+        const sentBefore = env.postedMessages.length;
         env.dom.window.document.querySelector('[data-action="export-csv"]')?.dispatchEvent(
             new env.dom.window.MouseEvent('click', { bubbles: true }),
         );
+        // The file waits for the backend's every-bin rows; the spectrogram column drawn meanwhile is never written.
+        assert.equal(created.find((a) => a.download === 'spectrum-export.csv'), undefined);
+        await answerCsvSpectrumRequests(env, SPECTRUM_APP_STATE, () => created.some((a) => a.download === 'spectrum-export.csv'));
+        const asked = env.postedMessages.slice(sentBefore).filter((msg: any) => msg.type === 'request-spectrum-slice');
+        assert.ok(asked.length > 0 && asked.every((request: any) => request.fullResolution === true),
+            'the export asks for every FFT bin');
 
         const anchor = created.find((a) => a.download === 'spectrum-export.csv');
         assert.ok(anchor, 'spectrum-export.csv という download 属性を持つ <a> が作られること');
@@ -2532,6 +2539,38 @@ function decodeDataUriPayload(uri: string): string {
     return decodeURIComponent(uri.slice(comma + 1));
 }
 
+/**
+ * Plays the backend for a CSV export: answers each cursor-spectrum request with the track's spectrogram column as
+ * every-bin rows, until `done` or the requests stop.
+ */
+async function answerCsvSpectrumRequests(env: any, stateJson: string, done: () => boolean): Promise<void> {
+    const state = JSON.parse(stateJson);
+    const answered: any[] = [];
+    for (let round = 0; round < 40 && !done(); round++) {
+        const open = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice' && !answered.includes(msg));
+        open.forEach((request: any) => {
+            answered.push(request);
+            const result = state.results[request.trackIndex];
+            const channels = result.channels.map((channel: any, channelIndex: number) => {
+                const values = channel.spectrogram.values[0];
+                return { channelIndex, values, minDb: Math.min(...values), maxDb: Math.max(...values) };
+            });
+            env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+                type: 'spectrum-slice-result',
+                requestId: request.requestId,
+                analysisId: request.analysisId,
+                settingsSignature: request.settingsSignature,
+                trackIndex: request.trackIndex,
+                filePath: request.filePath,
+                channels,
+                frequencyBins: channels[0].values.length,
+                maxFrequencyHz: result.channels[0].spectrogram.maxFrequencyHz,
+            } }));
+        });
+        await new Promise(resolve => env.dom.window.setTimeout(resolve, 30));
+    }
+}
+
 test('renderScript: multichannel CSV includes all spectrum channels', async () => {
     const env = setupMultichannelEnv();
     await nextAnimationFrame(env.dom);
@@ -2548,11 +2587,102 @@ test('renderScript: multichannel CSV includes all spectrum channels', async () =
         env.dom.window.document.querySelector('[data-action="export-csv"]')?.dispatchEvent(
             new env.dom.window.MouseEvent('click', { bubbles: true }),
         );
+        // The file waits for the backend's every-bin rows; the spectrogram column drawn meanwhile is never written.
+        assert.equal(created.find((a) => a.download === 'spectrum-export.csv'), undefined);
+        await answerCsvSpectrumRequests(env, MULTICHANNEL_APP_STATE, () => created.some((a) => a.download === 'spectrum-export.csv'));
 
         const anchor = created.find((a) => a.download === 'spectrum-export.csv');
         assert.ok(anchor, 'CSV download anchor が作られること');
         const csv = decodeDataUriPayload(anchor.href);
         assert.equal(csv.split('\n')[0], 'stereo.wav Channel 1 / 2 (Left) frequency (Hz),stereo.wav Channel 1 / 2 (Left) Spectrum level [dB],stereo.wav Channel 2 / 2 (Right) frequency (Hz),stereo.wav Channel 2 / 2 (Right) Spectrum level [dB]');
+    } finally {
+        env.dom.window.document.createElement = origCreate;
+        env.dom.window.close();
+    }
+});
+
+test('renderScript: export-csv replaces a cursor spectrum cut for display with every FFT bin', async () => {
+    const env = setupSpectrumEnv();
+    await nextAnimationFrame(env.dom);
+    const created: HTMLAnchorElement[] = [];
+    const origCreate = env.dom.window.document.createElement.bind(env.dom.window.document);
+    env.dom.window.document.createElement = function(tag: string) {
+        const el = origCreate(tag);
+        if (tag === 'a') { created.push(el as HTMLAnchorElement); }
+        return el;
+    };
+    try {
+        // The cursor spectra on screen: rows cut for display, each point at its own frequency.
+        for (let round = 0; round < 10; round++) {
+            const open = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice' && !msg.answered);
+            open.forEach((request: any) => {
+                request.answered = true;
+                env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+                    type: 'spectrum-slice-result', requestId: request.requestId, analysisId: request.analysisId,
+                    settingsSignature: request.settingsSignature, trackIndex: request.trackIndex, filePath: request.filePath,
+                    channels: [{ channelIndex: 0, values: [-90, 3, -70], minDb: -90, maxDb: 3 }],
+                    frequencyBins: 3, maxFrequencyHz: 22050, frequenciesHz: [0, 123.25, 20000],
+                } }));
+            });
+            await nextAnimationFrame(env.dom);
+        }
+        const sentBefore = env.postedMessages.length;
+        env.dom.window.document.querySelector('[data-action="export-csv"]')?.dispatchEvent(
+            new env.dom.window.MouseEvent('click', { bubbles: true }),
+        );
+        await answerCsvSpectrumRequests(env, SPECTRUM_APP_STATE, () => created.some((a) => a.download === 'spectrum-export.csv'));
+        const asked = env.postedMessages.slice(sentBefore).filter((msg: any) => msg.type === 'request-spectrum-slice');
+        assert.ok(asked.length > 0 && asked.every((request: any) => request.fullResolution === true));
+        const anchor = created.find((a) => a.download === 'spectrum-export.csv');
+        assert.ok(anchor, 'CSV download anchor が作られること');
+        const rows = decodeDataUriPayload(anchor.href).split('\n');
+        // Four evenly spaced bins per track from the every-bin answer; the cut row's 123.25 Hz point is not written.
+        assert.equal(rows.length, 1 + 4);
+        assert.equal(rows[2].split(',')[0], '7350.0000');
+        assert.ok(!rows.some(row => row.includes('123.2500')));
+    } finally {
+        env.dom.window.document.createElement = origCreate;
+        env.dom.window.close();
+    }
+});
+
+test('renderScript: export-csv leaves out a track whose every-bin spectrum failed and says so', async () => {
+    const env = setupSpectrumEnv();
+    await nextAnimationFrame(env.dom);
+    const created: HTMLAnchorElement[] = [];
+    const origCreate = env.dom.window.document.createElement.bind(env.dom.window.document);
+    env.dom.window.document.createElement = function(tag: string) {
+        const el = origCreate(tag);
+        if (tag === 'a') { created.push(el as HTMLAnchorElement); }
+        return el;
+    };
+    try {
+        const state = JSON.parse(SPECTRUM_APP_STATE);
+        const answered = new Set<any>();
+        env.dom.window.document.querySelector('[data-action="export-csv"]')?.dispatchEvent(
+            new env.dom.window.MouseEvent('click', { bubbles: true }),
+        );
+        for (let round = 0; round < 40 && !created.some((a) => a.download === 'spectrum-export.csv'); round++) {
+            env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice' && !answered.has(msg)).forEach((request: any) => {
+                answered.add(request);
+                const identity = { requestId: request.requestId, analysisId: request.analysisId, settingsSignature: request.settingsSignature,
+                    trackIndex: request.trackIndex, filePath: request.filePath };
+                // The second track's every-bin spectrum fails; the row cut for display it drew earlier must not stand in.
+                const data = request.trackIndex === 1
+                    ? { ...identity, type: 'spectrum-slice-error', error: 'backend failed' }
+                    : { ...identity, type: 'spectrum-slice-result', frequencyBins: 4, maxFrequencyHz: 22050,
+                        channels: [{ channelIndex: 0, values: state.results[0].channels[0].spectrogram.values[0], minDb: -90, maxDb: 0 }] };
+                env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data }));
+            });
+            await new Promise(resolve => env.dom.window.setTimeout(resolve, 30));
+        }
+        const anchor = created.find((a) => a.download === 'spectrum-export.csv');
+        assert.ok(anchor, 'CSV download anchor が作られること');
+        const header = decodeDataUriPayload(anchor.href).split('\n')[0];
+        assert.match(header, /spec-0\.wav/);
+        assert.doesNotMatch(header, /spec-1\.wav/);
+        const info = env.postedMessages.find((msg: any) => msg.type === 'show-info') as any;
+        assert.match(info?.message ?? '', /^1 spectrum\(s\) left out of the CSV: .*spec-1\.wav/);
     } finally {
         env.dom.window.document.createElement = origCreate;
         env.dom.window.close();
@@ -2575,6 +2705,9 @@ test('renderScript: export-csv preserves each track frequency axis', async () =>
         env.dom.window.document.querySelector('[data-action="export-csv"]')?.dispatchEvent(
             new env.dom.window.MouseEvent('click', { bubbles: true }),
         );
+        // The file waits for the backend's every-bin rows; the spectrogram column drawn meanwhile is never written.
+        assert.equal(created.find((a) => a.download === 'spectrum-export.csv'), undefined);
+        await answerCsvSpectrumRequests(env, MISMATCHED_DELTA_F_SPECTRUM_STATE, () => created.some((a) => a.download === 'spectrum-export.csv'));
 
         const anchor = created.find((a) => a.download === 'spectrum-export.csv');
         assert.ok(anchor, 'CSV download anchor が作られること');
@@ -2613,6 +2746,9 @@ test('renderScript: export-csv keeps original frequency axis after display max f
         env.dom.window.document.querySelector('[data-action="export-csv"]')?.dispatchEvent(
             new env.dom.window.MouseEvent('click', { bubbles: true }),
         );
+        // The file waits for the backend's every-bin rows; the spectrogram column drawn meanwhile is never written.
+        assert.equal(created.find((a) => a.download === 'spectrum-export.csv'), undefined);
+        await answerCsvSpectrumRequests(env, MISMATCHED_DELTA_F_SPECTRUM_STATE, () => created.some((a) => a.download === 'spectrum-export.csv'));
 
         const anchor = created.find((a) => a.download === 'spectrum-export.csv');
         assert.ok(anchor, 'CSV download anchor が作られること');
