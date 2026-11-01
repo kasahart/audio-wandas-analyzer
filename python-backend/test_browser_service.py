@@ -267,6 +267,21 @@ def test_run_recipe_uses_loaded_sources_and_rejects_paths(make_recipe) -> None:
         service.run_recipe(recipe, inputs={})
 
 
+def test_browser_roughness_recipe_on_a_too_short_source_is_a_settings_error(monkeypatch) -> None:
+    import browser_service
+
+    monkeypatch.setattr(browser_service, "service", create_service())
+    buffer = io.BytesIO()
+    sf.write(buffer, np.random.default_rng(0).normal(size=1000) * 0.1, 48000, format="WAV")
+    assert "error" not in json.loads(browser_service.load_source("short.wav", buffer.getvalue()))
+    recipe = json.loads((Path(__file__).resolve().parent / "recipes/roughness.recipe.json").read_text(encoding="utf-8"))
+    command = {"cmd": "run-recipe", "requestId": "r", "recipe": recipe, "inputs": {"signal": "/sources/short.wav"}}
+
+    error = json.loads(browser_service.dispatch_json(json.dumps(command)))["error"]
+
+    assert (error["code"], error["kind"]) == ("input-error", "analysis-settings"), error
+
+
 def test_browser_limits_are_published_from_the_python_constants() -> None:
     import json
 

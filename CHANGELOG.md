@@ -4,6 +4,7 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 
 ## Unreleased
 
+- Recipes: the roughness and roughness heatmap Recipes on a file shorter than their 200 ms window (9600 samples at 48 kHz) now say the settings don't fit this file, like the other Recipes, instead of "This request could not be processed." (#525).
 - Compare legend: each recording's chip names its role ("Base ▾", "Compare 1 ▾"), or offers "Role ▾" outlined when it has none (#538).
 - Web: the empty view offers "Try with samples": three short synthetic recordings (a hum, with a whine, with clicks) load on a click, to try the app without audio at hand (#536).
 - Help: a "? Help" button in the footer opens it in every view; it starts with the app's flow in three lines. The Web version's Python boot card no longer covers the empty view's prompt (#533).
