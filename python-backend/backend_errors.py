@@ -28,6 +28,11 @@ _SETTINGS_MODULES = (
     "scipy.signal.windows",
     "scipy.signal._signaltools",
 )
+# MoSQITo, which wandas' psychoacoustic operations call, does not check its input against what the metric
+# needs, so a signal that does not fit fails deep inside it or NumPy: roughness_dw splits the signal into
+# 200 ms windows and a shorter file reaches numpy.fft with 0 points. Such an error is recognised by the
+# operation it was raised under rather than by the module that raised it, so numpy.fft stays a fault elsewhere.
+_SETTINGS_OPERATION_MODULES = ("wandas.processing.psychoacoustic",)
 
 
 class InputError(ValueError):
@@ -72,6 +77,19 @@ def _raised_in(error: BaseException, modules: tuple[str, ...]) -> bool:
     while traceback.tb_next is not None:
         traceback = traceback.tb_next
     module = str(traceback.tb_frame.f_globals.get("__name__", ""))
+    return _in_modules(module, modules)
+
+
+def _raised_under(error: BaseException, modules: tuple[str, ...]) -> bool:
+    traceback = error.__traceback__
+    while traceback is not None:
+        if _in_modules(str(traceback.tb_frame.f_globals.get("__name__", "")), modules):
+            return True
+        traceback = traceback.tb_next
+    return False
+
+
+def _in_modules(module: str, modules: tuple[str, ...]) -> bool:
     return any(module == name or module.startswith(name + ".") for name in modules)
 
 
@@ -80,7 +98,9 @@ def _link_kind(error: BaseException) -> str | None:
         return OUT_OF_MEMORY
     if isinstance(error, InputError) and error.kind != INVALID_INPUT:
         return error.kind
-    if isinstance(error, ValueError) and _raised_in(error, _SETTINGS_MODULES):
+    if isinstance(error, ValueError) and (
+        _raised_in(error, _SETTINGS_MODULES) or _raised_under(error, _SETTINGS_OPERATION_MODULES)
+    ):
         return ANALYSIS_SETTINGS
     return None
 

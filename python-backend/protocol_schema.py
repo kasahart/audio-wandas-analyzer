@@ -182,7 +182,8 @@ DEFINITIONS: dict[str, Schema] = {
             "measurement": {"$ref": "#/$defs/ChannelMeasurementContext"},
             "peakLevelDb": _NUMBER,
             "rawPeakFullScale": _NUMBER,
-            "clipped": {"type": "boolean"},
+            # null: the source (a CSV) has no full scale to clip against.
+            "clipped": {"anyOf": [{"type": "boolean"}, _NULL]},
             "waveform": {"$ref": "#/$defs/WaveformEnvelope"},
             # null until track-detail computes it.
             "spectrogram": {"anyOf": [{"$ref": "#/$defs/SpectrogramData"}, _NULL]},

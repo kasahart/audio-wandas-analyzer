@@ -889,6 +889,34 @@ def test_scipy_parameter_checks_on_a_short_signal_are_settings_errors(operation)
     assert backend_errors.error_payload(raised.value)["kind"] == "analysis-settings", raised.value
 
 
+_BUNDLED_RECIPES = Path(__file__).resolve().parent / "recipes"
+
+
+@pytest.mark.parametrize("name", ["roughness", "roughness-heatmap"])
+def test_a_bundled_roughness_recipe_on_a_file_shorter_than_its_window_is_a_settings_error(
+    tmp_path: Path, name: str
+) -> None:
+    # Daniel-Weber roughness analyses 200 ms windows: int(0.2 * 48000) = 9600 samples at 48 kHz (#525).
+    recipe = json.loads((_BUNDLED_RECIPES / f"{name}.recipe.json").read_text(encoding="utf-8"))
+    short = _short_recording(tmp_path, "short.wav")
+    window = tmp_path / "window.wav"
+    sf.write(window, np.random.default_rng(0).normal(size=9600) * 0.1, 48000)
+
+    error = _error_reply({"cmd": "run-recipe", "requestId": "r", "recipe": recipe, "inputs": {"signal": str(short)}})
+    result = _dispatch({"cmd": "run-recipe", "requestId": "r", "recipe": recipe, "inputs": {"signal": str(window)}})
+
+    assert (error["code"], error["kind"]) == ("input-error", "analysis-settings"), error
+    assert "FFT data points" in error["message"], "the library's text stays as the detail"
+    assert result["charts"], "a file as long as one window still runs"
+
+
+def test_a_numpy_fft_error_outside_a_psychoacoustic_operation_stays_a_fault() -> None:
+    with pytest.raises(ValueError) as raised:
+        np.fft.fft(np.zeros(4), n=0)
+
+    assert backend_errors.error_payload(raised.value)["kind"] == "analysis-failed"
+
+
 def test_a_recipe_filter_cutoff_above_the_files_nyquist_is_an_analysis_settings_error(tmp_path: Path) -> None:
     low_rate = tmp_path / "16k.wav"
     _write_samples(low_rate, 16000, rate=16000)

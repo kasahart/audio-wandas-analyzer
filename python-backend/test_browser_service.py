@@ -267,6 +267,21 @@ def test_run_recipe_uses_loaded_sources_and_rejects_paths(make_recipe) -> None:
         service.run_recipe(recipe, inputs={})
 
 
+def test_browser_roughness_recipe_on_a_too_short_source_is_a_settings_error(monkeypatch) -> None:
+    import browser_service
+
+    monkeypatch.setattr(browser_service, "service", create_service())
+    buffer = io.BytesIO()
+    sf.write(buffer, np.random.default_rng(0).normal(size=1000) * 0.1, 48000, format="WAV")
+    assert "error" not in json.loads(browser_service.load_source("short.wav", buffer.getvalue()))
+    recipe = json.loads((Path(__file__).resolve().parent / "recipes/roughness.recipe.json").read_text(encoding="utf-8"))
+    command = {"cmd": "run-recipe", "requestId": "r", "recipe": recipe, "inputs": {"signal": "/sources/short.wav"}}
+
+    error = json.loads(browser_service.dispatch_json(json.dumps(command)))["error"]
+
+    assert (error["code"], error["kind"]) == ("input-error", "analysis-settings"), error
+
+
 def test_browser_limits_are_published_from_the_python_constants() -> None:
     import json
 
@@ -392,6 +407,20 @@ def test_load_accepts_every_format_wandas_reads(extension: str) -> None:
     # Lossy codecs do not give the samples back exactly.
     if extension not in {".ogg", ".oga", ".opus", ".mp3"}:
         np.testing.assert_allclose(frame.data, data.T, atol=1e-4)
+
+
+@pytest.mark.parametrize(("extension", "clipped"), [(".wav", True), (".csv", None)])
+def test_browser_flags_clipping_only_for_sources_with_a_full_scale(extension: str, clipped: bool | None) -> None:
+    rate = 8000
+    time = np.arange(800) / rate
+    amplitude = 1.0 if extension == ".wav" else np.sqrt(2)
+    data = np.column_stack([amplitude * np.sin(2 * np.pi * 80 * time)] * 2)
+    service = create_service()
+    path = service.engine.load(f"tone{extension}", _encoded(extension, data, rate))["filePath"]
+
+    channels = service.analyze(path)["channels"]
+
+    assert [channel["clipped"] for channel in channels] == [clipped, clipped]
 
 
 def test_typescript_extension_list_matches_wandas() -> None:
