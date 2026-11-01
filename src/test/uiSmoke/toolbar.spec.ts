@@ -173,10 +173,22 @@ test('static page CSP allows recipe charts and calibration clicks report unsuppo
 });
 
 
+test('static page: the empty view offers the samples, which load as three tracks, and then is no longer offered', async ({ page }) => {
+    await openStaticPage(page);
+    const strings = await page.evaluate(() => (window as typeof window & { __APP_STRINGS__: Record<string, string> }).__APP_STRINGS__);
+    const samples = page.locator('#empty-state [data-action="open-samples"]');
+    await expect(samples).toHaveText(strings.btnTrySamples);
+    await expect(samples).toBeVisible();
+    await samples.click();
+    await expect(page.locator('.track-row')).toHaveCount(3);
+    await expect(page.locator('.track-row').first()).toContainText('sample-1-hum');
+    await expect(samples).toBeHidden();
+});
+
 test('static page prompts in the empty results pane and keeps limits behind the About disclosure', async ({ page }) => {
     await openStaticPage(page);
     const strings = await page.evaluate(() => (window as typeof window & { __APP_STRINGS__: Record<string, string> }).__APP_STRINGS__);
-    await expect(page.locator('#empty-state')).toHaveText(strings.browserEmptyPrompt);
+    await expect(page.locator('#empty-state p')).toHaveText(strings.browserEmptyPrompt);
     await expect(page.locator('span[role="status"]')).toHaveText('');
     // The selection panel is the only place that opens sources; its entry table waits for something to list.
     await expect(page.locator('#selection-sidebar')).toBeVisible();
@@ -209,7 +221,7 @@ test('static page prompts in the empty results pane and keeps limits behind the 
     await expect(panel).toContainText(strings.browserAboutFileLimits);
     await expect(panel).toContainText(strings.browserAboutSessionLimits);
     await expect(panel).toContainText(strings.browserAboutUnsupported);
-    await page.locator('#empty-state').click();
+    await page.locator('#empty-state').click({ position: { x: 5, y: 5 } });
     await expect(panel).toBeHidden();
     await page.setViewportSize({ width: 820, height: 900 });
     await page.locator('[data-action="browser-about"]').click();
@@ -217,13 +229,13 @@ test('static page prompts in the empty results pane and keeps limits behind the 
     expect(box.x).toBeGreaterThanOrEqual(0);
     expect(box.x + box.width).toBeLessThanOrEqual(820);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(820);
-    await page.locator('#empty-state').click();
+    await page.locator('#empty-state').click({ position: { x: 5, y: 5 } });
     await page.setViewportSize({ width: 1400, height: 900 });
     await page.locator('[data-action="browser-about"]').click();
     await expect.poll(async () => { const opened = (await panel.boundingBox())!; return opened.y + opened.height; }).toBeLessThanOrEqual(footerBox.y);
     await page.setViewportSize({ width: 640, height: 900 });
     await expect.poll(async () => { const resized = (await panel.boundingBox())!; return resized.x + resized.width; }).toBeLessThanOrEqual(640);
-    await page.locator('#empty-state').click();
+    await page.locator('#empty-state').click({ position: { x: 5, y: 5 } });
     await page.setViewportSize({ width: 1400, height: 900 });
     await page.locator('[data-action="browser-about"]').click();
     await page.keyboard.press('Escape');
@@ -236,7 +248,7 @@ test('static page prompts in the empty results pane and keeps limits behind the 
     await expect(page.locator('#entry-screen')).not.toHaveClass(/is-max/);
     await expect(page.locator('#selection-toolbar [data-action="open-folder"]')).toHaveText(strings.btnOpenAnotherFolder);
     await page.locator('[data-action="remove-track"]').click();
-    await expect(page.locator('#empty-state')).toHaveText(strings.emptyNoTracks);
+    await expect(page.locator('#empty-state p')).toHaveText(strings.emptyNoTracks);
     await expect(entryRow(page, '/sources/selected.wav')).not.toHaveClass(/is-shown/);
 });
 
@@ -272,7 +284,7 @@ test('static page opens a folder onto the entry table, whose rows become tracks 
     await expect(page.locator('.track-row')).toHaveCount(0);
     await expect(page.locator('#entry-dock tr[data-file-path]')).toHaveCount(2);
     // A click on a row only picks it; its ☐ shows the file as a track and ☑ takes it off. The empty view says so.
-    await expect(page.locator('#empty-state')).toHaveText(getStrings('en').emptyNoTracks);
+    await expect(page.locator('#empty-state p')).toHaveText(getStrings('en').emptyNoTracks);
     await entryRow(page, '/sources/rec/first.wav').locator('.entry-nm').click();
     await expect(page.locator('.track-row')).toHaveCount(0);
     await entryRow(page, '/sources/rec/first.wav').locator('td.entry-mark').click();

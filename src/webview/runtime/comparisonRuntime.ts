@@ -1566,6 +1566,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             toolbarHtml: buildToolbar(),
             audioHtml: buildAudioElements(),
             emptyMessage,
+            samples: typeof vscode.openSamples === 'function',
             axisWidth: AXIS_W,
             spectrumBandsPerOctave,
             spectrumCollapsed: layout.spectrumCollapsed,
@@ -2454,6 +2455,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function handleSelectionAction(action: string) {
         if (action === 'open-file' || action === 'open-folder' || action === 'select-python-environment') {
             handleToolbarAction(action);
+            return true;
+        }
+        if (action === 'open-samples') {
+            vscode.openSamples?.();
             return true;
         }
         if (action === 'toggle-selection-sidebar') {

@@ -51,6 +51,8 @@ export interface UiStrings {
     panelTitle: string;
     emptyAllExcluded: string;
     emptyNoTracks: string;
+    btnTrySamples: string;
+    hintTrySamples: string;
     selectionEmptyHint: string;
     btnOpenFile: string;
     btnOpenAnotherFolder: string;
@@ -767,6 +769,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
     en: {
         panelTitle: 'Audio Wandas Analyzer',
         emptyAllExcluded: 'All tracks are excluded',
+        btnTrySamples: 'Try with samples',
+        hintTrySamples: 'Load three short synthetic recordings: a hum, the same hum with a 2.8 kHz whine, and with clicks',
         emptyNoTracks: 'Click ☐ on a row of the table to show its file here as a track; click ☑ to remove it',
         selectionEmptyHint: 'Open a folder to list every file here',
         btnOpenFile: '＋ Add files',
@@ -1511,6 +1515,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
     ja: {
         panelTitle: 'Audio Wandas Analyzer',
         emptyAllExcluded: 'すべてのトラックが除外されています',
+        btnTrySamples: 'サンプルで試す',
+        hintTrySamples: '短い合成音を 3 本読み込む：うなり、同じうなりに 2.8 kHz の高い音、クリック',
         emptyNoTracks: '表の行の ☐ をクリックすると、そのファイルをここにトラックとして表示します。☑ をクリックで消えます',
         selectionEmptyHint: 'フォルダを開くと、全ファイルの表がここに出ます',
         btnOpenFile: '＋ファイルを追加',

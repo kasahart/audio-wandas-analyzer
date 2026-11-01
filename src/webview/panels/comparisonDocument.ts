@@ -814,6 +814,8 @@ export function renderComparisonStyles(): string {
             flex-direction: column; gap: 12px; color: var(--muted); font-size: 14px;
         }
         #empty-state.is-visible { display: flex; }
+        /* The samples are a way to start: once something is listed, the empty view no longer offers them. */
+        #directory-selection-layout:not(.is-empty) #empty-state [data-action="open-samples"] { display: none; }
         #audio-host { display: none; }
 
         /* ── Directory selection ── */
