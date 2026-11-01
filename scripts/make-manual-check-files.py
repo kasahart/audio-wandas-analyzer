@@ -57,7 +57,7 @@ def playback(out: Path) -> None:
     right = np.concatenate([np.zeros(2 * RATE), faded(tone(880, 2, 0.2)), faded(tone(660, 2, 0.2))])
     write(out / "03_再生_左→右→両方.wav", np.column_stack([left, right]))
 
-    # One beep per second whose pitch rises each second (1 s = 400 Hz, 2 s = 500 Hz ...), so the
+    # One beep per second whose pitch rises each second (0 s = 400 Hz, 1 s = 500 Hz ...), so the
     # heard pitch tells which second is playing: checks loop range and cursor sync by ear.
     beeps = np.zeros(10 * RATE)
     for second in range(10):
