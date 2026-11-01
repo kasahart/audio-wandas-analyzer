@@ -182,8 +182,6 @@ export interface EntryScreen {
     stageChannel(path: string, comparePath: string | null, group?: boolean): number | null;
     /** The comparison of a file with its base, as the table defines the base (over `results` when given, e.g. a region's). */
     comparison(comparePath: string, group?: boolean, results?: ReadonlyMap<string, ScanResult>, entryRegionBase?: boolean): CompareModel;
-    /** A base group's median 1/3-octave levels from the table's computed values (the compared channel), for a base too large to scan unasked. */
-    tableBaseBands(comparePath: string, group?: boolean): { centers: number[]; values: (number | null)[]; count: number } | null;
     /** How much audio these files are and about how long computing them takes, by the files' lengths. */
     cost(paths: readonly string[]): { seconds: number; ms: number };
     /** A compared file's name (with its channel), its value on show and its memo. */
@@ -1505,7 +1503,6 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         comparison: (comparePath, byGroup = false, over, entryRegionBase = false) => entryBase.comparison(comparePath, byGroup, over, entryRegionBase),
         rowInfo: path => rowInfo(path),
         cost: paths => ({ seconds: progress.seconds(paths), ms: progress.estimateMs(paths) }),
-        tableBaseBands: (comparePath, byGroup = false) => entryBase.tableBands(comparePath, byGroup),
         selection: () => ({
             value: valueLabel(chosen.value), group: chosen.group === 'none' ? strings.dsGroupNone : groupLabel(chosen.group),
             filters: chosen.filters.map(filter => chipText(filter)), excluded: excluded.size,

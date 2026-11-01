@@ -19,7 +19,7 @@ import type { PlotMargins, PlotWindow } from './plotInteraction';
 import { axisFractionOf, axisValueAt, paintOverlay, stageAxes, stageDiffRange, stageDifference, stageRange, STAGE_MARGINS, type StageAxes } from './stagePanes';
 import { createDetailPlanner } from './stageDetail';
 import { createStageSource, type StageSpec } from './stageSource';
-import { recipeWithout, stepChipLabel, stepLimits, OCTAVE_BRANCH } from './stepBar';
+import { recipeWithout, stepChipLabel, stepLimits } from './stepBar';
 
 /** A tap on a slot key shorter than this puts the row in; longer is a hold that shows the slot's Δ on the side. */
 export const TAP_MS = 250;
@@ -123,18 +123,11 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
     }
     function paintStep({ step, path }: { step: RecipeStep; path: string }): void {
         held.hidden = false;
-        const row = buildCompareModel(deps.entryModel(), deps.results, path, null, strings);
         const input = deps.results.get(path)?.input;
-        const name = step.name === 'welch' ? strings.stepAverage : step.id === OCTAVE_BRANCH ? strings.stepOctave : strings.stepHeldWithout.replace('{step}', stepChipLabel(step, strings));
+        const name = step.name === 'welch' ? strings.stepAverage : strings.stepHeldWithout.replace('{step}', stepChipLabel(step, strings));
         title.textContent = strings.stepHeldRow.replace('{what}', name).replace('{file}', baseName(path));
         held.classList.remove('is-pending');
         const zoom = deps.keepWindow('held', step.id);
-        if (step.id === OCTAVE_BRANCH) {
-            // The app's bands, from the table's own scan.
-            const bands = sideView(row.compare, row.frequencies, true);
-            paintView(bands, bands, stageRange([bands]), stageAxes(strings, bands, input), zoom, { color: ROLE_COLORS[1] });
-            return;
-        }
         const specs = heldSpecs(step);
         const waiting = !!specs && [specs.with, specs.without].some(spec => spec && source.ensure(spec, [path]));
         const coarse = specs ? source.view(specs.with, path) ?? null : null;
@@ -199,7 +192,6 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
         },
         canHold(step: RecipeStep): boolean {
             if (step.operation === TIME_SLICE) return false;
-            if (step.id === OCTAVE_BRANCH) return true;
             const recipe = deps.recipe();
             if (!recipe) return false;
             const steps = recipeNodes(recipe).map(node => node.id);

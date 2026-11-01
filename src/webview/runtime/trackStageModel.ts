@@ -6,9 +6,9 @@ import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import type { StageView } from '../../shared/protocol/backendProtocol';
 import type { UiStrings } from '../../shared/i18n/strings';
 import type { EntryRegion } from '../../shared/analysis/entryScan';
-import { activeSlotReferenced, brokenStep, chainEnd, recipeKey, recipeSteps, slotReferenced, TIME_SLICE, type RecipeStep, type StepLimits } from '../../shared/recipe/recipeSteps';
+import { activeSlotReferenced, recipeKey, recipeSteps, slotReferenced, TIME_SLICE, type RecipeStep, type StepLimits } from '../../shared/recipe/recipeSteps';
 import { withChannel } from '../../shared/recipe/channelSelection';
-import { endsInSpectrum, INPUT_STAGE, OCTAVE_BRANCH, recipeWithout, unpairedRecipe } from './stepBarModel';
+import { INPUT_STAGE, recipeWithout, unpairedRecipe } from './stepBarModel';
 import type { StageSpec } from './stageSource';
 import { FULL_PLOT_WINDOW, type PlotWindow } from './plotInteraction';
 import { medianView, stageDifference } from './stagePanes';
@@ -20,7 +20,7 @@ export interface StageRecipe { recipe: RecipeDocument; runRecipe?: RecipeDocumen
 /** What the mode remembers between paints. */
 export interface TrackStageState {
     on: boolean;
-    /** The step chosen on the bar (null: the chain's end, or its 1/3-octave branch). */
+    /** The step chosen on the bar (null: the chain's end). */
     stage: string | null;
     /** Whether the comparison has been opened before: the first time it shows the input, after that the step shown last. */
     opened: boolean;
@@ -69,18 +69,13 @@ export function liveRegion(recipe: RecipeDocument | undefined, regionSet: EntryR
 }
 
 /**
- * The step shown: the input, the app's 1/3-octave branch (where a comparison opens while the chain ends in a spectrum,
- * as the table's band column reads it), a step that cannot run (shown as such), the step before a bypassed one, else
- * the step chosen, or the chain's end.
+ * The step shown: the input, a step that cannot run (shown as such), the step before a bypassed one, else the step
+ * chosen, or the chain's end.
  */
 export function chosenStage(recipe: RecipeDocument, limits: StepLimits, stage: string | null): string | null {
     const all = recipeSteps(recipe, limits);
     const steps = all.filter(step => step.invalid === undefined && !step.bypassed);
     if (stage === INPUT_STAGE) return INPUT_STAGE;
-    // The app's 1/3-octave branch stands beside a chain that ends in a spectrum: its bands are a step to show too.
-    // A comparison opens on it, as the table's band column reads it, so the headline and the table agree.
-    const spectral = endsInSpectrum(recipe, limits) || (!!brokenStep(recipe, limits) && ['SpectralFrame', 'NOctFrame'].includes(chainEnd(recipe, limits)));
-    if ((stage ?? OCTAVE_BRANCH) === OCTAVE_BRANCH && spectral) return OCTAVE_BRANCH;
     const at = all.findIndex(step => step.id === stage);
     // A step that cannot run is shown as such (paint says why); a bypassed one, as the chain gives it there: the step before.
     if (at >= 0 && all[at].invalid !== undefined) return stage;
@@ -118,7 +113,7 @@ export function regionStageSpec(recipe: StageRecipe | null, region: EntryRegion 
 
 /** What holding `step` draws: the chain without it (and the steps that then cannot run), on the step on screen `id`. */
 export function holdStageSpec(recipe: StageRecipe | null, id: string | null, step: RecipeStep, limits: StepLimits, region: EntryRegion | null, ch: number | null = null): StageSpec | undefined {
-    if (!recipe || !id || step.id === OCTAVE_BRANCH || step.operation === TIME_SLICE) return undefined;
+    if (!recipe || !id || step.operation === TIME_SLICE) return undefined;
     const steps = recipeSteps(recipe.recipe, limits).filter(item => item.invalid === undefined);
     const at = steps.findIndex(item => item.id === id);
     const shownOf = step.id === id ? steps[at - 1]?.id : id;
@@ -147,10 +142,10 @@ export interface StagePlots<T> { base: StageView | null; baseMembers: Array<{ pa
  * The base is the median of its files' pictures (`baseOf`, else `views`) once all are in, else `fallback`; a group's
  * waveforms are its members, each drawn as it is.
  */
-export function plotsOf<T extends { filePath: string }>(views: (path: string) => StageView | null | undefined, tracks: readonly T[], comparePath: string | null, basePaths: readonly string[], fallback: StageView | null = null, baseOf = views): StagePlots<T> {
+export function plotsOf<T extends { filePath: string }>(views: (path: string) => StageView | null | undefined, tracks: readonly T[], comparePath: string | null, basePaths: readonly string[], baseOf = views): StagePlots<T> {
     const baseViews = basePaths.map(baseOf).filter((view): view is StageView => !!view);
     const complete = baseViews.length > 0 && baseViews.length === basePaths.length;
-    const base = complete ? medianView(baseViews) : fallback;
+    const base = complete ? medianView(baseViews) : null;
     const members = basePaths.map(path => ({ path, view: baseOf(path) })).filter((item): item is { path: string; view: StageView } => !!item.view);
     const baseMembers = members.length > 1 && members.every(item => item.view.waveform) ? members : [];
     const compare = comparePath ? views(comparePath) ?? null : null;
@@ -161,10 +156,4 @@ export function plotsOf<T extends { filePath: string }>(views: (path: string) =>
 /** A base group's title with its waveforms drawn each: "n files" rather than "median of n". */
 export function eachBaseTitle(title: string, count: number, strings: Pick<UiStrings, 'entryBaseMedian' | 'entryBaseCount'>): string {
     return title.replace(strings.entryBaseMedian.replace('{count}', String(count)), strings.entryBaseCount.replace('{count}', String(count)));
-}
-
-/** A gated base group's 1/3-octave levels from the table, on the compared file's bands (a band within 6 %); null without them. */
-export function tableBaseView(compare: StageView | null, bands: { centers: number[]; values: (number | null)[] } | null): StageView | null {
-    if (!bands || !compare?.values || !compare.xs) return null;
-    return { ...compare, waveform: undefined, values: compare.xs.map(x => { const at = bands.centers.findIndex(center => Math.abs(center - x) / x < 0.06); return at >= 0 ? bands.values[at] : null; }) };
 }

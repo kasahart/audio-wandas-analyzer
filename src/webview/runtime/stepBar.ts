@@ -1,8 +1,8 @@
 /**
  * The step bar: the scan Recipe as wandas runs it, a chain of wandas methods, the same on the entry table
  * and the comparison. "Steps", the input, then every step as a round chip joined by →, each with a dot in the
- * colour of the Frame it gives; the stage on screen is framed, the steps after it dimmed, the app's
- * 1/3-octave branch beside the chain's end. … adds what the app computes outside the Recipe. Pressing a chip
+ * colour of the Frame it gives; the stage on screen is framed, the steps after it dimmed. … adds what the app
+ * computes outside the Recipe. Pressing a chip
  * shows that step's Frame (the input chip, the files' waveforms); holding it shows what the step does; ⚙
  * opens its settings and Remove, the bypass button skips the step while keeping it in place, × removes it,
  * dragging moves it, ↶ ↷ (Ctrl+Z, Ctrl+Shift+Z) undo and redo. ＋ on every link and at the end adds an
@@ -16,7 +16,7 @@ import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { addableOperations, CROSS_CHANNEL, PAIRED_ON_ADD, SLOT_REFERABLE, SELECT_PAIR, movedStep, recipeNodes, recipeSteps, withStep, withoutSteps, withBypass, withSlotReference, TIME_SLICE, type RecipeStep, type StepLimits } from '../../shared/recipe/recipeSteps';
 import { catalogOperation, INPUT_FRAME } from '../../shared/recipe/recipeCatalog';
 import { keyRouterFor } from './keyRouter';
-import { frameAfter, INPUT_STAGE, OCTAVE_BRANCH, orderedSteps, removable, stepFlow, stepLimits, type RegionRange, type StepBarState } from './stepBarModel';
+import { frameAfter, INPUT_STAGE, orderedSteps, removable, stepFlow, stepLimits, type RegionRange, type StepBarState } from './stepBarModel';
 import { stepLabel } from './stepLabels';
 import { createStepHistory } from './stepHistory';
 import { stepChipsHtml } from './stepChips';
@@ -24,7 +24,7 @@ import { attachStepDrag, attachStepHold } from './stepGestures';
 import { checkStepForm, regionFormDraft, regionLength, stepFormDraft, stepFormHtml, stepFormKey } from './stepForm';
 import { stepMenuAt, stepMenuHtml, stepMenuKey, stepMenuListHtml, type StepMenuContext, type StepMenuState } from './stepMenu';
 
-export { endsInSpectrum, INPUT_STAGE, OCTAVE_BRANCH, recipeWithout, runnableRecipe, stepLimits, unpairedRecipe, type RegionRange, type StepBarState, type StepBarStrings } from './stepBarModel';
+export { endsInSpectrum, INPUT_STAGE, recipeWithout, runnableRecipe, stepLimits, unpairedRecipe, type RegionRange, type StepBarState, type StepBarStrings } from './stepBarModel';
 export { invalidReason, stepChipLabel } from './stepLabels';
 
 export { STEP_TAP_MS } from './stepGestures';
@@ -106,7 +106,7 @@ export function createStepBar(deps: {
     }
     const undo = (): void => travel(edits.undo(now()), strings.stepUndone);
     const redo = (): void => travel(edits.redo(now()), strings.stepRedone);
-    /** The chain's steps in the order they run, then the app's 1/3-octave branch. */
+    /** The chain's steps in the order they run. */
     const all = (recipe: RecipeDocument): RecipeStep[] => orderedSteps(stepFlow(recipe, state));
     const chipsHtml = (): string => (state.recipe
         ? stepChipsHtml({ recipe: state.recipe, state, strings, mode: deps.mode, expanded, open, menu, regionSettable: !!deps.onRegionSet, inputSelectable: !!deps.onInputSelect, canUndo: edits.canUndo(), canRedo: edits.canRedo() })
@@ -186,7 +186,7 @@ export function createStepBar(deps: {
     function bypass(stepId: string): void {
         if (!state.recipe) return;
         const step = recipeSteps(state.recipe, limits()).find(item => item.id === stepId);
-        if (!step || step.id === OCTAVE_BRANCH || (!removable(step) && step.operation !== TIME_SLICE)) return;
+        if (!step || (!removable(step) && step.operation !== TIME_SLICE)) return;
         // A cross-channel step's pair goes with it: alone, it would have no pairs to pick from.
         const pair = CROSS_CHANNEL.has(step.operation) ? pairAfter(stepId) : undefined;
         const bypassed = withBypass(state.recipe, stepId, !step.bypassed);

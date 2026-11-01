@@ -1270,7 +1270,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const role = trackRole(path);
             return roleChipHtml(path, role && { slot: role.slot, ch: null }, i >= 0 ? ownTrackColor(i) : '', STR);
         },
-        tableBaseBands: (comparePath, group) => entryScreen.tableBaseBands(comparePath, group),
         cost: paths => entryScreen.cost(paths),
         showCompared: () => entryScreen.showCompared(),
         batch: () => entryScreen.openBatch(),

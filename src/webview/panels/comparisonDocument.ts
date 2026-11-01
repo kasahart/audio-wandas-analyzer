@@ -568,8 +568,6 @@ export function renderComparisonStyles(): string {
         .step-bar .step-chip:hover > .step-x, .step-bar .step-chip:focus-within > .step-x, .step-bar .step-chip.is-current > .step-x { opacity: 1; }
         .step-bar .step-x::before { content: '×'; }
         .step-bar .step-x:hover { color: var(--entry-flag); border-color: var(--entry-flag); }
-        /* The app's 1/3-octave branch stands apart at the bar's end: a thin rule, no arrow from the chain. */
-        .step-bar .step-branch { display: inline-flex; align-items: center; padding-left: 10px; margin-left: 6px; border-left: 1px solid var(--line); }
         .step-bar .step-chip.is-dragging { opacity: 0.3; }
         /* Room above the chips for the bypass button that sits on their top edge. */
         .entry-screen .step-bar, .step-bar.track-stage-bar { padding-top: 14px; overflow: visible; }

@@ -126,21 +126,21 @@ test('a selection on the tracks becomes the comparison\'s region as it opens, on
     await expect(root).toHaveAttribute('data-region', '0.50–1.50');
     await expect(bar.locator('.step-chip', { hasText: STR.stepRegion })).toHaveText(`${STR.stepRegion} 0.50–1.50 s`);
     await answer(page);
-    // The first opening shows the input; on the 1/3-octave bands the base's table values can stand in.
+    // The first opening shows the input; then the average spectrum.
     await expect(bar.locator('.step-chip.is-current')).toHaveAttribute('data-step-input', '');
-    await bar.locator('.step-branch [data-step-hold]').click();
-    await expect.poll(async () => ((await posted(page)).filter(message => message.type === 'compare-scan').at(-1) as { stage?: string } | undefined)?.stage).toBe('node-noct');
+    await bar.locator('.step-chip', { hasText: STR.stepAverage }).locator('[data-step-hold]').click();
+    await expect.poll(async () => ((await posted(page)).filter(message => message.type === 'compare-scan').at(-1) as { stage?: string } | undefined)?.stage).toBe('node-2');
     await answer(page);
     await expect(page.locator('[data-stage-headline]')).toContainText(`${STR.stepRegion} 0.50–1.50 s`);
-    // The base group (too many to analyse unasked) has no line over a region: the table's values are of whole files.
+    // The base group (too many to analyse unasked) has no line until it is analysed.
     const baseEntry = page.locator('[data-stage-legend] .compare-legend-item').first().locator('.compare-legend-label');
     await expect(baseEntry).toContainText(STR.stageBaseNoLine);
     await expect(page.locator('[data-action="stage-base-scan"]')).toContainText('with the same steps');
-    // ↶ takes the region back: the whole files, and the table's values stand in for the base again.
+    // ↶ takes the region back: the whole files, the base group still not analysed.
     await bar.locator('[data-action="step-undo"]').click();
     await expect(root).toHaveAttribute('data-region', 'all');
     await answer(page);
-    await expect(baseEntry).toContainText(STR.stageBaseTableNote);
+    await expect(baseEntry).toContainText(STR.stageBaseNoLine);
     // A region already set is not replaced by the tracks' selection on opening again.
     await page.keyboard.press('Escape');
     await page.evaluate(() => window.dispatchEvent(new MessageEvent('message', { data: {

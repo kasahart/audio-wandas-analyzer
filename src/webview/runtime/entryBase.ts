@@ -7,12 +7,10 @@
 import type { UiStrings } from '../../shared/i18n/strings';
 import type { ScanResult } from '../../shared/protocol/backendProtocol';
 import { baseGroupMembers, fileOfKey, groupOf, type DatasetRow, type GroupId } from '../../shared/dataset/datasetTable';
-import { median } from '../../shared/dataset/distribution';
 import { channelResult } from '../../shared/recipe/channelSelection';
-import { powerMeanOrNull } from '../../shared/utils/levels';
 import { buildCompareModel, type CompareModel } from './comparePanes';
 import { comparedKeys, roleKey } from './entrySlots';
-import { BAND_CENTERS_HZ, type BaseDefinition, type EntryModel } from './entryTable';
+import { type BaseDefinition, type EntryModel } from './entryTable';
 
 /** A channel row of a recording of several channels is compared as that channel; otherwise the channels together. */
 export const channelOfRow = (row: DatasetRow | undefined): number | null => (row && (row.channels ?? 1) > 1 ? row.ch : null);
@@ -59,8 +57,6 @@ export interface EntryBase {
     text(): string;
     /** The group whose median is the base: the one chosen, else slot 1's (slot 0 empty, a grouping chosen). */
     groupName(): string | null;
-    /** A base group's median 1/3-octave levels from the table's computed values (the compared channel). */
-    tableBands(comparePath: string, byGroup?: boolean): { centers: number[]; values: (number | null)[]; count: number } | null;
 }
 
 export function createEntryBase(deps: EntryBaseDeps): EntryBase {
@@ -139,18 +135,5 @@ export function createEntryBase(deps: EntryBaseDeps): EntryBase {
             return `${deps.groupLabel(group)} ${name || '—'} · ${strings.entryBaseMedian.replace('{count}', String(members.length))}`;
         },
         groupName,
-        tableBands(comparePath: string, byGroup = false) {
-            const base = resolve(comparePath, byGroup);
-            const levels = base.paths.flatMap(path => {
-                const result = base.channel ? channelResult(results.get(path), base.channel) : results.get(path);
-                const bands = result?.ok ? result.thirdOctDb : undefined;
-                if (!bands?.length || deps.isStale(path)) return [];
-                // A recording's channels together, power-averaged, as the comparison's sides are.
-                return [bands[0].map((_, band) => powerMeanOrNull(bands.map(channel => channel[band])))];
-            });
-            if (!levels.length) return null;
-            const values = levels[0].map((_, band) => median(levels.map(item => item[band]).filter((level): level is number => level !== null)));
-            return { centers: BAND_CENTERS_HZ.slice(0, values.length), values, count: levels.length };
-        },
     };
 }

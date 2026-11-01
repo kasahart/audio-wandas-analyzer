@@ -152,8 +152,6 @@ def condition_id(
 
 WELCH_OPERATION = "wandas.audio.welch"
 NOCT_OPERATION = "wandas.audio.noct_spectrum"
-# The app's 1/3-octave branch beside the chain: not a Recipe node, but a step the comparison can show.
-OCTAVE_STAGE = "node-noct"
 # The input as the comparison draws it: the files' signals as they come in, before any step.
 INPUT_STAGE = "node-input"
 
@@ -521,8 +519,6 @@ def scan_cached(
         "ref": ref,
     }
     known = {*plans["upstream"], plans["region"].output, *(step for step, _ in plans["steps"])}
-    if plans["noct"] is not None:
-        known.add(OCTAVE_STAGE)
     if stage == INPUT_STAGE:
         return _stage_result(described, stage_view(picked, _length_s(picked), detail))
     if stage is not None and stage not in known:
@@ -618,8 +614,6 @@ def scan_cached(
         else welch_in_parts(plans["welch"], signal, welch_params(recipe)) or plans["welch"].apply({"region": signal})
     )
     octave = plans["noct"].apply({"region": signal}) if plans["noct"] is not None else None
-    if stage == OCTAVE_STAGE:
-        return _stage_result(described, _against_base(stage_view(octave, None, detail), vs_base))
     metrics = measure(signal, spectrum, octave, passband=passband(recipe))
     return {
         "ok": True,

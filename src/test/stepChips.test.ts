@@ -6,7 +6,7 @@ import { JSDOM } from 'jsdom';
 import { getStrings } from '../shared/i18n/strings';
 import { recipeSteps, withBypass, withParam } from '../shared/recipe/recipeSteps';
 import type { RecipeDocument } from '../shared/recipe/recipeSelection';
-import { INPUT_STAGE, OCTAVE_BRANCH } from '../webview/runtime/stepBarModel';
+import { INPUT_STAGE } from '../webview/runtime/stepBarModel';
 import { stepChipsHtml, type StepChipsContext } from '../webview/runtime/stepChips';
 
 const entry = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8')) as RecipeDocument;
@@ -19,10 +19,9 @@ const context = (extra: Partial<StepChipsContext> = {}): StepChipsContext => ({
 const chips = (extra: Partial<StepChipsContext> = {}): DocumentFragment => JSDOM.fragment(`<nav>${stepChipsHtml(context(extra))}</nav>`);
 const ids = (root: DocumentFragment, selector: string): string[] => Array.from(root.querySelectorAll(selector), chip => chip.getAttribute('data-step-id') ?? '');
 
-test('the row: ↶ ↷, the name, the input, the steps joined by → ＋ (the region chip only with a region), ＋, the branch apart', () => {
+test('the row: ↶ ↷, the name, the input, the steps joined by → ＋ (the region chip only with a region), ＋', () => {
     const root = chips();
-    assert.deepEqual(ids(root, '.step-chip'), [hpf.id, welch.id, OCTAVE_BRANCH]);
-    assert.deepEqual(ids(root, '.step-branch .step-chip'), [OCTAVE_BRANCH]);
+    assert.deepEqual(ids(root, '.step-chip'), [hpf.id, welch.id], 'the Recipe\'s steps only: no 1/3-octave chip of the app\'s');
     assert.ok(root.querySelector('[data-step-input]:not(.step-chip)'), 'the entry table\'s input is not a chip');
     // A link adds right before the chip after it, behind the region chip that is not shown.
     assert.deepEqual(Array.from(root.querySelectorAll('[data-action="step-insert"]'), button => button.getAttribute('data-after')), ['', slice.id]);
@@ -33,9 +32,9 @@ test('the row: ↶ ↷, the name, the input, the steps joined by → ＋ (the re
     assert.ok(chips({ expanded: true }).querySelector('.step-outside-row .awa-tag'));
 });
 
-test('the stage on screen is framed, the steps after it dimmed; the branch is never after', () => {
+test('the stage on screen is framed, the steps after it dimmed', () => {
     const entryRow = chips();
-    assert.deepEqual(ids(entryRow, '.is-current'), [OCTAVE_BRANCH]);
+    assert.deepEqual(ids(entryRow, '.is-current'), [welch.id]);
     assert.deepEqual(ids(entryRow, '.is-after'), []);
     const compare = chips({ mode: 'compare', state: { recipe: entry, sampleRate: 16000, stage: hpf.id } });
     assert.deepEqual(ids(compare, '.is-current'), [hpf.id]);
@@ -44,12 +43,11 @@ test('the stage on screen is framed, the steps after it dimmed; the branch is ne
     assert.deepEqual(ids(input, '.step-chip.step-input.is-current'), [INPUT_STAGE]);
 });
 
-test('a chip\'s buttons: ⚙, bypass and × on a step; the region chip\'s own ⚙ and × on the comparison; none on the branch', () => {
+test('a chip\'s buttons: ⚙, bypass and × on a step; the region chip\'s own ⚙ and × on the comparison', () => {
     const root = chips({ mode: 'compare', regionSettable: true, state: { recipe: entry, sampleRate: 16000, regionRange: { start: 0.5, end: 1 } } });
     const actions = (id: string): string[] => Array.from(root.querySelectorAll(`[data-step-id="${id}"] [data-action]`), button => button.getAttribute('data-action') ?? '');
     assert.deepEqual(actions(hpf.id), ['step-settings', 'step-bypass', 'step-delete']);
     assert.deepEqual(actions(slice.id), ['step-settings', 'step-bypass', 'step-region-clear']);
-    assert.deepEqual(actions(OCTAVE_BRANCH), []);
     assert.equal(root.querySelector(`[data-step-id="${hpf.id}"]`)?.getAttribute('draggable'), 'true');
     assert.equal(root.querySelector(`[data-step-id="${slice.id}"]`)?.hasAttribute('draggable'), false);
     assert.match(root.querySelector(`[data-step-id="${slice.id}"] .step-body`)?.textContent ?? '', /0\.50–1\.00 s/);
@@ -58,7 +56,7 @@ test('a chip\'s buttons: ⚙, bypass and × on a step; the region chip\'s own �
 test('a step that cannot run is marked, says why, and passes its mark on; a bypassed one is pressed', () => {
     const broken = withParam(entry, hpf.id, hpf.editable[0], 9000);
     const root = chips({ recipe: broken, state: { recipe: broken, sampleRate: 16000 } });
-    assert.deepEqual(ids(root, '.is-invalid'), [hpf.id, welch.id, OCTAVE_BRANCH]);
+    assert.deepEqual(ids(root, '.is-invalid'), [hpf.id, welch.id]);
     assert.equal(root.querySelector(`[data-step-id="${hpf.id}"] .step-dot`)?.getAttribute('data-kind'), '');
     const bypassed = withBypass(entry, hpf.id, true);
     const off = chips({ recipe: bypassed, state: { recipe: bypassed, sampleRate: 16000 } });

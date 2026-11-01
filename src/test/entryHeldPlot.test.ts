@@ -8,7 +8,7 @@ import { TIME_SLICE } from '../shared/recipe/recipeSteps';
 import { createHeldPlot, DELTA_RELEASE_MS, narrowed, TAP_MS, type HeldPlotDeps } from '../webview/runtime/entryHeldPlot';
 import { buildEntryModel } from '../webview/runtime/entryTable';
 import { FULL_PLOT_WINDOW } from '../webview/runtime/plotInteraction';
-import { OCTAVE_BRANCH, stepChipLabel } from '../webview/runtime/stepBar';
+import { stepChipLabel } from '../webview/runtime/stepBar';
 
 const strings = getStrings('en');
 
@@ -115,19 +115,19 @@ test('a held step needs a scanned row: without one the footer says so; let go, i
     const results = new Map<string, ScanResult>([['/d/a.wav', scanned()], ['/d/bad.wav', { ok: false, reason: 'x' }]]);
     const { document, window, held, title, plot, calls, state } = setup(results);
     state.focused = '/d/bad.wav';
-    plot.holdStep(step({ id: OCTAVE_BRANCH }));
+    plot.holdStep(step({}));
     assert.equal(document.getElementById('hint-footer')?.textContent, strings.stepHeldNoRow);
     assert.deepEqual(calls, []);
     state.focused = null;
     state.slots = [null, '/d/a.wav', null, null];
-    plot.holdStep(step({ id: OCTAVE_BRANCH }));
+    plot.holdStep(step({}));
     assert.deepEqual(calls, [['side', null]], 'slot 1 is the row without a focused one');
     plot.paint();
     assert.equal(held.hidden, false);
-    assert.equal(title.textContent, strings.stepHeldRow.replace('{what}', strings.stepOctave).replace('{file}', 'a.wav'));
+    assert.equal(title.textContent, strings.stepHeldRow.replace('{what}', strings.stepHeldWithout.replace('{step}', stepChipLabel(step({}), strings))).replace('{file}', 'a.wav'));
     plot.holdStep(null);
     window.advance(DELTA_RELEASE_MS - 1);
-    plot.holdStep(step({ id: OCTAVE_BRANCH }));
+    plot.holdStep(step({}));
     window.advance(DELTA_RELEASE_MS);
     plot.paint();
     assert.equal(held.hidden, false, 'held again before it went, it stays');
@@ -147,7 +147,6 @@ test('a step without a Recipe to draw from says it cannot be drawn; the region a
     assert.equal(title.textContent, strings.stepHeldRow.replace('{what}', strings.stepHeldWithout.replace('{step}', stepChipLabel(step({}), strings))).replace('{file}', 'a.wav'));
     assert.equal(plot.picture(), null);
     assert.equal(plot.canHold(step({ operation: TIME_SLICE })), false);
-    assert.equal(plot.canHold(step({ id: OCTAVE_BRANCH })), true, 'the app\'s bands are always the table\'s own');
     assert.equal(plot.canHold(step({})), false, 'no Recipe: nothing to hold');
     assert.equal(plot.handle({ type: 'entry-scan-result' }), false);
 });

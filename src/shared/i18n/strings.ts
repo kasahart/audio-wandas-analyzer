@@ -209,7 +209,6 @@ export interface UiStrings {
     stepLowpass: string;
     stepBandpass: string;
     stepAverageFft: string;
-    stepOctaveHint: string;
     stepNeedChannels: string;
     stepNarrowedChannels: string;
     stepOffChannels: string;
@@ -340,8 +339,6 @@ export interface UiStrings {
     hintEntryExport: string;
     dsBatch: string;
     stageBaseScan: string;
-    stageBaseTableNote: string;
-    stageBaseTableHint: string;
     stageBaseNoLine: string;
     stepRegionImported: string;
     hintBatch: string;
@@ -957,7 +954,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepLowpass: 'LPF',
         stepBandpass: 'BPF',
         stepAverageFft: '{name} {n}',
-        stepOctaveHint: 'The value in the table\'s band column',
         stepNeedChannels: 'Needs two channels, and a file here has only one. Set its reference to the base recording (⚙), or remove it.',
         stepNarrowedChannels: '{op} leaves one channel: this step needs two. Move it before {op}, or remove one of them.',
         stepOffChannels: 'Needs two channels: a file here has only one',
@@ -1088,8 +1084,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintEntryExport: 'The table\'s exports: the Recipe for many files, the table and its memos as CSV',
         dsBatch: 'Export the Recipe for many files',
         stageBaseScan: "Analyse the base group's {n} recordings with the same steps · about {time}",
-        stageBaseTableNote: ' (table values · whole files)',
-        stageBaseTableHint: "Drawn from the levels the table computed over each whole file ({m} of {n}); analysing the base group may move the line",
         stageBaseNoLine: ' (not analysed: no line yet)',
         stepRegionImported: "Region set from the tracks' selection (× or ↶ takes it off)",
         hintBatch: 'The Recipe, the list of recordings and a script that runs it with wandas, as one folder: nothing runs in the app',
@@ -1702,7 +1696,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepLowpass: 'ローパス',
         stepBandpass: 'バンドパス',
         stepAverageFft: '{name}（FFT {n} 点）',
-        stepOctaveHint: '表の帯域列の値',
         stepNeedChannels: '2 チャンネルが必要ですが、1 チャンネルのファイルがあります。⚙ で参照を「基準の録音」にするか、外してください',
         stepNarrowedChannels: '{op} で 1 チャンネルになっています。この手順には 2 チャンネルが必要です。{op} より前に動かすか、どちらかを外してください',
         stepOffChannels: '2 チャンネルが必要です（1 チャンネルのファイルあり）',
@@ -1833,8 +1826,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintEntryExport: '表の書き出し：レシピのまとめ、表とメモの CSV',
         dsBatch: 'レシピをまとめて書き出す',
         stageBaseScan: '基準群 {n} 本も同じ手順で解析・約 {time}',
-        stageBaseTableNote: '（表の値・全区間）',
-        stageBaseTableHint: '表が各ファイルの全区間で計算した値（{n} 本中 {m} 本）から描いています。基準群を解析すると線が変わることがあります',
         stageBaseNoLine: '（未解析・線なし）',
         stepRegionImported: 'トラックの選択を区間にしました（× か ↶ で外す）',
         hintBatch: 'Recipe と録音の一覧、それを wandas で実行するスクリプトを 1 つのフォルダに書き出します。アプリの中では実行しません',
@@ -1912,7 +1903,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepOutsideHeading: 'Recipe の外（アプリで計算）',
         stepOpen: '詳しく：各手順の結果の種類と、手順の間に足す＋',
         stepClose: '詳しくを閉じる',
-        stepOctave: '1/3 oct 帯域（表の値）',
+        stepOctave: '1/3 oct',
         stepFrameHint: 'wandas {op}',
         slotEmpty: '空き',
         axisFrequency: '周波数 [Hz]',

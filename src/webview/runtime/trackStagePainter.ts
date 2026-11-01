@@ -213,8 +213,6 @@ export function overlayLegendItems(frame: Pick<StageFrame, 'comparePath' | 'refe
     /** What the ▾ says (the median, or each waveform as is); the median without it. */
     aggregate?: string;
     gated: boolean;
-    tableBase: StageView | null;
-    tableBands: { count: number } | null;
     count: number;
     held: boolean;
     playable: (path: string) => Pick<LegendItem, 'path' | 'playing'>;
@@ -222,9 +220,8 @@ export function overlayLegendItems(frame: Pick<StageFrame, 'comparePath' | 'refe
     const { comparePath, referencePath, strings } = frame;
     const roleColor = (path: string, fallback?: string): string => colorOf(frame.role, path, fallback);
     return [
-        // A base group not analysed: drawn from the table's whole-file values, or not drawn at all, as its entry says.
-        ...(comparePath && !referencePath ? [{ color: ROLE_COLORS[0], label: base.title + (!base.gated ? '' : base.tableBase ? strings.stageBaseTableNote : strings.stageBaseNoLine),
-            ...(base.gated && base.tableBase && base.tableBands ? { hint: strings.stageBaseTableHint.replace('{m}', String(base.tableBands.count)).replace('{n}', String(base.count)) } : {}),
+        // A base group not analysed is not drawn, as its entry says.
+        ...(comparePath && !referencePath ? [{ color: ROLE_COLORS[0], label: base.title + (base.gated ? strings.stageBaseNoLine : ''),
             ...(base.group ? { trailingHtml: `<button type="button" class="tb-link stage-base-more" data-action="stage-base-info" aria-label="${escapeHtml(base.aggregate ?? strings.stageBaseAggregate)}">▾</button>` } : {}) }] : []),
         ...(comparePath ? [{ color: roleColor(comparePath, ROLE_COLORS[1]), ...frame.named(comparePath, frame.role(comparePath)), active: true, held: base.held, ...base.playable(comparePath) }] : []),
         ...plots.others.map(item => ({ color: roleColor(item.track.filePath), ...frame.named(item.track.filePath, frame.role(item.track.filePath)), ...base.playable(item.track.filePath) })),
