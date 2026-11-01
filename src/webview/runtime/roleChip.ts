@@ -29,7 +29,7 @@ export function roleChipHtml(filePath: string, role: RoleChipRole | undefined, f
     const style = role ? 'background:' + ROLE_COLORS[role.slot] : named ? '' : '--role-fallback:' + fallback;
     return '<details class="role-chip' + (named ? ' is-named' : '') + '" data-file-path="' + escapeHtml(filePath) + '">'
         + '<summary class="role-chip-face' + (role ? '' : ' is-none') + '"' + (style ? ' style="' + style + '"' : '') + ' data-role="' + (role ? role.slot : '') + '"'
-        + hintAttr(strings.roleChipHint) + ' aria-label="' + escapeHtml((role ? roleLabel(role.slot, strings) : strings.roleNone) + ' — ' + strings.roleChipHint) + '">' + escapeHtml(text) + '</summary>'
+        + hintAttr(strings.roleChipHint) + ' aria-label="' + escapeHtml((named ? text.replace(/ ▾$/, '') : role ? roleLabel(role.slot, strings) : strings.roleNone) + ' — ' + strings.roleChipHint) + '">' + escapeHtml(text) + '</summary>'
         + '<div class="role-chip-menu"></div>'
         + '</details>';
 }
