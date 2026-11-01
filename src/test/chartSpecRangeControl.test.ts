@@ -778,8 +778,8 @@ test('lineAutoRange leaves a series that already spans more than the minimum unc
 });
 
 test('lineAutoRange widens a linear series only past floating-point rounding, and to 1 around zero', () => {
-    const half = lineAutoRange({ yScale: 'linear' }, 0.5 - 1e-8, 0.5 + 1e-8);
-    assert.ok(Math.abs(half.max - half.min - 5e-6) < 1e-9, JSON.stringify(half));
+    const big = lineAutoRange({ yScale: 'linear' }, 1e6 - 1e-3, 1e6 + 1e-3);
+    assert.ok(Math.abs(big.max - big.min - 10) < 1e-6, JSON.stringify(big));
     assert.deepEqual(lineAutoRange({ yScale: 'linear' }, 0, 0), { min: -0.5, max: 0.5 });
 });
 
@@ -790,7 +790,7 @@ test('lineAutoRange keeps the range of real variation on a large offset', () => 
 });
 
 test('lineAutoRange measures the free side from a single fixed bound beyond the data', () => {
-    assert.deepEqual(lineAutoRange({ yMin: 0 }, -5, -4), { min: 0, max: 5e-5 });
+    assert.deepEqual(lineAutoRange({ yMin: 0 }, -5, -4), { min: 0, max: 4e-4 });
     assert.deepEqual(lineAutoRange({ yScale: 'db', yMax: -10 }, -3, -2), { min: -16, max: -10 });
     assert.deepEqual(lineAutoRange({ yMin: 0 }, 2, 4), { min: 0, max: 4 });
 });
@@ -828,4 +828,19 @@ test('a flat -6 dB line is drawn with y ticks spanning the minimum dB span, not 
     for (const tick of ['-3.0', '-4.5', '-6.0', '-7.5', '-9.0']) {
         assert.ok(texts.includes(tick), `tick ${tick} in ${JSON.stringify(texts.slice(0, 12))}`);
     }
+});
+
+function autoTickLabels(dataMin: number, dataMax: number): string[] {
+    const range = lineAutoRange({ yScale: 'linear' }, dataMin, dataMax);
+    const format = yTickFormatter(range.min, range.max, 2);
+    return [0, 1, 2, 3, 4].map(i => format(range.max - (i / 4) * (range.max - range.min)));
+}
+
+test('a constant or near-constant linear series always gets five distinct tick labels', () => {
+    for (const [lo, hi] of [[0.5, 0.5], [1 - 1e-4, 1 + 1e-4], [0.01, 0.01], [-3.25, -3.25]]) {
+        const labels = autoTickLabels(lo, hi);
+        assert.equal(new Set(labels).size, 5, `${lo}..${hi}: ${JSON.stringify(labels)}`);
+        assert.ok(labels.every(label => label.length <= 7), JSON.stringify(labels));
+    }
+    assert.deepEqual(autoTickLabels(0.5, 0.5), ['0.5002', '0.5001', '0.5000', '0.4999', '0.4998']);
 });

@@ -33,6 +33,14 @@ function isFiniteValue(value: unknown): value is number {
     return Number.isFinite(value);
 }
 
+/** Labels fit the 46 px y-axis margin: at most this many decimals in fixed notation. */
+const MAX_TICK_DECIMALS = 4;
+/** Below this magnitude ticks are written in exponent notation (`-1.0e-4`), which stays seven characters. */
+const EXPONENT_BELOW = 1e-2;
+/** The five y ticks are four steps apart. */
+const TICK_STEPS = 4;
+/** The smallest span whose ticks still differ in fixed notation: one last-decimal unit per step. */
+const FIXED_NOTATION_MIN_SPAN = TICK_STEPS / 10 ** MAX_TICK_DECIMALS;
 /** A dB axis spans at least this much, so a flat response reads as flat (as the pair spectrum's gain row). */
 const DB_MIN_SPAN = 6;
 /**
@@ -41,6 +49,15 @@ const DB_MIN_SPAN = 6;
  * (101325 ± 10 Pa is 1e-4). Quantities with a known scale (phase, coherence) set it in the spec instead.
  */
 const LINEAR_MIN_RELATIVE_SPAN = 1e-5;
+
+/**
+ * Rounding-only floor for a linear axis, raised where the ticks print in fixed notation to what its
+ * decimals can tell apart, so a constant series never shows five equal labels; 1 when every value is zero.
+ */
+function linearMinSpan(magnitude: number): number {
+    const rounding = magnitude * LINEAR_MIN_RELATIVE_SPAN;
+    return (magnitude >= EXPONENT_BELOW ? Math.max(rounding, FIXED_NOTATION_MIN_SPAN) : rounding) || 1;
+}
 
 /**
  * The y range a line chart scales to when the user has not set one. Fixed bounds in the spec (a bounded
@@ -57,7 +74,7 @@ export function lineAutoRange(
     if (!isFinite(min) || !isFinite(max)) { min = 0; max = 1; }
     const minSpan = spec.yMinSpan != null ? spec.yMinSpan
         : spec.yScale === 'db' ? DB_MIN_SPAN
-        : Math.max(Math.abs(min), Math.abs(max)) * LINEAR_MIN_RELATIVE_SPAN || 1;
+        : linearMinSpan(Math.max(Math.abs(min), Math.abs(max)));
     if (max - min < minSpan) {
         const center = (min + max) / 2;
         min = center - minSpan / 2;
@@ -72,10 +89,6 @@ export function lineAutoRange(
     return { min: lo, max: hi };
 }
 
-/** Labels fit the 46 px y-axis margin: at most this many decimals in fixed notation. */
-const MAX_TICK_DECIMALS = 4;
-/** Below this magnitude ticks are written in exponent notation (`-1.0e-4`), which stays seven characters. */
-const EXPONENT_BELOW = 1e-2;
 
 /**
  * Formats the five y ticks of [min, max]: enough decimals (no fewer than `fewest`) for them to read as
@@ -83,7 +96,7 @@ const EXPONENT_BELOW = 1e-2;
  * notation instead of a long run of zeros.
  */
 export function yTickFormatter(min: number, max: number, fewest: number): (value: number) => string {
-    const step = (max - min) / 4;
+    const step = (max - min) / TICK_STEPS;
     const wanted = step > 0 ? Math.ceil(-Math.log10(step)) + 1 : fewest;
     const decimals = Math.min(MAX_TICK_DECIMALS, Math.max(fewest, wanted));
     if (wanted > MAX_TICK_DECIMALS && Math.max(Math.abs(min), Math.abs(max)) < EXPONENT_BELOW) {
