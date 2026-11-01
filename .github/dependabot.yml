@@ -7,6 +7,16 @@ updates:
     groups:
       npm-dev:
         dependency-type: development
+    ignore:
+      # typescript-eslint supports TypeScript < 6.1 only; move together.
+      - dependency-name: typescript
+        update-types: [version-update:semver-major]
+      # Follows the Node version in .nvmrc / engines.node.
+      - dependency-name: '@types/node'
+        update-types: [version-update:semver-major]
+      # Must not exceed engines.vscode, or vsce refuses to package.
+      - dependency-name: '@types/vscode'
+        update-types: [version-update:semver-major, version-update:semver-minor]
   # pyproject.toml lower bounds and the CI pins in python-backend/constraints.txt.
   - package-ecosystem: pip
     directories: [/, /python-backend]
