@@ -80,3 +80,21 @@ for (const [bins, tone] of [[1025, 40], [8193, 320]]) {
         }
     });
 }
+
+for (const [bins, tone] of [[1025, 40], [8193, 320]]) {
+    for (const delta of [1, -1]) {
+        test(`after the pointer, the first arrow press moves the overlay readout one bin from the bin shown (${bins} bins, ${delta > 0 ? '→' : '←'})`, () => {
+            const values = Array.from({ length: bins }, (_, bin) => -Math.abs(bin - tone) / 10);
+            const dense: SpectrumSeries[] = [{ ...series[0], slice: { values, frequencyBins: bins, maxFrequencyHz: 24000, minDb: -100, maxDb: 0, unit: 'dB' } }];
+            const binHz = (bin: number) => bin * 24000 / (bins - 1);
+            const readoutAt = (bin: number) => spectrumReadoutText('A', dense[0].slice, binHz(bin), values[bin]);
+            const vis = spectrumVisibleWindow(24000, -100, 0, fullView);
+            const { ctx } = recordingCtx();
+            const pointer = { norm: binHz(tone) / 24000 + 1 / 300, yFrac: 0.1, target: 'overlay' as const };
+            assert.equal(paintOverlaySpectrum(ctx, 356, 200, dense, fullView, pointer, null, DEFAULT_THEME).readout?.text, readoutAt(tone));
+            const norm = steppedOverlaySpectrumHoverNorm(dense, pointer.norm, 0.1, { width: 356, height: 200 }, vis, delta, true) ?? NaN;
+            const hover = { norm, yFrac: 0.1, target: 'overlay' as const, stepped: true };
+            assert.equal(paintOverlaySpectrum(ctx, 356, 200, dense, fullView, hover, null, DEFAULT_THEME).readout?.text, readoutAt(tone + delta));
+        });
+    }
+}

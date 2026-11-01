@@ -311,10 +311,22 @@ export function steppedSpectrumHoverNorm(slice: SpectrumSlice, binIdx: number, d
 
 const UNIT_PLOT = { padLeft: 0, plotWidth: 1, padTop: 0, plotHeight: 1 };
 
-export function steppedTrackSpectrumHoverNorm(slice: SpectrumSlice, hoverNorm: number, freqStart: number, freqEnd: number, deltaIdx: number): number | null {
+/**
+ * `pointerCanvas` is the lane's canvas when the hover was last moved by the pointer: the step then starts from the
+ * bin its readout shows (its pixel's loudest), not from the bin nearest the pointer.
+ */
+export function steppedTrackSpectrumHoverNorm(
+    slice: SpectrumSlice,
+    hoverNorm: number,
+    freqStart: number,
+    freqEnd: number,
+    deltaIdx: number,
+    pointerCanvas: { width: number; height: number } | null = null,
+): number | null {
     const visible = spectrumVisibleWindow(slice.maxFrequencyHz, slice.minDb, slice.maxDb,
         { freqStart, freqEnd, dbMin: null, dbMax: null }, sliceLogMinFrequencyHz(slice));
-    const snap = spectrumBinAtHover(slice, hoverNorm, { ...UNIT_PLOT, ...visible });
+    const frame = pointerCanvas ? spectrumPlotFrame(pointerCanvas.width, pointerCanvas.height, TRACK_SPECTRUM_PAD, visible) : { ...UNIT_PLOT, ...visible };
+    const snap = spectrumBinAtHover(slice, hoverNorm, frame, pointerCanvas !== null);
     return snap ? steppedSpectrumHoverNorm(slice, snap.binIdx, deltaIdx, visible.frequencyMin, visible.frequencyMax, visible.logFrequency) : null;
 }
 
@@ -329,6 +341,7 @@ export function steppedOverlaySpectrumHoverNorm(
     canvas: { width: number; height: number } | null,
     visible: SpectrumVisibleWindow,
     deltaIdx: number,
+    fromPointer = false,
 ): number | null {
     if (series.length === 0) {
         return null;
@@ -336,9 +349,11 @@ export function steppedOverlaySpectrumHoverNorm(
     // mouseY must be in the same pixel space as the painter's frame, or the nearest series differs from the highlighted one.
     const frame = canvas ? spectrumPlotFrame(canvas.width, canvas.height, OVERLAY_SPECTRUM_PAD, visible) : { ...UNIT_PLOT, ...visible };
     const mouseY = canvas && yFrac !== null ? yFrac * canvas.height : null;
-    const nearest = nearestSpectrumSnap(series, hoverNorm, mouseY, frame);
+    // After the pointer, the first step starts from the bin its readout shows, which reads its pixel's loudest bin.
+    const pixelPeak = fromPointer && canvas !== null;
+    const nearest = nearestSpectrumSnap(series, hoverNorm, mouseY, frame, pixelPeak);
     const chosen = nearest ? nearest.s : series[0];
-    const snap = nearest ? nearest.snap : spectrumBinAtHover(chosen.slice, hoverNorm, frame);
+    const snap = nearest ? nearest.snap : spectrumBinAtHover(chosen.slice, hoverNorm, frame, pixelPeak);
     return snap ? steppedSpectrumHoverNorm(chosen.slice, snap.binIdx, deltaIdx, visible.frequencyMin, visible.frequencyMax, visible.logFrequency) : null;
 }
 

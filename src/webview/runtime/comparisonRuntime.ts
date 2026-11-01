@@ -3455,6 +3455,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         return collectSpectrumSeries(tracks, norm, spectrumSeriesSource);
     }
     function moveSpectrumHoverByBin(deltaIdx: number) {
+        const fromPointer = !spectrumHover.stepped;
         spectrumHover.stepped = true;
         if (spectrumHover.norm === null) {
             spectrumHover.norm = 0.5;
@@ -3468,7 +3469,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const result = record.result;
             const channelIndex = typeof spectrumHover.channelIndex === 'number' ? spectrumHover.channelIndex : 0;
             const slice = extractSpectrumAtCursor(result, trackIndex, record.runtime.offsetSeconds, viewState.cursor, channelIndex);
-            const nextNorm = slice ? steppedTrackSpectrumHoverNorm(slice, spectrumHover.norm, spectrumView.freqStart, spectrumView.freqEnd, deltaIdx) : null;
+            const laneCanvas = fromPointer ? canvasById(document, trackSpectrumCanvasId(trackIndex, channelIndex)) : null;
+            const nextNorm = slice ? steppedTrackSpectrumHoverNorm(slice, spectrumHover.norm, spectrumView.freqStart, spectrumView.freqEnd, deltaIdx, laneCanvas) : null;
             if (nextNorm !== null) {
                 spectrumHover.norm = nextNorm;
             }
@@ -3481,7 +3483,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const range = spectrumSeriesRange(slices);
         const vis = spectrumVisibleWindow(range.maxFrequencyHz, range.minDb, range.maxDb, spectrumView.state(), range.logMinFrequencyHz);
         const overlayC = canvasById(document, 'spectrum-overlay-canvas');
-        const nextNorm = steppedOverlaySpectrumHoverNorm(slices, spectrumHover.norm, spectrumHover.yFrac, overlayC, vis, deltaIdx);
+        const nextNorm = steppedOverlaySpectrumHoverNorm(slices, spectrumHover.norm, spectrumHover.yFrac, overlayC, vis, deltaIdx, fromPointer);
         if (nextNorm === null) {
             return;
         }
