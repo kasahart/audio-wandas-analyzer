@@ -125,6 +125,8 @@ export interface SpectrumSliceRequest {
     cursorNorm: number;
     /** Absent for the FFT spectrum. */
     bandsPerOctave?: SpectrumBandsPerOctave;
+    /** Every FFT bin (the CSV export) instead of a row cut for display. */
+    fullResolution?: true;
 }
 
 export type SpectrumBandsPerOctave = 1 | 3;
@@ -142,7 +144,8 @@ export function isRequestSpectrumSliceMessage(message: unknown): message is Spec
         typeof m['trackIndex'] === 'number' &&
         typeof m['filePath'] === 'string' && m['filePath'].length > 0 &&
         typeof m['cursorNorm'] === 'number' &&
-        (m['bandsPerOctave'] === undefined || m['bandsPerOctave'] === 1 || m['bandsPerOctave'] === 3)
+        (m['bandsPerOctave'] === undefined || m['bandsPerOctave'] === 1 || m['bandsPerOctave'] === 3) &&
+        (m['fullResolution'] === undefined || m['fullResolution'] === true)
     );
 }
 

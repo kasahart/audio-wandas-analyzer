@@ -45,6 +45,7 @@ export type HostInboundMessage =
         bandsPerOctave?: number;
         bandCentersHz?: number[];
         minFrequencyHz?: number;
+        frequenciesHz?: number[];
         windowStartNorm?: number;
         windowEndNorm?: number;
         window?: string;
@@ -137,6 +138,9 @@ export function isHostInboundMessage(value: unknown): value is HostInboundMessag
                     && hasNumber(value, 'minFrequencyHz') && (value.minFrequencyHz as number) > 0
                     && Array.isArray(value.bandCentersHz) && value.bandCentersHz.length === value.frequencyBins
                     && value.bandCentersHz.every((item) => typeof item === 'number' && item > 0)))
+                && (value.frequenciesHz === undefined || (value.bandCentersHz === undefined
+                    && Array.isArray(value.frequenciesHz) && value.frequenciesHz.length === value.frequencyBins
+                    && value.frequenciesHz.every((item) => typeof item === 'number' && Number.isFinite(item))))
                 && (value.windowStartNorm === undefined || hasNumber(value, 'windowStartNorm'))
                 && (value.windowEndNorm === undefined || hasNumber(value, 'windowEndNorm'))
                 && (value.window === undefined || hasString(value, 'window'))

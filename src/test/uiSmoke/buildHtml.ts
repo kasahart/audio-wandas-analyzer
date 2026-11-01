@@ -57,9 +57,13 @@ window.__uiSmokeHostMetrics = {
     inFlight: 0,
     maxInFlight: 0,
 };
-const uiSmokeSpectrumValues = function(cursorNorm, channelIndex) {
-    return Array.from({ length: 192 }, function(_, index) {
-        const frequencyNorm = index / 191;
+// A cursor spectrum is a row cut for display (192 points); the CSV export asks for every bin of an 8192-point FFT.
+const uiSmokeSpectrumBins = function(message) {
+    return message.fullResolution ? 4097 : 192;
+};
+const uiSmokeSpectrumValues = function(cursorNorm, channelIndex, bins) {
+    return Array.from({ length: bins }, function(_, index) {
+        const frequencyNorm = index / (bins - 1);
         const ridge = 0.18 + 0.55 * cursorNorm + channelIndex * 0.04;
         return -100 + Math.max(0, 1 - Math.abs(frequencyNorm - ridge) * 8) * 88;
     });
@@ -98,6 +102,7 @@ const uiSmokeSpectrumResponse = function(message) {
     if (message.bandsPerOctave) {
         return uiSmokeBandResponse(message);
     }
+    const bins = uiSmokeSpectrumBins(message);
     const identity = {
         type: 'spectrum-slice-result',
         requestId: message.requestId,
@@ -105,8 +110,9 @@ const uiSmokeSpectrumResponse = function(message) {
         settingsSignature: message.settingsSignature,
         trackIndex: message.trackIndex,
         filePath: message.filePath,
-        frequencyBins: 192,
+        frequencyBins: bins,
         maxFrequencyHz: 4000,
+        ...(message.fullResolution ? {} : { frequenciesHz: Array.from({ length: bins }, function(_, index) { return index / (bins - 1) * 4000; }) }),
         windowStartNorm: message.cursorNorm - 0.02,
         windowEndNorm: message.cursorNorm + 0.02,
         window: 'hann',
@@ -114,7 +120,7 @@ const uiSmokeSpectrumResponse = function(message) {
     if (Number.isInteger(message.channelIndex)) {
         return Object.assign(identity, {
             channelIndex: message.channelIndex,
-            values: uiSmokeSpectrumValues(message.cursorNorm, message.channelIndex),
+            values: uiSmokeSpectrumValues(message.cursorNorm, message.channelIndex, bins),
             minDb: -100,
             maxDb: 0,
         });
@@ -123,7 +129,7 @@ const uiSmokeSpectrumResponse = function(message) {
         channels: [0, 1].map(function(channelIndex) {
             return {
                 channelIndex: channelIndex,
-                values: uiSmokeSpectrumValues(message.cursorNorm, channelIndex),
+                values: uiSmokeSpectrumValues(message.cursorNorm, channelIndex, bins),
                 minDb: -100,
                 maxDb: 0,
             };

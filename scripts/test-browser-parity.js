@@ -46,9 +46,14 @@ const commands = [
 const pairSource = (channelIndex, offsetSeconds) => ({ filePath: '/sources/selected.wav', channelIndex, offsetSeconds });
 commands.push(withStft({ cmd: 'pair-spectrum', requestId: 'pair-parity', analysisId: 'fixture', settingsSignature: 'fixture',
     reference: pairSource(0, 0), responses: [pairSource(1, 0), pairSource(1, 0.05)] }, { nFft: 256, overlapPercent: 75, window: 'hann' }));
+// An 8192-point cursor spectrum is cut to log-spaced peak points for display; the CSV export asks for every bin.
+const longFft = { nFft: 8192, overlapPercent: 75, window: 'hann' };
 fixtures.push({ name: 'generated-frequency-tones.wav', path: tonePath, bytes: toneBytes, commands: [
     { ...commands[2], cursorNorm: 0.5 }, ...commands,
-].map(command => withStft(command, { nFft: 2048, overlapPercent: 75, window: 'hann' })) });
+].map(command => withStft(command, { nFft: 2048, overlapPercent: 75, window: 'hann' })).concat([
+    { ...commands[2], requestId: 'long-fft', cursorNorm: 0.5, stftOptions: longFft },
+    { ...commands[2], requestId: 'long-fft-full', cursorNorm: 0.5, stftOptions: longFft, fullResolution: true },
+]) });
 function nativeResultsFor(fixture) {
 const native = spawnSync(path.join(root, '.venv/bin/python'), ['-c', `
 import sys,json
@@ -156,14 +161,19 @@ const server = http.createServer((req,res) => {
         },{fixtures:fixtures.map(fixture=>({bytes:Array.from(fixture.bytes),commands:fixture.commands})),commands});
         compare(byteResults,results,'native/Pyodide');
         for (const runtime of [byteResults, nativeResults, results]) {
-            for (const slice of [runtime[2][0], runtime[2][3]]) {
-                assert.equal(slice.frequencyBins, 192);
+            const tones = runtime[2];
+            const [shown, full] = tones.slice(-2);
+            for (const [slice, bins] of [[tones[0], 1025], [tones[3], 1025], [shown, 1025], [full, 4097]]) {
+                assert.equal(slice.frequencyBins, bins);
+                assert.equal(slice.frequenciesHz === undefined, slice !== shown);
                 slice.channels.forEach((channel, i) => {
                     const peak = channel.values.indexOf(Math.max(...channel.values));
-                    const hz = peak * slice.maxFrequencyHz / 191;
-                    assert.ok(Math.abs(hz - [440, 880][i]) <= 8000 / 191 / 2 + 16000 / 2048, `known tone mapped to ${hz} Hz`);
+                    const hz = slice.frequenciesHz ? slice.frequenciesHz[peak] : peak * slice.maxFrequencyHz / (slice.frequencyBins - 1);
+                    assert.ok(Math.abs(hz - [440, 880][i]) <= 8000 / (slice.frequencyBins - 1) / 2, `known tone mapped to ${hz} Hz`);
                 });
             }
+            // The points drawn keep each tone's level from the every-bin row.
+            shown.channels.forEach((channel, i) => assert.equal(Math.max(...channel.values), Math.max(...full.channels[i].values)));
             for (const [slice, bands] of [[runtime[2][4], [400, 800]], [runtime[2][5], [500, 1000]]]) {
                 slice.channels.forEach((channel, i) => {
                     assert.equal(slice.bandCentersHz[channel.values.indexOf(Math.max(...channel.values))], bands[i]);
@@ -210,7 +220,10 @@ const server = http.createServer((req,res) => {
         assert.equal(csv,artifact.content);assert.equal(artifact.mimeType,'text/csv;charset=utf-8');
         const csvRows = csv.trim().split('\n').map(line=>line.split(','));
         assert.equal(csvRows[0].length,4,'stereo exports frequency/level for both channels');
-        assert.ok(csvRows.length>1 && csvRows.length<=193);
+        // Every bin of the cursor's FFT: n_fft/2+1 rows at fs/n_fft spacing up to Nyquist.
+        const csvBins = csvRows.length - 1;
+        assert.ok(Number.isInteger(Math.log2(csvBins - 1)), `${csvBins} CSV rows are not n_fft/2+1`);
+        assert.ok(Math.abs(Number(csvRows[2][0]) - 4000 / (csvBins - 1)) < 1e-3);
         assert.ok(csvRows.slice(1).every(row=>row.length===4 && row.every(value=>Number.isFinite(Number(value)))));
         assert.equal(Number(csvRows.at(-1)[0]),4000);assert.equal(Number(csvRows.at(-1)[2]),4000);
         await csvMenu.locator('summary').click();
@@ -401,18 +414,19 @@ const server = http.createServer((req,res) => {
         if (!await toneCsvMenu.evaluate(node=>node.open)) await toneCsvMenu.locator('summary').click();
         const [toneCsvDownload] = await Promise.all([page.waitForEvent('download'),page.locator('[data-action="export-csv"]').click()]);
         const toneCsvRows = fs.readFileSync(await toneCsvDownload.path(),'utf8').trim().split('\n').slice(1).map(row=>row.split(',').map(Number));
-        assert.equal(toneCsvRows.length,192);
+        assert.equal(toneCsvRows.length,2048/2+1);
         // The menu closes after an export; close it only if it is still open, or a click would open it over the spectra.
         if (await toneCsvMenu.evaluate(node=>node.open)) await toneCsvMenu.locator('summary').click();
         for (const [channel, hz] of [[0,440],[1,880]]) {
             const peakRow = toneCsvRows.reduce((best,row)=>row[channel*2+1]>best[channel*2+1]?row:best);
             const peakHz = peakRow[channel*2], peakDb = peakRow[channel*2+1];
-            assert.ok(Math.abs(peakHz-hz)<=8000/191/2+16000/2048, `CSV ${hz} Hz tone exported as ${peakHz}`);
+            assert.ok(Math.abs(peakHz-hz)<=16000/2048/2, `CSV ${hz} Hz tone exported as ${peakHz}`);
             const canvasId = (await firstCanvas()).replace('track-canvas-', 'track-spectrum-') + (channel ? '-1' : '');
             await page.locator(canvasId).scrollIntoViewIfNeeded();
             const spectrumBox = await page.locator(canvasId).boundingBox();
             assert.ok(spectrumBox);
             await page.mouse.move(spectrumBox.x+32+(spectrumBox.width-38)*peakHz/2000,spectrumBox.y+spectrumBox.height*.5);
+            // The bins (7.8 Hz) are denser than this lane's pixels (~14 Hz): the readout still lands on the peak bin.
             await page.waitForFunction(expected=>{
                 const text=document.getElementById('spectrum-freq-readout')?.textContent || '';
                 const match=text.match(/(\d+(?:\.\d+)?) Hz \/ (-?\d+(?:\.\d+)?)/);
@@ -428,7 +442,7 @@ const server = http.createServer((req,res) => {
             });
             assert.ok(band.top>100,'actual STFT raster must be painted');
             assert.ok(Math.abs(band.hz-peakHz)<=band.pixelHz+1,`STFT band ${band.hz} Hz vs CSV/hover ${peakHz} Hz`);
-            console.log(`Known ${hz} Hz: CSV/hover ${peakHz} Hz, actual STFT band ${band.hz.toFixed(2)} Hz (192-bin resolution).`);
+            console.log(`Known ${hz} Hz: CSV/hover ${peakHz} Hz, actual STFT band ${band.hz.toFixed(2)} Hz (every FFT bin).`);
         }
         await page.screenshot({path:path.join(root,'test-results/frequency-tones.png')});
         assert.equal(await page.locator('audio').evaluateAll(xs=>xs.every(x=>x.paused)),true);

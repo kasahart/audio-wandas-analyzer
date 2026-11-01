@@ -135,6 +135,7 @@ export abstract class AnalysisClient {
                 settingsSignature: payload.settingsSignature,
                 cursorNorm: payload.cursorNorm,
                 ...(payload.bandsPerOctave ? { bandsPerOctave: payload.bandsPerOctave } : {}),
+                ...(payload.fullResolution ? { fullResolution: true } : {}),
                 ...(payload.stftOptions ? { stftOptions: payload.stftOptions } : {}),
                 ...this.calibrationPayload(this.requestContext(filePath, payload)),
             },
@@ -281,7 +282,8 @@ export async function executeLazyAnalysis(
     const result = message.type === 'request-track-detail'
         ? await backend.requestTrackDetail(message.filePath, payload, message.requestId, cancellation)
         : await backend.requestSpectrumSlice(message.filePath,
-            { ...payload, cursorNorm: message.cursorNorm, ...(message.bandsPerOctave ? { bandsPerOctave: message.bandsPerOctave } : {}) }, message.requestId, cancellation);
+            { ...payload, cursorNorm: message.cursorNorm, ...(message.bandsPerOctave ? { bandsPerOctave: message.bandsPerOctave } : {}),
+                ...(message.fullResolution ? { fullResolution: true } : {}) }, message.requestId, cancellation);
     const identity = { requestId: message.requestId, analysisId: message.analysisId,
         settingsSignature: message.settingsSignature, trackIndex: message.trackIndex, filePath: message.filePath };
     if ('frequencyBins' in result) {
@@ -289,6 +291,7 @@ export async function executeLazyAnalysis(
             frequencyBins: result.frequencyBins, maxFrequencyHz: result.maxFrequencyHz, computeMs: result.computeMs,
             windowStartNorm: result.windowStartNorm, windowEndNorm: result.windowEndNorm, window: result.window,
             ...(result.bandCentersHz ? { bandsPerOctave: result.bandsPerOctave, bandCentersHz: result.bandCentersHz, minFrequencyHz: result.minFrequencyHz } : {}),
+            ...(result.frequenciesHz ? { frequenciesHz: result.frequenciesHz } : {}),
             ...(message.type === 'request-spectrum-slice' ? { cursorNorm: message.cursorNorm } : {}) };
     }
     return { ...identity, analysisRevision: result.analysisRevision, type: 'track-detail-result' as const, channels: result.channels };

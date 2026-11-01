@@ -516,6 +516,9 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                         3
                     ]
                 },
+                "fullResolution": {
+                    "type": "boolean"
+                },
                 "stftOptions": {
                     "$ref": "#/$defs/StftOptions"
                 },
@@ -654,6 +657,12 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 },
                 "minFrequencyHz": {
                     "type": "number"
+                },
+                "frequenciesHz": {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    }
                 },
                 "windowStartNorm": {
                     "type": "number"
@@ -1830,6 +1839,7 @@ export interface SpectrumSlicePayload {
     settingsSignature: string;
     cursorNorm: number;
     bandsPerOctave?: 1 | 3;
+    fullResolution?: boolean;
     stftOptions?: StftOptions;
     calibrationProfile?: CalibrationProfile;
     analysisRevision?: number;
@@ -1866,6 +1876,7 @@ export interface SpectrumSliceResult {
     bandsPerOctave?: 1 | 3;
     bandCentersHz?: number[];
     minFrequencyHz?: number;
+    frequenciesHz?: number[];
     windowStartNorm: number;
     windowEndNorm: number;
     window: "hann" | "hamming" | "blackman" | "boxcar";

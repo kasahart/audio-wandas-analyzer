@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -22,6 +23,9 @@ from stage_view import power_mean_db
 WAVEFORM_POINT_LIMIT = 1200
 SPECTROGRAM_TIME_BIN_LIMIT = 720
 SPECTROGRAM_FREQUENCY_BIN_LIMIT = 192
+# Cursor-spectrum display budget per channel: a row of up to this many FFT bins (n_fft <= 2048, the auto
+# window's largest) is sent whole; a longer one (n_fft 4096..16384) is cut to at most this many log-spaced points.
+SPECTRUM_DISPLAY_POINT_LIMIT = 1025
 DB_UNIT = "dB"
 SPECTRUM_LEVEL_AXIS_LABEL = "Spectrum amplitude level [dB]"
 # Raw full-scale peak at or above which a channel is reported as clipped.
@@ -210,6 +214,41 @@ def resample_frequency_bins(spectrogram: np.ndarray, target_bin_count: int) -> n
         reduced[:, index] = _mean_power_db(band, axis=1)
 
     return reduced
+
+
+@functools.lru_cache(maxsize=16)
+def peak_hold_group_starts(bin_count: int, point_limit: int) -> np.ndarray:
+    """First FFT bin of each display point: DC alone, then groups equally wide on a log axis, never under one bin."""
+    log_bins = np.log(np.arange(1, bin_count))
+    low, high = 0.0, float(point_limit)
+    # Each point spans 1/scale in ln(bin); the largest scale whose distinct groups fit the budget fills it.
+    for _ in range(50):
+        scale = (low + high) / 2
+        if np.unique(np.floor(scale * log_bins)).size + 1 <= point_limit:
+            low = scale
+        else:
+            high = scale
+    groups = np.floor(low * log_bins)
+    starts = np.concatenate(([0, 1], 1 + np.flatnonzero(np.diff(groups)) + 1))
+    starts.setflags(write=False)
+    return starts
+
+
+def peak_hold_spectrum(rows_db: np.ndarray, max_frequency_hz: float) -> tuple[np.ndarray, np.ndarray | None]:
+    """The cursor spectrum to draw: whole rows within the budget, else the peak of each log-spaced group.
+
+    Each channel keeps the highest level in every group, so no tone loses level. The channels share one
+    frequency per point: the bin where the loudest of them peaks in the group, exact for that channel and
+    within the group for the others. ``None`` means the rows are whole.
+    """
+    bin_count = rows_db.shape[1]
+    if bin_count <= SPECTRUM_DISPLAY_POINT_LIMIT:
+        return rows_db, None
+    starts = peak_hold_group_starts(bin_count, SPECTRUM_DISPLAY_POINT_LIMIT)
+    sizes = np.diff(np.append(starts, bin_count))
+    group = np.repeat(np.arange(starts.size), sizes)
+    peak_bins = np.lexsort((-np.max(rows_db, axis=0), group))[starts]
+    return np.maximum.reduceat(rows_db, starts, axis=1), peak_bins * (max_frequency_hz / (bin_count - 1))
 
 
 def _time_bin_boundaries(frame_count: int, target_bin_count: int) -> np.ndarray:

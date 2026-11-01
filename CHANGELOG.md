@@ -8,6 +8,7 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 - Compare view: roles per recording, the tracks' selection carried in as the region, recordings drawn as they are computed, cross-correlation (#452–#456, #468, #472).
 - Track lanes: waveform over spectrogram on one time axis, linked amplitude/colour/frequency scales, only lanes near the view drawn and fetched (#427, #442, #444).
 - Cursor spectrum snaps to the nearest STFT frame; spectrogram cells centred on their windows (#436, #438).
+- Cursor spectrum: tones show at their own frequency and level at every FFT length (it was averaged onto 192 even points, which read an 80 Hz tone at 94 Hz and up to 11 dB low); FFT lengths up to 2048 are drawn bin for bin, longer ones as up to 1025 log-spaced points holding each span's peak; the hover readout reads the loudest bin within a pixel of the pointer, and the CSV export writes every FFT bin (n_fft/2+1 rows at fs/n_fft spacing).
 - Trackpad sideways swipe pans the timeline (#471).
 - File table beside the tracks: the selected row's name stays readable (its tools show under the mouse, like other rows); the value column shows only when the table is maximized (#505).
 - Track lanes fetch the waveform detail two screens either side of the view, so a pan no longer flashes the coarse overview, and a zoom out keeps the detail already fetched until the new one lands (#502).

@@ -22,7 +22,7 @@ from analyzer import (
     build_waveform_envelope,
     channels_first,
     level_scale_metadata,
-    resample_frequency_bins,
+    peak_hold_spectrum,
     resolve_stft_params,
     sample_range,
 )
@@ -55,6 +55,7 @@ class SpectrumSliceResult(TypedDict):
     bandsPerOctave: NotRequired[int]
     bandCentersHz: NotRequired[list[float]]
     minFrequencyHz: NotRequired[float]
+    frequenciesHz: NotRequired[list[float]]
     windowStartNorm: float
     windowEndNorm: float
     window: str
@@ -293,6 +294,7 @@ class AnalysisService:
         calibration_profile: object = None,
         analysis_revision: object = 0,
         bands_per_octave: int | None = None,
+        full_resolution: bool = False,
     ) -> SpectrumSliceResult:
         compute_started = time.perf_counter()
         cached, analysis_frame, resolved = self.engine.get_analysis(file_path, calibration_profile)
@@ -326,12 +328,11 @@ class AnalysisService:
         else:
             spectrum = analysis_frame[:, start_sample:end_sample].fft(n_fft=window_size, window=window_name)
             max_frequency_hz = float(spectrum.freqs[-1])
-            values = np.asarray(spectrum.dB, dtype=np.float64)
-            rows = resample_frequency_bins(
-                values.reshape(analysis_frame.n_channels, -1),
-                SPECTROGRAM_FREQUENCY_BIN_LIMIT,
-            ).astype(np.float32, copy=False)
+            rows = np.asarray(spectrum.dB, dtype=np.float32).reshape(analysis_frame.n_channels, -1)
             self.engine.put_spectrum_slice(cached, slice_key, rows, max_frequency_hz)
+        frequencies_hz = None
+        if bands is None and not full_resolution:
+            rows, frequencies_hz = peak_hold_spectrum(rows, max_frequency_hz)
         quantity = "Band level" if bands is not None else "Spectrum amplitude level"
         channels: list[dict[str, object]] = []
         for channel_index, row in enumerate(rows):
@@ -370,6 +371,8 @@ class AnalysisService:
                 windowEndNorm=end_sample / analysis_frame.n_samples,
                 window="boxcar",
             )
+        if frequencies_hz is not None:
+            result["frequenciesHz"] = frequencies_hz.tolist()
         return result
 
     def pair_spectrum(

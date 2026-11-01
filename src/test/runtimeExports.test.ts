@@ -37,3 +37,17 @@ test('WAV loop regions clip to each file and drop files outside the loop', () =>
     ]);
     assert.deepEqual(wavLoopRegions(tracks, 30, 40), []);
 });
+
+test('spectrum CSV writes every FFT bin of a whole row at fs / n_fft spacing', () => {
+    const sampleRateHz = 12000;
+    const nFft = 8192;
+    const values = Array.from({ length: nFft / 2 + 1 }, (_, bin) => -1 - bin / 100);
+    // The display may cap the plotted range; the file still lists every bin up to Nyquist.
+    const csv = buildSpectrumCsv([{ name: 'a', slice: slice(values, { maxFrequencyHz: 2000, originalMaxFrequencyHz: sampleRateHz / 2 }) }]);
+    const rows = csv.split('\n').slice(1).map(row => row.split(',').map(Number));
+    assert.equal(rows.length, nFft / 2 + 1);
+    rows.forEach(([frequencyHz, level], bin) => {
+        assert.ok(Math.abs(frequencyHz - bin * sampleRateHz / nFft) < 1e-4);
+        assert.ok(Math.abs(level - values[bin]) < 1e-6);
+    });
+});

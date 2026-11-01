@@ -149,12 +149,14 @@ function answerSlices(page: Page): Promise<AnsweredSlice[]> {
             }
             const cursorNorm = Number(message.cursorNorm);
             slices.push({ trackIndex: Number(message.trackIndex), cursorNorm });
-            const values = Array.from({ length: 64 }, () => -50);
+            // The CSV export asks for every bin, here of an 8192-point FFT; the lanes draw a 64-point row.
+            const bins = message.fullResolution ? 4097 : 64;
+            const values = Array.from({ length: bins }, () => -50);
             const channels = Number.isInteger(message.channelIndex) ? [Number(message.channelIndex)] : [0, 1];
             window.postMessage({
                 ...identity,
                 type: 'spectrum-slice-result',
-                frequencyBins: 64,
+                frequencyBins: bins,
                 maxFrequencyHz: 4000,
                 windowStartNorm: cursorNorm - 0.02,
                 windowEndNorm: cursorNorm + 0.02,
@@ -271,9 +273,12 @@ test('a cursor moved while the CSV waits: the file holds every shown track at th
         await answerSlices(page);
         return (await csv()) !== null;
     }, { intervals: [50], timeout: 20000 }).toBe(true);
-    const header = (await csv())!.split('\n')[0];
-    expect(header).toContain('take00.wav');
-    expect(header).toContain('take39.wav');
+    const rows = (await csv())!.split('\n');
+    expect(rows[0]).toContain('take00.wav');
+    expect(rows[0]).toContain('take39.wav');
+    // Every bin of the host's 8192-point FFT, not the row drawn: 4097 rows at 4000 / 4096 Hz spacing.
+    expect(rows.length).toBe(1 + 4097);
+    expect(rows[2].split(',')[0]).toBe((4000 / 4096).toFixed(4));
 });
 
 test('a failed spectrogram lane shows the host\'s summary on one line and the backend\'s text below it', async ({ page }) => {

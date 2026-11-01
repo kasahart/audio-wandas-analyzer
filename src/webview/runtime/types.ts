@@ -137,6 +137,8 @@ export interface SpectrumSlice {
     bandsPerOctave?: number;
     bandCentersHz?: number[];
     minFrequencyHz?: number;
+    /** FFT slices cut for display only: each point's frequency. Absent when values holds every FFT bin. */
+    frequenciesHz?: number[];
     /** Track-normalized span of the samples the backend actually transformed; may extend past 0..1 where frames are padded. */
     windowStartNorm?: number;
     windowEndNorm?: number;
@@ -161,6 +163,8 @@ export interface LazyRequestState {
     settingsSignature: string;
     channelIndex?: number;
     cursorNorm?: number;
+    /** Cursor-spectrum requests: every FFT bin was asked for, not the row cut for display. */
+    fullResolution?: boolean;
 }
 
 export interface DragPoint {

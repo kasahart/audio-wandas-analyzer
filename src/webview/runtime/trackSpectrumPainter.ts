@@ -35,7 +35,7 @@ export function paintTrackSpectrum(
         return null;
     }
     const frame = spectrumPlotFrame(W, H, pad, vis);
-    const snap = spectrumBinAtHover(slice, hoverNorm, frame);
+    const snap = spectrumBinAtHover(slice, hoverNorm, frame, true);
     if (!snap) {
         return null;
     }

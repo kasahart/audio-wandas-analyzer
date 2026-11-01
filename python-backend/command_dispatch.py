@@ -146,6 +146,7 @@ def handle_spectrum_slice(service: AnalysisService, command: Command) -> Mapping
         calibration_profile=_calibration_profile(command),
         analysis_revision=_analysis_revision(command),
         bands_per_octave=int(command["bandsPerOctave"]) if "bandsPerOctave" in command else None,
+        full_resolution=bool(command.get("fullResolution", False)),
     )
 
 

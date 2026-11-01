@@ -12,11 +12,14 @@ import wandas as wd
 from analysis_engine import AnalysisEngine, compute_spectrogram
 from analysis_service import AnalysisService
 from analyzer import (
+    SPECTRUM_DISPLAY_POINT_LIMIT,
     AnalysisResult,
     ChannelSummary,
     MeasurementMetadata,
     SpectrogramPayload,
     _build_spectrogram,
+    peak_hold_group_starts,
+    peak_hold_spectrum,
     resample_frequency_bins,
     spectrogram_frame_centers,
 )
@@ -264,6 +267,39 @@ def test_every_reduced_peak_stays_within_half_a_display_bin(source_bins: int) ->
     assert np.max(np.abs(peak_positions - source_positions)) <= 0.5 / 191 + 1e-12
     assert peak_positions[0] == 0.0
     assert peak_positions[-1] == 1.0
+
+
+@pytest.mark.parametrize("bin_count", [2049, 4097, 8193])
+def test_display_groups_fill_the_budget_with_whole_low_bins(bin_count: int) -> None:
+    starts = peak_hold_group_starts(bin_count, SPECTRUM_DISPLAY_POINT_LIMIT)
+    widths = np.diff(np.append(starts, bin_count))
+    assert SPECTRUM_DISPLAY_POINT_LIMIT - 8 <= starts.size <= SPECTRUM_DISPLAY_POINT_LIMIT
+    assert starts[0] == 0 and starts[1] == 1 and np.all(widths >= 1)
+    # Widths grow with frequency in whole bins (a neighbour may be one narrower); the lowest 100 bins stay single.
+    assert np.all(np.diff(widths) >= -1) and widths[-1] > widths[100] and np.all(widths[:100] == 1)
+
+
+def test_rows_within_the_display_budget_are_sent_whole() -> None:
+    rows = np.zeros((2, SPECTRUM_DISPLAY_POINT_LIMIT))
+    shown, frequencies = peak_hold_spectrum(rows, 4000.0)
+    assert shown is rows and frequencies is None
+
+
+@pytest.mark.parametrize("bin_count", [2049, 8193])
+def test_every_tone_keeps_its_level_and_bin_frequency_when_cut_for_display(bin_count: int) -> None:
+    rows = np.full((bin_count, bin_count), -120.0)
+    np.fill_diagonal(rows, 0.0)
+    shown, frequencies = peak_hold_spectrum(rows, 6000.0)
+    assert frequencies is not None and shown.shape == (bin_count, frequencies.size)
+    assert np.all(np.diff(frequencies) > 0)
+    np.testing.assert_array_equal(np.max(shown, axis=1), 0.0)
+    # One channel per tone: each point sits on the bin of the loudest channel in it, so the last tone of a
+    # group owns the group's frequency and the others stay within that group.
+    tone_hz = np.arange(bin_count) * 6000.0 / (bin_count - 1)
+    shown_hz = frequencies[np.argmax(shown, axis=1)]
+    starts = peak_hold_group_starts(bin_count, SPECTRUM_DISPLAY_POINT_LIMIT)
+    widths_hz = np.diff(np.append(starts, bin_count))[np.searchsorted(starts, np.arange(bin_count), "right") - 1]
+    assert np.all(np.abs(shown_hz - tone_hz) < widths_hz * 6000.0 / (bin_count - 1))
 
 
 def test_spectrogram_reduction_clamps_silent_power_to_finite_db() -> None:
