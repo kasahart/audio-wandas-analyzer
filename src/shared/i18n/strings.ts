@@ -66,6 +66,8 @@ export interface UiStrings {
     /** A role chip's hint, its menu's "none", and the comparison's headline while nothing is compared. */
     roleChipHint: string;
     roleNone: string;
+    /** The comparison legend's chip of a recording without a role: it offers to choose one. */
+    roleChoose: string;
     stageChooseRoles: string;
     stageCompareMinusBase: string;
     stageLayoutOverlay: string;
@@ -820,6 +822,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stageLayoutSide: 'One lane per track',
         roleChipHint: 'Role: base 0 or compare 1–3 (0–3 while focused)',
         roleNone: 'None',
+        roleChoose: 'Role',
         stageChooseRoles: 'Choose recordings to compare: their chips in the legend',
         stageCompareMinusBase: 'Compare {n} − base · ',
         stageLayoutOverlay: 'Overlay',
@@ -1567,6 +1570,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stageLayoutSide: 'トラックごとに並べる',
         roleChipHint: '役割：基準 0・比較 1〜3（フォーカス中は 0〜3 キー）',
         roleNone: 'なし',
+        roleChoose: '役割',
         stageChooseRoles: '比べる録音を選ぶ：凡例のチップで',
         stageCompareMinusBase: '比較 {n} − 基準 · ',
         stageLayoutOverlay: '重ねる',

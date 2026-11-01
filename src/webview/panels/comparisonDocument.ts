@@ -799,6 +799,8 @@ export function renderComparisonStyles(): string {
         .role-chip > summary::-webkit-details-marker { display: none; }
         .role-chip-face { display: inline-flex; align-items: center; justify-content: center; min-width: 14px; height: 14px; padding: 0 3px; box-sizing: border-box; border-radius: 3px; font: 600 9px/1 var(--font-mono); color: #111; white-space: nowrap; }
         .role-chip-face.is-none { background: var(--role-fallback, transparent); color: rgba(0, 0, 0, 0.55); }
+        .role-chip.is-named .role-chip-face { height: 18px; padding: 0 6px; font: 600 11px/1 var(--font-ui); }
+        .role-chip.is-named .role-chip-face.is-none { background: transparent; border: 1px dashed var(--muted); color: var(--text); }
         .role-chip-face:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
         .role-chip-menu { position: absolute; z-index: 30; left: 0; top: calc(100% + 2px); display: flex; flex-direction: column; gap: 1px; min-width: 120px; padding: 3px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface); }
         .role-chip-item { display: flex; align-items: center; gap: 6px; padding: 2px 6px; border: 0; border-radius: 3px; background: transparent; color: var(--text); font: inherit; font-size: 11px; text-align: left; cursor: pointer; white-space: nowrap; }

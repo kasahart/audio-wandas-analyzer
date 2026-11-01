@@ -1274,7 +1274,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const i = state.results.findIndex(function (result) { return result.filePath === path; });
             // The legend's label names the channel already: the chip says the role alone.
             const role = trackRole(path);
-            return roleChipHtml(path, role && { slot: role.slot, ch: null }, i >= 0 ? ownTrackColor(i) : '', STR);
+            return roleChipHtml(path, role && { slot: role.slot, ch: null }, i >= 0 ? ownTrackColor(i) : '', STR, true);
         },
         cost: paths => entryScreen.cost(paths),
         showCompared: () => entryScreen.showCompared(),
