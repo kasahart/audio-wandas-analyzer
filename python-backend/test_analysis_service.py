@@ -117,7 +117,7 @@ def test_service_uses_the_injected_analysis_engine(tmp_path: Path) -> None:
     assert list(engine._files) == [audio.resolve()]
 
 
-def test_replies_name_the_file_as_the_request_spelled_it(tmp_path: Path) -> None:
+def test_replies_name_the_file_as_the_request_spelled_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     folder = tmp_path / "recordings"
     folder.mkdir()
     _write_pair_wav(
@@ -125,19 +125,24 @@ def test_replies_name_the_file_as_the_request_spelled_it(tmp_path: Path) -> None
     )
     linked = tmp_path / "linked"
     linked.symlink_to(folder, target_is_directory=True)
-    audio = linked / "tone.wav"
-    assert audio.resolve() != audio
+    monkeypatch.chdir(tmp_path)
+    # Neither the link's resolution nor Path()'s own normalisation may respell it.
+    audio = "./linked//tone.wav"
+    assert str(Path(audio).resolve()) != audio != str(Path(audio))
     service = AnalysisService(AnalysisEngine(cache_limit_bytes=10_000_000))
     labels = {"track_index": 0, "analysis_id": "a", "settings_signature": "s"}
 
-    overview = service.analyze(str(audio))
-    detail = service.track_detail(str(audio), **labels)
-    spectrum = service.spectrum_slice(str(audio), cursor_norm=0.5, **labels)
-    pair = service.pair_spectrum(_pair_source(audio, 0), [_pair_source(audio, 1)], stft_options=_PAIR_OPTIONS)
+    overview = service.analyze(audio)
+    detail = service.track_detail(audio, **labels)
+    spectrum = service.spectrum_slice(audio, cursor_norm=0.5, **labels)
+    source = {"filePath": audio, "offsetSeconds": 0.0}
+    pair = service.pair_spectrum(
+        {**source, "channelIndex": 0}, [{**source, "channelIndex": 1}], stft_options=_PAIR_OPTIONS
+    )
 
-    assert overview["filePath"] == detail["filePath"] == spectrum["filePath"] == str(audio)
+    assert overview["filePath"] == detail["filePath"] == spectrum["filePath"] == audio
     assert overview["fileName"] == "tone.wav"
-    assert pair["filePath"] == pair["responses"][0]["filePath"] == str(audio)
+    assert pair["filePath"] == pair["responses"][0]["filePath"] == audio
 
 
 def test_stft_options_share_one_normalization_and_validation_api() -> None:

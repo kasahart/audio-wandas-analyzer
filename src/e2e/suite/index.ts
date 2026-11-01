@@ -417,8 +417,8 @@ export async function run(): Promise<void> {
                 // The backend resolves the link (as Windows' resolve() respells c:\ as C:\); the tracks keep the listed paths.
                 const parent = mkdtempSync(path.join(os.tmpdir(), 'awa-vscode-link-'));
                 const linked = path.join(parent, 'debug');
-                symlinkSync(path.join(workspaceFolder.uri.fsPath, MULTI_TRACK_DEBUG_AUDIO_PATH), linked, 'junction');
                 try {
+                    symlinkSync(path.join(workspaceFolder.uri.fsPath, MULTI_TRACK_DEBUG_AUDIO_PATH), linked, 'junction');
                     const selected = await analyzeDebugPath(linked, { selectAllDirectoryFiles: true });
                     assert.equal(selected.resultCount, 3);
                     assert.equal(selected.renderedUi?.trackRowCount, 3);
