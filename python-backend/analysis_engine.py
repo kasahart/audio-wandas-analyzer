@@ -100,6 +100,7 @@ class AnalysisEngine:
                     del self._loading[key]
 
     def get_file(self, file_path: str | Path) -> CachedAnalysis:
+        # The resolved path only keys the cache; replies name the file as the request spelled it.
         path = Path(file_path).expanduser().resolve()
         if not path.exists():
             raise UnreadableFileError(f"Audio file not found: {path}")
