@@ -100,6 +100,8 @@ test('the headline: the difference shown and where it is largest, then the steps
     assert.equal(stageModeHeadline({ ...frame, referencePath: 'base.wav' }, [], null), strings.stageVsBase.replace('{file}', '0 · base.wav'));
     // A base group drawn as its waveforms: its median level is on no line, so no difference is named.
     assert.equal(stageModeHeadline({ ...frame, baseEach: true }, [], null), '');
+    assert.equal(stageModeHeadline({ ...frame, baseEach: true }, [], { start: 0.5, end: 1 }), `${strings.stepRegion} 0.50–1.00 s`);
+    assert.equal(stageModeHeadline({ ...frame, baseEach: true }, ['HPF 20 Hz'], null), strings.stepBypassing.replace('{ops}', 'HPF 20 Hz').trim());
 });
 
 test('side by side, every lane draws its own picture and says it shows the step; the base measured against says so', () => {

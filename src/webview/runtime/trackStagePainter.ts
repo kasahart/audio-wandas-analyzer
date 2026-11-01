@@ -146,7 +146,8 @@ export function stageModeHeadline(frame: Pick<StageFrame, 'strings' | 'waiting' 
     if (bypassed.length && !waiting) text += strings.stepBypassing.replace('{ops}', bypassed.join(', '));
     // The part of the files compared, while a region is set.
     if (region && !waiting && comparePath) text += ` · ${strings.stepRegion} ${region.start.toFixed(2)}–${region.end.toFixed(2)} s`;
-    return text;
+    // With no difference named (a base group drawn as its waveforms), the bypassed steps and the region lead.
+    return text.replace(/^\s*(·\s*)?/, '');
 }
 
 /** Colour is the role's: a recording without one is grey, its name in the legend telling it apart. */
