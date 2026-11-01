@@ -1516,7 +1516,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         panelTitle: 'Audio Wandas Analyzer',
         emptyAllExcluded: 'すべてのトラックが除外されています',
         btnTrySamples: 'サンプルで試す',
-        hintTrySamples: '短い合成音を 3 本読み込む：うなり、同じうなりに 2.8 kHz の高い音、クリック',
+        hintTrySamples: '短い合成音を 3 本読み込む：ハム音、同じハム音に 2.8 kHz の高い音、クリック',
         emptyNoTracks: '表の行の ☐ をクリックすると、そのファイルをここにトラックとして表示します。☑ をクリックで消えます',
         selectionEmptyHint: 'フォルダを開くと、全ファイルの表がここに出ます',
         btnOpenFile: '＋ファイルを追加',
