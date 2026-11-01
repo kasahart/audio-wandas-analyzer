@@ -35,8 +35,12 @@ function isFiniteValue(value: unknown): value is number {
 
 /** A dB axis spans at least this much, so a flat response reads as flat (as the pair spectrum's gain row). */
 const DB_MIN_SPAN = 6;
-/** A linear axis spans at least this fraction of the data's magnitude. */
-const LINEAR_MIN_RELATIVE_SPAN = 0.1;
+/**
+ * A linear axis spans at least this fraction of the data's magnitude: enough to absorb float32 rounding
+ * (~1e-7 relative, a little more after a few operations), far below any real variation on a large offset
+ * (101325 ± 10 Pa is 1e-4). Quantities with a known scale (phase, coherence) set it in the spec instead.
+ */
+const LINEAR_MIN_RELATIVE_SPAN = 1e-5;
 
 /**
  * The y range a line chart scales to when the user has not set one. Fixed bounds in the spec (a bounded
@@ -59,13 +63,34 @@ export function lineAutoRange(
         min = center - minSpan / 2;
         max = center + minSpan / 2;
     }
-    return { min: spec.yMin != null ? spec.yMin : min, max: spec.yMax != null ? spec.yMax : max };
+    let lo = spec.yMin != null ? spec.yMin : min;
+    let hi = spec.yMax != null ? spec.yMax : max;
+    // One fixed bound beyond the data: the free side is measured from it rather than crossing it.
+    if (hi <= lo) {
+        if (spec.yMax == null) { hi = lo + minSpan; } else if (spec.yMin == null) { lo = hi - minSpan; }
+    }
+    return { min: lo, max: hi };
 }
 
-/** Enough decimals that the five y ticks of `span` read as distinct values. */
-function tickDecimals(span: number, fewest: number): number {
-    if (!(span > 0)) { return fewest; }
-    return Math.min(6, Math.max(fewest, Math.ceil(-Math.log10(span / 4)) + 1));
+/** Labels fit the 46 px y-axis margin: at most this many decimals in fixed notation. */
+const MAX_TICK_DECIMALS = 4;
+/** Below this magnitude ticks are written in exponent notation (`-1.0e-4`), which stays seven characters. */
+const EXPONENT_BELOW = 1e-2;
+
+/**
+ * Formats the five y ticks of [min, max]: enough decimals (no fewer than `fewest`) for them to read as
+ * distinct values, capped so a label stays within the axis margin; a small-amplitude axis uses exponent
+ * notation instead of a long run of zeros.
+ */
+export function yTickFormatter(min: number, max: number, fewest: number): (value: number) => string {
+    const step = (max - min) / 4;
+    const wanted = step > 0 ? Math.ceil(-Math.log10(step)) + 1 : fewest;
+    const decimals = Math.min(MAX_TICK_DECIMALS, Math.max(fewest, wanted));
+    if (wanted > MAX_TICK_DECIMALS && Math.max(Math.abs(min), Math.abs(max)) < EXPONENT_BELOW) {
+        // A tick that is zero up to rounding reads as 0, not as 1.2e-21.
+        return (value) => (Math.abs(value) < step * 1e-6 ? '0' : value.toExponential(1));
+    }
+    return (value) => value.toFixed(decimals);
 }
 
 // Pixel i of n covers [lo, hi) of the visible axis; map it to the source cells it overlaps.
@@ -190,7 +215,7 @@ export function startChartSpecRenderer(win: Window, doc: Document, globals: Part
         spec: { xLabel?: string; yLabel?: string },
         xRange: { min: number; max: number },
         yRange: { min: number; max: number },
-        opts: { xDecimals: number; yDecimals: number },
+        opts: { xDecimals: number; yDecimals: number; yFormat?: (value: number) => string },
     ): void {
         ctx.fillStyle = cssVar('--muted', '#aaa');
         ctx.font = '10px monospace';
@@ -200,7 +225,7 @@ export function startChartSpecRenderer(win: Window, doc: Document, globals: Part
         for (let i = 0; i <= 4; i++) {
             const v = yRange.max - (i / 4) * (yRange.max - yRange.min);
             const py = y0 + (i / 4) * h;
-            ctx.fillText(v.toFixed(opts.yDecimals), x0 - 4, py);
+            ctx.fillText(opts.yFormat ? opts.yFormat(v) : v.toFixed(opts.yDecimals), x0 - 4, py);
         }
         ctx.textAlign = 'center';
         ctx.textBaseline = 'top';
@@ -305,7 +330,7 @@ export function startChartSpecRenderer(win: Window, doc: Document, globals: Part
             ctx.fillRect(0, plot.y, plot.x, plot.h);
 
             drawAxisLabels(ctx, plot, spec, xAxis, yAxis,
-                { yDecimals: tickDecimals(yAxis.max - yAxis.min, spec.yScale === 'db' ? 0 : 2), xDecimals: xAxis.max >= 100 ? 0 : 2 });
+                { yDecimals: 0, yFormat: yTickFormatter(yAxis.min, yAxis.max, spec.yScale === 'db' ? 0 : 2), xDecimals: xAxis.max >= 100 ? 0 : 2 });
 
             drawLegend(ctx, plot, series);
         }

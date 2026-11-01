@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 import { renderChartSpecDocument, type ChartSpecGlobals } from '../webview/panels/chartSpecDocument';
-import { lineAutoRange, startChartSpecRenderer } from '../webview/runtime/chartSpecRuntime';
+import { lineAutoRange, startChartSpecRenderer, yTickFormatter } from '../webview/runtime/chartSpecRuntime';
 import { normalizedColor, viridis } from '../shared/gui-core/index';
 import { getStrings, rangePopoverStrings } from '../shared/i18n/strings';
 
@@ -777,10 +777,37 @@ test('lineAutoRange leaves a series that already spans more than the minimum unc
     assert.deepEqual(lineAutoRange({}, -3, 3), { min: -3, max: 3 });
 });
 
-test('lineAutoRange gives a linear series a span relative to its magnitude, and 1 around zero', () => {
-    const half = lineAutoRange({ yScale: 'linear' }, 0.5 - 1e-7, 0.5 + 1e-7);
-    assert.ok(Math.abs(half.max - half.min - 0.05) < 1e-6, JSON.stringify(half));
+test('lineAutoRange widens a linear series only past floating-point rounding, and to 1 around zero', () => {
+    const half = lineAutoRange({ yScale: 'linear' }, 0.5 - 1e-8, 0.5 + 1e-8);
+    assert.ok(Math.abs(half.max - half.min - 5e-6) < 1e-9, JSON.stringify(half));
     assert.deepEqual(lineAutoRange({ yScale: 'linear' }, 0, 0), { min: -0.5, max: 0.5 });
+});
+
+test('lineAutoRange keeps the range of real variation on a large offset', () => {
+    assert.deepEqual(lineAutoRange({ yScale: 'linear' }, 101315, 101335), { min: 101315, max: 101335 });
+    assert.deepEqual(lineAutoRange({}, 292.65, 293.65), { min: 292.65, max: 293.65 });
+    assert.deepEqual(lineAutoRange({ yScale: 'linear' }, -1e-4, 1.2e-4), { min: -1e-4, max: 1.2e-4 });
+});
+
+test('lineAutoRange measures the free side from a single fixed bound beyond the data', () => {
+    assert.deepEqual(lineAutoRange({ yMin: 0 }, -5, -4), { min: 0, max: 5e-5 });
+    assert.deepEqual(lineAutoRange({ yScale: 'db', yMax: -10 }, -3, -2), { min: -16, max: -10 });
+    assert.deepEqual(lineAutoRange({ yMin: 0 }, 2, 4), { min: 0, max: 4 });
+});
+
+test('yTickFormatter keeps tiny-amplitude labels short and distinct', () => {
+    const format = yTickFormatter(-1e-4, 1.2e-4, 2);
+    const labels = [0, 1, 2, 3, 4].map(i => format(1.2e-4 - (i / 4) * 2.2e-4));
+    assert.deepEqual(labels, ['1.2e-4', '6.5e-5', '1.0e-5', '-4.5e-5', '-1.0e-4']);
+    assert.ok(labels.every(label => label.length <= 7), JSON.stringify(labels));
+    assert.equal(yTickFormatter(-1e-4, 1e-4, 2)(0), '0');
+});
+
+test('yTickFormatter keeps fixed notation, capped, on ordinary and large-offset axes', () => {
+    assert.equal(yTickFormatter(0, 10, 2)(2.5), '2.50');
+    assert.equal(yTickFormatter(-9.02, -3.02, 0)(-6.02), '-6.0');
+    assert.equal(yTickFormatter(-80, -20, 0)(-35), '-35');
+    assert.equal(yTickFormatter(0.4999975, 0.5000025, 2)(0.5), '0.5000');
 });
 
 test('lineAutoRange honours the spec minimum span and fixed bounds', () => {
