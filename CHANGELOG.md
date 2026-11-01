@@ -4,6 +4,7 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 
 ## Unreleased
 
+- Compare opened from the tracks with no role at all starts with the first two tracks as base and compare 1; the legend's chips change them (#540).
 - Compare legend: each recording's chip names its role ("Base ▾", "Compare 1 ▾"), or offers "Role ▾" outlined when it has none (#538).
 - Web: the empty view offers "Try with samples": three short synthetic recordings (a hum, with a whine, with clicks) load on a click, to try the app without audio at hand (#536).
 - Help: a "? Help" button in the footer opens it in every view; it starts with the app's flow in three lines. The Web version's Python boot card no longer covers the empty view's prompt (#533).

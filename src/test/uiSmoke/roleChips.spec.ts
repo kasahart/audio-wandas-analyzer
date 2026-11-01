@@ -75,14 +75,12 @@ test('a track\'s role chip sets the entry table\'s slots from the track view, by
     await expect(row.locator('[data-action="entry-row-exclude"]')).toHaveText(STR.dsRowExcludeShort);
 });
 
-test('compared with no role, the comparison asks for one: no difference to show, and the legend\'s chips set the roles there', async ({ page }) => {
+test('opened with no role, the comparison starts with the first two tracks as base and compare 1; the legend\'s chips change the roles there', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
-    const [first] = await twoTracks(page);
+    const [first, second] = await twoTracks(page);
     await page.locator('[data-action="content-stage"]').click();
     await expect(page.locator('.track-stage')).toBeVisible();
     const scans = async (): Promise<Posted[]> => (await posted(page)).filter(message => message.type === 'compare-scan' && message.requestId.startsWith('track-stage'));
-    await expect.poll(async () => (await scans()).length).toBeGreaterThan(0);
-    const request = (await scans()).at(-1)!;
     /** Answers a steps-mode scan as a host does. */
     const answer = (request: Posted): Promise<void> => page.evaluate(({ request, files }) => {
         for (const filePath of request.filePaths) {
@@ -91,21 +89,39 @@ test('compared with no role, the comparison asks for one: no difference to show,
         }
         window.postMessage({ type: 'compare-scan-done', requestId: request.requestId }, '*');
     }, { request, files: scanned! });
-    await answer(request);
-    await expect(page.locator('[data-stage-headline]')).toHaveText(STR.stageChooseRoles);
-    await expect(page.locator('[data-action="stage-diff"]')).toBeDisabled();
-    // Each recording in the legend carries its chip: compare 1 from there.
-    const legendChip = page.locator(`[data-stage-legend] details.role-chip[data-file-path="${first}"]`);
-    // There the chip says what it is for: 「Role ▾」 without one, outlined, in no track's colour.
-    await expect(legendChip.locator('summary')).toHaveText(`${STR.roleChoose} ▾`);
-    await expect(legendChip.locator('summary')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
-    await legendChip.locator('summary').click();
-    await legendChip.locator('[data-action="track-role-set"][data-slot="1"]').click();
-    await expect(page.locator(`[data-stage-legend] details.role-chip[data-file-path="${first}"] summary`)).toHaveText(`${STR.dsSlotCompare.replace('{n}', '1')} ▾`);
-    await expect(slotText(page, 1)).toContainText(first.split('/').pop()!);
-    // The compared row is its recording's channel 1: its picture is asked for again, as that channel.
-    await expect.poll(async () => (await scans()).length).toBeGreaterThan(1);
+    const legendChip = (filePath: string) => page.locator(`[data-stage-legend] details.role-chip[data-file-path="${filePath}"]`);
+    const setRole = async (filePath: string, slot: number | ''): Promise<void> => {
+        await legendChip(filePath).locator('summary').click();
+        await legendChip(filePath).locator(`[data-action="track-role-set"][data-slot="${slot}"]`).click();
+    };
+    // Nothing is drawn grey: the first track is the base, the second compare 1, in the table too.
+    await expect.poll(async () => (await scans()).length).toBeGreaterThan(0);
     await answer((await scans()).at(-1)!);
+    await expect(slotText(page, 0)).toContainText(first.split('/').pop()!);
+    await expect(slotText(page, 1)).toContainText(second.split('/').pop()!);
+    await expect(legendChip(second).locator('summary')).toHaveText(`${STR.dsSlotCompare.replace('{n}', '1')} ▾`);
     await expect(page.locator('.track-stage')).toHaveAttribute('data-compared', '1');
+    // Roles taken off there are not put back while the comparison stays open: it asks for one.
+    const assigned = (await scans()).length;
+    await setRole(second, '');
+    await setRole(first, '');
+    await expect(page.locator('[data-entry-rows] .entry-badge')).toHaveCount(0);
+    // Each role taken off asks for its recording's picture again; every request is answered as it comes.
+    let answered = assigned;
+    await expect.poll(async () => {
+        for (const request of (await scans()).slice(answered)) { await answer(request); answered++; }
+        return page.locator('[data-stage-headline]').textContent();
+    }).toBe(STR.stageChooseRoles);
+    await expect(page.locator('[data-action="stage-diff"]')).toBeDisabled();
+    // There the chip says what it is for: 「Role ▾」 without one, outlined, in no track's colour.
+    await expect(legendChip(first).locator('summary')).toHaveText(`${STR.roleChoose} ▾`);
+    await expect(legendChip(first).locator('summary')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
+    await setRole(first, 1);
+    await expect(legendChip(first).locator('summary')).toHaveText(`${STR.dsSlotCompare.replace('{n}', '1')} ▾`);
+    await expect(slotText(page, 1)).toContainText(first.split('/').pop()!);
+    await expect.poll(async () => {
+        for (const request of (await scans()).slice(answered)) { await answer(request); answered++; }
+        return page.locator('.track-stage').getAttribute('data-compared');
+    }).toBe('1');
     await expect(page.locator('[data-action="stage-diff"]')).toBeEnabled();
 });

@@ -2655,6 +2655,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             'content-waveform': () => setContentType('waveform'),
             'content-stage': () => {
                 stageEntrance = 'tracks';
+                // Opened with no role at all, the comparison would draw every line grey: the first two tracks shown start
+                // as the base and compare 1, so it opens on something compared. The legend's chips change them.
+                const visible = trackStore.displayOrder.map(id => trackStore.require(id)).filter(record => !record.runtime.hidden && !record.result.error);
+                if (contentType !== 'stage' && visible.length >= 2 && visible.every(record => !trackRole(record.result.filePath))) {
+                    entryScreen.setTrackRole(visible[0].result.filePath, 0);
+                    entryScreen.setTrackRole(visible[1].result.filePath, 1);
+                }
                 // A selection on the tracks (found by listening) is what to compare: it becomes the region, in the files' time.
                 // In the time of the recording compared (slot 1–3 first), each track having its own offset on the timeline;
                 // a recording the selection does not reach gives way to the next one it does.
