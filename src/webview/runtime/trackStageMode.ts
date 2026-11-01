@@ -434,7 +434,8 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             // Without a compared file there is no difference to show.
             // A base group of waveforms is drawn each as it is (also while gated or still coming in): its title counts
             // its files rather than naming a median, and no level difference is measured against it.
-            const each = !!picture?.waveform && allBase.length > 1;
+            // Before any picture is in, the step's Frame says whether it is a time signal (drawn as waveforms).
+            const each = (picture ? !!picture.waveform : frameShown === INPUT_FRAME) && allBase.length > 1;
             paintStageControls(dom, strings, { overlaid: state.overlaid, images, showDiff: state.showDiff, overlay, measuredAgainstBase: !!referencePath, nothingCompared: !comparedPath(tracks), baseEach: each });
             // Zoomed, the plots draw from the Frames' full resolution once it is in, the coarse pictures until then.
             const width = (overlay ? query<HTMLCanvasElement>('[data-stage-canvas="overlay"]') : tracks.find(track => track.canvas)?.canvas)?.clientWidth || 600;
