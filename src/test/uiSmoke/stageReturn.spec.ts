@@ -126,6 +126,11 @@ test('a selection on the tracks becomes the comparison\'s region as it opens, on
     await expect(root).toHaveAttribute('data-region', '0.50–1.50');
     await expect(bar.locator('.step-chip', { hasText: STR.stepRegion })).toHaveText(`${STR.stepRegion} 0.50–1.50 s`);
     await answer(page);
+    // The first opening shows the input; on the 1/3-octave bands the base's table values can stand in.
+    await expect(bar.locator('.step-chip.is-current')).toHaveAttribute('data-step-input', '');
+    await bar.locator('.step-branch [data-step-hold]').click();
+    await expect.poll(async () => ((await posted(page)).filter(message => message.type === 'compare-scan').at(-1) as { stage?: string } | undefined)?.stage).toBe('node-noct');
+    await answer(page);
     await expect(page.locator('[data-stage-headline]')).toContainText(`${STR.stepRegion} 0.50–1.50 s`);
     // The base group (too many to analyse unasked) has no line over a region: the table's values are of whole files.
     const baseEntry = page.locator('[data-stage-legend] .compare-legend-item').first().locator('.compare-legend-label');
