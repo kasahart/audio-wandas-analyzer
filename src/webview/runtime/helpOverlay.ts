@@ -1,10 +1,11 @@
 /**
- * "?" / F1: the keys of every view, the one on show first, and what the screens' symbols and colours mean.
- * It is modal: while it is open it takes every key (Tab moves within it), and ?, F1, Esc or a click outside closes it.
+ * "?" / F1 or the footer's "? Help": the app's flow in three lines, then the keys of every view, the one on show first,
+ * and what the screens' symbols and colours mean. It is modal: while it is open it takes every key (Tab moves within it), and ?, F1, Esc or a click outside closes it.
  */
 import type { UiStrings } from '../../shared/i18n/strings';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { eventTarget } from './domAdapter';
+import { setHint } from './hintFooter';
 import { isTextEntryTarget, keyRouterFor } from './keyRouter';
 import { HELP_SECTIONS, type HelpView, type KeyRow } from './shortcuts';
 
@@ -37,12 +38,28 @@ export function installHelpOverlay(document: Document, window: Pick<Window, 'add
     overlay.hidden = true;
     document.body.append(overlay);
     let returnFocus: HTMLElement | null = null;
+    // The keys alone left the help undiscoverable: a button in the footer opens it in every view.
+    const openButton = document.createElement('button');
+    openButton.type = 'button';
+    openButton.id = 'help-open-btn';
+    openButton.className = 'tb-btn';
+    openButton.setAttribute('data-action', 'help-open');
+    openButton.setAttribute('aria-haspopup', 'dialog');
+    setHint(openButton, strings.hintHelpOpen);
+    openButton.textContent = strings.helpOpen;
+    const version = document.getElementById('app-version');
+    if (version) version.before(openButton);
+    else (document.getElementById('app-footer') ?? document.body).append(openButton);
+    // A press keeps the focus where it was: the help then lists that view's keys first (as ? does) and gives the focus back to it.
+    openButton.addEventListener('mousedown', event => event.preventDefault());
+    openButton.addEventListener('click', () => { if (overlay.hidden) open(view()); else close(); });
 
     function open(current: HelpView): void {
         returnFocus = document.activeElement as HTMLElement | null;
         const sections = [...HELP_SECTIONS].sort((a, b) => Number(b.view === current) - Number(a.view === current));
         overlay.innerHTML = `<div class="screen-help-box">
             <div class="screen-help-head"><strong>${escapeHtml(strings.screenHelpTitle)}</strong><button type="button" id="help-close-btn" class="tb-btn" data-action="help-close">${escapeHtml(strings.helpClose)}</button></div>
+            <ol class="screen-help-flow" data-screen-help-flow>${strings.helpFlow.split(/\r?\n/).filter(line => line.trim()).map(line => `<li>${escapeHtml(line)}</li>`).join('')}</ol>
             <div class="screen-help-tables">
                 ${sections.map(section => `<section data-help-section="${section.view}"${section.view === current ? ' data-screen-help-keys aria-current="true"' : ''}>`
                     + `<h3>${escapeHtml(strings[section.titleKey])}</h3><table>${keyRows(section.rows, strings)}</table></section>`).join('')}

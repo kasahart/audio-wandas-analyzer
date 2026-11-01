@@ -52,6 +52,23 @@ test('help overlay closes when ? is pressed again', async ({ page }) => {
     await expect(helpOverlay).toBeHidden();
 });
 
+test('the footer button opens the help, which starts with the three-step flow', async ({ page }) => {
+    await loadUi(page);
+
+    const helpOverlay = page.locator('#help-overlay');
+    const button = page.locator('#app-footer #help-open-btn');
+    await expect(button).toBeVisible();
+    await button.click();
+    await expect(helpOverlay).toBeVisible();
+    await expect(helpOverlay.locator('[data-screen-help-flow] li')).toHaveCount(3);
+    await expect(page.locator('#help-close-btn')).toBeFocused();
+
+    await page.keyboard.press('Escape');
+    await expect(helpOverlay).toBeHidden();
+    // The press does not take the focus: it stays with what had it before.
+    await expect(button).not.toBeFocused();
+});
+
 test('help overlay closes with Escape', async ({ page }) => {
     await loadUi(page);
 

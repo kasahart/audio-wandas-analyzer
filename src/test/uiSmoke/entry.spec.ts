@@ -426,8 +426,7 @@ test('? and F1 show the keys and symbols; the footer hints follow the next step 
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     const STR = getStrings('ja');
     await openEntry(page, scanned!, { language: 'ja' });
-    const keys = page.locator('[data-entry-keys] .entry-key');
-    await expect(keys).toHaveText([STR.keyHelp]);
+    await expect(page.locator('#help-open-btn')).toHaveText(STR.helpOpen);
     await page.keyboard.press('?');
     const help = page.locator('[data-screen-help]');
     await expect(help).toBeVisible();
@@ -450,9 +449,9 @@ test('? and F1 show the keys and symbols; the footer hints follow the next step 
     await row.locator('[data-action="entry-row-slotmenu"]').click();
     await page.locator('[data-action="entry-row-slot"][data-slot="1"]').click();
     await expect(row.locator('.entry-badge.entry-slot-1')).toHaveCount(1);
-    await expect(keys).toHaveText([STR.keyHelp]);
-    await keys.first().click();
+    await page.locator('#help-open-btn').click();
     await expect(help).toBeVisible();
+    await expect(help.locator('[data-help-section="entry"]')).toHaveAttribute('aria-current', 'true');
     await page.keyboard.press('Escape');
     await expect(page.locator('[data-action="entry-open"]')).toContainText(STR.entryOpen);
     await page.locator('[data-action="entry-open"]').click();
@@ -596,6 +595,20 @@ for (const language of ['ja', 'en'] as const) {
         expect((await headerFit(page, 'ch')).lines, 'ch maximized').toBe(1);
     });
 }
+
+test('docked beside the tracks, the footer\'s help button lists the table\'s keys first and gives the focus back to the table', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    await openEntry(page, scanned!, { language: 'ja', docked: true });
+    const row = page.locator('[data-entry-rows] tr.entry-row').first();
+    await row.locator('.entry-nm').click();
+    await page.locator('#help-open-btn').click();
+    const help = page.locator('[data-screen-help]');
+    await expect(help).toBeVisible();
+    await expect(help.locator('[data-help-section="entry"]')).toHaveAttribute('aria-current', 'true');
+    await page.keyboard.press('Escape');
+    await expect(help).toBeHidden();
+    expect(await page.evaluate(() => !!document.activeElement?.closest('#entry-screen'))).toBe(true);
+});
 
 test('a CSV value with a long name with no spaces still stays inside its column maximized', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');

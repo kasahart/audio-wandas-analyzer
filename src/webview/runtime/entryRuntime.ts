@@ -112,8 +112,6 @@ export interface EntryScreenDeps {
     download(csv: string, fileName: string): void;
     /** Writes a folder of text files where the user picks (a recipe bundle). */
     saveFolder?(folder: string, files: Array<{ name: string; text: string }>): void;
-    /** "? list": the keys and symbols overlay. */
-    help?(): void;
     /** Where the table sits while it is not maximized: the track view's side panel (the page's body without one). */
     dock?: HTMLElement | null;
     /** The table was widened to the whole window, or shrunk back into the side panel. */
@@ -225,7 +223,6 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     const body = query<HTMLElement>('[data-entry-rows]');
     const cols = query<HTMLElement>('[data-entry-cols]');
     const table = query<HTMLElement>('[data-entry-table]');
-    const keyHints = query<HTMLElement>('[data-entry-keys]');
     const chipsBox = query<HTMLElement>('[data-entry-chips]');
     const computeBox = query<HTMLElement>('[data-entry-compute]');
     const valueSelect = query<HTMLSelectElement>('[data-action="entry-value"]');
@@ -537,8 +534,6 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         if (writeHtml(head, datasetHeadHtml(view, text)) && headFocused) focusHeadMark();
         renderRows(view);
         paintBase();
-        const wanted = `<button type="button" class="entry-key" data-action="entry-key-hint" data-key="help">${escapeHtml(strings.keyHelp)}</button>`;
-        if (keyHints.innerHTML !== wanted) keyHints.innerHTML = wanted;
         stepBar.set({ recipe: recipeState.edited ?? recipeState.standard, sampleRate: sampleRate(), shortestSamples: shortestSamples(), channels: channelCount(), failed: recipeState.failed, files: filePaths.length });
         screen.dataset.mode = chosen.mode;
         sidePlots.schedule();
@@ -1203,7 +1198,6 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             const parent = target.getAttribute('data-parent'), region = target.getAttribute('data-region');
             if (parent !== null && region !== null) removeDerived(parent, region, target.getAttribute('data-base') ?? undefined);
         },
-        'entry-key-hint': target => { if (target.getAttribute('data-key') === 'help') deps.help?.(); },
     };
     tableWrap.addEventListener('scroll', () => { renderRows(); sidePlots.schedule(false); });
     screen.addEventListener('click', event => redraw.batch(() => {

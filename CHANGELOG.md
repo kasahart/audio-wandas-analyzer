@@ -4,6 +4,7 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 
 ## Unreleased
 
+- Help: a "? Help" button in the footer opens it in every view; it starts with the app's flow in three lines. The Web version's Python boot card no longer covers the empty view's prompt (#533).
 - Analysis chain: entry table for up to 100,000 recordings, a dataset table with distributions, a step bar that builds a wandas Recipe, and per-folder sessions (#410, #414, #415).
 - Compare view: roles per recording, the tracks' selection carried in as the region, recordings drawn as they are computed, cross-correlation (#452–#456, #468, #472).
 - Track lanes: waveform over spectrogram on one time axis, linked amplitude/colour/frequency scales, only lanes near the view drawn and fetched (#427, #442, #444).

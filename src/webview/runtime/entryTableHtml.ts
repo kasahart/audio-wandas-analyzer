@@ -102,10 +102,6 @@ export function entryScreenHtml(strings: EntryStrings): string {
             <canvas class="entry-overview" data-entry-overview aria-label="${escapeHtml(strings.ariaEntryOverview)}"${hintAttr(strings.hintOverview)}></canvas>
         </aside>
     </div>
-    <div class="entry-footer">
-        <span class="entry-spacer"></span>
-        <span class="entry-keys" data-entry-keys></span>
-    </div>
 </section>`;
 }
 
