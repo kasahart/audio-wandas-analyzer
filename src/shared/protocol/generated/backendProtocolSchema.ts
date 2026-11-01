@@ -288,7 +288,14 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                     "type": "number"
                 },
                 "clipped": {
-                    "type": "boolean"
+                    "anyOf": [
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "waveform": {
                     "$ref": "#/$defs/WaveformEnvelope"
@@ -1776,7 +1783,7 @@ export interface ChannelSummary {
     measurement?: ChannelMeasurementContext;
     peakLevelDb?: number;
     rawPeakFullScale?: number;
-    clipped?: boolean;
+    clipped?: boolean | null;
     waveform: WaveformEnvelope;
     spectrogram: SpectrogramData | null;
 }

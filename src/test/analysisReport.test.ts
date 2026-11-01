@@ -30,3 +30,18 @@ test('notebook loads each track from its report source path', () => {
     const load = notebook.cells.find(cell => cell.id === 'load-files')!;
     assert.equal(load.source[0], 'signal_1 = wd.read("audio/01-x.wav")\nsignal_1.describe()');
 });
+
+test('measurements: a source without a full scale reports neither a full-scale peak nor clipping', () => {
+    const measurement = {
+        calibrationStatus: 'uncalibrated' as const, calibrationSource: 'default' as const, factor: 1, linearUnit: '',
+        referenceValue: 1, referenceUnit: '', levelUnit: 'dB', levelReferenceLabel: 'dB re 1 input unit',
+    };
+    const measured = (fileName: string, rawPeakFullScale: number, clipped: boolean | null): ReportTrack => {
+        const base = track(fileName, 0);
+        base.result.channels = [{ label: 'ch', peakAbsolute: rawPeakFullScale, peakLevelDb: 0, rawPeakFullScale, clipped, measurement, waveform, spectrogram: null }];
+        return base;
+    };
+    const report = buildMarkdownReport([measured('full.wav', 1, true), measured('vib.csv', 1.414, null)], undefined, new Date());
+    assert.match(report, /\| full\.wav \| Channel 1 \(ch\) \| 1\.00  \| 0\.0 dB \| 1\.00 FS \| Yes \|/);
+    assert.match(report, /\| vib\.csv \| Channel 1 \(ch\) \| 1\.41  \| 0\.0 dB \| — \| — \|/);
+});
