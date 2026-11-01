@@ -697,6 +697,7 @@ test('the first opening shows the input: a base group draws each of its waveform
     await expect(bar).toHaveAttribute('data-drawn', String(members + 1));
     await expect(baseEntry).toContainText(STR.entryBaseCount.replace('{count}', String(members)));
     await expect(baseEntry).not.toContainText(STR.entryBaseMedian.replace('{count}', String(members)));
+    await expect(baseEntry.locator('[data-action="stage-base-info"]')).toHaveAttribute('aria-label', STR.stageBaseEach);
     await baseEntry.locator('[data-action="stage-base-info"]').click();
     await expect(page.locator('[data-stage-base-aggregate]')).toHaveText(STR.stageBaseEach);
     // The 1/3-octave bands chosen, then back to the tracks and the comparison opened again: the bands, not the input.

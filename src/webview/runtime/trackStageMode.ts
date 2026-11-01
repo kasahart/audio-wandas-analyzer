@@ -498,7 +498,8 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             // its files rather than naming a median.
             const each = !!picture?.waveform && allBase.length > 1;
             const baseTitle = (path: string): string => { const title = deps.baseTitle(path, state.groupBase); return each ? eachBaseTitle(title, allBase.length, strings) : title; };
-            query<HTMLElement>('[data-stage-base-aggregate]').textContent = each ? strings.stageBaseEach : strings.stageBaseAggregate;
+            const aggregate = each ? strings.stageBaseEach : strings.stageBaseAggregate;
+            query<HTMLElement>('[data-stage-base-aggregate]').textContent = aggregate;
             const baseLabel = comparePath ? baseTitle(comparePath) : basePaths.length === 1 ? named(basePaths[0], role(basePaths[0])).label : undefined;
             const layers = overlayLayers(frame, plots, baseLabel);
             stepBar.element.dataset.drawn = String(layers.length);
@@ -506,6 +507,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
                 title: comparePath && !referencePath ? baseTitle(comparePath) : '',
                 // A base group (not a slot-0 file) has a ▾ that says how its curve is made.
                 group: !!comparePath && (state.groupBase || !deps.slots()[0]),
+                aggregate,
                 gated, tableBase, tableBands, count: allBase.length, held: state.held !== null, playable,
             });
             const legend = query<HTMLElement>('[data-stage-legend]');
