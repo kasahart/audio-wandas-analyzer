@@ -15,6 +15,7 @@ from analysis_service import AnalysisService
 from analyzer import analyze_from_frame
 from backend_errors import InputError, StaleCalibrationError, error_payload
 from calibration_profile import finite_source_channel_peaks, resolve_calibration_profile, source_channel_peaks
+from protocol_schema import DEFINITIONS, first_violation
 
 
 def _profile(labels: list[str], factors: list[float], units: list[str], refs: list[float]) -> dict[str, object]:
@@ -284,6 +285,27 @@ def test_real_wav_preserves_uncalibrated_domains_for_none_full_and_partial_profi
         "dB SPL",
         "dBFS",
     ]
+
+
+def test_csv_physical_values_are_never_clipped_but_a_full_scale_wav_is(tmp_path) -> None:
+    time = np.arange(800) / 8_000
+    tone = np.sin(2 * np.pi * 80 * time)
+    wav_path = tmp_path / "full_scale.wav"
+    sf.write(wav_path, tone, 8_000, subtype="DOUBLE")
+    csv_path = tmp_path / "vibration.CSV"
+    rows = "".join(f"{t},{value}\n" for t, value in zip(time, np.sqrt(2) * tone, strict=True))
+    csv_path.write_text("time,accel\n" + rows, encoding="utf-8")
+    service = AnalysisService(AnalysisEngine(cache_limit_bytes=16 * 1024 * 1024))
+
+    wav = service.analyze(wav_path)["channels"][0]
+    csv = service.analyze(csv_path)["channels"][0]
+    detail = service.track_detail(csv_path)["channels"][0]
+
+    assert wav["clipped"] is True
+    assert csv["rawPeakFullScale"] > 1.4
+    assert csv["clipped"] is None
+    assert detail["clipped"] is None
+    assert first_violation(DEFINITIONS["ChannelSummary"], csv) is None
 
 
 def test_micro_reference_prefix_attaches_to_non_pascal_unit() -> None:

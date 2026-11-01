@@ -409,6 +409,20 @@ def test_load_accepts_every_format_wandas_reads(extension: str) -> None:
         np.testing.assert_allclose(frame.data, data.T, atol=1e-4)
 
 
+@pytest.mark.parametrize(("extension", "clipped"), [(".wav", True), (".csv", None)])
+def test_browser_flags_clipping_only_for_sources_with_a_full_scale(extension: str, clipped: bool | None) -> None:
+    rate = 8000
+    time = np.arange(800) / rate
+    amplitude = 1.0 if extension == ".wav" else np.sqrt(2)
+    data = np.column_stack([amplitude * np.sin(2 * np.pi * 80 * time)] * 2)
+    service = create_service()
+    path = service.engine.load(f"tone{extension}", _encoded(extension, data, rate))["filePath"]
+
+    channels = service.analyze(path)["channels"]
+
+    assert [channel["clipped"] for channel in channels] == [clipped, clipped]
+
+
 def test_typescript_extension_list_matches_wandas() -> None:
     source = (Path(__file__).resolve().parents[1] / "src/shared/utils/audioTarget.ts").read_text(encoding="utf-8")
     listed = re.search(r"SUPPORTED_AUDIO_FILE_EXTENSIONS = new Set\(\[([^\]]*)\]\)", source)
