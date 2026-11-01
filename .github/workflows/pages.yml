@@ -93,7 +93,7 @@ jobs:
         run: |
           current_sha=$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq '.object.sha')
           echo "current=$([ "$current_sha" = "$EXPECTED_SHA" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-      - uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@v6
         if: steps.revision.outputs.current == 'true'
       - name: Deploy static Analyzer
         id: deployment
