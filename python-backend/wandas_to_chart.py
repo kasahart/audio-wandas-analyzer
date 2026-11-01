@@ -48,6 +48,7 @@ from chart_spec import (
 # minimum and maximum), so a long recording does not serialize every sample into the Recipe result.
 CHANNEL_FRAME_POINT_LIMIT = 8192
 _ENVELOPE_BLOCK_SAMPLES = 1 << 20
+PHASE_MIN_SPAN_RAD = 2 * np.pi
 
 # ---- helpers ---------------------------------------------------------------
 
@@ -196,7 +197,7 @@ def _adapt_spectral_frame(
             item["unit"] = channel.level_reference.label
         elif value in {"magnitude", "gain"} and channel.unit:
             item["unit"] = channel.unit
-    return {
+    spec: LineChartSpec = {
         "kind": "line",
         "title": title,
         "xLabel": "Frequency [Hz]",
@@ -206,6 +207,13 @@ def _adapt_spectral_frame(
         "xScale": "linear",
         "yScale": y_scale,
     }
+    if value == "phase":
+        # A full turn at least: a constant phase must not fill the plot with its rounding noise.
+        spec["yMinSpan"] = PHASE_MIN_SPAN_RAD
+    elif value == "coherence":
+        # Magnitude-squared coherence is bounded, so its axis is too.
+        spec["yMin"], spec["yMax"] = 0.0, 1.0
+    return spec
 
 
 def _adapt_spectrogram_frame(frame: Any, *, title: str, channel: int = 0) -> HeatmapChartSpec:

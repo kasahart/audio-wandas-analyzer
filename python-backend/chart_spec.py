@@ -9,7 +9,9 @@ stay in lockstep without a code generator.
 
 Each ``oneOf`` branch covers one ``kind``:
 
-* ``line``    — x/y line plot, one or more series.
+* ``line``    — x/y line plot, one or more series. Optional ``yMin``/``yMax`` fix the
+  y axis for a bounded quantity and ``yMinSpan`` floors its auto span; the renderer
+  otherwise widens a near-constant series to a scale-dependent minimum span.
 * ``heatmap`` — 2D matrix indexed by xs and ys.
 * ``bar``     — categorical bars, one or more series.
 * ``scalar``  — small label/value/unit table.
@@ -42,6 +44,9 @@ class LineChartSpec(TypedDict):
     series: list[LineSeries]
     xScale: NotRequired[Literal["linear", "log"]]
     yScale: NotRequired[Literal["linear", "log", "db"]]
+    yMin: NotRequired[float]
+    yMax: NotRequired[float]
+    yMinSpan: NotRequired[float]
 
 
 class HeatmapChartSpec(TypedDict):
@@ -114,6 +119,9 @@ def dump_schema() -> dict:
             },
             "xScale": {"enum": ["linear", "log"]},
             "yScale": {"enum": ["linear", "log", "db"]},
+            "yMin": {"type": "number"},
+            "yMax": {"type": "number"},
+            "yMinSpan": {"type": "number", "exclusiveMinimum": 0},
         },
         "additionalProperties": False,
     }

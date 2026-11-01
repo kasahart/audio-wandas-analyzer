@@ -33,6 +33,102 @@ function isFiniteValue(value: unknown): value is number {
     return Number.isFinite(value);
 }
 
+/** Labels fit the 46 px y-axis margin: seven characters, sign and point included, where the value allows. */
+const MAX_TICK_CHARS = 7;
+/** At most this many decimals in fixed notation. */
+const MAX_TICK_DECIMALS = 4;
+/** Fewest decimals on a linear (non-dB) axis, as before the span floor. */
+const LINEAR_FEWEST_DECIMALS = 2;
+/** Below this magnitude ticks are written in exponent notation (`-1.0e-4`), which stays seven characters. */
+const EXPONENT_BELOW = 1e-2;
+/** The five y ticks are four steps apart. */
+const TICK_STEPS = 4;
+/** A dB axis spans at least this much, so a flat response reads as flat (as the pair spectrum's gain row). */
+const DB_MIN_SPAN = 6;
+/**
+ * A linear axis spans at least this fraction of the data's magnitude: enough to absorb float32 rounding
+ * (~1e-7 relative, a little more after a few operations), far below any real variation on a large offset
+ * (101325 ± 10 Pa is 1e-4). Quantities with a known scale (phase, coherence) set it in the spec instead.
+ */
+const LINEAR_MIN_RELATIVE_SPAN = 1e-5;
+
+function pow10(exponent: number): number {
+    return exponent < 0 ? 1 / 10 ** -exponent : 10 ** exponent;
+}
+
+/** Decimals a fixed-notation label of this magnitude can carry within MAX_TICK_CHARS (sign, digits, point). */
+function fittingDecimals(magnitude: number): number {
+    const integerDigits = Math.max(1, Math.floor(Math.log10(magnitude)) + 1);
+    return Math.max(0, Math.min(MAX_TICK_DECIMALS, MAX_TICK_CHARS - 2 - integerDigits));
+}
+
+/** The value of the last digit a tick label of this magnitude prints. */
+function labelUnit(magnitude: number, fewest: number): number {
+    if (magnitude < EXPONENT_BELOW) { return pow10(Math.floor(Math.log10(magnitude)) - 1); }
+    return pow10(-Math.max(fewest, fittingDecimals(magnitude)));
+}
+
+/**
+ * Rounding-only floor for a linear axis, raised to one printed last-digit unit per tick step so a constant
+ * series never shows five equal labels; 1 when every value is zero. The unit is the coarser of the data's and
+ * the top tick's, so ticks that cross into the next decade (or lose a decimal there) still differ.
+ */
+function linearMinSpan(magnitude: number): number {
+    if (!(magnitude > 0)) { return 1; }
+    let unit = labelUnit(magnitude, LINEAR_FEWEST_DECIMALS);
+    unit = Math.max(unit, labelUnit(magnitude + (TICK_STEPS / 2) * unit, LINEAR_FEWEST_DECIMALS));
+    return Math.max(magnitude * LINEAR_MIN_RELATIVE_SPAN, TICK_STEPS * unit);
+}
+
+/**
+ * The y range a line chart scales to when the user has not set one. Fixed bounds in the spec (a bounded
+ * quantity such as coherence) win; otherwise the data's extent, widened about its centre to a minimum span
+ * (the spec's own, else one fitting the scale) so rounding noise on a near-constant series is not stretched
+ * to full height. A series that already spans more is left as it is.
+ */
+export function lineAutoRange(
+    spec: Pick<LineChart, 'yScale' | 'yMin' | 'yMax' | 'yMinSpan'>,
+    dataMin: number,
+    dataMax: number,
+): { min: number; max: number } {
+    let min = dataMin, max = dataMax;
+    if (!isFinite(min) || !isFinite(max)) { min = 0; max = 1; }
+    const minSpan = spec.yMinSpan != null ? spec.yMinSpan
+        : spec.yScale === 'db' ? DB_MIN_SPAN
+        : linearMinSpan(Math.max(Math.abs(min), Math.abs(max)));
+    if (max - min < minSpan) {
+        const center = (min + max) / 2;
+        min = center - minSpan / 2;
+        max = center + minSpan / 2;
+    }
+    let lo = spec.yMin != null ? spec.yMin : min;
+    let hi = spec.yMax != null ? spec.yMax : max;
+    // One fixed bound beyond the data: the free side is measured from it rather than crossing it.
+    if (hi <= lo) {
+        if (spec.yMax == null) { hi = lo + minSpan; } else if (spec.yMin == null) { lo = hi - minSpan; }
+    }
+    return { min: lo, max: hi };
+}
+
+
+/**
+ * Formats the five y ticks of [min, max]: enough decimals (no fewer than `fewest`) for them to read as
+ * distinct values, capped so a label stays within the axis margin; a small-amplitude axis uses exponent
+ * notation instead of a long run of zeros.
+ */
+export function yTickFormatter(min: number, max: number, fewest: number): (value: number) => string {
+    const step = (max - min) / TICK_STEPS;
+    const wanted = step > 0 ? Math.ceil(-Math.log10(step)) + 1 : fewest;
+    const magnitude = Math.max(Math.abs(min), Math.abs(max));
+    const cap = magnitude > 0 ? Math.max(fewest, fittingDecimals(magnitude)) : MAX_TICK_DECIMALS;
+    const decimals = Math.min(cap, Math.max(fewest, wanted));
+    if (wanted > cap && magnitude < EXPONENT_BELOW) {
+        // A tick that is zero up to rounding reads as 0, not as 1.2e-21.
+        return (value) => (Math.abs(value) < step * 1e-6 ? '0' : value.toExponential(1));
+    }
+    return (value) => value.toFixed(decimals);
+}
+
 // Pixel i of n covers [lo, hi) of the visible axis; map it to the source cells it overlaps.
 function sourceIntervals(n: number, visibleMin: number, visibleMax: number, axisMin: number, axisMax: number, count: number): ([number, number] | null)[] {
     const intervals: ([number, number] | null)[] = [];
@@ -155,7 +251,7 @@ export function startChartSpecRenderer(win: Window, doc: Document, globals: Part
         spec: { xLabel?: string; yLabel?: string },
         xRange: { min: number; max: number },
         yRange: { min: number; max: number },
-        opts: { xDecimals: number; yDecimals: number },
+        opts: { xDecimals: number; yDecimals: number; yFormat?: (value: number) => string },
     ): void {
         ctx.fillStyle = cssVar('--muted', '#aaa');
         ctx.font = '10px monospace';
@@ -165,7 +261,7 @@ export function startChartSpecRenderer(win: Window, doc: Document, globals: Part
         for (let i = 0; i <= 4; i++) {
             const v = yRange.max - (i / 4) * (yRange.max - yRange.min);
             const py = y0 + (i / 4) * h;
-            ctx.fillText(v.toFixed(opts.yDecimals), x0 - 4, py);
+            ctx.fillText(opts.yFormat ? opts.yFormat(v) : v.toFixed(opts.yDecimals), x0 - 4, py);
         }
         ctx.textAlign = 'center';
         ctx.textBaseline = 'top';
@@ -231,10 +327,8 @@ export function startChartSpecRenderer(win: Window, doc: Document, globals: Part
                     if (y > yMax) { yMax = y; }
                 }
             }
-            if (!isFinite(yMin) || !isFinite(yMax)) { yMin = 0; yMax = 1; }
-            if (yMin === yMax) { yMax = yMin + 1; }
-
-            const yAxis = axisBounds(override && override.y, yMin, yMax);
+            const auto = lineAutoRange(spec, yMin, yMax);
+            const yAxis = axisBounds(override && override.y, auto.min, auto.max);
             const dataXMin = xs[0] != null ? xs[0] : 0;
             const dataXMax = xs[xs.length - 1] != null ? xs[xs.length - 1] : 1;
             const xAxis = axisBounds(override && override.x, dataXMin, dataXMax);
@@ -272,7 +366,7 @@ export function startChartSpecRenderer(win: Window, doc: Document, globals: Part
             ctx.fillRect(0, plot.y, plot.x, plot.h);
 
             drawAxisLabels(ctx, plot, spec, xAxis, yAxis,
-                { yDecimals: (spec.yScale === 'db') ? 0 : 2, xDecimals: xAxis.max >= 100 ? 0 : 2 });
+                { yDecimals: 0, yFormat: yTickFormatter(yAxis.min, yAxis.max, spec.yScale === 'db' ? 0 : LINEAR_FEWEST_DECIMALS), xDecimals: xAxis.max >= 100 ? 0 : 2 });
 
             drawLegend(ctx, plot, series);
         }
