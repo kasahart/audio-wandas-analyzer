@@ -12,7 +12,7 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 - File table beside the tracks: the selected row's name stays readable (its tools show under the mouse, like other rows); the value column shows only when the table is maximized (#505).
 - Track lanes fetch the waveform detail two screens either side of the view, so a pan no longer flashes the coarse overview, and a zoom out keeps the detail already fetched until the new one lands (#502).
 - Entry table: the slot chips under the table are gone (roles show on the rows and the compare legend); the base group is chosen from a Base select beside Group (#504).
-- Compare view: opens the first time on the input, the recordings as they are; after that on the step shown last, from the table or the tracks. On a waveform, a base group draws each of its recordings' waveforms under the compared one (#518).
+- Compare view: opens the first time on the input, the recordings as they are; after that on the step shown last, from the table or the tracks. On a waveform, a base group draws each of its recordings' waveforms under the compared one, with no level difference against the group's median, which is on no line (#518, #520).
 - Compare view: showing Δ no longer leaves the overlaid plot stretched from its old height, so hovered lines are no longer drawn twice (#503).
 - Python backend answers requests for different recordings concurrently and reads audio straight into float32 (#462, #464).
 - Updated to wandas 0.12.0 (#409, #446, #468).
