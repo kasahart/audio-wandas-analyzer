@@ -39,15 +39,18 @@ test('the track view\'s steps mode draws every track as the chosen step\'s Frame
         channels: [{ label: 'L', peakAbsolute: 0.5, waveform: { min: [-0.5, -0.4], max: [0.5, 0.4], minT: [0.1, 0.6], maxT: [0.4, 0.9], absolutePeak: 0.5 } }],
     }] } })), first!);
     await expect(page.locator('.track-row')).toHaveCount(1);
-    // Steps: the step bar over the tracks, on the 1/3-octave bands the table reads, asked of the track's file and its base (its condition).
+    // Steps: the step bar over the tracks, opened the first time on the input (the recordings as they are).
     await page.locator('[data-action="content-stage"]').click();
     const bar = page.locator('.track-stage-bar');
     const stage = page.locator('.track-stage');
     await expect(bar).toBeVisible();
     await expect(page.locator('#ruler-row')).toBeHidden();
-    await expect.poll(async () => (await stageScans(page)).length).toBeGreaterThan(0);
+    await expect.poll(async () => (await stageScans(page)).at(-1)?.stage).toBe('node-input');
+    await expect(bar.locator('.step-chip.is-current')).toHaveAttribute('data-step-input', '');
+    // The 1/3-octave bands the table reads, asked of the track's file and its base (its condition).
+    await bar.locator('.step-branch [data-step-hold]').click();
+    await expect.poll(async () => (await stageScans(page)).at(-1)?.stage).toBe('node-noct');
     const asked = (await stageScans(page)).at(-1)!;
-    expect(asked.stage).toBe('node-noct');
     expect(asked.filePaths).toEqual([first]);
     // While it is computed, the comparison is on screen already (not the lanes), saying how many files are in.
     await expect(stage).toHaveAttribute('data-layout', 'overlay');

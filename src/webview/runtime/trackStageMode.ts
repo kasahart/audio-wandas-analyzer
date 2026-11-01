@@ -19,7 +19,7 @@ import { brokenStep, recipeChain, recipeKey, recipeSteps, TIME_SLICE, type Recip
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { createStepBar, invalidReason, stepChipLabel, stepLimits, INPUT_STAGE, OCTAVE_BRANCH } from './stepBar';
 import { createStageSource, type StageSpec } from './stageSource';
-import { chosenStage, comparedPath as comparedPathOf, holdStageSpec, initialStageState, liveRegion as liveRegionOf, openStageState, pictureSummary, plotsOf, regionStageSpec, stageSpec, tableBaseView } from './trackStageModel';
+import { chosenStage, comparedPath as comparedPathOf, eachBaseTitle, enterStageState, holdStageSpec, initialStageState, liveRegion as liveRegionOf, openStageState, pictureSummary, plotsOf, regionStageSpec, stageSpec, tableBaseView } from './trackStageModel';
 import { createDetailPlanner } from './stageDetail';
 import { attachStageGestures, type StageGestures } from './trackStageGestures';
 import { overlayLayers, overlayLegendItems, paintBaseGate, paintNoPicture, paintNoStage, paintStageControls, paintStageLanes, paintStageOverlay, stageDom, stageModeHeadline, writeStageLegend, type Drawn, type StageFrame, type StageTrack } from './trackStagePainter';
@@ -170,7 +170,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         + `<span class="track-stage-gate" data-stage-base-gate hidden><button type="button" class="tb-btn" data-action="stage-base-scan"></button></span></div>`
         + `<div class="track-stage-panel" data-stage-panel>`
         + `<div class="compare-pane-head compare-legend" data-stage-legend></div>`
-        + `<div class="track-stage-base-info" data-stage-base-info hidden><div>${escapeHtml(strings.stageBaseAggregate)}</div>`
+        + `<div class="track-stage-base-info" data-stage-base-info hidden><div data-stage-base-aggregate>${escapeHtml(strings.stageBaseAggregate)}</div>`
         + `<button type="button" class="tb-link" data-action="stage-base-list">${escapeHtml(strings.stageBaseList)}</button></div>`
         + `<canvas data-stage-canvas="overlay" role="img" aria-label="${escapeHtml(strings.ariaStageOverlayCanvas)}"></canvas>`
         + `<div class="track-stage-diff" data-stage-diff hidden><span class="compare-value" data-stage-diff-headline></span><canvas data-stage-canvas="diff" role="img" aria-label="${escapeHtml(strings.ariaStageDiffCanvas)}"></canvas></div>`
@@ -316,6 +316,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             this.setActive(true);
         },
         setActive(next) {
+            if (next) enterStageState(state);
             state.on = next;
             root.hidden = !state.on;
             if (!state.on) deps.showLanes(true);
@@ -493,13 +494,20 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             const plots = { ...finePlots, diff: bothFine ? finePlots.diff : coarsePlots.diff };
             root.dataset.compared = comparePath ? String(role(comparePath) ?? '') : '';
             root.dataset.base = state.groupBase || !deps.slots()[0] ? 'group' : 'file';
-            const baseLabel = comparePath ? deps.baseTitle(comparePath, state.groupBase) : basePaths.length === 1 ? named(basePaths[0], role(basePaths[0])).label : undefined;
+            // A base group of waveforms is drawn each as it is (also while gated or still coming in): its title counts
+            // its files rather than naming a median.
+            const each = !!picture?.waveform && allBase.length > 1;
+            const baseTitle = (path: string): string => { const title = deps.baseTitle(path, state.groupBase); return each ? eachBaseTitle(title, allBase.length, strings) : title; };
+            const aggregate = each ? strings.stageBaseEach : strings.stageBaseAggregate;
+            query<HTMLElement>('[data-stage-base-aggregate]').textContent = aggregate;
+            const baseLabel = comparePath ? baseTitle(comparePath) : basePaths.length === 1 ? named(basePaths[0], role(basePaths[0])).label : undefined;
             const layers = overlayLayers(frame, plots, baseLabel);
             stepBar.element.dataset.drawn = String(layers.length);
             const items = overlayLegendItems(frame, plots, {
-                title: comparePath && !referencePath ? deps.baseTitle(comparePath, state.groupBase) : '',
+                title: comparePath && !referencePath ? baseTitle(comparePath) : '',
                 // A base group (not a slot-0 file) has a ▾ that says how its curve is made.
                 group: !!comparePath && (state.groupBase || !deps.slots()[0]),
+                aggregate,
                 gated, tableBase, tableBands, count: allBase.length, held: state.held !== null, playable,
             });
             const legend = query<HTMLElement>('[data-stage-legend]');

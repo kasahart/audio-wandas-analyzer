@@ -190,7 +190,9 @@ export function overlayLayers(frame: Pick<StageFrame, 'comparePath' | 'role' | '
     return [
         // The grey lines (no role) under the roles' ones.
         ...plots.others.filter(item => frame.role(item.track.filePath) === undefined).flatMap(item => (item.view ? [{ view: item.view, color: NO_ROLE_COLOR, width: 1.2, label: nameOf(item.track.filePath) }] : [])),
-        ...(plots.base ? [{ view: plots.base, color: ROLE_COLORS[0], width: 2, ...(baseLabel !== undefined ? { label: baseLabel } : {}) }] : []),
+        // A base group's waveforms, each thin in the base's colour (a group has no median signal).
+        ...plots.baseMembers.map(({ path, view }) => ({ view, color: ROLE_COLORS[0], width: 1, label: baseLabel !== undefined ? `${baseLabel} · ${baseName(path)}` : baseName(path) })),
+        ...(plots.base && !plots.baseMembers.length ? [{ view: plots.base, color: ROLE_COLORS[0], width: 2, ...(baseLabel !== undefined ? { label: baseLabel } : {}) }] : []),
         ...plots.others.filter(item => frame.role(item.track.filePath) !== undefined).flatMap(item => (item.view ? [{ view: item.view, color: roleColor(item.track.filePath), width: 1.8, label: nameOf(item.track.filePath) }] : [])),
         ...(plots.compare && comparePath ? [{ view: plots.compare, color: roleColor(comparePath, ROLE_COLORS[1]), width: 2.2, label: nameOf(comparePath) }] : []),
     ];
@@ -201,6 +203,8 @@ export function overlayLegendItems(frame: Pick<StageFrame, 'comparePath' | 'refe
     title: string;
     /** A base group (not a slot-0 file): its ▾ says how its curve is made. */
     group: boolean;
+    /** What the ▾ says (the median, or each waveform as is); the median without it. */
+    aggregate?: string;
     gated: boolean;
     tableBase: StageView | null;
     tableBands: { count: number } | null;
@@ -214,7 +218,7 @@ export function overlayLegendItems(frame: Pick<StageFrame, 'comparePath' | 'refe
         // A base group not analysed: drawn from the table's whole-file values, or not drawn at all, as its entry says.
         ...(comparePath && !referencePath ? [{ color: ROLE_COLORS[0], label: base.title + (!base.gated ? '' : base.tableBase ? strings.stageBaseTableNote : strings.stageBaseNoLine),
             ...(base.gated && base.tableBase && base.tableBands ? { hint: strings.stageBaseTableHint.replace('{m}', String(base.tableBands.count)).replace('{n}', String(base.count)) } : {}),
-            ...(base.group ? { trailingHtml: `<button type="button" class="tb-link stage-base-more" data-action="stage-base-info" aria-label="${escapeHtml(strings.stageBaseAggregate)}">▾</button>` } : {}) }] : []),
+            ...(base.group ? { trailingHtml: `<button type="button" class="tb-link stage-base-more" data-action="stage-base-info" aria-label="${escapeHtml(base.aggregate ?? strings.stageBaseAggregate)}">▾</button>` } : {}) }] : []),
         ...(comparePath ? [{ color: roleColor(comparePath, ROLE_COLORS[1]), ...frame.named(comparePath, frame.role(comparePath)), active: true, held: base.held, ...base.playable(comparePath) }] : []),
         ...plots.others.map(item => ({ color: roleColor(item.track.filePath), ...frame.named(item.track.filePath, frame.role(item.track.filePath)), ...base.playable(item.track.filePath) })),
     ];
@@ -240,7 +244,7 @@ export function writeStageLegend(legend: HTMLElement, html: string, written: str
 /** Overlaid: the base, the other tracks and the compared one on one plot, then their difference under it on request. */
 export function paintStageOverlay(dom: StageDom, frame: StageFrame, plots: StagePlots<StageTrack>, layers: StageLayer[], showDiff: boolean): void {
     const { strings, tracks, picture, coarsePlots, window, regionMark, pending, waiting, comparePath, referencePath } = frame;
-    const range = stageRange([coarsePlots.base, coarsePlots.compare, ...coarsePlots.others.map(item => item.view)]);
+    const range = stageRange([coarsePlots.base, ...coarsePlots.baseMembers.map(item => item.view), coarsePlots.compare, ...coarsePlots.others.map(item => item.view)]);
     const axes = stageAxes(strings, picture, tracks[0]?.input);
     const empty = waiting ? '' : strings.stepNotDrawable.replace('{frame}', picture?.frame ?? '');
     // The difference shown or hidden first: it takes part of the overlay's height, which the overlay is measured at.

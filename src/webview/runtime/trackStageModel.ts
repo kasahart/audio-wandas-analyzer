@@ -4,6 +4,7 @@
  */
 import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import type { StageView } from '../../shared/protocol/backendProtocol';
+import type { UiStrings } from '../../shared/i18n/strings';
 import type { EntryRegion } from '../../shared/analysis/entryScan';
 import { activeSlotReferenced, brokenStep, chainEnd, recipeKey, recipeSteps, slotReferenced, TIME_SLICE, type RecipeStep, type StepLimits } from '../../shared/recipe/recipeSteps';
 import { withChannel } from '../../shared/recipe/channelSelection';
@@ -21,6 +22,8 @@ export interface TrackStageState {
     on: boolean;
     /** The step chosen on the bar (null: the chain's end, or its 1/3-octave branch). */
     stage: string | null;
+    /** Whether the comparison has been opened before: the first time it shows the input, after that the step shown last. */
+    opened: boolean;
     overlaid: boolean;
     showDiff: boolean;
     /** The plots' shared zoom. */
@@ -41,12 +44,22 @@ export interface TrackStageState {
 }
 
 export function initialStageState(): TrackStageState {
-    return { on: false, stage: null, overlaid: true, showDiff: false, window: FULL_PLOT_WINDOW, compared: 1, held: null, groupBase: false, regionSet: null, pendingRegion: null, heldStep: null, baseAllowed: new Set(), gateKey: null };
+    return { on: false, stage: null, opened: false, overlaid: true, showDiff: false, window: FULL_PLOT_WINDOW, compared: 1, held: null, groupBase: false, regionSet: null, pendingRegion: null, heldStep: null, baseAllowed: new Set(), gateKey: null };
 }
 
-/** The mode opened for a comparison, on `stage` (the chain's end without one): what it showed before is forgotten. */
+/**
+ * The mode opened for a comparison, on `stage`; without one, on the input the first time (the recordings as they are,
+ * before any analysis is chosen), else on the step shown last. The rest of what it showed before is forgotten.
+ */
 export function openStageState(state: TrackStageState, stage: string | undefined): void {
-    Object.assign(state, { stage: stage ?? null, compared: 1, held: null, groupBase: false, heldStep: null, window: FULL_PLOT_WINDOW, overlaid: true, pendingRegion: null });
+    Object.assign(state, { stage: stage ?? (state.opened ? state.stage : INPUT_STAGE), opened: true, compared: 1, held: null, groupBase: false, heldStep: null, window: FULL_PLOT_WINDOW, overlaid: true, pendingRegion: null });
+}
+
+/** The mode shown (from the tracks, which keep what it showed): the first time, on the input. */
+export function enterStageState(state: TrackStageState): void {
+    if (state.opened) return;
+    state.stage = INPUT_STAGE;
+    state.opened = true;
 }
 
 /** The part of the files compared: the region chip's, unless it is bypassed. */
@@ -124,16 +137,30 @@ export function pictureSummary(view: StageView | null | undefined): { stageValue
     return { stageValues: values.length, stageMedian: sorted.length ? sorted[Math.floor(sorted.length / 2)] : null };
 }
 
-/** The pictures of one paint: the base, the compared file's, the other tracks' and the compared file's difference from the base. */
-export interface StagePlots<T> { base: StageView | null; compare: StageView | null; others: Array<{ track: T; view: StageView | null }>; diff: StageView | null }
+/**
+ * The pictures of one paint: the base, the compared file's, the other tracks' and the compared file's difference from
+ * the base. A base group of signals has no median signal: `baseMembers` are its files' own waveforms, drawn each (named, for the line under the pointer).
+ */
+export interface StagePlots<T> { base: StageView | null; baseMembers: Array<{ path: string; view: StageView }>; compare: StageView | null; others: Array<{ track: T; view: StageView | null }>; diff: StageView | null }
 
-/** The base is the median of its files' pictures (`baseOf`, else `views`) once all are in, else `fallback`. */
+/**
+ * The base is the median of its files' pictures (`baseOf`, else `views`) once all are in, else `fallback`; a group's
+ * waveforms are its members, each drawn as it is.
+ */
 export function plotsOf<T extends { filePath: string }>(views: (path: string) => StageView | null | undefined, tracks: readonly T[], comparePath: string | null, basePaths: readonly string[], fallback: StageView | null = null, baseOf = views): StagePlots<T> {
     const baseViews = basePaths.map(baseOf).filter((view): view is StageView => !!view);
-    const base = baseViews.length && baseViews.length === basePaths.length ? medianView(baseViews) : fallback;
+    const complete = baseViews.length > 0 && baseViews.length === basePaths.length;
+    const base = complete ? medianView(baseViews) : fallback;
+    const members = basePaths.map(path => ({ path, view: baseOf(path) })).filter((item): item is { path: string; view: StageView } => !!item.view);
+    const baseMembers = members.length > 1 && members.every(item => item.view.waveform) ? members : [];
     const compare = comparePath ? views(comparePath) ?? null : null;
     const others = tracks.filter(track => track.filePath !== comparePath && !basePaths.includes(track.filePath)).map(track => ({ track, view: views(track.filePath) ?? null }));
-    return { base, compare, others, diff: comparePath && !basePaths.includes(comparePath) ? stageDifference(base, compare) : null };
+    return { base, baseMembers, compare, others, diff: comparePath && !basePaths.includes(comparePath) ? stageDifference(base, compare) : null };
+}
+
+/** A base group's title with its waveforms drawn each: "n files" rather than "median of n". */
+export function eachBaseTitle(title: string, count: number, strings: Pick<UiStrings, 'entryBaseMedian' | 'entryBaseCount'>): string {
+    return title.replace(strings.entryBaseMedian.replace('{count}', String(count)), strings.entryBaseCount.replace('{count}', String(count)));
 }
 
 /** A gated base group's 1/3-octave levels from the table, on the compared file's bands (a band within 6 %); null without them. */

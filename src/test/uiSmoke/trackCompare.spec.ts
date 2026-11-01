@@ -56,6 +56,14 @@ async function showTracks(page: Page, paths: string[]): Promise<void> {
     })) } })), paths);
     await expect(page.locator('.track-stage')).toBeVisible();
     await expect.poll(async () => (await stageScans(page)).length).toBeGreaterThan(0);
+    // The first opening shows the recordings as they are (the input); these tests compare on the 1/3-octave bands.
+    const bar = page.locator('.track-stage-bar');
+    if (await bar.locator('.step-chip.is-current[data-step-input]').count()) {
+        expect((await stageScans(page)).at(-1)!.stage).toBe('node-input');
+        await answer(page);
+        await bar.locator('.step-branch [data-step-hold]').click();
+        await expect.poll(async () => (await stageScans(page)).at(-1)?.stage).toBe('node-noct');
+    }
     await answer(page);
     await expect(page.locator('.track-stage')).toHaveAttribute('data-layout', 'overlay');
 }
@@ -648,4 +656,56 @@ test('B switches the base between the slot-0 file and the group median; 0 no lon
     await page.keyboard.press('F1');
     await expect(help).toBeHidden();
     await expect(root).toBeVisible();
+});
+
+test('the first opening shows the input: a base group draws each of its waveforms under the compared one; the next opening keeps the step shown last', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    const STR = getStrings('en');
+    const recipe = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', '..', 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8'));
+    await openEntry(page, scanned!, { recipe });
+    await pickCsv(page, 'motor.csv', entry100Metadata());
+    // Grouped by rpm: the compared row's base is the recordings of its own condition.
+    await page.locator('[data-action="entry-group"]').selectOption('csv:rpm');
+    const first = page.locator('[data-entry-rows] tr.entry-row').first();
+    const filePath = (await first.getAttribute('data-file-path'))!;
+    await page.locator('[data-entry-table]').focus();
+    await page.keyboard.press('1');
+    await page.keyboard.press('Enter');
+    await expect.poll(async () => (await posted(page)).filter(message => message.type === 'analyze-selected-files').at(-1)?.filePaths).toEqual([filePath]);
+    await page.evaluate(filePath => window.dispatchEvent(new MessageEvent('message', { data: { type: 'analysis-update', results: [{
+        filePath, fileName: filePath.split('/').at(-1), audioSource: '', sampleRateHz: 16000, durationSeconds: 2, channelCount: 1, sampleCount: 32000,
+        channels: [{ label: 'L', peakAbsolute: 0.5, waveform: { min: [-0.5, -0.4], max: [0.5, 0.4], minT: [0.1, 0.6], maxT: [0.4, 0.9], absolutePeak: 0.5 } }],
+    }] } })), filePath);
+    const bar = page.locator('.track-stage-bar');
+    const stage = page.locator('.track-stage');
+    await expect(stage).toBeVisible();
+    await expect(bar.locator('.step-chip.is-current')).toHaveAttribute('data-step-input', '');
+    await expect.poll(async () => (await stageScans(page)).at(-1)?.stage).toBe('node-input');
+    const wave = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'level', xs: [0.5, 1, 1.5], values: [-20, -21, -22],
+        waveform: { min: [-0.3, -0.2], max: [0.3, 0.2], minT: [0.2, 1.2], maxT: [0.3, 1.3], absolutePeak: 0.3, unit: 'FS', ref: 1 } };
+    // The compared track first; its base group (more than 30 recordings) once asked for, as on every step.
+    await answer(page, wave);
+    // Not yet analysed (gated), the group already says its waveforms are drawn each: no median is promised.
+    const baseEntry = page.locator('[data-stage-legend] .compare-legend-item').first();
+    await expect(baseEntry).toContainText(STR.entryBaseCount.replace('{count}', await page.locator('.track-stage').getAttribute('data-base-gate') ?? ''));
+    await page.locator('[data-action="stage-base-scan"]').click();
+    await expect.poll(async () => (await stageScans(page)).at(-1)!.filePaths.length).toBeGreaterThan(1);
+    const members = (await stageScans(page)).at(-1)!.filePaths.filter(path => path !== filePath).length;
+    await answer(page, wave);
+    await expect(stage).toHaveAttribute('data-pending', '');
+    // Each member's waveform, thin in the base's colour, and the compared one on top: one legend entry counts them.
+    await expect(bar).toHaveAttribute('data-drawn', String(members + 1));
+    await expect(baseEntry).toContainText(STR.entryBaseCount.replace('{count}', String(members)));
+    await expect(baseEntry).not.toContainText(STR.entryBaseMedian.replace('{count}', String(members)));
+    await expect(baseEntry.locator('[data-action="stage-base-info"]')).toHaveAttribute('aria-label', STR.stageBaseEach);
+    await baseEntry.locator('[data-action="stage-base-info"]').click();
+    await expect(page.locator('[data-stage-base-aggregate]')).toHaveText(STR.stageBaseEach);
+    // The 1/3-octave bands chosen, then back to the tracks and the comparison opened again: the bands, not the input.
+    await bar.locator('.step-branch [data-step-hold]').click();
+    await expect.poll(async () => (await stageScans(page)).at(-1)?.stage).toBe('node-noct');
+    await page.locator('[data-action="content-waveform"]').click();
+    await expect(stage).toBeHidden();
+    await page.locator('[data-action="content-stage"]').click();
+    await expect(stage).toBeVisible();
+    await expect(bar.locator('.step-chip.is-current')).toHaveText(STR.stepOctave);
 });
