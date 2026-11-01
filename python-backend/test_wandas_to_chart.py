@@ -76,6 +76,8 @@ def test_coherence_yields_multi_series(two_channel: wd.ChannelFrame) -> None:
     assert spec["kind"] == "line"
     assert spec["yLabel"] == "Coherence"
     assert spec["yScale"] == "linear"
+    assert (spec["yMin"], spec["yMax"]) == (0.0, 1.0)
+    assert "yMinSpan" not in spec
     assert len(spec["series"]) >= 2
 
 
@@ -106,6 +108,13 @@ def test_transfer_function_preserves_value_selection(two_channel: wd.ChannelFram
     spec = adapt(two_channel.transfer_function(), title="TF phase", value="phase")
     assert spec["yLabel"] == "Phase [rad]"
     assert spec["yScale"] == "linear"
+    assert spec["yMinSpan"] == pytest.approx(2 * np.pi)
+    assert "yMin" not in spec and "yMax" not in spec
+
+
+def test_unbounded_levels_leave_the_axis_to_the_renderer(two_channel: wd.ChannelFrame) -> None:
+    spec = adapt(two_channel.transfer_function(), title="TF")
+    assert not {"yMin", "yMax", "yMinSpan"} & spec.keys()
 
 
 def test_ndarray_becomes_scalar_table() -> None:

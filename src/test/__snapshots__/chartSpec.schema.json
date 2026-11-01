@@ -56,6 +56,16 @@
         "yLabel": {
           "type": "string"
         },
+        "yMax": {
+          "type": "number"
+        },
+        "yMin": {
+          "type": "number"
+        },
+        "yMinSpan": {
+          "exclusiveMinimum": 0,
+          "type": "number"
+        },
         "yScale": {
           "enum": [
             "linear",
