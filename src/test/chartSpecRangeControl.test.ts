@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 import { renderChartSpecDocument, type ChartSpecGlobals } from '../webview/panels/chartSpecDocument';
-import { startChartSpecRenderer } from '../webview/runtime/chartSpecRuntime';
+import { lineAutoRange, startChartSpecRenderer, yTickFormatter } from '../webview/runtime/chartSpecRuntime';
 import { normalizedColor, viridis } from '../shared/gui-core/index';
 import { getStrings, rangePopoverStrings } from '../shared/i18n/strings';
 
@@ -763,4 +763,86 @@ test('ChartSpec document loads the bundled renderer by nonce under the webview C
         language: 'en', nonce: 'n1', rendererScriptUri: 'r.js', cspSource: 'c', caption: 'signal: <a>.wav',
     });
     assert.match(captioned, /<p class="chart-caption">signal: &lt;a&gt;\.wav<\/p>/);
+});
+
+test('lineAutoRange widens a near-constant dB series to the minimum span about its centre', () => {
+    const range = lineAutoRange({ yScale: 'db' }, -6.0208, -6.0204);
+    assert.ok(Math.abs(range.max - range.min - 6) < 1e-9, JSON.stringify(range));
+    assert.ok(Math.abs((range.max + range.min) / 2 - -6.0206) < 1e-9, JSON.stringify(range));
+});
+
+test('lineAutoRange leaves a series that already spans more than the minimum unchanged', () => {
+    assert.deepEqual(lineAutoRange({ yScale: 'db' }, -80, -20), { min: -80, max: -20 });
+    assert.deepEqual(lineAutoRange({ yScale: 'linear' }, 0, 10), { min: 0, max: 10 });
+    assert.deepEqual(lineAutoRange({}, -3, 3), { min: -3, max: 3 });
+});
+
+test('lineAutoRange widens a linear series only past floating-point rounding, and to 1 around zero', () => {
+    const big = lineAutoRange({ yScale: 'linear' }, 1e6 - 1e-3, 1e6 + 1e-3);
+    assert.ok(Math.abs(big.max - big.min - 10) < 1e-6, JSON.stringify(big));
+    assert.deepEqual(lineAutoRange({ yScale: 'linear' }, 0, 0), { min: -0.5, max: 0.5 });
+});
+
+test('lineAutoRange keeps the range of real variation on a large offset', () => {
+    assert.deepEqual(lineAutoRange({ yScale: 'linear' }, 101315, 101335), { min: 101315, max: 101335 });
+    assert.deepEqual(lineAutoRange({}, 292.65, 293.65), { min: 292.65, max: 293.65 });
+    assert.deepEqual(lineAutoRange({ yScale: 'linear' }, -1e-4, 1.2e-4), { min: -1e-4, max: 1.2e-4 });
+});
+
+test('lineAutoRange measures the free side from a single fixed bound beyond the data', () => {
+    assert.deepEqual(lineAutoRange({ yMin: 0 }, -5, -4), { min: 0, max: 4e-4 });
+    assert.deepEqual(lineAutoRange({ yScale: 'db', yMax: -10 }, -3, -2), { min: -16, max: -10 });
+    assert.deepEqual(lineAutoRange({ yMin: 0 }, 2, 4), { min: 0, max: 4 });
+});
+
+test('yTickFormatter keeps tiny-amplitude labels short and distinct', () => {
+    const format = yTickFormatter(-1e-4, 1.2e-4, 2);
+    const labels = [0, 1, 2, 3, 4].map(i => format(1.2e-4 - (i / 4) * 2.2e-4));
+    assert.deepEqual(labels, ['1.2e-4', '6.5e-5', '1.0e-5', '-4.5e-5', '-1.0e-4']);
+    assert.ok(labels.every(label => label.length <= 7), JSON.stringify(labels));
+    assert.equal(yTickFormatter(-1e-4, 1e-4, 2)(0), '0');
+});
+
+test('yTickFormatter keeps fixed notation, capped, on ordinary and large-offset axes', () => {
+    assert.equal(yTickFormatter(0, 10, 2)(2.5), '2.50');
+    assert.equal(yTickFormatter(-9.02, -3.02, 0)(-6.02), '-6.0');
+    assert.equal(yTickFormatter(-80, -20, 0)(-35), '-35');
+    assert.equal(yTickFormatter(0.4999975, 0.5000025, 2)(0.5), '0.5000');
+});
+
+test('lineAutoRange honours the spec minimum span and fixed bounds', () => {
+    const phase = lineAutoRange({ yScale: 'linear', yMinSpan: 2 * Math.PI }, -3e-5, 3e-5);
+    assert.ok(Math.abs(phase.min + Math.PI) < 1e-9 && Math.abs(phase.max - Math.PI) < 1e-9, JSON.stringify(phase));
+    assert.deepEqual(lineAutoRange({ yScale: 'linear', yMin: 0, yMax: 1 }, 1 - 3e-7, 1), { min: 0, max: 1 });
+    assert.deepEqual(lineAutoRange({}, Infinity, -Infinity), { min: 0, max: 1 });
+});
+
+test('a flat -6 dB line is drawn with y ticks spanning the minimum dB span, not its rounding noise', () => {
+    const texts: string[] = [];
+    const ys = Array.from({ length: 64 }, (_, i) => -6.0206 + (i % 2 ? 2e-4 : -2e-4));
+    setupChartEnv([{
+        kind: 'line', title: 'TF', xLabel: 'Frequency [Hz]', yLabel: 'Gain [dB]', yScale: 'db',
+        xs: ys.map((_, i) => i * 100), series: [{ name: 'gain', ys }],
+    }], (text) => { texts.push(text); });
+    // Five ticks over -9.02..-3.02 dB, one decimal each.
+    for (const tick of ['-3.0', '-4.5', '-6.0', '-7.5', '-9.0']) {
+        assert.ok(texts.includes(tick), `tick ${tick} in ${JSON.stringify(texts.slice(0, 12))}`);
+    }
+});
+
+function autoTickLabels(dataMin: number, dataMax: number): string[] {
+    const range = lineAutoRange({ yScale: 'linear' }, dataMin, dataMax);
+    const format = yTickFormatter(range.min, range.max, 2);
+    return [0, 1, 2, 3, 4].map(i => format(range.max - (i / 4) * (range.max - range.min)));
+}
+
+test('a constant or near-constant linear series always gets five distinct tick labels', () => {
+    for (const [lo, hi] of [[0.5, 0.5], [1 - 1e-4, 1 + 1e-4], [0.01, 0.01], [-3.25, -3.25], [0.009, 0.009], [0.005, 0.005],
+        [-0.009, -0.009], [0.001, 0.001], [0.0099, 0.0099], [0.00099, 0.00099], [-0.00099, -0.00099], [0.0000123, 0.0000123], [-10, -10], [9.9999, 9.9999],
+        [99.99, 99.99], [-999.9, -999.9]]) {
+        const labels = autoTickLabels(lo, hi);
+        assert.equal(new Set(labels).size, 5, `${lo}..${hi}: ${JSON.stringify(labels)}`);
+        assert.ok(labels.every(label => label.length <= 7), JSON.stringify(labels));
+    }
+    assert.deepEqual(autoTickLabels(0.5, 0.5), ['0.5002', '0.5001', '0.5000', '0.4999', '0.4998']);
 });

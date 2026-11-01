@@ -27,14 +27,14 @@ jobs:
       # The operation catalog's probe (minutes) runs once, on Linux; its result does not depend on the OS.
       AWA_SLOW: ${{ matrix.os == 'ubuntu-latest' && '1' || '0' }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: npm
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
           cache: pip
@@ -63,7 +63,7 @@ jobs:
 
       - name: Upload runtime source audit
         if: runner.os == 'Linux'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: runtime-sharing-audit
           path: test-results/runtime-sharing.json
@@ -73,9 +73,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -84,7 +84,7 @@ jobs:
         run: npm ci
 
       - name: Restore Playwright browsers
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
@@ -102,7 +102,7 @@ jobs:
           AWA_PERF: '1'
         run: node scripts/playwright.mjs test --project scale --no-deps
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: playwright-report
@@ -113,14 +113,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: npm
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
           cache: pip
@@ -159,7 +159,7 @@ jobs:
           ./.venv/bin/pip install -c python-backend/constraints.txt -e ".[dev]"
 
       - name: Restore the pinned VS Code download
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .vscode-test
           # runnerHelpers.ts pins the VS Code version; the E2E user data lives in a temporary directory.
@@ -173,12 +173,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: npm
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
           cache: pip
@@ -188,13 +188,13 @@ jobs:
       - run: npm ci
       - run: python3 -m venv .venv && .venv/bin/pip install -c python-backend/constraints.txt -e ".[dev]"
       - name: Restore Playwright browsers
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - run: npm run test:ui:install
       - name: Restore hash-locked browser runtime downloads
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: browser-dist/runtime
           # Exact key only: a partial restore could publish assets the lock no longer lists.

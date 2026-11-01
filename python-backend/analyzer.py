@@ -435,7 +435,7 @@ def analyze_from_frame(
     perf_log("channels_build", t_channels, count=channel_count)
 
     result: AnalysisResult = {
-        "filePath": str(target),
+        "filePath": str(file_path),
         "fileName": target.name,
         "sampleRateHz": sample_rate_hz,
         "durationSeconds": float(frame.duration),

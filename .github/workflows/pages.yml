@@ -47,19 +47,19 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
           cache: npm
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
       - run: npm ci
       - name: Restore hash-locked browser runtime downloads
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: browser-dist/runtime
           # Exact key only: a partial restore could publish assets the lock no longer lists.
@@ -67,7 +67,7 @@ jobs:
       - run: npm run prepare:browser
       - run: npm run build:browser
       - run: python3 scripts/prepare-browser-runtime.py --check
-      - uses: actions/upload-pages-artifact@v4
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: browser-dist
 
@@ -93,9 +93,9 @@ jobs:
         run: |
           current_sha=$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq '.object.sha')
           echo "current=$([ "$current_sha" = "$EXPECTED_SHA" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-      - uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@v6
         if: steps.revision.outputs.current == 'true'
       - name: Deploy static Analyzer
         id: deployment
         if: steps.revision.outputs.current == 'true'
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
