@@ -104,6 +104,7 @@ MAX_PAIR_SECONDS = 600.0
 
 
 class _PairSource(NamedTuple):
+    file_path: str
     cached: CachedAnalysis
     frame: wd.ChannelFrame
     signature: str
@@ -230,7 +231,7 @@ class AnalysisService:
         cached, analysis_frame, resolved = self.engine.get_analysis(file_path, calibration_profile)
         result = analyze_from_frame(
             analysis_frame,
-            cached.path,
+            file_path,
             raw_frame=cached.frame,
             calibration_profile=resolved,
             stft_options=stft_options,
@@ -274,7 +275,7 @@ class AnalysisService:
             "trackIndex": track_index,
             "analysisId": _optional_text(analysis_id),
             "settingsSignature": _optional_text(settings_signature),
-            "filePath": str(cached.path),
+            "filePath": str(file_path),
             "channels": result["channels"],
             "calibrationSignature": resolved.signature,
             "analysisRevision": _analysis_revision(analysis_revision),
@@ -348,7 +349,7 @@ class AnalysisService:
             "trackIndex": track_index,
             "analysisId": _optional_text(analysis_id),
             "settingsSignature": _optional_text(settings_signature),
-            "filePath": str(cached.path),
+            "filePath": str(file_path),
             "channels": channels,
             "frequencyBins": int(rows.shape[1]),
             "maxFrequencyHz": max_frequency_hz,
@@ -411,7 +412,7 @@ class AnalysisService:
                 self.engine.put_pair_spectrum(x.cached, key, pair)
             replies.append(
                 {
-                    "filePath": str(y.cached.path),
+                    "filePath": y.file_path,
                     "channelIndex": y.channel,
                     "status": pair.status,
                     "startSeconds": pair.start,
@@ -429,7 +430,7 @@ class AnalysisService:
         return {
             "analysisId": _optional_text(analysis_id),
             "settingsSignature": _optional_text(settings_signature),
-            "filePath": str(x.cached.path),
+            "filePath": x.file_path,
             "channelIndex": x.channel,
             "frequencyBins": int(bins.size),
             "maxFrequencyHz": float(x.frame.sampling_rate) / 2.0,
@@ -443,11 +444,13 @@ class AnalysisService:
         }
 
     def _pair_source(self, source: Mapping[str, object]) -> _PairSource:
-        cached, frame, resolved = self.engine.get_analysis(str(source["filePath"]), source.get("calibrationProfile"))
+        file_path = str(source["filePath"])
+        cached, frame, resolved = self.engine.get_analysis(file_path, source.get("calibrationProfile"))
         channel = int(source["channelIndex"])  # type: ignore[call-overload]
         if not 0 <= channel < frame.n_channels:
             raise InputError(f"channelIndex {channel} is out of range for {cached.path.name}")
         return _PairSource(
+            file_path,
             cached,
             frame,
             resolved.signature,
