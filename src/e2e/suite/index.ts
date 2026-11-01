@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { ExportFlows, type ExportHost } from '../../extension/exportFlows';
 import * as vscode from 'vscode';
@@ -407,6 +407,29 @@ export async function run(): Promise<void> {
                     assert.equal(updated.renderedUi!.cursorNorm, 0.437);
                     assert.equal(updated.renderedUi!.zoomStart, configured.renderedUi!.zoomStart);
                     assert.equal(updated.renderedUi!.zoomEnd, configured.renderedUi!.zoomEnd);
+                }
+            },
+        },
+        {
+            name: 'a folder opened through a link shows the rows chosen as tracks',
+            run: async () => {
+                invalidateFixtureCache();
+                // The backend resolves the link (as Windows' resolve() respells c:\ as C:\); the tracks keep the listed paths.
+                const parent = mkdtempSync(path.join(os.tmpdir(), 'awa-vscode-link-'));
+                const linked = path.join(parent, 'debug');
+                symlinkSync(path.join(workspaceFolder.uri.fsPath, MULTI_TRACK_DEBUG_AUDIO_PATH), linked, 'junction');
+                try {
+                    const selected = await analyzeDebugPath(linked, { selectAllDirectoryFiles: true });
+                    assert.equal(selected.resultCount, 3);
+                    assert.equal(selected.renderedUi?.trackRowCount, 3);
+                    const listed = selected.renderedUi.tracks.map(track => track.filePath);
+                    assert.ok(listed.every(filePath => filePath.startsWith(linked + path.sep)), listed.join(', '));
+                    const spectra = await waitForSnapshotWhere(snapshot => (snapshot.renderedUi?.visibleSpectrumTrackCount ?? 0) >= 1);
+                    assert.ok(spectra.renderedUi!.visibleSpectrumTrackCount >= 1, 'cursor spectra are fetched for the listed paths');
+                } finally {
+                    await analyzeDebugPath(SINGLE_TRACK_DEBUG_AUDIO_PATH);
+                    invalidateFixtureCache();
+                    rmSync(parent, { recursive: true, force: true });
                 }
             },
         },

@@ -93,7 +93,7 @@ def test_service_exposes_all_use_cases_without_server_loop(tmp_path: Path) -> No
     wav_loop = service.export_wav_loop(audio, start_norm=0.25, end_norm=0.75)
     cached = engine.get_file(audio)
 
-    assert overview["filePath"] == str(audio.resolve())
+    assert overview["filePath"] == str(audio)
     assert detail["channels"][0]["spectrogram"] is not None
     assert spectrum["frequencyBins"] == len(spectrum["channels"][0]["values"])
     assert waveform_range["channels"]
@@ -115,6 +115,29 @@ def test_service_uses_the_injected_analysis_engine(tmp_path: Path) -> None:
 
     assert service.engine is engine
     assert list(engine._files) == [audio.resolve()]
+
+
+def test_replies_name_the_file_as_the_request_spelled_it(tmp_path: Path) -> None:
+    folder = tmp_path / "recordings"
+    folder.mkdir()
+    _write_pair_wav(
+        folder / "tone.wav", [np.sin(np.linspace(0, 2000, 16000)), np.cos(np.linspace(0, 2000, 16000))], 16000
+    )
+    linked = tmp_path / "linked"
+    linked.symlink_to(folder, target_is_directory=True)
+    audio = linked / "tone.wav"
+    assert audio.resolve() != audio
+    service = AnalysisService(AnalysisEngine(cache_limit_bytes=10_000_000))
+    labels = {"track_index": 0, "analysis_id": "a", "settings_signature": "s"}
+
+    overview = service.analyze(str(audio))
+    detail = service.track_detail(str(audio), **labels)
+    spectrum = service.spectrum_slice(str(audio), cursor_norm=0.5, **labels)
+    pair = service.pair_spectrum(_pair_source(audio, 0), [_pair_source(audio, 1)], stft_options=_PAIR_OPTIONS)
+
+    assert overview["filePath"] == detail["filePath"] == spectrum["filePath"] == str(audio)
+    assert overview["fileName"] == "tone.wav"
+    assert pair["filePath"] == pair["responses"][0]["filePath"] == str(audio)
 
 
 def test_stft_options_share_one_normalization_and_validation_api() -> None:
