@@ -1125,7 +1125,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     syncSpecGearVisibility();
     attachEvents();
     // The help lists the keys of the view on show first: the entry table, the comparison (the track view's steps mode), or the lanes.
-    const help = installHelpOverlay(document, window, STR, () => {
+    installHelpOverlay(document, window, STR, () => {
         if (entryScreen.isOpen() || entryScreen.hasFocus()) return 'entry';
         return stageMode?.active() ? 'compare' : 'lanes';
     });
@@ -1228,7 +1228,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         saveDerived: rows => persistWebviewState({ entryDerived: rows }),
         // New results or conditions: the compared tracks' pictures follow.
         compareChanged() { scheduleRender(); },
-        help: () => help.open('entry'),
         openFiles(filePaths, comparison) {
             // The slotted files are compared in the track view, beside the tracks already shown, as a step of the Recipe.
             selectTracks(filePaths);

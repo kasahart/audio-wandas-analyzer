@@ -189,11 +189,9 @@ export function renderComparisonStyles(): string {
         .entry-screen:is([data-cols="1"], [data-cols="2"]) .entry-col-group, .entry-screen:is([data-cols="1"], [data-cols="2"]) col.entry-col-group-w { display: none; }
         /* In the side panel the bar keeps the filter, the progress, Open and ⤢; the chain is one chip that widens the table. */
         .entry-screen:not(.is-max) .entry-bar { flex-wrap: wrap; row-gap: 4px; }
-        .entry-screen:not(.is-max):is([data-cols="1"], [data-cols="2"], [data-cols="3"]) .entry-footer { display: none; }
         /* Beside the tracks the slotted rows already are tracks: the table's Enter needs no button there. */
         .entry-screen:not(.is-max) [data-action="entry-open"] { display: none; }
         .entry-screen:not(.is-max) [data-step-bar] { display: none; }
-        .entry-screen:not(.is-max) .entry-footer { flex-wrap: wrap; row-gap: 4px; }
         .entry-screen .entry-size { padding: 2px 6px; }
         /* The table's own 書き出し while it covers the window; beside the tracks the toolbar's menu has the same. */
         .entry-screen:not(.is-max) .entry-export { display: none; }
@@ -216,15 +214,12 @@ export function renderComparisonStyles(): string {
         .entry-row.is-linked td, .track-row.is-linked { background: color-mix(in srgb, var(--text) 8%, transparent); }
         /* The name gives way (ellipsis) so the numbers and the row's buttons always fit the panel. */
         .entry-table td.entry-name { overflow: hidden; text-overflow: ellipsis; }
-        .entry-bar, .entry-footer { display: flex; align-items: center; gap: 8px; padding: 6px 10px; }
-        .entry-bar { border-bottom: 1px solid var(--line); background: var(--panel); }
-        .entry-footer { border-top: 1px solid var(--line); background: var(--panel); }
+        .entry-bar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--line); background: var(--panel); }
         .entry-spacer { flex: 1; }
         .entry-screen button, .entry-screen select, .track-stage-bar button { font: inherit; color: inherit; background: transparent; border: 1px solid var(--line); border-radius: 4px; padding: 2px 8px; cursor: pointer; }
         .entry-screen .entry-primary { border-color: var(--text); }
         .entry-screen kbd { font-family: var(--font-mono); font-size: 11px; opacity: 0.8; }
         .entry-filter[aria-pressed="true"] { border-color: var(--entry-flag); }
-        .entry-key { color: var(--muted); font-variant-numeric: tabular-nums; }
         .entry-body { flex: 1; display: flex; min-height: 0; }
         .entry-table-wrap { flex: 1; overflow: auto; min-width: 0; }
         /* In a narrow window the distribution goes below the table, so the table keeps its value column in sight. */
@@ -386,13 +381,11 @@ export function renderComparisonStyles(): string {
         /* A refused key or a new card lights up once. */
         @keyframes awa-flash { 0%, 60% { box-shadow: 0 0 0 2px var(--entry-flag); } 100% { box-shadow: none; } }
         .is-flash { animation: awa-flash 0.9s ease-out; }
-        .entry-keys { display: inline-flex; gap: 8px; }
-        .entry-keys .entry-key { font: inherit; color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 3px; padding: 0 6px; cursor: pointer; user-select: none; }
-        .entry-keys .entry-key:hover { color: var(--text); }
         .screen-help { position: fixed; inset: 0; z-index: 80; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.45); font-family: var(--font-ui); font-size: 12px; color: var(--text); }
         .screen-help[hidden] { display: none; }
         .screen-help-box { max-width: min(900px, 94vw); max-height: 88vh; overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px 20px; box-shadow: 0 4px 24px rgba(0,0,0,0.4); }
         .screen-help-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 10px; }
+        .screen-help-flow { margin: 0 0 14px; padding-left: 20px; font-size: 13px; line-height: 1.6; }
         .screen-help-tables { display: flex; flex-wrap: wrap; gap: 24px; }
         .screen-help table { border-collapse: collapse; }
         .screen-help th { text-align: left; padding: 2px 12px 2px 0; font-family: var(--font-mono); font-weight: normal; white-space: nowrap; color: var(--accent); }
@@ -400,7 +393,6 @@ export function renderComparisonStyles(): string {
         .screen-help section { flex: 1 1 300px; }
         .screen-help h3 { margin: 0 0 4px; font-size: 12px; color: var(--muted); }
         .screen-help section[aria-current] h3 { color: var(--text); }
-        .entry-footer [data-action="compare-report"]:disabled { opacity: 0.4; cursor: not-allowed; }
         /* The headline over the panes: both levels where they differ most among what is loud enough to hear. */
         .compare-legend { flex-wrap: wrap; row-gap: 2px; }
         .compare-legend-item { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); }
@@ -608,8 +600,6 @@ export function renderComparisonStyles(): string {
         /* Rows of an earlier chain: greyed, their outlier marks too, until scanned again. */
         .entry-row.is-stale td { color: var(--dim); }
         .entry-filter.is-stale [data-entry-count] { color: var(--dim); }
-        /* Key hints: small, pressable, quiet. */
-        .entry-keys .entry-key { min-height: 20px; font-size: 11px; border-radius: 3px; padding: 0 6px; }
         /* The bottom row: hints on the left, the version small at the right end. */
         #app-footer {
             display: flex; align-items: center; flex-shrink: 0; height: 22px; overflow: hidden;
@@ -624,6 +614,8 @@ export function renderComparisonStyles(): string {
         #task-status[data-state="busy"]::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 6px; border: 1.5px solid var(--muted); border-top-color: transparent; border-radius: 50%; vertical-align: -1px; animation: awa-spin 0.8s linear infinite; }
         #task-status[data-state="failed"] { color: var(--entry-flag); }
         @keyframes awa-spin { to { transform: rotate(360deg); } }
+        #help-open-btn { flex: none; height: 18px; margin: 0 4px; padding: 0 8px; font: inherit; color: var(--text); background: transparent; border: 1px solid var(--line); border-radius: 3px; cursor: pointer; white-space: nowrap; }
+        #help-open-btn:hover { background: var(--line); }
         #app-version { flex: none; padding: 0 10px; font-family: var(--font-mono); white-space: nowrap; }
         /* On the entry table and the comparison the footer is where symbols explain themselves, so it reads as text, not as a status line. */
         body:has(#entry-screen:not([hidden])) #hint-footer { color: var(--text); font-size: 12px; }
