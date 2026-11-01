@@ -84,7 +84,7 @@ jobs:
         run: npm ci
 
       - name: Restore Playwright browsers
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
@@ -159,7 +159,7 @@ jobs:
           ./.venv/bin/pip install -c python-backend/constraints.txt -e ".[dev]"
 
       - name: Restore the pinned VS Code download
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .vscode-test
           # runnerHelpers.ts pins the VS Code version; the E2E user data lives in a temporary directory.
@@ -188,13 +188,13 @@ jobs:
       - run: npm ci
       - run: python3 -m venv .venv && .venv/bin/pip install -c python-backend/constraints.txt -e ".[dev]"
       - name: Restore Playwright browsers
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
       - run: npm run test:ui:install
       - name: Restore hash-locked browser runtime downloads
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: browser-dist/runtime
           # Exact key only: a partial restore could publish assets the lock no longer lists.
