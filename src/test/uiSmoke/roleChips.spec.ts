@@ -143,3 +143,13 @@ test('a role held by a file not shown as a track keeps the comparison from setti
     await expect(slotText(page, 0)).toHaveAttribute('data-file-path', otherPath!);
     await expect(page.locator('[data-entry-rows] .entry-badge')).toHaveCount(1);
 });
+
+test('with the rows grouped, the group\'s median is the base already: opening the comparison sets compare 1 alone', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    const [first] = await twoTracks(page);
+    await page.locator('[data-action="entry-group"]').selectOption('ch');
+    await page.locator('[data-action="content-stage"]').click();
+    await expect(page.locator('.track-stage')).toBeVisible();
+    await expect(slotText(page, 1)).toHaveAttribute('data-file-path', first);
+    await expect(page.locator('[data-entry-rows] .entry-badge.entry-slot-0')).toHaveCount(0);
+});

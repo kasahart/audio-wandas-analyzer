@@ -2656,12 +2656,17 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             'content-stage': () => {
                 stageEntrance = 'tracks';
                 // Opened with no role at all (no slot holds a file, shown as a track or not), the comparison would draw
-                // every line grey: the first two tracks shown start as the base and compare 1, so it opens on something
-                // compared. The legend's chips change them.
-                const visible = trackStore.displayOrder.map(id => trackStore.require(id)).filter(record => !record.runtime.hidden && !record.result.error);
-                if (contentType !== 'stage' && visible.length >= 2 && entryScreen.slots().every(path => !path)) {
-                    entryScreen.setTrackRole(visible[0].result.filePath, 0);
-                    entryScreen.setTrackRole(visible[1].result.filePath, 1);
+                // every line grey: the first two recordings shown start as the base and compare 1, so it opens on
+                // something compared. With the rows grouped, the group's median is the base already: only compare 1 is set.
+                // The legend's chips change them.
+                const shownFiles = [...new Set(trackStore.displayOrder.map(id => trackStore.require(id)).filter(record => !record.runtime.hidden && !record.result.error).map(record => record.result.filePath))];
+                const grouped = entryScreen.grouped();
+                if (contentType !== 'stage' && shownFiles.length >= (grouped ? 1 : 2) && entryScreen.slots().every(path => !path)) {
+                    if (grouped) entryScreen.setTrackRole(shownFiles[0], 1);
+                    else {
+                        entryScreen.setTrackRole(shownFiles[0], 0);
+                        entryScreen.setTrackRole(shownFiles[1], 1);
+                    }
                 }
                 // A selection on the tracks (found by listening) is what to compare: it becomes the region, in the files' time.
                 // In the time of the recording compared (slot 1–3 first), each track having its own offset on the timeline;

@@ -163,6 +163,8 @@ export interface EntryScreen {
     compareData(): CompareData;
     /** The slots 0–3: the base file (or null for the group median) and the files to compare. */
     slots(): (string | null)[];
+    /** Whether the rows are grouped: with slot 0 empty, the base is then the compared file's group median. */
+    grouped(): boolean;
     /** A track's role: the slot its file is in (1–3 first, then 0) and that row's channel (null: the channels together). */
     trackRole(filePath: string): { slot: number; ch: number | null } | undefined;
     /**
@@ -1473,6 +1475,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         },
         compareData: () => compareData(),
         slots: () => slotFiles(),
+        grouped: () => chosen.group !== 'none',
         trackRole(filePath) {
             const slot = roleSlot(slots, filePath);
             return slot === undefined ? undefined : { slot, ch: channelOfRow(rowOf(slots[slot])) };
