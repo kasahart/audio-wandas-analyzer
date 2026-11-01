@@ -8,7 +8,7 @@ import { ROLE_COLORS } from '../../shared/gui/roleColors';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { hintAttr } from './hintFooter';
 
-export type RoleChipStrings = Pick<UiStrings, 'roleChipHint' | 'roleNone' | 'entryBase' | 'dsSlotCompare'>;
+export type RoleChipStrings = Pick<UiStrings, 'roleChipHint' | 'roleNone' | 'roleChoose' | 'entryBase' | 'dsSlotCompare'>;
 
 export interface RoleChipRole { slot: number; ch: number | null }
 
@@ -19,11 +19,17 @@ export function roleChipText(role: RoleChipRole | undefined): string {
 
 const roleLabel = (slot: number, strings: RoleChipStrings): string => (slot === 0 ? strings.entryBase : strings.dsSlotCompare.replace('{n}', String(slot)));
 
-/** The chip; `fallback` colours a chip without a role (the track's own colour). Its menu is made when it opens. */
-export function roleChipHtml(filePath: string, role: RoleChipRole | undefined, fallback: string, strings: RoleChipStrings): string {
-    return '<details class="role-chip" data-file-path="' + escapeHtml(filePath) + '">'
-        + '<summary class="role-chip-face' + (role ? '' : ' is-none') + '" style="' + (role ? 'background:' + ROLE_COLORS[role.slot] : '--role-fallback:' + fallback) + '" data-role="' + (role ? role.slot : '') + '"'
-        + hintAttr(strings.roleChipHint) + ' aria-label="' + escapeHtml((role ? roleLabel(role.slot, strings) : strings.roleNone) + ' — ' + strings.roleChipHint) + '">' + escapeHtml(roleChipText(role)) + '</summary>'
+/**
+ * The chip; `fallback` colours a chip without a role (the track's own colour). Its menu is made when it opens.
+ * `named` (the comparison's legend) spells the role out (「0 基準」) and, without one, offers to choose it with a
+ * neutral outlined 「役割 ▾」: there the colour is the role's alone, and a first-time user sees what the chip is for.
+ */
+export function roleChipHtml(filePath: string, role: RoleChipRole | undefined, fallback: string, strings: RoleChipStrings, named = false): string {
+    const text = !named ? roleChipText(role) : role ? `${roleChipText(role)} ${roleLabel(role.slot, strings)}` : `${strings.roleChoose} ▾`;
+    const style = role ? 'background:' + ROLE_COLORS[role.slot] : named ? '' : '--role-fallback:' + fallback;
+    return '<details class="role-chip' + (named ? ' is-named' : '') + '" data-file-path="' + escapeHtml(filePath) + '">'
+        + '<summary class="role-chip-face' + (role ? '' : ' is-none') + '"' + (style ? ' style="' + style + '"' : '') + ' data-role="' + (role ? role.slot : '') + '"'
+        + hintAttr(strings.roleChipHint) + ' aria-label="' + escapeHtml((role ? roleLabel(role.slot, strings) : strings.roleNone) + ' — ' + strings.roleChipHint) + '">' + escapeHtml(text) + '</summary>'
         + '<div class="role-chip-menu"></div>'
         + '</details>';
 }

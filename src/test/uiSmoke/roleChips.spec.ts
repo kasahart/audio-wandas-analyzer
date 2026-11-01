@@ -96,8 +96,12 @@ test('compared with no role, the comparison asks for one: no difference to show,
     await expect(page.locator('[data-action="stage-diff"]')).toBeDisabled();
     // Each recording in the legend carries its chip: compare 1 from there.
     const legendChip = page.locator(`[data-stage-legend] details.role-chip[data-file-path="${first}"]`);
+    // There the chip says what it is for: 「Role ▾」 without one, outlined, in no track's colour.
+    await expect(legendChip.locator('summary')).toHaveText(`${STR.roleChoose} ▾`);
+    await expect(legendChip.locator('summary')).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)');
     await legendChip.locator('summary').click();
     await legendChip.locator('[data-action="track-role-set"][data-slot="1"]').click();
+    await expect(page.locator(`[data-stage-legend] details.role-chip[data-file-path="${first}"] summary`)).toHaveText(`1 ${STR.dsSlotCompare.replace('{n}', '1')}`);
     await expect(slotText(page, 1)).toContainText(first.split('/').pop()!);
     // The compared row is its recording's channel 1: its picture is asked for again, as that channel.
     await expect.poll(async () => (await scans()).length).toBeGreaterThan(1);
