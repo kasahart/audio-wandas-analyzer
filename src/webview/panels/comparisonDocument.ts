@@ -814,7 +814,9 @@ export function renderComparisonStyles(): string {
             flex-direction: column; gap: 12px; color: var(--muted); font-size: 14px;
         }
         #empty-state.is-visible { display: flex; }
-        /* The samples are a way to start: once something is listed, the empty view no longer offers them. */
+        /* The samples are the way to start for a visitor with no audio: a button of the prompt's size, not a toolbar one. */
+        #empty-state [data-action="open-samples"] { height: 28px; padding: 0 14px; font-size: 13px; }
+        /* Once something is listed, the empty view no longer offers them. */
         #directory-selection-layout:not(.is-empty) #empty-state [data-action="open-samples"] { display: none; }
         #audio-host { display: none; }
 
