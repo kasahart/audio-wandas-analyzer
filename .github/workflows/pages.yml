@@ -98,4 +98,4 @@ jobs:
       - name: Deploy static Analyzer
         id: deployment
         if: steps.revision.outputs.current == 'true'
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
