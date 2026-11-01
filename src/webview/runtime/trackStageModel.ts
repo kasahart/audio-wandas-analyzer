@@ -139,9 +139,9 @@ export function pictureSummary(view: StageView | null | undefined): { stageValue
 
 /**
  * The pictures of one paint: the base, the compared file's, the other tracks' and the compared file's difference from
- * the base. A base group of signals has no median signal: `baseMembers` are its files' own waveforms, drawn each.
+ * the base. A base group of signals has no median signal: `baseMembers` are its files' own waveforms, drawn each (named, for the line under the pointer).
  */
-export interface StagePlots<T> { base: StageView | null; baseMembers: StageView[]; compare: StageView | null; others: Array<{ track: T; view: StageView | null }>; diff: StageView | null }
+export interface StagePlots<T> { base: StageView | null; baseMembers: Array<{ path: string; view: StageView }>; compare: StageView | null; others: Array<{ track: T; view: StageView | null }>; diff: StageView | null }
 
 /**
  * The base is the median of its files' pictures (`baseOf`, else `views`) once all are in, else `fallback`; a group's
@@ -151,7 +151,8 @@ export function plotsOf<T extends { filePath: string }>(views: (path: string) =>
     const baseViews = basePaths.map(baseOf).filter((view): view is StageView => !!view);
     const complete = baseViews.length > 0 && baseViews.length === basePaths.length;
     const base = complete ? medianView(baseViews) : fallback;
-    const baseMembers = baseViews.length > 1 && baseViews.every(view => view.waveform) ? baseViews : [];
+    const members = basePaths.map(path => ({ path, view: baseOf(path) })).filter((item): item is { path: string; view: StageView } => !!item.view);
+    const baseMembers = members.length > 1 && members.every(item => item.view.waveform) ? members : [];
     const compare = comparePath ? views(comparePath) ?? null : null;
     const others = tracks.filter(track => track.filePath !== comparePath && !basePaths.includes(track.filePath)).map(track => ({ track, view: views(track.filePath) ?? null }));
     return { base, baseMembers, compare, others, diff: comparePath && !basePaths.includes(comparePath) ? stageDifference(base, compare) : null };

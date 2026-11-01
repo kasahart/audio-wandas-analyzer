@@ -105,7 +105,7 @@ test('a picture is summed up by its points with a level and their median', () =>
     assert.deepEqual(pictureSummary(undefined), { stageValues: 0, stageMedian: null });
 });
 
-test('opening the mode forgets what it showed but keeps the region and the base groups allowed', () => {
+test('opening the mode keeps the step shown last, the region and the base groups allowed, and forgets the rest', () => {
     const state = initialStageState();
     Object.assign(state, { stage: 'x', compared: 3, held: 2, groupBase: true, heldStep: hpf, window: { x: { start: 0.2, end: 0.4 }, y: { start: 0, end: 1 } }, overlaid: false, pendingRegion: { start: 0, end: 1 }, regionSet: { start: 1, end: 2 }, showDiff: true });
     state.baseAllowed.add('k');
@@ -141,7 +141,7 @@ test('a base group of waveforms is drawn each as it is: no median signal, its ti
     const wave = (peak: number): StageView => ({ ...line([peak, -peak]), x: 'time', waveform: { min: [-peak], max: [peak] } } as unknown as StageView);
     const views: Record<string, StageView> = { a: wave(0.1), b: wave(0.2), c: wave(0.5) };
     const plots = plotsOf(path => views[path], [{ filePath: 'c' }], 'c', ['a', 'b']);
-    assert.deepEqual(plots.baseMembers, [views.a, views.b]);
+    assert.deepEqual(plots.baseMembers, [{ path: 'a', view: views.a }, { path: 'b', view: views.b }]);
     assert.equal(plots.base?.waveform, undefined);
     assert.deepEqual(plotsOf(path => views[path], [{ filePath: 'c' }], 'c', ['a']).baseMembers, [], 'one base file is the base itself');
     assert.deepEqual(plotsOf(path => line([views[path].values?.[0] ?? 0]), [{ filePath: 'c' }], 'c', ['a', 'b']).baseMembers, [], 'levels have a median');

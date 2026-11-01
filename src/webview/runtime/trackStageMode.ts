@@ -494,9 +494,10 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             const plots = { ...finePlots, diff: bothFine ? finePlots.diff : coarsePlots.diff };
             root.dataset.compared = comparePath ? String(role(comparePath) ?? '') : '';
             root.dataset.base = state.groupBase || !deps.slots()[0] ? 'group' : 'file';
-            // A base group of waveforms is drawn each as it is: its title counts its files rather than naming a median.
-            const each = plots.baseMembers.length > 0;
-            const baseTitle = (path: string): string => { const title = deps.baseTitle(path, state.groupBase); return each ? eachBaseTitle(title, basePaths.length, strings) : title; };
+            // A base group of waveforms is drawn each as it is (also while gated or still coming in): its title counts
+            // its files rather than naming a median.
+            const each = !!picture?.waveform && allBase.length > 1;
+            const baseTitle = (path: string): string => { const title = deps.baseTitle(path, state.groupBase); return each ? eachBaseTitle(title, allBase.length, strings) : title; };
             query<HTMLElement>('[data-stage-base-aggregate]').textContent = each ? strings.stageBaseEach : strings.stageBaseAggregate;
             const baseLabel = comparePath ? baseTitle(comparePath) : basePaths.length === 1 ? named(basePaths[0], role(basePaths[0])).label : undefined;
             const layers = overlayLayers(frame, plots, baseLabel);

@@ -685,6 +685,9 @@ test('the first opening shows the input: a base group draws each of its waveform
         waveform: { min: [-0.3, -0.2], max: [0.3, 0.2], minT: [0.2, 1.2], maxT: [0.3, 1.3], absolutePeak: 0.3, unit: 'FS', ref: 1 } };
     // The compared track first; its base group (more than 30 recordings) once asked for, as on every step.
     await answer(page, wave);
+    // Not yet analysed (gated), the group already says its waveforms are drawn each: no median is promised.
+    const baseEntry = page.locator('[data-stage-legend] .compare-legend-item').first();
+    await expect(baseEntry).toContainText(STR.entryBaseCount.replace('{count}', await page.locator('.track-stage').getAttribute('data-base-gate') ?? ''));
     await page.locator('[data-action="stage-base-scan"]').click();
     await expect.poll(async () => (await stageScans(page)).at(-1)!.filePaths.length).toBeGreaterThan(1);
     const members = (await stageScans(page)).at(-1)!.filePaths.filter(path => path !== filePath).length;
@@ -692,7 +695,6 @@ test('the first opening shows the input: a base group draws each of its waveform
     await expect(stage).toHaveAttribute('data-pending', '');
     // Each member's waveform, thin in the base's colour, and the compared one on top: one legend entry counts them.
     await expect(bar).toHaveAttribute('data-drawn', String(members + 1));
-    const baseEntry = page.locator('[data-stage-legend] .compare-legend-item').first();
     await expect(baseEntry).toContainText(STR.entryBaseCount.replace('{count}', String(members)));
     await expect(baseEntry).not.toContainText(STR.entryBaseMedian.replace('{count}', String(members)));
     await baseEntry.locator('[data-action="stage-base-info"]').click();
