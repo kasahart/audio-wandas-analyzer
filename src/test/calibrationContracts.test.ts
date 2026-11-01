@@ -89,6 +89,7 @@ test('calibration badges summarize the channel calibration and raw clipping', ()
     assert.equal(calibrationSummary([channel({ measurement: measurement('Pa') }), channel({ measurement: measurement('m/s^2') })], STR).text, 'CAL');
     assert.deepEqual(calibrationSummary([channel({ measurement: measurement('Pa') })], getStrings('ja')), { text: 'CAL: Pa', title: 'Pa; 係数 2; dB SPL re 20 µPa' });
     assert.equal(isClipped([channel({ clipped: false, rawPeakFullScale: 1 })]), false, 'the backend clip flag wins');
+    assert.equal(isClipped([channel({ clipped: null, rawPeakFullScale: 1.41, peakAbsolute: 1.41 })]), false, 'a source without a full scale (CSV) never clips');
     assert.equal(isClipped([channel({ rawPeakFullScale: 0.99 })]), true);
     assert.equal(isClipped([channel({ peakAbsolute: 1 })]), true, 'uncalibrated peaks fall back to the displayed peak');
     assert.equal(isClipped([channel({ peakAbsolute: 1, measurement: measurement('Pa') })]), false);

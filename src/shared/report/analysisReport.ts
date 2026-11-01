@@ -87,12 +87,14 @@ export function buildMarkdownReport(tracks: readonly ReportTrack[], loop: Report
             channelsForResult(r).forEach(function (channel, channelIndex) {
                 const measurement = channel.measurement;
                 if (!measurement) { return; }
+                // A source without a full scale (CSV) has neither a full-scale peak nor clipping.
+                const fullScale = channel.clipped !== null;
                 lines.push('| ' + markdownTableCell(r.fileName)
                     + ' | ' + markdownTableCell(channelLabel(r, channelIndex))
                     + ' | ' + formatMeasurementNumber(channel.peakAbsolute) + ' ' + markdownTableCell(measurement.linearUnit)
                     + ' | ' + formatReportDb(channel.peakLevelDb, measurement.levelUnit)
-                    + ' | ' + formatMeasurementNumber(channel.rawPeakFullScale) + ' FS'
-                    + ' | ' + (channel.clipped ? 'Yes' : 'No') + ' |');
+                    + ' | ' + (fullScale ? formatMeasurementNumber(channel.rawPeakFullScale) + ' FS' : '—')
+                    + ' | ' + (fullScale ? (channel.clipped ? 'Yes' : 'No') : '—') + ' |');
             });
         });
         lines.push('');

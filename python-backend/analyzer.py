@@ -30,6 +30,8 @@ DB_UNIT = "dB"
 SPECTRUM_LEVEL_AXIS_LABEL = "Spectrum amplitude level [dB]"
 # Raw full-scale peak at or above which a channel is reported as clipped.
 CLIPPING_FULL_SCALE_THRESHOLD = 0.99
+# Formats whose samples are physical values (Pa, m/s², V…) with no full scale, so they cannot clip.
+NO_FULL_SCALE_SUFFIXES = frozenset({".csv"})
 
 
 class MeasurementMetadata(TypedDict):
@@ -78,7 +80,8 @@ class ChannelSummary(TypedDict):
     peakAbsolute: float
     peakLevelDb: float
     rawPeakFullScale: float
-    clipped: bool
+    # None: the source has no full scale to clip against.
+    clipped: bool | None
     waveform: WaveformEnvelope
     spectrogram: SpectrogramPayload | None
 
@@ -411,6 +414,7 @@ def analyze_from_frame(
     # CSV sources may have fractional rates.
     sample_rate_hz = float(frame.sampling_rate)
     labels = list(frame.labels)
+    has_full_scale = target.suffix.lower() not in NO_FULL_SCALE_SUFFIXES
     resolved = calibration_profile
     references = [frame.channels[index].level_reference for index in range(channel_count)]
     measurements = [measurement_metadata(channel, references[index]) for index, channel in enumerate(resolved.channels)]
@@ -465,7 +469,7 @@ def analyze_from_frame(
                 "peakAbsolute": peak,
                 "peakLevelDb": references[index].to_level(peak),
                 "rawPeakFullScale": raw_peak,
-                "clipped": raw_peak >= CLIPPING_FULL_SCALE_THRESHOLD,
+                "clipped": raw_peak >= CLIPPING_FULL_SCALE_THRESHOLD if has_full_scale else None,
                 "waveform": waveform,
                 "spectrogram": spectrogram,
             }
