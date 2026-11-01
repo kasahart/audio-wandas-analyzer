@@ -65,7 +65,8 @@ test('the footer button opens the help, which starts with the three-step flow', 
 
     await page.keyboard.press('Escape');
     await expect(helpOverlay).toBeHidden();
-    await expect(button).toBeFocused();
+    // The press does not take the focus: it stays with what had it before.
+    await expect(button).not.toBeFocused();
 });
 
 test('help overlay closes with Escape', async ({ page }) => {

@@ -42,6 +42,7 @@ export function installHelpOverlay(document: Document, window: Pick<Window, 'add
     const openButton = document.createElement('button');
     openButton.type = 'button';
     openButton.id = 'help-open-btn';
+    openButton.className = 'tb-btn';
     openButton.setAttribute('data-action', 'help-open');
     openButton.setAttribute('aria-haspopup', 'dialog');
     setHint(openButton, strings.hintHelpOpen);
@@ -49,6 +50,8 @@ export function installHelpOverlay(document: Document, window: Pick<Window, 'add
     const version = document.getElementById('app-version');
     if (version) version.before(openButton);
     else (document.getElementById('app-footer') ?? document.body).append(openButton);
+    // A press keeps the focus where it was: the help then lists that view's keys first (as ? does) and gives the focus back to it.
+    openButton.addEventListener('mousedown', event => event.preventDefault());
     openButton.addEventListener('click', () => { if (overlay.hidden) open(view()); else close(); });
 
     function open(current: HelpView): void {
@@ -56,7 +59,7 @@ export function installHelpOverlay(document: Document, window: Pick<Window, 'add
         const sections = [...HELP_SECTIONS].sort((a, b) => Number(b.view === current) - Number(a.view === current));
         overlay.innerHTML = `<div class="screen-help-box">
             <div class="screen-help-head"><strong>${escapeHtml(strings.screenHelpTitle)}</strong><button type="button" id="help-close-btn" class="tb-btn" data-action="help-close">${escapeHtml(strings.helpClose)}</button></div>
-            <ol class="screen-help-flow" data-screen-help-flow>${strings.helpFlow.split('\n').map(line => `<li>${escapeHtml(line)}</li>`).join('')}</ol>
+            <ol class="screen-help-flow" data-screen-help-flow>${strings.helpFlow.split(/\r?\n/).filter(line => line.trim()).map(line => `<li>${escapeHtml(line)}</li>`).join('')}</ol>
             <div class="screen-help-tables">
                 ${sections.map(section => `<section data-help-section="${section.view}"${section.view === current ? ' data-screen-help-keys aria-current="true"' : ''}>`
                     + `<h3>${escapeHtml(strings[section.titleKey])}</h3><table>${keyRows(section.rows, strings)}</table></section>`).join('')}
