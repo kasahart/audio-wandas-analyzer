@@ -607,6 +607,8 @@ export interface UiStrings {
     exportPngDone: string;
     exportCsvBusy: string;
     exportCsvDone: string;
+    /** {count} channels the export had to leave out, named in {names}. */
+    exportCsvOmitted: string;
     ariaSpecZoomIn: string;
     ariaSpecZoomOut: string;
     ariaSpecZoomReset: string;
@@ -1354,6 +1356,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         exportPngDone: 'PNG exported: {name}',
         exportCsvBusy: 'Exporting CSV…',
         exportCsvDone: 'CSV exported: {name}',
+        exportCsvOmitted: '{count} spectrum(s) left out of the CSV: they could not be computed at the cursor ({names})',
         ariaSpecZoomIn: 'Spectrum zoom in',
         ariaSpecZoomOut: 'Spectrum zoom out',
         ariaSpecZoomReset: 'Spectrum zoom reset',
@@ -2099,6 +2102,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         exportPngDone: 'PNG を書き出しました: {name}',
         exportCsvBusy: 'CSV を書き出し中…',
         exportCsvDone: 'CSV を書き出しました: {name}',
+        exportCsvOmitted: 'カーソル位置のスペクトルを計算できなかった {count} 件を CSV から除きました ({names})',
         ariaSpecZoomIn: 'スペクトル拡大',
         ariaSpecZoomOut: 'スペクトル縮小',
         ariaSpecZoomReset: 'スペクトルズームリセット',

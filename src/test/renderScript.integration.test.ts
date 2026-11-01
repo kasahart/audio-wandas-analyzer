@@ -2646,6 +2646,49 @@ test('renderScript: export-csv replaces a cursor spectrum cut for display with e
     }
 });
 
+test('renderScript: export-csv leaves out a track whose every-bin spectrum failed and says so', async () => {
+    const env = setupSpectrumEnv();
+    await nextAnimationFrame(env.dom);
+    const created: HTMLAnchorElement[] = [];
+    const origCreate = env.dom.window.document.createElement.bind(env.dom.window.document);
+    env.dom.window.document.createElement = function(tag: string) {
+        const el = origCreate(tag);
+        if (tag === 'a') { created.push(el as HTMLAnchorElement); }
+        return el;
+    };
+    try {
+        const state = JSON.parse(SPECTRUM_APP_STATE);
+        const answered = new Set<any>();
+        env.dom.window.document.querySelector('[data-action="export-csv"]')?.dispatchEvent(
+            new env.dom.window.MouseEvent('click', { bubbles: true }),
+        );
+        for (let round = 0; round < 40 && !created.some((a) => a.download === 'spectrum-export.csv'); round++) {
+            env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice' && !answered.has(msg)).forEach((request: any) => {
+                answered.add(request);
+                const identity = { requestId: request.requestId, analysisId: request.analysisId, settingsSignature: request.settingsSignature,
+                    trackIndex: request.trackIndex, filePath: request.filePath };
+                // The second track's every-bin spectrum fails; the row cut for display it drew earlier must not stand in.
+                const data = request.trackIndex === 1
+                    ? { ...identity, type: 'spectrum-slice-error', error: 'backend failed' }
+                    : { ...identity, type: 'spectrum-slice-result', frequencyBins: 4, maxFrequencyHz: 22050,
+                        channels: [{ channelIndex: 0, values: state.results[0].channels[0].spectrogram.values[0], minDb: -90, maxDb: 0 }] };
+                env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data }));
+            });
+            await new Promise(resolve => env.dom.window.setTimeout(resolve, 30));
+        }
+        const anchor = created.find((a) => a.download === 'spectrum-export.csv');
+        assert.ok(anchor, 'CSV download anchor が作られること');
+        const header = decodeDataUriPayload(anchor.href).split('\n')[0];
+        assert.match(header, /spec-0\.wav/);
+        assert.doesNotMatch(header, /spec-1\.wav/);
+        const info = env.postedMessages.find((msg: any) => msg.type === 'show-info') as any;
+        assert.match(info?.message ?? '', /^1 spectrum\(s\) left out of the CSV: .*spec-1\.wav/);
+    } finally {
+        env.dom.window.document.createElement = origCreate;
+        env.dom.window.close();
+    }
+});
+
 test('renderScript: export-csv preserves each track frequency axis', async () => {
     const env = setupMismatchedDeltaFSpectrumEnv();
     await nextAnimationFrame(env.dom);

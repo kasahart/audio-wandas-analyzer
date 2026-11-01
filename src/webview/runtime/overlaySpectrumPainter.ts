@@ -18,6 +18,7 @@ export interface OverlaySpectrumHover {
     norm: number | null;
     yFrac: number | null;
     target: SpectrumHoverTarget | null;
+    stepped?: boolean;
 }
 
 export interface OverlaySpectrumPaint {
@@ -74,7 +75,7 @@ export function paintOverlaySpectrum(
     let nearest: SpectrumSnapHit<SpectrumSeries> | null = null;
     if (hover.norm !== null && hover.target === 'overlay') {
         // With no pointer height (the cursor follows the pair plot) no line is nearest, so only the frequency line shows.
-        nearest = hover.yFrac !== null ? nearestSpectrumSnap(slices, hover.norm, hover.yFrac * H, frame, true) : null;
+        nearest = hover.yFrac !== null ? nearestSpectrumSnap(slices, hover.norm, hover.yFrac * H, frame, !hover.stepped) : null;
         const hit = nearest;
         paintHoverMarks(
             ctx,

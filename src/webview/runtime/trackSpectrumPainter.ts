@@ -24,6 +24,7 @@ export function paintTrackSpectrum(
     view: SpectrumViewState,
     hoverNorm: number | null,
     theme: DrawTheme,
+    stepped = false,
 ): { text: string; color: string } | null {
     const { slice, color } = series;
     ctx.clearRect(0, 0, W, H);
@@ -35,7 +36,8 @@ export function paintTrackSpectrum(
         return null;
     }
     const frame = spectrumPlotFrame(W, H, pad, vis);
-    const snap = spectrumBinAtHover(slice, hoverNorm, frame, true);
+    // A pointer reads its pixel's peak; an arrow-key step reads the bin it stepped to, so each press moves one bin.
+    const snap = spectrumBinAtHover(slice, hoverNorm, frame, !stepped);
     if (!snap) {
         return null;
     }

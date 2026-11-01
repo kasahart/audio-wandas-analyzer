@@ -2877,6 +2877,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         let missing = false;
         const tracks: Array<{ name: string; slice: SpectrumSlice }> = [];
+        const omitted: string[] = [];
         trackStore.activeIds().forEach(function (trackId) {
             const record = trackStore.require(trackId);
             const result = record.result;
@@ -2894,11 +2895,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 // the spectrogram column drawn while that row is on its way.
                 const inside = trackLocalCursorNorm(i, viewState.cursor) !== null;
                 const waiting = stale || (inside && (!current || !!cached.frequenciesHz));
+                const name = (result.fileName || ('track' + (i + 1))) + ' ' + channelLabel(result, channelIndex);
                 if (waiting || !slice || !slice.values || slice.values.length === 0) {
                     missing = missing || waiting || inside;
+                    if (waiting || inside) omitted.push(name);
                     return;
                 }
-                tracks.push({ name: (result.fileName || ('track' + (i + 1))) + ' ' + channelLabel(result, channelIndex), slice: slice });
+                tracks.push({ name, slice: slice });
             });
         });
         // A spectrum still on its way: write once the requests the export asked for are answered (or after a while).
@@ -2913,7 +2916,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const csv = buildSpectrumCsv(tracks);
-        taskStatus(STR.exportCsvDone.replace('{name}', 'spectrum-export.csv'), 'done');
+        // A spectrum the backend failed (or never answered) is left out rather than written from the row cut for display.
+        const left = omitted.length > 0 ? STR.exportCsvOmitted.replace('{count}', String(omitted.length)).replace('{names}', omitted.join(', ')) : '';
+        if (left) messaging.post({ type: 'show-info', message: left });
+        taskStatus(STR.exportCsvDone.replace('{name}', 'spectrum-export.csv') + (left ? ' — ' + left : ''), 'done');
         if (messaging.downloadFile(csv, 'spectrum-export.csv', 'text/csv;charset=utf-8')) return;
         triggerAnchorDownload(document, 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv), 'spectrum-export.csv');
     }
@@ -3449,6 +3455,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         return collectSpectrumSeries(tracks, norm, spectrumSeriesSource);
     }
     function moveSpectrumHoverByBin(deltaIdx: number) {
+        spectrumHover.stepped = true;
         if (spectrumHover.norm === null) {
             spectrumHover.norm = 0.5;
         }
@@ -3565,7 +3572,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 return;
             }
             const hovered = spectrumHover.target === trackId && spectrumHover.channelIndex === channelIndex ? spectrumHover.norm : null;
-            const readout = paintTrackSpectrum(ctx, W, H, { slice, color: trackColor(i), label: spectrumReadoutTrackLabel(result, channelIndex) }, spectrumView.state(), hovered, drawTheme());
+            const readout = paintTrackSpectrum(ctx, W, H, { slice, color: trackColor(i), label: spectrumReadoutTrackLabel(result, channelIndex) }, spectrumView.state(), hovered, drawTheme(), spectrumHover.stepped);
             paintedByChannel.set(channelIndex, true);
             if (readout) {
                 setSpectrumReadout(document.getElementById('spectrum-freq-readout'), readout.text, readout.color);

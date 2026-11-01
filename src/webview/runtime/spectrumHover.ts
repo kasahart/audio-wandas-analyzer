@@ -13,6 +13,8 @@ export class SpectrumHover {
     target: SpectrumHoverTarget | null = null;
     channelIndex: number | null = null;
     hasMouse = false;
+    /** Set by an arrow key, cleared by the pointer: a stepped readout shows the bin stepped to, not its pixel's peak. */
+    stepped = false;
 
     // Keyboard focus without a mouse position starts the cursor at the left edge, vertically centred.
     focus(target: SpectrumHoverTarget | null, channelIndex: number | null): void {
@@ -33,6 +35,7 @@ export class SpectrumHover {
         this.target = target;
         this.channelIndex = Number.isInteger(channelIndex) ? channelIndex : null;
         this.hasMouse = true;
+        this.stepped = false;
     }
 
     clear(): void {
