@@ -440,6 +440,7 @@ export interface UiStrings {
     screenHelpTitle: string;
     /** The footer button that opens the help. */
     helpOpen: string;
+    hintHelpOpen: string;
     /** The help's first lines: the app's flow in three steps, one per line. */
     helpFlow: string;
     screenHelpSymbols: string;
@@ -1187,8 +1188,9 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintSpectrogramGroup: 'Hold to show spectrograms; with a group as the base there is no single file to show, so put a file in slot 0',
         screenHelpTitle: 'Help',
         helpOpen: '? Help',
+        hintHelpOpen: 'How to use, keys and symbols (? / F1)',
         helpFlow: 'Open files or a folder; listen and look on the tracks\nCompare: pick the base and the recordings to compare (legend chips, keys 0–3)\nClick a step to see its result; ＋ adds a wandas step; then Export',
-        screenHelpSymbols: '☐ / ☑ (first column)\ta row\'s file off / on a track (T, or Enter / Space on it); the head\'s ⊟: some of them\n● ■ ◆ (on a step)\ta step\'s output: a time signal / an image / a spectrum\ndistribution\tthe chosen value per group: bars, a dot per recording when a group has few, a tick per recording below them\ndrag on it\ta range of the value: a chip that narrows the table (× or Esc takes it off)\n┃ (coloured)\ta slotted row, in its slot\'s colour\n┆ (blue, dashed)\tthe base: the median of a group\n0–3\tthe roles: 0 the base, 1–3 the recordings to compare (keys 0–3 on a row, or the legend chips in Compare)\n└ Δ\ta difference fixed with D, under the row it was fixed on\nfilled / outlined step\ta headline band / its leak into the neighbouring band filter\nstrip\tthe table\'s rows as 1/3-octave levels (row = recording, bright = loud)\nblue\tbase\nyellow / purple / magenta\tslots 1 / 2 / 3 (card, badge and line)\ngreen\tΔ (compare − base), not good or bad\norange\ta step that cannot run, or a recording that could not be read',
+        screenHelpSymbols: '☐ / ☑ (first column)\ta row\'s file off / on a track (T, or Enter / Space on it); the head\'s ⊟: some of them\n● ■ ◆ (on a step)\ta step\'s output: a time signal / an image / a spectrum\ndistribution\tthe chosen value per group: bars, a dot per recording when a group has few, a tick per recording below them\ndrag on it\ta range of the value: a chip that narrows the table (× or Esc takes it off)\n┃ (coloured)\ta row with a role, in the role\'s colour\n┆ (blue, dashed)\tthe base: the median of a group\n0–3\tthe roles: 0 the base, 1–3 the recordings to compare (keys 0–3 on a row, or the legend chips in Compare)\n└ Δ\ta difference fixed with D, under the row it was fixed on\nfilled / outlined step\ta headline band / its leak into the neighbouring band filter\nstrip\tthe table\'s rows as 1/3-octave levels (row = recording, bright = loud)\nblue\tbase\nyellow / purple / magenta\tcompare 1 / 2 / 3 (badge and line)\ngreen\tΔ (compare − base), not good or bad\norange\ta step that cannot run, or a recording that could not be read',
         hintOverview: 'Every file\'s 1/3-octave levels: one row per file, brighter is louder; the frame is the rows on screen',
         hintBaseCard: '0: the base the compared file is measured against',
         hintSlotCard: 'Tap to compare this file; hold to swap it in until released',
@@ -1930,8 +1932,9 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintSpectrogramGroup: '長押しでスペクトログラム。基準が群のときは 1 本のファイルが無いので、スロット 0 にファイルを入れる',
         screenHelpTitle: 'ヘルプ',
         helpOpen: '? ヘルプ',
+        hintHelpOpen: '使い方・キー・記号（? / F1）',
         helpFlow: 'ファイルかフォルダを開き、トラックで聴いて見る\n比較解析：基準と比べる録音を選ぶ（凡例のチップ、キー 0–3）\n手順を押すとその段の結果。＋ で wandas の処理を足し、書き出す',
-        screenHelpSymbols: '☐ / ☑（先頭の列）\t行のファイルがトラックにない / ある（T、またはそこで Enter / Space）。見出しの ⊟ は一部だけ\n● ■ ◆（手順の上）\t手順の出力の種類：時間波形 / 画像 / スペクトル\n分布\t選んだ値の群ごとの分布。棒、録音が少ない群は 1 本ずつの点、下に 1 本ずつの目盛\n分布のドラッグ\t値の範囲。表を絞るチップになる（× か Esc で外す）\n┃（色付き）\tスロットに入れた行。スロットの色\n┆（青の破線）\t基準。群の中央値\n0–3\t役割。0 が基準、1–3 が比べる録音（行でキー 0–3、または比較解析の凡例のチップ）\n└ Δ\tD で固定した差。固定した行の下に出る\n塗りの帯 / 枠の帯\t見出しの帯域 / その隣の帯域フィルタへの漏れ\n俯瞰帯\t表の行の 1/3 oct（行＝録音、明るい＝大きい）\n青\t基準\n黄 / 紫 / 赤紫\tスロット 1 / 2 / 3（カード・番号・線）\n緑\tΔ（比較 − 基準）。良し悪しではない\n橙\t実行できない手順、読めなかった録音',
+        screenHelpSymbols: '☐ / ☑（先頭の列）\t行のファイルがトラックにない / ある（T、またはそこで Enter / Space）。見出しの ⊟ は一部だけ\n● ■ ◆（手順の上）\t手順の出力の種類：時間波形 / 画像 / スペクトル\n分布\t選んだ値の群ごとの分布。棒、録音が少ない群は 1 本ずつの点、下に 1 本ずつの目盛\n分布のドラッグ\t値の範囲。表を絞るチップになる（× か Esc で外す）\n┃（色付き）\t役割のある行。役割の色\n┆（青の破線）\t基準。群の中央値\n0–3\t役割。0 が基準、1–3 が比べる録音（行でキー 0–3、または比較解析の凡例のチップ）\n└ Δ\tD で固定した差。固定した行の下に出る\n塗りの帯 / 枠の帯\t見出しの帯域 / その隣の帯域フィルタへの漏れ\n俯瞰帯\t表の行の 1/3 oct（行＝録音、明るい＝大きい）\n青\t基準\n黄 / 紫 / 赤紫\t比較 1 / 2 / 3（番号・線）\n緑\tΔ（比較 − 基準）。良し悪しではない\n橙\t実行できない手順、読めなかった録音',
         hintOverview: '全ファイルの 1/3 oct。1 行が 1 ファイル、明るいほど大きい。枠は表に見えている行',
         hintBaseCard: '0: 比較するファイルの基準',
         hintSlotCard: 'クリックで比較、長押しの間だけ入れ替え',

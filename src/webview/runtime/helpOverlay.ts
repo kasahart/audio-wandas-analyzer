@@ -5,6 +5,7 @@
 import type { UiStrings } from '../../shared/i18n/strings';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { eventTarget } from './domAdapter';
+import { setHint } from './hintFooter';
 import { isTextEntryTarget, keyRouterFor } from './keyRouter';
 import { HELP_SECTIONS, type HelpView, type KeyRow } from './shortcuts';
 
@@ -42,6 +43,8 @@ export function installHelpOverlay(document: Document, window: Pick<Window, 'add
     openButton.type = 'button';
     openButton.id = 'help-open-btn';
     openButton.setAttribute('data-action', 'help-open');
+    openButton.setAttribute('aria-haspopup', 'dialog');
+    setHint(openButton, strings.hintHelpOpen);
     openButton.textContent = strings.helpOpen;
     const version = document.getElementById('app-version');
     if (version) version.before(openButton);

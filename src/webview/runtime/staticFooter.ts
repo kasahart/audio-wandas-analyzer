@@ -90,7 +90,7 @@ export function createStaticFooter(document: Document, window: Window, strings: 
     // The toolbar text alone was easy to miss, so the boot also shows a card, just below the empty view's prompt so both stay readable; it ignores pointer events because commands already wait for the boot.
     const pythonLoading = document.createElement('div');
     pythonLoading.setAttribute('data-python-loading', '');
-    pythonLoading.style.cssText = 'position:fixed;top:calc(50% + 72px);left:50%;transform:translate(-50%,-50%);z-index:70;pointer-events:none;'
+    pythonLoading.style.cssText = 'position:fixed;top:min(calc(50% + 72px), calc(100% - 64px));left:50%;transform:translate(-50%,-50%);z-index:70;pointer-events:none;'
         + 'display:flex;align-items:center;gap:12px;padding:16px 24px;background:var(--panel);color:var(--text);border:1px solid var(--line);'
         + 'border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.35);font-family:var(--font-ui);font-size:14px';
     const pythonSpinner = document.createElement('span');
