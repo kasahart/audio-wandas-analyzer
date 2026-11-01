@@ -5,18 +5,18 @@ import test from 'node:test';
 import { recipeChain, recipeSteps, withBypass, withParam } from '../shared/recipe/recipeSteps';
 import type { RecipeDocument } from '../shared/recipe/recipeSelection';
 import type { StageView } from '../shared/protocol/backendProtocol';
-import { INPUT_STAGE, OCTAVE_BRANCH, runnableRecipe } from '../webview/runtime/stepBarModel';
+import { INPUT_STAGE, runnableRecipe } from '../webview/runtime/stepBarModel';
 import { FULL_PLOT_WINDOW } from '../webview/runtime/plotInteraction';
-import { channelRecipe, chosenStage, comparedPath, eachBaseTitle, enterStageState, holdStageSpec, initialStageState, liveRegion, openStageState, pictureSummary, plotsOf, regionStageSpec, stageSpec, tableBaseView } from '../webview/runtime/trackStageModel';
+import { channelRecipe, chosenStage, comparedPath, eachBaseTitle, enterStageState, holdStageSpec, initialStageState, liveRegion, openStageState, pictureSummary, plotsOf, regionStageSpec, stageSpec } from '../webview/runtime/trackStageModel';
 
 const entry = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8')) as RecipeDocument;
 const limits = { sampleRate: 16000 };
 const [hpf, slice, welch] = recipeSteps(entry, 16000);
 const line = (values: Array<number | null>, xs = values.map((_, index) => 100 * (index + 1))): StageView => ({ kind: 'line', x: 'frequency', quantity: 'level', xs, values } as StageView);
 
-test('the step shown: the 1/3-octave branch of a spectral chain unless another is chosen, the step before a bypassed one', () => {
-    assert.equal(chosenStage(entry, limits, null), OCTAVE_BRANCH);
-    assert.equal(chosenStage(entry, limits, OCTAVE_BRANCH), OCTAVE_BRANCH);
+test('the step shown: the one chosen, else the chain\'s end; the step before a bypassed one', () => {
+    assert.equal(chosenStage(entry, limits, null), welch.id);
+    assert.equal(chosenStage(entry, limits, 'node-noct'), welch.id, 'the app\'s former 1/3-octave chip, from a saved stage: the chain\'s end');
     assert.equal(chosenStage(entry, limits, INPUT_STAGE), INPUT_STAGE);
     assert.equal(chosenStage(entry, limits, hpf.id), hpf.id);
     assert.equal(chosenStage(entry, limits, 'gone'), welch.id, 'a step no longer there: the chain\'s end');
@@ -25,7 +25,6 @@ test('the step shown: the 1/3-octave branch of a spectral chain unless another i
     // A step that cannot run is shown as such, so paint can say why.
     const broken = withParam(entry, hpf.id, hpf.editable[0], 9000);
     assert.equal(chosenStage(broken, limits, hpf.id), hpf.id);
-    assert.equal(chosenStage(broken, limits, null), OCTAVE_BRANCH);
 });
 
 test('the compared file: the slot held, else the one tapped, else the first slot among the tracks', () => {
@@ -85,18 +84,8 @@ test('the base is the median of its files once all are in; the compared file\'s 
     assert.deepEqual(plots.compare?.values, [-20, -20]);
     assert.deepEqual(plots.diff?.values, [0, 10]);
     assert.deepEqual(plots.others.map(item => [item.track.filePath, item.view]), [['d', null]]);
-    const fallback = line([0, 0]);
-    assert.equal(plotsOf(path => (path === 'b' ? undefined : views[path]), tracks, 'c', ['a', 'b'], fallback).base, fallback, 'a base file not in yet');
+    assert.equal(plotsOf(path => (path === 'b' ? undefined : views[path]), tracks, 'c', ['a', 'b']).base, null, 'a base file not in yet');
     assert.equal(plotsOf(path => views[path], tracks, 'a', ['a', 'b']).diff, null, 'a file is not compared with a base it is in');
-});
-
-test('a gated base group\'s levels come from the table on the compared file\'s bands', () => {
-    const compare = line([-10, -20, -30], [100, 125, 160]);
-    const base = tableBaseView(compare, { centers: [100, 160, 1000], values: [-15, -35, -50] });
-    assert.deepEqual(base?.values, [-15, null, -35]);
-    assert.equal(base?.waveform, undefined);
-    assert.equal(tableBaseView(compare, null), null);
-    assert.equal(tableBaseView(null, { centers: [100], values: [0] }), null);
 });
 
 test('a picture is summed up by its points with a level and their median', () => {

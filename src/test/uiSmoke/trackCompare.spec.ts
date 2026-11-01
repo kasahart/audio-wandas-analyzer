@@ -56,13 +56,13 @@ async function showTracks(page: Page, paths: string[]): Promise<void> {
     })) } })), paths);
     await expect(page.locator('.track-stage')).toBeVisible();
     await expect.poll(async () => (await stageScans(page)).length).toBeGreaterThan(0);
-    // The first opening shows the recordings as they are (the input); these tests compare on the 1/3-octave bands.
+    // The first opening shows the recordings as they are (the input); these tests compare on the chain's end.
     const bar = page.locator('.track-stage-bar');
     if (await bar.locator('.step-chip.is-current[data-step-input]').count()) {
         expect((await stageScans(page)).at(-1)!.stage).toBe('node-input');
         await answer(page);
-        await bar.locator('.step-branch [data-step-hold]').click();
-        await expect.poll(async () => (await stageScans(page)).at(-1)?.stage).toBe('node-noct');
+        await bar.locator('[data-step-hold="node-2"]').click();
+        await expect.poll(async () => (await stageScans(page)).at(-1)?.stage).toBe('node-2');
     }
     await answer(page);
     await expect(page.locator('.track-stage')).toHaveAttribute('data-layout', 'overlay');
@@ -73,6 +73,10 @@ test('Enter on the entry table compares the slotted files in the track view: ove
     const [first, second] = await openComparison(page);
     const root = page.locator('.track-stage');
     await expect(root).toHaveAttribute('data-compared', '1');
+    // The base group (more than 30 recordings) is analysed once asked.
+    await page.locator('[data-action="stage-base-scan"]').click();
+    await expect.poll(async () => (await stageScans(page)).at(-1)!.filePaths.length).toBeGreaterThan(2);
+    await answer(page);
     await expect(page.locator('[data-stage-headline]')).toHaveText(/^Compare 1 − base · [\d.]+ k?Hz base −?\d+\.\d \/ compare −?\d+\.\d dB$/);
     await expect(page.locator('[data-stage-legend] .compare-legend-item')).toHaveText([/^Base group/, new RegExp(`^1${first.split('/').pop()} ch1 ${STR_EN.dsLeq.replace(/[[\]]/g, '\\$&')} −?\\d`), new RegExp(`^2${second.split('/').pop()} ch1 `)]);
     expect(await page.locator('[data-stage-legend] line').evaluateAll(lines => lines.map(line => line.getAttribute('stroke')))).toEqual(['#3b82f6', '#d4b20f', '#a371f7']);
@@ -127,7 +131,7 @@ test('Enter on the entry table compares the slotted files in the track view: ove
     await expect(page.locator('[data-stage-legend] .compare-legend-item').first()).toContainText(new RegExp(STR.entryBaseMedian.replace('{count}', '\\d+')));
 });
 
-test('the comparison shows the app\'s 1/3-octave branch as a step, and hides the lanes\' own controls', async ({ page }) => {
+test('the comparison shows a step\'s bands as bars, and hides the lanes\' own controls', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     const [first] = await openComparison(page);
     // The lanes' time zoom, menus and cursor spectrum do nothing on the steps view; Enter has nothing left to open.
@@ -135,10 +139,10 @@ test('the comparison shows the app\'s 1/3-octave branch as a step, and hides the
         await expect(page.locator(`[data-action="${action}"]`).first()).toBeHidden();
     }
     await expect(page.locator('#toolbar details.tb-menu').first()).toBeHidden();
-    await page.locator('.track-stage-bar [data-step-hold="node-noct"]').click();
-    await expect.poll(async () => (await stageScans(page)).at(-1)?.stage).toBe('node-noct');
+    await page.locator('.track-stage-bar [data-step-hold="node-2"]').click();
+    await expect.poll(async () => (await stageScans(page)).at(-1)?.stage).toBe('node-2');
     await answer(page, { frame: 'NOctFrame', kind: 'bar', x: 'band', xScale: 'log', quantity: 'level', xs: [100, 1000, 5000], values: [-40, -30, -50] });
-    await expect(page.locator('.track-stage-bar')).toHaveAttribute('data-stage', 'node-noct');
+    await expect(page.locator('.track-stage-bar')).toHaveAttribute('data-stage', 'node-2');
     // In the side panel the table leaves out the value column and never scrolls sideways; its ▾ sorts.
     await expect(page.locator('th[data-column="leq"]')).toBeHidden();
     await page.locator('th[data-column="name"] [data-action="entry-fhead"]').click();
@@ -298,7 +302,7 @@ test('the comparison\'s step bar grows the chain with ＋, offers only what take
     await expect(earlier.locator('.step-menu-hint')).toHaveText(STR.stepGoesBefore.replace('{step}', 'fft'));
     await bar.locator('[data-step-menu-filter]').press('Escape');
     // The whole file is no region: no region chip.
-    await expect(bar.locator('.step-chip')).toHaveText([STR.stepInput, 'HPF 20 Hz', 'a_weighting', 'fft', STR.stepOctave]);
+    await expect(bar.locator('.step-chip')).toHaveText([STR.stepInput, 'HPF 20 Hz', 'a_weighting', 'fft']);
     await expect.poll(lastRecipe).toEqual(['get_channel', 'highpass_filter', 'time_slice', 'a_weighting', 'fft']);
     await answer(page);
     // The base group (98 recordings, ungrouped) is scanned once asked.
@@ -387,8 +391,8 @@ test('a region set with its chip compares only that part of the files, shows on 
     // The input chip: the files as they come in.
     await bar.locator(`[data-step-hold="node-input"]`).click();
     await expect.poll(async () => (await stageScans(page)).at(-1)?.stage).toBe('node-input');
-    await bar.locator('.step-chip', { hasText: STR.stepOctave }).locator('[data-step-hold]').click();
-    await expect.poll(async () => (await stageScans(page)).at(-1)?.stage).toBe('node-noct');
+    await bar.locator('[data-step-hold="node-2"]').click();
+    await expect.poll(async () => (await stageScans(page)).at(-1)?.stage).toBe('node-2');
     await answer(page);
     // Then the files' metrics over it: a scan of the region without a step.
     await expect.poll(async () => (await stageScans(page)).some(message => message.region?.start === 0.5 && message.stage === undefined)).toBe(true);
@@ -453,8 +457,6 @@ test('bypass keeps a step in place but runs the chain without it; ↶ ↷ and Ct
     await bar.locator('.step-menu-item[data-op="wandas.audio.fft"]').click();
     const welch = bar.locator('.step-chip', { hasText: STR.stepAverage });
     await expect(welch).toHaveClass(/is-invalid/);
-    // The table's 1/3-octave branch after it cannot run either, and is not computed without the spectrum.
-    await expect(bar.locator('.step-chip', { hasText: STR.stepOctave })).toHaveClass(/is-invalid/);
     await welch.locator('[data-step-hold]').click();
     await expect(page.locator('.track-stage-bar')).toHaveAttribute('data-drawn', '0');
     await expect(page.locator('[data-stage-headline]')).toHaveText('');
@@ -482,7 +484,7 @@ test('at 1280×720 the overlaid plot fits: the cursor spectrum folds while compa
     await expect(section).not.toHaveClass(/is-collapsed/);
 });
 
-test('a chain need not end in the 1/3-octave bands: a step added is shown, × removes one, and the branch stands apart', async ({ page }) => {
+test('a step added at the chain\'s end is shown, × removes one, and the bar holds the Recipe\'s steps only', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     await openComparison(page);
     const bar = page.locator('.track-stage-bar');
@@ -495,23 +497,21 @@ test('a chain need not end in the 1/3-octave bands: a step added is shown, × re
     expect((await cross.boundingBox())!.width).toBeGreaterThanOrEqual(18);
     await cross.click();
     await expect(bar.locator('.step-chip', { hasText: getStrings('en').stepAverage })).toHaveCount(0);
-    // fft at the chain's end: the comparison shows fft, not the 1/3-octave branch.
+    // fft at the chain's end: the comparison shows fft.
     await bar.locator('[data-action="step-add"]').click();
     await bar.locator('[data-step-menu-filter]').fill('fft');
     await bar.locator('.step-menu-item', { hasText: 'fft' }).first().click();
     const fft = await bar.locator('.step-chip', { hasText: 'fft' }).getAttribute('data-step-id');
     await expect(bar).toHaveAttribute('data-stage', fft!);
     await expect.poll(async () => (await stageScans(page)).at(-1)?.stage).toBe(fft);
-    // No Frame names on the bar, open or not; the branch has no arrow from the chain.
+    // No Frame names on the bar, open or not; no chip of the app's own beside the chain.
     await bar.locator('[data-action="step-expand"]').click();
     await expect(bar).not.toContainText('Frame');
-    const branch = bar.locator('.step-branch');
-    await expect(branch.locator('.step-chip')).toHaveCount(1);
-    expect(await branch.evaluate(element => element.previousElementSibling?.classList.contains('step-arrow'))).toBe(false);
-    await expect(branch.locator('[data-action="step-delete"]')).toHaveCount(0);
+    await expect(bar.locator('.step-branch')).toHaveCount(0);
+    await expect(bar.locator('[data-step-hold="node-noct"]')).toHaveCount(0);
 });
 
-test('a base group of more than 30 recordings is not analysed by opening a comparison: the table\'s computed bands stand in until 「解析する」 is pressed', async ({ page }) => {
+test('a base group of more than 30 recordings is not analysed by opening a comparison: it has no line until 「解析する」 is pressed', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     const STR = getStrings('en');
     await openComparison(page);
@@ -523,11 +523,9 @@ test('a base group of more than 30 recordings is not analysed by opening a compa
     expect(n).toBeGreaterThan(30);
     expect((await stageScans(page)).every(request => request.filePaths.length <= 3)).toBe(true);
     await expect(page.locator('[data-action="stage-base-scan"]')).toHaveText(new RegExp(`^${STR.stageBaseScan.replace('{n}', String(n)).replace(' · about {time}', '')}`));
-    // On the 1/3-octave bands (where the comparison opens), the base is the table's computed levels, said so in its legend entry.
+    // Its legend entry says it is not analysed yet.
     const baseEntry = page.locator('[data-stage-legend] .compare-legend-item').first().locator('.compare-legend-label');
-    await expect(baseEntry).toContainText(STR.stageBaseTableNote);
-    await expect(baseEntry).toHaveAttribute('data-hint', STR.stageBaseTableHint.replace('{m}', String(n)).replace('{n}', String(n)));
-    await expect(page.locator('[data-stage-headline]')).toContainText('base');
+    await expect(baseEntry).toContainText(STR.stageBaseNoLine);
     // Pressed: the base group is asked for, and the button goes.
     await page.locator('[data-action="stage-base-scan"]').click();
     await expect.poll(async () => (await stageScans(page)).at(-1)!.filePaths.length).toBe(n);
@@ -703,12 +701,12 @@ test('the first opening shows the input: a base group draws each of its waveform
     await expect(page.locator('[data-action="stage-diff"]')).toBeHidden();
     await baseEntry.locator('[data-action="stage-base-info"]').click();
     await expect(page.locator('[data-stage-base-aggregate]')).toHaveText(STR.stageBaseEach);
-    // The 1/3-octave bands chosen, then back to the tracks and the comparison opened again: the bands, not the input.
-    await bar.locator('.step-branch [data-step-hold]').click();
-    await expect.poll(async () => (await stageScans(page)).at(-1)?.stage).toBe('node-noct');
+    // The average spectrum chosen, then back to the tracks and the comparison opened again: the spectrum, not the input.
+    await bar.locator('[data-step-hold="node-2"]').click();
+    await expect.poll(async () => (await stageScans(page)).at(-1)?.stage).toBe('node-2');
     await page.locator('[data-action="content-waveform"]').click();
     await expect(stage).toBeHidden();
     await page.locator('[data-action="content-stage"]').click();
     await expect(stage).toBeVisible();
-    await expect(bar.locator('.step-chip.is-current')).toHaveText(STR.stepOctave);
+    await expect(bar.locator('.step-chip.is-current')).toHaveAttribute('data-step-id', 'node-2');
 });

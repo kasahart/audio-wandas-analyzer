@@ -1,6 +1,5 @@
 /** The step bar's pointer gestures: a chip's body tapped or held, and a chip dragged to move its step. */
 import type { RecipeStep } from '../../shared/recipe/recipeSteps';
-import { OCTAVE_BRANCH } from './stepBarModel';
 
 /** A press shorter than this is a tap (see the step's Frame); longer is a hold (what the step does) until release. */
 export const STEP_TAP_MS = 250;
@@ -86,7 +85,7 @@ export function attachStepDrag(element: HTMLElement, document: Document, deps: {
         if (!dragged || !steps) return;
         const target = (event.target as HTMLElement).closest?.<HTMLElement>('.step-chip, [data-step-input]');
         const id = target?.matches('[data-step-input]') ? null : target?.getAttribute('data-step-id');
-        if (!target || id === OCTAVE_BRANCH) return;
+        if (!target) return;
         event.preventDefault();
         const box = target.getBoundingClientRect();
         const before = !!id && event.clientX < box.left + box.width / 2;

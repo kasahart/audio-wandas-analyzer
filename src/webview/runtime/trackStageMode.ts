@@ -17,9 +17,9 @@ import type { ScanResult, StageView } from '../../shared/protocol/backendProtoco
 import type { EntryRegion } from '../../shared/analysis/entryScan';
 import { brokenStep, recipeChain, recipeKey, recipeSteps, TIME_SLICE, type RecipeStep, type StepLimits } from '../../shared/recipe/recipeSteps';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
-import { createStepBar, invalidReason, stepChipLabel, stepLimits, INPUT_STAGE, OCTAVE_BRANCH } from './stepBar';
+import { createStepBar, invalidReason, stepChipLabel, stepLimits, INPUT_STAGE } from './stepBar';
 import { createStageSource, type StageSpec } from './stageSource';
-import { chosenStage, comparedPath as comparedPathOf, eachBaseTitle, enterStageState, holdStageSpec, initialStageState, liveRegion as liveRegionOf, openStageState, pictureSummary, plotsOf, regionStageSpec, stageSpec, tableBaseView } from './trackStageModel';
+import { chosenStage, comparedPath as comparedPathOf, eachBaseTitle, enterStageState, holdStageSpec, initialStageState, liveRegion as liveRegionOf, openStageState, pictureSummary, plotsOf, regionStageSpec, stageSpec } from './trackStageModel';
 import { createDetailPlanner } from './stageDetail';
 import { attachStageGestures, type StageGestures } from './trackStageGestures';
 import { overlayLayers, overlayLegendItems, paintBaseGate, paintNoPicture, paintNoStage, paintStageControls, paintStageLanes, paintStageOverlay, stageDom, stageModeHeadline, writeStageLegend, type Drawn, type StageFrame, type StageTrack } from './trackStagePainter';
@@ -52,11 +52,6 @@ export interface TrackStageDeps {
     baseTitle(comparePath: string, group?: boolean): string;
     /** The channel a file is drawn with when `comparePath` is compared: a slot's channel row, the base's members of that channel. */
     stageChannel?(path: string, comparePath: string | null, group?: boolean): number | null;
-    /**
-     * A base group too large to scan unasked: its median 1/3-octave levels from what the table has computed
-     * (the channel compared), and how many of its recordings have them; null when none do.
-     */
-    tableBaseBands?(comparePath: string, group?: boolean): { centers: number[]; values: (number | null)[]; count: number } | null;
     /** How much audio these files are (seconds) and about how long analysing them takes (ms). */
     cost?(paths: readonly string[]): { seconds: number; ms: number };
     /** A file's name as the table has it (with its channel), its value on show and its memo, for the legend. */
@@ -355,10 +350,10 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             const steps = recipeSteps(recipe.recipe, limits());
             // A step that cannot run has no picture: the plot says why, and how to fix it.
             const broken = brokenStep(recipe.recipe, limits());
-            const cannot = steps.find(step => step.id === id && step.invalid !== undefined) ?? (id === OCTAVE_BRANCH && broken ? { ...broken, id: OCTAVE_BRANCH } : undefined);
+            const cannot = steps.find(step => step.id === id && step.invalid !== undefined);
             // A step measured against the base slot's recording (at or before the one shown): each other recording is
             // paired with it there, so the base is one recording, and it is the reference rather than a curve of its own.
-            const shownIndex = id === OCTAVE_BRANCH ? steps.length : steps.findIndex(step => step.id === id);
+            const shownIndex = steps.findIndex(step => step.id === id);
             const slotStep = steps.find((step, index) => step.reference === 'slot' && !step.bypassed && step.invalid === undefined && index <= shownIndex);
             const referencePath = slotStep && !state.groupBase ? deps.slots()[0] ?? null : null;
             const needBase = !!slotStep && !referencePath;
@@ -414,14 +409,14 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             root.dataset.region = regionLabel(region);
             // The region on the plots: its part of a whole-file picture (a step before the region's), else a corner tag.
             const sliceAt = steps.findIndex(step => step.operation === TIME_SLICE);
-            const shownAt = id === INPUT_STAGE ? -1 : id === OCTAVE_BRANCH ? steps.length : steps.findIndex(step => step.id === id);
+            const shownAt = id === INPUT_STAGE ? -1 : steps.findIndex(step => step.id === id);
             const regionMark = region ? { start: region.start, end: region.end, mark: shownAt < sliceAt ? 'range' as const : 'tag' as const, label: `${strings.stepRegion} ${region.start.toFixed(2)}–${region.end.toFixed(2)} s` } : undefined;
             root.dataset.regionMark = regionMark?.mark ?? '';
             const coarse = (path: string) => source.view(specOf(channelFor(path)), path);
             const picture = tracks.map(track => coarse(track.filePath)).find((view): view is StageView => !!view) ?? null;
             // Before any picture is in, the step's Frame says whether it is an image: the comparison is shown at once,
             // computing, rather than the lanes until the first file is in.
-            const frameShown = id === INPUT_STAGE ? INPUT_FRAME : id === OCTAVE_BRANCH ? 'NOctFrame' : steps.find(step => step.id === id)?.output;
+            const frameShown = id === INPUT_STAGE ? INPUT_FRAME : steps.find(step => step.id === id)?.output;
             // (A step held draws the chain without it, another Frame: the lanes until its first picture, as before.)
             const images = picture ? picture.kind === 'heatmap' || picture.kind === 'none' : !waiting || !!held_ || IMAGE_FRAMES.has(frameShown ?? '');
             // The files in of all asked for, said on the plots while any is missing.
@@ -475,13 +470,8 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             // The zoom, for tests: "start–end" of the horizontal axis.
             root.dataset.xWindow = `${state.window.x.start.toFixed(3)}-${state.window.x.end.toFixed(3)}`;
             painted = true;
-            // Gated, the 1/3-octave picture still has a base: the group's levels the table has computed, on the compared file's bands.
-            // The table's values are of the whole files: over a region they are not the base, nor on another step.
-            const tableBands = gated && comparePath && id === OCTAVE_BRANCH && !region ? deps.tableBaseBands?.(comparePath, state.groupBase) ?? null : null;
-            const compareCoarse = comparePath ? coarse(comparePath) ?? null : null;
-            const tableBase = tableBaseView(compareCoarse, tableBands);
             paintBaseGate(dom, strings, { gated, count: allBase.length, ms: cost.ms });
-            const coarsePlots = plotsOf(coarse, tracks, comparePath, basePaths, tableBase);
+            const coarsePlots = plotsOf(coarse, tracks, comparePath, basePaths);
             shownCompare = { path: comparePath, view: comparePath && !waiting ? coarse(comparePath) : undefined };
             const frame: StageFrame = { strings, tracks, allTracks, referencePath, comparePath, coarse, shown, picture, coarsePlots, window: state.window, regionMark, pending, waiting, role, named, drawnOn, baseEach: each };
             const bypassed = steps.filter(step => step.bypassed).map(step => stepChipLabel(step, strings, state.regionSet));
@@ -491,7 +481,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
                 return;
             }
             // Overlaid: the base, the other tracks and the compared one on one plot, as the comparison draws them.
-            const finePlots = plotsOf(shown, tracks, comparePath, basePaths, tableBase, baseShown);
+            const finePlots = plotsOf(shown, tracks, comparePath, basePaths, baseShown);
             // The difference of a line's detail and a base still whole is no difference (their points are at other places
             // even where there are as many): the whole pictures' until both sides have their detail.
             const bothFine = !!comparePath && !!fine(comparePath) && basePaths.length > 0 && baseShown === shown;
@@ -509,7 +499,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
                 // A base group (not a slot-0 file) has a ▾ that says how its curve is made.
                 group: !!comparePath && (state.groupBase || !deps.slots()[0]),
                 aggregate,
-                gated, tableBase, tableBands, count: allBase.length, held: state.held !== null, playable,
+                gated, count: allBase.length, held: state.held !== null, playable,
             });
             const legend = query<HTMLElement>('[data-stage-legend]');
             legend.dataset.memos = items.filter(item => item.memo).length.toString();

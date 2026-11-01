@@ -1,13 +1,12 @@
 /** The step bar's words: a chip's label, a value as a field shows it, and why a step cannot run. */
 import type { RecipeStep, StepParam } from '../../shared/recipe/recipeSteps';
-import { OCTAVE_BRANCH, type RegionRange, type StepBarState, type StepBarStrings } from './stepBarModel';
+import { type RegionRange, type StepBarState, type StepBarStrings } from './stepBarModel';
 
 /**
  * The one-line reason a step cannot run, shown in the footer while the field or chip has focus or the pointer.
  * Steps are named by their chips' labels; `steps` names the step a later one cannot run after.
  */
 export function invalidReason(step: RecipeStep, strings: StepBarStrings, steps: readonly RecipeStep[] = []): string {
-    if (step.id === OCTAVE_BRANCH && step.invalid !== undefined) return strings.stepOctaveBroken;
     const reason = step.reason;
     if (!reason) return '';
     const limit = Number.isFinite(reason.limit) ? String(Math.round(reason.limit * 1000) / 1000) : '∞';

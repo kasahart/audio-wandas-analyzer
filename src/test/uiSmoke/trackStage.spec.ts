@@ -47,9 +47,9 @@ test('the track view\'s steps mode draws every track as the chosen step\'s Frame
     await expect(page.locator('#ruler-row')).toBeHidden();
     await expect.poll(async () => (await stageScans(page)).at(-1)?.stage).toBe('node-input');
     await expect(bar.locator('.step-chip.is-current')).toHaveAttribute('data-step-input', '');
-    // The 1/3-octave bands the table reads, asked of the track's file and its base (its condition).
-    await bar.locator('.step-branch [data-step-hold]').click();
-    await expect.poll(async () => (await stageScans(page)).at(-1)?.stage).toBe('node-noct');
+    // The average spectrum at the chain's end, asked of the track's file and its base (its condition).
+    await bar.locator('[data-step-hold="node-2"]').click();
+    await expect.poll(async () => (await stageScans(page)).at(-1)?.stage).toBe('node-2');
     const asked = (await stageScans(page)).at(-1)!;
     expect(asked.filePaths).toEqual([first]);
     // While it is computed, the comparison is on screen already (not the lanes), saying how many files are in.

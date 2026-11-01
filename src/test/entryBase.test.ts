@@ -80,14 +80,9 @@ test('a channel row is compared as its channel; recordings without it are left o
     assert.equal(base.slotRowOf('/d/a.wav')?.key, '/d/a.wav#ch2');
 });
 
-test('the comparison and the table\'s base bands come from the base it resolves', () => {
+test('the comparison comes from the base it resolves', () => {
     const { base } = setup({ slots: [null, '/d/a.wav', null, null], stale: ['/d/c.wav'] });
     const model = base.comparison('/d/a.wav');
     assert.equal(model.compare?.leq, 40);
     assert.ok(model.base, 'the group median of b and c');
-    const bands = base.tableBands('/d/a.wav');
-    assert.deepEqual(bands, { centers: bands?.centers, values: [42, 43], count: 1 }, 'c is of an earlier chain');
-    assert.equal(bands?.centers.length, 2);
-    const { base: lone } = setup({ slots: [null, '/d/d.wav', null, null] });
-    assert.equal(lone.tableBands('/d/d.wav'), null, 'a group of one has no base bands');
 });

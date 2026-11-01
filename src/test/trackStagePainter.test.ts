@@ -129,13 +129,13 @@ test('overlaid: grey lines under the roles\', the base, the others, the compared
     const members = { ...plots, baseMembers: [{ path: 'm1.wav', view: views['base.wav'] }, { path: 'm2.wav', view: views['grey.wav'] }] };
     assert.deepEqual(overlayLayers(frame, members, 'Base').map(layer => [layer.color, layer.width, layer.label]),
         [[NO_ROLE_COLOR, 1.2, '· · grey.wav'], [ROLE_COLORS[0], 1, 'Base · m1.wav'], [ROLE_COLORS[0], 1, 'Base · m2.wav'], [ROLE_COLORS[1], 2.2, '1 · one.wav']], 'a base group\'s waveforms, each thin under the compared one (no median line)');
-    const items = overlayLegendItems(frame, plots, { title: 'Base', group: true, gated: false, tableBase: null, tableBands: null, count: 1, held: false, playable: path => ({ path }) });
+    const items = overlayLegendItems(frame, plots, { title: 'Base', group: true, gated: false, count: 1, held: false, playable: path => ({ path }) });
     assert.deepEqual(items.map(item => [item.label, item.color, !!item.trailingHtml, item.path]), [['Base', ROLE_COLORS[0], true, undefined], ['1 · one.wav', ROLE_COLORS[1], false, 'one.wav'], ['· · grey.wav', NO_ROLE_COLOR, false, 'grey.wav']]);
-    const gated = overlayLegendItems(frame, plots, { title: 'Base', group: false, gated: true, tableBase: views['base.wav'], tableBands: { count: 7 }, count: 40, held: true, playable: () => ({}) });
-    assert.equal(gated[0].label, `Base${strings.stageBaseTableNote}`);
-    assert.equal(gated[0].hint, strings.stageBaseTableHint.replace('{m}', '7').replace('{n}', '40'));
+    const gated = overlayLegendItems(frame, plots, { title: 'Base', group: false, gated: true, count: 40, held: true, playable: () => ({}) });
+    assert.equal(gated[0].label, `Base${strings.stageBaseNoLine}`);
+    assert.equal(gated[0].hint, undefined);
     assert.equal(gated[1].held, true);
-    assert.deepEqual(overlayLegendItems({ ...frame, referencePath: 'base.wav' }, plots, { title: 'Base', group: false, gated: false, tableBase: null, tableBands: null, count: 1, held: false, playable: () => ({}) }).map(item => item.label), ['1 · one.wav', '· · grey.wav']);
+    assert.deepEqual(overlayLegendItems({ ...frame, referencePath: 'base.wav' }, plots, { title: 'Base', group: false, gated: false, count: 1, held: false, playable: () => ({}) }).map(item => item.label), ['1 · one.wav', '· · grey.wav']);
 });
 
 test('the overlaid plot draws its difference under it only on request, with a compared file and no base measured against', () => {

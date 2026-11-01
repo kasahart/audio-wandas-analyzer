@@ -3,12 +3,11 @@ import test from 'node:test';
 import { JSDOM } from 'jsdom';
 import type { RecipeStep } from '../shared/recipe/recipeSteps';
 import { attachStepDrag, attachStepHold, STEP_TAP_MS } from '../webview/runtime/stepGestures';
-import { OCTAVE_BRANCH } from '../webview/runtime/stepBarModel';
 
 type View = Pick<Window, 'setTimeout' | 'clearTimeout' | 'addEventListener'>;
 const step = (id: string): RecipeStep => ({ id, operation: `wandas.x.${id}`, name: id, params: {}, editable: [], input: 'ChannelFrame', output: 'ChannelFrame' });
 const chipsHtml = (ids: string[]): string => `<span data-step-input></span>`
-    + ids.map(id => `<span class="step-chip" data-step-id="${id}"${id === OCTAVE_BRANCH ? '' : ' draggable="true"'}><button class="step-body" data-step-hold="${id}"></button></span>`).join('');
+    + ids.map(id => `<span class="step-chip" data-step-id="${id}" draggable="true"><button class="step-body" data-step-hold="${id}"></button></span>`).join('');
 
 /** A bar of chips, and a window whose timers run when the test says so. */
 function setup(ids: string[]) {
@@ -72,12 +71,12 @@ test('a hold that ends without a pointer up (focus lost) lets the next click thr
 });
 
 test('a chip dropped on the right half of another goes after it, on the left half before it, on the input first', () => {
-    const { dom, element } = setup(['a', 'b', 'c', OCTAVE_BRANCH]);
+    const { dom, element } = setup(['a', 'b', 'c']);
     const steps = ['a', 'b', 'c'].map(step);
     const moves: Array<[string, string | null]> = [];
     attachStepDrag(element, dom.window.document, { steps: () => steps, move: (moved, after) => moves.push([moved.id, after]) });
     const chip = (id: string): HTMLElement => element.querySelector(`[data-step-id="${id}"]`) as HTMLElement;
-    for (const id of ['a', 'b', 'c', OCTAVE_BRANCH]) chip(id).getBoundingClientRect = () => ({ left: 0, right: 100, top: 0, bottom: 20, width: 100, height: 20, x: 0, y: 0, toJSON: () => ({}) });
+    for (const id of ['a', 'b', 'c']) chip(id).getBoundingClientRect = () => ({ left: 0, right: 100, top: 0, bottom: 20, width: 100, height: 20, x: 0, y: 0, toJSON: () => ({}) });
     const drag = (type: string, target: Element, clientX = 0): Event => {
         const event = new dom.window.MouseEvent(type, { bubbles: true, cancelable: true, clientX });
         target.dispatchEvent(event);
@@ -85,7 +84,6 @@ test('a chip dropped on the right half of another goes after it, on the left hal
     };
     drag('dragstart', chip('a'));
     assert.ok(chip('a').classList.contains('is-dragging'));
-    assert.equal(drag('dragover', chip(OCTAVE_BRANCH), 80).defaultPrevented, false, 'the branch is no place to drop');
     assert.equal(drag('dragover', chip('c'), 80).defaultPrevented, true);
     assert.ok(element.querySelector('.step-drop'));
     drag('drop', chip('c'));

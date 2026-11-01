@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { getStrings } from '../shared/i18n/strings';
 import type { RecipeStep, StepParam } from '../shared/recipe/recipeSteps';
-import { OCTAVE_BRANCH } from '../webview/runtime/stepBarModel';
 import { channelText, formatNumber, fromShown, invalidReason, stepChipLabel, stepLabel } from '../webview/runtime/stepLabels';
 
 const strings = getStrings('en');
@@ -52,5 +51,4 @@ test('the reason a step cannot run names the step it depends on by its chip', ()
     assert.equal(invalidReason(step('x', {}, { invalid: 'cutoff', reason: { kind: 'below', limit: Infinity } }), strings), strings.stepNeedBelow.replace('{max}', '∞'));
     assert.equal(invalidReason(step('coherence', {}, { invalid: '', reason: { kind: 'channels', limit: 2 } }), strings), strings.stepNeedChannels);
     assert.equal(invalidReason(step('select_pair', {}, { editable: [channelParam], invalid: 'output', reason: { kind: 'below', limit: 2 } }), strings), strings.stepNeedChannel.replace('{n}', '2'));
-    assert.equal(invalidReason({ ...step('noct_spectrum'), id: OCTAVE_BRANCH, invalid: '' }, strings), strings.stepOctaveBroken);
 });

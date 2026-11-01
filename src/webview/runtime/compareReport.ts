@@ -26,7 +26,7 @@ export interface ReportFile {
 
 export type ReportStrings = CompareStrings & Pick<UiStrings,
     | 'entryColFile' | 'entryColCondition' | 'stepRegion' | 'entryColLeq' | 'entryColPeak' | 'entryCsvGroupSize' | 'entryBase' | 'entryBaseGroup'
-    | 'reportBase' | 'reportCompare' | 'reportDiff' | 'reportCsv' | 'reportBaseLeq' | 'reportBandDelta' | 'reportGroupFiles' | 'reportSpecVersion' | 'entryLeqUncalibrated' | 'reportSummary' | 'reportStepsLegend' | 'axisFrequency' | 'axisLevelUncal' | 'axisLevelCal' | 'axisDelta' | 'legendHeadline' | 'legendLeak' | 'legendLine' | 'hintLeqUncalibrated' | 'reportRegion' | 'reportRegionStart' | 'reportRegionEnd' | 'reportWhole' | 'reportDefinitions' | 'compareDelta' | 'defLeq' | 'defSpectrum' | 'defThirdOct' | 'defChannels' | 'defBase' | 'defDelta' | 'defRegion' | 'defHeadline' | 'defHeadlineEdges' | 'outside192' | 'outsideMedian' | 'outsideDelta' | 'outsideOutliers' | 'reportChain' | 'reportChainCurrent' | 'reportChainPrevious' | 'reportMemo' | 'dsCh' | 'reportBaseDefinition' | 'reportDerived'>;
+    | 'reportBase' | 'reportCompare' | 'reportDiff' | 'reportCsv' | 'reportBaseLeq' | 'reportBandDelta' | 'reportGroupFiles' | 'reportSpecVersion' | 'entryLeqUncalibrated' | 'reportSummary' | 'reportStepsLegend' | 'axisFrequency' | 'axisLevelUncal' | 'axisLevelCal' | 'axisDelta' | 'legendHeadline' | 'legendLeak' | 'legendLine' | 'hintLeqUncalibrated' | 'reportRegion' | 'reportRegionStart' | 'reportRegionEnd' | 'reportWhole' | 'reportDefinitions' | 'compareDelta' | 'defLeq' | 'defSpectrum' | 'defThirdOct' | 'defChannels' | 'defBase' | 'defDelta' | 'defRegion' | 'defHeadline' | 'defHeadlineEdges' | 'outside192' | 'outsideMedian' | 'outsideDelta' | 'outsideOutliers' | 'stepOctave' | 'reportChain' | 'reportChainCurrent' | 'reportChainPrevious' | 'reportMemo' | 'dsCh' | 'reportBaseDefinition' | 'reportDerived'>;
 
 export interface ReportInput {
     model: EntryModel;
@@ -191,11 +191,12 @@ const PNG_SIZE = { width: 1200, height: 400 };
  * What the app computes outside the Recipe, from its frames: one list for 定義.json (the full text) and
  * for the step bar (the short tag), so the two never say different things.
  */
-export function outsideRecipe(strings: Pick<UiStrings, 'entryColLeq' | 'outside192' | 'outsideMedian' | 'outsideDelta' | 'outsideOutliers'>, welch?: Record<string, unknown>): Array<{ tag: string; text: string }> {
+export function outsideRecipe(strings: Pick<UiStrings, 'entryColLeq' | 'outside192' | 'stepOctave' | 'outsideMedian' | 'outsideDelta' | 'outsideOutliers'>, welch?: Record<string, unknown>): Array<{ tag: string; text: string }> {
     return [
         { tag: strings.entryColLeq, text: 'Leq dB(A) = 20·log10(rms / ref) of the time slice\'s frame.a_weighting(): an RMS is an array, not a frame, so it is not a Recipe step' },
         // eslint-disable-next-line @typescript-eslint/no-base-to-string, @typescript-eslint/restrict-template-expressions -- Recipe params are JSON scalars
-        { tag: strings.outside192, text: `spectrum: the SpectralFrame's dB (n_fft ${welch?.['n_fft'] ?? 1024}, ${welch?.['window'] ?? 'hann'}), bins power-averaged into 192 log-spaced points from 20 Hz to Nyquist (narrower than a bin: interpolated); 1/3 octave: the NOctFrame's dB, bands centred outside the Recipe's filter passband left empty; channels: power mean (10·log10 of the mean of 10^(L/10))` },
+        { tag: strings.outside192, text: `spectrum: the SpectralFrame's dB (n_fft ${welch?.['n_fft'] ?? 1024}, ${welch?.['window'] ?? 'hann'}), bins power-averaged into 192 log-spaced points from 20 Hz to Nyquist (narrower than a bin: interpolated); channels: power mean (10·log10 of the mean of 10^(L/10))` },
+        { tag: strings.stepOctave, text: '1/3 octave bands (the table\'s band values, Δ max band): noct_spectrum (fmin 20, fmax = the highest nominal centre ≤ 0.88 × Nyquist, n = 3) of the chain\'s time signal over the time slice, beside the chain rather than a step of it; the NOctFrame\'s dB, bands centred outside the Recipe\'s filter passband left empty; channels: power mean' },
         { tag: strings.outsideMedian, text: 'base: the slot-0 file, or the median per point and band of the compared file\'s condition without it' },
         { tag: strings.outsideDelta, text: 'Δ = round(compare, 0.1 dB) − round(base, 0.1 dB); Δ max band = the band with the largest |Δ|; headline: see "headline"' },
     ];
@@ -241,7 +242,7 @@ function reportDuration(input: ReportInput): number | undefined {
 }
 
 /** What the scan computes, in words and decimals, beside the Recipe (whose own floats are hex). */
-export function reportDefinitions(input: ReportInput, specVersion: number | undefined, strings: Pick<UiStrings, 'defLeq' | 'defSpectrum' | 'defThirdOct' | 'defChannels' | 'defBase' | 'defDelta' | 'defRegion' | 'defHeadline' | 'defHeadlineEdges' | 'entryColLeq' | 'outside192' | 'outsideMedian' | 'outsideDelta' | 'outsideOutliers'>): Record<string, unknown> {
+export function reportDefinitions(input: ReportInput, specVersion: number | undefined, strings: Pick<UiStrings, 'defLeq' | 'defSpectrum' | 'defThirdOct' | 'defChannels' | 'defBase' | 'defDelta' | 'defRegion' | 'defHeadline' | 'defHeadlineEdges' | 'entryColLeq' | 'outside192' | 'outsideMedian' | 'outsideDelta' | 'outsideOutliers' | 'stepOctave'>): Record<string, unknown> {
     const welch = input.recipe ? recipeSteps(input.recipe).find(step => step.name === 'welch') : undefined;
     return {
         specVersion: specVersion ?? null,
