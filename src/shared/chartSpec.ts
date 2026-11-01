@@ -28,6 +28,11 @@ export interface LineChart {
     series: LineSeries[];
     xScale?: 'linear' | 'log';
     yScale?: 'linear' | 'log' | 'db';
+    /** Fixed y-axis bounds for a bounded quantity (coherence: 0–1); the renderer's auto range otherwise. */
+    yMin?: number;
+    yMax?: number;
+    /** Smallest span the auto y range may shrink to (phase: 2π rad), so a near-constant series stays flat. */
+    yMinSpan?: number;
 }
 
 export interface HeatmapChart {

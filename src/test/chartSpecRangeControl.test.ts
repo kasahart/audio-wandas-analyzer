@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 import { renderChartSpecDocument, type ChartSpecGlobals } from '../webview/panels/chartSpecDocument';
-import { startChartSpecRenderer } from '../webview/runtime/chartSpecRuntime';
+import { lineAutoRange, startChartSpecRenderer } from '../webview/runtime/chartSpecRuntime';
 import { normalizedColor, viridis } from '../shared/gui-core/index';
 import { getStrings, rangePopoverStrings } from '../shared/i18n/strings';
 
@@ -763,4 +763,42 @@ test('ChartSpec document loads the bundled renderer by nonce under the webview C
         language: 'en', nonce: 'n1', rendererScriptUri: 'r.js', cspSource: 'c', caption: 'signal: <a>.wav',
     });
     assert.match(captioned, /<p class="chart-caption">signal: &lt;a&gt;\.wav<\/p>/);
+});
+
+test('lineAutoRange widens a near-constant dB series to the minimum span about its centre', () => {
+    const range = lineAutoRange({ yScale: 'db' }, -6.0208, -6.0204);
+    assert.ok(Math.abs(range.max - range.min - 6) < 1e-9, JSON.stringify(range));
+    assert.ok(Math.abs((range.max + range.min) / 2 - -6.0206) < 1e-9, JSON.stringify(range));
+});
+
+test('lineAutoRange leaves a series that already spans more than the minimum unchanged', () => {
+    assert.deepEqual(lineAutoRange({ yScale: 'db' }, -80, -20), { min: -80, max: -20 });
+    assert.deepEqual(lineAutoRange({ yScale: 'linear' }, 0, 10), { min: 0, max: 10 });
+    assert.deepEqual(lineAutoRange({}, -3, 3), { min: -3, max: 3 });
+});
+
+test('lineAutoRange gives a linear series a span relative to its magnitude, and 1 around zero', () => {
+    const half = lineAutoRange({ yScale: 'linear' }, 0.5 - 1e-7, 0.5 + 1e-7);
+    assert.ok(Math.abs(half.max - half.min - 0.05) < 1e-6, JSON.stringify(half));
+    assert.deepEqual(lineAutoRange({ yScale: 'linear' }, 0, 0), { min: -0.5, max: 0.5 });
+});
+
+test('lineAutoRange honours the spec minimum span and fixed bounds', () => {
+    const phase = lineAutoRange({ yScale: 'linear', yMinSpan: 2 * Math.PI }, -3e-5, 3e-5);
+    assert.ok(Math.abs(phase.min + Math.PI) < 1e-9 && Math.abs(phase.max - Math.PI) < 1e-9, JSON.stringify(phase));
+    assert.deepEqual(lineAutoRange({ yScale: 'linear', yMin: 0, yMax: 1 }, 1 - 3e-7, 1), { min: 0, max: 1 });
+    assert.deepEqual(lineAutoRange({}, Infinity, -Infinity), { min: 0, max: 1 });
+});
+
+test('a flat -6 dB line is drawn with y ticks spanning the minimum dB span, not its rounding noise', () => {
+    const texts: string[] = [];
+    const ys = Array.from({ length: 64 }, (_, i) => -6.0206 + (i % 2 ? 2e-4 : -2e-4));
+    setupChartEnv([{
+        kind: 'line', title: 'TF', xLabel: 'Frequency [Hz]', yLabel: 'Gain [dB]', yScale: 'db',
+        xs: ys.map((_, i) => i * 100), series: [{ name: 'gain', ys }],
+    }], (text) => { texts.push(text); });
+    // Five ticks over -9.02..-3.02 dB, one decimal each.
+    for (const tick of ['-3.0', '-4.5', '-6.0', '-7.5', '-9.0']) {
+        assert.ok(texts.includes(tick), `tick ${tick} in ${JSON.stringify(texts.slice(0, 12))}`);
+    }
 });

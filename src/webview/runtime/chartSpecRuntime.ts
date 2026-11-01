@@ -33,6 +33,41 @@ function isFiniteValue(value: unknown): value is number {
     return Number.isFinite(value);
 }
 
+/** A dB axis spans at least this much, so a flat response reads as flat (as the pair spectrum's gain row). */
+const DB_MIN_SPAN = 6;
+/** A linear axis spans at least this fraction of the data's magnitude. */
+const LINEAR_MIN_RELATIVE_SPAN = 0.1;
+
+/**
+ * The y range a line chart scales to when the user has not set one. Fixed bounds in the spec (a bounded
+ * quantity such as coherence) win; otherwise the data's extent, widened about its centre to a minimum span
+ * (the spec's own, else one fitting the scale) so rounding noise on a near-constant series is not stretched
+ * to full height. A series that already spans more is left as it is.
+ */
+export function lineAutoRange(
+    spec: Pick<LineChart, 'yScale' | 'yMin' | 'yMax' | 'yMinSpan'>,
+    dataMin: number,
+    dataMax: number,
+): { min: number; max: number } {
+    let min = dataMin, max = dataMax;
+    if (!isFinite(min) || !isFinite(max)) { min = 0; max = 1; }
+    const minSpan = spec.yMinSpan != null ? spec.yMinSpan
+        : spec.yScale === 'db' ? DB_MIN_SPAN
+        : Math.max(Math.abs(min), Math.abs(max)) * LINEAR_MIN_RELATIVE_SPAN || 1;
+    if (max - min < minSpan) {
+        const center = (min + max) / 2;
+        min = center - minSpan / 2;
+        max = center + minSpan / 2;
+    }
+    return { min: spec.yMin != null ? spec.yMin : min, max: spec.yMax != null ? spec.yMax : max };
+}
+
+/** Enough decimals that the five y ticks of `span` read as distinct values. */
+function tickDecimals(span: number, fewest: number): number {
+    if (!(span > 0)) { return fewest; }
+    return Math.min(6, Math.max(fewest, Math.ceil(-Math.log10(span / 4)) + 1));
+}
+
 // Pixel i of n covers [lo, hi) of the visible axis; map it to the source cells it overlaps.
 function sourceIntervals(n: number, visibleMin: number, visibleMax: number, axisMin: number, axisMax: number, count: number): ([number, number] | null)[] {
     const intervals: ([number, number] | null)[] = [];
@@ -231,10 +266,8 @@ export function startChartSpecRenderer(win: Window, doc: Document, globals: Part
                     if (y > yMax) { yMax = y; }
                 }
             }
-            if (!isFinite(yMin) || !isFinite(yMax)) { yMin = 0; yMax = 1; }
-            if (yMin === yMax) { yMax = yMin + 1; }
-
-            const yAxis = axisBounds(override && override.y, yMin, yMax);
+            const auto = lineAutoRange(spec, yMin, yMax);
+            const yAxis = axisBounds(override && override.y, auto.min, auto.max);
             const dataXMin = xs[0] != null ? xs[0] : 0;
             const dataXMax = xs[xs.length - 1] != null ? xs[xs.length - 1] : 1;
             const xAxis = axisBounds(override && override.x, dataXMin, dataXMax);
@@ -272,7 +305,7 @@ export function startChartSpecRenderer(win: Window, doc: Document, globals: Part
             ctx.fillRect(0, plot.y, plot.x, plot.h);
 
             drawAxisLabels(ctx, plot, spec, xAxis, yAxis,
-                { yDecimals: (spec.yScale === 'db') ? 0 : 2, xDecimals: xAxis.max >= 100 ? 0 : 2 });
+                { yDecimals: tickDecimals(yAxis.max - yAxis.min, spec.yScale === 'db' ? 0 : 2), xDecimals: xAxis.max >= 100 ? 0 : 2 });
 
             drawLegend(ctx, plot, series);
         }
