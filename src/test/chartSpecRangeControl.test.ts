@@ -837,7 +837,9 @@ function autoTickLabels(dataMin: number, dataMax: number): string[] {
 }
 
 test('a constant or near-constant linear series always gets five distinct tick labels', () => {
-    for (const [lo, hi] of [[0.5, 0.5], [1 - 1e-4, 1 + 1e-4], [0.01, 0.01], [-3.25, -3.25]]) {
+    for (const [lo, hi] of [[0.5, 0.5], [1 - 1e-4, 1 + 1e-4], [0.01, 0.01], [-3.25, -3.25], [0.009, 0.009], [0.005, 0.005],
+        [-0.009, -0.009], [0.001, 0.001], [0.0099, 0.0099], [0.00099, 0.00099], [-0.00099, -0.00099], [0.0000123, 0.0000123], [-10, -10], [9.9999, 9.9999],
+        [99.99, 99.99], [-999.9, -999.9]]) {
         const labels = autoTickLabels(lo, hi);
         assert.equal(new Set(labels).size, 5, `${lo}..${hi}: ${JSON.stringify(labels)}`);
         assert.ok(labels.every(label => label.length <= 7), JSON.stringify(labels));

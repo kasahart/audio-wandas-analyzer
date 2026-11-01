@@ -33,14 +33,16 @@ function isFiniteValue(value: unknown): value is number {
     return Number.isFinite(value);
 }
 
-/** Labels fit the 46 px y-axis margin: at most this many decimals in fixed notation. */
+/** Labels fit the 46 px y-axis margin: seven characters, sign and point included, where the value allows. */
+const MAX_TICK_CHARS = 7;
+/** At most this many decimals in fixed notation. */
 const MAX_TICK_DECIMALS = 4;
+/** Fewest decimals on a linear (non-dB) axis, as before the span floor. */
+const LINEAR_FEWEST_DECIMALS = 2;
 /** Below this magnitude ticks are written in exponent notation (`-1.0e-4`), which stays seven characters. */
 const EXPONENT_BELOW = 1e-2;
 /** The five y ticks are four steps apart. */
 const TICK_STEPS = 4;
-/** The smallest span whose ticks still differ in fixed notation: one last-decimal unit per step. */
-const FIXED_NOTATION_MIN_SPAN = TICK_STEPS / 10 ** MAX_TICK_DECIMALS;
 /** A dB axis spans at least this much, so a flat response reads as flat (as the pair spectrum's gain row). */
 const DB_MIN_SPAN = 6;
 /**
@@ -50,13 +52,32 @@ const DB_MIN_SPAN = 6;
  */
 const LINEAR_MIN_RELATIVE_SPAN = 1e-5;
 
+function pow10(exponent: number): number {
+    return exponent < 0 ? 1 / 10 ** -exponent : 10 ** exponent;
+}
+
+/** Decimals a fixed-notation label of this magnitude can carry within MAX_TICK_CHARS (sign, digits, point). */
+function fittingDecimals(magnitude: number): number {
+    const integerDigits = Math.max(1, Math.floor(Math.log10(magnitude)) + 1);
+    return Math.max(0, Math.min(MAX_TICK_DECIMALS, MAX_TICK_CHARS - 2 - integerDigits));
+}
+
+/** The value of the last digit a tick label of this magnitude prints. */
+function labelUnit(magnitude: number, fewest: number): number {
+    if (magnitude < EXPONENT_BELOW) { return pow10(Math.floor(Math.log10(magnitude)) - 1); }
+    return pow10(-Math.max(fewest, fittingDecimals(magnitude)));
+}
+
 /**
- * Rounding-only floor for a linear axis, raised where the ticks print in fixed notation to what its
- * decimals can tell apart, so a constant series never shows five equal labels; 1 when every value is zero.
+ * Rounding-only floor for a linear axis, raised to one printed last-digit unit per tick step so a constant
+ * series never shows five equal labels; 1 when every value is zero. The unit is the coarser of the data's and
+ * the top tick's, so ticks that cross into the next decade (or lose a decimal there) still differ.
  */
 function linearMinSpan(magnitude: number): number {
-    const rounding = magnitude * LINEAR_MIN_RELATIVE_SPAN;
-    return (magnitude >= EXPONENT_BELOW ? Math.max(rounding, FIXED_NOTATION_MIN_SPAN) : rounding) || 1;
+    if (!(magnitude > 0)) { return 1; }
+    let unit = labelUnit(magnitude, LINEAR_FEWEST_DECIMALS);
+    unit = Math.max(unit, labelUnit(magnitude + (TICK_STEPS / 2) * unit, LINEAR_FEWEST_DECIMALS));
+    return Math.max(magnitude * LINEAR_MIN_RELATIVE_SPAN, TICK_STEPS * unit);
 }
 
 /**
@@ -98,8 +119,10 @@ export function lineAutoRange(
 export function yTickFormatter(min: number, max: number, fewest: number): (value: number) => string {
     const step = (max - min) / TICK_STEPS;
     const wanted = step > 0 ? Math.ceil(-Math.log10(step)) + 1 : fewest;
-    const decimals = Math.min(MAX_TICK_DECIMALS, Math.max(fewest, wanted));
-    if (wanted > MAX_TICK_DECIMALS && Math.max(Math.abs(min), Math.abs(max)) < EXPONENT_BELOW) {
+    const magnitude = Math.max(Math.abs(min), Math.abs(max));
+    const cap = magnitude > 0 ? Math.max(fewest, fittingDecimals(magnitude)) : MAX_TICK_DECIMALS;
+    const decimals = Math.min(cap, Math.max(fewest, wanted));
+    if (wanted > cap && magnitude < EXPONENT_BELOW) {
         // A tick that is zero up to rounding reads as 0, not as 1.2e-21.
         return (value) => (Math.abs(value) < step * 1e-6 ? '0' : value.toExponential(1));
     }
@@ -343,7 +366,7 @@ export function startChartSpecRenderer(win: Window, doc: Document, globals: Part
             ctx.fillRect(0, plot.y, plot.x, plot.h);
 
             drawAxisLabels(ctx, plot, spec, xAxis, yAxis,
-                { yDecimals: 0, yFormat: yTickFormatter(yAxis.min, yAxis.max, spec.yScale === 'db' ? 0 : 2), xDecimals: xAxis.max >= 100 ? 0 : 2 });
+                { yDecimals: 0, yFormat: yTickFormatter(yAxis.min, yAxis.max, spec.yScale === 'db' ? 0 : LINEAR_FEWEST_DECIMALS), xDecimals: xAxis.max >= 100 ? 0 : 2 });
 
             drawLegend(ctx, plot, series);
         }
