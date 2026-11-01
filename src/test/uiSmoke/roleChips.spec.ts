@@ -125,3 +125,21 @@ test('opened with no role, the comparison starts with the first two tracks as ba
     }).toBe('1');
     await expect(page.locator('[data-action="stage-diff"]')).toBeEnabled();
 });
+
+test('a role held by a file not shown as a track keeps the comparison from setting roles: none is taken from it', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    const tracks = await twoTracks(page);
+    // A row further down, not shown as a track, takes the base.
+    await page.locator('[data-entry-table]').focus();
+    for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('0');
+    await expect(slotText(page, 0)).toHaveCount(1);
+    const otherPath = await slotText(page, 0).getAttribute('data-file-path');
+    expect(tracks).not.toContain(otherPath);
+    const [first] = tracks;
+    await page.locator('[data-action="content-stage"]').click();
+    await expect(page.locator('.track-stage')).toBeVisible();
+    await expect(page.locator(`[data-stage-legend] details.role-chip[data-file-path="${first}"] summary`)).toHaveText(`${STR.roleChoose} ▾`);
+    await expect(slotText(page, 0)).toHaveAttribute('data-file-path', otherPath!);
+    await expect(page.locator('[data-entry-rows] .entry-badge')).toHaveCount(1);
+});

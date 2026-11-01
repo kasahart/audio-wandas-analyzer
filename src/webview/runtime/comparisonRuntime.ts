@@ -2655,10 +2655,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             'content-waveform': () => setContentType('waveform'),
             'content-stage': () => {
                 stageEntrance = 'tracks';
-                // Opened with no role at all, the comparison would draw every line grey: the first two tracks shown start
-                // as the base and compare 1, so it opens on something compared. The legend's chips change them.
+                // Opened with no role at all (no slot holds a file, shown as a track or not), the comparison would draw
+                // every line grey: the first two tracks shown start as the base and compare 1, so it opens on something
+                // compared. The legend's chips change them.
                 const visible = trackStore.displayOrder.map(id => trackStore.require(id)).filter(record => !record.runtime.hidden && !record.result.error);
-                if (contentType !== 'stage' && visible.length >= 2 && visible.every(record => !trackRole(record.result.filePath))) {
+                if (contentType !== 'stage' && visible.length >= 2 && entryScreen.slots().every(path => !path)) {
                     entryScreen.setTrackRole(visible[0].result.filePath, 0);
                     entryScreen.setTrackRole(visible[1].result.filePath, 1);
                 }
