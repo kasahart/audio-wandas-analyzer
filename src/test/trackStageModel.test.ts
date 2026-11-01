@@ -7,7 +7,7 @@ import type { RecipeDocument } from '../shared/recipe/recipeSelection';
 import type { StageView } from '../shared/protocol/backendProtocol';
 import { INPUT_STAGE, OCTAVE_BRANCH, runnableRecipe } from '../webview/runtime/stepBarModel';
 import { FULL_PLOT_WINDOW } from '../webview/runtime/plotInteraction';
-import { channelRecipe, chosenStage, comparedPath, holdStageSpec, initialStageState, liveRegion, openStageState, pictureSummary, plotsOf, regionStageSpec, stageSpec, tableBaseView } from '../webview/runtime/trackStageModel';
+import { channelRecipe, chosenStage, comparedPath, eachBaseTitle, enterStageState, holdStageSpec, initialStageState, liveRegion, openStageState, pictureSummary, plotsOf, regionStageSpec, stageSpec, tableBaseView } from '../webview/runtime/trackStageModel';
 
 const entry = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8')) as RecipeDocument;
 const limits = { sampleRate: 16000 };
@@ -105,15 +105,46 @@ test('a picture is summed up by its points with a level and their median', () =>
     assert.deepEqual(pictureSummary(undefined), { stageValues: 0, stageMedian: null });
 });
 
-test('opening the mode forgets what it showed but keeps the region and the base groups allowed', () => {
+test('opening the mode keeps the step shown last, the region and the base groups allowed, and forgets the rest', () => {
     const state = initialStageState();
     Object.assign(state, { stage: 'x', compared: 3, held: 2, groupBase: true, heldStep: hpf, window: { x: { start: 0.2, end: 0.4 }, y: { start: 0, end: 1 } }, overlaid: false, pendingRegion: { start: 0, end: 1 }, regionSet: { start: 1, end: 2 }, showDiff: true });
     state.baseAllowed.add('k');
     openStageState(state, welch.id);
     assert.deepEqual({ ...state, baseAllowed: [...state.baseAllowed] }, {
-        on: false, stage: welch.id, overlaid: true, showDiff: true, window: FULL_PLOT_WINDOW, compared: 1, held: null, groupBase: false,
+        on: false, stage: welch.id, opened: true, overlaid: true, showDiff: true, window: FULL_PLOT_WINDOW, compared: 1, held: null, groupBase: false,
         regionSet: { start: 1, end: 2 }, pendingRegion: null, heldStep: null, baseAllowed: ['k'], gateKey: null,
     });
     openStageState(state, undefined);
-    assert.equal(state.stage, null);
+    assert.equal(state.stage, welch.id, 'opened again without a step: the step shown last');
+});
+
+test('the first opening shows the input, from either entrance; later ones the step shown last', () => {
+    const fromTable = initialStageState();
+    openStageState(fromTable, undefined);
+    assert.equal(fromTable.stage, INPUT_STAGE);
+    fromTable.stage = welch.id;
+    openStageState(fromTable, undefined);
+    assert.equal(fromTable.stage, welch.id);
+    openStageState(fromTable, hpf.id);
+    assert.equal(fromTable.stage, hpf.id, 'a step chosen on the table\'s bar opens that step');
+    const fromTracks = initialStageState();
+    enterStageState(fromTracks);
+    assert.equal(fromTracks.stage, INPUT_STAGE);
+    fromTracks.stage = welch.id;
+    enterStageState(fromTracks);
+    assert.equal(fromTracks.stage, welch.id);
+    openStageState(fromTracks, undefined);
+    assert.equal(fromTracks.stage, welch.id, 'opened from the table after the tracks: still the step shown last');
+});
+
+test('a base group of waveforms is drawn each as it is: no median signal, its title counts its files', () => {
+    const wave = (peak: number): StageView => ({ ...line([peak, -peak]), x: 'time', waveform: { min: [-peak], max: [peak] } } as unknown as StageView);
+    const views: Record<string, StageView> = { a: wave(0.1), b: wave(0.2), c: wave(0.5) };
+    const plots = plotsOf(path => views[path], [{ filePath: 'c' }], 'c', ['a', 'b']);
+    assert.deepEqual(plots.baseMembers, [{ path: 'a', view: views.a }, { path: 'b', view: views.b }]);
+    assert.equal(plots.base?.waveform, undefined);
+    assert.deepEqual(plotsOf(path => views[path], [{ filePath: 'c' }], 'c', ['a']).baseMembers, [], 'one base file is the base itself');
+    assert.deepEqual(plotsOf(path => line([views[path].values?.[0] ?? 0]), [{ filePath: 'c' }], 'c', ['a', 'b']).baseMembers, [], 'levels have a median');
+    const strings = { entryBaseMedian: '{count} 件の中央値', entryBaseCount: '{count} 件' };
+    assert.equal(eachBaseTitle('基準群 全体 · 12 件の中央値 · ch1', 12, strings), '基準群 全体 · 12 件 · ch1');
 });

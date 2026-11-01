@@ -321,7 +321,8 @@ test('the step bar (in 比較解析) shows every step of the scan Recipe; an inv
     await expect(bar.locator('[data-action="step-insert"]')).toHaveCount(2);
     await expect(bar.locator('[data-action="step-undo"]')).toBeDisabled();
     await expect(bar.locator('.step-branch .step-chip')).toHaveText(STR.stepOctave);
-    await expect(bar.locator('.step-chip.is-current')).toHaveText(STR.stepOctave);
+    // The first opening shows the input, the recordings as they are.
+    await expect(bar.locator('.step-chip.is-current')).toHaveAttribute('data-step-input', '');
     // What the app computes beside the chain is no tag on the bar: … lists it.
     await expect(bar.locator('.step-outside')).toHaveCount(0);
     // ＋ opens wandas' operations that take the Frame at the chain's end; Esc closes it.

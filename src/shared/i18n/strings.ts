@@ -142,7 +142,9 @@ export interface UiStrings {
     stepNeedPow2: string;
     compareReport: string;
     entryBaseMedian: string;
+    entryBaseCount: string;
     stageBaseAggregate: string;
+    stageBaseEach: string;
     stageBaseList: string;
     reportBase: string;
     reportCompare: string;
@@ -888,7 +890,9 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepNeedPow2: 'A power of two from 64 to {max}',
         compareReport: 'Export (comparison folder)',
         entryBaseMedian: 'median of {count}',
+        entryBaseCount: '{count} files',
         stageBaseAggregate: 'Aggregate: the median at each point',
+        stageBaseEach: 'Not aggregated: each recording\'s waveform as is',
         stageBaseList: 'Show in the table',
         reportBase: 'base',
         reportCompare: 'compare',
@@ -1631,7 +1635,9 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepNeedPow2: '64〜{max} の 2 の冪にしてください',
         compareReport: '書き出し（比較フォルダ）',
         entryBaseMedian: '{count} 件の中央値',
+        entryBaseCount: '{count} 件',
         stageBaseAggregate: '集約：点ごとの中央値',
+        stageBaseEach: '集約なし：各ファイルの波形をそのまま描画',
         stageBaseList: '一覧で見る',
         reportBase: '基準',
         reportCompare: '比較',
