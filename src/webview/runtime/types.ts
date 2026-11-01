@@ -71,6 +71,8 @@ export interface WebviewHostApi {
     emptyMessage?: string;
     /** Shows the selection panel from the start; the host fills it with `directory-selection` messages. */
     selectionPanel?: boolean;
+    /** Loads short synthetic recordings to try the app with; offered on the empty view while nothing is listed. */
+    openSamples?(): void;
 }
 
 export interface ComparisonBootstrap {

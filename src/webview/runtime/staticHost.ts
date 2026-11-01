@@ -22,6 +22,7 @@ import type { AnalysisResult, AnalysisResultWithError } from '../../shared/analy
 import type { ScanReference } from '../../shared/analysis/entryScan';
 import { choose, showRecipeCharts } from './staticDialogs';
 import { createStaticFooter } from './staticFooter';
+import { sampleRecordings } from './sampleRecordings';
 import {
     byPath, collectDroppedSourceFiles, collectSourceFiles, createFolderKeys, inputTooLarge, listingRoot, listOpenedFiles, listOpenedFolder,
     LoadFailures, sessionFull, type FoundFile, type ShowDirectoryPicker, type SourceToLoad,
@@ -448,6 +449,11 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         },
         emptyMessage: strings.browserEmptyPrompt,
         selectionPanel: true,
+        // A visitor with no audio at hand can still try the whole flow: the samples load like opened files.
+        openSamples: (): void => {
+            if (loading) { announce(strings.browserPreparing); return; }
+            openFiles(sampleRecordings().map(sample => new File([sample.bytes as BlobPart], sample.name, { type: 'audio/wav' })));
+        },
     };
     browserWindow.__AWA_HOST__ = host;
     const superseded = new Error('Superseded by a newer tree selection');

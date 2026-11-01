@@ -8,6 +8,8 @@ export interface ResultsPaneParts {
     tracksHtml: string;
     audioHtml: string;
     emptyMessage: string;
+    /** The empty view also offers the host's sample recordings. */
+    samples?: boolean;
     axisWidth: number;
     spectrumBandsPerOctave: SpectrumBandsSetting;
     spectrumCollapsed?: boolean;
@@ -21,7 +23,7 @@ export type ResultsPaneStrings = Pick<UiStrings,
     | 'ariaSpecZoomOut' | 'ariaSpecZoomIn' | 'ariaSpecZoomReset' | 'btnSpecZoomReset'
     | 'hintSpecZoomOut' | 'hintSpecZoomIn' | 'hintSpecZoomReset' | 'btnSpectrumSettingsTitle' | 'hintSpectrumHeightResizer' | 'hintWheelGestures' | 'hintSpectrumPlot'
     | 'hintSpectrumFft' | 'hintSpectrumOctave1' | 'hintSpectrumOctave3'
-    | 'pairSectionTitle' | 'hintPairDivider' | 'hintPairPlot'> & PanelCollapseStrings;
+    | 'pairSectionTitle' | 'hintPairDivider' | 'hintPairPlot' | 'btnTrySamples' | 'hintTrySamples'> & PanelCollapseStrings;
 
 function spectrumBandsButtons(selected: SpectrumBandsSetting, strings: ResultsPaneStrings): string {
     const state = (bands: SpectrumBandsSetting) => (bands === selected ? ' is-active" aria-pressed="true"' : '" aria-pressed="false"');
@@ -35,7 +37,9 @@ export function resultsPaneHtml(parts: ResultsPaneParts, strings: ResultsPaneStr
         + '<div id="tracks-wrapper">'
         + '  <div id="ruler-row"><div id="ruler-spacer"></div><div id="ruler-axis-spacer" style="width:' + parts.axisWidth + 'px;flex:none"></div><canvas id="ruler-canvas"' + hintAttr(strings.hintWheelGestures) + '></canvas></div>'
         + '  <div id="stacked-wrap">' + parts.tracksHtml + '</div>'
-        + '  <div id="empty-state"><p>' + escapeHtml(parts.emptyMessage) + '</p></div>'
+        + '  <div id="empty-state"><p>' + escapeHtml(parts.emptyMessage) + '</p>'
+        + (parts.samples ? '<button class="tb-btn" data-action="open-samples"' + hintAttr(strings.hintTrySamples) + '>' + escapeHtml(strings.btnTrySamples) + '</button>' : '')
+        + '</div>'
         + '</div>'
         + '<div id="spectrum-section"' + (parts.spectrumCollapsed ? ' class="is-collapsed"' : '') + '>'
         + '  <div class="height-resizer spectrum-height-resizer" data-action="spectrum-height-drag"' + hintAttr(strings.hintSpectrumHeightResizer) + ' role="separator" tabindex="0" aria-orientation="horizontal" aria-label="' + escapeHtml(strings.ariaResizeSpectrumHeight) + '"></div>'

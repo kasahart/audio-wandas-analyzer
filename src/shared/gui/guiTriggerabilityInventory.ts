@@ -140,6 +140,7 @@ export const GUI_TRIGGERABILITY_WEBVIEW_ACTION_IDS = [
     'entry-maximize',
     'help-open',
     'help-close',
+    'open-samples',
     'step-expand',
     'step-settings',
     'step-apply',
@@ -491,9 +492,9 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
     },
     {
         id: 'static-browser-source',
-        label: 'Open short WAV and folders of them (picked or dropped): a folder opens on the entry table, files join its "added files" and load as tracks in a local Python Worker',
+        label: 'Open short WAV and folders of them (picked or dropped), or the empty view\'s three synthetic samples: a folder opens on the entry table, files join its "added files" and load as tracks in a local Python Worker',
         entryPoints: ['dialog', 'drag-and-drop', 'selection-toolbar'],
-        triggers: ['browser-open-wav', 'browser-drop-wav', 'open-file', 'open-folder'],
+        triggers: ['browser-open-wav', 'browser-drop-wav', 'open-file', 'open-folder', 'open-samples'],
         regressionLayers: ['ui-smoke'],
     },
     {
