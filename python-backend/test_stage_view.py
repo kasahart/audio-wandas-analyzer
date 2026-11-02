@@ -39,6 +39,17 @@ def test_a_metric_over_time_is_drawn_as_its_values(signal: wd.ChannelFrame) -> N
     assert (view["kind"], view["quantity"]) == ("line", "value")
 
 
+def test_a_long_metric_stays_its_values_with_its_unit_even_after_a_trim() -> None:
+    # 6 s of loudness at 500 Hz is 3000 points: more than a sound's level series would keep as values.
+    noise = np.random.default_rng(5).normal(0.0, 0.05, RATE * 6)
+    loudness = wd.from_numpy(noise[np.newaxis], sampling_rate=RATE).loudness_zwtv()
+    for frame in (loudness, loudness.trim(1.0, 5.0)):
+        view = _checked(frame)
+        assert (view["kind"], view["quantity"], view["unit"]) == ("line", "value", "sone")
+        # sone values, not dB of them (which would be negative for values below 1).
+        assert min(v for v in view["values"] if v is not None) >= 0
+
+
 def test_spectra_bands_and_spectrograms_share_the_comparisons_log_frequency_axis(signal: wd.ChannelFrame) -> None:
     spectrum = _checked(signal.welch(n_fft=1024))
     assert (spectrum["kind"], spectrum["x"], spectrum["xScale"], len(spectrum["xs"])) == (

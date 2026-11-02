@@ -14,6 +14,7 @@ export { RECIPE_PRESETS, type RecipePreset };
 function signature(recipe: RecipeDocument): string {
     return JSON.stringify(recipeChain(recipe).map(node => [
         node.operation,
+        node.version,
         node.operation === TIME_SLICE ? [] : [...node.params.entries]
             .map(([name, value]) => [name, typeof value === 'boolean' ? value : decodeParam(value)] as const)
             .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),

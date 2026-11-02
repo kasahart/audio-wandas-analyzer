@@ -203,10 +203,12 @@ def _waveform(
 
 
 def _metric_operation(frame: ChannelFrame) -> str | None:
-    """The metric operation that made `frame` (its last step), or None for a sound signal."""
-    history = frame.operation_history
-    operation = str(history[-1].get("operation", "")) if history else ""
-    return operation if operation in METRIC_SERIES_UNITS else None
+    """The latest metric `frame` came through (a trim after it keeps it one), or None for a sound signal."""
+    for item in reversed(frame.operation_history):
+        operation = str(item.get("operation", ""))
+        if operation in METRIC_SERIES_UNITS:
+            return operation
+    return None
 
 
 def _channel_view(frame: ChannelFrame) -> StageView:

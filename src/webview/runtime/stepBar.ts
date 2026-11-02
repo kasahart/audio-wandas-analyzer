@@ -90,9 +90,10 @@ export function createStepBar(deps: {
     const footer = (text: string): void => { document.getElementById('hint-footer')?.replaceChildren(text); };
 
     // ---- undo / redo: every edit from the bar keeps what was there before (the Recipe and the region).
-    type Snapshot = { recipe: RecipeDocument; region: RegionRange | null; origin?: string | null };
+    // The step the panes showed is kept too, so ↶ after a preset puts back the step that was on screen.
+    type Snapshot = { recipe: RecipeDocument; region: RegionRange | null; origin?: string | null; stage?: string };
     const edits = createStepHistory<Snapshot>();
-    const now = (): Snapshot | null => (state.recipe ? { recipe: state.recipe, region: state.regionRange ?? null, origin } : null);
+    const now = (): Snapshot | null => (state.recipe ? { recipe: state.recipe, region: state.regionRange ?? null, origin, stage: state.stage } : null);
     function applySnapshot(next: Snapshot): void {
         if (next.origin !== undefined) origin = next.origin;
         presetOpen = false;
@@ -113,7 +114,17 @@ export function createStepBar(deps: {
     function travel(target: Snapshot | undefined, said: string): void {
         if (!target) return;
         open = null;
+        const before = state.stage;
+        const was = recipeNodes(state.recipe).find(node => node.id === before)?.operation;
         applySnapshot(target);
+        // The shown step stays the user's unless the chain went back to one where that id is another step
+        // (or none): then the step shown when the snapshot was taken comes back.
+        const still = before === undefined || before === INPUT_STAGE || (was !== undefined && recipeNodes(target.recipe).find(node => node.id === before)?.operation === was);
+        const shown = target.stage ?? (typeof target.recipe.output === 'string' ? target.recipe.output : undefined);
+        if (!still && shown !== undefined && shown !== before) {
+            state = { ...state, stage: shown };
+            deps.onStepShown?.(shown);
+        }
         footer(said);
     }
     const undo = (): void => travel(edits.undo(now()), strings.stepUndone);
@@ -292,13 +303,19 @@ export function createStepBar(deps: {
     function choosePreset(id: string): void {
         const preset = RECIPE_PRESETS.find(item => item.id === id);
         presetOpen = false;
-        if (!preset || !state.recipe || presetLacks(preset, lacks()).length) { render(); return; }
+        const missing = preset ? presetLacks(preset, lacks()) : [];
+        // One this runtime cannot run says why instead of replacing the chain.
+        if (missing.length) { footer(strings.stepOffUnavailable.replace('{packages}', missing.join(', '))); render(); return; }
+        if (!preset || !state.recipe) { render(); return; }
         if (presetOf(state.recipe)?.id === id) { render(); element.querySelector<HTMLElement>('[data-action="step-preset-open"]')?.focus(); return; }
         const recipe = presetRecipe(preset);
         emit(recipe);
         origin = id;
+        if (typeof recipe.output === 'string') {
+            state = { ...state, stage: recipe.output };
+            deps.onStepShown?.(recipe.output);
+        }
         render();
-        if (typeof recipe.output === 'string') deps.onStepShown?.(recipe.output);
         element.querySelector<HTMLElement>('[data-action="step-preset-open"]')?.focus();
         footer(strings.stepPresetApplied.replace('{name}', presetName(id, strings)));
     }
@@ -352,6 +369,16 @@ export function createStepBar(deps: {
         const formKey = open ? stepFormKey(event) : null;
         const menuKey = menu ? stepMenuKey(event) : null;
         if (formKey === 'close' || menuKey === 'close' || (presetOpen && event.key === 'Escape')) { event.stopPropagation(); close(); }
+        // In the recipe menu ↑ ↓ Home End move between the presets (Enter and Space choose, as on any button).
+        else if (presetOpen && ['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+            const items = Array.from(element.querySelectorAll<HTMLElement>('[data-step-preset-menu] [data-preset]'));
+            const at = items.indexOf(document.activeElement as HTMLElement);
+            const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1
+                : (at + (event.key === 'ArrowDown' ? 1 : items.length - 1 + (at < 0 ? 1 : 0))) % items.length;
+            event.preventDefault();
+            event.stopPropagation();
+            items[next]?.focus();
+        }
         // Esc on a chip only leaves the bar; the screen's own Esc needs focus outside it.
         else if (event.key === 'Escape') { event.stopPropagation(); (document.activeElement as HTMLElement | null)?.blur?.(); }
         else if (formKey === 'apply') { event.preventDefault(); event.stopPropagation(); apply(); }

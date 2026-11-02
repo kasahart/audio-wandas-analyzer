@@ -109,3 +109,39 @@ test('every preset runs in the Web version: none of its steps needs a package th
     }
     assert.doesNotMatch(presetMenuHtml(entry, getStrings('en'), new Set(['librosa', 'mosqito'])), /is-off/);
 });
+
+test('↶ after a preset shows the step that was on screen before it, and ↷ the preset\'s last step again', () => {
+    const { bar, shown, choose } = mountBar('en');
+    const steps = recipeSteps(entry);
+    const before = steps[steps.length - 1].id;
+    bar.set({ recipe: entry, sampleRate: 16000, channels: 1, stage: before });
+    choose('loudness');
+    const loudness = presetRecipe(preset('loudness'));
+    assert.equal(shown.at(-1), loudness['output']);
+    bar.element.querySelector<HTMLElement>('[data-action="step-undo"]')!.click();
+    assert.equal(shown.at(-1), before);
+    bar.element.querySelector<HTMLElement>('[data-action="step-redo"]')!.click();
+    assert.equal(shown.at(-1), loudness['output']);
+});
+
+test('the recipe menu is used from the keyboard: ↓ ↑ Home End move between presets, Esc closes it', () => {
+    const { dom, bar, button } = mountBar('en');
+    bar.set({ recipe: entry, sampleRate: 16000, channels: 1 });
+    button().click();
+    const doc = dom.window.document;
+    const focused = (): string | null => (doc.activeElement as HTMLElement | null)?.getAttribute('data-preset') ?? null;
+    assert.equal(focused(), 'spectrum');
+    const key = (name: string): void => { doc.activeElement?.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: name, bubbles: true })); };
+    key('ArrowDown');
+    assert.equal(focused(), 'octave');
+    key('ArrowUp');
+    key('ArrowUp');
+    assert.equal(focused(), 'roughness');
+    key('Home');
+    assert.equal(focused(), 'spectrum');
+    key('End');
+    assert.equal(focused(), 'roughness');
+    key('Escape');
+    assert.equal(bar.element.querySelector('[data-step-preset-menu]'), null);
+    assert.equal(doc.activeElement, button());
+});
