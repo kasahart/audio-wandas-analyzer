@@ -138,7 +138,7 @@ export function stageModeHeadline(frame: Pick<StageFrame, 'strings' | 'waiting' 
         : referencePath ? strings.stageVsBase.replace('{file}', frame.named(referencePath, 0).label)
         // Which difference is shown: the compared slot against the base.
         // A base group drawn as its waveforms has no line to measure against: no difference is named.
-        : comparePath ? (baseEach ? '' : (role ? strings.stageCompareMinusBase.replace('{n}', String(role)) : '')
+        : comparePath ? (baseEach ? '' : (role && !coarsePlots.compare?.events ? strings.stageCompareMinusBase.replace('{n}', String(role)) : '')
             + stageLevelsHeadline(coarsePlots.base, coarsePlots.compare, coarsePlots.diff, strings))
         // No compare role yet: the lines are there, but nothing to measure against a base; the legend's chips set one.
         : strings.stageChooseRoles;

@@ -14,10 +14,16 @@ import { catalogOperation, INPUT_FRAME, outputOf, WANDAS_OPERATIONS, type Catalo
  */
 export type StepParam =
     | { name: string; kind: 'float'; unit?: string; min?: number; max?: 'nyquist' | number; optional?: boolean; default?: number; initial?: number }
-    | { name: string; kind: 'int'; min: number; max: number; powerOfTwo?: boolean; optional?: boolean; default?: number; initial?: number; belowChannels?: boolean; channel?: 'output' | 'input' }
+    | { name: string; kind: 'int'; min: number; max: number; powerOfTwo?: boolean; optional?: boolean; default?: number; initial?: number; belowChannels?: boolean; channel?: 'output' | 'input' | 'watched' }
     | { name: string; kind: 'enum'; options: readonly string[]; default?: string };
 
 const WINDOWS = ['hann', 'hamming', 'blackman', 'boxcar'] as const;
+
+/** The level trigger: cuts every event where a channel crosses a level into wandas' ChannelFrameSegments. */
+export const TRIGGER = 'wandas.audio.trigger';
+/** What takes a trigger's events: their mean, and their transfer function and coherence averaged over them. */
+export const SEGMENTS_TRANSFER = 'wandas.segments.transfer_function';
+export const SEGMENTS_COHERENCE = 'wandas.segments.coherence';
 
 /** What the analyzer lets the step bar edit, per wandas operation id, before wandas' defaults are added. */
 const SETTABLE: Record<string, readonly StepParam[]> = {
@@ -61,6 +67,15 @@ const SETTABLE: Record<string, readonly StepParam[]> = {
     // Every channel pair over every lag is large (8 channels of 30 s: GBs): a new step keeps ±0.1 s, the delays
     // a room or a machine gives.
     'wandas.audio.cross_correlation': [{ name: 'max_lag', kind: 'float', unit: 's', min: 0, max: 3600, initial: 0.1 }],
+    // A level trigger: the channel it watches, the level it fires at (the waveform's unit; a new step starts at half
+    // the tracks' peak, StepBarState.peak), each event's length and the part before the trigger it keeps.
+    [TRIGGER]: [
+        { name: 'channel', kind: 'int', min: 0, max: 63, belowChannels: true, channel: 'watched' },
+        { name: 'threshold', kind: 'float', initial: 0.1 },
+        { name: 'duration', kind: 'float', unit: 's', min: 0, max: 60, initial: 0.2 },
+        { name: 'pre', kind: 'float', unit: 's', max: 60 },
+        { name: 'slope', kind: 'enum', options: ['rising', 'falling'] },
+    ],
     // The pair a cross-channel step is drawn and measured for: the compared channel over the reference (wandas'
     // source indices from 0; the step bar shows them from 1, as ch1, ch2).
     'wandas.frame.select_pair': [
@@ -70,18 +85,19 @@ const SETTABLE: Record<string, readonly StepParam[]> = {
 };
 
 /** Steps that compare the channels of one recording, pair by pair: they need two channels. */
-export const CROSS_CHANNEL: ReadonlySet<string> = new Set(['wandas.audio.coherence', 'wandas.audio.cross_correlation', 'wandas.audio.csd', 'wandas.audio.transfer_function', 'wandas.spectrogram.csd']);
+export const CROSS_CHANNEL: ReadonlySet<string> = new Set(['wandas.audio.coherence', 'wandas.audio.cross_correlation', 'wandas.audio.csd', 'wandas.audio.transfer_function', 'wandas.spectrogram.csd', SEGMENTS_TRANSFER, SEGMENTS_COHERENCE]);
 export const SELECT_PAIR = 'wandas.frame.select_pair';
 /**
  * Cross-channel steps that come with their pair (select_pair after them). A CSD does not: coherence and the
  * transfer function derived from it need its auto-spectra, which select_pair would leave out.
  */
-export const PAIRED_ON_ADD: ReadonlySet<string> = new Set(['wandas.audio.coherence', 'wandas.audio.cross_correlation', 'wandas.audio.transfer_function']);
+export const PAIRED_ON_ADD: ReadonlySet<string> = new Set(['wandas.audio.coherence', 'wandas.audio.cross_correlation', 'wandas.audio.transfer_function', SEGMENTS_TRANSFER, SEGMENTS_COHERENCE]);
 /**
  * Cross-channel steps that can take the base slot's recording as their reference: those on a time signal, which is
- * where the two recordings are joined (wandas joins time signals; a spectrogram's CSD has no such join).
+ * where the two recordings are joined (wandas joins time signals; a spectrogram's CSD and a trigger's events have no
+ * such join).
  */
-export const SLOT_REFERABLE: ReadonlySet<string> = new Set([...CROSS_CHANNEL].filter(id => id !== 'wandas.spectrogram.csd'));
+export const SLOT_REFERABLE: ReadonlySet<string> = new Set([...CROSS_CHANNEL].filter(id => id !== 'wandas.spectrogram.csd' && id !== SEGMENTS_TRANSFER && id !== SEGMENTS_COHERENCE));
 
 /** Steps that leave one channel: one picked, or all summed or averaged into one. */
 const ONE_CHANNEL: ReadonlySet<string> = new Set(['wandas.audio.sum', 'wandas.audio.mean']);
@@ -387,9 +403,12 @@ export interface AddableOperation {
  */
 /**
  * Operations the ＋ menu leaves out: the region is the step bar's own, and wandas.numpy.ufunc (wandas 0.10)
- * needs a NumPy function name the app has no way to set, so it would only be a greyed entry.
+ * needs a NumPy function name the app has no way to set, so it would only be a greyed entry; so do the segment
+ * operations that take lists.
  */
-const MENU_HIDDEN: ReadonlySet<string> = new Set([TIME_SLICE, 'wandas.numpy.ufunc']);
+const MENU_HIDDEN: ReadonlySet<string> = new Set([TIME_SLICE, 'wandas.numpy.ufunc',
+    // Events cut at given times, and events dropped or picked by their IDs: lists of values the step bar has no field for.
+    'wandas.audio.segment', 'wandas.segments.drop', 'wandas.segments.select']);
 
 export function addableOperations(frame: string, lacks?: ReadonlySet<string>, channels?: number): AddableOperation[] {
     return WANDAS_OPERATIONS.filter(operation => !MENU_HIDDEN.has(operation.id)).map(operation => {

@@ -16,7 +16,7 @@ import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { addableOperations, CROSS_CHANNEL, PAIRED_ON_ADD, SLOT_REFERABLE, SELECT_PAIR, movedStep, recipeNodes, recipeSteps, withStep, withoutSteps, withBypass, withSlotReference, TIME_SLICE, type RecipeStep, type StepLimits } from '../../shared/recipe/recipeSteps';
 import { catalogOperation, INPUT_FRAME } from '../../shared/recipe/recipeCatalog';
 import { keyRouterFor } from './keyRouter';
-import { frameAfter, INPUT_STAGE, orderedSteps, removable, stepFlow, stepLimits, type RegionRange, type StepBarState } from './stepBarModel';
+import { frameAfter, INPUT_STAGE, orderedSteps, removable, startValues, stepFlow, stepLimits, type RegionRange, type StepBarState } from './stepBarModel';
 import { stepLabel } from './stepLabels';
 import { createStepHistory } from './stepHistory';
 import { stepChipsHtml } from './stepChips';
@@ -243,7 +243,7 @@ export function createStepBar(deps: {
         // An operation that cannot go there says why instead of being added.
         if (!entry || entry.off) { footer(element.querySelector(`[data-op="${CSS.escape(operationId)}"]`)?.getAttribute('data-hint') ?? ''); return; }
         const length = state.lengthS ?? (state.shortestSamples && state.sampleRate ? state.shortestSamples / state.sampleRate : undefined);
-        let { recipe, id } = withStep(state.recipe, after, operation, length ? { duration: Math.round(length * 1000) / 1000 } : {});
+        let { recipe, id } = withStep(state.recipe, after, operation, startValues(operationId, state, length));
         // A cross-channel step compares one pair, named in the chain: ch2 over the reference ch1 to start with; where
         // there is one channel, the recording over the base slot's.
         const select = PAIRED_ON_ADD.has(operationId) ? catalogOperation(SELECT_PAIR) : undefined;

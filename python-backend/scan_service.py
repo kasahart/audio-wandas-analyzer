@@ -34,8 +34,10 @@ import dask.threaded
 import numpy as np
 import soundfile as sf
 import wandas as wd
+from wandas.core.base_frame import BaseFrame
 from wandas.frames.pairwise import PairwiseFrame
-from wandas.pipeline import RecipeExecutionError, RecipePlan
+from wandas.frames.segments import FrameSegments
+from wandas.pipeline import RecipeExecutionError, RecipePlan, default_recipe_registry
 from wandas.pipeline.model import RecipeNode
 from wandas.processing.semantic import thaw_params
 
@@ -217,6 +219,33 @@ def _single_node_plan(node: Mapping[str, object], input_name: str) -> RecipePlan
             "output": "node-0",
         }
     )
+
+
+def _gives_segments(operation: str, version: int) -> bool:
+    returns = next(
+        (
+            described.returns
+            for described in default_recipe_registry().describe()
+            if described.operation_id == operation and described.version == version
+        ),
+        None,
+    )
+    return isinstance(returns, type) and issubclass(returns, FrameSegments)
+
+
+def apply_step(plan: RecipePlan, current: object) -> Any:
+    """A one-node plan (``_single_node_plan``) applied to the Frame before it, or to the segments a trigger gave.
+
+    A Recipe's input and output are Frames, and a trigger's segments only sit between its nodes: a step that gives
+    them, or takes them, is invoked as the Recipe would invoke it, through wandas' registry. A Frame is cached
+    (every later step reads it); segments stay lazy slices of the Frame they were cut from.
+    """
+    [node] = plan.nodes
+    if isinstance(current, BaseFrame) and not _gives_segments(node.operation, node.version):
+        return plan.apply({plan.inputs[0].name: current}).cache()
+    operation = default_recipe_registry().require(node.operation, node.version)
+    result = operation.invoke((current,), node.params)
+    return result.cache() if isinstance(result, BaseFrame) else result
 
 
 class ScanPlans(TypedDict):
@@ -600,7 +629,7 @@ def scan_cached(
                 if step in welch_steps and isinstance(current, wd.ChannelFrame)
                 else None
             )
-            current = parts.cache() if parts is not None else plan.apply({"region": current}).cache()
+            current = parts.cache() if parts is not None else apply_step(plan, current)
             if step == paired_at:
                 # The scanned recording over the reference: the pair's one row.
                 if not paired_csd:
@@ -681,7 +710,7 @@ def _reference_region(
 def _reference_step(steps: Mapping[str, RecipePlan], step: str, frame: wd.ChannelFrame) -> wd.ChannelFrame:
     if step not in steps:
         raise InputError(f"The base recording's Recipe has no step {step!r}")
-    return steps[step].apply({"region": frame}).cache()
+    return apply_step(steps[step], frame)
 
 
 def _paired(reference: object, frame: object) -> wd.ChannelFrame:

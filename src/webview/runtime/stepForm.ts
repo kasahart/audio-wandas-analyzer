@@ -28,7 +28,7 @@ export function stepFormHtml(step: RecipeStep, state: StepBarState, strings: Ste
             ? `<select data-step-param="${param.name}">${param.options.map(option => `<option${option === value ? ' selected' : ''}>${option}</option>`).join('')}</select>`
             : `<input type="number" data-step-param="${param.name}" value="${escapeHtml(param.kind === 'int' && param.channel ? channelText(value, channels) : formatNumber(value))}" step="${param.kind === 'int' ? 1 : 'any'}"${param.kind === 'int' && param.channel ? ` min="1"${channels ? ` max="${channels}"` : ''}` : ''}>`;
         const bad = step.invalid === param.name;
-        const name = param.kind === 'int' && param.channel ? (param.channel === 'output' ? strings.stepPairOutput : strings.stepPairInput) : param.name;
+        const name = param.kind === 'int' && param.channel ? (param.channel === 'output' ? strings.stepPairOutput : param.channel === 'input' ? strings.stepPairInput : strings.stepTriggerChannel) : param.name;
         return `<label class="step-field${bad ? ' is-invalid' : ''}"${bad ? ` ${hintAttr(invalidReason(step, strings))}` : ''}>${escapeHtml(name)} ${input}${param.kind === 'float' && param.unit ? ` ${param.unit}` : ''}</label>`;
     };
     const title = `<div class="step-form-title">${escapeHtml(step.name)}</div>`;

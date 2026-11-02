@@ -3,9 +3,10 @@
 Each Frame type keeps its own picture (wandas_to_chart draws the same types): a time signal as its level
 over time (or, for a metric already sampled slowly, such as loudness, its values), a spectrum on the
 comparison's log frequency axis, 1/3-octave levels as bars, a spectrogram as an image on that axis, a
-cepstrum as its real coefficients over quefrency, a cepstrogram as an image over time and quefrency and a
-cross-correlation as its coefficients over lag (as their ``plot()`` draws them). Two files' views on the
-same axes subtract to a difference in what the view measures: dB for levels, the plain difference otherwise.
+cepstrum as its real coefficients over quefrency, a cepstrogram as an image over time and quefrency, a
+cross-correlation as its coefficients over lag (as their ``plot()`` draws them) and a trigger's events each as
+its signal over the time from its trigger, overlaid. Two files' views on the same axes subtract to a difference
+in what the view measures: dB for levels, the plain difference otherwise.
 Channels are combined as the entry table combines them: levels power-averaged, values averaged.
 """
 
@@ -28,6 +29,7 @@ from wandas.frames import (
     SpectrogramFrame,
     TransferFunctionFrame,
 )
+from wandas.frames.segments import ChannelFrameSegments
 
 import analysis_spec as spec
 from wandas_to_chart import CHART_FRAME_TYPES
@@ -46,9 +48,11 @@ CEPSTRUM_DECIMALS = 5
 LAG_POINTS = 9601
 # Normalized cross-correlation coefficients lie in [-1, 1].
 CORRELATION_DECIMALS = 4
+#: Points per event of a trigger's segments: each block's sample of largest magnitude, so a hit keeps its peak.
+EVENT_POINTS = 400
 
 #: The Frames the comparison draws: those wandas_to_chart draws, the cepstral ones and the cross-correlation.
-STAGE_FRAME_TYPES = (*CHART_FRAME_TYPES, CepstralFrame, CepstrogramFrame, CrossCorrelationFrame)
+STAGE_FRAME_TYPES = (*CHART_FRAME_TYPES, CepstralFrame, CepstrogramFrame, CrossCorrelationFrame, ChannelFrameSegments)
 
 
 Quantity = Literal["level", "gain", "coherence", "value", "roughness", "cepstrum", "correlation"]
@@ -78,6 +82,17 @@ class StageView(TypedDict):
     #: A time signal's own waveform, as the track lanes draw it: per bucket its minimum and maximum, each at the
     #: time it occurred (s into the file). ``values`` keep the level over time the headline and Δ are read from.
     waveform: NotRequired[StageWaveform]
+    #: A trigger's segments: every event's signal (channels averaged) over the time from its trigger, each drawn
+    #: as its own line. ``values`` are their mean, which a group's median and the readout use.
+    events: NotRequired[list[StageEvent]]
+
+
+class StageEvent(TypedDict):
+    #: wandas' event ID (from 0), which stays the same when other events are dropped.
+    id: int
+    #: When it triggered, seconds into the file.
+    time: float
+    values: list[float | None]
 
 
 class StagePair(TypedDict):
@@ -226,6 +241,41 @@ def _channel_view(frame: ChannelFrame) -> StageView:
         "values": _json(rounded_db(_power_mean(levels))),
         "waveform": _waveform(frame),
     }
+
+
+def _event_rows(segments: ChannelFrameSegments) -> tuple[np.ndarray, np.ndarray]:
+    """Every event's samples with its channels averaged (event × sample), and each sample's time from the trigger."""
+    data = segments.to_numpy()
+    rows = np.mean(data.reshape(data.shape[0], data.shape[1], -1), axis=1)
+    rate = float(segments[0].sampling_rate)
+    return rows, np.arange(rows.shape[1]) / rate - float(segments.pre)
+
+
+def _events_view(segments: ChannelFrameSegments, rows: np.ndarray, times: np.ndarray, points: int) -> StageView:
+    peaks, edges = _block_peaks(rows, points)
+    centres = (edges[:-1] + edges[1:] - 1) // 2
+    return {
+        "frame": type(segments).__name__,
+        "kind": "line",
+        "x": "time",
+        "xScale": "linear",
+        "quantity": "value",
+        "unit": segments[0].channels[0].unit or "",
+        "xs": _axis(times[centres]),
+        "values": _json(np.mean(peaks, axis=0)),
+        # Each event's trigger in the file's own time (trigger_times count from the region the events were cut from).
+        "events": [
+            {"id": int(event_id), "time": float(item.source_time_offset[0]) + float(segments.pre), "values": _json(row)}
+            for event_id, item, row in zip(segments.event_ids, segments, peaks, strict=True)
+        ],
+    }
+
+
+def _segments_view(segments: ChannelFrameSegments) -> StageView:
+    if not len(segments):
+        return {"frame": type(segments).__name__, "kind": "none"}
+    rows, times = _event_rows(segments)
+    return _events_view(segments, rows, times, EVENT_POINTS)
 
 
 def _cross_pair(frame: Any) -> int | None:
@@ -521,6 +571,12 @@ def _detail_view(frame: object, coarse: StageView, detail: StageDetail) -> Stage
         key: value for key, value in coarse.items() if key not in ("xs", "ys", "values", "matrix", "whole")
     }  # type: ignore[assignment]
     view["detail"] = True
+    if isinstance(frame, ChannelFrameSegments):
+        rows, times = _event_rows(frame)
+        keep = _inside(times, bounds)
+        if not keep.any():
+            return coarse
+        return {**_events_view(frame, rows[:, keep], times[keep], points), "detail": True}
     if isinstance(frame, (SpectralFrame, CoherenceFrame, CrossSpectralFrame, TransferFunctionFrame)):
         freqs = np.asarray(frame.freqs, dtype=np.float64)
         _, rows = _spectral_rows(frame)
@@ -661,6 +717,8 @@ def _stage_view(frame: object, signal_s: float | None) -> StageView:
         return _cepstrogram_view(frame, signal_s)
     if isinstance(frame, CrossCorrelationFrame):
         return _correlation_view(frame)
+    if isinstance(frame, ChannelFrameSegments):
+        return _segments_view(frame)
     if not isinstance(frame, CHART_FRAME_TYPES):
         return {"frame": name, "kind": "none"}
     if isinstance(frame, ChannelFrame):

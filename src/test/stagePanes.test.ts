@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { loudPoints, medianView, stageAxes, stageLevelsHeadline, stageDifference, stageDiffRange, stageHeadline, stageRange, stageReadout, axisFractionOf, stageHover, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
+import { eventLayers, loudPoints, medianView, stageAxes, stageLevelsHeadline, stageDifference, stageDiffRange, stageHeadline, stageRange, stageReadout, axisFractionOf, stageHover, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
 import type { StageView } from '../shared/protocol/backendProtocol';
 
 const line = (values: number[], quantity: StageView['quantity'] = 'level'): StageView => ({ frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity, xs: [100, 1000, 10000], values });
@@ -109,4 +109,25 @@ test('the line nearest the pointer is picked as the spectrum overlay picks it, a
     const band = stageHover(zoomed, 3, 30)!;
     assert.equal(band.text, '100 Hz / −30.0 dB');
     assert.equal(band.x, 0);
+});
+
+test('a trigger\'s events are each a line of their slot, on one amplitude range, with no difference between recordings', () => {
+    const events = (peaks: number[]): StageView => ({
+        frame: 'ChannelFrameSegments', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', unit: 'Pa', xs: [-0.01, 0, 0.1],
+        values: [0, peaks.reduce((a, b) => a + b, 0) / peaks.length, 0], events: peaks.map((peak, id) => ({ id: id * 2, time: id, values: [0, peak, 0] })),
+    });
+    const base = events([1, 3]), compare = events([2]);
+    const layers = eventLayers({ view: compare, color: '#ff0', width: 2.2, label: 'b.wav' });
+    // One line per event, in the slot's colour, named by its event from 1 for the readout.
+    assert.deepEqual(layers.map(layer => [layer.label, layer.view.values, layer.color, layer.view.events]), [['b.wav #1', [0, 2, 0], '#ff0', undefined]]);
+    assert.deepEqual(eventLayers({ view: line([1, 2, 3]), color: '#00f' }).map(layer => layer.view.values), [[1, 2, 3]]);
+    // The range holds every event's peak, not only their mean.
+    assert.ok(stageRange([base, compare]).max >= 3);
+    // Two recordings' events are not one another's: no Δ, and the headline counts them instead.
+    assert.equal(stageDifference(base, compare), null);
+    assert.equal(stageLevelsHeadline(base, compare, null, { ...strings, compareLevelsAt: '', stageEventCounts: '{base} / {compare}' }), '2 / 1');
+    const axes = stageAxes({ axisTriggerTime: 'From trigger [s]', waveRangeAxisAmplitude: 'Amplitude' } as unknown as StageStrings, compare, undefined);
+    assert.deepEqual(axes, { x: 'From trigger [s]', y: 'Amplitude [Pa]' });
+    // A group's median is of the files' mean events: its own lines are not kept.
+    assert.equal(medianView([base, events([5, 7])])?.events, undefined);
 });

@@ -30,7 +30,7 @@ from wandas.pipeline import RecipePlan
 
 from operation_catalog import catalog, frames
 from optional_packages import OPTIONAL_MODULES
-from scan_service import TIME_SLICE_OPERATION, wandas_cause
+from scan_service import TIME_SLICE_OPERATION, apply_step, wandas_cause
 from stage_view import stage_view
 
 # The parameters a new step starts with where wandas has none (the step bar's STEP_PARAMS `initial`).
@@ -43,6 +43,8 @@ INITIAL: Mapping[str, Mapping[str, float | int]] = {
     "wandas.audio.resampling": {"target_sr": 16000.0},
     "wandas.frame.get_channel": {"channel_idx": 0},
     "wandas.audio.fix_length": {"duration": 1.0},
+    # The examples' tones peak at 0.3: half of that triggers, as a new step's threshold is half the peak.
+    "wandas.audio.trigger": {"threshold": 0.15, "duration": 0.1},
 }
 
 
@@ -85,9 +87,8 @@ def _apply(operation: Mapping[str, Any], frame: object) -> object:
             "output": "node-0",
         }
     )
-    result = plan.apply({"frame": frame})
-    # Frames are lazy: an operation that fails inside only does so when computed.
-    return result.cache() if hasattr(result, "cache") else result
+    # Frames are lazy: an operation that fails inside only does so when computed (apply_step caches it).
+    return apply_step(plan, frame)
 
 
 def _recordings() -> dict[str, wd.ChannelFrame]:
@@ -107,7 +108,9 @@ def _recordings() -> dict[str, wd.ChannelFrame]:
 
 
 def _takes(wanted: str, frame: str, bases: Mapping[str, list[str]]) -> bool:
-    return wanted == "*" or wanted == frame or wanted in bases.get(frame, [])
+    # An operation of every Frame ("*") is a Frame method: a trigger's segments are not a Frame.
+    segments = frame == "FrameSegments" or "FrameSegments" in bases.get(frame, [])
+    return (wanted == "*" and not segments) or wanted == frame or wanted in bases.get(frame, [])
 
 
 def _self_pairs_only(frame: object) -> bool:

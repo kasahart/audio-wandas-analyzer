@@ -1411,6 +1411,40 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                         }
                     },
                     "additionalProperties": false
+                },
+                "events": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": [
+                            "id",
+                            "time",
+                            "values"
+                        ],
+                        "properties": {
+                            "id": {
+                                "type": "integer",
+                                "minimum": 0
+                            },
+                            "time": {
+                                "type": "number"
+                            },
+                            "values": {
+                                "type": "array",
+                                "items": {
+                                    "anyOf": [
+                                        {
+                                            "type": "number"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ]
+                                }
+                            }
+                        },
+                        "additionalProperties": false
+                    }
                 }
             },
             "additionalProperties": false
@@ -2071,6 +2105,11 @@ export interface StageView {
     unit: string;
     ref: number;
 };
+    events?: {
+    id: number;
+    time: number;
+    values: (number | null)[];
+}[];
 }
 
 export interface ScanInput {

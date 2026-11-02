@@ -1313,6 +1313,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return tracks;
         },
         sampleRate: () => state.results.find(result => !result.error)?.sampleRateHz,
+        peak: () => {
+            let peak = 0;
+            for (const result of state.results) if (!result.error) for (const ch of channelsForResult(result)) if (ch.waveform && Number.isFinite(ch.waveform.absolutePeak)) peak = Math.max(peak, ch.waveform.absolutePeak);
+            return peak > 0 ? peak : undefined;
+        },
         channels: () => comparedChannels(),
         rerender: () => scheduleRender(),
         hint: text => hintFooter.show(text),

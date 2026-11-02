@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { addableOperations, brokenStep, chainEnd, bypassedSteps, SELECT_PAIR, decodeParam, encodeNumber, isRecipeChain, movedStep, recipeKey, recipeNodes, recipeSteps, withBypass, withDefaults, withParam, withoutSteps, withStep, withSlotReference, slotReferenced, activeSlotReferenced, withoutBypassed, recipeChain, REFERENCE_KEY, BYPASS_KEY, STEP_PARAMS } from '../shared/recipe/recipeSteps';
+import { addableOperations, brokenStep, chainEnd, bypassedSteps, SELECT_PAIR, decodeParam, encodeNumber, isRecipeChain, movedStep, recipeKey, recipeNodes, recipeSteps, withBypass, withDefaults, withParam, withoutSteps, withStep, withSlotReference, slotReferenced, activeSlotReferenced, withoutBypassed, recipeChain, REFERENCE_KEY, BYPASS_KEY, STEP_PARAMS, TRIGGER, PAIRED_ON_ADD, CROSS_CHANNEL, SLOT_REFERABLE } from '../shared/recipe/recipeSteps';
 import { operationGroup, operationHint } from '../shared/recipe/operationGuide';
-import { catalogOperation } from '../shared/recipe/recipeCatalog';
+import { catalogOperation, takes } from '../shared/recipe/recipeCatalog';
 import type { RecipeDocument } from '../shared/recipe/recipeSelection';
 import { recipeWithout, runnableRecipe, unpairedRecipe } from '../webview/runtime/stepBar';
 
@@ -308,4 +308,26 @@ test('a new cross-correlation keeps lags within ±0.1 s, and the limit can be se
     assert.equal(maxLag(recipe), 0.1);
     assert.equal(addableOperations('ChannelFrame').find(item => item.name === 'cross_correlation')!.settable, true);
     assert.equal(maxLag(withParam(recipe, id, STEP_PARAMS['wandas.audio.cross_correlation'][0], 0.5)), 0.5);
+});
+
+test('a trigger takes a time signal; after it ＋ offers only what takes its events, and a Frame step no longer runs', () => {
+    const [, slice, welch] = recipeSteps(entry, 16000);
+    assert.equal(addableOperations('ChannelFrame').find(item => item.name === 'trigger')?.off, undefined);
+    const { recipe, id } = withStep(withoutSteps(entry, [welch.id]), slice.id, catalogOperation(TRIGGER)!);
+    const step = recipeSteps(recipe, { sampleRate: 16000, channels: 2 }).find(item => item.id === id)!;
+    // A new trigger fires at its initial level, keeps 0.2 s from the trigger on, on the first channel, as it rises.
+    assert.deepEqual([step.output, step.params['threshold'], step.params['duration'], step.params['pre'], step.params['channel'], step.params['slope']], ['ChannelFrameSegments', 0.1, 0.2, 0, 0, 'rising']);
+    const offered = addableOperations('ChannelFrameSegments', undefined, 2).filter(item => !item.off).map(item => item.operation.id);
+    assert.deepEqual(offered.sort(), ['wandas.segments.average', 'wandas.segments.coherence', 'wandas.segments.transfer_function']);
+    // The lists of event IDs or times the step bar has no field for are not on the menu at all.
+    assert.equal(addableOperations('ChannelFrameSegments').some(item => ['drop', 'select', 'segment'].includes(item.name)), false);
+    // A step of every Frame (a channel picked) cannot take the events; one of the events' own can.
+    assert.equal(takes('*', 'ChannelFrameSegments'), false);
+    assert.equal(takes('FrameSegments', 'ChannelFrameSegments'), true);
+    const picked = withStep(recipe, id, catalogOperation('wandas.frame.get_channel')!);
+    assert.equal(recipeSteps(picked.recipe, 16000).find(item => item.id === picked.id)?.reason?.kind, 'frame');
+    // Their transfer function and coherence compare two channels: they come with their pair, never the base slot.
+    assert.equal(PAIRED_ON_ADD.has('wandas.segments.transfer_function') && CROSS_CHANNEL.has('wandas.segments.coherence'), true);
+    assert.equal(SLOT_REFERABLE.has('wandas.segments.transfer_function'), false);
+    assert.equal(addableOperations('ChannelFrameSegments', undefined, 1).find(item => item.name === 'coherence' && item.operation.input === 'ChannelFrameSegments')?.off, 'channels');
 });

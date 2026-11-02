@@ -81,6 +81,8 @@ export interface TrackStageDeps {
     /** 報告に: the comparison written as a report folder (over the region, from `measured`). */
     report(showDiff: boolean, region: EntryRegion | null, measured: ReadonlyMap<string, ScanResult>): void;
     sampleRate(): number | undefined;
+    /** The largest peak of the tracks' waveforms, in their unit: where a new trigger starts (half of it). */
+    peak?(): number | undefined;
     /** The fewest channels of the compared files: a step that compares two channels needs two. */
     channels?(): number | undefined;
     /** Shows or hides the track lanes (hidden while overlaid). */
@@ -335,7 +337,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             const recipe = deps.recipe();
             const id = chosen();
             const shownStage = state.stage && recipe && recipeSteps(recipe.recipe).find(step => step.id === state.stage)?.bypassed ? state.stage : id;
-            stepBar.set({ recipe: recipe?.recipe ?? null, sampleRate: deps.sampleRate(), channels: deps.channels?.(), stage: shownStage ?? undefined, regionRange: state.regionSet, failed: recipe?.failed });
+            stepBar.set({ recipe: recipe?.recipe ?? null, sampleRate: deps.sampleRate(), channels: deps.channels?.(), peak: deps.peak?.(), stage: shownStage ?? undefined, regionRange: state.regionSet, failed: recipe?.failed });
             // The tracks' selection becomes the region chip once the bar has the chain; a region already there stays.
             if (state.pendingRegion) {
                 const range = state.pendingRegion;

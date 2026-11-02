@@ -710,3 +710,41 @@ test('the first opening shows the input: a base group draws each of its waveform
     await expect(stage).toBeVisible();
     await expect(bar.locator('.step-chip.is-current')).toHaveAttribute('data-step-id', 'node-2');
 });
+
+test('a trigger added from ＋ fires at half the tracks\' peak, draws each event of each recording over the time from its trigger, and is followed only by what takes events', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    const STR = getStrings('en');
+    await page.setViewportSize({ width: 1280, height: 1100 });
+    await openComparison(page, 'en', scanned!, true);
+    const bar = page.locator('.track-stage-bar');
+    await bar.locator('.step-chip', { hasText: STR.stepAverage }).locator('[data-action="step-delete"]').click();
+    await bar.locator('[data-action="step-add"]').click();
+    await bar.locator('[data-step-menu-filter]').fill('trigger');
+    await bar.locator('.step-menu-item[data-op="wandas.audio.trigger"]').click();
+    // The tracks peak at 0.5: the new trigger fires at 0.25, and the comparison shows it.
+    const chip = bar.locator('.step-chip', { hasText: STR.stepTrigger });
+    await expect(chip).toHaveText(`${STR.stepTrigger} 0.25`);
+    const trigger = await chip.getAttribute('data-step-id');
+    await expect(bar).toHaveAttribute('data-stage', trigger!);
+    await expect.poll(async () => (await stageScans(page)).at(-1)?.recipe?.nodes.map(node => node.operation.split('.').pop())).toEqual(['get_channel', 'highpass_filter', 'time_slice', 'trigger']);
+    const event = (id: number, peak: number): Record<string, unknown> => ({ id, time: 0.3 + id * 0.5, values: [0, peak, -peak / 2, 0] });
+    await answer(page, { frame: 'ChannelFrameSegments', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', unit: 'FS', xs: [-0.01, 0, 0.05, 0.19], events: [event(0, 0.5), event(1, 0.4), event(2, 0.45)] });
+    // Each recording's events are its lines: no difference between them, the headline counts them.
+    await expect(page.locator('[data-stage-headline]')).toHaveText(STR.stageEventCounts.replace('{base}', '3').replace('{compare}', '3'));
+    const plot = page.locator('[data-stage-canvas="overlay"]');
+    const box = (await plot.boundingBox())!;
+    // The pointer on a line names its recording and event.
+    const x = box.x + 52 + (box.width - 56) * (0.01 / 0.2);
+    for (let y = box.y + 6; y < box.y + box.height / 2; y += 3) {
+        await page.mouse.move(x, y);
+        if (/#\d/.test(await page.locator('.track-stage-readout').textContent() ?? '')) break;
+    }
+    await expect(page.locator('.track-stage-readout')).toHaveText(/#[123] \/ 0\.00 s/);
+    await page.screenshot({ path: 'test-results/trigger-events.png' });
+    // After the trigger, ＋ offers the events' mean, transfer function and coherence; a Frame's step goes before it.
+    await bar.locator('[data-action="step-add"]').click();
+    await expect(bar.locator('.step-menu-item[data-op="wandas.segments.average"]')).not.toHaveClass(/is-off|is-earlier/);
+    await expect(bar.locator('.step-menu-item[data-op="wandas.audio.welch"]')).toHaveClass(/is-earlier/);
+    await bar.locator('.step-menu-item[data-op="wandas.segments.average"]').click();
+    await expect.poll(async () => (await stageScans(page)).at(-1)?.recipe?.nodes.map(node => node.operation.split('.').pop())).toEqual(['get_channel', 'highpass_filter', 'time_slice', 'trigger', 'average']);
+});

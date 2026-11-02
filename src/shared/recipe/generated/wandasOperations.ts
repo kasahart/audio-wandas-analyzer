@@ -2,7 +2,7 @@
 // Do not edit; run `python python-backend/operation_catalog.py --write`.
 import type { CatalogFrame, CatalogOperation } from '../recipeCatalog';
 
-export const WANDAS_VERSION = "0.12.0";
+export const WANDAS_VERSION = "0.13.0";
 
 export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
     {
@@ -995,6 +995,66 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         ]
     },
     {
+        "id": "wandas.audio.trigger",
+        "version": 1,
+        "input": "ChannelFrame",
+        "output": "ChannelFrameSegments",
+        "params": [
+            {
+                "name": "threshold",
+                "required": true
+            },
+            {
+                "name": "duration",
+                "required": true
+            },
+            {
+                "name": "pre",
+                "required": false,
+                "default": 0.0
+            },
+            {
+                "name": "channel",
+                "required": false,
+                "default": 0
+            },
+            {
+                "name": "slope",
+                "required": false,
+                "default": "rising",
+                "choices": [
+                    "rising",
+                    "falling"
+                ]
+            },
+            {
+                "name": "holdoff",
+                "required": false
+            }
+        ]
+    },
+    {
+        "id": "wandas.audio.segment",
+        "version": 1,
+        "input": "ChannelFrame",
+        "output": "ChannelFrameSegments",
+        "params": [
+            {
+                "name": "times",
+                "required": true
+            },
+            {
+                "name": "duration",
+                "required": true
+            },
+            {
+                "name": "pre",
+                "required": false,
+                "default": 0.0
+            }
+        ]
+    },
+    {
         "id": "wandas.channel.remove_channel",
         "version": 1,
         "input": "ChannelFrame",
@@ -1270,6 +1330,103 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         "input": "CrossSpectralFrame",
         "output": "CoherenceFrame",
         "params": []
+    },
+    {
+        "id": "wandas.segments.drop",
+        "version": 1,
+        "input": "FrameSegments",
+        "output": "*",
+        "params": [
+            {
+                "name": "event_ids",
+                "required": true
+            }
+        ]
+    },
+    {
+        "id": "wandas.segments.select",
+        "version": 1,
+        "input": "FrameSegments",
+        "output": "*",
+        "params": [
+            {
+                "name": "event_ids",
+                "required": true
+            }
+        ]
+    },
+    {
+        "id": "wandas.segments.transfer_function",
+        "version": 1,
+        "input": "ChannelFrameSegments",
+        "output": "TransferFunctionFrame",
+        "params": [
+            {
+                "name": "input",
+                "required": false
+            },
+            {
+                "name": "output",
+                "required": false
+            },
+            {
+                "name": "n_fft",
+                "required": false
+            },
+            {
+                "name": "window",
+                "required": false,
+                "default": "boxcar"
+            },
+            {
+                "name": "detrend",
+                "required": false,
+                "choices": [
+                    "constant",
+                    "linear"
+                ]
+            }
+        ]
+    },
+    {
+        "id": "wandas.segments.coherence",
+        "version": 1,
+        "input": "ChannelFrameSegments",
+        "output": "CoherenceFrame",
+        "params": [
+            {
+                "name": "input",
+                "required": false
+            },
+            {
+                "name": "output",
+                "required": false
+            },
+            {
+                "name": "n_fft",
+                "required": false
+            },
+            {
+                "name": "window",
+                "required": false,
+                "default": "boxcar"
+            },
+            {
+                "name": "detrend",
+                "required": false,
+                "choices": [
+                    "constant",
+                    "linear"
+                ]
+            }
+        ]
+    },
+    {
+        "id": "wandas.segments.average",
+        "version": 1,
+        "input": "ChannelFrameSegments",
+        "output": "ChannelFrame",
+        "params": []
     }
 ];
 
@@ -1337,6 +1494,18 @@ export const WANDAS_FRAMES: readonly CatalogFrame[] = [
         "bases": [
             "PairwiseSpectralFrame",
             "PairwiseFrame"
+        ],
+        "charted": true
+    },
+    {
+        "name": "FrameSegments",
+        "bases": [],
+        "charted": false
+    },
+    {
+        "name": "ChannelFrameSegments",
+        "bases": [
+            "FrameSegments"
         ],
         "charted": true
     }

@@ -22,7 +22,7 @@ import { niceTicks } from '../../shared/utils/ticks';
 /** Canvas x the level axis's turned title is centred on, in the gutter left of its tick labels. */
 const AXIS_TITLE_X = 10;
 
-export type StageStrings = Pick<UiStrings, 'axisFrequency' | 'axisTime' | 'axisBand' | 'axisBark' | 'axisQuefrency' | 'axisCepstrum' | 'axisLag' | 'axisCorrelation' | 'axisLevel' | 'axisLevelUncal' | 'axisLevelCal' | 'axisDelta' | 'dsValue' | 'axisGain' | 'axisCoherence' | 'legendHeadline' | 'legendLeak' | 'legendLine' | 'stageNoDelta' | 'stageMaxDelta' | 'stepNotDrawable' | 'compareLevelsAt' | 'waveRangeAxisAmplitude' | 'stagePairBase'>;
+export type StageStrings = Pick<UiStrings, 'axisFrequency' | 'axisTime' | 'axisTriggerTime' | 'axisBand' | 'axisBark' | 'axisQuefrency' | 'axisCepstrum' | 'axisLag' | 'axisCorrelation' | 'axisLevel' | 'axisLevelUncal' | 'axisLevelCal' | 'axisDelta' | 'dsValue' | 'axisGain' | 'axisCoherence' | 'legendHeadline' | 'legendLeak' | 'legendLine' | 'stageNoDelta' | 'stageEventCounts' | 'stageMaxDelta' | 'stepNotDrawable' | 'compareLevelsAt' | 'waveRangeAxisAmplitude' | 'stagePairBase'>;
 
 const DB_QUANTITIES = ['level', 'gain'];
 const isDb = (view: StageView | null): boolean => DB_QUANTITIES.includes(view?.quantity ?? '');
@@ -53,8 +53,9 @@ const medianOf = (values: Array<number | null>): number | null => {
 export function medianView(views: readonly StageView[]): StageView | null {
     if (!views.length || views.some(view => !sameAxes(view, views[0]))) return null;
     if (views.length === 1) return views[0];
-    // A group has a median level, not a median signal: its waveform is not drawn.
-    const { waveform: _signal, ...first } = views[0];
+    // A group has a median level, not a median signal: its waveform is not drawn, nor its files' events (the median of
+    // their mean is).
+    const { waveform: _signal, events: _events, ...first } = views[0];
     if (first.matrix) {
         return { ...first, matrix: first.matrix.map((row, r) => row.map((_, c) => medianOf(views.map(view => view.matrix?.[r]?.[c] ?? null)))) };
     }
@@ -83,7 +84,9 @@ export function loudPoints(base: StageView, compare: StageView, within = HEADLIN
  * The comparison's headline for a step's picture: where base and compare differ most among the points loud
  * enough to be heard (loudPoints), with both their values: "1.00 kHz base −40.0 / compare −26.0 dB".
  */
-export function stageLevelsHeadline(base: StageView | null, compare: StageView | null, diff: StageView | null, strings: Pick<StageStrings, 'stageNoDelta' | 'compareLevelsAt'>): string {
+export function stageLevelsHeadline(base: StageView | null, compare: StageView | null, diff: StageView | null, strings: Pick<StageStrings, 'stageNoDelta' | 'compareLevelsAt'> & Partial<Pick<StageStrings, 'stageEventCounts'>>): string {
+    // A trigger's events: how many each found, which is what tells the recordings apart first.
+    if (strings.stageEventCounts && (base?.events || compare?.events)) return strings.stageEventCounts.replace('{base}', base?.events ? String(base.events.length) : '—').replace('{compare}', compare?.events ? String(compare.events.length) : '—');
     if (!base || !compare || !diff) return strings.stageNoDelta;
     const loud = loudPoints(base, compare);
     const skip = skipsFirst(diff) ? 1 : 0;
@@ -101,6 +104,8 @@ export function stageLevelsHeadline(base: StageView | null, compare: StageView |
 /** compare − base, point by point, for two pictures of one quantity on the same axes (dB for levels); otherwise null. */
 export function stageDifference(base: StageView | null, compare: StageView | null): StageView | null {
     if (!base || !compare || base.kind === 'none' || !base.quantity || !sameAxes(base, compare)) return null;
+    // Two recordings' events are not one another's: their lines are compared overlaid, with no difference.
+    if (base.events || compare.events) return null;
     // dB to a hundredth; small linear values (cepstral coefficients, coherence) keep more.
     const scale = isDb(base) ? 100 : 1e6;
     // The difference of two signals' levels: it has no waveform of its own.
@@ -117,7 +122,20 @@ export function stageDifference(base: StageView | null, compare: StageView | nul
 
 function points(view: StageView): Array<number | null> {
     const skip = skipsFirst(view) ? 1 : 0;
+    // A trigger's events are each drawn: the range holds every one of them.
+    if (view.events) return view.events.flatMap(event => event.values);
     return view.matrix ? view.matrix.slice(skip).flat() : (view.values ?? []).slice(skip);
+}
+
+/**
+ * A layer of a trigger's events as one layer per event, in its colour and thinner, each named by its event (from 1,
+ * as the tracks number them): the lines are drawn and read under the pointer like any other.
+ */
+export function eventLayers(layer: StageLayer): StageLayer[] {
+    const events = layer.view.events;
+    if (!events) return [layer];
+    const { events: _events, ...view } = layer.view;
+    return events.map(event => ({ ...layer, view: { ...view, values: event.values }, width: Math.min(layer.width ?? 1.5, 1.2), alpha: 0.85, label: `${layer.label ? `${layer.label} ` : ''}#${event.id + 1}` }));
 }
 
 function extent(views: ReadonlyArray<StageView | null>): { low: number; high: number } {
@@ -183,11 +201,13 @@ export interface StageAxes { x: string; y: string }
 
 /** What each axis of a picture measures; a heatmap's y is its rows' axis, its colour the level. */
 export function stageAxes(strings: StageStrings, view: StageView | null, input: LevelInput | undefined, diff = false): StageAxes {
-    const x = view?.x === 'time' ? strings.axisTime : view?.x === 'band' ? strings.axisBand : view?.x === 'quefrency' ? strings.axisQuefrency : view?.x === 'lag' ? strings.axisLag : strings.axisFrequency;
+    const x = view?.events ? strings.axisTriggerTime : view?.x === 'time' ? strings.axisTime : view?.x === 'band' ? strings.axisBand : view?.x === 'quefrency' ? strings.axisQuefrency : view?.x === 'lag' ? strings.axisLag : strings.axisFrequency;
     if (view?.kind === 'heatmap') return { x, y: view.yAxis === 'bark' ? strings.axisBark : view.yAxis === 'quefrency' ? strings.axisQuefrency : strings.axisFrequency };
     if (diff && (!view || isDb(view))) return { x, y: strings.axisDelta };
     // A time signal is drawn as itself: its amplitude, in its unit (full scale, or raw input units without one, while uncalibrated).
     if (view?.waveform) return { x, y: `${strings.waveRangeAxisAmplitude} [${view.waveform.unit || uncalibratedUnits(!input || input.fullScale).linear}]` };
+    // A trigger's events are their signals: amplitude in the signal's unit, as a waveform's.
+    if (view?.events) return { x, y: `${strings.waveRangeAxisAmplitude} [${view.unit || uncalibratedUnits(!input || input.fullScale).linear}]` };
     const unit = view?.unit ? ` [${view.unit}]` : '';
     const y = view?.quantity === 'level' ? paneAxes(strings, input).level.y
         : view?.quantity === 'gain' ? strings.axisGain
@@ -431,7 +451,8 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
         }
     }
     context.font = '10px sans-serif';
-    const view = overlay.layers.find(layer => layer.view.kind !== 'none' && layer.view.xs?.length)?.view;
+    const layers = overlay.layers.flatMap(eventLayers);
+    const view = layers.find(layer => layer.view.kind !== 'none' && layer.view.xs?.length)?.view;
     // Neutral: blue and the other colours are the roles'.
     const pendingColors = { muted, line, fill: text, back: style?.getPropertyValue('--track-bg').trim() || '#0b0d10' };
     if (!view) {
@@ -517,8 +538,8 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
         if (options.bandSteps) paintBandSteps(context, options.bandSteps, xAt, yAt);
         const wholeAxis = axisScale(whole);
         // Signals drawn as themselves share an amplitude axis: a picture without a signal (a group's median level) is left out.
-        const signals = overlay.layers.some(layer => layer.view.waveform);
-        for (const layer of overlay.layers) {
+        const signals = layers.some(layer => layer.view.waveform);
+        for (const layer of layers) {
             const values = layer.view.values ?? [];
             const xs = layer.view.xs ?? [];
             if (layer.view.kind === 'heatmap' || layer.view.kind === 'none' || (signals && !layer.view.waveform)) continue;
