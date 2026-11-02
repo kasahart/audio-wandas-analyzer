@@ -1946,7 +1946,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return null;
         }
         const slice = record.spectrumSliceCache.get(channelIndex) ?? record.spectrumSliceCache.get(0);
+        // A slice from another cursor (one still on its way after playback or a move) would put the band elsewhere.
         if (!slice || slice.settingsSignature !== currentSpectrumDataSignature()
+            || slice.cursorNorm === undefined || Math.abs(slice.cursorNorm - localNorm) >= spectrumCursorTolerance(result)
             || slice.windowStartNorm === undefined || slice.windowEndNorm === undefined) {
             return null;
         }
