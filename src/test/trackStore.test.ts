@@ -15,6 +15,8 @@ function result(filePath: string, peakAbsolute = 0.5): ComparisonTrackState {
             label: 'L',
             peakAbsolute,
             fullScale: true,
+            sourceUnit: 'FS',
+            sourceLevelReferenceLabel: 'dBFS',
             waveform: { min: [-0.5], max: [0.5], samples: [0], absolutePeak: 0.5 },
             spectrogram: null,
         }],

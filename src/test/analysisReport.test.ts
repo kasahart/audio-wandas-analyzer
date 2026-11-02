@@ -7,7 +7,7 @@ const track = (fileName: string, offsetSeconds: number, durationSeconds = 2): Re
     offsetSeconds,
     result: {
         filePath: `/audio/${fileName}`, fileName, sampleRateHz: 48000, durationSeconds, channelCount: 1, sampleCount: 96000,
-        channels: [{ label: 'mic', peakAbsolute: 0.5, fullScale: true, waveform, spectrogram: null }],
+        channels: [{ label: 'mic', peakAbsolute: 0.5, fullScale: true, sourceUnit: 'FS', sourceLevelReferenceLabel: 'dBFS', waveform, spectrogram: null }],
     },
 });
 
@@ -38,7 +38,7 @@ test('measurements: a source without a full scale reports neither a full-scale p
     };
     const measured = (fileName: string, rawPeakFullScale: number, clipped: boolean | null): ReportTrack => {
         const base = track(fileName, 0);
-        base.result.channels = [{ label: 'ch', peakAbsolute: rawPeakFullScale, peakLevelDb: 0, rawPeakFullScale, fullScale: clipped !== null, clipped, measurement, waveform, spectrogram: null }];
+        base.result.channels = [{ label: 'ch', peakAbsolute: rawPeakFullScale, peakLevelDb: 0, rawPeakFullScale, fullScale: clipped !== null, sourceUnit: clipped !== null ? 'FS' : '', sourceLevelReferenceLabel: clipped !== null ? 'dBFS' : 'dB re 1 input unit', clipped, measurement, waveform, spectrogram: null }];
         return base;
     };
     const report = buildMarkdownReport([measured('full.wav', 1, true), measured('vib.csv', 1.414, null)], undefined, new Date());

@@ -1,9 +1,9 @@
 import {
     cloneProfile, identityChannel, profilesEqual,
     validateCalibrationValueInput, validateCalibrationFactorInput, profileForChannels, calibrationPickerStrings,
-    type CalibrationChannelDescriptor, type CalibrationPickerStrings,
+    describeChannelCalibration, type CalibrationChannelDescriptor, type SourceLevel,
 } from '../shared/analysis/calibrationModel';
-import { fillTemplate, getStrings, type UiStrings } from '../shared/i18n/strings';
+import { fillTemplate, getStrings } from '../shared/i18n/strings';
 import { backendErrorCode } from '../shared/protocol/backendProtocol';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -43,16 +43,6 @@ function channelDescriptors(result: AnalysisResultWithError): CalibrationChannel
         measurement: channel.measurement,
         rawPeakFullScale: channel.rawPeakFullScale,
     }));
-}
-
-function describeCalibration(strings: UiStrings, wording: CalibrationPickerStrings, channel: ChannelCalibrationDefinition): string {
-    if (channel.status === 'uncalibrated') {
-        return wording.calFullScale;
-    }
-    const level = channel.unit === 'Pa' && channel.referenceValue === 2e-5
-        ? 'dB SPL re 20 µPa'
-        : `dB re ${channel.referenceValue} ${channel.unit}`;
-    return fillTemplate(strings.calSummary, { factor: channel.factor, unit: channel.unit, level });
 }
 
 /**
@@ -97,19 +87,22 @@ export class CalibrationStore {
 
     /** Asks for one channel's calibration of a displayed track and stores it; the channels come from the track, not the Webview. */
     async configureTrack(result: AnalysisResultWithError): Promise<void> {
-        const channels = result.channels ?? [];
-        await this.configureProfile(result.filePath, channelDescriptors(result), channels.every((channel) => channel.fullScale));
+        const [first] = result.channels ?? [];
+        if (!first) {
+            void vscode.window.showInformationMessage(getStrings(vscode.env.language).calNoChannels);
+            return;
+        }
+        await this.configureProfile(result.filePath, channelDescriptors(result), {
+            unit: first.sourceUnit,
+            levelReferenceLabel: first.sourceLevelReferenceLabel,
+        });
     }
 
-    /** `fullScale: false` (a CSV source) words the uncalibrated choice as raw input units instead of FS / dBFS. */
-    async configureProfile(filePath: string, channels: CalibrationChannelDescriptor[], fullScale: boolean): Promise<boolean> {
+    /** `source` is wandas' unit and level label for the file as read, before calibration, which words the uncalibrated choice. */
+    private async configureProfile(filePath: string, channels: CalibrationChannelDescriptor[], source: SourceLevel): Promise<boolean> {
         const strings = getStrings(vscode.env.language);
-        const wording = calibrationPickerStrings(strings, fullScale);
+        const wording = calibrationPickerStrings(strings, source);
         const channelName = (index: number, label: string): string => fillTemplate(strings.calChannelLabel, { n: index + 1, label });
-        if (channels.length === 0) {
-            void vscode.window.showInformationMessage(strings.calNoChannels);
-            return false;
-        }
 
         const current = profileForChannels(this.profile(filePath), channels);
         const resetAll = Symbol('reset-all');
@@ -122,7 +115,7 @@ export class CalibrationStore {
                 },
                 ...channels.map((channel) => ({
                     label: `$(settings-gear) ${channelName(channel.channelIndex, channel.label)}`,
-                    description: describeCalibration(strings, wording, current.channels[channel.channelIndex]),
+                    description: describeChannelCalibration(strings, wording, current.channels[channel.channelIndex], channel.measurement),
                     value: channel.channelIndex,
                 })),
             ],

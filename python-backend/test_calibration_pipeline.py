@@ -329,6 +329,10 @@ def test_full_scale_comes_from_the_source_as_wandas_read_it_not_from_its_calibra
     assert [channel["measurement"]["calibrationStatus"] for channel in wav] == ["calibrated", "uncalibrated"]
     assert (csv[0]["fullScale"], csv[0]["clipped"]) == (False, None)
     assert csv[0]["measurement"]["levelReferenceLabel"] == "dB SPL re 20 µPa"
+    sources = [(channel["sourceUnit"], channel["sourceLevelReferenceLabel"]) for channel in [*wav, *csv]]
+    assert sources == [("FS", "dBFS"), ("FS", "dBFS"), ("", "dB re 1 input unit")]
+    detail = service.track_detail(csv_path, calibration_profile=_profile(["accel"], [1.0], ["Pa"], [2e-5]))["channels"]
+    assert (detail[0]["sourceUnit"], detail[0]["sourceLevelReferenceLabel"]) == ("", "dB re 1 input unit")
 
 
 def test_micro_reference_prefix_attaches_to_non_pascal_unit() -> None:

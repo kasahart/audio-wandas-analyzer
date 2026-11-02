@@ -1,25 +1,57 @@
 import { isSafeCalibrationValue, MAX_SAFE_CALIBRATED_SAMPLE } from './analysisTypes';
 import type { CalibrationProfile, ChannelCalibrationDefinition, ChannelMeasurementContext } from './analysisTypes';
-import type { UiStrings } from '../i18n/strings';
+import { fillTemplate, type UiStrings } from '../i18n/strings';
 
 function isJsonObject(value: unknown): value is Record<string, unknown> {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-export type CalibrationPickerStrings = Pick<UiStrings, 'calFullScale' | 'calResetAllLabel' | 'calResetDone' | 'calModeCalibratedDescription'
-    | 'calModeUncalibratedLabel' | 'calModeUncalibratedDescription' | 'calFactorPrompt'>;
+/** A source's level as wandas reads it, before calibration: "FS" / "dBFS" for audio, "" / "dB re 1 input unit" for a CSV. */
+export interface SourceLevel {
+    unit: string;
+    levelReferenceLabel: string;
+}
 
-/** The calibration picker's words for an uncalibrated channel: full scale for audio, raw input units for a source without one (CSV). */
-export function calibrationPickerStrings(strings: UiStrings, fullScale: boolean): CalibrationPickerStrings {
-    return fullScale ? strings : {
-        calFullScale: strings.calRawUnits,
-        calResetAllLabel: strings.calResetAllRawLabel,
-        calResetDone: strings.calResetRawDone,
-        calModeCalibratedDescription: strings.calModeCalibratedRawDescription,
-        calModeUncalibratedLabel: strings.calModeUncalibratedRawLabel,
-        calModeUncalibratedDescription: strings.calModeUncalibratedRawDescription,
-        calFactorPrompt: strings.calFactorRawPrompt,
+/** Filled with the source's scale and units; `calResetDone` still holds `{file}`. */
+export type CalibrationPickerStrings = Pick<UiStrings, 'calUncalibratedSummary' | 'calResetAllLabel' | 'calResetDone'
+    | 'calModeCalibratedDescription' | 'calModeUncalibratedLabel' | 'calModeUncalibratedDescription' | 'calFactorPrompt'>;
+
+/** The calibration picker's words for an uncalibrated channel, in wandas' unit and level label for the source as read. */
+export function calibrationPickerStrings(strings: UiStrings, source: SourceLevel): CalibrationPickerStrings {
+    const values = {
+        scale: source.unit === 'FS' ? strings.calScaleFullScale : strings.calScaleRawUnits,
+        units: [source.unit, source.levelReferenceLabel].filter(Boolean).join(' / '),
     };
+    return {
+        calUncalibratedSummary: fillTemplate(strings.calUncalibratedSummary, values),
+        calResetAllLabel: fillTemplate(strings.calResetAllLabel, values),
+        calResetDone: fillTemplate(strings.calResetDone, values),
+        calModeCalibratedDescription: fillTemplate(strings.calModeCalibratedDescription, values),
+        calModeUncalibratedLabel: fillTemplate(strings.calModeUncalibratedLabel, values),
+        calModeUncalibratedDescription: fillTemplate(strings.calModeUncalibratedDescription, values),
+        calFactorPrompt: fillTemplate(strings.calFactorPrompt, values),
+    };
+}
+
+/**
+ * The picker's line for a channel's stored calibration. A calibrated one names its level reference with wandas' label
+ * from the analysis, when the analysis used that same calibration.
+ */
+export function describeChannelCalibration(
+    strings: UiStrings,
+    wording: CalibrationPickerStrings,
+    channel: ChannelCalibrationDefinition,
+    measurement: ChannelMeasurementContext | undefined,
+): string {
+    if (channel.status === 'uncalibrated') {
+        return wording.calUncalibratedSummary;
+    }
+    const summary = fillTemplate(strings.calSummary, { factor: channel.factor, unit: channel.unit });
+    const analyzed = measurement?.calibrationStatus === 'calibrated'
+        && measurement.factor === channel.factor
+        && measurement.referenceUnit === channel.unit
+        && measurement.referenceValue === channel.referenceValue;
+    return analyzed ? `${summary}; ${measurement.levelReferenceLabel}` : summary;
 }
 
 export interface CalibrationChannelDescriptor {

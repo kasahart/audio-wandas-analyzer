@@ -259,6 +259,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "label",
                 "peakAbsolute",
                 "fullScale",
+                "sourceUnit",
+                "sourceLevelReferenceLabel",
                 "waveform",
                 "spectrogram"
             ],
@@ -290,6 +292,12 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 },
                 "fullScale": {
                     "type": "boolean"
+                },
+                "sourceUnit": {
+                    "type": "string"
+                },
+                "sourceLevelReferenceLabel": {
+                    "type": "string"
                 },
                 "clipped": {
                     "anyOf": [
@@ -1804,6 +1812,8 @@ export interface ChannelSummary {
     peakLevelDb?: number;
     rawPeakFullScale?: number;
     fullScale: boolean;
+    sourceUnit: string;
+    sourceLevelReferenceLabel: string;
     clipped?: boolean | null;
     waveform: WaveformEnvelope;
     spectrogram: SpectrogramData | null;

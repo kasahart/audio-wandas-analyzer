@@ -180,6 +180,8 @@ function calibratedAnalyzeResponse(): { [key: string]: unknown } {
             peakLevelDb: 80,
             rawPeakFullScale: 0.1,
             fullScale: true,
+            sourceUnit: 'FS',
+            sourceLevelReferenceLabel: 'dBFS',
             clipped: false,
             waveform: { min: [-0.1], max: [0.1], samples: [0], absolutePeak: 0.1 },
             spectrogram: {
