@@ -40,6 +40,7 @@ from wandas.pipeline.model import RecipeNode
 from wandas.processing.semantic import thaw_params
 
 import analysis_spec as spec
+from analyzer import has_full_scale
 from backend_errors import InputError
 from calibration_profile import resolve_calibration_profile
 from stage_view import StageDetail, StageView, band_levels, rounded_db, stage_view
@@ -68,6 +69,7 @@ class ScanInput(TypedDict):
     durationS: float
     unit: str
     ref: float
+    fullScale: bool
 
 
 class ScanResult(TypedDict):
@@ -517,6 +519,7 @@ def scan_cached(
         "durationS": round(duration, 6),
         "unit": unit,
         "ref": ref,
+        "fullScale": has_full_scale(cached.path),
     }
     known = {*plans["upstream"], plans["region"].output, *(step for step, _ in plans["steps"])}
     if stage == INPUT_STAGE:

@@ -409,8 +409,10 @@ def test_load_accepts_every_format_wandas_reads(extension: str) -> None:
         np.testing.assert_allclose(frame.data, data.T, atol=1e-4)
 
 
-@pytest.mark.parametrize(("extension", "clipped"), [(".wav", True), (".csv", None)])
-def test_browser_flags_clipping_only_for_sources_with_a_full_scale(extension: str, clipped: bool | None) -> None:
+@pytest.mark.parametrize(("extension", "full_scale", "clipped"), [(".wav", True, True), (".csv", False, None)])
+def test_browser_flags_clipping_only_for_sources_with_a_full_scale(
+    extension: str, full_scale: bool, clipped: bool | None
+) -> None:
     rate = 8000
     time = np.arange(800) / rate
     amplitude = 1.0 if extension == ".wav" else np.sqrt(2)
@@ -420,6 +422,7 @@ def test_browser_flags_clipping_only_for_sources_with_a_full_scale(extension: st
 
     channels = service.analyze(path)["channels"]
 
+    assert [channel["fullScale"] for channel in channels] == [full_scale, full_scale]
     assert [channel["clipped"] for channel in channels] == [clipped, clipped]
 
 

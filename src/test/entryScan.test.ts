@@ -8,7 +8,7 @@ import type { ScanResult } from '../shared/protocol/backendProtocol';
 function ok(filePath: string): ScanResult {
     return {
         ok: true, conditionId: filePath, specVersion: 1, wandasVersion: '0.9.0', elapsedMs: 1,
-        input: { id: filePath, fs: 16000, channels: [0], durationS: 1, unit: 'FS', ref: 1 },
+        input: { id: filePath, fs: 16000, channels: [0], durationS: 1, unit: 'FS', ref: 1, fullScale: true },
         leqDbA: [-20], peakHz: [100], spectrumDb: [[-20]], thirdOctDb: [[null]], crest: [1.4],
     };
 }

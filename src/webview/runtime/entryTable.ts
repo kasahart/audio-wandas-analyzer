@@ -102,8 +102,8 @@ export interface EntryRow {
     groupSize: number;
     /** The file's length, which the measured region is cut from. */
     durationS?: number;
-    /** Whether the level is relative to full scale (no calibration): Leq then reads below 0 dB. */
-    uncalibrated?: boolean;
+    /** Set without calibration: the level is relative to full scale, or to 1 raw input unit for a source without one (CSV). */
+    uncalibrated?: 'full-scale' | 'raw-units';
     /** The file's 1/3-octave levels, for Δ against another base (slot 0). */
     levels?: (number | null)[];
     /** Set on a derived row: its parent's path and region. */
@@ -243,7 +243,7 @@ export function buildEntryModel(
         }
         row.status = 'ok';
         row.durationS = result.input.durationS;
-        row.uncalibrated = result.input.unit === 'FS' && result.input.ref === 1;
+        if (result.input.unit === 'FS' && result.input.ref === 1) row.uncalibrated = result.input.fullScale ? 'full-scale' : 'raw-units';
         if (conditions.length) row.group = JSON.stringify(conditions);
         return row;
     });

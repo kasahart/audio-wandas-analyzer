@@ -102,7 +102,7 @@ test('a picked CSV must be UTF-8, at most 20 MB, a .csv or .tsv', () => {
 // ---- the Analyzer's dataset: rows per recording and channel
 
 const ok = (channels: number, leq: number[]): ScanResult => (({
-    ok: true, input: { id: 'x', fs: 48000, channels: Array.from({ length: channels }, (_, index) => index), durationS: 2, unit: 'FS', ref: 1 },
+    ok: true, input: { id: 'x', fs: 48000, channels: Array.from({ length: channels }, (_, index) => index), durationS: 2, unit: 'FS', ref: 1, fullScale: true },
     leqDbA: leq, peakHz: leq.map(() => 1000), crest: leq.map(() => 3), thirdOctDb: leq.map(level => [level - 10, level - 20]), spectrumDb: [], specVersion: 5,
 }));
 

@@ -302,6 +302,7 @@ def test_csv_physical_values_are_never_clipped_but_a_full_scale_wav_is(tmp_path)
     detail = service.track_detail(csv_path)["channels"][0]
 
     assert wav["clipped"] is True
+    assert (wav["fullScale"], csv["fullScale"], detail["fullScale"]) == (True, False, False)
     assert csv["rawPeakFullScale"] > 1.4
     assert csv["clipped"] is None
     assert detail["clipped"] is None

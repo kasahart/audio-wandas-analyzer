@@ -675,7 +675,7 @@ test('the ☐ / ☑ of a row takes T, Enter and Space; widened, the table keeps 
     await expect.poll(shown).toEqual([filePath]);
     await page.evaluate(filePath => window.dispatchEvent(new MessageEvent('message', { data: { type: 'analysis-update', results: [{
         filePath, fileName: filePath.split('/').at(-1), audioSource: '', sampleRateHz: 16000, durationSeconds: 2, channelCount: 1, sampleCount: 32000,
-        channels: [{ label: 'L', peakAbsolute: 0.5, waveform: { min: [-0.5], max: [0.5], minT: [0.1], maxT: [0.4], absolutePeak: 0.5 } }],
+        channels: [{ label: 'L', peakAbsolute: 0.5, fullScale: true, waveform: { min: [-0.5], max: [0.5], minT: [0.1], maxT: [0.4], absolutePeak: 0.5 } }],
     }] } })), filePath);
     await expect(mark).toHaveText('☑');
     await expect(mark).toHaveAttribute('aria-checked', 'true');

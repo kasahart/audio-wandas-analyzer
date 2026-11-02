@@ -315,13 +315,17 @@ export interface PaneAxes {
     legend?: { headline: string; leak: string; line: string };
 }
 
+/** A scanned file's level reference: its unit and reference value, and whether its source has a full scale. */
+export type LevelInput = Pick<NonNullable<ScanResult['input']>, 'unit' | 'ref' | 'fullScale'>;
+
 /**
- * The comparison's axis names. The level axis follows the files' calibration: dBFS while uncalibrated,
- * dB re the calibration value otherwise.
+ * The comparison's axis names. The level axis follows the files' calibration: dBFS while uncalibrated
+ * (dB re 1 input unit for a source without a full scale), dB re the calibration value otherwise.
  */
-export function paneAxes(strings: Pick<UiStrings, 'axisFrequency' | 'axisLevelUncal' | 'axisLevelCal' | 'axisDelta' | 'legendHeadline' | 'legendLeak' | 'legendLine'>, input: { unit?: string; ref?: number } | undefined): { level: PaneAxes; delta: PaneAxes } {
+export function paneAxes(strings: Pick<UiStrings, 'axisFrequency' | 'axisLevelUncal' | 'axisLevelUncalRaw' | 'axisLevelCal' | 'axisDelta' | 'legendHeadline' | 'legendLeak' | 'legendLine'>, input: LevelInput | undefined): { level: PaneAxes; delta: PaneAxes } {
     const uncalibrated = !input || (input.unit === 'FS' && input.ref === 1);
-    const y = uncalibrated ? strings.axisLevelUncal : strings.axisLevelCal.replace('{ref}', String(input.ref)).replace('{unit}', input.unit ?? '');
+    const y = !uncalibrated ? strings.axisLevelCal.replace('{ref}', String(input.ref)).replace('{unit}', input.unit)
+        : input && !input.fullScale ? strings.axisLevelUncalRaw : strings.axisLevelUncal;
     return {
         level: { x: strings.axisFrequency, y },
         delta: { x: strings.axisFrequency, y: strings.axisDelta, legend: { headline: strings.legendHeadline, leak: strings.legendLeak, line: strings.legendLine } },

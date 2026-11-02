@@ -8,7 +8,7 @@ import type { StageView } from '../../shared/protocol/backendProtocol';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { baseName } from '../../shared/analysis/entryMetadata';
 import { DIFF_COLOR, NO_ROLE_COLOR, ROLE_COLORS } from '../../shared/gui/roleColors';
-import type { LegendItem, PaneRange } from './comparePanes';
+import type { LegendItem, LevelInput, PaneRange } from './comparePanes';
 import { paintOverlay, paintStage, stageAxes, stageDiffRange, stageHeadline, stageLevelsHeadline, stageRange, type StageAxes, type StageLayer, type StagePlot } from './stagePanes';
 import type { PlotWindow } from './plotInteraction';
 import type { StagePlots } from './trackStageModel';
@@ -19,7 +19,7 @@ export interface StageTrack {
     color: string;
     canvas: HTMLCanvasElement | null;
     axis: HTMLCanvasElement | null;
-    input?: { unit?: string; ref?: number };
+    input?: LevelInput;
 }
 
 /**

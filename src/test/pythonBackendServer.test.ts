@@ -179,6 +179,7 @@ function calibratedAnalyzeResponse(): { [key: string]: unknown } {
             peakAbsolute: 0.2,
             peakLevelDb: 80,
             rawPeakFullScale: 0.1,
+            fullScale: true,
             clipped: false,
             waveform: { min: [-0.1], max: [0.1], samples: [0], absolutePeak: 0.1 },
             spectrogram: {

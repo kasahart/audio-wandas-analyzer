@@ -72,7 +72,7 @@ test('invalid response fixtures report the same path as Python and fail ajv', ()
 
 test('scan results are either a one-line failure or a full per-channel result', () => {
     const ok = {
-        ok: true, conditionId: 'c', input: { id: 'i', fs: 16000, channels: [0, 1], durationS: 2, unit: 'FS', ref: 1 },
+        ok: true, conditionId: 'c', input: { id: 'i', fs: 16000, channels: [0, 1], durationS: 2, unit: 'FS', ref: 1, fullScale: true },
         leqDbA: [-9, -21], peakHz: [1000, 3150], spectrumDb: [[-9], [-21]], thirdOctDb: [[null], [-23]], crest: [1.4, 1.4],
         specVersion: 1, wandasVersion: '0.9.0', elapsedMs: 80,
     };
@@ -93,7 +93,7 @@ test('scan results are either a one-line failure or a full per-channel result', 
 test('analyze and track-detail results keep the invariants the schema cannot express', () => {
     const envelope = { min: [0, 1], max: [1, 2], samples: [0.5, 1.5], absolutePeak: 2 };
     const spectrogram = { values: [[-10, -20]], timeBins: 1, frequencyBins: 2, windowSize: 64, hopSize: 32, maxFrequencyHz: 8000, minDb: -20, maxDb: -10 };
-    const channel = { label: 'ch0', peakAbsolute: 2, waveform: envelope, spectrogram: null };
+    const channel = { label: 'ch0', peakAbsolute: 2, fullScale: true, waveform: envelope, spectrogram: null };
     const result = { filePath: 'tone.wav', fileName: 'tone.wav', sampleRateHz: 16000, durationSeconds: 1, channelCount: 1, sampleCount: 16000, channels: [channel] };
     const detail = { trackIndex: 0, analysisId: 'a', settingsSignature: 's', filePath: 'tone.wav', channels: [{ ...channel, spectrogram }] };
     assert.deepEqual(parseBackendResult('analyze', result), result);

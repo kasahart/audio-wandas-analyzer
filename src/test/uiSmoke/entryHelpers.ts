@@ -133,7 +133,7 @@ export async function openStepsView(page: Page, files: ScannedFile[], view: Reco
     await expect(page.locator('#entry-screen')).not.toHaveClass(/is-max/);
     await page.evaluate(filePath => window.dispatchEvent(new MessageEvent('message', { data: { type: 'analysis-update', results: [{
         filePath, fileName: filePath.split('/').at(-1), audioSource: '', sampleRateHz: 16000, durationSeconds: 2, channelCount: 1, sampleCount: 32000,
-        channels: [{ label: 'L', peakAbsolute: 0.5, waveform: { min: [-0.5, -0.4], max: [0.5, 0.4], minT: [0.1, 0.6], maxT: [0.4, 0.9], absolutePeak: 0.5 } }],
+        channels: [{ label: 'L', peakAbsolute: 0.5, fullScale: true, waveform: { min: [-0.5, -0.4], max: [0.5, 0.4], minT: [0.1, 0.6], maxT: [0.4, 0.9], absolutePeak: 0.5 } }],
     }] } })), first);
     await expect(page.locator('.track-stage-bar')).toBeVisible();
     type Scan = { type: string; requestId: string; filePaths: string[] };

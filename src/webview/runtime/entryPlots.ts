@@ -46,8 +46,8 @@ export function paintOverview(
     focused: string | null,
     /** The part on screen (zoomed): x of the bands, y of the rows (0 at the bottom). */
     window: PlotWindow = FULL_PLOT_WINDOW,
-    /** Some level is calibrated: the scale reads dB, else dBFS. */
-    calibrated = false,
+    /** The colour scale's unit: dB once some level is calibrated, else what the uncalibrated levels are relative to. */
+    levelUnit = 'dBFS',
     /** Changes whenever `bands` does: with the same rows, window and size the cells are copied from the last paint, not drawn again (scrolling the table moves only the frame). */
     bandsVersion?: number,
 ): void {
@@ -59,13 +59,13 @@ export function paintOverview(
     const width = prepared.width - left - right, height = prepared.height - top - bottom;
     const cellHeight = height / Math.max(1, rows.length) / (window.y.end - window.y.start || 1);
     const rowY = (index: number): number => top + (index / Math.max(1, rows.length) - (1 - window.y.end)) / (window.y.end - window.y.start || 1) * height;
-    const key = `${bandsVersion}|${canvas.width}x${canvas.height}|${window.x.start},${window.x.end},${window.y.start},${window.y.end}|${calibrated}|${colors.text}${colors.muted}`;
+    const key = `${bandsVersion}|${canvas.width}x${canvas.height}|${window.x.start},${window.x.end},${window.y.start},${window.y.end}|${levelUnit}|${colors.text}${colors.muted}`;
     const cached = overviewCache.get(canvas);
     if (bandsVersion !== undefined && cached && cached.key === key && cached.rows === rows) {
         if (!cached.image) return;
         context.drawImage(cached.image, 0, 0, prepared.width, prepared.height);
     } else {
-        const drawn = paintOverviewCells(context, prepared, colors, rows, bands, window, calibrated);
+        const drawn = paintOverviewCells(context, prepared, colors, rows, bands, window, levelUnit);
         let image: HTMLCanvasElement | null = null;
         if (drawn) {
             image = canvas.ownerDocument.createElement('canvas');
@@ -104,7 +104,7 @@ function paintOverviewCells(
     rows: ReadonlyArray<Pick<EntryRow, 'filePath'>>,
     bands: ReadonlyMap<string, (number | null)[]>,
     window: PlotWindow,
-    calibrated: boolean,
+    levelUnit: string,
 ): boolean {
     // The cells fill the plot inside the margins: the colour scale above, the frequency axis below.
     const { left, top, right, bottom } = OVERVIEW_MARGINS;
@@ -180,7 +180,7 @@ function paintOverviewCells(
     context.textAlign = 'right';
     context.fillText('Hz', left + width, top + height + 15);
     // The colour scale: the strip's own darkest and brightest levels.
-    const unit = calibrated ? 'dB' : 'dBFS';
+    const unit = levelUnit;
     const barWidth = 60, barRight = left + width - 2;
     context.textBaseline = 'middle';
     context.fillText(`${minus(high.toFixed(0))} ${unit}`, left + width, top / 2);

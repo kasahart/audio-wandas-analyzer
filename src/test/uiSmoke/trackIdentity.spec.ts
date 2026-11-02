@@ -15,7 +15,7 @@ function dispatchAnalysisUpdate(input: string[] | { paths: string[]; durations: 
         sampleCount: (Array.isArray(input) ? 2 : input.durations[index]) * 8000,
         channels: [{
             label: 'L',
-            peakAbsolute: 0.8 + index * 0.01,
+            peakAbsolute: 0.8 + index * 0.01, fullScale: true,
             waveform: {
                 min: [-0.2, -0.4],
                 max: [0.2, 0.4],

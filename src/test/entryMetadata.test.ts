@@ -31,7 +31,7 @@ test('subfolders become condition columns, checked by default when the table has
 function ok(): ScanResult {
     return {
         ok: true, conditionId: 'c', specVersion: 2, wandasVersion: '0.9.0', elapsedMs: 1,
-        input: { id: 'i', fs: 16000, channels: [0], durationS: 1, unit: 'FS', ref: 1 },
+        input: { id: 'i', fs: 16000, channels: [0], durationS: 1, unit: 'FS', ref: 1, fullScale: true },
         leqDbA: [-20], peakHz: [100], spectrumDb: [[-20]], thirdOctDb: [BAND_CENTERS_HZ.map(() => -40)], crest: [1.4],
     };
 }

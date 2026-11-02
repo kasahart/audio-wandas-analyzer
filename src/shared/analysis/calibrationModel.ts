@@ -1,8 +1,25 @@
 import { isSafeCalibrationValue, MAX_SAFE_CALIBRATED_SAMPLE } from './analysisTypes';
 import type { CalibrationProfile, ChannelCalibrationDefinition, ChannelMeasurementContext } from './analysisTypes';
+import type { UiStrings } from '../i18n/strings';
 
 function isJsonObject(value: unknown): value is Record<string, unknown> {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+export type CalibrationPickerStrings = Pick<UiStrings, 'calFullScale' | 'calResetAllLabel' | 'calResetDone' | 'calModeCalibratedDescription'
+    | 'calModeUncalibratedLabel' | 'calModeUncalibratedDescription' | 'calFactorPrompt'>;
+
+/** The calibration picker's words for an uncalibrated channel: full scale for audio, raw input units for a source without one (CSV). */
+export function calibrationPickerStrings(strings: UiStrings, fullScale: boolean): CalibrationPickerStrings {
+    return fullScale ? strings : {
+        calFullScale: strings.calRawUnits,
+        calResetAllLabel: strings.calResetAllRawLabel,
+        calResetDone: strings.calResetRawDone,
+        calModeCalibratedDescription: strings.calModeCalibratedRawDescription,
+        calModeUncalibratedLabel: strings.calModeUncalibratedRawLabel,
+        calModeUncalibratedDescription: strings.calModeUncalibratedRawDescription,
+        calFactorPrompt: strings.calFactorRawPrompt,
+    };
 }
 
 export interface CalibrationChannelDescriptor {

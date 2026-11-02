@@ -8,6 +8,7 @@ import { calibrationBadgeHtml, calibrationRequest, calibrationSummary, channelMe
 import type { ComparisonTrackState } from '../webview/runtime/types';
 import { BackendRequestError } from '../shared/protocol/backendProtocol';
 import { getStrings } from '../shared/i18n/strings';
+import { calibrationPickerStrings } from '../shared/analysis/calibrationModel';
 
 const STR = getStrings('en');
 
@@ -82,8 +83,11 @@ test('calibration badges summarize the channel calibration and raw clipping', ()
         calibrationStatus: 'calibrated' as const, calibrationSource: 'manual' as const, factor: 2, linearUnit,
         referenceValue: 2e-5, referenceUnit: 'Pa', levelUnit: 'dB SPL', levelReferenceLabel: 'dB SPL re 20 µPa',
     });
-    const channel = (extra: object) => ({ label: 'ch', peakAbsolute: 0.5, waveform: { min: [], max: [], samples: [], absolutePeak: 0 }, spectrogram: null, ...extra });
+    const channel = (extra: object) => ({ label: 'ch', peakAbsolute: 0.5, fullScale: true, waveform: { min: [], max: [], samples: [], absolutePeak: 0 }, spectrogram: null, ...extra });
     assert.deepEqual(calibrationSummary([channel({})], STR), { text: 'FS', title: 'Uncalibrated full scale (dBFS)' });
+    assert.deepEqual(calibrationSummary([channel({ fullScale: false })], STR), { text: 'RAW', title: 'Uncalibrated raw input units (dB re 1 input unit)' }, 'a CSV source has no full scale');
+    assert.deepEqual(calibrationSummary([channel({ fullScale: false })], getStrings('ja')), { text: 'RAW', title: '未校正の生の入力単位 (dB re 1 input unit)' });
+    assert.equal(calibrationSummary([channel({ fullScale: false, measurement: measurement('m/s^2') })], STR).text, 'CAL: m/s^2', 'a calibrated CSV reads its unit');
     assert.equal(calibrationSummary([channel({ measurement: measurement('Pa') }), channel({})], STR).text, 'PARTIAL');
     assert.deepEqual(calibrationSummary([channel({ measurement: measurement('Pa') })], STR), { text: 'CAL: Pa', title: 'Pa; factor 2; dB SPL re 20 µPa' });
     assert.equal(calibrationSummary([channel({ measurement: measurement('Pa') }), channel({ measurement: measurement('m/s^2') })], STR).text, 'CAL');
@@ -95,12 +99,26 @@ test('calibration badges summarize the channel calibration and raw clipping', ()
     assert.equal(isClipped([channel({ peakAbsolute: 1, measurement: measurement('Pa') })]), false);
 });
 
+test('the calibration picker words the uncalibrated choice as full scale for audio and raw input units for CSV', () => {
+    for (const language of ['en', 'ja'] as const) {
+        const strings = getStrings(language);
+        assert.equal(calibrationPickerStrings(strings, true).calFullScale, strings.calFullScale);
+        assert.equal(calibrationPickerStrings(strings, true).calModeUncalibratedDescription, strings.calModeUncalibratedDescription);
+        const raw = calibrationPickerStrings(strings, false);
+        for (const text of Object.values(raw)) assert.doesNotMatch(text, /FS|フルスケール|full scale/i, text);
+    }
+    assert.equal(calibrationPickerStrings(STR, true).calFullScale, 'Full scale (FS / dBFS)');
+    assert.equal(calibrationPickerStrings(STR, false).calFullScale, 'Raw input units (dB re 1 input unit)');
+    assert.equal(calibrationPickerStrings(getStrings('ja'), false).calFullScale, '生の入力単位 (dB re 1 input unit)');
+    assert.equal(calibrationPickerStrings(STR, false).calModeUncalibratedDescription, 'Use the raw input values and dB re 1 input unit for this channel');
+});
+
 test('calibration row helpers draw badges, peak text, requests and the overlay guard', () => {
     const measurement = (linearUnit: string, levelReferenceLabel: string) => ({
         calibrationStatus: 'calibrated' as const, calibrationSource: 'manual' as const, factor: 2, linearUnit,
         referenceValue: 2e-5, referenceUnit: linearUnit, levelUnit: 'dB SPL', levelReferenceLabel,
     });
-    const channel = (extra: object) => ({ label: 'L', peakAbsolute: 5, peakLevelDb: 80, waveform: { min: [], max: [], samples: [], absolutePeak: 0 }, spectrogram: null, ...extra });
+    const channel = (extra: object) => ({ label: 'L', peakAbsolute: 5, fullScale: true, peakLevelDb: 80, waveform: { min: [], max: [], samples: [], absolutePeak: 0 }, spectrogram: null, ...extra });
     const track = (channels: object[]) => ({ filePath: '/a.wav', fileName: 'a.wav', channels }) as unknown as ComparisonTrackState;
     const pa = measurement('Pa', 'dB SPL re 20 µPa');
 

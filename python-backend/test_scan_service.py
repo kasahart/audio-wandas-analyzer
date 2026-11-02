@@ -61,6 +61,7 @@ def test_scan_measures_the_analysis_spec_metrics(tmp_path: Path) -> None:
         "durationS": 2.0,
         "unit": "FS",
         "ref": 1.0,
+        "fullScale": True,
     }
     rms_db = [20 * np.log10(0.5 / np.sqrt(2)), 20 * np.log10(0.1 / np.sqrt(2))]
     # A-weighting is 0 dB at 1 kHz and +1.2 dB at 3.15 kHz.
@@ -78,6 +79,18 @@ def test_scan_measures_the_analysis_spec_metrics(tmp_path: Path) -> None:
     assert result["crest"] == pytest.approx([np.sqrt(2)] * 2, abs=0.01)
     assert result["specVersion"] == spec.ANALYSIS_SPEC_VERSION
     assert all(value == round(value, 2) for value in result["leqDbA"])
+
+
+def test_scan_input_says_whether_the_source_has_a_full_scale(tmp_path: Path) -> None:
+    service = AnalysisService(AnalysisEngine())
+    tone = _sine(1000, 0.5)
+    wav = _write(tmp_path / "tone.wav", [tone])
+    csv = tmp_path / "accel.csv"
+    times = np.arange(tone.size) / RATE
+    csv.write_text("time,accel\n" + "".join(f"{t},{v}\n" for t, v in zip(times, tone, strict=True)), encoding="utf-8")
+
+    assert _scan(service, wav)["input"]["fullScale"] is True
+    assert _scan(service, str(csv))["input"]["fullScale"] is False
 
 
 def test_scan_repeats_exactly_and_names_the_condition(tmp_path: Path) -> None:

@@ -1300,7 +1300,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 });
                 // The file's unit and reference as the entry table scanned it, so the level axis names its reference.
                 const input = entryResults.get(result.filePath)?.input;
-                tracks.push({ filePath: result.filePath, color: trackColor(i), canvas: canvasById(document, trackCanvasId(i, 0)), axis: canvasById(document, trackAxisCanvasId(i, 0)), ...(input ? { input: { unit: input.unit, ref: input.ref } } : {}) });
+                tracks.push({ filePath: result.filePath, color: trackColor(i), canvas: canvasById(document, trackCanvasId(i, 0)), axis: canvasById(document, trackAxisCanvasId(i, 0)), ...(input ? { input: { unit: input.unit, ref: input.ref, fullScale: input.fullScale } } : {}) });
             });
             return tracks;
         },

@@ -616,6 +616,7 @@
             "label": "ch0",
             "unit": "Pa",
             "peakAbsolute": 1,
+            "fullScale": true,
             "waveform": {
               "min": [
                 0
@@ -756,7 +757,8 @@
           ],
           "durationS": 2,
           "unit": "FS",
-          "ref": 1
+          "ref": 1,
+          "fullScale": true
         },
         "leqDbA": [
           -9.03
@@ -880,6 +882,7 @@
             "label": "ch0",
             "unit": null,
             "peakAbsolute": 1,
+            "fullScale": true,
             "waveform": {
               "min": [
                 0
@@ -914,6 +917,7 @@
             "label": "ch0",
             "unit": 3,
             "peakAbsolute": 1,
+            "fullScale": true,
             "waveform": {
               "min": [
                 0
@@ -947,6 +951,7 @@
             "label": "ch0",
             "unit": null,
             "peakAbsolute": 1,
+            "fullScale": true,
             "waveform": {
               "min": [
                 0
@@ -988,6 +993,7 @@
             "label": "ch0",
             "unit": null,
             "peakAbsolute": 1,
+            "fullScale": true,
             "waveform": {
               "min": [
                 0
@@ -1029,6 +1035,7 @@
             "label": "ch0",
             "unit": null,
             "peakAbsolute": 1,
+            "fullScale": true,
             "waveform": {
               "min": [
                 0

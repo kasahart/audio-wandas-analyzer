@@ -34,6 +34,11 @@ CLIPPING_FULL_SCALE_THRESHOLD = 0.99
 NO_FULL_SCALE_SUFFIXES = frozenset({".csv"})
 
 
+def has_full_scale(path: str | Path) -> bool:
+    """Whether the source's samples are relative to a full scale (audio) rather than raw input units (CSV)."""
+    return Path(path).suffix.lower() not in NO_FULL_SCALE_SUFFIXES
+
+
 class MeasurementMetadata(TypedDict):
     calibrationStatus: CalibrationStatus
     calibrationSource: CalibrationSource
@@ -80,6 +85,8 @@ class ChannelSummary(TypedDict):
     peakAbsolute: float
     peakLevelDb: float
     rawPeakFullScale: float
+    # False: the source's values are raw input units, so its uncalibrated levels are dB re 1 input unit, not dBFS.
+    fullScale: bool
     # None: the source has no full scale to clip against.
     clipped: bool | None
     waveform: WaveformEnvelope
@@ -414,7 +421,7 @@ def analyze_from_frame(
     # CSV sources may have fractional rates.
     sample_rate_hz = float(frame.sampling_rate)
     labels = list(frame.labels)
-    has_full_scale = target.suffix.lower() not in NO_FULL_SCALE_SUFFIXES
+    full_scale = has_full_scale(target)
     resolved = calibration_profile
     references = [frame.channels[index].level_reference for index in range(channel_count)]
     measurements = [measurement_metadata(channel, references[index]) for index, channel in enumerate(resolved.channels)]
@@ -469,7 +476,8 @@ def analyze_from_frame(
                 "peakAbsolute": peak,
                 "peakLevelDb": references[index].to_level(peak),
                 "rawPeakFullScale": raw_peak,
-                "clipped": raw_peak >= CLIPPING_FULL_SCALE_THRESHOLD if has_full_scale else None,
+                "fullScale": full_scale,
+                "clipped": raw_peak >= CLIPPING_FULL_SCALE_THRESHOLD if full_scale else None,
                 "waveform": waveform,
                 "spectrogram": spectrogram,
             }

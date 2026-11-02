@@ -1,7 +1,7 @@
 import {
     cloneProfile, identityChannel, profilesEqual,
-    validateCalibrationValueInput, validateCalibrationFactorInput, profileForChannels,
-    type CalibrationChannelDescriptor,
+    validateCalibrationValueInput, validateCalibrationFactorInput, profileForChannels, calibrationPickerStrings,
+    type CalibrationChannelDescriptor, type CalibrationPickerStrings,
 } from '../shared/analysis/calibrationModel';
 import { fillTemplate, getStrings, type UiStrings } from '../shared/i18n/strings';
 import { backendErrorCode } from '../shared/protocol/backendProtocol';
@@ -45,9 +45,9 @@ function channelDescriptors(result: AnalysisResultWithError): CalibrationChannel
     }));
 }
 
-function describeCalibration(strings: UiStrings, channel: ChannelCalibrationDefinition): string {
+function describeCalibration(strings: UiStrings, wording: CalibrationPickerStrings, channel: ChannelCalibrationDefinition): string {
     if (channel.status === 'uncalibrated') {
-        return strings.calFullScale;
+        return wording.calFullScale;
     }
     const level = channel.unit === 'Pa' && channel.referenceValue === 2e-5
         ? 'dB SPL re 20 µPa'
@@ -97,11 +97,14 @@ export class CalibrationStore {
 
     /** Asks for one channel's calibration of a displayed track and stores it; the channels come from the track, not the Webview. */
     async configureTrack(result: AnalysisResultWithError): Promise<void> {
-        await this.configureProfile(result.filePath, channelDescriptors(result));
+        const channels = result.channels ?? [];
+        await this.configureProfile(result.filePath, channelDescriptors(result), channels.every((channel) => channel.fullScale));
     }
 
-    async configureProfile(filePath: string, channels: CalibrationChannelDescriptor[]): Promise<boolean> {
+    /** `fullScale: false` (a CSV source) words the uncalibrated choice as raw input units instead of FS / dBFS. */
+    async configureProfile(filePath: string, channels: CalibrationChannelDescriptor[], fullScale: boolean): Promise<boolean> {
         const strings = getStrings(vscode.env.language);
+        const wording = calibrationPickerStrings(strings, fullScale);
         const channelName = (index: number, label: string): string => fillTemplate(strings.calChannelLabel, { n: index + 1, label });
         if (channels.length === 0) {
             void vscode.window.showInformationMessage(strings.calNoChannels);
@@ -113,13 +116,13 @@ export class CalibrationStore {
         const picked = await vscode.window.showQuickPick(
             [
                 {
-                    label: `$(discard) ${strings.calResetAllLabel}`,
+                    label: `$(discard) ${wording.calResetAllLabel}`,
                     description: strings.calResetAllDescription,
                     value: resetAll,
                 },
                 ...channels.map((channel) => ({
                     label: `$(settings-gear) ${channelName(channel.channelIndex, channel.label)}`,
-                    description: describeCalibration(strings, current.channels[channel.channelIndex]),
+                    description: describeCalibration(strings, wording, current.channels[channel.channelIndex]),
                     value: channel.channelIndex,
                 })),
             ],
@@ -134,7 +137,7 @@ export class CalibrationStore {
 
         if (picked.value === resetAll) {
             await this.persistProfile(filePath, () => undefined);
-            void vscode.window.showInformationMessage(fillTemplate(strings.calResetDone, { file: path.basename(filePath) }));
+            void vscode.window.showInformationMessage(fillTemplate(wording.calResetDone, { file: path.basename(filePath) }));
             return true;
         }
 
@@ -149,12 +152,12 @@ export class CalibrationStore {
             [
                 {
                     label: strings.calModeCalibratedLabel,
-                    description: strings.calModeCalibratedDescription,
+                    description: wording.calModeCalibratedDescription,
                     value: 'calibrated' as const,
                 },
                 {
-                    label: strings.calModeUncalibratedLabel,
-                    description: strings.calModeUncalibratedDescription,
+                    label: wording.calModeUncalibratedLabel,
+                    description: wording.calModeUncalibratedDescription,
                     value: 'uncalibrated' as const,
                 },
             ],
@@ -173,7 +176,7 @@ export class CalibrationStore {
 
         const factor = await vscode.window.showInputBox({
             title: fillTemplate(strings.calFactorTitle, { channel: name }),
-            prompt: strings.calFactorPrompt,
+            prompt: wording.calFactorPrompt,
             value: existing.status === 'calibrated' ? String(existing.factor) : '1',
             validateInput: (value) => validateCalibrationFactorInput(value, channel.rawPeakFullScale),
         });

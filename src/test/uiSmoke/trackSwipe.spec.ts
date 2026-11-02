@@ -10,7 +10,7 @@ function showTrack(): void {
         durationSeconds: 10,
         channelCount: 1,
         sampleCount: 80000,
-        channels: [{ label: 'L', peakAbsolute: 0.8, waveform: { min: [-0.2, -0.4], max: [0.2, 0.4], minT: [1, 6], maxT: [4, 9], absolutePeak: 0.8 } }],
+        channels: [{ label: 'L', peakAbsolute: 0.8, fullScale: true, waveform: { min: [-0.2, -0.4], max: [0.2, 0.4], minT: [1, 6], maxT: [4, 9], absolutePeak: 0.8 } }],
     }] } }));
 }
 

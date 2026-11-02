@@ -88,7 +88,7 @@ export function buildMarkdownReport(tracks: readonly ReportTrack[], loop: Report
                 const measurement = channel.measurement;
                 if (!measurement) { return; }
                 // A source without a full scale (CSV) has neither a full-scale peak nor clipping.
-                const fullScale = channel.clipped !== null;
+                const fullScale = channel.fullScale;
                 lines.push('| ' + markdownTableCell(r.fileName)
                     + ' | ' + markdownTableCell(channelLabel(r, channelIndex))
                     + ' | ' + formatMeasurementNumber(channel.peakAbsolute) + ' ' + markdownTableCell(measurement.linearUnit)

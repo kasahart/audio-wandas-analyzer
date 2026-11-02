@@ -11,6 +11,14 @@ export interface ChannelLabelSource {
     channelCount?: number;
 }
 
+/**
+ * What an uncalibrated value is relative to: the file's full scale, or, for a source without one (CSV, `fullScale: false`),
+ * one raw input unit, as the backend's level reference names it.
+ */
+export function uncalibratedUnits(fullScale: boolean): { linear: string; level: string } {
+    return fullScale ? { linear: 'FS', level: 'dBFS' } : { linear: 'input unit', level: 'dB re 1 input unit' };
+}
+
 /** Linear measurement values: 0 / 2 / 3 decimals by magnitude, 3 significant digits below 0.01. */
 export function formatMeasurementNumber(value: unknown): string {
     const numberValue = Number(value);

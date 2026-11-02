@@ -10,7 +10,8 @@ import type { StageView } from '../../shared/protocol/backendProtocol';
 import type { UiStrings } from '../../shared/i18n/strings';
 import { BAND_CENTERS_HZ, HEADLINE_WITHIN_DB } from './entryTable';
 import { median } from '../../shared/dataset/distribution';
-import { PANE_LEFT, paneAxes, type PaneRange } from './comparePanes';
+import { PANE_LEFT, paneAxes, type LevelInput, type PaneRange } from './comparePanes';
+import { uncalibratedUnits } from '../../shared/utils/format';
 import type { NormalizedRange } from './waveformInteraction';
 import { plotPointIn, type PlotMargins } from './plotInteraction';
 import { nearestLine } from './plotHover';
@@ -21,7 +22,7 @@ import { niceTicks } from '../../shared/utils/ticks';
 /** Canvas x the level axis's turned title is centred on, in the gutter left of its tick labels. */
 const AXIS_TITLE_X = 10;
 
-export type StageStrings = Pick<UiStrings, 'axisFrequency' | 'axisTime' | 'axisBand' | 'axisBark' | 'axisQuefrency' | 'axisCepstrum' | 'axisLag' | 'axisCorrelation' | 'axisLevel' | 'axisLevelUncal' | 'axisLevelCal' | 'axisDelta' | 'dsValue' | 'axisGain' | 'axisCoherence' | 'legendHeadline' | 'legendLeak' | 'legendLine' | 'stageNoDelta' | 'stageMaxDelta' | 'stepNotDrawable' | 'compareLevelsAt' | 'waveRangeAxisAmplitude' | 'stagePairBase'>;
+export type StageStrings = Pick<UiStrings, 'axisFrequency' | 'axisTime' | 'axisBand' | 'axisBark' | 'axisQuefrency' | 'axisCepstrum' | 'axisLag' | 'axisCorrelation' | 'axisLevel' | 'axisLevelUncal' | 'axisLevelUncalRaw' | 'axisLevelCal' | 'axisDelta' | 'dsValue' | 'axisGain' | 'axisCoherence' | 'legendHeadline' | 'legendLeak' | 'legendLine' | 'stageNoDelta' | 'stageMaxDelta' | 'stepNotDrawable' | 'compareLevelsAt' | 'waveRangeAxisAmplitude' | 'stagePairBase'>;
 
 const DB_QUANTITIES = ['level', 'gain'];
 const isDb = (view: StageView | null): boolean => DB_QUANTITIES.includes(view?.quantity ?? '');
@@ -181,12 +182,12 @@ export function stageDiffRange(view: StageView | null): PaneRange {
 export interface StageAxes { x: string; y: string }
 
 /** What each axis of a picture measures; a heatmap's y is its rows' axis, its colour the level. */
-export function stageAxes(strings: StageStrings, view: StageView | null, input: { unit?: string; ref?: number } | undefined, diff = false): StageAxes {
+export function stageAxes(strings: StageStrings, view: StageView | null, input: LevelInput | undefined, diff = false): StageAxes {
     const x = view?.x === 'time' ? strings.axisTime : view?.x === 'band' ? strings.axisBand : view?.x === 'quefrency' ? strings.axisQuefrency : view?.x === 'lag' ? strings.axisLag : strings.axisFrequency;
     if (view?.kind === 'heatmap') return { x, y: view.yAxis === 'bark' ? strings.axisBark : view.yAxis === 'quefrency' ? strings.axisQuefrency : strings.axisFrequency };
     if (diff && (!view || isDb(view))) return { x, y: strings.axisDelta };
-    // A time signal is drawn as itself: its amplitude, in its unit (full scale while uncalibrated).
-    if (view?.waveform) return { x, y: `${strings.waveRangeAxisAmplitude} [${view.waveform.unit && view.waveform.unit !== 'FS' ? view.waveform.unit : 'FS'}]` };
+    // A time signal is drawn as itself: its amplitude, in its unit (full scale, or raw input units without one, while uncalibrated).
+    if (view?.waveform) return { x, y: `${strings.waveRangeAxisAmplitude} [${view.waveform.unit || uncalibratedUnits(!input || input.fullScale).linear}]` };
     const unit = view?.unit ? ` [${view.unit}]` : '';
     const y = view?.quantity === 'level' ? paneAxes(strings, input).level.y
         : view?.quantity === 'gain' ? strings.axisGain

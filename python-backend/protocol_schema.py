@@ -174,7 +174,7 @@ DEFINITIONS: dict[str, Schema] = {
     },
     "ChannelSummary": {
         "type": "object",
-        "required": ["label", "peakAbsolute", "waveform", "spectrogram"],
+        "required": ["label", "peakAbsolute", "fullScale", "waveform", "spectrogram"],
         "properties": {
             "label": {"type": "string"},
             "unit": {"anyOf": [{"type": "string"}, _NULL]},
@@ -182,6 +182,8 @@ DEFINITIONS: dict[str, Schema] = {
             "measurement": {"$ref": "#/$defs/ChannelMeasurementContext"},
             "peakLevelDb": _NUMBER,
             "rawPeakFullScale": _NUMBER,
+            # false: the source (a CSV) holds raw input units, so uncalibrated levels are dB re 1 input unit, not dBFS.
+            "fullScale": {"type": "boolean"},
             # null: the source (a CSV) has no full scale to clip against.
             "clipped": {"anyOf": [{"type": "boolean"}, _NULL]},
             "waveform": {"$ref": "#/$defs/WaveformEnvelope"},
@@ -583,7 +585,7 @@ DEFINITIONS: dict[str, Schema] = {
     },
     "ScanInput": {
         "type": "object",
-        "required": ["id", "fs", "channels", "durationS", "unit", "ref"],
+        "required": ["id", "fs", "channels", "durationS", "unit", "ref", "fullScale"],
         "properties": {
             "id": {"type": "string"},
             "fs": {"type": "integer", "minimum": 1},
@@ -591,6 +593,8 @@ DEFINITIONS: dict[str, Schema] = {
             "durationS": _NUMBER,
             "unit": {"type": "string"},
             "ref": _NUMBER,
+            # false: the source (a CSV) holds raw input units, so an uncalibrated level is dB re 1 input unit.
+            "fullScale": {"type": "boolean"},
         },
     },
     # A file that cannot be scanned answers ``ok: false`` with a one-line ``reason`` and nothing else;

@@ -10,7 +10,7 @@ const strings = getStrings('en');
 
 /** A scanned recording of `channels` channels whose bands are all `level` dB. */
 const scanned = (level: number, channels = 1): ScanResult => ({
-    ok: true, input: { id: 'x', fs: 48000, channels: Array.from({ length: channels }, (_, index) => index), durationS: 1, unit: 'Pa', ref: 2e-5 },
+    ok: true, input: { id: 'x', fs: 48000, channels: Array.from({ length: channels }, (_, index) => index), durationS: 1, unit: 'Pa', ref: 2e-5, fullScale: true },
     leqDbA: Array(channels).fill(level), peakHz: Array(channels).fill(100), crest: Array(channels).fill(3),
     spectrumDb: Array.from({ length: channels }, () => [level, level]), thirdOctDb: Array.from({ length: channels }, () => [level, level + 1]), specVersion: 5,
 });
