@@ -746,6 +746,7 @@ export interface UiStrings {
     pyBtnCreateVenv: string;
     pyBtnSelect: string;
     pyBtnShowLog: string;
+    pyBtnOpenBrowser: string;
     pyInstallProgress: string;
     pyCreateVenvProgress: string;
     pyInstallSucceeded: string;
@@ -1497,7 +1498,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         pyPickCreateVenvDetail: 'Runs python -m venv .venv in the workspace and installs the required packages',
         pyPickBrowse: '$(folder) Browse...',
         pyPickBrowseOpenLabel: 'Select Python environment',
-        pyInterpreterNotFound: 'Python interpreter not found: {command}',
+        pyInterpreterNotFound: 'Python interpreter not found: {command}. Select an environment, or try the browser version, which needs no Python.',
         pyPipUnavailable: 'pip is not available in {command}. Select another environment or create a .venv.',
         pyCheckFailed: 'Could not check the Python packages in {command}. See the log for details.',
         pyMissingPackages: 'Audio Wandas Analyzer needs compatible Python packages in {command}: {packages}',
@@ -1506,6 +1507,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         pyBtnCreateVenv: 'Create .venv and Install',
         pyBtnSelect: 'Select Environment',
         pyBtnShowLog: 'Show Log',
+        pyBtnOpenBrowser: 'Try Browser Version',
         pyInstallProgress: 'Installing Python packages into {command}',
         pyCreateVenvProgress: 'Creating {path}',
         pyInstallSucceeded: 'Python packages installed.',
@@ -2255,7 +2257,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         pyPickCreateVenvDetail: 'ワークスペースで python -m venv .venv を実行し、必要なパッケージをインストールします',
         pyPickBrowse: '$(folder) 参照...',
         pyPickBrowseOpenLabel: 'Python 環境を選択',
-        pyInterpreterNotFound: 'Python インタープリターが見つかりません: {command}',
+        pyInterpreterNotFound: 'Python インタープリターが見つかりません: {command}。環境を選択するか、Python 不要のブラウザ版で試せます。',
         pyPipUnavailable: '{command} では pip を使えません。別の環境を選択するか .venv を作成してください。',
         pyCheckFailed: '{command} の Python パッケージを確認できませんでした。詳細はログを参照してください。',
         pyMissingPackages: 'Audio Wandas Analyzer には {command} に互換性のある Python パッケージが必要です: {packages}',
@@ -2264,6 +2266,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         pyBtnCreateVenv: '.venv を作成してインストール',
         pyBtnSelect: '環境を選択',
         pyBtnShowLog: 'ログを表示',
+        pyBtnOpenBrowser: 'ブラウザ版で試す',
         pyInstallProgress: '{command} に Python パッケージをインストールしています',
         pyCreateVenvProgress: '{path} を作成しています',
         pyInstallSucceeded: 'Python パッケージをインストールしました。',

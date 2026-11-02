@@ -85,6 +85,7 @@ function loadPythonEnvironmentModule(options: {
     const themeColors: string[] = [];
     const quickPickCalls: Array<{ items: unknown[]; options: unknown }> = [];
     const openDialogCalls: unknown[] = [];
+    const openedExternal: string[] = [];
     const warningAnswers = [...(options.warningAnswers ?? [])];
     const errorAnswers = [...(options.errorAnswers ?? [])];
     class EventEmitter<T> {
@@ -107,7 +108,14 @@ function loadPythonEnvironmentModule(options: {
     }
 
     const vscodeStub = {
-        env: { language: 'en' },
+        env: {
+            language: 'en',
+            openExternal: async (uri: { value: string }) => {
+                openedExternal.push(uri.value);
+                return true;
+            },
+        },
+        Uri: { parse: (value: string) => ({ value }) },
         window: {
             showQuickPick: async (items: unknown[], quickPickOptions: unknown) => {
                 quickPickCalls.push({ items, options: quickPickOptions });
@@ -250,6 +258,7 @@ function loadPythonEnvironmentModule(options: {
         themeColors,
         quickPickCalls,
         openDialogCalls,
+        openedExternal,
         restore: () => {
             NodeModule._load = originalLoad;
             // The module captured this harness's vscode stub, so the next harness loads it afresh.
@@ -728,9 +737,29 @@ test('checkAndPromptInstallDependencies warns when interpreter is missing and of
         assert.equal(item.tooltip, 'The Python interpreter was not found. Click to select another environment.');
         // The interpreter path follows the host venv layout (bin/python on POSIX, Scripts\\python.exe on Windows).
         const expectedInterpreter = pythonEnvironmentModule.resolvePythonCommand('missing-python');
-        assert.deepEqual(warningMessages, [`Python interpreter not found: ${expectedInterpreter}`]);
-        assert.deepEqual(warningButtons, [['Select Environment', 'Show Log']]);
+        assert.deepEqual(warningMessages, [`Python interpreter not found: ${expectedInterpreter}. Select an environment, or try the browser version, which needs no Python.`]);
+        assert.deepEqual(warningButtons, [['Select Environment', 'Try Browser Version', 'Show Log']]);
         assert.deepEqual(executedCommands, ['audioWandasAnalyzer.selectPythonEnvironment']);
+    } finally {
+        restore();
+    }
+});
+
+test('checkAndPromptInstallDependencies opens the browser version when the interpreter is missing', async () => {
+    const { pythonEnvironmentModule, pythonEnvironment, openedExternal, executedCommands, restore } = loadPythonEnvironmentModule({
+        warningAnswers: ['Try Browser Version'],
+        spawnImpl: () => fakeProcess((proc) => {
+            const error = new Error('spawn ENOENT') as NodeJS.ErrnoException;
+            error.code = 'ENOENT';
+            proc.emit('error', error);
+        }),
+    });
+
+    try {
+        await pythonEnvironment.checkAndPromptInstallDependencies('missing-python', statusItem() as never);
+        await settle();
+        assert.deepEqual(openedExternal, [pythonEnvironmentModule.BROWSER_VERSION_URL]);
+        assert.deepEqual(executedCommands, []);
     } finally {
         restore();
     }

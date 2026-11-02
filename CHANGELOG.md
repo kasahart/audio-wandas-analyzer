@@ -5,6 +5,8 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 ## Unreleased
 
 - Uncalibrated CSV tracks are labelled in raw input units instead of full scale: the level axis reads "Amplitude, uncalibrated [dB re 1 input unit]", the calibration badge reads RAW, the calibration picker offers "Raw input units (dB re 1 input unit)", and the summary picture's hint, the entry overview's colour scale and a time signal's axis follow suit; audio files keep FS / dBFS (#544).
+- VS Code: when no Python interpreter is found, the warning offers "Try Browser Version", which opens the browser version so you can try the analyzer without Python (#546).
+- Compare opened from the tracks with no role at all starts with the first two recordings as base and compare 1 (compare 1 alone when rows are grouped, the group median being the base); the legend's chips change them (#540).
 - Recipes: a psychoacoustic Recipe (`roughness`, `roughness-heatmap`, and `loudness` on a file of a few samples) run on a file too short for it — for roughness, shorter than its 200 ms window (9600 samples at 48 kHz) — now says the settings don't fit this file, like the other Recipes, instead of "This request could not be processed." (#525).
 - CSV tracks no longer show the CLIP badge: their values are physical (Pa, m/s², V…) with no full scale, so the report's Raw Peak and Clipped columns read "—" for them instead of "Yes"/"No" (#524).
 - Compare legend: each recording's chip names its role ("Base ▾", "Compare 1 ▾"), or offers "Role ▾" outlined when it has none (#538).
