@@ -4,6 +4,7 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 
 ## Unreleased
 
+- After pausing playback, every track's analysis window band and cursor spectrum follow the cursor to where playback stopped; they used to stay at a different mid-play time on each track (#559).
 - Uncalibrated CSV tracks are labelled in raw input units instead of full scale: the level axis reads "Amplitude, uncalibrated [dB re 1 input unit]", the calibration badge reads RAW, the calibration picker offers "Raw input units (dB re 1 input unit)", and the summary picture's hint, the entry overview's colour scale and a time signal's axis follow suit; audio files keep FS / dBFS (#544).
 - VS Code: when no Python interpreter is found, the warning offers "Try Browser Version", which opens the browser version so you can try the analyzer without Python (#546).
 - Compare opened from the tracks with no role at all starts with the first two recordings as base and compare 1 (compare 1 alone when rows are grouped, the group median being the base); the legend's chips change them (#540).
