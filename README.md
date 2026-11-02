@@ -2,23 +2,25 @@
 
 **English** | [日本語](https://github.com/kasahart/audio-wandas-analyzer/blob/main/README.ja.md)
 
-**Find what sounds different, then see why.** Line up recordings, listen and look on one timeline, and overlay any [wandas](https://github.com/kasahart/wandas) analysis of them on the same axes.
+**Find what sounds different, then see why.** Line up recordings, listen and look on one timeline, and overlay any analysis of them on the same axes.
 
 **[▶ Try it in your browser](https://kasahart.github.io/audio-wandas-analyzer/)**: press **Try with samples**, no files or install needed. Your audio never leaves your device. For long recordings and calibration, install the [VS Code extension](https://marketplace.visualstudio.com/items?itemName=audio-wandas-analyzer.audio-wandas-analyzer).
 
-![Compare view: the average spectra of three recordings overlaid; a 2.8 kHz whine stands out in yellow](https://raw.githubusercontent.com/kasahart/audio-wandas-analyzer/main/media/readme-audio-wandas-analyzer.png)
+![Try with samples, set roles, open Compare and click the Average spectrum step: a 2.8 kHz tone stands out in yellow](https://raw.githubusercontent.com/kasahart/audio-wandas-analyzer/main/media/readme-demo.gif)
 
-*The bundled samples in the Compare view: the same hum three times, one with a 2.8 kHz whine (yellow) and one with clicks (purple).*
+*The bundled samples: the same hum three times, one with a 2.8 kHz tone (yellow) and one with clicks (purple), against the base (blue).*
 
 ## How it works
 
 1. **Open** files or a whole folder. Every file is listed in a table; tick ☐ to show it as a track.
 2. **Listen and look.** Each track shows its waveform over its spectrogram on one timeline, with the spectrum at the cursor beside it. Play, loop, mute and nudge tracks to line them up.
-3. **Compare.** Pick a base and up to three recordings to compare (keys `0`–`3`). Their results are drawn over each other, one colour per role.
-4. **Analyze as a chain.** The step bar is a wandas method chain, such as *Input → HPF 20 Hz → Average spectrum*. **＋** adds a wandas operation anywhere in it; click a step to see its result for every recording.
+3. **Compare.** Pick a base and up to three recordings to compare (keys `0`–`3`). Their results are drawn over each other, one colour per role: blue for the base; yellow, purple and magenta for the others.
+4. **Analyze as a chain.** The step bar is a [wandas](https://github.com/kasahart/wandas) method chain, such as *Input → HPF 20 Hz → Average spectrum*. **＋** adds a wandas operation anywhere in it; click a step to see its result for every recording.
 5. **Take it with you.** Export PNG, CSV, WAV or a Markdown / notebook report, or save the chain as a `.recipe.json` that wandas can run on its own.
 
 ![Tracks view: waveform over spectrogram for each recording, with the spectrum at the cursor](https://raw.githubusercontent.com/kasahart/audio-wandas-analyzer/main/media/readme-audio-wandas-analyzer_stft.png)
+
+![Compare view: the average spectra of the three samples overlaid](https://raw.githubusercontent.com/kasahart/audio-wandas-analyzer/main/media/readme-audio-wandas-analyzer.png)
 
 ## Also in the box
 

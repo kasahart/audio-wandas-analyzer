@@ -2,27 +2,29 @@
 
 [English](https://github.com/kasahart/audio-wandas-analyzer/blob/main/README.md) | **日本語**
 
-**違って聞こえる録音を見つけて、どこが違うかを確かめる。** 録音を並べて同じ時間軸で聴いて見比べ、[wandas](https://github.com/kasahart/wandas) の解析を重ねて比べられます。
+**違って聞こえる録音を見つけて、どこが違うかを確かめる。** 録音を並べて同じ時間軸で聴いて見比べ、どんな解析の結果も同じ軸に重ねて比べられます。
 
 **[▶ ブラウザーで試す](https://kasahart.github.io/audio-wandas-analyzer/)**：**サンプルで試す** を押すだけ。ファイルもインストールも要りません。音声は端末の外に出ません。長い録音や校正には [VS Code 拡張](https://marketplace.visualstudio.com/items?itemName=audio-wandas-analyzer.audio-wandas-analyzer) を使います。
 
-![比較解析：3 本の録音の平均スペクトルを重ね描き。2.8 kHz のうなりが黄色で浮き上がる](https://raw.githubusercontent.com/kasahart/audio-wandas-analyzer/main/media/readme-audio-wandas-analyzer.ja.png)
+![サンプルで試す → 役割を選ぶ → 比較解析で平均スペクトルの手順を押すと、2.8 kHz の純音が黄色で浮き上がる](https://raw.githubusercontent.com/kasahart/audio-wandas-analyzer/main/media/readme-demo.ja.gif)
 
-*同梱サンプルの比較解析。同じハムに、2.8 kHz のうなりが乗ったもの（黄）とクリックが乗ったもの（紫）。*
+*同梱サンプル：基準のハム（青）に対し、2.8 kHz の純音が乗ったもの（黄）とクリックが乗ったもの（紫）。*
 
 ## 使い方
 
 1. **開く**：ファイルかフォルダごと開きます。全ファイルが表に並び、☐ でトラックに出します。
 2. **聴いて見る**：トラックごとに波形とその下のスペクトログラムを同じ時間軸で表示し、横にカーソル位置のスペクトル。再生・ループ・ミュート・時間ずらしで揃えます。
-3. **比べる**：基準と、比べる録音を 3 本まで選びます（キー `0`〜`3`）。結果は役割ごとの色で重ねて描かれます。
-4. **手順で解析する**：手順バーは wandas のメソッドチェーンです（例：*入力 → ハイパス 20 Hz → 平均スペクトル*）。**＋** で wandas の処理を好きな位置に足し、手順を押すとその段の結果を全録音で見られます。
+3. **比べる**：基準と、比べる録音を 3 本まで選びます（キー `0`〜`3`）。結果は役割ごとの色で重ねて描かれます（基準は青、比較は黄・紫・マゼンタ）。
+4. **手順で解析する**：手順バーは [wandas](https://github.com/kasahart/wandas) のメソッドチェーンです（例：*入力 → ハイパス 20 Hz → 平均スペクトル*）。**＋** で wandas の処理を好きな位置に足し、手順を押すとその段の結果を全録音で見られます。
 5. **持ち出す**：PNG・CSV・WAV・Markdown / Notebook のレポートを書き出し、手順は wandas だけで実行できる `.recipe.json` として保存できます。
 
 ![トラック：録音ごとに波形とスペクトログラム、カーソル位置のスペクトル](https://raw.githubusercontent.com/kasahart/audio-wandas-analyzer/main/media/readme-audio-wandas-analyzer_stft.ja.png)
 
+![比較解析：3 本のサンプルの平均スペクトルを重ね描き](https://raw.githubusercontent.com/kasahart/audio-wandas-analyzer/main/media/readme-audio-wandas-analyzer.ja.png)
+
 ## ほかにも
 
-- **たくさんのファイル**：表にファイルごとの値（A 特性 Leq など）を出して並べ替え・絞り込み・群分け。属性 CSV（異常スコアや条件など）を読み込んで候補を絞れます。
+- **大量のファイル**：表にファイルごとの値（A 特性 Leq など）を出して並べ替え・絞り込み・群分け。属性 CSV（異常スコアや条件など）を読み込んで候補を絞れます。
 - **基準トラック**：基準から他のトラックへの伝達関数とコヒーレンス。
 - **校正**：Pa、m/s²、V に換算し、dB SPL などで表示（VS Code 版）。
 - **同梱レシピ**：ラウドネス、ラフネスなど。
