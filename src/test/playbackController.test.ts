@@ -137,6 +137,18 @@ test('toggling the playing track pauses it and leaves the cursor where it stoppe
     assert.deepEqual(changes, ['playback', 'playback']);
 });
 
+test('the element pausing asks again for the spectra where it stopped, after dropping the ones asked for mid-play', () => {
+    const { playback, audios, calls } = setup();
+    playback.attachAudio(audios[0] as unknown as HTMLAudioElement, A, 0);
+    playback.toggle(A);
+    audios[0].currentTime = 6;
+    playback.toggle(A);
+    calls.length = 0;
+    audios[0].emit('pause');
+    // The pause drops every slice asked for: without asking again, each track keeps a window from mid-play.
+    assert.deepEqual(calls.filter(call => call === 'invalidate' || call.startsWith('spectrum')), ['invalidate', 'spectrum immediate']);
+});
+
 test('stop puts the cursor back where playback started and clears the track', () => {
     const { playback, audios, cursor, calls } = setup();
     playback.toggle(A);
