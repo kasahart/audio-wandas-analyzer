@@ -73,6 +73,19 @@ test('the track view\'s steps mode draws every track as the chosen step\'s Frame
     // The track takes its role's colour: slot 1, yellow.
     await expect(page.locator('.track-header .role-chip-face').first()).toHaveAttribute('style', /background:\s*#d4b20f/);
     await expect(page.locator('.track-header .role-chip-face').first()).toHaveText(/^1( ch\d)?$/);
+    // What the comparison hides is not drawn: a resize draws its plot again, not the ruler or the spectra under it.
+    await page.evaluate(() => {
+        const w = window as unknown as { __hiddenPaints: string[] };
+        w.__hiddenPaints = [];
+        for (const canvas of Array.from(document.querySelectorAll<HTMLCanvasElement>('canvas#ruler-canvas, canvas#spectrum-overlay-canvas, canvas[id^="track-spectrum-"]'))) {
+            const own = canvas.getContext.bind(canvas);
+            canvas.getContext = ((...args: Parameters<HTMLCanvasElement['getContext']>) => { w.__hiddenPaints.push(canvas.id); return own(...args); }) as HTMLCanvasElement['getContext'];
+        }
+        window.dispatchEvent(new Event('resize'));
+    });
+    await expect.poll(() => page.evaluate(() => document.querySelector('[data-stage-canvas="overlay"]') !== null)).toBe(true);
+    await page.waitForTimeout(300);
+    expect(await page.evaluate(() => (window as unknown as { __hiddenPaints: string[] }).__hiddenPaints)).toEqual([]);
     // Δ on request, under the overlay.
     await page.locator('[data-action="stage-diff"]').click();
     await expect(page.locator('[data-stage-diff]')).toBeVisible();
