@@ -2,7 +2,7 @@
 
 [English](https://github.com/kasahart/audio-wandas-analyzer/blob/main/README.md) | **日本語**
 
-**違って聞こえる録音を見つけて、どこが違うかを確かめる。** 録音を並べて同じ時間軸で聴いて見比べ、どんな解析の結果も同じ軸に重ねて比べられます。
+**違って聞こえる録音を見つけて、どこが違うかを確かめる。** 録音を並べて同じ時間軸で聴いて見比べ、スペクトルなどの解析結果を同じ軸に重ねて比べられます。
 
 **[▶ ブラウザーで試す](https://kasahart.github.io/audio-wandas-analyzer/)**：**サンプルで試す** を押すだけ。ファイルもインストールも要りません。音声は端末の外に出ません。長い録音や校正には [VS Code 拡張](https://marketplace.visualstudio.com/items?itemName=audio-wandas-analyzer.audio-wandas-analyzer) を使います。
 

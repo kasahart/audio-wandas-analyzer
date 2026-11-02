@@ -2,7 +2,7 @@
 
 **English** | [日本語](https://github.com/kasahart/audio-wandas-analyzer/blob/main/README.ja.md)
 
-**Find what sounds different, then see why.** Line up recordings, listen and look on one timeline, and overlay any analysis of them on the same axes.
+**Find what sounds different, then see why.** Line up recordings, listen and look on one timeline, and overlay their spectra and other analyses on the same axes.
 
 **[▶ Try it in your browser](https://kasahart.github.io/audio-wandas-analyzer/)**: press **Try with samples**, no files or install needed. Your audio never leaves your device. For long recordings and calibration, install the [VS Code extension](https://marketplace.visualstudio.com/items?itemName=audio-wandas-analyzer.audio-wandas-analyzer).
 
