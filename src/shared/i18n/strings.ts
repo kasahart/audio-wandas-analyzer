@@ -425,6 +425,8 @@ export interface UiStrings {
     slotEmpty: string;
     axisFrequency: string;
     axisLevelUncal: string;
+    /** The level axis of a source without a full scale (CSV) while uncalibrated. */
+    axisLevelUncalRaw: string;
     axisLevelCal: string;
     axisDelta: string;
     axisTime: string;
@@ -440,6 +442,7 @@ export interface UiStrings {
     compareRefuseSlot: string;
     entryLeqUncalibrated: string;
     hintLeqUncalibrated: string;
+    hintLeqUncalibratedRaw: string;
     hintSpectrogramGroup: string;
     screenHelpTitle: string;
     /** The footer button that opens the help. */
@@ -504,6 +507,7 @@ export interface UiStrings {
     peakLabel: string;
     waveformAmplitudeLabel: string;
     calibrationBadgeUncalibratedHint: string;
+    calibrationBadgeRawHint: string;
     calibrationBadgePartialHint: string;
     calibrationFactorLabel: string;
     calibrationButtonLabel: string;
@@ -581,19 +585,26 @@ export interface UiStrings {
     dialogAnalyzeAudioTarget: string;
     dialogAudioFilesFilter: string;
     calFullScale: string;
+    calRawUnits: string;
     calSummary: string;
     calNoChannels: string;
     calResetAllLabel: string;
+    calResetAllRawLabel: string;
     calResetAllDescription: string;
     calChannelLabel: string;
     calConfigurePlaceholder: string;
     calResetDone: string;
+    calResetRawDone: string;
     calModeCalibratedLabel: string;
     calModeCalibratedDescription: string;
+    calModeCalibratedRawDescription: string;
     calModeUncalibratedLabel: string;
     calModeUncalibratedDescription: string;
+    calModeUncalibratedRawLabel: string;
+    calModeUncalibratedRawDescription: string;
     calFactorTitle: string;
     calFactorPrompt: string;
+    calFactorRawPrompt: string;
     calUnitTitle: string;
     calUnitPrompt: string;
     calUnitRequired: string;
@@ -1180,6 +1191,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         slotEmpty: 'empty',
         axisFrequency: 'Frequency [Hz]',
         axisLevelUncal: 'Amplitude, uncalibrated [dBFS]',
+        axisLevelUncalRaw: 'Amplitude, uncalibrated [dB re 1 input unit]',
         axisLevelCal: 'Amplitude [dB re {ref} {unit}]',
         axisDelta: 'Δ [dB]',
         axisTime: 'Time [s]',
@@ -1195,6 +1207,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         compareRefuseSlot: 'Slot {n} is empty: fill it on the table (1–3 on a row).',
         entryLeqUncalibrated: 'uncalibrated',
         hintLeqUncalibrated: 'Uncalibrated: 0 dB is the file\'s full scale, so levels read below 0. Calibrate to read sound pressure.',
+        hintLeqUncalibratedRaw: 'Uncalibrated: 0 dB is 1 raw input unit, not a physical level. Calibrate to read sound pressure.',
         hintSpectrogramGroup: 'Hold to show spectrograms; with a group as the base there is no single file to show, so put a file in slot 0',
         screenHelpTitle: 'Help',
         helpOpen: '? Help',
@@ -1257,6 +1270,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         peakLabel: 'Peak',
         waveformAmplitudeLabel: 'Amp',
         calibrationBadgeUncalibratedHint: 'Uncalibrated full scale (dBFS)',
+        calibrationBadgeRawHint: 'Uncalibrated raw input units (dB re 1 input unit)',
         calibrationBadgePartialHint: 'Some channels use physical calibration',
         calibrationFactorLabel: 'factor',
         calibrationButtonLabel: 'Cal',
@@ -1333,19 +1347,26 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dialogAnalyzeAudioTarget: 'Analyze audio file or folder',
         dialogAudioFilesFilter: 'Audio Files',
         calFullScale: 'Full scale (FS / dBFS)',
+        calRawUnits: 'Raw input units (dB re 1 input unit)',
         calSummary: 'factor {factor}; {unit}; {level}',
         calNoChannels: 'No audio channels are available for calibration.',
         calResetAllLabel: 'Reset all channels to full scale',
+        calResetAllRawLabel: 'Reset all channels to raw input units',
         calResetAllDescription: 'Remove the saved calibration profile for this file',
         calChannelLabel: 'Channel {n}: {label}',
         calConfigurePlaceholder: 'Configure calibration for {file}',
         calResetDone: 'Calibration reset to full scale: {file}',
+        calResetRawDone: 'Calibration reset to raw input units: {file}',
         calModeCalibratedLabel: 'Calibrated physical quantity',
         calModeCalibratedDescription: 'Apply a raw-FS-to-physical conversion before analysis',
+        calModeCalibratedRawDescription: 'Apply a raw-input-to-physical conversion before analysis',
         calModeUncalibratedLabel: 'Uncalibrated full scale',
         calModeUncalibratedDescription: 'Use FS and dBFS for this channel',
+        calModeUncalibratedRawLabel: 'Uncalibrated raw input units',
+        calModeUncalibratedRawDescription: 'Use the raw input values and dB re 1 input unit for this channel',
         calFactorTitle: 'Calibration factor — {channel}',
         calFactorPrompt: 'Physical value = raw full-scale sample × factor',
+        calFactorRawPrompt: 'Physical value = raw input value × factor',
         calUnitTitle: 'Physical unit — {channel}',
         calUnitPrompt: 'Examples: Pa, m/s^2, V. Use \'1\' for a dimensionless physical quantity.',
         calUnitRequired: 'Enter a unit, or \'1\' for dimensionless data.',
@@ -1929,6 +1950,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         slotEmpty: '空き',
         axisFrequency: '周波数 [Hz]',
         axisLevelUncal: '振幅 未校正 [dBFS]',
+        axisLevelUncalRaw: '振幅 未校正 [dB re 1 input unit]',
         axisLevelCal: '振幅 [dB re {ref} {unit}]',
         axisDelta: '差 [dB]',
         axisTime: '時間 [s]',
@@ -1944,6 +1966,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         compareRefuseSlot: 'スロット {n} は空です。一覧の行で 1–3 を押して入れてください',
         entryLeqUncalibrated: '未校正',
         hintLeqUncalibrated: '未校正：0 dB はファイルのフルスケールなので、値は 0 より小さくなる。音圧として読むには校正が要る。',
+        hintLeqUncalibratedRaw: '未校正：0 dB は生の入力値 1 であり、物理量のレベルではない。音圧として読むには校正が要る。',
         hintSpectrogramGroup: '長押しでスペクトログラム。基準が群のときは 1 本のファイルが無いので、スロット 0 にファイルを入れる',
         screenHelpTitle: 'ヘルプ',
         helpOpen: '? ヘルプ',
@@ -2006,6 +2029,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         peakLabel: 'ピーク',
         waveformAmplitudeLabel: '振幅',
         calibrationBadgeUncalibratedHint: '未校正のフルスケール (dBFS)',
+        calibrationBadgeRawHint: '未校正の生の入力単位 (dB re 1 input unit)',
         calibrationBadgePartialHint: '一部のチャンネルのみ物理量に校正済み',
         calibrationFactorLabel: '係数',
         calibrationButtonLabel: '校正',
@@ -2082,19 +2106,26 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dialogAnalyzeAudioTarget: '解析する音声ファイルまたはフォルダを選択',
         dialogAudioFilesFilter: '音声ファイル',
         calFullScale: 'フルスケール (FS / dBFS)',
+        calRawUnits: '生の入力単位 (dB re 1 input unit)',
         calSummary: '係数 {factor}; {unit}; {level}',
         calNoChannels: '校正できる音声チャンネルがありません。',
         calResetAllLabel: 'すべてのチャンネルをフルスケールに戻す',
+        calResetAllRawLabel: 'すべてのチャンネルを生の入力単位に戻す',
         calResetAllDescription: 'このファイルの保存済み校正プロファイルを削除します',
         calChannelLabel: 'チャンネル {n}: {label}',
         calConfigurePlaceholder: '{file} の校正を設定',
         calResetDone: '校正をフルスケールに戻しました: {file}',
+        calResetRawDone: '校正を生の入力単位に戻しました: {file}',
         calModeCalibratedLabel: '校正済みの物理量',
         calModeCalibratedDescription: '解析の前に生の FS 値を物理量に換算します',
+        calModeCalibratedRawDescription: '解析の前に生の入力値を物理量に換算します',
         calModeUncalibratedLabel: '未校正のフルスケール',
         calModeUncalibratedDescription: 'このチャンネルは FS と dBFS で扱います',
+        calModeUncalibratedRawLabel: '未校正の生の入力単位',
+        calModeUncalibratedRawDescription: 'このチャンネルは生の入力値と dB re 1 input unit で扱います',
         calFactorTitle: '校正係数 — {channel}',
         calFactorPrompt: '物理量 = 生のフルスケール値 × 係数',
+        calFactorRawPrompt: '物理量 = 生の入力値 × 係数',
         calUnitTitle: '物理単位 — {channel}',
         calUnitPrompt: '例: Pa、m/s^2、V。無次元の物理量には \'1\' を入力します。',
         calUnitRequired: '単位を入力してください。無次元のデータには \'1\' を入力します。',

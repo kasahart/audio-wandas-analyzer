@@ -63,7 +63,7 @@ const rowStrings = {
     hintRemoveTrack: 'Remove this track', hintOffsetUp: '+10 ms', hintOffsetDown: '-10 ms', hintTrackHeightResizer: 'Drag height',
     trackMoreHint: 'Time offset', offsetStepUp: '+10 ms', offsetStepDown: '−10 ms', offsetEdit: 'Type…', offsetReset: 'Reset to 0',
     trackNoAudio: 'No audio',
-    peakLabel: 'Pk', calibrationBadgeUncalibratedHint: 'Full scale', calibrationBadgePartialHint: 'Partial', calibrationFactorLabel: 'k',
+    peakLabel: 'Pk', calibrationBadgeUncalibratedHint: 'Full scale', calibrationBadgeRawHint: 'Raw', calibrationBadgePartialHint: 'Partial', calibrationFactorLabel: 'k',
 } satisfies TrackRowStrings;
 
 const baseRow: TrackRowSpec = {
@@ -103,11 +103,14 @@ test('track row disables transport buttons without audio and shows the muted sta
 });
 
 test('mono track row appends the channel summary to the meta line', () => {
-    const channel = { label: 'L', peakAbsolute: 1.5, peakLevelDb: 80, waveform: { min: [], max: [], samples: [], absolutePeak: 0 }, spectrogram: null } as unknown as ChannelSummary;
+    const channel = { label: 'L', peakAbsolute: 1.5, peakLevelDb: 80, fullScale: true, waveform: { min: [], max: [], samples: [], absolutePeak: 0 }, spectrogram: null } as unknown as ChannelSummary;
     const html = trackRowHtml({ ...baseRow, channelCount: 1, channels: [channel] }, rowStrings);
     assert.ok(html.includes('<div class="track-meta">1 ch &nbsp;48.0kHz &nbsp; <span>Pk 80.0 dB</span></div>'));
     assert.ok(html.includes('data-hint="Full scale"'));
     assert.ok(html.includes('class="clip-badge"'));
+    const csv = trackRowHtml({ ...baseRow, channelCount: 1, channels: [{ ...channel, fullScale: false, clipped: null }] }, rowStrings);
+    assert.ok(csv.includes('data-hint="Raw"') && csv.includes('>RAW</span>'), 'a CSV track is uncalibrated in raw input units, not FS');
+    assert.ok(!csv.includes('>FS</span>'));
 });
 
 test('every track header control and the lane canvases carry a footer hint', () => {

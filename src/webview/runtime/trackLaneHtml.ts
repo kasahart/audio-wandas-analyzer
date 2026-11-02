@@ -79,7 +79,7 @@ export type TrackRowStrings = Pick<UiStrings,
     | 'calibrationButtonLabel' | 'calibrationButtonTitle' | 'calibrationButtonAria'
     | 'trackOffsetResetHint' | 'ariaOffsetValue' | 'ariaOffsetUp' | 'ariaOffsetDown' | 'ariaResizeTrackHeight'
     | 'hintRemoveTrack' | 'hintOffsetUp' | 'hintOffsetDown' | 'hintTrackHeightResizer'
-    | 'peakLabel' | 'calibrationBadgeUncalibratedHint' | 'calibrationBadgePartialHint' | 'calibrationFactorLabel'>;
+    | 'peakLabel' | 'calibrationBadgeUncalibratedHint' | 'calibrationBadgeRawHint' | 'calibrationBadgePartialHint' | 'calibrationFactorLabel'>;
 
 export function trackRowHtml(spec: TrackRowSpec, strings: TrackRowStrings): string {
     const { trackId, trackIndex: i, channels } = spec;

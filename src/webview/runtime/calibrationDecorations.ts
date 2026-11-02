@@ -13,7 +13,7 @@ interface CalibrationSummary {
 type Channel = ChannelSummary | null | undefined;
 
 type CalibrationButtonStrings = Pick<UiStrings, 'calibrationButtonLabel' | 'calibrationButtonTitle' | 'calibrationButtonAria'>;
-export type CalibrationBadgeStrings = Pick<UiStrings, 'calibrationBadgeUncalibratedHint' | 'calibrationBadgePartialHint' | 'calibrationFactorLabel'>;
+export type CalibrationBadgeStrings = Pick<UiStrings, 'calibrationBadgeUncalibratedHint' | 'calibrationBadgeRawHint' | 'calibrationBadgePartialHint' | 'calibrationFactorLabel'>;
 
 function measurementFor(channel: Channel) {
     return channel && channel.measurement ? channel.measurement : null;
@@ -41,7 +41,10 @@ export function calibrationSummary(channels: Channel[], strings: CalibrationBadg
         return measurement?.calibrationStatus === 'calibrated' ? [measurement] : [];
     });
     if (calibrated.length === 0) {
-        return { text: 'FS', title: strings.calibrationBadgeUncalibratedHint };
+        // A source without a full scale (CSV) is uncalibrated in raw input units, not FS.
+        return channels.every(channel => !channel || channel.fullScale)
+            ? { text: 'FS', title: strings.calibrationBadgeUncalibratedHint }
+            : { text: 'RAW', title: strings.calibrationBadgeRawHint };
     }
     if (calibrated.length !== channels.length) {
         return { text: 'PARTIAL', title: strings.calibrationBadgePartialHint };

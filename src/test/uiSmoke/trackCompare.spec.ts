@@ -52,7 +52,7 @@ async function showTracks(page: Page, paths: string[]): Promise<void> {
     await expect.poll(async () => (await posted(page)).filter(message => message.type === 'analyze-selected-files').at(-1)?.filePaths).toEqual(paths);
     await page.evaluate(paths => window.dispatchEvent(new MessageEvent('message', { data: { type: 'analysis-update', results: paths.map(filePath => ({
         filePath, fileName: filePath.split('/').at(-1), audioSource: '', sampleRateHz: 16000, durationSeconds: 2, channelCount: 1, sampleCount: 32000,
-        channels: [{ label: 'L', peakAbsolute: 0.5, waveform: { min: [-0.5, -0.4], max: [0.5, 0.4], minT: [0.1, 0.6], maxT: [0.4, 0.9], absolutePeak: 0.5 } }],
+        channels: [{ label: 'L', peakAbsolute: 0.5, fullScale: true, waveform: { min: [-0.5, -0.4], max: [0.5, 0.4], minT: [0.1, 0.6], maxT: [0.4, 0.9], absolutePeak: 0.5 } }],
     })) } })), paths);
     await expect(page.locator('.track-stage')).toBeVisible();
     await expect.poll(async () => (await stageScans(page)).length).toBeGreaterThan(0);
@@ -249,7 +249,7 @@ test('a ch-2 slot is drawn as channel 2: its scans select it first, its base\'s 
     await expect(page.locator('#entry-screen')).not.toHaveClass(/is-max/);
     await page.evaluate(paths => window.dispatchEvent(new MessageEvent('message', { data: { type: 'analysis-update', results: paths.map(path => ({
         filePath: path, fileName: path.split('/').at(-1), audioSource: '', sampleRateHz: 16000, durationSeconds: 2, channelCount: 2, sampleCount: 32000,
-        channels: [0, 1].map(index => ({ label: `ch${index + 1}`, peakAbsolute: 0.5, waveform: { min: [-0.5, -0.4], max: [0.5, 0.4], minT: [0.1, 0.6], maxT: [0.4, 0.9], absolutePeak: 0.5 } })),
+        channels: [0, 1].map(index => ({ label: `ch${index + 1}`, peakAbsolute: 0.5, fullScale: true, waveform: { min: [-0.5, -0.4], max: [0.5, 0.4], minT: [0.1, 0.6], maxT: [0.4, 0.9], absolutePeak: 0.5 } })),
     })) } })), [filePath]);
     await expect.poll(async () => (await stageScans(page)).length).toBeGreaterThan(0);
     // Every scan of the comparison selects channel 2 (index 1) at the head of its Recipe: the compared file and its base.
@@ -540,7 +540,7 @@ test('coherence compares two channels of each recording: it comes with its pair 
     const bar = page.locator('.track-stage-bar');
     await bar.locator('.step-chip', { hasText: STR.stepAverage }).locator('[data-action="step-delete"]').click();
     // The recordings are two-channel, as the host's analysis of them says.
-    const lane = { peakAbsolute: 0.5, waveform: { min: [-0.5, -0.4], max: [0.5, 0.4], minT: [0.1, 0.6], maxT: [0.4, 0.9], absolutePeak: 0.5 } };
+    const lane = { peakAbsolute: 0.5, fullScale: true, waveform: { min: [-0.5, -0.4], max: [0.5, 0.4], minT: [0.1, 0.6], maxT: [0.4, 0.9], absolutePeak: 0.5 } };
     await page.evaluate(({ paths, lane }) => window.dispatchEvent(new MessageEvent('message', { data: { type: 'analysis-update', results: paths.map(filePath => ({
         filePath, fileName: filePath.split('/').at(-1), audioSource: '', sampleRateHz: 16000, durationSeconds: 2, channelCount: 2, sampleCount: 32000,
         channels: [{ label: 'L', ...lane }, { label: 'R', ...lane }],
@@ -672,7 +672,7 @@ test('the first opening shows the input: a base group draws each of its waveform
     await expect.poll(async () => (await posted(page)).filter(message => message.type === 'analyze-selected-files').at(-1)?.filePaths).toEqual([filePath]);
     await page.evaluate(filePath => window.dispatchEvent(new MessageEvent('message', { data: { type: 'analysis-update', results: [{
         filePath, fileName: filePath.split('/').at(-1), audioSource: '', sampleRateHz: 16000, durationSeconds: 2, channelCount: 1, sampleCount: 32000,
-        channels: [{ label: 'L', peakAbsolute: 0.5, waveform: { min: [-0.5, -0.4], max: [0.5, 0.4], minT: [0.1, 0.6], maxT: [0.4, 0.9], absolutePeak: 0.5 } }],
+        channels: [{ label: 'L', peakAbsolute: 0.5, fullScale: true, waveform: { min: [-0.5, -0.4], max: [0.5, 0.4], minT: [0.1, 0.6], maxT: [0.4, 0.9], absolutePeak: 0.5 } }],
     }] } })), filePath);
     const bar = page.locator('.track-stage-bar');
     const stage = page.locator('.track-stage');

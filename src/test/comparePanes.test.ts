@@ -3,8 +3,9 @@ import test from 'node:test';
 import type { ScanResult } from '../shared/protocol/backendProtocol';
 import { getStrings } from '../shared/i18n/strings';
 import { BAND_CENTERS_HZ, buildEntryModel } from '../webview/runtime/entryTable';
-import { buildCompareModel, diffHeadline, legendHtml, levelsHeadline, paneAxes } from '../webview/runtime/comparePanes';
-import { paintOverlay } from '../webview/runtime/stagePanes';
+import { buildCompareModel, diffHeadline, legendHtml, levelsHeadline, paneAxes, trackLevelInput } from '../webview/runtime/comparePanes';
+import type { ChannelSummary } from '../shared/analysis/analysisTypes';
+import { paintOverlay, stageAxes } from '../webview/runtime/stagePanes';
 import type { StageView } from '../shared/protocol/backendProtocol';
 
 const STR = getStrings('en');
@@ -13,7 +14,7 @@ const BAND_3150 = BAND_CENTERS_HZ.indexOf(3150);
 function scan(leq: number, spectrum: number[], band3150: number): ScanResult {
     return {
         ok: true, conditionId: 'c', specVersion: 2, wandasVersion: '0.9.0', elapsedMs: 1,
-        input: { id: 'i', fs: 16000, channels: [0], durationS: 2, unit: 'FS', ref: 1 },
+        input: { id: 'i', fs: 16000, channels: [0], durationS: 2, unit: 'FS', ref: 1, fullScale: true },
         leqDbA: [leq], peakHz: [100], spectrumDb: [spectrum],
         thirdOctDb: [BAND_CENTERS_HZ.map((_, band) => (band === BAND_3150 ? band3150 : -60 + band * 0.1))], crest: [1.4],
     };
@@ -113,7 +114,7 @@ test('every pane names its axes: level and frequency, Δ with its legend, in the
     });
     const canvas = { width: 0, height: 0, clientWidth: 600, clientHeight: 200, ownerDocument: {}, getContext: () => context } as unknown as HTMLCanvasElement;
     const ja = getStrings('ja');
-    const uncal = paneAxes(ja, { unit: 'FS', ref: 1 });
+    const uncal = paneAxes(ja, { unit: 'FS', ref: 1, fullScale: true });
     const view = (values: number[]): StageView => ({ frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity: 'level', xs: [100, 1000], values });
     paintOverlay(canvas, { layers: [{ view: view([-40, -50]), color: '#00f' }] }, { min: -80, max: 0 }, uncal.level);
     assert.ok(texts.includes('振幅 未校正 [dBFS]') && texts.includes('周波数 [Hz]'));
@@ -122,7 +123,23 @@ test('every pane names its axes: level and frequency, Δ with its legend, in the
     texts.length = 0;
     paintOverlay(canvas, { layers: [{ view: view([1, 2]), color: '#0f0' }] }, { min: -8, max: 8 }, uncal.delta, { diff: true, bandSteps: { deltas: [], headline: [], color: '#0f0', legend: uncal.delta.legend } });
     assert.ok(['差 [dB]', '1/3 oct 見出し', '漏れ', '点ごとの差'].every(text => texts.includes(text)));
-    assert.equal(paneAxes(ja, { unit: 'Pa', ref: 2e-5 }).level.y, '振幅 [dB re 0.00002 Pa]');
+    assert.equal(paneAxes(ja, { unit: 'Pa', ref: 2e-5, fullScale: true }).level.y, '振幅 [dB re 0.00002 Pa]');
+});
+
+test('an uncalibrated source without a full scale (CSV) names its level axis in raw input units; audio keeps dBFS', () => {
+    for (const [language, fullScaleAxis, rawAxis] of [
+        ['en', 'Amplitude, uncalibrated [dBFS]', 'Amplitude, uncalibrated [dB re 1 input unit]'],
+        ['ja', '振幅 未校正 [dBFS]', '振幅 未校正 [dB re 1 input unit]'],
+    ] as const) {
+        const strings = getStrings(language);
+        assert.equal(paneAxes(strings, { unit: 'FS', ref: 1, fullScale: true }).level.y, fullScaleAxis);
+        assert.equal(paneAxes(strings, { unit: 'FS', ref: 1, fullScale: false }).level.y, rawAxis);
+        assert.equal(paneAxes(strings, { unit: 'Pa', ref: 1, fullScale: false }).level.y, strings.axisLevelCal.replace('{ref}', '1').replace('{unit}', 'Pa'), 'a calibrated CSV names its calibration');
+    }
+    const waveform = { min: [0], max: [1], minT: [0], maxT: [0], absolutePeak: 1, ref: 1 };
+    const view = (unit: string): StageView => ({ frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs: [0], values: [0], waveform: { ...waveform, unit } });
+    assert.equal(stageAxes(STR, view('FS'), { unit: 'FS', ref: 1, fullScale: true }).y, 'Amplitude [FS]');
+    assert.equal(stageAxes(STR, view(''), { unit: 'FS', ref: 1, fullScale: false }).y, 'Amplitude [input unit]');
 });
 
 test('the headline gives both levels, and a band far below the loudest does not head it however large its Δ', () => {
@@ -151,4 +168,19 @@ test('a legend item ends with the markup its caller adds (the base group\'s ▾)
     ], strings);
     assert.match(html, /^<span class="compare-legend-item"><svg[^]*<span class="compare-legend-label">Base &lt;group&gt;<\/span><button data-action="stage-base-info">▾<\/button><\/span><span class="compare-legend-item">/);
     assert.equal(html.split('stage-base-info').length, 2);
+});
+
+test('a track with no entry result takes its level reference from its own analysis', () => {
+    const waveform = { min: [], max: [], samples: [], absolutePeak: 0 };
+    const channel = (fullScale: boolean, measurement?: ChannelSummary['measurement']): ChannelSummary => ({ label: 'L', peakAbsolute: 1, fullScale, waveform, spectrogram: null, ...(measurement ? { measurement } : {}) });
+    const pa = { calibrationStatus: 'calibrated', calibrationSource: 'manual', factor: 2, linearUnit: 'Pa', referenceValue: 2e-5, referenceUnit: 'Pa', levelUnit: 'dB SPL', levelReferenceLabel: 'dB SPL re 20 µPa' } as const;
+    const g = { ...pa, linearUnit: 'm/s^2', referenceValue: 1, referenceUnit: 'm/s^2', levelUnit: 'dB', levelReferenceLabel: 'dB re 1 m/s^2' } as const;
+    const scanned = { unit: 'FS', ref: 1, fullScale: false };
+    assert.deepEqual(trackLevelInput([channel(true)], scanned), scanned, 'the entry table\'s scan wins');
+    assert.deepEqual(trackLevelInput([channel(false)], undefined), { unit: 'FS', ref: 1, fullScale: false });
+    assert.deepEqual(trackLevelInput([channel(true)], undefined), { unit: 'FS', ref: 1, fullScale: true });
+    assert.deepEqual(trackLevelInput([channel(false, pa)], undefined), { unit: 'Pa', ref: 2e-5, fullScale: false }, 'a calibrated CSV keeps its calibration');
+    assert.deepEqual(trackLevelInput([channel(true, pa), channel(true, g)], undefined), { unit: 'FS', ref: 1, fullScale: true }, 'channels calibrated apart share no reference');
+    assert.equal(paneAxes(STR, trackLevelInput([channel(false)], undefined)).level.y, 'Amplitude, uncalibrated [dB re 1 input unit]');
+    assert.equal(paneAxes(STR, trackLevelInput([channel(true)], undefined)).level.y, 'Amplitude, uncalibrated [dBFS]');
 });

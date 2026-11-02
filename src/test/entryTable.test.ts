@@ -21,7 +21,7 @@ function scan(leq: number, band: number, options: { fs?: number; channels?: numb
     const third = BAND_CENTERS_HZ.map((_, index) => (index === BAND_3150 ? band : -60));
     return {
         ok: true, conditionId: 'c', specVersion: 1, wandasVersion: '0.9.0', elapsedMs: 1,
-        input: { id: 'i', fs: options.fs ?? 16000, channels: Array.from({ length: channels }, (_, i) => i), durationS: 2, unit: 'FS', ref: 1 },
+        input: { id: 'i', fs: options.fs ?? 16000, channels: Array.from({ length: channels }, (_, i) => i), durationS: 2, unit: 'FS', ref: 1, fullScale: true },
         leqDbA: Array(channels).fill(leq), peakHz: Array(channels).fill(options.peak ?? 100),
         spectrumDb: Array(channels).fill([leq]), thirdOctDb: Array(channels).fill(third), crest: Array(channels).fill(1.4),
     };
@@ -169,4 +169,17 @@ test('a derived row sits under its parent with the parent\'s condition and Δ ag
     assert.deepEqual(model.rows.filter(row => !row.derived).map(row => [row.groupSize, row.delta.band]), plain.rows.map(row => [row.groupSize, row.delta.band]));
     const csv = entryCsv(model, LABELS).slice(1).split('\r\n');
     assert.equal(csv[parent + 2].split(',').slice(0, 5).join(','), 'L1_900rpm_run1.wav,L1,900rpm,0.50,1.50');
+});
+
+test('an uncalibrated row says what its level is relative to: full scale for audio, raw input units for CSV', () => {
+    const csv = scan(-20, -30);
+    if (csv.input) csv.input = { ...csv.input, fullScale: false };
+    const calibrated = scan(60, 50);
+    if (calibrated.input) calibrated.input = { ...calibrated.input, unit: 'Pa', ref: 2e-5 };
+    const model = buildEntryModel([
+        { filePath: '/f/a.wav', result: scan(-20, -30) },
+        { filePath: '/f/b.csv', result: csv },
+        { filePath: '/f/c.wav', result: calibrated },
+    ], null, { band: BAND_3150 });
+    assert.deepEqual(model.rows.map(row => [row.filePath, row.uncalibrated]), [['/f/a.wav', 'full-scale'], ['/f/b.csv', 'raw-units'], ['/f/c.wav', undefined]]);
 });

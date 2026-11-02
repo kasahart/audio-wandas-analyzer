@@ -36,7 +36,7 @@ test('the track view\'s steps mode draws every track as the chosen step\'s Frame
     await expect(page.locator('#entry-screen')).not.toHaveClass(/is-max/);
     await page.evaluate(filePath => window.dispatchEvent(new MessageEvent('message', { data: { type: 'analysis-update', results: [{
         filePath, fileName: filePath.split('/').at(-1), audioSource: '', sampleRateHz: 16000, durationSeconds: 2, channelCount: 1, sampleCount: 32000,
-        channels: [{ label: 'L', peakAbsolute: 0.5, waveform: { min: [-0.5, -0.4], max: [0.5, 0.4], minT: [0.1, 0.6], maxT: [0.4, 0.9], absolutePeak: 0.5 } }],
+        channels: [{ label: 'L', peakAbsolute: 0.5, fullScale: true, waveform: { min: [-0.5, -0.4], max: [0.5, 0.4], minT: [0.1, 0.6], maxT: [0.4, 0.9], absolutePeak: 0.5 } }],
     }] } })), first!);
     await expect(page.locator('.track-row')).toHaveCount(1);
     // Steps: the step bar over the tracks, opened the first time on the input (the recordings as they are).
@@ -121,3 +121,67 @@ test('the track view\'s steps mode draws every track as the chosen step\'s Frame
     await expect(page.locator('#ruler-row')).toBeVisible();
     await expect(page.locator('#stacked-wrap')).toBeVisible();
 });
+
+for (const [source, fullScale, standalone, axis, badge, other] of [
+    ['WAV', true, false, 'Amplitude, uncalibrated [dBFS]', 'FS', 'Amplitude, uncalibrated [dB re 1 input unit]'],
+    ['CSV', false, false, 'Amplitude, uncalibrated [dB re 1 input unit]', 'RAW', 'Amplitude, uncalibrated [dBFS]'],
+    // Opened on its own (or before the folder's rescan): the entry table has no result for it, so the track's own analysis says.
+    ['CSV opened on its own', false, true, 'Amplitude, uncalibrated [dB re 1 input unit]', 'RAW', 'Amplitude, uncalibrated [dBFS]'],
+] as const) {
+    test(`a ${source} track names its uncalibrated level axis and badge by whether its source has a full scale`, async ({ page }) => {
+        test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+        const recipe = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', '..', 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8'));
+        const view = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity: 'level', xs: [100, 1000, 5000], values: [-40, -30, -50] };
+        // The fixture's scans as the backend reports a source without a full scale in the CSV case: the UI reads only `fullScale`.
+        const files = scanned!.map(file => {
+            const input = file.result['input'] as Record<string, unknown> | undefined;
+            return { filePath: file.filePath, result: { ...file.result, ...(input ? { input: { ...input, fullScale } } : {}) } };
+        });
+        // Standalone: the table holds the folder's audio scans; the CSV track is none of its rows.
+        await openEntry(page, standalone ? scanned! : files, { recipe });
+        const lone = { filePath: '/elsewhere/vibration.csv', result: files[0].result };
+        // The level axis is canvas text: every string the page draws from here on is kept.
+        await page.evaluate(() => {
+            const drawn: string[] = [];
+            (window as unknown as { __drawnTexts: string[] }).__drawnTexts = drawn;
+            const proto = CanvasRenderingContext2D.prototype;
+            proto.fillText = new Proxy(Reflect.get(proto, 'fillText'), {
+                apply(target, self, args: Parameters<CanvasRenderingContext2D['fillText']>) {
+                    drawn.push(String(args[0]));
+                    return Reflect.apply(target, self, args);
+                },
+            });
+        });
+        const row = (await page.locator('[data-entry-rows] tr').first().getAttribute('data-file-path'))!;
+        await page.keyboard.press('1');
+        await expect.poll(async () => (await page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Array<{ type: string; filePaths?: string[] }> }).__uiSmokePostedMessages))
+            .filter(message => message.type === 'analyze-selected-files').at(-1)?.filePaths).toEqual([row]);
+        const first = standalone ? lone.filePath : row;
+        await page.keyboard.press('Escape');
+        await expect(page.locator('#entry-screen')).not.toHaveClass(/is-max/);
+        await page.evaluate(({ filePath, fullScale }) => window.dispatchEvent(new MessageEvent('message', { data: { type: 'analysis-update', results: [{
+            filePath, fileName: filePath.split('/').at(-1), audioSource: '', sampleRateHz: 16000, durationSeconds: 2, channelCount: 1, sampleCount: 32000,
+            channels: [{ label: 'L', peakAbsolute: 0.5, fullScale, clipped: fullScale ? false : null, waveform: { min: [-0.5, -0.4], max: [0.5, 0.4], minT: [0.1, 0.6], maxT: [0.4, 0.9], absolutePeak: 0.5 } }],
+        }] } })), { filePath: first, fullScale });
+        await expect(page.locator('.track-row')).toHaveCount(1);
+        await expect(page.locator('.track-row .calibration-badge')).toHaveText(badge);
+        await page.locator('[data-action="content-stage"]').click();
+        await page.locator('.track-stage-bar [data-step-hold="node-2"]').click();
+        await expect.poll(async () => (await stageScans(page)).at(-1)?.stage).toBe('node-2');
+        await page.evaluate(() => { (window as unknown as { __drawnTexts: string[] }).__drawnTexts.length = 0; });
+        const request = (await stageScans(page)).at(-1)!;
+        await page.evaluate(({ request, view, files }) => {
+            for (const filePath of request.filePaths) {
+                const file = files.find(item => item.filePath === filePath)!;
+                window.postMessage({ type: 'compare-scan-result', requestId: request.requestId, filePath, result: { ...file.result, stage: view } }, '*');
+            }
+            window.postMessage({ type: 'compare-scan-done', requestId: request.requestId }, '*');
+        }, { request, view, files: standalone ? [lone] : files });
+        await expect(page.locator('.track-stage')).toHaveAttribute('data-pending', /^(|1\/\d+)$/);
+        // A gutter too short for the whole title keeps its unit (fittedAxisTitle).
+        const drawnAxis = (title: string) => async (): Promise<boolean> => (await page.evaluate(() => (window as unknown as { __drawnTexts: string[] }).__drawnTexts))
+            .some(text => text === title || text === /\[([^\]]+)\]$/.exec(title)![1]);
+        await expect.poll(drawnAxis(axis)).toBe(true);
+        expect(await drawnAxis(other)()).toBe(false);
+    });
+}

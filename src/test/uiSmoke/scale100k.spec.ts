@@ -127,7 +127,7 @@ test('100,000 recordings with their values: scrolling redraws the overview strip
             paths.slice(at, at + 2000).forEach((filePath, offset) => {
                 const bands = Array.from({ length: 31 }, (_, band) => -60 + ((at + offset + band) % 20));
                 const result = {
-                    ok: true, conditionId: 'c', input: { id: filePath, fs: 16000, channels: [0], durationS: 10, unit: 'FS', ref: 1 },
+                    ok: true, conditionId: 'c', input: { id: filePath, fs: 16000, channels: [0], durationS: 10, unit: 'FS', ref: 1, fullScale: true },
                     leqDbA: [-30], peakHz: [1000], spectrumDb: [[-30]], thirdOctDb: [bands], crest: [1.4], specVersion: 1, wandasVersion: '0.10.0', elapsedMs: 1,
                 };
                 window.postMessage({ type: 'entry-scan-result', requestId, filePath, result }, '*');

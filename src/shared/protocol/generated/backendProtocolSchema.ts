@@ -258,6 +258,7 @@ export const BACKEND_PROTOCOL_SCHEMA = {
             "required": [
                 "label",
                 "peakAbsolute",
+                "fullScale",
                 "waveform",
                 "spectrogram"
             ],
@@ -286,6 +287,9 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 },
                 "rawPeakFullScale": {
                     "type": "number"
+                },
+                "fullScale": {
+                    "type": "boolean"
                 },
                 "clipped": {
                     "anyOf": [
@@ -1411,7 +1415,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "channels",
                 "durationS",
                 "unit",
-                "ref"
+                "ref",
+                "fullScale"
             ],
             "properties": {
                 "id": {
@@ -1436,6 +1441,9 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 },
                 "ref": {
                     "type": "number"
+                },
+                "fullScale": {
+                    "type": "boolean"
                 }
             },
             "additionalProperties": false
@@ -1783,6 +1791,7 @@ export interface ChannelSummary {
     measurement?: ChannelMeasurementContext;
     peakLevelDb?: number;
     rawPeakFullScale?: number;
+    fullScale: boolean;
     clipped?: boolean | null;
     waveform: WaveformEnvelope;
     spectrogram: SpectrogramData | null;
@@ -2049,6 +2058,7 @@ export interface ScanInput {
     durationS: number;
     unit: string;
     ref: number;
+    fullScale: boolean;
 }
 
 export interface ScanResult {

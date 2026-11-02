@@ -5,6 +5,7 @@
  */
 import type { ScanResult, StageView } from '../../shared/protocol/backendProtocol';
 import type { UiStrings } from '../../shared/i18n/strings';
+import type { ChannelSummary } from '../../shared/analysis/analysisTypes';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { BAND_CENTERS_HZ, bandLabel, HEADLINE_WITHIN_DB, quantile, roundedDelta, type EntryModel } from './entryTable';
 import { baseName } from '../../shared/analysis/entryMetadata';
@@ -315,13 +316,31 @@ export interface PaneAxes {
     legend?: { headline: string; leak: string; line: string };
 }
 
+/** A scanned file's level reference: its unit and reference value, and whether its source has a full scale. */
+export type LevelInput = Pick<NonNullable<ScanResult['input']>, 'unit' | 'ref' | 'fullScale'>;
+
 /**
- * The comparison's axis names. The level axis follows the files' calibration: dBFS while uncalibrated,
- * dB re the calibration value otherwise.
+ * A track's level reference for the steps view: as the entry table scanned it, else from the track's own analysis
+ * (a file opened on its own, or a folder not rescanned yet): its calibration when every channel shares one, else
+ * uncalibrated, relative to full scale or to 1 input unit as its source says.
  */
-export function paneAxes(strings: Pick<UiStrings, 'axisFrequency' | 'axisLevelUncal' | 'axisLevelCal' | 'axisDelta' | 'legendHeadline' | 'legendLeak' | 'legendLine'>, input: { unit?: string; ref?: number } | undefined): { level: PaneAxes; delta: PaneAxes } {
+export function trackLevelInput(channels: ReadonlyArray<ChannelSummary | null | undefined>, scanned: LevelInput | undefined): LevelInput {
+    if (scanned) return { unit: scanned.unit, ref: scanned.ref, fullScale: scanned.fullScale };
+    const fullScale = channels.every(channel => !channel || channel.fullScale);
+    const first = channels[0]?.measurement;
+    const shared = first?.calibrationStatus === 'calibrated' && channels.every(channel => channel?.measurement?.calibrationStatus === 'calibrated'
+        && channel.measurement.referenceUnit === first.referenceUnit && channel.measurement.referenceValue === first.referenceValue);
+    return shared ? { unit: first.referenceUnit, ref: first.referenceValue, fullScale } : { unit: 'FS', ref: 1, fullScale };
+}
+
+/**
+ * The comparison's axis names. The level axis follows the files' calibration: dBFS while uncalibrated
+ * (dB re 1 input unit for a source without a full scale), dB re the calibration value otherwise.
+ */
+export function paneAxes(strings: Pick<UiStrings, 'axisFrequency' | 'axisLevelUncal' | 'axisLevelUncalRaw' | 'axisLevelCal' | 'axisDelta' | 'legendHeadline' | 'legendLeak' | 'legendLine'>, input: LevelInput | undefined): { level: PaneAxes; delta: PaneAxes } {
     const uncalibrated = !input || (input.unit === 'FS' && input.ref === 1);
-    const y = uncalibrated ? strings.axisLevelUncal : strings.axisLevelCal.replace('{ref}', String(input.ref)).replace('{unit}', input.unit ?? '');
+    const y = !uncalibrated ? strings.axisLevelCal.replace('{ref}', String(input.ref)).replace('{unit}', input.unit)
+        : input && !input.fullScale ? strings.axisLevelUncalRaw : strings.axisLevelUncal;
     return {
         level: { x: strings.axisFrequency, y },
         delta: { x: strings.axisFrequency, y: strings.axisDelta, legend: { headline: strings.legendHeadline, leak: strings.legendLeak, line: strings.legendLine } },

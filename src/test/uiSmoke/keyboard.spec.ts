@@ -99,7 +99,7 @@ test('focus-visible CSS rule is present in rendered styles', async ({ page }) =>
 function showTrack(): void {
     window.dispatchEvent(new MessageEvent('message', { data: { type: 'analysis-update', results: [{
         filePath: '/preview/keys.wav', fileName: 'keys.wav', audioSource: '', sampleRateHz: 8000, durationSeconds: 10, channelCount: 1, sampleCount: 80000,
-        channels: [{ label: 'L', peakAbsolute: 0.8, waveform: { min: [-0.2, -0.4], max: [0.2, 0.4], minT: [1, 6], maxT: [4, 9], absolutePeak: 0.8 } }],
+        channels: [{ label: 'L', peakAbsolute: 0.8, fullScale: true, waveform: { min: [-0.2, -0.4], max: [0.2, 0.4], minT: [1, 6], maxT: [4, 9], absolutePeak: 0.8 } }],
     }] } }));
 }
 

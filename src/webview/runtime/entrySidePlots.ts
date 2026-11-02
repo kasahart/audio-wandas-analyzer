@@ -9,6 +9,7 @@ import type { ScanResult } from '../../shared/protocol/backendProtocol';
 import type { DatasetRow } from '../../shared/dataset/datasetTable';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
 import { powerMeanOrNull } from '../../shared/utils/levels';
+import { uncalibratedUnits } from '../../shared/utils/format';
 import { installRangePopover, linearAxis, openAxisPart, type AxisMapping } from '../rangePopover';
 import type { HeldPicture } from './entryHeldPlot';
 import { OVERVIEW_MARGINS, paintOverview } from './entryPlots';
@@ -53,6 +54,12 @@ export interface SidePlots {
     attach(): void;
 }
 
+/** The overview's colour-scale unit: the recordings' own when they share one (dBFS before any scan), else plain dB. */
+export function overviewLevelUnit(levelUnits: ReadonlyMap<string, string>): string {
+    const units = new Set(levelUnits.values());
+    return units.size === 0 ? 'dBFS' : units.size === 1 ? [...units][0] : 'dB';
+}
+
 export function createSidePlots(deps: SidePlotsDeps): SidePlots {
     const { document, strings, screen, side, body, tableWrap, overview, heldCanvas } = deps;
     const windows = new Map<string, PlotWindow>();
@@ -62,9 +69,9 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
         if (windowKeys.get(name) !== key) { windowKeys.set(name, key); windows.delete(name); }
         return plotWindow(name);
     }
-    /** Each scanned recording's bands and the calibrated ones, kept as results arrive so scrolling does not redo them. */
+    /** Each scanned recording's bands and the unit of its levels, kept as results arrive so scrolling does not redo them. */
     const levels = new Map<string, (number | null)[]>();
-    const calibrated = new Set<string>();
+    const levelUnits = new Map<string, string>();
     /** Bumped on every change to them, so the strip knows when to draw its cells again. */
     let version = 0;
     const pending = { frame: false, distribution: true };
@@ -77,7 +84,7 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
         const rowHeight = (body.querySelector('tr') as HTMLElement | null)?.offsetHeight || 22;
         const first = Math.floor(tableWrap.scrollTop / rowHeight);
         paintOverview(overview, rows, levels, { first, last: first + Math.ceil(tableWrap.clientHeight / rowHeight) - 2 }, deps.focusedFile(), keepWindow('overview', String(rows.length)),
-            calibrated.size > 0, version);
+            overviewLevelUnit(levelUnits), version);
         // The zoom on each plot, for tests: "x0-x1|y0-y1".
         for (const [name, canvas] of [['overview', overview], ['held', heldCanvas]] as const) {
             const zoom = plotWindow(name);
@@ -166,12 +173,12 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
             const bands = result.thirdOctDb;
             if (result.ok && bands?.length) levels.set(filePath, bands[0].map((_, bandIndex) => powerMeanOrNull(bands.map(channel => channel[bandIndex]))));
             else levels.delete(filePath);
-            if (result.ok && result.input?.unit !== undefined && result.input.unit !== 'FS') calibrated.add(filePath);
-            else calibrated.delete(filePath);
+            if (result.ok && result.input) levelUnits.set(filePath, result.input.unit !== 'FS' ? 'dB' : uncalibratedUnits(result.input.fullScale).level);
+            else levelUnits.delete(filePath);
         },
         clear(): void {
             levels.clear();
-            calibrated.clear();
+            levelUnits.clear();
             version++;
         },
         schedule,

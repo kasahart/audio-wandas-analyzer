@@ -26,7 +26,7 @@ export interface ReportFile {
 
 export type ReportStrings = CompareStrings & Pick<UiStrings,
     | 'entryColFile' | 'entryColCondition' | 'stepRegion' | 'entryColLeq' | 'entryColPeak' | 'entryCsvGroupSize' | 'entryBase' | 'entryBaseGroup'
-    | 'reportBase' | 'reportCompare' | 'reportDiff' | 'reportCsv' | 'reportBaseLeq' | 'reportBandDelta' | 'reportGroupFiles' | 'reportSpecVersion' | 'entryLeqUncalibrated' | 'reportSummary' | 'reportStepsLegend' | 'axisFrequency' | 'axisLevelUncal' | 'axisLevelCal' | 'axisDelta' | 'legendHeadline' | 'legendLeak' | 'legendLine' | 'hintLeqUncalibrated' | 'reportRegion' | 'reportRegionStart' | 'reportRegionEnd' | 'reportWhole' | 'reportDefinitions' | 'compareDelta' | 'defLeq' | 'defSpectrum' | 'defThirdOct' | 'defChannels' | 'defBase' | 'defDelta' | 'defRegion' | 'defHeadline' | 'defHeadlineEdges' | 'outside192' | 'outsideMedian' | 'outsideDelta' | 'outsideOutliers' | 'stepOctave' | 'reportChain' | 'reportChainCurrent' | 'reportChainPrevious' | 'reportMemo' | 'dsCh' | 'reportBaseDefinition' | 'reportDerived'>;
+    | 'reportBase' | 'reportCompare' | 'reportDiff' | 'reportCsv' | 'reportBaseLeq' | 'reportBandDelta' | 'reportGroupFiles' | 'reportSpecVersion' | 'entryLeqUncalibrated' | 'reportSummary' | 'reportStepsLegend' | 'axisFrequency' | 'axisLevelUncal' | 'axisLevelUncalRaw' | 'axisLevelCal' | 'axisDelta' | 'legendHeadline' | 'legendLeak' | 'legendLine' | 'hintLeqUncalibrated' | 'hintLeqUncalibratedRaw' | 'reportRegion' | 'reportRegionStart' | 'reportRegionEnd' | 'reportWhole' | 'reportDefinitions' | 'compareDelta' | 'defLeq' | 'defSpectrum' | 'defThirdOct' | 'defChannels' | 'defBase' | 'defDelta' | 'defRegion' | 'defHeadline' | 'defHeadlineEdges' | 'outside192' | 'outsideMedian' | 'outsideDelta' | 'outsideOutliers' | 'stepOctave' | 'reportChain' | 'reportChainCurrent' | 'reportChainPrevious' | 'reportMemo' | 'dsCh' | 'reportBaseDefinition' | 'reportDerived'>;
 
 export interface ReportInput {
     model: EntryModel;
@@ -97,7 +97,7 @@ export function reportRecipe(recipe: RecipeDocument, region: EntryRegion | null,
     return end === null ? withStart : withParam(withStart, slice.id, { name: 'end', kind: 'float' }, end);
 }
 
-/** "Leq dB(A) 未校正" when the files are relative to full scale, so a level below 0 dB is not read as sound pressure. */
+/** "Leq dB(A) 未校正" when the files are uncalibrated (relative to full scale or 1 input unit), so a level is not read as sound pressure. */
 export function leqLabel(model: EntryModel, strings: Pick<UiStrings, 'entryColLeq' | 'entryLeqUncalibrated'>): string {
     return model.rows.some(row => row.uncalibrated) ? `${strings.entryColLeq} ${strings.entryLeqUncalibrated}` : strings.entryColLeq;
 }
@@ -342,8 +342,9 @@ export function summaryPng(document: Document, input: ReportInput, comparisons: 
     context.fillRect(0, 0, page.width, page.height);
     context.fillStyle = '#222';
     context.font = 'bold 18px sans-serif';
-    const uncalibrated = input.model.rows.some(row => row.uncalibrated);
-    context.fillText([input.recipeName, ...(input.selection?.filters ?? []), ...(uncalibrated ? [strings.hintLeqUncalibrated] : [])].join(' · '), 16, 24);
+    const uncalibrated = new Set(input.model.rows.map(row => row.uncalibrated));
+    const hints = [...(uncalibrated.has('full-scale') ? [strings.hintLeqUncalibrated] : []), ...(uncalibrated.has('raw-units') ? [strings.hintLeqUncalibratedRaw] : [])];
+    context.fillText([input.recipeName, ...(input.selection?.filters ?? []), ...hints].join(' · '), 16, 24);
     context.font = '13px sans-serif';
     const measured = measuredRegion(input.region, reportDuration(input));
     context.fillText(`${strings.stepRegion} ${measured ? `${measured.start.toFixed(2)}–${measured.end.toFixed(2)} s` : strings.reportWhole}`, 16, 46);
