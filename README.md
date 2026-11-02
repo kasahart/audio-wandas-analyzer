@@ -2,146 +2,81 @@
 
 **English** | [日本語](https://github.com/kasahart/audio-wandas-analyzer/blob/main/README.ja.md)
 
-Turn VS Code into a focused audio inspection desk. Audio Wandas Analyzer lets you open audio files, compare takes on one timeline, zoom into waveform detail, inspect spectrograms and cursor-time spectra, and export the evidence you need without switching tools.
+**Find what sounds different, then see why.** Line up recordings, listen and look on one timeline, and overlay their spectra and other analyses on the same axes.
 
-**[▶ Try it in your browser](https://kasahart.github.io/audio-wandas-analyzer/)** with no install (audio stays on your device), or install it from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=audio-wandas-analyzer.audio-wandas-analyzer).
+**[▶ Try it in your browser](https://kasahart.github.io/audio-wandas-analyzer/)**: press **Try with samples**, no files or install needed. Your audio never leaves your device. For long recordings and calibration, install the [VS Code extension](https://marketplace.visualstudio.com/items?itemName=audio-wandas-analyzer.audio-wandas-analyzer).
 
-## Screenshot
+![Try with samples; on the tracks click, zoom, move, select a range and listen; set roles, open Compare and click the Average spectrum step; drag a box to zoom in](https://raw.githubusercontent.com/kasahart/audio-wandas-analyzer/main/media/readme-demo.gif)
 
-![Audio Wandas Analyzer screenshot](https://raw.githubusercontent.com/kasahart/audio-wandas-analyzer/main/media/readme-audio-wandas-analyzer.png)
+*The bundled samples: the same hum three times, one with a 2.8 kHz tone and one with clicks.*
 
-![Audio Wandas Analyzer spectrogram screenshot](https://raw.githubusercontent.com/kasahart/audio-wandas-analyzer/main/media/readme-audio-wandas-analyzer_stft.png)
+## How it works
+
+1. **Open** files or a whole folder. Every file is listed in a table; tick ☐ to show it as a track.
+2. **Listen and look.** Each track shows its waveform over its spectrogram on one timeline, with the spectrum at the cursor beside it. Play, loop, mute and nudge tracks to line them up.
+3. **Compare.** Pick a base and up to three recordings to compare (keys `0`–`3`). Their results are drawn over each other, one colour per role: blue for the base; yellow, purple and magenta for the others.
+4. **Analyze as a chain.** The step bar is a [wandas](https://github.com/kasahart/wandas) method chain, such as *Input → HPF 20 Hz → Average spectrum*. **＋** adds a wandas operation anywhere in it; click a step to see its result for every recording.
+5. **Take it with you.** Export PNG, CSV, WAV or a Markdown / notebook report, or save the chain as a `.recipe.json` that wandas can run on its own.
+
+![Tracks view: waveform over spectrogram for each recording, with the spectrum at the cursor](https://raw.githubusercontent.com/kasahart/audio-wandas-analyzer/main/media/readme-audio-wandas-analyzer_stft.png)
+
+![Compare view: the average spectra of the three samples overlaid](https://raw.githubusercontent.com/kasahart/audio-wandas-analyzer/main/media/readme-audio-wandas-analyzer.png)
+
+## Also in the box
+
+- **Many files:** the table shows a value per file (such as A-weighted Leq) to sort, filter and group, and takes an attribute CSV (anomaly scores, conditions…) to narrow down the candidates.
+- **Reference track:** transfer function and coherence from one track to the others.
+- **Calibration** to Pa, m/s² or V, with levels in dB SPL (VS Code).
+- **Bundled recipes**, including loudness and roughness.
+- **Formats:** WAV, FLAC, OGG, OGA, Opus, MP3, AIFF, AIF, AU, SND, CAF, W64, RF64 and CSV (first column = time). Playback covers WAV, FLAC, OGG, OGA, Opus and MP3.
+- English and Japanese, following your VS Code or browser language. Press **? Help** for the keys.
 
 ## Browser or VS Code
 
 | | Browser | VS Code |
 | --- | --- | --- |
 | Setup | None: open the page | Python 3.11+ |
-| Files | Short files (limits under Browser Version) | Large and long files |
+| Files | Short files (see [Browser limits](#browser-limits)) | Large and long files |
 | Calibration | Not available | Available |
 | Recipes | Bundled and your own `.recipe.json`; steps that need Python packages the browser lacks do not run | Anything your Python environment can run |
 
-## Why Use It
+## Get started in VS Code
 
-Audio comparison often means bouncing between a DAW, a notebook, a file browser, and a plotting script. This extension keeps that loop inside VS Code:
+1. Install [Python 3.11+](https://www.python.org/downloads/) and this extension.
+2. Right-click an audio file or folder in the Explorer and choose **Analyze with Audio Analyzer**.
+3. If the Python packages are missing, choose **Create .venv and Install**. The extension creates a virtual environment in your workspace and installs them.
 
-- Line up multiple recordings and check timing differences at a glance
-- See each track's waveform with its spectrogram right under it, on one time axis, beside its power spectrum
-- Switch the cursor spectrum between the FFT and 1/1 or 1/3 octave bands
-- Zoom into a range and fetch high-resolution waveform data only for what is visible
-- Listen, mute, loop, and nudge tracks while you inspect them
-- Export images, CSV spectrum data, loop audio, or a Markdown-friendly report for handoff
-- Set a reference track to see the transfer function and coherence to the other tracks
-- Calibrate channels to physical units (Pa, m/s², V) and read levels such as dB SPL
-- Run bundled or your own analysis recipes for deeper analysis
-
-Supported formats: **WAV / FLAC / OGG / OGA / Opus / MP3 / AIFF / AIF / AU / SND / CAF / W64 / RF64 / CSV** (a CSV's first column is time). Playback covers WAV, FLAC, OGG, OGA, Opus and MP3 only.
-
-The UI follows VS Code's display language. Japanese is used for `ja*`; all other languages fall back to English.
-
-## A Good Fit For
-
-- Comparing model outputs, recorded takes, renders, or before/after processing results
-- Checking noise, frequency balance, transients, silence, clipping, and alignment
-- Reviewing a folder of audio assets without leaving your editor
-- Capturing visual and numeric evidence for issues, reports, notebooks, or pull requests
-
-## Quick Start
-
-### 1. Install Python 3.11+
+If that button does not appear (an untrusted workspace, or a `.venv` already there), or to use an environment of your own, install the packages into it and run **Audio Analyzer: Select Python Environment**:
 
 ```bash
-python3 --version
-```
-
-### 2. Install the Python audio dependencies
-
-A virtual environment is recommended:
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
 pip install "wandas[psychoacoustic,effects]>=0.12.0,<0.13.0" "numpy>=2.0.2" "scipy>=1.13" "soundfile>=0.12"
 ```
 
-### 3. Select the Python environment in VS Code
+Files and folders can also be opened from the **Audio Analyzer** view in the Activity Bar (or by dropping them on it), or with **Audio Analyzer: Analyze File or Folder**.
 
-Open the Command Palette and run:
+## Reference
 
-```text
-Audio Analyzer: Select Python Environment
-```
-
-Choose the virtual environment folder, for example `/path/to/your/.venv`. You can also set `audioWandasAnalyzer.pythonCommand` manually in Settings. Both venv folders and direct Python executable paths are accepted.
-
-## Opening Audio
-
-| Method | Action |
-| --- | --- |
-| Command Palette | Run **Audio Analyzer: Analyze File or Folder** |
-| Explorer context menu | Right-click an audio file or folder, then choose **Analyze with Audio Analyzer** |
-| Activity Bar | Open the **Audio Analyzer** view and select files or a folder |
-| Drag and drop | Drop audio files or folders onto the Audio Analyzer sidebar view |
-
-When you open a folder, its audio files are listed in a table beside the tracks. Tick ☐ at the start of a row (or press `T` on the focused row) to show that file as a track; ☑ removes it. The ☐/⊟/☑ in the column head shows or removes every listed row at once (more than 30 asks first), and **Tracks only** narrows the table to the rows on a track.
-
-Folder listing skips hidden folders (such as `.git` or `.venv`), `node_modules` and symbolic links to folders, and stops after 50,000 entries with a message; open a subfolder to see the rest. A notification shows the listing's progress and can cancel it.
-
-Folder listing skips hidden folders (such as `.git` or `.venv`), `node_modules` and symbolic links to folders, and stops after 50,000 entries with a message; open a subfolder to see the rest. A notification shows the listing's progress and can cancel it.
-
-## Working In The Panel
-
-- **Compare:** view tracks on one shared timeline, each row showing its waveform over its spectrogram (drag the line between them to share the height)
-- **Zoom:** use the toolbar `－ / ＋ / Reset` buttons, the `+ / − / 0` keys, or Ctrl + mouse wheel; `L` zooms to the loop region
-- **Inspect:** click a waveform, spectrogram, or spectrum panel to move the cursor and update spectra
-- **Loop:** drag on the waveform or the spectrogram to create a loop region; clear it with a click
-- **Listen:** use the per-track play and mute buttons, or `Space` to play or pause; `F` keeps the cursor in view during playback. One track plays at a time: starting another switches to it, for A/B listening
-- **Align:** nudge a track by 10 ms with `▲ / ▼`, Shift+drag it, or click the offset value to type it; double-click resets it
-- **Reference:** set a track as the reference to see the transfer function and coherence to the others in the bottom panel
-- **Calibrate:** use **Cal** on a track, or **Audio Analyzer: Configure Calibration**, to set a factor, unit and level reference per channel
-- **Tune spectrograms:** open the gear popover to change FFT size, overlap, window function, dB range, and max frequency
-- **Get help:** press `?` inside the panel to see keyboard shortcuts
-
-## Exports And Recipes
-
-The comparison toolbar includes export actions for everyday handoff work:
-
-| Action | Output |
-| --- | --- |
-| **Export PNG** | Current visible tracks as an image |
-| **Export CSV** | Spectrum data at the current cursor position |
-| **WAV** | Audio from the selected loop region |
-| **Report** | Markdown / notebook-ready analysis report |
-| **Run recipe** | A recipe result rendered in VS Code |
-| **Save as recipe** | The bottom panel's analysis as a `.recipe.json` |
-
-A recipe (`*.recipe.json`) is a saved analysis workflow. **Run recipe** applies a bundled recipe or one of your own to the checked tracks; when a recipe takes several inputs, you confirm which track goes where before it runs.
-
-**Workflow → Save as recipe** saves the bottom panel's analysis with the current settings, computed over whole files: the spectrum or octave bands of every channel, or, while a reference is set, the transfer function from it to the other channels. Track offsets and the loop range are not saved, so the inputs should be synchronized. Run the file again any time with **Run recipe**.
-
-## Settings
+### Settings
 
 | Key | Default | Description |
 | --- | --- | --- |
 | `audioWandasAnalyzer.pythonCommand` | `python3` | Python environment folder or executable used for the backend |
 | `audioWandasAnalyzer.cacheMemoryMb` | `1024` | Maximum memory (MB) used to cache loaded audio |
 
-### Restricted Mode
+In a workspace you have not trusted, the extension runs in limited mode: analysis works, but `audioWandasAnalyzer.pythonCommand` and `audioWandasAnalyzer.debugFilePath` are read from your user settings only, so a folder's `.vscode/settings.json` cannot choose the program the extension starts. Virtual workspaces (such as a GitHub repository opened in the browser) are not supported, because audio is read from the local file system.
 
-In a workspace you have not trusted, the extension runs in limited mode: analysis works, but `audioWandasAnalyzer.pythonCommand` and `audioWandasAnalyzer.debugFilePath` are read from your user settings only, so a folder's `.vscode/settings.json` cannot choose the program the extension starts. Trust the workspace to use its own values. Virtual workspaces (such as a GitHub repository opened in the browser) are not supported, because audio is read from the local file system.
+Folder listing skips hidden folders (such as `.git` or `.venv`), `node_modules` and symbolic links to folders, and stops after 50,000 entries; open a subfolder to see the rest.
 
-## Troubleshooting
+### Troubleshooting
 
-- **Python interpreter was not found:** select the virtual environment where you installed the Quick Start packages, or update `audioWandasAnalyzer.pythonCommand`.
-- **Analysis failed:** open **Output: Audio Wandas Analyzer** and check the Python error. Confirm the Quick Start packages are installed in the selected environment.
-- **A file does not load:** confirm the extension is one of WAV, FLAC, OGG, OGA, Opus, MP3, AIFF, AIF, AU, SND, CAF, W64, RF64, or CSV. M4A is not supported.
-- **Large files feel slow:** zoomed waveform requests are fetched only for the visible range. For spectrogram-heavy work, try a smaller FFT size or a lower overlap.
+- **Python interpreter was not found:** select the environment where the packages are installed, or update `audioWandasAnalyzer.pythonCommand`.
+- **Analysis failed:** open **Output: Audio Wandas Analyzer** and check the Python error.
+- **A file does not load:** check that its format is in the list above. M4A is not supported.
+- **Large files feel slow:** the waveform is fetched only for the visible range; for spectrograms, try a smaller FFT size or a lower overlap.
 
-## Browser Version
+### Browser limits
 
-[Open the browser version](https://kasahart.github.io/audio-wandas-analyzer/) to compare short audio or CSV files without installing VS Code or Python. Audio is analyzed on your device and is not uploaded.
-
-Select one or more files, then use the waveform, spectrogram, cursor, playback, mute, offset and loop controls. You can add or remove tracks during a comparison. Export images, CSV spectra, selected audio ranges, or Markdown / Notebook reports; exporting multiple audio ranges downloads a ZIP file. Bundled recipes are available, including psychoacoustic ones (loudness, roughness), and **Workflow → Run recipe → From file…** runs a `.recipe.json` from your computer. The result names the file behind each recipe input.
+Audio is analyzed on your device and is not uploaded. Display settings are remembered between visits; files, cursor and offsets are not, so select your files again after reloading.
 
 <!-- browser-limits:start (generated by scripts/check-single-sources.mjs --write) -->
 | Limit | Browser version |
@@ -153,12 +88,9 @@ Select one or more files, then use the waveform, spectrogram, cursor, playback, 
 | WAV export | Uncalibrated PCM16 audio; up to 32 MiB in total |
 <!-- browser-limits:end -->
 
-The left panel lists your files as in the VS Code extension: **Open File**, **Open Folder** or dropping files or folders onto the page adds them to the list, and ticking ☐ at the start of a file's row shows it as a track. Calibration settings are available in the VS Code extension only. Use a desktop browser for the full set of mouse controls; dragging to select a loop is not supported on touch screens.
-
-Display and spectrogram settings are remembered between visits. Audio files, cursor position and track offsets are not saved; select your files again after reloading. **Clear** in the left panel empties the list and removes all loaded audio. Exported notebooks refer to the audio file names listed in the report, so place copies of your audio beside the notebook using those names.
+Use a desktop browser for the full set of mouse controls. Exported notebooks refer to the audio by file name, so place copies of the audio beside the notebook.
 
 ## Links
 
-- VS Code Marketplace: [Audio Wandas Analyzer](https://marketplace.visualstudio.com/items?itemName=audio-wandas-analyzer.audio-wandas-analyzer)
-- Repository: https://github.com/kasahart/audio-wandas-analyzer
-- Issues and feature requests: [GitHub Issues](https://github.com/kasahart/audio-wandas-analyzer/issues)
+- [Issues and feature requests](https://github.com/kasahart/audio-wandas-analyzer/issues)
+- [wandas](https://github.com/kasahart/wandas), the signal-analysis library behind every step

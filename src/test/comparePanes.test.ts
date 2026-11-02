@@ -180,7 +180,7 @@ test('a legend item ends with the markup its caller adds (the base group\'s ▾)
 
 test('a track with no entry result takes its level reference from its own analysis', () => {
     const waveform = { min: [], max: [], samples: [], absolutePeak: 0 };
-    const channel = (fullScale: boolean, measurement?: ChannelSummary['measurement']): ChannelSummary => ({ label: 'L', peakAbsolute: 1, fullScale, waveform, spectrogram: null, ...(measurement ? { measurement } : {}) });
+    const channel = (fullScale: boolean, measurement?: ChannelSummary['measurement']): ChannelSummary => ({ label: 'L', peakAbsolute: 1, fullScale, sourceUnit: fullScale ? 'FS' : '', sourceLevelReferenceLabel: fullScale ? 'dBFS' : 'dB re 1 input unit', waveform, spectrogram: null, ...(measurement ? { measurement } : {}) });
     const pa = { calibrationStatus: 'calibrated', calibrationSource: 'manual', factor: 2, linearUnit: 'Pa', referenceValue: 2e-5, referenceUnit: 'Pa', levelUnit: 'dB SPL', levelReferenceLabel: 'dB SPL re 20 µPa' } as const;
     const g = { ...pa, linearUnit: 'm/s^2', referenceValue: 1, referenceUnit: 'm/s^2', levelUnit: 'dB', levelReferenceLabel: 'dB re 1 m/s^2' } as const;
     const fs = { calibrationStatus: 'uncalibrated', calibrationSource: 'default', factor: 1, linearUnit: 'FS', referenceValue: 1, referenceUnit: 'FS', levelUnit: 'dBFS', levelReferenceLabel: 'dBFS' } as const;
