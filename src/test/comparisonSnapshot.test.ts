@@ -11,7 +11,7 @@ function result(filePath: string, durationSeconds = 2): ComparisonTrackState {
         durationSeconds,
         channelCount: 1,
         sampleCount: 8000 * durationSeconds,
-        channels: [{ label: 'L', peakAbsolute: 0.5, fullScale: true, waveform: { min: [-0.5], max: [0.5], samples: [0], absolutePeak: 0.5 }, spectrogram: null }],
+        channels: [{ label: 'L', peakAbsolute: 0.5, fullScale: true, sourceUnit: 'FS', sourceLevelReferenceLabel: 'dBFS', waveform: { min: [-0.5], max: [0.5], samples: [0], absolutePeak: 0.5 }, spectrogram: null }],
     };
 }
 

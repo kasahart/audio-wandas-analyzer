@@ -85,6 +85,9 @@ class ChannelSummary(TypedDict):
     rawPeakFullScale: float
     # False: the source's values are raw input units, so its uncalibrated levels are dB re 1 input unit, not dBFS.
     fullScale: bool
+    # wandas' unit and level label for the source as read, before calibration ("FS" / "dBFS" for audio).
+    sourceUnit: str
+    sourceLevelReferenceLabel: str
     # None: the source has no full scale to clip against.
     clipped: bool | None
     waveform: WaveformEnvelope
@@ -464,6 +467,8 @@ def analyze_from_frame(
                 "peakLevelDb": references[index].to_level(peak),
                 "rawPeakFullScale": raw_peak,
                 "fullScale": full_scale,
+                "sourceUnit": raw_frame.channels[index].unit,
+                "sourceLevelReferenceLabel": raw_frame.channels[index].level_reference.label,
                 "clipped": raw_peak >= CLIPPING_FULL_SCALE_THRESHOLD if full_scale else None,
                 "waveform": waveform,
                 "spectrogram": spectrogram,

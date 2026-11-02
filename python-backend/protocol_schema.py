@@ -174,7 +174,15 @@ DEFINITIONS: dict[str, Schema] = {
     },
     "ChannelSummary": {
         "type": "object",
-        "required": ["label", "peakAbsolute", "fullScale", "waveform", "spectrogram"],
+        "required": [
+            "label",
+            "peakAbsolute",
+            "fullScale",
+            "sourceUnit",
+            "sourceLevelReferenceLabel",
+            "waveform",
+            "spectrogram",
+        ],
         "properties": {
             "label": {"type": "string"},
             "unit": {"anyOf": [{"type": "string"}, _NULL]},
@@ -184,6 +192,10 @@ DEFINITIONS: dict[str, Schema] = {
             "rawPeakFullScale": _NUMBER,
             # false: the source (a CSV) holds raw input units, so uncalibrated levels are dB re 1 input unit, not dBFS.
             "fullScale": {"type": "boolean"},
+            # wandas' unit and level label for the source as read, before calibration:
+            # "FS" / "dBFS" for audio, "" / "dB re 1 input unit" for a CSV.
+            "sourceUnit": {"type": "string"},
+            "sourceLevelReferenceLabel": {"type": "string"},
             # null: the source (a CSV) has no full scale to clip against.
             "clipped": {"anyOf": [{"type": "boolean"}, _NULL]},
             "waveform": {"$ref": "#/$defs/WaveformEnvelope"},

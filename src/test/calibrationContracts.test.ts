@@ -8,7 +8,7 @@ import { calibrationBadgeHtml, calibrationRequest, calibrationSummary, channelMe
 import type { ComparisonTrackState } from '../webview/runtime/types';
 import { BackendRequestError } from '../shared/protocol/backendProtocol';
 import { getStrings } from '../shared/i18n/strings';
-import { calibrationPickerStrings } from '../shared/analysis/calibrationModel';
+import { calibrationPickerStrings, describeChannelCalibration } from '../shared/analysis/calibrationModel';
 
 const STR = getStrings('en');
 
@@ -83,7 +83,7 @@ test('calibration badges summarize the channel calibration and raw clipping', ()
         calibrationStatus: 'calibrated' as const, calibrationSource: 'manual' as const, factor: 2, linearUnit,
         referenceValue: 2e-5, referenceUnit: 'Pa', levelUnit: 'dB SPL', levelReferenceLabel: 'dB SPL re 20 µPa',
     });
-    const channel = (extra: object) => ({ label: 'ch', peakAbsolute: 0.5, fullScale: true, waveform: { min: [], max: [], samples: [], absolutePeak: 0 }, spectrogram: null, ...extra });
+    const channel = (extra: object) => ({ label: 'ch', peakAbsolute: 0.5, fullScale: true, sourceUnit: 'FS', sourceLevelReferenceLabel: 'dBFS', waveform: { min: [], max: [], samples: [], absolutePeak: 0 }, spectrogram: null, ...extra });
     assert.deepEqual(calibrationSummary([channel({})], STR), { text: 'FS', title: 'Uncalibrated full scale (dBFS)' });
     assert.deepEqual(calibrationSummary([channel({ fullScale: false })], STR), { text: 'RAW', title: 'Uncalibrated raw input units (dB re 1 input unit)' }, 'a CSV source has no full scale');
     assert.deepEqual(calibrationSummary([channel({ fullScale: false })], getStrings('ja')), { text: 'RAW', title: '未校正の生の入力単位 (dB re 1 input unit)' });
@@ -99,18 +99,134 @@ test('calibration badges summarize the channel calibration and raw clipping', ()
     assert.equal(isClipped([channel({ peakAbsolute: 1, measurement: measurement('Pa') })]), false);
 });
 
-test('the calibration picker words the uncalibrated choice as full scale for audio and raw input units for CSV', () => {
+const AUDIO_SOURCE = { unit: 'FS', levelReferenceLabel: 'dBFS' };
+const CSV_SOURCE = { unit: '', levelReferenceLabel: 'dB re 1 input unit' };
+
+test('the calibration picker words the uncalibrated choice in wandas\' unit and level label for the source', () => {
+    assert.deepEqual(calibrationPickerStrings(STR, AUDIO_SOURCE), {
+        calUncalibratedSummary: 'Uncalibrated full scale (FS / dBFS)',
+        calResetAllLabel: 'Reset all channels to full scale',
+        calResetDone: 'Calibration reset to full scale: {file}',
+        calModeCalibratedDescription: 'Convert values in full scale to a physical quantity before analysis',
+        calModeUncalibratedLabel: 'Uncalibrated full scale',
+        calModeUncalibratedDescription: 'Use full scale (FS / dBFS) for this channel',
+        calFactorPrompt: 'Physical value = value in full scale × factor',
+    });
+    assert.deepEqual(calibrationPickerStrings(STR, CSV_SOURCE), {
+        calUncalibratedSummary: 'Uncalibrated raw input units (dB re 1 input unit)',
+        calResetAllLabel: 'Reset all channels to raw input units',
+        calResetDone: 'Calibration reset to raw input units: {file}',
+        calModeCalibratedDescription: 'Convert values in raw input units to a physical quantity before analysis',
+        calModeUncalibratedLabel: 'Uncalibrated raw input units',
+        calModeUncalibratedDescription: 'Use raw input units (dB re 1 input unit) for this channel',
+        calFactorPrompt: 'Physical value = value in raw input units × factor',
+    });
+    assert.deepEqual(calibrationPickerStrings(getStrings('ja'), AUDIO_SOURCE), {
+        calUncalibratedSummary: '未校正のフルスケール (FS / dBFS)',
+        calResetAllLabel: 'すべてのチャンネルをフルスケールに戻す',
+        calResetDone: '校正をフルスケールに戻しました: {file}',
+        calModeCalibratedDescription: '解析の前にフルスケールの値を物理量に換算します',
+        calModeUncalibratedLabel: '未校正のフルスケール',
+        calModeUncalibratedDescription: 'このチャンネルはフルスケール (FS / dBFS) で扱います',
+        calFactorPrompt: '物理量 = フルスケールの値 × 係数',
+    });
+    assert.deepEqual(calibrationPickerStrings(getStrings('ja'), CSV_SOURCE), {
+        calUncalibratedSummary: '未校正の生の入力単位 (dB re 1 input unit)',
+        calResetAllLabel: 'すべてのチャンネルを生の入力単位に戻す',
+        calResetDone: '校正を生の入力単位に戻しました: {file}',
+        calModeCalibratedDescription: '解析の前に生の入力単位の値を物理量に換算します',
+        calModeUncalibratedLabel: '未校正の生の入力単位',
+        calModeUncalibratedDescription: 'このチャンネルは生の入力単位 (dB re 1 input unit) で扱います',
+        calFactorPrompt: '物理量 = 生の入力単位の値 × 係数',
+    });
     for (const language of ['en', 'ja'] as const) {
-        const strings = getStrings(language);
-        assert.equal(calibrationPickerStrings(strings, true).calFullScale, strings.calFullScale);
-        assert.equal(calibrationPickerStrings(strings, true).calModeUncalibratedDescription, strings.calModeUncalibratedDescription);
-        const raw = calibrationPickerStrings(strings, false);
+        const raw = calibrationPickerStrings(getStrings(language), CSV_SOURCE);
         for (const text of Object.values(raw)) assert.doesNotMatch(text, /FS|フルスケール|full scale/i, text);
     }
-    assert.equal(calibrationPickerStrings(STR, true).calFullScale, 'Full scale (FS / dBFS)');
-    assert.equal(calibrationPickerStrings(STR, false).calFullScale, 'Raw input units (dB re 1 input unit)');
-    assert.equal(calibrationPickerStrings(getStrings('ja'), false).calFullScale, '生の入力単位 (dB re 1 input unit)');
-    assert.equal(calibrationPickerStrings(STR, false).calModeUncalibratedDescription, 'Use the raw input values and dB re 1 input unit for this channel');
+});
+
+test('the calibration picker names a calibrated channel\'s reference with wandas\' label from the analysis', () => {
+    const wording = calibrationPickerStrings(STR, AUDIO_SOURCE);
+    const stored = { channelIndex: 0, expectedLabel: 'L', status: 'calibrated' as const, source: 'manual' as const, factor: 2, unit: 'Pa', referenceValue: 2e-5 };
+    const analyzed = {
+        calibrationStatus: 'calibrated' as const, calibrationSource: 'manual' as const, factor: 2, linearUnit: 'Pa',
+        referenceValue: 2e-5, referenceUnit: 'Pa', levelUnit: 'dB SPL', levelReferenceLabel: 'dB SPL re 20 µPa',
+    };
+    assert.equal(describeChannelCalibration(STR, wording, stored, analyzed), 'factor 2; Pa; dB SPL re 20 µPa');
+    assert.equal(describeChannelCalibration(getStrings('ja'), wording, stored, analyzed), '係数 2; Pa; dB SPL re 20 µPa');
+    assert.equal(describeChannelCalibration(STR, wording, { ...stored, referenceValue: 1 }, analyzed), 'factor 2; Pa', 'an analysis of another calibration names no reference');
+    assert.equal(describeChannelCalibration(STR, wording, stored, undefined), 'factor 2; Pa');
+    assert.equal(describeChannelCalibration(STR, wording, { ...stored, status: 'uncalibrated' }, analyzed), 'Uncalibrated full scale (FS / dBFS)');
+});
+
+test('the calibration picker takes the source\'s unit and level label from the displayed track', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const NodeModule = require('node:module') as { _load: (request: string, parent: unknown, isMain: boolean) => unknown };
+    const originalLoad = NodeModule._load;
+    const picks: Array<Array<{ label: string; description?: string }>> = [];
+    let language = 'en';
+    const vscodeMock = {
+        env: { get language() { return language; } },
+        window: {
+            showInformationMessage() {},
+            showQuickPick: async (items: Array<{ label: string; description?: string }>) => {
+                picks.push(items);
+                return picks.length === 1 ? items[1] : undefined;
+            },
+        },
+    };
+    const modulePath = require.resolve('../extension/calibrationStore');
+    const cached = require.cache[modulePath];
+    delete require.cache[modulePath];
+    NodeModule._load = function(request, parent, isMain): unknown {
+        if (request === 'vscode') return vscodeMock;
+        return originalLoad.call(this, request, parent, isMain);
+    };
+    let calibrationStore: typeof import('../extension/calibrationStore');
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        calibrationStore = require('../extension/calibrationStore');
+    } finally {
+        NodeModule._load = originalLoad;
+        if (cached) require.cache[modulePath] = cached; else delete require.cache[modulePath];
+    }
+    const filePath = path.resolve('/tmp/picker-wording.csv');
+    const calibrated = { channelIndex: 0, expectedLabel: 'acc', status: 'calibrated' as const, source: 'manual' as const, factor: 2, unit: 'm/s^2', referenceValue: 1 };
+    const stored: Record<string, unknown> = { 'audioWandasAnalyzer.calibrationProfiles.v1': { [filePath]: { schemaVersion: 1, channels: [calibrated, { ...calibrated, channelIndex: 1, expectedLabel: 'raw', status: 'uncalibrated', source: 'default', factor: 1, unit: '', referenceValue: 1 }] } } };
+    const store = new calibrationStore.CalibrationStore({
+        workspaceState: { get: <T>(key: string, fallback: T): T => (stored[key] as T | undefined) ?? fallback, update: async () => {} },
+    } as unknown as import('vscode').ExtensionContext);
+    const waveform = { min: [], max: [], samples: [], absolutePeak: 0 };
+    const csvChannel = { peakAbsolute: 1, fullScale: false, sourceUnit: '', sourceLevelReferenceLabel: 'dB re 1 input unit', waveform, spectrogram: null };
+    const csv = {
+        filePath, fileName: 'picker-wording.csv', sampleRateHz: 100, durationSeconds: 1, channelCount: 2, sampleCount: 100,
+        channels: [
+            { ...csvChannel, label: 'acc', measurement: { calibrationStatus: 'calibrated' as const, calibrationSource: 'manual' as const, factor: 2, linearUnit: 'm/s^2', referenceValue: 1, referenceUnit: 'm/s^2', levelUnit: 'dB', levelReferenceLabel: 'dB re 1 m/s^2' } },
+            { ...csvChannel, label: 'raw' },
+        ],
+    };
+    await store.configureTrack(csv);
+    assert.deepEqual(picks.map(items => items.map(item => [item.label, item.description])), [
+        [
+            ['$(discard) Reset all channels to raw input units', 'Remove the saved calibration profile for this file'],
+            ['$(settings-gear) Channel 1: acc', 'factor 2; m/s^2; dB re 1 m/s^2'],
+            ['$(settings-gear) Channel 2: raw', 'Uncalibrated raw input units (dB re 1 input unit)'],
+        ],
+        [
+            ['Calibrated physical quantity', 'Convert values in raw input units to a physical quantity before analysis'],
+            ['Uncalibrated raw input units', 'Use raw input units (dB re 1 input unit) for this channel'],
+        ],
+    ]);
+    picks.length = 0;
+    language = 'ja';
+    const audioChannel = { peakAbsolute: 1, fullScale: true, sourceUnit: 'FS', sourceLevelReferenceLabel: 'dBFS', waveform, spectrogram: null };
+    await store.configureTrack({ ...csv, filePath: path.resolve('/tmp/picker-wording.wav'), fileName: 'picker-wording.wav', channelCount: 1, channels: [{ ...audioChannel, label: 'L' }] });
+    assert.deepEqual(picks.map(items => items.map(item => item.description ?? item.label)), [
+        ['このファイルの保存済み校正プロファイルを削除します', '未校正のフルスケール (FS / dBFS)'],
+        ['解析の前にフルスケールの値を物理量に換算します', 'このチャンネルはフルスケール (FS / dBFS) で扱います'],
+    ]);
+    assert.equal(picks[0][0].label, '$(discard) すべてのチャンネルをフルスケールに戻す');
+    assert.equal(picks[1][1].label, '未校正のフルスケール');
 });
 
 test('calibration row helpers draw badges, peak text, requests and the overlay guard', () => {
@@ -118,7 +234,7 @@ test('calibration row helpers draw badges, peak text, requests and the overlay g
         calibrationStatus: 'calibrated' as const, calibrationSource: 'manual' as const, factor: 2, linearUnit,
         referenceValue: 2e-5, referenceUnit: linearUnit, levelUnit: 'dB SPL', levelReferenceLabel,
     });
-    const channel = (extra: object) => ({ label: 'L', peakAbsolute: 5, fullScale: true, peakLevelDb: 80, waveform: { min: [], max: [], samples: [], absolutePeak: 0 }, spectrogram: null, ...extra });
+    const channel = (extra: object) => ({ label: 'L', peakAbsolute: 5, fullScale: true, sourceUnit: 'FS', sourceLevelReferenceLabel: 'dBFS', peakLevelDb: 80, waveform: { min: [], max: [], samples: [], absolutePeak: 0 }, spectrogram: null, ...extra });
     const track = (channels: object[]) => ({ filePath: '/a.wav', fileName: 'a.wav', channels }) as unknown as ComparisonTrackState;
     const pa = measurement('Pa', 'dB SPL re 20 µPa');
 
