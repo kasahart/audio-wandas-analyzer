@@ -737,7 +737,7 @@ test('checkAndPromptInstallDependencies warns when interpreter is missing and of
         assert.equal(item.tooltip, 'The Python interpreter was not found. Click to select another environment.');
         // The interpreter path follows the host venv layout (bin/python on POSIX, Scripts\\python.exe on Windows).
         const expectedInterpreter = pythonEnvironmentModule.resolvePythonCommand('missing-python');
-        assert.deepEqual(warningMessages, [`Python interpreter not found: ${expectedInterpreter}`]);
+        assert.deepEqual(warningMessages, [`Python interpreter not found: ${expectedInterpreter}. Select an environment, or try the browser version, which needs no Python.`]);
         assert.deepEqual(warningButtons, [['Select Environment', 'Try Browser Version', 'Show Log']]);
         assert.deepEqual(executedCommands, ['audioWandasAnalyzer.selectPythonEnvironment']);
     } finally {

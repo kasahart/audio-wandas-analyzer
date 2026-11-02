@@ -11,7 +11,8 @@ export type GuiEntryPointKind =
     | 'track-control'
     | 'canvas-gesture'
     | 'keyboard'
-    | 'dialog';
+    | 'dialog'
+    | 'notification';
 
 export type GuiRegressionLayer = 'node:test' | 'ui-smoke' | 'vscode-e2e';
 
@@ -293,6 +294,13 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
         entryPoints: ['status-bar', 'selection-toolbar', 'quick-pick', 'command'],
         triggers: ['audioWandasAnalyzer.selectPythonEnvironment', 'select-python-environment'],
         regressionLayers: ['node:test', 'ui-smoke'],
+    },
+    {
+        id: 'python-missing-browser-fallback',
+        label: 'Open the browser version from the "Python interpreter not found" warning (Try Browser Version)',
+        entryPoints: ['notification'],
+        triggers: ['python-missing-open-browser'],
+        regressionLayers: ['node:test'],
     },
     {
         id: 'directory-selection',
