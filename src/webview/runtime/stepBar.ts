@@ -23,6 +23,10 @@ import { stepChipsHtml } from './stepChips';
 import { attachStepDrag, attachStepHold } from './stepGestures';
 import { checkStepForm, regionFormDraft, regionLength, stepFormDraft, stepFormHtml, stepFormKey } from './stepForm';
 import { stepMenuAt, stepMenuHtml, stepMenuKey, stepMenuListHtml, type StepMenuContext, type StepMenuState } from './stepMenu';
+import { presetOf, presetRecipe, RECIPE_PRESETS, type RecipePreset } from '../../shared/recipe/recipePresets';
+import { escapeHtml } from '../../shared/utils/webviewEscaping';
+import { titledHintAttr as hintAttr } from './hintFooter';
+import type { StepBarStrings } from './stepBarModel';
 
 export { endsInSpectrum, INPUT_STAGE, recipeWithout, runnableRecipe, stepLimits, unpairedRecipe, type RegionRange, type StepBarState, type StepBarStrings } from './stepBarModel';
 export { invalidReason, stepChipLabel } from './stepLabels';
@@ -61,6 +65,8 @@ export function createStepBar(deps: {
     onRegionSet?(region: RegionRange | null): void;
     /** Comparison only: the input chip pressed, to show the files' waveforms. */
     onInputSelect?(): void;
+    /** Comparison only: the bar's name is the recipe button, whose menu replaces the chain with a preset. */
+    presets?: boolean;
 }): StepBar {
     const { document, strings } = deps;
     const element = document.createElement('nav');
@@ -71,6 +77,10 @@ export function createStepBar(deps: {
     let open: string | null = null;
     /** ＋'s menu, while it is open. */
     let menu: StepMenuState | null = null;
+    /** The recipe button's menu, while it is open. */
+    let presetOpen = false;
+    /** The preset the chain was last equal to: an edited chain is named after it. */
+    let origin: string | null = null;
     const limits = (): StepLimits => stepLimits(state);
     /** The optional packages the runtime cannot import, where its host says (the Web version). */
     const lacks = (): ReadonlySet<string> => {
@@ -80,10 +90,13 @@ export function createStepBar(deps: {
     const footer = (text: string): void => { document.getElementById('hint-footer')?.replaceChildren(text); };
 
     // ---- undo / redo: every edit from the bar keeps what was there before (the Recipe and the region).
-    type Snapshot = { recipe: RecipeDocument; region: RegionRange | null };
+    // The step the panes showed is kept too, so ↶ after a preset puts back the step that was on screen.
+    type Snapshot = { recipe: RecipeDocument; region: RegionRange | null; origin?: string | null; stage?: string };
     const edits = createStepHistory<Snapshot>();
-    const now = (): Snapshot | null => (state.recipe ? { recipe: state.recipe, region: state.regionRange ?? null } : null);
+    const now = (): Snapshot | null => (state.recipe ? { recipe: state.recipe, region: state.regionRange ?? null, origin, stage: state.stage } : null);
     function applySnapshot(next: Snapshot): void {
+        if (next.origin !== undefined) origin = next.origin;
+        presetOpen = false;
         const recipeChanged = JSON.stringify(next.recipe) !== JSON.stringify(state.recipe);
         const regionChanged = JSON.stringify(next.region) !== JSON.stringify(state.regionRange ?? null);
         // Taken at once, so the bar draws the edit even before the screen hands the new state back.
@@ -101,7 +114,17 @@ export function createStepBar(deps: {
     function travel(target: Snapshot | undefined, said: string): void {
         if (!target) return;
         open = null;
+        const before = state.stage;
+        const was = recipeNodes(state.recipe).find(node => node.id === before)?.operation;
         applySnapshot(target);
+        // The shown step stays the user's unless the chain went back to one where that id is another step
+        // (or none): then the step shown when the snapshot was taken comes back.
+        const still = before === undefined || before === INPUT_STAGE || (was !== undefined && recipeNodes(target.recipe).find(node => node.id === before)?.operation === was);
+        const shown = target.stage ?? (typeof target.recipe.output === 'string' ? target.recipe.output : undefined);
+        if (!still && shown !== undefined && shown !== before) {
+            state = { ...state, stage: shown };
+            deps.onStepShown?.(shown);
+        }
         footer(said);
     }
     const undo = (): void => travel(edits.undo(now()), strings.stepUndone);
@@ -109,7 +132,7 @@ export function createStepBar(deps: {
     /** The chain's steps in the order they run. */
     const all = (recipe: RecipeDocument): RecipeStep[] => orderedSteps(stepFlow(recipe, state));
     const chipsHtml = (): string => (state.recipe
-        ? stepChipsHtml({ recipe: state.recipe, state, strings, mode: deps.mode, expanded, open, menu, regionSettable: !!deps.onRegionSet, inputSelectable: !!deps.onInputSelect, canUndo: edits.canUndo(), canRedo: edits.canRedo() })
+        ? stepChipsHtml({ recipe: state.recipe, state, strings, mode: deps.mode, expanded, open, menu, regionSettable: !!deps.onRegionSet, inputSelectable: !!deps.onInputSelect, canUndo: edits.canUndo(), canRedo: edits.canRedo(), ...(deps.presets ? { preset: { label: presetLabel(), open: presetOpen } } : {}) })
         : '');
     const formHtml = (step: RecipeStep): string => stepFormHtml(step, state, strings);
     function menuContext(recipe: RecipeDocument): StepMenuContext {
@@ -120,8 +143,9 @@ export function createStepBar(deps: {
     function render(): void {
         const steps = state.recipe ? recipeSteps(state.recipe, limits()) : [];
         const form = open ? steps.find(step => step.id === open) : undefined;
-        element.innerHTML = chipsHtml() + (form ? formHtml(form) : '') + menuHtml();
+        element.innerHTML = chipsHtml() + (form ? formHtml(form) : '') + menuHtml() + (presetOpen ? presetMenuHtml(state.recipe, strings, lacks()) : '');
         if (form) place(`[data-step-id="${CSS.escape(form.id)}"]`, '[data-step-form]');
+        if (presetOpen) place('[data-action="step-preset-open"]', '[data-step-preset-menu]');
         if (menu) place(`[data-after="${CSS.escape(menu.after ?? '')}"]`, '[data-step-menu]');
     }
     /** A form or menu opens under what opened it, not at the bar's start. */
@@ -261,7 +285,42 @@ export function createStepBar(deps: {
         render();
         element.querySelector<HTMLElement>('[data-step-menu-filter]')?.focus();
     }
+    /** What the recipe button reads: the preset the chain is, the one it was edited from, or Custom. */
+    function presetLabel(): string {
+        const matched = presetOf(state.recipe);
+        if (matched) origin = matched.id;
+        const name = matched ? presetName(matched.id, strings) : origin ? strings.stepPresetEdited.replace('{name}', presetName(origin, strings)) : strings.stepPresetCustom;
+        return strings.stepPresetButton.replace('{name}', name);
+    }
+    function togglePresets(): void {
+        presetOpen = !presetOpen;
+        open = null;
+        menu = null;
+        render();
+        element.querySelector<HTMLElement>(presetOpen ? '[data-step-preset-menu] [aria-checked="true"], [data-step-preset-menu] [data-preset]' : '[data-action="step-preset-open"]')?.focus();
+    }
+    /** The chain replaced with a preset's, as one edit ↶ takes back; the region stays, the last step is shown. */
+    function choosePreset(id: string): void {
+        const preset = RECIPE_PRESETS.find(item => item.id === id);
+        presetOpen = false;
+        const missing = preset ? presetLacks(preset, lacks()) : [];
+        // One this runtime cannot run says why instead of replacing the chain.
+        if (missing.length) { footer(strings.stepOffUnavailable.replace('{packages}', missing.join(', '))); render(); return; }
+        if (!preset || !state.recipe) { render(); return; }
+        if (presetOf(state.recipe)?.id === id) { render(); element.querySelector<HTMLElement>('[data-action="step-preset-open"]')?.focus(); return; }
+        const recipe = presetRecipe(preset);
+        emit(recipe);
+        origin = id;
+        if (typeof recipe.output === 'string') {
+            state = { ...state, stage: recipe.output };
+            deps.onStepShown?.(recipe.output);
+        }
+        render();
+        element.querySelector<HTMLElement>('[data-action="step-preset-open"]')?.focus();
+        footer(strings.stepPresetApplied.replace('{name}', presetName(id, strings)));
+    }
     function close(): boolean {
+        if (presetOpen) { presetOpen = false; render(); element.querySelector<HTMLElement>('[data-action="step-preset-open"]')?.focus(); return true; }
         if (!open && !menu) return false;
         open = null;
         menu = null;
@@ -299,6 +358,8 @@ export function createStepBar(deps: {
         else if (action === 'step-bypass') bypass(named('data-step'));
         else if (action === 'step-region-clear') clearRegion();
         else if (action === 'step-undo') undo();
+        else if (action === 'step-preset-open') togglePresets();
+        else if (action === 'step-preset') choosePreset(named('data-preset'));
         else if (action === 'step-redo') redo();
         else if (target.hasAttribute('data-step-region')) deps.onRegion?.();
     });
@@ -307,7 +368,17 @@ export function createStepBar(deps: {
         // In the open form or menu, the keys are theirs (stepFormKey, stepMenuKey).
         const formKey = open ? stepFormKey(event) : null;
         const menuKey = menu ? stepMenuKey(event) : null;
-        if (formKey === 'close' || menuKey === 'close') { event.stopPropagation(); close(); }
+        if (formKey === 'close' || menuKey === 'close' || (presetOpen && event.key === 'Escape')) { event.stopPropagation(); close(); }
+        // In the recipe menu ↑ ↓ Home End move between the presets (Enter and Space choose, as on any button).
+        else if (presetOpen && ['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+            const items = Array.from(element.querySelectorAll<HTMLElement>('[data-step-preset-menu] [data-preset]'));
+            const at = items.indexOf(document.activeElement as HTMLElement);
+            const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1
+                : (at + (event.key === 'ArrowDown' ? 1 : items.length - 1 + (at < 0 ? 1 : 0))) % items.length;
+            event.preventDefault();
+            event.stopPropagation();
+            items[next]?.focus();
+        }
         // Esc on a chip only leaves the bar; the screen's own Esc needs focus outside it.
         else if (event.key === 'Escape') { event.stopPropagation(); (document.activeElement as HTMLElement | null)?.blur?.(); }
         else if (formKey === 'apply') { event.preventDefault(); event.stopPropagation(); apply(); }
@@ -355,7 +426,7 @@ export function createStepBar(deps: {
     });
     element.addEventListener('change', event => { if (!(event.target as HTMLElement).matches('[data-step-menu-filter]')) checkForm(); });
     // A click anywhere else drops the draft and the menu, like Esc.
-    document.addEventListener('pointerdown', event => { if ((open || menu) && !element.contains(event.target as Node)) close(); }, true);
+    document.addEventListener('pointerdown', event => { if ((open || menu || presetOpen) && !element.contains(event.target as Node)) close(); }, true);
     const hold = attachStepHold(element, view, {
         stepAt: id => (state.recipe ? all(state.recipe).find(item => item.id === id) : undefined),
         canHold: step => deps.canHold?.(step) ?? false,
@@ -375,9 +446,42 @@ export function createStepBar(deps: {
         set(next: StepBarState): void {
             state = next;
             // Re-rendering would wipe what the user is typing into an open form or the menu's filter.
-            if (!open && !menu) render();
+            if (!open && !menu && !presetOpen) render();
         },
         close,
         importRegion,
     };
+}
+
+/** Each preset's name and the picture it gives, in the bar's language. */
+const PRESET_TEXT: Record<string, [keyof StepBarStrings, keyof StepBarStrings]> = {
+    spectrum: ['presetSpectrumName', 'presetSpectrumGraph'],
+    octave: ['presetOctaveName', 'presetOctaveGraph'],
+    spectrogram: ['presetSpectrogramName', 'presetSpectrogramGraph'],
+    level: ['presetLevelName', 'presetLevelGraph'],
+    loudness: ['presetLoudnessName', 'presetLoudnessGraph'],
+    roughness: ['presetRoughnessName', 'presetRoughnessGraph'],
+};
+
+export function presetName(id: string, strings: StepBarStrings): string {
+    const keys = PRESET_TEXT[id];
+    return keys ? strings[keys[0]] : id;
+}
+
+/** The optional packages a preset's steps need that this runtime lacks (the Web version's). */
+function presetLacks(preset: RecipePreset, lacks: ReadonlySet<string>): string[] {
+    return [...new Set(recipeNodes(preset.recipe).flatMap(node => catalogOperation(node.operation)?.needs ?? []))].filter(name => lacks.has(name));
+}
+
+/** The recipe button's menu: one line per preset, its name and the picture it gives; the chain's own is checked, one this runtime cannot run greyed with why. */
+export function presetMenuHtml(recipe: RecipeDocument | null, strings: StepBarStrings, lacks: ReadonlySet<string> = new Set()): string {
+    const current = presetOf(recipe)?.id;
+    const items = RECIPE_PRESETS.map(preset => {
+        const keys = PRESET_TEXT[preset.id];
+        const missing = presetLacks(preset, lacks);
+        const graph = missing.length ? strings.stepOffUnavailable.replace('{packages}', missing.join(', ')) : keys ? strings[keys[1]] : '';
+        return `<button type="button" class="step-menu-item step-preset-item${missing.length ? ' is-off' : ''}" role="menuitemradio" aria-checked="${preset.id === current}"${missing.length ? ' aria-disabled="true"' : ''} data-action="step-preset" data-preset="${escapeHtml(preset.id)}" ${hintAttr(graph)}>`
+            + `<span class="step-preset-name">${escapeHtml(presetName(preset.id, strings))}</span><span class="step-preset-graph">${escapeHtml(graph)}</span></button>`;
+    }).join('');
+    return `<div class="step-menu step-preset-menu" data-step-preset-menu role="menu" aria-label="${escapeHtml(strings.stepPresetMenu)}">${items}</div>`;
 }
