@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './canvasAudit';
 import { buildUiSmokeHtml } from './buildHtml';
 
 test('double-clicking the waveform amplitude axis sets the vertical range from a popover', async ({ page }) => {

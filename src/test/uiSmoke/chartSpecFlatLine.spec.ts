@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './canvasAudit';
 import type { ChartSpec } from '../../shared/chartSpec';
 import { renderChartSpecDocument } from '../../webview/panels/chartSpecDocument';
 

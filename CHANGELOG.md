@@ -26,6 +26,7 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 - Recipe results: a near-constant line (a flat transfer function, its phase) keeps a minimum y span (6 dB on dB axes, a full turn for phase, and only enough to hide floating-point rounding on other linear axes) instead of stretching rounding noise to full height; coherence is drawn on a fixed 0–1 axis.
 - Folder: rows checked in the entry table show as tracks again on Windows and in folders opened through a link; the backend names each file as the extension asked for it, not as it resolves.
 - Compare view: showing Δ no longer leaves the overlaid plot stretched from its old height, so hovered lines are no longer drawn twice (#503).
+- Compare view: a plot resized by anything else (the step bar expanded) is drawn again at its new size; ui-smoke fails any canvas left stretched (#552).
 - Python backend answers requests for different recordings concurrently and reads audio straight into float32 (#462, #464).
 - Updated to wandas 0.12.0 (#409, #446, #468).
 - Python starts only when a command, view or panel needs it; Select Python Environment can create a `.venv` and install the packages, detects PEP 668 interpreters and uses the Python extension's interpreter; Restricted Mode is supported with the user-level interpreter.

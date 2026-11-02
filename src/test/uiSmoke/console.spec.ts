@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './canvasAudit';
 import { buildUiSmokeHtml } from './buildHtml';
 
 test('webview smoke renders without console or page errors', async ({ page }) => {

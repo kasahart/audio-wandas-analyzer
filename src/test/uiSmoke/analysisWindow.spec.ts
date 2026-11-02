@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './canvasAudit';
 import { buildExtensionHostPathUiSmokeHtml } from './buildHtml';
 
 /** Counts amber band pixels (the analysis-window fill and curve) per canvas column. */

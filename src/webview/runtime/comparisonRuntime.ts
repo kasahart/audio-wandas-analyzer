@@ -1261,6 +1261,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     stageMode = createTrackStageMode({
         document,
         window,
+        ...(typeof ResizeObserver === 'function' ? { ResizeObserver } : {}),
         strings: STR,
         post: message => messaging.post(message),
         // The steps the comparison runs are bounded by the tracks it compares, not every file of the table.

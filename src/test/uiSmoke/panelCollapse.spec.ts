@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './canvasAudit';
 import { buildUiSmokeHtml, buildUiSmokeSelectionHtml } from './buildHtml';
 
 test('the spectrum toggle folds the docked spectrum to its header and gives the tracks the room', async ({ page }) => {

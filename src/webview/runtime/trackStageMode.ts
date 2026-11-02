@@ -39,6 +39,8 @@ import { INPUT_FRAME } from '../../shared/recipe/recipeCatalog';
 export interface TrackStageDeps {
     document: Document;
     window: Pick<Window, 'setTimeout' | 'requestAnimationFrame' | 'clearTimeout' | 'addEventListener'> & { performance: Pick<Performance, 'now'> };
+    /** Watches the plots' own size: any layout change that resizes one (Δ, the step bar, a wrapped legend) draws it again. */
+    ResizeObserver?: typeof ResizeObserver;
     strings: UiStrings;
     post(message: CompareScanMessage): void;
     /** The Recipe the entry table scans with, and the one its scans run (the steps that cannot run left out). */
@@ -173,6 +175,14 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
     root.prepend(stepBar.element);
     const dom = stageDom(root, stepBar.element);
     const { query, panel } = dom;
+    // A plot is drawn at the size it has then; one resized afterwards would show its bitmap stretched under hover marks
+    // drawn at the new size. Whatever resizes it, it is drawn again at the size it now has.
+    if (deps.ResizeObserver) {
+        const resized = new deps.ResizeObserver(entries => {
+            if (state.on && entries.some(entry => drawnAtOtherSize(entry.target as HTMLCanvasElement))) deps.rerender();
+        });
+        root.querySelectorAll('[data-stage-canvas]').forEach(canvas => resized.observe(canvas));
+    }
     /** The comparison written as a folder (the toolbar's 書き出し menu): a chain that cannot run has no values to report. */
     function report(): void {
         const recipe = deps.recipe()?.recipe;
@@ -526,4 +536,12 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             stageGestures = attachStageGestures(surface, root, document, { strings, state, drawnOn, painted: () => painted, moved: () => detail.moved(), rerender: () => deps.rerender(), hint: text => deps.hint(text) });
         },
     };
+}
+
+/** A canvas on screen whose bitmap is not the size it is shown at (as paintOverlay sizes it). */
+function drawnAtOtherSize(canvas: HTMLCanvasElement): boolean {
+    const width = canvas.clientWidth, height = canvas.clientHeight;
+    if (width === 0 || height === 0) return false;
+    const ratio = canvas.ownerDocument.defaultView?.devicePixelRatio ?? 1;
+    return Math.abs(canvas.width - Math.round(width * ratio)) > 1 || Math.abs(canvas.height - Math.round(height * ratio)) > 1;
 }

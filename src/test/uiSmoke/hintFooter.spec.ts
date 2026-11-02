@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './canvasAudit';
 import { getStrings } from '../../shared/i18n/strings';
 import { buildUiSmokeHtml } from './buildHtml';
 
