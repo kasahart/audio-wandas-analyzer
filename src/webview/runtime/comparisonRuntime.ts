@@ -792,14 +792,18 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     /** The role chips on the track headers follow the slots (set here, on the entry table or on the comparison's legend). */
     function syncRoleChips() {
+        let roleChanged = false;
         document.querySelectorAll<HTMLDetailsElement>('.track-header details.role-chip').forEach(function (chip) {
             const filePath = chip.dataset.filePath ?? '';
             const role = trackRole(filePath);
             const face = chip.querySelector<HTMLElement>('.role-chip-face');
             if (chip.open || !face || (face.dataset.role === String(role?.slot ?? '') && face.textContent === roleChipText(role))) return;
             const i = state.results.findIndex(function (result) { return result.filePath === filePath; });
+            if (face.dataset.role !== String(role?.slot ?? '')) roleChanged = true;
             chip.outerHTML = roleChipHtml(filePath, role, i >= 0 ? ownTrackColor(i) : '', STR);
         });
+        // The cursor spectra are drawn in each track's role colour: repaint them (without asking for slices) when a role changes.
+        if (roleChanged && !spectraHidden) spectrumRequests.scheduleFrame(false, false);
     }
     const hintFooter = createHintFooter(document);
     const taskStatus = createTaskStatus(document, window, announce);
