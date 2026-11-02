@@ -4,7 +4,8 @@ import { JSDOM } from 'jsdom';
 import { getStrings } from '../shared/i18n/strings';
 import { datasetRows } from '../shared/dataset/datasetTable';
 import { OVERVIEW_MARGINS } from '../webview/runtime/entryPlots';
-import { createSidePlots, overviewLevelUnit, type SidePlotsDeps } from '../webview/runtime/entrySidePlots';
+import { createSidePlots, type SidePlotsDeps } from '../webview/runtime/entrySidePlots';
+import { sharedLevelLabel } from '../shared/utils/format';
 import { entryScreenHtml } from '../webview/runtime/entryTableHtml';
 import { FULL_PLOT_WINDOW } from '../webview/runtime/plotInteraction';
 
@@ -64,7 +65,7 @@ test('painting waits for the next frame, once however often it is asked; the dis
     assert.deepEqual(calls, ['distribution', 'held']);
     assert.equal(overview.dataset.window, '0.000-1.000|0.000-1.000');
     assert.equal(heldCanvas.dataset.window, '0.000-1.000|0.000-1.000');
-    plots.noteResult('/d/a.wav', { ok: true, input: { id: 'x', fs: 48000, channels: [0], durationS: 1, unit: 'Pa', ref: 2e-5, fullScale: true }, thirdOctDb: [[40, 50]] });
+    plots.noteResult('/d/a.wav', { ok: true, input: { id: 'x', fs: 48000, channels: [0], durationS: 1, unit: 'Pa', ref: 2e-5, levelReferenceLabel: 'dB SPL re 20 µPa', calibrationStatus: 'calibrated', fullScale: true }, thirdOctDb: [[40, 50]] });
     plots.noteResult('/d/b.wav', { ok: false, reason: 'unreadable' });
     plots.clear();
     plots.schedule();
@@ -86,9 +87,22 @@ test('a click on the strip picks the row under it; the gestures add a zoom box a
     assert.deepEqual(calls, ['pick /d/a.wav', 'pick /d/c.wav'], 'below the rows is no row');
 });
 
-test('the overview colour scale reads dBFS for audio, dB re 1 input unit for CSV, and dB once they differ', () => {
-    assert.equal(overviewLevelUnit(new Map()), 'dBFS');
-    assert.equal(overviewLevelUnit(new Map([['/a.wav', 'dBFS']])), 'dBFS');
-    assert.equal(overviewLevelUnit(new Map([['/a.csv', 'dB re 1 input unit']])), 'dB re 1 input unit');
-    assert.equal(overviewLevelUnit(new Map([['/a.wav', 'dBFS'], ['/a.csv', 'dB re 1 input unit']])), 'dB');
+test('the overview colour scale and the dataset table name the recordings\' shared level reference, plain dB once they differ', () => {
+    assert.equal(sharedLevelLabel([]), 'dBFS');
+    assert.equal(sharedLevelLabel(['dBFS', 'dBFS']), 'dBFS');
+    assert.equal(sharedLevelLabel(['dB re 1 input unit']), 'dB re 1 input unit');
+    assert.equal(sharedLevelLabel(['dB SPL re 20 µPa']), 'dB SPL re 20 µPa');
+    assert.equal(sharedLevelLabel(['dBFS', 'dB re 1 input unit']), 'dB');
+    assert.equal(sharedLevelLabel(['dB SPL re 20 µPa', 'dBFS']), 'dB');
+    const { plots } = setup();
+    const input = (levelReferenceLabel: string, calibrationStatus: 'calibrated' | 'uncalibrated') => ({ id: 'x', fs: 48000, channels: [0], durationS: 1, unit: 'Pa', ref: 2e-5, levelReferenceLabel, calibrationStatus, fullScale: true });
+    assert.equal(plots.levelLabel(), 'dBFS');
+    plots.noteResult('/d/a.wav', { ok: true, input: input('dB SPL re 20 µPa', 'calibrated') });
+    assert.equal(plots.levelLabel(), 'dB SPL re 20 µPa');
+    plots.noteResult('/d/b.wav', { ok: true, input: input('dBFS', 'uncalibrated') });
+    assert.equal(plots.levelLabel(), 'dB');
+    plots.noteResult('/d/b.wav', { ok: false, reason: 'unreadable' });
+    assert.equal(plots.levelLabel(), 'dB SPL re 20 µPa', 'a file that cannot be read has no reference');
+    plots.clear();
+    assert.equal(plots.levelLabel(), 'dBFS');
 });

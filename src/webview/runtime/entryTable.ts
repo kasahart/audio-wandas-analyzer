@@ -243,7 +243,7 @@ export function buildEntryModel(
         }
         row.status = 'ok';
         row.durationS = result.input.durationS;
-        if (result.input.unit === 'FS' && result.input.ref === 1) row.uncalibrated = result.input.fullScale ? 'full-scale' : 'raw-units';
+        if (result.input.calibrationStatus === 'uncalibrated') row.uncalibrated = result.input.fullScale ? 'full-scale' : 'raw-units';
         if (conditions.length) row.group = JSON.stringify(conditions);
         return row;
     });

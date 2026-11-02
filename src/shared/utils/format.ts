@@ -19,6 +19,12 @@ export function uncalibratedUnits(fullScale: boolean): { linear: string; level: 
     return fullScale ? { linear: 'FS', level: 'dBFS' } : { linear: 'input unit', level: 'dB re 1 input unit' };
 }
 
+/** The level reference several files share as wandas names it ("dBFS", "dB SPL re 20 µPa"): plain dB when they differ, dBFS before any. */
+export function sharedLevelLabel(labels: Iterable<string>): string {
+    const distinct = new Set(labels);
+    return distinct.size === 0 ? 'dBFS' : distinct.size === 1 ? [...distinct][0] : 'dB';
+}
+
 /** Linear measurement values: 0 / 2 / 3 decimals by magnitude, 3 significant digits below 0.01. */
 export function formatMeasurementNumber(value: unknown): string {
     const numberValue = Number(value);

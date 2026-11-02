@@ -758,6 +758,8 @@
           "durationS": 2,
           "unit": "FS",
           "ref": 1,
+          "levelReferenceLabel": "dBFS",
+          "calibrationStatus": "uncalibrated",
           "fullScale": true
         },
         "leqDbA": [

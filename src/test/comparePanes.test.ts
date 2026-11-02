@@ -3,7 +3,7 @@ import test from 'node:test';
 import type { ScanResult } from '../shared/protocol/backendProtocol';
 import { getStrings } from '../shared/i18n/strings';
 import { BAND_CENTERS_HZ, buildEntryModel } from '../webview/runtime/entryTable';
-import { buildCompareModel, diffHeadline, legendHtml, levelsHeadline, paneAxes, trackLevelInput } from '../webview/runtime/comparePanes';
+import { buildCompareModel, diffHeadline, legendHtml, levelsHeadline, paneAxes, trackLevelInput, type LevelInput } from '../webview/runtime/comparePanes';
 import type { ChannelSummary } from '../shared/analysis/analysisTypes';
 import { paintOverlay, stageAxes } from '../webview/runtime/stagePanes';
 import type { StageView } from '../shared/protocol/backendProtocol';
@@ -14,7 +14,7 @@ const BAND_3150 = BAND_CENTERS_HZ.indexOf(3150);
 function scan(leq: number, spectrum: number[], band3150: number): ScanResult {
     return {
         ok: true, conditionId: 'c', specVersion: 2, wandasVersion: '0.9.0', elapsedMs: 1,
-        input: { id: 'i', fs: 16000, channels: [0], durationS: 2, unit: 'FS', ref: 1, fullScale: true },
+        input: { id: 'i', fs: 16000, channels: [0], durationS: 2, unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true },
         leqDbA: [leq], peakHz: [100], spectrumDb: [spectrum],
         thirdOctDb: [BAND_CENTERS_HZ.map((_, band) => (band === BAND_3150 ? band3150 : -60 + band * 0.1))], crest: [1.4],
     };
@@ -114,7 +114,7 @@ test('every pane names its axes: level and frequency, Δ with its legend, in the
     });
     const canvas = { width: 0, height: 0, clientWidth: 600, clientHeight: 200, ownerDocument: {}, getContext: () => context } as unknown as HTMLCanvasElement;
     const ja = getStrings('ja');
-    const uncal = paneAxes(ja, { unit: 'FS', ref: 1, fullScale: true });
+    const uncal = paneAxes(ja, { unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true });
     const view = (values: number[]): StageView => ({ frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity: 'level', xs: [100, 1000], values });
     paintOverlay(canvas, { layers: [{ view: view([-40, -50]), color: '#00f' }] }, { min: -80, max: 0 }, uncal.level);
     assert.ok(texts.includes('振幅 未校正 [dBFS]') && texts.includes('周波数 [Hz]'));
@@ -123,23 +123,31 @@ test('every pane names its axes: level and frequency, Δ with its legend, in the
     texts.length = 0;
     paintOverlay(canvas, { layers: [{ view: view([1, 2]), color: '#0f0' }] }, { min: -8, max: 8 }, uncal.delta, { diff: true, bandSteps: { deltas: [], headline: [], color: '#0f0', legend: uncal.delta.legend } });
     assert.ok(['差 [dB]', '1/3 oct 見出し', '漏れ', '点ごとの差'].every(text => texts.includes(text)));
-    assert.equal(paneAxes(ja, { unit: 'Pa', ref: 2e-5, fullScale: true }).level.y, '振幅 [dB re 0.00002 Pa]');
+    assert.equal(paneAxes(ja, { unit: 'Pa', ref: 2e-5, levelReferenceLabel: 'dB SPL re 20 µPa', calibrationStatus: 'calibrated', fullScale: true }).level.y, '振幅 [dB SPL re 20 µPa]');
 });
 
-test('an uncalibrated source without a full scale (CSV) names its level axis in raw input units; audio keeps dBFS', () => {
-    for (const [language, fullScaleAxis, rawAxis] of [
-        ['en', 'Amplitude, uncalibrated [dBFS]', 'Amplitude, uncalibrated [dB re 1 input unit]'],
-        ['ja', '振幅 未校正 [dBFS]', '振幅 未校正 [dB re 1 input unit]'],
+const FS: LevelInput = { unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true };
+const RAW: LevelInput = { unit: '', ref: 1, levelReferenceLabel: 'dB re 1 input unit', calibrationStatus: 'uncalibrated', fullScale: false };
+const SPL: LevelInput = { unit: 'Pa', ref: 2e-5, levelReferenceLabel: 'dB SPL re 20 µPa', calibrationStatus: 'calibrated', fullScale: true };
+
+test('the level axis is named by wandas\' level reference, and says uncalibrated from the calibration status, not the unit', () => {
+    for (const [language, fullScaleAxis, rawAxis, splAxis] of [
+        ['en', 'Amplitude, uncalibrated [dBFS]', 'Amplitude, uncalibrated [dB re 1 input unit]', 'Amplitude [dB SPL re 20 µPa]'],
+        ['ja', '振幅 未校正 [dBFS]', '振幅 未校正 [dB re 1 input unit]', '振幅 [dB SPL re 20 µPa]'],
     ] as const) {
         const strings = getStrings(language);
-        assert.equal(paneAxes(strings, { unit: 'FS', ref: 1, fullScale: true }).level.y, fullScaleAxis);
-        assert.equal(paneAxes(strings, { unit: 'FS', ref: 1, fullScale: false }).level.y, rawAxis);
-        assert.equal(paneAxes(strings, { unit: 'Pa', ref: 1, fullScale: false }).level.y, strings.axisLevelCal.replace('{ref}', '1').replace('{unit}', 'Pa'), 'a calibrated CSV names its calibration');
+        assert.equal(paneAxes(strings, FS).level.y, fullScaleAxis);
+        assert.equal(paneAxes(strings, RAW).level.y, rawAxis);
+        assert.equal(paneAxes(strings, SPL).level.y, splAxis);
+        assert.equal(paneAxes(strings, { ...SPL, fullScale: false }).level.y, splAxis, 'a calibrated CSV names its calibration');
+        // A calibration to 1 V is calibrated even with a reference of 1.
+        assert.equal(paneAxes(strings, { unit: 'V', ref: 1, levelReferenceLabel: 'dB re 1 V', calibrationStatus: 'calibrated', fullScale: true }).level.y, splAxis.replace('dB SPL re 20 µPa', 'dB re 1 V'));
+        assert.equal(paneAxes(strings, undefined).level.y, fullScaleAxis);
     }
     const waveform = { min: [0], max: [1], minT: [0], maxT: [0], absolutePeak: 1, ref: 1 };
     const view = (unit: string): StageView => ({ frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs: [0], values: [0], waveform: { ...waveform, unit } });
-    assert.equal(stageAxes(STR, view('FS'), { unit: 'FS', ref: 1, fullScale: true }).y, 'Amplitude [FS]');
-    assert.equal(stageAxes(STR, view(''), { unit: 'FS', ref: 1, fullScale: false }).y, 'Amplitude [input unit]');
+    assert.equal(stageAxes(STR, view('FS'), { unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true }).y, 'Amplitude [FS]');
+    assert.equal(stageAxes(STR, view(''), RAW).y, 'Amplitude [input unit]');
 });
 
 test('the headline gives both levels, and a band far below the loudest does not head it however large its Δ', () => {
@@ -175,12 +183,21 @@ test('a track with no entry result takes its level reference from its own analys
     const channel = (fullScale: boolean, measurement?: ChannelSummary['measurement']): ChannelSummary => ({ label: 'L', peakAbsolute: 1, fullScale, waveform, spectrogram: null, ...(measurement ? { measurement } : {}) });
     const pa = { calibrationStatus: 'calibrated', calibrationSource: 'manual', factor: 2, linearUnit: 'Pa', referenceValue: 2e-5, referenceUnit: 'Pa', levelUnit: 'dB SPL', levelReferenceLabel: 'dB SPL re 20 µPa' } as const;
     const g = { ...pa, linearUnit: 'm/s^2', referenceValue: 1, referenceUnit: 'm/s^2', levelUnit: 'dB', levelReferenceLabel: 'dB re 1 m/s^2' } as const;
-    const scanned = { unit: 'FS', ref: 1, fullScale: false };
-    assert.deepEqual(trackLevelInput([channel(true)], scanned), scanned, 'the entry table\'s scan wins');
-    assert.deepEqual(trackLevelInput([channel(false)], undefined), { unit: 'FS', ref: 1, fullScale: false });
-    assert.deepEqual(trackLevelInput([channel(true)], undefined), { unit: 'FS', ref: 1, fullScale: true });
-    assert.deepEqual(trackLevelInput([channel(false, pa)], undefined), { unit: 'Pa', ref: 2e-5, fullScale: false }, 'a calibrated CSV keeps its calibration');
-    assert.deepEqual(trackLevelInput([channel(true, pa), channel(true, g)], undefined), { unit: 'FS', ref: 1, fullScale: true }, 'channels calibrated apart share no reference');
+    const fs = { calibrationStatus: 'uncalibrated', calibrationSource: 'default', factor: 1, linearUnit: 'FS', referenceValue: 1, referenceUnit: 'FS', levelUnit: 'dBFS', levelReferenceLabel: 'dBFS' } as const;
+    assert.deepEqual(trackLevelInput([channel(true)], RAW), RAW, 'the entry table\'s scan wins');
+    assert.deepEqual(trackLevelInput([channel(false)], undefined), RAW);
+    assert.deepEqual(trackLevelInput([channel(true)], undefined), FS);
+    assert.deepEqual(trackLevelInput([channel(true, fs), channel(true, fs)], undefined), FS);
+    assert.deepEqual(trackLevelInput([channel(false, pa)], undefined), { ...SPL, fullScale: false }, 'a calibrated CSV keeps its calibration');
+    const plain = { unit: '', ref: 1, levelReferenceLabel: 'dB', calibrationStatus: 'calibrated', fullScale: true };
+    assert.deepEqual(trackLevelInput([channel(true, pa), channel(true, g)], undefined), plain, 'channels calibrated apart share no reference');
+    assert.deepEqual(trackLevelInput([channel(true, pa), channel(true, fs)], undefined), plain, 'nor do Pa and an uncalibrated channel');
+    // A gain correction in FS keeps dBFS: it shares the uncalibrated channel's reference, as the scan judges it.
+    const gain = { ...fs, calibrationStatus: 'calibrated', calibrationSource: 'manual', factor: 2 } as const;
+    assert.deepEqual(trackLevelInput([channel(true, gain), channel(true, fs)], undefined), FS);
+    assert.equal(paneAxes(STR, trackLevelInput([channel(true, gain), channel(true, fs)], undefined)).level.y, 'Amplitude, uncalibrated [dBFS]');
+    assert.deepEqual(trackLevelInput([channel(true, gain), channel(true, gain)], undefined), { ...FS, calibrationStatus: 'calibrated' });
+    assert.equal(paneAxes(STR, plain as LevelInput).level.y, 'Amplitude [dB]');
     assert.equal(paneAxes(STR, trackLevelInput([channel(false)], undefined)).level.y, 'Amplitude, uncalibrated [dB re 1 input unit]');
     assert.equal(paneAxes(STR, trackLevelInput([channel(true)], undefined)).level.y, 'Amplitude, uncalibrated [dBFS]');
 });

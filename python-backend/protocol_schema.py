@@ -585,14 +585,28 @@ DEFINITIONS: dict[str, Schema] = {
     },
     "ScanInput": {
         "type": "object",
-        "required": ["id", "fs", "channels", "durationS", "unit", "ref", "fullScale"],
+        "required": [
+            "id",
+            "fs",
+            "channels",
+            "durationS",
+            "unit",
+            "ref",
+            "levelReferenceLabel",
+            "calibrationStatus",
+            "fullScale",
+        ],
         "properties": {
             "id": {"type": "string"},
             "fs": {"type": "integer", "minimum": 1},
             "channels": {"type": "array", "items": {"type": "integer", "minimum": 0}},
             "durationS": _NUMBER,
+            # wandas' linear unit: "FS" for audio, "" for an uncalibrated CSV, the calibration's unit otherwise.
             "unit": {"type": "string"},
             "ref": _NUMBER,
+            # wandas' name for the level reference: "dBFS", "dB re 1 input unit", "dB SPL re 20 µPa"…
+            "levelReferenceLabel": {"type": "string"},
+            "calibrationStatus": {"type": "string", "enum": ["uncalibrated", "calibrated"]},
             # false: the source (a CSV) holds raw input units, so an uncalibrated level is dB re 1 input unit.
             "fullScale": {"type": "boolean"},
         },
