@@ -327,17 +327,21 @@ export function uncalibratedLevelInput(fullScale: boolean): LevelInput {
 
 /**
  * A track's level reference for the steps view: as the entry table scanned it, else from the track's own analysis
- * (a file opened on its own, or a folder not rescanned yet): its channels' reference when they share one, else plain
- * dB (channels calibrated apart, or some calibrated and some not, share no reference).
+ * (a file opened on its own, or a folder not rescanned yet): its channels' reference when they share one, as the scan
+ * judges it (calibrated only if every channel is: a gain correction in FS shares dBFS with an uncalibrated channel),
+ * else plain dB (channels calibrated apart share no reference).
  */
 export function trackLevelInput(channels: ReadonlyArray<ChannelSummary | null | undefined>, scanned: LevelInput | undefined): LevelInput {
     if (scanned) return { unit: scanned.unit, ref: scanned.ref, levelReferenceLabel: scanned.levelReferenceLabel, calibrationStatus: scanned.calibrationStatus, fullScale: scanned.fullScale };
     const fullScale = channels.every(channel => !channel || channel.fullScale);
     const measured = channels.map(channel => channel?.measurement);
     const first = measured[0];
-    const shared = !!first && measured.every(measurement => measurement?.calibrationStatus === first.calibrationStatus && measurement.referenceUnit === first.referenceUnit
+    const shared = !!first && measured.every(measurement => measurement?.referenceUnit === first.referenceUnit
         && measurement.referenceValue === first.referenceValue && measurement.levelReferenceLabel === first.levelReferenceLabel);
-    if (first && shared) return { unit: first.referenceUnit, ref: first.referenceValue, levelReferenceLabel: first.levelReferenceLabel, calibrationStatus: first.calibrationStatus, fullScale };
+    if (first && shared) {
+        const calibrationStatus = measured.every(measurement => measurement?.calibrationStatus === 'calibrated') ? 'calibrated' : 'uncalibrated';
+        return { unit: first.referenceUnit, ref: first.referenceValue, levelReferenceLabel: first.levelReferenceLabel, calibrationStatus, fullScale };
+    }
     return measured.some(measurement => measurement?.calibrationStatus === 'calibrated')
         ? { unit: '', ref: 1, levelReferenceLabel: 'dB', calibrationStatus: 'calibrated', fullScale }
         : uncalibratedLevelInput(fullScale);
