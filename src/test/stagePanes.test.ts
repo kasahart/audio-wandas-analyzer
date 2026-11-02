@@ -39,6 +39,16 @@ test('a cross-channel picture names its pair on the value axis: the channel over
     assert.equal(stageAxes(names, line([0.2, 0.5, 0.9], 'coherence'), undefined).y, 'Coherence');
 });
 
+test('a metric over time names what it measures on its value axis, from its unit', () => {
+    const names = { axisTime: 'Time [s]', dsValue: 'Value', axisLoudness: 'Loudness', axisSharpness: 'Sharpness', axisRoughness: 'Roughness', axisLevelOf: 'Level' } as unknown as StageStrings;
+    const series = (unit: string): StageView => ({ frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', unit, xs: [0, 1], values: [1, 2] });
+    assert.deepEqual(stageAxes(names, series('sone'), undefined), { x: 'Time [s]', y: 'Loudness [sone]' });
+    assert.equal(stageAxes(names, series('asper'), undefined).y, 'Roughness [asper]');
+    assert.equal(stageAxes(names, series('acum'), undefined).y, 'Sharpness [acum]');
+    assert.equal(stageAxes(names, series('dB re 1 FS'), undefined).y, 'Level [dB re 1 FS]');
+    assert.equal(stageAxes(names, series('Pa'), undefined).y, 'Value [Pa]');
+});
+
 const cepstrum = (values: number[]): StageView => ({ frame: 'CepstralFrame', kind: 'line', x: 'quefrency', xScale: 'linear', quantity: 'cepstrum', xs: [0, 0.001, 0.002, 0.003], values });
 
 test('a cepstrum is drawn on a quefrency axis, symmetric about zero without its zero-quefrency coefficient', () => {

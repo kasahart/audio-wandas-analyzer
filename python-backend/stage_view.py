@@ -34,6 +34,14 @@ from wandas_to_chart import CHART_FRAME_TYPES
 
 # A time signal longer than this is drawn as its level over time; a shorter one is a metric's values.
 LEVEL_SERIES_MIN_SAMPLES = 2048
+#: Operations whose ChannelFrame is a metric over time, drawn as its own values however long it is, and
+#: the unit of those values: wandas keeps the input channel's unit on them (rms_trend's is right: its own).
+METRIC_SERIES_UNITS: dict[str, str] = {
+    "wandas.audio.loudness_zwtv": "sone",
+    "wandas.audio.sharpness_din": "acum",
+    "wandas.audio.roughness_dw": "asper",
+    "wandas.audio.rms_trend": "",
+}
 #: A waveform's buckets before any zoom: the track lanes' overview (rangeRequestPolicy.OVERVIEW_POINTS).
 WAVEFORM_OVERVIEW_POINTS = 1200
 TIME_POINTS = 400
@@ -194,20 +202,30 @@ def _waveform(
     }
 
 
+def _metric_operation(frame: ChannelFrame) -> str | None:
+    """The metric operation that made `frame` (its last step), or None for a sound signal."""
+    history = frame.operation_history
+    operation = str(history[-1].get("operation", "")) if history else ""
+    return operation if operation in METRIC_SERIES_UNITS else None
+
+
 def _channel_view(frame: ChannelFrame) -> StageView:
     data = _rows(frame.data, frame.n_channels)
     # Seconds into the file, so a region's level reads at the region's times.
     times = np.asarray(frame.source_time, dtype=np.float64).reshape(frame.n_channels, -1)[0]
-    if data.shape[1] <= LEVEL_SERIES_MIN_SAMPLES:
+    metric = _metric_operation(frame)
+    if metric is not None or data.shape[1] <= LEVEL_SERIES_MIN_SAMPLES:
+        # A metric (loudness at 500 Hz, …) is its own values however long the region: never a level of them.
+        xs, values = _envelope(times, np.mean(data, axis=0), LEVEL_SERIES_MIN_SAMPLES)
         return {
             "frame": type(frame).__name__,
             "kind": "line",
             "x": "time",
             "xScale": "linear",
             "quantity": "value",
-            "unit": frame.channels[0].unit or "",
-            "xs": _axis(times),
-            "values": _json(np.mean(data, axis=0)),
+            "unit": (METRIC_SERIES_UNITS[metric] if metric else "") or frame.channels[0].unit or "",
+            "xs": _axis(xs),
+            "values": _json(values),
         }
     edges = np.linspace(0, data.shape[1], min(TIME_POINTS, data.shape[1]) + 1).astype(int)
     refs = np.array([channel.ref for channel in frame.channels], dtype=np.float64)[:, np.newaxis]

@@ -156,6 +156,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         onStepHold: step => { state.heldStep = step; deps.rerender(); },
         onRegionSet: next => { state.regionSet = next; state.window = FULL_PLOT_WINDOW; deps.rerender(); },
         onInputSelect: () => { state.stage = INPUT_STAGE; state.window = FULL_PLOT_WINDOW; deps.rerender(); },
+        presets: true,
     });
     stepBar.element.classList.add('track-stage-bar');
     const root = document.createElement('div');

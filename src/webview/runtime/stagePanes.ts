@@ -22,7 +22,7 @@ import { niceTicks } from '../../shared/utils/ticks';
 /** Canvas x the level axis's turned title is centred on, in the gutter left of its tick labels. */
 const AXIS_TITLE_X = 10;
 
-export type StageStrings = Pick<UiStrings, 'axisFrequency' | 'axisTime' | 'axisBand' | 'axisBark' | 'axisQuefrency' | 'axisCepstrum' | 'axisLag' | 'axisCorrelation' | 'axisLevel' | 'axisLevelUncal' | 'axisLevelCal' | 'axisDelta' | 'dsValue' | 'axisGain' | 'axisCoherence' | 'legendHeadline' | 'legendLeak' | 'legendLine' | 'stageNoDelta' | 'stageMaxDelta' | 'stepNotDrawable' | 'compareLevelsAt' | 'waveRangeAxisAmplitude' | 'stagePairBase'>;
+export type StageStrings = Pick<UiStrings, 'axisFrequency' | 'axisTime' | 'axisBand' | 'axisBark' | 'axisQuefrency' | 'axisCepstrum' | 'axisLag' | 'axisCorrelation' | 'axisLevel' | 'axisLevelUncal' | 'axisLevelCal' | 'axisDelta' | 'dsValue' | 'axisGain' | 'axisCoherence' | 'axisLoudness' | 'axisSharpness' | 'axisRoughness' | 'axisLevelOf' | 'legendHeadline' | 'legendLeak' | 'legendLine' | 'stageNoDelta' | 'stageMaxDelta' | 'stepNotDrawable' | 'compareLevelsAt' | 'waveRangeAxisAmplitude' | 'stagePairBase'>;
 
 const DB_QUANTITIES = ['level', 'gain'];
 const isDb = (view: StageView | null): boolean => DB_QUANTITIES.includes(view?.quantity ?? '');
@@ -194,10 +194,19 @@ export function stageAxes(strings: StageStrings, view: StageView | null, input: 
             : view?.quantity === 'coherence' ? strings.axisCoherence
                 : view?.quantity === 'cepstrum' ? strings.axisCepstrum
                     : view?.quantity === 'correlation' ? strings.axisCorrelation
-                    : `${strings.dsValue}${unit}`;
+                    : `${metricName(strings, view?.unit)}${unit}`;
     // A cross-channel Frame names its pair: which channel over which reference, or the recording over the base slot's.
     const pair = view?.pair?.base ? ` · ${strings.stagePairBase}` : view?.pair ? ` · ch${view.pair.output} / ch${view.pair.input}` : '';
     return { x, y: diff ? `Δ ${y}${pair}` : `${y}${pair}` };
+}
+
+/** What a metric over time measures, named by its unit (stage_view.METRIC_SERIES_UNITS); a value otherwise. */
+function metricName(strings: StageStrings, unit: string | undefined): string {
+    if (unit === 'sone') return strings.axisLoudness;
+    if (unit === 'acum') return strings.axisSharpness;
+    if (unit === 'asper') return strings.axisRoughness;
+    if (unit?.startsWith('dB')) return strings.axisLevelOf;
+    return strings.dsValue;
 }
 
 const hz = (value: number): string => (value >= 1000 ? `${(value / 1000).toFixed(value >= 10000 ? 1 : 2)} kHz` : `${Math.round(value)} Hz`);
