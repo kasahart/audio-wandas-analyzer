@@ -41,6 +41,7 @@ def test_channel_calibration_applies_to_linear_levels_and_raw_clipping() -> None
         np.array([[0.5, -0.5], [1.0, -1.0]], dtype=np.float64),
         sampling_rate=8_000,
         ch_labels=["microphone", "accelerometer"],
+        ch_units=["FS", "FS"],
     )
     resolved = resolve_calibration_profile(
         _profile(
@@ -307,6 +308,27 @@ def test_csv_physical_values_are_never_clipped_but_a_full_scale_wav_is(tmp_path)
     assert csv["clipped"] is None
     assert detail["clipped"] is None
     assert first_violation(DEFINITIONS["ChannelSummary"], csv) is None
+
+
+def test_full_scale_comes_from_the_source_as_wandas_read_it_not_from_its_calibration(tmp_path) -> None:
+    time = np.arange(800) / 8_000
+    tone = np.sin(2 * np.pi * 80 * time)
+    wav_path = tmp_path / "pair.wav"
+    sf.write(wav_path, np.stack([tone, 0.5 * tone], axis=1), 8_000, subtype="DOUBLE")
+    csv_path = tmp_path / "vibration.csv"
+    csv_path.write_text("time,accel\n" + "".join(f"{t},{v}\n" for t, v in zip(time, tone, strict=True)))
+    service = AnalysisService(AnalysisEngine(cache_limit_bytes=16 * 1024 * 1024))
+
+    first_only = _profile(["ch0", "ch1"], [1.0, 1.0], ["Pa", "FS"], [2e-5, 1.0])
+    first_only["channels"][1] = {**first_only["channels"][1], "status": "uncalibrated", "source": "default"}
+    wav = service.analyze(wav_path, calibration_profile=first_only)["channels"]
+    csv = service.analyze(csv_path, calibration_profile=_profile(["accel"], [1.0], ["Pa"], [2e-5]))["channels"]
+
+    assert [(channel["fullScale"], channel["clipped"]) for channel in wav] == [(True, True), (True, False)]
+    assert [channel["measurement"]["levelReferenceLabel"] for channel in wav] == ["dB SPL re 20 µPa", "dBFS"]
+    assert [channel["measurement"]["calibrationStatus"] for channel in wav] == ["calibrated", "uncalibrated"]
+    assert (csv[0]["fullScale"], csv[0]["clipped"]) == (False, None)
+    assert csv[0]["measurement"]["levelReferenceLabel"] == "dB SPL re 20 µPa"
 
 
 def test_micro_reference_prefix_attaches_to_non_pascal_unit() -> None:

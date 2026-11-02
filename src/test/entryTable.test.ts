@@ -21,7 +21,7 @@ function scan(leq: number, band: number, options: { fs?: number; channels?: numb
     const third = BAND_CENTERS_HZ.map((_, index) => (index === BAND_3150 ? band : -60));
     return {
         ok: true, conditionId: 'c', specVersion: 1, wandasVersion: '0.9.0', elapsedMs: 1,
-        input: { id: 'i', fs: options.fs ?? 16000, channels: Array.from({ length: channels }, (_, i) => i), durationS: 2, unit: 'FS', ref: 1, fullScale: true },
+        input: { id: 'i', fs: options.fs ?? 16000, channels: Array.from({ length: channels }, (_, i) => i), durationS: 2, unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true },
         leqDbA: Array(channels).fill(leq), peakHz: Array(channels).fill(options.peak ?? 100),
         spectrumDb: Array(channels).fill([leq]), thirdOctDb: Array(channels).fill(third), crest: Array(channels).fill(1.4),
     };
@@ -171,15 +171,14 @@ test('a derived row sits under its parent with the parent\'s condition and Δ ag
     assert.equal(csv[parent + 2].split(',').slice(0, 5).join(','), 'L1_900rpm_run1.wav,L1,900rpm,0.50,1.50');
 });
 
-test('an uncalibrated row says what its level is relative to: full scale for audio, raw input units for CSV', () => {
+test('an uncalibrated row says what its level is relative to (full scale for audio, raw input units for CSV), from its calibration status', () => {
     const csv = scan(-20, -30);
-    if (csv.input) csv.input = { ...csv.input, fullScale: false };
-    const calibrated = scan(60, 50);
-    if (calibrated.input) calibrated.input = { ...calibrated.input, unit: 'Pa', ref: 2e-5 };
-    const model = buildEntryModel([
-        { filePath: '/f/a.wav', result: scan(-20, -30) },
-        { filePath: '/f/b.csv', result: csv },
-        { filePath: '/f/c.wav', result: calibrated },
-    ], null, { band: BAND_3150 });
-    assert.deepEqual(model.rows.map(row => [row.filePath, row.uncalibrated]), [['/f/a.wav', 'full-scale'], ['/f/b.csv', 'raw-units'], ['/f/c.wav', undefined]]);
+    if (csv.input) csv.input = { ...csv.input, unit: '', levelReferenceLabel: 'dB re 1 input unit', fullScale: false };
+    // Calibrated to 1 V: a reference of 1 is still a calibration.
+    const volts = scan(60, 50);
+    if (volts.input) volts.input = { ...volts.input, unit: 'V', ref: 1, levelReferenceLabel: 'dB re 1 V', calibrationStatus: 'calibrated' };
+    // Each its own folder: a table compares only rows of one unit and reference.
+    const row = (filePath: string, result: ScanResult) => buildEntryModel([{ filePath, result }], null, { band: BAND_3150 }).rows[0];
+    assert.deepEqual([row('/f/a.wav', scan(-20, -30)), row('/f/b.csv', csv), row('/f/c.wav', volts)].map(item => [item.status, item.uncalibrated]),
+        [['ok', 'full-scale'], ['ok', 'raw-units'], ['ok', undefined]]);
 });

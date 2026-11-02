@@ -20,7 +20,7 @@ const BAND_3150 = BAND_CENTERS_HZ.indexOf(3150);
 function scan(leq: number, band: number): ScanResult {
     return {
         ok: true, conditionId: 'c', specVersion: 2, wandasVersion: '0.9.0', elapsedMs: 1,
-        input: { id: 'i', fs: 16000, channels: [0], durationS: 2, unit: 'FS', ref: 1, fullScale: true },
+        input: { id: 'i', fs: 16000, channels: [0], durationS: 2, unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true },
         leqDbA: [leq], peakHz: [100], spectrumDb: [[-40, -50]],
         thirdOctDb: [BAND_CENTERS_HZ.map((_, index) => (index === BAND_3150 ? band : -60))], crest: [1.4],
     };

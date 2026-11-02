@@ -244,6 +244,7 @@ export interface UiStrings {
     dsGroupNone: string;
     dsFromCsv: string;
     dsFromSound: string;
+    /** `{label}`: the rows' level reference as wandas names it ("dBFS", "dB SPL re 20 µPa"), plain "dB" when they differ. */
     dsLeq: string;
     dsPeak: string;
     dsCrest: string;
@@ -424,9 +425,9 @@ export interface UiStrings {
     stepFrameHint: string;
     slotEmpty: string;
     axisFrequency: string;
+    /** The level axis while uncalibrated; `{label}` is wandas' level reference ("dBFS", "dB re 1 input unit"). */
     axisLevelUncal: string;
-    /** The level axis of a source without a full scale (CSV) while uncalibrated. */
-    axisLevelUncalRaw: string;
+    /** The level axis once calibrated; `{label}` is wandas' level reference ("dB SPL re 20 µPa"). */
     axisLevelCal: string;
     axisDelta: string;
     axisTime: string;
@@ -1010,10 +1011,10 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dsGroupNone: 'None',
         dsFromCsv: 'CSV columns',
         dsFromSound: 'Computed from the sound',
-        dsLeq: 'Leq A-weighted [dBFS]',
+        dsLeq: 'Leq A-weighted [{label}]',
         dsPeak: 'Peak frequency [Hz]',
         dsCrest: 'Crest factor [ratio]',
-        dsBand: '{band} band [dBFS]',
+        dsBand: '{band} band [{label}]',
         dsNotComputed: 'Not computed: press 「Compute」 first',
         dsRows: '{n} rows',
         dsPickCsv: 'Pick a CSV',
@@ -1190,9 +1191,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepFrameHint: 'wandas {op}',
         slotEmpty: 'empty',
         axisFrequency: 'Frequency [Hz]',
-        axisLevelUncal: 'Amplitude, uncalibrated [dBFS]',
-        axisLevelUncalRaw: 'Amplitude, uncalibrated [dB re 1 input unit]',
-        axisLevelCal: 'Amplitude [dB re {ref} {unit}]',
+        axisLevelUncal: 'Amplitude, uncalibrated [{label}]',
+        axisLevelCal: 'Amplitude [{label}]',
         axisDelta: 'Δ [dB]',
         axisTime: 'Time [s]',
         legendHeadline: '1/3 oct headline',
@@ -1769,10 +1769,10 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dsGroupNone: 'なし',
         dsFromCsv: 'CSV の列',
         dsFromSound: '音から計算',
-        dsLeq: 'Leq A特性 [dBFS]',
+        dsLeq: 'Leq A特性 [{label}]',
         dsPeak: 'ピーク周波数 [Hz]',
         dsCrest: '波高率 [比]',
-        dsBand: '{band} 帯 [dBFS]',
+        dsBand: '{band} 帯 [{label}]',
         dsNotComputed: '未計算：先に「計算」を押してください',
         dsRows: '{n} 行',
         dsPickCsv: 'CSV を選ぶ',
@@ -1949,9 +1949,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepFrameHint: 'wandas {op}',
         slotEmpty: '空き',
         axisFrequency: '周波数 [Hz]',
-        axisLevelUncal: '振幅 未校正 [dBFS]',
-        axisLevelUncalRaw: '振幅 未校正 [dB re 1 input unit]',
-        axisLevelCal: '振幅 [dB re {ref} {unit}]',
+        axisLevelUncal: '振幅 未校正 [{label}]',
+        axisLevelCal: '振幅 [{label}]',
         axisDelta: '差 [dB]',
         axisTime: '時間 [s]',
         legendHeadline: '1/3 oct 見出し',

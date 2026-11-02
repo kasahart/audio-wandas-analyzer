@@ -421,10 +421,10 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const csv = attached.csv;
         const own = (csv?.attributes ?? []).filter(column => csv?.numeric[column]).map(column => ({ id: `csv:${column}` as ValueId, label: column, computed: false, ready: true }));
         const computed: Array<{ id: ValueId; label: string }> = [
-            { id: 'leq', label: strings.dsLeq },
+            { id: 'leq', label: strings.dsLeq.replace('{label}', sidePlots.levelLabel()) },
             ...(spectral() ? [{ id: 'peak' as ValueId, label: strings.dsPeak }] : []),
             { id: 'crest', label: strings.dsCrest },
-            ...(spectral() ? BAND_CENTERS_HZ.map((_, band) => ({ id: `band:${band}` as ValueId, label: strings.dsBand.replace('{band}', bandLabel(band)) })) : []),
+            ...(spectral() ? BAND_CENTERS_HZ.map((_, band) => ({ id: `band:${band}` as ValueId, label: strings.dsBand.replace('{band}', bandLabel(band)).replace('{label}', sidePlots.levelLabel()) })) : []),
         ];
         return [...own, ...computed.map(item => ({ ...item, computed: true, ready: false }))];
     }

@@ -18,11 +18,14 @@ from analyzer import (
     MeasurementMetadata,
     SpectrogramPayload,
     _build_spectrogram,
+    level_scale_metadata,
     peak_hold_group_starts,
     peak_hold_spectrum,
     resample_frequency_bins,
     spectrogram_frame_centers,
 )
+
+_SCALE = level_scale_metadata(wd.from_numpy(np.zeros((1, 8)), sampling_rate=8).channels[0].level_reference, "STFT")
 
 
 @pytest.fixture
@@ -214,6 +217,7 @@ def test_spectrogram_time_reduction_averages_linear_power() -> None:
         sample_rate_hz=48_000,
         window_size=512,
         hop_size=128,
+        scale=_SCALE,
         time_bin_limit=1,
         frequency_bin_limit=2,
     )
@@ -234,6 +238,7 @@ def test_spectrogram_frequency_reduction_averages_linear_power() -> None:
         sample_rate_hz=48_000,
         window_size=512,
         hop_size=128,
+        scale=_SCALE,
         time_bin_limit=2,
         frequency_bin_limit=1,
     )
@@ -308,6 +313,7 @@ def test_spectrogram_reduction_clamps_silent_power_to_finite_db() -> None:
         sample_rate_hz=48_000,
         window_size=512,
         hop_size=128,
+        scale=_SCALE,
         time_bin_limit=1,
         frequency_bin_limit=1,
     )
@@ -318,7 +324,6 @@ def test_spectrogram_reduction_clamps_silent_power_to_finite_db() -> None:
     assert spec["minDb"] == pytest.approx(-120.0)
     assert spec["maxDb"] == pytest.approx(-120.0)
     assert spec["unit"] == "dB"
-    assert spec["axisLabel"] == "Spectrum amplitude level [dB]"
 
 
 def test_service_analyze_rejects_bad_options(tmp_path: Path, service: AnalysisService) -> None:
@@ -432,6 +437,7 @@ def test_spectrogram_time_centers_follow_stft_window_centers() -> None:
         sample_rate_hz=48_000,
         window_size=512,
         hop_size=128,
+        scale=_SCALE,
         time_bin_limit=8,
         frame_centers_sec=centers,
     )

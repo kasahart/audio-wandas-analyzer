@@ -135,24 +135,33 @@ test('the track view\'s steps mode draws every track as the chosen step\'s Frame
     await expect(page.locator('#stacked-wrap')).toBeVisible();
 });
 
-for (const [source, fullScale, standalone, axis, badge, other] of [
-    ['WAV', true, false, 'Amplitude, uncalibrated [dBFS]', 'FS', 'Amplitude, uncalibrated [dB re 1 input unit]'],
-    ['CSV', false, false, 'Amplitude, uncalibrated [dB re 1 input unit]', 'RAW', 'Amplitude, uncalibrated [dBFS]'],
-    // Opened on its own (or before the folder's rescan): the entry table has no result for it, so the track's own analysis says.
-    ['CSV opened on its own', false, true, 'Amplitude, uncalibrated [dB re 1 input unit]', 'RAW', 'Amplitude, uncalibrated [dBFS]'],
+// The level references wandas reports for a scanned channel.
+const FS_INPUT = { unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true };
+const RAW_INPUT = { unit: '', ref: 1, levelReferenceLabel: 'dB re 1 input unit', calibrationStatus: 'uncalibrated', fullScale: false };
+const SPL_INPUT = { unit: 'Pa', ref: 2e-5, levelReferenceLabel: 'dB SPL re 20 µPa', calibrationStatus: 'calibrated', fullScale: true };
+for (const [source, tableInput, stepInput, standalone, axis, badge, other] of [
+    ['WAV', FS_INPUT, FS_INPUT, false, 'Amplitude, uncalibrated [dBFS]', 'FS', 'Amplitude, uncalibrated [dB re 1 input unit]'],
+    ['CSV', RAW_INPUT, RAW_INPUT, false, 'Amplitude, uncalibrated [dB re 1 input unit]', 'RAW', 'Amplitude, uncalibrated [dBFS]'],
+    // Opened on its own (or before the folder's rescan): the entry table has no result for it, so its step's scan says.
+    ['CSV opened on its own', RAW_INPUT, RAW_INPUT, true, 'Amplitude, uncalibrated [dB re 1 input unit]', 'RAW', 'Amplitude, uncalibrated [dBFS]'],
+    // Calibrated on the drawn channel only: the whole file reads uncalibrated in the table, the drawn channel's step scan in Pa.
+    ['WAV calibrated on the drawn channel only', FS_INPUT, SPL_INPUT, false, 'Amplitude [dB SPL re 20 µPa]', 'FS', 'Amplitude, uncalibrated [dBFS]'],
 ] as const) {
-    test(`a ${source} track names its uncalibrated level axis and badge by whether its source has a full scale`, async ({ page }) => {
+    const fullScale = tableInput.fullScale;
+    test(`a ${source} track names its level axis by wandas' reference for the channel drawn, and its badge by whether its source has a full scale`, async ({ page }) => {
         test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
         const recipe = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', '..', 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8'));
         const view = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity: 'level', xs: [100, 1000, 5000], values: [-40, -30, -50] };
-        // The fixture's scans as the backend reports a source without a full scale in the CSV case: the UI reads only `fullScale`.
-        const files = scanned!.map(file => {
+        // The fixture's scans as the backend reports each source: the table's whole-file scans, and the drawn step's scans.
+        const withInput = (reference: Record<string, unknown>) => scanned!.map(file => {
             const input = file.result['input'] as Record<string, unknown> | undefined;
-            return { filePath: file.filePath, result: { ...file.result, ...(input ? { input: { ...input, fullScale } } : {}) } };
+            return { filePath: file.filePath, result: { ...file.result, ...(input ? { input: { ...input, ...reference } } : {}) } };
         });
+        const files = withInput(tableInput);
+        const steps = withInput(stepInput);
         // Standalone: the table holds the folder's audio scans; the CSV track is none of its rows.
         await openEntry(page, standalone ? scanned! : files, { recipe });
-        const lone = { filePath: '/elsewhere/vibration.csv', result: files[0].result };
+        const lone = { filePath: '/elsewhere/vibration.csv', result: steps[0].result };
         // The level axis is canvas text: every string the page draws from here on is kept.
         await page.evaluate(() => {
             const drawn: string[] = [];
@@ -189,7 +198,7 @@ for (const [source, fullScale, standalone, axis, badge, other] of [
                 window.postMessage({ type: 'compare-scan-result', requestId: request.requestId, filePath, result: { ...file.result, stage: view } }, '*');
             }
             window.postMessage({ type: 'compare-scan-done', requestId: request.requestId }, '*');
-        }, { request, view, files: standalone ? [lone] : files });
+        }, { request, view, files: standalone ? [lone] : steps });
         await expect(page.locator('.track-stage')).toHaveAttribute('data-pending', /^(|1\/\d+)$/);
         // A gutter too short for the whole title keeps its unit (fittedAxisTitle).
         const drawnAxis = (title: string) => async (): Promise<boolean> => (await page.evaluate(() => (window as unknown as { __drawnTexts: string[] }).__drawnTexts))

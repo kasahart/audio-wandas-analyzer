@@ -72,7 +72,7 @@ test('invalid response fixtures report the same path as Python and fail ajv', ()
 
 test('scan results are either a one-line failure or a full per-channel result', () => {
     const ok = {
-        ok: true, conditionId: 'c', input: { id: 'i', fs: 16000, channels: [0, 1], durationS: 2, unit: 'FS', ref: 1, fullScale: true },
+        ok: true, conditionId: 'c', input: { id: 'i', fs: 16000, channels: [0, 1], durationS: 2, unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true },
         leqDbA: [-9, -21], peakHz: [1000, 3150], spectrumDb: [[-9], [-21]], thirdOctDb: [[null], [-23]], crest: [1.4, 1.4],
         specVersion: 1, wandasVersion: '0.9.0', elapsedMs: 80,
     };

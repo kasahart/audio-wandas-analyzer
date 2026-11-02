@@ -418,6 +418,12 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             const regionMark = region ? { start: region.start, end: region.end, mark: shownAt < sliceAt ? 'range' as const : 'tag' as const, label: `${strings.stepRegion} ${region.start.toFixed(2)}–${region.end.toFixed(2)} s` } : undefined;
             root.dataset.regionMark = regionMark?.mark ?? '';
             const coarse = (path: string) => source.view(specOf(channelFor(path)), path);
+            // Each level axis names the reference of the channels drawn, as their step's scan read them: a file
+            // calibrated on one channel only reads that channel's calibration when it is the one drawn.
+            for (const track of tracks) {
+                const scanned = source.result(specOf(channelFor(track.filePath)), track.filePath);
+                if (scanned?.ok && scanned.input) track.input = scanned.input;
+            }
             const picture = tracks.map(track => coarse(track.filePath)).find((view): view is StageView => !!view) ?? null;
             // Before any picture is in, the step's Frame says whether it is an image: the comparison is shown at once,
             // computing, rather than the lanes until the first file is in.
