@@ -500,19 +500,17 @@ def scan_cached(
     resolved = resolve_calibration_profile(calibration_profile, source, source_peaks=cached.source_peaks)
     calibrated = resolved.apply(source)
     picked = calibrated if selected == list(range(source.n_channels)) else calibrated.get_channel(selected)
-    references: set[tuple[str, float, str, CalibrationStatus, bool]] = {
-        (
-            channel.unit,
-            float(channel.ref),
-            channel.level_reference.label,
-            resolved.channels[index].status,
-            has_full_scale(source, index),
-        )
+    references = {
+        (channel.unit, float(channel.ref), channel.level_reference.label, has_full_scale(source, index))
         for index, channel in zip(selected, picked.channels, strict=True)
     }
     if len(references) != 1:
-        raise InputError("Selected channels have different units; scan them separately")
-    [(unit, ref, level_label, status, full_scale)] = references
+        raise InputError("Selected channels have different units or level references; scan them separately")
+    [(unit, ref, level_label, full_scale)] = references
+    # Channels on one reference compare whatever their status (a gain correction keeps FS): calibrated only if all are.
+    status: CalibrationStatus = (
+        "calibrated" if all(resolved.channels[index].status == "calibrated" for index in selected) else "uncalibrated"
+    )
 
     start = 0.0 if region is None else float(region["start"])
     end = duration if region is None else min(float(region["end"]), duration)

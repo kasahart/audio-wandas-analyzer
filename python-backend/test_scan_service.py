@@ -145,8 +145,22 @@ def test_scan_input_takes_its_unit_reference_and_label_from_wandas(tmp_path: Pat
     )
     assert _scan(service, wav, calibration=first_only) == {
         "ok": False,
-        "reason": "Selected channels have different units; scan them separately",
+        "reason": "Selected channels have different units or level references; scan them separately",
     }
+
+
+def test_a_gain_correction_in_fs_scans_with_an_uncalibrated_channel_on_the_same_reference(tmp_path: Path) -> None:
+    service = AnalysisService(AnalysisEngine())
+    tone = _sine(1000, 0.25)
+    wav = _write(tmp_path / "pair.wav", [tone, tone])
+    gain = {**_pascal(0), "factor": 2.0, "unit": "FS", "referenceValue": 1.0}
+    profile = {"schemaVersion": 1, "channels": [gain, _uncalibrated(1)]}
+
+    whole = _scan(service, wav, calibration=profile)
+
+    assert whole["ok"] is True
+    assert _described(whole) == ("FS", 1.0, "dBFS", "uncalibrated", True)
+    assert _described(_scan(service, wav, channels=[0], calibration=profile)) == ("FS", 1.0, "dBFS", "calibrated", True)
 
 
 def test_scan_repeats_exactly_and_names_the_condition(tmp_path: Path) -> None:
@@ -271,7 +285,10 @@ def test_scan_selects_channels_and_applies_calibration(tmp_path: Path) -> None:
     assert len(result["leqDbA"]) == len(result["spectrumDb"]) == 1
     assert result["leqDbA"][0] == pytest.approx(20 * np.log10(0.2 / np.sqrt(2) / 2e-5), abs=0.3)
     mixed = _scan(service, path, calibration=profile)
-    assert mixed == {"ok": False, "reason": "Selected channels have different units; scan them separately"}
+    assert mixed == {
+        "ok": False,
+        "reason": "Selected channels have different units or level references; scan them separately",
+    }
 
 
 @pytest.mark.parametrize(

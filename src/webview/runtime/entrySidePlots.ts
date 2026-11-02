@@ -65,15 +65,15 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
         if (windowKeys.get(name) !== key) { windowKeys.set(name, key); windows.delete(name); }
         return plotWindow(name);
     }
-    /** Each scanned recording's bands and the unit of its levels, kept as results arrive so scrolling does not redo them. */
+    /** Each scanned recording's bands and the level reference wandas names its levels by, kept as results arrive so scrolling does not redo them. */
     const levels = new Map<string, (number | null)[]>();
-    const levelUnits = new Map<string, string>();
+    const levelLabels = new Map<string, string>();
     /** Bumped on every change to them, so the strip knows when to draw its cells again. */
     let version = 0;
     let shared = { version: -1, label: '' };
     /** The scanned recordings' level reference as wandas names it, once per change rather than per call. */
     function levelLabel(): string {
-        if (shared.version !== version) shared = { version, label: sharedLevelLabel(levelUnits.values()) };
+        if (shared.version !== version) shared = { version, label: sharedLevelLabel(levelLabels.values()) };
         return shared.label;
     }
     const pending = { frame: false, distribution: true };
@@ -176,12 +176,12 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
             const bands = result.thirdOctDb;
             if (result.ok && bands?.length) levels.set(filePath, bands[0].map((_, bandIndex) => powerMeanOrNull(bands.map(channel => channel[bandIndex]))));
             else levels.delete(filePath);
-            if (result.ok && result.input) levelUnits.set(filePath, result.input.levelReferenceLabel);
-            else levelUnits.delete(filePath);
+            if (result.ok && result.input) levelLabels.set(filePath, result.input.levelReferenceLabel);
+            else levelLabels.delete(filePath);
         },
         clear(): void {
             levels.clear();
-            levelUnits.clear();
+            levelLabels.clear();
             version++;
         },
         schedule,
