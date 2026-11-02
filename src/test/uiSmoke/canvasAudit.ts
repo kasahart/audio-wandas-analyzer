@@ -23,7 +23,7 @@ function installCanvasAudit(settle: { frames: number; ms: number }): void {
     if (window.__canvasAudit) return;
     const found: string[] = [];
     window.__canvasAudit = found;
-    const since = new Map<HTMLCanvasElement, { frame: number; at: number }>();
+    const since = new WeakMap<HTMLCanvasElement, { frame: number; at: number }>();
     let frame = 0;
     const reported = new Set<string>();
     const sample = (): void => {
@@ -59,7 +59,9 @@ export const test = base.extend<{ canvasAudit: void }>({
             await page.evaluate(installCanvasAudit, SETTLE);
         };
         await use();
-        const found = await page.evaluate(() => window.__canvasAudit ?? []).catch(() => []);
+        // A page the test closed has nothing left to check; any other failure to read the audit fails the test.
+        if (page.isClosed()) return;
+        const found = await page.evaluate(() => window.__canvasAudit ?? []);
         base.expect(found, 'canvases left drawn at another size than they are shown at').toEqual([]);
     }, { auto: true }],
 });

@@ -6,6 +6,7 @@
  * M (its memo), Enter (open the slotted rows), ↑/↓ (move), Esc (close what is open, then leave). Keys on a
  * button or a field are that element's own.
  */
+import { redrawWhenResized } from './canvasResize';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import type { UiStrings } from '../../shared/i18n/strings';
 import type { ComparePublication, CompareScanMessage, EntryConditionTable, EntryProbeCancelMessage, EntryProbeMessage, EntryProbePublication, EntryPublication, EntryScanCancelMessage, EntryScanMessage, EntrySaveSessionMessage } from '../../shared/analysis/entryScan';
@@ -972,6 +973,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     }
     const Observer = (globalThis as { ResizeObserver?: typeof ResizeObserver }).ResizeObserver;
     if (Observer) new Observer(() => { syncColumns(); renderRows(); }).observe(screen);
+    // A side plot resized by the layout (the distribution moved under the table in a narrow window) is drawn again.
+    redrawWhenResized(Observer, [overview, heldCanvas], () => sidePlots.schedule(false));
     /** Choosing, the distribution fills the right side; while a comparison is open it folds above the table. */
     distPane.place(maximized);
     function setMaximized(next: boolean): void {
