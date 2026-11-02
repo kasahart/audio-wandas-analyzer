@@ -1656,7 +1656,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         pairPanel.sync();
         emitSpectrumZoom();
         resizeAllCanvases();
-        renderRuler();
+        // The comparison hides the ruler (and the spectra, below): what is not on screen is not drawn.
+        if (contentType !== 'stage') renderRuler();
         renderStackedTracks();
         syncRoleChips();
         updateVisibility();
@@ -2531,6 +2532,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         buttonMatching(document, '[data-action="content-stage"]')?.classList.toggle('is-active', next === 'stage');
         syncSpecGearVisibility();
         scheduleRender();
+        // Not drawn while the comparison showed: the spectra come back drawn for what is on screen now.
+        if (next !== 'stage') scheduleSpectrumRefresh('interactive');
     }
     /** The pair view only has an FFT axis, so the octave bands are off while it shows. */
     function syncSpectrumBandsAvailability(pairActive: boolean) {
@@ -2796,7 +2799,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function renderEveryLane() {
         drawEveryLane = true;
-        try { renderStackedTracks(); checkAndRequestRanges(); renderTrackSpectra(); } finally { drawEveryLane = false; }
+        try { renderStackedTracks(); checkAndRequestRanges(); if (contentType !== 'stage') renderTrackSpectra(); } finally { drawEveryLane = false; }
     }
     /** The open spectrogram, zoom-detail and cursor-spectrum requests. */
     function openDetailRequestIds(): Set<string> {
@@ -3643,8 +3646,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         overlaySpectrumPainted = true;
     }
     function refreshSpectrumViews() {
-        renderTrackSpectra();
-        renderOverlaySpectrum();
+        // The comparison hides the lanes' spectra and the spectrum panel; they are drawn again on leaving it.
+        if (contentType !== 'stage') {
+            renderTrackSpectra();
+            renderOverlaySpectrum();
+        }
         pairPanel.render();
         emitSpectrumZoom();
         const el = document.getElementById('spectrum-cursor-time');

@@ -27,6 +27,7 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 - Folder: rows checked in the entry table show as tracks again on Windows and in folders opened through a link; the backend names each file as the extension asked for it, not as it resolves.
 - Compare view: showing Δ no longer leaves the overlaid plot stretched from its old height, so hovered lines are no longer drawn twice (#503).
 - Plots resized by the layout (the compare view's step bar expanded, the entry table's overview strip moved under it in a narrow window) are drawn again at their new size; ui-smoke fails any canvas left stretched (#552).
+- Compare view: the ruler and the spectra it hides are no longer drawn on every resize or scroll; they are drawn again on leaving it (#554).
 - Python backend answers requests for different recordings concurrently and reads audio straight into float32 (#462, #464).
 - Updated to wandas 0.12.0 (#409, #446, #468).
 - Python starts only when a command, view or panel needs it; Select Python Environment can create a `.venv` and install the packages, detects PEP 668 interpreters and uses the Python extension's interpreter; Restricted Mode is supported with the user-level interpreter.
