@@ -43,16 +43,16 @@
 ## VS Code で始める
 
 1. [Python 3.11+](https://www.python.org/downloads/) とこの拡張機能を入れます。
-2. エクスプローラで音声ファイルかフォルダを右クリックし、**Analyze with Audio Analyzer** を選びます。
-3. Python パッケージが足りないときは **Create .venv and Install** を選ぶと、ワークスペースに仮想環境を作ってインストールします。
+2. エクスプローラで音声ファイルかフォルダを右クリックし、**Audio Analyzer で解析** を選びます。
+3. Python パッケージが足りないときは **.venv を作成してインストール** を選ぶと、ワークスペースに仮想環境を作ってインストールします。
 
-自分の環境を使う場合は、次のパッケージを入れてから **Audio Analyzer: Select Python Environment** で選びます。
+このボタンが出ないとき（信頼していないワークスペースや、`.venv` がすでにあるとき）や自分の環境を使うときは、次のパッケージを入れてから **Audio Analyzer: Python 環境を選択** で選びます。
 
 ```bash
 pip install "wandas[psychoacoustic,effects]>=0.12.0,<0.13.0" "numpy>=2.0.2" "scipy>=1.13" "soundfile>=0.12"
 ```
 
-アクティビティバーの **Audio Analyzer** ビュー（ドロップも可）や、コマンド **Audio Analyzer: Analyze File or Folder** からも開けます。
+アクティビティバーの **Audio Analyzer** ビュー（ドロップも可）や、コマンド **Audio Analyzer: ファイル・フォルダを解析** からも開けます。
 
 ## リファレンス
 
