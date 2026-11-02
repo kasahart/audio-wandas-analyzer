@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './canvasAudit';
 import { buildExtensionHostPathUiSmokeHtml } from './buildHtml';
 
 async function amberPixelCount(page: Page, canvasId: string): Promise<number> {

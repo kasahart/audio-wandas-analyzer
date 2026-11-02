@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './canvasAudit';
 import { getStrings } from '../../shared/i18n/strings';
 import { BAND_CENTERS_HZ, bandLabel } from '../../webview/runtime/entryTable';
 import { entry100Metadata, entry100Results, openEntry, pickCsv, type ScannedFile } from './entryHelpers';

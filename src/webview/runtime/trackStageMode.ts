@@ -10,6 +10,7 @@
  * answered by the shared plot gestures (plotInteraction.ts); zoomed in, they draw from the Frames' full
  * resolution once it is in (stageDetail.ts), as the waveform lanes do.
  */
+import { redrawWhenResized } from './canvasResize';
 import type { UiStrings } from '../../shared/i18n/strings';
 import type { CompareScanMessage } from '../../shared/analysis/entryScan';
 import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
@@ -39,6 +40,8 @@ import { INPUT_FRAME } from '../../shared/recipe/recipeCatalog';
 export interface TrackStageDeps {
     document: Document;
     window: Pick<Window, 'setTimeout' | 'requestAnimationFrame' | 'clearTimeout' | 'addEventListener'> & { performance: Pick<Performance, 'now'> };
+    /** Watches the plots' own size: any layout change that resizes one (Δ, the step bar, a wrapped legend) draws it again. */
+    ResizeObserver?: typeof ResizeObserver;
     strings: UiStrings;
     post(message: CompareScanMessage): void;
     /** The Recipe the entry table scans with, and the one its scans run (the steps that cannot run left out). */
@@ -173,6 +176,8 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
     root.prepend(stepBar.element);
     const dom = stageDom(root, stepBar.element);
     const { query, panel } = dom;
+    // Whatever resizes a plot (Δ shown, the step bar grown), it is drawn again at its new size (canvasResize.ts).
+    redrawWhenResized(deps.ResizeObserver, root.querySelectorAll<HTMLCanvasElement>('[data-stage-canvas]'), () => { if (state.on) deps.rerender(); });
     /** The comparison written as a folder (the toolbar's 書き出し menu): a chain that cannot run has no values to report. */
     function report(): void {
         const recipe = deps.recipe()?.recipe;
@@ -527,3 +532,4 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         },
     };
 }
+

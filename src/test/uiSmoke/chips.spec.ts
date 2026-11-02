@@ -1,4 +1,4 @@
-import { expect, test, type Locator } from '@playwright/test';
+import { expect, test, type Locator } from './canvasAudit';
 import { entry100Results, openEntry, type ScannedFile } from './entryHelpers';
 
 let scanned: ScannedFile[] | undefined;
