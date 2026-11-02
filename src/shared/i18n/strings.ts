@@ -735,6 +735,7 @@ export interface UiStrings {
     pyBtnCreateVenv: string;
     pyBtnSelect: string;
     pyBtnShowLog: string;
+    pyBtnOpenBrowser: string;
     pyInstallProgress: string;
     pyCreateVenvProgress: string;
     pyInstallSucceeded: string;
@@ -1485,6 +1486,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         pyBtnCreateVenv: 'Create .venv and Install',
         pyBtnSelect: 'Select Environment',
         pyBtnShowLog: 'Show Log',
+        pyBtnOpenBrowser: 'Try Browser Version',
         pyInstallProgress: 'Installing Python packages into {command}',
         pyCreateVenvProgress: 'Creating {path}',
         pyInstallSucceeded: 'Python packages installed.',
@@ -2233,6 +2235,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         pyBtnCreateVenv: '.venv を作成してインストール',
         pyBtnSelect: '環境を選択',
         pyBtnShowLog: 'ログを表示',
+        pyBtnOpenBrowser: 'ブラウザ版で試す',
         pyInstallProgress: '{command} に Python パッケージをインストールしています',
         pyCreateVenvProgress: '{path} を作成しています',
         pyInstallSucceeded: 'Python パッケージをインストールしました。',

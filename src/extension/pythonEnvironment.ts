@@ -248,7 +248,10 @@ function interpreterExists(pythonCommand: string, workspaceRoot: string | undefi
     return fs.existsSync(resolvePythonCommand(pythonCommand, process.platform, workspaceRoot));
 }
 
-type ProblemAction = 'select' | 'create-venv' | 'show-log';
+type ProblemAction = 'select' | 'create-venv' | 'show-log' | 'open-browser';
+
+/** The browser version, which needs no Python; offered when no interpreter is found. */
+export const BROWSER_VERSION_URL = 'https://kasahart.github.io/audio-wandas-analyzer/';
 
 interface LoggedRun {
     code: number | null;
@@ -519,6 +522,7 @@ export class PythonEnvironment implements vscode.Disposable {
             'select': text.pyBtnSelect,
             'create-venv': text.pyBtnCreateVenv,
             'show-log': text.pyBtnShowLog,
+            'open-browser': text.pyBtnOpenBrowser,
         };
         const offered = actions.filter(action => action !== 'create-venv' || canCreateWorkspaceVenv());
         const buttons = offered.map(action => labels[action]);
@@ -535,6 +539,8 @@ export class PythonEnvironment implements vscode.Disposable {
             );
         } else if (chosen === 'show-log') {
             this.pythonSetupLog().show(true);
+        } else if (chosen === 'open-browser') {
+            await vscode.env.openExternal(vscode.Uri.parse(BROWSER_VERSION_URL));
         }
     }
 
@@ -568,7 +574,7 @@ export class PythonEnvironment implements vscode.Disposable {
 
             if (error instanceof PythonNotFoundError) {
                 this.setStatusBarWarning(statusBarItem, pythonCommand, text.pyTooltipMissingInterpreter);
-                void this.showProblem('warning', error.message, ['select', 'show-log'], statusBarItem);
+                void this.showProblem('warning', error.message, ['select', 'open-browser', 'show-log'], statusBarItem);
                 return false;
             }
             if (error instanceof UntrustedWorkspacePathError) {
@@ -715,7 +721,7 @@ export class PythonEnvironment implements vscode.Disposable {
         }
         if (error instanceof PythonNotFoundError) {
             this.setStatusBarWarning(statusBarItem, pythonCommand, text.pyTooltipMissingInterpreter);
-            void this.showProblem('warning', error.message, ['select', 'show-log'], statusBarItem);
+            void this.showProblem('warning', error.message, ['select', 'open-browser', 'show-log'], statusBarItem);
             return;
         }
         const message = error instanceof SetupError ? error.message : text.pyInstallFailed;
