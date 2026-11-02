@@ -6,9 +6,9 @@
 
 **[▶ Try it in your browser](https://kasahart.github.io/audio-wandas-analyzer/)**: press **Try with samples**, no files or install needed. Your audio never leaves your device. For long recordings and calibration, install the [VS Code extension](https://marketplace.visualstudio.com/items?itemName=audio-wandas-analyzer.audio-wandas-analyzer).
 
-![Try with samples, set roles, open Compare and click the Average spectrum step: a 2.8 kHz tone stands out in yellow](https://raw.githubusercontent.com/kasahart/audio-wandas-analyzer/main/media/readme-demo.gif)
+![Try with samples; on the tracks click, zoom, move, select a range and listen; set roles, open Compare and click the Average spectrum step](https://raw.githubusercontent.com/kasahart/audio-wandas-analyzer/main/media/readme-demo.gif)
 
-*The bundled samples: the same hum three times, one with a 2.8 kHz tone (yellow) and one with clicks (purple), against the base (blue).*
+*The bundled samples: the same hum three times, one with a 2.8 kHz tone and one with clicks.*
 
 ## How it works
 

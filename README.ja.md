@@ -6,9 +6,9 @@
 
 **[▶ ブラウザーで試す](https://kasahart.github.io/audio-wandas-analyzer/)**：**サンプルで試す** を押すだけ。ファイルもインストールも要りません。音声は端末の外に出ません。長い録音や校正には [VS Code 拡張](https://marketplace.visualstudio.com/items?itemName=audio-wandas-analyzer.audio-wandas-analyzer) を使います。
 
-![サンプルで試す → 役割を選ぶ → 比較解析で平均スペクトルの手順を押すと、2.8 kHz の純音が黄色で浮き上がる](https://raw.githubusercontent.com/kasahart/audio-wandas-analyzer/main/media/readme-demo.ja.gif)
+![サンプルで試す → トラックでクリック・ズーム・移動・範囲選択・再生 → 役割を選ぶ → 比較解析で平均スペクトルの手順を押す](https://raw.githubusercontent.com/kasahart/audio-wandas-analyzer/main/media/readme-demo.ja.gif)
 
-*同梱サンプル：基準のハム（青）に対し、2.8 kHz の純音が乗ったもの（黄）とクリックが乗ったもの（紫）。*
+*同梱サンプル：同じハムに、2.8 kHz の純音が乗ったものと、クリックが乗ったもの。*
 
 ## 使い方
 
