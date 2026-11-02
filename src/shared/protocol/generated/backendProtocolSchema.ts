@@ -1416,6 +1416,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "durationS",
                 "unit",
                 "ref",
+                "levelReferenceLabel",
+                "calibrationStatus",
                 "fullScale"
             ],
             "properties": {
@@ -1441,6 +1443,16 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 },
                 "ref": {
                     "type": "number"
+                },
+                "levelReferenceLabel": {
+                    "type": "string"
+                },
+                "calibrationStatus": {
+                    "type": "string",
+                    "enum": [
+                        "uncalibrated",
+                        "calibrated"
+                    ]
                 },
                 "fullScale": {
                     "type": "boolean"
@@ -2058,6 +2070,8 @@ export interface ScanInput {
     durationS: number;
     unit: string;
     ref: number;
+    levelReferenceLabel: string;
+    calibrationStatus: "uncalibrated" | "calibrated";
     fullScale: boolean;
 }
 

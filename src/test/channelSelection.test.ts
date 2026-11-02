@@ -22,7 +22,7 @@ test('a channel is a get_channel step at the head of the chain, as wandas writes
 });
 
 test('one channel of a result scanned over every channel; a recording with fewer channels has none', () => {
-    const result = { ok: true, input: { id: 'x', fs: 16000, channels: [0, 1], durationS: 2, unit: 'FS', ref: 1, fullScale: true }, leqDbA: [-30, -40], peakHz: [100, 3150], crest: [3, 4], thirdOctDb: [[1], [2]], spectrumDb: [[5], [6]], specVersion: 5 } as unknown as ScanResult;
+    const result = { ok: true, input: { id: 'x', fs: 16000, channels: [0, 1], durationS: 2, unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true }, leqDbA: [-30, -40], peakHz: [100, 3150], crest: [3, 4], thirdOctDb: [[1], [2]], spectrumDb: [[5], [6]], specVersion: 5 } as unknown as ScanResult;
     const ch2 = channelResult(result, 2) as unknown as Record<string, unknown>;
     assert.deepEqual([ch2.leqDbA, ch2.peakHz, ch2.crest, ch2.thirdOctDb, ch2.spectrumDb], [[-40], [3150], [4], [[2]], [[6]]]);
     assert.deepEqual((ch2.input as { channels: number[] }).channels, [1]);

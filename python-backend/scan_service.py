@@ -42,7 +42,7 @@ from wandas.processing.semantic import thaw_params
 import analysis_spec as spec
 from analyzer import has_full_scale
 from backend_errors import InputError
-from calibration_profile import resolve_calibration_profile
+from calibration_profile import CalibrationStatus, resolve_calibration_profile
 from stage_view import StageDetail, StageView, band_levels, rounded_db, stage_view
 
 if TYPE_CHECKING:
@@ -69,6 +69,9 @@ class ScanInput(TypedDict):
     durationS: float
     unit: str
     ref: float
+    #: wandas' name for the channels' level reference: "dBFS", "dB re 1 input unit" (a CSV), "dB SPL re 20 µPa"…
+    levelReferenceLabel: str
+    calibrationStatus: CalibrationStatus
     fullScale: bool
 
 
@@ -497,10 +500,19 @@ def scan_cached(
     resolved = resolve_calibration_profile(calibration_profile, source, source_peaks=cached.source_peaks)
     calibrated = resolved.apply(source)
     picked = calibrated if selected == list(range(source.n_channels)) else calibrated.get_channel(selected)
-    units = {(channel.unit or "FS", float(channel.ref)) for channel in picked.channels}
-    if len(units) != 1:
+    references: set[tuple[str, float, str, CalibrationStatus, bool]] = {
+        (
+            channel.unit,
+            float(channel.ref),
+            channel.level_reference.label,
+            resolved.channels[index].status,
+            has_full_scale(source, index),
+        )
+        for index, channel in zip(selected, picked.channels, strict=True)
+    }
+    if len(references) != 1:
         raise InputError("Selected channels have different units; scan them separately")
-    [(unit, ref)] = units
+    [(unit, ref, level_label, status, full_scale)] = references
 
     start = 0.0 if region is None else float(region["start"])
     end = duration if region is None else min(float(region["end"]), duration)
@@ -519,7 +531,9 @@ def scan_cached(
         "durationS": round(duration, 6),
         "unit": unit,
         "ref": ref,
-        "fullScale": has_full_scale(cached.path),
+        "levelReferenceLabel": level_label,
+        "calibrationStatus": status,
+        "fullScale": full_scale,
     }
     known = {*plans["upstream"], plans["region"].output, *(step for step, _ in plans["steps"])}
     if stage == INPUT_STAGE:

@@ -9,7 +9,7 @@ import type { ScanResult } from '../../shared/protocol/backendProtocol';
 import type { DatasetRow } from '../../shared/dataset/datasetTable';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
 import { powerMeanOrNull } from '../../shared/utils/levels';
-import { uncalibratedUnits } from '../../shared/utils/format';
+import { sharedLevelLabel } from '../../shared/utils/format';
 import { installRangePopover, linearAxis, openAxisPart, type AxisMapping } from '../rangePopover';
 import type { HeldPicture } from './entryHeldPlot';
 import { OVERVIEW_MARGINS, paintOverview } from './entryPlots';
@@ -48,16 +48,12 @@ export interface SidePlots {
     noteResult(filePath: string, result: ScanResult): void;
     /** Another folder: no bands kept. */
     clear(): void;
+    /** The level reference the scanned recordings share ("dBFS", "dB SPL re 20 µPa"), plain dB when they differ: the overview's colour scale and the table's level values name it. */
+    levelLabel(): string;
     /** The side plots painted on the next frame; `distribution`: the distribution too, not only the strip's window. */
     schedule(distribution?: boolean): void;
     /** The gestures on the plots, and a click on the strip. */
     attach(): void;
-}
-
-/** The overview's colour-scale unit: the recordings' own when they share one (dBFS before any scan), else plain dB. */
-export function overviewLevelUnit(levelUnits: ReadonlyMap<string, string>): string {
-    const units = new Set(levelUnits.values());
-    return units.size === 0 ? 'dBFS' : units.size === 1 ? [...units][0] : 'dB';
 }
 
 export function createSidePlots(deps: SidePlotsDeps): SidePlots {
@@ -74,6 +70,12 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
     const levelUnits = new Map<string, string>();
     /** Bumped on every change to them, so the strip knows when to draw its cells again. */
     let version = 0;
+    let shared = { version: -1, label: '' };
+    /** The scanned recordings' level reference as wandas names it, once per change rather than per call. */
+    function levelLabel(): string {
+        if (shared.version !== version) shared = { version, label: sharedLevelLabel(levelUnits.values()) };
+        return shared.label;
+    }
     const pending = { frame: false, distribution: true };
 
     function paint(): void {
@@ -84,7 +86,7 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
         const rowHeight = (body.querySelector('tr') as HTMLElement | null)?.offsetHeight || 22;
         const first = Math.floor(tableWrap.scrollTop / rowHeight);
         paintOverview(overview, rows, levels, { first, last: first + Math.ceil(tableWrap.clientHeight / rowHeight) - 2 }, deps.focusedFile(), keepWindow('overview', String(rows.length)),
-            overviewLevelUnit(levelUnits), version);
+            levelLabel(), version);
         // The zoom on each plot, for tests: "x0-x1|y0-y1".
         for (const [name, canvas] of [['overview', overview], ['held', heldCanvas]] as const) {
             const zoom = plotWindow(name);
@@ -168,12 +170,13 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
     return {
         window: plotWindow,
         keepWindow,
+        levelLabel,
         noteResult(filePath: string, result: ScanResult): void {
             version++;
             const bands = result.thirdOctDb;
             if (result.ok && bands?.length) levels.set(filePath, bands[0].map((_, bandIndex) => powerMeanOrNull(bands.map(channel => channel[bandIndex]))));
             else levels.delete(filePath);
-            if (result.ok && result.input) levelUnits.set(filePath, result.input.unit !== 'FS' ? 'dB' : uncalibratedUnits(result.input.fullScale).level);
+            if (result.ok && result.input) levelUnits.set(filePath, result.input.levelReferenceLabel);
             else levelUnits.delete(filePath);
         },
         clear(): void {

@@ -283,7 +283,7 @@ test('the entry table speaks Japanese with few words: value and group, the CSV, 
     const STR = getStrings('ja');
     await openEntry(page, scanned!, { language: 'ja' });
     await expect(page.locator('.entry-pick:not([hidden])')).toHaveText([new RegExp(`^${STR.dsValue}`), new RegExp(`^${STR.dsGroup}`)]);
-    await expect(page.locator('[data-action="entry-value"] option:checked')).toHaveText(STR.dsLeq);
+    await expect(page.locator('[data-action="entry-value"] option:checked')).toHaveText(STR.dsLeq.replace('{label}', 'dBFS'));
     // ☑ (on a track), the file, ch, the value and the spare end, plus a group column when grouped.
     await expect(page.locator('[data-entry-head] th')).toHaveCount(5 + (await page.locator('th.entry-col-group, th[data-column^="folder"], th[data-column^="csv"]').count()) );
     await expect(page.locator('[data-entry-head] th').nth(1)).toContainText(STR.entryColFile);
@@ -509,7 +509,7 @@ test('a step added between two chips measures every file again; one that fails o
     await bar.locator('.step-chip', { hasText: STR.stepAverage }).locator('[data-action="step-settings"]').click();
     await bar.locator('[data-action="step-remove"]').click();
     await expect(values.filter({ hasText: STR.dsPeak })).toHaveCount(0);
-    await expect(values).toHaveText([STR.dsLeq, STR.dsCrest]);
+    await expect(values).toHaveText([STR.dsLeq.replace('{label}', 'dBFS'), STR.dsCrest]);
 });
 
 test('the overview strip answers the lanes\' gestures, and a press that stays put is still a click', async ({ page }) => {
@@ -579,7 +579,7 @@ for (const language of ['ja', 'en'] as const) {
     test(`the value header keeps "A特性" whole and stays inside its column maximized; docked, the value column is not shown (${language})`, async ({ page }) => {
         test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
         await openEntry(page, scanned!, { language, docked: true });
-        await expect(page.locator('th[data-column="leq"] .entry-th-label')).toHaveText(getStrings(language).dsLeq);
+        await expect(page.locator('th[data-column="leq"] .entry-th-label')).toHaveText(getStrings(language).dsLeq.replace('{label}', 'dBFS'));
         // Beside the tracks the table is for finding a file: no value column, so the names have the room.
         await expect(page.locator('#entry-screen')).not.toHaveClass(/is-max/);
         await expect(page.locator('th[data-column="leq"]')).toBeHidden();
@@ -593,6 +593,27 @@ for (const language of ['ja', 'en'] as const) {
         expect(fit.inside).toBe(true);
         // A word that fits is never broken: "ch" stays "ch", not "c / h".
         expect((await headerFit(page, 'ch')).lines, 'ch maximized').toBe(1);
+    });
+}
+
+const SPL_INPUT = { unit: 'Pa', ref: 2e-5, levelReferenceLabel: 'dB SPL re 20 µPa', calibrationStatus: 'calibrated' };
+const calibratedToPa = (file: ScannedFile): ScannedFile => ({ filePath: file.filePath, result: { ...file.result, input: { ...(file.result['input'] as Record<string, unknown>), ...SPL_INPUT } } });
+const leqHeader = (page: Page): Locator => page.locator('th[data-column="leq"] .entry-th-label');
+
+for (const [language, leq, band] of [['en', 'Leq A-weighted [dB SPL re 20 µPa]', / band \[dB SPL re 20 µPa\]$/], ['ja', 'Leq A特性 [dB SPL re 20 µPa]', /帯 \[dB SPL re 20 µPa\]$/]] as const) {
+    test(`the dataset table names the levels of audio calibrated to Pa in dB SPL, not dBFS (${language})`, async ({ page }) => {
+        test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+        await openEntry(page, scanned!.map(calibratedToPa), { language });
+        await expect(leqHeader(page)).toHaveText(leq);
+        await expect(page.locator('[data-action="entry-value"] option').filter({ hasText: band }).first()).toHaveText(band);
+    });
+}
+
+for (const [mix, leq] of [['uncalibrated', 'Leq A-weighted [dBFS]'], ['some calibrated and some not', 'Leq A-weighted [dB]']] as const) {
+    test(`the dataset table names the levels of ${mix} recordings by their shared reference, plain dB without one`, async ({ page }) => {
+        test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+        await openEntry(page, mix === 'uncalibrated' ? scanned! : scanned!.map((file, index) => (index % 2 ? calibratedToPa(file) : file)));
+        await expect(leqHeader(page)).toHaveText(leq);
     });
 }
 

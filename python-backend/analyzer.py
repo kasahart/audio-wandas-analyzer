@@ -26,17 +26,15 @@ SPECTROGRAM_FREQUENCY_BIN_LIMIT = 192
 # Cursor-spectrum display budget per channel: a row of up to this many FFT bins (n_fft <= 2048, the auto
 # window's largest) is sent whole; a longer one (n_fft 4096..16384) is cut to at most this many log-spaced points.
 SPECTRUM_DISPLAY_POINT_LIMIT = 1025
-DB_UNIT = "dB"
-SPECTRUM_LEVEL_AXIS_LABEL = "Spectrum amplitude level [dB]"
 # Raw full-scale peak at or above which a channel is reported as clipped.
 CLIPPING_FULL_SCALE_THRESHOLD = 0.99
-# Formats whose samples are physical values (Pa, m/s², V…) with no full scale, so they cannot clip.
-NO_FULL_SCALE_SUFFIXES = frozenset({".csv"})
+# wandas' unit for samples read relative to the file's full scale (audio); a CSV's physical values have none ("").
+FULL_SCALE_UNIT = "FS"
 
 
-def has_full_scale(path: str | Path) -> bool:
-    """Whether the source's samples are relative to a full scale (audio) rather than raw input units (CSV)."""
-    return Path(path).suffix.lower() not in NO_FULL_SCALE_SUFFIXES
+def has_full_scale(source: wd.ChannelFrame, index: int) -> bool:
+    """Whether a channel of the source as read (before calibration) is relative to a full scale, as wandas says."""
+    return source.channels[index].unit == FULL_SCALE_UNIT
 
 
 class MeasurementMetadata(TypedDict):
@@ -302,18 +300,11 @@ def _build_spectrogram(
     sample_rate_hz: float,
     window_size: int,
     hop_size: int,
-    scale_metadata: LevelScaleMetadata | None = None,
+    scale: LevelScaleMetadata,
     time_bin_limit: int = SPECTROGRAM_TIME_BIN_LIMIT,
     frequency_bin_limit: int = SPECTROGRAM_FREQUENCY_BIN_LIMIT,
     frame_centers_sec: np.ndarray | None = None,
 ) -> SpectrogramPayload:
-    scale: LevelScaleMetadata = scale_metadata or {
-        "unit": DB_UNIT,
-        "axisLabel": SPECTRUM_LEVEL_AXIS_LABEL,
-        "referenceValue": 1.0,
-        "referenceUnit": "FS",
-        "levelReferenceLabel": DB_UNIT,
-    }
     if spectrogram_db.size == 0:
         return {
             "values": [],
@@ -406,7 +397,7 @@ def analyze_from_frame(
     frame: wd.ChannelFrame,
     file_path: str | Path,
     *,
-    raw_frame: wd.ChannelFrame | None = None,
+    raw_frame: wd.ChannelFrame,
     calibration_profile: ResolvedCalibrationProfile,
     stft_options: Mapping[str, object] | None = None,
     spectrogram_frame: wd.SpectrogramFrame | None = None,
@@ -421,17 +412,12 @@ def analyze_from_frame(
     # CSV sources may have fractional rates.
     sample_rate_hz = float(frame.sampling_rate)
     labels = list(frame.labels)
-    full_scale = has_full_scale(target)
     resolved = calibration_profile
     references = [frame.channels[index].level_reference for index in range(channel_count)]
     measurements = [measurement_metadata(channel, references[index]) for index, channel in enumerate(resolved.channels)]
     data = channels_first(np.asarray(frame.data), channel_count, sample_count)
     if raw_peaks is None or len(raw_peaks) != channel_count:
-        raw_source = raw_frame or frame
-        raw_data = channels_first(np.asarray(raw_source.data), channel_count, sample_count)
-        if raw_frame is None and not resolved.is_identity:
-            for index, channel in enumerate(resolved.channels):
-                raw_data[index] = raw_data[index] / channel.factor
+        raw_data = channels_first(np.asarray(raw_frame.data), channel_count, sample_count)
         raw_peaks = [float(np.max(np.abs(raw_data[index]))) for index in range(channel_count)]
     perf_log("read_frame", t_frame, channels=channel_count, samples=sample_count, sr=sample_rate_hz)
 
@@ -457,6 +443,7 @@ def analyze_from_frame(
         waveform = build_waveform_envelope(samples, WAVEFORM_POINT_LIMIT, start_sample=0, total_samples=sample_count)
         peak = float(waveform["absolutePeak"])
         raw_peak = float(raw_peaks[index])
+        full_scale = has_full_scale(raw_frame, index)
         spectrogram = None
         if stft_db is not None:
             spectrogram_db = np.transpose(stft_db[index], (1, 0))
