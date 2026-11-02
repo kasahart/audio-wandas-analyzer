@@ -585,27 +585,25 @@ export interface UiStrings {
     dialogSelectAudioFile: string;
     dialogAnalyzeAudioTarget: string;
     dialogAudioFilesFilter: string;
-    calFullScale: string;
-    calRawUnits: string;
+    /** What an uncalibrated value is relative to, chosen by wandas' source unit: "FS" … */
+    calScaleFullScale: string;
+    /** … or anything else (a CSV's raw values, unit ""). */
+    calScaleRawUnits: string;
+    /** {scale}: calScaleFullScale / calScaleRawUnits; {units}: wandas' source unit and level label ("FS / dBFS"). */
+    calUncalibratedSummary: string;
     calSummary: string;
     calNoChannels: string;
     calResetAllLabel: string;
-    calResetAllRawLabel: string;
     calResetAllDescription: string;
     calChannelLabel: string;
     calConfigurePlaceholder: string;
     calResetDone: string;
-    calResetRawDone: string;
     calModeCalibratedLabel: string;
     calModeCalibratedDescription: string;
-    calModeCalibratedRawDescription: string;
     calModeUncalibratedLabel: string;
     calModeUncalibratedDescription: string;
-    calModeUncalibratedRawLabel: string;
-    calModeUncalibratedRawDescription: string;
     calFactorTitle: string;
     calFactorPrompt: string;
-    calFactorRawPrompt: string;
     calUnitTitle: string;
     calUnitPrompt: string;
     calUnitRequired: string;
@@ -1346,27 +1344,22 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dialogSelectAudioFile: 'Select audio file',
         dialogAnalyzeAudioTarget: 'Analyze audio file or folder',
         dialogAudioFilesFilter: 'Audio Files',
-        calFullScale: 'Full scale (FS / dBFS)',
-        calRawUnits: 'Raw input units (dB re 1 input unit)',
-        calSummary: 'factor {factor}; {unit}; {level}',
+        calScaleFullScale: 'full scale',
+        calScaleRawUnits: 'raw input units',
+        calUncalibratedSummary: 'Uncalibrated {scale} ({units})',
+        calSummary: 'factor {factor}; {unit}',
         calNoChannels: 'No audio channels are available for calibration.',
-        calResetAllLabel: 'Reset all channels to full scale',
-        calResetAllRawLabel: 'Reset all channels to raw input units',
+        calResetAllLabel: 'Reset all channels to {scale}',
         calResetAllDescription: 'Remove the saved calibration profile for this file',
         calChannelLabel: 'Channel {n}: {label}',
         calConfigurePlaceholder: 'Configure calibration for {file}',
-        calResetDone: 'Calibration reset to full scale: {file}',
-        calResetRawDone: 'Calibration reset to raw input units: {file}',
+        calResetDone: 'Calibration reset to {scale}: {file}',
         calModeCalibratedLabel: 'Calibrated physical quantity',
-        calModeCalibratedDescription: 'Apply a raw-FS-to-physical conversion before analysis',
-        calModeCalibratedRawDescription: 'Apply a raw-input-to-physical conversion before analysis',
-        calModeUncalibratedLabel: 'Uncalibrated full scale',
-        calModeUncalibratedDescription: 'Use FS and dBFS for this channel',
-        calModeUncalibratedRawLabel: 'Uncalibrated raw input units',
-        calModeUncalibratedRawDescription: 'Use the raw input values and dB re 1 input unit for this channel',
+        calModeCalibratedDescription: 'Convert values in {scale} to a physical quantity before analysis',
+        calModeUncalibratedLabel: 'Uncalibrated {scale}',
+        calModeUncalibratedDescription: 'Use {scale} ({units}) for this channel',
         calFactorTitle: 'Calibration factor — {channel}',
-        calFactorPrompt: 'Physical value = raw full-scale sample × factor',
-        calFactorRawPrompt: 'Physical value = raw input value × factor',
+        calFactorPrompt: 'Physical value = value in {scale} × factor',
         calUnitTitle: 'Physical unit — {channel}',
         calUnitPrompt: 'Examples: Pa, m/s^2, V. Use \'1\' for a dimensionless physical quantity.',
         calUnitRequired: 'Enter a unit, or \'1\' for dimensionless data.',
@@ -2104,27 +2097,22 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dialogSelectAudioFile: '音声ファイルを選択',
         dialogAnalyzeAudioTarget: '解析する音声ファイルまたはフォルダを選択',
         dialogAudioFilesFilter: '音声ファイル',
-        calFullScale: 'フルスケール (FS / dBFS)',
-        calRawUnits: '生の入力単位 (dB re 1 input unit)',
-        calSummary: '係数 {factor}; {unit}; {level}',
+        calScaleFullScale: 'フルスケール',
+        calScaleRawUnits: '生の入力単位',
+        calUncalibratedSummary: '未校正の{scale} ({units})',
+        calSummary: '係数 {factor}; {unit}',
         calNoChannels: '校正できる音声チャンネルがありません。',
-        calResetAllLabel: 'すべてのチャンネルをフルスケールに戻す',
-        calResetAllRawLabel: 'すべてのチャンネルを生の入力単位に戻す',
+        calResetAllLabel: 'すべてのチャンネルを{scale}に戻す',
         calResetAllDescription: 'このファイルの保存済み校正プロファイルを削除します',
         calChannelLabel: 'チャンネル {n}: {label}',
         calConfigurePlaceholder: '{file} の校正を設定',
-        calResetDone: '校正をフルスケールに戻しました: {file}',
-        calResetRawDone: '校正を生の入力単位に戻しました: {file}',
+        calResetDone: '校正を{scale}に戻しました: {file}',
         calModeCalibratedLabel: '校正済みの物理量',
-        calModeCalibratedDescription: '解析の前に生の FS 値を物理量に換算します',
-        calModeCalibratedRawDescription: '解析の前に生の入力値を物理量に換算します',
-        calModeUncalibratedLabel: '未校正のフルスケール',
-        calModeUncalibratedDescription: 'このチャンネルは FS と dBFS で扱います',
-        calModeUncalibratedRawLabel: '未校正の生の入力単位',
-        calModeUncalibratedRawDescription: 'このチャンネルは生の入力値と dB re 1 input unit で扱います',
+        calModeCalibratedDescription: '解析の前に{scale}の値を物理量に換算します',
+        calModeUncalibratedLabel: '未校正の{scale}',
+        calModeUncalibratedDescription: 'このチャンネルは{scale} ({units}) で扱います',
         calFactorTitle: '校正係数 — {channel}',
-        calFactorPrompt: '物理量 = 生のフルスケール値 × 係数',
-        calFactorRawPrompt: '物理量 = 生の入力値 × 係数',
+        calFactorPrompt: '物理量 = {scale}の値 × 係数',
         calUnitTitle: '物理単位 — {channel}',
         calUnitPrompt: '例: Pa、m/s^2、V。無次元の物理量には \'1\' を入力します。',
         calUnitRequired: '単位を入力してください。無次元のデータには \'1\' を入力します。',

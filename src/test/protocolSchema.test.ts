@@ -93,7 +93,7 @@ test('scan results are either a one-line failure or a full per-channel result', 
 test('analyze and track-detail results keep the invariants the schema cannot express', () => {
     const envelope = { min: [0, 1], max: [1, 2], samples: [0.5, 1.5], absolutePeak: 2 };
     const spectrogram = { values: [[-10, -20]], timeBins: 1, frequencyBins: 2, windowSize: 64, hopSize: 32, maxFrequencyHz: 8000, minDb: -20, maxDb: -10 };
-    const channel = { label: 'ch0', peakAbsolute: 2, fullScale: true, waveform: envelope, spectrogram: null };
+    const channel = { label: 'ch0', peakAbsolute: 2, fullScale: true, sourceUnit: 'FS', sourceLevelReferenceLabel: 'dBFS', waveform: envelope, spectrogram: null };
     const result = { filePath: 'tone.wav', fileName: 'tone.wav', sampleRateHz: 16000, durationSeconds: 1, channelCount: 1, sampleCount: 16000, channels: [channel] };
     const detail = { trackIndex: 0, analysisId: 'a', settingsSignature: 's', filePath: 'tone.wav', channels: [{ ...channel, spectrogram }] };
     assert.deepEqual(parseBackendResult('analyze', result), result);
