@@ -3,7 +3,8 @@ import test from 'node:test';
 import type { ScanResult } from '../shared/protocol/backendProtocol';
 import { getStrings } from '../shared/i18n/strings';
 import { BAND_CENTERS_HZ, buildEntryModel } from '../webview/runtime/entryTable';
-import { buildCompareModel, diffHeadline, legendHtml, levelsHeadline, paneAxes } from '../webview/runtime/comparePanes';
+import { buildCompareModel, diffHeadline, legendHtml, levelsHeadline, paneAxes, trackLevelInput } from '../webview/runtime/comparePanes';
+import type { ChannelSummary } from '../shared/analysis/analysisTypes';
 import { paintOverlay, stageAxes } from '../webview/runtime/stagePanes';
 import type { StageView } from '../shared/protocol/backendProtocol';
 
@@ -167,4 +168,19 @@ test('a legend item ends with the markup its caller adds (the base group\'s ▾)
     ], strings);
     assert.match(html, /^<span class="compare-legend-item"><svg[^]*<span class="compare-legend-label">Base &lt;group&gt;<\/span><button data-action="stage-base-info">▾<\/button><\/span><span class="compare-legend-item">/);
     assert.equal(html.split('stage-base-info').length, 2);
+});
+
+test('a track with no entry result takes its level reference from its own analysis', () => {
+    const waveform = { min: [], max: [], samples: [], absolutePeak: 0 };
+    const channel = (fullScale: boolean, measurement?: ChannelSummary['measurement']): ChannelSummary => ({ label: 'L', peakAbsolute: 1, fullScale, waveform, spectrogram: null, ...(measurement ? { measurement } : {}) });
+    const pa = { calibrationStatus: 'calibrated', calibrationSource: 'manual', factor: 2, linearUnit: 'Pa', referenceValue: 2e-5, referenceUnit: 'Pa', levelUnit: 'dB SPL', levelReferenceLabel: 'dB SPL re 20 µPa' } as const;
+    const g = { ...pa, linearUnit: 'm/s^2', referenceValue: 1, referenceUnit: 'm/s^2', levelUnit: 'dB', levelReferenceLabel: 'dB re 1 m/s^2' } as const;
+    const scanned = { unit: 'FS', ref: 1, fullScale: false };
+    assert.deepEqual(trackLevelInput([channel(true)], scanned), scanned, 'the entry table\'s scan wins');
+    assert.deepEqual(trackLevelInput([channel(false)], undefined), { unit: 'FS', ref: 1, fullScale: false });
+    assert.deepEqual(trackLevelInput([channel(true)], undefined), { unit: 'FS', ref: 1, fullScale: true });
+    assert.deepEqual(trackLevelInput([channel(false, pa)], undefined), { unit: 'Pa', ref: 2e-5, fullScale: false }, 'a calibrated CSV keeps its calibration');
+    assert.deepEqual(trackLevelInput([channel(true, pa), channel(true, g)], undefined), { unit: 'FS', ref: 1, fullScale: true }, 'channels calibrated apart share no reference');
+    assert.equal(paneAxes(STR, trackLevelInput([channel(false)], undefined)).level.y, 'Amplitude, uncalibrated [dB re 1 input unit]');
+    assert.equal(paneAxes(STR, trackLevelInput([channel(true)], undefined)).level.y, 'Amplitude, uncalibrated [dBFS]');
 });

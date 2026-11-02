@@ -87,7 +87,7 @@ import { installSpectrogramSettingsPopover } from './spectrogramSettingsPopover'
 import { installReanalyzeOverlay } from './reanalyzeOverlay';
 import { SpectrogramSettingsStore } from './spectrogramSettingsStore';
 import { createEntryScreen } from './entryRuntime';
-import { diffHeadline } from './comparePanes';
+import { diffHeadline, trackLevelInput } from './comparePanes';
 import { baseName } from '../../shared/analysis/entryMetadata';
 import { channelResult } from '../../shared/recipe/channelSelection';
 import { reportFiles } from './compareReport';
@@ -1298,9 +1298,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     const canvas = canvasById(document, trackCanvasId(i, channelIndex));
                     canvas?.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
                 });
-                // The file's unit and reference as the entry table scanned it, so the level axis names its reference.
-                const input = entryResults.get(result.filePath)?.input;
-                tracks.push({ filePath: result.filePath, color: trackColor(i), canvas: canvasById(document, trackCanvasId(i, 0)), axis: canvasById(document, trackAxisCanvasId(i, 0)), ...(input ? { input: { unit: input.unit, ref: input.ref, fullScale: input.fullScale } } : {}) });
+                // The file's unit and reference as the entry table scanned it (else as the track was analysed), so the level axis names its reference.
+                const input = trackLevelInput(channelsForResult(result), entryResults.get(result.filePath)?.input);
+                tracks.push({ filePath: result.filePath, color: trackColor(i), canvas: canvasById(document, trackCanvasId(i, 0)), axis: canvasById(document, trackAxisCanvasId(i, 0)), input });
             });
             return tracks;
         },
