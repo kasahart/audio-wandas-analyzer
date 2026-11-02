@@ -331,6 +331,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     let trackRole: (filePath: string) => RoleChipRole | undefined = () => undefined;
     // 'waveform': the lanes show each channel's waveform with its spectrogram under it.
     let contentType: 'waveform' | 'stage' = 'waveform';
+    /** Left the comparison, which does not draw the spectra it hides: they are drawn on the next frame. */
+    let spectraHidden = false;
     // Linked, every displayed lane shares one absolute amplitude scale, colour scale and frequency range; lanes in
     // another unit (Pa beside full scale, dB SPL beside dBFS) share theirs only with lanes in the same unit.
     let scalesLinked = persistedWebviewState.linkScales === true;
@@ -710,7 +712,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     let spectrumCsvExportOpen = false;
     function requestSpectrumSlice(i: number, cursorNormValue: number) {
         // The folded cursor-spectrum panel leaves each lane's own small spectrum: only lanes near the view need theirs.
-        if (!spectrumRequests.allowsSliceRequests || (layout.spectrumCollapsed && !laneInView(i))) {
+        // Nor while the comparison hides every spectrum (playing there would ask for slices nobody sees).
+        if (!spectrumRequests.allowsSliceRequests || contentType === 'stage' || (layout.spectrumCollapsed && !laneInView(i))) {
             return;
         }
         const result = state.results[i];
@@ -1659,6 +1662,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         // The comparison hides the ruler (and the spectra, below): what is not on screen is not drawn.
         if (contentType !== 'stage') renderRuler();
         renderStackedTracks();
+        // Back from the comparison: the spectra are drawn from what is held, and the cursor's slices asked for if missing.
+        if (spectraHidden && contentType !== 'stage') { spectraHidden = false; refreshSpectrumViews(); scheduleSpectrumRefresh('interactive'); }
         syncRoleChips();
         updateVisibility();
         updateOffsetDisplays();
@@ -2524,6 +2529,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             setLoopRegion(selectionBeforeStage.region);
             selectionBeforeStage = null;
         }
+        // Not drawn while the comparison showed: the spectra are drawn again, from what is held, with the next frame.
+        if (contentType === 'stage' && next !== 'stage') spectraHidden = true;
         contentType = next;
         stageMode?.setActive(next === 'stage');
         document.body.classList.toggle('is-stage-view', next === 'stage');
@@ -2532,8 +2539,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         buttonMatching(document, '[data-action="content-stage"]')?.classList.toggle('is-active', next === 'stage');
         syncSpecGearVisibility();
         scheduleRender();
-        // Not drawn while the comparison showed: the spectra come back drawn for what is on screen now.
-        if (next !== 'stage') scheduleSpectrumRefresh('interactive');
     }
     /** The pair view only has an FFT axis, so the octave bands are off while it shows. */
     function syncSpectrumBandsAvailability(pairActive: boolean) {
