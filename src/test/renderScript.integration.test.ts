@@ -1074,6 +1074,40 @@ test('renderScript: a lane scrolled into view in the frame a spectrum hover repa
     env.dom.window.close();
 });
 
+test('renderScript: a cursor set again to where an in-flight slice was asked asks for it once more', async () => {
+    const state = JSON.parse(makeLazySpectrogramState());
+    state.results = state.results.slice(0, 1);
+    const env = setupEnvWithState(JSON.stringify(state));
+    await nextAnimationFrame(env.dom);
+    const sliceRequests = () => env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice') as any[];
+    const initial = sliceRequests()[0];
+    assert.ok(initial, 'initial lazy slice request should be posted');
+    // Playback pausing does this: the cursor stays, but the requests asked so far are dropped while one is in flight.
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'comparison-panel-test-action',
+        actionId: 'same-cursor',
+        actions: [{ action: 'set-cursor', payload: { cursorNorm: initial.globalCursorNorm ?? initial.cursorNorm } }],
+    } }));
+    await nextAnimationFrame(env.dom);
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'spectrum-slice-result',
+        requestId: initial.requestId,
+        analysisId: initial.analysisId,
+        settingsSignature: initial.settingsSignature,
+        trackIndex: 0,
+        filePath: '/tmp/a.wav',
+        channels: [{ channelIndex: 0, values: [-40], minDb: -90, maxDb: 0 }],
+        frequencyBins: 1, maxFrequencyHz: 22050,
+    } }));
+    await nextAnimationFrame(env.dom);
+    await new Promise(resolve => env.dom.window.setTimeout(resolve, 40));
+    // The answer to the dropped request is stale, so a fresh one must follow or the track keeps no slice there.
+    const requests = sliceRequests();
+    assert.equal(requests.length, 2, 'the dropped in-flight request should be asked again');
+    assert.equal(requests[1].cursorNorm, initial.cursorNorm);
+    env.dom.window.close();
+});
+
 test('renderScript: waveform seek invalidates an in-flight spectrum response', async () => {
     const state = JSON.parse(makeLazySpectrogramState());
     state.results = state.results.slice(0, 1);
