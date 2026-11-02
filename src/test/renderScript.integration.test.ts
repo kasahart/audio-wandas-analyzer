@@ -585,6 +585,24 @@ test('directory selection mode keeps existing track color stable when a new earl
     assert.equal(aRow?.getAttribute('data-track-id'), 'track-2');
 });
 
+test('a role set on a track header repaints its cursor spectrum in the role colour', async () => {
+    const { dom, domCanvasContexts } = setupSelectionResultsEnv();
+    await nextAnimationFrame(dom);
+    await nextAnimationFrame(dom);
+    const spy = domCanvasContexts.get('track-spectrum-0');
+    assert.ok(spy);
+    // Its menu is filled as it opens.
+    dom.window.document.querySelector<HTMLElement>('.track-row .role-chip summary')!.click();
+    await nextAnimationFrame(dom);
+    const item = dom.window.document.querySelector<HTMLElement>('.track-row .role-chip [data-action="track-role-set"][data-slot="1"]');
+    assert.ok(item);
+    const strokesBefore = spy.strokeCalls;
+    item.click();
+    await nextAnimationFrame(dom);
+    await nextAnimationFrame(dom);
+    assert.ok(spy.strokeCalls > strokesBefore, 'the spectrum keeps the colour it had before the role');
+});
+
 test('directory selection mode posts an empty selection when the shown file is taken off', () => {
     const { dom, postedMessages } = setupSelectionResultsEnv();
     setFileShown(dom, '/tmp/session/a.wav', false);
