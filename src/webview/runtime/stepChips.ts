@@ -1,5 +1,5 @@
 /**
- * The step bar's row of chips: ↶ ↷, the Recipe's name, the input, every step as a round chip joined by → and ＋, the
+ * The step bar's row of chips: ↶ ↷, the Recipe's name (on the comparison, the recipe button), the input, every step as a round chip joined by → and ＋, the
  * ＋ at the end, and … (opened, the row of what the app computes
  * outside the Recipe). Markup only: the bar answers the buttons.
  */
@@ -30,6 +30,8 @@ export interface StepChipsContext {
     inputSelectable: boolean;
     canUndo: boolean;
     canRedo: boolean;
+    /** Comparison only: the recipe button in place of the bar's name, what it reads and whether its menu is open. */
+    preset?: { label: string; open: boolean };
 }
 
 /** Icons drawn in the text colour of the chip they sit in. */
@@ -96,7 +98,9 @@ export function stepChipsHtml(context: StepChipsContext): string {
     const { chain, tail } = stepFlow(recipe, state);
     const version = state.specVersion !== undefined ? ` (${strings.stepMetrics} v${state.specVersion})` : '';
     const toggle = `<button type="button" class="step-more" data-action="step-expand" aria-expanded="${expanded}" ${hintAttr(expanded ? strings.stepClose : strings.stepOpen)}>${expanded ? '‹' : '…'}</button>`;
-    const name = `<span class="step-label step-name" ${hintAttr(strings.stepRecipeName)}>${escapeHtml(strings.btnStage)}</span>`;
+    const name = context.preset
+        ? `<button type="button" class="step-preset" data-action="step-preset-open" aria-haspopup="menu" aria-expanded="${context.preset.open}" ${hintAttr(strings.stepPresetMenu)}>${escapeHtml(context.preset.label)}${ICON.open}</button>`
+        : `<span class="step-label step-name" ${hintAttr(strings.stepRecipeName)}>${escapeHtml(strings.btnStage)}</span>`;
     const current = currentStepId(recipe, state, context.mode);
     const inputText = `<span class="step-dot" data-kind="${INPUT_FRAME}" aria-hidden="true"></span>${escapeHtml(state.files ? strings.stepInputFiles.replace('{n}', String(state.files)) : strings.stepInput)}`;
     // On the comparison the input is a chip too: pressed, it shows the files as they come in.

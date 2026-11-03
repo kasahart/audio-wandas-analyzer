@@ -311,6 +311,26 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         "params": []
     },
     {
+        "id": "wandas.audio.integrate",
+        "version": 1,
+        "input": "ChannelFrame",
+        "output": "ChannelFrame",
+        "params": [
+            {
+                "name": "order",
+                "required": false,
+                "default": 1
+            },
+            {
+                "name": "unit",
+                "required": false
+            }
+        ],
+        "refuses": {
+            "ChannelFrame": "Cannot infer the unit of the integrated signal"
+        }
+    },
+    {
         "id": "wandas.audio.a_weighting",
         "version": 2,
         "input": "ChannelFrame",

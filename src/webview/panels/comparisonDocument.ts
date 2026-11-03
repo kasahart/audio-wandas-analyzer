@@ -520,6 +520,12 @@ export function renderComparisonStyles(): string {
         .entry-screen .step-menu-item, .track-stage-bar .step-menu-item { display: flex; align-items: baseline; gap: 8px; min-height: 26px; padding: 0 6px; border: 0; border-radius: 4px; background: transparent; color: var(--text); text-align: left; }
         .entry-screen .step-menu-item:hover, .step-menu-item:focus-visible, .track-stage-bar .step-menu-item:hover { background: var(--chip-hover-bg); }
         .step-menu-item.is-off { color: var(--dim); cursor: not-allowed; }
+        .step-preset { display: inline-flex; align-items: center; gap: 4px; margin-right: 6px; padding: 1px 6px 1px 8px; border: 1px solid var(--chip-line); border-radius: 4px; background: transparent; color: var(--text); font: inherit; font-size: 12px; font-weight: 600; white-space: nowrap; cursor: pointer; }
+        .step-preset:hover, .step-preset[aria-expanded="true"] { background: var(--chip-hover-bg); }
+        .step-preset-menu { width: 280px; max-height: none; gap: 2px; }
+        .track-stage-bar .step-preset-item { flex-direction: row; justify-content: space-between; align-items: baseline; gap: 12px; padding: 4px 8px; border: 0; background: transparent; }
+        .track-stage-bar .step-preset-item[aria-checked="true"] .step-preset-name::after { content: " ✓"; }
+        .step-preset-graph { font-size: 11px; color: var(--muted); white-space: nowrap; }
         .step-menu-tag { margin-left: auto; font-size: 11px; color: var(--muted); border: 1px solid var(--chip-line); border-radius: 4px; padding: 0 4px; }
         .step-form-title { font: 11px var(--font-mono); color: var(--muted); }
         .step-form-why { max-width: 280px; color: var(--entry-flag); }

@@ -187,6 +187,23 @@ export interface UiStrings {
     compareBaseEntryRegion: string;
     compareSelfBase: string;
     stepRecipeName: string;
+    stepPresetButton: string;
+    stepPresetEdited: string;
+    stepPresetCustom: string;
+    stepPresetMenu: string;
+    stepPresetApplied: string;
+    presetSpectrumName: string;
+    presetSpectrumGraph: string;
+    presetOctaveName: string;
+    presetOctaveGraph: string;
+    presetSpectrogramName: string;
+    presetSpectrogramGraph: string;
+    presetLevelName: string;
+    presetLevelGraph: string;
+    presetLoudnessName: string;
+    presetLoudnessGraph: string;
+    presetRoughnessName: string;
+    presetRoughnessGraph: string;
     stepHoldHint: string;
     stepHintNoHold: string;
     stepAdd: string;
@@ -216,6 +233,8 @@ export interface UiStrings {
     stepNeedChannels: string;
     stepNarrowedChannels: string;
     stepOffChannels: string;
+    stepOffRate: string;
+    stepNeedRate: string;
     stepReference: string;
     stepReferenceChannel: string;
     stepReferenceSlot: string;
@@ -399,6 +418,10 @@ export interface UiStrings {
     axisLevel: string;
     axisGain: string;
     axisCoherence: string;
+    axisLoudness: string;
+    axisSharpness: string;
+    axisRoughness: string;
+    axisLevelOf: string;
     axisBand: string;
     axisBark: string;
     axisQuefrency: string;
@@ -956,6 +979,23 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         compareBaseEntryRegion: 'base = table region',
         compareSelfBase: '≠ same file',
         stepRecipeName: 'Standard',
+        stepPresetButton: 'Recipe: {name}',
+        stepPresetEdited: '{name} (edited)',
+        stepPresetCustom: 'Custom',
+        stepPresetMenu: 'Start the steps from a recipe',
+        stepPresetApplied: 'Steps replaced with “{name}” · ↶ to undo',
+        presetSpectrumName: 'Overall spectrum',
+        presetSpectrumGraph: 'Spectrum',
+        presetOctaveName: 'Band levels (A-weighted)',
+        presetOctaveGraph: '1/3 octave',
+        presetSpectrogramName: 'Time and frequency',
+        presetSpectrogramGraph: 'Spectrogram',
+        presetLevelName: 'Level over time',
+        presetLevelGraph: 'A-weighted RMS level [dB]',
+        presetLoudnessName: 'Loudness',
+        presetLoudnessGraph: 'Loudness [sone]',
+        presetRoughnessName: 'Roughness',
+        presetRoughnessGraph: 'Roughness [asper]',
         stepHoldHint: 'Hold to see what this step does',
         stepHintNoHold: 'Nothing to compare on this screen; ⚙ changes its settings',
         stepAdd: 'Add a step',
@@ -985,6 +1025,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepNeedChannels: 'Needs two channels, and a file here has only one. Set its reference to the base recording (⚙), or remove it.',
         stepNarrowedChannels: '{op} leaves one channel: this step needs two. Move it before {op}, or remove one of them.',
         stepOffChannels: 'Needs two channels: a file here has only one',
+        stepOffRate: '{rate} recordings only (these are {here}). For octave bands use noct_spectrum',
+        stepNeedRate: '{op} runs on {rate} recordings only, and these are {here}. Remove it; for octave bands use noct_spectrum on the time signal.',
         stepReference: 'Reference',
         stepReferenceChannel: 'Channel of this recording',
         stepReferenceSlot: 'Base recording',
@@ -1167,6 +1209,10 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         axisLevel: 'Level [dB]',
         axisGain: 'Gain [dB]',
         axisCoherence: 'Coherence',
+        axisLoudness: 'Loudness',
+        axisSharpness: 'Sharpness',
+        axisRoughness: 'Roughness',
+        axisLevelOf: 'Level',
         axisBand: 'Band centre [Hz]',
         axisBark: 'Critical band [Bark]',
         axisQuefrency: 'Quefrency [s]',
@@ -1713,6 +1759,23 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         compareBaseEntryRegion: '基準 = 一覧の区間',
         compareSelfBase: '≠ 同じファイル',
         stepRecipeName: '標準',
+        stepPresetButton: 'レシピ: {name}',
+        stepPresetEdited: '{name}（変更あり）',
+        stepPresetCustom: 'カスタム',
+        stepPresetMenu: 'レシピから手順を始める',
+        stepPresetApplied: '手順を「{name}」に置き換えました · ↶ で戻す',
+        presetSpectrumName: '全体のスペクトル',
+        presetSpectrumGraph: 'スペクトル',
+        presetOctaveName: '帯域別レベル（A特性）',
+        presetOctaveGraph: '1/3 オクターブ',
+        presetSpectrogramName: '時間と周波数',
+        presetSpectrogramGraph: 'スペクトログラム',
+        presetLevelName: 'レベルの時間変化',
+        presetLevelGraph: 'A特性 RMS レベル [dB]',
+        presetLoudnessName: '聞こえの大きさ',
+        presetLoudnessGraph: 'ラウドネス [sone]',
+        presetRoughnessName: '音の粗さ',
+        presetRoughnessGraph: 'ラフネス [asper]',
         stepHoldHint: '長押しの間、この手順あり／なしを比べる',
         stepHintNoHold: 'この画面では比べるものが無い。⚙ で設定',
         stepAdd: '手順を足す',
@@ -1742,6 +1805,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepNeedChannels: '2 チャンネルが必要ですが、1 チャンネルのファイルがあります。⚙ で参照を「基準の録音」にするか、外してください',
         stepNarrowedChannels: '{op} で 1 チャンネルになっています。この手順には 2 チャンネルが必要です。{op} より前に動かすか、どちらかを外してください',
         stepOffChannels: '2 チャンネルが必要です（1 チャンネルのファイルあり）',
+        stepOffRate: '{rate} の録音だけ（ここは {here}）。オクターブ帯域は noct_spectrum で',
+        stepNeedRate: '{op} は {rate} の録音だけで動きます（ここは {here}）。外して、オクターブ帯域は時間信号に noct_spectrum を使ってください',
         stepReference: '参照',
         stepReferenceChannel: 'この録音のチャンネル',
         stepReferenceSlot: '基準の録音',
@@ -1924,6 +1989,10 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         axisLevel: 'レベル [dB]',
         axisGain: '利得 [dB]',
         axisCoherence: 'コヒーレンス',
+        axisLoudness: 'ラウドネス',
+        axisSharpness: 'シャープネス',
+        axisRoughness: 'ラフネス',
+        axisLevelOf: 'レベル',
         axisBand: '帯域中心 [Hz]',
         axisBark: '臨界帯域 [Bark]',
         axisQuefrency: 'ケフレンシー [s]',

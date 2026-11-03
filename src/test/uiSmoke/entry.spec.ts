@@ -310,8 +310,8 @@ test('the step bar (in 比較解析) shows every step of the scan Recipe; an inv
     await expect(page.locator('#entry-screen [data-step-bar]')).toHaveCount(0);
     await openStepsView(page, scanned!, SPECTRUM_VIEW);
     const bar = page.locator('.track-stage-bar');
-    // "Steps", the input, then every step of the Recipe as a round chip joined by →: no chip of the app's own.
-    await expect(bar.locator('.step-name')).toHaveText(STR.btnStage);
+    // The recipe button (the preset the chain is), the input, then every step of the Recipe as a round chip joined by →: no chip of the app's own.
+    await expect(bar.locator('.step-preset')).toHaveText(STR.stepPresetButton.replace('{name}', STR.presetSpectrumName));
     // The whole file is no region: no region chip.
     await expect(bar.locator('.step-chip:not([data-step-input])')).toHaveText(['HPF 20 Hz', `${STR.stepAverage} 1024`]);
     // Two links and the end's ＋.
@@ -537,7 +537,7 @@ test('the step bar names the steps in Japanese, and … lists the table\'s 1/3-o
     await openEntry(page, scanned!, { language: 'ja', recipe });
     await openStepsView(page, scanned!, SPECTRUM_VIEW);
     const bar = page.locator('.track-stage-bar');
-    await expect(bar.locator('.step-name')).toHaveText('比較解析');
+    await expect(bar.locator('.step-preset')).toHaveText('レシピ: 全体のスペクトル');
     await expect(bar.locator('[data-step-input]')).toHaveText('入力');
     await expect(bar.locator('.step-chip:not([data-step-input])')).toHaveText(['ハイパス 20 Hz', '平均スペクトル（FFT 1024 点）']);
     await bar.locator('[data-action="step-expand"]').click();
@@ -821,6 +821,43 @@ test('the side panel\'s edge from the keyboard: End past 60 % of the window maxi
     await page.locator('[data-action="entry-maximize"]').click();
     await expect(page.locator('#entry-screen')).not.toHaveClass(/is-max/);
     expect(Math.round((await sidebar.boundingBox())!.width)).toBe(Math.round(widened));
+});
+
+test('the recipe button starts the chain from a preset: its last step is asked for and shown, ↶ brings the chain back', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    const STR = getStrings('en');
+    const recipe = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', '..', 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8'));
+    await openEntry(page, scanned!, { recipe });
+    await openStepsView(page, scanned!, SPECTRUM_VIEW);
+    const bar = page.locator('.track-stage-bar');
+    const button = bar.locator('[data-action="step-preset-open"]');
+    await button.click();
+    const menu = bar.locator('[data-step-preset-menu]');
+    await expect(menu).toBeVisible();
+    await expect(menu.locator('.step-preset-name')).toHaveText([STR.presetSpectrumName, STR.presetOctaveName, STR.presetSpectrogramName, STR.presetLevelName, STR.presetLoudnessName, STR.presetRoughnessName]);
+    // The menu sits inside the window.
+    const box = (await menu.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+    const before = (await posted(page)).length;
+    // Chosen from the keyboard (the footer says what happened; the button and the chips show it to the pointer too).
+    await page.mouse.move(0, 0);
+    await menu.locator('[data-preset="loudness"]').focus();
+    await page.keyboard.press('Enter');
+    await expect(menu).toHaveCount(0);
+    await expect(button).toHaveText(STR.stepPresetButton.replace('{name}', STR.presetLoudnessName));
+    await expect(page.locator('#hint-footer')).toHaveText(STR.stepPresetApplied.replace('{name}', STR.presetLoudnessName));
+    await expect(bar.locator('.step-chip.is-current')).toContainText('loudness');
+    // The comparison asks for the new chain's last step: the loudness over time.
+    type Scan = { type: string; requestId: string; stage?: string; recipe?: { output: string; nodes: Array<{ id: string; operation: string }> } };
+    await expect.poll(async () => (await posted(page)).slice(before).some(message => {
+        const scan = message as unknown as Scan;
+        return scan.type === 'compare-scan' && scan.requestId.startsWith('track-stage') && !!scan.recipe && scan.stage === scan.recipe.output
+            && scan.recipe.nodes.find(node => node.id === scan.stage)?.operation === 'wandas.audio.loudness_zwtv';
+    })).toBe(true);
+    await bar.locator('[data-action="step-undo"]').click();
+    await expect(button).toHaveText(STR.stepPresetButton.replace('{name}', STR.presetSpectrumName));
+    await expect(bar.locator('.step-chip:not([data-step-input])')).toHaveText(['HPF 20 Hz', `${STR.stepAverage} 1024`]);
 });
 
 test('typing in ＋\'s filter with an IME redraws only the list: the composition survives and its confirming Enter adds nothing', async ({ page }) => {

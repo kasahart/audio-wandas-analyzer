@@ -444,6 +444,14 @@ def _third_octave_bands(sampling_rate: float) -> tuple[float, ...]:
     return tuple(c for c in usable if spec.THIRD_OCTAVE_CENTERS_HZ[0] <= c <= spec.THIRD_OCTAVE_CENTERS_HZ[-1])
 
 
+A_WEIGHTING_OPERATION = "wandas.audio.a_weighting"
+
+
+def _a_weighted(frame: wd.ChannelFrame) -> bool:
+    """Whether an a_weighting step made `frame` (anywhere in the steps it came through)."""
+    return any(item.get("operation") == A_WEIGHTING_OPERATION for item in frame.operation_history)
+
+
 def measure(
     filtered: wd.ChannelFrame,
     welch: wd.SpectralFrame,
@@ -458,7 +466,9 @@ def measure(
     """
     frame = filtered
     refs = np.array([channel.ref for channel in filtered.channels], dtype=np.float64)
-    rms = np.asarray(filtered.a_weighting().rms, dtype=np.float64)
+    # A chain that A-weights the signal already (an a_weighting step before it) is not weighted twice.
+    weighted = filtered if _a_weighted(filtered) else filtered.a_weighting()
+    rms = np.asarray(weighted.rms, dtype=np.float64)
     with np.errstate(divide="ignore"):
         leq = 20.0 * np.log10(rms / refs)
 

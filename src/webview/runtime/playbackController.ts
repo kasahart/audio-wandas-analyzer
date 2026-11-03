@@ -117,6 +117,8 @@ export class PlaybackController {
                 if (pausedCursor !== null) {
                     deps.moveCursor(pausedCursor);
                     deps.scheduleRender();
+                    // Every track's spectrum (and its window band) at where playback actually stopped.
+                    deps.refreshSpectrum('immediate');
                 }
             });
             deps.invalidateSpectrumRequests();
@@ -242,7 +244,10 @@ export class PlaybackController {
                 if (ended) {
                     // 'pause' fires before 'ended' and this clears the current track, so onEnded never runs after it.
                     this.finishAtEnd(trackIndex, id);
+                    return;
                 }
+                // The slices asked for where playback stopped were just dropped: ask again, or every track keeps one from mid-play.
+                this.deps.refreshSpectrum('immediate');
             },
             onEnded: (id) => {
                 this.finishAtEnd(trackIndex, id);

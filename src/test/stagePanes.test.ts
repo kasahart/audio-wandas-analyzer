@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { eventLayers, loudPoints, medianView, stageAxes, stageLevelsHeadline, stageDifference, stageDiffRange, stageHeadline, stageRange, stageReadout, axisFractionOf, stageHover, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
+import { eventLayers, loudPoints, medianView, stageAxes, stageLevelsHeadline, stageDifference, stageDiffRange, stageHeadline, stageRange, stageReadout, axisFractionOf, stageHover, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
 import type { StageView } from '../shared/protocol/backendProtocol';
 
 const line = (values: number[], quantity: StageView['quantity'] = 'level'): StageView => ({ frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity, xs: [100, 1000, 10000], values });
@@ -37,6 +37,16 @@ test('a cross-channel picture names its pair on the value axis: the channel over
     assert.deepEqual(stageAxes(names, { ...line([0.2, 0.5, 0.9], 'coherence'), pair: { output: 2, input: 1 } }, undefined), { x: 'Frequency [Hz]', y: 'Coherence · ch2 / ch1' });
     assert.equal(stageAxes(names, { ...line([0, -3, -6], 'gain'), pair: { output: 3, input: 1 } }, undefined).y, 'Gain [dB] · ch3 / ch1');
     assert.equal(stageAxes(names, line([0.2, 0.5, 0.9], 'coherence'), undefined).y, 'Coherence');
+});
+
+test('a metric over time names what it measures on its value axis, from its unit', () => {
+    const names = { axisTime: 'Time [s]', dsValue: 'Value', axisLoudness: 'Loudness', axisSharpness: 'Sharpness', axisRoughness: 'Roughness', axisLevelOf: 'Level' } as unknown as StageStrings;
+    const series = (unit: string): StageView => ({ frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', unit, xs: [0, 1], values: [1, 2] });
+    assert.deepEqual(stageAxes(names, series('sone'), undefined), { x: 'Time [s]', y: 'Loudness [sone]' });
+    assert.equal(stageAxes(names, series('asper'), undefined).y, 'Roughness [asper]');
+    assert.equal(stageAxes(names, series('acum'), undefined).y, 'Sharpness [acum]');
+    assert.equal(stageAxes(names, series('dB re 1 FS'), undefined).y, 'Level [dB re 1 FS]');
+    assert.equal(stageAxes(names, series('Pa'), undefined).y, 'Value [Pa]');
 });
 
 const cepstrum = (values: number[]): StageView => ({ frame: 'CepstralFrame', kind: 'line', x: 'quefrency', xScale: 'linear', quantity: 'cepstrum', xs: [0, 0.001, 0.002, 0.003], values });
@@ -130,4 +140,16 @@ test('a trigger\'s events are each a line of their slot, on one amplitude range,
     assert.deepEqual(axes, { x: 'From trigger [s]', y: 'Amplitude [Pa]' });
     // A group's median is of the files' mean events: its own lines are not kept.
     assert.equal(medianView([base, events([5, 7])])?.events, undefined);
+});
+
+test('the pane\'s message wraps to its width: at spaces, else between Japanese characters', () => {
+    const width = (part: string): number => part.length * 10;
+    assert.deepEqual(wrapLines('drag the step here', 100, width), ['drag the', 'step here']);
+    assert.deepEqual(wrapLines('この手順は表示できません', 60, width), ['この手順は表', '示できません']);
+    // A word wider than the line is cut between its characters; nothing is lost.
+    assert.deepEqual(wrapLines('noct_synthesis', 50, width).join(''), 'noct_synthesis');
+    assert.ok(wrapLines('noct_synthesis は前の手順の結果に使えません', 80, width).every(line => width(line) <= 80));
+    assert.deepEqual(wrapLines('short', 100, width), ['short']);
+    // A long word after others is cut too, not left wider than the line.
+    assert.ok(wrapLines('reason: noct_synthesis_failed_here', 80, width).every(line => width(line) <= 80));
 });

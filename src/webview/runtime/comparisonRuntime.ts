@@ -691,12 +691,16 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         return Math.min(0.002, 0.01 / dur);
     }
+    /** The slice wanted or in flight for a track, unless a cursor move since has made its answer stale (it would be dropped). */
+    function currentSpectrumSliceRequest(record: NonNullable<ReturnType<typeof trackRecordAtIndex>>) {
+        const inFlight = record.requests.pending('slice')?.meta;
+        const pending = spectrumRequests.desiredFor(spectrumSliceRequestKey(record.id))
+            || (inFlight && 'generation' in inFlight ? inFlight as DesiredSpectrumSliceRequest : undefined);
+        return pending && pending.generation === spectrumRequests.generation ? pending : undefined;
+    }
     function isSpectrumSliceRequestPendingForCursor(i: number, cursorNormValue: number) {
         const record = trackRecordAtIndex(i);
-        const pending = record
-            ? spectrumRequests.desiredFor(spectrumSliceRequestKey(record.id))
-                || record.requests.pending('slice')?.meta
-            : undefined;
+        const pending = record ? currentSpectrumSliceRequest(record) : undefined;
         if (!pending) {
             return false;
         }
@@ -732,7 +736,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const key = spectrumSliceRequestKey(record.id);
-        const pending = spectrumRequests.desiredFor(key) || record.requests.pending('slice')?.meta;
+        const pending = currentSpectrumSliceRequest(record);
         if (pending && pending.settingsSignature === settingsSignature && Math.abs((pending.cursorNorm ?? -1) - localNorm) < spectrumCursorTolerance(result)
             && (pending.fullResolution || !spectrumCsvExportOpen)) {
             return;
@@ -1318,6 +1322,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             for (const result of state.results) if (!result.error) for (const ch of channelsForResult(result)) if (ch.waveform && Number.isFinite(ch.waveform.absolutePeak)) peak = Math.max(peak, ch.waveform.absolutePeak);
             return peak > 0 ? peak : undefined;
         },
+        stepFailed: (step, reason) => entryScreen.stepFailed(step, reason),
         channels: () => comparedChannels(),
         rerender: () => scheduleRender(),
         hint: text => hintFooter.show(text),
@@ -1955,7 +1960,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return null;
         }
         const slice = record.spectrumSliceCache.get(channelIndex) ?? record.spectrumSliceCache.get(0);
+        // A slice from another cursor (one still on its way after playback or a move) would put the band elsewhere.
         if (!slice || slice.settingsSignature !== currentSpectrumDataSignature()
+            || slice.cursorNorm === undefined || Math.abs(slice.cursorNorm - localNorm) >= spectrumCursorTolerance(result)
             || slice.windowStartNorm === undefined || slice.windowEndNorm === undefined) {
             return null;
         }
