@@ -715,7 +715,7 @@ test('a trigger added from ＋ fires at half the tracks\' peak, draws each event
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     const STR = getStrings('en');
     await page.setViewportSize({ width: 1280, height: 1100 });
-    await openComparison(page, 'en', scanned!, true);
+    await openComparison(page, 'en', scanned, true);
     const bar = page.locator('.track-stage-bar');
     await bar.locator('.step-chip', { hasText: STR.stepAverage }).locator('[data-action="step-delete"]').click();
     await bar.locator('[data-action="step-add"]').click();
