@@ -243,6 +243,7 @@ export interface UiStrings {
     stageVsBase: string;
     stageBaseLane: string;
     entryBatchNoBase: string;
+    entryBatchEvents: string;
     stageNeedBaseFile: string;
     stepPairSelf: string;
     stepNeedChannel: string;
@@ -430,6 +431,7 @@ export interface UiStrings {
     axisCorrelation: string;
     stageNoDelta: string;
     stageEventCounts: string;
+    stageNoEvents: string;
     stageMaxDelta: string;
     compareLevelsAt: string;
     compareHintPlot: string;
@@ -1034,6 +1036,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stagePairBase: 'vs base',
         stageVsBase: 'Measured against the base: {file}',
         stageBaseLane: 'Base (compared against): {file}',
+        entryBatchEvents: 'The steps end with the trigger\'s events, which a Recipe cannot give. Add their mean, transfer function or coherence (＋) to export them.',
         entryBatchNoBase: 'A step here compares each file with the base recording, so it cannot be exported for many files. Set its reference to a channel (⚙) first.',
         stageNeedBaseFile: 'This step compares each recording with the base recording: choose one recording as Base (a group cannot be Base)',
         stepPairSelf: 'Choose two different channels: a channel with itself always gives the same',
@@ -1221,6 +1224,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         axisCorrelation: 'Correlation coefficient',
         stageNoDelta: '— (Δ only between pictures of one kind on the same axes)',
         stageEventCounts: '{base} events in the base, {compare} in the compared',
+        stageNoEvents: 'No event crossed the trigger level · lower it in ⚙',
         stageMaxDelta: 'largest Δ {at} {delta}',
         compareLevelsAt: '{at} base {base} / compare {compare}',
         compareHintPlot: 'Drag: zoom into the box / Ctrl+Wheel: zoom / Shift+Wheel, swipe sideways: scroll / + −: zoom / Double-click: reset zoom',
@@ -1814,6 +1818,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stagePairBase: '対 基準',
         stageVsBase: '基準 {file} と比べた値',
         stageBaseLane: '基準（比べる相手）：{file}',
+        entryBatchEvents: '手順がトリガーのイベントのままで終わっていて、Recipe として実行できません。書き出すには ＋ でイベントの平均・伝達関数・コヒーレンスを足してください',
         entryBatchNoBase: '各ファイルを基準の録音と比べる手順があるため、多数のファイル向けには書き出せません。先に ⚙ で参照を「この録音のチャンネル」にしてください',
         stageNeedBaseFile: 'この手順は各録音を基準の録音と比べます。基準に録音を 1 本選んでください（群は基準にできません）',
         stepPairSelf: '別々のチャンネルを選んでください（同じチャンネル同士は常に同じ値）',
@@ -2001,6 +2006,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         axisCorrelation: '相関係数',
         stageNoDelta: '— 差は同じ種類・同じ軸の結果どうしでだけ出せます',
         stageEventCounts: 'イベント 基準 {base} 個・比較 {compare} 個',
+        stageNoEvents: 'トリガーのレベルを超えたところがありません · ⚙ で下げてください',
         stageMaxDelta: '最大 Δ {at} {delta}',
         compareLevelsAt: '{at} 基準 {base} / 比較 {compare}',
         compareHintPlot: 'ドラッグ: 囲んだ範囲にズーム / Ctrl+ホイール: ズーム / Shift+ホイール・横スワイプ: 横にスクロール / + −: ズーム / ダブルクリック: ズームをリセット',

@@ -9,7 +9,7 @@ import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { baseName } from '../../shared/analysis/entryMetadata';
 import { DIFF_COLOR, NO_ROLE_COLOR, ROLE_COLORS } from '../../shared/gui/roleColors';
 import type { LegendItem, LevelInput, PaneRange } from './comparePanes';
-import { paintOverlay, paintStage, stageAxes, stageDiffRange, stageHeadline, stageLevelsHeadline, stageRange, type StageAxes, type StageLayer, type StagePlot } from './stagePanes';
+import { emptyStageText, paintOverlay, paintStage, stageAxes, stageDiffRange, stageHeadline, stageLevelsHeadline, stageRange, type StageAxes, type StageLayer, type StagePlot } from './stagePanes';
 import type { PlotWindow } from './plotInteraction';
 import type { StagePlots } from './trackStageModel';
 
@@ -138,7 +138,7 @@ export function stageModeHeadline(frame: Pick<StageFrame, 'strings' | 'waiting' 
         : referencePath ? strings.stageVsBase.replace('{file}', frame.named(referencePath, 0).label)
         // Which difference is shown: the compared slot against the base.
         // A base group drawn as its waveforms has no line to measure against: no difference is named.
-        : comparePath ? (baseEach ? '' : (role && !coarsePlots.compare?.events ? strings.stageCompareMinusBase.replace('{n}', String(role)) : '')
+        : comparePath ? (baseEach ? '' : (role && !coarsePlots.compare?.events && !coarsePlots.base?.events ? strings.stageCompareMinusBase.replace('{n}', String(role)) : '')
             + stageLevelsHeadline(coarsePlots.base, coarsePlots.compare, coarsePlots.diff, strings))
         // No compare role yet: the lines are there, but nothing to measure against a base; the legend's chips set one.
         : strings.stageChooseRoles;
@@ -171,7 +171,7 @@ export function paintStageLanes(frame: StageFrame): number {
         track.canvas.setAttribute('aria-label', strings.ariaStageLaneCanvas.replace('{file}', baseName(track.filePath)));
         const view = shown(track.filePath) ?? null;
         const missing = coarse(track.filePath) === undefined;
-        const empty = missing ? '' : strings.stepNotDrawable.replace('{frame}', picture?.frame ?? '');
+        const empty = missing ? '' : emptyStageText(strings, coarse(track.filePath) ?? picture);
         const axes = stageAxes(strings, coarse(track.filePath) ?? picture, track.input);
         // A lane holds one picture, drawn as it is (1/3-octave levels as steps, without a fill).
         const lanePlot = paintOverlay(track.canvas, { layers: view ? [{ view, color: colorOf(frame.role, track.filePath), width: widthOf(frame.role, track.filePath, 2), label: frame.named(track.filePath, frame.role(track.filePath)).label }] : [] }, heat ? range : narrowed(range, window.y), axes,
@@ -250,7 +250,7 @@ export function paintStageOverlay(dom: StageDom, frame: StageFrame, plots: Stage
     const { strings, tracks, picture, coarsePlots, window, regionMark, pending, waiting, comparePath, referencePath } = frame;
     const range = stageRange([coarsePlots.base, ...coarsePlots.baseMembers.map(item => item.view), coarsePlots.compare, ...coarsePlots.others.map(item => item.view)]);
     const axes = stageAxes(strings, picture, tracks[0]?.input);
-    const empty = waiting ? '' : strings.stepNotDrawable.replace('{frame}', picture?.frame ?? '');
+    const empty = waiting ? '' : emptyStageText(strings, picture);
     // The difference shown or hidden first: it takes part of the overlay's height, which the overlay is measured at.
     const diffBox = dom.query<HTMLElement>('[data-stage-diff]');
     const withDiff = showDiff && !referencePath && !!comparePath && !frame.baseEach;

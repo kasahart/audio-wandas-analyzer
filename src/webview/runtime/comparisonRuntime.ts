@@ -2,6 +2,8 @@ import { channelLabel, channelsForResult, formatClockTime } from '../../shared/u
 import { linkedSpectrogramBounds, spectrogramDisplayBounds, spectrogramFailureText } from './spectrogramRaster';
 import { paintTrackSpectrogram, paintTrackWaveform, spectrogramPlotWidth, type SpectrogramRasterCacheEntry } from './trackCanvasPainter';
 import { trackTimelinePlacement } from './waveformCoverage';
+import { envelopePeak } from '../waveform/envelopePeak';
+import { fileOfKey } from '../../shared/dataset/datasetTable';
 import { attachOffsetEditing } from './offsetInlineEditor';
 import { dispatchTestMouseEvent, fillSpectrogramDisplayForm, fillSpectrogramSettingsForm, heightDragFromPayload, loopRegionFromPayload, setTestInputValue, testActionTrackId } from './testActionForms';
 import { nextRequestId } from './hostRequests';
@@ -1317,9 +1319,21 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return tracks;
         },
         sampleRate: () => state.results.find(result => !result.error)?.sampleRateHz,
-        peak: () => {
+        // What a trigger sees: the compared slots' channels (a channel row, its own) of the shown tracks, over the region.
+        peak: region => {
+            const shown = trackStore.displayOrder.map(trackId => trackStore.require(trackId)).filter(record => !record.runtime.hidden && !record.result.error);
+            const compared = entryScreen.compareData().slots.filter((slot): slot is string => !!slot);
             let peak = 0;
-            for (const result of state.results) if (!result.error) for (const ch of channelsForResult(result)) if (ch.waveform && Number.isFinite(ch.waveform.absolutePeak)) peak = Math.max(peak, ch.waveform.absolutePeak);
+            for (const record of shown) {
+                const result = record.result;
+                const slots = compared.filter(slot => fileOfKey(slot) === result.filePath);
+                if (compared.length && !slots.length) continue;
+                const picked = slots.map(slot => /#ch(\d+)$/.exec(slot)?.[1]).filter((ch): ch is string => ch !== undefined).map(ch => Number(ch) - 1);
+                channelsForResult(result).forEach((channel, index) => {
+                    if (picked.length && !picked.includes(index)) return;
+                    peak = Math.max(peak, envelopePeak(channel.waveform ?? undefined, result.durationSeconds, region));
+                });
+            }
             return peak > 0 ? peak : undefined;
         },
         stepFailed: (step, reason) => entryScreen.stepFailed(step, reason),

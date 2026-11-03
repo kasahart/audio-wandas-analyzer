@@ -7,7 +7,7 @@
  */
 import type { RecipeDocument } from './recipeSelection';
 import { operationGroup } from './operationGuide';
-import { catalogOperation, INPUT_FRAME, outputOf, WANDAS_OPERATIONS, type CatalogOperation } from './recipeCatalog';
+import { catalogOperation, INPUT_FRAME, isSegments, outputOf, WANDAS_OPERATIONS, type CatalogOperation } from './recipeCatalog';
 
 /**
  * `default`: what wandas uses when the Recipe leaves the parameter out (from its description), shown and
@@ -386,6 +386,14 @@ export function chainEnd(recipe: RecipeDocument, limits?: number | StepLimits): 
 export function chainOutput(recipe: RecipeDocument, limits?: number | StepLimits): string {
     const valid = recipeSteps(recipe, limits).filter(step => step.invalid === undefined && !step.bypassed);
     return valid.length ? valid[valid.length - 1].output : INPUT_FRAME;
+}
+
+/**
+ * Whether the chain ends with a trigger's events: wandas runs a Recipe only to a Frame (their mean, transfer
+ * function or coherence), so such a chain is compared on screen but cannot be exported to run on files.
+ */
+export function endsInEvents(recipe: RecipeDocument, limits?: number | StepLimits): boolean {
+    return isSegments(chainOutput(recipe, limits));
 }
 
 /**

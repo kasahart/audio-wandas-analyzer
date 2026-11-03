@@ -15,6 +15,7 @@ envelope every host checks replies for.)
 from __future__ import annotations
 
 import contextvars
+import functools
 import hashlib
 import json
 import math
@@ -221,6 +222,7 @@ def _single_node_plan(node: Mapping[str, object], input_name: str) -> RecipePlan
     )
 
 
+@functools.cache
 def _gives_segments(operation: str, version: int) -> bool:
     returns = next(
         (

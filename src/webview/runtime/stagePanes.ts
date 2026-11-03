@@ -22,7 +22,7 @@ import { niceTicks } from '../../shared/utils/ticks';
 /** Canvas x the level axis's turned title is centred on, in the gutter left of its tick labels. */
 const AXIS_TITLE_X = 10;
 
-export type StageStrings = Pick<UiStrings, 'axisFrequency' | 'axisTime' | 'axisTriggerTime' | 'axisBand' | 'axisBark' | 'axisQuefrency' | 'axisCepstrum' | 'axisLag' | 'axisCorrelation' | 'axisLevel' | 'axisLevelUncal' | 'axisLevelCal' | 'axisDelta' | 'dsValue' | 'axisGain' | 'axisCoherence' | 'legendHeadline' | 'legendLeak' | 'legendLine' | 'stageNoDelta' | 'stageEventCounts' | 'stageMaxDelta' | 'stepNotDrawable' | 'compareLevelsAt' | 'waveRangeAxisAmplitude' | 'stagePairBase' | 'axisLoudness' | 'axisSharpness' | 'axisRoughness' | 'axisLevelOf'>;
+export type StageStrings = Pick<UiStrings, 'axisFrequency' | 'axisTime' | 'axisTriggerTime' | 'axisBand' | 'axisBark' | 'axisQuefrency' | 'axisCepstrum' | 'axisLag' | 'axisCorrelation' | 'axisLevel' | 'axisLevelUncal' | 'axisLevelCal' | 'axisDelta' | 'dsValue' | 'axisGain' | 'axisCoherence' | 'legendHeadline' | 'legendLeak' | 'legendLine' | 'stageNoDelta' | 'stageEventCounts' | 'stageNoEvents' | 'stageMaxDelta' | 'stepNotDrawable' | 'compareLevelsAt' | 'waveRangeAxisAmplitude' | 'stagePairBase' | 'axisLoudness' | 'axisSharpness' | 'axisRoughness' | 'axisLevelOf'>;
 
 const DB_QUANTITIES = ['level', 'gain'];
 const isDb = (view: StageView | null): boolean => DB_QUANTITIES.includes(view?.quantity ?? '');
@@ -120,6 +120,11 @@ export function stageDifference(base: StageView | null, compare: StageView | nul
     return { ...shape, values: (compare.values ?? []).map((value, index) => minus(value, base.values?.[index] ?? null)) };
 }
 
+/** What an empty plot says: a trigger that found no event says so (and what to do), else that the step is not drawn. */
+export function emptyStageText(strings: Pick<StageStrings, 'stepNotDrawable' | 'stageNoEvents'>, picture: StageView | null | undefined): string {
+    return picture?.events ? strings.stageNoEvents : strings.stepNotDrawable.replace('{frame}', picture?.frame ?? '');
+}
+
 function points(view: StageView): Array<number | null> {
     const skip = skipsFirst(view) ? 1 : 0;
     // A trigger's events are each drawn: the range holds every one of them.
@@ -138,13 +143,16 @@ export function eventLayers(layer: StageLayer): StageLayer[] {
     return events.map(event => ({ ...layer, view: { ...view, values: event.values }, width: Math.min(layer.width ?? 1.5, 1.2), alpha: 0.85, label: `${layer.label ? `${layer.label} ` : ''}#${event.id + 1}` }));
 }
 
+/** A silent stretch at the floor (−300 dB) is drawn as a gap; a plain value (a trigger's events' amplitudes) has no floor. */
+const silent = (view: StageView, value: number): boolean => value <= -250 && view.quantity !== 'value';
+
 function extent(views: ReadonlyArray<StageView | null>): { low: number; high: number } {
     let low = Infinity, high = -Infinity;
     for (const view of views) {
         if (!view) continue;
         for (const value of points(view)) {
             // Silent stretches sit at the floor (−300 dB): they would squash every other level into one line.
-            if (value === null || !Number.isFinite(value) || value <= -250) continue;
+            if (value === null || !Number.isFinite(value) || silent(view, value)) continue;
             low = Math.min(low, value); high = Math.max(high, value);
         }
     }
@@ -651,7 +659,7 @@ export function strokeStageLine(context: CanvasRenderingContext2D, plot: StagePl
         context.beginPath();
         let drawing = false;
         values.forEach((value, index) => {
-            if (value === null || value <= -250) { drawing = false; return; }
+            if (value === null || silent(layer.view, value)) { drawing = false; return; }
             const x = xAt(xs[index]), y = yAt(value);
             if (drawing) context.lineTo(x, y); else context.moveTo(x, y);
             drawing = true;
@@ -677,7 +685,7 @@ function linePointAt(plot: StagePlot, layer: StageLayer, x: number): { index: nu
     const index = layer.view.kind === 'bar' ? (inBand(high) ? high : low)
         : Math.abs(plot.xAt(xs[high]) - x) < Math.abs(plot.xAt(xs[low]) - x) ? high : low;
     const value = values[index];
-    if (value === null || value === undefined || value <= -250) return null;
+    if (value === null || value === undefined || silent(layer.view, value)) return null;
     // A point off the plot (zoomed between two points) keeps its cursor at the plot's edge.
     const at = Math.max(plot.frame.left, Math.min(plot.frame.left + plot.frame.width, plot.xAt(xs[index])));
     return { index, x: at, y: plot.yAt(value), value };

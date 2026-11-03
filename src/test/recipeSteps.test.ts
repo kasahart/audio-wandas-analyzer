@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { addableOperations, brokenStep, chainEnd, bypassedSteps, SELECT_PAIR, decodeParam, encodeNumber, isRecipeChain, movedStep, recipeKey, recipeNodes, recipeSteps, withBypass, withDefaults, withParam, withoutSteps, withStep, withSlotReference, slotReferenced, activeSlotReferenced, withoutBypassed, recipeChain, REFERENCE_KEY, BYPASS_KEY, STEP_PARAMS, TRIGGER, PAIRED_ON_ADD, CROSS_CHANNEL, SLOT_REFERABLE } from '../shared/recipe/recipeSteps';
+import { addableOperations, brokenStep, chainEnd, endsInEvents, bypassedSteps, SELECT_PAIR, decodeParam, encodeNumber, isRecipeChain, movedStep, recipeKey, recipeNodes, recipeSteps, withBypass, withDefaults, withParam, withoutSteps, withStep, withSlotReference, slotReferenced, activeSlotReferenced, withoutBypassed, recipeChain, REFERENCE_KEY, BYPASS_KEY, STEP_PARAMS, TRIGGER, PAIRED_ON_ADD, CROSS_CHANNEL, SLOT_REFERABLE } from '../shared/recipe/recipeSteps';
 import { operationGroup, operationHint } from '../shared/recipe/operationGuide';
 import { catalogOperation, takes } from '../shared/recipe/recipeCatalog';
 import type { RecipeDocument } from '../shared/recipe/recipeSelection';
@@ -320,6 +320,10 @@ test('a trigger takes a time signal; after it ＋ offers only what takes its eve
     const step = recipeSteps(recipe, { sampleRate: 16000, channels: 2 }).find(item => item.id === id)!;
     // A new trigger fires at its initial level, keeps 0.2 s from the trigger on, on the first channel, as it rises.
     assert.deepEqual([step.output, step.params['threshold'], step.params['duration'], step.params['pre'], step.params['channel'], step.params['slope']], ['ChannelFrameSegments', 0.1, 0.2, 0, 0, 'rising']);
+    // Ending with the events, the chain is compared but not exported: a Recipe runs only to a Frame. Their mean is one.
+    assert.equal(endsInEvents(recipe, 16000), true);
+    assert.equal(endsInEvents(withStep(recipe, id, catalogOperation('wandas.segments.average')!).recipe, 16000), false);
+    assert.equal(endsInEvents(entry, 16000), false);
     const offered = addableOperations('ChannelFrameSegments', undefined, 2).filter(item => !item.off).map(item => item.operation.id);
     assert.deepEqual(offered.sort(), ['wandas.segments.average', 'wandas.segments.coherence', 'wandas.segments.transfer_function']);
     // The lists of event IDs or times the step bar has no field for are not on the menu at all.

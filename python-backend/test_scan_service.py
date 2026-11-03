@@ -550,6 +550,15 @@ def test_a_trigger_step_draws_each_event_and_the_steps_after_it_take_them(tmp_pa
     assert gain["frame"] == "TransferFunctionFrame" and gain["pair"] == {"output": 2, "input": 1}
     near = [value for x, value in zip(gain["xs"], gain["values"], strict=True) if 400 < x < 600]
     assert near and all(abs(value - 20 * np.log10(0.5)) < 0.1 for value in near)
+    # A level nothing crosses: still the trigger's picture, with no event on it (zoomed too).
+    high = [["duration", _float(0.2)], ["pre", _float(0.01)], ["threshold", _float(5.0)]]
+    none = _with_step(ENTRY_RECIPE, "node-1", "wandas.audio.trigger", 1, high)
+    empty = _scan(service, path, recipe=none, stage="node-3")["stage"]
+    assert (empty["frame"], empty["kind"], empty["events"]) == ("ChannelFrameSegments", "line", [])
+    assert (
+        _scan(service, path, recipe=none, stage="node-3", detail={"x": [0.0, 0.01], "points": 2000})["stage"]["events"]
+        == []
+    )
 
 
 def test_a_step_that_fails_on_a_file_is_named(tmp_path: Path) -> None:

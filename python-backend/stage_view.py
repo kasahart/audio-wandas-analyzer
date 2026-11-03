@@ -293,7 +293,17 @@ def _events_view(segments: ChannelFrameSegments, rows: np.ndarray, times: np.nda
 
 def _segments_view(segments: ChannelFrameSegments) -> StageView:
     if not len(segments):
-        return {"frame": type(segments).__name__, "kind": "none"}
+        # No event crossed the level: still the trigger's picture, with none on it (the headline counts 0).
+        return {
+            "frame": type(segments).__name__,
+            "kind": "line",
+            "x": "time",
+            "xScale": "linear",
+            "quantity": "value",
+            "xs": [],
+            "values": [],
+            "events": [],
+        }
     rows, times = _event_rows(segments)
     return _events_view(segments, rows, times, EVENT_POINTS)
 
@@ -592,6 +602,8 @@ def _detail_view(frame: object, coarse: StageView, detail: StageDetail) -> Stage
     }  # type: ignore[assignment]
     view["detail"] = True
     if isinstance(frame, ChannelFrameSegments):
+        if not len(frame):
+            return coarse
         rows, times = _event_rows(frame)
         keep = _inside(times, bounds)
         if not keep.any():

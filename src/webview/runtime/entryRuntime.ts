@@ -24,7 +24,7 @@ import { HostRequests } from './hostRequests';
 import { LARGE_BASE, LARGE_BASE_S } from './trackStageMode';
 import { createStepBar, endsInSpectrum, runnableRecipe, stepLimits, unpairedRecipe } from './stepBar';
 import { leqLabel } from './compareReport';
-import { activeSlotReferenced, brokenStep, chainEnd, isRecipeChain, recipeKey, recipeNodes } from '../../shared/recipe/recipeSteps';
+import { activeSlotReferenced, brokenStep, chainEnd, endsInEvents, isRecipeChain, recipeKey, recipeNodes } from '../../shared/recipe/recipeSteps';
 import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { baseName, isMetadataCandidate, withFolderColumns } from '../../shared/analysis/entryMetadata';
 import { powerMeanDb, powerMeanOrNull } from '../../shared/utils/levels';
@@ -602,6 +602,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const choice = (screen.querySelector<HTMLInputElement>('[data-entry-batch-scope]:checked')?.value as 'filtered' | 'all' | undefined) ?? popovers.batch ?? 'all';
         const recipe = runRecipe() ?? recipeState.standard;
         if (!recipe || broken()) { deps.announce(strings.entryChainBroken); return; }
+        if (endsInEvents(recipe, limits())) { deps.announce(strings.entryBatchEvents); return; }
         // A step measured against the base slot needs that one recording beside each: not a bundle of single files.
         if (activeSlotReferenced(recipeState.edited).length) { deps.announce(strings.entryBatchNoBase); return; }
         const targets = batchRows(choice);

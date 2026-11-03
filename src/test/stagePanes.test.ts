@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { eventLayers, loudPoints, medianView, stageAxes, stageLevelsHeadline, stageDifference, stageDiffRange, stageHeadline, stageRange, stageReadout, axisFractionOf, stageHover, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
+import { emptyStageText, eventLayers, loudPoints, medianView, stageAxes, stageLevelsHeadline, stageDifference, stageDiffRange, stageHeadline, stageRange, stageReadout, axisFractionOf, stageHover, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
 import type { StageView } from '../shared/protocol/backendProtocol';
 
 const line = (values: number[], quantity: StageView['quantity'] = 'level'): StageView => ({ frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity, xs: [100, 1000, 10000], values });
@@ -133,9 +133,16 @@ test('a trigger\'s events are each a line of their slot, on one amplitude range,
     assert.deepEqual(eventLayers({ view: line([1, 2, 3]), color: '#00f' }).map(layer => layer.view.values), [[1, 2, 3]]);
     // The range holds every event's peak, not only their mean.
     assert.ok(stageRange([base, compare]).max >= 3);
+    // Amplitudes have no −300 dB floor: a −500 (raw counts) peak is in the range.
+    assert.ok(stageRange([events([-500])]).min <= -500);
     // Two recordings' events are not one another's: no Δ, and the headline counts them instead.
     assert.equal(stageDifference(base, compare), null);
     assert.equal(stageLevelsHeadline(base, compare, null, { ...strings, compareLevelsAt: '', stageEventCounts: '{base} / {compare}' }), '2 / 1');
+    // A level nothing crosses: 0 counted, and the empty plot says to lower the level instead of 'cannot be shown'.
+    const none = events([]);
+    assert.equal(stageLevelsHeadline(none, compare, null, { ...strings, compareLevelsAt: '', stageEventCounts: '{base} / {compare}' }), '0 / 1');
+    assert.equal(emptyStageText({ stepNotDrawable: 'no {frame}', stageNoEvents: 'lower it' }, none), 'lower it');
+    assert.equal(emptyStageText({ stepNotDrawable: 'no {frame}', stageNoEvents: 'lower it' }, { frame: 'X', kind: 'none' }), 'no X');
     const axes = stageAxes({ axisTriggerTime: 'From trigger [s]', waveRangeAxisAmplitude: 'Amplitude' } as unknown as StageStrings, compare, undefined);
     assert.deepEqual(axes, { x: 'From trigger [s]', y: 'Amplitude [Pa]' });
     // A group's median is of the files' mean events: its own lines are not kept.
