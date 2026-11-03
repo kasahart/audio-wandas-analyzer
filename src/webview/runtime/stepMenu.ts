@@ -10,7 +10,7 @@ import { INPUT_FRAME } from '../../shared/recipe/recipeCatalog';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { titledHintAttr as hintAttr } from './hintFooter';
 import { earlierPlaces, frameAfter, stepLimits, type StepBarState, type StepBarStrings } from './stepBarModel';
-import { stepLabel } from './stepLabels';
+import { hzLabel, stepLabel } from './stepLabels';
 
 /** An open ＋ menu: after which step (null: before the first), the Frame there, and the typed filter. */
 export interface StepMenuState { after: string | null; frame: string; filter: string }
@@ -53,9 +53,10 @@ export function stepMenuListHtml(menu: StepMenuState, context: StepMenuContext):
     const byFrame = new Map<string, AddableOperation[]>();
     const placed = menu.after ? recipeSteps(recipe, limits).find(step => step.id === menu.after) : undefined;
     const channels = placed ? placed.channels : limits.channels;
+    const rate = placed ? placed.sampleRate : limits.sampleRate;
     const at = (frame: string): AddableOperation[] => {
         let entries = byFrame.get(frame);
-        if (!entries) { entries = addableOperations(frame, lacks, channels); byFrame.set(frame, entries); }
+        if (!entries) { entries = addableOperations(frame, lacks, channels, rate); byFrame.set(frame, entries); }
         return entries;
     };
     const places = earlierPlaces(recipe, state, menu.after);
@@ -73,6 +74,7 @@ export function stepMenuListHtml(menu: StepMenuState, context: StepMenuContext):
         const why = entry.off === 'frame' ? strings.stepOffFrame.replace('{frame}', menu.frame)
             : entry.off === 'refuses' ? strings.stepOffRefuses.replace('{frame}', menu.frame).replace('{reason}', entry.why ?? '')
             : entry.off === 'channels' ? strings.stepOffChannels
+            : entry.off === 'rate' ? strings.stepOffRate.replace('{rate}', hzLabel(Number(entry.why))).replace('{here}', hzLabel(rate))
             : entry.off === 'unavailable' ? strings.stepOffUnavailable.replace('{packages}', entry.why ?? '')
             : entry.off === 'required' ? strings.stepOffRequired.replace('{params}', entry.operation.params.filter(param => param.required).map(param => param.name).join(', ')) : '';
         const tag = !entry.off && !entry.settable ? `<span class="step-menu-tag">${escapeHtml(strings.stepDefaultsOnly)}</span>` : '';

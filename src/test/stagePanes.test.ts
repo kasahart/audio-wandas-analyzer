@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { loudPoints, medianView, stageAxes, stageLevelsHeadline, stageDifference, stageDiffRange, stageHeadline, stageRange, stageReadout, axisFractionOf, stageHover, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
+import { loudPoints, medianView, stageAxes, stageLevelsHeadline, stageDifference, stageDiffRange, stageHeadline, stageRange, stageReadout, axisFractionOf, stageHover, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
 import type { StageView } from '../shared/protocol/backendProtocol';
 
 const line = (values: number[], quantity: StageView['quantity'] = 'level'): StageView => ({ frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity, xs: [100, 1000, 10000], values });
@@ -119,4 +119,14 @@ test('the line nearest the pointer is picked as the spectrum overlay picks it, a
     const band = stageHover(zoomed, 3, 30)!;
     assert.equal(band.text, '100 Hz / −30.0 dB');
     assert.equal(band.x, 0);
+});
+
+test('the pane\'s message wraps to its width: at spaces, else between Japanese characters', () => {
+    const width = (part: string): number => part.length * 10;
+    assert.deepEqual(wrapLines('drag the step here', 100, width), ['drag the', 'step here']);
+    assert.deepEqual(wrapLines('この手順は表示できません', 60, width), ['この手順は表', '示できません']);
+    // A word wider than the line is cut between its characters; nothing is lost.
+    assert.deepEqual(wrapLines('noct_synthesis', 50, width).join(''), 'noct_synthesis');
+    assert.ok(wrapLines('noct_synthesis は前の手順の結果に使えません', 80, width).every(line => width(line) <= 80));
+    assert.deepEqual(wrapLines('short', 100, width), ['short']);
 });

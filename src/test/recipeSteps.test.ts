@@ -128,8 +128,11 @@ test('each step takes the Frame the step before gives; one that cannot is left o
     // fix_length starts at the length it is given (the region's).
     const { recipe: fixed, id: lengthStep } = withStep(entry, 'node-1', catalogOperation('wandas.audio.fix_length')!, { duration: 0.75 });
     assert.equal(recipeSteps(fixed, 16000).find(step => step.id === lengthStep)!.params['duration'], 0.75);
-    // One that fails only on some files (noct_synthesis below 48 kHz) stays on: it is marked when it fails.
+    // noct_synthesis runs at 48 kHz only: on where the rate is unknown or 48 kHz, off (with the rate it needs) elsewhere.
     assert.equal(addableOperations('SpectralFrame').find(item => item.name === 'noct_synthesis')!.off, undefined);
+    assert.equal(addableOperations('SpectralFrame', undefined, undefined, 48000).find(item => item.name === 'noct_synthesis')!.off, undefined);
+    const slow = addableOperations('SpectralFrame', undefined, undefined, 16000).find(item => item.name === 'noct_synthesis')!;
+    assert.deepEqual([slow.off, slow.why], ['rate', '48000']);
     assert.equal(addableOperations('SpectrogramFrame').find(item => item.operation.id === 'wandas.spectrogram.cepstrum')!.off, undefined);
 });
 
@@ -308,4 +311,21 @@ test('a new cross-correlation keeps lags within ±0.1 s, and the limit can be se
     assert.equal(maxLag(recipe), 0.1);
     assert.equal(addableOperations('ChannelFrame').find(item => item.name === 'cross_correlation')!.settable, true);
     assert.equal(maxLag(withParam(recipe, id, STEP_PARAMS['wandas.audio.cross_correlation'][0], 0.5)), 0.5);
+});
+
+test('a step wandas runs at one sampling rate only is marked at another rate, after any resampling before it', () => {
+    const { recipe, id } = withStep(entry, 'node-2', catalogOperation('wandas.spectral.noct_synthesis')!);
+    const at16k = recipeSteps(recipe, 16000).find(step => step.id === id)!;
+    assert.deepEqual([at16k.invalid, at16k.reason], ['', { kind: 'rate', limit: 48000, text: '16000' }]);
+    assert.equal(recipeSteps(recipe, 48000).find(step => step.id === id)!.invalid, undefined);
+    // Unknown rate: not judged (the scan marks it if it fails).
+    assert.equal(recipeSteps(recipe).find(step => step.id === id)!.invalid, undefined);
+    // Resampled to 48 kHz first, it runs.
+    const { recipe: resampled, id: resample } = withStep(recipe, null, catalogOperation('wandas.audio.resampling')!);
+    const to48k = withParam(resampled, resample, STEP_PARAMS['wandas.audio.resampling'][0], 48000);
+    const steps = recipeSteps(to48k, 16000);
+    assert.equal(steps.find(step => step.id === id)!.invalid, undefined);
+    assert.equal(steps.find(step => step.id === id)!.sampleRate, 48000);
+    // Bypassed, it does not run, so the rate does not bound it.
+    assert.equal(recipeSteps(withBypass(recipe, id, true), 16000).find(step => step.id === id)!.invalid, undefined);
 });

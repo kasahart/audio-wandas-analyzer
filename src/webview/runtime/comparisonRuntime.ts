@@ -1317,6 +1317,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return tracks;
         },
         sampleRate: () => state.results.find(result => !result.error)?.sampleRateHz,
+        stepFailed: (step, reason) => entryScreen.stepFailed(step, reason),
         channels: () => comparedChannels(),
         rerender: () => scheduleRender(),
         hint: text => hintFooter.show(text),

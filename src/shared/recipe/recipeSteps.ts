@@ -195,12 +195,15 @@ export interface RecipeStep {
     reference?: 'slot';
     /** The channels of the Frame after it, when the folder's are known. */
     channels?: number;
+    /** The sampling rate (Hz) after it, when the folder's is known (a resampling step changes it). */
+    sampleRate?: number;
     /**
      * Why: the value must stay below `limit`, or be a power of two from 64 up to `limit`; the step cannot
-     * take the Frame before it (`frame`); it failed on a file (`failed`, wandas' own words in `text`); or a
-     * step before it cannot run (`after`, that step's id in `text`), so nothing after it can either.
+     * take the Frame before it (`frame`); it failed on a file (`failed`, wandas' own words in `text`); it runs
+     * at one sampling rate only (`rate`: `limit`, the rate there in `text`); or a step before it cannot run
+     * (`after`, that step's id in `text`), so nothing after it can either.
      */
-    reason?: { kind: 'below' | 'above' | 'pow2' | 'integer' | 'frame' | 'failed' | 'after' | 'channels' | 'pair'; limit: number; text?: string };
+    reason?: { kind: 'below' | 'above' | 'pow2' | 'integer' | 'frame' | 'failed' | 'after' | 'channels' | 'pair' | 'rate'; limit: number; text?: string };
 }
 
 export interface StepLimits {
@@ -214,6 +217,27 @@ export interface StepLimits {
 }
 
 type Invalid = { param: string; reason: NonNullable<RecipeStep['reason']> } | undefined;
+
+/**
+ * Operations wandas runs at one sampling rate only, raising otherwise: SpectralFrame.noct_synthesis takes 48 kHz
+ * (MoSQITo's filter bank). ＋ greys them out at another rate, and a chain holding one marks it, rather than the
+ * comparison drawing an empty plot (test_operation_probe.py checks wandas still refuses the other rates).
+ */
+export const FIXED_RATE: Readonly<Record<string, number>> = { 'wandas.spectral.noct_synthesis': 48000 };
+
+/** The sampling rate after a step: a resampling step's target, else the rate before it. */
+function rateAfter(node: RecipeNode, rate: number | undefined): number | undefined {
+    if (node.operation !== 'wandas.audio.resampling') return rate;
+    const target = node.params.entries.find(([name]) => name === 'target_sr')?.[1];
+    const value = target === undefined ? undefined : decodeParam(target);
+    return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+/** Whether `operation` cannot run at `rate`: it needs another one (FIXED_RATE). Unknown rates are not judged. */
+export function wrongRate(operation: string, rate: number | undefined): number | undefined {
+    const required = FIXED_RATE[operation];
+    return required !== undefined && rate !== undefined && Math.round(rate) !== required ? required : undefined;
+}
 
 function invalidParam(params: Record<string, ParamValue>, editable: readonly StepParam[], limits: StepLimits, channels: number | undefined): Invalid {
     const nyquist = limits.sampleRate ? limits.sampleRate / 2 : Infinity;
@@ -281,6 +305,7 @@ export function recipeSteps(recipe: RecipeDocument, limits?: number | StepLimits
     let broken: string | undefined;
     // The channels the Frame here has, as far as the steps say (get_channel leaves one).
     let channels = bounds.channels;
+    let rate = bounds.sampleRate;
     // The step that left one channel, if one did (rather than the files having one).
     let narrowedBy: string | undefined;
     const skipped = new Set(bypassedSteps(recipe));
@@ -296,6 +321,7 @@ export function recipeSteps(recipe: RecipeDocument, limits?: number | StepLimits
             // A bypassed step does not run, so the Frame before it is not its to take (a pair after a bypassed coherence).
             : output === undefined && !skipped.has(node.id) ? { param: '', reason: { kind: 'frame', limit: 0, text: frame } }
             : failed !== undefined ? { param: '', reason: { kind: 'failed', limit: 0, text: failed } }
+            : !skipped.has(node.id) && wrongRate(node.operation, rate) !== undefined ? { param: '', reason: { kind: 'rate', limit: wrongRate(node.operation, rate) ?? 0, text: String(rate) } }
             // One channel has nothing to be compared with: its only pair is itself. A bypassed step does not run,
             // so the channels there do not bound it.
             : CROSS_CHANNEL.has(node.operation) && !skipped.has(node.id) && !slotted.has(node.id) && channels !== undefined && channels < 2 ? { param: '', reason: { kind: 'channels', limit: 2, ...(narrowedBy ? { text: narrowedBy } : {}) } }
@@ -315,8 +341,10 @@ export function recipeSteps(recipe: RecipeDocument, limits?: number | StepLimits
             // Measured against the base slot, it runs on the joined pair: a channel of each recording.
             channels = channelsAfter(node, slotted.has(node.id) ? 2 : channels, step.input);
             if (before !== undefined && before > 1 && channels === 1) narrowedBy = step.id;
+            rate = rateAfter(node, rate);
         }
         if (channels !== undefined) step.channels = channels;
+        if (rate !== undefined) step.sampleRate = rate;
         return step;
     });
 }
@@ -373,9 +401,10 @@ export interface AddableOperation {
     name: string;
     /**
      * Set when it cannot be added here: it does not take this Frame, it fails on it whatever the file
-     * (`refuses`, with wandas' reason in `why`), or it needs a value the app cannot set.
+     * (`refuses`, with wandas' reason in `why`), it runs at another sampling rate only (`rate`, the rate it
+     * needs in `why`), or it needs a value the app cannot set.
      */
-    off?: 'frame' | 'refuses' | 'unavailable' | 'required' | 'channels';
+    off?: 'frame' | 'refuses' | 'unavailable' | 'required' | 'channels' | 'rate';
     why?: string;
     /** Parameters the step bar can set (STEP_PARAMS); without, it runs with wandas' defaults. */
     settable: boolean;
@@ -391,7 +420,7 @@ export interface AddableOperation {
  */
 const MENU_HIDDEN: ReadonlySet<string> = new Set([TIME_SLICE, 'wandas.numpy.ufunc']);
 
-export function addableOperations(frame: string, lacks?: ReadonlySet<string>, channels?: number): AddableOperation[] {
+export function addableOperations(frame: string, lacks?: ReadonlySet<string>, channels?: number, sampleRate?: number): AddableOperation[] {
     return WANDAS_OPERATIONS.filter(operation => !MENU_HIDDEN.has(operation.id)).map(operation => {
         const settable = operation.id in STEP_PARAMS;
         const known = new Set((STEP_PARAMS[operation.id] ?? []).filter(param => param.kind === 'enum' || param.initial !== undefined || param.default !== undefined).map(param => param.name));
@@ -399,10 +428,11 @@ export function addableOperations(frame: string, lacks?: ReadonlySet<string>, ch
         const refused = operation.refuses?.[frame];
         // A package the operation needs that the runtime reports it cannot import (the Web version's).
         const lacking = (operation.needs ?? []).filter(name => lacks?.has(name));
+        const required = wrongRate(operation.id, sampleRate);
         const off: AddableOperation['off'] = outputOf(operation, frame) === undefined ? 'frame' : refused !== undefined ? 'refuses'
             // One channel: a cross-channel step goes against the base slot's recording, where it can.
-            : lacking.length ? 'unavailable' : CROSS_CHANNEL.has(operation.id) && !SLOT_REFERABLE.has(operation.id) && channels !== undefined && channels < 2 ? 'channels' : needs.length ? 'required' : undefined;
-        const why = refused ?? (lacking.length ? lacking.join(', ') : undefined);
+            : lacking.length ? 'unavailable' : required !== undefined ? 'rate' : CROSS_CHANNEL.has(operation.id) && !SLOT_REFERABLE.has(operation.id) && channels !== undefined && channels < 2 ? 'channels' : needs.length ? 'required' : undefined;
+        const why = refused ?? (lacking.length ? lacking.join(', ') : required !== undefined ? String(required) : undefined);
         return { operation, name: lastSegment(operation.id), settable, ...(off ? { off } : {}), ...(why !== undefined ? { why } : {}) };
     }).sort((a, b) => Number(!!a.off) - Number(!!b.off));
 }

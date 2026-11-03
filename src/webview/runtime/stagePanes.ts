@@ -398,6 +398,34 @@ export interface StagePaintOptions {
     pending?: { done: number; total: number; label: string };
 }
 
+/**
+ * `text` broken into lines no wider than `maxWidth` (by `measure`): at spaces where there are any, else between
+ * characters (Japanese has no spaces). A word wider than the line is broken between its characters.
+ */
+export function wrapLines(text: string, maxWidth: number, measure: (part: string) => number): string[] {
+    const lines: string[] = [];
+    let current = '';
+    // Words with the space before them kept, and each CJK character a word of its own.
+    const words = text.match(/\s*[\u3000-\u30ff\u3400-\u9fff\uff00-\uffef]|\s*[^\s\u3000-\u30ff\u3400-\u9fff\uff00-\uffef]+|\s+$/gu) ?? [text];
+    for (const word of words) {
+        if (measure(current + word) <= maxWidth || !current.trim()) {
+            current += word;
+            // A word wider than the line: its characters go on as many lines as they take.
+            while (measure(current) > maxWidth && current.length > 1) {
+                let cut = current.length - 1;
+                while (cut > 1 && measure(current.slice(0, cut)) > maxWidth) cut--;
+                lines.push(current.slice(0, cut).trim());
+                current = current.slice(cut);
+            }
+            continue;
+        }
+        lines.push(current.trim());
+        current = word.trimStart();
+    }
+    if (current.trim()) lines.push(current.trim());
+    return lines.length ? lines : [''];
+}
+
 /** One picture on its own: the base, the compared file or their difference. */
 export function paintStage(canvas: HTMLCanvasElement, view: StageView | null, range: PaneRange, color: string, axes: StageAxes, options: StagePaintOptions = {}): StagePlot | null {
     return paintOverlay(canvas, { layers: view ? [{ view, color, filled: true }] : [] }, range, axes, options);
@@ -446,9 +474,13 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
     if (!view) {
         if (options.pending) paintPending(context, options.pending, left + plotWidth / 2, top + plotHeight / 2, 'center', pendingColors);
         else if (options.empty) {
+            // Across the whole pane (no axes are drawn), wrapped to its width: a narrow screen keeps every word.
             context.fillStyle = muted;
             context.textAlign = 'center';
-            context.fillText(options.empty, left + plotWidth / 2, top + plotHeight / 2);
+            const lines = wrapLines(options.empty, Math.max(40, width - 16), part => context.measureText(part).width);
+            const step = 13;
+            const first = top + plotHeight / 2 - ((lines.length - 1) * step) / 2;
+            lines.forEach((part, index) => context.fillText(part, width / 2, first + index * step));
             context.textAlign = 'start';
         }
         return null;

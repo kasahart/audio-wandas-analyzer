@@ -27,6 +27,7 @@ export function invalidReason(step: RecipeStep, strings: StepBarStrings, steps: 
         case 'frame': return strings.stepNeedFrame.replace('{op}', stepChipLabel(step, strings)).replace('{frame}', reason.text ?? '');
         case 'after': { const before = steps.find(item => item.id === reason.text); return strings.stepAfterBroken.replace('{op}', before ? stepChipLabel(before, strings) : reason.text ?? ''); }
         case 'failed': return strings.stepFailedOn.replace('{reason}', reason.text ?? '');
+        case 'rate': return strings.stepNeedRate.replace('{op}', stepChipLabel(step, strings)).replace('{rate}', hzLabel(reason.limit)).replace('{here}', hzLabel(Number(reason.text)));
         default: return strings.stepNeedBelow.replace('{max}', limit);
     }
 }
@@ -42,6 +43,9 @@ export const channelText = (value: unknown, channels?: number): string => (typeo
  * imported Recipe may have it) stays as it is; there is no channel 0.
  */
 export const fromShown = (param: StepParam, value: number): number => (!(param.kind === 'int' && param.channel) || value < 0 ? value : value > 0 ? value - 1 : NaN);
+
+/** A sampling rate as the bar names it: "48 kHz", "44.1 kHz"; "?" when unknown. */
+export const hzLabel = (value: number | undefined): string => (value === undefined || !Number.isFinite(value) ? '?' : value >= 1000 ? `${Math.round(value / 100) / 10} kHz` : `${Math.round(value)} Hz`);
 
 const hzText = (value: unknown): string => (typeof value === 'number' ? (value >= 1000 ? `${Math.round(value / 100) / 10} kHz` : `${Math.round(value)} Hz`) : '');
 const bandRange = (p: Record<string, unknown>): string => (p['fmin'] !== undefined ? `${hzText(p['fmin'])}–${hzText(p['fmax'])}` : '');

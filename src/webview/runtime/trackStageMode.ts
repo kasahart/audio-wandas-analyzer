@@ -81,6 +81,11 @@ export interface TrackStageDeps {
     /** 報告に: the comparison written as a report folder (over the region, from `measured`). */
     report(showDiff: boolean, region: EntryRegion | null, measured: ReadonlyMap<string, ScanResult>): void;
     sampleRate(): number | undefined;
+    /**
+     * A step failed on a file (the scan names it): its chip is marked ⚠ with wandas' reason, as when the entry
+     * table's scan fails there, so the plot says why rather than drawing nothing.
+     */
+    stepFailed?(step: string, reason: string): void;
     /** The fewest channels of the compared files: a step that compares two channels needs two. */
     channels?(): number | undefined;
     /** Shows or hides the track lanes (hidden while overlaid). */
@@ -140,7 +145,7 @@ const IMAGE_FRAMES = new Set(['SpectrogramFrame', 'CepstrogramFrame', 'Roughness
 export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
     const { strings, document } = deps;
     const state = initialStageState();
-    const limits = (): StepLimits => stepLimits({ sampleRate: deps.sampleRate(), channels: deps.channels?.() });
+    const limits = (): StepLimits => stepLimits({ sampleRate: deps.sampleRate(), channels: deps.channels?.(), failed: deps.recipe()?.failed });
     /** The part of the files compared: the region chip's, unless it is bypassed. */
     const liveRegion = (): EntryRegion | null => liveRegionOf(deps.recipe()?.recipe, state.regionSet);
     const source = createStageSource('track-stage', message => deps.post(message), () => deps.rerender());
@@ -365,7 +370,9 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             const needBase = !!slotStep && !referencePath;
             if (cannot || needBase) {
                 deps.showLanes(false);
-                paintNoPicture(dom, id, cannot ? `${strings.stepCannotShow.replace('{why}', invalidReason(cannot, strings, steps))} — ${strings.stepCannotShowFix}` : strings.stageNeedBaseFile);
+                // Dragging fixes a step in the wrong place; the other reasons say themselves what to do.
+                const movable = cannot?.reason?.kind === 'frame' || cannot?.reason?.kind === 'after';
+                paintNoPicture(dom, id, cannot ? `${strings.stepCannotShow.replace('{why}', invalidReason(cannot, strings, steps))}${movable ? ` — ${strings.stepCannotShowFix}` : ''}` : strings.stageNeedBaseFile);
                 return;
             }
             const tracks = referencePath ? allTracks.filter(track => track.filePath !== referencePath) : allTracks;
@@ -411,6 +418,13 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             const ownOf = (paths: readonly string[]): string[] => paths.filter(path => onScreen.has(path));
             const waiting = [...byChannel].some(([ch, paths]) => lacks(specOf(ch), paths));
             for (const [ch, paths] of byChannel) want(specOf(ch), ownOf(paths));
+            // A step that failed on a file is the chain's to mark (⚠, wandas' reason), then the plot says so.
+            for (const [ch, paths] of byChannel) {
+                for (const path of paths) {
+                    const scanned = source.result(specOf(ch), path);
+                    if (scanned && !scanned.ok && scanned.failedStep && deps.recipe()?.failed?.[scanned.failedStep] === undefined) deps.stepFailed?.(scanned.failedStep, scanned.reason ?? '');
+                }
+            }
             const region = liveRegion();
             root.dataset.region = regionLabel(region);
             // The region on the plots: its part of a whole-file picture (a step before the region's), else a corner tag.

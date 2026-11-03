@@ -207,3 +207,58 @@ for (const [source, tableInput, stepInput, standalone, axis, badge, other] of [
         expect(await drawnAxis(other)()).toBe(false);
     });
 }
+
+test('a step that cannot run on these recordings says why: ＋ greys a 48 kHz-only step out, and a step failing on a file is marked with wandas\' reason on the plot', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    const recipe = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', '..', 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8'));
+    await openEntry(page, scanned!, { recipe });
+    // The plot's message is canvas text: every string drawn from here on is kept.
+    await page.evaluate(() => {
+        const drawn: string[] = [];
+        (window as unknown as { __drawnTexts: string[] }).__drawnTexts = drawn;
+        const proto = CanvasRenderingContext2D.prototype;
+        proto.fillText = new Proxy(Reflect.get(proto, 'fillText'), {
+            apply(target, self, args: Parameters<CanvasRenderingContext2D['fillText']>) {
+                drawn.push(String(args[0]));
+                return Reflect.apply(target, self, args);
+            },
+        });
+    });
+    const first = await page.locator('[data-entry-rows] tr').first().getAttribute('data-file-path');
+    await page.keyboard.press('1');
+    await expect.poll(async () => (await page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Array<{ type: string; filePaths?: string[] }> }).__uiSmokePostedMessages))
+        .filter(message => message.type === 'analyze-selected-files').at(-1)?.filePaths).toEqual([first]);
+    await page.keyboard.press('Escape');
+    await page.evaluate(filePath => window.dispatchEvent(new MessageEvent('message', { data: { type: 'analysis-update', results: [{
+        filePath, fileName: filePath.split('/').at(-1), audioSource: '', sampleRateHz: 16000, durationSeconds: 2, channelCount: 1, sampleCount: 32000,
+        channels: [{ label: 'L', peakAbsolute: 0.5, fullScale: true, waveform: { min: [-0.5, -0.4], max: [0.5, 0.4], minT: [0.1, 0.6], maxT: [0.4, 0.9], absolutePeak: 0.5 } }],
+    }] } })), first!);
+    await page.locator('[data-action="content-stage"]').click();
+    const bar = page.locator('.track-stage-bar');
+    // ＋ after the average spectrum: noct_synthesis runs on 48 kHz recordings only, and these are 16 kHz.
+    await expect.poll(async () => (await stageScans(page)).at(-1)?.stage).toBe('node-input');
+    const chips = await bar.locator('.step-chip').count();
+    expect(chips).toBeGreaterThan(2);
+    await bar.locator('[data-after="node-2"]').first().click();
+    const synthesis = bar.locator('[data-op="wandas.spectral.noct_synthesis"]');
+    await expect(synthesis).toHaveClass(/is-off/);
+    await expect(synthesis.locator('.step-menu-hint')).toContainText('48 kHz');
+    await expect(synthesis.locator('.step-menu-hint')).toContainText('16 kHz');
+    // Pressed anyway, it is not added (the footer says why).
+    await synthesis.click({ force: true });
+    await expect(bar.locator('.step-chip')).toHaveCount(chips);
+    await expect(bar.locator('[data-step-id], [data-step-hold]').filter({ hasText: 'noct_synthesis' })).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    // The spectrum fails on the file: its chip is marked, and the plot says wandas' reason rather than nothing.
+    await bar.locator('[data-step-hold="node-2"]').click();
+    await expect.poll(async () => (await stageScans(page)).at(-1)?.stage).toBe('node-2');
+    const request = (await stageScans(page)).at(-1)!;
+    await page.evaluate(request => {
+        for (const filePath of request.filePaths) {
+            window.postMessage({ type: 'compare-scan-result', requestId: request.requestId, filePath, result: { ok: false, reason: 'boom on this file', failedStep: 'node-2' } }, '*');
+        }
+        window.postMessage({ type: 'compare-scan-done', requestId: request.requestId }, '*');
+    }, request);
+    await expect(bar.locator('.step-chip.is-invalid')).toHaveCount(1);
+    await expect.poll(async () => (await page.evaluate(() => (window as unknown as { __drawnTexts: string[] }).__drawnTexts)).join(' ')).toContain('boom on this file');
+});
