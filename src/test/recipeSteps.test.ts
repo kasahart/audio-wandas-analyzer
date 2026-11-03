@@ -326,6 +326,9 @@ test('a step wandas runs at one sampling rate only is marked at another rate, af
     const steps = recipeSteps(to48k, 16000);
     assert.equal(steps.find(step => step.id === id)!.invalid, undefined);
     assert.equal(steps.find(step => step.id === id)!.sampleRate, 48000);
+    // After a metric over time the rate is not known (rms_trend divides it by its hop): not judged.
+    const { recipe: trend } = withStep(recipe, null, catalogOperation('wandas.audio.rms_trend')!);
+    assert.equal(recipeSteps(trend, 96000).find(step => step.id === id)!.invalid, undefined);
     // Bypassed, it does not run, so the rate does not bound it.
     assert.equal(recipeSteps(withBypass(recipe, id, true), 16000).find(step => step.id === id)!.invalid, undefined);
 });

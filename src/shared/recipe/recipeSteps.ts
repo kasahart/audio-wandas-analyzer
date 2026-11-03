@@ -6,6 +6,7 @@
  * analyzer lets one be set (kind, unit, bounds, what a new step starts with) is listed here.
  */
 import type { RecipeDocument } from './recipeSelection';
+import { operationGroup } from './operationGuide';
 import { catalogOperation, INPUT_FRAME, outputOf, WANDAS_OPERATIONS, type CatalogOperation } from './recipeCatalog';
 
 /**
@@ -225,8 +226,13 @@ type Invalid = { param: string; reason: NonNullable<RecipeStep['reason']> } | un
  */
 export const FIXED_RATE: Readonly<Record<string, number>> = { 'wandas.spectral.noct_synthesis': 48000 };
 
-/** The sampling rate after a step: a resampling step's target, else the rate before it. */
+/**
+ * The sampling rate after a step: a resampling step's target; unknown after a metric over time (rms_trend's rate is
+ * the input's over its hop, loudness and the others have their own), so FIXED_RATE is not judged on a stale rate;
+ * else the rate before it.
+ */
 function rateAfter(node: RecipeNode, rate: number | undefined): number | undefined {
+    if (operationGroup(node.operation) === 'time') return undefined;
     if (node.operation !== 'wandas.audio.resampling') return rate;
     const target = node.params.entries.find(([name]) => name === 'target_sr')?.[1];
     const value = target === undefined ? undefined : decodeParam(target);

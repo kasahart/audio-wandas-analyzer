@@ -418,8 +418,9 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             const ownOf = (paths: readonly string[]): string[] => paths.filter(path => onScreen.has(path));
             const waiting = [...byChannel].some(([ch, paths]) => lacks(specOf(ch), paths));
             for (const [ch, paths] of byChannel) want(specOf(ch), ownOf(paths));
-            // A step that failed on a file is the chain's to mark (⚠, wandas' reason), then the plot says so.
-            for (const [ch, paths] of byChannel) {
+            // A step that failed on a file is the chain's to mark (⚠, wandas' reason), then the plot says so; a held
+            // step's preview runs another chain, whose failure is not the chain's.
+            if (!held_) for (const [ch, paths] of byChannel) {
                 for (const path of paths) {
                     const scanned = source.result(specOf(ch), path);
                     if (scanned && !scanned.ok && scanned.failedStep && deps.recipe()?.failed?.[scanned.failedStep] === undefined) deps.stepFailed?.(scanned.failedStep, scanned.reason ?? '');
