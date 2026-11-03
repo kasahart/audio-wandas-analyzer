@@ -26,6 +26,7 @@ import { attachStageGestures, type StageGestures } from './trackStageGestures';
 import { overlayLayers, overlayLegendItems, paintBaseGate, paintNoPicture, paintNoStage, paintStageControls, paintStageLanes, paintStageOverlay, stageDom, stageModeHeadline, writeStageLegend, type Drawn, type StageFrame, type StageTrack } from './trackStagePainter';
 
 export type { StageTrack } from './trackStagePainter';
+import { isEventsView } from './stagePanes';
 import { FULL_PLOT_WINDOW } from './plotInteraction';
 import { zoomNormalizedRange, ZOOM_IN_FACTOR } from './waveformInteraction';
 import { keyRouterFor } from './keyRouter';
@@ -81,6 +82,8 @@ export interface TrackStageDeps {
     /** 報告に: the comparison written as a report folder (over the region, from `measured`). */
     report(showDiff: boolean, region: EntryRegion | null, measured: ReadonlyMap<string, ScanResult>): void;
     sampleRate(): number | undefined;
+    /** The largest peak of the compared channels' waveforms over the region, in their unit: where a new trigger starts (half of it). */
+    peak?(region: EntryRegion | null): number | undefined;
     /**
      * A step failed on a file (the scan names it): its chip is marked ⚠ with wandas' reason, as when the entry
      * table's scan fails there, so the plot says why rather than drawing nothing.
@@ -341,7 +344,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             const recipe = deps.recipe();
             const id = chosen();
             const shownStage = state.stage && recipe && recipeSteps(recipe.recipe).find(step => step.id === state.stage)?.bypassed ? state.stage : id;
-            stepBar.set({ recipe: recipe?.recipe ?? null, sampleRate: deps.sampleRate(), channels: deps.channels?.(), stage: shownStage ?? undefined, regionRange: state.regionSet, failed: recipe?.failed });
+            stepBar.set({ recipe: recipe?.recipe ?? null, sampleRate: deps.sampleRate(), channels: deps.channels?.(), peak: deps.peak?.(liveRegion()), stage: shownStage ?? undefined, regionRange: state.regionSet, failed: recipe?.failed });
             // The tracks' selection becomes the region chip once the bar has the chain; a region already there stays.
             if (state.pendingRegion) {
                 const range = state.pendingRegion;
@@ -458,7 +461,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             // its files rather than naming a median, and no level difference is measured against it.
             // Before any picture is in, the step's Frame says whether it is a time signal (drawn as waveforms).
             const each = (picture ? !!picture.waveform : frameShown === INPUT_FRAME) && allBase.length > 1;
-            paintStageControls(dom, strings, { overlaid: state.overlaid, images, showDiff: state.showDiff, overlay, measuredAgainstBase: !!referencePath, nothingCompared: !comparedPath(tracks), baseEach: each });
+            paintStageControls(dom, strings, { overlaid: state.overlaid, images, showDiff: state.showDiff, overlay, measuredAgainstBase: !!referencePath, nothingCompared: !comparedPath(tracks), baseEach: each, events: isEventsView(picture) || /Segments$/.test(frameShown ?? '') });
             // Zoomed, the plots draw from the Frames' full resolution once it is in, the coarse pictures until then.
             const width = (overlay ? query<HTMLCanvasElement>('[data-stage-canvas="overlay"]') : tracks.find(track => track.canvas)?.canvas)?.clientWidth || 600;
             // Each line is drawn from its own detail as soon as that is in, while a base group's recordings are still

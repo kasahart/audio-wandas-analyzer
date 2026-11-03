@@ -488,6 +488,79 @@ def test_scan_names_the_frame_the_chain_ends_in_and_draws_any_step(tmp_path: Pat
     assert _scan(service, path, stage="node-noct")["ok"] is False
 
 
+def _hits(times: list[float], seconds: float = 2.0) -> np.ndarray:
+    """Short decaying 500 Hz bursts starting at `times` (s), peaking at 1."""
+    signal = np.zeros(int(seconds * RATE))
+    burst = np.sin(2 * np.pi * 500 * np.arange(800) / RATE) * np.exp(-np.arange(800) / 160)
+    for at in times:
+        start = int(at * RATE)
+        signal[start : start + burst.size] += burst / np.abs(burst).max()
+    return signal
+
+
+def test_a_trigger_step_draws_each_event_and_the_steps_after_it_take_them(tmp_path: Path) -> None:
+    service = AnalysisService(AnalysisEngine())
+    hits = _hits([0.3, 0.8, 1.3])
+    path = _write(tmp_path / "hits.wav", [hits, 0.5 * hits])
+    trigger = [["duration", _float(0.2)], ["pre", _float(0.01)], ["threshold", _float(0.5)]]
+    # Region, trigger, then the mean of the events: the chain the step bar builds with ＋.
+    averaged = _with_step(
+        _with_step(ENTRY_RECIPE, "node-1", "wandas.audio.trigger", 1, trigger), "node-3", "wandas.segments.average", 1
+    )
+
+    events = _scan(service, path, recipe=averaged, stage="node-3")["stage"]
+    mean = _scan(service, path, recipe=averaged, stage="node-4")["stage"]
+    result = _scan(service, path, recipe=averaged)
+
+    # Each event is its own line over the time from its trigger, numbered by wandas' event IDs.
+    assert (events["frame"], events["kind"], events["x"], events["quantity"]) == (
+        "ChannelFrameSegments",
+        "line",
+        "time",
+        "value",
+    )
+    assert [event["id"] for event in events["events"]] == [0, 1, 2]
+    assert [round(event["time"], 2) for event in events["events"]] == [0.3, 0.8, 1.3]
+    assert events["xs"][0] == pytest.approx(-0.01, abs=1e-3) and events["xs"][-1] < 0.19
+    assert all(len(event["values"]) == len(events["xs"]) for event in events["events"])
+    # The block of largest magnitude keeps each hit's peak (channels averaged: 1 and 0.5).
+    assert max(max(abs(value) for value in event["values"] if value is not None) for event in events["events"]) > 0.7
+    # Zoomed, the events come at the samples' own resolution over the part on screen.
+    zoomed = _scan(service, path, recipe=averaged, stage="node-3", detail={"x": [0.0, 0.01], "points": 2000})["stage"]
+    assert zoomed["detail"] is True and len(zoomed["xs"]) == 161 and zoomed["xs"][0] >= 0.0
+    # The mean of the events is a short time signal (the entry Recipe's average spectrum follows it); the chain's
+    # metrics still read the region.
+    assert mean["frame"] == "ChannelFrame" and mean["xs"][-1] - mean["xs"][0] < 0.2
+    assert result["ok"] is True and result["endFrame"] == "SpectralFrame"
+    assert result["leqDbA"] == _scan(service, path)["leqDbA"]
+    # The transfer function averaged over the events, ch2 over ch1: half, at every frequency the hits excite.
+    transfer = _with_step(
+        _with_step(
+            _with_step(ENTRY_RECIPE, "node-1", "wandas.audio.trigger", 1, trigger),
+            "node-3",
+            "wandas.segments.transfer_function",
+            1,
+        ),
+        "node-4",
+        "wandas.frame.select_pair",
+        1,
+        [["input", 0], ["output", 1]],
+    )
+    gain = _scan(service, path, recipe=transfer, stage="node-5")["stage"]
+    assert gain["frame"] == "TransferFunctionFrame" and gain["pair"] == {"output": 2, "input": 1}
+    near = [value for x, value in zip(gain["xs"], gain["values"], strict=True) if 400 < x < 600]
+    assert near and all(abs(value - 20 * np.log10(0.5)) < 0.1 for value in near)
+    # A level nothing crosses: still the trigger's picture, with no event on it (zoomed too).
+    high = [["duration", _float(0.2)], ["pre", _float(0.01)], ["threshold", _float(5.0)]]
+    none = _with_step(ENTRY_RECIPE, "node-1", "wandas.audio.trigger", 1, high)
+    empty = _scan(service, path, recipe=none, stage="node-3")["stage"]
+    assert (empty["frame"], empty["kind"], empty["events"]) == ("ChannelFrameSegments", "line", [])
+    assert (
+        _scan(service, path, recipe=none, stage="node-3", detail={"x": [0.0, 0.01], "points": 2000})["stage"]["events"]
+        == []
+    )
+
+
 def test_a_step_that_fails_on_a_file_is_named(tmp_path: Path) -> None:
     service = AnalysisService(AnalysisEngine())
     path = _write(tmp_path / "tone.wav", [_sine(1000, 0.5)])

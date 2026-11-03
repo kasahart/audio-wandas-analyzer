@@ -49,7 +49,7 @@
 このボタンが出ないとき（信頼していないワークスペースや、`.venv` がすでにあるとき）や自分の環境を使うときは、次のパッケージを入れてから **Audio Analyzer: Python 環境を選択** で選びます。
 
 ```bash
-pip install "wandas[psychoacoustic,effects]>=0.12.0,<0.13.0" "numpy>=2.0.2" "scipy>=1.13" "soundfile>=0.12"
+pip install "wandas[psychoacoustic,effects]>=0.13.0,<0.14.0" "numpy>=2.0.2" "scipy>=1.13" "soundfile>=0.12"
 ```
 
 アクティビティバーの **Audio Analyzer** ビュー（ドロップも可）や、コマンド **Audio Analyzer: ファイル・フォルダを解析** からも開けます。

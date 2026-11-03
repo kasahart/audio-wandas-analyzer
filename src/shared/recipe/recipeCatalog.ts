@@ -18,7 +18,7 @@ export interface CatalogParam {
 export interface CatalogOperation {
     id: string;
     version: number;
-    /** The Frame it takes; "*" for every Frame. */
+    /** The Frame it takes; "*" for every Frame (not a trigger's events). */
     input: string;
     /** The Frame it gives; "*" for the Frame it took. */
     output: string;
@@ -44,9 +44,17 @@ export function catalogOperation(id: string): CatalogOperation | undefined {
     return WANDAS_OPERATIONS.find(operation => operation.id === id);
 }
 
-/** Whether an operation that takes `wanted` can take a `frame`. */
+/** The events a trigger cuts from a recording (wandas' FrameSegments and its kinds): not a Frame. */
+export const SEGMENTS = 'FrameSegments';
+
+/** Whether `frame` is a trigger's events rather than a Frame. */
+export function isSegments(frame: string): boolean {
+    return frame === SEGMENTS || !!WANDAS_FRAMES.find(item => item.name === frame)?.bases.includes(SEGMENTS);
+}
+
+/** Whether an operation that takes `wanted` can take a `frame`; one of every Frame ("*") does not take events. */
 export function takes(wanted: string, frame: string): boolean {
-    return wanted === '*' || wanted === frame || !!WANDAS_FRAMES.find(item => item.name === frame)?.bases.includes(wanted);
+    return (wanted === '*' && !isSegments(frame)) || wanted === frame || !!WANDAS_FRAMES.find(item => item.name === frame)?.bases.includes(wanted);
 }
 
 /** The Frame an operation gives for this input; undefined when it cannot take it. */

@@ -243,12 +243,15 @@ export interface UiStrings {
     stageVsBase: string;
     stageBaseLane: string;
     entryBatchNoBase: string;
+    entryBatchEvents: string;
     stageNeedBaseFile: string;
     stepPairSelf: string;
     stepNeedChannel: string;
     stepPair: string;
     stepPairOutput: string;
     stepPairInput: string;
+    stepTrigger: string;
+    stepTriggerChannel: string;
     stepRemove: string;
     stepNeedFrame: string;
     stepFailedOn: string;
@@ -427,6 +430,8 @@ export interface UiStrings {
     axisLag: string;
     axisCorrelation: string;
     stageNoDelta: string;
+    stageEventCounts: string;
+    stageNoEvents: string;
     stageMaxDelta: string;
     compareLevelsAt: string;
     compareHintPlot: string;
@@ -454,6 +459,7 @@ export interface UiStrings {
     axisLevelCal: string;
     axisDelta: string;
     axisTime: string;
+    axisTriggerTime: string;
     legendHeadline: string;
     legendLeak: string;
     legendLine: string;
@@ -1030,6 +1036,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stagePairBase: 'vs base',
         stageVsBase: 'Measured against the base: {file}',
         stageBaseLane: 'Base (compared against): {file}',
+        entryBatchEvents: 'A Recipe must end with a Frame, not with the trigger\'s events. Add their mean, transfer function or coherence (＋) to export it.',
         entryBatchNoBase: 'A step here compares each file with the base recording, so it cannot be exported for many files. Set its reference to a channel (⚙) first.',
         stageNeedBaseFile: 'This step compares each recording with the base recording: choose one recording as Base (a group cannot be Base)',
         stepPairSelf: 'Choose two different channels: a channel with itself always gives the same',
@@ -1037,6 +1044,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepPair: 'ch{output} / ch{input}',
         stepPairOutput: 'Channel',
         stepPairInput: 'Reference channel',
+        stepTrigger: 'Trigger',
+        stepTriggerChannel: 'Trigger channel',
         stepRemove: 'Remove',
         stepNeedFrame: '{op} cannot take the result before it. Move it or remove it.',
         stepFailedOn: 'Failed on a file ({reason}). Change the step or remove it.',
@@ -1214,6 +1223,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         axisLag: 'Lag [s]',
         axisCorrelation: 'Correlation coefficient',
         stageNoDelta: '— (Δ only between pictures of one kind on the same axes)',
+        stageEventCounts: '{base} events in the base, {compare} in the compared',
+        stageNoEvents: 'No event crossed the trigger level · lower it in ⚙',
         stageMaxDelta: 'largest Δ {at} {delta}',
         compareLevelsAt: '{at} base {base} / compare {compare}',
         compareHintPlot: 'Drag: zoom into the box / Ctrl+Wheel: zoom / Shift+Wheel, swipe sideways: scroll / + −: zoom / Double-click: reset zoom',
@@ -1239,6 +1250,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         axisLevelCal: 'Amplitude [{label}]',
         axisDelta: 'Δ [dB]',
         axisTime: 'Time [s]',
+        axisTriggerTime: 'Time from trigger [s]',
         legendHeadline: '1/3 oct headline',
         legendLeak: 'leak',
         legendLine: 'per point',
@@ -1806,6 +1818,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stagePairBase: '対 基準',
         stageVsBase: '基準 {file} と比べた値',
         stageBaseLane: '基準（比べる相手）：{file}',
+        entryBatchEvents: 'Recipe はトリガーのイベントのままでは終われません。書き出すには ＋ でイベントの平均・伝達関数・コヒーレンスを足してください',
         entryBatchNoBase: '各ファイルを基準の録音と比べる手順があるため、多数のファイル向けには書き出せません。先に ⚙ で参照を「この録音のチャンネル」にしてください',
         stageNeedBaseFile: 'この手順は各録音を基準の録音と比べます。基準に録音を 1 本選んでください（群は基準にできません）',
         stepPairSelf: '別々のチャンネルを選んでください（同じチャンネル同士は常に同じ値）',
@@ -1813,6 +1826,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepPair: 'ch{output} / ch{input}',
         stepPairOutput: 'チャンネル',
         stepPairInput: '参照チャンネル',
+        stepTrigger: 'トリガー',
+        stepTriggerChannel: 'トリガーのチャンネル',
         stepRemove: '外す',
         stepNeedFrame: '{op} は前の手順の結果に使えません。動かすか外してください',
         stepFailedOn: 'ファイルで失敗（{reason}）。設定を変えるか外してください',
@@ -1990,6 +2005,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         axisLag: 'ラグ [s]',
         axisCorrelation: '相関係数',
         stageNoDelta: '— 差は同じ種類・同じ軸の結果どうしでだけ出せます',
+        stageEventCounts: 'イベント 基準 {base} 個・比較 {compare} 個',
+        stageNoEvents: 'トリガーのレベルを超えたところがありません · ⚙ で下げてください',
         stageMaxDelta: '最大 Δ {at} {delta}',
         compareLevelsAt: '{at} 基準 {base} / 比較 {compare}',
         compareHintPlot: 'ドラッグ: 囲んだ範囲にズーム / Ctrl+ホイール: ズーム / Shift+ホイール・横スワイプ: 横にスクロール / + −: ズーム / ダブルクリック: ズームをリセット',
@@ -2015,6 +2032,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         axisLevelCal: '振幅 [{label}]',
         axisDelta: '差 [dB]',
         axisTime: '時間 [s]',
+        axisTriggerTime: 'トリガーからの時間 [s]',
         legendHeadline: '1/3 oct 見出し',
         legendLeak: '漏れ',
         legendLine: '点ごとの差',

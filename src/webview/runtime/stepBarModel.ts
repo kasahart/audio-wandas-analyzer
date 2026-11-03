@@ -4,10 +4,10 @@
  */
 import type { UiStrings } from '../../shared/i18n/strings';
 import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
-import { chainOutput, recipeChain, recipeNodes, recipeSteps, timeSignalStep, withoutBypassed, withoutSteps, slotReferenced, activeSlotReferenced, REFERENCE_KEY, TIME_SLICE, type RecipeStep, type StepLimits } from '../../shared/recipe/recipeSteps';
+import { chainOutput, recipeChain, recipeNodes, recipeSteps, timeSignalStep, withoutBypassed, withoutSteps, slotReferenced, activeSlotReferenced, REFERENCE_KEY, TIME_SLICE, TRIGGER, type RecipeStep, type StepLimits } from '../../shared/recipe/recipeSteps';
 import { INPUT_FRAME } from '../../shared/recipe/recipeCatalog';
 
-export type StepBarStrings = Pick<UiStrings, 'stepAfterBroken' | 'stepOctaveBroken' | 'stepUndo' | 'stepRedo' | 'stepUndone' | 'stepRedone' | 'stepBypass' | 'stepBypassOff' | 'stepBypassed' | 'stepUnbypassed' | 'stepMenuEarlier' | 'stepGoesBefore' | 'stepMenuOff' | 'stepRegionStart' | 'stepRegionEnd' | 'stepRegionPurpose' | 'stepRegionAdded' | 'stepRegionImported' | 'stepRegionCleared' | 'stepRegionClear' | 'stepRegionOrder' | 'stepRegionThere' | 'stepInputHint' | 'stepNeedAbove' | 'stepNeedInteger' | 'stepRegion' | 'stepAll' | 'stepMetrics' | 'stepAverage' | 'stepSettings' | 'stepApply' | 'compareNotEntry' | 'stepNeedBelow' | 'stepNeedPow2' | 'hintStepChip' | 'stepRecipeName' | 'hintSpectrogramGroup' | 'stepNeedValue' | 'hintSpectrogram' | 'stepFrameHint' | 'hintRegionMark' | 'stepOpen' | 'stepClose' | 'stepOutsideHeading' | 'stepOctave' | 'stepHoldHint' | 'stepHintNoHold' | 'stepAdd' | 'entryColLeq' | 'outside192' | 'outsideMedian' | 'outsideDelta' | 'outsideOutliers' | 'stepNeedFrame' | 'stepFailedOn' | 'stepTapHint' | 'stepNoSettings' | 'stepRemove' | 'stepMenuTitle' | 'stepMenuFilter' | 'stepOffFrame' | 'stepOffRequired' | 'stepOffRefuses' | 'stepOffUnavailable' | 'stepDefaultsOnly' | 'stepAdded' | 'stepRemoved' | 'btnStage' | 'stepInputFiles' | 'stepInput' | 'stepHintLocale' | 'stepGroupFilter' | 'stepGroupPrepare' | 'stepGroupTime' | 'stepGroupFrequency' | 'stepGroupOther' | 'stepDragHint' | 'stepMoved' | 'stepRemoveChip' | 'stepHighpass' | 'stepLowpass' | 'stepBandpass' | 'stepAverageFft' | 'stepNeedChannels' | 'stepNarrowedChannels' | 'stepPairSelf' | 'stepNeedChannel' | 'stepOffChannels' | 'stepOffRate' | 'stepNeedRate' | 'stepPair' | 'stepPairOutput' | 'stepPairInput' | 'stepReference' | 'stepReferenceChannel' | 'stepReferenceSlot' | 'stepReferenceSet' | 'stagePairBase' | 'stepPresetButton' | 'stepPresetEdited' | 'stepPresetCustom' | 'stepPresetMenu' | 'stepPresetApplied' | 'presetSpectrumName' | 'presetSpectrumGraph' | 'presetOctaveName' | 'presetOctaveGraph' | 'presetSpectrogramName' | 'presetSpectrogramGraph' | 'presetLevelName' | 'presetLevelGraph' | 'presetLoudnessName' | 'presetLoudnessGraph' | 'presetRoughnessName' | 'presetRoughnessGraph'>;
+export type StepBarStrings = Pick<UiStrings, 'stepAfterBroken' | 'stepOctaveBroken' | 'stepUndo' | 'stepRedo' | 'stepUndone' | 'stepRedone' | 'stepBypass' | 'stepBypassOff' | 'stepBypassed' | 'stepUnbypassed' | 'stepMenuEarlier' | 'stepGoesBefore' | 'stepMenuOff' | 'stepRegionStart' | 'stepRegionEnd' | 'stepRegionPurpose' | 'stepRegionAdded' | 'stepRegionImported' | 'stepRegionCleared' | 'stepRegionClear' | 'stepRegionOrder' | 'stepRegionThere' | 'stepInputHint' | 'stepNeedAbove' | 'stepNeedInteger' | 'stepRegion' | 'stepAll' | 'stepMetrics' | 'stepAverage' | 'stepSettings' | 'stepApply' | 'compareNotEntry' | 'stepNeedBelow' | 'stepNeedPow2' | 'hintStepChip' | 'stepRecipeName' | 'hintSpectrogramGroup' | 'stepNeedValue' | 'hintSpectrogram' | 'stepFrameHint' | 'hintRegionMark' | 'stepOpen' | 'stepClose' | 'stepOutsideHeading' | 'stepOctave' | 'stepHoldHint' | 'stepHintNoHold' | 'stepAdd' | 'entryColLeq' | 'outside192' | 'outsideMedian' | 'outsideDelta' | 'outsideOutliers' | 'stepNeedFrame' | 'stepFailedOn' | 'stepTapHint' | 'stepNoSettings' | 'stepRemove' | 'stepMenuTitle' | 'stepMenuFilter' | 'stepOffFrame' | 'stepOffRequired' | 'stepOffRefuses' | 'stepOffUnavailable' | 'stepDefaultsOnly' | 'stepAdded' | 'stepRemoved' | 'btnStage' | 'stepInputFiles' | 'stepInput' | 'stepHintLocale' | 'stepGroupFilter' | 'stepGroupPrepare' | 'stepGroupTime' | 'stepGroupFrequency' | 'stepGroupOther' | 'stepDragHint' | 'stepMoved' | 'stepRemoveChip' | 'stepHighpass' | 'stepLowpass' | 'stepBandpass' | 'stepAverageFft' | 'stepNeedChannels' | 'stepNarrowedChannels' | 'stepPairSelf' | 'stepNeedChannel' | 'stepOffChannels' | 'stepPair' | 'stepPairOutput' | 'stepPairInput' | 'stepTrigger' | 'stepTriggerChannel' | 'stepReference' | 'stepReferenceChannel' | 'stepReferenceSlot' | 'stepReferenceSet' | 'stagePairBase' | 'stepOffRate' | 'stepNeedRate' | 'stepPresetButton' | 'stepPresetEdited' | 'stepPresetCustom' | 'stepPresetMenu' | 'stepPresetApplied' | 'presetSpectrumName' | 'presetSpectrumGraph' | 'presetOctaveName' | 'presetOctaveGraph' | 'presetSpectrogramName' | 'presetSpectrogramGraph' | 'presetLevelName' | 'presetLevelGraph' | 'presetLoudnessName' | 'presetLoudnessGraph' | 'presetRoughnessName' | 'presetRoughnessGraph'>;
 
 /** The input as a stage: the files' waveforms as they come in (scan_service.py's INPUT_STAGE). */
 export const INPUT_STAGE = 'node-input';
@@ -24,6 +24,8 @@ export interface StepBarState {
     channels?: number;
     /** Seconds measured (the region's, else the shortest file's): where fix_length starts. */
     lengthS?: number;
+    /** The largest peak of the recordings on the tracks, in their waveform's unit: a new trigger fires at half of it. */
+    peak?: number;
     /** Steps that failed on a file, with wandas' reason: marked and left out. */
     failed?: Readonly<Record<string, string>>;
     /** "0.50–1.50 s"; undefined is the whole file. */
@@ -38,6 +40,16 @@ export interface StepBarState {
     stage?: string;
     /** How many files the chain runs on, for the input chip. */
     files?: number;
+}
+
+/**
+ * What a new step starts with from the files, over its `initial` values: fix_length their length (s), a trigger half
+ * the tracks' peak (to two figures), so it fires on the loud events of what is shown whatever the unit.
+ */
+export function startValues(operation: string, state: Pick<StepBarState, 'peak'>, lengthS?: number): Record<string, number> {
+    if (operation === 'wandas.audio.fix_length' && lengthS) return { duration: Math.round(lengthS * 1000) / 1000 };
+    if (operation === TRIGGER && state.peak !== undefined && Number.isFinite(state.peak) && state.peak > 0) return { threshold: Number((state.peak / 2).toPrecision(2)) };
+    return {};
 }
 
 /** The limits a Recipe's steps are checked against: the folder's, and the steps that failed on a file. */

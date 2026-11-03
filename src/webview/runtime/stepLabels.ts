@@ -63,6 +63,8 @@ export function stepLabel(step: RecipeStep, strings: StepBarStrings, state: Pick
         case 'welch': return strings.stepAverageFft.replace('{name}', strings.stepAverage).replace('{n}', formatNumber(p['n_fft']));
         case 'stft': return `STFT ${formatNumber(p['n_fft'])}`;
         case 'resampling': return `→ ${hzText(p['target_sr'])}`;
+        // The level it fires at, and the channel it watches when that is not the first.
+        case 'trigger': return `${strings.stepTrigger}${typeof p['channel'] === 'number' && p['channel'] !== 0 ? ` ch${channelText(p['channel'], step.channels ?? state.channels)}` : typeof p['channel'] === 'string' ? ` ${p['channel']}` : ''} ${formatNumber(p['threshold'])}`;
         // Source ids ("c1") are named as wandas has them; indices as channels from 1.
         case 'select_pair': return typeof p['output'] === 'string' || typeof p['input'] === 'string' ? `${String(p['output'])} / ${String(p['input'])}`
             : strings.stepPair.replace('{output}', channelText(p['output'], step.channels ?? state.channels)).replace('{input}', channelText(p['input'], step.channels ?? state.channels));

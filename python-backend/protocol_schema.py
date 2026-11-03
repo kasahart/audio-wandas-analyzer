@@ -593,6 +593,22 @@ DEFINITIONS: dict[str, Schema] = {
                     "ref": _NUMBER,
                 },
             },
+            # A trigger's segments: each event's signal (channels averaged) over the time from its trigger, drawn as
+            # its own line; ``values`` are their mean.
+            "events": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["id", "time", "values"],
+                    "properties": {
+                        # wandas' event ID, from 0: it stays the same when other events are dropped.
+                        "id": {"type": "integer", "minimum": 0},
+                        # When it triggered, seconds into the file.
+                        "time": _NUMBER,
+                        "values": _NULLABLE_NUMBERS,
+                    },
+                },
+            },
         },
     },
     "ScanInput": {

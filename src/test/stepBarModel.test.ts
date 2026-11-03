@@ -5,7 +5,7 @@ import test from 'node:test';
 import { recipeSteps, withBypass, withParam } from '../shared/recipe/recipeSteps';
 import type { RecipeDocument } from '../shared/recipe/recipeSelection';
 import { INPUT_FRAME } from '../shared/recipe/recipeCatalog';
-import { currentStepId, earlierPlaces, frameAfter, lastRunningStep, orderedSteps, removable, shownStep, stepFlow, type StepBarState } from '../webview/runtime/stepBarModel';
+import { currentStepId, earlierPlaces, frameAfter, lastRunningStep, orderedSteps, removable, shownStep, startValues, stepFlow, type StepBarState } from '../webview/runtime/stepBarModel';
 
 const entry = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8')) as RecipeDocument;
 const state: StepBarState = { recipe: entry, sampleRate: 16000 };
@@ -52,4 +52,13 @@ test('chips: the region chip shows only with a region and is not removable; a le
     assert.equal(frameAfter(welch), welch.output);
     assert.equal(frameAfter({ ...welch, bypassed: true }), welch.input);
     assert.equal(frameAfter({ ...welch, invalid: 'n_fft' }), welch.input);
+});
+
+test('a new trigger starts at half the tracks\' peak, to two figures; fix_length at the files\' length', () => {
+    assert.deepEqual(startValues('wandas.audio.trigger', { peak: 0.734 }), { threshold: 0.37 });
+    assert.deepEqual(startValues('wandas.audio.trigger', { peak: 12.5 }, 3), { threshold: 6.3 });
+    // No peak known (the entry table): the step's own initial value.
+    assert.deepEqual(startValues('wandas.audio.trigger', {}), {});
+    assert.deepEqual(startValues('wandas.audio.fix_length', { peak: 1 }, 2.5), { duration: 2.5 });
+    assert.deepEqual(startValues('wandas.audio.highpass_filter', { peak: 1 }, 2.5), {});
 });

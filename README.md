@@ -49,7 +49,7 @@
 If that button does not appear (an untrusted workspace, or a `.venv` already there), or to use an environment of your own, install the packages into it and run **Audio Analyzer: Select Python Environment**:
 
 ```bash
-pip install "wandas[psychoacoustic,effects]>=0.12.0,<0.13.0" "numpy>=2.0.2" "scipy>=1.13" "soundfile>=0.12"
+pip install "wandas[psychoacoustic,effects]>=0.13.0,<0.14.0" "numpy>=2.0.2" "scipy>=1.13" "soundfile>=0.12"
 ```
 
 Files and folders can also be opened from the **Audio Analyzer** view in the Activity Bar (or by dropping them on it), or with **Audio Analyzer: Analyze File or Folder**.

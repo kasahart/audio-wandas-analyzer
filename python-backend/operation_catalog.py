@@ -67,6 +67,7 @@ def _owners() -> list[tuple[type[Any], str]]:
     from wandas.frames.mixins.channel_processing_mixin import ChannelProcessingMixin
     from wandas.frames.mixins.channel_transform_mixin import ChannelTransformMixin
     from wandas.frames.pairwise import CrossSpectralFrame, PairwiseFrame, PairwiseSpectralFrame
+    from wandas.frames.segments import ChannelFrameSegments, FrameSegments
     from wandas.frames.spectral import SpectralFrame
     from wandas.frames.spectrogram import SpectrogramFrame
 
@@ -82,6 +83,9 @@ def _owners() -> list[tuple[type[Any], str]]:
         (CepstrogramFrame, "CepstrogramFrame"),
         (SpectralFrame, "SpectralFrame"),
         (SpectrogramFrame, "SpectrogramFrame"),
+        # The events a trigger cuts from a recording: not a Frame, but what the steps after a trigger take.
+        (FrameSegments, "FrameSegments"),
+        (ChannelFrameSegments, "ChannelFrameSegments"),
     ]
 
 
@@ -91,7 +95,7 @@ def _output(method: Any, taken: str) -> str:
         return taken
     name = returned if isinstance(returned, str) else getattr(returned, "__name__", "")
     # A forward reference to a type variable ("PairwiseFrameT") or Any: the Frame it took.
-    return name if name.endswith("Frame") else taken
+    return name if name.endswith(("Frame", "Segments")) else taken
 
 
 def _param(parameter: RecipeParameterDescription) -> CatalogParam:
@@ -136,7 +140,10 @@ def catalog() -> list[CatalogOperation]:
                 "id": definition.operation_id,
                 "version": definition.version,
                 "input": taken,
-                "output": "*" if taken == "*" else _output(method, taken),
+                # Dropping or selecting events keeps the segments' own kind (a ChannelFrameSegments stays one).
+                "output": "*"
+                if taken == "*" or (taken == "FrameSegments" and _output(method, taken) == taken)
+                else _output(method, taken),
                 "params": [_param(parameter) for parameter in parameters],
             }
             if definition.operation_id not in newest or newest[definition.operation_id]["version"] < definition.version:
@@ -146,9 +153,10 @@ def catalog() -> list[CatalogOperation]:
 
 
 def frames() -> list[CatalogFrame]:
-    """wandas' Frame classes, each with the Frames it derives from."""
+    """wandas' Frame classes, each with the Frames it derives from, then the segments a trigger gives."""
     import wandas.frames
     from wandas.core.base_frame import BaseFrame
+    from wandas.frames.segments import ChannelFrameSegments, FrameSegments
 
     from stage_view import STAGE_FRAME_TYPES
 
@@ -156,12 +164,14 @@ def frames() -> list[CatalogFrame]:
         value
         for name, value in sorted(vars(wandas.frames).items())
         if inspect.isclass(value) and issubclass(value, BaseFrame) and value.__name__ == name
-    ]
+    ] + [FrameSegments, ChannelFrameSegments]
     return [
         {
             "name": frame.__name__,
             "bases": [
-                base.__name__ for base in frame.__mro__[1:] if issubclass(base, BaseFrame) and base is not BaseFrame
+                base.__name__
+                for base in frame.__mro__[1:]
+                if (issubclass(base, BaseFrame) and base is not BaseFrame) or issubclass(base, FrameSegments)
             ],
             "charted": issubclass(frame, STAGE_FRAME_TYPES),
         }

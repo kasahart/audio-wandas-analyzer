@@ -67,7 +67,9 @@ def test_every_frame_an_added_step_gives_is_drawn_on_the_compare(runs: list) -> 
     # What a step gives is shown as its plot() shows it; a Frame the comparison cannot draw fails here.
     undrawn = sorted({run["output"] for run in runs if run["ok"] and not run["drawn"]})
     assert undrawn == []
-    assert all(frame["charted"] for frame in frames())
+    # Every Frame a step can give is charted; FrameSegments is only the base of the segments a trigger gives.
+    given = {operation["output"] for operation in catalog()}
+    assert all(frame["charted"] for frame in frames() if frame["name"] != "FrameSegments" or frame["name"] in given)
 
 
 def test_operations_name_the_frames_they_take_and_give() -> None:
