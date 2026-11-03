@@ -119,16 +119,25 @@ export function currentStepId(recipe: RecipeDocument, state: StepBarState, mode:
     return state.stage ?? lastRunningStep(recipe, state)?.id;
 }
 
-/** A place in the chain before ＋'s: after which step (null: the input), the Frame there, and the chip that follows. */
-export interface EarlierPlace { after: string | null; frame: string; next?: RecipeStep }
+/**
+ * A place in the chain before ＋'s: after which step (null: the input), the Frame there, its channels and sampling
+ * rate (as far as known), and the chip that follows.
+ */
+export interface EarlierPlace { after: string | null; frame: string; channels?: number; sampleRate?: number; next?: RecipeStep }
 
 /** The places before ＋'s, nearest first. */
 export function earlierPlaces(recipe: RecipeDocument, state: StepBarState, after: string | null): EarlierPlace[] {
-    const steps = recipeSteps(recipe, stepLimits(state));
+    const limits = stepLimits(state);
+    const steps = recipeSteps(recipe, limits);
     const at = after ? steps.findIndex(step => step.id === after) : -1;
     const places: EarlierPlace[] = [];
     for (let index = at - 1; index >= -1; index--) {
-        places.push({ after: index >= 0 ? steps[index].id : null, frame: index >= 0 ? frameAfter(steps[index]) : INPUT_FRAME, next: steps.slice(index + 1).find(step => shownStep(step, state)) });
+        const before = index >= 0 ? steps[index] : undefined;
+        places.push({
+            after: before ? before.id : null, frame: before ? frameAfter(before) : INPUT_FRAME,
+            channels: before ? before.channels : limits.channels, sampleRate: before ? before.sampleRate : limits.sampleRate,
+            next: steps.slice(index + 1).find(step => shownStep(step, state)),
+        });
     }
     return places;
 }

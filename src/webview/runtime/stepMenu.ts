@@ -54,9 +54,11 @@ export function stepMenuListHtml(menu: StepMenuState, context: StepMenuContext):
     const placed = menu.after ? recipeSteps(recipe, limits).find(step => step.id === menu.after) : undefined;
     const channels = placed ? placed.channels : limits.channels;
     const rate = placed ? placed.sampleRate : limits.sampleRate;
-    const at = (frame: string): AddableOperation[] => {
-        let entries = byFrame.get(frame);
-        if (!entries) { entries = addableOperations(frame, lacks, channels, rate); byFrame.set(frame, entries); }
+    // What can go at a place: by its Frame, channels and sampling rate (a resampling step changes the rate).
+    const at = (frame: string, where: { channels?: number; sampleRate?: number } = { channels, sampleRate: rate }): AddableOperation[] => {
+        const key = `${frame}|${where.channels ?? ''}|${where.sampleRate ?? ''}`;
+        let entries = byFrame.get(key);
+        if (!entries) { entries = addableOperations(frame, lacks, where.channels, where.sampleRate); byFrame.set(key, entries); }
         return entries;
     };
     const places = earlierPlaces(recipe, state, menu.after);
@@ -64,8 +66,8 @@ export function stepMenuListHtml(menu: StepMenuState, context: StepMenuContext):
     for (const entry of at(menu.frame)) {
         if (!matches(entry.name, entry.operation.id)) continue;
         if (!entry.off) { here.push(entry); continue; }
-        const place = entry.off === 'frame' ? places.find(item => !at(item.frame).find(other => other.operation.id === entry.operation.id)?.off) : undefined;
-        const there = place ? at(place.frame).find(other => other.operation.id === entry.operation.id) : undefined;
+        const place = entry.off === 'frame' ? places.find(item => !at(item.frame, item).find(other => other.operation.id === entry.operation.id)?.off) : undefined;
+        const there = place ? at(place.frame, place).find(other => other.operation.id === entry.operation.id) : undefined;
         if (place && there) earlier.push({ entry: there, after: place.after, next: place.next });
         else off.push(entry);
     }
