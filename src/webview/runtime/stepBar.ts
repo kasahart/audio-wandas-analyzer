@@ -263,7 +263,8 @@ export function createStepBar(deps: {
         const steps = recipeSteps(state.recipe, limits());
         const before = after ? steps.find(step => step.id === after) : undefined;
         const channels = before ? before.channels : limits().channels;
-        const entry = addableOperations(before ? frameAfter(before) : INPUT_FRAME, lacks(), channels).find(item => item.operation.id === operationId);
+        const rate = before ? before.sampleRate : limits().sampleRate;
+        const entry = addableOperations(before ? frameAfter(before) : INPUT_FRAME, lacks(), channels, rate).find(item => item.operation.id === operationId);
         // An operation that cannot go there says why instead of being added.
         if (!entry || entry.off) { footer(element.querySelector(`[data-op="${CSS.escape(operationId)}"]`)?.getAttribute('data-hint') ?? ''); return; }
         const length = state.lengthS ?? (state.shortestSamples && state.sampleRate ? state.shortestSamples / state.sampleRate : undefined);

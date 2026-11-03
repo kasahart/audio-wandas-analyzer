@@ -10,7 +10,7 @@ import { INPUT_FRAME } from '../../shared/recipe/recipeCatalog';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { titledHintAttr as hintAttr } from './hintFooter';
 import { earlierPlaces, frameAfter, stepLimits, type StepBarState, type StepBarStrings } from './stepBarModel';
-import { stepLabel } from './stepLabels';
+import { hzLabel, stepLabel } from './stepLabels';
 
 /** An open ＋ menu: after which step (null: before the first), the Frame there, and the typed filter. */
 export interface StepMenuState { after: string | null; frame: string; filter: string }
@@ -53,9 +53,12 @@ export function stepMenuListHtml(menu: StepMenuState, context: StepMenuContext):
     const byFrame = new Map<string, AddableOperation[]>();
     const placed = menu.after ? recipeSteps(recipe, limits).find(step => step.id === menu.after) : undefined;
     const channels = placed ? placed.channels : limits.channels;
-    const at = (frame: string): AddableOperation[] => {
-        let entries = byFrame.get(frame);
-        if (!entries) { entries = addableOperations(frame, lacks, channels); byFrame.set(frame, entries); }
+    const rate = placed ? placed.sampleRate : limits.sampleRate;
+    // What can go at a place: by its Frame, channels and sampling rate (a resampling step changes the rate).
+    const at = (frame: string, where: { channels?: number; sampleRate?: number } = { channels, sampleRate: rate }): AddableOperation[] => {
+        const key = `${frame}|${where.channels ?? ''}|${where.sampleRate ?? ''}`;
+        let entries = byFrame.get(key);
+        if (!entries) { entries = addableOperations(frame, lacks, where.channels, where.sampleRate); byFrame.set(key, entries); }
         return entries;
     };
     const places = earlierPlaces(recipe, state, menu.after);
@@ -63,8 +66,8 @@ export function stepMenuListHtml(menu: StepMenuState, context: StepMenuContext):
     for (const entry of at(menu.frame)) {
         if (!matches(entry.name, entry.operation.id)) continue;
         if (!entry.off) { here.push(entry); continue; }
-        const place = entry.off === 'frame' ? places.find(item => !at(item.frame).find(other => other.operation.id === entry.operation.id)?.off) : undefined;
-        const there = place ? at(place.frame).find(other => other.operation.id === entry.operation.id) : undefined;
+        const place = entry.off === 'frame' ? places.find(item => !at(item.frame, item).find(other => other.operation.id === entry.operation.id)?.off) : undefined;
+        const there = place ? at(place.frame, place).find(other => other.operation.id === entry.operation.id) : undefined;
         if (place && there) earlier.push({ entry: there, after: place.after, next: place.next });
         else off.push(entry);
     }
@@ -73,6 +76,7 @@ export function stepMenuListHtml(menu: StepMenuState, context: StepMenuContext):
         const why = entry.off === 'frame' ? strings.stepOffFrame.replace('{frame}', menu.frame)
             : entry.off === 'refuses' ? strings.stepOffRefuses.replace('{frame}', menu.frame).replace('{reason}', entry.why ?? '')
             : entry.off === 'channels' ? strings.stepOffChannels
+            : entry.off === 'rate' ? strings.stepOffRate.replace('{rate}', hzLabel(Number(entry.why))).replace('{here}', hzLabel(rate))
             : entry.off === 'unavailable' ? strings.stepOffUnavailable.replace('{packages}', entry.why ?? '')
             : entry.off === 'required' ? strings.stepOffRequired.replace('{params}', entry.operation.params.filter(param => param.required).map(param => param.name).join(', ')) : '';
         const tag = !entry.off && !entry.settable ? `<span class="step-menu-tag">${escapeHtml(strings.stepDefaultsOnly)}</span>` : '';

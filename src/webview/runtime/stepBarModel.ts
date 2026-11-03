@@ -7,7 +7,7 @@ import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { chainOutput, recipeChain, recipeNodes, recipeSteps, timeSignalStep, withoutBypassed, withoutSteps, slotReferenced, activeSlotReferenced, REFERENCE_KEY, TIME_SLICE, type RecipeStep, type StepLimits } from '../../shared/recipe/recipeSteps';
 import { INPUT_FRAME } from '../../shared/recipe/recipeCatalog';
 
-export type StepBarStrings = Pick<UiStrings, 'stepAfterBroken' | 'stepOctaveBroken' | 'stepUndo' | 'stepRedo' | 'stepUndone' | 'stepRedone' | 'stepBypass' | 'stepBypassOff' | 'stepBypassed' | 'stepUnbypassed' | 'stepMenuEarlier' | 'stepGoesBefore' | 'stepMenuOff' | 'stepRegionStart' | 'stepRegionEnd' | 'stepRegionPurpose' | 'stepRegionAdded' | 'stepRegionImported' | 'stepRegionCleared' | 'stepRegionClear' | 'stepRegionOrder' | 'stepRegionThere' | 'stepInputHint' | 'stepNeedAbove' | 'stepNeedInteger' | 'stepRegion' | 'stepAll' | 'stepMetrics' | 'stepAverage' | 'stepSettings' | 'stepApply' | 'compareNotEntry' | 'stepNeedBelow' | 'stepNeedPow2' | 'hintStepChip' | 'stepRecipeName' | 'hintSpectrogramGroup' | 'stepNeedValue' | 'hintSpectrogram' | 'stepFrameHint' | 'hintRegionMark' | 'stepOpen' | 'stepClose' | 'stepOutsideHeading' | 'stepOctave' | 'stepHoldHint' | 'stepHintNoHold' | 'stepAdd' | 'entryColLeq' | 'outside192' | 'outsideMedian' | 'outsideDelta' | 'outsideOutliers' | 'stepNeedFrame' | 'stepFailedOn' | 'stepTapHint' | 'stepNoSettings' | 'stepRemove' | 'stepMenuTitle' | 'stepMenuFilter' | 'stepOffFrame' | 'stepOffRequired' | 'stepOffRefuses' | 'stepOffUnavailable' | 'stepDefaultsOnly' | 'stepAdded' | 'stepRemoved' | 'btnStage' | 'stepInputFiles' | 'stepInput' | 'stepHintLocale' | 'stepGroupFilter' | 'stepGroupPrepare' | 'stepGroupTime' | 'stepGroupFrequency' | 'stepGroupOther' | 'stepDragHint' | 'stepMoved' | 'stepRemoveChip' | 'stepHighpass' | 'stepLowpass' | 'stepBandpass' | 'stepAverageFft' | 'stepNeedChannels' | 'stepNarrowedChannels' | 'stepPairSelf' | 'stepNeedChannel' | 'stepOffChannels' | 'stepPair' | 'stepPairOutput' | 'stepPairInput' | 'stepReference' | 'stepReferenceChannel' | 'stepReferenceSlot' | 'stepReferenceSet' | 'stagePairBase' | 'stepPresetButton' | 'stepPresetEdited' | 'stepPresetCustom' | 'stepPresetMenu' | 'stepPresetApplied' | 'presetSpectrumName' | 'presetSpectrumGraph' | 'presetOctaveName' | 'presetOctaveGraph' | 'presetSpectrogramName' | 'presetSpectrogramGraph' | 'presetLevelName' | 'presetLevelGraph' | 'presetLoudnessName' | 'presetLoudnessGraph' | 'presetRoughnessName' | 'presetRoughnessGraph'>;
+export type StepBarStrings = Pick<UiStrings, 'stepAfterBroken' | 'stepOctaveBroken' | 'stepUndo' | 'stepRedo' | 'stepUndone' | 'stepRedone' | 'stepBypass' | 'stepBypassOff' | 'stepBypassed' | 'stepUnbypassed' | 'stepMenuEarlier' | 'stepGoesBefore' | 'stepMenuOff' | 'stepRegionStart' | 'stepRegionEnd' | 'stepRegionPurpose' | 'stepRegionAdded' | 'stepRegionImported' | 'stepRegionCleared' | 'stepRegionClear' | 'stepRegionOrder' | 'stepRegionThere' | 'stepInputHint' | 'stepNeedAbove' | 'stepNeedInteger' | 'stepRegion' | 'stepAll' | 'stepMetrics' | 'stepAverage' | 'stepSettings' | 'stepApply' | 'compareNotEntry' | 'stepNeedBelow' | 'stepNeedPow2' | 'hintStepChip' | 'stepRecipeName' | 'hintSpectrogramGroup' | 'stepNeedValue' | 'hintSpectrogram' | 'stepFrameHint' | 'hintRegionMark' | 'stepOpen' | 'stepClose' | 'stepOutsideHeading' | 'stepOctave' | 'stepHoldHint' | 'stepHintNoHold' | 'stepAdd' | 'entryColLeq' | 'outside192' | 'outsideMedian' | 'outsideDelta' | 'outsideOutliers' | 'stepNeedFrame' | 'stepFailedOn' | 'stepTapHint' | 'stepNoSettings' | 'stepRemove' | 'stepMenuTitle' | 'stepMenuFilter' | 'stepOffFrame' | 'stepOffRequired' | 'stepOffRefuses' | 'stepOffUnavailable' | 'stepDefaultsOnly' | 'stepAdded' | 'stepRemoved' | 'btnStage' | 'stepInputFiles' | 'stepInput' | 'stepHintLocale' | 'stepGroupFilter' | 'stepGroupPrepare' | 'stepGroupTime' | 'stepGroupFrequency' | 'stepGroupOther' | 'stepDragHint' | 'stepMoved' | 'stepRemoveChip' | 'stepHighpass' | 'stepLowpass' | 'stepBandpass' | 'stepAverageFft' | 'stepNeedChannels' | 'stepNarrowedChannels' | 'stepPairSelf' | 'stepNeedChannel' | 'stepOffChannels' | 'stepOffRate' | 'stepNeedRate' | 'stepPair' | 'stepPairOutput' | 'stepPairInput' | 'stepReference' | 'stepReferenceChannel' | 'stepReferenceSlot' | 'stepReferenceSet' | 'stagePairBase' | 'stepPresetButton' | 'stepPresetEdited' | 'stepPresetCustom' | 'stepPresetMenu' | 'stepPresetApplied' | 'presetSpectrumName' | 'presetSpectrumGraph' | 'presetOctaveName' | 'presetOctaveGraph' | 'presetSpectrogramName' | 'presetSpectrogramGraph' | 'presetLevelName' | 'presetLevelGraph' | 'presetLoudnessName' | 'presetLoudnessGraph' | 'presetRoughnessName' | 'presetRoughnessGraph'>;
 
 /** The input as a stage: the files' waveforms as they come in (scan_service.py's INPUT_STAGE). */
 export const INPUT_STAGE = 'node-input';
@@ -119,16 +119,25 @@ export function currentStepId(recipe: RecipeDocument, state: StepBarState, mode:
     return state.stage ?? lastRunningStep(recipe, state)?.id;
 }
 
-/** A place in the chain before ＋'s: after which step (null: the input), the Frame there, and the chip that follows. */
-export interface EarlierPlace { after: string | null; frame: string; next?: RecipeStep }
+/**
+ * A place in the chain before ＋'s: after which step (null: the input), the Frame there, its channels and sampling
+ * rate (as far as known), and the chip that follows.
+ */
+export interface EarlierPlace { after: string | null; frame: string; channels?: number; sampleRate?: number; next?: RecipeStep }
 
 /** The places before ＋'s, nearest first. */
 export function earlierPlaces(recipe: RecipeDocument, state: StepBarState, after: string | null): EarlierPlace[] {
-    const steps = recipeSteps(recipe, stepLimits(state));
+    const limits = stepLimits(state);
+    const steps = recipeSteps(recipe, limits);
     const at = after ? steps.findIndex(step => step.id === after) : -1;
     const places: EarlierPlace[] = [];
     for (let index = at - 1; index >= -1; index--) {
-        places.push({ after: index >= 0 ? steps[index].id : null, frame: index >= 0 ? frameAfter(steps[index]) : INPUT_FRAME, next: steps.slice(index + 1).find(step => shownStep(step, state)) });
+        const before = index >= 0 ? steps[index] : undefined;
+        places.push({
+            after: before ? before.id : null, frame: before ? frameAfter(before) : INPUT_FRAME,
+            channels: before ? before.channels : limits.channels, sampleRate: before ? before.sampleRate : limits.sampleRate,
+            next: steps.slice(index + 1).find(step => shownStep(step, state)),
+        });
     }
     return places;
 }

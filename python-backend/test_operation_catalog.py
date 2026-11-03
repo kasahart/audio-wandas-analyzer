@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
+import numpy as np
 import pytest
+import wandas as wd
 from wandas.pipeline import default_recipe_registry
 
 from operation_catalog import TS_TARGET, catalog, frames, typescript, with_refusals
@@ -116,3 +121,20 @@ def test_a_package_that_another_needed_package_brings_is_not_listed() -> None:
     # librosa installs scikit-learn; whether blocking scikit-learn alone breaks HPSS depends on the versions.
     assert _direct(["librosa", "scikit_learn"]) == ["librosa"]
     assert _direct(["scikit_learn"]) == ["scikit_learn"]
+
+
+def test_the_step_bars_fixed_rates_are_the_ones_wandas_enforces() -> None:
+    # recipeSteps.ts FIXED_RATE greys an operation out at other rates: wandas must refuse those and run at its own.
+    source = (Path(__file__).parents[1] / "src" / "shared" / "recipe" / "recipeSteps.ts").read_text(encoding="utf-8")
+    table = re.search(r"FIXED_RATE[^=]*=\s*\{([^}]*)\}", source)
+    assert table is not None
+    fixed = {name: int(rate) for name, rate in re.findall(r"'([\w.]+)':\s*(\d+)", table.group(1))}
+    assert fixed == {"wandas.spectral.noct_synthesis": 48000}
+
+    def spectrum(rate: int) -> wd.SpectralFrame:
+        t = np.arange(rate) / rate
+        return wd.from_numpy(np.sin(2 * np.pi * 1000 * t)[None], sampling_rate=rate).welch(n_fft=1024)
+
+    assert spectrum(48000).noct_synthesis(fmin=25.0, fmax=6300.0).n_channels == 1
+    with pytest.raises(ValueError, match="48000"):
+        spectrum(16000).noct_synthesis(fmin=25.0, fmax=6300.0)

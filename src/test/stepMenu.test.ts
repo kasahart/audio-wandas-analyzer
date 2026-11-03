@@ -73,3 +73,18 @@ test('in the menu Esc closes it, and Enter in the filter adds the first operatio
     assert.equal(key('Enter', item), null, 'an item\'s own Enter presses it');
     assert.equal(key('a', filter), null);
 });
+
+test('an earlier place is judged at its own sampling rate: noct_synthesis is not offered before a resampling to 48 kHz', async () => {
+    const { withStep, withParam, STEP_PARAMS } = await import('../shared/recipe/recipeSteps');
+    const { catalogOperation } = await import('../shared/recipe/recipeCatalog');
+    // 16 kHz files: welch → ifft → resampling to 48 kHz. ＋ at the end is a time signal at 48 kHz.
+    const [, , welch] = recipeSteps(entry, 16000);
+    const { recipe: inverse, id: ifft } = withStep(entry, welch.id, catalogOperation('wandas.spectral.ifft')!);
+    const { recipe: resampled, id: resample } = withStep(inverse, ifft, catalogOperation('wandas.audio.resampling')!);
+    const recipe = withParam(resampled, resample, STEP_PARAMS['wandas.audio.resampling'][0], 48000);
+    const state = { recipe, sampleRate: 16000 };
+    const root = parse(stepMenuListHtml(stepMenuAt(recipe, state, resample), context({ recipe, state })));
+    // The spectrum before it is at 16 kHz: noct_synthesis is greyed there with why, not offered as "goes in before".
+    assert.deepEqual(ops(root, '[data-group="earlier"] [data-op="wandas.spectral.noct_synthesis"]'), []);
+    assert.deepEqual(ops(root, '[data-group="off"] [data-op="wandas.spectral.noct_synthesis"]'), ['wandas.spectral.noct_synthesis']);
+});

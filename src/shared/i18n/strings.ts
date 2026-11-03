@@ -233,6 +233,8 @@ export interface UiStrings {
     stepNeedChannels: string;
     stepNarrowedChannels: string;
     stepOffChannels: string;
+    stepOffRate: string;
+    stepNeedRate: string;
     stepReference: string;
     stepReferenceChannel: string;
     stepReferenceSlot: string;
@@ -1019,6 +1021,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepNeedChannels: 'Needs two channels, and a file here has only one. Set its reference to the base recording (⚙), or remove it.',
         stepNarrowedChannels: '{op} leaves one channel: this step needs two. Move it before {op}, or remove one of them.',
         stepOffChannels: 'Needs two channels: a file here has only one',
+        stepOffRate: '{rate} recordings only (these are {here}). For octave bands use noct_spectrum',
+        stepNeedRate: '{op} runs on {rate} recordings only, and these are {here}. Remove it; for octave bands use noct_spectrum on the time signal.',
         stepReference: 'Reference',
         stepReferenceChannel: 'Channel of this recording',
         stepReferenceSlot: 'Base recording',
@@ -1793,6 +1797,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepNeedChannels: '2 チャンネルが必要ですが、1 チャンネルのファイルがあります。⚙ で参照を「基準の録音」にするか、外してください',
         stepNarrowedChannels: '{op} で 1 チャンネルになっています。この手順には 2 チャンネルが必要です。{op} より前に動かすか、どちらかを外してください',
         stepOffChannels: '2 チャンネルが必要です（1 チャンネルのファイルあり）',
+        stepOffRate: '{rate} の録音だけ（ここは {here}）。オクターブ帯域は noct_spectrum で',
+        stepNeedRate: '{op} は {rate} の録音だけで動きます（ここは {here}）。外して、オクターブ帯域は時間信号に noct_spectrum を使ってください',
         stepReference: '参照',
         stepReferenceChannel: 'この録音のチャンネル',
         stepReferenceSlot: '基準の録音',
