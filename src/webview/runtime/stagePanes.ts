@@ -408,19 +408,18 @@ export function wrapLines(text: string, maxWidth: number, measure: (part: string
     // Words with the space before them kept, and each CJK character a word of its own.
     const words = text.match(/\s*[\u3000-\u30ff\u3400-\u9fff\uff00-\uffef]|\s*[^\s\u3000-\u30ff\u3400-\u9fff\uff00-\uffef]+|\s+$/gu) ?? [text];
     for (const word of words) {
-        if (measure(current + word) <= maxWidth || !current.trim()) {
-            current += word;
-            // A word wider than the line: its characters go on as many lines as they take.
-            while (measure(current) > maxWidth && current.length > 1) {
-                let cut = current.length - 1;
-                while (cut > 1 && measure(current.slice(0, cut)) > maxWidth) cut--;
-                lines.push(current.slice(0, cut).trim());
-                current = current.slice(cut);
-            }
-            continue;
+        if (measure(current + word) <= maxWidth || !current.trim()) current += word;
+        else {
+            lines.push(current.trim());
+            current = word.trimStart();
         }
-        lines.push(current.trim());
-        current = word.trimStart();
+        // A word wider than the line: its characters go on as many lines as they take.
+        while (measure(current) > maxWidth && current.length > 1) {
+            let cut = current.length - 1;
+            while (cut > 1 && measure(current.slice(0, cut)) > maxWidth) cut--;
+            lines.push(current.slice(0, cut).trim());
+            current = current.slice(cut);
+        }
     }
     if (current.trim()) lines.push(current.trim());
     return lines.length ? lines : [''];

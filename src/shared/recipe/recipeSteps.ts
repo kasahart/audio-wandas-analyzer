@@ -221,7 +221,7 @@ type Invalid = { param: string; reason: NonNullable<RecipeStep['reason']> } | un
 /**
  * Operations wandas runs at one sampling rate only, raising otherwise: SpectralFrame.noct_synthesis takes 48 kHz
  * (MoSQITo's filter bank). ＋ greys them out at another rate, and a chain holding one marks it, rather than the
- * comparison drawing an empty plot (test_operation_probe.py checks wandas still refuses the other rates).
+ * comparison drawing an empty plot (test_operation_catalog.py checks wandas still refuses the other rates).
  */
 export const FIXED_RATE: Readonly<Record<string, number>> = { 'wandas.spectral.noct_synthesis': 48000 };
 

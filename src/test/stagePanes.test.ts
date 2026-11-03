@@ -129,4 +129,6 @@ test('the pane\'s message wraps to its width: at spaces, else between Japanese c
     assert.deepEqual(wrapLines('noct_synthesis', 50, width).join(''), 'noct_synthesis');
     assert.ok(wrapLines('noct_synthesis は前の手順の結果に使えません', 80, width).every(line => width(line) <= 80));
     assert.deepEqual(wrapLines('short', 100, width), ['short']);
+    // A long word after others is cut too, not left wider than the line.
+    assert.ok(wrapLines('reason: noct_synthesis_failed_here', 80, width).every(line => width(line) <= 80));
 });
