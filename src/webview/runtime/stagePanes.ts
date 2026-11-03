@@ -86,7 +86,7 @@ export function loudPoints(base: StageView, compare: StageView, within = HEADLIN
  */
 export function stageLevelsHeadline(base: StageView | null, compare: StageView | null, diff: StageView | null, strings: Pick<StageStrings, 'stageNoDelta' | 'compareLevelsAt'> & Partial<Pick<StageStrings, 'stageEventCounts'>>): string {
     // A trigger's events: how many each found, which is what tells the recordings apart first.
-    if (strings.stageEventCounts && (base?.events || compare?.events)) return strings.stageEventCounts.replace('{base}', base?.events ? String(base.events.length) : '—').replace('{compare}', compare?.events ? String(compare.events.length) : '—');
+    if (strings.stageEventCounts && (isEventsView(base) || isEventsView(compare))) return strings.stageEventCounts.replace('{base}', base?.events ? String(base.events.length) : '—').replace('{compare}', compare?.events ? String(compare.events.length) : '—');
     if (!base || !compare || !diff) return strings.stageNoDelta;
     const loud = loudPoints(base, compare);
     const skip = skipsFirst(diff) ? 1 : 0;
@@ -105,7 +105,7 @@ export function stageLevelsHeadline(base: StageView | null, compare: StageView |
 export function stageDifference(base: StageView | null, compare: StageView | null): StageView | null {
     if (!base || !compare || base.kind === 'none' || !base.quantity || !sameAxes(base, compare)) return null;
     // Two recordings' events are not one another's: their lines are compared overlaid, with no difference.
-    if (base.events || compare.events) return null;
+    if (isEventsView(base) || isEventsView(compare)) return null;
     // dB to a hundredth; small linear values (cepstral coefficients, coherence) keep more.
     const scale = isDb(base) ? 100 : 1e6;
     // The difference of two signals' levels: it has no waveform of its own.
@@ -118,6 +118,14 @@ export function stageDifference(base: StageView | null, compare: StageView | nul
         return { ...shape, matrix: compare.matrix.map((row, r) => row.map((value, c) => minus(value, baseMatrix[r][c]))), ...(whole ? { whole } : {}) };
     }
     return { ...shape, values: (compare.values ?? []).map((value, index) => minus(value, base.values?.[index] ?? null)) };
+}
+
+/**
+ * A trigger's events (or a step after it that keeps them): a group's median of them has no event lines of its
+ * own, but it is still events, compared overlaid with no difference, over the time from the trigger.
+ */
+export function isEventsView(view: StageView | null | undefined): boolean {
+    return !!view?.events || /Segments$/.test(view?.frame ?? '');
 }
 
 /** What an empty plot says: a trigger that found no event says so (and what to do), else that the step is not drawn. */
@@ -209,13 +217,13 @@ export interface StageAxes { x: string; y: string }
 
 /** What each axis of a picture measures; a heatmap's y is its rows' axis, its colour the level. */
 export function stageAxes(strings: StageStrings, view: StageView | null, input: LevelInput | undefined, diff = false): StageAxes {
-    const x = view?.events ? strings.axisTriggerTime : view?.x === 'time' ? strings.axisTime : view?.x === 'band' ? strings.axisBand : view?.x === 'quefrency' ? strings.axisQuefrency : view?.x === 'lag' ? strings.axisLag : strings.axisFrequency;
+    const x = isEventsView(view) ? strings.axisTriggerTime : view?.x === 'time' ? strings.axisTime : view?.x === 'band' ? strings.axisBand : view?.x === 'quefrency' ? strings.axisQuefrency : view?.x === 'lag' ? strings.axisLag : strings.axisFrequency;
     if (view?.kind === 'heatmap') return { x, y: view.yAxis === 'bark' ? strings.axisBark : view.yAxis === 'quefrency' ? strings.axisQuefrency : strings.axisFrequency };
     if (diff && (!view || isDb(view))) return { x, y: strings.axisDelta };
     // A time signal is drawn as itself: its amplitude, in its unit (full scale, or raw input units without one, while uncalibrated).
     if (view?.waveform) return { x, y: `${strings.waveRangeAxisAmplitude} [${view.waveform.unit || uncalibratedUnits(!input || input.fullScale).linear}]` };
     // A trigger's events are their signals: amplitude in the signal's unit, as a waveform's.
-    if (view?.events) return { x, y: `${strings.waveRangeAxisAmplitude} [${view.unit || uncalibratedUnits(!input || input.fullScale).linear}]` };
+    if (isEventsView(view)) return { x, y: `${strings.waveRangeAxisAmplitude} [${view?.unit || uncalibratedUnits(!input || input.fullScale).linear}]` };
     const unit = view?.unit ? ` [${view.unit}]` : '';
     const y = view?.quantity === 'level' ? paneAxes(strings, input).level.y
         : view?.quantity === 'gain' ? strings.axisGain

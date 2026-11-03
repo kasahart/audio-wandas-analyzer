@@ -147,6 +147,11 @@ test('a trigger\'s events are each a line of their slot, on one amplitude range,
     assert.deepEqual(axes, { x: 'From trigger [s]', y: 'Amplitude [Pa]' });
     // A group's median is of the files' mean events: its own lines are not kept.
     assert.equal(medianView([base, events([5, 7])])?.events, undefined);
+    // ...but it is still events: no difference against it, the event headline and the trigger's time axis.
+    const median = medianView([base, events([5, 7])])!;
+    assert.equal(stageDifference(median, compare), null);
+    assert.equal(stageLevelsHeadline(median, compare, null, { ...strings, compareLevelsAt: '', stageEventCounts: '{base} / {compare}' }), '— / 1');
+    assert.equal(stageAxes({ axisTriggerTime: 'From trigger [s]', waveRangeAxisAmplitude: 'Amplitude' } as unknown as StageStrings, median, undefined).x, 'From trigger [s]');
 });
 
 test('the pane\'s message wraps to its width: at spaces, else between Japanese characters', () => {

@@ -653,7 +653,11 @@ def scan_cached(
                 ref_current = _reference_step(ref_steps, step, ref_current)
             # A step's picture needs nothing after it, and none of the metrics.
             if step == stage:
-                return _stage_result(described, _against_base(stage_view(current, _length_s(timed), detail), vs_base))
+                view = stage_view(current, _length_s(timed), detail)
+                # A trigger that found no event has no segment to name its unit: the signal it watched does.
+                if view.get("events") == [] and not view.get("unit"):
+                    view["unit"] = timed.channels[0].unit or ""
+                return _stage_result(described, _against_base(view, vs_base))
         except Exception as error:  # noqa: BLE001 - as above.
             if step == paired_at and short_base is not None:
                 raise InputError(f"The base recording gives only {short_base:.2f} s of this region: {error}") from error

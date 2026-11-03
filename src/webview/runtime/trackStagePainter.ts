@@ -9,7 +9,7 @@ import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { baseName } from '../../shared/analysis/entryMetadata';
 import { DIFF_COLOR, NO_ROLE_COLOR, ROLE_COLORS } from '../../shared/gui/roleColors';
 import type { LegendItem, LevelInput, PaneRange } from './comparePanes';
-import { emptyStageText, paintOverlay, paintStage, stageAxes, stageDiffRange, stageHeadline, stageLevelsHeadline, stageRange, type StageAxes, type StageLayer, type StagePlot } from './stagePanes';
+import { emptyStageText, isEventsView, paintOverlay, paintStage, stageAxes, stageDiffRange, stageHeadline, stageLevelsHeadline, stageRange, type StageAxes, type StageLayer, type StagePlot } from './stagePanes';
 import type { PlotWindow } from './plotInteraction';
 import type { StagePlots } from './trackStageModel';
 
@@ -73,7 +73,7 @@ export function paintNoPicture(dom: StageDom, id: string, message: string): void
 }
 
 /** The layout and difference toggles: images cannot be overlaid, and without a compared file there is no difference. */
-export function paintStageControls(dom: StageDom, strings: Pick<UiStrings, 'stageLayoutSide' | 'stageLayoutOverlay' | 'compareDiffHide' | 'compareDiffShow'>, view: { overlaid: boolean; images: boolean; showDiff: boolean; overlay: boolean; measuredAgainstBase: boolean; nothingCompared: boolean; baseEach?: boolean }): void {
+export function paintStageControls(dom: StageDom, strings: Pick<UiStrings, 'stageLayoutSide' | 'stageLayoutOverlay' | 'compareDiffHide' | 'compareDiffShow'>, view: { overlaid: boolean; images: boolean; showDiff: boolean; overlay: boolean; measuredAgainstBase: boolean; nothingCompared: boolean; baseEach?: boolean; events?: boolean }): void {
     const layout = dom.query<HTMLButtonElement>('[data-action="stage-layout"]');
     layout.textContent = view.overlaid ? strings.stageLayoutSide : strings.stageLayoutOverlay;
     layout.setAttribute('aria-pressed', String(view.overlaid));
@@ -82,7 +82,7 @@ export function paintStageControls(dom: StageDom, strings: Pick<UiStrings, 'stag
     const diffButton = dom.query<HTMLButtonElement>('[data-action="stage-diff"]');
     diffButton.textContent = view.showDiff ? strings.compareDiffHide : strings.compareDiffShow;
     diffButton.setAttribute('aria-pressed', String(view.showDiff));
-    diffButton.hidden = !view.overlay || view.measuredAgainstBase || !!view.baseEach;
+    diffButton.hidden = !view.overlay || view.measuredAgainstBase || !!view.baseEach || !!view.events;
     diffButton.disabled = view.nothingCompared;
 }
 
@@ -138,7 +138,7 @@ export function stageModeHeadline(frame: Pick<StageFrame, 'strings' | 'waiting' 
         : referencePath ? strings.stageVsBase.replace('{file}', frame.named(referencePath, 0).label)
         // Which difference is shown: the compared slot against the base.
         // A base group drawn as its waveforms has no line to measure against: no difference is named.
-        : comparePath ? (baseEach ? '' : (role && !coarsePlots.compare?.events && !coarsePlots.base?.events ? strings.stageCompareMinusBase.replace('{n}', String(role)) : '')
+        : comparePath ? (baseEach ? '' : (role && !isEventsView(coarsePlots.compare) && !isEventsView(coarsePlots.base) ? strings.stageCompareMinusBase.replace('{n}', String(role)) : '')
             + stageLevelsHeadline(coarsePlots.base, coarsePlots.compare, coarsePlots.diff, strings))
         // No compare role yet: the lines are there, but nothing to measure against a base; the legend's chips set one.
         : strings.stageChooseRoles;
@@ -253,7 +253,8 @@ export function paintStageOverlay(dom: StageDom, frame: StageFrame, plots: Stage
     const empty = waiting ? '' : emptyStageText(strings, picture);
     // The difference shown or hidden first: it takes part of the overlay's height, which the overlay is measured at.
     const diffBox = dom.query<HTMLElement>('[data-stage-diff]');
-    const withDiff = showDiff && !referencePath && !!comparePath && !frame.baseEach;
+    // A trigger's events have no difference between recordings: no pane for one.
+    const withDiff = showDiff && !referencePath && !!comparePath && !frame.baseEach && !isEventsView(picture);
     diffBox.hidden = !withDiff;
     const overlay = dom.query<HTMLCanvasElement>('[data-stage-canvas="overlay"]');
     const overlayPlot = paintOverlay(overlay, { layers }, narrowed(range, window.y), axes, { empty, window: { x: window.x }, axisView: picture, ...(regionMark ? { region: regionMark } : {}), ...(pending ? { pending } : {}) });
