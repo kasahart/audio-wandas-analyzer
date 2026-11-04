@@ -4,7 +4,7 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 
 ## Unreleased
 
-- Tracks: the small power spectrum at the right of each track row is gone; the waveform and spectrogram take its width. The cursor spectrum panel at the bottom shows every track's spectrum, as before (#589).
+- Tracks: the small power spectrum at the right of each track row is gone; the waveform and spectrogram take its width. The cursor spectrum panel at the bottom (folded until opened from its header) shows every track's spectrum, as before (#589).
 
 ## 0.0.15
 

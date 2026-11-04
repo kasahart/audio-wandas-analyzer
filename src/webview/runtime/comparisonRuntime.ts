@@ -707,7 +707,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     /** While a CSV export waits, the cursor spectra asked for hold every FFT bin rather than the row cut for display. */
     let spectrumCsvExportOpen = false;
     function requestSpectrumSlice(i: number, cursorNormValue: number) {
-        // The folded cursor-spectrum panel leaves each lane's own small spectrum: only lanes near the view need theirs.
+        // With the cursor-spectrum panel folded, only the analysis window band on lanes near the view needs a slice.
         // Nor while the comparison hides every spectrum (playing there would ask for slices nobody sees).
         if (!spectrumRequests.allowsSliceRequests || contentType === 'stage' || (layout.spectrumCollapsed && !laneInView(i))) {
             return;
@@ -2809,6 +2809,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function renderEveryLane() {
         drawEveryLane = true;
         try { renderStackedTracks(); checkAndRequestRanges(); } finally { drawEveryLane = false; }
+        // The analysis window band drawn on each lane comes from its cursor spectrum: lanes out of view ask for theirs too.
+        if (contentType !== 'stage') requestEveryCursorSpectrum(spectrumCursorNorm);
     }
     /** The open spectrogram, zoom-detail and cursor-spectrum requests. */
     function openDetailRequestIds(): Set<string> {
@@ -2883,15 +2885,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         taskStatus(STR.exportCsvBusy, 'busy');
         writeCsvWhenDetailed(openDetailRequestIds(), Date.now() + 30000, viewState.cursor);
     }
-    /** Asks for the cursor spectrum of every shown track, whether or not its lane or its small spectrum is on screen. */
-    function requestEveryCursorSpectrum() {
+    /** Asks for the cursor spectrum of every shown track, whether or not its lane is on screen. */
+    function requestEveryCursorSpectrum(cursorNorm = viewState.cursor) {
         drawEveryLane = true;
         try {
             trackStore.activeIds().forEach(function (trackId) {
                 const record = trackStore.require(trackId);
                 if (record.runtime.hidden) return;
                 channelsForResult(record.result).forEach(function (_, channelIndex: number) {
-                    extractSpectrumAtCursor(record.result, record.protocolIndex, record.runtime.offsetSeconds, viewState.cursor, channelIndex);
+                    extractSpectrumAtCursor(record.result, record.protocolIndex, record.runtime.offsetSeconds, cursorNorm, channelIndex);
                 });
             });
         } finally { drawEveryLane = false; }

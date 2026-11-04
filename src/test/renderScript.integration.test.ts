@@ -1076,6 +1076,36 @@ test('renderScript: a lane scrolled into view in the frame a spectrum hover repa
     env.dom.window.close();
 });
 
+test('renderScript: a PNG export asks for the cursor spectrum of a lane out of view while the spectrum panel is folded', async () => {
+    const env = setupEnvWithState(makeLazySpectrogramState());
+    const doc = env.dom.window.document;
+    const box = (top: number, height: number) => () => ({ top, bottom: top + height, height, left: 0, right: 100, width: 100, x: 0, y: top, toJSON: () => ({}) }) as DOMRect;
+    doc.getElementById('tracks-wrapper')!.getBoundingClientRect = box(0, 100);
+    doc.getElementById('track-row-1')!.getBoundingClientRect = box(1000, 100);
+    await nextAnimationFrame(env.dom);
+    const sliceRequests = () => env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice') as any[];
+    assert.deepEqual(sliceRequests().map(msg => msg.trackIndex), [0]);
+    const first = sliceRequests()[0];
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'spectrum-slice-result',
+        requestId: first.requestId,
+        analysisId: first.analysisId,
+        settingsSignature: first.settingsSignature,
+        trackIndex: 0,
+        filePath: '/tmp/a.wav',
+        channels: [{ channelIndex: 0, values: [-40], minDb: -90, maxDb: 0 }],
+        frequencyBins: 1, maxFrequencyHz: 22050,
+    } }));
+    await nextAnimationFrame(env.dom);
+    assert.deepEqual(sliceRequests().map(msg => msg.trackIndex), [0]);
+    // The image draws every lane's analysis window band, which comes from the lane's cursor spectrum.
+    doc.querySelector<HTMLButtonElement>('[data-action="export-png"]')!.click();
+    await nextAnimationFrame(env.dom);
+    await new Promise(resolve => setTimeout(resolve, 60));
+    assert.deepEqual(sliceRequests().map(msg => msg.trackIndex), [0, 1]);
+    env.dom.window.close();
+});
+
 test('renderScript: a cursor set again to where an in-flight slice was asked asks for it once more', async () => {
     const state = JSON.parse(makeLazySpectrogramState());
     state.results = state.results.slice(0, 1);
