@@ -2,6 +2,7 @@ import { rasterize, viridis, type RasterPlan } from '../../shared/gui-core/index
 import type { SpectrogramData, SpectrogramDisplaySettings } from '../../shared/analysis/analysisTypes';
 import { spectrogramTimeBinEdges, spectrogramTimeBinSpan } from '../spectrum/spectrogramTimeBins';
 import { middleEllipsis } from '../../shared/dataset/datasetTable';
+import { niceRange } from '../../shared/utils/ticks';
 import type { UiStrings } from '../../shared/i18n/strings';
 export interface SpectrogramRasterView {
     zoomStart: number;
@@ -42,9 +43,11 @@ export function spectrogramDisplayBounds(
     const top = Math.max(display.maxFrequencyHz != null ? display.maxFrequencyHz : auto.maxFrequencyHz, min);
     // A band starting above the lane's own data keeps its range, so the lane shows it blank rather than other frequencies.
     const clamp = auto === spec && min < spec.maxFrequencyHz;
+    // Typed ends stay as typed; auto ends are widened to round values.
+    const rounded = niceRange(auto.minDb, auto.maxDb);
     return {
-        dbLo: display.dbMin != null ? display.dbMin : auto.minDb,
-        dbHi: display.dbMax != null ? display.dbMax : auto.maxDb,
+        dbLo: display.dbMin != null ? display.dbMin : rounded.low,
+        dbHi: display.dbMax != null ? display.dbMax : rounded.high,
         maxFrequencyHz: clamp ? Math.min(top, spec.maxFrequencyHz) : top,
         minFrequencyHz: min,
     };

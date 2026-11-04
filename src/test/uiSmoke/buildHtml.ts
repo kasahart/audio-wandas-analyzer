@@ -341,6 +341,20 @@ export function buildUiSmokeTwoLevelsHtml(quietUnit?: string): string {
     }));
 }
 
+/** The preview file with its colour scale on auto over a spectrogram whose extremes are not round (-120…-23.21 dB). */
+export function buildUiSmokeFractionalLevelsHtml(): string {
+    return finalizeUiSmokeHtml(replaceAppState(buildResultsPreviewHtml(), (state) => {
+        state.results.splice(1);
+        state.results[0].channels.forEach((channel) => {
+            const spectrogram = channel['spectrogram'] as { minDb: number; maxDb: number };
+            spectrogram.minDb = -120;
+            spectrogram.maxDb = -23.21;
+        });
+        const settings = state['spectrogramSettings'] as { display: Record<string, number | null> };
+        settings.display = { dbMin: null, dbMax: null, maxFrequencyHz: null };
+    }));
+}
+
 export function buildUiSmokeCalibrationHtml(): string {
     return finalizeUiSmokeHtml(buildCalibrationStateHtml());
 }

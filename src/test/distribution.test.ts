@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { binCounts, compareGroupNames, distribution, groupLabels, median } from '../shared/dataset/distribution';
-import { niceStep, niceTicks } from '../shared/utils/ticks';
+import { niceRange, niceStep, niceTicks } from '../shared/utils/ticks';
 import { datasetRows } from '../shared/dataset/datasetTable';
 import type { ScanResult } from '../shared/protocol/backendProtocol';
 
@@ -66,4 +66,24 @@ test('160,000 channel rows give their distribution (no spread of every value int
     assert.equal(rows.length, 160_000);
     const leq = distribution(rows, 'leq', 'none', results, null);
     assert.ok(leq.low < -40 && leq.high > -21);
+});
+
+test('niceRange: 自動レンジの端を、幅の 1/10 以下で最大の 1・2・5 刻みで外側に丸める', () => {
+    assert.deepEqual(niceRange(-120, -23.21), { low: -120, high: -20 });
+    assert.deepEqual(niceRange(-63.4, -23.2), { low: -64, high: -22 });
+    assert.deepEqual(niceRange(-35.3, -23.3), { low: -36, high: -23 });
+});
+
+test('niceRange: 小さな幅や正の値でも丸め、丸めた値に浮動小数の誤差を残さない', () => {
+    assert.deepEqual(niceRange(-3.04, -0.12), { low: -3.2, high: 0 });
+    assert.deepEqual(niceRange(0.013, 0.087), { low: 0.01, high: 0.09 });
+    assert.deepEqual(niceRange(12, 112), { low: 10, high: 120 });
+    // Already round ends stay where they are.
+    assert.deepEqual(niceRange(-90, -10), { low: -90, high: -10 });
+    assert.deepEqual(niceRange(-110, 0), { low: -110, high: 0 });
+});
+
+test('niceRange: 幅がないか有限でない範囲はそのまま返す', () => {
+    assert.deepEqual(niceRange(-40, -40), { low: -40, high: -40 });
+    assert.deepEqual(niceRange(-Infinity, 0), { low: -Infinity, high: 0 });
 });
