@@ -40,7 +40,7 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 - Plots resized by the layout (the compare view's step bar expanded, the entry table's overview strip moved under it in a narrow window) are drawn again at their new size; ui-smoke fails any canvas left stretched (#552).
 - Compare view: the ruler and the spectra it hides are no longer drawn on every resize or scroll; they are drawn again on leaving it (#554).
 - Python backend answers requests for different recordings concurrently and reads audio straight into float32 (#462, #464).
-- Updated to wandas 0.12.0 (#409, #446, #468).
+- Updated to wandas 0.13.0 (#409, #446, #468, #567).
 - Python starts only when a command, view or panel needs it; Select Python Environment can create a `.venv` and install the packages, detects PEP 668 interpreters and uses the Python extension's interpreter; Restricted Mode is supported with the user-level interpreter.
 - Every analysis request can be cancelled and times out; Python's errors go to the "Audio Wandas Analyzer" output channel.
 - A spectrogram or cursor spectrum that fails says why in its lane and is retried after a pause instead of on every frame; files larger than the cache are no longer re-read on every zoom; non-ASCII paths work on Windows code pages.
