@@ -13,7 +13,7 @@
 ## How it works
 
 1. **Open** files or a whole folder. Every file is listed in a table; tick ☐ to show it as a track.
-2. **Listen and look.** Each track shows its waveform over its spectrogram on one timeline, with the spectrum at the cursor beside it. Play, loop, mute and nudge tracks to line them up.
+2. **Listen and look.** Each track shows its waveform over its spectrogram on one timeline, with the spectrum at the cursor beside it. Play, loop and nudge tracks to line them up.
 3. **Compare.** Pick a base and up to three recordings to compare (keys `0`–`3`). Their results are drawn over each other, one colour per role: blue for the base; yellow, purple and magenta for the others.
 4. **Analyze as a chain.** The step bar is a [wandas](https://github.com/kasahart/wandas) method chain, such as *Input → HPF 20 Hz → Average spectrum*. **＋** adds a wandas operation anywhere in it; click a step to see its result for every recording.
 5. **Take it with you.** Export PNG, CSV, WAV or a Markdown / notebook report, or save the chain as a `.recipe.json` that wandas can run on its own.

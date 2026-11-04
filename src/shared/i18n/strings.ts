@@ -592,7 +592,6 @@ export interface UiStrings {
     ariaZoomReset: string;
     ariaRemoveTrack: string;
     ariaTrackPlay: string;
-    ariaTrackMute: string;
     ariaTrackStop: string;
     ariaOffsetUp: string;
     ariaOffsetDown: string;
@@ -1391,7 +1390,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         ariaZoomReset: 'Reset zoom',
         ariaRemoveTrack: 'Remove track',
         ariaTrackPlay: 'Play / pause track',
-        ariaTrackMute: 'Mute / unmute track',
         ariaTrackStop: 'Stop track',
         ariaOffsetUp: 'Increase offset',
         ariaOffsetDown: 'Decrease offset',
@@ -2184,7 +2182,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         ariaZoomReset: 'ズームリセット',
         ariaRemoveTrack: 'トラックを削除',
         ariaTrackPlay: 'トラックを再生／一時停止',
-        ariaTrackMute: 'トラックをミュート／解除',
         ariaTrackStop: 'トラックを停止',
         ariaOffsetUp: 'オフセットを増やす',
         ariaOffsetDown: 'オフセットを減らす',

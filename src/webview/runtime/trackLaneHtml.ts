@@ -59,7 +59,6 @@ export interface TrackRowSpec {
     sampleRateHz: number;
     channels: ChannelSummary[];
     playable: boolean;
-    muted: boolean;
     lanesHtml: string;
     /** The role chip (roleChip.ts) in place of a plain colour swatch. */
     roleChipHtml: string;
@@ -69,7 +68,7 @@ export interface TrackRowSpec {
 
 export type TrackRowStrings = Pick<UiStrings,
     | 'ariaDragHandle' | 'clipBadgeTitle' | 'trackMoreHint' | 'offsetStepUp' | 'offsetStepDown' | 'offsetEdit' | 'offsetReset'
-    | 'trackPlayTitle' | 'trackNoAudio' | 'ariaTrackPlay' | 'trackStopTitle' | 'ariaTrackStop' | 'ariaTrackMute' | 'ariaRemoveTrack'
+    | 'trackPlayTitle' | 'trackNoAudio' | 'ariaTrackPlay' | 'trackStopTitle' | 'ariaTrackStop' | 'ariaRemoveTrack'
     | 'calibrationButtonLabel' | 'calibrationButtonTitle' | 'calibrationButtonAria'
     | 'trackOffsetResetHint' | 'ariaOffsetValue' | 'ariaOffsetUp' | 'ariaOffsetDown' | 'ariaResizeTrackHeight'
     | 'hintRemoveTrack' | 'hintOffsetUp' | 'hintOffsetDown' | 'hintTrackHeightResizer'
@@ -97,7 +96,6 @@ export function trackRowHtml(spec: TrackRowSpec, strings: TrackRowStrings): stri
         + '  <div class="track-btns">'
         + '    <button class="track-btn" data-action="toggle-playback" data-track-id="' + trackId + '"' + hintAttr(playHint(strings.trackPlayTitle)) + ' aria-label="' + escapeHtml(strings.ariaTrackPlay) + '"' + disabled + '>▶</button>'
         + '    <button class="track-btn" data-action="stop-playback" data-track-id="' + trackId + '"' + hintAttr(playHint(strings.trackStopTitle)) + ' aria-label="' + escapeHtml(strings.ariaTrackStop) + '"' + disabled + '>■</button>'
-        + '    <button class="track-btn" data-action="toggle-mute" data-track-id="' + trackId + '" aria-label="' + escapeHtml(strings.ariaTrackMute) + '" data-hint="' + escapeHtml(playHint(strings.ariaTrackMute)) + '" aria-pressed="' + spec.muted + '"' + disabled + '>' + (spec.muted ? '🔇' : '🔊') + '</button>'
         + '    <button class="track-btn" data-action="remove-track" data-track-id="' + trackId + '"' + hintAttr(strings.hintRemoveTrack) + ' aria-label="' + escapeHtml(strings.ariaRemoveTrack) + '">✕</button>'
         + '    ' + calibrationButtonHtml(trackId, strings)
         + (spec.referenceButtonHtml ? '    ' + spec.referenceButtonHtml : '')

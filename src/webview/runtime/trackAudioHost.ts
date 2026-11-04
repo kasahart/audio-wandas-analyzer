@@ -1,6 +1,6 @@
 import type { AudioFader } from './audioFade';
 
-type RetiredAudio = Pick<HTMLAudioElement, 'removeAttribute' | 'remove' | 'muted' | 'paused' | 'pause'>;
+type RetiredAudio = Pick<HTMLAudioElement, 'removeAttribute' | 'remove' | 'paused' | 'pause'>;
 
 /**
  * Takes a track's audio element out of use: it loses its id at once (so a new element can take it), fades out,
