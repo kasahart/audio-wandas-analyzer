@@ -14,6 +14,9 @@ async function main(): Promise<void> {
     const extensionDevelopmentPath = path.resolve(__dirname, '..', '..');
     const extensionTestsPath = path.resolve(__dirname, 'suite', 'index.js');
     const userDataDir = mkdtempSync(path.join(os.tmpdir(), 'audio-wandas-analyzer-vscode-e2e-'));
+    // An empty folder as the workspace: a developer's .vscode/settings.json in the repository would otherwise
+    // override the settings the checks set. The checks take their files from the extension's folder.
+    const workspaceDir = mkdtempSync(path.join(os.tmpdir(), 'audio-wandas-analyzer-vscode-e2e-workspace-'));
 
     const vscodeExecutablePath = await downloadVSCodeForE2E();
     const nlsMessagesFile = resolveNlsMessagesFile(vscodeExecutablePath);
@@ -40,7 +43,7 @@ async function main(): Promise<void> {
             extensionDevelopmentPath,
             extensionTestsPath,
             launchArgs: [
-                extensionDevelopmentPath,
+                workspaceDir,
                 '--disable-workspace-trust',
                 '--new-window',
                 '--no-sandbox',
@@ -70,6 +73,7 @@ async function main(): Promise<void> {
             process.env['VSCODE_NLS_CONFIG'] = previousNlsConfig;
         }
         rmSync(userDataDir, { recursive: true, force: true });
+        rmSync(workspaceDir, { recursive: true, force: true });
     }
 }
 
