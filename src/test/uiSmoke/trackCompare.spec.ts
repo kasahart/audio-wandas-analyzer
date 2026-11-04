@@ -747,6 +747,7 @@ test('a trigger added from ＋ fires at half the tracks\' peak, draws each event
     await page.screenshot({ path: 'test-results/trigger-events.png' });
     const footer = page.locator('#hint-footer');
     await expect(footer).toHaveText(STR.stageEventClickOut);
+    await expect(plot).toHaveCSS('cursor', 'pointer');
     // A double-click resets the zoom and leaves no event out.
     await page.mouse.dblclick(x, lineY);
     await page.waitForTimeout(400);

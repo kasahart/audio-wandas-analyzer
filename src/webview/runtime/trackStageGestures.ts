@@ -117,6 +117,8 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
             const drawn = hit ? drawnOn.get(hit.plot) : undefined;
             if (!hit || hit.axis || !drawn) { hovered = null; hideHover(); if (hit) deps.hint(strings.compareHintAxis); return; }
             const line = deps.toggleEvent ? eventAt(hit.plot, event.clientX, event.clientY) : null;
+            // On an event's line the pointer says it can be clicked.
+            hit.plot.style.cursor = line ? 'pointer' : '';
             deps.hint(line ? (line.out ? strings.stageEventClickIn : strings.stageEventClickOut) : strings.compareHintPlot);
             hovered = { plot: hit.plot, clientX: event.clientX, clientY: event.clientY, fx: hit.point.fx };
             showHover();

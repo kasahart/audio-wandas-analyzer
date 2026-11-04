@@ -315,6 +315,8 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             const next = withEventExcluded(editor, key, event.id, !event.out);
             const said = (event.out ? strings.stageEventIn : strings.stageEventOut).replace('{name}', named(event.source, role(event.source)).label).replace('{n}', String(event.id + 1));
             stepBar.edit(next, said);
+            // The footer is the pointer's: the notice stays a moment where the pointer does not write.
+            deps.notify?.(said);
         };
     }
     /** A recording's ▶ in the legend (■ while it plays); the base group has none. */
