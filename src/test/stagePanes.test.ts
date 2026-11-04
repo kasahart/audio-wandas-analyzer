@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { emptyStageText, eventLayers, loudPoints, medianView, stageAxes, stageLevelsHeadline, stageDifference, stageDiffRange, stageHeadline, stageRange, stageReadout, axisFractionOf, stageHover, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
+import { emptyStageText, eventLayers, loudPoints, medianView, stageAxes, stageLevelsHeadline, stageDifference, stageDiffRange, stageHeadline, stageRange, stageHover, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
 import type { StageView } from '../shared/protocol/backendProtocol';
 
 const line = (values: number[], quantity: StageView['quantity'] = 'level'): StageView => ({ frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity, xs: [100, 1000, 10000], values });
@@ -75,8 +75,9 @@ test('a cross-correlation is drawn over a signed lag axis on the fixed [-1, 1] c
     assert.equal(stageHeadline(diff, strings), '+1.00 ms −0.400');
     // A delay is read to 10 µs at any lag, and none has no sign.
     const long: StageView = { ...view, xs: [-0.0125, 0, 0.0125, 0.02] };
-    assert.match(stageReadout({ base: long, compare: long, diff: null }, 0), /^−12\.50 ms/);
-    assert.match(stageReadout({ base: long, compare: long, diff: null }, axisFractionOf(long, 0)), /^0\.00 ms/);
+    const plot: StagePlot = { frame: { left: 0, top: 0, width: 100, height: 100 }, xAt: value => (value + 0.0125) * 1000, yAt: value => -value, ratioStep: 1.12, lines: [{ view: long, color: 'blue' }], diff: false };
+    assert.match(stageHover(plot, 0, 0)!.text, /^−12\.50 ms/);
+    assert.match(stageHover(plot, 12.5, 0)!.text, /^0\.00 ms/);
 });
 
 test('a step\'s headline names the largest difference among loud points only, with both values', () => {
@@ -119,6 +120,33 @@ test('the line nearest the pointer is picked as the spectrum overlay picks it, a
     const band = stageHover(zoomed, 3, 30)!;
     assert.equal(band.text, '100 Hz / −30.0 dB');
     assert.equal(band.x, 0);
+});
+
+test('a signal drawn as itself is picked as a line: its envelope point nearest the pointer, its amplitude read in its unit', () => {
+    // 1000 px per second from 0, the amplitude axis 100 px per unit downwards from 0 (y = 50 at 0).
+    const plotOf = (lines: StagePlot['lines']): StagePlot => ({ frame: { left: 0, top: 0, width: 1000, height: 100 }, xAt: value => value * 1000, yAt: value => 50 - value * 100, ratioStep: 1.12, lines, diff: false, signal: { unit: 'Pa', paint: () => undefined } });
+    const n = 4000;
+    // Buckets every 0.25 ms (4 to a pixel column), the minimum before the maximum in each; one bucket's peak stands out.
+    const signal = (low: number, high: number, peak: { at: number; min?: number; max?: number }): StageView => ({
+        frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'level', xs: [0, 1], values: [-20, -20],
+        waveform: {
+            min: Array.from({ length: n }, (_, i) => (i === peak.at && peak.min !== undefined ? peak.min : low)),
+            max: Array.from({ length: n }, (_, i) => (i === peak.at && peak.max !== undefined ? peak.max : high)),
+            minT: Array.from({ length: n }, (_, i) => i * 0.00025), maxT: Array.from({ length: n }, (_, i) => i * 0.00025 + 0.0001), absolutePeak: 0.4, unit: 'Pa', ref: 2e-5,
+        },
+    });
+    const a = { view: signal(-0.1, 0.1, { at: 2001, max: 0.3 }), color: 'blue', label: 'base' };
+    const b = { view: signal(-0.05, 0.02, { at: 2000, min: -0.4 }), color: 'gold', label: 'compare' };
+    // Over the pixel column at 0.5 s the base's highest point (0.3 at 0.50035 s) is nearest a pointer high up:
+    // the cursor goes to that point, the readout reads it to the digits a pixel tells apart.
+    const high = stageHover(plotOf([a, b]), 500, 15)!;
+    assert.equal(high.layer, a);
+    assert.equal(high.text, 'base / 0.500 s / 0.300 Pa');
+    assert.deepEqual([Math.round(high.x * 100) / 100, Math.round(high.y)], [500.35, 20]);
+    // Low down, the compared signal's lowest point is nearer; past the signals' ends there is none.
+    const low = stageHover(plotOf([a, b]), 500, 88)!;
+    assert.deepEqual([low.layer, low.text, Math.round(low.y)], [b, 'compare / 0.500 s / −0.400 Pa', 90]);
+    assert.equal(stageHover(plotOf([a, b]), 1500, 50), null);
 });
 
 test('a trigger\'s events are each a line of their slot, on one amplitude range, with no difference between recordings', () => {

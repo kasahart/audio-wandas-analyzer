@@ -286,24 +286,6 @@ export function stageHeadline(diff: StageView | null, strings: Pick<StageStrings
     return strings.stageMaxDelta.replace('{at}', atText(diff, found.index, found.row)).replace('{delta}', signed(found.value, isDb(diff)));
 }
 
-/** The point under the pointer (a fraction across the plot): where it is, then base, compare and Δ. */
-export function stageReadout(views: { base: StageView | null; compare: StageView | null; diff: StageView | null }, fraction: number): string {
-    const view = views.compare ?? views.base;
-    const xs = view?.xs;
-    if (!view || !xs?.length || view.kind === 'heatmap') return '';
-    const scale = axisScale(view);
-    let index = 0;
-    xs.forEach((value, at) => { if (Math.abs(scale.fraction(value) - fraction) < Math.abs(scale.fraction(xs[index]) - fraction)) index = at; });
-    const value = (side: StageView | null): string => {
-        const level = side?.values?.[index];
-        return level === null || level === undefined ? '—' : Math.abs(level) >= 10 ? level.toFixed(1).replace(/^-/, '−') : level.toPrecision(3).replace(/^-/, '−');
-    };
-    const delta = views.diff?.values?.[index];
-    // Over a signal drawn as itself, the readout gives its level there (in dB, so it says so).
-    const unit = view.waveform ? ' dB' : '';
-    return readoutText([atText(view, index), value(views.base) + unit, value(views.compare) + unit, delta === null || delta === undefined ? '—' : signed(delta, isDb(view))]);
-}
-
 /**
  * The index of the axis point nearest `value` (on a log axis, nearest in ratio), or −1 past the ends by more than
  * half the end step: an image drawn on wider axes than it covers leaves the rest empty.
@@ -398,6 +380,11 @@ export interface StagePlot {
     ratioStep: number;
     lines: StageLayer[];
     diff: boolean;
+    /**
+     * Where `lines` holds signals drawn as themselves: their amplitude's unit for the readout, and the signal
+     * drawn again at another width (the hover's thicker line).
+     */
+    signal?: { unit: string; paint(context: CanvasRenderingContext2D, layer: StageLayer, width: number): void };
 }
 
 /** Several pictures of one Frame type on one set of axes, as solid lines (or steps) told apart by colour. */
@@ -612,8 +599,14 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
             const xs = layer.view.xs ?? [];
             if (layer.view.kind === 'heatmap' || layer.view.kind === 'none' || (signals && !layer.view.waveform)) continue;
             if (layer.view.waveform) {
-                // The signal itself, by the track lanes' own pipeline, on the same axes.
-                paintWaveformLayer(context, { left, top, width: plotWidth, height: plotHeight }, layer.view.waveform, wholeAxis, xWindow, range, layer.color, layer.width ?? 1.5);
+                // The signal itself, by the track lanes' own pipeline, on the same axes; the pointer picks it as a line.
+                const box = { left, top, width: plotWidth, height: plotHeight };
+                plot.signal ??= {
+                    unit: /\[([^\]]*)\]$/.exec(axes.y)?.[1] ?? '',
+                    paint: (ctx, signal, lineWidth) => { if (signal.view.waveform) paintWaveformLayer(ctx, box, signal.view.waveform, wholeAxis, xWindow, range, signal.color, lineWidth); },
+                };
+                plot.signal.paint(context, layer, layer.width ?? 1.5);
+                plot.lines.push(layer);
                 continue;
             }
             plot.lines.push(layer);
@@ -662,6 +655,7 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
 
 /** One picture of a pane as its line (or its bands as steps), `width` wide, clipped to the plot. */
 export function strokeStageLine(context: CanvasRenderingContext2D, plot: StagePlot, layer: StageLayer, width: number): void {
+    if (layer.view.waveform) { plot.signal?.paint(context, layer, width); return; }
     const { xAt, yAt, ratioStep, frame } = plot;
     const values = layer.view.values ?? [], xs = layer.view.xs ?? [];
     context.save();
@@ -687,6 +681,46 @@ export function strokeStageLine(context: CanvasRenderingContext2D, plot: StagePl
         context.stroke();
     }
     context.restore();
+}
+
+/**
+ * A signal's point under the pointer at (`x`, `y`): of what its envelope draws in the pixel column at `x` (the
+ * buckets in it, or the nearest one zoomed past single buckets), its lowest or highest point, whichever is nearer
+ * `y`; null past its ends.
+ */
+function signalPointAt(plot: StagePlot, waveform: NonNullable<StageView['waveform']>, x: number, y: number): { index: number; time: number; x: number; y: number; value: number } | null {
+    const { min, max, minT, maxT } = waveform;
+    const timeOf = (index: number): number => ((minT[index] ?? maxT[index] ?? 0) + (maxT[index] ?? minT[index] ?? 0)) / 2;
+    const n = Math.min(min.length, max.length, minT.length, maxT.length);
+    if (!n || x < plot.xAt(timeOf(0)) - 0.5 || x > plot.xAt(timeOf(n - 1)) + 0.5) return null;
+    let low = 0, high = n - 1;
+    while (high - low > 1) {
+        const middle = (low + high) >> 1;
+        if (plot.xAt(timeOf(middle)) <= x) low = middle; else high = middle;
+    }
+    const nearest = Math.abs(plot.xAt(timeOf(high)) - x) < Math.abs(plot.xAt(timeOf(low)) - x) ? high : low;
+    let best: { time: number; value: number } | null = null;
+    const consider = (value: number | null, time: number | null): void => {
+        if (value === null || time === null) return;
+        if (!best || Math.abs(plot.yAt(value) - y) < Math.abs(plot.yAt(best.value) - y)) best = { time, value };
+    };
+    const column = (index: number): boolean => Math.abs(plot.xAt(timeOf(index)) - x) <= 0.5;
+    let first = nearest, last = nearest;
+    while (first > 0 && column(first - 1)) first--;
+    while (last < n - 1 && column(last + 1)) last++;
+    for (let index = first; index <= last; index++) { consider(min[index], minT[index]); consider(max[index], maxT[index]); }
+    const found = best as { time: number; value: number } | null;
+    if (!found) return null;
+    // A point off the plot (zoomed between two samples) keeps its cursor at the plot's edge.
+    const at = Math.max(plot.frame.left, Math.min(plot.frame.left + plot.frame.width, plot.xAt(found.time)));
+    return { index: -1, time: found.time, x: at, y: plot.yAt(found.value), value: found.value };
+}
+
+/** A time to the digits a pixel column of the plot tells apart (at least 10 ms). */
+function timeText(plot: StagePlot, seconds: number): string {
+    const perPixel = Math.abs(plot.xAt(1) - plot.xAt(0)) > 0 ? 1 / Math.abs(plot.xAt(1) - plot.xAt(0)) : 0.01;
+    const digits = Math.max(2, Math.min(6, Math.ceil(-Math.log10(Math.max(perPixel, 1e-6)))));
+    return `${seconds.toFixed(digits).replace(/^-/, '−')} s`;
 }
 
 /** A line's point nearest across to `x` (canvas CSS pixels): its index and where it is drawn; null where it has no value. */
@@ -716,9 +750,16 @@ function linePointAt(plot: StagePlot, layer: StageLayer, x: number): { index: nu
  * (plotHover.ts): that line, its point and the readout (its name, where, its value).
  */
 export function stageHover(plot: StagePlot, x: number, y: number): { layer: StageLayer; x: number; y: number; text: string } | null {
-    const hit = nearestLine(plot.lines, layer => linePointAt(plot, layer, x), y);
+    type Point = { index: number; time?: number; x: number; y: number; value: number };
+    const hit = nearestLine<StageLayer, Point>(plot.lines, layer => (layer.view.waveform ? signalPointAt(plot, layer.view.waveform, x, y) : linePointAt(plot, layer, x)), y);
     if (!hit) return null;
     const view = hit.s.view;
+    if (view.waveform) {
+        // A signal reads its amplitude in its unit, to 3 figures, where its point is.
+        const value = hit.point.value, unit = plot.signal?.unit;
+        const amount = `${(Math.abs(value) >= 10 ? value.toFixed(1) : value.toPrecision(3)).replace(/^-/, '−')}${unit ? ` ${unit}` : ''}`;
+        return { layer: hit.s, x: hit.point.x, y: hit.point.y, text: readoutText([...(hit.s.label ? [hit.s.label] : []), timeText(plot, hit.point.time ?? 0), amount]) };
+    }
     const amount = plot.diff ? signed(hit.point.value, isDb(view))
         // Levels to 0.1 dB, as the spectrum overlay reads them; other quantities (a coherence) to 3 figures.
         : (isDb(view) ? `${hit.point.value.toFixed(1)} dB` : Math.abs(hit.point.value) >= 10 ? hit.point.value.toFixed(1) : hit.point.value.toPrecision(3)).replace(/^-/, '−');
