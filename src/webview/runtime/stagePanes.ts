@@ -602,7 +602,7 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
                 // The signal itself, by the track lanes' own pipeline, on the same axes; the pointer picks it as a line.
                 const box = { left, top, width: plotWidth, height: plotHeight };
                 plot.signal ??= {
-                    unit: /\[([^\]]*)\]$/.exec(axes.y)?.[1] ?? '',
+                    unit: layer.view.waveform.unit || (/\[([^\]]*)\]$/.exec(axes.y)?.[1] ?? ''),
                     paint: (ctx, signal, lineWidth) => { if (signal.view.waveform) paintWaveformLayer(ctx, box, signal.view.waveform, wholeAxis, xWindow, range, signal.color, lineWidth); },
                 };
                 plot.signal.paint(context, layer, layer.width ?? 1.5);
@@ -700,15 +700,16 @@ function signalPointAt(plot: StagePlot, waveform: NonNullable<StageView['wavefor
     }
     const nearest = Math.abs(plot.xAt(timeOf(high)) - x) < Math.abs(plot.xAt(timeOf(low)) - x) ? high : low;
     let best: { time: number; value: number } | null = null;
-    const consider = (value: number | null, time: number | null): void => {
-        if (value === null || time === null) return;
+    // As the painter draws them: a missing value at 0, a missing time at the bucket's other one.
+    const consider = (raw: number | null, time: number): void => {
+        const value = raw ?? 0;
         if (!best || Math.abs(plot.yAt(value) - y) < Math.abs(plot.yAt(best.value) - y)) best = { time, value };
     };
     const column = (index: number): boolean => Math.abs(plot.xAt(timeOf(index)) - x) <= 0.5;
     let first = nearest, last = nearest;
     while (first > 0 && column(first - 1)) first--;
     while (last < n - 1 && column(last + 1)) last++;
-    for (let index = first; index <= last; index++) { consider(min[index], minT[index]); consider(max[index], maxT[index]); }
+    for (let index = first; index <= last; index++) { consider(min[index], minT[index] ?? timeOf(index)); consider(max[index], maxT[index] ?? timeOf(index)); }
     const found = best as { time: number; value: number } | null;
     if (!found) return null;
     // A point off the plot (zoomed between two samples) keeps its cursor at the plot's edge.
