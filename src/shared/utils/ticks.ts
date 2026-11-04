@@ -15,3 +15,28 @@ export function niceTicks(low: number, high: number, count: number): number[] {
     for (let index = Math.ceil(low / step); index * step <= high + step * 1e-9; index++) values.push(+(index * step).toPrecision(12));
     return values;
 }
+
+/**
+ * An auto range widened outward to round ends: the coarsest step of 1, 2 or 5 times a power of ten (at most a fifth
+ * of the span) that moves neither end by more than 8% of the span, so -120…-23.21 dB becomes -120…-20 and
+ * -120…-19.9 becomes -120…-15 rather than -120…-10.
+ */
+export function niceRange(low: number, high: number): { low: number; high: number } {
+    if (!Number.isFinite(low) || !Number.isFinite(high) || !(high > low)) return { low, high };
+    const span = high - low, slack = span * 0.08;
+    // Rounded to the step's precision (and -0 to 0) so -120 never comes back as -120.00000000000001.
+    const round = (value: number) => +value.toPrecision(12) + 0;
+    const widened = (step: number) => ({ low: round(Math.floor(round(low / step)) * step), high: round(Math.ceil(round(high / step)) * step) });
+    let power = 10 ** Math.floor(Math.log10(span / 5));
+    for (;;) {
+        for (const size of [5, 2, 1]) {
+            const step = size * power;
+            if (step > span / 5 * (1 + 1e-9)) continue;
+            const range = widened(step);
+            // A step no wider than the slack always fits, so the loop ends there at the latest.
+            // A span below the rounding precision would collapse to one value; it keeps its own ends.
+            if (step <= slack || (range.high - high <= slack && low - range.low <= slack)) return range.high > range.low ? range : { low, high };
+        }
+        power /= 10;
+    }
+}

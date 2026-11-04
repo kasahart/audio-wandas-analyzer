@@ -58,3 +58,19 @@ test('spectrogramDisplayBounds: 上限が auto でもレーンのナイキスト
     assert.equal(bounds.minFrequencyHz, 10000);
     assert.equal(bounds.maxFrequencyHz, 10000);
 });
+
+test('spectrogramDisplayBounds: 自動の dB 端は切りのよい値に丸め、入力した端はそのまま使う', () => {
+    const raw = { minDb: -120, maxDb: -23.21, maxFrequencyHz: 8000 };
+    const auto = spectrogramDisplayBounds(raw, { dbMin: null, dbMax: null, maxFrequencyHz: null });
+    assert.equal(auto.dbLo, -120);
+    assert.equal(auto.dbHi, -20);
+    const typed = spectrogramDisplayBounds(raw, { dbMin: -97.5, dbMax: null, maxFrequencyHz: null });
+    assert.equal(typed.dbLo, -97.5);
+    assert.equal(typed.dbHi, -20);
+});
+
+test('spectrogramDisplayBounds: 片方の端を入力したときは、表示する範囲の幅で自動の端を丸める', () => {
+    const raw = { minDb: -120, maxDb: -29, maxFrequencyHz: 8000 };
+    // Over -40…-29 dB the top stays at -29 (1 dB steps), not -25 from the 5 dB steps of the whole 91 dB range.
+    assert.equal(spectrogramDisplayBounds(raw, { dbMin: -40, dbMax: null, maxFrequencyHz: null }).dbHi, -29);
+});
