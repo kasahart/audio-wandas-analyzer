@@ -49,7 +49,9 @@ WAVEFORM_OVERVIEW_POINTS = 1200
 TIME_POINTS = 400
 HEATMAP_TIMES = 200
 HEATMAP_FREQUENCIES = 128
-QUEFRENCY_POINTS = 800
+#: A cepstrum's points before any zoom: per bucket its minimum and maximum, as the lanes draw a waveform
+#: (1200 buckets, WAVEFORM_OVERVIEW_POINTS), so a noisy cepstrum is not a zigzag through alternate peaks.
+QUEFRENCY_POINTS = 2400
 # Cepstral coefficients are small (around 0.01) and signed: kept to five decimals, not one.
 CEPSTRUM_DECIMALS = 5
 # Every lag of a new step's ±0.1 s at 48 kHz, so its delay peak is at its own lag.
@@ -490,17 +492,26 @@ def _peak_points(values: np.ndarray, count: int) -> tuple[np.ndarray, np.ndarray
     return peaks, (edges[:-1] + edges[1:] - 1) // 2
 
 
+def _cepstrum_envelope(quefrencies: np.ndarray, coefficients: np.ndarray, points: int) -> tuple[np.ndarray, np.ndarray]:
+    """A cepstrum's line: the zero-quefrency coefficient as it is (the first point, which the ranges leave out),
+    then the rest's minimum and maximum per bucket (_envelope)."""
+    if quefrencies.size and quefrencies[0] == 0:
+        xs, values = _envelope(quefrencies[1:], coefficients[1:], max(0, points - 1))
+        return np.concatenate([quefrencies[:1], xs]), np.concatenate([coefficients[:1], values])
+    return _envelope(quefrencies, coefficients, points)
+
+
 def _cepstral_view(frame: CepstralFrame) -> StageView:
     # One line per channel in plot(); the comparison averages channels, as it does every value.
     coefficients = np.mean(_rows(frame.data, frame.n_channels), axis=0)
-    values, starts = _signed_peaks(coefficients, QUEFRENCY_POINTS)
+    xs, values = _cepstrum_envelope(np.asarray(frame.quefrencies, dtype=np.float64), coefficients, QUEFRENCY_POINTS)
     return {
         "frame": type(frame).__name__,
         "kind": "line",
         "x": "quefrency",
         "xScale": "linear",
         "quantity": "cepstrum",
-        "xs": _axis(np.asarray(frame.quefrencies, dtype=np.float64)[starts]),
+        "xs": _axis(xs),
         "values": _json(np.round(values, CEPSTRUM_DECIMALS)),
     }
 
@@ -615,9 +626,15 @@ def _detail_view(frame: object, coarse: StageView, detail: StageDetail) -> Stage
         if _pairwise(frame):
             row = _cross_pair(frame)
             rows = rows[row : row + 1] if row is not None else rows
-        line = rows[0] if coarse.get("quantity") == "coherence" else _power_mean(rounded_db(rows))
-        keep = _inside(freqs, bounds) & (freqs > 0)
-        xs, values = _envelope(freqs[keep], line[keep], points)
+        if coarse.get("quantity") == "coherence":
+            keep = _inside(freqs, bounds) & (freqs > 0)
+            xs, values = _envelope(freqs[keep], rows[0][keep], points)
+        else:
+            # As the whole picture's 192 points: with more bins than the screen shows, each point is the power
+            # mean of its log-spaced band, so zooming in only sharpens the line (a bucket's minimum and maximum
+            # would turn a noisy spectrum into a filled mass reaching the floor).
+            xs, banded = _log_rows(rounded_db(rows).T, freqs, bounds, max(1, points // 2))
+            values = rounded_db(_power_mean(banded.T)) if banded.size else np.empty(0)
         view.update(
             {
                 "xs": _axis(xs),
@@ -660,8 +677,10 @@ def _detail_view(frame: object, coarse: StageView, detail: StageDetail) -> Stage
     if isinstance(frame, CepstralFrame):
         quefrencies = np.asarray(frame.quefrencies, dtype=np.float64)
         keep = _inside(quefrencies, bounds)
-        values, starts = _signed_peaks(np.mean(_rows(frame.data, frame.n_channels), axis=0)[keep], points)
-        view.update({"xs": _axis(quefrencies[keep][starts]), "values": _json(np.round(values, CEPSTRUM_DECIMALS))})
+        xs, values = _cepstrum_envelope(
+            quefrencies[keep], np.mean(_rows(frame.data, frame.n_channels), axis=0)[keep], points
+        )
+        view.update({"xs": _axis(xs), "values": _json(np.round(values, CEPSTRUM_DECIMALS))})
         return view
     if isinstance(frame, (SpectrogramFrame, CepstrogramFrame, RoughnessFrame)):
         rows_bounds = [float(value) for value in detail.get("y", [-np.inf, np.inf])]

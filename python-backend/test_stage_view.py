@@ -79,13 +79,18 @@ def test_a_cepstrum_is_its_real_coefficients_over_quefrency_as_plot_draws_it(sig
     cepstrum = signal.cepstrum()
     view = _checked(cepstrum)
     assert (view["kind"], view["x"], view["xScale"], view["quantity"]) == ("line", "quefrency", "linear", "cepstrum")
-    assert len(view["xs"]) == QUEFRENCY_POINTS
+    assert QUEFRENCY_POINTS - 1 <= len(view["xs"]) <= QUEFRENCY_POINTS
     # The whole quefrency axis, as plot() draws it, from zero.
     assert view["xs"][0] == 0.0 and view["xs"][-1] <= cepstrum.quefrencies[-1]
-    # Each point is a block's largest coefficient, so the zero-quefrency one is kept as it is.
+    # The zero-quefrency coefficient is kept as it is; the rest are each bucket's minimum and maximum, so every
+    # extreme survives on both sides of zero (not a zigzag through alternate blocks' peaks).
     coefficients = np.asarray(cepstrum.data).mean(axis=0)
     assert view["values"][0] == pytest.approx(coefficients[0], abs=1e-5)
-    assert max(abs(v) for v in view["values"][1:]) == pytest.approx(np.abs(coefficients[40:]).max(), abs=1e-5)
+    assert max(view["values"][1:]) == pytest.approx(coefficients[1:].max(), abs=1e-5)
+    assert min(view["values"][1:]) == pytest.approx(coefficients[1:].min(), abs=1e-5)
+    # A zoom draws the same buckets' extremes at the screen's density.
+    zoomed = stage_view(cepstrum, None, {"x": [0.0, 0.1], "points": 400})
+    assert zoomed["detail"] is True and len(zoomed["xs"]) <= 400 and zoomed["values"][0] == view["values"][0]
 
 
 def test_a_cross_correlation_is_its_coefficients_over_lag_with_the_delay_peak_kept() -> None:
@@ -178,14 +183,19 @@ def test_a_zoomed_spectrum_is_its_own_bins_in_the_range_on_screen(signal: wd.Cha
     assert view["values"][int(np.argmin(np.abs(np.array(view["xs"]) - 1000)))] == max(view["values"])
 
 
-def test_more_bins_than_the_screen_shows_keep_each_buckets_minimum_and_maximum(signal: wd.ChannelFrame) -> None:
-    welch = signal.welch(n_fft=4096)
-    view = stage_view(welch, None, {"x": [20.0, 8000.0], "points": 100})
-    assert len(view["xs"]) == 100
-    # The 1 kHz peak survives the decimation, as a waveform's peaks do on the lanes.
-    assert max(view["values"]) == pytest.approx(
-        max(stage_view(welch, None, {"x": [20.0, 8000.0], "points": 8000})["values"])
-    )
+def test_more_bins_than_the_screen_shows_are_power_averaged_as_the_whole_picture(signal: wd.ChannelFrame) -> None:
+    # A whole-file FFT has far more bins than pixels: a zoom spanning the whole axis draws the whole picture's
+    # own log-band power means, not each bucket's minimum and maximum (a filled mass down to the noise floor).
+    fft = signal.fft()
+    whole = stage_view(fft)
+    view = stage_view(fft, None, {"x": [spec.SPECTRUM_MIN_HZ, RATE / 2], "points": 2 * spec.SPECTRUM_POINTS})
+    assert first_violation(DEFINITIONS["StageView"], view) is None
+    assert view["xs"] == pytest.approx(whole["xs"]) and view["values"] == pytest.approx(whole["values"], abs=0.02)
+    # A closer zoom keeps the noise floor where it was: the bands are narrower, their mean the same.
+    closer = stage_view(fft, None, {"x": [2000.0, 4000.0], "points": 400})
+    inside = [v for x, v in zip(whole["xs"], whole["values"], strict=True) if 2000 <= x <= 4000]
+    assert np.median(closer["values"]) == pytest.approx(np.median(inside), abs=1.5)
+    assert max(closer["values"]) - min(closer["values"]) < 10
 
 
 def test_a_zoomed_image_is_only_its_time_and_frequency_on_screen(signal: wd.ChannelFrame) -> None:
