@@ -594,11 +594,12 @@ def _log_rows(
     levels_db: np.ndarray, freqs: np.ndarray, bounds: list[float], rows: int
 ) -> tuple[np.ndarray, np.ndarray]:
     """A spectrogram's rows (levels_db: frequency × time) between `bounds` Hz: every bin there, or, with more bins
-    than `rows`, `rows` log-spaced bands (band_levels, as the spectra are made)."""
+    than `rows`, `rows` log-spaced bands (band_levels, as the spectra are made) between the bins there, so a range
+    past the Frame's Nyquist frequency adds no band without bins."""
     inside = _inside(freqs, bounds) & (freqs > 0)
     if inside.sum() <= rows:
         return freqs[inside], levels_db[inside]
-    edges = np.geomspace(max(min(bounds), freqs[inside][0]), max(bounds), rows + 1)
+    edges = np.geomspace(max(min(bounds), freqs[inside][0]), min(max(bounds), freqs[inside][-1]), rows + 1)
     return np.sqrt(edges[:-1] * edges[1:]), band_levels(levels_db.T, freqs, edges).T
 
 

@@ -198,6 +198,14 @@ def test_more_bins_than_the_screen_shows_are_power_averaged_as_the_whole_picture
     assert max(closer["values"]) - min(closer["values"]) < 20  # a bucket minimum dips 40 dB and more
 
 
+def test_a_zoom_past_the_frames_nyquist_frequency_draws_no_band_without_bins() -> None:
+    # A group's zoom is the first recording's range: a 16 kHz recording beside a 48 kHz one gets [20, 24000] Hz.
+    rng = np.random.default_rng(1)
+    fft = wd.from_numpy(rng.standard_normal((1, RATE * 2)), sampling_rate=RATE).fft()
+    view = stage_view(fft, None, {"x": [20.0, 24000.0], "points": 1200})
+    assert max(view["xs"]) <= RATE / 2
+
+
 def test_a_zoomed_image_is_only_its_time_and_frequency_on_screen(signal: wd.ChannelFrame) -> None:
     view = stage_view(signal.stft(), None, {"x": [0.5, 1.0], "y": [500.0, 2000.0], "points": 400})
     assert view["kind"] == "heatmap" and view["detail"] is True
