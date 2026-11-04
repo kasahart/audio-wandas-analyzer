@@ -147,6 +147,9 @@ test('a signal drawn as itself is picked as a line: its envelope point nearest t
     const low = stageHover(plotOf([a, b]), 500, 88)!;
     assert.deepEqual([low.layer, low.text, Math.round(low.y)], [b, 'compare / 0.500 s / −0.400 Pa', 90]);
     assert.equal(stageHover(plotOf([a, b]), 1500, 50), null);
+    // Each signal reads its own unit: an uncalibrated one beside a calibrated one reads the uncalibrated unit, not the axis's.
+    const raw = { ...b, view: { ...b.view, waveform: { ...b.view.waveform!, unit: '' } } };
+    assert.equal(stageHover({ ...plotOf([a, raw]), signal: { unit: 'FS', paint: () => undefined } }, 500, 88)!.text, 'compare / 0.500 s / −0.400 FS');
 });
 
 test('a trigger\'s events are each a line of their slot, on one amplitude range, with no difference between recordings', () => {

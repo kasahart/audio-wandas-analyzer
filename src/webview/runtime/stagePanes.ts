@@ -381,8 +381,8 @@ export interface StagePlot {
     lines: StageLayer[];
     diff: boolean;
     /**
-     * Where `lines` holds signals drawn as themselves: their amplitude's unit for the readout, and the signal
-     * drawn again at another width (the hover's thicker line).
+     * Where `lines` holds signals drawn as themselves: the readout's unit for a signal without one (uncalibrated),
+     * and the signal drawn again at another width (the hover's thicker line).
      */
     signal?: { unit: string; paint(context: CanvasRenderingContext2D, layer: StageLayer, width: number): void };
 }
@@ -602,7 +602,8 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
                 // The signal itself, by the track lanes' own pipeline, on the same axes; the pointer picks it as a line.
                 const box = { left, top, width: plotWidth, height: plotHeight };
                 plot.signal ??= {
-                    unit: layer.view.waveform.unit || (/\[([^\]]*)\]$/.exec(axes.y)?.[1] ?? ''),
+                    // An uncalibrated signal's unit: the axis names it when the axis's own signal is uncalibrated, else full scale.
+                    unit: (!layer.view.waveform.unit && /\[([^\]]*)\]$/.exec(axes.y)?.[1]) || uncalibratedUnits(true).linear,
                     paint: (ctx, signal, lineWidth) => { if (signal.view.waveform) paintWaveformLayer(ctx, box, signal.view.waveform, wholeAxis, xWindow, range, signal.color, lineWidth); },
                 };
                 plot.signal.paint(context, layer, layer.width ?? 1.5);
@@ -757,7 +758,7 @@ export function stageHover(plot: StagePlot, x: number, y: number): { layer: Stag
     const view = hit.s.view;
     if (view.waveform) {
         // A signal reads its amplitude in its unit, to 3 figures, where its point is.
-        const value = hit.point.value, unit = plot.signal?.unit;
+        const value = hit.point.value, unit = view.waveform.unit || plot.signal?.unit;
         const amount = `${(Math.abs(value) >= 10 ? value.toFixed(1) : value.toPrecision(3)).replace(/^-/, '−')}${unit ? ` ${unit}` : ''}`;
         return { layer: hit.s, x: hit.point.x, y: hit.point.y, text: readoutText([...(hit.s.label ? [hit.s.label] : []), timeText(plot, hit.point.time ?? 0), amount]) };
     }

@@ -27,7 +27,7 @@ export interface StageTrack {
  * uses, its level range before the vertical zoom, its axes' names, the pictures read under the pointer, and
  * where its lines are (the line nearest the pointer is picked from them).
  */
-export type Drawn = { picture: StageView | null; range: PaneRange; axes: StageAxes; views: { base: StageView | null; compare: StageView | null; diff: StageView | null }; plot?: StagePlot | null };
+export type Drawn = { picture: StageView | null; range: PaneRange; axes: StageAxes; plot?: StagePlot | null };
 
 /** The mode's own elements: its root (controls, overlaid plot, legend, diff) and the step bar in it. */
 export interface StageDom {
@@ -158,7 +158,7 @@ const widthOf = (role: StageFrame['role'], path: string, width: number): number 
 
 /** Side by side: every track's lane, on one range so the tracks compare at a glance; how many lanes drew a picture. */
 export function paintStageLanes(frame: StageFrame): number {
-    const { strings, tracks, coarse, shown, picture, coarsePlots, window, regionMark, pending } = frame;
+    const { strings, tracks, coarse, shown, picture, window, regionMark, pending } = frame;
     const range = stageRange(tracks.map(track => coarse(track.filePath) ?? null));
     const heat = picture?.kind === 'heatmap';
     let drawn = 0;
@@ -178,7 +178,7 @@ export function paintStageLanes(frame: StageFrame): number {
         // A lane holds one picture, drawn as it is (1/3-octave levels as steps, without a fill).
         const lanePlot = paintOverlay(track.canvas, { layers: view ? [{ view, color: colorOf(frame.role, track.filePath), width: widthOf(frame.role, track.filePath, 2), label: frame.named(track.filePath, frame.role(track.filePath)).label, ...eventsOf(frame, track.filePath, view) }] : [] }, heat ? range : narrowed(range, window.y), axes,
             { empty, window: { x: window.x, ...(heat ? { y: window.y } : {}) }, axisView: coarse(track.filePath) ?? picture, ...(regionMark ? { region: regionMark } : {}), ...((missing || track.filePath === progressLane) && pending ? { pending } : {}) });
-        frame.drawnOn.set(track.canvas, { picture: coarse(track.filePath) ?? picture, range, axes, views: { base: frame.baseEach ? null : coarsePlots.base, compare: coarse(track.filePath) ?? null, diff: null }, plot: lanePlot });
+        frame.drawnOn.set(track.canvas, { picture: coarse(track.filePath) ?? picture, range, axes, plot: lanePlot });
         if (view) drawn++;
     });
     // The base slot's lane: the reference the others are measured against, not a picture of its own.
@@ -265,14 +265,12 @@ export function paintStageOverlay(dom: StageDom, frame: StageFrame, plots: Stage
     diffBox.hidden = !withDiff;
     const overlay = dom.query<HTMLCanvasElement>('[data-stage-canvas="overlay"]');
     const overlayPlot = paintOverlay(overlay, { layers }, narrowed(range, window.y), axes, { empty, window: { x: window.x }, axisView: picture, ...(regionMark ? { region: regionMark } : {}), ...(pending ? { pending } : {}) });
-    // A base group drawn as its waveforms: the pointer reads no median level (on no line), nor a difference from it.
-    const readViews = frame.baseEach ? { base: null, compare: coarsePlots.compare, diff: null } : { base: coarsePlots.base, compare: coarsePlots.compare, diff: coarsePlots.diff };
-    frame.drawnOn.set(overlay, { picture, range, axes, views: readViews, plot: overlayPlot });
+    frame.drawnOn.set(overlay, { picture, range, axes, plot: overlayPlot });
     if (!withDiff) return;
     dom.query<HTMLElement>('[data-stage-diff-headline]').textContent = waiting ? '' : stageHeadline(plots.diff, strings);
     const diffAxes = stageAxes(strings, coarsePlots.diff, tracks[0]?.input, true);
     const diffCanvas = dom.query<HTMLCanvasElement>('[data-stage-canvas="diff"]');
     const diffPlot = paintStage(diffCanvas, plots.diff, stageDiffRange(coarsePlots.diff), DIFF_COLOR, stageAxes(strings, coarsePlots.diff, tracks[0]?.input, true),
         { diff: true, empty: waiting ? '' : strings.stageNoDelta, window: { x: window.x }, axisView: coarsePlots.diff, ...(pending ? { pending } : {}) });
-    frame.drawnOn.set(diffCanvas, { picture: coarsePlots.diff, range: stageDiffRange(coarsePlots.diff), axes: diffAxes, views: { base: coarsePlots.base, compare: coarsePlots.compare, diff: coarsePlots.diff }, plot: diffPlot });
+    frame.drawnOn.set(diffCanvas, { picture: coarsePlots.diff, range: stageDiffRange(coarsePlots.diff), axes: diffAxes, plot: diffPlot });
 }

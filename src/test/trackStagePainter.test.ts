@@ -111,7 +111,7 @@ test('side by side, every lane draws its own picture and says it shows the step;
     assert.equal(paintStageLanes(frame), 2);
     assert.equal(tracks[1].canvas?.getAttribute('aria-label'), strings.ariaStageLaneCanvas.replace('{file}', 'one.wav'));
     assert.equal(tracks[1].canvas?.dataset.laneLabel, 'waveform of one.wav');
-    assert.equal(frame.drawnOn.get(tracks[1].canvas as Element)?.views.compare, frame.coarse('one.wav'));
+    assert.equal(frame.drawnOn.get(tracks[1].canvas as Element)?.picture, frame.coarse('one.wav'));
     assert.equal(painted.filter(canvas => tracks.some(track => track.canvas === canvas)).length, 3);
     const reference = lane('ref.wav');
     painted.length = 0;
@@ -152,11 +152,10 @@ test('the overlaid plot draws its difference under it only on request, with a co
     assert.ok(dom_.query('[data-stage-diff-headline]').textContent);
     assert.ok(frame.drawnOn.has(dom_.query('[data-stage-canvas="diff"]')));
     paintStageOverlay(dom_, { ...frame, referencePath: 'base.wav' }, plots, [], true);
-    assert.equal(diff.hidden, true);    // A base group drawn as its waveforms: no Δ, and the pointer reads no median level nor a difference from it.
+    assert.equal(diff.hidden, true);
+    // A base group drawn as its waveforms: no Δ.
     paintStageOverlay(dom_, { ...frame, baseEach: true }, plots, overlayLayers(frame, plots), true);
     assert.equal(diff.hidden, true);
-    const read = frame.drawnOn.get(dom_.query('[data-stage-canvas="overlay"]'))?.views;
-    assert.deepEqual([read?.base, read?.diff, read?.compare], [null, null, plots.compare]);
 });
 
 test('the difference is shown or hidden before the overlay is drawn: the overlay is measured at the height it keeps', () => {
