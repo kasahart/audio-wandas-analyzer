@@ -535,14 +535,15 @@ DEFINITIONS: dict[str, Schema] = {
         },
     },
     # A zoomed picture's request: its horizontal (and for an image, vertical) range in the axis's own units
-    # (Hz, s, Bark), and how many points across it the screen can show.
+    # (Hz, s, Bark), and how many points across it the screen can show (a line over time is asked for a few
+    # screens either side of the view, at one screen's density).
     "StageDetail": {
         "type": "object",
         "required": ["x", "points"],
         "properties": {
             "x": {"type": "array", "items": _NUMBER},
             "y": {"type": "array", "items": _NUMBER},
-            "points": {"type": "integer", "minimum": 2, "maximum": 8000},
+            "points": {"type": "integer", "minimum": 2, "maximum": MAX_WAVEFORM_POINTS},
         },
     },
     # One step's Frame as the comparison draws it (stage_view.py). Line and bar give ``values`` over

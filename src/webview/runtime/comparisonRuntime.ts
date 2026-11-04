@@ -1,4 +1,5 @@
 import { channelLabel, channelsForResult, formatClockTime } from '../../shared/utils/format';
+import { niceRange } from '../../shared/utils/ticks';
 import { linkedSpectrogramBounds, spectrogramDisplayBounds, spectrogramFailureText } from './spectrogramRaster';
 import { paintTrackSpectrogram, paintTrackWaveform, spectrogramPlotWidth, type SpectrogramRasterCacheEntry } from './trackCanvasPainter';
 import { trackTimelinePlacement } from './waveformCoverage';
@@ -769,8 +770,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function applySpectrumDisplaySettings(slice: SpectrumSlice) {
         const displaySettings = spectrogramSettings.display;
-        const minDb = displaySettings.dbMin != null ? displaySettings.dbMin : slice.minDb;
-        const maxDb = displaySettings.dbMax != null ? displaySettings.dbMax : slice.maxDb;
+        // Typed ends stay as typed; auto ends are widened to round values, as the spectrogram's colour range.
+        const rounded = niceRange(displaySettings.dbMin ?? slice.minDb, displaySettings.dbMax ?? slice.maxDb);
+        const minDb = displaySettings.dbMin != null ? displaySettings.dbMin : rounded.low;
+        const maxDb = displaySettings.dbMax != null ? displaySettings.dbMax : rounded.high;
         const requestedMaxFreq = displaySettings.maxFrequencyHz;
         let maxFrequencyHz = slice.originalMaxFrequencyHz || slice.maxFrequencyHz;
         if (requestedMaxFreq != null && Number.isFinite(requestedMaxFreq) && requestedMaxFreq > 0) {
