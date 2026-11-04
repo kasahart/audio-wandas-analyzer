@@ -197,6 +197,15 @@ test('the first step that cannot run breaks the chain: every step after it canno
     assert.equal(brokenStep(entry, 16000), undefined);
 });
 
+test('channel_difference needs two channels: on one it subtracts the only channel from itself (all zeros)', () => {
+    const offered = (channels?: number) => addableOperations('ChannelFrame', undefined, channels).find(item => item.name === 'channel_difference')!;
+    assert.deepEqual([offered(1).off, offered(2).off, offered().off], ['channels', undefined, undefined]);
+    const [, slice] = recipeSteps(entry, 16000);
+    const { recipe, id } = withStep(entry, slice.id, catalogOperation('wandas.audio.channel_difference')!);
+    assert.deepEqual(recipeSteps(recipe, { sampleRate: 16000, channels: 1 }).find(step => step.id === id)!.reason, { kind: 'channels', limit: 2 });
+    assert.equal(recipeSteps(recipe, { sampleRate: 16000, channels: 2 }).find(step => step.id === id)!.invalid, undefined);
+});
+
 test('a step that compares two channels needs two: one channel (or one picked by get_channel) has only itself', () => {
     const [, slice, welch] = recipeSteps(entry, 16000);
     const base = withoutSteps(entry, [welch.id]);
