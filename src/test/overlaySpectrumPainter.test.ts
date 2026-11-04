@@ -48,12 +48,6 @@ test('paintOverlaySpectrum fills the readout from the nearest series under an ov
     assert.match(paint.readout?.text ?? '', /^A/);
 });
 
-test('paintOverlaySpectrum leaves the readout alone while a per-track spectrum is hovered', () => {
-    const { ctx } = recordingCtx();
-    const paint = paintOverlaySpectrum(ctx, 400, 200, series, fullView, { norm: 0.3, yFrac: 0.5, target: 'track-1' as OverlaySpectrumHover['target'] }, null, DEFAULT_THEME);
-    assert.equal(paint.readout, null);
-});
-
 test('paintOverlaySpectrum stops after the axes when the frequency window is empty', () => {
     const { ctx } = recordingCtx();
     const paint = paintOverlaySpectrum(ctx, 400, 200, series, { ...fullView, freqStart: 0.5, freqEnd: 0.5 }, { norm: 0.3, yFrac: 0.5, target: 'overlay' }, null, DEFAULT_THEME);

@@ -262,8 +262,6 @@ export function overlaySpectrumRegionAt(x: number, y: number, width: number, hei
     return y >= pad.top ? 'plot' : null;
 }
 
-export const TRACK_SPECTRUM_PAD = { left: 32, right: 6, top: 4, bottom: 14 } as const;
-
 export interface SpectrumViewState {
     freqStart: number;
     freqEnd: number;
@@ -310,25 +308,6 @@ export function steppedSpectrumHoverNorm(slice: SpectrumSlice, binIdx: number, d
 }
 
 const UNIT_PLOT = { padLeft: 0, plotWidth: 1, padTop: 0, plotHeight: 1 };
-
-/**
- * `pointerCanvas` is the lane's canvas when the hover was last moved by the pointer: the step then starts from the
- * bin its readout shows (its pixel's loudest), not from the bin nearest the pointer.
- */
-export function steppedTrackSpectrumHoverNorm(
-    slice: SpectrumSlice,
-    hoverNorm: number,
-    freqStart: number,
-    freqEnd: number,
-    deltaIdx: number,
-    pointerCanvas: { width: number; height: number } | null = null,
-): number | null {
-    const visible = spectrumVisibleWindow(slice.maxFrequencyHz, slice.minDb, slice.maxDb,
-        { freqStart, freqEnd, dbMin: null, dbMax: null }, sliceLogMinFrequencyHz(slice));
-    const frame = pointerCanvas ? spectrumPlotFrame(pointerCanvas.width, pointerCanvas.height, TRACK_SPECTRUM_PAD, visible) : { ...UNIT_PLOT, ...visible };
-    const snap = spectrumBinAtHover(slice, hoverNorm, frame, pointerCanvas !== null);
-    return snap ? steppedSpectrumHoverNorm(slice, snap.binIdx, deltaIdx, visible.frequencyMin, visible.frequencyMax, visible.logFrequency) : null;
-}
 
 export function sliceLogMinFrequencyHz(slice: SpectrumSlice): number | undefined {
     return slice.bandCentersHz && slice.minFrequencyHz ? slice.minFrequencyHz : undefined;

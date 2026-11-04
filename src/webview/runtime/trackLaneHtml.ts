@@ -3,7 +3,7 @@ import type { UiStrings } from '../../shared/i18n/strings';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { hintAttr } from './hintFooter';
 import { calibrationBadgeHtml, calibrationButtonHtml, channelMetricSummaryHtml, isClipped } from './calibrationDecorations';
-import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpecAxisCanvasId, trackSpecCanvasId, trackSpecWrapId, trackSpectrogramOverlayCanvasId, trackSpectrumCanvasId, trackSpectrumWrapId } from './trackCanvasIds';
+import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpecAxisCanvasId, trackSpecCanvasId, trackSpecWrapId, trackSpectrogramOverlayCanvasId } from './trackCanvasIds';
 
 export interface ChannelLaneSpec {
     trackId: string;
@@ -12,9 +12,7 @@ export interface ChannelLaneSpec {
     channelCount: number;
     channelLabel: string;
     metricSummaryHtml: string;
-    fileName: string;
     axisWidth: number;
-    spectrumTitle: string;
     /** The canvases' accessible names: the file, the channel and what the canvas shows. */
     waveformLabel: string;
     spectrogramLabel: string;
@@ -22,7 +20,6 @@ export interface ChannelLaneSpec {
     spectrogramAxisHint: string;
     splitHint: string;
     splitLabel: string;
-    spectrumHint: string;
     /** Set on multi-channel tracks, whose lanes each get a reference button. */
     referenceButtonHtml?: string;
 }
@@ -48,9 +45,6 @@ export function channelLaneHtml(spec: ChannelLaneSpec): string {
         + '      <canvas class="track-canvas track-spec-canvas" id="' + trackSpecCanvasId(trackIndex, channelIndex) + '"' + dataAttrs + ' tabindex="-1" role="img" aria-label="' + escapeHtml(spec.spectrogramLabel) + '" style="flex:1"></canvas>'
         + '      <canvas class="track-spectrogram-overlay" id="' + trackSpectrogramOverlayCanvasId(trackIndex, channelIndex) + '"' + dataAttrs + ' aria-hidden="true" style="position:absolute;left:' + axisWidth + 'px;top:0;right:0;bottom:0;pointer-events:none"></canvas>'
         + '    </div>'
-        + '    </div>'
-        + '    <div class="track-spectrum-wrap" id="' + trackSpectrumWrapId(trackIndex, channelIndex) + '">'
-        + '      <canvas class="track-spectrum-canvas" id="' + trackSpectrumCanvasId(trackIndex, channelIndex) + '"' + dataAttrs + ' tabindex="0" aria-label="' + escapeHtml(spec.fileName + ' ' + label + ' ' + spec.spectrumTitle) + '"' + hintAttr(spec.spectrumHint) + '></canvas>'
         + '    </div>'
         + '  </div>'
         + '</div>';

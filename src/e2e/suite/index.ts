@@ -39,7 +39,6 @@ interface TestSnapshot {
         zoomEnd: number;
         cursorNorm: number;
         spectrumOverlayPresent: boolean;
-        spectrumTrackCanvasCount: number;
         visibleSpectrumTrackCount: number;
         contentType: 'waveform' | 'stage';
         reanalyzeBusy: boolean;
@@ -54,7 +53,6 @@ interface TestSnapshot {
         axisLabels: {
             spectrumOverlay: string[];
             spectrogramPerTrack: string[][];
-            spectrumPerTrack: string[][];
             waveformPerTrack: string[][];
         };
         displayOrder: string[];
@@ -93,7 +91,6 @@ interface TestSnapshot {
             waveformMaxDrawX: number | null;
             waveformCanvasWidth: number | null;
             resultError: string | null;
-            spectrumCanvasPresent: boolean;
             spectrumSlicePresent: boolean;
         }>;
     };
@@ -595,28 +592,20 @@ export async function run(): Promise<void> {
             },
         },
         {
-            name: 'cursor power spectrum section is rendered for each track',
+            name: 'cursor power spectrum panel is rendered',
             requires: 'multi-track-all',
             run: async () => {
                 const spectrumSnapshot = await waitForSnapshotWhere((snapshot) => {
                     const ui = snapshot.renderedUi;
                     return !!ui
                         && ui.spectrumOverlayPresent === true
-                        && ui.spectrumTrackCanvasCount === ui.trackRowCount
-                        && ui.visibleSpectrumTrackCount >= 1
-                        && ui.tracks.every((track) => track.spectrumCanvasPresent === true);
+                        && ui.visibleSpectrumTrackCount >= 1;
                 });
                 const ui = spectrumSnapshot.renderedUi;
                 assert.ok(ui, 'Rendered UI snapshot should exist');
                 assert.equal(ui.spectrumOverlayPresent, true, 'overlay spectrum canvas should be rendered');
-                assert.equal(ui.spectrumTrackCanvasCount, ui.trackRowCount,
-                    'each visible track row should have a spectrum canvas');
                 assert.ok(ui.visibleSpectrumTrackCount >= 1,
                     'at least one track should contribute a spectrum slice at the default cursor');
-                ui.tracks.forEach((t) => {
-                    assert.equal(t.spectrumCanvasPresent, true,
-                        `track ${t.trackIndex} should have its per-track spectrum canvas`);
-                });
             },
         },
         {
@@ -645,7 +634,6 @@ export async function run(): Promise<void> {
                     if (!axes) { return false; }
                     const wf = axes.waveformPerTrack[0] ?? [];
                     const sg = axes.spectrogramPerTrack[0] ?? [];
-                    const sp = axes.spectrumPerTrack[0] ?? [];
                     const overlay = axes.spectrumOverlay;
                     return wf.some((s) => /^\+/.test(s))
                         && wf.some((s) => /^-/.test(s))
@@ -654,8 +642,6 @@ export async function run(): Promise<void> {
                         && sg.includes('0 Hz')
                         && sg.some((s) => /Hz$/.test(s) && s !== '0 Hz')
                         && sg.some((s) => s.includes('dB'))
-                        && sp.includes('0 Hz')
-                        && sp.some((s) => s.includes('dB'))
                         && overlay.includes('0 Hz')
                         && overlay.some((s) => s.includes('dB'));
                 });
@@ -676,12 +662,6 @@ export async function run(): Promise<void> {
                     `spectrogram should include a non-zero frequency label: ${JSON.stringify(sg)}`);
                 assert.ok(sg.some((s) => s.includes('dB')),
                     `spectrogram colorbar dB label missing: ${JSON.stringify(sg)}`);
-
-                const sp = axes.spectrumPerTrack[0] ?? [];
-                assert.ok(sp.includes('0 Hz'),
-                    `per-track spectrum should include "0 Hz": ${JSON.stringify(sp)}`);
-                assert.ok(sp.some((s) => s.includes('dB')),
-                    `per-track spectrum dB label missing: ${JSON.stringify(sp)}`);
 
                 const overlay = axes.spectrumOverlay;
                 assert.ok(overlay.includes('0 Hz'),

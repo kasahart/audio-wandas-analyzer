@@ -36,7 +36,7 @@ import { arrowCursorStep, isTextEntryTag, type GlobalShortcutAction } from './sh
 import { domSnapshotBase, latestSpectrogramSnapshot, shellSnapshot } from './testSnapshot';
 import { buildTrackSnapshot } from './comparisonSnapshot';
 import { contentBoxWidth, readThenWrite, syncCanvasSize } from './canvasSizing';
-import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpecAxisCanvasId, trackSpecCanvasId, trackSpectrogramOverlayCanvasId, trackSpectrumCanvasId, trackSpectrumWrapId } from './trackCanvasIds';
+import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpecAxisCanvasId, trackSpecCanvasId, trackSpectrogramOverlayCanvasId } from './trackCanvasIds';
 import { channelLaneHtml, trackRowHtml } from './trackLaneHtml';
 import { attachSpectrumBoxDrag, SpectrumBoxDrag } from './spectrumBoxDrag';
 import { attachCanvasFocusHint, attachHoverHints, createHintFooter, createTaskStatus, setHint } from './hintFooter';
@@ -58,7 +58,6 @@ import { WaveformView } from './waveformView';
 import { paintOverlaySpectrum } from './overlaySpectrumPainter';
 import { referenceButtonHtml } from './pairSpectrum';
 import { PAIR_SPLIT_MAX, PAIR_SPLIT_MIN, PairSpectrumPanel } from './pairSpectrumPanel';
-import { paintTrackSpectrum } from './trackSpectrumPainter';
 import { collectSpectrumSeries, type CollectedSpectrumSeries, type SpectrumSeriesSource } from './spectrumSeriesCollector';
 import { toolbarHtml } from './toolbarHtml';
 import { attachExclusiveMenus, attachHeightResizeListeners, attachToolbarActions } from './toolbarEvents';
@@ -74,8 +73,6 @@ import {
     spectrumSeriesRange,
     spectrumVisibleWindow,
     steppedOverlaySpectrumHoverNorm,
-    steppedTrackSpectrumHoverNorm,
-    TRACK_SPECTRUM_PAD,
     setSpectrumReadout,
     spectrumSlicesFromResult,
 } from './spectrumRuntime';
@@ -158,8 +155,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     // A failed spectrogram is not asked again for this long, so a lane that keeps failing does not loop.
     const DETAIL_RETRY_MS = 10_000;
     const AXIS_W = 64;
-    // The waveform and the spectrogram under it are TRACK_SPLIT_H apart.
-    const TRACK_SPLIT_H = 5;
     const SIDEBAR_WIDTH_MIN = 160;
     /** The window keeps this much beside a widened side panel. */
     const SIDEBAR_WIDTH_SPARE = 80;
@@ -421,9 +416,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const wave = Math.min(trackHeight - LANE_PLOT_MIN, Math.max(LANE_PLOT_MIN, Math.round(trackHeight * layout.waveShare)));
         return { wave, spec: trackHeight - wave };
     }
-    function laneOuterHeight(): number {
-        return contentType === 'stage' ? layout.trackHeight : layout.trackHeight + TRACK_SPLIT_H;
-    }
     let spectrumBandsPerOctave: SpectrumBandsSetting = persistedWebviewState.spectrumBandsPerOctave === 1 || persistedWebviewState.spectrumBandsPerOctave === 3
         ? persistedWebviewState.spectrumBandsPerOctave : 0;
     const waveformView = new WaveformView();
@@ -565,7 +557,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 spectrumHover.norm = hoverNormForFrequency(frequencyHz, visible.frequencyMin, visible.frequencyMax);
                 spectrumHover.yFrac = null;
                 spectrumHover.target = 'overlay';
-                spectrumHover.channelIndex = null;
                 spectrumHover.hasMouse = false;
             }
             scheduleSpectrumRefresh('hover');
@@ -674,7 +665,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         spectrumRequests.drop(spectrumSliceRequestKey(record.id));
         record.requests.drop('slice');
         record.spectrumSliceCache.clear();
-        record.spectrumPainted.clear();
         overlaySpectrumPainted = false;
         if (hadSpectrogram || hadPendingDetail) {
             messaging.post({
@@ -1466,7 +1456,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     offsetSeconds: record.runtime.offsetSeconds,
                     hidden: record.runtime.hidden,
                     waveformCoverage: record.waveformCoverage,
-                    spectrumCanvasPresent: !!canvasById(document, trackSpectrumCanvasId(record.protocolIndex, 0)),
                 };
             }),
             globalSpan: trackStore.globalSpan(),
@@ -1523,7 +1512,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             visibleSpectrumTrackCount: 0,
             contentType: contentType,
             reanalyzeBusy: isReanalyzeBusy(),
-            axisLabels: { spectrumOverlay: [], spectrogramPerTrack: [], spectrumPerTrack: [], waveformPerTrack: [] },
+            axisLabels: { spectrumOverlay: [], spectrogramPerTrack: [], waveformPerTrack: [] },
             displayOrder: trackStore.displayOrder.slice(),
             specFreqStart: spectrumView.freqStart,
             specFreqEnd: spectrumView.freqEnd,
@@ -1641,16 +1630,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             channelCount: channels.length,
             channelLabel: channelLabel(result, channelIndex),
             metricSummaryHtml: channelMetricSummaryHtml(channels[channelIndex], STR.peakLabel),
-            fileName: result.fileName,
             axisWidth: AXIS_W,
-            spectrumTitle: STR.trackSpectrumTitle,
             waveformLabel: STR.ariaWaveformCanvas.replace('{file}', result.fileName).replace('{channel}', channelLabel(result, channelIndex)),
             spectrogramLabel: STR.ariaSpectrogramCanvas.replace('{file}', result.fileName).replace('{channel}', channelLabel(result, channelIndex)),
             axisHint: trackAxisHint(),
             spectrogramAxisHint: STR.hintSpectrogramFrequencyAxis + ' / ' + STR.hintWheelGestures,
             splitHint: STR.hintTrackSplit,
             splitLabel: STR.trackSplitLabel,
-            spectrumHint: STR.trackSpectrumTitle + ' / ' + STR.hintSpectrumKeys,
             referenceButtonHtml: channels.length > 1 ? referenceButtonHtml(trackId, channelIndex, STR) : undefined,
         });
     }
@@ -2336,7 +2322,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const layoutElementIds = ['tracks-wrapper', 'ruler-row', 'spectrum-overlay-wrap', 'pair-spectrum-plot'];
         state.results.forEach(function (result: ComparisonTrackState, i: number) {
             channelsForResult(result).forEach(function (_, channelIndex: number) {
-                layoutElementIds.push(trackCanvasWrapId(i, channelIndex), trackSpectrumWrapId(i, channelIndex));
+                layoutElementIds.push(trackCanvasWrapId(i, channelIndex));
             });
         });
         installLayoutResizeHandling(window, document, layoutElementIds, function () {
@@ -2393,19 +2379,17 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             },
             arrowReleased: () => scheduleSpectrumRefresh('immediate'),
         });
-        // スペクトルカーソルイベント（オーバーレイ＋各トラック）
+        // カーソル時刻のパワースペクトルのホバーとキーボード
         (function attachSpectrumCursorEvents() {
             const spectrumCursor = createSpectrumCursorHandlers({
                 hover: spectrumHover,
-                trackIdAtIndex,
-                trackIndexFromElement,
                 activeElement: () => document.activeElement,
                 refresh: () => scheduleSpectrumRefresh('hover'),
             });
             const overlayCanvas = canvasById(document, 'spectrum-overlay-canvas');
             if (overlayCanvas) {
                 // ドラッグ中はホバー不要
-                attachSpectrumCursorListeners(overlayCanvas, spectrumCursor, OVERLAY_SPECTRUM_PAD, () => ({ trackIndex: -1, channelIndex: null }), () => specBoxDrag.active);
+                attachSpectrumCursorListeners(overlayCanvas, spectrumCursor, OVERLAY_SPECTRUM_PAD, () => specBoxDrag.active);
                 attachSpectrumBoxDrag(overlayCanvas, document, specBoxDrag, {
                     onUpdate: () => scheduleSpectrumRefresh('hover'),
                     onFinish(drag) {
@@ -2436,18 +2420,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 attachCanvasFocusHint(overlayCanvas, hintFooter, STR.hintSpectrumPlot);
             }
             pairPanel.attach();
-            function attachTrackSpectrumCursorEvents() {
-                canvasesMatching(document, '.track-spectrum-canvas').forEach(function (c) {
-                    attachSpectrumCursorListeners(c, spectrumCursor, TRACK_SPECTRUM_PAD, () => ({
-                        trackIndex: trackIndexFromElement(c),
-                        channelIndex: channelIndexAttribute(c),
-                    }));
-                });
-            }
-            attachRebuiltTrackEvents = function () {
-                attachTrackCanvasFocusEvents();
-                attachTrackSpectrumCursorEvents();
-            };
+            attachRebuiltTrackEvents = attachTrackCanvasFocusEvents;
             attachRebuiltTrackEvents();
         })();
     }
@@ -2835,7 +2808,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function renderEveryLane() {
         drawEveryLane = true;
-        try { renderStackedTracks(); checkAndRequestRanges(); if (contentType !== 'stage') renderTrackSpectra(); } finally { drawEveryLane = false; }
+        try { renderStackedTracks(); checkAndRequestRanges(); } finally { drawEveryLane = false; }
     }
     /** The open spectrogram, zoom-detail and cursor-spectrum requests. */
     function openDetailRequestIds(): Set<string> {
@@ -3516,22 +3489,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (spectrumHover.norm === null) {
             spectrumHover.norm = 0.5;
         }
-        if (spectrumHover.target !== null && spectrumHover.target !== 'overlay') {
-            const record = trackStore.get(spectrumHover.target);
-            if (!record?.active) {
-                return;
-            }
-            const trackIndex = record.protocolIndex;
-            const result = record.result;
-            const channelIndex = typeof spectrumHover.channelIndex === 'number' ? spectrumHover.channelIndex : 0;
-            const slice = extractSpectrumAtCursor(result, trackIndex, record.runtime.offsetSeconds, viewState.cursor, channelIndex);
-            const laneCanvas = fromPointer ? canvasById(document, trackSpectrumCanvasId(trackIndex, channelIndex)) : null;
-            const nextNorm = slice ? steppedTrackSpectrumHoverNorm(slice, spectrumHover.norm, spectrumView.freqStart, spectrumView.freqEnd, deltaIdx, laneCanvas) : null;
-            if (nextNorm !== null) {
-                spectrumHover.norm = nextNorm;
-            }
-            return;
-        }
         const slices = spectrumSeriesAt(viewState.cursor).series;
         if (slices.length === 0) {
             return;
@@ -3545,98 +3502,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         spectrumHover.norm = nextNorm;
         spectrumHover.target = 'overlay';
-        spectrumHover.channelIndex = null;
     }
 
-    /** Linked, the lanes' cursor spectra in one unit (the channel's, whichever source a slice came from) share the dB axis of all their slices. */
-    function linkedTrackSpectrumDb(): Map<string, { minDb: number; maxDb: number }> | null {
-        if (!scalesLinked) {
-            return null;
-        }
-        const ranges = new Map<string, { minDb: number; maxDb: number }>();
-        displayedLanes().forEach(function ({ record, channelIndex, ch }) {
-            // A folded panel leaves lanes out of view on the spectrum of an earlier cursor: they do not set the shared axis.
-            if (layout.spectrumCollapsed && !laneInView(record.protocolIndex)) {
-                return;
-            }
-            const slice = extractSpectrumAtCursor(record.result, record.protocolIndex, record.runtime.offsetSeconds, spectrumCursorNorm, channelIndex);
-            if (slice && Number.isFinite(slice.minDb) && Number.isFinite(slice.maxDb)) {
-                const key = amplitudeUnitKey(ch);
-                const range = ranges.get(key);
-                ranges.set(key, range ? { minDb: Math.min(range.minDb, slice.minDb), maxDb: Math.max(range.maxDb, slice.maxDb) } : { minDb: slice.minDb, maxDb: slice.maxDb });
-            }
-        });
-        return ranges;
-    }
-    function renderTrackSpectra() {
-        const linkedDb = linkedTrackSpectrumDb();
-        const lanes: { trackId: TrackId; result: ComparisonTrackState; i: number; channelIndex: number; canvas: HTMLCanvasElement; wrap: HTMLElement }[] = [];
-        trackStore.activeIds().forEach(function (trackId) {
-            const record = trackStore.require(trackId);
-            const result = record.result;
-            const i = record.protocolIndex;
-            if (!laneInView(i)) {
-                return;
-            }
-            channelsForResult(result).forEach(function (_, channelIndex: number) {
-                const canvas = canvasById(document, trackSpectrumCanvasId(i, channelIndex));
-                if (!canvas) {
-                    return;
-                }
-                const wrap = document.getElementById(trackSpectrumWrapId(i, channelIndex));
-                if (!wrap) {
-                    return;
-                }
-                lanes.push({ trackId, result, i, channelIndex, canvas, wrap });
-            });
-        });
-        // Every spectrum's width is read before any canvas is resized, so the pass forces one layout rather than one per lane.
-        readThenWrite(lanes, function ({ wrap }) {
-            const wrapStyle = (typeof window !== 'undefined' && typeof window.getComputedStyle === 'function')
-                ? window.getComputedStyle(wrap)
-                : null;
-            return wrapStyle && wrapStyle.display === 'none' ? null : wrap.clientWidth || 180;
-        }, function ({ trackId, result, i, channelIndex, canvas }, w) {
-            if (w === null) {
-                return;
-            }
-            const record = trackStore.require(trackId);
-            const prevW = canvas.width;
-            const prevH = canvas.height;
-            syncCanvasSize(canvas, w, laneOuterHeight());
-            const paintedByChannel = record.spectrumPainted;
-            if (canvas.width !== prevW || canvas.height !== prevH) {
-                paintedByChannel.set(channelIndex, false);
-            }
-            const ctx = canvas.getContext('2d');
-            if (!ctx) {
-                return;
-            }
-            const W = canvas.width, H = canvas.height;
-            if (trackRuntimeAt(i).hidden) {
-                ctx.clearRect(0, 0, W, H);
-                paintedByChannel.set(channelIndex, false);
-                return;
-            }
-            const ownSlice = extractSpectrumAtCursor(result, i, trackRuntimeAt(i).offsetSeconds, spectrumCursorNorm, channelIndex);
-            const shared = ownSlice && linkedDb ? linkedDb.get(amplitudeUnitKey(channelsForResult(result)[channelIndex])) : undefined;
-            const slice = ownSlice && shared ? { ...ownSlice, ...shared } : ownSlice;
-            if (!slice) {
-                if (paintedByChannel.get(channelIndex) && isSpectrumSliceRequestPendingForCursor(i, spectrumCursorNorm)) {
-                    return;
-                }
-                drawCanvasMessage(ctx, W, H, STR.canvasOutOfRange, '9px sans-serif', drawTheme().mutedColor);
-                paintedByChannel.set(channelIndex, false);
-                return;
-            }
-            const hovered = spectrumHover.target === trackId && spectrumHover.channelIndex === channelIndex ? spectrumHover.norm : null;
-            const readout = paintTrackSpectrum(ctx, W, H, { slice, color: trackColor(i), label: spectrumReadoutTrackLabel(result, channelIndex) }, spectrumView.state(), hovered, drawTheme(), spectrumHover.stepped);
-            paintedByChannel.set(channelIndex, true);
-            if (readout) {
-                setSpectrumReadout(document.getElementById('spectrum-freq-readout'), readout.text, readout.color);
-            }
-        });
-    }
     function renderOverlaySpectrum() {
         const canvas = canvasById(document, 'spectrum-overlay-canvas');
         if (!canvas) {
@@ -3682,9 +3549,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         overlaySpectrumPainted = true;
     }
     function refreshSpectrumViews() {
-        // The comparison hides the lanes' spectra and the spectrum panel; they are drawn again on leaving it.
+        // The comparison hides the spectrum panel; it is drawn again on leaving it.
         if (contentType !== 'stage') {
-            renderTrackSpectra();
             renderOverlaySpectrum();
         }
         pairPanel.render();

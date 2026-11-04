@@ -1,32 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
-import { attachSpectrumCursorListeners, createSpectrumCursorHandlers, spectrumFocusTargetFromElement } from '../webview/runtime/spectrumCursorHandlers';
+import { attachSpectrumCursorListeners, createSpectrumCursorHandlers, isSpectrumCanvasFocused } from '../webview/runtime/spectrumCursorHandlers';
 import type { SpectrumCursorHandlers } from '../webview/runtime/spectrumCursorHandlers';
 import { SpectrumHover } from '../webview/runtime/spectrumHover';
-import type { TrackId } from '../webview/runtime/types';
 
-function fakeElement(id: string, classes: string[], attrs: Record<string, string> = {}) {
-    return {
-        id,
-        classList: { contains: (name: string) => classes.includes(name) } as DOMTokenList,
-        getAttribute: (name: string) => attrs[name] ?? null,
-    };
-}
-
-const trackIndexFromElement = (el: Pick<Element, 'getAttribute'>) => {
-    const raw = el.getAttribute('data-track-index');
-    return raw === null ? null : Number(raw);
-};
-
-function setup(active: ReturnType<typeof fakeElement> | null = null) {
+function setup(active: { id: string } | null = null) {
     const hover = new SpectrumHover();
     let refreshes = 0;
     const state = { active };
     const handlers = createSpectrumCursorHandlers({
         hover,
-        trackIdAtIndex: (i) => `track-${i}` as TrackId,
-        trackIndexFromElement,
         activeElement: () => state.active,
         refresh: () => { refreshes++; },
     });
@@ -35,41 +19,33 @@ function setup(active: ReturnType<typeof fakeElement> | null = null) {
 
 const canvas = { width: 220, height: 100, getBoundingClientRect: () => ({ left: 10, top: 20 }) };
 
-test('spectrumFocusTargetFromElement recognises the overlay and per-track spectrum canvases', () => {
-    assert.deepEqual(spectrumFocusTargetFromElement(fakeElement('spectrum-overlay-canvas', []), trackIndexFromElement), { trackIndex: -1, channelIndex: null });
-    assert.deepEqual(
-        spectrumFocusTargetFromElement(fakeElement('', ['track-spectrum-canvas'], { 'data-track-index': '2', 'data-channel-index': '1' }), trackIndexFromElement),
-        { trackIndex: 2, channelIndex: 1 },
-    );
-    assert.equal(spectrumFocusTargetFromElement(fakeElement('', ['track-spectrum-canvas']), trackIndexFromElement), null);
-    assert.equal(spectrumFocusTargetFromElement(fakeElement('other', []), trackIndexFromElement), null);
-    assert.equal(spectrumFocusTargetFromElement(null, trackIndexFromElement), null);
+test('isSpectrumCanvasFocused recognises only the cursor spectrum canvas', () => {
+    assert.equal(isSpectrumCanvasFocused({ id: 'spectrum-overlay-canvas' }), true);
+    assert.equal(isSpectrumCanvasFocused({ id: 'other' }), false);
+    assert.equal(isSpectrumCanvasFocused(null), false);
 });
 
-test('move maps the pointer into the plot and targets the overlay or the track', () => {
+test('move maps the pointer into the plot', () => {
     const { hover, handlers, refreshes } = setup();
-    handlers.move(canvas, 10, 10, { clientX: 120, clientY: 70 }, -1, null);
+    handlers.move(canvas, 10, 10, { clientX: 120, clientY: 70 });
     assert.equal(hover.target, 'overlay');
     assert.equal(hover.norm, 0.5);
     assert.equal(hover.yFrac, 0.5);
     assert.equal(hover.hasMouse, true);
-    handlers.move(canvas, 10, 10, { clientX: 120, clientY: 70 }, 3, 1);
-    assert.equal(hover.target, 'track-3');
-    assert.equal(hover.channelIndex, 1);
-    assert.equal(refreshes(), 2);
+    assert.equal(refreshes(), 1);
 });
 
 test('move over a canvas with no plot width clears the hover', () => {
     const { hover, handlers } = setup();
-    handlers.move(canvas, 10, 10, { clientX: 120, clientY: 70 }, -1, null);
-    handlers.move(canvas, 200, 30, { clientX: 120, clientY: 70 }, -1, null);
+    handlers.move(canvas, 10, 10, { clientX: 120, clientY: 70 });
+    handlers.move(canvas, 200, 30, { clientX: 120, clientY: 70 });
     assert.equal(hover.norm, null);
     assert.equal(hover.hasMouse, false);
 });
 
-test('leave falls back to the focused spectrum canvas, otherwise clears', () => {
-    const { hover, handlers, state } = setup(fakeElement('spectrum-overlay-canvas', []));
-    handlers.move(canvas, 10, 10, { clientX: 120, clientY: 70 }, 2, null);
+test('leave keeps the cursor while the spectrum canvas has focus, otherwise clears', () => {
+    const { hover, handlers, state } = setup({ id: 'spectrum-overlay-canvas' });
+    handlers.move(canvas, 10, 10, { clientX: 120, clientY: 70 });
     handlers.leave();
     assert.equal(hover.target, 'overlay');
     assert.equal(hover.hasMouse, false);
@@ -80,37 +56,33 @@ test('leave falls back to the focused spectrum canvas, otherwise clears', () => 
 
 test('blur keeps the hover while the mouse is over the canvas', () => {
     const { hover, handlers } = setup();
-    handlers.focus(1, 0);
-    assert.equal(hover.target, 'track-1');
-    handlers.move(canvas, 10, 10, { clientX: 120, clientY: 70 }, 1, 0);
+    handlers.focus();
+    assert.equal(hover.target, 'overlay');
+    handlers.move(canvas, 10, 10, { clientX: 120, clientY: 70 });
     handlers.blur();
-    assert.equal(hover.target, 'track-1');
+    assert.equal(hover.target, 'overlay');
     hover.hasMouse = false;
     handlers.blur();
     assert.equal(hover.target, null);
-    handlers.focus(null, null);
-    assert.equal(hover.target, null);
 });
 
-test('attachSpectrumCursorListeners routes canvas events to the cursor with the current target', () => {
+test('attachSpectrumCursorListeners routes canvas events to the cursor', () => {
     const { window } = new JSDOM('<!doctype html><body><canvas width="220" height="100"></canvas></body>');
     const el = window.document.querySelector('canvas') as unknown as HTMLCanvasElement;
     const calls: string[] = [];
     const cursor: SpectrumCursorHandlers = {
-        move: (_c, padLeft, padRight, pointer, trackIndex, channelIndex) => { calls.push(`move:${padLeft}:${padRight}:${pointer.clientX}:${trackIndex}:${channelIndex}`); },
+        move: (_c, padLeft, padRight, pointer) => { calls.push(`move:${padLeft}:${padRight}:${pointer.clientX}`); },
         leave: () => { calls.push('leave'); },
-        focus: (trackIndex, channelIndex) => { calls.push(`focus:${trackIndex}:${channelIndex}`); },
+        focus: () => { calls.push('focus'); },
         blur: () => { calls.push('blur'); },
     };
     let suppressed = false;
-    let trackIndex = 2;
-    attachSpectrumCursorListeners(el, cursor, { left: 32, right: 6 }, () => ({ trackIndex, channelIndex: 1 }), () => suppressed);
+    attachSpectrumCursorListeners(el, cursor, { left: 32, right: 6 }, () => suppressed);
     el.dispatchEvent(new window.MouseEvent('mousemove', { clientX: 50 }));
     suppressed = true;
     el.dispatchEvent(new window.MouseEvent('mousemove', { clientX: 60 }));
-    trackIndex = 3;
     el.dispatchEvent(new window.FocusEvent('focus'));
     el.dispatchEvent(new window.MouseEvent('mouseleave'));
     el.dispatchEvent(new window.FocusEvent('blur'));
-    assert.deepEqual(calls, ['move:32:6:50:2:1', 'focus:3:1', 'leave', 'blur']);
+    assert.deepEqual(calls, ['move:32:6:50', 'focus', 'leave', 'blur']);
 });

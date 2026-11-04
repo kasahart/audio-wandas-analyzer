@@ -682,9 +682,9 @@ export function renderComparisonStyles(): string {
         .stage-event-mark.is-out [data-action="stage-event-play"] { opacity: 0.5; }
         .stage-event-count { position: absolute; font: 10px sans-serif; color: var(--muted); }
         .track-split { flex: none; height: 5px; cursor: row-resize; background: var(--line); opacity: 0.5; }
-        /* The keyboard's place: a focused lane, spectrum or resize edge has a ring in the theme's focus colour (the mouse's focus has none). */
-        .track-canvas, .track-spectrum-canvas, #spectrum-overlay-canvas { outline: none; }
-        .track-canvas:focus-visible, .track-spectrum-canvas:focus-visible, #spectrum-overlay-canvas:focus-visible, .entry-table td.entry-mark:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+        /* The keyboard's place: a focused lane, the cursor spectrum or a resize edge has a ring in the theme's focus colour (the mouse's focus has none). */
+        .track-canvas, #spectrum-overlay-canvas { outline: none; }
+        .track-canvas:focus-visible, #spectrum-overlay-canvas:focus-visible, .entry-table td.entry-mark:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
         [role="separator"] { touch-action: none; }
         [role="separator"]:focus { outline: none; }
         [role="separator"]:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; background: color-mix(in srgb, var(--accent) 45%, transparent); opacity: 1; }
@@ -693,23 +693,10 @@ export function renderComparisonStyles(): string {
         body.is-stage-view .track-canvas-wrap { padding-right: 0; }
         .track-axis-canvas { flex: none; display: block; }
         .track-canvas { display: block; width: 100%; height: 80px; cursor: crosshair; }
-        .track-spectrum-wrap { width: 180px; flex-shrink: 0; border-left: 1px solid var(--line); background: var(--track-bg); }
-        .track-spectrum-canvas { display: block; width: 100%; height: 80px; cursor: crosshair; }
         .height-resizer { position: absolute; z-index: 5; cursor: row-resize; background: transparent; }
         .height-resizer:hover,
         body.is-height-resizing .height-resizer { background: color-mix(in srgb, var(--accent) 45%, transparent); }
         .track-height-resizer { left: 130px; right: 0; bottom: -3px; height: 6px; }
-
-        /* ── Responsive power spectrum ── */
-        @media (max-width: 900px) {
-            .track-spectrum-wrap { width: 140px; }
-        }
-        @media (max-width: 700px) {
-            .track-spectrum-wrap { width: 100px; }
-        }
-        @media (max-width: 500px) {
-            .track-spectrum-wrap { display: none; }
-        }
 
         /* ── Cursor power spectrum section ── */
         /* The steps view draws its own plots: the lanes' time zoom, heights, exports and cursor spectrum do nothing there. */

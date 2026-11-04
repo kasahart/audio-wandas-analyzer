@@ -137,7 +137,7 @@ export interface FocusedElementLike {
 
 export function keydownContextFor(active: FocusedElementLike | null, helpOverlay: { hidden: boolean } | null, spectrumHasMouse: boolean): KeydownContext {
     return {
-        spectrumActive: spectrumHasMouse || !!(active && (active.id === 'spectrum-overlay-canvas' || active.classList.contains('track-spectrum-canvas'))),
+        spectrumActive: spectrumHasMouse || !!(active && active.id === 'spectrum-overlay-canvas'),
         helpOpen: !!(helpOverlay && !helpOverlay.hidden),
         textEntryFocused: isTextEntryTag(active && active.tagName),
         trackCanvasFocused: !!(active && active.classList.contains('track-canvas')),

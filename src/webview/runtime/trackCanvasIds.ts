@@ -14,16 +14,8 @@ export function trackSpectrogramOverlayCanvasId(trackIndex: number, channelIndex
     return 'track-spectrogram-overlay-' + trackIndex + channelCanvasSuffix(channelIndex);
 }
 
-export function trackSpectrumCanvasId(trackIndex: number, channelIndex: number): string {
-    return 'track-spectrum-' + trackIndex + channelCanvasSuffix(channelIndex);
-}
-
 export function trackCanvasWrapId(trackIndex: number, channelIndex: number): string {
     return 'track-canvas-wrap-' + trackIndex + channelCanvasSuffix(channelIndex);
-}
-
-export function trackSpectrumWrapId(trackIndex: number, channelIndex: number): string {
-    return 'track-spectrum-wrap-' + trackIndex + channelCanvasSuffix(channelIndex);
 }
 
 export function trackSpecCanvasId(trackIndex: number, channelIndex: number): string {

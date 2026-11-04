@@ -206,7 +206,7 @@ window.acquireVsCodeApi = function() {
 };
 const originalClearRect = CanvasRenderingContext2D.prototype.clearRect;
 CanvasRenderingContext2D.prototype.clearRect = function() {
-    if (this.canvas && this.canvas.id === 'track-spectrum-0') {
+    if (this.canvas && this.canvas.id === 'spectrum-overlay-canvas') {
         window.__uiSmokeHostMetrics.spectrumPaints.push(performance.now());
     }
     return originalClearRect.apply(this, arguments);

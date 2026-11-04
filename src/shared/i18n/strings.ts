@@ -93,7 +93,6 @@ export interface UiStrings {
     trackOffsetResetHint: string;
     offsetEditPlaceholder: string;
     offsetEditAriaLabel: string;
-    trackSpectrumTitle: string;
     analysisFailed: string;
     cursorHelpKeys: string;
     tooltipLoopResize: string;
@@ -900,7 +899,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         trackOffsetResetHint: 'Click: type an offset in ms / Double-click: reset to 0',
         offsetEditPlaceholder: 'ms',
         offsetEditAriaLabel: 'Track offset in milliseconds',
-        trackSpectrumTitle: 'Power spectrum at main cursor',
         analysisFailed: 'Analysis failed: ',
         cursorHelpKeys: '← →: move cursor   Shift+←→: 100 ms step   Space: play/pause',
         tooltipLoopResize: 'Drag to resize loop region',
@@ -1694,7 +1692,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         trackOffsetResetHint: 'クリック: オフセットを ms で入力 / ダブルクリック: 0 に戻す',
         offsetEditPlaceholder: 'ms',
         offsetEditAriaLabel: 'トラックオフセット（ミリ秒）',
-        trackSpectrumTitle: 'メインカーソル時刻のパワースペクトル',
         analysisFailed: '解析失敗: ',
         cursorHelpKeys: '← →: カーソル移動　Shift+←→: 100ms移動　Space: 再生/停止',
         tooltipLoopResize: 'ドラッグでループ区間をリサイズ',

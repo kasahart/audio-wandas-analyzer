@@ -4,6 +4,8 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 
 ## Unreleased
 
+- Tracks: the small power spectrum at the right of each track row is gone; the waveform and spectrogram take its width. The cursor spectrum panel at the bottom shows every track's spectrum, as before (#589).
+
 ## 0.0.15
 
 - Compare: with a trigger's events overlaid, the tracks stay under them, each recording as the trigger takes it, with the trigger level as a dashed line, where each event was cut shaded and a mark per event: ▶ plays the event, × leaves it out (↺ puts it back). Each track counts the events used (#567).
