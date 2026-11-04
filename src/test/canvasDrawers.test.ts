@@ -229,10 +229,21 @@ test('drawSpectrogramColorbar: every label stays inside the canvas, and a long u
         assert.ok((end.args[1] as number) + String(end.args[0]).length * 5 <= 800, 'an end value fits before the edge');
     }
     assert.ok(ctx._texts.includes('dB SPL re 20 µPa'));
-    // 16 characters (80 px in the mock) along the 38 px left between the ends (-120 reaches the unit's column):
-    // drawn smaller than the 9 px ends, not cut.
+    // 16 characters (80 px in the mock) along the lane: drawn smaller than the 9 px ends, not cut.
     assert.match(fontByText.get('dB SPL re 20 µPa') ?? '', /^[6-8]px/);
     assert.equal(fontByText.get('0'), '9px monospace');
+});
+
+test('drawSpectrogramColorbar: on the shortest lane the unit still fits', () => {
+    const ctx = makeMockCtx();
+    const fontByText = new Map<string, string>();
+    const fillText = ctx.fillText.bind(ctx);
+    ctx.fillText = (t: string, x: number, y: number) => { fontByText.set(t, ctx.font); fillText(t, x, y); };
+    drawSpectrogramColorbar(ctx, 800, 40, { ...sampleSpec, unit: 'dB re 1 input unit' });
+    // 18 characters are 60 px even at 6 px, past the 36 px of a 40 px lane: the unit ends in "…" instead.
+    const unit = [...fontByText.keys()].find((t) => t.startsWith('dB'));
+    assert.ok(unit?.endsWith('…'), String(unit));
+    assert.ok(ctx.measureText(unit ?? '').width * 6 / 9 <= 36);
 });
 
 test('drawSpectrogramFrequencyAxis + drawSpectrogramColorbar: putImageData を 1 回 (カラーバー) 呼ぶ', () => {

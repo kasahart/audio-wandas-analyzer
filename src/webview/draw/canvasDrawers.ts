@@ -300,15 +300,25 @@ export function drawSpectrogramColorbar(ctx: CanvasDrawCtx, W: number, H: number
     const room = Math.max(1, valuesEnd > W - COLORBAR_UNIT_COLUMN ? H - 2 * COLORBAR_END_VALUE_H : H - 4);
     const width = ctx.measureText(unit).width;
     const size = width > room ? Math.max(COLORBAR_UNIT_MIN_PX, Math.floor(9 * room / width)) : 9;
+    const unitText = colorbarUnitText(ctx, unit, width, size / 9, room);
     ctx.save();
     ctx.translate(W - COLORBAR_UNIT_COLUMN / 2, H / 2);
     ctx.rotate(-Math.PI / 2);
     ctx.font = size + 'px monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(unit, 0, 0);
+    ctx.fillText(unitText, 0, 0);
     ctx.restore();
     ctx.restore();
+}
+
+/** A unit that is still too long at the smallest size (a short lane) ends in "…" instead of running off the canvas. */
+/** Widths are measured at the 9 px font and scaled to the drawn size. */
+function colorbarUnitText(ctx: CanvasDrawCtx, unit: string, width9: number, scale: number, room: number): string {
+    if (width9 * scale <= room) { return unit; }
+    let text = unit;
+    while (text.length > 1 && ctx.measureText(text + '…').width * scale > room) { text = text.slice(0, -1); }
+    return text.trimEnd() + '…';
 }
 
 const COLORBAR_UNIT_MIN_PX = 6;
