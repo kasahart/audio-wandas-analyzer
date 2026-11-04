@@ -24,7 +24,7 @@ async function loadExtensionHostPath(page: Page): Promise<void> {
     });
 }
 
-/** Held only with AWA_PERF=1, like scale100k.spec.ts: under a full parallel run the rate dips below target. */
+/** Held only with AWA_PERF=1: under a full parallel run the rate dips below target. */
 const holdRate = process.env['AWA_PERF'] === '1';
 const RESPONSE_RATE_TARGET = 27;
 
