@@ -5,6 +5,7 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 ## Unreleased
 
 - Tracks: the spectrogram's auto colour scale ends on round dB values (-120…-23.21 dB now reads -120…-20): each end is widened outward to the coarsest 1, 2 or 5 × 10ⁿ step that moves neither end by more than 8% of the range shown. The cursor spectrum's auto dB axis does the same; values typed in the range popover or ⚙ stay as typed (#595).
+- Compare: zooming into a spectrum with many more bins than pixels (such as an `fft` over the whole file) only sharpens the same line: each point is the power mean of its band, as before zooming, instead of a mass filled down to the noise floor. A cepstrum is drawn as each stretch's minimum and maximum, as a waveform is, instead of a jagged zigzag through alternate peaks (#583).
 
 ## 0.0.15
 
