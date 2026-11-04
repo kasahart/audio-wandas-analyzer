@@ -35,6 +35,12 @@ export function invalidReason(step: RecipeStep, strings: StepBarStrings, steps: 
 // eslint-disable-next-line @typescript-eslint/no-base-to-string -- Recipe params are JSON scalars
 export const formatNumber = (value: unknown): string => (typeof value === 'number' ? String(Math.round(value * 1000) / 1000) : String(value ?? ''));
 
+/**
+ * A number as a form field holds it: the stored value itself (to 12 significant digits, which hides float noise), not
+ * the chip's three decimals, so a 0.0015 s cutoff reads 0.0015 and typing what is shown changes nothing.
+ */
+export const fieldNumber = (value: unknown): string => (typeof value === 'number' ? String(Number(value.toPrecision(12))) : formatNumber(value));
+
 /** A wandas channel index (from 0) as the bar shows it, from 1. */
 /** A channel index as shown, from 1; a negative one (from the last) as its channel when the channels are known. */
 export const channelText = (value: unknown, channels?: number): string => (typeof value !== 'number' ? '?' : value >= 0 ? String(value + 1) : channels ? String(value + channels + 1) : String(value));

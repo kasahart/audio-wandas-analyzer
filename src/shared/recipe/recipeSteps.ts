@@ -59,6 +59,11 @@ const SETTABLE: Record<string, readonly StepParam[]> = {
     'wandas.frame.get_channel': [{ name: 'channel_idx', kind: 'int', min: 0, max: 63, initial: 0, belowChannels: true }],
     // Likewise one of length or duration is needed: a new step starts at the region's length (StepLimits.lengthS).
     'wandas.audio.fix_length': [{ name: 'duration', kind: 'float', unit: 's', min: 0, max: 3600, initial: 1 }],
+    // A lifter keeps the quefrencies below (low) or above (high) its cutoff: wandas has no default cutoff, so a new
+    // step starts at 2 ms, the spectral-envelope split wandas' own examples use. A cutoff the cepstrum is too short
+    // for is wandas' to refuse.
+    'wandas.cepstral.lifter': [{ name: 'cutoff', kind: 'float', unit: 's', min: 0, initial: 0.002 }, { name: 'mode', kind: 'enum', options: ['low', 'high'] }],
+    'wandas.cepstrogram.lifter': [{ name: 'cutoff', kind: 'float', unit: 's', min: 0, initial: 0.002 }, { name: 'mode', kind: 'enum', options: ['low', 'high'] }],
     'wandas.audio.resampling': [{ name: 'target_sr', kind: 'float', unit: 'Hz', min: 0, max: 384000, initial: 16000 }],
     'wandas.audio.rms_trend': [
         { name: 'frame_length', kind: 'int', min: 16, max: 65536 },
