@@ -7,7 +7,7 @@
  * A line over time (a waveform, a level over time) is panned along: as the track lanes do (planLaneRange), its
  * detail is fetched for a couple of screens either side at one screen's density, asked again once less than a
  * screen of it is left, at once while only panning, and the detail already fetched is drawn until the new one is
- * in (drawn), so a pan does not show the coarse whole-file line.
+ * in (drawn), so neither a pan nor a zoom in shows the coarse whole-file line.
  */
 import type { StageDetail, StageView } from '../../shared/protocol/backendProtocol';
 import { computeReqBounds, planLaneRange, RANGE_CACHE_MIN_POINT_RATIO, rangeHasDetail, rangeRequestPointCount } from '../waveform/rangeRequestPolicy';
@@ -28,10 +28,10 @@ export interface DetailPlanner {
      */
     spec(base: { key: string; message: StageSpec['message'] }, coarse: StageView, x: NormalizedRange, y: NormalizedRange | null, width: number): StageSpec | null;
     /**
-     * The details already asked for of a line over time that cover `x` finely enough, newest first: what it is drawn
-     * from while the one `spec` gives is not in yet. Empty for any other picture.
+     * The details already asked for of a line over time that cover `x`, the finest first: what it is drawn from
+     * while the one `spec` gives is not in yet (on a pan, and on a zoom until it settles). Empty for any other picture.
      */
-    drawn(base: { key: string }, coarse: StageView, x: NormalizedRange, width: number): StageSpec[];
+    drawn(base: { key: string }, coarse: StageView, x: NormalizedRange): StageSpec[];
 }
 
 interface Asked {
@@ -106,10 +106,12 @@ export function createDetailPlanner(clock: { now(): number }, timers: Pick<Windo
             const detail: StageDetail = { x: [axisValueAt(coarse, xs.reqStart), axisValueAt(coarse, xs.reqEnd)], points, ...(ys ? { y: [rowValueAt(coarse, ys.reqStart), rowValueAt(coarse, ys.reqEnd)] } : {}) };
             return keep(base.key, { x: { start: xs.reqStart, end: xs.reqEnd }, y: ys ? { start: ys.reqStart, end: ys.reqEnd } : null, points, span: spanOf(x), spec: detailSpec(base, detail) });
         },
-        drawn(base, coarse, x, width) {
+        drawn(base, coarse, x) {
             if (!prefetchesAround(coarse) || whole(x)) return [];
-            const density = perScreen(x, width);
-            return (asked.get(base.key) ?? []).filter(item => dense(item, x, x, density)).reverse().map(item => item.spec);
+            // Every one covering the view, the finest first: zoomed in past them, a fetched detail is still finer
+            // than the whole-file picture until the zoom's own is in.
+            const density = (item: Asked): number => item.points / spanOf(item.x);
+            return (asked.get(base.key) ?? []).filter(item => covers(item.x, x)).reverse().sort((a, b) => density(b) - density(a)).map(item => item.spec);
         },
     };
 }

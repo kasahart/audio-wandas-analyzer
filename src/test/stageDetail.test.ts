@@ -41,18 +41,22 @@ test('panning keeps the detail fetched while a screen of it is left, then asks a
     assert.notEqual(second, first);
     assert.ok(Math.abs(second.message.detail!.x[0] - 35) < 1e-9);
     // ...while the first, which still covers the view, is drawn until it is in.
-    assert.deepEqual(detail.drawn(base, timeLine, { start: 0.55, end: 0.65 }, WIDTH), [second, first]);
+    assert.deepEqual(detail.drawn(base, timeLine, { start: 0.55, end: 0.65 }), [second, first]);
     // Off the first range, only the second can draw the view.
-    assert.deepEqual(detail.drawn(base, timeLine, { start: 0.75, end: 0.85 }, WIDTH), [second]);
+    assert.deepEqual(detail.drawn(base, timeLine, { start: 0.75, end: 0.85 }), [second]);
 });
 
-test('a zoom past the fetched density waits to settle and does not draw the coarser detail', () => {
+test('a zoom in waits to settle, drawing the detail fetched before (finer than the whole picture) meanwhile', () => {
     const { detail, advance } = planner();
     advance(DETAIL_SETTLE_MS);
-    detail.spec(base, timeLine, { start: 0.4, end: 0.5 }, null, WIDTH);
+    const wide = detail.spec(base, timeLine, { start: 0.4, end: 0.5 }, null, WIDTH)!;
     detail.moved();
     assert.equal(detail.spec(base, timeLine, { start: 0.44, end: 0.46 }, null, WIDTH), null);
-    assert.deepEqual(detail.drawn(base, timeLine, { start: 0.44, end: 0.46 }, WIDTH), []);
+    assert.deepEqual(detail.drawn(base, timeLine, { start: 0.44, end: 0.46 }), [wide]);
+    advance(DETAIL_SETTLE_MS);
+    const narrow = detail.spec(base, timeLine, { start: 0.44, end: 0.46 }, null, WIDTH)!;
+    // The finest first.
+    assert.deepEqual(detail.drawn(base, timeLine, { start: 0.44, end: 0.46 }), [narrow, wide]);
 });
 
 test('other pictures keep the view\'s own range with a 5 % margin, and draw nothing else', () => {
@@ -62,5 +66,5 @@ test('other pictures keep the view\'s own range with a 5 % margin, and draw noth
     const [from, to] = spec.message.detail!.x;
     assert.ok(Math.abs(from - 39.5) < 1e-9 && Math.abs(to - 50.5) < 1e-9, `${from}–${to}`);
     assert.equal(spec.message.detail!.points, 2 * WIDTH);
-    assert.deepEqual(detail.drawn(base, spectrum, { start: 0.4, end: 0.5 }, WIDTH), []);
+    assert.deepEqual(detail.drawn(base, spectrum, { start: 0.4, end: 0.5 }), []);
 });

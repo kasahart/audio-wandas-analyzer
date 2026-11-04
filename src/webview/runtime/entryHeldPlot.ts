@@ -140,11 +140,10 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
         // Zoomed, from the Frame's full resolution once it is in (the coarse picture until then).
         const fine = (spec: StageSpec): StageView | null => {
             if (coarse.kind === 'bar' || coarse.kind === 'none') return null;
-            const width = canvas.clientWidth || 300;
-            const finer = detail.spec(spec, coarse, zoom.x, zoom.y, width);
+            const finer = detail.spec(spec, coarse, zoom.x, zoom.y, canvas.clientWidth || 300);
             if (finer && !source.ensure(finer, [path])) return source.view(finer, path) ?? null;
-            // A line over time panned past its detail: the detail already in, until the next one is.
-            return detail.drawn(spec, coarse, zoom.x, width).map(drawn => source.view(drawn, path)).find(view => !!view) ?? null;
+            // A line over time panned or zoomed past its detail: the detail already in, until the next one is.
+            return detail.drawn(spec, coarse, zoom.x).map(drawn => source.view(drawn, path)).find(view => !!view) ?? null;
         };
         if (!specs.without) {
             paintView(fine(specs.with) ?? coarse, coarse, stageRange([coarse]), stageAxes(strings, coarse, input), zoom, { color: ROLE_COLORS[1] });
