@@ -732,6 +732,15 @@ test('a trigger added from ＋ fires at half the tracks\' peak, draws each event
     await answer(page, { frame: 'ChannelFrameSegments', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', unit: 'FS', xs: [-0.01, 0, 0.05, 0.19], events: [event(0, 0.5), event(1, 0.4), event(2, 0.45)] });
     // Each recording's events are its lines: no difference between them, the headline counts them.
     await expect(page.locator('[data-stage-headline]')).toHaveText(STR.stageEventCounts.replace('{base}', '3').replace('{compare}', '3'));
+    // Under them the tracks, each recording as the trigger takes it (the step before it): the trigger's level, a mark per
+    // event and the events used.
+    await expect.poll(async () => (await stageScans(page)).at(-1)?.stage).toBe('node-1');
+    await answer(page, { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', unit: 'FS', xs: [0, 0.75, 1.5], values: [-0.5, 0.5, -0.5],
+        waveform: { min: [-0.5, -0.4], max: [0.5, 0.4], minT: [0.2, 0.7], maxT: [0.3, 0.8], absolutePeak: 0.5, unit: 'FS', ref: 1 } });
+    await expect.poll(async () => Number(await page.locator('.track-stage').getAttribute('data-lanes-marked'))).toBeGreaterThan(0);
+    const counts = page.locator('.stage-event-count');
+    await expect(counts.first()).toHaveText(STR.stageEventsUsed.replace('{used}', '3').replace('{total}', '3'));
+    await expect(page.locator('.stage-event-mark').first()).toContainText('▶ 1');
     const plot = page.locator('[data-stage-canvas="overlay"]');
     const box = (await plot.boundingBox())!;
     // The pointer on a line names its recording and event.
@@ -767,6 +776,22 @@ test('a trigger added from ＋ fires at half the tracks\' peak, draws each event
     await expect(footer).toHaveText(STR.stageEventClickOut);
     await page.mouse.click(x, lineY);
     await expect(footer).toHaveText(new RegExp(`#[123]${escapeRegExp(STR.stageEventOut.split('#{n}')[1])}$`));
+    // The track's mark of the event left out: ↺ puts it back, × leaves it out again; its lane counts the events used.
+    await expect(counts.filter({ hasText: STR.stageEventsUsed.replace('{used}', '2').replace('{total}', '3') })).toHaveCount(1);
+    const out = page.locator('.stage-event-mark.is-out [data-action="stage-event-toggle"]');
+    await expect(out).toHaveText('↺');
+    await out.click();
+    await expect(page.locator('#task-status')).toHaveText(new RegExp(`#[123]${escapeRegExp(STR.stageEventIn.split('#{n}')[1])}$`));
+    await expect(page.locator('.stage-event-mark.is-out')).toHaveCount(0);
+    await page.locator('[data-action="stage-event-toggle"]').first().click();
+    await expect(page.locator('.stage-event-mark.is-out')).toHaveCount(1);
+    await page.locator('[data-action="stage-event-play"]').first().click();
+    await page.screenshot({ path: 'test-results/trigger-lanes.png' });
+    // Back to the tracks, the plain tracks have no marks; the comparison again shows them.
+    await page.locator('[data-action="content-waveform"]').click();
+    await expect(page.locator('.stage-event-marks')).toHaveCount(0);
+    await page.locator('[data-action="content-stage"]').click();
+    await expect(page.locator('.stage-event-mark.is-out')).toHaveCount(1);
     // After the trigger, ＋ offers the events' mean, transfer function and coherence; a Frame's step goes before it.
     await bar.locator('[data-action="step-add"]').click();
     await expect(bar.locator('.step-menu-item[data-op="wandas.segments.average"]')).not.toHaveClass(/is-off|is-earlier/);

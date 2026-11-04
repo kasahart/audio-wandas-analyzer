@@ -62,6 +62,8 @@ export const GUI_TRIGGERABILITY_WEBVIEW_ACTION_IDS = [
     'stage-base-scan',
     'stage-base-info',
     'stage-base-list',
+    'stage-event-play',
+    'stage-event-toggle',
     'spectrogram-settings',
     'zoom-out',
     'zoom-in',
@@ -335,9 +337,9 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
     },
     {
         id: 'compare-trigger-events',
-        label: 'A trigger\'s events on the compare view: a click on an event\'s line leaves that event of that recording out of the steps after the trigger (drawn faint; another click or ↶ puts it back)',
-        entryPoints: ['canvas-gesture'],
-        triggers: ['Click (event line)'],
+        label: 'A trigger\'s events on the compare view: a click on an event\'s line, or × on its mark over the tracks, leaves that event of that recording out of the steps after the trigger (drawn faint; ↺, another click or ↶ puts it back); ▶ on the mark plays the event; the tracks show the trigger level and count the events used',
+        entryPoints: ['canvas-gesture', 'track-control'],
+        triggers: ['Click (event line)', 'stage-event-play', 'stage-event-toggle'],
         regressionLayers: ['node:test', 'ui-smoke'],
     },
     {
