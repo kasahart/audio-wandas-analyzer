@@ -417,6 +417,10 @@ const server = http.createServer((req,res) => {
         assert.equal(toneCsvRows.length,2048/2+1);
         // The menu closes after an export; close it only if it is still open, or a click would open it over the spectra.
         if (await toneCsvMenu.evaluate(node=>node.open)) await toneCsvMenu.locator('summary').click();
+        // The cursor spectrum panel starts folded: open it to read the peaks, and fold it again afterwards.
+        const spectrumToggle = page.locator('#spectrum-section-header [data-action="toggle-spectrum-panel"]');
+        const spectrumWasFolded = await spectrumToggle.getAttribute('aria-expanded') === 'false';
+        if (spectrumWasFolded) await spectrumToggle.click();
         for (const [channel, hz] of [[0,440],[1,880]]) {
             const peakRow = toneCsvRows.reduce((best,row)=>row[channel*2+1]>best[channel*2+1]?row:best);
             const peakHz = peakRow[channel*2], peakDb = peakRow[channel*2+1];
@@ -444,6 +448,7 @@ const server = http.createServer((req,res) => {
             console.log(`Known ${hz} Hz: CSV/hover ${peakHz} Hz, actual STFT band ${band.hz.toFixed(2)} Hz (every FFT bin).`);
         }
         await page.screenshot({path:path.join(root,'test-results/frequency-tones.png')});
+        if (spectrumWasFolded) await spectrumToggle.click();
         assert.equal(await page.locator('audio').evaluateAll(xs=>xs.every(x=>x.paused)),true);
         await clearAll();
         const mobile=await browser.newPage({viewport:{width:390,height:844},isMobile:true,hasTouch:true});
