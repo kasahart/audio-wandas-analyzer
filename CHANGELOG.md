@@ -4,7 +4,7 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 
 ## Unreleased
 
-- Tracks: the spectrogram's auto colour scale ends on round dB values (-23.21…-120 dB now reads -20…-120): each end is widened outward to the largest 1, 2 or 5 × 10ⁿ step that fits ten times in the range. The cursor spectrum's auto dB axis does the same; values typed in the range popover or ⚙ stay as typed (#595).
+- Tracks: the spectrogram's auto colour scale ends on round dB values (-120…-23.21 dB now reads -120…-20): each end is widened outward to the coarsest 1, 2 or 5 × 10ⁿ step that moves neither end by more than 8% of the range shown. The cursor spectrum's auto dB axis does the same; values typed in the range popover or ⚙ stay as typed (#595).
 
 ## 0.0.15
 

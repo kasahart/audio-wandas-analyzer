@@ -771,7 +771,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function applySpectrumDisplaySettings(slice: SpectrumSlice) {
         const displaySettings = spectrogramSettings.display;
         // Typed ends stay as typed; auto ends are widened to round values, as the spectrogram's colour range.
-        const rounded = niceRange(slice.minDb, slice.maxDb);
+        const rounded = niceRange(displaySettings.dbMin ?? slice.minDb, displaySettings.dbMax ?? slice.maxDb);
         const minDb = displaySettings.dbMin != null ? displaySettings.dbMin : rounded.low;
         const maxDb = displaySettings.dbMax != null ? displaySettings.dbMax : rounded.high;
         const requestedMaxFreq = displaySettings.maxFrequencyHz;

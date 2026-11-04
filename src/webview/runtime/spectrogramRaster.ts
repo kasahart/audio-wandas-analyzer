@@ -43,8 +43,8 @@ export function spectrogramDisplayBounds(
     const top = Math.max(display.maxFrequencyHz != null ? display.maxFrequencyHz : auto.maxFrequencyHz, min);
     // A band starting above the lane's own data keeps its range, so the lane shows it blank rather than other frequencies.
     const clamp = auto === spec && min < spec.maxFrequencyHz;
-    // Typed ends stay as typed; auto ends are widened to round values.
-    const rounded = niceRange(auto.minDb, auto.maxDb);
+    // Typed ends stay as typed; auto ends are widened to round values for the range actually shown.
+    const rounded = niceRange(display.dbMin ?? auto.minDb, display.dbMax ?? auto.maxDb);
     return {
         dbLo: display.dbMin != null ? display.dbMin : rounded.low,
         dbHi: display.dbMax != null ? display.dbMax : rounded.high,

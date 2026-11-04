@@ -68,9 +68,12 @@ test('160,000 channel rows give their distribution (no spread of every value int
     assert.ok(leq.low < -40 && leq.high > -21);
 });
 
-test('niceRange: 自動レンジの端を、幅の 1/10 以下で最大の 1・2・5 刻みで外側に丸める', () => {
+test('niceRange: 自動レンジの端を、各端の広がりが幅の 8% 以内で最も粗い 1・2・5 刻みで外側に丸める', () => {
     assert.deepEqual(niceRange(-120, -23.21), { low: -120, high: -20 });
-    assert.deepEqual(niceRange(-63.4, -23.2), { low: -64, high: -22 });
+    // 10 dB steps would leave 9.9 dB unused at the top; 5 dB steps leave 4.9.
+    assert.deepEqual(niceRange(-120, -19.9), { low: -120, high: -15 });
+    assert.deepEqual(niceRange(-120, -20.1), { low: -120, high: -20 });
+    assert.deepEqual(niceRange(-63.4, -23.2), { low: -65, high: -20 });
     assert.deepEqual(niceRange(-35.3, -23.3), { low: -36, high: -23 });
 });
 
@@ -78,6 +81,7 @@ test('niceRange: 小さな幅や正の値でも丸め、丸めた値に浮動小
     assert.deepEqual(niceRange(-3.04, -0.12), { low: -3.2, high: 0 });
     assert.deepEqual(niceRange(0.013, 0.087), { low: 0.01, high: 0.09 });
     assert.deepEqual(niceRange(12, 112), { low: 10, high: 120 });
+    assert.deepEqual(niceRange(-100, 0.1), { low: -100, high: 5 });
     // Already round ends stay where they are.
     assert.deepEqual(niceRange(-90, -10), { low: -90, high: -10 });
     assert.deepEqual(niceRange(-110, 0), { low: -110, high: 0 });
