@@ -92,6 +92,11 @@ const SETTABLE: Record<string, readonly StepParam[]> = {
 
 /** Steps that compare the channels of one recording, pair by pair: they need two channels. */
 export const CROSS_CHANNEL: ReadonlySet<string> = new Set(['wandas.audio.coherence', 'wandas.audio.cross_correlation', 'wandas.audio.csd', 'wandas.audio.transfer_function', 'wandas.spectrogram.csd', SEGMENTS_TRANSFER, SEGMENTS_COHERENCE]);
+/**
+ * Steps that need two channels: the cross-channel ones, and channel_difference, which on one channel subtracts the
+ * only channel from itself (all zeros).
+ */
+export const NEEDS_TWO_CHANNELS: ReadonlySet<string> = new Set([...CROSS_CHANNEL, 'wandas.audio.channel_difference']);
 export const SELECT_PAIR = 'wandas.frame.select_pair';
 /**
  * Cross-channel steps that come with their pair (select_pair after them). A CSD does not: coherence and the
@@ -349,9 +354,9 @@ export function recipeSteps(recipe: RecipeDocument, limits?: number | StepLimits
             : output === undefined && !skipped.has(node.id) ? { param: '', reason: { kind: 'frame', limit: 0, text: frame } }
             : failed !== undefined ? { param: '', reason: { kind: 'failed', limit: 0, text: failed } }
             : !skipped.has(node.id) && wrongRate(node.operation, rate) !== undefined ? { param: '', reason: { kind: 'rate', limit: wrongRate(node.operation, rate) ?? 0, text: String(rate) } }
-            // One channel has nothing to be compared with: its only pair is itself. A bypassed step does not run,
+            // One channel has nothing to be compared with: its only pair is itself (a channel difference is all zeros). A bypassed step does not run,
             // so the channels there do not bound it.
-            : CROSS_CHANNEL.has(node.operation) && !skipped.has(node.id) && !slotted.has(node.id) && channels !== undefined && channels < 2 ? { param: '', reason: { kind: 'channels', limit: 2, ...(narrowedBy ? { text: narrowedBy } : {}) } }
+            : NEEDS_TWO_CHANNELS.has(node.operation) && !skipped.has(node.id) && !slotted.has(node.id) && channels !== undefined && channels < 2 ? { param: '', reason: { kind: 'channels', limit: 2, ...(narrowedBy ? { text: narrowedBy } : {}) } }
                 // A pairwise Frame's rows are its pairs (n² of n channels): get_channel there picks a row.
                 : invalidParam(params, editable, bounds, skipped.has(node.id) ? undefined : PAIRWISE_FRAMES.has(frame) && node.operation === 'wandas.frame.get_channel' && channels !== undefined ? channels * channels : channels);
         const step: RecipeStep = {
@@ -468,8 +473,8 @@ export function addableOperations(frame: string, lacks?: ReadonlySet<string>, ch
         const lacking = (operation.needs ?? []).filter(name => lacks?.has(name));
         const required = wrongRate(operation.id, sampleRate);
         const off: AddableOperation['off'] = outputOf(operation, frame) === undefined ? 'frame' : refused !== undefined ? 'refuses'
-            // One channel: a cross-channel step goes against the base slot's recording, where it can.
-            : lacking.length ? 'unavailable' : required !== undefined ? 'rate' : CROSS_CHANNEL.has(operation.id) && !SLOT_REFERABLE.has(operation.id) && channels !== undefined && channels < 2 ? 'channels' : needs.length ? 'required' : undefined;
+            // One channel: a step that needs two is greyed, except a cross-channel one that can go against the base slot's recording.
+            : lacking.length ? 'unavailable' : required !== undefined ? 'rate' : NEEDS_TWO_CHANNELS.has(operation.id) && !SLOT_REFERABLE.has(operation.id) && channels !== undefined && channels < 2 ? 'channels' : needs.length ? 'required' : undefined;
         const why = refused ?? (lacking.length ? lacking.join(', ') : required !== undefined ? String(required) : undefined);
         return { operation, name: lastSegment(operation.id), settable, ...(off ? { off } : {}), ...(why !== undefined ? { why } : {}) };
     }).sort((a, b) => Number(!!a.off) - Number(!!b.off));
