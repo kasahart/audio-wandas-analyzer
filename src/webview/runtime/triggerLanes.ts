@@ -49,7 +49,10 @@ const MARK_GAP_PX = 44;
 export function paintTriggerLanes(frame: TriggerLanesFrame): number {
     const { strings, trigger } = frame;
     const views = frame.tracks.map(track => frame.signal(track.filePath) ?? null);
-    const range: PaneRange = stageRange([...views, levelView(trigger.threshold)]);
+    // The level stays in sight above or below every signal (a waveform's range leaves other views out).
+    const base = stageRange([...views, levelView(trigger.threshold)]);
+    const margin = Math.abs(trigger.threshold) * 0.05;
+    const range: PaneRange = { ...base, min: Math.min(base.min, trigger.threshold - margin), max: Math.max(base.max, trigger.threshold + margin) };
     let drawn = 0;
     frame.tracks.forEach((track, index) => {
         const canvas = track.canvas;
@@ -88,7 +91,7 @@ export function paintTriggerLanes(frame: TriggerLanesFrame): number {
             context.beginPath(); context.moveTo(left, y); context.lineTo(left + width, y); context.stroke();
             context.setLineDash([]);
             context.font = '10px sans-serif';
-            const label = strings.stageThreshold.replace('{value}', String(trigger.threshold)).replace('{unit}', unit).replace('{ch}', String(trigger.channel + 1)).trim();
+            const label = strings.stageThreshold.replace('{value}', String(trigger.threshold)).replace('{unit}', unit).trim();
             context.fillStyle = text;
             context.fillText(label, left + width - context.measureText(label).width - 4, Math.max(top + 10, y - 3));
             context.restore();

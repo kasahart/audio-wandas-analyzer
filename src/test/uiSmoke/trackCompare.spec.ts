@@ -787,6 +787,11 @@ test('a trigger added from ＋ fires at half the tracks\' peak, draws each event
     await expect(page.locator('.stage-event-mark.is-out')).toHaveCount(1);
     await page.locator('[data-action="stage-event-play"]').first().click();
     await page.screenshot({ path: 'test-results/trigger-lanes.png' });
+    // Back to the tracks, the plain tracks have no marks; the comparison again shows them.
+    await page.locator('[data-action="content-waveform"]').click();
+    await expect(page.locator('.stage-event-marks')).toHaveCount(0);
+    await page.locator('[data-action="content-stage"]').click();
+    await expect(page.locator('.stage-event-mark.is-out')).toHaveCount(1);
     // After the trigger, ＋ offers the events' mean, transfer function and coherence; a Frame's step goes before it.
     await bar.locator('[data-action="step-add"]').click();
     await expect(bar.locator('.step-menu-item[data-op="wandas.segments.average"]')).not.toHaveClass(/is-off|is-earlier/);

@@ -523,7 +523,9 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         }
         for (const { spec: wanted, paths } of byChannel.values()) want(wanted, paths);
         // The tracks under a trigger: each file as the trigger takes it, once the events are in.
-        const signalSpec = (path: string): StageSpec | undefined => (marked && signalStage ? spec(signalStage, channelFor(path)) : undefined);
+        // A whole file (no channel compared) is drawn as the trigger's channel, the one held against its level.
+        const triggerChannel = typeof triggerShown?.params.channel === 'number' ? triggerShown.params.channel : 0;
+        const signalSpec = (path: string): StageSpec | undefined => (marked && signalStage ? spec(signalStage, channelFor(path) ?? triggerChannel) : undefined);
         if (marked && !waiting) {
             const asked = new Map<string, { wanted: StageSpec; paths: string[] }>();
             for (const path of ownOf(files)) {
@@ -630,6 +632,8 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             state.on = next;
             root.hidden = !state.on;
             if (!state.on) deps.showLanes(true);
+            // The plain tracks are not repainted by the comparison: its marks on them go when it closes.
+            if (!state.on) { clearTriggerLanes(document); root.dataset.lanesMarked = ''; marks = null; }
             if (!state.on) document.querySelectorAll<HTMLElement>('[data-lane-label]').forEach(canvas => { canvas.setAttribute('aria-label', canvas.dataset.laneLabel ?? ''); delete canvas.dataset.laneLabel; });
             // A selection not yet taken as the region is not taken later, when the comparison is opened some other way.
             if (!state.on) state.pendingRegion = null;
