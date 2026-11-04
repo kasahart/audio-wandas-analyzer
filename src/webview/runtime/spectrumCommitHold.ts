@@ -3,7 +3,7 @@ export const SPECTRUM_COMMIT_HOLD_MS = 1000;
 
 /**
  * One action (a cursor click, a stop) asks every track for its cursor spectrum, and the answers come back one by one.
- * While some are still on its way the last picture stays, so every track changes in the same frame — up to a cap,
+ * While some are still on their way the last picture stays, so every track changes in the same frame — up to a cap,
  * so a slow file never freezes the others.
  */
 export class SpectrumCommitHold {

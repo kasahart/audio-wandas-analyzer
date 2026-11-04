@@ -4,6 +4,8 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 
 ## Unreleased
 
+- Tracks: after a cursor click or a stop, every track's analysis window band moves in the same frame once all their cursor spectra have arrived (at most 1 s later), instead of reappearing track by track from the top (#598).
+
 ## 0.0.15
 
 - Compare: with a trigger's events overlaid, the tracks stay under them, each recording as the trigger takes it, with the trigger level as a dashed line, where each event was cut shaded and a mark per event: ▶ plays the event, × leaves it out (↺ puts it back). Each track counts the events used (#567).
