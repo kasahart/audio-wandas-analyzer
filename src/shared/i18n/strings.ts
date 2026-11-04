@@ -432,6 +432,11 @@ export interface UiStrings {
     stageNoDelta: string;
     stageEventCounts: string;
     stageNoEvents: string;
+    stageEventOut: string;
+    stageEventIn: string;
+    stageEventClickOut: string;
+    stageEventClickIn: string;
+    stageEventsBack: string;
     stageMaxDelta: string;
     compareLevelsAt: string;
     compareHintPlot: string;
@@ -495,6 +500,8 @@ export interface UiStrings {
     helpRowStepKeys: string;
     helpRowStepBypass: string;
     helpRowStepUndo: string;
+    helpCompareEventKey: string;
+    helpCompareEvent: string;
     helpSectionGeneral: string;
     helpSectionLanes: string;
     helpSectionEntry: string;
@@ -1225,6 +1232,11 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stageNoDelta: '— (Δ only between pictures of one kind on the same axes)',
         stageEventCounts: '{base} events in the base, {compare} in the compared',
         stageNoEvents: 'No event crossed the trigger level · lower it in ⚙',
+        stageEventOut: '{name} #{n} left out',
+        stageEventIn: '{name} #{n} put back',
+        stageEventClickOut: 'click to leave out',
+        stageEventClickIn: 'left out · click to put back',
+        stageEventsBack: 'The conditions changed, so the events left out are back',
         stageMaxDelta: 'largest Δ {at} {delta}',
         compareLevelsAt: '{at} base {base} / compare {compare}',
         compareHintPlot: 'Drag: zoom into the box / Ctrl+Wheel: zoom / Shift+Wheel, swipe sideways: scroll / + −: zoom / Double-click: reset zoom',
@@ -1284,6 +1296,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpRowStepKeys: 'step bar: press a step to see its Frame in the comparison, hold it to see what it does, ＋ adds a wandas operation, Delete on a step removes it',
         helpRowStepBypass: 'step bar: M on a step bypasses it (kept in place, skipped), M again brings it back',
         helpRowStepUndo: 'step bar: undo and redo its edits (↶ ↷)',
+        helpCompareEventKey: 'Click an event line',
+        helpCompareEvent: 'leave that event of the recording out of the steps after the trigger, or put it back',
         helpSectionGeneral: 'Everywhere',
         helpSectionLanes: 'Tracks',
         helpSectionEntry: 'Table',
@@ -2007,6 +2021,11 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stageNoDelta: '— 差は同じ種類・同じ軸の結果どうしでだけ出せます',
         stageEventCounts: 'イベント 基準 {base} 個・比較 {compare} 個',
         stageNoEvents: 'トリガーのレベルを超えたところがありません · ⚙ で下げてください',
+        stageEventOut: '{name} #{n} を外しました',
+        stageEventIn: '{name} #{n} を戻しました',
+        stageEventClickOut: 'クリックで外す',
+        stageEventClickIn: '外しています · クリックで戻す',
+        stageEventsBack: '条件を変えたので、外したイベントを戻しました',
         stageMaxDelta: '最大 Δ {at} {delta}',
         compareLevelsAt: '{at} 基準 {base} / 比較 {compare}',
         compareHintPlot: 'ドラッグ: 囲んだ範囲にズーム / Ctrl+ホイール: ズーム / Shift+ホイール・横スワイプ: 横にスクロール / + −: ズーム / ダブルクリック: ズームをリセット',
@@ -2066,6 +2085,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpRowStepKeys: '手順バー: 手順を押すとその結果、長押しでその手順あり／なし、＋ で wandas の操作を足す、手順で Delete で外す',
         helpRowStepBypass: '手順バー: 手順で M を押すとバイパス（残したまま飛ばす）、もう一度で戻す',
         helpRowStepUndo: '手順バー: 編集を元に戻す／やり直す（↶ ↷）',
+        helpCompareEventKey: 'イベントの線をクリック',
+        helpCompareEvent: 'その録音のそのイベントを、トリガーより後の手順から外す／戻す',
         helpSectionGeneral: 'どこでも',
         helpSectionLanes: 'トラック',
         helpSectionEntry: 'ファイル一覧',

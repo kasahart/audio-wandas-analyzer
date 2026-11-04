@@ -10,6 +10,7 @@ test.beforeAll(() => { scanned = entry100Results(); });
 
 type Posted = { type: string; requestId: string; filePaths: string[]; stage?: string; reference?: { filePath: string; step: string; recipe: { nodes: Array<{ operation: string }> } }; region?: { start: number; end: number }; recipe?: { nodes: Array<{ operation: string }> }; folder?: string; files?: Array<{ name: string; text?: string }> };
 const posted = (page: Page): Promise<Posted[]> => page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Posted[] }).__uiSmokePostedMessages);
+const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const stageScans = async (page: Page): Promise<Posted[]> => (await posted(page)).filter(message => message.type === 'compare-scan' && message.requestId.startsWith('track-stage'));
 const spectrum = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity: 'level', xs: [100, 1000, 5000], values: [-40, -30, -50] };
 
@@ -735,16 +736,59 @@ test('a trigger added from ＋ fires at half the tracks\' peak, draws each event
     const box = (await plot.boundingBox())!;
     // The pointer on a line names its recording and event.
     const x = box.x + 52 + (box.width - 56) * (0.01 / 0.2);
-    for (let y = box.y + 6; y < box.y + box.height / 2; y += 3) {
-        await page.mouse.move(x, y);
-        if (/#\d/.test(await page.locator('.track-stage-readout').textContent() ?? '')) break;
+    let lineY = box.y + 6;
+    for (; lineY < box.y + box.height / 2; lineY += 3) {
+        await page.mouse.move(x, lineY);
+        // On the line itself (not only nearest it), which a click would leave out.
+        if (await page.locator('#hint-footer').textContent() === STR.stageEventClickOut) break;
     }
-    await expect(page.locator('.track-stage-readout')).toHaveText(/#[123] \/ 0\.00 s/);
+    // …and where in the recording it was cut; a click on it leaves it out.
+    await expect(page.locator('.track-stage-readout')).toHaveText(/#[123] @ \d\.\d\d s \/ 0\.00 s/);
     await page.screenshot({ path: 'test-results/trigger-events.png' });
+    const footer = page.locator('#hint-footer');
+    await expect(footer).toHaveText(STR.stageEventClickOut);
+    await expect(plot).toHaveCSS('cursor', 'pointer');
+    // A double-click resets the zoom and leaves no event out.
+    await page.mouse.dblclick(x, lineY);
+    await page.waitForTimeout(400);
+    await page.mouse.move(x, lineY + 1);
+    await page.mouse.move(x, lineY);
+    await expect(footer).toHaveText(STR.stageEventClickOut);
+    await page.mouse.click(x, lineY);
+    await expect(footer).toHaveText(new RegExp(`#[123]${escapeRegExp(STR.stageEventOut.split('#{n}')[1])}$`));
+    // Drawn faint and still there: the pointer on it says a click puts it back; ↶ does too.
+    await page.mouse.move(x, lineY + 1);
+    await page.mouse.move(x, lineY);
+    await expect(footer).toHaveText(STR.stageEventClickIn);
+    await page.keyboard.press('Control+z');
+    await expect(footer).toHaveText(STR.stepUndone);
+    await page.mouse.move(x, lineY + 1);
+    await page.mouse.move(x, lineY);
+    await expect(footer).toHaveText(STR.stageEventClickOut);
+    await page.mouse.click(x, lineY);
+    await expect(footer).toHaveText(new RegExp(`#[123]${escapeRegExp(STR.stageEventOut.split('#{n}')[1])}$`));
     // After the trigger, ＋ offers the events' mean, transfer function and coherence; a Frame's step goes before it.
     await bar.locator('[data-action="step-add"]').click();
     await expect(bar.locator('.step-menu-item[data-op="wandas.segments.average"]')).not.toHaveClass(/is-off|is-earlier/);
     await expect(bar.locator('.step-menu-item[data-op="wandas.audio.welch"]')).toHaveClass(/is-earlier/);
     await bar.locator('.step-menu-item[data-op="wandas.segments.average"]').click();
+    // The mean of the events: the recording with one left out takes it without that one (wandas.segments.drop), the others as they are.
+    // (Asked for one after another: the next once the first is answered.)
+    const lastChain = async (): Promise<string> => (await stageScans(page)).at(-1)?.recipe?.nodes.map(node => node.operation.split('.').pop()).join(' ') ?? '';
+    const mean = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', unit: 'FS', xs: [-0.01, 0, 0.05, 0.19], values: [0, 0.4, -0.2, 0] };
+    const chains = new Set<string>();
+    for (let round = 0; round < 2; round++) {
+        await expect.poll(async () => /average$/.test(await lastChain()) && !chains.has(await lastChain())).toBe(true);
+        const asked = (await stageScans(page)).at(-1)!;
+        chains.add(await lastChain());
+        if (/drop/.test(await lastChain())) expect(asked.filePaths).toHaveLength(1);
+        await answer(page, mean);
+    }
+    expect([...chains].sort()).toEqual(['get_channel highpass_filter time_slice trigger average', 'get_channel highpass_filter time_slice trigger drop average']);
+    // Another trigger level finds other events: the one left out is back, and the footer says so.
+    await bar.locator(`[data-action="step-settings"][data-step="${trigger}"]`).click();
+    await bar.locator('input[data-step-param="threshold"]').fill('0.3');
+    await bar.locator('[data-action="step-apply"]').click();
+    await expect(page.locator('#task-status')).toHaveText(STR.stageEventsBack);
     await expect.poll(async () => (await stageScans(page)).at(-1)?.recipe?.nodes.map(node => node.operation.split('.').pop())).toEqual(['get_channel', 'highpass_filter', 'time_slice', 'trigger', 'average']);
 });

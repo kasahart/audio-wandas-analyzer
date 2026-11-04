@@ -1340,6 +1340,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         channels: () => comparedChannels(),
         rerender: () => scheduleRender(),
         hint: text => hintFooter.show(text),
+        notify: text => taskStatus(text, 'done'),
         inFront: () => !entryScreen.isOpen(),
         // Esc goes back to where the comparison was opened: the entry table, or the tracks (playback, zoom and
         // selection as they were, the compared recording's lane in sight).

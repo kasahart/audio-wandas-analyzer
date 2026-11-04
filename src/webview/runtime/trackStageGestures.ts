@@ -12,6 +12,11 @@ import { positionPopover } from './settingsPopover';
 import type { Drawn } from './trackStagePainter';
 import type { TrackStageState } from './trackStageModel';
 
+/** How near (px) a click must be to an event's line to leave it out. */
+const EVENT_PICK_PX = 6;
+/** How long a click on an event's line waits for a second one (a double-click resets the zoom instead). */
+const DOUBLE_CLICK_MS = 300;
+
 /** The pointer over the mode's plots, while it is over one. */
 export interface StageGestures {
     hovering(): boolean;
@@ -29,6 +34,9 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
     moved: () => void;
     rerender: () => void;
     hint: (text: string) => void;
+    /** A click on a trigger's event line: left out, or put back. */
+    /** Takes what the click is on at once, and returns the edit to make once no double-click follows. */
+    toggleEvent?: (event: { id: number; source: string; out: boolean }) => (() => void) | undefined;
 }): StageGestures {
     const { strings, state, drawnOn } = deps;
     // The pointer's marks (plotHover.ts: the nearest line thicker, the cursor at its point), its readout, the
@@ -46,6 +54,14 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
     const plotBox = (plot: HTMLElement): { left: number; top: number; width: number; height: number } => {
         const rect = plot.getBoundingClientRect();
         return { left: rect.left + STAGE_MARGINS.left, top: rect.top + STAGE_MARGINS.top, width: Math.max(1, rect.width - STAGE_MARGINS.left - STAGE_MARGINS.right), height: Math.max(1, rect.height - STAGE_MARGINS.top - STAGE_MARGINS.bottom) };
+    };
+    /** The trigger's event whose line is under the pointer (within a few pixels), if any. */
+    const eventAt = (plot: HTMLElement, clientX: number, clientY: number): { id: number; source: string; out: boolean } | null => {
+        const drawn = drawnOn.get(plot);
+        if (!drawn?.plot || !plot.isConnected) return null;
+        const rect = plot.getBoundingClientRect();
+        const hit = stageHover(drawn.plot, clientX - rect.left, clientY - rect.top);
+        return hit?.layer.event && Math.abs(hit.y - (clientY - rect.top)) <= EVENT_PICK_PX ? hit.layer.event : null;
     };
     const across = (fx: number): number => state.window.x.start + fx * (state.window.x.end - state.window.x.start);
     /** Where the pointer is over a plot, so its marks follow a plot drawn anew under a still pointer. */
@@ -100,7 +116,10 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
             if (!hit && (event.target as Element | null)?.closest?.('.track-canvas, [data-stage-canvas]')) return;
             const drawn = hit ? drawnOn.get(hit.plot) : undefined;
             if (!hit || hit.axis || !drawn) { hovered = null; hideHover(); if (hit) deps.hint(strings.compareHintAxis); return; }
-            deps.hint(strings.compareHintPlot);
+            const line = deps.toggleEvent ? eventAt(hit.plot, event.clientX, event.clientY) : null;
+            // On an event's line the pointer says it can be clicked.
+            hit.plot.style.cursor = line ? 'pointer' : '';
+            deps.hint(line ? (line.out ? strings.stageEventClickIn : strings.stageEventClickOut) : strings.compareHintPlot);
             hovered = { plot: hit.plot, clientX: event.clientX, clientY: event.clientY, fx: hit.point.fx };
             showHover();
         },
@@ -131,5 +150,20 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
     });
     gestures('.track-canvas', surface);
     gestures('[data-stage-canvas]', root);
+    // A click on an event's line (a press that stayed put: a drag's click is not passed on) leaves it out or puts it back.
+    // It waits out a double-click (which resets the zoom): the second click takes the first one back.
+    let pending: number | undefined;
+    const view = document.defaultView;
+    const clicked = (selector: string) => (event: MouseEvent): void => {
+        const plot = (event.target as HTMLElement | null)?.closest?.<HTMLElement>(selector);
+        if (!state.on || !plot || !deps.toggleEvent || !view) return;
+        if (pending !== undefined) { view.clearTimeout(pending); pending = undefined; }
+        if (event.detail > 1) return;
+        const line = eventAt(plot, event.clientX, event.clientY);
+        const edit = line ? deps.toggleEvent(line) : undefined;
+        if (edit) pending = view.setTimeout(() => { pending = undefined; edit(); }, DOUBLE_CLICK_MS);
+    };
+    surface.addEventListener('click', clicked('.track-canvas'));
+    root.addEventListener('click', clicked('[data-stage-canvas]'));
     return { hovering: () => hovered !== null, redraw: showHover };
 }

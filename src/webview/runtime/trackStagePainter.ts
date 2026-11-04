@@ -124,6 +124,8 @@ export interface StageFrame {
      * measured against it (the headline names none, and Δ is not offered).
      */
     baseEach?: boolean;
+    /** The events left out of a recording's (its trigger's), drawn faint; a click on one puts it back. */
+    excluded?: (path: string) => readonly number[];
 }
 
 /**
@@ -174,7 +176,7 @@ export function paintStageLanes(frame: StageFrame): number {
         const empty = missing ? '' : emptyStageText(strings, coarse(track.filePath) ?? picture);
         const axes = stageAxes(strings, coarse(track.filePath) ?? picture, track.input);
         // A lane holds one picture, drawn as it is (1/3-octave levels as steps, without a fill).
-        const lanePlot = paintOverlay(track.canvas, { layers: view ? [{ view, color: colorOf(frame.role, track.filePath), width: widthOf(frame.role, track.filePath, 2), label: frame.named(track.filePath, frame.role(track.filePath)).label }] : [] }, heat ? range : narrowed(range, window.y), axes,
+        const lanePlot = paintOverlay(track.canvas, { layers: view ? [{ view, color: colorOf(frame.role, track.filePath), width: widthOf(frame.role, track.filePath, 2), label: frame.named(track.filePath, frame.role(track.filePath)).label, ...eventsOf(frame, track.filePath, view) }] : [] }, heat ? range : narrowed(range, window.y), axes,
             { empty, window: { x: window.x, ...(heat ? { y: window.y } : {}) }, axisView: coarse(track.filePath) ?? picture, ...(regionMark ? { region: regionMark } : {}), ...((missing || track.filePath === progressLane) && pending ? { pending } : {}) });
         frame.drawnOn.set(track.canvas, { picture: coarse(track.filePath) ?? picture, range, axes, views: { base: frame.baseEach ? null : coarsePlots.base, compare: coarse(track.filePath) ?? null, diff: null }, plot: lanePlot });
         if (view) drawn++;
@@ -186,22 +188,27 @@ export function paintStageLanes(frame: StageFrame): number {
     return drawn;
 }
 
+/** A recording's events as a line each can be left out of: whose they are, and those left out. */
+function eventsOf(frame: Pick<StageFrame, 'excluded'>, path: string, view: StageView): Pick<StageLayer, 'source' | 'excluded'> {
+    return view.events && frame.excluded ? { source: path, excluded: frame.excluded(path) } : {};
+}
+
 /**
  * The overlaid plot's lines: the grey ones (no role) under the roles' ones, the base, the other tracks, the compared
  * file on top. Each carries its legend name (the base's `baseLabel`), for the readout of the line under the pointer.
  */
-export function overlayLayers(frame: Pick<StageFrame, 'comparePath' | 'role' | 'named'>, plots: StagePlots<StageTrack>, baseLabel?: string): StageLayer[] {
+export function overlayLayers(frame: Pick<StageFrame, 'comparePath' | 'role' | 'named' | 'excluded'>, plots: StagePlots<StageTrack>, baseLabel?: string, basePath?: string): StageLayer[] {
     const roleColor = (path: string, fallback?: string): string => colorOf(frame.role, path, fallback);
     const nameOf = (path: string): string => frame.named(path, frame.role(path)).label;
     const { comparePath } = frame;
     return [
         // The grey lines (no role) under the roles' ones.
-        ...plots.others.filter(item => frame.role(item.track.filePath) === undefined).flatMap(item => (item.view ? [{ view: item.view, color: NO_ROLE_COLOR, width: 1.2, label: nameOf(item.track.filePath) }] : [])),
+        ...plots.others.filter(item => frame.role(item.track.filePath) === undefined).flatMap(item => (item.view ? [{ view: item.view, color: NO_ROLE_COLOR, width: 1.2, label: nameOf(item.track.filePath), ...eventsOf(frame, item.track.filePath, item.view) }] : [])),
         // A base group's waveforms, each thin in the base's colour (a group has no median signal).
         ...plots.baseMembers.map(({ path, view }) => ({ view, color: ROLE_COLORS[0], width: 1, label: baseLabel !== undefined ? `${baseLabel} · ${baseName(path)}` : baseName(path) })),
-        ...(plots.base && !plots.baseMembers.length ? [{ view: plots.base, color: ROLE_COLORS[0], width: 2, ...(baseLabel !== undefined ? { label: baseLabel } : {}) }] : []),
-        ...plots.others.filter(item => frame.role(item.track.filePath) !== undefined).flatMap(item => (item.view ? [{ view: item.view, color: roleColor(item.track.filePath), width: 1.8, label: nameOf(item.track.filePath) }] : [])),
-        ...(plots.compare && comparePath ? [{ view: plots.compare, color: roleColor(comparePath, ROLE_COLORS[1]), width: 2.2, label: nameOf(comparePath) }] : []),
+        ...(plots.base && !plots.baseMembers.length ? [{ view: plots.base, color: ROLE_COLORS[0], width: 2, ...(baseLabel !== undefined ? { label: baseLabel } : {}), ...(basePath !== undefined ? eventsOf(frame, basePath, plots.base) : {}) }] : []),
+        ...plots.others.filter(item => frame.role(item.track.filePath) !== undefined).flatMap(item => (item.view ? [{ view: item.view, color: roleColor(item.track.filePath), width: 1.8, label: nameOf(item.track.filePath), ...eventsOf(frame, item.track.filePath, item.view) }] : [])),
+        ...(plots.compare && comparePath ? [{ view: plots.compare, color: roleColor(comparePath, ROLE_COLORS[1]), width: 2.2, label: nameOf(comparePath), ...eventsOf(frame, comparePath, plots.compare) }] : []),
     ];
 }
 

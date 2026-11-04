@@ -16,7 +16,8 @@ import type { CompareScanMessage } from '../../shared/analysis/entryScan';
 import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import type { ScanResult, StageView } from '../../shared/protocol/backendProtocol';
 import type { EntryRegion } from '../../shared/analysis/entryScan';
-import { brokenStep, recipeChain, recipeKey, recipeSteps, TIME_SLICE, type RecipeStep, type StepLimits } from '../../shared/recipe/recipeSteps';
+import { brokenStep, recipeChain, recipeKey, recipeSteps, TIME_SLICE, TRIGGER, type RecipeStep, type StepLimits } from '../../shared/recipe/recipeSteps';
+import { eventsKey, excludedOf, withDroppedEvents, withEventExcluded, type EventDrop } from '../../shared/recipe/eventExclusion';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { createStepBar, invalidReason, stepChipLabel, stepLimits, INPUT_STAGE } from './stepBar';
 import { createStageSource, type StageSpec } from './stageSource';
@@ -95,6 +96,8 @@ export interface TrackStageDeps {
     showLanes(visible: boolean): void;
     rerender(): void;
     hint(text: string): void;
+    /** A short notice that stays a moment (the task status): what an edit did besides what was asked. */
+    notify?(text: string): void;
 }
 
 export interface TrackStageMode {
@@ -156,6 +159,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
     const stepBar = createStepBar({
         document, strings, mode: 'compare',
         onChange: recipe => deps.recipeChanged(recipe),
+        notify: text => deps.notify?.(text),
         onStepSelect: step => { state.stage = step.id; state.window = FULL_PLOT_WINDOW; deps.rerender(); },
         // A step added or moved is shown at once: its result is what the user wants to see next.
         onStepShown: id => { state.stage = id; state.window = FULL_PLOT_WINDOW; deps.rerender(); },
@@ -297,6 +301,24 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
     let stageGestures: StageGestures | null = null;
     let redrawing = false;
     let shownCompare: { path: string | null; view: StageView | null | undefined } = { path: null, view: undefined };
+    /** The channel each file was last drawn as, and the trigger whose events are on show, whose events a click leaves out. */
+    let channelOf = (_path: string): number | null => null;
+    let shownTrigger: string | null = null;
+    /** A click on an event's line: that event of that recording left out of the steps after the trigger, or put back (↶ too). */
+    // The events' trigger and channel are taken when the line is clicked: the edit itself waits out a double-click.
+    function toggleEvent(event: { id: number; source: string; out: boolean }): (() => void) | undefined {
+        if (!shownTrigger) return undefined;
+        const key = eventsKey(shownTrigger, event.source, channelOf(event.source));
+        return () => {
+            const editor = deps.recipe()?.recipe;
+            if (!editor) return;
+            const next = withEventExcluded(editor, key, event.id, !event.out);
+            const said = (event.out ? strings.stageEventIn : strings.stageEventOut).replace('{name}', named(event.source, role(event.source)).label).replace('{n}', String(event.id + 1));
+            stepBar.edit(next, said);
+            // The footer is the pointer's: the notice stays a moment where the pointer does not write.
+            deps.notify?.(said);
+        };
+    }
     /** A recording's ▶ in the legend (■ while it plays); the base group has none. */
     /** The legend's markup as last written. */
     let legendWritten = '';
@@ -402,8 +424,34 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
                 if (!referencePath || !slotStep || !theirs || !recipeChain(theirs).some(node => node.id === slotStep.id)) return own;
                 return { key: `${own.key}|vs|${referencePath}|${recipeKey(theirs)}`, message: { ...own.message, reference: { filePath: referencePath, step: slotStep.id, recipe: theirs } } };
             };
-            const byChannel = new Map<number | null, string[]>();
-            for (const path of files) byChannel.set(channelFor(path), [...(byChannel.get(channelFor(path)) ?? []), path]);
+            // A step after a trigger that takes its events together runs without the ones left out of each recording's
+            // (wandas.segments.drop after that trigger): the files are asked for by their channel and those events. The
+            // events on show (a step that still gives them) are the last trigger's, all drawn, the ones left out faint.
+            const triggersHere = steps.slice(0, shownIndex + 1).filter(step => step.operation === TRIGGER && step.invalid === undefined && !step.bypassed);
+            const eventsShown = /Segments$/.test(steps[shownIndex]?.output ?? '');
+            const viewTrigger = eventsShown ? triggersHere.at(-1)?.id : undefined;
+            const dropping = triggersHere.filter(step => step.id !== viewTrigger).map(step => step.id);
+            const dropsOf = (path: string): EventDrop[] => dropping.map(trigger => ({ trigger, ids: excludedOf(recipe.recipe, eventsKey(trigger, path, channelFor(path))) }));
+            const dropsKey = (drops: readonly EventDrop[]): string => drops.filter(drop => drop.ids.length).map(drop => `${drop.trigger}:${drop.ids.join(',')}`).join(';');
+            const groupOf = (path: string): string => `${channelFor(path) ?? '*'}|${dropsKey(dropsOf(path))}`;
+            const specFor = (path: string): StageSpec => {
+                const own = specOf(channelFor(path));
+                const drops = dropsOf(path);
+                const reference = own.message.reference;
+                // Paired with the base slot's recording later on: both Recipes have the drops (each its own events).
+                const theirs = reference ? dropsOf(reference.filePath) : [];
+                const run = own.message.recipe;
+                if (!run || (!dropsKey(drops) && !dropsKey(theirs))) return own;
+                const paired = reference ? { reference: { ...reference, recipe: withDroppedEvents(reference.recipe, theirs, true) } } : {};
+                return { key: `${own.key}|drop|${dropsKey(drops)}|${dropsKey(theirs)}`, message: { ...own.message, recipe: withDroppedEvents(run, drops, !!reference), ...paired } };
+            };
+            shownTrigger = viewTrigger ?? null;
+            const byChannel = new Map<string, { spec: StageSpec; ch: number | null; paths: string[] }>();
+            for (const path of files) {
+                const group = byChannel.get(groupOf(path)) ?? { spec: specFor(path), ch: channelFor(path), paths: [] };
+                group.paths.push(path);
+                byChannel.set(groupOf(path), group);
+            }
             root.classList.toggle('is-step-held', !!held_);
             root.dataset.held = held_ && heldStep ? heldStep.id : '';
             root.dataset.channels = files.map(path => `${baseName(path)}:${channelFor(path) ?? '*'}`).join(',');
@@ -419,13 +467,13 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             };
             const onScreen = new Set(tracks.map(track => track.filePath));
             const ownOf = (paths: readonly string[]): string[] => paths.filter(path => onScreen.has(path));
-            const waiting = [...byChannel].some(([ch, paths]) => lacks(specOf(ch), paths));
-            for (const [ch, paths] of byChannel) want(specOf(ch), ownOf(paths));
+            const waiting = [...byChannel.values()].some(({ spec: wanted, paths }) => lacks(wanted, paths));
+            for (const { spec: wanted, paths } of byChannel.values()) want(wanted, ownOf(paths));
             // A step that failed on a file is the chain's to mark (⚠, wandas' reason), then the plot says so; a held
             // step's preview runs another chain, whose failure is not the chain's.
-            if (!held_) for (const [ch, paths] of byChannel) {
+            if (!held_) for (const { spec: wanted, paths } of byChannel.values()) {
                 for (const path of paths) {
-                    const scanned = source.result(specOf(ch), path);
+                    const scanned = source.result(wanted, path);
                     if (scanned && !scanned.ok && scanned.failedStep && deps.recipe()?.failed?.[scanned.failedStep] === undefined) deps.stepFailed?.(scanned.failedStep, scanned.reason ?? '');
                 }
             }
@@ -436,11 +484,11 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             const shownAt = id === INPUT_STAGE ? -1 : steps.findIndex(step => step.id === id);
             const regionMark = region ? { start: region.start, end: region.end, mark: shownAt < sliceAt ? 'range' as const : 'tag' as const, label: `${strings.stepRegion} ${region.start.toFixed(2)}–${region.end.toFixed(2)} s` } : undefined;
             root.dataset.regionMark = regionMark?.mark ?? '';
-            const coarse = (path: string) => source.view(specOf(channelFor(path)), path);
+            const coarse = (path: string) => source.view(specFor(path), path);
             // Each level axis names the reference of the channels drawn, as their step's scan read them: a file
             // calibrated on one channel only reads that channel's calibration when it is the one drawn.
             for (const track of tracks) {
-                const scanned = source.result(specOf(channelFor(track.filePath)), track.filePath);
+                const scanned = source.result(specFor(track.filePath), track.filePath);
                 if (scanned?.ok && scanned.input) track.input = scanned.input;
             }
             const picture = tracks.map(track => coarse(track.filePath)).find((view): view is StageView => !!view) ?? null;
@@ -466,27 +514,27 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             const width = (overlay ? query<HTMLCanvasElement>('[data-stage-canvas="overlay"]') : tracks.find(track => track.canvas)?.canvas)?.clientWidth || 600;
             // Each line is drawn from its own detail as soon as that is in, while a base group's recordings are still
             // being asked for (its median switches once all of them have their detail).
-            const fineSpecs = new Map<number | null, StageSpec>();
+            const fineSpecs = new Map<string, StageSpec>();
             let fineMissing = false;
             if (!held_ && picture && picture.kind !== 'bar' && picture.kind !== 'none') {
-                for (const [ch, paths] of byChannel) {
-                    const fineSpec = detail.spec(specOf(ch), picture, state.window.x, state.window.y, width);
+                for (const [group, { spec: wanted, paths }] of byChannel) {
+                    const fineSpec = detail.spec(wanted, picture, state.window.x, state.window.y, width);
                     if (!fineSpec) continue;
-                    fineSpecs.set(ch, fineSpec);
+                    fineSpecs.set(group, fineSpec);
                     fineMissing = want(fineSpec, ownOf(paths)) || fineMissing;
                 }
             }
-            for (const [ch, paths] of byChannel) want(specOf(ch), paths);
+            for (const { spec: wanted, paths } of byChannel.values()) want(wanted, paths);
             // Over a region, the files' metrics over it too, for D and the report (before a base group's detail, which a
             // new zoom asks for again); the base recording measured against is not a track here, but D and the report
             // read its region values too.
             if (region && !waiting && !broken) want(regionSpec(), referencePath ? [...files, referencePath] : files);
-            for (const [ch, paths] of byChannel) {
-                const fineSpec = fineSpecs.get(ch);
+            for (const [group, { paths }] of byChannel) {
+                const fineSpec = fineSpecs.get(group);
                 if (fineSpec) fineMissing = want(fineSpec, paths) || fineMissing;
             }
             const fine = (path: string): StageView | null | undefined => {
-                const fineSpec = fineSpecs.get(channelFor(path));
+                const fineSpec = fineSpecs.get(groupOf(path));
                 return fineSpec ? source.view(fineSpec, path) : undefined;
             };
             const shown = (path: string) => fine(path) ?? coarse(path);
@@ -503,7 +551,10 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             paintBaseGate(dom, strings, { gated, count: allBase.length, ms: cost.ms });
             const coarsePlots = plotsOf(coarse, tracks, comparePath, basePaths);
             shownCompare = { path: comparePath, view: comparePath && !waiting ? coarse(comparePath) : undefined };
-            const frame: StageFrame = { strings, tracks, allTracks, referencePath, comparePath, coarse, shown, picture, coarsePlots, window: state.window, regionMark, pending, waiting, role, named, drawnOn, baseEach: each };
+            // The events left out of each recording's, on the trigger's picture (and a step after it that keeps them).
+            const excluded = (path: string): readonly number[] => (viewTrigger ? excludedOf(recipe.recipe, eventsKey(viewTrigger, path, channelFor(path))) : []);
+            channelOf = channelFor;
+            const frame: StageFrame = { strings, tracks, allTracks, referencePath, comparePath, coarse, shown, picture, coarsePlots, window: state.window, regionMark, pending, waiting, role, named, drawnOn, baseEach: each, excluded };
             const bypassed = steps.filter(step => step.bypassed).map(step => stepChipLabel(step, strings, state.regionSet));
             query<HTMLElement>('[data-stage-headline]').textContent = stageModeHeadline(frame, bypassed, region);
             if (!overlay) {
@@ -522,7 +573,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             const aggregate = each ? strings.stageBaseEach : strings.stageBaseAggregate;
             query<HTMLElement>('[data-stage-base-aggregate]').textContent = aggregate;
             const baseLabel = comparePath ? baseTitle(comparePath) : basePaths.length === 1 ? named(basePaths[0], role(basePaths[0])).label : undefined;
-            const layers = overlayLayers(frame, plots, baseLabel);
+            const layers = overlayLayers(frame, plots, baseLabel, basePaths.length === 1 ? basePaths[0] : undefined);
             stepBar.element.dataset.drawn = String(layers.length);
             const items = overlayLegendItems(frame, plots, {
                 title: comparePath && !referencePath ? baseTitle(comparePath) : '',
@@ -553,7 +604,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             };
         },
         attach(surface) {
-            stageGestures = attachStageGestures(surface, root, document, { strings, state, drawnOn, painted: () => painted, moved: () => detail.moved(), rerender: () => deps.rerender(), hint: text => deps.hint(text) });
+            stageGestures = attachStageGestures(surface, root, document, { strings, state, drawnOn, painted: () => painted, moved: () => detail.moved(), rerender: () => deps.rerender(), hint: text => deps.hint(text), toggleEvent });
         },
     };
 }

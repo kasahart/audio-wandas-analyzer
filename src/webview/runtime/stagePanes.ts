@@ -148,7 +148,14 @@ export function eventLayers(layer: StageLayer): StageLayer[] {
     const events = layer.view.events;
     if (!events) return [layer];
     const { events: _events, ...view } = layer.view;
-    return events.map(event => ({ ...layer, view: { ...view, values: event.values }, width: Math.min(layer.width ?? 1.5, 1.2), alpha: 0.85, label: `${layer.label ? `${layer.label} ` : ''}#${event.id + 1}` }));
+    const { source, excluded: _excluded, ...rest } = layer;
+    return events.map(event => {
+        // One left out is drawn faint, and stays to be clicked back.
+        const out = !!layer.excluded?.includes(event.id);
+        // Where in the recording it was cut (its trigger): the plot's time is from the trigger.
+        const at = Number.isFinite(event.time) ? ` @ ${event.time.toFixed(2)} s` : '';
+        return { ...rest, view: { ...view, values: event.values }, width: Math.min(layer.width ?? 1.5, 1.2), alpha: out ? 0.25 : 0.85, label: `${layer.label ? `${layer.label} ` : ''}#${event.id + 1}${at}`, ...(source !== undefined ? { event: { id: event.id, source, out } } : {}) };
+    });
 }
 
 /** A silent stretch at the floor (−300 dB) is drawn as a gap; a plain value (a trigger's events' amplitudes) has no floor. */
@@ -372,6 +379,11 @@ export interface StageLayer {
     filled?: boolean;
     /** What the readout calls it while the pointer is on it (the legend's name). */
     label?: string;
+    /** The recording a trigger's events are of, whose events a click leaves out (or puts back), and those left out. */
+    source?: string;
+    excluded?: readonly number[];
+    /** One event of `source` (eventLayers'), and whether it is left out. */
+    event?: { id: number; source: string; out: boolean };
 }
 
 /**

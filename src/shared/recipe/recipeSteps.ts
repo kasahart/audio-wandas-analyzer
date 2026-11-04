@@ -580,13 +580,17 @@ export function withBypass(recipe: RecipeDocument, stepId: string, on: boolean):
  * stays: it is where the region goes, and a bypassed region is the whole file (the screen sends no region).
  */
 export function withoutBypassed(recipe: RecipeDocument): RecipeDocument {
-    if (!(BYPASS_KEY in recipe) && !(REFERENCE_KEY in recipe)) return recipe;
+    if (!(BYPASS_KEY in recipe) && !(REFERENCE_KEY in recipe) && !(EXCLUDED_KEY in recipe)) return recipe;
     const skipped = bypassedSteps(recipe).filter(id => recipeNodes(recipe).find(node => node.id === id)?.operation !== TIME_SLICE);
     const copy = JSON.parse(JSON.stringify(withoutSteps(recipe, skipped))) as RecipeDocument;
     delete copy[BYPASS_KEY];
     delete copy[REFERENCE_KEY];
+    delete copy[EXCLUDED_KEY];
     return copy;
 }
+
+/** Events left out of a trigger's, per recording (eventExclusion.ts): the comparison's, beside the nodes like the bypass. */
+export const EXCLUDED_KEY = 'awaExcludedEvents';
 
 /**
  * Cross-channel steps whose reference is the comparison's base slot (another recording), not a channel of the

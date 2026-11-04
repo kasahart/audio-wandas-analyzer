@@ -59,6 +59,7 @@ export const COMPARE_KEYS: readonly KeyRow<CompareKeyAction>[] = [
     { shortcut: 'Esc', labelKey: 'helpCompareEsc', bind: { Escape: 'back' } },
     { shortcut: 'Compare / Overlay', shortcutKey: 'helpCompareLayoutKey', labelKey: 'helpCompareLayout' },
     { shortcut: 'Show Δ', shortcutKey: 'compareDiffShow', labelKey: 'helpCompareDiff' },
+    { shortcut: 'Click (event line)', shortcutKey: 'helpCompareEventKey', labelKey: 'helpCompareEvent' },
 ];
 
 export const STEP_KEYS: readonly KeyRow[] = [

@@ -550,6 +550,40 @@ def test_a_trigger_step_draws_each_event_and_the_steps_after_it_take_them(tmp_pa
     assert gain["frame"] == "TransferFunctionFrame" and gain["pair"] == {"output": 2, "input": 1}
     near = [value for x, value in zip(gain["xs"], gain["values"], strict=True) if 400 < x < 600]
     assert near and all(abs(value - 20 * np.log10(0.5)) < 0.1 for value in near)
+    # Events left out on the comparison: wandas.segments.drop after the trigger, and the steps after it take the rest.
+    dropped = _with_step(
+        _with_step(
+            _with_step(ENTRY_RECIPE, "node-1", "wandas.audio.trigger", 1, trigger),
+            "node-3",
+            "wandas.segments.drop",
+            1,
+            [["event_ids", {"$type": "list", "items": [0, 2]}]],
+        ),
+        "node-4",
+        "wandas.segments.average",
+        1,
+    )
+    assert [event["id"] for event in _scan(service, path, recipe=dropped, stage="node-4")["stage"]["events"]] == [1]
+    assert _scan(service, path, recipe=dropped, stage="node-5")["stage"]["frame"] == "ChannelFrame"
+
+    # Measured against the base slot's recording after the events' mean: both Recipes drop at the same step, each
+    # its own events (none of the base's), so the base goes through the same steps.
+    def paired(ids: list[int]) -> dict:
+        with_drop = _with_step(
+            _with_step(ENTRY_RECIPE, "node-1", "wandas.audio.trigger", 1, trigger),
+            "node-3",
+            "wandas.segments.drop",
+            1,
+            [["event_ids", {"$type": "list", "items": ids}]],
+        )
+        return _with_step(
+            _with_step(with_drop, "node-4", "wandas.segments.average", 1), "node-5", "wandas.audio.coherence", 2
+        )
+
+    base = _write(tmp_path / "base.wav", [hits])
+    against = {"filePath": base, "step": "node-6", "recipe": paired([])}
+    coherent = _scan(service, path, recipe=paired([1]), stage="node-6", reference=against)
+    assert coherent["ok"] is True and coherent["stage"]["pair"] == {"output": 2, "input": 1, "base": True}
     # A level nothing crosses: still the trigger's picture, with no event on it (zoomed too).
     high = [["duration", _float(0.2)], ["pre", _float(0.01)], ["threshold", _float(5.0)]]
     none = _with_step(ENTRY_RECIPE, "node-1", "wandas.audio.trigger", 1, high)
