@@ -640,10 +640,11 @@ def _detail_view(frame: object, coarse: StageView, detail: StageDetail) -> Stage
             return view
         edges = np.linspace(0, part.shape[1], min(points, part.shape[1]) + 1).astype(int)
         refs = np.array([channel.ref for channel in frame.channels], dtype=np.float64)[:, np.newaxis]
-        power = np.stack(
-            [np.mean(part[:, a:b] ** 2, axis=1) for a, b in zip(edges[:-1], edges[1:], strict=True) if b > a], axis=1
-        )
-        centres = np.array([(a + b - 1) // 2 for a, b in zip(edges[:-1], edges[1:], strict=True) if b > a])
+        # Each non-empty bucket's mean power at once (a prefetched range has tens of thousands of buckets).
+        filled = edges[1:] > edges[:-1]
+        starts, ends = edges[:-1][filled], edges[1:][filled]
+        power = np.add.reduceat(part**2, starts, axis=1) / (ends - starts)
+        centres = (starts + ends - 1) // 2
         with np.errstate(divide="ignore"):
             levels = 10.0 * np.log10(power / refs**2)
         view.update({"xs": _axis(times[keep][centres]), "values": _json(rounded_db(_power_mean(levels)))})

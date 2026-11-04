@@ -22,7 +22,7 @@ import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { createStepBar, invalidReason, stepChipLabel, stepLimits, INPUT_STAGE } from './stepBar';
 import { createStageSource, type StageSpec } from './stageSource';
 import { chosenStage, comparedPath as comparedPathOf, eachBaseTitle, enterStageState, holdStageSpec, initialStageState, liveRegion as liveRegionOf, openStageState, pictureSummary, plotsOf, regionStageSpec, stageSpec } from './trackStageModel';
-import { createDetailPlanner } from './stageDetail';
+import { createDetailPlanner, onOneRange } from './stageDetail';
 import { attachStageGestures, type StageGestures } from './trackStageGestures';
 import { colorOf, overlayLayers, overlayLegendItems, paintBaseGate, paintNoPicture, paintNoStage, paintStageControls, paintStageLanes, paintStageOverlay, stageDom, stageModeHeadline, writeStageLegend, type Drawn, type StageFrame, type StageTrack } from './trackStagePainter';
 
@@ -512,9 +512,12 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         // Each line is drawn from its own detail as soon as that is in, while a base group's recordings are still
         // being asked for (its median switches once all of them have their detail).
         const fineSpecs = new Map<string, StageSpec>();
+        // A line over time panned or zoomed past its detail: the detail already in, until the next one is.
+        const drawnSpecs = new Map<string, StageSpec[]>();
         let fineMissing = false;
         if (!held_ && picture && picture.kind !== 'bar' && picture.kind !== 'none') {
             for (const [group, { spec: wanted, paths }] of byChannel) {
+                drawnSpecs.set(group, detail.drawn(wanted, picture, state.window.x));
                 const fineSpec = detail.spec(wanted, picture, state.window.x, state.window.y, width);
                 if (!fineSpec) continue;
                 fineSpecs.set(group, fineSpec);
@@ -552,11 +555,25 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         }
         const fine = (path: string): StageView | null | undefined => {
             const fineSpec = fineSpecs.get(groupOf(path));
-            return fineSpec ? source.view(fineSpec, path) : undefined;
+            const own = fineSpec ? source.view(fineSpec, path) : undefined;
+            if (own !== undefined) return own;
+            for (const drawnSpec of drawnSpecs.get(groupOf(path)) ?? []) {
+                const view = source.view(drawnSpec, path);
+                if (view) return view;
+            }
+            return undefined;
         };
         const shown = (path: string) => fine(path) ?? coarse(path);
+        // A median or a difference is taken of pictures over one range: a line panned along draws its newer detail
+        // as soon as it is in, but a member's newer detail is never set beside another's older one.
+        const fineOf = (path: string): StageSpec[] => [fineSpecs.get(groupOf(path)), ...(drawnSpecs.get(groupOf(path)) ?? [])].filter((item): item is StageSpec => !!item);
+        const together = (paths: readonly string[]): ((path: string) => StageView | undefined) | null => {
+            const views = onOneRange(paths, fineOf, (fineSpec, path) => source.view(fineSpec, path));
+            return views ? (path: string) => views.get(path) : null;
+        };
         // A base group's median: of its recordings' detail once every one has it, of their whole pictures until then.
-        const baseShown = basePaths.every(path => fine(path)) ? shown : coarse;
+        const baseFine = together(basePaths);
+        const baseShown = baseFine ?? coarse;
         stepBar.element.dataset.stage = id;
         stepBar.element.dataset.detail = String(fineSpecs.size > 0 && !fineMissing);
         // How many of the tracks are drawn from their detail, for tests.
@@ -582,8 +599,8 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         const finePlots = plotsOf(shown, tracks, comparePath, basePaths, baseShown);
         // The difference of a line's detail and a base still whole is no difference (their points are at other places
         // even where there are as many): the whole pictures' until both sides have their detail.
-        const bothFine = !!comparePath && !!fine(comparePath) && basePaths.length > 0 && baseShown === shown;
-        const plots = { ...finePlots, diff: bothFine ? finePlots.diff : coarsePlots.diff };
+        const pairFine = comparePath && basePaths.length > 0 && baseFine ? together([comparePath, ...basePaths]) : null;
+        const plots = { ...finePlots, diff: pairFine ? plotsOf(pairFine, tracks, comparePath, basePaths).diff : coarsePlots.diff };
         root.dataset.compared = comparePath ? String(role(comparePath) ?? '') : '';
         root.dataset.base = state.groupBase || !deps.slots()[0] ? 'group' : 'file';
         const baseTitle = (path: string): string => { const title = deps.baseTitle(path, state.groupBase); return each ? eachBaseTitle(title, allBase.length, strings) : title; };
