@@ -10,16 +10,13 @@ const base: ChannelLaneSpec = {
     channelCount: 1,
     channelLabel: 'Ch 1',
     metricSummaryHtml: '<span>Peak 80.0 dB</span>',
-    fileName: 'a<b>.wav',
     axisWidth: 64,
-    spectrumTitle: 'Spectrum',
     waveformLabel: 'a<b>.wav · Ch 1 · waveform',
     spectrogramLabel: 'a<b>.wav · Ch 1 · spectrogram',
     axisHint: 'Double-click: reset',
     spectrogramAxisHint: 'Double-click: reset zoom',
     splitHint: 'Drag the split',
     splitLabel: 'Split',
-    spectrumHint: 'Spectrum / ← →',
 };
 
 test('single-channel lane has no header and uses unsuffixed canvas ids', () => {
@@ -27,7 +24,7 @@ test('single-channel lane has no header and uses unsuffixed canvas ids', () => {
     assert.ok(!html.includes('track-channel-lane-header'));
     assert.ok(!html.includes('Peak 80.0 dB'));
     assert.ok(html.includes('id="track-canvas-1"'));
-    assert.ok(html.includes('id="track-spectrum-1"'));
+    assert.ok(!html.includes('track-spectrum'));
     assert.ok(html.includes('style="width:64px"'));
     assert.ok(html.includes('left:64px'));
 });
@@ -36,8 +33,7 @@ test('multi-channel lane shows the label header with the metric summary', () => 
     const html = channelLaneHtml({ ...base, channelIndex: 1, channelCount: 2, channelLabel: 'Ch <2>' });
     assert.ok(html.includes('<span class="track-channel-lane-label">Ch &lt;2&gt;</span><span>Peak 80.0 dB</span>'));
     assert.ok(html.includes('id="track-canvas-1-1"'));
-    assert.ok(html.includes('id="track-spectrum-wrap-1-1"'));
-    assert.equal(html.match(/data-track-id="t1" data-channel-index="1"/g)?.length, 8);
+    assert.equal(html.match(/data-track-id="t1" data-channel-index="1"/g)?.length, 7);
 });
 
 test('the waveform and spectrogram canvases are named by file, channel and kind, with no inline outline over the focus ring', () => {
@@ -48,15 +44,10 @@ test('the waveform and spectrogram canvases are named by file, channel and kind,
     assert.ok(html.includes('role="separator" tabindex="0"'));
 });
 
-test('spectrum canvas aria-label escapes the file name', () => {
-    const html = channelLaneHtml(base);
-    assert.ok(html.includes('aria-label="a&lt;b&gt;.wav Ch 1 Spectrum"'));
-});
-
 const rowStrings = {
     ariaDragHandle: 'Drag', clipBadgeTitle: 'Clipped',
     trackPlayTitle: 'Play', ariaTrackPlay: 'Play track', trackStopTitle: 'Stop', ariaTrackStop: 'Stop track',
-    ariaTrackMute: 'Mute', ariaRemoveTrack: 'Remove',
+    ariaRemoveTrack: 'Remove',
     calibrationButtonLabel: 'Cal', calibrationButtonTitle: 'Calibrate', calibrationButtonAria: 'Calibrate track',
     trackOffsetResetHint: 'Reset', ariaOffsetValue: 'Offset', ariaOffsetUp: 'Up', ariaOffsetDown: 'Down',
     ariaResizeTrackHeight: 'Track height',
@@ -76,7 +67,6 @@ const baseRow: TrackRowSpec = {
     channels: [],
     roleChipHtml: '<i>chip</i>',
     playable: true,
-    muted: false,
     lanesHtml: '<i>lanes</i>',
 };
 
@@ -89,17 +79,17 @@ test('track row renders header, controls and the given lanes', () => {
     assert.ok(html.includes('id="offset-val-2"'));
     assert.ok(html.includes('<div class="track-channel-lanes"><i>lanes</i></div>'));
     assert.ok(html.includes('aria-label="Track height"'));
-    assert.ok(html.includes('aria-pressed="false">🔊</button>'));
+    assert.ok(html.includes('data-action="toggle-playback"') && html.includes('data-action="stop-playback"'));
     assert.ok(!html.includes(' disabled'));
     assert.ok(!html.includes('clip-badge'));
 });
 
-test('track row disables transport buttons without audio and shows the muted state', () => {
-    const html = trackRowHtml({ ...baseRow, playable: false, muted: true }, rowStrings);
-    assert.equal(html.match(/ disabled>/g)?.length, 3);
-    assert.ok(html.includes('aria-pressed="true" disabled>🔇</button>'));
+test('track row disables transport buttons without audio', () => {
+    const html = trackRowHtml({ ...baseRow, playable: false }, rowStrings);
+    assert.equal(html.match(/ disabled>/g)?.length, 2);
+    assert.ok(!html.includes('toggle-mute'));
     // A disabled button says why in its hint.
-    assert.equal(html.match(/data-hint="No audio"/g)?.length, 3);
+    assert.equal(html.match(/data-hint="No audio"/g)?.length, 2);
 });
 
 test('mono track row appends the channel summary to the meta line', () => {
@@ -120,7 +110,6 @@ test('every track header control and the lane canvases carry a footer hint', () 
     }
     const lane = channelLaneHtml(base);
     assert.match(lane, /class="track-axis-canvas"[^>]* data-hint="Double-click: reset"/);
-    assert.match(lane, /class="track-spectrum-canvas"[^>]* data-hint="Spectrum \/ ← →"/);
 });
 
 test('the reference button sits in a multi-channel lane header or in a mono track\'s buttons', () => {

@@ -27,17 +27,14 @@ class FakeAudio {
     }
 }
 
-function fakeFader(): AudioFader & { fades: Array<[number, number]>; muted: boolean[] } {
+function fakeFader(): AudioFader & { fades: Array<[number, number]> } {
     const fades: Array<[number, number]> = [];
-    const muted: boolean[] = [];
     return {
         fades,
-        muted,
         prepare: () => true,
         fadeTo: (_el, value, seconds) => { fades.push([value, seconds]); },
         pauseSmoothly: (el, after) => { el.pause(); after?.(); },
         isPausing: () => false,
-        setMuted: (_el, value) => { muted.push(value); },
         release: () => undefined,
         contextState: () => null,
     };
@@ -203,13 +200,6 @@ test('a refused play is recorded and clears the playback', async () => {
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(playback.lastPlayRejection, 'Error: blocked');
     assert.equal(playback.trackId, null);
-});
-
-test('setMuted mutes the track element through the fader', () => {
-    const { playback, fader } = setup();
-    playback.setMuted(0, true);
-    playback.setMuted(5, false);
-    assert.deepEqual(fader.muted, [true]);
 });
 
 test('follow changes are announced once per change', () => {

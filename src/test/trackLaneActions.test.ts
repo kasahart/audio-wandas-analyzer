@@ -14,7 +14,7 @@ function setup() {
     const doc = dom.window.document;
     const calls: Array<{ action: TrackLaneAction; trackId: TrackId; trackIndex: number | null }> = [];
     const record = (action: TrackLaneAction) => (ctx: TrackLaneContext): void => { calls.push({ action, trackId: ctx.trackId, trackIndex: ctx.trackIndex }); };
-    const actions: TrackLaneAction[] = ['toggle-playback', 'toggle-mute', 'stop-playback', 'remove-track', 'configure-calibration', 'offset-up', 'offset-down'];
+    const actions: TrackLaneAction[] = ['toggle-playback', 'stop-playback', 'remove-track', 'configure-calibration', 'offset-up', 'offset-down'];
     const handlers = Object.fromEntries(actions.map((a) => [a, record(a)])) as TrackLaneHandlers;
     const indexes = new Map<string, number | null>([['t1', 0], ['t2', null]]);
     attachTrackLaneActions(doc.getElementById('wrap') as unknown as HTMLElement, {

@@ -60,7 +60,7 @@ export function paintTriggerLanes(frame: TriggerLanesFrame): number {
         const view = views[index];
         const axes = frame.axes(view);
         const plot = paintOverlay(canvas, { layers: view ? [{ view, color: frame.color(track.filePath), width: 1.5 }] : [] }, range, axes, { window: { x: frame.window.x }, ...(view ? { axisView: view } : {}) });
-        frame.drawnOn.set(canvas, { picture: view, range, axes, views: { base: null, compare: view, diff: null }, plot });
+        frame.drawnOn.set(canvas, { picture: view, range, axes, plot });
         const marks = marksOf(canvas);
         const events = frame.events(track.filePath) ?? [];
         const out = new Set(frame.excluded(track.filePath));

@@ -843,10 +843,10 @@ test('High Contrast Light gives the entry table\'s role colours the light set th
     expect(vars).toEqual([0, 1, 2, 3].map(slot => LIGHT_ROLE_COLORS[slot]));
 });
 
-test('a track without decoded audio shows ▶ ■ 🔊 as unavailable and says why', async ({ page }) => {
+test('a track without decoded audio shows ▶ ■ as unavailable and says why', async ({ page }) => {
     await loadUi(page);
     const STR = getStrings('en');
-    for (const action of ['toggle-playback', 'stop-playback', 'toggle-mute']) {
+    for (const action of ['toggle-playback', 'stop-playback']) {
         const button = page.locator(`#track-row-0 [data-action="${action}"]`);
         await expect(button).toBeDisabled();
         await expect(button).toHaveCSS('cursor', 'not-allowed');

@@ -42,12 +42,11 @@ test('results pane marks the selected spectrum kind as pressed', () => {
     assert.ok(resultsPaneHtml(parts, strings).includes('data-action="spectrum-octave-1" data-hint="' + strings.hintSpectrumOctave1 + '"'));
 });
 
-test('track audio element carries the track id, mute state and escaped source', () => {
+test('track audio element carries the track id and escaped source', () => {
     assert.equal(
-        trackAudioHtml('track-2', 1, 'vscode-resource:/a&b.wav', false),
+        trackAudioHtml('track-2', 1, 'vscode-resource:/a&b.wav'),
         '<audio id="track-audio-1" data-track-id="track-2" preload="metadata" crossorigin="anonymous" src="vscode-resource:/a&amp;b.wav"></audio>',
     );
-    assert.ok(trackAudioHtml('track-2', 1, 'x.wav', true).includes('preload="metadata" crossorigin="anonymous" muted src="x.wav"'));
 });
 
 test('results pane puts a collapse toggle in the spectrum header and marks a collapsed section', () => {

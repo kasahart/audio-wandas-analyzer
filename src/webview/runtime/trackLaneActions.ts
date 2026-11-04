@@ -3,7 +3,6 @@ import type { TrackId } from './types';
 
 export type TrackLaneAction =
     | 'toggle-playback'
-    | 'toggle-mute'
     | 'stop-playback'
     | 'remove-track'
     | 'configure-calibration'

@@ -1,5 +1,5 @@
 /** The step bar's words: a chip's label, a value as a field shows it, and why a step cannot run. */
-import type { RecipeStep, StepParam } from '../../shared/recipe/recipeSteps';
+import { SLOT_REFERABLE, type RecipeStep, type StepParam } from '../../shared/recipe/recipeSteps';
 import { type RegionRange, type StepBarState, type StepBarStrings } from './stepBarModel';
 
 /**
@@ -18,7 +18,9 @@ export function invalidReason(step: RecipeStep, strings: StepBarStrings, steps: 
         case 'channels': {
             // A step before it left one channel (get_channel, sum, mean), or the files have one.
             const before = reason.text ? steps.find(item => item.id === reason.text) : undefined;
-            return before ? strings.stepNarrowedChannels.replace('{op}', stepChipLabel(before, strings)) : strings.stepNeedChannels;
+            if (before) return strings.stepNarrowedChannels.replace('{op}', stepChipLabel(before, strings));
+            // Only a step that can take the base slot's recording as its reference has that way out (⚙).
+            return SLOT_REFERABLE.has(step.operation) ? strings.stepNeedChannels : strings.stepNeedChannelsRemove;
         }
         case 'pair': return strings.stepPairSelf;
         case 'pow2': return strings.stepNeedPow2.replace('{max}', limit);
@@ -34,6 +36,12 @@ export function invalidReason(step: RecipeStep, strings: StepBarStrings, steps: 
 
 // eslint-disable-next-line @typescript-eslint/no-base-to-string -- Recipe params are JSON scalars
 export const formatNumber = (value: unknown): string => (typeof value === 'number' ? String(Math.round(value * 1000) / 1000) : String(value ?? ''));
+
+/**
+ * A number as a form field holds it: the stored value itself (to 12 significant digits, which hides float noise), not
+ * the chip's three decimals, so a 0.0015 s cutoff reads 0.0015 and typing what is shown changes nothing.
+ */
+export const fieldNumber = (value: unknown): string => (typeof value === 'number' ? String(Number(value.toPrecision(12))) : formatNumber(value));
 
 /** A wandas channel index (from 0) as the bar shows it, from 1. */
 /** A channel index as shown, from 1; a negative one (from the last) as its channel when the channels are known. */

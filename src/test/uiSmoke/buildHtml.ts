@@ -206,7 +206,7 @@ window.acquireVsCodeApi = function() {
 };
 const originalClearRect = CanvasRenderingContext2D.prototype.clearRect;
 CanvasRenderingContext2D.prototype.clearRect = function() {
-    if (this.canvas && this.canvas.id === 'track-spectrum-0') {
+    if (this.canvas && this.canvas.id === 'spectrum-overlay-canvas') {
         window.__uiSmokeHostMetrics.spectrumPaints.push(performance.now());
     }
     return originalClearRect.apply(this, arguments);
@@ -336,6 +336,20 @@ export function buildUiSmokeTwoLevelsHtml(quietUnit?: string): string {
             }
         });
         state.results.push(quiet);
+        const settings = state['spectrogramSettings'] as { display: Record<string, number | null> };
+        settings.display = { dbMin: null, dbMax: null, maxFrequencyHz: null };
+    }));
+}
+
+/** The preview file with its colour scale on auto over a spectrogram whose extremes are not round (-120…-23.21 dB). */
+export function buildUiSmokeFractionalLevelsHtml(): string {
+    return finalizeUiSmokeHtml(replaceAppState(buildResultsPreviewHtml(), (state) => {
+        state.results.splice(1);
+        state.results[0].channels.forEach((channel) => {
+            const spectrogram = channel['spectrogram'] as { minDb: number; maxDb: number };
+            spectrogram.minDb = -120;
+            spectrogram.maxDb = -23.21;
+        });
         const settings = state['spectrogramSettings'] as { display: Record<string, number | null> };
         settings.display = { dbMin: null, dbMax: null, maxFrequencyHz: null };
     }));

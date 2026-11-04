@@ -3,7 +3,7 @@ import type { UiStrings } from '../../shared/i18n/strings';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { hintAttr } from './hintFooter';
 import { calibrationBadgeHtml, calibrationButtonHtml, channelMetricSummaryHtml, isClipped } from './calibrationDecorations';
-import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpecAxisCanvasId, trackSpecCanvasId, trackSpecWrapId, trackSpectrogramOverlayCanvasId, trackSpectrumCanvasId, trackSpectrumWrapId } from './trackCanvasIds';
+import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpecAxisCanvasId, trackSpecCanvasId, trackSpecWrapId, trackSpectrogramOverlayCanvasId } from './trackCanvasIds';
 
 export interface ChannelLaneSpec {
     trackId: string;
@@ -12,9 +12,7 @@ export interface ChannelLaneSpec {
     channelCount: number;
     channelLabel: string;
     metricSummaryHtml: string;
-    fileName: string;
     axisWidth: number;
-    spectrumTitle: string;
     /** The canvases' accessible names: the file, the channel and what the canvas shows. */
     waveformLabel: string;
     spectrogramLabel: string;
@@ -22,7 +20,6 @@ export interface ChannelLaneSpec {
     spectrogramAxisHint: string;
     splitHint: string;
     splitLabel: string;
-    spectrumHint: string;
     /** Set on multi-channel tracks, whose lanes each get a reference button. */
     referenceButtonHtml?: string;
 }
@@ -49,9 +46,6 @@ export function channelLaneHtml(spec: ChannelLaneSpec): string {
         + '      <canvas class="track-spectrogram-overlay" id="' + trackSpectrogramOverlayCanvasId(trackIndex, channelIndex) + '"' + dataAttrs + ' aria-hidden="true" style="position:absolute;left:' + axisWidth + 'px;top:0;right:0;bottom:0;pointer-events:none"></canvas>'
         + '    </div>'
         + '    </div>'
-        + '    <div class="track-spectrum-wrap" id="' + trackSpectrumWrapId(trackIndex, channelIndex) + '">'
-        + '      <canvas class="track-spectrum-canvas" id="' + trackSpectrumCanvasId(trackIndex, channelIndex) + '"' + dataAttrs + ' tabindex="0" aria-label="' + escapeHtml(spec.fileName + ' ' + label + ' ' + spec.spectrumTitle) + '"' + hintAttr(spec.spectrumHint) + '></canvas>'
-        + '    </div>'
         + '  </div>'
         + '</div>';
 }
@@ -65,7 +59,6 @@ export interface TrackRowSpec {
     sampleRateHz: number;
     channels: ChannelSummary[];
     playable: boolean;
-    muted: boolean;
     lanesHtml: string;
     /** The role chip (roleChip.ts) in place of a plain colour swatch. */
     roleChipHtml: string;
@@ -75,7 +68,7 @@ export interface TrackRowSpec {
 
 export type TrackRowStrings = Pick<UiStrings,
     | 'ariaDragHandle' | 'clipBadgeTitle' | 'trackMoreHint' | 'offsetStepUp' | 'offsetStepDown' | 'offsetEdit' | 'offsetReset'
-    | 'trackPlayTitle' | 'trackNoAudio' | 'ariaTrackPlay' | 'trackStopTitle' | 'ariaTrackStop' | 'ariaTrackMute' | 'ariaRemoveTrack'
+    | 'trackPlayTitle' | 'trackNoAudio' | 'ariaTrackPlay' | 'trackStopTitle' | 'ariaTrackStop' | 'ariaRemoveTrack'
     | 'calibrationButtonLabel' | 'calibrationButtonTitle' | 'calibrationButtonAria'
     | 'trackOffsetResetHint' | 'ariaOffsetValue' | 'ariaOffsetUp' | 'ariaOffsetDown' | 'ariaResizeTrackHeight'
     | 'hintRemoveTrack' | 'hintOffsetUp' | 'hintOffsetDown' | 'hintTrackHeightResizer'
@@ -103,7 +96,6 @@ export function trackRowHtml(spec: TrackRowSpec, strings: TrackRowStrings): stri
         + '  <div class="track-btns">'
         + '    <button class="track-btn" data-action="toggle-playback" data-track-id="' + trackId + '"' + hintAttr(playHint(strings.trackPlayTitle)) + ' aria-label="' + escapeHtml(strings.ariaTrackPlay) + '"' + disabled + '>▶</button>'
         + '    <button class="track-btn" data-action="stop-playback" data-track-id="' + trackId + '"' + hintAttr(playHint(strings.trackStopTitle)) + ' aria-label="' + escapeHtml(strings.ariaTrackStop) + '"' + disabled + '>■</button>'
-        + '    <button class="track-btn" data-action="toggle-mute" data-track-id="' + trackId + '" aria-label="' + escapeHtml(strings.ariaTrackMute) + '" data-hint="' + escapeHtml(playHint(strings.ariaTrackMute)) + '" aria-pressed="' + spec.muted + '"' + disabled + '>' + (spec.muted ? '🔇' : '🔊') + '</button>'
         + '    <button class="track-btn" data-action="remove-track" data-track-id="' + trackId + '"' + hintAttr(strings.hintRemoveTrack) + ' aria-label="' + escapeHtml(strings.ariaRemoveTrack) + '">✕</button>'
         + '    ' + calibrationButtonHtml(trackId, strings)
         + (spec.referenceButtonHtml ? '    ' + spec.referenceButtonHtml : '')

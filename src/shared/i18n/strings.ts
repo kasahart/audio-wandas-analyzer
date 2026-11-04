@@ -93,7 +93,6 @@ export interface UiStrings {
     trackOffsetResetHint: string;
     offsetEditPlaceholder: string;
     offsetEditAriaLabel: string;
-    trackSpectrumTitle: string;
     analysisFailed: string;
     cursorHelpKeys: string;
     tooltipLoopResize: string;
@@ -231,6 +230,7 @@ export interface UiStrings {
     stepBandpass: string;
     stepAverageFft: string;
     stepNeedChannels: string;
+    stepNeedChannelsRemove: string;
     stepNarrowedChannels: string;
     stepOffChannels: string;
     stepOffRate: string;
@@ -593,7 +593,6 @@ export interface UiStrings {
     ariaZoomReset: string;
     ariaRemoveTrack: string;
     ariaTrackPlay: string;
-    ariaTrackMute: string;
     ariaTrackStop: string;
     ariaOffsetUp: string;
     ariaOffsetDown: string;
@@ -900,7 +899,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         trackOffsetResetHint: 'Click: type an offset in ms / Double-click: reset to 0',
         offsetEditPlaceholder: 'ms',
         offsetEditAriaLabel: 'Track offset in milliseconds',
-        trackSpectrumTitle: 'Power spectrum at main cursor',
         analysisFailed: 'Analysis failed: ',
         cursorHelpKeys: '← →: move cursor   Shift+←→: 100 ms step   Space: play/pause',
         tooltipLoopResize: 'Drag to resize loop region',
@@ -1037,6 +1035,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepBandpass: 'BPF',
         stepAverageFft: '{name} {n}',
         stepNeedChannels: 'Needs two channels, and a file here has only one. Set its reference to the base recording (⚙), or remove it.',
+        stepNeedChannelsRemove: 'Needs two channels, and a file here has only one. Remove it.',
         stepNarrowedChannels: '{op} leaves one channel: this step needs two. Move it before {op}, or remove one of them.',
         stepOffChannels: 'Needs two channels: a file here has only one',
         stepOffRate: '{rate} recordings only (these are {here}). For octave bands use noct_spectrum',
@@ -1356,7 +1355,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         calibrationButtonLabel: 'Cal',
         calibrationButtonTitle: 'Configure per-channel calibration',
         calibrationButtonAria: 'Configure calibration',
-        calibrationOverlayIncompatible: 'Spectrum overlay is unavailable because visible channels use incompatible level references. Per-channel spectra remain available.',
+        calibrationOverlayIncompatible: 'Spectrum overlay is unavailable because visible channels use incompatible level references. Show only tracks that share one level reference.',
         loopTimeDisplayTitle: 'Click to copy loop range',
         btnFollowCursor: 'Follow',
         btnFollowCursorTitle: 'Auto-scroll to keep cursor centered during playback (key: F)',
@@ -1393,7 +1392,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         ariaZoomReset: 'Reset zoom',
         ariaRemoveTrack: 'Remove track',
         ariaTrackPlay: 'Play / pause track',
-        ariaTrackMute: 'Mute / unmute track',
         ariaTrackStop: 'Stop track',
         ariaOffsetUp: 'Increase offset',
         ariaOffsetDown: 'Decrease offset',
@@ -1694,7 +1692,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         trackOffsetResetHint: 'クリック: オフセットを ms で入力 / ダブルクリック: 0 に戻す',
         offsetEditPlaceholder: 'ms',
         offsetEditAriaLabel: 'トラックオフセット（ミリ秒）',
-        trackSpectrumTitle: 'メインカーソル時刻のパワースペクトル',
         analysisFailed: '解析失敗: ',
         cursorHelpKeys: '← →: カーソル移動　Shift+←→: 100ms移動　Space: 再生/停止',
         tooltipLoopResize: 'ドラッグでループ区間をリサイズ',
@@ -1831,6 +1828,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepBandpass: 'バンドパス',
         stepAverageFft: '{name}（FFT {n} 点）',
         stepNeedChannels: '2 チャンネルが必要ですが、1 チャンネルのファイルがあります。⚙ で参照を「基準の録音」にするか、外してください',
+        stepNeedChannelsRemove: '2 チャンネルが必要ですが、1 チャンネルのファイルがあります。外してください',
         stepNarrowedChannels: '{op} で 1 チャンネルになっています。この手順には 2 チャンネルが必要です。{op} より前に動かすか、どちらかを外してください',
         stepOffChannels: '2 チャンネルが必要です（1 チャンネルのファイルあり）',
         stepOffRate: '{rate} の録音だけ（ここは {here}）。オクターブ帯域は noct_spectrum で',
@@ -2150,7 +2148,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         calibrationButtonLabel: '校正',
         calibrationButtonTitle: 'チャンネルごとの校正を設定',
         calibrationButtonAria: '校正を設定',
-        calibrationOverlayIncompatible: '表示中のチャンネルのレベル基準が互換でないため、スペクトルの重ね表示は使用できません。チャンネルごとのスペクトルは引き続き表示できます。',
+        calibrationOverlayIncompatible: '表示中のチャンネルのレベル基準が互換でないため、スペクトルの重ね表示は使用できません。レベル基準が同じトラックだけを表示してください。',
         loopTimeDisplayTitle: 'クリックでループ範囲をコピー',
         btnFollowCursor: '追従',
         btnFollowCursorTitle: '再生中にカーソルを中央に保つ（キー: F）',
@@ -2187,7 +2185,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         ariaZoomReset: 'ズームリセット',
         ariaRemoveTrack: 'トラックを削除',
         ariaTrackPlay: 'トラックを再生／一時停止',
-        ariaTrackMute: 'トラックをミュート／解除',
         ariaTrackStop: 'トラックを停止',
         ariaOffsetUp: 'オフセットを増やす',
         ariaOffsetDown: 'オフセットを減らす',

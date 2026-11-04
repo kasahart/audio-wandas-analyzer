@@ -306,7 +306,7 @@ test('host response boundary reports an invalid numeric track identity', () => {
     env.dom.window.close();
 });
 
-test('renderScript: monaural tracks keep waveform and power spectrum in one body without a channel header', async () => {
+test('renderScript: monaural tracks keep waveform and spectrogram in one body without a channel header', async () => {
     const env = setupEnv();
     await nextAnimationFrame(env.dom);
 
@@ -319,14 +319,13 @@ test('renderScript: monaural tracks keep waveform and power spectrum in one body
         'mono track の概要値は下部凡例ではなく track meta に表示されること');
 
     const waveWrap = env.dom.window.document.getElementById('track-canvas-wrap-0');
-    const spectrumWrap = env.dom.window.document.getElementById('track-spectrum-wrap-0');
     assert.ok(waveWrap, 'track-canvas-wrap-0 が存在すること');
-    assert.ok(spectrumWrap, 'track-spectrum-wrap-0 が存在すること');
+    assert.equal(row.querySelector('.track-spectrum-wrap, .track-spectrum-canvas'), null, 'トラック右にはスペクトルを置かないこと');
     const stack = waveWrap.parentElement;
     assert.ok(stack?.classList.contains('track-canvas-stack'), 'waveform はスペクトログラムと縦に積まれること');
     assert.ok(stack?.parentElement?.classList.contains('track-channel-lane-body'), 'waveform はレーン本文に入ること');
     assert.equal(stack?.querySelector('#track-spec-canvas-0')?.closest('.track-canvas-stack'), stack, 'spectrogram は waveform の下に入ること');
-    assert.equal(spectrumWrap.parentElement, stack?.parentElement, 'power spectrum は波形・スペクトログラムと横並びの本文に入ること');
+    assert.equal(stack?.parentElement?.children.length, 1, '時系列の描画がレーン本文の幅をすべて使うこと');
     env.dom.window.close();
 });
 
@@ -589,7 +588,7 @@ test('a role set on a track header repaints its cursor spectrum in the role colo
     const { dom, domCanvasContexts } = setupSelectionResultsEnv();
     await nextAnimationFrame(dom);
     await nextAnimationFrame(dom);
-    const spy = domCanvasContexts.get('track-spectrum-0');
+    const spy = domCanvasContexts.get('spectrum-overlay-canvas');
     assert.ok(spy);
     // Its menu is filled as it opens.
     dom.window.document.querySelector<HTMLElement>('.track-row .role-chip summary')!.click();
@@ -881,7 +880,7 @@ test('analysis-update does not restore a locally removed track', async () => {
     env.dom.window.close();
 });
 
-test('analysis-update rebinds rebuilt waveform and spectrum canvases', async () => {
+test('analysis-update rebinds rebuilt waveform canvases', async () => {
     const env = setupHighFrequencyReadoutEnv();
     env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
         type: 'analysis-update',
@@ -898,21 +897,6 @@ test('analysis-update rebinds rebuilt waveform and spectrum canvases', async () 
     waveformCanvas.focus();
     assert.notEqual(footer.textContent, 'before focus');
 
-    const spectrumCanvas = env.dom.window.document.getElementById('track-spectrum-0') as HTMLCanvasElement;
-    Object.defineProperty(spectrumCanvas, 'width', { configurable: true, writable: true, value: 200 });
-    Object.defineProperty(spectrumCanvas, 'height', { configurable: true, writable: true, value: 140 });
-    spectrumCanvas.getBoundingClientRect = () => (
-        { left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect
-    );
-    spectrumCanvas.dispatchEvent(new env.dom.window.MouseEvent(
-        'mousemove', { bubbles: true, clientX: 88, clientY: 30 },
-    ));
-    await nextAnimationFrame(env.dom);
-
-    assert.match(
-        env.dom.window.document.getElementById('spectrum-freq-readout')?.textContent ?? '',
-        /^high\.wav \/ 1200 Hz \/ -60\.0 dB$/,
-    );
     env.dom.window.close();
 });
 
@@ -1038,9 +1022,9 @@ test('renderScript: lazy spectrum applies global backpressure and converges to t
     assert.equal(requests.length, 2, 'completion should dispatch exactly one trailing request');
     assert.ok(requests[1].cursorNorm > 0.79 && requests[1].cursorNorm < 0.81,
         'the trailing request should target only the latest cursor: ' + requests[1].cursorNorm);
-    const trackSpy = env.domCanvasContexts.get('track-spectrum-0');
-    assert.ok(trackSpy, 'track spectrum canvas spy should exist');
-    const strokesBeforeLatest = trackSpy.strokeCalls;
+    const spectrumSpy = env.domCanvasContexts.get('spectrum-overlay-canvas');
+    assert.ok(spectrumSpy, 'cursor spectrum canvas spy should exist');
+    const strokesBeforeLatest = spectrumSpy.strokeCalls;
     env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
         type: 'spectrum-slice-result',
         requestId: requests[1].requestId,
@@ -1052,7 +1036,7 @@ test('renderScript: lazy spectrum applies global backpressure and converges to t
         frequencyBins: 2, maxFrequencyHz: 22050,
     } }));
     await nextAnimationFrame(env.dom);
-    assert.ok(trackSpy.strokeCalls > strokesBeforeLatest,
+    assert.ok(spectrumSpy.strokeCalls > strokesBeforeLatest,
         'the latest successful slice should paint after the delayed backend response');
     env.dom.window.close();
 });
@@ -1083,9 +1067,39 @@ test('renderScript: a lane scrolled into view in the frame a spectrum hover repa
     await nextAnimationFrame(env.dom);
     assert.deepEqual(sliceRequests().map(msg => msg.trackIndex), [0]);
     // A hover repaints the spectra without asking for slices; a scroll in the same frame must still ask for them.
-    doc.getElementById('track-spectrum-0')!.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { clientX: 10, clientY: 10, bubbles: true }));
+    doc.getElementById('spectrum-overlay-canvas')!.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { clientX: 10, clientY: 10, bubbles: true }));
     secondRow.getBoundingClientRect = box(20, 100);
     doc.getElementById('tracks-wrapper')!.dispatchEvent(new env.dom.window.Event('scroll'));
+    await nextAnimationFrame(env.dom);
+    await new Promise(resolve => setTimeout(resolve, 60));
+    assert.deepEqual(sliceRequests().map(msg => msg.trackIndex), [0, 1]);
+    env.dom.window.close();
+});
+
+test('renderScript: a PNG export asks for the cursor spectrum of a lane out of view while the spectrum panel is folded', async () => {
+    const env = setupEnvWithState(makeLazySpectrogramState());
+    const doc = env.dom.window.document;
+    const box = (top: number, height: number) => () => ({ top, bottom: top + height, height, left: 0, right: 100, width: 100, x: 0, y: top, toJSON: () => ({}) }) as DOMRect;
+    doc.getElementById('tracks-wrapper')!.getBoundingClientRect = box(0, 100);
+    doc.getElementById('track-row-1')!.getBoundingClientRect = box(1000, 100);
+    await nextAnimationFrame(env.dom);
+    const sliceRequests = () => env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice') as any[];
+    assert.deepEqual(sliceRequests().map(msg => msg.trackIndex), [0]);
+    const first = sliceRequests()[0];
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'spectrum-slice-result',
+        requestId: first.requestId,
+        analysisId: first.analysisId,
+        settingsSignature: first.settingsSignature,
+        trackIndex: 0,
+        filePath: '/tmp/a.wav',
+        channels: [{ channelIndex: 0, values: [-40], minDb: -90, maxDb: 0 }],
+        frequencyBins: 1, maxFrequencyHz: 22050,
+    } }));
+    await nextAnimationFrame(env.dom);
+    assert.deepEqual(sliceRequests().map(msg => msg.trackIndex), [0]);
+    // The image draws every lane's analysis window band, which comes from the lane's cursor spectrum.
+    doc.querySelector<HTMLButtonElement>('[data-action="export-png"]')!.click();
     await nextAnimationFrame(env.dom);
     await new Promise(resolve => setTimeout(resolve, 60));
     assert.deepEqual(sliceRequests().map(msg => msg.trackIndex), [0, 1]);
@@ -1134,12 +1148,12 @@ test('renderScript: waveform seek invalidates an in-flight spectrum response', a
 
     const initial = env.postedMessages.find((msg: any) => msg.type === 'request-spectrum-slice') as any;
     const canvas = env.dom.window.document.getElementById('track-canvas-0') as HTMLCanvasElement;
-    const trackSpy = env.domCanvasContexts.get('track-spectrum-0');
-    assert.ok(initial && canvas && trackSpy);
+    const spectrumSpy = env.domCanvasContexts.get('spectrum-overlay-canvas');
+    assert.ok(initial && canvas && spectrumSpy);
     canvas.getBoundingClientRect = () => ({
         left: 0, top: 0, right: 800, bottom: 80, width: 800, height: 80,
     } as DOMRect);
-    const strokesBeforeSeekResponse = trackSpy.strokeCalls;
+    const strokesBeforeSeekResponse = spectrumSpy.strokeCalls;
 
     canvas.dispatchEvent(new env.dom.window.MouseEvent('mousedown', {
         bubbles: true, button: 0, clientX: 600, clientY: 5,
@@ -1162,7 +1176,7 @@ test('renderScript: waveform seek invalidates an in-flight spectrum response', a
     await nextAnimationFrame(env.dom);
     await new Promise((resolve) => env.dom.window.setTimeout(resolve, 40));
 
-    assert.equal(trackSpy.strokeCalls, strokesBeforeSeekResponse,
+    assert.equal(spectrumSpy.strokeCalls, strokesBeforeSeekResponse,
         'the response started before the seek must not be painted');
     const requests = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice') as any[];
     assert.equal(requests.length, 2, 'seek should retain only one replacement request');
@@ -1180,7 +1194,7 @@ test('renderScript: waveform seek invalidates an in-flight spectrum response', a
         maxFrequencyHz: 22050,
     } }));
     await nextAnimationFrame(env.dom);
-    assert.ok(trackSpy.strokeCalls > strokesBeforeSeekResponse,
+    assert.ok(spectrumSpy.strokeCalls > strokesBeforeSeekResponse,
         'the response for the seek cursor should be painted');
     env.dom.window.close();
 });
@@ -1294,13 +1308,9 @@ test('renderScript: lazy spectrum keeps previous drawing while a new cursor slic
     await nextAnimationFrame(env.dom);
 
     const overlaySpy = env.domCanvasContexts.get('spectrum-overlay-canvas');
-    const trackSpy = env.domCanvasContexts.get('track-spectrum-0');
     assert.ok(overlaySpy, 'overlay canvas spy should exist');
-    assert.ok(trackSpy, 'track spectrum canvas spy should exist');
     const overlayClearBefore = overlaySpy.clearRectCalls;
-    const trackClearBefore = trackSpy.clearRectCalls;
     const overlayStrokesBefore = overlaySpy.strokeCalls;
-    const trackStrokesBefore = trackSpy.strokeCalls;
 
     env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
         type: 'comparison-panel-test-action',
@@ -1312,7 +1322,6 @@ test('renderScript: lazy spectrum keeps previous drawing while a new cursor slic
     const requests = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice' && msg.trackIndex === 0) as any[];
     const latestReq = requests[requests.length - 1];
     assert.ok(latestReq.cursorNorm > 0.45 && latestReq.cursorNorm < 0.55, 'cursor move should request a new lazy slice');
-    assert.ok(trackSpy.strokeCalls >= trackStrokesBefore, 'per-track spectrum should keep a successful slice visible while the new slice is pending');
     assert.ok(overlaySpy.strokeCalls >= overlayStrokesBefore, 'overlay spectrum should keep a successful slice visible while the new slice is pending');
 
     env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
@@ -1326,7 +1335,6 @@ test('renderScript: lazy spectrum keeps previous drawing while a new cursor slic
     } }));
     await nextAnimationFrame(env.dom);
 
-    assert.ok(trackSpy.clearRectCalls >= trackClearBefore, 'per-track spectrum should remain drawable after a slice failure');
     assert.ok(overlaySpy.clearRectCalls >= overlayClearBefore, 'overlay spectrum should remain drawable after a slice failure');
     env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
         type: 'comparison-panel-test-action', actionId: 'slice-retry-after-error',
@@ -1654,17 +1662,13 @@ function setupSpectrumEnvWithClock(clock: { now: number }) {
     return env;
 }
 
-test('renderScript: each track row contains a keyboard-focusable per-track spectrum canvas', async () => {
+test('renderScript: the cursor spectrum is the only power spectrum, and it is keyboard-focusable', async () => {
     const env = setupSpectrumEnv();
     await nextAnimationFrame(env.dom);
-    const c0 = env.dom.window.document.getElementById('track-spectrum-0');
-    const c1 = env.dom.window.document.getElementById('track-spectrum-1');
+    assert.equal(env.dom.window.document.querySelectorAll('.track-row .track-spectrum-canvas, .track-row .track-spectrum-wrap').length, 0,
+        'トラック行にスペクトルを置かないこと');
     const overlay = env.dom.window.document.getElementById('spectrum-overlay-canvas');
-    assert.ok(c0, 'track-spectrum-0 が存在すること');
-    assert.ok(c1, 'track-spectrum-1 が存在すること');
     assert.ok(overlay, '#spectrum-overlay-canvas が存在すること');
-    assert.equal(c0.getAttribute('tabindex'), '0');
-    assert.equal(c1.getAttribute('tabindex'), '0');
     assert.equal(overlay.getAttribute('tabindex'), '0');
     env.dom.window.close();
 });
@@ -1676,16 +1680,6 @@ test('renderScript: overlay spectrum canvas is drawn on initial render', async (
     assert.ok(overlaySpy, 'overlay canvas のスパイが取得できること');
     assert.ok(overlaySpy.strokeCalls > 0,
         '初期描画で重ね合わせスペクトルが少なくとも1本描かれること');
-    env.dom.window.close();
-});
-
-test('renderScript: per-track spectrum is drawn on initial render', async () => {
-    const env = setupSpectrumEnv();
-    await nextAnimationFrame(env.dom);
-    const t0 = env.domCanvasContexts.get('track-spectrum-0');
-    const t1 = env.domCanvasContexts.get('track-spectrum-1');
-    assert.ok(t0 && t0.strokeCalls > 0, 'track-0 のスペクトルが描画されること');
-    assert.ok(t1 && t1.strokeCalls > 0, 'track-1 のスペクトルが描画されること');
     env.dom.window.close();
 });
 
@@ -1999,15 +1993,9 @@ test('spectrogram ruler maps time ticks to the plot width', async () => {
     env.dom.window.close();
 });
 
-test('axes: スペクトル (per-track / overlay) に Hz と dB のラベルが描かれる', async () => {
+test('axes: カーソル時刻のスペクトルに Hz と dB のラベルが描かれる', async () => {
     const env = setupSpectrumEnv();
     await nextAnimationFrame(env.dom);
-
-    const trackSpy = env.domCanvasContexts.get('track-spectrum-0');
-    assert.ok(trackSpy, 'track-spectrum-0 のスパイが取得できること');
-    const trackLabels = trackSpy.fillTextCalls;
-    assert.ok(trackLabels.includes('0 Hz'), 'per-track: 0 Hz ラベルが描かれること');
-    assert.ok(trackLabels.some((s) => /dB$/.test(s)), 'per-track: dB ラベルが描かれること');
 
     const overlaySpy = env.domCanvasContexts.get('spectrum-overlay-canvas');
     assert.ok(overlaySpy, 'overlay canvas のスパイが取得できること');
@@ -2018,28 +2006,6 @@ test('axes: スペクトル (per-track / overlay) に Hz と dB のラベルが�
         overlayLabels.some((s) => s !== '0 Hz' && (/kHz$/.test(s) || /Hz$/.test(s))),
         'overlay: 0 以外の周波数ラベル (Hz/kHz) が描かれること: ' + JSON.stringify(overlayLabels),
     );
-    env.dom.window.close();
-});
-
-
-test('spectrum cursor: per-track readout formats focused frequency in Hz', async () => {
-    const env = setupHighFrequencyReadoutEnv();
-    await nextAnimationFrame(env.dom);
-
-    const canvas = env.dom.window.document.getElementById('track-spectrum-0') as HTMLCanvasElement | null;
-    assert.ok(canvas, 'track-spectrum-0 が存在すること');
-    Object.defineProperty(canvas, 'width', { configurable: true, writable: true, value: 200 });
-    Object.defineProperty(canvas, 'height', { configurable: true, writable: true, value: 140 });
-    canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
-
-    canvas.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 88, clientY: 30 }));
-    await nextAnimationFrame(env.dom);
-
-    const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
-    assert.ok(readout, 'spectrum-freq-readout が存在すること');
-    assert.match(readout.textContent || '', /^high\.wav \/ 1200 Hz \/ -60\.0 dB$/,
-        'カーソル読み値はトラック名、Hz固定の周波数、dBをヘッダーに表示すること');
-    assert.doesNotMatch(readout.textContent || '', /kHz/);
     env.dom.window.close();
 });
 
@@ -2104,99 +2070,23 @@ test('spectrum cursor: overlay keyboard focus updates the header readout', async
 });
 
 
-test('spectrum cursor: per-track readout snaps to the hovered track frequency bin', async () => {
-    const env = setupMismatchedDeltaFSpectrumEnv();
-    await nextAnimationFrame(env.dom);
-
-    const canvas = env.dom.window.document.getElementById('track-spectrum-0') as HTMLCanvasElement | null;
-    assert.ok(canvas, 'track-spectrum-0 が存在すること');
-    Object.defineProperty(canvas, 'width', { configurable: true, writable: true, value: 200 });
-    Object.defineProperty(canvas, 'height', { configurable: true, writable: true, value: 140 });
-    canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
-
-    canvas.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 88, clientY: 30 }));
-    await nextAnimationFrame(env.dom);
-
-    const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
-    assert.ok(readout, 'spectrum-freq-readout が存在すること');
-    assert.match(readout.textContent || '', /^coarse\.wav \/ 200 Hz \/ -60\.0 dB$/,
-        'coarse track ΔF=200 Hz の最寄りbinへ吸着すること');
-    env.dom.window.close();
-});
-
-
-
-test('spectrum cursor: per-track keyboard focus updates the header readout', async () => {
-    const env = setupMismatchedDeltaFSpectrumEnv();
-    await nextAnimationFrame(env.dom);
-
-    const canvas = env.dom.window.document.getElementById('track-spectrum-0') as HTMLCanvasElement | null;
-    assert.ok(canvas, 'track-spectrum-0 が存在すること');
-    canvas.focus();
-    env.dom.window.document.dispatchEvent(new env.dom.window.KeyboardEvent('keydown', { bubbles: true, code: 'ArrowRight' }));
-    await nextAnimationFrame(env.dom);
-
-    const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
-    assert.match(readout!.textContent || '', /^coarse\.wav \/ 200 Hz \/ -60\.0 dB$/,
-        'マウス hover なしでも focus と矢印キーでヘッダー readout が更新されること');
-    env.dom.window.close();
-});
-
-
-test('spectrum cursor: per-track keyboard stepping uses the hovered channel bins', async () => {
-    const state = JSON.parse(MULTICHANNEL_APP_STATE);
-    state.results[0].channels[0].spectrogram = {
-        values: [[-12, -48, -72]], timeBins: 1, frequencyBins: 3,
-        windowSize: 512, hopSize: 256,
-        maxFrequencyHz: 22050, minDb: -90, maxDb: 0,
-    };
-    state.results[0].channels[1].spectrogram = {
-        values: [[-80, -60, -40, -20, -10]], timeBins: 1, frequencyBins: 5,
-        windowSize: 512, hopSize: 256,
-        maxFrequencyHz: 4000, minDb: -90, maxDb: 0,
-    };
-    const env = setupEnvWithState(JSON.stringify(state));
-    await nextAnimationFrame(env.dom);
-
-    const trackCanvas = env.dom.window.document.getElementById('track-spectrum-0-1') as HTMLCanvasElement | null;
-    assert.ok(trackCanvas, 'track-spectrum-0-1 が存在すること');
-    Object.defineProperty(trackCanvas, 'width', { configurable: true, writable: true, value: 200 });
-    Object.defineProperty(trackCanvas, 'height', { configurable: true, writable: true, value: 140 });
-    trackCanvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
-
-    trackCanvas.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 113, clientY: 30 }));
-    await nextAnimationFrame(env.dom);
-    env.dom.window.document.dispatchEvent(new env.dom.window.KeyboardEvent('keydown', { bubbles: true, code: 'ArrowRight' }));
-    await nextAnimationFrame(env.dom);
-
-    const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
-    assert.ok(readout, 'spectrum-freq-readout が存在すること');
-    assert.match(readout.textContent || '', /^stereo\.wav Channel 2 \/ 2 \(Right\) \/ 3000 Hz \/ -20\.0 dB$/,
-        'ch1 の ΔF=1000 Hz の次binへ移動すること');
-    env.dom.window.close();
-});
-
 test('spectrum cursor: narrow canvas hover clears stale spectrum target', async () => {
     const env = setupMismatchedDeltaFSpectrumEnv();
     await nextAnimationFrame(env.dom);
 
-    const trackCanvas = env.dom.window.document.getElementById('track-spectrum-0') as HTMLCanvasElement | null;
-    assert.ok(trackCanvas, 'track-spectrum-0 が存在すること');
-    Object.defineProperty(trackCanvas, 'width', { configurable: true, writable: true, value: 200 });
-    Object.defineProperty(trackCanvas, 'height', { configurable: true, writable: true, value: 140 });
-    trackCanvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
+    const overlayCanvas = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
+    assert.ok(overlayCanvas, 'spectrum-overlay-canvas が存在すること');
+    Object.defineProperty(overlayCanvas, 'width', { configurable: true, writable: true, value: 200 });
+    Object.defineProperty(overlayCanvas, 'height', { configurable: true, writable: true, value: 140 });
+    overlayCanvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
 
-    trackCanvas.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 88, clientY: 30 }));
+    overlayCanvas.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 88, clientY: 30 }));
     await nextAnimationFrame(env.dom);
 
     const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
-    assert.match(readout!.textContent || '', /^coarse\.wav \/ 200 Hz \/ -60\.0 dB$/,
-        '事前条件としてper-track hoverのreadoutが表示されること');
+    assert.notEqual(readout!.textContent || '', '', '事前条件としてhoverのreadoutが表示されること');
 
-    const overlayCanvas = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
-    assert.ok(overlayCanvas, 'spectrum-overlay-canvas が存在すること');
     Object.defineProperty(overlayCanvas, 'width', { configurable: true, writable: true, value: 20 });
-    Object.defineProperty(overlayCanvas, 'height', { configurable: true, writable: true, value: 140 });
     overlayCanvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 20, bottom: 140, width: 20, height: 140 } as DOMRect);
 
     overlayCanvas.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 10, clientY: 30 }));
@@ -2259,17 +2149,14 @@ test('spectrum cursor: overlay remains snapped after frequency zoom changes the 
 test('renderScript: spectrum canvases are redrawn during playback as cursor advances', async () => {
     // 回帰テスト: 再生中、カーソル位置が進むたびにスペクトル表示が更新されることを保証する。
     // 修正前は再生ループ tick で refreshSpectrumViews() が呼ばれず、
-    // overlay / per-track のスペクトル canvas が再生中ずっと初期描画のままだった。
+    // スペクトル canvas が再生中ずっと初期描画のままだった。
     const env = setupSpectrumEnv();
     await nextAnimationFrame(env.dom);
 
     const overlaySpy = env.domCanvasContexts.get('spectrum-overlay-canvas');
-    const trackSpy = env.domCanvasContexts.get('track-spectrum-0');
     assert.ok(overlaySpy, 'overlay canvas のスパイが取得できること');
-    assert.ok(trackSpy, 'track-spectrum-0 のスパイが取得できること');
 
     const overlayBefore = overlaySpy.strokeCalls;
-    const trackBefore = trackSpy.strokeCalls;
     const waveformSpy = env.domCanvasContexts.get('track-canvas-0');
     assert.ok(waveformSpy, 'track-canvas-0 のスパイが取得できること');
     const waveformBefore = waveformSpy.clearRectCalls;
@@ -2301,9 +2188,6 @@ test('renderScript: spectrum canvases are redrawn during playback as cursor adva
     assert.ok(overlaySpy.strokeCalls > overlayBefore,
         '再生中の tick で overlay spectrum が再描画されること '
         + '(before=' + overlayBefore + ', after=' + overlaySpy.strokeCalls + ')');
-    assert.ok(trackSpy.strokeCalls > trackBefore,
-        '再生中の tick で per-track spectrum が再描画されること '
-        + '(before=' + trackBefore + ', after=' + trackSpy.strokeCalls + ')');
     env.dom.window.close();
 });
 
@@ -3198,15 +3082,12 @@ test('高さの数値入力がトラックとパワースペクトルの canvas 
     await nextAnimationFrame(env.dom);
 
     const trackCanvas = env.dom.window.document.getElementById('track-canvas-0') as HTMLCanvasElement | null;
-    const trackSpectrumCanvas = env.dom.window.document.getElementById('track-spectrum-0') as HTMLCanvasElement | null;
     const overlayCanvas = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
     assert.ok(trackCanvas);
-    assert.ok(trackSpectrumCanvas);
     assert.ok(overlayCanvas);
-    // 112 px of plots: 45 waveform + 67 spectrogram; the spectrum beside them also spans the 5 px split.
+    // 112 px of plots: 45 waveform + 67 spectrogram.
     assert.strictEqual(trackCanvas.height, 45);
     assert.strictEqual((env.dom.window.document.getElementById('track-spec-canvas-0') as HTMLCanvasElement).height, 67);
-    assert.strictEqual(trackSpectrumCanvas.height, 117);
     assert.strictEqual(overlayCanvas.height, 180);
     assert.strictEqual(overlayCanvas.style.height, '180px');
 
@@ -3665,7 +3546,7 @@ test('tracks without an audio source disable all playback controls', () => {
     const state = JSON.parse(DUMMY_APP_STATE);
     delete state.results[0].audioSource;
     const { dom } = setupEnvWithState(JSON.stringify(state));
-    for (const action of ['toggle-playback', 'stop-playback', 'toggle-mute']) {
+    for (const action of ['toggle-playback', 'stop-playback']) {
         const buttons = dom.window.document.querySelectorAll<HTMLButtonElement>(`.track-row [data-action="${action}"]`);
         assert.equal(buttons[0].disabled, true);
         if (action !== 'stop-playback') assert.equal(buttons[1].disabled, false);

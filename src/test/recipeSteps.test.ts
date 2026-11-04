@@ -197,6 +197,15 @@ test('the first step that cannot run breaks the chain: every step after it canno
     assert.equal(brokenStep(entry, 16000), undefined);
 });
 
+test('channel_difference needs two channels: on one it subtracts the only channel from itself (all zeros)', () => {
+    const offered = (channels?: number) => addableOperations('ChannelFrame', undefined, channels).find(item => item.name === 'channel_difference')!;
+    assert.deepEqual([offered(1).off, offered(2).off, offered().off], ['channels', undefined, undefined]);
+    const [, slice] = recipeSteps(entry, 16000);
+    const { recipe, id } = withStep(entry, slice.id, catalogOperation('wandas.audio.channel_difference')!);
+    assert.deepEqual(recipeSteps(recipe, { sampleRate: 16000, channels: 1 }).find(step => step.id === id)!.reason, { kind: 'channels', limit: 2 });
+    assert.equal(recipeSteps(recipe, { sampleRate: 16000, channels: 2 }).find(step => step.id === id)!.invalid, undefined);
+});
+
 test('a step that compares two channels needs two: one channel (or one picked by get_channel) has only itself', () => {
     const [, slice, welch] = recipeSteps(entry, 16000);
     const base = withoutSteps(entry, [welch.id]);
@@ -311,6 +320,30 @@ test('a new cross-correlation keeps lags within ±0.1 s, and the limit can be se
     assert.equal(maxLag(recipe), 0.1);
     assert.equal(addableOperations('ChannelFrame').find(item => item.name === 'cross_correlation')!.settable, true);
     assert.equal(maxLag(withParam(recipe, id, STEP_PARAMS['wandas.audio.cross_correlation'][0], 0.5)), 0.5);
+});
+
+test('a lifter can follow a cepstrum or a cepstrogram: a new one keeps quefrencies below 2 ms, and its cutoff and side can be set', () => {
+    for (const [frame, before, lifter] of [['CepstralFrame', 'wandas.audio.cepstrum', 'wandas.cepstral.lifter'], ['CepstrogramFrame', 'wandas.spectrogram.cepstrum', 'wandas.cepstrogram.lifter']] as const) {
+        const offered = addableOperations(frame).find(item => item.operation.id === lifter)!;
+        assert.equal(offered.off, undefined);
+        assert.equal(offered.settable, true);
+        const [, slice, welch] = recipeSteps(entry, 16000);
+        let chain = withoutSteps(entry, [welch.id]);
+        let after = slice.id;
+        if (frame === 'CepstrogramFrame') ({ recipe: chain, id: after } = withStep(chain, after, catalogOperation('wandas.audio.stft')!));
+        ({ recipe: chain, id: after } = withStep(chain, after, catalogOperation(before)!));
+        const { recipe, id } = withStep(chain, after, catalogOperation(lifter)!);
+        const step = (document: RecipeDocument) => recipeSteps(document, 16000).find(item => item.id === id)!;
+        assert.deepEqual([step(recipe).input, step(recipe).output], [frame, frame]);
+        assert.deepEqual([step(recipe).params['cutoff'], step(recipe).params['mode'], step(recipe).invalid], [0.002, 'low', undefined]);
+        const [cutoff, mode] = STEP_PARAMS[lifter];
+        const set = step(withParam(withParam(recipe, id, cutoff, 0.005), id, mode, 'high'));
+        assert.deepEqual([set.params['cutoff'], set.params['mode'], set.invalid], [0.005, 'high', undefined]);
+        // A quefrency is above 0; a side is low or high.
+        assert.equal(step(withParam(recipe, id, cutoff, 0)).invalid, 'cutoff');
+        assert.equal(step(withParam(recipe, id, cutoff, -0.002)).invalid, 'cutoff');
+        assert.equal(step(withParam(recipe, id, mode, 'band')).invalid, 'mode');
+    }
 });
 
 test('a trigger takes a time signal; after it ＋ offers only what takes its events, and a Frame step no longer runs', () => {

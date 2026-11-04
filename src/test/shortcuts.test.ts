@@ -87,7 +87,6 @@ test('keydownContextFor derives the keyboard context from the focused element', 
         spectrumActive: false, helpOpen: false, textEntryFocused: false, trackCanvasFocused: true,
     });
     assert.equal(keydownContextFor(focused('spectrum-overlay-canvas', 'CANVAS'), null, false).spectrumActive, true);
-    assert.equal(keydownContextFor(focused('s0', 'CANVAS', ['track-spectrum-canvas']), null, false).spectrumActive, true);
     assert.equal(keydownContextFor(focused('q', 'input'), null, false).textEntryFocused, true);
 });
 

@@ -63,7 +63,7 @@ async function showFiles(page: Page, filePaths: readonly string[], selected: boo
     } })), { filePaths, selected });
 }
 
-test('directory file remove/re-add keeps surviving offset, cursor, mute and document', async ({ page }) => {
+test('directory file remove/re-add keeps surviving offset, cursor and document', async ({ page }) => {
     await page.setContent(buildUiSmokeSelectionHtml(), { waitUntil: 'domcontentloaded' });
     const audioSource = 'data:audio/wav;base64,' + readFileSync(path.join(__dirname, '../fixtures/short-stereo.wav')).toString('base64');
     await page.evaluate(source => {
@@ -78,7 +78,6 @@ test('directory file remove/re-add keeps surviving offset, cursor, mute and docu
     // The offset's steps are in the track's … menu.
     await page.locator('.track-row[data-track-id="track-1"] details.track-more summary').click();
     await page.locator('[data-action="offset-up"][data-track-id="track-1"]').click();
-    await page.locator('[data-action="toggle-mute"][data-track-id="track-1"]').click();
     const canvas = page.locator('#track-canvas-0');
     await canvas.scrollIntoViewIfNeeded();
     const box = (await canvas.boundingBox())!;
@@ -105,8 +104,6 @@ test('directory file remove/re-add keeps surviving offset, cursor, mute and docu
         expect(current.cursorNorm).toBe(configured.cursorNorm);
         expect(current.zoomStart).toBe(configured.zoomStart);
         expect(current.zoomEnd).toBe(configured.zoomEnd);
-        await expect(page.locator('#track-row-0 [data-action="toggle-mute"]')).toHaveAttribute('aria-pressed', 'true');
-        expect(await page.locator('#track-audio-0').evaluate(node => (node as HTMLAudioElement).muted)).toBe(true);
         expect(await page.locator('audio').evaluateAll(nodes => nodes.every(node => (node as HTMLAudioElement).paused))).toBe(true);
         expect(await page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Array<{ type: string; filePaths: string[] }> }).__uiSmokePostedMessages
             .filter(message => message.type === 'analyze-selected-files').at(-1)!.filePaths.includes('/tmp/session/sub/b.flac'))).toBe(selected);
