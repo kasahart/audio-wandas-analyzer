@@ -2000,13 +2000,20 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             spectrumRequests.scheduleFrame(false, false);
         },
     });
-    /** Whether a shown track's spectrum at the cursor is still on its way (and the hold has not run out). */
+    /** Whether a shown track's spectrum at the cursor is still on its way (and the hold has not run out); one answer per drawing pass. */
+    let holdingThisPass: boolean | null = null;
     function holdingSpectrumCommit() {
+        if (holdingThisPass !== null) {
+            return holdingThisPass;
+        }
         const pending = trackStore.displayOrder.some(function (trackId) {
             const record = trackStore.require(trackId);
             return !record.runtime.hidden && isSpectrumSliceRequestPendingForCursor(record.protocolIndex, spectrumCursorNorm);
         });
-        return spectrumCommitHold.holds(pending);
+        holdingThisPass = spectrumCommitHold.holds(pending, spectrumRequests.generation);
+        // Every lane drawn in this pass sees the same answer, so the cap never splits a frame.
+        queueMicrotask(function () { holdingThisPass = null; });
+        return holdingThisPass;
     }
     function displayedWindowBand(trackIndex: number, channelIndex: number, holding: boolean): AnalysisWindowBand | null {
         const record = trackRecordAtIndex(trackIndex);
@@ -2014,7 +2021,17 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return null;
         }
         const key = record.id + ':' + channelIndex;
-        if (holding && shownWindowBands.has(key)) {
+        // A hidden track keeps no band to show again when it comes back.
+        if (record.runtime.hidden) {
+            shownWindowBands.delete(key);
+            return null;
+        }
+        // While playing no band is drawn: the header's caption reads the live one and nothing is kept for after.
+        if (playback.isRunning()) {
+            return analysisWindowBand(trackIndex, channelIndex);
+        }
+        if (holding) {
+            // A track with nothing shown yet (after playback, or just shown again) waits for the others too.
             return shownWindowBands.get(key) ?? null;
         }
         const band = analysisWindowBand(trackIndex, channelIndex);
@@ -2023,6 +2040,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function drawAnalysisWindowOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number, trackIndex: number, channelIndex: number) {
         if (playback.isRunning()) {
+            // The bands from before playback are not shown again when it stops.
+            shownWindowBands.clear();
             return;
         }
         const band = displayedWindowBand(trackIndex, channelIndex, holdingSpectrumCommit());
@@ -3696,7 +3715,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         const W = canvas.width, H = canvas.height;
         const { series: slices, pending: pendingVisibleSlice } = spectrumSeriesAt(spectrumCursorNorm);
-        if (overlaySpectrumPainted && pendingVisibleSlice && holdingSpectrumCommit()) {
+        if (holdingSpectrumCommit() && overlaySpectrumPainted && pendingVisibleSlice) {
             return;
         }
         if (slices.length === 0) {

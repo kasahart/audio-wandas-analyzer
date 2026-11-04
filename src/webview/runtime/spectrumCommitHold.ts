@@ -8,6 +8,7 @@ export const SPECTRUM_COMMIT_HOLD_MS = 1000;
  */
 export class SpectrumCommitHold {
     private since: number | null = null;
+    private generation: number | null = null;
     private timer: number | null = null;
 
     constructor(private readonly deps: {
@@ -18,15 +19,20 @@ export class SpectrumCommitHold {
         onExpired(): void;
     }) {}
 
-    /** Whether to keep the last committed picture: something asked for is still on its way and the cap has not passed. */
-    holds(pending: boolean): boolean {
+    /**
+     * Whether to keep the last committed picture: something asked for is still on its way and the cap has not passed.
+     * `generation` names the action (it changes with the cursor): a new action starts its own hold.
+     */
+    holds(pending: boolean, generation: number): boolean {
         if (!pending) {
             this.release();
             return false;
         }
         const now = this.deps.now();
-        if (this.since === null) {
+        if (this.since === null || this.generation !== generation) {
+            this.release();
             this.since = now;
+            this.generation = generation;
             this.timer = this.deps.setTimeout(() => {
                 this.timer = null;
                 this.deps.onExpired();
