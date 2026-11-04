@@ -38,6 +38,10 @@ export function withEventExcluded(recipe: RecipeDocument, key: string, id: numbe
     const all: Record<string, number[]> = { ...excludedEvents(recipe) } as Record<string, number[]>;
     const ids = (all[key] ?? []).filter(item => item !== id).concat(out ? [id] : []).sort((a, b) => a - b);
     if (ids.length) all[key] = ids; else delete all[key];
+    // A later trigger runs on what this one's events give: its events are others now, so its exclusions go.
+    const triggers = runningTriggers(recipe).map(node => node.id);
+    const later = new Set(triggers.slice(triggers.indexOf(key.split('|')[0]) + 1));
+    if (triggers.includes(key.split('|')[0])) for (const other of Object.keys(all)) if (later.has(other.split('|')[0])) delete all[other];
     if (Object.keys(all).length) copy[EXCLUDED_KEY] = all; else delete copy[EXCLUDED_KEY];
     return copy;
 }

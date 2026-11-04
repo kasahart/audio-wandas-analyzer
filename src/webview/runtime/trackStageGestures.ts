@@ -35,7 +35,8 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
     rerender: () => void;
     hint: (text: string) => void;
     /** A click on a trigger's event line: left out, or put back. */
-    toggleEvent?: (event: { id: number; source: string; out: boolean }) => void;
+    /** Takes what the click is on at once, and returns the edit to make once no double-click follows. */
+    toggleEvent?: (event: { id: number; source: string; out: boolean }) => (() => void) | undefined;
 }): StageGestures {
     const { strings, state, drawnOn } = deps;
     // The pointer's marks (plotHover.ts: the nearest line thicker, the cursor at its point), its readout, the
@@ -157,7 +158,8 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
         if (pending !== undefined) { view.clearTimeout(pending); pending = undefined; }
         if (event.detail > 1) return;
         const line = eventAt(plot, event.clientX, event.clientY);
-        if (line) pending = view.setTimeout(() => { pending = undefined; deps.toggleEvent?.(line); }, DOUBLE_CLICK_MS);
+        const edit = line ? deps.toggleEvent(line) : undefined;
+        if (edit) pending = view.setTimeout(() => { pending = undefined; edit(); }, DOUBLE_CLICK_MS);
     };
     surface.addEventListener('click', clicked('.track-canvas'));
     root.addEventListener('click', clicked('[data-stage-canvas]'));

@@ -46,6 +46,11 @@ test('the steps after a trigger run without its events left out: wandas.segments
     assert.equal(triggers.length, 2);
     const both = recipeChain(withDroppedEvents(second, triggers.map((id, at) => ({ trigger: id, ids: [at] }))));
     for (const id of triggers) assert.equal(both[both.findIndex(node => node.id === id) + 1].id, dropNode(id));
+    // Leaving out one of the first trigger's events makes the second trigger's events others: its exclusions go.
+    const later = withEventExcluded(second, eventsKey(triggers[1], '/data/a.wav', null), 0, true);
+    const changed = withEventExcluded(later, eventsKey(triggers[0], '/data/b.wav', null), 2, true);
+    assert.deepEqual(excludedOf(changed, eventsKey(triggers[1], '/data/a.wav', null)), []);
+    assert.deepEqual(excludedOf(changed, eventsKey(triggers[0], '/data/b.wav', null)), [2]);
 });
 
 test('another trigger level, another step before it, another region or the region bypassed brings the events left out back; a step after it does not', () => {

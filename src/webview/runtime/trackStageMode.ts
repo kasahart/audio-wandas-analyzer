@@ -305,12 +305,17 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
     let channelOf = (_path: string): number | null => null;
     let shownTrigger: string | null = null;
     /** A click on an event's line: that event of that recording left out of the steps after the trigger, or put back (↶ too). */
-    function toggleEvent(event: { id: number; source: string; out: boolean }): void {
-        const editor = deps.recipe()?.recipe;
-        if (!editor || !shownTrigger) return;
-        const next = withEventExcluded(editor, eventsKey(shownTrigger, event.source, channelOf(event.source)), event.id, !event.out);
-        const said = (event.out ? strings.stageEventIn : strings.stageEventOut).replace('{name}', named(event.source, role(event.source)).label).replace('{n}', String(event.id + 1));
-        stepBar.edit(next, said);
+    // The events' trigger and channel are taken when the line is clicked: the edit itself waits out a double-click.
+    function toggleEvent(event: { id: number; source: string; out: boolean }): (() => void) | undefined {
+        if (!shownTrigger) return undefined;
+        const key = eventsKey(shownTrigger, event.source, channelOf(event.source));
+        return () => {
+            const editor = deps.recipe()?.recipe;
+            if (!editor) return;
+            const next = withEventExcluded(editor, key, event.id, !event.out);
+            const said = (event.out ? strings.stageEventIn : strings.stageEventOut).replace('{name}', named(event.source, role(event.source)).label).replace('{n}', String(event.id + 1));
+            stepBar.edit(next, said);
+        };
     }
     /** A recording's ▶ in the legend (■ while it plays); the base group has none. */
     /** The legend's markup as last written. */
