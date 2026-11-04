@@ -313,6 +313,27 @@ test('a new cross-correlation keeps lags within ±0.1 s, and the limit can be se
     assert.equal(maxLag(withParam(recipe, id, STEP_PARAMS['wandas.audio.cross_correlation'][0], 0.5)), 0.5);
 });
 
+test('a lifter can follow a cepstrum or a cepstrogram: a new one keeps quefrencies below 2 ms, and its cutoff and side can be set', () => {
+    for (const [frame, before, lifter] of [['CepstralFrame', 'wandas.audio.cepstrum', 'wandas.cepstral.lifter'], ['CepstrogramFrame', 'wandas.spectrogram.cepstrum', 'wandas.cepstrogram.lifter']] as const) {
+        const offered = addableOperations(frame).find(item => item.operation.id === lifter)!;
+        assert.equal(offered.off, undefined);
+        assert.equal(offered.settable, true);
+        const [, slice, welch] = recipeSteps(entry, 16000);
+        let chain = withoutSteps(entry, [welch.id]);
+        let after = slice.id;
+        if (frame === 'CepstrogramFrame') ({ recipe: chain, id: after } = withStep(chain, after, catalogOperation('wandas.audio.stft')!));
+        ({ recipe: chain, id: after } = withStep(chain, after, catalogOperation(before)!));
+        const { recipe, id } = withStep(chain, after, catalogOperation(lifter)!);
+        const step = (document: RecipeDocument) => recipeSteps(document, 16000).find(item => item.id === id)!;
+        assert.deepEqual([step(recipe).input, step(recipe).output], [frame, frame]);
+        assert.deepEqual([step(recipe).params['cutoff'], step(recipe).params['mode'], step(recipe).invalid], [0.002, 'low', undefined]);
+        const [cutoff, mode] = STEP_PARAMS[lifter];
+        assert.equal(step(withParam(withParam(recipe, id, cutoff, 0.005), id, mode, 'high')).params['cutoff'], 0.005);
+        assert.equal(step(withParam(recipe, id, mode, 'high')).params['mode'], 'high');
+        assert.equal(step(withParam(recipe, id, cutoff, 0)).invalid, 'cutoff');
+    }
+});
+
 test('a trigger takes a time signal; after it ＋ offers only what takes its events, and a Frame step no longer runs', () => {
     const [, slice, welch] = recipeSteps(entry, 16000);
     assert.equal(addableOperations('ChannelFrame').find(item => item.name === 'trigger')?.off, undefined);
