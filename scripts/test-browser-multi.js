@@ -70,8 +70,8 @@ module.exports = async function auditMulti({ browser, origin, root, nativeResult
         assert.equal(await page.locator('#pair-spectrum-wrap').isVisible(),false);
         console.log('Pair view: H1/γ² for',pair.responses.length,'responses against the first lane,',pair.responses[0].averages,'averages.');
         await page.locator('[data-action="content-waveform"]').click();
-        await page.locator('[data-action="toggle-mute"]').first().click();
-        assert.equal(await page.locator('audio').first().evaluate(audio=>audio.muted),true);
+        // One track plays at a time, so a track has no mute of its own.
+        assert.equal(await page.locator('[data-action="toggle-mute"]').count(),0);
         // The offset is in the lane's … menu.
         await page.locator('.track-row .track-more > summary').first().click();
         await page.locator('[data-action="offset-up"]').first().click();
@@ -137,7 +137,6 @@ module.exports = async function auditMulti({ browser, origin, root, nativeResult
         await status.filter({hasText:tracks(3)}).waitFor();
         assert.equal(await page.locator('.track-row').count(),3);
         assert.equal(await page.locator('audio').first().getAttribute('src'),firstUrl);
-        assert.equal(await page.locator('audio').first().evaluate(audio=>audio.muted),true,'mute survives additions');
         assert.match(await page.locator('#offset-val-0').innerText(),/0\.010/);
         const removedUrl=await page.locator('audio').last().getAttribute('src');
         await page.locator('[data-action="remove-track"]').last().click();
