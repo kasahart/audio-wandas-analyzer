@@ -35,15 +35,16 @@ export interface OverlaySpectrumPaint {
     levelAxes: Array<{ title: string; colors: string[] }>;
 }
 
-/** Marks the right-hand axis in the legend and in a readout of a line read on it. */
+/** Marks the right-hand axis in the legend. */
 export const SECONDARY_AXIS_MARK = '▶';
 
-function overlayReadout(hover: OverlaySpectrumHover, nearest: (SpectrumSnapHit<SpectrumSeries> & { axisIndex: number }) | null): OverlaySpectrumPaint['readout'] {
+function overlayReadout(hover: OverlaySpectrumHover, nearest: (SpectrumSnapHit<SpectrumSeries> & { axisIndex: number }) | null, axisTitles: string[]): OverlaySpectrumPaint['readout'] {
     if (!nearest || hover.norm === null || hover.target !== 'overlay') {
         return { text: '', color: '' };
     }
-    const text = spectrumReadoutText(nearest.s.label, nearest.s.slice, nearest.snap.freqHz, nearest.dbVal);
-    return { text: nearest.axisIndex > 0 ? text + ' ' + SECONDARY_AXIS_MARK : text, color: nearest.s.color };
+    // With two level axes, "dB" alone could be either: the value names its reference ("-17.0 dB re 1 m/s^2").
+    const level = axisTitles.length > 1 ? { unit: legendLevelText(axisTitles[nearest.axisIndex]) } : nearest.s.slice;
+    return { text: spectrumReadoutText(nearest.s.label, { ...nearest.s.slice, ...level }, nearest.snap.freqHz, nearest.dbVal), color: nearest.s.color };
 }
 
 export function paintOverlaySpectrum(
@@ -91,9 +92,14 @@ export function paintOverlaySpectrum(
         // With no pointer height (the cursor follows the pair plot) no line is nearest, so only the frequency line shows.
         nearest = hover.yFrac !== null ? nearestOverlaySnap(axes, frameFor, hover.norm, hover.yFrac * H, !hover.stepped) : null;
         const hit = nearest;
+        const full = { left: frame.padLeft, top: frame.padTop, width: frame.plotWidth, height: frame.plotHeight };
+        // With two level axes the level guide runs only to the axis the line is read on, so it is not read on the other.
+        const guide = hit && axes.length > 1
+            ? (hit.axisIndex === 0 ? { ...full, width: hit.snap.x - full.left } : { ...full, left: hit.snap.x, width: full.left + full.width - hit.snap.x })
+            : full;
         paintHoverMarks(
             ctx,
-            { left: frame.padLeft, top: frame.padTop, width: frame.plotWidth, height: frame.plotHeight },
+            guide,
             hit ? hit.snap.x : frame.padLeft + hover.norm * frame.plotWidth,
             hit ? hit.snapY : null,
             hit ? hit.s.color : '',
@@ -104,7 +110,7 @@ export function paintOverlaySpectrum(
         drawSpectrumSelectionBox(ctx, frame, box.anchor, box.current);
     }
     result.painted = true;
-    result.readout = overlayReadout(hover, nearest);
+    result.readout = overlayReadout(hover, nearest, axes.map(axis => axis.title));
     return result;
 }
 

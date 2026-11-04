@@ -115,7 +115,7 @@ test('two level references: the second is read on its own axis at the right, fol
     assert.equal(overlayLevelAxes([...mixed, third], fullView).length, 1, 'three references stay on one axis behind the warning');
 });
 
-test('paintOverlaySpectrum: a second reference widens the right margin, names its axis and marks its readout', () => {
+test('paintOverlaySpectrum: a second reference widens the right margin, names its axis and its readout\'s reference', () => {
     const texts: string[] = [];
     const { ctx } = recordingCtx();
     const recording = new Proxy(ctx, { get(target, prop) { return prop === 'fillText' ? (text: string) => { texts.push(text); } : Reflect.get(target, prop); } });
@@ -127,7 +127,8 @@ test('paintOverlaySpectrum: a second reference widens the right margin, names it
     const hover = { norm: 1 / 3, yFrac: 8 / 200, target: 'overlay' as const };
     const readout = paintOverlaySpectrum(ctx, 400, 200, mixed, fullView, hover, null, DEFAULT_THEME).readout;
     assert.equal(readout?.color, '#ffff00');
-    assert.ok(readout?.text.startsWith('B') && readout.text.endsWith(' ' + SECONDARY_AXIS_MARK), readout?.text);
+    // "dB" alone could be either axis: the value names its reference.
+    assert.ok(readout?.text.startsWith('B') && readout.text.endsWith(' dB re 1 V'), readout?.text);
     paintOverlaySpectrum(ctx, 400, 200, series, fullView, noHover, null, DEFAULT_THEME);
     assert.equal(OVERLAY_SPECTRUM_PAD.right, 8, 'one reference gives the margin back');
 });
@@ -152,4 +153,20 @@ test('renderSpectrumAxisLegend shows which lines are read on which side, only wi
     renderSpectrumAxisLegend(host as unknown as HTMLElement, [{ title: SPL, colors: ['#0000ff'] }]);
     assert.equal(host.hidden, true);
     assert.equal(children.length, 0);
+});
+
+test('paintOverlaySpectrum: with two level axes the level guide runs only to the axis the line is read on', () => {
+    const lines: Array<[number, number, number, number]> = [];
+    let from: [number, number] = [0, 0];
+    const { ctx } = recordingCtx();
+    const recording = new Proxy(ctx, { get(target, prop) {
+        if (prop === 'moveTo') return (x: number, y: number) => { from = [x, y]; };
+        if (prop === 'lineTo') return (x: number, y: number) => { lines.push([from[0], from[1], x, y]); };
+        return Reflect.get(target, prop);
+    } });
+    paintOverlaySpectrum(recording, 400, 200, mixed, fullView, { norm: 1 / 3, yFrac: 8 / 200, target: 'overlay' }, null, DEFAULT_THEME);
+    // The plot runs from x 48 to 352 (400 - 48); B is read on the right axis, so its guide starts at the cursor.
+    const guide = lines.find(([, y0, x1, y1]) => y0 === y1 && y0 < 20 && x1 === 352);
+    assert.ok(guide, JSON.stringify(lines));
+    assert.ok(guide[0] > 48 + 50, 'the guide does not reach the left axis');
 });
