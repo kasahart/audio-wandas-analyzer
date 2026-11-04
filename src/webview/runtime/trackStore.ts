@@ -23,7 +23,6 @@ export interface TrackRecord {
     /** The host's answer when the spectrogram failed: shown in the lane, and asked again only after a pause. */
     detailError: { settingsSignature: string; message: string; at: number } | null;
     readonly spectrumSliceCache: Map<number, SpectrumSlice>;
-    readonly spectrumPainted: Map<number, boolean>;
 }
 
 export interface ReconcileResult {
@@ -239,7 +238,6 @@ export class TrackStore {
             requests: new HostRequests(),
             detailError: null,
             spectrumSliceCache: new Map(),
-            spectrumPainted: new Map(),
         };
         result.trackId = id;
         this.records.set(id, record);
@@ -250,7 +248,6 @@ export class TrackStore {
         record.waveformCoverage = null;
         record.rangeCache = null;
         this.clearAsyncState(record);
-        record.spectrumPainted.clear();
     }
 
     private clearAsyncState(record: TrackRecord): void {

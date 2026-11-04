@@ -28,17 +28,14 @@ export interface OverlaySpectrumPaint {
     dbMax: number;
     /** False when the visible frequency window is empty and only the axes were drawn. */
     painted: boolean;
-    /** null leaves the readout as is: the hover belongs to a per-track spectrum. */
+    /** null leaves the readout as is: nothing was drawn to read. */
     readout: { text: string; color: string } | null;
 }
 
 function overlayReadout(hover: OverlaySpectrumHover, nearest: SpectrumSnapHit<SpectrumSeries> | null): OverlaySpectrumPaint['readout'] {
-    if (hover.norm !== null && hover.target === 'overlay') {
-        return nearest
-            ? { text: spectrumReadoutText(nearest.s.label, nearest.s.slice, nearest.snap.freqHz, nearest.dbVal), color: nearest.s.color }
-            : { text: '', color: '' };
-    }
-    return hover.norm === null ? { text: '', color: '' } : null;
+    return nearest && hover.norm !== null && hover.target === 'overlay'
+        ? { text: spectrumReadoutText(nearest.s.label, nearest.s.slice, nearest.snap.freqHz, nearest.dbVal), color: nearest.s.color }
+        : { text: '', color: '' };
 }
 
 export function paintOverlaySpectrum(

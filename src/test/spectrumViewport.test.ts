@@ -2,12 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     OVERLAY_SPECTRUM_PAD,
-    TRACK_SPECTRUM_PAD,
     spectrumPlotFrame,
     spectrumVisibleWindow,
     steppedOverlaySpectrumHoverNorm,
     steppedSpectrumHoverNorm,
-    steppedTrackSpectrumHoverNorm,
 } from '../webview/runtime/spectrumRuntime';
 import type { SpectrumSlice } from '../webview/runtime/types';
 
@@ -28,9 +26,6 @@ test('spectrumVisibleWindow: dB 上書きはデータ値より優先される（
 
 test('spectrumPlotFrame: パディングを除いたプロット領域と表示範囲を返す', () => {
     const vis = { frequencyMin: 100, frequencyMax: 900, dbMin: -70, dbMax: -5 };
-    assert.deepEqual(spectrumPlotFrame(200, 100, TRACK_SPECTRUM_PAD, vis), {
-        padLeft: 32, plotWidth: 162, padTop: 4, plotHeight: 82, ...vis,
-    });
     const overlay = spectrumPlotFrame(300, 120, OVERLAY_SPECTRUM_PAD, vis);
     assert.equal(overlay.plotWidth, 244);
     assert.equal(overlay.plotHeight, 94);
@@ -53,15 +48,6 @@ test('steppedSpectrumHoverNorm: 間引き前の最大周波数があればそれ
 function flat(db: number, bins: number): SpectrumSlice {
     return slice({ values: new Array(bins).fill(db), frequencyBins: bins });
 }
-
-test('steppedTrackSpectrumHoverNorm: 表示中の周波数範囲で 1 ビン先の位置を返す', () => {
-    assert.ok(Math.abs((steppedTrackSpectrumHoverNorm(flat(-40, 11), 0.5, 0, 1, 1) ?? NaN) - 0.6) < 1e-9);
-    assert.ok(Math.abs((steppedTrackSpectrumHoverNorm(flat(-40, 11), 0, 0.5, 1, 1) ?? NaN) - 0.2) < 1e-9);
-});
-
-test('steppedTrackSpectrumHoverNorm: ビンが無ければ null', () => {
-    assert.equal(steppedTrackSpectrumHoverNorm(slice({ frequencyBins: 0 }), 0.5, 0, 1, 1), null);
-});
 
 test('steppedOverlaySpectrumHoverNorm: Y が決まらない系列しか無ければ先頭の系列で移動する', () => {
     const vis = { frequencyMin: 0, frequencyMax: 1000, dbMin: 0, dbMax: 0 };

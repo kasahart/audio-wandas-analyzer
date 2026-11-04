@@ -93,7 +93,6 @@ export interface UiStrings {
     trackOffsetResetHint: string;
     offsetEditPlaceholder: string;
     offsetEditAriaLabel: string;
-    trackSpectrumTitle: string;
     analysisFailed: string;
     cursorHelpKeys: string;
     tooltipLoopResize: string;
@@ -900,7 +899,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         trackOffsetResetHint: 'Click: type an offset in ms / Double-click: reset to 0',
         offsetEditPlaceholder: 'ms',
         offsetEditAriaLabel: 'Track offset in milliseconds',
-        trackSpectrumTitle: 'Power spectrum at main cursor',
         analysisFailed: 'Analysis failed: ',
         cursorHelpKeys: '← →: move cursor   Shift+←→: 100 ms step   Space: play/pause',
         tooltipLoopResize: 'Drag to resize loop region',
@@ -1357,7 +1355,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         calibrationButtonLabel: 'Cal',
         calibrationButtonTitle: 'Configure per-channel calibration',
         calibrationButtonAria: 'Configure calibration',
-        calibrationOverlayIncompatible: 'Spectrum overlay is unavailable because visible channels use incompatible level references. Per-channel spectra remain available.',
+        calibrationOverlayIncompatible: 'Spectrum overlay is unavailable because visible channels use incompatible level references. Show only tracks that share one level reference.',
         loopTimeDisplayTitle: 'Click to copy loop range',
         btnFollowCursor: 'Follow',
         btnFollowCursorTitle: 'Auto-scroll to keep cursor centered during playback (key: F)',
@@ -1694,7 +1692,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         trackOffsetResetHint: 'クリック: オフセットを ms で入力 / ダブルクリック: 0 に戻す',
         offsetEditPlaceholder: 'ms',
         offsetEditAriaLabel: 'トラックオフセット（ミリ秒）',
-        trackSpectrumTitle: 'メインカーソル時刻のパワースペクトル',
         analysisFailed: '解析失敗: ',
         cursorHelpKeys: '← →: カーソル移動　Shift+←→: 100ms移動　Space: 再生/停止',
         tooltipLoopResize: 'ドラッグでループ区間をリサイズ',
@@ -2151,7 +2148,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         calibrationButtonLabel: '校正',
         calibrationButtonTitle: 'チャンネルごとの校正を設定',
         calibrationButtonAria: '校正を設定',
-        calibrationOverlayIncompatible: '表示中のチャンネルのレベル基準が互換でないため、スペクトルの重ね表示は使用できません。チャンネルごとのスペクトルは引き続き表示できます。',
+        calibrationOverlayIncompatible: '表示中のチャンネルのレベル基準が互換でないため、スペクトルの重ね表示は使用できません。レベル基準が同じトラックだけを表示してください。',
         loopTimeDisplayTitle: 'クリックでループ範囲をコピー',
         btnFollowCursor: '追従',
         btnFollowCursorTitle: '再生中にカーソルを中央に保つ（キー: F）',

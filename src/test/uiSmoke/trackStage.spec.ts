@@ -77,7 +77,7 @@ test('the track view\'s steps mode draws every track as the chosen step\'s Frame
     await page.evaluate(() => {
         const w = window as unknown as { __hiddenPaints: string[] };
         w.__hiddenPaints = [];
-        for (const canvas of Array.from(document.querySelectorAll<HTMLCanvasElement>('canvas#ruler-canvas, canvas#spectrum-overlay-canvas, canvas[id^="track-spectrum-"]'))) {
+        for (const canvas of Array.from(document.querySelectorAll<HTMLCanvasElement>('canvas#ruler-canvas, canvas#spectrum-overlay-canvas'))) {
             const own = canvas.getContext.bind(canvas);
             canvas.getContext = ((...args: Parameters<HTMLCanvasElement['getContext']>) => { w.__hiddenPaints.push(canvas.id); return own(...args); }) as HTMLCanvasElement['getContext'];
         }

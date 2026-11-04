@@ -6,7 +6,6 @@ import {
     domSnapshotBase,
     latestSpectrogramSnapshot,
     overlaySpectrumAxisLabels,
-    sliceSpectrumAxisLabels,
     spectrogramAxisLabelTexts,
     spectrumAxisLabelTexts,
     visibleFileRange,
@@ -27,7 +26,6 @@ test('domSnapshotBase counts the rendered toolbar, rows, audio elements and canv
         <div class="track-row"></div><div class="track-row"></div>
         <div id="audio-host"><audio></audio></div>
         <canvas id="ruler-canvas"></canvas>
-        <canvas class="track-spectrum-canvas"></canvas>
     </body>`);
     assert.deepEqual(domSnapshotBase(dom.window.document), {
         hasToolbar: true,
@@ -36,7 +34,6 @@ test('domSnapshotBase counts the rendered toolbar, rows, audio elements and canv
         audioElementCount: 1,
         hasRulerCanvas: true,
         spectrumOverlayPresent: false,
-        spectrumTrackCanvasCount: 1,
     });
 });
 
@@ -106,13 +103,6 @@ const fullSpectrumView = { freqStart: 0, freqEnd: 1, dbMin: null, dbMax: null };
 function slice(overrides: Partial<SpectrumSlice> = {}): SpectrumSlice {
     return { values: [-60, -20], frequencyBins: 2, maxFrequencyHz: 1000, minDb: -60, maxDb: -20, ...overrides };
 }
-
-test('sliceSpectrumAxisLabels labels the slice window and is empty without a slice', () => {
-    assert.deepEqual(sliceSpectrumAxisLabels(null, fullSpectrumView), []);
-    const s = slice();
-    const labels = sliceSpectrumAxisLabels(s, { ...fullSpectrumView, dbMin: -80, dbMax: 0 });
-    assert.deepEqual(labels, spectrumAxisLabelTexts(-80, 0, 0, 1000, s));
-});
 
 test('overlaySpectrumAxisLabels spans every slice and is empty without data', () => {
     assert.deepEqual(overlaySpectrumAxisLabels([], fullSpectrumView), []);

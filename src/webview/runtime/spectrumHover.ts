@@ -1,6 +1,5 @@
-import type { TrackId } from './types';
-
-export type SpectrumHoverTarget = TrackId | 'overlay';
+/** The cursor power spectrum is the one spectrum a pointer or the keyboard can read. */
+export type SpectrumHoverTarget = 'overlay';
 
 export interface SpectrumHoverPoint {
     hoverNorm: number;
@@ -11,29 +10,26 @@ export class SpectrumHover {
     norm: number | null = null;
     yFrac: number | null = null;
     target: SpectrumHoverTarget | null = null;
-    channelIndex: number | null = null;
     hasMouse = false;
     /** Set by an arrow key, cleared by the pointer: a stepped readout shows the bin stepped to, not its pixel's peak. */
     stepped = false;
 
     // Keyboard focus without a mouse position starts the cursor at the left edge, vertically centred.
-    focus(target: SpectrumHoverTarget | null, channelIndex: number | null): void {
+    focus(): void {
         if (this.norm === null) {
             this.norm = 0;
         }
         if (this.yFrac === null) {
             this.yFrac = 0.5;
         }
-        this.target = target;
-        this.channelIndex = Number.isInteger(channelIndex) ? channelIndex : null;
+        this.target = 'overlay';
         this.hasMouse = false;
     }
 
-    move(point: SpectrumHoverPoint, target: SpectrumHoverTarget | null, channelIndex: number | null): void {
+    move(point: SpectrumHoverPoint): void {
         this.norm = point.hoverNorm;
         this.yFrac = point.yFrac;
-        this.target = target;
-        this.channelIndex = Number.isInteger(channelIndex) ? channelIndex : null;
+        this.target = 'overlay';
         this.hasMouse = true;
         this.stepped = false;
     }
@@ -42,6 +38,5 @@ export class SpectrumHover {
         this.norm = null;
         this.yFrac = null;
         this.target = null;
-        this.channelIndex = null;
     }
 }

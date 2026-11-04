@@ -4,6 +4,7 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 
 ## Unreleased
 
+- Tracks: the small power spectrum at the right of each track row is gone; the waveform and spectrogram take its width. The cursor spectrum panel at the bottom (folded until opened from its header) shows every track's spectrum, as before (#589).
 - Tracks: the 🔊 mute button is gone from the track header. One track plays at a time, so muting it only silenced the track you had just chosen to play (#591).
 - Tracks: the spectrogram's auto colour scale ends on round dB values (-120…-23.21 dB now reads -120…-20): each end is widened outward to the coarsest 1, 2 or 5 × 10ⁿ step that moves neither end by more than 8% of the range shown. The cursor spectrum's auto dB axis does the same; values typed in the range popover or ⚙ stay as typed (#595).
 - Compare: after a cepstrum or a cepstrogram, ＋ now adds wandas' lifter (it was greyed out for lack of a cutoff field). A new lifter keeps the quefrencies below 2 ms (cutoff 0.002 s, low); its cutoff in seconds and its side (low: below the cutoff, high: above it) are set in ⚙, and the result is drawn as the cepstrum it came from (#587).

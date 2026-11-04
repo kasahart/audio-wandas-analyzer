@@ -39,7 +39,6 @@ interface ComparisonPanelRenderedUi {
     zoomEnd: number;
     cursorNorm: number;
     spectrumOverlayPresent: boolean;
-    spectrumTrackCanvasCount: number;
     visibleSpectrumTrackCount: number;
     contentType: 'waveform' | 'stage';
     reanalyzeBusy: boolean;
@@ -54,7 +53,6 @@ interface ComparisonPanelRenderedUi {
     axisLabels: {
         spectrumOverlay: string[];
         spectrogramPerTrack: string[][];
-        spectrumPerTrack: string[][];
         waveformPerTrack: string[][];
     };
     displayOrder: string[];
@@ -96,7 +94,6 @@ interface ComparisonPanelRenderedUi {
         waveformMaxDrawX: number | null;
         waveformCanvasWidth: number | null;
         resultError: string | null;
-        spectrumCanvasPresent: boolean;
         spectrumSlicePresent: boolean;
     }>;
 }

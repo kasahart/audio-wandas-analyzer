@@ -23,7 +23,6 @@ function track(index: number, overrides: Partial<SnapshotTrack> = {}): SnapshotT
         offsetSeconds: 0,
         hidden: false,
         waveformCoverage: null,
-        spectrumCanvasPresent: true,
         ...overrides,
     };
 }
@@ -51,7 +50,6 @@ test('the track snapshot reads only the spectra shown tracks already have', () =
     assert.deepEqual(snapshot.tracks.map(item => item.spectrumSlicePresent), [true, false, false]);
     assert.deepEqual(snapshot.axisLabels.waveformPerTrack, [['wave 0'], ['wave 1'], ['wave 2']]);
     assert.equal(snapshot.axisLabels.spectrogramPerTrack.length, 3);
-    assert.equal(snapshot.axisLabels.spectrumPerTrack[1].length, 0);
 });
 
 test('each track says which part of its file the zoom shows', () => {
