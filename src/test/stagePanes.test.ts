@@ -129,7 +129,11 @@ test('a trigger\'s events are each a line of their slot, on one amplitude range,
     const base = events([1, 3]), compare = events([2]);
     const layers = eventLayers({ view: compare, color: '#ff0', width: 2.2, label: 'b.wav' });
     // One line per event, in the slot's colour, named by its event from 1 for the readout.
-    assert.deepEqual(layers.map(layer => [layer.label, layer.view.values, layer.color, layer.view.events]), [['b.wav #1', [0, 2, 0], '#ff0', undefined]]);
+    // One line per event, named by its event and where in the recording it was cut.
+    assert.deepEqual(layers.map(layer => [layer.label, layer.view.values, layer.color, layer.view.events]), [['b.wav #1 @ 0.00 s', [0, 2, 0], '#ff0', undefined]]);
+    // A recording's events can be left out: those are faint, and each line says whose event it is.
+    const own = eventLayers({ view: base, color: '#00f', source: 'a.wav', excluded: [2] });
+    assert.deepEqual(own.map(layer => [layer.event, layer.alpha]), [[{ id: 0, source: 'a.wav', out: false }, 0.85], [{ id: 2, source: 'a.wav', out: true }, 0.25]]);
     assert.deepEqual(eventLayers({ view: line([1, 2, 3]), color: '#00f' }).map(layer => layer.view.values), [[1, 2, 3]]);
     // The range holds every event's peak, not only their mean.
     assert.ok(stageRange([base, compare]).max >= 3);

@@ -27,6 +27,7 @@ import { presetOf, presetRecipe, RECIPE_PRESETS, type RecipePreset } from '../..
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { titledHintAttr as hintAttr } from './hintFooter';
 import type { StepBarStrings } from './stepBarModel';
+import { exclusionsLapse, withoutExclusions } from '../../shared/recipe/eventExclusion';
 
 export { endsInSpectrum, INPUT_STAGE, recipeWithout, runnableRecipe, stepLimits, unpairedRecipe, type RegionRange, type StepBarState, type StepBarStrings } from './stepBarModel';
 export { invalidReason, stepChipLabel } from './stepLabels';
@@ -40,6 +41,8 @@ export interface StepBar {
     close(): boolean;
     /** The region chip set from outside (the tracks' selection), as an edit × and ↶ take back; false when one is there already. */
     importRegion(range: RegionRange): boolean;
+    /** An edit made on the comparison (an event left out), as ↶ takes back; `said` in the footer. */
+    edit(recipe: RecipeDocument, said: string): void;
 }
 
 export function createStepBar(deps: {
@@ -67,6 +70,8 @@ export function createStepBar(deps: {
     onInputSelect?(): void;
     /** Comparison only: the bar's name is the recipe button, whose menu replaces the chain with a preset. */
     presets?: boolean;
+    /** A notice that stays a moment (the footer is the pointer's): what an edit did besides what was asked. */
+    notify?(text: string): void;
 }): StepBar {
     const { document, strings } = deps;
     const element = document.createElement('nav');
@@ -109,7 +114,13 @@ export function createStepBar(deps: {
     function emit(recipe: RecipeDocument, region: RegionRange | null = state.regionRange ?? null): void {
         const here = now();
         if (here) edits.record(here);
-        applySnapshot({ recipe, region });
+        // Events found another way are other events: the ones left out come back (↶ puts the edit and them back).
+        const lapse = exclusionsLapse(state.recipe, state.regionRange ?? null, recipe, region);
+        applySnapshot({ recipe: lapse ? withoutExclusions(recipe) : recipe, region });
+        if (lapse) {
+            footer(strings.stageEventsBack);
+            deps.notify?.(strings.stageEventsBack);
+        }
     }
     function travel(target: Snapshot | undefined, said: string): void {
         if (!target) return;
@@ -451,6 +462,10 @@ export function createStepBar(deps: {
         },
         close,
         importRegion,
+        edit(recipe, said) {
+            emit(recipe);
+            footer(said);
+        },
     };
 }
 
