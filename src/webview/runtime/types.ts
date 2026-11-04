@@ -144,6 +144,9 @@ export interface SpectrumSlice {
     windowStartNorm?: number;
     windowEndNorm?: number;
     window?: string;
+    /** Set when a typed spectrogram dB range replaced minDb/maxDb: the slice's own rounded range. */
+    autoMinDb?: number;
+    autoMaxDb?: number;
 }
 
 export interface WaveformRangeCache {

@@ -32,7 +32,7 @@ export interface OverlaySpectrumPaint {
     /** null leaves the readout as is: nothing was drawn to read. */
     readout: { text: string; color: string } | null;
     /** Each level axis with the colours of the lines read on it, left first; one entry when the references agree. */
-    levelAxes: Array<{ title: string; colors: string[] }>;
+    levelAxes: Array<{ title: string; reference: string; colors: string[] }>;
 }
 
 /** Marks the right-hand axis in the legend. */
@@ -43,7 +43,7 @@ function overlayReadout(hover: OverlaySpectrumHover, nearest: (SpectrumSnapHit<S
         return { text: '', color: '' };
     }
     // With two level axes, "dB" alone could be either: the value names its reference ("-17.0 dB re 1 m/s^2").
-    const level = axisTitles.length > 1 ? { unit: legendLevelText(axisTitles[nearest.axisIndex]) } : nearest.s.slice;
+    const level = axisTitles.length > 1 ? { unit: axisTitles[nearest.axisIndex] } : nearest.s.slice;
     return { text: spectrumReadoutText(nearest.s.label, { ...nearest.s.slice, ...level }, nearest.snap.freqHz, nearest.dbVal), color: nearest.s.color };
 }
 
@@ -74,7 +74,7 @@ export function paintOverlaySpectrum(
         axisLabel: commonSlice.axisLabel,
     };
     drawSpectrumAxes(ctx, W, H, sharedAxis, pad.left, pad.right, pad.top, pad.bottom, vis.frequencyMin, vis.frequencyMax, vis.dbMin, vis.dbMax, theme, vis.logFrequency, axes[0].title);
-    const levelAxes = axes.map(axis => ({ title: axis.title, colors: [...new Set(axis.series.map(s => s.color))] }));
+    const levelAxes = axes.map(axis => ({ title: axis.title, reference: axis.reference, colors: [...new Set(axis.series.map(s => s.color))] }));
     const result: OverlaySpectrumPaint = { maxFrequencyHz, logMinFrequencyHz, dbMin: vis.dbMin, dbMax: vis.dbMax, painted: false, readout: null, levelAxes };
     if (vis.frequencyMax - vis.frequencyMin <= 0) {
         return result;
@@ -110,18 +110,12 @@ export function paintOverlaySpectrum(
         drawSpectrumSelectionBox(ctx, frame, box.anchor, box.current);
     }
     result.painted = true;
-    result.readout = overlayReadout(hover, nearest, axes.map(axis => axis.title));
+    result.readout = overlayReadout(hover, nearest, axes.map(axis => axis.reference));
     return result;
 }
 
 /** The overlay draws at most this many level axes: a second level reference gets the right-hand one. */
 export const OVERLAY_LEVEL_AXES = 2;
-
-/** "Spectrum amplitude level [dB SPL re 20 µPa]" reads "dB SPL re 20 µPa" in the legend. */
-function legendLevelText(title: string): string {
-    const bracket = /\[([^\]]+)\]\s*$/.exec(title);
-    return bracket ? bracket[1] : title;
-}
 
 /**
  * Only with two level axes: which lines are read on which side, as the lines' colours beside each axis' level
@@ -131,6 +125,12 @@ export function renderSpectrumAxisLegend(el: HTMLElement | null, levelAxes: Over
     if (!el) {
         return;
     }
+    // The overlay repaints on every cursor move; the legend is rebuilt only when what it says changes.
+    const key = levelAxes.length < 2 ? '' : JSON.stringify(levelAxes.map(axis => [axis.reference, axis.colors]));
+    if (el.getAttribute('data-legend-key') === key) {
+        return;
+    }
+    el.setAttribute('data-legend-key', key);
     el.replaceChildren();
     el.hidden = levelAxes.length < 2;
     if (levelAxes.length < 2) {
@@ -150,7 +150,7 @@ export function renderSpectrumAxisLegend(el: HTMLElement | null, levelAxes: Over
             item.appendChild(swatch);
         });
         const label = doc.createElement('span');
-        label.textContent = legendLevelText(axis.title);
+        label.textContent = axis.reference;
         item.appendChild(label);
         if (index > 0) { item.appendChild(mark(SECONDARY_AXIS_MARK)); }
         item.title = axis.title;

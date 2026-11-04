@@ -203,37 +203,61 @@ export function setOverlaySecondaryLevelAxis(shown: boolean): void {
     overlayPad.right = shown ? OVERLAY_PAD_RIGHT_SECONDARY_AXIS : OVERLAY_PAD_RIGHT;
 }
 
-/** The level a slice is read in, with its reference ("Spectrum amplitude level [dB SPL re 20 µPa]"). */
-export function spectrumLevelAxisKey(slice: SpectrumSlice): string {
-    return slice.axisLabel || dbLevelUnitFor(slice);
+/**
+ * The level reference a slice is read in ("dB SPL re 20 µPa"), whatever quantity its axis names: a backend slice
+ * ("Spectrum amplitude level [...]") and one cut from the spectrogram ("STFT amplitude level [...]") agree.
+ */
+export function spectrumLevelReference(slice: SpectrumSlice): string {
+    const bracket = slice.axisLabel ? /\[([^\]]+)\]\s*$/.exec(slice.axisLabel) : null;
+    return bracket ? bracket[1] : dbLevelUnitFor(slice);
 }
 
 export interface OverlayLevelAxis<S> {
     series: S[];
+    /** The axis' title: the first series' level axis label, or its reference when it has none. */
     title: string;
+    reference: string;
     visible: SpectrumVisibleWindow;
+}
+
+/** A slice's own range, before a typed spectrogram dB range replaced it. */
+function autoDbRange(series: ReadonlyArray<{ slice: SpectrumSlice }>): { minDb: number; maxDb: number } {
+    let minDb = Infinity, maxDb = -Infinity;
+    series.forEach(({ slice }) => {
+        minDb = Math.min(minDb, slice.autoMinDb ?? slice.minDb);
+        maxDb = Math.max(maxDb, slice.autoMaxDb ?? slice.maxDb);
+    });
+    return { minDb, maxDb };
 }
 
 /**
  * The overlay's level axes. Series with one level reference share one axis. With exactly two references the second
- * is read on its own axis at the right; it follows the first axis' zoom as the same fraction of its own range.
- * Three or more stay on one axis: the panel is hidden behind a warning then.
+ * is read on its own axis at the right, over its own range (a typed dB range is the left axis' alone); it follows
+ * the left axis' zoom as the same fraction of that range. With three or more only the first reference's lines are
+ * drawn, so no line is read against another reference's axis (the panel is hidden behind a warning then).
  */
 export function overlayLevelAxes<S extends { slice: SpectrumSlice }>(series: readonly S[], view: SpectrumViewState): OverlayLevelAxis<S>[] {
     const all = spectrumSeriesRange(series);
     const groups = new Map<string, S[]>();
     series.forEach(s => {
-        const key = spectrumLevelAxisKey(s.slice);
-        groups.set(key, [...(groups.get(key) ?? []), s]);
+        const key = spectrumLevelReference(s.slice);
+        const group = groups.get(key);
+        if (group) { group.push(s); } else { groups.set(key, [s]); }
     });
-    if (groups.size !== 2) {
-        const title = series.length > 0 ? spectrumLevelAxisKey(series[0].slice) : '';
-        return [{ series: [...series], title, visible: spectrumVisibleWindow(all.maxFrequencyHz, all.minDb, all.maxDb, view, all.logMinFrequencyHz) }];
+    const entries = [...groups.entries()];
+    const axisFor = (reference: string, members: S[], visible: SpectrumVisibleWindow): OverlayLevelAxis<S> =>
+        ({ series: members, title: members[0].slice.axisLabel || reference, reference, visible });
+    if (entries.length < 2) {
+        const visible = spectrumVisibleWindow(all.maxFrequencyHz, all.minDb, all.maxDb, view, all.logMinFrequencyHz);
+        return entries.length === 0 ? [{ series: [], title: '', reference: '', visible }] : [axisFor(entries[0][0], entries[0][1], visible)];
     }
-    const [[firstTitle, first], [secondTitle, second]] = [...groups.entries()];
+    const [[firstReference, first], [secondReference, second]] = entries;
     const firstRange = spectrumSeriesRange(first);
-    const secondRange = spectrumSeriesRange(second);
     const primary = spectrumVisibleWindow(all.maxFrequencyHz, firstRange.minDb, firstRange.maxDb, view, all.logMinFrequencyHz);
+    if (entries.length > 2) {
+        return [axisFor(firstReference, first, primary)];
+    }
+    const secondRange = autoDbRange(second);
     const span = firstRange.maxDb - firstRange.minDb || 1;
     const secondSpan = secondRange.maxDb - secondRange.minDb;
     const secondary = {
@@ -241,7 +265,7 @@ export function overlayLevelAxes<S extends { slice: SpectrumSlice }>(series: rea
         dbMin: secondRange.minDb + (primary.dbMin - firstRange.minDb) / span * secondSpan,
         dbMax: secondRange.minDb + (primary.dbMax - firstRange.minDb) / span * secondSpan,
     };
-    return [{ series: first, title: firstTitle, visible: primary }, { series: second, title: secondTitle, visible: secondary }];
+    return [axisFor(firstReference, first, primary), axisFor(secondReference, second, secondary)];
 }
 
 /** The line nearest the pointer over every axis, each series read in its own axis' frame. */
