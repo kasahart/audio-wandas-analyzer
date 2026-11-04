@@ -216,6 +216,90 @@ test('drawSpectrogramColorbar: 右カラーバー領域だけに fillRect し、
     assert.ok(ctx._texts.includes('-70'));
 });
 
+function recordFonts(ctx: ReturnType<typeof makeMockCtx>): Map<string, string> {
+    const fontByText = new Map<string, string>();
+    const fillText = ctx.fillText.bind(ctx);
+    ctx.fillText = (t: string, x: number, y: number) => { fontByText.set(t, ctx.font); fillText(t, x, y); };
+    return fontByText;
+}
+
+const SPL = { unit: 'dB SPL', levelReferenceLabel: 'dB SPL re 20 µPa' };
+
+test('drawSpectrogramColorbar: every label stays inside the canvas, and the unit with its reference shrinks to the lane height', () => {
+    const ctx = makeMockCtx();
+    const fontByText = recordFonts(ctx);
+    drawSpectrogramColorbar(ctx, 800, 60, { ...sampleSpec, minDb: -120, ...SPL });
+    const texts = ctx._ops.filter((o) => o.op === 'fillText');
+    const ends = texts.filter((o) => o.args[0] === '0' || o.args[0] === '-120');
+    assert.equal(ends.length, 2);
+    for (const end of ends) {
+        assert.ok((end.args[1] as number) + String(end.args[0]).length * 5 <= 800, 'an end value fits before the edge');
+    }
+    // 16 characters (80 px at 9 px in the mock) along the 56 px of the lane: drawn at 6 px (53 px), whole.
+    assert.equal(fontByText.get('dB SPL re 20 µPa'), '6px monospace');
+    assert.equal(fontByText.get('0'), '9px monospace');
+});
+
+test('drawSpectrogramColorbar: on the shortest lane the reference is dropped and the unit stays whole', () => {
+    for (const level of [SPL, { unit: 'dB', levelReferenceLabel: 'dB re 1 input unit' }]) {
+        const ctx = makeMockCtx();
+        const fontByText = recordFonts(ctx);
+        // A 40 px lane leaves 36 px: the label is 53 px or more even at 6 px.
+        drawSpectrogramColorbar(ctx, 800, 40, { ...sampleSpec, ...level });
+        assert.equal(fontByText.has(level.levelReferenceLabel), false);
+        assert.ok(fontByText.has(level.unit), level.unit);
+    }
+});
+
+test('drawSpectrogramColorbar: a unit that does not fit even alone ends in an ellipsis', () => {
+    const ctx = makeMockCtx();
+    const fontByText = recordFonts(ctx);
+    drawSpectrogramColorbar(ctx, 800, 20, { ...sampleSpec, ...SPL });
+    const unit = [...fontByText.keys()].find((t) => t.startsWith('dB'));
+    assert.ok(unit?.endsWith('…'), String(unit));
+    assert.ok(ctx.measureText(unit ?? '').width * 6 / 9 <= 16);
+});
+
+test('drawSpectrogramFrequencyAxis + drawSpectrogramColorbar: Hz ラベルとカラーバー dB ラベルを描画', () => {
+    const ctx = makeMockCtx();
+    drawSpectrogramFrequencyAxis(ctx, 64, 80, sampleSpec);
+    drawSpectrogramColorbar(ctx, 800, 80, sampleSpec);
+    assert.ok(ctx._texts.includes('0 Hz'));
+    assert.ok(ctx._texts.some((t) => /kHz$/.test(t)));
+    assert.ok(ctx._texts.includes('0'));
+    assert.ok(ctx._texts.includes('-90'));
+    assert.ok(ctx._texts.includes('dB'), 'the unit is written once along the bar');
+});
+
+test('drawSpectrogramFrequencyAxis + drawSpectrogramColorbar: 左ラベル領域と右カラーバー領域に fillRect', () => {
+    const ctx = makeMockCtx();
+    drawSpectrogramFrequencyAxis(ctx, 64, 80, sampleSpec);
+    drawSpectrogramColorbar(ctx, 800, 80, sampleSpec);
+    const rects = ctx._ops.filter((o) => o.op === 'fillRect');
+    assert.equal(rects.length, 2, 'left strip + right strip');
+});
+
+test('drawSpectrogramFrequencyAxis: 渡された axis canvas 幅だけを背景として塗る', () => {
+    const ctx = makeMockCtx();
+    drawSpectrogramFrequencyAxis(ctx, 32, 80, sampleSpec);
+    const rects = ctx._ops.filter((o) => o.op === 'fillRect');
+    assert.deepEqual(rects.map((r) => r.args), [[0, 0, 32, 80]]);
+    const textXs = ctx._ops
+        .filter((o) => o.op === 'fillText' && o.args[0] !== 'Freq')
+        .map((o) => o.args[1]);
+    assert.ok(textXs.every((x) => x === 30));
+});
+
+test('drawSpectrogramColorbar: 右カラーバー領域だけに fillRect し、周波数ラベルを描画しない', () => {
+    const ctx = makeMockCtx();
+    drawSpectrogramColorbar(ctx, 800, 80, sampleSpec, { dbLo: -70, dbHi: -5 });
+    const rects = ctx._ops.filter((o) => o.op === 'fillRect');
+    assert.deepEqual(rects.map((r) => r.args), [[750, 0, 50, 80]]);
+    assert.equal(ctx._texts.includes('0 Hz'), false);
+    assert.ok(ctx._texts.includes('-5'));
+    assert.ok(ctx._texts.includes('-70'));
+});
+
 test('drawSpectrogramColorbar: every label stays inside the canvas, and a long unit shrinks to the lane height', () => {
     const ctx = makeMockCtx();
     const fontByText = new Map<string, string>();

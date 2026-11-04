@@ -56,6 +56,8 @@ export interface SpectrumSliceLike {
     frequenciesHz?: number[];
     unit?: string;
     axisLabel?: string;
+    /** wandas' level label with the reference ("dB SPL re 20 µPa"); `unit` is the short unit ("dB SPL"). */
+    levelReferenceLabel?: string;
 }
 
 /** A frequency span along a plot: linear for FFT bins, log for octave bands. */
@@ -293,14 +295,11 @@ export function drawSpectrogramColorbar(ctx: CanvasDrawCtx, W: number, H: number
     ctx.fillText(hiText, valueX, cbY);
     ctx.textBaseline = 'bottom';
     ctx.fillText(loText, valueX, cbY + cbH);
-    const unit = dbLevelUnitFor(spec);
     // The unit runs in the last column beside the end values; a wide end value ("-120") reaches into that column,
     // so the unit then keeps clear of both ends instead of taking the bar's whole height.
     const valuesEnd = valueX + Math.max(ctx.measureText(hiText).width, ctx.measureText(loText).width);
     const room = Math.max(1, valuesEnd > W - COLORBAR_UNIT_COLUMN ? H - 2 * COLORBAR_END_VALUE_H : H - 4);
-    const width = ctx.measureText(unit).width;
-    const size = width > room ? Math.max(COLORBAR_UNIT_MIN_PX, Math.floor(9 * room / width)) : 9;
-    const unitText = colorbarUnitText(ctx, unit, width, size / 9, room);
+    const { text: unitText, size } = fitColorbarUnit(ctx, spec, room);
     ctx.save();
     ctx.translate(W - COLORBAR_UNIT_COLUMN / 2, H / 2);
     ctx.rotate(-Math.PI / 2);
@@ -312,13 +311,23 @@ export function drawSpectrogramColorbar(ctx: CanvasDrawCtx, W: number, H: number
     ctx.restore();
 }
 
-/** A unit that is still too long at the smallest size (a short lane) ends in "…" instead of running off the canvas. */
-/** Widths are measured at the 9 px font and scaled to the drawn size. */
-function colorbarUnitText(ctx: CanvasDrawCtx, unit: string, width9: number, scale: number, room: number): string {
-    if (width9 * scale <= room) { return unit; }
+/**
+ * The unit with its reference ("dB SPL re 20 µPa"), drawn smaller on a short lane. When even the smallest size does not
+ * fit, the reference is dropped ("dB SPL"), and only a unit that still does not fit ends in "…".
+ * Widths are measured at the 9 px font and scaled to the drawn size.
+ */
+function fitColorbarUnit(ctx: CanvasDrawCtx, spec: { unit?: string; levelReferenceLabel?: string } | null, room: number): { text: string; size: number } {
+    const unit = dbLevelUnitFor(spec);
+    const sizeFor = (width: number) => width > room ? Math.max(COLORBAR_UNIT_MIN_PX, Math.floor(9 * room / width)) : 9;
+    for (const text of [spec?.levelReferenceLabel || unit, unit]) {
+        const width = ctx.measureText(text).width;
+        const size = sizeFor(width);
+        if (width * size / 9 <= room) { return { text, size }; }
+    }
+    const scale = COLORBAR_UNIT_MIN_PX / 9;
     let text = unit;
     while (text.length > 1 && ctx.measureText(text + '…').width * scale > room) { text = text.slice(0, -1); }
-    return text.trimEnd() + '…';
+    return { text: text.trimEnd() + '…', size: COLORBAR_UNIT_MIN_PX };
 }
 
 const COLORBAR_UNIT_MIN_PX = 6;
