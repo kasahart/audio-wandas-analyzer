@@ -182,8 +182,9 @@ test('drawSpectrogramFrequencyAxis + drawSpectrogramColorbar: Hz ラベルとカ
     drawSpectrogramColorbar(ctx, 800, 80, sampleSpec);
     assert.ok(ctx._texts.includes('0 Hz'));
     assert.ok(ctx._texts.some((t) => /kHz$/.test(t)));
-    assert.ok(ctx._texts.includes('0 dB'));
-    assert.ok(ctx._texts.some((t) => /-?\d+ dB$/.test(t)));
+    assert.ok(ctx._texts.includes('0'));
+    assert.ok(ctx._texts.includes('-90'));
+    assert.ok(ctx._texts.includes('dB'), 'the unit is written once along the bar');
 });
 
 test('drawSpectrogramFrequencyAxis + drawSpectrogramColorbar: 左ラベル領域と右カラーバー領域に fillRect', () => {
@@ -211,8 +212,26 @@ test('drawSpectrogramColorbar: 右カラーバー領域だけに fillRect し、
     const rects = ctx._ops.filter((o) => o.op === 'fillRect');
     assert.deepEqual(rects.map((r) => r.args), [[750, 0, 50, 80]]);
     assert.equal(ctx._texts.includes('0 Hz'), false);
-    assert.ok(ctx._texts.includes('-5 dB'));
-    assert.ok(ctx._texts.includes('-70 dB'));
+    assert.ok(ctx._texts.includes('-5'));
+    assert.ok(ctx._texts.includes('-70'));
+});
+
+test('drawSpectrogramColorbar: every label stays inside the canvas, and a long unit shrinks to the lane height', () => {
+    const ctx = makeMockCtx();
+    const fontByText = new Map<string, string>();
+    const fillText = ctx.fillText.bind(ctx);
+    ctx.fillText = (t: string, x: number, y: number) => { fontByText.set(t, ctx.font); fillText(t, x, y); };
+    drawSpectrogramColorbar(ctx, 800, 60, { ...sampleSpec, minDb: -120, unit: 'dB SPL re 20 µPa' });
+    const texts = ctx._ops.filter((o) => o.op === 'fillText');
+    const ends = texts.filter((o) => o.args[0] === '0' || o.args[0] === '-120');
+    assert.equal(ends.length, 2);
+    for (const end of ends) {
+        assert.ok((end.args[1] as number) + String(end.args[0]).length * 5 <= 800, 'an end value fits before the edge');
+    }
+    assert.ok(ctx._texts.includes('dB SPL re 20 µPa'));
+    // 16 characters (80 px in the mock) along a 56 px run: drawn smaller than the 9 px ends, not cut.
+    assert.match(fontByText.get('dB SPL re 20 µPa') ?? '', /^[6-8]px/);
+    assert.equal(fontByText.get('0'), '9px monospace');
 });
 
 test('drawSpectrogramFrequencyAxis + drawSpectrogramColorbar: putImageData を 1 回 (カラーバー) 呼ぶ', () => {

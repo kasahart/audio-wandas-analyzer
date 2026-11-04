@@ -1773,7 +1773,8 @@ test('axes: スペクトログラム表示で周波数軸 (Hz) とカラーバ�
     const spy = env.domCanvasContexts.get('track-spec-canvas-0');
     assert.ok(spy, 'track-spec-canvas-0 のスパイが取得できること');
     const labels = spy.fillTextCalls;
-    assert.ok(labels.some((s) => /\d+\s*dB$/.test(s)), 'カラーバーの dB ラベルが描かれること');
+    assert.ok(labels.some((s) => /^-?\d+$/.test(s)), 'カラーバーの両端に dB 値が描かれること');
+    assert.ok(labels.some((s) => /^dB/.test(s)), 'カラーバーに単位 (dB…) が描かれること: ' + JSON.stringify(labels));
     assert.equal(labels.some((s) => /\bkHz\b/.test(s) || /\bHz\b/.test(s)), false, '周波数ラベルはプロット canvas に描かれないこと');
     assert.ok(spy.putImageDataCalls >= 2,
         'プロット領域とカラーバーで putImageData が複数回呼ばれること');

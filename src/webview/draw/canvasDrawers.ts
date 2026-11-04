@@ -287,12 +287,27 @@ export function drawSpectrogramColorbar(ctx: CanvasDrawCtx, W: number, H: number
     ctx.font = '9px monospace';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    const unit = dbLevelUnitFor(spec);
-    ctx.fillText(dbHi.toFixed(0) + ' ' + unit, cbX + cbW + 2, cbY);
+    // The ends carry the values only; the unit and its reference run once along the bar, so neither is cut at the edge.
+    ctx.fillText(dbHi.toFixed(0), cbX + cbW + 2, cbY);
     ctx.textBaseline = 'bottom';
-    ctx.fillText(dbLo.toFixed(0) + ' ' + unit, cbX + cbW + 2, cbY + cbH);
+    ctx.fillText(dbLo.toFixed(0), cbX + cbW + 2, cbY + cbH);
+    const unit = dbLevelUnitFor(spec);
+    // It runs beside the end values, so it may take the bar's whole height.
+    const room = Math.max(1, H - 4);
+    const width = ctx.measureText(unit).width;
+    const size = width > room ? Math.max(COLORBAR_UNIT_MIN_PX, Math.floor(9 * room / width)) : 9;
+    ctx.save();
+    ctx.translate(W - 6, H / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.font = size + 'px monospace';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(unit, 0, 0);
+    ctx.restore();
     ctx.restore();
 }
+
+const COLORBAR_UNIT_MIN_PX = 6;
 
 export interface SpectrumPlotFrame {
     padLeft: number;
