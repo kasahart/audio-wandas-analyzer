@@ -5,7 +5,7 @@
 import type { UiStrings } from '../../shared/i18n/strings';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
 import { attachPlotInteraction, FULL_PLOT_WINDOW, type PlotHit } from './plotInteraction';
-import { axisFractionOf, axisValueAt, rowFractionOf, rowValueAt, STAGE_MARGINS, stageHover, stagePlotPoint, stageReadout, strokeStageLine } from './stagePanes';
+import { axisFractionOf, axisValueAt, rowFractionOf, rowValueAt, STAGE_MARGINS, stageHover, stagePlotPoint, strokeStageLine } from './stagePanes';
 import { paintHoverMarks } from './plotHover';
 import { installRangePopover, linearAxis, openAxisPart, type AxisMapping } from '../rangePopover';
 import { positionPopover } from './settingsPopover';
@@ -63,14 +63,14 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
         const hit = stageHover(drawn.plot, clientX - rect.left, clientY - rect.top);
         return hit?.layer.event && Math.abs(hit.y - (clientY - rect.top)) <= EVENT_PICK_PX ? hit.layer.event : null;
     };
-    const across = (fx: number): number => state.window.x.start + fx * (state.window.x.end - state.window.x.start);
     /** Where the pointer is over a plot, so its marks follow a plot drawn anew under a still pointer. */
-    let hovered: { plot: HTMLElement; clientX: number; clientY: number; fx: number } | null = null;
+    let hovered: { plot: HTMLElement; clientX: number; clientY: number } | null = null;
     const hideHover = (): void => { cursor.hidden = true; readout.hidden = true; };
     /**
      * The hover as the spectrum overlay under the tracks draws it: the line nearest the pointer thicker, a dashed
      * cursor at its point and a dashed level line in its colour, its name, where and its value in the readout.
-     * An image has no lines: the cursor alone. A signal drawn as itself keeps its levels' readout (base, compare, Δ).
+     * A signal drawn as itself is such a line too (its envelope's point nearest the pointer, its amplitude read).
+     * An image has no lines: the cursor alone.
      */
     const showHover = (): void => {
         const drawn = hovered ? drawnOn.get(hovered.plot) : undefined;
@@ -90,7 +90,7 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
         const frame = plot?.frame ?? { left: STAGE_MARGINS.left, top: STAGE_MARGINS.top, width: plotBox(hovered.plot).width, height: plotBox(hovered.plot).height };
         paintHoverMarks(context, frame, hit ? hit.x : x, hit ? hit.y : null, hit?.layer.color ?? '', hit && plot ? (ctx, width) => strokeStageLine(ctx as CanvasRenderingContext2D, plot, hit.layer, width) : undefined);
         cursor.hidden = false;
-        const text = hit ? hit.text : drawn.picture?.waveform ? stageReadout(drawn.views, across(hovered.fx)) : '';
+        const text = hit ? hit.text : '';
         readout.textContent = text;
         readout.style.color = hit?.layer.color ?? '';
         readout.hidden = !text;
@@ -120,7 +120,7 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
             // On an event's line the pointer says it can be clicked.
             hit.plot.style.cursor = line ? 'pointer' : '';
             deps.hint(line ? (line.out ? strings.stageEventClickIn : strings.stageEventClickOut) : strings.compareHintPlot);
-            hovered = { plot: hit.plot, clientX: event.clientX, clientY: event.clientY, fx: hit.point.fx };
+            hovered = { plot: hit.plot, clientX: event.clientX, clientY: event.clientY };
             showHover();
         },
         clearHover() { hovered = null; hideHover(); },

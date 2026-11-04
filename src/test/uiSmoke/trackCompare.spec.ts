@@ -697,6 +697,13 @@ test('the first opening shows the input: a base group draws each of its waveform
     await expect(baseEntry).toContainText(STR.entryBaseCount.replace('{count}', String(members)));
     await expect(baseEntry).not.toContainText(STR.entryBaseMedian.replace('{count}', String(members)));
     await expect(baseEntry.locator('[data-action="stage-base-info"]')).toHaveAttribute('aria-label', STR.stageBaseEach);
+    // A waveform answers the pointer as a spectrum's line does: the cursor at its point, its name, time and amplitude in its colour.
+    const overlay = (await page.locator('[data-stage-canvas="overlay"]').boundingBox())!;
+    await page.mouse.move(overlay.x + 52 + (overlay.width - 56) * 0.75, overlay.y + overlay.height * 0.3);
+    await expect(page.locator('.track-stage-cursor')).toBeVisible();
+    await expect(page.locator('.track-stage-readout')).toHaveText(/^.+ \/ 1\.\d+ s \/ −?0\.\d+ FS$/);
+    expect(await page.locator('.track-stage-readout').evaluate(element => (element as HTMLElement).style.color)).not.toBe('');
+    await page.mouse.move(0, 0);
     // No level difference against a median that is on no line: no headline numbers, no Δ.
     await expect(page.locator('[data-stage-headline]')).toHaveText('');
     await expect(page.locator('[data-action="stage-diff"]')).toBeHidden();
