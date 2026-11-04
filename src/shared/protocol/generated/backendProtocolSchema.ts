@@ -1201,7 +1201,7 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "points": {
                     "type": "integer",
                     "minimum": 2,
-                    "maximum": 8000
+                    "maximum": 32768
                 }
             },
             "additionalProperties": false

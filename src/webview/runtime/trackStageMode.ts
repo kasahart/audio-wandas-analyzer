@@ -512,9 +512,12 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         // Each line is drawn from its own detail as soon as that is in, while a base group's recordings are still
         // being asked for (its median switches once all of them have their detail).
         const fineSpecs = new Map<string, StageSpec>();
+        // A line over time panned past its detail: the detail already in, until the next one is.
+        const drawnSpecs = new Map<string, StageSpec[]>();
         let fineMissing = false;
         if (!held_ && picture && picture.kind !== 'bar' && picture.kind !== 'none') {
             for (const [group, { spec: wanted, paths }] of byChannel) {
+                drawnSpecs.set(group, detail.drawn(wanted, picture, state.window.x, width));
                 const fineSpec = detail.spec(wanted, picture, state.window.x, state.window.y, width);
                 if (!fineSpec) continue;
                 fineSpecs.set(group, fineSpec);
@@ -552,7 +555,13 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         }
         const fine = (path: string): StageView | null | undefined => {
             const fineSpec = fineSpecs.get(groupOf(path));
-            return fineSpec ? source.view(fineSpec, path) : undefined;
+            const own = fineSpec ? source.view(fineSpec, path) : undefined;
+            if (own !== undefined) return own;
+            for (const drawnSpec of drawnSpecs.get(groupOf(path)) ?? []) {
+                const view = source.view(drawnSpec, path);
+                if (view) return view;
+            }
+            return undefined;
         };
         const shown = (path: string) => fine(path) ?? coarse(path);
         // A base group's median: of its recordings' detail once every one has it, of their whole pictures until then.
