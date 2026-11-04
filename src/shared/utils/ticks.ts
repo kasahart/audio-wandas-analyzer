@@ -34,7 +34,8 @@ export function niceRange(low: number, high: number): { low: number; high: numbe
             if (step > span / 5 * (1 + 1e-9)) continue;
             const range = widened(step);
             // A step no wider than the slack always fits, so the loop ends there at the latest.
-            if (step <= slack || (range.high - high <= slack && low - range.low <= slack)) return range;
+            // A span below the rounding precision would collapse to one value; it keeps its own ends.
+            if (step <= slack || (range.high - high <= slack && low - range.low <= slack)) return range.high > range.low ? range : { low, high };
         }
         power /= 10;
     }

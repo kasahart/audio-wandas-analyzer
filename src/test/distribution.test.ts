@@ -90,4 +90,5 @@ test('niceRange: 小さな幅や正の値でも丸め、丸めた値に浮動小
 test('niceRange: 幅がないか有限でない範囲はそのまま返す', () => {
     assert.deepEqual(niceRange(-40, -40), { low: -40, high: -40 });
     assert.deepEqual(niceRange(-Infinity, 0), { low: -Infinity, high: 0 });
+    assert.deepEqual(niceRange(-120, -120 + 1e-12), { low: -120, high: -120 + 1e-12 });
 });
