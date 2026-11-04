@@ -288,16 +288,20 @@ export function drawSpectrogramColorbar(ctx: CanvasDrawCtx, W: number, H: number
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
     // The ends carry the values only; the unit and its reference run once along the bar, so neither is cut at the edge.
-    ctx.fillText(dbHi.toFixed(0), cbX + cbW + 2, cbY);
+    const hiText = dbHi.toFixed(0), loText = dbLo.toFixed(0);
+    const valueX = cbX + cbW + 2;
+    ctx.fillText(hiText, valueX, cbY);
     ctx.textBaseline = 'bottom';
-    ctx.fillText(dbLo.toFixed(0), cbX + cbW + 2, cbY + cbH);
+    ctx.fillText(loText, valueX, cbY + cbH);
     const unit = dbLevelUnitFor(spec);
-    // It runs beside the end values, so it may take the bar's whole height.
-    const room = Math.max(1, H - 4);
+    // The unit runs in the last column beside the end values; a wide end value ("-120") reaches into that column,
+    // so the unit then keeps clear of both ends instead of taking the bar's whole height.
+    const valuesEnd = valueX + Math.max(ctx.measureText(hiText).width, ctx.measureText(loText).width);
+    const room = Math.max(1, valuesEnd > W - COLORBAR_UNIT_COLUMN ? H - 2 * COLORBAR_END_VALUE_H : H - 4);
     const width = ctx.measureText(unit).width;
     const size = width > room ? Math.max(COLORBAR_UNIT_MIN_PX, Math.floor(9 * room / width)) : 9;
     ctx.save();
-    ctx.translate(W - 6, H / 2);
+    ctx.translate(W - COLORBAR_UNIT_COLUMN / 2, H / 2);
     ctx.rotate(-Math.PI / 2);
     ctx.font = size + 'px monospace';
     ctx.textAlign = 'center';
@@ -308,6 +312,9 @@ export function drawSpectrogramColorbar(ctx: CanvasDrawCtx, W: number, H: number
 }
 
 const COLORBAR_UNIT_MIN_PX = 6;
+/** The width of the unit's column at the right edge, and the height an end value takes. */
+const COLORBAR_UNIT_COLUMN = 10;
+const COLORBAR_END_VALUE_H = 11;
 
 export interface SpectrumPlotFrame {
     padLeft: number;

@@ -229,7 +229,8 @@ test('drawSpectrogramColorbar: every label stays inside the canvas, and a long u
         assert.ok((end.args[1] as number) + String(end.args[0]).length * 5 <= 800, 'an end value fits before the edge');
     }
     assert.ok(ctx._texts.includes('dB SPL re 20 µPa'));
-    // 16 characters (80 px in the mock) along a 56 px run: drawn smaller than the 9 px ends, not cut.
+    // 16 characters (80 px in the mock) along the 38 px left between the ends (-120 reaches the unit's column):
+    // drawn smaller than the 9 px ends, not cut.
     assert.match(fontByText.get('dB SPL re 20 µPa') ?? '', /^[6-8]px/);
     assert.equal(fontByText.get('0'), '9px monospace');
 });
