@@ -8,7 +8,7 @@ import { recipeSteps, SLOT_REFERABLE, TIME_SLICE, withParam, type RecipeStep, ty
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { titledHintAttr as hintAttr } from './hintFooter';
 import { removable, stepLimits, type RegionRange, type StepBarState, type StepBarStrings } from './stepBarModel';
-import { channelText, formatNumber, fromShown, invalidReason } from './stepLabels';
+import { channelText, fieldNumber, fromShown, invalidReason } from './stepLabels';
 
 /** The form of `step`: the region chip's (start, end), or the step's fields, its reference and Remove / Apply. */
 export function stepFormHtml(step: RecipeStep, state: StepBarState, strings: StepBarStrings): string {
@@ -26,7 +26,7 @@ export function stepFormHtml(step: RecipeStep, state: StepBarState, strings: Ste
         const value = step.params[param.name];
         const input = param.kind === 'enum'
             ? `<select data-step-param="${param.name}">${param.options.map(option => `<option${option === value ? ' selected' : ''}>${option}</option>`).join('')}</select>`
-            : `<input type="number" data-step-param="${param.name}" value="${escapeHtml(param.kind === 'int' && param.channel ? channelText(value, channels) : formatNumber(value))}" step="${param.kind === 'int' ? 1 : 'any'}"${param.kind === 'int' && param.channel ? ` min="1"${channels ? ` max="${channels}"` : ''}` : ''}>`;
+            : `<input type="number" data-step-param="${param.name}" value="${escapeHtml(param.kind === 'int' && param.channel ? channelText(value, channels) : fieldNumber(value))}" step="${param.kind === 'int' ? 1 : 'any'}"${param.kind === 'int' && param.channel ? ` min="1"${channels ? ` max="${channels}"` : ''}` : ''}>`;
         const bad = step.invalid === param.name;
         const name = param.kind === 'int' && param.channel ? (param.channel === 'output' ? strings.stepPairOutput : param.channel === 'input' ? strings.stepPairInput : strings.stepTriggerChannel) : param.name;
         return `<label class="step-field${bad ? ' is-invalid' : ''}"${bad ? ` ${hintAttr(invalidReason(step, strings))}` : ''}>${escapeHtml(name)} ${input}${param.kind === 'float' && param.unit ? ` ${param.unit}` : ''}</label>`;

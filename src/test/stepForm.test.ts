@@ -4,7 +4,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 import { getStrings } from '../shared/i18n/strings';
-import { recipeSteps, withStep } from '../shared/recipe/recipeSteps';
+import { recipeSteps, STEP_PARAMS, withParam, withStep } from '../shared/recipe/recipeSteps';
 import { catalogOperation } from '../shared/recipe/recipeCatalog';
 import type { RecipeDocument } from '../shared/recipe/recipeSelection';
 import type { StepBarState } from '../webview/runtime/stepBarModel';
@@ -117,4 +117,17 @@ test('in the form Esc closes it and Enter applies it', () => {
     assert.equal(stepFormKey({ key: 'Escape' }), 'close');
     assert.equal(stepFormKey({ key: 'Enter' }), 'apply');
     assert.equal(stepFormKey({ key: 'Tab' }), null);
+});
+
+test('a field shows the stored value unrounded: a 0.0015 s lifter cutoff reads 0.0015, and typing 0.002 sets 0.002', () => {
+    const [, slice] = recipeSteps(entry, 16000);
+    const cepstrum = withStep(entry, slice.id, catalogOperation('wandas.audio.cepstrum')!);
+    const lifter = withStep(cepstrum.recipe, cepstrum.id, catalogOperation('wandas.cepstral.lifter')!);
+    const recipe = withParam(lifter.recipe, lifter.id, STEP_PARAMS['wandas.cepstral.lifter'][0], 0.0015);
+    const step = recipeSteps(recipe, 16000).find(item => item.id === lifter.id)!;
+    const { form, type } = formFor(stepFormHtml(step, { recipe, sampleRate: 16000 }, strings));
+    assert.equal(form.querySelector<HTMLInputElement>('[data-step-param="cutoff"]')?.value, '0.0015');
+    type('[data-step-param="cutoff"]', '0.002');
+    const draft = stepFormDraft(form, recipe, { sampleRate: 16000 })!;
+    assert.equal(recipeSteps(draft, 16000).find(item => item.id === lifter.id)!.params['cutoff'], 0.002);
 });
