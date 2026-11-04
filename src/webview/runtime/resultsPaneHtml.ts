@@ -64,6 +64,6 @@ export function resultsPaneHtml(parts: ResultsPaneParts, strings: ResultsPaneStr
         + '<div id="audio-host">' + parts.audioHtml + '</div>';
 }
 
-export function trackAudioHtml(trackId: string, trackIndex: number, audioSource: string, muted: boolean): string {
-    return '<audio id="track-audio-' + trackIndex + '" data-track-id="' + trackId + '" preload="metadata" crossorigin="anonymous"' + (muted ? ' muted' : '') + ' src="' + escapeHtml(audioSource) + '"></audio>';
+export function trackAudioHtml(trackId: string, trackIndex: number, audioSource: string): string {
+    return '<audio id="track-audio-' + trackIndex + '" data-track-id="' + trackId + '" preload="metadata" crossorigin="anonymous" src="' + escapeHtml(audioSource) + '"></audio>';
 }

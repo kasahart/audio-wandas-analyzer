@@ -117,7 +117,6 @@ export interface RuntimeWindow extends Omit<Window, 'addEventListener' | 'remove
 }
 
 export interface TrackRuntimeState {
-    muted?: boolean;
     offsetSeconds: number;
     hidden: boolean;
     defaultColor: string;

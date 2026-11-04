@@ -31,8 +31,8 @@ function fakeContext() {
     return { ctx, gains, disconnected };
 }
 
-function fakeMedia(muted = false) {
-    return { muted, paused: false, pauseCount: 0, pause() { this.paused = true; this.pauseCount++; } };
+function fakeMedia() {
+    return { paused: false, pauseCount: 0, pause() { this.paused = true; this.pauseCount++; } };
 }
 
 test('cosineRampValues follows a raised-cosine from the start to the target value', () => {
@@ -152,18 +152,18 @@ test('a delayed fade is queued behind the running ramp instead of cancelling it'
     assert.ok(restart[1][1] < 0.01, 'still at the start of the fade-in at t=2');
 });
 
-test('release disconnects the gain stages of a discarded element', () => {
+test('release disconnects the gain stage of a discarded element', () => {
     const { ctx, disconnected } = fakeContext();
     const fader = createAudioFader(() => ctx);
     const media = fakeMedia();
     fader.prepare(media);
     fader.release(media);
-    assert.deepEqual(disconnected, ['source', 'gain', 'gain']);
+    assert.deepEqual(disconnected, ['source', 'gain']);
     fader.release(media);
-    assert.equal(disconnected.length, 3);
+    assert.equal(disconnected.length, 2);
 });
 
-test('without Web Audio the element pauses and mutes immediately', () => {
+test('without Web Audio the element pauses immediately', () => {
     const fader = createAudioFader(() => null);
     const media = fakeMedia();
     assert.equal(fader.prepare(media), false);
@@ -171,25 +171,4 @@ test('without Web Audio the element pauses and mutes immediately', () => {
     fader.pauseSmoothly(media, () => stopped++);
     assert.equal(media.pauseCount, 1);
     assert.equal(stopped, 1);
-    fader.setMuted(media, true);
-    assert.equal(media.muted, true);
-});
-
-test('a routed element ramps its mute gain and flips the element flag once silent', () => {
-    const { ctx, gains } = fakeContext();
-    let scheduled: (() => void) | null = null;
-    const fader = createAudioFader(() => ctx, fn => { scheduled = fn; return 1; }, () => undefined);
-    const media = fakeMedia(true);
-    fader.prepare(media);
-    assert.equal(gains[1].value, 0);
-    gains[1].value = 0;
-    fader.setMuted(media, false);
-    assert.equal(media.muted, false);
-    assert.deepEqual(gains[1].events.at(-1), ['ramp', 1, 2.1]);
-    gains[1].value = 1;
-    fader.setMuted(media, true);
-    assert.deepEqual(gains[1].events.at(-1), ['ramp', 0, 2.1]);
-    assert.equal(media.muted, false);
-    scheduled!();
-    assert.equal(media.muted, true);
 });

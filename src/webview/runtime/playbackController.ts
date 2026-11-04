@@ -97,11 +97,6 @@ export class PlaybackController {
         return true;
     }
 
-    setMuted(trackIndex: number, muted: boolean): void {
-        const audio = this.deps.audioFor(trackIndex);
-        if (audio) this.deps.fader.setMuted(audio, muted);
-    }
-
     toggle(trackId: TrackId): void {
         const { deps } = this;
         const fader = deps.fader;
