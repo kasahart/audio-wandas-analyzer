@@ -34,6 +34,9 @@ test('a chain that compares two channels of the recording keeps them: a channel 
     const cross = { ...recipe, nodes: [...nodes, { id: 'node-9', operation: 'wandas.audio.coherence', version: 2, inputs: [String(nodes.at(-1)!.id)], params: { $type: 'map', entries: [] } }], output: 'node-9' } as unknown as RecipeDocument;
     assert.equal(withChannel(cross, 2), cross);
     assert.equal(channelOfRecipe(withChannel(cross, 2)), null);
+    // channel_difference too: on the channel alone it would subtract that channel from itself.
+    const difference = { ...recipe, nodes: [...nodes, { id: 'node-9', operation: 'wandas.audio.channel_difference', version: 1, inputs: [String(nodes.at(-1)!.id)], params: { $type: 'map', entries: [] } }], output: 'node-9' } as unknown as RecipeDocument;
+    assert.equal(withChannel(difference, 2), difference);
 });
 
 test('a step measured against the base slot is written with a base input: its steps up to it again, one channel of each, concat_frame, then the recording over the base', () => {

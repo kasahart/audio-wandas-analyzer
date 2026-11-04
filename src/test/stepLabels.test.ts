@@ -49,6 +49,8 @@ test('the reason a step cannot run names the step it depends on by its chip', ()
     assert.equal(invalidReason(step('welch', {}, { invalid: '', reason: { kind: 'after', limit: 0, text: hpf.id } }), strings, [hpf]), strings.stepAfterBroken.replace('{op}', `${strings.stepHighpass} 9000 Hz`));
     assert.equal(invalidReason(step('welch', {}, { invalid: 'n_fft', reason: { kind: 'pow2', limit: 8192 } }), strings), strings.stepNeedPow2.replace('{max}', '8192'));
     assert.equal(invalidReason(step('x', {}, { invalid: 'cutoff', reason: { kind: 'below', limit: Infinity } }), strings), strings.stepNeedBelow.replace('{max}', '∞'));
-    assert.equal(invalidReason(step('coherence', {}, { invalid: '', reason: { kind: 'channels', limit: 2 } }), strings), strings.stepNeedChannels);
+    // Only a step that can go against the base recording is pointed at ⚙; channel_difference can only be removed.
+    assert.equal(invalidReason(step('coherence', {}, { operation: 'wandas.audio.coherence', invalid: '', reason: { kind: 'channels', limit: 2 } }), strings), strings.stepNeedChannels);
+    assert.equal(invalidReason(step('channel_difference', {}, { operation: 'wandas.audio.channel_difference', invalid: '', reason: { kind: 'channels', limit: 2 } }), strings), strings.stepNeedChannelsRemove);
     assert.equal(invalidReason(step('select_pair', {}, { editable: [channelParam], invalid: 'output', reason: { kind: 'below', limit: 2 } }), strings), strings.stepNeedChannel.replace('{n}', '2'));
 });

@@ -231,6 +231,7 @@ export interface UiStrings {
     stepBandpass: string;
     stepAverageFft: string;
     stepNeedChannels: string;
+    stepNeedChannelsRemove: string;
     stepNarrowedChannels: string;
     stepOffChannels: string;
     stepOffRate: string;
@@ -1037,6 +1038,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepBandpass: 'BPF',
         stepAverageFft: '{name} {n}',
         stepNeedChannels: 'Needs two channels, and a file here has only one. Set its reference to the base recording (⚙), or remove it.',
+        stepNeedChannelsRemove: 'Needs two channels, and a file here has only one. Remove it.',
         stepNarrowedChannels: '{op} leaves one channel: this step needs two. Move it before {op}, or remove one of them.',
         stepOffChannels: 'Needs two channels: a file here has only one',
         stepOffRate: '{rate} recordings only (these are {here}). For octave bands use noct_spectrum',
@@ -1831,6 +1833,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepBandpass: 'バンドパス',
         stepAverageFft: '{name}（FFT {n} 点）',
         stepNeedChannels: '2 チャンネルが必要ですが、1 チャンネルのファイルがあります。⚙ で参照を「基準の録音」にするか、外してください',
+        stepNeedChannelsRemove: '2 チャンネルが必要ですが、1 チャンネルのファイルがあります。外してください',
         stepNarrowedChannels: '{op} で 1 チャンネルになっています。この手順には 2 チャンネルが必要です。{op} より前に動かすか、どちらかを外してください',
         stepOffChannels: '2 チャンネルが必要です（1 チャンネルのファイルあり）',
         stepOffRate: '{rate} の録音だけ（ここは {here}）。オクターブ帯域は noct_spectrum で',

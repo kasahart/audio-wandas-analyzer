@@ -91,7 +91,7 @@ export const CROSS_CHANNEL: ReadonlySet<string> = new Set(['wandas.audio.coheren
  * Steps that need two channels: the cross-channel ones, and channel_difference, which on one channel subtracts the
  * only channel from itself (all zeros).
  */
-const NEEDS_TWO_CHANNELS: ReadonlySet<string> = new Set([...CROSS_CHANNEL, 'wandas.audio.channel_difference']);
+export const NEEDS_TWO_CHANNELS: ReadonlySet<string> = new Set([...CROSS_CHANNEL, 'wandas.audio.channel_difference']);
 export const SELECT_PAIR = 'wandas.frame.select_pair';
 /**
  * Cross-channel steps that come with their pair (select_pair after them). A CSD does not: coherence and the
@@ -468,7 +468,7 @@ export function addableOperations(frame: string, lacks?: ReadonlySet<string>, ch
         const lacking = (operation.needs ?? []).filter(name => lacks?.has(name));
         const required = wrongRate(operation.id, sampleRate);
         const off: AddableOperation['off'] = outputOf(operation, frame) === undefined ? 'frame' : refused !== undefined ? 'refuses'
-            // One channel: a cross-channel step goes against the base slot's recording, where it can.
+            // One channel: a step that needs two is greyed, except a cross-channel one that can go against the base slot's recording.
             : lacking.length ? 'unavailable' : required !== undefined ? 'rate' : NEEDS_TWO_CHANNELS.has(operation.id) && !SLOT_REFERABLE.has(operation.id) && channels !== undefined && channels < 2 ? 'channels' : needs.length ? 'required' : undefined;
         const why = refused ?? (lacking.length ? lacking.join(', ') : required !== undefined ? String(required) : undefined);
         return { operation, name: lastSegment(operation.id), settable, ...(off ? { off } : {}), ...(why !== undefined ? { why } : {}) };

@@ -1,5 +1,5 @@
 /** The step bar's words: a chip's label, a value as a field shows it, and why a step cannot run. */
-import type { RecipeStep, StepParam } from '../../shared/recipe/recipeSteps';
+import { SLOT_REFERABLE, type RecipeStep, type StepParam } from '../../shared/recipe/recipeSteps';
 import { type RegionRange, type StepBarState, type StepBarStrings } from './stepBarModel';
 
 /**
@@ -18,7 +18,9 @@ export function invalidReason(step: RecipeStep, strings: StepBarStrings, steps: 
         case 'channels': {
             // A step before it left one channel (get_channel, sum, mean), or the files have one.
             const before = reason.text ? steps.find(item => item.id === reason.text) : undefined;
-            return before ? strings.stepNarrowedChannels.replace('{op}', stepChipLabel(before, strings)) : strings.stepNeedChannels;
+            if (before) return strings.stepNarrowedChannels.replace('{op}', stepChipLabel(before, strings));
+            // Only a step that can take the base slot's recording as its reference has that way out (⚙).
+            return SLOT_REFERABLE.has(step.operation) ? strings.stepNeedChannels : strings.stepNeedChannelsRemove;
         }
         case 'pair': return strings.stepPairSelf;
         case 'pow2': return strings.stepNeedPow2.replace('{max}', limit);
