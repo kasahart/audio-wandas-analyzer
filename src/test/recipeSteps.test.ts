@@ -328,9 +328,12 @@ test('a lifter can follow a cepstrum or a cepstrogram: a new one keeps quefrenci
         assert.deepEqual([step(recipe).input, step(recipe).output], [frame, frame]);
         assert.deepEqual([step(recipe).params['cutoff'], step(recipe).params['mode'], step(recipe).invalid], [0.002, 'low', undefined]);
         const [cutoff, mode] = STEP_PARAMS[lifter];
-        assert.equal(step(withParam(withParam(recipe, id, cutoff, 0.005), id, mode, 'high')).params['cutoff'], 0.005);
-        assert.equal(step(withParam(recipe, id, mode, 'high')).params['mode'], 'high');
+        const set = step(withParam(withParam(recipe, id, cutoff, 0.005), id, mode, 'high'));
+        assert.deepEqual([set.params['cutoff'], set.params['mode'], set.invalid], [0.005, 'high', undefined]);
+        // A quefrency is above 0; a side is low or high.
         assert.equal(step(withParam(recipe, id, cutoff, 0)).invalid, 'cutoff');
+        assert.equal(step(withParam(recipe, id, cutoff, -0.002)).invalid, 'cutoff');
+        assert.equal(step(withParam(recipe, id, mode, 'band')).invalid, 'mode');
     }
 });
 

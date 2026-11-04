@@ -4,7 +4,7 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 
 ## Unreleased
 
-- Compare: after a cepstrum or a cepstrogram, ＋ now adds wandas' lifter (it was greyed out for lack of a cutoff field). A new lifter keeps the quefrencies below 2 ms; its cutoff (s) and low/high are set in ⚙, and the result is drawn as the cepstrum it came from (#587).
+- Compare: after a cepstrum or a cepstrogram, ＋ now adds wandas' lifter (it was greyed out for lack of a cutoff field). A new lifter keeps the quefrencies below 2 ms (cutoff 0.002 s, low); its cutoff in seconds and its side (low: below the cutoff, high: above it) are set in ⚙, and the result is drawn as the cepstrum it came from (#587).
 
 ## 0.0.15
 
