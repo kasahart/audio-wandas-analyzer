@@ -8,8 +8,11 @@ import * as vscode from 'vscode';
 import { ComparisonPanel } from '../../webview/panels/ComparisonPanel';
 
 const EXTENSION_ID = 'audio-wandas-analyzer.audio-wandas-analyzer';
-const SINGLE_TRACK_DEBUG_AUDIO_PATH = 'media/debug/sine-440.wav';
-const MULTI_TRACK_DEBUG_AUDIO_PATH = 'media/debug';
+// The workspace is an empty temporary folder (runVscodeE2E.ts); the files come from the repository.
+const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
+const SHORT_STEREO_PATH = path.join(REPO_ROOT, 'src', 'test', 'fixtures', 'short-stereo.wav');
+const SINGLE_TRACK_DEBUG_AUDIO_PATH = path.join(REPO_ROOT, 'media', 'debug', 'sine-440.wav');
+const MULTI_TRACK_DEBUG_AUDIO_PATH = path.join(REPO_ROOT, 'media', 'debug');
 const COMMAND_TIMEOUT_MS = 60000;
 
 interface VerticalExtent {
@@ -192,11 +195,9 @@ export async function run(): Promise<void> {
 
     await extension.activate();
 
-    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-    assert.ok(workspaceFolder, 'Workspace folder is required for VS Code E2E tests');
 
     const config = vscode.workspace.getConfiguration('audioWandasAnalyzer');
-    const pythonCommand = path.join(workspaceFolder.uri.fsPath, '.venv', 'bin', 'python');
+    const pythonCommand = path.join(REPO_ROOT, '.venv', 'bin', 'python');
     const testCases: E2ETestCase[] = [
         {
             name: 'single-track analysis renders expected UI',
@@ -418,7 +419,7 @@ export async function run(): Promise<void> {
                 const parent = mkdtempSync(path.join(os.tmpdir(), 'awa-vscode-link-'));
                 const linked = path.join(parent, 'debug');
                 try {
-                    symlinkSync(path.join(workspaceFolder.uri.fsPath, MULTI_TRACK_DEBUG_AUDIO_PATH), linked, 'junction');
+                    symlinkSync(MULTI_TRACK_DEBUG_AUDIO_PATH, linked, 'junction');
                     const selected = await analyzeDebugPath(linked, { selectAllDirectoryFiles: true });
                     assert.equal(selected.resultCount, 3);
                     assert.equal(selected.renderedUi?.trackRowCount, 3);
@@ -721,7 +722,7 @@ export async function run(): Promise<void> {
                 };
                 try {
                     invalidateFixtureCache();
-                    const snapshot = await analyzeDebugPath('src/test/fixtures/short-stereo.wav');
+                    const snapshot = await analyzeDebugPath(SHORT_STEREO_PATH);
                     assert.deepEqual(snapshot.fileNames, ['short-stereo.wav']);
                     const cursor = await postActionsAndWait(`loop-cursor-${Date.now()}`, [
                         'content-waveform',
@@ -746,7 +747,7 @@ export async function run(): Promise<void> {
                         'assert output.shape == (4000, 2)',
                         'assert sf.info(sys.argv[2]).subtype == "PCM_16"',
                         'assert np.array_equal(output, source[2000:6000])',
-                    ].join('\n'), path.join(workspaceFolder.uri.fsPath, 'src/test/fixtures/short-stereo.wav'), outputFile]);
+                    ].join('\n'), SHORT_STEREO_PATH, outputFile]);
                 } finally {
                     ExportFlows.prototype.wavExport = originalExport;
                     invalidateFixtureCache();
@@ -837,7 +838,6 @@ export async function run(): Promise<void> {
     ];
     let passedCount = 0;
 
-    assertNoWorkspaceOverrides(config);
     await config.update('pythonCommand', pythonCommand, vscode.ConfigurationTarget.Global);
 
     const orderedCases = maybeShuffle(testCases);
@@ -859,22 +859,6 @@ export async function run(): Promise<void> {
         await config.update('debugFilePath', undefined, vscode.ConfigurationTarget.Global);
         await config.update('pythonCommand', undefined, vscode.ConfigurationTarget.Global);
     }
-}
-
-/**
- * The checks set the files to open and the interpreter as user settings; a workspace or folder setting of
- * the same name (e.g. a local .vscode/settings.json) would win over them, and every check would then wait
- * for a panel that opens something else. Say so at once instead.
- */
-function assertNoWorkspaceOverrides(config: vscode.WorkspaceConfiguration): void {
-    const overridden = ['debugFilePath', 'pythonCommand'].flatMap(key => {
-        const values = config.inspect(key);
-        const value = values?.workspaceFolderValue ?? values?.workspaceValue;
-        return value === undefined ? [] : [`audioWandasAnalyzer.${key} = ${JSON.stringify(value)}`];
-    });
-    assert.deepEqual(overridden, [],
-        `The workspace's settings override what the E2E checks set: ${overridden.join(', ')}. `
-        + 'Remove them from .vscode/settings.json (or the workspace file) and run again.');
 }
 
 async function analyzeDebugPath(
