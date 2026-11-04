@@ -4,6 +4,8 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 
 ## Unreleased
 
+- Compare: after a cepstrum or a cepstrogram, ＋ now adds wandas' lifter (it was greyed out for lack of a cutoff field). A new lifter keeps the quefrencies below 2 ms; its cutoff (s) and low/high are set in ⚙, and the result is drawn as the cepstrum it came from (#587).
+
 ## 0.0.15
 
 - Compare: with a trigger's events overlaid, the tracks stay under them, each recording as the trigger takes it, with the trigger level as a dashed line, where each event was cut shaded and a mark per event: ▶ plays the event, × leaves it out (↺ puts it back). Each track counts the events used (#567).
