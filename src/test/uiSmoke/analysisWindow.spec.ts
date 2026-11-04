@@ -1,5 +1,5 @@
 import { expect, test, type Page } from './canvasAudit';
-import { buildExtensionHostPathUiSmokeHtml } from './buildHtml';
+import { buildExtensionHostPathManyTracksHtml, buildExtensionHostPathUiSmokeHtml } from './buildHtml';
 
 /** Counts amber band pixels (the analysis-window fill and curve) per canvas column. */
 async function amberColumns(page: Page, canvasId: string): Promise<number[]> {
@@ -67,4 +67,50 @@ test('the spectrogram lane does not repeat the analysis window band', async ({ p
         return opaque > (canvas.width * canvas.height) / 2;
     })).toBe(true);
     expect((await amberColumns(page, 'track-spectrogram-overlay-0')).every((count) => count === 0)).toBe(true);
+});
+
+test('one cursor click moves every track\'s analysis window band in the same frame', async ({ page }) => {
+    // Where each waveform canvas last drew the band (twentieths of its width), or none since it was last cleared:
+    // the tracks' own colours can be amber too, so the band is told apart by how it is drawn, not by its pixels.
+    const trackBands = () => {
+        const shown: Record<string, number | null> = {};
+        (window as unknown as { __bandShown: typeof shown }).__bandShown = shown;
+        const proto = CanvasRenderingContext2D.prototype;
+        const { clearRect, fillRect } = Object.getOwnPropertyDescriptors(proto);
+        proto.clearRect = function (this: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) {
+            if (this.canvas.id && w >= this.canvas.width && h >= this.canvas.height) shown[this.canvas.id] = null;
+            (clearRect.value as CanvasRenderingContext2D['clearRect']).call(this, x, y, w, h);
+        };
+        proto.fillRect = function (this: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) {
+            const style = typeof this.fillStyle === 'string' ? this.fillStyle.replace(/\s/gu, '') : '';
+            if (this.canvas.id && style.startsWith('rgba(255,190,70')) {
+                shown[this.canvas.id] = Math.round((x + w / 2) / this.canvas.width * 20);
+            }
+            (fillRect.value as CanvasRenderingContext2D['fillRect']).call(this, x, y, w, h);
+        };
+    };
+    // Each slice answer takes a while and they are asked for one at a time: without the hold they land track by track.
+    await page.setContent(buildExtensionHostPathManyTracksHtml(3, 120), { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#spectrum-cursor-time')).toHaveText(/(window|解析窓) hann/);
+    const canvasIds = await page.evaluate(() => [...document.querySelectorAll<HTMLCanvasElement>('canvas.track-canvas')]
+        .map((canvas) => canvas.id).filter((id) => /^track-canvas-\d+(-\d+)?$/u.test(id)));
+    expect(canvasIds.length).toBe(6);
+    await page.evaluate(trackBands);
+    await page.evaluate((ids) => {
+        const shown = (window as unknown as { __bandShown: Record<string, number | null> }).__bandShown;
+        const frames: Array<Array<number | null>> = [];
+        (window as unknown as { __bandFrames: typeof frames }).__bandFrames = frames;
+        const tick = () => { frames.push(ids.map((id) => shown[id] ?? null)); requestAnimationFrame(tick); };
+        requestAnimationFrame(tick);
+    }, canvasIds);
+    const box = (await page.locator('#' + canvasIds[0]).boundingBox())!;
+    await page.mouse.click(box.x + box.width * 0.75, box.y + box.height / 2);
+    await expect.poll(() => page.evaluate(() => {
+        const frames = (window as unknown as { __bandFrames: Array<Array<number | null>> }).__bandFrames;
+        return frames.length > 0 && frames[frames.length - 1].every((x) => x === 15);
+    }), { timeout: 5000 }).toBe(true);
+    const frames = await page.evaluate(() => (window as unknown as { __bandFrames: Array<Array<number | null>> }).__bandFrames);
+    // No frame shows one track's band already at the click while another's still sits elsewhere (or is gone).
+    const mixed = frames.filter((frame) => frame.some((x) => x === 15) && frame.some((x) => x !== 15));
+    expect(mixed).toEqual([]);
 });
