@@ -295,7 +295,7 @@ test('a folder of 1000 recordings draws only the rows on screen', async ({ page 
     const many = Array.from({ length: 1000 }, (_, index) => ({ ...scanned![index % 90], filePath: `/many/f${String(index).padStart(4, '0')}.wav` }));
     const ms = await openEntry(page, many, { language: 'ja' });
     test.info().annotations.push({ type: 'timing', description: `1000 recordings' first rows ${ms.toFixed(1)} ms (target 3000 ms)` });
-    // A wall-clock budget, held only with AWA_PERF=1 like scale100k.spec.ts; the row count below is always held.
+    // A wall-clock budget, held only with AWA_PERF=1; the row count below is always held.
     if (process.env['AWA_PERF'] === '1') expect(ms).toBeLessThan(3000);
     expect(await page.locator('[data-entry-rows] tr.entry-row').count()).toBeLessThan(80);
     await expect(page.locator('.entry-th-count')).toHaveText(STR.dsRows.replace('{n}', '1,967'));
