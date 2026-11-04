@@ -4,6 +4,8 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 
 ## Unreleased
 
+## 0.0.15
+
 - Compare: with a trigger's events overlaid, the tracks stay under them, each recording as the trigger takes it, with the trigger level as a dashed line, where each event was cut shaded and a mark per event: ▶ plays the event, × leaves it out (↺ puts it back). Each track counts the events used (#567).
 - Compare: a click on a trigger's event line leaves that event of that recording out (it stays faint; another click or ↶ puts it back). The steps after the trigger that take the events together, such as their mean, run without it (`wandas.segments.drop`). Changing the trigger, a step before it or the region brings the events back, with a notice. The readout says where in the recording each event was cut (#567).
 - Compare: a level trigger from ＋ (トリガー) cuts every event where a channel crosses a level; it starts at half the tracks' peak, and its channel, level, length and pre-trigger are set in ⚙. The comparison draws every event of each recording over the time from its trigger, in the recording's colour, and the headline counts them. After it, ＋ offers the events' mean, transfer function and coherence. A level nothing crosses says so (lower it in ⚙) and counts 0; a chain that ends with the events is compared but not exported for many files (a Recipe runs to their mean, transfer function or coherence). Needs wandas 0.13.0, which records these steps in the Recipe (#567).
@@ -38,7 +40,7 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 - Plots resized by the layout (the compare view's step bar expanded, the entry table's overview strip moved under it in a narrow window) are drawn again at their new size; ui-smoke fails any canvas left stretched (#552).
 - Compare view: the ruler and the spectra it hides are no longer drawn on every resize or scroll; they are drawn again on leaving it (#554).
 - Python backend answers requests for different recordings concurrently and reads audio straight into float32 (#462, #464).
-- Updated to wandas 0.12.0 (#409, #446, #468).
+- Updated to wandas 0.13.0 (#409, #446, #468, #567).
 - Python starts only when a command, view or panel needs it; Select Python Environment can create a `.venv` and install the packages, detects PEP 668 interpreters and uses the Python extension's interpreter; Restricted Mode is supported with the user-level interpreter.
 - Every analysis request can be cancelled and times out; Python's errors go to the "Audio Wandas Analyzer" output channel.
 - A spectrogram or cursor spectrum that fails says why in its lane and is retried after a pause instead of on every frame; files larger than the cache are no longer re-read on every zoom; non-ASCII paths work on Windows code pages.
