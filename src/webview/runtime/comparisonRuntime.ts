@@ -1619,7 +1619,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             if (!result.audioSource) {
                 return '';
             }
-            return trackAudioHtml(trackId, record.protocolIndex, result.audioSource, !!record.runtime.muted);
+            return trackAudioHtml(trackId, record.protocolIndex, result.audioSource);
         }).join('');
     }
     function buildToolbar() {
@@ -1677,7 +1677,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             channels: channelsForResult(result),
             roleChipHtml: roleChipHtml(result.filePath, trackRole(result.filePath), ownTrackColor(i), STR),
             playable: !!result.audioSource,
-            muted: !!trackStore.require(trackId).runtime.muted,
             lanesHtml: buildChannelLanes(result, i),
             referenceButtonHtml: channelsForResult(result).length === 1 ? referenceButtonHtml(trackId, 0, STR) : undefined,
         }, STR);
@@ -2023,8 +2022,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         document.querySelectorAll<HTMLElement>('.track-row').forEach(function (row) {
             const trackId = trackIdFromElement(row);
             if (trackId) {
-                const isMuted = trackStore.require(trackId).runtime.hidden;
-                row.style.display = isMuted ? 'none' : 'flex';
+                const isHidden = trackStore.require(trackId).runtime.hidden;
+                row.style.display = isHidden ? 'none' : 'flex';
             }
         });
         // 次に空状態を判定する（削除済み or 全非表示）
@@ -2202,16 +2201,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             trackIndexForId: (trackId) => trackStore.protocolIndexForId(trackId),
         }, {
             'toggle-playback': ({ trackId }) => playback.toggle(trackId),
-            'toggle-mute': ({ trackIndex, target }) => {
-                if (trackIndex === null) {
-                    return;
-                }
-                const runtime = trackRuntimeAt(trackIndex);
-                runtime.muted = !runtime.muted;
-                playback.setMuted(trackIndex, runtime.muted);
-                target.setAttribute('aria-pressed', String(runtime.muted));
-                target.textContent = runtime.muted ? '🔇' : '🔊';
-            },
             'stop-playback': ({ trackId }) => playback.stop(trackId),
             'remove-track': ({ trackId }) => removeTrack(trackId),
             'configure-calibration': ({ trackId, trackIndex, event }) => {

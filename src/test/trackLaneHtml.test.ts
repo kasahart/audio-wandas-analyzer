@@ -56,7 +56,7 @@ test('spectrum canvas aria-label escapes the file name', () => {
 const rowStrings = {
     ariaDragHandle: 'Drag', clipBadgeTitle: 'Clipped',
     trackPlayTitle: 'Play', ariaTrackPlay: 'Play track', trackStopTitle: 'Stop', ariaTrackStop: 'Stop track',
-    ariaTrackMute: 'Mute', ariaRemoveTrack: 'Remove',
+    ariaRemoveTrack: 'Remove',
     calibrationButtonLabel: 'Cal', calibrationButtonTitle: 'Calibrate', calibrationButtonAria: 'Calibrate track',
     trackOffsetResetHint: 'Reset', ariaOffsetValue: 'Offset', ariaOffsetUp: 'Up', ariaOffsetDown: 'Down',
     ariaResizeTrackHeight: 'Track height',
@@ -76,7 +76,6 @@ const baseRow: TrackRowSpec = {
     channels: [],
     roleChipHtml: '<i>chip</i>',
     playable: true,
-    muted: false,
     lanesHtml: '<i>lanes</i>',
 };
 
@@ -89,17 +88,17 @@ test('track row renders header, controls and the given lanes', () => {
     assert.ok(html.includes('id="offset-val-2"'));
     assert.ok(html.includes('<div class="track-channel-lanes"><i>lanes</i></div>'));
     assert.ok(html.includes('aria-label="Track height"'));
-    assert.ok(html.includes('aria-pressed="false">🔊</button>'));
+    assert.ok(html.includes('data-action="toggle-playback"') && html.includes('data-action="stop-playback"'));
     assert.ok(!html.includes(' disabled'));
     assert.ok(!html.includes('clip-badge'));
 });
 
-test('track row disables transport buttons without audio and shows the muted state', () => {
-    const html = trackRowHtml({ ...baseRow, playable: false, muted: true }, rowStrings);
-    assert.equal(html.match(/ disabled>/g)?.length, 3);
-    assert.ok(html.includes('aria-pressed="true" disabled>🔇</button>'));
+test('track row disables transport buttons without audio', () => {
+    const html = trackRowHtml({ ...baseRow, playable: false }, rowStrings);
+    assert.equal(html.match(/ disabled>/g)?.length, 2);
+    assert.ok(!html.includes('toggle-mute'));
     // A disabled button says why in its hint.
-    assert.equal(html.match(/data-hint="No audio"/g)?.length, 3);
+    assert.equal(html.match(/data-hint="No audio"/g)?.length, 2);
 });
 
 test('mono track row appends the channel summary to the meta line', () => {

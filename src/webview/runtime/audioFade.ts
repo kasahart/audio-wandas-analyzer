@@ -50,7 +50,7 @@ export interface FadeContext {
     createGain(): FadeGain;
     createMediaElementSource(el: HTMLMediaElement): FadeNode;
 }
-type FadeMedia = Pick<HTMLMediaElement, 'muted' | 'paused' | 'pause'>;
+type FadeMedia = Pick<HTMLMediaElement, 'paused' | 'pause'>;
 
 export interface AudioFader {
     /** Routes the element through gain stages; call from a user gesture so the context is allowed to start. */
@@ -59,7 +59,6 @@ export interface AudioFader {
     fadeTo(el: FadeMedia, value: number, seconds: number, delay?: number): void;
     pauseSmoothly(el: FadeMedia, after?: () => void, seconds?: number): void;
     isPausing(el: FadeMedia): boolean;
-    setMuted(el: FadeMedia, muted: boolean): void;
     /** Disconnects a discarded element's gain stages, which would otherwise keep it alive. */
     release(el: FadeMedia): void;
     /** The audio context's state, or null before the first route; tests read it to see the gain stages are live. */
@@ -73,8 +72,7 @@ function defaultContext(): FadeContext | null {
 
 export function createAudioFader(createContext: () => FadeContext | null = defaultContext, schedule: (fn: () => void, ms: number) => unknown = setTimeout, cancel: (handle: unknown) => void = handle => clearTimeout(handle as ReturnType<typeof setTimeout>)): AudioFader {
     let ctx: FadeContext | null = null;
-    const routes = new WeakMap<FadeMedia, { source: FadeNode; fade: FadeGain; mute: FadeGain }>();
-    const pendingMutes = new WeakMap<FadeMedia, unknown>();
+    const routes = new WeakMap<FadeMedia, { source: FadeNode; fade: FadeGain }>();
     const ramps = new WeakMap<FadeParam, GainRamp>();
     const pendingPauses = new WeakMap<FadeMedia, { handle: unknown; afters: Array<() => void> }>();
 
@@ -123,12 +121,9 @@ export function createAudioFader(createContext: () => FadeContext | null = defau
                 }
                 const source = ctx.createMediaElementSource(el as HTMLMediaElement);
                 const fade = ctx.createGain();
-                const mute = ctx.createGain();
-                mute.gain.value = el.muted ? 0 : 1;
                 source.connect(fade);
-                fade.connect(mute);
-                mute.connect(ctx.destination);
-                routes.set(el, { source, fade, mute });
+                fade.connect(ctx.destination);
+                routes.set(el, { source, fade });
                 return true;
             }
             catch (_err) {
@@ -180,35 +175,12 @@ export function createAudioFader(createContext: () => FadeContext | null = defau
             routes.delete(el);
             route.source.disconnect();
             route.fade.disconnect();
-            route.mute.disconnect();
         },
         isPausing(el) {
             return pendingPauses.has(el);
         },
         contextState() {
             return ctx ? ctx.state : null;
-        },
-        setMuted(el, muted) {
-            const route = routes.get(el);
-            if (!route) {
-                el.muted = muted;
-                return;
-            }
-            if (pendingMutes.has(el)) {
-                cancel(pendingMutes.get(el));
-                pendingMutes.delete(el);
-            }
-            ramp(route.mute.gain, muted ? 0 : 1, FADE_SECONDS);
-            // The element flag follows the gain so the muted state stays observable; flipping it mid-ramp would click.
-            if (muted) {
-                pendingMutes.set(el, schedule(() => {
-                    pendingMutes.delete(el);
-                    el.muted = true;
-                }, FADE_SECONDS * 1000));
-            }
-            else {
-                el.muted = false;
-            }
         },
     };
 }

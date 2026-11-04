@@ -93,7 +93,6 @@ export const GUI_TRIGGERABILITY_WEBVIEW_ACTION_IDS = [
     'export-report',
     'configure-calibration',
     'toggle-playback',
-    'toggle-mute',
     'stop-playback',
     'remove-track',
     'offset-up',
@@ -491,9 +490,9 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
     },
     {
         id: 'track-playback',
-        label: 'Start, stop and mute per-track playback',
+        label: 'Start and stop per-track playback',
         entryPoints: ['track-control', 'keyboard'],
-        triggers: ['toggle-playback', 'stop-playback', 'toggle-mute', 'Space'],
+        triggers: ['toggle-playback', 'stop-playback', 'Space'],
         regressionLayers: ['node:test', 'ui-smoke'],
     },
     {

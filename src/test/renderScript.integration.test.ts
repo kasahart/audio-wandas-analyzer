@@ -3665,7 +3665,7 @@ test('tracks without an audio source disable all playback controls', () => {
     const state = JSON.parse(DUMMY_APP_STATE);
     delete state.results[0].audioSource;
     const { dom } = setupEnvWithState(JSON.stringify(state));
-    for (const action of ['toggle-playback', 'stop-playback', 'toggle-mute']) {
+    for (const action of ['toggle-playback', 'stop-playback']) {
         const buttons = dom.window.document.querySelectorAll<HTMLButtonElement>(`.track-row [data-action="${action}"]`);
         assert.equal(buttons[0].disabled, true);
         if (action !== 'stop-playback') assert.equal(buttons[1].disabled, false);
