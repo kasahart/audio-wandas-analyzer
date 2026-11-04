@@ -384,7 +384,7 @@ export interface StagePlot {
      * Where `lines` holds signals drawn as themselves: the readout's unit for a signal without one (uncalibrated),
      * and the signal drawn again at another width (the hover's thicker line).
      */
-    signal?: { unit: string; paint(context: CanvasRenderingContext2D, layer: StageLayer, width: number): void };
+    signal?: { unit: string; range?: { min: number; max: number }; paint(context: CanvasRenderingContext2D, layer: StageLayer, width: number): void };
 }
 
 /** Several pictures of one Frame type on one set of axes, as solid lines (or steps) told apart by colour. */
@@ -604,6 +604,7 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
                 plot.signal ??= {
                     // An uncalibrated signal's unit: the axis names it when the axis's own signal is uncalibrated, else full scale.
                     unit: (!layer.view.waveform.unit && /\[([^\]]*)\]$/.exec(axes.y)?.[1]) || uncalibratedUnits(true).linear,
+                    range,
                     paint: (ctx, signal, lineWidth) => { if (signal.view.waveform) paintWaveformLayer(ctx, box, signal.view.waveform, wholeAxis, xWindow, range, signal.color, lineWidth); },
                 };
                 plot.signal.paint(context, layer, layer.width ?? 1.5);
@@ -693,7 +694,9 @@ function signalPointAt(plot: StagePlot, waveform: NonNullable<StageView['wavefor
     const { min, max, minT, maxT } = waveform;
     const timeOf = (index: number): number => ((minT[index] ?? maxT[index] ?? 0) + (maxT[index] ?? minT[index] ?? 0)) / 2;
     const n = Math.min(min.length, max.length, minT.length, maxT.length);
-    if (!n || x < plot.xAt(timeOf(0)) - 0.5 || x > plot.xAt(timeOf(n - 1)) + 0.5) return null;
+    // The envelope's ends as drawn: the first bucket's earlier time, the last one's later time.
+    const start = Math.min(minT[0] ?? Infinity, maxT[0] ?? Infinity), end = Math.max(minT[n - 1] ?? -Infinity, maxT[n - 1] ?? -Infinity);
+    if (!n || x < plot.xAt(start) - 0.5 || x > plot.xAt(end) + 0.5) return null;
     let low = 0, high = n - 1;
     while (high - low > 1) {
         const middle = (low + high) >> 1;
@@ -704,6 +707,9 @@ function signalPointAt(plot: StagePlot, waveform: NonNullable<StageView['wavefor
     // As the painter draws them: a missing value at 0, a missing time at the bucket's other one.
     const consider = (raw: number | null, time: number): void => {
         const value = raw ?? 0;
+        // A point clipped off the plot (zoomed into part of the amplitude) is not on screen to pick.
+        const shown = plot.signal?.range;
+        if (shown && (value < shown.min || value > shown.max)) return;
         if (!best || Math.abs(plot.yAt(value) - y) < Math.abs(plot.yAt(best.value) - y)) best = { time, value };
     };
     const column = (index: number): boolean => Math.abs(plot.xAt(timeOf(index)) - x) <= 0.5;

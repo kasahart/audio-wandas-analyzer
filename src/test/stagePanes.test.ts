@@ -150,6 +150,12 @@ test('a signal drawn as itself is picked as a line: its envelope point nearest t
     // Each signal reads its own unit: an uncalibrated one beside a calibrated one reads the uncalibrated unit, not the axis's.
     const raw = { ...b, view: { ...b.view, waveform: { ...b.view.waveform!, unit: '' } } };
     assert.equal(stageHover({ ...plotOf([a, raw]), signal: { unit: 'FS', paint: () => undefined } }, 500, 88)!.text, 'compare / 0.500 s / −0.400 FS');
+    // Zoomed into −0.1…0.3 of the amplitude, a point clipped off the plot is not picked: the visible one is.
+    const zoomed = { ...plotOf([a, b]), signal: { unit: 'Pa', range: { min: -0.1, max: 0.3 }, paint: () => undefined } };
+    assert.equal(stageHover(zoomed, 500, 88)!.layer, a);
+    // One wide bucket (zoomed into the coarse envelope): its whole span answers, not only up to its middle.
+    const wide = { view: { ...a.view, waveform: { min: [-0.1], max: [0.1], minT: [0.1], maxT: [0.9], absolutePeak: 0.1, unit: 'Pa', ref: 2e-5 } }, color: 'blue', label: 'base' };
+    assert.equal(stageHover(plotOf([wide]), 150, 40)!.text, 'base / 0.900 s / 0.100 Pa');
 });
 
 test('a trigger\'s events are each a line of their slot, on one amplitude range, with no difference between recordings', () => {
