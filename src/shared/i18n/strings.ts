@@ -500,6 +500,8 @@ export interface UiStrings {
     helpRowStepKeys: string;
     helpRowStepBypass: string;
     helpRowStepUndo: string;
+    helpCompareEventKey: string;
+    helpCompareEvent: string;
     helpSectionGeneral: string;
     helpSectionLanes: string;
     helpSectionEntry: string;
@@ -1294,6 +1296,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpRowStepKeys: 'step bar: press a step to see its Frame in the comparison, hold it to see what it does, ＋ adds a wandas operation, Delete on a step removes it',
         helpRowStepBypass: 'step bar: M on a step bypasses it (kept in place, skipped), M again brings it back',
         helpRowStepUndo: 'step bar: undo and redo its edits (↶ ↷)',
+        helpCompareEventKey: 'Click an event line',
+        helpCompareEvent: 'leave that event of the recording out of the steps after the trigger, or put it back',
         helpSectionGeneral: 'Everywhere',
         helpSectionLanes: 'Tracks',
         helpSectionEntry: 'Table',
@@ -2081,6 +2085,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpRowStepKeys: '手順バー: 手順を押すとその結果、長押しでその手順あり／なし、＋ で wandas の操作を足す、手順で Delete で外す',
         helpRowStepBypass: '手順バー: 手順で M を押すとバイパス（残したまま飛ばす）、もう一度で戻す',
         helpRowStepUndo: '手順バー: 編集を元に戻す／やり直す（↶ ↷）',
+        helpCompareEventKey: 'イベントの線をクリック',
+        helpCompareEvent: 'その録音のそのイベントを、トリガーより後の手順から外す／戻す',
         helpSectionGeneral: 'どこでも',
         helpSectionLanes: 'トラック',
         helpSectionEntry: 'ファイル一覧',

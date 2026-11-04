@@ -188,6 +188,7 @@ export const GUI_TRIGGERABILITY_SCOPED_SHORTCUTS = [
     'Drag (step chip)',
     'M (step chip)',
     'Ctrl+Z / Ctrl+Shift+Z (step bar)',
+    'Click (event line)',
     'Enter (operation filter)',
     '? / F1',
 ] as const;
@@ -331,6 +332,13 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
         entryPoints: ['track-control', 'keyboard'],
         triggers: ['track-role-set'],
         regressionLayers: ['ui-smoke'],
+    },
+    {
+        id: 'compare-trigger-events',
+        label: 'A trigger\'s events on the compare view: a click on an event\'s line leaves that event of that recording out of the steps after the trigger (drawn faint; another click or ↶ puts it back)',
+        entryPoints: ['canvas-gesture'],
+        triggers: ['Click (event line)'],
+        regressionLayers: ['node:test', 'ui-smoke'],
     },
     {
         id: 'switch-content-view',

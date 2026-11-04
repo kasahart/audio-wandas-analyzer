@@ -14,6 +14,8 @@ import type { TrackStageState } from './trackStageModel';
 
 /** How near (px) a click must be to an event's line to leave it out. */
 const EVENT_PICK_PX = 6;
+/** How long a click on an event's line waits for a second one (a double-click resets the zoom instead). */
+const DOUBLE_CLICK_MS = 300;
 
 /** The pointer over the mode's plots, while it is over one. */
 export interface StageGestures {
@@ -146,11 +148,16 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
     gestures('.track-canvas', surface);
     gestures('[data-stage-canvas]', root);
     // A click on an event's line (a press that stayed put: a drag's click is not passed on) leaves it out or puts it back.
+    // It waits out a double-click (which resets the zoom): the second click takes the first one back.
+    let pending: number | undefined;
+    const view = document.defaultView;
     const clicked = (selector: string) => (event: MouseEvent): void => {
         const plot = (event.target as HTMLElement | null)?.closest?.<HTMLElement>(selector);
-        if (!state.on || !plot || !deps.toggleEvent || event.detail > 1) return;
+        if (!state.on || !plot || !deps.toggleEvent || !view) return;
+        if (pending !== undefined) { view.clearTimeout(pending); pending = undefined; }
+        if (event.detail > 1) return;
         const line = eventAt(plot, event.clientX, event.clientY);
-        if (line) deps.toggleEvent(line);
+        if (line) pending = view.setTimeout(() => { pending = undefined; deps.toggleEvent?.(line); }, DOUBLE_CLICK_MS);
     };
     surface.addEventListener('click', clicked('.track-canvas'));
     root.addEventListener('click', clicked('[data-stage-canvas]'));

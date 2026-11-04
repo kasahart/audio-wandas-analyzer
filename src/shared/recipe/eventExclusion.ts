@@ -4,15 +4,15 @@
  * trigger run with `wandas.segments.drop` of them, as wandas' own chain would hold it.
  */
 import type { RecipeDocument } from './recipeSelection';
-import { EXCLUDED_KEY, recipeChain, recipeNodes, withoutBypassed, TIME_SLICE, TRIGGER, type RecipeNode } from './recipeSteps';
+import { bypassedSteps, EXCLUDED_KEY, recipeChain, withoutBypassed, TIME_SLICE, TRIGGER, type RecipeNode } from './recipeSteps';
 
 export { EXCLUDED_KEY };
 export const SEGMENTS_DROP = 'wandas.segments.drop';
 export const DROP_NODE = 'node-excluded';
 
-/** What the events of a recording are kept by: its path, and the channel it is compared as (`*`: all). */
-export function eventsKey(path: string, ch: number | null): string {
-    return `${path}#${ch ?? '*'}`;
+/** What the events of a recording are kept by: their trigger, its path, and the channel it is compared as (`*`: all). */
+export function eventsKey(trigger: string, path: string, ch: number | null): string {
+    return `${trigger}|${path}#${ch ?? '*'}`;
 }
 
 /** The event IDs left out per recording. */
@@ -50,22 +50,24 @@ export function withoutExclusions(recipe: RecipeDocument): RecipeDocument {
     return copy;
 }
 
-/** The trigger that runs (the first, not bypassed). */
-export function runningTrigger(recipe: RecipeDocument | null | undefined): RecipeNode | undefined {
-    return recipe ? recipeChain(withoutBypassed(recipe)).find(node => node.operation === TRIGGER) : undefined;
+/** The triggers that run (not bypassed), in the chain's order. */
+export function runningTriggers(recipe: RecipeDocument | null | undefined): RecipeNode[] {
+    return recipe ? recipeChain(withoutBypassed(recipe)).filter(node => node.operation === TRIGGER) : [];
 }
 
 /**
- * What the events are found by: the steps that run up to the trigger and its settings, and the region where the
- * chain slices one. Another condition finds other events, so the ones left out no longer name the same.
+ * What the events are found by: the steps that run up to the last trigger and their settings, and the region where
+ * the chain slices one (none while the region chip is bypassed: the whole file). Another condition finds other
+ * events, so the ones left out no longer name the same.
  */
 export function eventCondition(recipe: RecipeDocument | null | undefined, region: unknown): string {
-    const trigger = runningTrigger(recipe);
-    if (!recipe || !trigger) return '';
+    const last = runningTriggers(recipe).at(-1);
+    if (!recipe || !last) return '';
     const chain = recipeChain(withoutBypassed(recipe));
-    const upto = chain.slice(0, chain.findIndex(node => node.id === trigger.id) + 1);
-    const sliced = upto.some(node => node.operation === TIME_SLICE);
-    return JSON.stringify([upto.map(node => [node.operation, node.version, node.params]), sliced ? region ?? null : null]);
+    const upto = chain.slice(0, chain.findIndex(node => node.id === last.id) + 1);
+    const slice = upto.find(node => node.operation === TIME_SLICE);
+    const sliced = !!slice && !bypassedSteps(recipe).includes(slice.id);
+    return JSON.stringify([upto.map(node => [node.id, node.operation, node.version, node.params]), sliced ? region ?? null : null]);
 }
 
 /** Whether an edit from `before` to `after` changes what finds the events while some are left out. */
@@ -73,18 +75,29 @@ export function exclusionsLapse(before: RecipeDocument | null | undefined, befor
     return Object.keys(excludedEvents(after)).length > 0 && eventCondition(before, beforeRegion) !== eventCondition(after, afterRegion);
 }
 
+/** The id of the drop after trigger `trigger`. */
+export const dropNode = (trigger: string): string => `${DROP_NODE}-${trigger}`;
+
+/** Events of one trigger to drop. */
+export interface EventDrop { trigger: string; ids: readonly number[] }
+
 /**
- * The run Recipe with `ids` dropped right after its trigger (wandas.segments.drop), for the steps after it that
- * take the events together (a mean, a transfer function). No IDs, or no trigger: the Recipe as it is.
+ * The run Recipe with each drop's IDs dropped right after its trigger (wandas.segments.drop), for the steps after it
+ * that take the events together (a mean, a transfer function). A drop of no IDs is left out, unless `keepEmpty`
+ * (a recording paired with another at a later step: both Recipes have the same steps). The Recipe as it is without one.
  */
-export function withDroppedEvents(recipe: RecipeDocument, ids: readonly number[]): RecipeDocument {
-    const trigger = recipeNodes(recipe).find(node => node.operation === TRIGGER);
-    if (!trigger || !ids.length) return recipe;
+export function withDroppedEvents(recipe: RecipeDocument, drops: readonly EventDrop[], keepEmpty = false): RecipeDocument {
+    const chain = recipeChain(recipe);
+    const wanted = drops.filter(drop => (keepEmpty || drop.ids.length > 0) && chain.some(node => node.id === drop.trigger && node.operation === TRIGGER));
+    if (!wanted.length) return recipe;
     const copy = JSON.parse(JSON.stringify(recipe)) as RecipeDocument & { nodes: RecipeNode[]; output: string };
-    copy.nodes = copy.nodes.filter(node => node.id !== DROP_NODE);
-    copy.nodes.forEach(node => { node.inputs = node.inputs.map(item => (item === trigger.id ? DROP_NODE : item)); });
-    const at = copy.nodes.findIndex(node => node.id === trigger.id);
-    copy.nodes.splice(at + 1, 0, { id: DROP_NODE, operation: SEGMENTS_DROP, version: 1, inputs: [trigger.id], params: { $type: 'map', entries: [['event_ids', { $type: 'list', items: [...ids] }]] } } as RecipeNode);
-    if (copy.output === trigger.id) copy.output = DROP_NODE;
+    for (const { trigger, ids } of wanted) {
+        const id = dropNode(trigger);
+        copy.nodes = copy.nodes.filter(node => node.id !== id);
+        copy.nodes.forEach(node => { node.inputs = node.inputs.map(item => (item === trigger ? id : item)); });
+        const at = copy.nodes.findIndex(node => node.id === trigger);
+        copy.nodes.splice(at + 1, 0, { id, operation: SEGMENTS_DROP, version: 1, inputs: [trigger], params: { $type: 'map', entries: [['event_ids', { $type: 'list', items: [...ids] }]] } } as RecipeNode);
+        if (copy.output === trigger) copy.output = id;
+    }
     return copy;
 }

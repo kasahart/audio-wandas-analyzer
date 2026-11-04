@@ -17,7 +17,7 @@ import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import type { ScanResult, StageView } from '../../shared/protocol/backendProtocol';
 import type { EntryRegion } from '../../shared/analysis/entryScan';
 import { brokenStep, recipeChain, recipeKey, recipeSteps, TIME_SLICE, TRIGGER, type RecipeStep, type StepLimits } from '../../shared/recipe/recipeSteps';
-import { eventsKey, excludedOf, withDroppedEvents, withEventExcluded } from '../../shared/recipe/eventExclusion';
+import { eventsKey, excludedOf, withDroppedEvents, withEventExcluded, type EventDrop } from '../../shared/recipe/eventExclusion';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { createStepBar, invalidReason, stepChipLabel, stepLimits, INPUT_STAGE } from './stepBar';
 import { createStageSource, type StageSpec } from './stageSource';
@@ -301,13 +301,14 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
     let stageGestures: StageGestures | null = null;
     let redrawing = false;
     let shownCompare: { path: string | null; view: StageView | null | undefined } = { path: null, view: undefined };
-    /** The channel each file was last drawn as, whose events a click leaves out. */
+    /** The channel each file was last drawn as, and the trigger whose events are on show, whose events a click leaves out. */
     let channelOf = (_path: string): number | null => null;
+    let shownTrigger: string | null = null;
     /** A click on an event's line: that event of that recording left out of the steps after the trigger, or put back (↶ too). */
     function toggleEvent(event: { id: number; source: string; out: boolean }): void {
         const editor = deps.recipe()?.recipe;
-        if (!editor) return;
-        const next = withEventExcluded(editor, eventsKey(event.source, channelOf(event.source)), event.id, !event.out);
+        if (!editor || !shownTrigger) return;
+        const next = withEventExcluded(editor, eventsKey(shownTrigger, event.source, channelOf(event.source)), event.id, !event.out);
         const said = (event.out ? strings.stageEventIn : strings.stageEventOut).replace('{name}', named(event.source, role(event.source)).label).replace('{n}', String(event.id + 1));
         stepBar.edit(next, said);
     }
@@ -416,19 +417,28 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
                 if (!referencePath || !slotStep || !theirs || !recipeChain(theirs).some(node => node.id === slotStep.id)) return own;
                 return { key: `${own.key}|vs|${referencePath}|${recipeKey(theirs)}`, message: { ...own.message, reference: { filePath: referencePath, step: slotStep.id, recipe: theirs } } };
             };
-            // A step after the trigger that takes its events together runs without the ones left out of each recording's
-            // (wandas.segments.drop after the trigger): the files are asked for by their channel and those events.
-            const triggerAt = steps.findIndex(step => step.operation === TRIGGER && step.invalid === undefined && !step.bypassed);
-            const dropsHere = triggerAt >= 0 && shownIndex > triggerAt && !/Segments$/.test(steps[shownIndex]?.output ?? '');
-            const dropsOf = (path: string): number[] => (dropsHere ? excludedOf(recipe.recipe, eventsKey(path, channelFor(path))) : []);
-            const groupOf = (path: string): string => `${channelFor(path) ?? '*'}|${dropsOf(path).join(',')}`;
+            // A step after a trigger that takes its events together runs without the ones left out of each recording's
+            // (wandas.segments.drop after that trigger): the files are asked for by their channel and those events. The
+            // events on show (a step that still gives them) are the last trigger's, all drawn, the ones left out faint.
+            const triggersHere = steps.slice(0, shownIndex + 1).filter(step => step.operation === TRIGGER && step.invalid === undefined && !step.bypassed);
+            const eventsShown = /Segments$/.test(steps[shownIndex]?.output ?? '');
+            const viewTrigger = eventsShown ? triggersHere.at(-1)?.id : undefined;
+            const dropping = triggersHere.filter(step => step.id !== viewTrigger).map(step => step.id);
+            const dropsOf = (path: string): EventDrop[] => dropping.map(trigger => ({ trigger, ids: excludedOf(recipe.recipe, eventsKey(trigger, path, channelFor(path))) }));
+            const dropsKey = (drops: readonly EventDrop[]): string => drops.filter(drop => drop.ids.length).map(drop => `${drop.trigger}:${drop.ids.join(',')}`).join(';');
+            const groupOf = (path: string): string => `${channelFor(path) ?? '*'}|${dropsKey(dropsOf(path))}`;
             const specFor = (path: string): StageSpec => {
                 const own = specOf(channelFor(path));
-                const ids = dropsOf(path);
+                const drops = dropsOf(path);
+                const reference = own.message.reference;
+                // Paired with the base slot's recording later on: both Recipes have the drops (each its own events).
+                const theirs = reference ? dropsOf(reference.filePath) : [];
                 const run = own.message.recipe;
-                if (!ids.length || !run) return own;
-                return { key: `${own.key}|drop|${ids.join(',')}`, message: { ...own.message, recipe: withDroppedEvents(run, ids) } };
+                if (!run || (!dropsKey(drops) && !dropsKey(theirs))) return own;
+                const paired = reference ? { reference: { ...reference, recipe: withDroppedEvents(reference.recipe, theirs, true) } } : {};
+                return { key: `${own.key}|drop|${dropsKey(drops)}|${dropsKey(theirs)}`, message: { ...own.message, recipe: withDroppedEvents(run, drops, !!reference), ...paired } };
             };
+            shownTrigger = viewTrigger ?? null;
             const byChannel = new Map<string, { spec: StageSpec; ch: number | null; paths: string[] }>();
             for (const path of files) {
                 const group = byChannel.get(groupOf(path)) ?? { spec: specFor(path), ch: channelFor(path), paths: [] };
@@ -535,7 +545,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             const coarsePlots = plotsOf(coarse, tracks, comparePath, basePaths);
             shownCompare = { path: comparePath, view: comparePath && !waiting ? coarse(comparePath) : undefined };
             // The events left out of each recording's, on the trigger's picture (and a step after it that keeps them).
-            const excluded = (path: string): readonly number[] => excludedOf(recipe.recipe, eventsKey(path, channelFor(path)));
+            const excluded = (path: string): readonly number[] => (viewTrigger ? excludedOf(recipe.recipe, eventsKey(viewTrigger, path, channelFor(path))) : []);
             channelOf = channelFor;
             const frame: StageFrame = { strings, tracks, allTracks, referencePath, comparePath, coarse, shown, picture, coarsePlots, window: state.window, regionMark, pending, waiting, role, named, drawnOn, baseEach: each, excluded };
             const bypassed = steps.filter(step => step.bypassed).map(step => stepChipLabel(step, strings, state.regionSet));

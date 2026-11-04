@@ -747,6 +747,12 @@ test('a trigger added from ＋ fires at half the tracks\' peak, draws each event
     await page.screenshot({ path: 'test-results/trigger-events.png' });
     const footer = page.locator('#hint-footer');
     await expect(footer).toHaveText(STR.stageEventClickOut);
+    // A double-click resets the zoom and leaves no event out.
+    await page.mouse.dblclick(x, lineY);
+    await page.waitForTimeout(400);
+    await page.mouse.move(x, lineY + 1);
+    await page.mouse.move(x, lineY);
+    await expect(footer).toHaveText(STR.stageEventClickOut);
     await page.mouse.click(x, lineY);
     await expect(footer).toHaveText(new RegExp(`#[123]${escapeRegExp(STR.stageEventOut.split('#{n}')[1])}$`));
     // Drawn faint and still there: the pointer on it says a click puts it back; ↶ does too.
@@ -759,6 +765,7 @@ test('a trigger added from ＋ fires at half the tracks\' peak, draws each event
     await page.mouse.move(x, lineY);
     await expect(footer).toHaveText(STR.stageEventClickOut);
     await page.mouse.click(x, lineY);
+    await expect(footer).toHaveText(new RegExp(`#[123]${escapeRegExp(STR.stageEventOut.split('#{n}')[1])}$`));
     // After the trigger, ＋ offers the events' mean, transfer function and coherence; a Frame's step goes before it.
     await bar.locator('[data-action="step-add"]').click();
     await expect(bar.locator('.step-menu-item[data-op="wandas.segments.average"]')).not.toHaveClass(/is-off|is-earlier/);
