@@ -252,6 +252,10 @@ test('calibration row helpers draw badges, peak text, requests and the overlay g
     });
     assert.equal(hasIncompatibleLevelReferences([track([channel({ measurement: pa })]), track([channel({ measurement: pa }), channel({})])]), false);
     assert.equal(hasIncompatibleLevelReferences([track([channel({ measurement: pa })]), track([channel({ measurement: measurement('m/s^2', 'dB re 1 m/s^2') })])]), true);
+    // The overlay's second level axis takes a second reference; a third still has no axis.
+    const accel = measurement('m/s^2', 'dB re 1 m/s^2');
+    assert.equal(hasIncompatibleLevelReferences([track([channel({ measurement: pa })]), track([channel({ measurement: accel })])], 2), false);
+    assert.equal(hasIncompatibleLevelReferences([track([channel({ measurement: pa })]), track([channel({ measurement: accel })]), track([channel({ measurement: measurement('V', 'dB re 1 V') })])], 2), true);
 });
 
 test('calibration uses composition rather than global prototype or panel-method patches', () => {

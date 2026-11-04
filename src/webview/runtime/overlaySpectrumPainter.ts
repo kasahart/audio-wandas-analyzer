@@ -1,14 +1,15 @@
-import { dbLevelUnitFor, drawSpectrumAxes, drawSpectrumSelectionBox, strokeSpectrumSeries, type CanvasDrawCtx, type DrawTheme } from '../draw/canvasDrawers';
+import { drawSpectrumAxes, drawSpectrumSecondaryLevelAxis, drawSpectrumSelectionBox, strokeSpectrumSeries, type CanvasDrawCtx, type DrawTheme } from '../draw/canvasDrawers';
 import type { SpectrumBoxSpan } from './spectrumBoxDrag';
 import { paintHoverMarks } from './plotHover';
 import type { SpectrumHoverTarget } from './spectrumHover';
 import {
-    nearestSpectrumSnap,
+    nearestOverlaySnap,
     OVERLAY_SPECTRUM_PAD,
+    overlayLevelAxes,
+    setOverlaySecondaryLevelAxis,
     spectrumPlotFrame,
     spectrumReadoutText,
     spectrumSeriesRange,
-    spectrumVisibleWindow,
     type SpectrumSnapHit,
     type SpectrumViewState,
 } from './spectrumRuntime';
@@ -30,12 +31,19 @@ export interface OverlaySpectrumPaint {
     painted: boolean;
     /** null leaves the readout as is: nothing was drawn to read. */
     readout: { text: string; color: string } | null;
+    /** Each level axis with the colours of the lines read on it, left first; one entry when the references agree. */
+    levelAxes: Array<{ title: string; colors: string[] }>;
 }
 
-function overlayReadout(hover: OverlaySpectrumHover, nearest: SpectrumSnapHit<SpectrumSeries> | null): OverlaySpectrumPaint['readout'] {
-    return nearest && hover.norm !== null && hover.target === 'overlay'
-        ? { text: spectrumReadoutText(nearest.s.label, nearest.s.slice, nearest.snap.freqHz, nearest.dbVal), color: nearest.s.color }
-        : { text: '', color: '' };
+/** Marks the right-hand axis in the legend and in a readout of a line read on it. */
+export const SECONDARY_AXIS_MARK = '▶';
+
+function overlayReadout(hover: OverlaySpectrumHover, nearest: (SpectrumSnapHit<SpectrumSeries> & { axisIndex: number }) | null): OverlaySpectrumPaint['readout'] {
+    if (!nearest || hover.norm === null || hover.target !== 'overlay') {
+        return { text: '', color: '' };
+    }
+    const text = spectrumReadoutText(nearest.s.label, nearest.s.slice, nearest.snap.freqHz, nearest.dbVal);
+    return { text: nearest.axisIndex > 0 ? text + ' ' + SECONDARY_AXIS_MARK : text, color: nearest.s.color };
 }
 
 export function paintOverlaySpectrum(
@@ -49,10 +57,12 @@ export function paintOverlaySpectrum(
     theme: DrawTheme,
 ): OverlaySpectrumPaint {
     ctx.clearRect(0, 0, W, H);
-    const { minDb, maxDb, maxFrequencyHz, logMinFrequencyHz } = spectrumSeriesRange(slices);
+    const { maxFrequencyHz, logMinFrequencyHz } = spectrumSeriesRange(slices);
+    const axes = overlayLevelAxes(slices, view);
+    setOverlaySecondaryLevelAxis(axes.length > 1);
     const pad = OVERLAY_SPECTRUM_PAD;
-    const vis = spectrumVisibleWindow(maxFrequencyHz, minDb, maxDb, view, logMinFrequencyHz);
-    const commonSlice = slices[0].slice;
+    const vis = axes[0].visible;
+    const commonSlice = axes[0].series[0].slice;
     const sharedAxis = {
         values: [],
         frequencyBins: 1,
@@ -62,17 +72,24 @@ export function paintOverlaySpectrum(
         unit: commonSlice.unit,
         axisLabel: commonSlice.axisLabel,
     };
-    drawSpectrumAxes(ctx, W, H, sharedAxis, pad.left, pad.right, pad.top, pad.bottom, vis.frequencyMin, vis.frequencyMax, vis.dbMin, vis.dbMax, theme, vis.logFrequency, commonSlice.axisLabel || dbLevelUnitFor(commonSlice));
-    const result: OverlaySpectrumPaint = { maxFrequencyHz, logMinFrequencyHz, dbMin: vis.dbMin, dbMax: vis.dbMax, painted: false, readout: null };
+    drawSpectrumAxes(ctx, W, H, sharedAxis, pad.left, pad.right, pad.top, pad.bottom, vis.frequencyMin, vis.frequencyMax, vis.dbMin, vis.dbMax, theme, vis.logFrequency, axes[0].title);
+    const levelAxes = axes.map(axis => ({ title: axis.title, colors: [...new Set(axis.series.map(s => s.color))] }));
+    const result: OverlaySpectrumPaint = { maxFrequencyHz, logMinFrequencyHz, dbMin: vis.dbMin, dbMax: vis.dbMax, painted: false, readout: null, levelAxes };
     if (vis.frequencyMax - vis.frequencyMin <= 0) {
         return result;
     }
-    const frame = spectrumPlotFrame(W, H, pad, vis);
-    strokeSpectrumSeries(ctx, frame, vis.dbMax - vis.dbMin > 0 ? slices : [], 1.4, maxFrequencyHz);
-    let nearest: SpectrumSnapHit<SpectrumSeries> | null = null;
+    const frameFor = (visible: typeof vis) => spectrumPlotFrame(W, H, pad, visible);
+    const frame = frameFor(vis);
+    axes.forEach((axis, index) => {
+        if (index > 0) {
+            drawSpectrumSecondaryLevelAxis(ctx, W, frame, axis.visible.dbMin, axis.visible.dbMax, axis.title, theme);
+        }
+        strokeSpectrumSeries(ctx, frameFor(axis.visible), axis.visible.dbMax - axis.visible.dbMin > 0 ? axis.series : [], 1.4, maxFrequencyHz);
+    });
+    let nearest: (SpectrumSnapHit<SpectrumSeries> & { axisIndex: number; frame: typeof frame }) | null = null;
     if (hover.norm !== null && hover.target === 'overlay') {
         // With no pointer height (the cursor follows the pair plot) no line is nearest, so only the frequency line shows.
-        nearest = hover.yFrac !== null ? nearestSpectrumSnap(slices, hover.norm, hover.yFrac * H, frame, !hover.stepped) : null;
+        nearest = hover.yFrac !== null ? nearestOverlaySnap(axes, frameFor, hover.norm, hover.yFrac * H, !hover.stepped) : null;
         const hit = nearest;
         paintHoverMarks(
             ctx,
@@ -80,7 +97,7 @@ export function paintOverlaySpectrum(
             hit ? hit.snap.x : frame.padLeft + hover.norm * frame.plotWidth,
             hit ? hit.snapY : null,
             hit ? hit.s.color : '',
-            hit ? (context, width) => strokeSpectrumSeries(context, frame, [hit.s], width, maxFrequencyHz) : undefined,
+            hit ? (context, width) => strokeSpectrumSeries(context, hit.frame, [hit.s], width, maxFrequencyHz) : undefined,
         );
     }
     if (box !== null) {
@@ -89,4 +106,48 @@ export function paintOverlaySpectrum(
     result.painted = true;
     result.readout = overlayReadout(hover, nearest);
     return result;
+}
+
+/** The overlay draws at most this many level axes: a second level reference gets the right-hand one. */
+export const OVERLAY_LEVEL_AXES = 2;
+
+/** "Spectrum amplitude level [dB SPL re 20 µPa]" reads "dB SPL re 20 µPa" in the legend. */
+function legendLevelText(title: string): string {
+    const bracket = /\[([^\]]+)\]\s*$/.exec(title);
+    return bracket ? bracket[1] : title;
+}
+
+/**
+ * Only with two level axes: which lines are read on which side, as the lines' colours beside each axis' level
+ * ("◀ ■ ■ dB SPL re 20 µPa   ■ dB re 1 V ▶"). With one axis the legend is empty and the panel reads as before.
+ */
+export function renderSpectrumAxisLegend(el: HTMLElement | null, levelAxes: OverlaySpectrumPaint['levelAxes']): void {
+    if (!el) {
+        return;
+    }
+    el.replaceChildren();
+    el.hidden = levelAxes.length < 2;
+    if (levelAxes.length < 2) {
+        return;
+    }
+    const doc = el.ownerDocument;
+    levelAxes.slice(0, OVERLAY_LEVEL_AXES).forEach((axis, index) => {
+        const item = doc.createElement('span');
+        item.className = 'spectrum-axis-legend-item';
+        item.setAttribute('data-axis', index === 0 ? 'left' : 'right');
+        const mark = (text: string) => { const m = doc.createElement('span'); m.className = 'spectrum-axis-legend-mark'; m.textContent = text; return m; };
+        if (index === 0) { item.appendChild(mark('◀')); }
+        axis.colors.forEach(color => {
+            const swatch = doc.createElement('span');
+            swatch.className = 'spectrum-axis-legend-swatch';
+            swatch.style.background = color;
+            item.appendChild(swatch);
+        });
+        const label = doc.createElement('span');
+        label.textContent = legendLevelText(axis.title);
+        item.appendChild(label);
+        if (index > 0) { item.appendChild(mark(SECONDARY_AXIS_MARK)); }
+        item.title = axis.title;
+        el.appendChild(item);
+    });
 }

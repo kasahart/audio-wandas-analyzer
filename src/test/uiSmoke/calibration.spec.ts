@@ -3,9 +3,14 @@ import { buildUiSmokeCalibrationHtml } from './buildHtml';
 
 type PostedMessage = Record<string, unknown>;
 
-async function loadCalibrationUi(page: Page): Promise<void> {
-    await page.setContent(buildUiSmokeCalibrationHtml(), { waitUntil: 'domcontentloaded' });
-    await expect(page.locator('[data-action="configure-calibration"]')).toHaveCount(2);
+async function loadCalibrationUi(page: Page, voltTrack = false): Promise<void> {
+    await page.setContent(buildUiSmokeCalibrationHtml(voltTrack), { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('[data-action="configure-calibration"]')).toHaveCount(voltTrack ? 3 : 2);
+}
+
+async function openSpectrumPanel(page: Page): Promise<void> {
+    const toggle = page.locator('#spectrum-section-header [data-action="toggle-spectrum-panel"]');
+    if (await toggle.getAttribute('aria-expanded') !== 'true') { await toggle.click(); }
 }
 
 async function postedMessages(page: Page): Promise<PostedMessage[]> {
@@ -28,12 +33,25 @@ test('calibrated channels show physical metrics and reference badges', async ({ 
     await expect(page.locator('#track-row-1 .clip-badge')).toHaveCount(0);
 });
 
-test('incompatible level references disable only the shared spectrum overlay', async ({ page }) => {
+test('two level references: the overlay reads the second on its own axis at the right, with a legend for each side', async ({ page }) => {
     await loadCalibrationUi(page);
+    await openSpectrumPanel(page);
+
+    await expect(page.locator('.calibration-overlay-warning')).toHaveCount(0);
+    await expect(page.locator('#spectrum-overlay-canvas')).toHaveCSS('visibility', 'visible');
+    const legend = page.locator('#spectrum-axis-legend');
+    await expect(legend).toBeVisible();
+    await expect(legend.locator('[data-axis="left"]')).toHaveText('◀dB SPL re 20 µPa');
+    await expect(legend.locator('[data-axis="right"]')).toHaveText('dB re 1 m/s^2▶');
+    await expect(legend.locator('.spectrum-axis-legend-swatch')).toHaveCount(2);
+});
+
+test('three level references disable only the shared spectrum overlay', async ({ page }) => {
+    await loadCalibrationUi(page, true);
 
     const warning = page.locator('.calibration-overlay-warning');
     await expect(warning).toBeVisible();
-    await expect(warning).toContainText('incompatible level references');
+    await expect(warning).toContainText('more than two level references');
     await expect(page.locator('#spectrum-overlay-canvas')).toHaveCSS('visibility', 'hidden');
     await expect(page.locator('#spectrum-overlay-canvas')).toHaveAttribute('data-calibration-hidden', 'true');
 

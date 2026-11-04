@@ -1,4 +1,4 @@
-import { drawCrosshair, drawValueAxis, normalizedColor, viridis } from '../../shared/gui-core/index';
+import { drawCrosshair, drawValueAxis, fittedAxisTitle, normalizedColor, PLOT_FONT, viridis } from '../../shared/gui-core/index';
 
 export interface DrawTheme {
     /** 軸ラベル文字色 (--muted) */
@@ -398,6 +398,34 @@ export function strokeSpectrumSeries(
         traceSpectrumPath(ctx, s.slice, frame, cutoffHz);
         ctx.stroke();
     }
+    ctx.restore();
+}
+
+/**
+ * A second level axis at the plot's right edge, for series read against another level reference: its values beside
+ * the edge and its title (quantity, unit and reference) along the canvas' right side.
+ */
+export function drawSpectrumSecondaryLevelAxis(ctx: CanvasDrawCtx, W: number, frame: Pick<SpectrumPlotFrame, 'padLeft' | 'plotWidth' | 'padTop' | 'plotHeight'>, dbMin: number, dbMax: number, title: string, theme: DrawTheme = DEFAULT_THEME): void {
+    const x = frame.padLeft + frame.plotWidth;
+    ctx.save();
+    ctx.strokeStyle = theme.lineColor;
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(x, frame.padTop);
+    ctx.lineTo(x, frame.padTop + frame.plotHeight);
+    ctx.stroke();
+    ctx.fillStyle = theme.mutedColor;
+    ctx.font = PLOT_FONT;
+    ctx.textAlign = 'left';
+    for (const [value, fraction] of [[dbMax, 1], [(dbMax + dbMin) / 2, 0.5], [dbMin, 0]] as const) {
+        ctx.textBaseline = fraction >= 1 ? 'top' : fraction <= 0 ? 'bottom' : 'middle';
+        ctx.fillText(value.toFixed(0), x + 2, frame.padTop + (1 - fraction) * frame.plotHeight);
+    }
+    ctx.translate(W - AXIS_TITLE_X, frame.padTop + frame.plotHeight / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(fittedAxisTitle(title, frame.plotHeight, text => ctx.measureText(text).width), 0, 0);
     ctx.restore();
 }
 

@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { DEFAULT_THEME, type CanvasDrawCtx } from '../webview/draw/canvasDrawers';
-import { paintOverlaySpectrum, type OverlaySpectrumHover } from '../webview/runtime/overlaySpectrumPainter';
-import { spectrumReadoutText, spectrumVisibleWindow, steppedOverlaySpectrumHoverNorm, type SpectrumViewState } from '../webview/runtime/spectrumRuntime';
+import { paintOverlaySpectrum, renderSpectrumAxisLegend, SECONDARY_AXIS_MARK, type OverlaySpectrumHover } from '../webview/runtime/overlaySpectrumPainter';
+import { OVERLAY_SPECTRUM_PAD, overlayLevelAxes, spectrumReadoutText, spectrumVisibleWindow, steppedOverlaySpectrumHoverNorm, type SpectrumViewState } from '../webview/runtime/spectrumRuntime';
 import type { SpectrumSeries } from '../webview/runtime/types';
 
 function recordingCtx(): { ctx: CanvasDrawCtx; calls: string[] } {
@@ -92,3 +92,64 @@ for (const [bins, tone] of [[1025, 40], [8193, 320]]) {
         });
     }
 }
+
+const SPL = 'Spectrum amplitude level [dB SPL re 20 µPa]';
+const VOLT = 'Spectrum amplitude level [dB re 1 V]';
+function levelSeries(label: string, color: string, axisLabel: string, values: number[], minDb: number, maxDb: number): SpectrumSeries {
+    return { slice: { values, frequencyBins: values.length, maxFrequencyHz: 1000, minDb, maxDb, unit: axisLabel === SPL ? 'dB SPL' : 'dB', axisLabel }, color, index: 0, channelIndex: 0, label };
+}
+const mixed = [
+    levelSeries('A', '#0000ff', SPL, [80, 40, 60, 50], 40, 80),
+    levelSeries('B', '#ffff00', VOLT, [-60, -20, -40, -50], -60, -20),
+];
+
+test('two level references: the second is read on its own axis at the right, following the first axis\' zoom', () => {
+    const axes = overlayLevelAxes(mixed, fullView);
+    assert.deepEqual(axes.map(axis => axis.title), [SPL, VOLT]);
+    assert.deepEqual([axes[0].visible.dbMin, axes[0].visible.dbMax, axes[1].visible.dbMin, axes[1].visible.dbMax], [40, 80, -60, -20]);
+    // The lower half of the left axis shows the lower half of the right one.
+    const zoomed = overlayLevelAxes(mixed, { ...fullView, dbMin: 40, dbMax: 60 });
+    assert.deepEqual([zoomed[1].visible.dbMin, zoomed[1].visible.dbMax], [-60, -40]);
+    assert.equal(overlayLevelAxes([mixed[0], { ...mixed[0], label: 'C' }], fullView).length, 1);
+    const third = levelSeries('C', '#ff00ff', 'Spectrum amplitude level [dB re 1 m/s^2]', [0, 1, 2, 3], 0, 3);
+    assert.equal(overlayLevelAxes([...mixed, third], fullView).length, 1, 'three references stay on one axis behind the warning');
+});
+
+test('paintOverlaySpectrum: a second reference widens the right margin, names its axis and marks its readout', () => {
+    const texts: string[] = [];
+    const { ctx } = recordingCtx();
+    const recording = new Proxy(ctx, { get(target, prop) { return prop === 'fillText' ? (text: string) => { texts.push(text); } : Reflect.get(target, prop); } });
+    const paint = paintOverlaySpectrum(recording, 400, 200, mixed, fullView, noHover, null, DEFAULT_THEME);
+    assert.equal(OVERLAY_SPECTRUM_PAD.right, 48);
+    assert.ok(texts.includes(SPL) && texts.includes(VOLT), JSON.stringify(texts));
+    assert.deepEqual(paint.levelAxes, [{ title: SPL, colors: ['#0000ff'] }, { title: VOLT, colors: ['#ffff00'] }]);
+    // B's peak (-20 dB re 1 V, bin 1) is at the top of the right axis, where the pointer is.
+    const hover = { norm: 1 / 3, yFrac: 8 / 200, target: 'overlay' as const };
+    const readout = paintOverlaySpectrum(ctx, 400, 200, mixed, fullView, hover, null, DEFAULT_THEME).readout;
+    assert.equal(readout?.color, '#ffff00');
+    assert.ok(readout?.text.startsWith('B') && readout.text.endsWith(' ' + SECONDARY_AXIS_MARK), readout?.text);
+    paintOverlaySpectrum(ctx, 400, 200, series, fullView, noHover, null, DEFAULT_THEME);
+    assert.equal(OVERLAY_SPECTRUM_PAD.right, 8, 'one reference gives the margin back');
+});
+
+test('renderSpectrumAxisLegend shows which lines are read on which side, only with two axes', () => {
+    const children: Array<{ attrs: Record<string, string>; parts: string[] }> = [];
+    const makeEl = (): Record<string, unknown> => {
+        const el: Record<string, unknown> = { textContent: '', style: {}, className: '', title: '', attrs: {}, kids: [] as unknown[] };
+        el.setAttribute = (k: string, v: string) => { (el.attrs as Record<string, string>)[k] = v; };
+        el.appendChild = (child: unknown) => { (el.kids as unknown[]).push(child); };
+        return el;
+    };
+    const host = { hidden: true, ownerDocument: { createElement: makeEl }, replaceChildren() { children.length = 0; }, appendChild(item: Record<string, unknown>) {
+        children.push({ attrs: item.attrs as Record<string, string>, parts: (item.kids as Array<{ textContent: string; style: { background?: string } }>).map(k => k.textContent || (k.style.background ?? '')) });
+    } };
+    renderSpectrumAxisLegend(host as unknown as HTMLElement, [{ title: SPL, colors: ['#0000ff', '#00ffff'] }, { title: VOLT, colors: ['#ffff00'] }]);
+    assert.equal(host.hidden, false);
+    assert.deepEqual(children, [
+        { attrs: { 'data-axis': 'left' }, parts: ['◀', '#0000ff', '#00ffff', 'dB SPL re 20 µPa'] },
+        { attrs: { 'data-axis': 'right' }, parts: ['#ffff00', 'dB re 1 V', SECONDARY_AXIS_MARK] },
+    ]);
+    renderSpectrumAxisLegend(host as unknown as HTMLElement, [{ title: SPL, colors: ['#0000ff'] }]);
+    assert.equal(host.hidden, true);
+    assert.equal(children.length, 0);
+});

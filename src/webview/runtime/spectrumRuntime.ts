@@ -193,7 +193,75 @@ export function spectrumSlicesFromResult(msg: SpectrumSliceResultMessage, cursor
     }));
 }
 
-export const OVERLAY_SPECTRUM_PAD = { left: 48, right: 8, top: 8, bottom: 18 } as const;
+const overlayPad = { left: 48, right: 8, top: 8, bottom: 18 };
+/** The overlay's margins. The right one widens while a secondary level axis is drawn; every reader follows it. */
+export const OVERLAY_SPECTRUM_PAD: Readonly<typeof overlayPad> = overlayPad;
+const OVERLAY_PAD_RIGHT = 8;
+const OVERLAY_PAD_RIGHT_SECONDARY_AXIS = 48;
+
+export function setOverlaySecondaryLevelAxis(shown: boolean): void {
+    overlayPad.right = shown ? OVERLAY_PAD_RIGHT_SECONDARY_AXIS : OVERLAY_PAD_RIGHT;
+}
+
+/** The level a slice is read in, with its reference ("Spectrum amplitude level [dB SPL re 20 µPa]"). */
+export function spectrumLevelAxisKey(slice: SpectrumSlice): string {
+    return slice.axisLabel || dbLevelUnitFor(slice);
+}
+
+export interface OverlayLevelAxis<S> {
+    series: S[];
+    title: string;
+    visible: SpectrumVisibleWindow;
+}
+
+/**
+ * The overlay's level axes. Series with one level reference share one axis. With exactly two references the second
+ * is read on its own axis at the right; it follows the first axis' zoom as the same fraction of its own range.
+ * Three or more stay on one axis: the panel is hidden behind a warning then.
+ */
+export function overlayLevelAxes<S extends { slice: SpectrumSlice }>(series: readonly S[], view: SpectrumViewState): OverlayLevelAxis<S>[] {
+    const all = spectrumSeriesRange(series);
+    const groups = new Map<string, S[]>();
+    series.forEach(s => {
+        const key = spectrumLevelAxisKey(s.slice);
+        groups.set(key, [...(groups.get(key) ?? []), s]);
+    });
+    if (groups.size !== 2) {
+        const title = series.length > 0 ? spectrumLevelAxisKey(series[0].slice) : '';
+        return [{ series: [...series], title, visible: spectrumVisibleWindow(all.maxFrequencyHz, all.minDb, all.maxDb, view, all.logMinFrequencyHz) }];
+    }
+    const [[firstTitle, first], [secondTitle, second]] = [...groups.entries()];
+    const firstRange = spectrumSeriesRange(first);
+    const secondRange = spectrumSeriesRange(second);
+    const primary = spectrumVisibleWindow(all.maxFrequencyHz, firstRange.minDb, firstRange.maxDb, view, all.logMinFrequencyHz);
+    const span = firstRange.maxDb - firstRange.minDb || 1;
+    const secondSpan = secondRange.maxDb - secondRange.minDb;
+    const secondary = {
+        ...primary,
+        dbMin: secondRange.minDb + (primary.dbMin - firstRange.minDb) / span * secondSpan,
+        dbMax: secondRange.minDb + (primary.dbMax - firstRange.minDb) / span * secondSpan,
+    };
+    return [{ series: first, title: firstTitle, visible: primary }, { series: second, title: secondTitle, visible: secondary }];
+}
+
+/** The line nearest the pointer over every axis, each series read in its own axis' frame. */
+export function nearestOverlaySnap<S extends { slice: SpectrumSlice }>(
+    axes: ReadonlyArray<OverlayLevelAxis<S>>,
+    frameFor: (visible: SpectrumVisibleWindow) => SpectrumPlotFrame,
+    hoverNorm: number,
+    mouseY: number | null,
+    pixelPeak = false,
+): (SpectrumSnapHit<S> & { axisIndex: number; frame: SpectrumPlotFrame }) | null {
+    let best: (SpectrumSnapHit<S> & { axisIndex: number; frame: SpectrumPlotFrame }) | null = null;
+    axes.forEach((axis, axisIndex) => {
+        const frame = frameFor(axis.visible);
+        const hit = nearestSpectrumSnap(axis.series, hoverNorm, mouseY, frame, pixelPeak);
+        if (hit && (best === null || (mouseY !== null && Math.abs(hit.snapY - mouseY) < Math.abs(best.snapY - mouseY)))) {
+            best = { ...hit, axisIndex, frame };
+        }
+    });
+    return best;
+}
 
 export function overlayPlotPoint(x: number, y: number, width: number, height: number): DragPoint | null {
     const pad = OVERLAY_SPECTRUM_PAD;
@@ -321,18 +389,21 @@ export function steppedOverlaySpectrumHoverNorm(
     visible: SpectrumVisibleWindow,
     deltaIdx: number,
     fromPointer = false,
+    axes?: ReadonlyArray<OverlayLevelAxis<{ slice: SpectrumSlice }>>,
 ): number | null {
     if (series.length === 0) {
         return null;
     }
     // mouseY must be in the same pixel space as the painter's frame, or the nearest series differs from the highlighted one.
-    const frame = canvas ? spectrumPlotFrame(canvas.width, canvas.height, OVERLAY_SPECTRUM_PAD, visible) : { ...UNIT_PLOT, ...visible };
+    const frameFor = (vis: SpectrumVisibleWindow) => canvas ? spectrumPlotFrame(canvas.width, canvas.height, OVERLAY_SPECTRUM_PAD, vis) : { ...UNIT_PLOT, ...vis };
     const mouseY = canvas && yFrac !== null ? yFrac * canvas.height : null;
     // After the pointer, the first step starts from the bin its readout shows, which reads its pixel's loudest bin.
     const pixelPeak = fromPointer && canvas !== null;
-    const nearest = nearestSpectrumSnap(series, hoverNorm, mouseY, frame, pixelPeak);
+    const nearest = axes
+        ? nearestOverlaySnap(axes, frameFor, hoverNorm, mouseY, pixelPeak)
+        : nearestSpectrumSnap(series, hoverNorm, mouseY, frameFor(visible), pixelPeak);
     const chosen = nearest ? nearest.s : series[0];
-    const snap = nearest ? nearest.snap : spectrumBinAtHover(chosen.slice, hoverNorm, frame, pixelPeak);
+    const snap = nearest ? nearest.snap : spectrumBinAtHover(chosen.slice, hoverNorm, frameFor(visible), pixelPeak);
     return snap ? steppedSpectrumHoverNorm(chosen.slice, snap.binIdx, deltaIdx, visible.frequencyMin, visible.frequencyMax, visible.logFrequency) : null;
 }
 
