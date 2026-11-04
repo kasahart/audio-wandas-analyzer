@@ -115,3 +115,32 @@ export function createDetailPlanner(clock: { now(): number }, timers: Pick<Windo
         },
     };
 }
+
+/** The range a detail spec covers, as a key: the same for every file, channel and step asked over one range. */
+export function detailRangeKey(spec: StageSpec): string {
+    const detail = spec.message.detail;
+    return detail ? [...detail.x, ...(detail.y ?? [])].join(',') : '';
+}
+
+/**
+ * Pictures drawn together (a median, a difference) taken from one range, never one member's newer detail beside
+ * another's older one: `specs` lists each member's specs in the order it is drawn from them, `view` reads its
+ * picture under one. The pictures of the first range every member has one of; null while there is none.
+ */
+export function onOneRange<T>(members: readonly T[], specs: (member: T) => readonly StageSpec[], view: (spec: StageSpec, member: T) => StageView | null | undefined): Map<T, StageView> | null {
+    if (!members.length) return null;
+    const at = (member: T, range: string): StageView | undefined => {
+        for (const spec of specs(member)) {
+            if (detailRangeKey(spec) !== range) continue;
+            const found = view(spec, member);
+            if (found) return found;
+        }
+        return undefined;
+    };
+    for (const spec of specs(members[0])) {
+        const range = detailRangeKey(spec);
+        const views = members.map(member => at(member, range));
+        if (views.every((found): found is StageView => !!found)) return new Map(members.map((member, index) => [member, views[index]]));
+    }
+    return null;
+}

@@ -17,7 +17,7 @@ import { buildCompareModel, sideView, type CompareModel, type LevelInput, type P
 import type { EntryModel } from './entryTable';
 import type { PlotMargins, PlotWindow } from './plotInteraction';
 import { axisFractionOf, axisValueAt, paintOverlay, stageAxes, stageDiffRange, stageDifference, stageRange, STAGE_MARGINS, type StageAxes } from './stagePanes';
-import { createDetailPlanner } from './stageDetail';
+import { createDetailPlanner, onOneRange } from './stageDetail';
 import { createStageSource, type StageSpec } from './stageSource';
 import { recipeWithout, stepChipLabel, stepLimits } from './stepBar';
 
@@ -138,20 +138,24 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
             return;
         }
         // Zoomed, from the Frame's full resolution once it is in (the coarse picture until then).
-        const fine = (spec: StageSpec): StageView | null => {
-            if (coarse.kind === 'bar' || coarse.kind === 'none') return null;
+        // A line over time panned or zoomed past its detail: the detail already in too, until the next one is.
+        const fineOf = (spec: StageSpec): StageSpec[] => {
+            if (coarse.kind === 'bar' || coarse.kind === 'none') return [];
             const finer = detail.spec(spec, coarse, zoom.x, zoom.y, canvas.clientWidth || 300);
-            if (finer && !source.ensure(finer, [path])) return source.view(finer, path) ?? null;
-            // A line over time panned or zoomed past its detail: the detail already in, until the next one is.
-            return detail.drawn(spec, coarse, zoom.x).map(drawn => source.view(drawn, path)).find(view => !!view) ?? null;
+            if (finer) source.ensure(finer, [path]);
+            return [finer, ...detail.drawn(spec, coarse, zoom.x)].filter((item): item is StageSpec => !!item);
         };
         if (!specs.without) {
-            paintView(fine(specs.with) ?? coarse, coarse, stageRange([coarse]), stageAxes(strings, coarse, input), zoom, { color: ROLE_COLORS[1] });
+            const fine = fineOf(specs.with).map(spec => source.view(spec, path)).find(view => !!view);
+            paintView(fine ?? coarse, coarse, stageRange([coarse]), stageAxes(strings, coarse, input), zoom, { color: ROLE_COLORS[1] });
             return;
         }
-        // Without the step − with it, point by point: what the step takes away (negative where it cuts).
+        // Without the step − with it, point by point: what the step takes away (negative where it cuts), of both
+        // over one range.
         const delta = stageDifference(coarse, coarseWithout);
-        const fineWith = fine(specs.with), fineWithout = fine(specs.without);
+        const lists = new Map([[specs.with, fineOf(specs.with)], [specs.without, fineOf(specs.without)]]);
+        const fine = onOneRange([specs.with, specs.without], spec => lists.get(spec) ?? [], (spec, _member) => source.view(spec, path));
+        const fineWith = fine?.get(specs.with), fineWithout = fine?.get(specs.without);
         const shown = fineWith && fineWithout ? stageDifference(fineWith, fineWithout) ?? delta : delta;
         paintView(shown, delta, stageDiffRange(delta), stageAxes(strings, delta, input, true), zoom, { diff: true, color: DIFF_COLOR, empty: strings.stageNoDelta });
     }

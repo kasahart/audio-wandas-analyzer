@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { StageView } from '../shared/protocol/backendProtocol';
-import { createDetailPlanner, DETAIL_SETTLE_MS } from '../webview/runtime/stageDetail';
+import { createDetailPlanner, DETAIL_SETTLE_MS, onOneRange } from '../webview/runtime/stageDetail';
 
 const timeLine: StageView = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'level', xs: [0, 100], values: [0, 0] };
 const spectrum: StageView = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'level', xs: [0, 100], values: [0, 0] };
@@ -67,4 +67,22 @@ test('other pictures keep the view\'s own range with a 5 % margin, and draw noth
     assert.ok(Math.abs(from - 39.5) < 1e-9 && Math.abs(to - 50.5) < 1e-9, `${from}–${to}`);
     assert.equal(spec.message.detail!.points, 2 * WIDTH);
     assert.deepEqual(detail.drawn(base, spectrum, { start: 0.4, end: 0.5 }), []);
+});
+
+test('a median or a difference takes every member over one range: the newest range all have, else none', () => {
+    const at = (x: number[]) => ({ key: `detail|${x.join(',')}`, message: { stage: 'step', detail: { x, points: 10 } } });
+    const older = at([20, 70]), newer = at([35, 85]);
+    const view = (tag: string): StageView => ({ ...timeLine, frame: tag });
+    // The compared file has the newer range in already, the base only the older one.
+    const have: Record<string, Map<string, StageView>> = {
+        compare: new Map([[newer.key, view('compare-newer')], [older.key, view('compare-older')]]),
+        base: new Map([[older.key, view('base-older')]]),
+    };
+    const read = (spec: { key: string }, member: string) => have[member].get(spec.key);
+    const both = onOneRange(['compare', 'base'], () => [newer, older], read)!;
+    assert.deepEqual([both.get('compare')!.frame, both.get('base')!.frame], ['compare-older', 'base-older']);
+    have.base.set(newer.key, view('base-newer'));
+    const updated = onOneRange(['compare', 'base'], () => [newer, older], read)!;
+    assert.deepEqual([updated.get('compare')!.frame, updated.get('base')!.frame], ['compare-newer', 'base-newer']);
+    assert.equal(onOneRange(['compare', 'base'], () => [newer], (spec, member) => (member === 'base' ? undefined : read(spec, member))), null);
 });
