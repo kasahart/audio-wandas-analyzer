@@ -153,7 +153,7 @@ export function stageModeHeadline(frame: Pick<StageFrame, 'strings' | 'waiting' 
 }
 
 /** Colour is the role's: a recording without one is grey, its name in the legend telling it apart. */
-const colorOf = (role: StageFrame['role'], path: string, fallback = NO_ROLE_COLOR): string => ROLE_COLORS[role(path) ?? -1] ?? fallback;
+export const colorOf = (role: StageFrame['role'], path: string, fallback = NO_ROLE_COLOR): string => ROLE_COLORS[role(path) ?? -1] ?? fallback;
 const widthOf = (role: StageFrame['role'], path: string, width: number): number => (role(path) === undefined ? 1.2 : width);
 
 /** Side by side: every track's lane, on one range so the tracks compare at a glance; how many lanes drew a picture. */

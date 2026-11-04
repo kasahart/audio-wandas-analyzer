@@ -437,6 +437,11 @@ export interface UiStrings {
     stageEventClickOut: string;
     stageEventClickIn: string;
     stageEventsBack: string;
+    stageThreshold: string;
+    stageEventPlay: string;
+    stageEventOutButton: string;
+    stageEventInButton: string;
+    stageEventsUsed: string;
     stageMaxDelta: string;
     compareLevelsAt: string;
     compareHintPlot: string;
@@ -1237,6 +1242,11 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stageEventClickOut: 'click to leave out',
         stageEventClickIn: 'left out · click to put back',
         stageEventsBack: 'The conditions changed, so the events left out are back',
+        stageThreshold: 'Trigger level {value} {unit}',
+        stageEventPlay: 'Play event #{n}',
+        stageEventOutButton: 'Leave out event #{n}',
+        stageEventInButton: 'Put back event #{n}',
+        stageEventsUsed: 'Events {used}/{total}',
         stageMaxDelta: 'largest Δ {at} {delta}',
         compareLevelsAt: '{at} base {base} / compare {compare}',
         compareHintPlot: 'Drag: zoom into the box / Ctrl+Wheel: zoom / Shift+Wheel, swipe sideways: scroll / + −: zoom / Double-click: reset zoom',
@@ -2026,6 +2036,11 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stageEventClickOut: 'クリックで外す',
         stageEventClickIn: '外しています · クリックで戻す',
         stageEventsBack: '条件を変えたので、外したイベントを戻しました',
+        stageThreshold: '閾値 {value} {unit}',
+        stageEventPlay: 'イベント #{n} を再生',
+        stageEventOutButton: 'イベント #{n} を外す',
+        stageEventInButton: 'イベント #{n} を戻す',
+        stageEventsUsed: 'イベント {used}/{total}',
         stageMaxDelta: '最大 Δ {at} {delta}',
         compareLevelsAt: '{at} 基準 {base} / 比較 {compare}',
         compareHintPlot: 'ドラッグ: 囲んだ範囲にズーム / Ctrl+ホイール: ズーム / Shift+ホイール・横スワイプ: 横にスクロール / + −: ズーム / ダブルクリック: ズームをリセット',

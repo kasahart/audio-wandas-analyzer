@@ -675,6 +675,12 @@ export function renderComparisonStyles(): string {
         /* The right padding is the spectrogram's colour bar, so both plots share one time axis. */
         .track-canvas-wrap { display: flex; position: relative; overflow: hidden; background: var(--track-bg); padding-right: ${SPECTROGRAM_COLORBAR_WIDTH}px; }
         .track-spec-wrap { display: flex; position: relative; overflow: hidden; background: var(--track-bg); }
+        /* A trigger's tracks: a mark per event over the lane (▶ plays it, × leaves it out), the lane's count in its corner. */
+        .stage-event-marks { position: absolute; top: 0; pointer-events: none; }
+        .stage-event-mark { position: absolute; top: 2px; transform: translateX(-50%); display: flex; gap: 1px; pointer-events: auto; }
+        .stage-event-mark button { font: 10px/14px sans-serif; padding: 0 3px; border: 1px solid var(--line); border-radius: 3px; background: var(--track-bg); color: var(--text); cursor: pointer; }
+        .stage-event-mark.is-out [data-action="stage-event-play"] { opacity: 0.5; text-decoration: line-through; }
+        .stage-event-count { position: absolute; font: 10px sans-serif; color: var(--muted); }
         .track-split { flex: none; height: 5px; cursor: row-resize; background: var(--line); opacity: 0.5; }
         /* The keyboard's place: a focused lane, spectrum or resize edge has a ring in the theme's focus colour (the mouse's focus has none). */
         .track-canvas, .track-spectrum-canvas, #spectrum-overlay-canvas { outline: none; }
