@@ -525,7 +525,15 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         // The tracks under a trigger: each file as the trigger takes it, once the events are in.
         // A whole file (no channel compared) is drawn as the trigger's channel, the one held against its level.
         const triggerChannel = typeof triggerShown?.params.channel === 'number' ? triggerShown.params.channel : 0;
-        const signalSpec = (path: string): StageSpec | undefined => (marked && signalStage ? spec(signalStage, channelFor(path) ?? triggerChannel) : undefined);
+        // An earlier trigger's events left out are left out here too, as the trigger shown takes them.
+        const signalSpec = (path: string): StageSpec | undefined => {
+            if (!marked || !signalStage) return undefined;
+            const own = spec(signalStage, channelFor(path) ?? triggerChannel);
+            const drops = dropsOf(path);
+            const run = own.message.recipe;
+            if (!run || !dropsKey(drops)) return own;
+            return { key: `${own.key}|drop|${dropsKey(drops)}`, message: { ...own.message, recipe: withDroppedEvents(run, drops) } };
+        };
         if (marked && !waiting) {
             const asked = new Map<string, { wanted: StageSpec; paths: string[] }>();
             for (const path of ownOf(files)) {

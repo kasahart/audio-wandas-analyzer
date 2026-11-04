@@ -99,11 +99,13 @@ export function paintTriggerLanes(frame: TriggerLanesFrame): number {
         // The marks: over the canvas, one per event at its trigger, and the lane's count in its corner.
         Object.assign(marks.style, { left: `${canvas.offsetLeft}px`, width: `${canvas.clientWidth}px`, height: `${canvas.clientHeight}px` });
         const used = events.filter(event => !out.has(event.id)).length;
-        // Marks too close to the one before are left out (zoomed in, each has room): the count still has them all.
+        // Marks too close to the one before are left out (not one left out) (zoomed in, each has room): the count still has them all.
         let last = -Infinity;
         const visible = events.filter(event => {
             const x = plot.xAt(event.time);
-            if (x < left || x > left + width || x - last < MARK_GAP_PX) return false;
+            if (x < left || x > left + width) return false;
+            // An event left out keeps its mark (its ↺ is the way back here); the others make room for it.
+            if (x - last < MARK_GAP_PX && !out.has(event.id)) return false;
             last = x;
             return true;
         });
