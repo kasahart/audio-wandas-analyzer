@@ -4,6 +4,8 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 
 ## Unreleased
 
+- Tracks: the spectrogram's auto colour scale ends on round dB values (-23.21…-120 dB now reads -20…-120): each end is widened outward to the largest 1, 2 or 5 × 10ⁿ step that fits ten times in the range. The cursor spectrum's auto dB axis does the same; values typed in the range popover or ⚙ stay as typed (#595).
+
 ## 0.0.15
 
 - Compare: with a trigger's events overlaid, the tracks stay under them, each recording as the trigger takes it, with the trigger level as a dashed line, where each event was cut shaded and a mark per event: ▶ plays the event, × leaves it out (↺ puts it back). Each track counts the events used (#567).
