@@ -1,5 +1,5 @@
 import { expect, test, type Page } from './canvasAudit';
-import { buildExtensionHostPathUiSmokeHtml } from './buildHtml';
+import { buildExtensionHostPathManyTracksHtml, buildExtensionHostPathUiSmokeHtml } from './buildHtml';
 
 /** Counts amber band pixels (the analysis-window fill and curve) per canvas column. */
 async function amberColumns(page: Page, canvasId: string): Promise<number[]> {
@@ -67,4 +67,76 @@ test('the spectrogram lane does not repeat the analysis window band', async ({ p
         return opaque > (canvas.width * canvas.height) / 2;
     })).toBe(true);
     expect((await amberColumns(page, 'track-spectrogram-overlay-0')).every((count) => count === 0)).toBe(true);
+});
+
+/** Records, every frame, where each track waveform canvas last drew the analysis window band (twentieths of its width; null for none). */
+async function recordBandFrames(page: Page): Promise<string[]> {
+    const canvasIds = await page.evaluate(() => [...document.querySelectorAll<HTMLCanvasElement>('canvas.track-canvas')]
+        .map((canvas) => canvas.id).filter((id) => /^track-canvas-\d+(-\d+)?$/u.test(id)));
+    await page.evaluate((ids) => {
+        // The tracks' own colours can be amber too, so the band is told apart by how it is drawn, not by its pixels.
+        const shown: Record<string, number | null> = {};
+        const proto = CanvasRenderingContext2D.prototype;
+        const { clearRect, fillRect } = Object.getOwnPropertyDescriptors(proto);
+        proto.clearRect = function (this: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) {
+            if (this.canvas.id && w >= this.canvas.width && h >= this.canvas.height) shown[this.canvas.id] = null;
+            (clearRect.value as CanvasRenderingContext2D['clearRect']).call(this, x, y, w, h);
+        };
+        proto.fillRect = function (this: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) {
+            const style = typeof this.fillStyle === 'string' ? this.fillStyle.replace(/\s/gu, '') : '';
+            if (this.canvas.id && style.startsWith('rgba(255,190,70')) {
+                shown[this.canvas.id] = Math.round((x + w / 2) / this.canvas.width * 20);
+            }
+            (fillRect.value as CanvasRenderingContext2D['fillRect']).call(this, x, y, w, h);
+        };
+        const frames: Array<Array<number | null>> = [];
+        (window as unknown as { __bandFrames: typeof frames }).__bandFrames = frames;
+        const tick = () => { frames.push(ids.map((id) => shown[id] ?? null)); requestAnimationFrame(tick); };
+        requestAnimationFrame(tick);
+    }, canvasIds);
+    return canvasIds;
+}
+
+async function bandFrames(page: Page): Promise<Array<Array<number | null>>> {
+    return page.evaluate(() => (window as unknown as { __bandFrames: Array<Array<number | null>> }).__bandFrames);
+}
+
+/** Frames where some track shows a band and another shows none or one elsewhere. */
+function mixedFrames(frames: Array<Array<number | null>>): Array<Array<number | null>> {
+    return frames.filter((frame) => frame.some((x) => x !== null) && new Set(frame).size > 1);
+}
+
+test('one cursor click moves every track\'s analysis window band in the same frame', async ({ page }) => {
+    // Each slice answer takes a while and they are asked for one at a time: without the hold they land track by track.
+    await page.setContent(buildExtensionHostPathManyTracksHtml(3, 120), { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#spectrum-cursor-time')).toHaveText(/(window|解析窓) hann/);
+    const canvasIds = await recordBandFrames(page);
+    expect(canvasIds.length).toBe(6);
+    const box = (await page.locator('#' + canvasIds[0]).boundingBox())!;
+    await page.mouse.click(box.x + box.width * 0.75, box.y + box.height / 2);
+    await expect.poll(async () => {
+        const frames = await bandFrames(page);
+        return frames.length > 0 && frames[frames.length - 1].every((x) => x === 15);
+    }, { timeout: 5000 }).toBe(true);
+    expect(mixedFrames(await bandFrames(page))).toEqual([]);
+});
+
+test('after a pause every channel of every track shows its band at the paused cursor together', async ({ page }) => {
+    await page.setContent(buildExtensionHostPathManyTracksHtml(3, 120), { waitUntil: 'domcontentloaded' });
+    await expect(page.locator('#spectrum-cursor-time')).toHaveText(/(window|解析窓) hann/);
+    await page.evaluate(() => document.querySelectorAll<HTMLAudioElement>('audio').forEach((audio) => { audio.muted = true; }));
+    const canvasIds = await recordBandFrames(page);
+    const box = (await page.locator('#' + canvasIds[0]).boundingBox())!;
+    await page.mouse.click(box.x + box.width * 0.1, box.y + box.height / 2);
+    await expect.poll(async () => (await bandFrames(page)).at(-1)?.every((x) => x === 2) ?? false, { timeout: 5000 }).toBe(true);
+
+    const play = page.locator('[data-action="toggle-playback"]').first();
+    await play.click();
+    await expect.poll(() => page.evaluate(() => (document.getElementById('track-audio-0') as HTMLAudioElement).currentTime)).toBeGreaterThan(0.6);
+    await play.click();
+    await expect.poll(async () => {
+        const last = (await bandFrames(page)).at(-1) ?? [];
+        return last.length > 0 && last.every((x) => x !== null && x > 2 && x === last[0]);
+    }, { timeout: 5000 }).toBe(true);
+    expect(mixedFrames(await bandFrames(page))).toEqual([]);
 });

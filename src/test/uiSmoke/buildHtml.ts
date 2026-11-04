@@ -370,6 +370,22 @@ export function buildExtensionHostPathUiSmokeHtml(responseDelayMs = 12): string 
     );
 }
 
+/** The Extension Host path with `count` takes of its file, each cursor spectrum answered after `responseDelayMs`. */
+export function buildExtensionHostPathManyTracksHtml(count: number, responseDelayMs = 12): string {
+    return finalizeUiSmokeHtml(
+        replaceAppState(buildExtensionHostPathPreviewHtml(), (state) => {
+            const first = state.results[0];
+            state.results = Array.from({ length: count }, (_, i) => {
+                const copy = JSON.parse(JSON.stringify(first)) as PreviewResult;
+                copy.filePath = `/preview/take${String(i).padStart(2, '0')}.wav`;
+                copy.fileName = `take${String(i).padStart(2, '0')}.wav`;
+                return copy;
+            });
+        }),
+        (nonce) => buildExtensionHostApiStub(nonce, responseDelayMs),
+    );
+}
+
 function replaceAppStrings(html: string, language: string): string {
     const marker = 'window.__APP_STRINGS__ = ';
     const start = html.indexOf(marker);

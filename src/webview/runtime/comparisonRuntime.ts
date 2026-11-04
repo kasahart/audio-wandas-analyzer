@@ -64,6 +64,7 @@ import { toolbarHtml } from './toolbarHtml';
 import { attachExclusiveMenus, attachHeightResizeListeners, attachToolbarActions } from './toolbarEvents';
 import { resultsPaneHtml, trackAudioHtml, type SpectrumBandsSetting } from './resultsPaneHtml';
 import { selectionFolderButton, selectionLayoutHtml } from './selectionLayoutHtml';
+import { SpectrumCommitHold } from './spectrumCommitHold';
 import { type AnalysisWindowBand, canvasTimeHit, clampedCanvasNorm, CURSOR_LINE_STYLE, drawAnalysisWindowBand, drawDashedTimeLine, drawRectZoomSelection, HOVER_LINE_STYLE, waveformCursorLineStyle } from './canvasOverlays';
 import { applyOverlayCompatibility, calibrationRequest, channelMetricSummaryHtml, ensureCalibrationStyles, hasIncompatibleLevelReferences } from './calibrationDecorations';
 import {
@@ -1976,11 +1977,62 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             window: slice.window,
         };
     }
-    function drawAnalysisWindowOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number, trackIndex: number, channelIndex: number) {
+    /** The bands last drawn, kept while one action's cursor spectra are still arriving so every track's band moves together. */
+    const shownWindowBands = new Map<string, AnalysisWindowBand | null>();
+    const spectrumCommitHold = new SpectrumCommitHold({
+        now: spectrumNow,
+        setTimeout: (handler, ms) => window.setTimeout(handler, ms),
+        clearTimeout: (id) => window.clearTimeout(id),
+        onExpired() {
+            scheduleRender();
+            spectrumRequests.scheduleFrame(false, false);
+        },
+    });
+    /** Whether a shown track's spectrum at the cursor is still on its way (and the hold has not run out); one answer per drawing pass. */
+    let holdingThisPass: boolean | null = null;
+    function holdingSpectrumCommit() {
+        if (holdingThisPass !== null) {
+            return holdingThisPass;
+        }
+        const pending = trackStore.displayOrder.some(function (trackId) {
+            const record = trackStore.require(trackId);
+            return !record.runtime.hidden && isSpectrumSliceRequestPendingForCursor(record.protocolIndex, spectrumCursorNorm);
+        });
+        holdingThisPass = spectrumCommitHold.holds(pending, spectrumRequests.generation);
+        // Every lane drawn in this pass sees the same answer, so the cap never splits a frame.
+        queueMicrotask(function () { holdingThisPass = null; });
+        return holdingThisPass;
+    }
+    function displayedWindowBand(trackIndex: number, channelIndex: number, holding: boolean): AnalysisWindowBand | null {
+        const record = trackRecordAtIndex(trackIndex);
+        if (!record) {
+            return null;
+        }
+        const key = record.id + ':' + channelIndex;
+        // A hidden track keeps no band to show again when it comes back.
+        if (record.runtime.hidden) {
+            shownWindowBands.delete(key);
+            return null;
+        }
+        // While playing no band is drawn: the header's caption reads the live one and nothing is kept for after.
         if (playback.isRunning()) {
-            return;
+            return analysisWindowBand(trackIndex, channelIndex);
+        }
+        if (holding) {
+            // A track with nothing shown yet (after playback, or just shown again) waits for the others too.
+            return shownWindowBands.get(key) ?? null;
         }
         const band = analysisWindowBand(trackIndex, channelIndex);
+        shownWindowBands.set(key, band);
+        return band;
+    }
+    function drawAnalysisWindowOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number, trackIndex: number, channelIndex: number) {
+        if (playback.isRunning()) {
+            // The bands from before playback are not shown again when it stops.
+            shownWindowBands.clear();
+            return;
+        }
+        const band = displayedWindowBand(trackIndex, channelIndex, holdingSpectrumCommit());
         if (band) {
             drawAnalysisWindowBand(ctx, band, waveformView.timeRange(), W, H);
         }
@@ -3524,7 +3576,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         const W = canvas.width, H = canvas.height;
         const { series: slices, pending: pendingVisibleSlice } = spectrumSeriesAt(spectrumCursorNorm);
-        if (overlaySpectrumPainted && pendingVisibleSlice) {
+        if (holdingSpectrumCommit() && overlaySpectrumPainted && pendingVisibleSlice) {
             return;
         }
         if (slices.length === 0) {
@@ -3558,8 +3610,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function analysisWindowCaption() {
         const gs = trackStore.globalSpan();
         const captions = new Set<string>();
+        const holding = holdingSpectrumCommit();
         for (const trackId of trackStore.displayOrder) {
-            const band = analysisWindowBand(trackStore.require(trackId).protocolIndex, 0);
+            const band = displayedWindowBand(trackStore.require(trackId).protocolIndex, 0, holding);
             if (band) {
                 const ms = (band.endNorm - band.startNorm) * gs.spanSec * 1000;
                 captions.add(STR.spectrumAnalysisWindow + (band.window ? ' ' + band.window : '') + ' '
