@@ -188,14 +188,14 @@ def test_more_bins_than_the_screen_shows_are_power_averaged_as_the_whole_picture
     # own log-band power means, not each bucket's minimum and maximum (a filled mass down to the noise floor).
     fft = signal.fft()
     whole = stage_view(fft)
-    view = stage_view(fft, None, {"x": [spec.SPECTRUM_MIN_HZ, RATE / 2], "points": 2 * spec.SPECTRUM_POINTS})
+    view = stage_view(fft, None, {"x": [spec.SPECTRUM_MIN_HZ, RATE / 2], "points": spec.SPECTRUM_POINTS})
     assert first_violation(DEFINITIONS["StageView"], view) is None
     assert view["xs"] == pytest.approx(whole["xs"]) and view["values"] == pytest.approx(whole["values"], abs=0.02)
     # A closer zoom keeps the noise floor where it was: the bands are narrower, their mean the same.
     closer = stage_view(fft, None, {"x": [2000.0, 4000.0], "points": 400})
     inside = [v for x, v in zip(whole["xs"], whole["values"], strict=True) if 2000 <= x <= 4000]
     assert np.median(closer["values"]) == pytest.approx(np.median(inside), abs=1.5)
-    assert max(closer["values"]) - min(closer["values"]) < 10
+    assert max(closer["values"]) - min(closer["values"]) < 20  # a bucket minimum dips 40 dB and more
 
 
 def test_a_zoomed_image_is_only_its_time_and_frequency_on_screen(signal: wd.ChannelFrame) -> None:

@@ -631,9 +631,9 @@ def _detail_view(frame: object, coarse: StageView, detail: StageDetail) -> Stage
             xs, values = _envelope(freqs[keep], rows[0][keep], points)
         else:
             # As the whole picture's 192 points: with more bins than the screen shows, each point is the power
-            # mean of its log-spaced band, so zooming in only sharpens the line (a bucket's minimum and maximum
-            # would turn a noisy spectrum into a filled mass reaching the floor).
-            xs, banded = _log_rows(rounded_db(rows).T, freqs, bounds, max(1, points // 2))
+            # mean of its log-spaced band (one per pixel), so zooming in only sharpens the line (a bucket's
+            # minimum and maximum would turn a noisy spectrum into a filled mass reaching the floor).
+            xs, banded = _log_rows(rounded_db(rows).T, freqs, bounds, max(1, points))
             values = rounded_db(_power_mean(banded.T)) if banded.size else np.empty(0)
         view.update(
             {
