@@ -145,6 +145,8 @@ test('paintOverlaySpectrum: a second reference widens the right margin, names it
     const paint = paintOverlaySpectrum(canvasOf(recording), 400, 200, mixed, fullView, noHover, null);
     assert.equal(OVERLAY_SPECTRUM_PAD.right, 48);
     assert.ok(texts.includes(SPL) && texts.includes(VOLT), JSON.stringify(texts));
+    // The right axis' values sit at the left axis' gridlines (40–80 dB SPL in tens), so a gridline reads on both sides.
+    assert.ok(['50', '60', '70', '−50', '−40', '−30'].every(value => texts.includes(value)), JSON.stringify(texts));
     assert.deepEqual(paint.levelAxes, [{ title: SPL, reference: 'dB SPL re 20 µPa', colors: ['#0000ff'] }, { title: VOLT, reference: 'dB re 1 V', colors: ['#ffff00'] }]);
     // B's peak (-20 dB re 1 V, bin 1) is at the top of the right axis, where the pointer is.
     const hover = { norm: 1 / 3, yFrac: 8 / 200, target: 'overlay' as const };

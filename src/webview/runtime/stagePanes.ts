@@ -653,14 +653,17 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
     const frame = { left, top, width: plotWidth, height: plotHeight };
     drawValueAxis(context, frame, levelTicks, '', { color: muted, font: context.font, titleX: AXIS_TITLE_X });
     drawValueAxis(context, frame, [], axes.y, { color: text, font: context.font, titleX: AXIS_TITLE_X });
-    if (options.secondary && !heatmap) paintRightAxis(context, frame, options.secondary.range, options.secondary.title, width, { muted, line, text });
+    if (options.secondary && !heatmap) paintRightAxis(context, frame, levelTicks.map(tick => tick.fraction), options.secondary.range, options.secondary.title, width, { muted, line, text });
     // Under the region's corner tag when there is one.
     if (options.pending) paintPending(context, options.pending, left + plotWidth - 6, top + (options.region?.mark === 'tag' ? 38 : 12), 'right', pendingColors);
     return plot;
 }
 
-/** The right-hand level axis: its edge, its ticks beside it and its name up the canvas' right side. */
-function paintRightAxis(context: CanvasRenderingContext2D, frame: { left: number; top: number; width: number; height: number }, range: PaneRange, title: string, width: number, colors: { muted: string; line: string; text: string }): void {
+/**
+ * The right-hand level axis: its edge, its values at the left axis' gridlines (`fractions` up the plot), so a
+ * gridline reads on either side, and its name up the canvas' right side.
+ */
+function paintRightAxis(context: CanvasRenderingContext2D, frame: { left: number; top: number; width: number; height: number }, fractions: readonly number[], range: PaneRange, title: string, width: number, colors: { muted: string; line: string; text: string }): void {
     const x = frame.left + frame.width;
     const span = range.max - range.min;
     context.save();
@@ -669,8 +672,8 @@ function paintRightAxis(context: CanvasRenderingContext2D, frame: { left: number
     context.beginPath(); context.moveTo(x, frame.top); context.lineTo(x, frame.top + frame.height); context.stroke();
     context.fillStyle = colors.muted;
     context.textAlign = 'left';
-    for (const value of span > 0 ? niceTicks(range.min, range.max, 4) : []) {
-        const fraction = (value - range.min) / span;
+    for (const fraction of span > 0 ? fractions : []) {
+        const value = range.min + fraction * span;
         context.textBaseline = fraction >= 1 ? 'top' : fraction <= 0 ? 'bottom' : 'middle';
         context.fillText(levelText(value, span), x + 2, frame.top + (1 - fraction) * frame.height);
     }

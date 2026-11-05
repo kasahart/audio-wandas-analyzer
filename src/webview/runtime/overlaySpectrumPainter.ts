@@ -131,7 +131,8 @@ export function paintOverlaySpectrum(
             ctx,
             guide,
             hit ? hit.snap.x : frame.padLeft + hover.norm * frame.plotWidth,
-            hit ? hit.snapY : null,
+            // A level past the axis is drawn along its edge: the level guide is drawn there too, not in the margin.
+            hit ? Math.max(full.top, Math.min(full.top + full.height, hit.snapY)) : null,
             hit ? hit.s.color : '',
             hitLayer && hitPlot ? (context, width) => strokeStageLine(context as CanvasRenderingContext2D, hitPlot, hitLayer, width) : undefined,
         );

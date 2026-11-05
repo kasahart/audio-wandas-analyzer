@@ -436,7 +436,8 @@ const server = http.createServer((req,res) => {
             // The cursor spectrum overlays both channels: at the top of the plot the nearest line is the one peaking there.
             const spectrumBox = await page.locator('#spectrum-overlay-canvas').boundingBox();
             assert.ok(spectrumBox);
-            await page.mouse.move(spectrumBox.x+48+(spectrumBox.width-56)*peakHz/2000,spectrumBox.y+9);
+            // OVERLAY_SPECTRUM_PAD: 52 px left and 8 px right of the plot.
+            await page.mouse.move(spectrumBox.x+52+(spectrumBox.width-60)*peakHz/2000,spectrumBox.y+9);
             // The readout lands on the peak bin whether the bins are denser than the plot's pixels or not.
             await page.waitForFunction(expected=>{
                 const text=document.getElementById('spectrum-freq-readout')?.textContent || '';
