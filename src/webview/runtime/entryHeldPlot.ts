@@ -101,7 +101,7 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
     } = { slot: null, step: null, plot: null };
     const source = createStageSource('entry-hold', message => deps.post(message), () => deps.scheduleSide());
     // Without the step − with it, taken by the backend from the Frames' full resolution (combineSource.ts).
-    const combine = createCombineSource('entry-hold-combine', message => deps.post(message), () => deps.scheduleSide());
+    const combine = createCombineSource('held-combine', message => deps.post(message), () => deps.scheduleSide());
     /** The last zoomed difference of each held step, drawn until the next zoom's is in. */
     const lastFine = new Map<string, Combined>();
     const detail = createDetailPlanner(window.performance, window, () => deps.scheduleSide());

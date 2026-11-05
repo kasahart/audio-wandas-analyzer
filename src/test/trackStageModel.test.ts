@@ -95,6 +95,7 @@ test('the base is one file\'s picture or a group\'s combined median; the differe
     assert.equal(combineRequest(path => (path === 'b' ? undefined : views[path]), 'c', ['a', 'b']), undefined, 'a picture not in yet');
     assert.equal(combineRequest(path => views[path], 'a', ['a']), null, 'one base file and nothing compared');
     assert.equal(combineRequest(path => (path === 'c' ? line([1, 2]) : views[path]), 'c', ['a']), null, 'a picture without kept values');
+    assert.deepEqual(combineRequest(path => (path === 'c' ? null : views[path]), 'c', ['a', 'b']), { base: ['ka', 'kb'], compare: null }, 'a compared file without an event: the group\'s median still');
 });
 
 test('a picture is summed up by its points with a level and their median', () => {

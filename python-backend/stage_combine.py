@@ -526,6 +526,10 @@ def _headline(
     with np.errstate(invalid="ignore"):
         louder = np.fmax(base, compare)
         known = np.isfinite(base) & np.isfinite(compare)
+        # Only what is drawn heads the comparison, or sets how loud it must be: a spectrum's bins from 20 Hz to
+        # Nyquist (an image's rows).
+        if drawn is not None:
+            known[~drawn] = False
         if template.get("quantity") in DB_QUANTITIES:
             audible = known & (louder > AUDIBLE_FLOOR_DB)
             if not audible.any():
@@ -539,9 +543,6 @@ def _headline(
         size[0] = -np.inf
     if whole is not None and size.ndim == 2:
         size[:, ~whole] = -np.inf
-    # Only what is drawn heads the comparison: a spectrum's bins from 20 Hz to Nyquist (rows of an image).
-    if drawn is not None:
-        size[~drawn] = -np.inf
     if not np.isfinite(size).any():
         return None
     at = np.unravel_index(int(np.argmax(size)), size.shape)

@@ -166,8 +166,12 @@ export function combineRequest(views: (path: string) => StageView | null | undef
     const pictures = paths.map(views);
     if (pictures.some(view => view === undefined)) return undefined;
     const keys = pictures.map(view => view?.data);
-    if (keys.some(key => !key)) return null;
-    return { base: keys.slice(0, basePaths.length) as string[], compare: compared ? keys[basePaths.length] ?? null : null };
+    const base = keys.slice(0, basePaths.length);
+    if (base.some(key => !key)) return null;
+    // A compared picture without kept values has no difference; the base group's median is still taken.
+    const compare = compared ? keys[basePaths.length] ?? null : null;
+    if (!compare && base.length === 1) return null;
+    return { base: base as string[], compare };
 }
 
 /** A base group's title with its waveforms drawn each: "n files" rather than "median of n". */

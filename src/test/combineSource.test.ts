@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createCombineSource } from '../webview/runtime/combineSource';
+import { createStageSource } from '../webview/runtime/stageSource';
 import type { CompareCombineMessage } from '../shared/analysis/entryScan';
 import { parsePanelMessage } from '../shared/protocol/panelMessages';
 import type { StageView } from '../shared/protocol/backendProtocol';
@@ -46,4 +47,9 @@ test('the host refuses a combination without base keys', () => {
     assert.equal(parsePanelMessage({ type: 'compare-combine', requestId: 'r', base: [] }), undefined);
     assert.equal(parsePanelMessage({ type: 'compare-combine', requestId: 'r', base: [''], compare: 'k' }), undefined);
     assert.ok(parsePanelMessage({ type: 'compare-combine', requestId: 'r', base: ['k'], compare: null }));
+});
+
+test('the held step\'s pictures leave its combinations to the combination source', () => {
+    const stages = createStageSource('entry-hold', () => undefined, () => undefined);
+    assert.equal(stages.handle({ type: 'compare-combine-result', requestId: 'held-combine-1', result: { ok: true } } as { type: string }), false);
 });

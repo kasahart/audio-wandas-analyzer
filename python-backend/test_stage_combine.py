@@ -214,3 +214,7 @@ def test_the_headline_names_only_frequencies_that_are_drawn(signal: wd.ChannelFr
     assert base is not None and compare is not None
     headline = combine([base], compare)["headline"]
     assert headline["x"] >= 20
+    # Nor does a loud DC offset set how loud a drawn difference must be to head it.
+    offset = replace(compare, values=compare.values.copy())
+    offset.values[0] = compare.values.max() + 60
+    assert combine([base], offset)["headline"]["x"] == pytest.approx(headline["x"])
