@@ -28,6 +28,24 @@ async function answer(page: Page, view: Record<string, unknown> = spectrum): Pro
     return request;
 }
 
+/**
+ * Answers the report's scans with every spectrum bin as a host does (報告に waits for them): each file's result with
+ * its 192 points as bins here, so the figures are drawn from `spectrumBinsDb`.
+ */
+async function answerReport(page: Page): Promise<void> {
+    await expect.poll(async () => (await posted(page)).some(message => message.type === 'compare-scan' && message.requestId.startsWith('report-scan'))).toBe(true);
+    const request = (await posted(page)).filter(message => message.type === 'compare-scan' && message.requestId.startsWith('report-scan')).at(-1)!;
+    expect((request as { spectrumBins?: boolean }).spectrumBins).toBe(true);
+    await page.evaluate(({ request, files }) => {
+        for (const filePath of request.filePaths) {
+            const result = files.find(item => item.filePath === filePath)!.result as { ok?: boolean; spectrumDb?: number[][]; input?: { fs?: number } };
+            const bins = result.ok ? { spectrumBinsDb: result.spectrumDb, spectrumBinHz: (result.input?.fs ?? 16000) / 2 / 192 } : {};
+            window.postMessage({ type: 'compare-scan-result', requestId: request.requestId, filePath, result: { ...result, ...bins } }, '*');
+        }
+        window.postMessage({ type: 'compare-scan-done', requestId: request.requestId }, '*');
+    }, { request, files: scanned! });
+}
+
 /** Slots the table's two top rows and presses Enter: the track view compares them, as tracks, on the chain's end. */
 async function openComparison(page: Page, language = 'en', files: ScannedFile[] = scanned!, baseSlot = false): Promise<string[]> {
     const recipe = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', '..', 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8'));
@@ -176,6 +194,11 @@ test('D fixes the compared file\'s difference; 報告に hands the host one fold
     // Every export is in the toolbar's 書き出し menu.
     await page.locator('#tb-export-menu > summary').click();
     await page.locator('[data-action="stage-report"]').click();
+    // The report waits for its files' every spectrum bin, and says so meanwhile.
+    await expect(page.locator('#task-status')).toContainText(STR.reportMeasuring.split('{count}')[1].trim());
+    await answerReport(page);
+    await expect(page.locator('#task-status')).toContainText(STR.reportSaved.trim());
+    await expect.poll(async () => (await posted(page)).some(message => message.type === 'save-report-folder')).toBe(true);
     const report = (await posted(page)).filter(message => message.type === 'save-report-folder').at(-1)!;
     expect(report.folder).toMatch(/^Standard_\d{8}-\d{6}$/);
     expect(report.files!.map(file => file.name)).toEqual(['summary.png', 'compare 1.png', 'compare 2.png', 'report.csv', 'Standard.recipe.json', 'Standard.1-3oct.recipe.json', 'definitions.json']);
@@ -629,6 +652,7 @@ test('with a one-channel recording, coherence is measured against the base slot:
     // The report's Recipe replays it in wandas: a base input through the same steps, one channel of each, the pair.
     await page.locator('#tb-export-menu > summary').click();
     await page.locator('[data-action="stage-report"]').click();
+    await answerReport(page);
     await expect.poll(async () => (await posted(page)).some(message => message.type === 'save-report-folder')).toBe(true);
     const folder = (await posted(page)).filter(message => message.type === 'save-report-folder').at(-1)!;
     const written = JSON.parse(folder.files!.find(file => file.name === `${STR.stepRecipeName}.recipe.json`)!.text!) as { inputs: Array<{ name: string }>; nodes: Array<{ operation: string }> };

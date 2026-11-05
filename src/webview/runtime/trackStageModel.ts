@@ -104,11 +104,14 @@ export function stageSpec(recipe: StageRecipe | null, region: EntryRegion | null
     return { key: `stage|${recipeKey(run)}|${regionLabel(region)}|${id}`, message: { ...(run ? { recipe: run } : {}), ...(region ? { region } : {}), stage: id } };
 }
 
-/** The files' scans over the region (their metrics), for D and the report. */
+/**
+ * The files' scans over the region (their metrics), for D and the report: with every Welch bin (spectrumBins), of
+ * which the report takes its median and Δ. Without a region, the whole files', asked for by the report only.
+ */
 export function regionStageSpec(recipe: StageRecipe | null, region: EntryRegion | null): StageSpec {
     // The metrics: the base recording is not paired in this scan, so the steps measured against it are left out.
     const run = unpairedRecipe(recipe?.runRecipe, recipe?.recipe);
-    return { key: `region|${recipeKey(run)}|${regionLabel(region)}`, message: { ...(run ? { recipe: run } : {}), ...(region ? { region } : {}) } };
+    return { key: `region|${recipeKey(run)}|${regionLabel(region)}|bins`, message: { ...(run ? { recipe: run } : {}), ...(region ? { region } : {}), spectrumBins: true } };
 }
 
 /** What holding `step` draws: the chain without it (and the steps that then cannot run), on the step on screen `id`. */

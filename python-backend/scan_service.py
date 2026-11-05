@@ -87,6 +87,9 @@ class ScanResult(TypedDict):
     leqDbA: NotRequired[list[float]]
     peakHz: NotRequired[list[int]]
     spectrumDb: NotRequired[list[list[float]]]
+    #: The Welch spectrum at full resolution, bin k at k × spectrumBinHz (the median and Δ are taken of these).
+    spectrumBinsDb: NotRequired[list[list[float]]]
+    spectrumBinHz: NotRequired[float]
     thirdOctDb: NotRequired[list[list[float | None]]]
     crest: NotRequired[list[float]]
     specVersion: NotRequired[int]
@@ -461,11 +464,13 @@ def measure(
     octave: wd.NOctFrame | None,
     *,
     passband: tuple[float, float] = (0.0, math.inf),
+    bins: bool = False,
 ) -> dict[str, object]:
     """The analysis-spec metrics of a region frame and the Recipe's branches over it, one entry per channel.
 
     `filtered` is the Recipe's region (its time slice), `welch` and `octave` its average-spectrum and
-    1/3-octave branches. Leq stays outside the Recipe: an RMS is an array, not a frame.
+    1/3-octave branches. Leq stays outside the Recipe: an RMS is an array, not a frame. With ``bins``, the
+    Welch spectrum's every bin too (a report's median and Δ are taken of them); a stored result does without.
     """
     frame = filtered
     refs = np.array([channel.ref for channel in filtered.channels], dtype=np.float64)
@@ -496,10 +501,16 @@ def measure(
 
     # A silent channel has no peak-to-RMS ratio; 0 keeps the result JSON.
     crest = np.nan_to_num(np.asarray(filtered.crest_factor, dtype=np.float64), nan=0.0, posinf=0.0)
+    full: dict[str, object] = (
+        {"spectrumBinsDb": _levels(welch_db).tolist(), "spectrumBinHz": float(freqs[1] - freqs[0])}
+        if bins and freqs.size > 1
+        else {}
+    )
     return {
         "leqDbA": _levels(leq).tolist(),
         "peakHz": [int(round(peak)) for peak in peaks],
         "spectrumDb": _levels(spectrum).tolist(),
+        **full,
         "thirdOctDb": [[None if math.isnan(value) else value for value in row] for row in third.tolist()],
         "crest": np.round(crest, spec.CREST_DECIMALS).tolist(),
     }
@@ -533,6 +544,7 @@ def scan_cached(
     stage: str | None = None,
     detail: StageDetail | None = None,
     reference: tuple[CachedAnalysis, ScanReference] | None = None,
+    spectrum_bins: bool = False,
 ) -> ScanResult:
     source = cached.frame
     sampling_rate = float(source.sampling_rate)
@@ -679,7 +691,7 @@ def scan_cached(
         else welch_in_parts(plans["welch"], signal, welch_params(recipe)) or plans["welch"].apply({"region": signal})
     )
     octave = plans["noct"].apply({"region": signal}) if plans["noct"] is not None else None
-    metrics = measure(signal, spectrum, octave, passband=passband(recipe))
+    metrics = measure(signal, spectrum, octave, passband=passband(recipe), bins=spectrum_bins)
     return {
         "ok": True,
         "conditionId": condition_id(
@@ -852,6 +864,7 @@ def scan(
     stage: str | None = None,
     detail: StageDetail | None = None,
     reference: tuple[str, ScanReference] | None = None,
+    spectrum_bins: bool = False,
 ) -> ScanResult:
     started = time.perf_counter()
     was_cached = engine.is_cached(file_path)
@@ -873,6 +886,7 @@ def scan(
                 stage=stage,
                 detail=detail,
                 reference=(paired, reference[1]) if paired is not None and reference is not None else None,
+                spectrum_bins=spectrum_bins,
             )
     except Exception as error:  # noqa: BLE001 - every failure becomes this file's ✕ row.
         if not isinstance(error, (InputError, OSError, sf.LibsndfileError)):

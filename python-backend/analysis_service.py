@@ -614,6 +614,7 @@ class AnalysisService:
         stage: str | None = None,
         detail: StageDetail | None = None,
         reference: Mapping[str, object] | None = None,
+        spectrum_bins: bool = False,
     ) -> dict[str, object]:
         from scan_service import scan
 
@@ -627,6 +628,7 @@ class AnalysisService:
                 calibration_profile=calibration_profile,
                 stage=stage,
                 detail=detail,
+                spectrum_bins=spectrum_bins,
                 # Another recording a cross-channel step pairs this one with: its path, step and own Recipe.
                 reference=(
                     (

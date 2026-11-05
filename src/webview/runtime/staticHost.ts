@@ -153,7 +153,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
      * One entry-table file: loaded into the Worker only for its scan unless it is already a selected
      * track, so a folder of any size never holds more than one extra file in Pyodide.
      */
-    async function scanEntryFile(path: string, region?: { start: number; end: number }, override?: Record<string, unknown>, stage?: string, detail?: StageDetail, reference?: ScanReference): Promise<ScanResult> {
+    async function scanEntryFile(path: string, region?: { start: number; end: number }, override?: Record<string, unknown>, stage?: string, detail?: StageDetail, reference?: ScanReference, spectrumBins?: boolean): Promise<ScanResult> {
         const file = folder.get(path);
         if (!file) return { ok: false, reason: strings.entrySourceGone };
         const limit = browserLimits ?? await limits();
@@ -173,7 +173,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             };
             try {
                 const paired = reference && pairedFile ? { ...reference, filePath: await workerPath(reference.filePath, pairedFile) } : undefined;
-                const over = { ...(region ? { region } : {}), ...(stage ? { stage } : {}), ...(detail ? { detail } : {}), ...(paired ? { reference: paired } : {}) };
+                const over = { ...(region ? { region } : {}), ...(stage ? { stage } : {}), ...(detail ? { detail } : {}), ...(paired ? { reference: paired } : {}), ...(spectrumBins ? { spectrumBins } : {}) };
                 return await analysisClient.scan({ filePath: await workerPath(path, file), recipe, ...over });
             } finally {
                 for (const into of loaded) await audioWorker.request({ cmd: 'unload', filePath: into }).catch(() => undefined);
@@ -411,7 +411,7 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         },
         entry: {
             identity: async path => folderKeys.identity(path),
-            scan: (path, region, recipe, stage, detail, reference) => scanEntryFile(path, region, recipe, stage, detail, reference),
+            scan: (path, region, recipe, stage, detail, reference, spectrumBins) => scanEntryFile(path, region, recipe, stage, detail, reference, spectrumBins),
             // In turn with the scans: the values they kept are in the Worker that ran them.
             combine: payload => exclusive(() => analysisClient.stageCombine(payload)),
             recipe: loadEntryRecipe,

@@ -141,6 +141,7 @@ function isCompareScanMessage(value: unknown): value is CompareScanMessage {
         && (message['recipe'] === undefined || isRecipeChain(message['recipe']))
         && (message['stage'] === undefined || typeof message['stage'] === 'string')
         && (message['reference'] === undefined || isScanReference(message['reference']))
+        && (message['spectrumBins'] === undefined || typeof message['spectrumBins'] === 'boolean')
         && message['filePaths'].every(filePath => typeof filePath === 'string' && filePath.length > 0);
 }
 

@@ -4,6 +4,7 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 
 ## Unreleased
 
+- Report: the figures' spectra, the base group's median and Δ are taken from every Welch bin and only then decimated to be drawn, as in Compare, so a narrow difference reads the same in the report as on screen. 報告に scans the report's files for every bin first (a stored result keeps the 192 points alone). The entry table's 192-point spectrum, the 1/3-octave Δ and the CSV are unchanged (#610).
 - Cursor spectrum and pair plot: the frequency axis is named ("Frequency [Hz]" / "周波数 [Hz]") under its ticks, as the level axis is (#611).
 - Compare: overlaid recordings are drawn loudest first and quietest last, on top, by their level over the part shown (a waveform as drawn on the shared amplitude axis, a spectrum's bins), so a louder recording no longer covers a quieter one; zooming or panning re-orders them. Colours and the legend stay as they are (#557).
 - Compare: a level or gain spectrum is drawn as each stretch's lowest and highest bin, before a zoom and after it, about one stretch per two pixels: a tone keeps its height at every zoom, instead of a band mean that lowered narrow peaks the wider the view was. Noise with many more bins than pixels (an `fft` over the whole file) shows as a band, as the undecimated line would (#607).

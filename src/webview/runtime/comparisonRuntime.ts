@@ -89,7 +89,7 @@ import { installSpectrogramSettingsPopover } from './spectrogramSettingsPopover'
 import { installReanalyzeOverlay } from './reanalyzeOverlay';
 import { SpectrogramSettingsStore } from './spectrogramSettingsStore';
 import { createEntryScreen } from './entryRuntime';
-import { diffHeadline, trackLevelInput } from './comparePanes';
+import { diffHeadline, trackLevelInput, withBins } from './comparePanes';
 import { baseName } from '../../shared/analysis/entryMetadata';
 import { channelResult } from '../../shared/recipe/channelSelection';
 import { reportFiles } from './compareReport';
@@ -1340,6 +1340,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         rerender: () => scheduleRender(),
         hint: text => hintFooter.show(text),
         notify: text => taskStatus(text, 'done'),
+        busy: text => taskStatus(text, 'busy'),
         inFront: () => !entryScreen.isOpen(),
         // Esc goes back to where the comparison was opened: the entry table, or the tracks (playback, zoom and
         // selection as they were, the compared recording's lane in sight).
@@ -1386,9 +1387,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             });
             return null;
         },
-        report(showDiff, region, measured) {
+        report(showDiff, region, measured, binned) {
             const data = entryScreen.compareData();
-            const results = region ? new Map([...data.results, ...measured]) : data.results;
+            // Every bin of the files' spectra, for the figures' median and Δ: over a region, the region's metrics carry
+            // them; without one, the whole files' scans give them to the table's results of the same spectrum.
+            const results = region ? new Map([...data.results, ...measured]) : withBins(data.results, binned);
             const { folder, files } = reportFiles(document, {
                 model: data.model, results, slots: data.slots, region, recipe: entryScreen.recipes(comparedChannels())?.runRecipe ?? data.recipe ?? null, recipeName: STR.stepRecipeName, now: new Date(), showDiff,
                 // The comparisons as the table defines their bases (grouping, filters, channel), and what it was narrowed to.
@@ -1400,6 +1403,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }, STR);
             messaging.post({ type: 'save-report-folder', folder, files });
             hintFooter.show(STR.reportSaved + folder);
+            taskStatus(STR.reportSaved + folder, 'done');
         },
     });
     // The lanes' surface takes the shared plot gestures too; they act only in the steps mode.

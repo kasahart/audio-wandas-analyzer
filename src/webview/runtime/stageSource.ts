@@ -9,7 +9,7 @@ import { HostRequests } from './hostRequests';
 
 export interface StageSpec {
     key: string;
-    message: Pick<CompareScanMessage, 'region' | 'recipe' | 'stage' | 'detail' | 'reference'>;
+    message: Pick<CompareScanMessage, 'region' | 'recipe' | 'stage' | 'detail' | 'reference' | 'spectrumBins'>;
 }
 
 export interface StageSource {

@@ -272,7 +272,7 @@ function isBuildRecipeResult(value: unknown): value is BuildRecipeResult {
     return schemaViolation('BuildRecipeResult', value) === null;
 }
 
-const STAGE_METRIC_KEYS = ['conditionId', 'leqDbA', 'peakHz', 'spectrumDb', 'thirdOctDb', 'crest', 'endFrame'] as const;
+const STAGE_METRIC_KEYS = ['conditionId', 'leqDbA', 'peakHz', 'spectrumDb', 'spectrumBinsDb', 'spectrumBinHz', 'thirdOctDb', 'crest', 'endFrame'] as const;
 const SCAN_SUCCESS_KEYS = [
     'conditionId', 'input', 'leqDbA', 'peakHz', 'spectrumDb', 'thirdOctDb', 'crest', 'specVersion', 'wandasVersion', 'elapsedMs',
 ] as const;
@@ -280,7 +280,7 @@ const SCAN_SUCCESS_KEYS = [
 function isScanResult(value: unknown): value is ScanResult {
     if (schemaViolation('ScanResult', value) !== null) return false;
     const result = value as ScanResult;
-    if (!result.ok) return typeof result.reason === 'string' && SCAN_SUCCESS_KEYS.every(key => result[key] === undefined);
+    if (!result.ok) return typeof result.reason === 'string' && [...SCAN_SUCCESS_KEYS, 'spectrumBinsDb', 'spectrumBinHz'].every(key => result[key as keyof ScanResult] === undefined);
     // A step's picture alone (scan with `stage`): the file's input and the picture, none of the metrics.
     if (result.stage !== undefined && result.leqDbA === undefined) {
         return result.reason === undefined && result.input !== undefined && STAGE_METRIC_KEYS.every(key => result[key] === undefined);
@@ -289,7 +289,9 @@ function isScanResult(value: unknown): value is ScanResult {
     // Every per-channel array follows input.channels.
     const channels = result.input.channels.length;
     return [result.leqDbA, result.peakHz, result.spectrumDb, result.thirdOctDb, result.crest]
-        .every(values => values !== undefined && values.length === channels);
+        .every(values => values !== undefined && values.length === channels)
+        // Every bin as well (optional): one row per channel, with the bins' spacing.
+        && (result.spectrumBinsDb === undefined || (result.spectrumBinsDb.length === channels && typeof result.spectrumBinHz === 'number'));
 }
 
 function isStageCombineResult(value: unknown): value is StageCombineResult {

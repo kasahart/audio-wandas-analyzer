@@ -80,6 +80,8 @@ export interface CompareScanMessage {
     detail?: StageDetail;
     /** The recording a cross-channel step (`step`) pairs each scanned one with (the base slot's), and its own Recipe. */
     reference?: ScanReference;
+    /** The Welch spectrum's every bin in each result too (spectrumBinsDb): a report's median and Δ are taken of them. */
+    spectrumBins?: boolean;
 }
 
 /**
@@ -157,7 +159,7 @@ export interface EntryScanPorts {
     /** A string that changes whenever the file's content may have; undefined never reuses a stored result. */
     identity(filePath: string): Promise<string | undefined>;
     calibration?(filePath: string): string;
-    scan(filePath: string, region?: EntryRegion, recipe?: RecipeDocument, stage?: string, detail?: StageDetail, reference?: ScanReference): Promise<ScanResult>;
+    scan(filePath: string, region?: EntryRegion, recipe?: RecipeDocument, stage?: string, detail?: StageDetail, reference?: ScanReference, spectrumBins?: boolean): Promise<ScanResult>;
     /** A median and a difference of steps the backend's scans kept (stage-combine). */
     combine?(payload: StageCombinePayload): Promise<StageCombineResult>;
     /** The entry Recipe the host scans with by default, shown in the step bar. */
@@ -327,7 +329,7 @@ export async function runCompareScan(
             let result: ScanResult;
             try {
                 scanned++;
-                result = await ports.scan(filePath, message.region, message.recipe, message.stage, message.detail, message.reference);
+                result = await ports.scan(filePath, message.region, message.recipe, message.stage, message.detail, message.reference, message.spectrumBins);
             } catch (error) {
                 result = { ok: false, reason: reason(error) };
             }

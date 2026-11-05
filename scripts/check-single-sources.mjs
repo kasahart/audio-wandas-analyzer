@@ -3,6 +3,7 @@
 //   - Python runtime dependencies: pyproject.toml [project].dependencies
 //   - Browser session limits: python-backend/browser_service.py (README tables, browserAbout*Limits)
 //   - The comparison headline's loudness threshold: src/webview/runtime/entryTable.ts HEADLINE_WITHIN_DB
+//   - How many buckets a spectrum is drawn in: python-backend/stage_view.py SPECTRUM_LINE_BUCKETS
 // `--write` regenerates the README limit tables; without it the script only checks (used by verify).
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -124,6 +125,13 @@ const tableWithin = /^export const HEADLINE_WITHIN_DB = ([\d.]+);$/m.exec(read('
 const backendWithin = /^HEADLINE_WITHIN_DB = ([\d.]+)$/m.exec(read('python-backend/stage_combine.py'))?.[1];
 if (tableWithin === undefined || backendWithin === undefined || Number(tableWithin) !== Number(backendWithin)) {
     problems.push(`stage_combine.py HEADLINE_WITHIN_DB (${backendWithin}) must equal entryTable.ts HEADLINE_WITHIN_DB (${tableWithin})`);
+}
+
+// The report draws a spectrum's bins as the comparison does (comparePanes.ts minMaxLine, stage_view.min_max_line).
+const drawnBuckets = /^SPECTRUM_LINE_BUCKETS = (\d+)$/m.exec(read('python-backend/stage_view.py'))?.[1];
+const reportBuckets = /^export const SPECTRUM_LINE_BUCKETS = (\d+);$/m.exec(read('src/webview/runtime/comparePanes.ts'))?.[1];
+if (drawnBuckets === undefined || reportBuckets === undefined || Number(drawnBuckets) !== Number(reportBuckets)) {
+    problems.push(`comparePanes.ts SPECTRUM_LINE_BUCKETS (${reportBuckets}) must equal stage_view.py SPECTRUM_LINE_BUCKETS (${drawnBuckets})`);
 }
 
 if (problems.length) {
