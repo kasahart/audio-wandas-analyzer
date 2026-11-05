@@ -63,6 +63,15 @@ test('what cannot be one chain on each recording says why', () => {
     // The reference over the response: the base slot gives the other direction, so it cannot open.
     const reversed = recipeNodes(transfer).map(node => node.operation === 'wandas.frame.select_pair' ? { ...node, params: { $type: 'map', entries: [['input', 1], ['output', 0]] } } : node);
     assert.deepEqual(openedRecipe({ ...transfer, nodes: reversed }), { reason: 'inputs' });
+    // Two channels on each side: the comparison pairs one channel of each recording, so it cannot open.
+    const both = recipeNodes(transfer).map(node => node.operation === 'wandas.frame.get_channel' ? { ...node, params: { $type: 'map', entries: [['channel_idx', { $type: 'list', items: [0, 1] }]] } } : node);
+    assert.deepEqual(openedRecipe({ ...transfer, nodes: both }), { reason: 'inputs' });
+    // An input named as the slice would be: the slice gets another id, so no loop.
+    const named = bundled('octave.recipe.json');
+    const renamed = JSON.parse(JSON.stringify(named).replaceAll('"input-0"', '"node-region"')) as RecipeDocument;
+    const chain = recipeChain(opened(renamed));
+    assert.deepEqual(chain[0].inputs, ['node-region']);
+    assert.notEqual(chain[0].id, 'node-region');
     // A node that is its own input: not a chain (and opening it must not hang).
     const loop = bundled('entry-scan.recipe.json');
     const looped = recipeNodes(loop).map(node => node.id === 'node-0' ? { ...node, inputs: ['node-0'] } : node);

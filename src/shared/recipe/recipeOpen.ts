@@ -49,7 +49,7 @@ function withRegion(recipe: RecipeDocument): RecipeDocument {
     const nodes = recipeNodes(recipe);
     if (nodes.some(node => node.operation === TIME_SLICE)) return recipe;
     const input = recipe.inputs[0].id;
-    const ids = new Set(nodes.map(node => node.id));
+    const ids = new Set([...nodes.map(node => node.id), ...recipe.inputs.map(item => item.id)]);
     let id = 'node-region';
     for (let index = 1; ids.has(id); index++) id = `node-region-${index}`;
     const slice: RecipeNode = { id, operation: TIME_SLICE, version: 2, inputs: [input], params: { $type: 'map', entries: [['end', null], ['start', 0.0]] } };
@@ -84,6 +84,8 @@ function pairedAsSlot(recipe: RecipeDocument): RecipeDocument | undefined {
     };
     const left = side(concat.inputs[0], first), right = side(concat.inputs[1], second);
     if (!left || !right) return undefined;
+    // The comparison pairs one channel of each recording, so each side must pick exactly one.
+    if (!left.some(picksOneChannel)) return undefined;
     const signature = (steps: RecipeNode[]) => JSON.stringify(steps.map(node => [node.operation, node.params]));
     if (signature(left) !== signature(right)) return undefined;
     const step = nodes.find(node => node.inputs.length === 1 && node.inputs[0] === concat.id);
@@ -106,11 +108,19 @@ const PAIR_PICKS = new Set([SELECT_PAIR, GET_CHANNEL]);
 /** Row 2 of two channels' four pairs is (1, 0): the response over the reference (wandas' pair_row_index). */
 const RESPONSE_OVER_REFERENCE_ROW = 2;
 
+function channelIndices(node: RecipeNode): unknown[] {
+    const index = new Map(node.params.entries).get('channel_idx');
+    return typeof index === 'number' ? [index]
+        : index && typeof index === 'object' && Array.isArray((index as { items?: unknown }).items) ? (index as { items: unknown[] }).items : [];
+}
+
+function picksOneChannel(node: RecipeNode): boolean {
+    return node.operation === GET_CHANNEL && channelIndices(node).length === 1 && typeof channelIndices(node)[0] === 'number';
+}
+
 function picksResponseOverReference(node: RecipeNode): boolean {
     const params = new Map(node.params.entries);
     if (node.operation === SELECT_PAIR) return params.get('output') === 1 && params.get('input') === 0;
-    const index = params.get('channel_idx');
-    const rows = typeof index === 'number' ? [index]
-        : index && typeof index === 'object' && Array.isArray((index as { items?: unknown }).items) ? (index as { items: unknown[] }).items : [];
+    const rows = channelIndices(node);
     return rows.length === 1 && rows[0] === RESPONSE_OVER_REFERENCE_ROW;
 }
