@@ -107,7 +107,8 @@ export function createEntryBase(deps: EntryBaseDeps): EntryBase {
                 const base = resolve(comparePath, byGroup);
                 if (base.paths.includes(path)) return base.channel;
             }
-            return channelOfRow(slotRowOf(path));
+            // A recording without a role is drawn as the row its legend names (the table's first of that file).
+            return channelOfRow(slotRowOf(path) ?? deps.rows().find(row => row.filePath === path));
         },
         comparison(comparePath: string, byGroup = false, over?: ReadonlyMap<string, ScanResult>, entryRegionBase = false): CompareModel {
             const base = resolve(comparePath, byGroup);

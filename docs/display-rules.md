@@ -78,3 +78,10 @@
 パネルの大きさが変わったら、グラフをその大きさで描き直します。引き伸ばしたまま残しません。
 
 - テスト: `src/test/uiSmoke/visibility.spec.ts` › track canvas width follows layout changes without a window resize event
+
+## R11 凡例が名指すチャンネルを描く
+
+多チャンネルの録音は、凡例が名指すチャンネルとして、入力を含むすべての段で描きます。チャンネルを平均した線を、一つのチャンネルの名前で描きません。役割のない録音は、表でその録音の最初の行のチャンネルとして描きます。
+
+- テスト: `python-backend/test_scan_service.py` › test_the_input_is_drawn_as_the_channel_the_chain_picks_not_the_channels_mean
+- テスト: `src/test/entryBase.test.ts` › a channel row is compared as its channel; recordings without it are left out and said
