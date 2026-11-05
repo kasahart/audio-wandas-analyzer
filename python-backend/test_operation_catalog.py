@@ -9,7 +9,8 @@ import wandas as wd
 from wandas.pipeline import default_recipe_registry
 
 from operation_catalog import TS_TARGET, catalog, frames, typescript, with_refusals
-from operation_probe import _direct, needs, probe, refusals, verdicts
+from operation_probe import _direct, _flat, needs, probe, refusals, verdicts
+from stage_view import stage_view
 
 # The probe runs every operation on every Frame (1-2 min): CI runs these with AWA_SLOW=1.
 slow = pytest.mark.slow
@@ -140,3 +141,21 @@ def test_the_step_bars_fixed_rates_are_the_ones_wandas_enforces() -> None:
     assert spectrum(48000).noct_synthesis(fmin=25.0, fmax=6300.0).n_channels == 1
     with pytest.raises(ValueError, match="48000"):
         spectrum(16000).noct_synthesis(fmin=25.0, fmax=6300.0)
+
+
+@slow
+def test_no_step_offered_on_a_recording_draws_a_flat_picture(runs: list) -> None:
+    # A picture whose values are all one value says nothing (docs/display-rules.md R8). The only one is the
+    # difference of a one-channel file's channel with itself, which the step bar greys out on one channel.
+    flat = sorted({(run["operation"], run["example"]) for run in runs if run["ok"] and run["flat"]})
+    assert flat == [("wandas.audio.channel_difference", "48 kHz 1 ch")]
+    steps = (Path(__file__).parent.parent / "src" / "shared" / "recipe" / "recipeSteps.ts").read_text(encoding="utf-8")
+    assert re.search(r"NEEDS_TWO_CHANNELS[^;]*'wandas\.audio\.channel_difference'", steps)
+
+
+def test_a_steady_tone_is_not_flat_and_a_silent_difference_is() -> None:
+    t = np.arange(48000) / 48000
+    tone = wd.from_numpy(0.5 * np.sin(2 * np.pi * 1000 * t)[None], sampling_rate=48000)
+    # A steady tone's level line is one value, but its envelope is a ±0.5 band: it says something.
+    assert not _flat(stage_view(tone))
+    assert _flat(stage_view(tone.channel_difference()))

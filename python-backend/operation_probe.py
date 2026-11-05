@@ -55,6 +55,9 @@ class ProbeRun(TypedDict):
     ok: bool
     output: str
     drawn: bool
+    #: Drawn, but every value drawn is the same (or none is finite): a picture that says nothing, such as the
+    #: difference of a one-channel file's channel with itself.
+    flat: bool
     error: str
 
 
@@ -118,6 +121,26 @@ def _self_pairs_only(frame: object) -> bool:
     return pairs is not None and all(pair.output.index == pair.input.index for pair in pairs)
 
 
+def _numbers(value: object) -> list[float]:
+    if isinstance(value, Mapping):
+        return []
+    if isinstance(value, (list, tuple)):
+        return [number for item in value for number in _numbers(item)]
+    return [float(value)] if isinstance(value, (int, float)) and np.isfinite(value) else []
+
+
+def _flat(view: Mapping[str, Any]) -> bool:
+    """Whether every part of a drawn picture (its values, matrix, waveform envelope) is one value, or none is finite."""
+    waveform = view.get("waveform")
+    parts = [view.get("values"), view.get("matrix")]
+    if isinstance(waveform, Mapping):
+        # The envelope is one part: a steady tone's ±A band is not flat, an all-zero envelope is.
+        parts += [[waveform.get("min"), waveform.get("max")]]
+    # Each part on its own: a waveform's envelope and its level line are on different scales.
+    present = [_numbers(part) for part in parts if part is not None]
+    return bool(present) and all(not numbers or max(numbers) == min(numbers) for numbers in present)
+
+
 def _run(operation: Mapping[str, Any], frame_type: str, label: str, frame: object) -> tuple[ProbeRun, object | None]:
     run: ProbeRun = {
         "operation": operation["id"],
@@ -126,6 +149,7 @@ def _run(operation: Mapping[str, Any], frame_type: str, label: str, frame: objec
         "ok": False,
         "output": "",
         "drawn": False,
+        "flat": False,
         "error": "",
     }
     try:
@@ -135,7 +159,9 @@ def _run(operation: Mapping[str, Any], frame_type: str, label: str, frame: objec
             run["output"] = type(result).__name__
             # A pair of one channel with itself says nothing and is not drawn: the step bar does not run a
             # cross-channel step on one channel (recipeSteps.ts CROSS_CHANNEL), so that is no gap.
-            run["drawn"] = stage_view(result)["kind"] != "none" or _self_pairs_only(result)
+            view = stage_view(result)
+            run["drawn"] = view["kind"] != "none" or _self_pairs_only(result)
+            run["flat"] = view["kind"] != "none" and _flat(view)
         run["ok"] = True
         return run, result
     except Exception as error:  # noqa: BLE001 - every failure is a finding.
