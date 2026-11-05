@@ -194,7 +194,7 @@ test('paintOverlaySpectrum: with two level axes the level guide runs only to the
     assert.ok(guide[0] > 48 + 50, 'the guide does not reach the left axis');
 });
 
-test('reordering a Pa track and an m/s^2 track clears a dB zoom kept in the old left axis\' dB', () => {
+test('reordering a Pa track and a V track clears a dB zoom kept in the old left axis\' dB', () => {
     // As the overlay does before each paint: the left axis' reference first, then the axes from the view.
     const view = new SpectrumView();
     const leftAxes = (series: SpectrumSeries[]) => {
