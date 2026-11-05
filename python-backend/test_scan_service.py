@@ -19,6 +19,7 @@ from command_dispatch import dispatch, validate_request
 from protocol_schema import DEFINITIONS, first_violation
 from recipe_builder import RecipeSource, spectrum_recipe
 from scan_service import log_spectrum, passband, scan_plans, welch_params
+from stage_view import SPECTRUM_LINE_BUCKETS
 
 ENTRY_RECIPE = json.loads((Path(__file__).parent / "recipes" / "entry-scan.recipe.json").read_text())
 ENTRY100 = Path(__file__).parents[1] / "src" / "test" / "fixtures" / "entry100" / "generate.py"
@@ -474,12 +475,8 @@ def test_scan_names_the_frame_the_chain_ends_in_and_draws_any_step(tmp_path: Pat
     region = _scan(service, path, stage="node-1", region={"start": 0.5, "end": 1.0})["stage"]
     assert region["xs"][0] >= 0.5 and region["xs"][-1] <= 1.0
     spectrum = _scan(service, path, stage="node-2")["stage"]
-    assert (spectrum["kind"], spectrum["x"], spectrum["xScale"], len(spectrum["xs"])) == (
-        "line",
-        "frequency",
-        "log",
-        spec.SPECTRUM_POINTS,
-    )
+    assert (spectrum["kind"], spectrum["x"], spectrum["xScale"]) == ("line", "frequency", "log")
+    assert spectrum["xs"][0] >= spec.SPECTRUM_MIN_HZ and len(spectrum["xs"]) <= 2 * SPECTRUM_LINE_BUCKETS
     # The input is a stage too: the file's signal over the whole file, before any step.
     raw = _scan(service, path, stage="node-input", region={"start": 0.5, "end": 1.0})["stage"]
     assert (raw["frame"], raw["kind"], raw["x"]) == ("ChannelFrame", "line", "time")

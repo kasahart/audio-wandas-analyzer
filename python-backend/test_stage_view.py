@@ -6,7 +6,7 @@ import wandas as wd
 
 import analysis_spec as spec
 from protocol_schema import DEFINITIONS, first_violation
-from stage_view import LAG_POINTS, QUEFRENCY_POINTS, TIME_POINTS, stage_view
+from stage_view import LAG_POINTS, QUEFRENCY_POINTS, SPECTRUM_LINE_BUCKETS, TIME_POINTS, stage_view
 
 RATE = 16000
 
@@ -52,13 +52,10 @@ def test_a_long_metric_stays_its_values_with_its_unit_even_after_a_trim() -> Non
 
 def test_spectra_bands_and_spectrograms_share_the_comparisons_log_frequency_axis(signal: wd.ChannelFrame) -> None:
     spectrum = _checked(signal.welch(n_fft=1024))
-    assert (spectrum["kind"], spectrum["x"], spectrum["xScale"], len(spectrum["xs"])) == (
-        "line",
-        "frequency",
-        "log",
-        spec.SPECTRUM_POINTS,
-    )
-    assert spectrum["xs"][0] > spec.SPECTRUM_MIN_HZ and spectrum["xs"][-1] < RATE / 2
+    assert (spectrum["kind"], spectrum["x"], spectrum["xScale"]) == ("line", "frequency", "log")
+    # Fewer bins than the line's buckets hold: every bin from 20 Hz to Nyquist, as it is.
+    freqs = np.asarray(signal.welch(n_fft=1024).freqs)
+    assert spectrum["xs"] == [float(f) for f in freqs[(freqs >= spec.SPECTRUM_MIN_HZ) & (freqs <= RATE / 2)]]
     bands = _checked(signal.noct_spectrum(fmin=25, fmax=6300))
     assert (bands["kind"], bands["x"], bands["xs"][0]) == ("bar", "band", 25.0)
     image = _checked(signal.stft(n_fft=512))
@@ -183,19 +180,24 @@ def test_a_zoomed_spectrum_is_its_own_bins_in_the_range_on_screen(signal: wd.Cha
     assert view["values"][int(np.argmin(np.abs(np.array(view["xs"]) - 1000)))] == max(view["values"])
 
 
-def test_more_bins_than_the_screen_shows_are_power_averaged_as_the_whole_picture(signal: wd.ChannelFrame) -> None:
-    # A whole-file FFT has far more bins than pixels: a zoom spanning the whole axis draws the whole picture's
-    # own log-band power means, not each bucket's minimum and maximum (a filled mass down to the noise floor).
+def test_more_bins_than_the_screen_shows_keep_each_buckets_lowest_and_highest_bin_at_every_zoom(
+    signal: wd.ChannelFrame,
+) -> None:
+    # A whole-file FFT has far more bins than pixels: each two pixels keep their lowest and highest bin, before a
+    # zoom and after it, so a peak keeps its height and the line its look.
     fft = signal.fft()
     whole = stage_view(fft)
-    view = stage_view(fft, None, {"x": [spec.SPECTRUM_MIN_HZ, RATE / 2], "points": spec.SPECTRUM_POINTS})
-    assert first_violation(DEFINITIONS["StageView"], view) is None
-    assert view["xs"] == pytest.approx(whole["xs"]) and view["values"] == pytest.approx(whole["values"], abs=0.02)
-    # A closer zoom keeps the noise floor where it was: the bands are narrower, their mean the same.
-    closer = stage_view(fft, None, {"x": [2000.0, 4000.0], "points": 400})
-    inside = [v for x, v in zip(whole["xs"], whole["values"], strict=True) if 2000 <= x <= 4000]
-    assert np.median(closer["values"]) == pytest.approx(np.median(inside), abs=1.5)
-    assert max(closer["values"]) - min(closer["values"]) < 20  # a bucket minimum dips 40 dB and more
+    assert len(whole["xs"]) <= 2 * SPECTRUM_LINE_BUCKETS
+    freqs, levels = np.asarray(fft.freqs), np.asarray(fft.dB).reshape(2, -1)
+    line = 10 * np.log10(np.mean(10 ** (levels / 10), axis=0))
+    inside = (freqs >= spec.SPECTRUM_MIN_HZ) & (freqs > 0)
+    assert max(whole["values"]) == pytest.approx(line[inside].max(), abs=0.02)
+    assert min(whole["values"]) == pytest.approx(max(line[inside].min(), spec.MIN_LEVEL_DB), abs=0.02)
+    closer = stage_view(fft, None, {"x": [900.0, 1100.0], "points": 400})
+    assert first_violation(DEFINITIONS["StageView"], closer) is None
+    assert len(closer["xs"]) <= 400 and max(closer["values"]) == pytest.approx(max(whole["values"]), abs=0.02)
+    # Each value is a bin's own level, at that bin's frequency.
+    assert set(closer["xs"]) <= {float(f) for f in freqs}
 
 
 def test_a_zoom_past_the_frames_nyquist_frequency_draws_no_band_without_bins() -> None:

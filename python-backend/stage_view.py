@@ -13,6 +13,7 @@ Channels are combined as the entry table combines them: levels power-averaged, v
 from __future__ import annotations
 
 import warnings
+from collections.abc import Sequence
 from typing import Any, Literal, NotRequired, TypedDict
 
 import numpy as np
@@ -52,6 +53,9 @@ HEATMAP_FREQUENCIES = 128
 #: A cepstrum's points before any zoom: per bucket its minimum and maximum, as the lanes draw a waveform
 #: (1200 buckets, WAVEFORM_OVERVIEW_POINTS), so a noisy cepstrum is not a zigzag through alternate peaks.
 QUEFRENCY_POINTS = 2400
+#: A level or gain spectrum's buckets before any zoom: about one per two pixels of a wide plot, the density a zoom
+#: asks for, so zooming changes how much of the axis the buckets span, not how the line looks.
+SPECTRUM_LINE_BUCKETS = 640
 # Cepstral coefficients are small (around 0.01) and signed: kept to five decimals, not one.
 CEPSTRUM_DECIMALS = 5
 # Every lag of a new step's ±0.1 s at 48 kHz, so its delay peak is at its own lag.
@@ -185,6 +189,35 @@ def _log_points(levels_db: np.ndarray, freqs: np.ndarray, points: int, nyquist: 
     """Levels on `points` log-spaced frequencies from 20 Hz to Nyquist, as the scan's spectrum."""
     edges = np.geomspace(spec.SPECTRUM_MIN_HZ, nyquist, points + 1)
     return np.sqrt(edges[:-1] * edges[1:]), band_levels(levels_db, freqs, edges)
+
+
+def min_max_line(xs: np.ndarray, values: np.ndarray, buckets: int, log: bool) -> tuple[np.ndarray, np.ndarray]:
+    """A line in at most ``buckets`` buckets: each bucket's smallest and largest value, each at its own x, as the
+    lanes draw a waveform (log-spaced buckets on a log axis). Non-finite values are left out; fewer values than
+    two per bucket are all kept."""
+    keep = np.isfinite(values) & ((xs > 0) if log else np.ones(xs.size, dtype=bool))
+    xs, values = xs[keep], values[keep]
+    if xs.size <= 2 * buckets:
+        return xs, values
+    if log:
+        edges = np.geomspace(xs[0], xs[-1], buckets + 1)
+        bucket = np.clip(np.searchsorted(edges, xs, side="right") - 1, 0, buckets - 1)
+    else:
+        bucket = (np.arange(xs.size) * buckets) // xs.size
+    order = np.lexsort((values, bucket))
+    first = np.flatnonzero(np.r_[True, bucket[order][1:] != bucket[order][:-1]])
+    last = np.r_[first[1:] - 1, order.size - 1]
+    picked = np.unique(np.concatenate([order[first], order[last]]))
+    return xs[picked], values[picked]
+
+
+def spectrum_line(
+    freqs: np.ndarray, levels_db: np.ndarray, bounds: Sequence[float], buckets: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """A level or gain spectrum's line between ``bounds`` Hz: every bin there, or per log-spaced bucket its lowest
+    and highest bin (min_max_line). The same at every zoom, so a peak keeps its height and the line its look."""
+    inside = _inside(freqs, list(bounds)) & (freqs > 0)
+    return min_max_line(freqs[inside], levels_db[inside], max(1, buckets), True)
 
 
 def _waveform(
@@ -363,8 +396,9 @@ def _spectral_view(frame: Any) -> StageView:
         centres = np.sqrt(edges[:-1] * edges[1:])
         line = np.round(np.interp(centres, freqs, values[0]), 4)
     else:
-        centres, levels = _log_points(rounded_db(values), freqs, spec.SPECTRUM_POINTS, nyquist)
-        line = rounded_db(_power_mean(levels))
+        centres, line = spectrum_line(
+            freqs, rounded_db(_power_mean(rounded_db(values))), [spec.SPECTRUM_MIN_HZ, nyquist], SPECTRUM_LINE_BUCKETS
+        )
     view: StageView = {
         "frame": type(frame).__name__,
         "kind": "line",
@@ -633,11 +667,8 @@ def _detail_view(frame: object, coarse: StageView, detail: StageDetail) -> Stage
             keep = _inside(freqs, bounds) & (freqs > 0)
             xs, values = _envelope(freqs[keep], rows[0][keep], points)
         else:
-            # As the whole picture's 192 points: with more bins than the screen shows, each point is the power
-            # mean of its log-spaced band (one per pixel), so zooming in only sharpens the line (a bucket's
-            # minimum and maximum would turn a noisy spectrum into a filled mass reaching the floor).
-            xs, banded = _log_rows(rounded_db(rows).T, freqs, bounds, max(1, points))
-            values = rounded_db(_power_mean(banded.T)) if banded.size else np.empty(0)
+            # As the whole picture: each two pixels' lowest and highest bin.
+            xs, values = spectrum_line(freqs, rounded_db(_power_mean(rounded_db(rows))), bounds, points // 2)
         view.update(
             {
                 "xs": _axis(xs),
