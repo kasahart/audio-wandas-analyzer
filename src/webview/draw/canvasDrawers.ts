@@ -510,7 +510,21 @@ export function drawSpectrumLine(ctx: CanvasDrawCtx, W: number, H: number, slice
     ctx.restore();
 }
 
-export function drawSpectrumAxes(ctx: CanvasDrawCtx, W: number, H: number, slice: SpectrumSliceLike, padL: number, padR: number, padT: number, padB: number, visFreqMin?: number | null, visFreqMax?: number | null, visDbMin?: number | null, visDbMax?: number | null, theme: DrawTheme = DEFAULT_THEME, logFrequency = false, axisTitle?: string) {
+/** The row under the frequency ticks that holds the frequency axis' title. */
+export const FREQUENCY_TITLE_ROW = 11;
+
+/** The frequency axis' title ("Frequency [Hz]"), centred under the plot in the canvas' bottom row. */
+export function drawFrequencyAxisTitle(ctx: CanvasDrawCtx, plotLeft: number, plotWidth: number, H: number, title: string, color: string): void {
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.font = PLOT_FONT;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(title, plotLeft + plotWidth / 2, H - 1);
+    ctx.restore();
+}
+
+export function drawSpectrumAxes(ctx: CanvasDrawCtx, W: number, H: number, slice: SpectrumSliceLike, padL: number, padR: number, padT: number, padB: number, visFreqMin?: number | null, visFreqMax?: number | null, visDbMin?: number | null, visDbMax?: number | null, theme: DrawTheme = DEFAULT_THEME, logFrequency = false, axisTitle?: string, frequencyTitle?: string) {
     const _visFreqMin = (visFreqMin != null) ? visFreqMin : 0;
     const _visFreqMax = (visFreqMax != null) ? visFreqMax : slice.maxFrequencyHz;
     const _visDbMin = (visDbMin != null) ? visDbMin : slice.minDb;
@@ -548,13 +562,18 @@ export function drawSpectrumAxes(ctx: CanvasDrawCtx, W: number, H: number, slice
     };
     const lastLeft = span(ticks[ticks.length - 1]).left;
     let lastRight = -Infinity;
+    // A titled frequency axis has its ticks in the row above the title.
+    const tickY = frequencyTitle ? H - 1 - FREQUENCY_TITLE_ROW : H - 1;
     ticks.forEach((tick, index) => {
         const { x, left, right } = span(tick);
         const inner = index > 0 && index < ticks.length - 1;
         if (inner && (left < lastRight + 4 || right + 4 > lastLeft)) {
             return;
         }
-        ctx.fillText(tick.text, x, H - 1);
+        ctx.fillText(tick.text, x, tickY);
         lastRight = right;
     });
+    if (frequencyTitle) {
+        drawFrequencyAxisTitle(ctx, padL, plotW, H, frequencyTitle, mutedColor);
+    }
 }

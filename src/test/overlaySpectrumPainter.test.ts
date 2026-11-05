@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { DEFAULT_THEME, type CanvasDrawCtx } from '../webview/draw/canvasDrawers';
 import { paintOverlaySpectrum, renderSpectrumAxisLegend, SECONDARY_AXIS_MARK, type OverlaySpectrumHover } from '../webview/runtime/overlaySpectrumPainter';
+import { SpectrumView } from '../webview/runtime/spectrumView';
 import { OVERLAY_SPECTRUM_PAD, overlayLevelAxes, spectrumReadoutText, spectrumVisibleWindow, steppedOverlaySpectrumHoverNorm, type SpectrumViewState } from '../webview/runtime/spectrumRuntime';
 import type { SpectrumSeries } from '../webview/runtime/types';
 
@@ -191,4 +192,31 @@ test('paintOverlaySpectrum: with two level axes the level guide runs only to the
     const guide = lines.find(([, y0, x1, y1]) => y0 === y1 && y0 < 20 && x1 === 352);
     assert.ok(guide, JSON.stringify(lines));
     assert.ok(guide[0] > 48 + 50, 'the guide does not reach the left axis');
+});
+
+test('reordering a Pa track and a V track clears a dB zoom kept in the old left axis\' dB', () => {
+    // As the overlay does before each paint: the left axis' reference first, then the axes from the view.
+    const view = new SpectrumView();
+    const leftAxes = (series: SpectrumSeries[]) => {
+        view.followLevelReference(overlayLevelAxes(series, view.state())[0].reference);
+        return overlayLevelAxes(series, view.state());
+    };
+    leftAxes(mixed);
+    view.setDbRange(60, 70);
+    assert.deepEqual([leftAxes(mixed)[0].visible.dbMin, leftAxes(mixed)[0].visible.dbMax], [60, 70]);
+    // The V track moved ahead: its own range on the left, not 60–70 dB re 1 V where none of its lines are.
+    const reordered = leftAxes([mixed[1], mixed[0]]);
+    assert.deepEqual(reordered.map(axis => [axis.reference, axis.visible.dbMin, axis.visible.dbMax]), [['dB re 1 V', -60, -20], ['dB SPL re 20 µPa', 40, 80]]);
+});
+
+test('paintOverlaySpectrum names the frequency axis under its ticks', () => {
+    const texts: Array<{ text: string; y: number }> = [];
+    const { ctx } = recordingCtx();
+    const recording = new Proxy(ctx, { get(target, prop) { return prop === 'fillText' ? (text: string, _x: number, y: number) => { texts.push({ text, y }); } : Reflect.get(target, prop); } });
+    paintOverlaySpectrum(recording, 400, 200, series, fullView, noHover, null, DEFAULT_THEME, 'Frequency [Hz]');
+    const title = texts.find(t => t.text === 'Frequency [Hz]');
+    assert.equal(title?.y, 199, 'in the bottom row');
+    const tick = texts.find(t => t.text === '0 Hz');
+    assert.ok(tick && tick.y < 199 - 9, 'the ticks sit above it');
+    assert.ok(OVERLAY_SPECTRUM_PAD.bottom >= 29);
 });
