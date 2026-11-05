@@ -408,7 +408,6 @@ export class PanelController implements vscode.Disposable {
             },
             panelReady: (message) => this.handlePanelReady(session, message),
             selectPythonEnvironment: async () => { await this.host.executeCommand('audioWandasAnalyzer.selectPythonEnvironment'); },
-            runRecipe: async () => { await this.host.executeCommand('audioWandasAnalyzer.runRecipe', session.getActiveFilePaths()); },
             // The report folder goes inside a folder the user picks; nothing is written if they cancel.
             saveReportFolder: async (folder, files) => {
                 const picked = await this.host.showOpenDialog({ canSelectFiles: false, canSelectFolders: true, canSelectMany: false, openLabel: this.strings().compareReport });

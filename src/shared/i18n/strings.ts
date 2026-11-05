@@ -26,7 +26,6 @@ export interface UiStrings {
     browserAggregateLimit: string;
     browserReady: string;
     browserWorkerFailed: string;
-    browserAnalysisStopped: string;
     browserRemoveFailed: string;
     browserFolderReadFailed: string;
     browserFileFailed: string;
@@ -40,13 +39,6 @@ export interface UiStrings {
     browserFolderOpened: string;
     browserDropNoWav: string;
     browserUnavailable: string;
-    browserRecipePick: string;
-    browserRecipeOpenFile: string;
-    browserRecipeRun: string;
-    hintRecipeOpenFile: string;
-    browserRecipeNoSources: string;
-    browserRecipeDone: string;
-    btnCloseRecipeResult: string;
 
     panelTitle: string;
     emptyAllExcluded: string;
@@ -80,11 +72,13 @@ export interface UiStrings {
     toolbarExportLabel: string;
     heightTrackLabel: string;
     heightSpectrumLabel: string;
-    btnRunRecipe: string;
+    btnOpenRecipe: string;
+    recipeOpened: string;
+    recipeOpenNotRecipe: string;
+    recipeOpenInputs: string;
+    recipeOpenNotChain: string;
+    recipeOpenPair: string;
     btnSaveRecipe: string;
-    chartSpecNoResults: string;
-    chartSpecScalarLabelHeader: string;
-    chartSpecScalarUnitHeader: string;
     cursorDisplayHint: string;
     toolbarCursorLabel: string;
     loopBadge: string;
@@ -695,7 +689,7 @@ export interface UiStrings {
     hintZoomReset: string;
     hintRectZoom: string;
     hintMenuExport: string;
-    hintRunRecipe: string;
+    hintOpenRecipe: string;
     hintSaveRecipe: string;
     hintSpecZoomOut: string;
     hintSpecZoomIn: string;
@@ -806,17 +800,6 @@ export interface UiStrings {
     debugPathNotConfigured: string;
     debugPathNotFound: string;
     analysisProgressTitle: string;
-    recipePickPlaceholder: string;
-    recipeBrowseLabel: string;
-    recipeBrowseDescription: string;
-    recipeFileFilter: string;
-    recipeOpenLabel: string;
-    recipeInputsOpenLabel: string;
-    recipeInputPlaceholder: string;
-    recipeNotDocument: string;
-    recipeReadFailed: string;
-    recipeRunFailed: string;
-    recipeRunning: string;
     calibrationNoPanel: string;
     calibrationNoChannels: string;
     calibrationPickTrack: string;
@@ -844,7 +827,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         browserPreparing: 'Preparing local Python Worker / adding files…',
         browserReady: 'waveform ready. {count} tracks; add more files to compare. No automatic playback.',
         browserWorkerFailed: 'Audio Worker failed; select the files again.',
-        browserAnalysisStopped: 'The analysis stopped: {error}',
         browserRemoveFailed: 'Could not remove the track: {error}',
         browserFolderReadFailed: 'Could not read the folder: {error}',
         browserFileFailed: '{file} could not be opened: {error}',
@@ -858,13 +840,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         browserFolderOpened: 'Opened a folder with {count} readable files. Put files in slots 0–3 or press ＋ on a row to show them as tracks.',
         browserDropNoWav: 'Drop audio or CSV files to add them as tracks; use Open Folder for folders.',
         browserUnavailable: 'Not available in the browser version.',
-        browserRecipePick: 'Recipes',
-        browserRecipeOpenFile: 'From file…',
-        browserRecipeRun: 'Run',
-        hintRecipeOpenFile: 'Run a wandas .recipe.json from your computer',
-        browserRecipeNoSources: 'Add files first; recipes run on the loaded tracks.',
-        browserRecipeDone: 'Recipe finished: ',
-        btnCloseRecipeResult: 'Close recipe result',
 
         btnOpenAnotherFolder: 'Open another folder',
         btnOpenFolder: 'Open Folder',
@@ -889,11 +864,13 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         toolbarExportLabel: 'Export',
         heightTrackLabel: 'Track',
         heightSpectrumLabel: 'Spectrum',
-        btnRunRecipe: 'Run recipe',
+        btnOpenRecipe: 'Open recipe…',
+        recipeOpened: 'Opened {name} in the step bar',
+        recipeOpenNotRecipe: '{name} is not a wandas recipe',
+        recipeOpenInputs: '{name} has {count} inputs and cannot open in the step bar: it takes a recipe with one input, or two (a reference and a response)',
+        recipeOpenNotChain: '{name} branches or leaves steps unused, and the step bar runs one line of steps, so it cannot open',
+        recipeOpenPair: '{name} cannot open in the step bar: its two inputs must take the same single channel, through the same steps, into one cross-channel step (the response over the reference)',
         btnSaveRecipe: 'Save as recipe',
-        chartSpecNoResults: 'Recipe returned no charts.',
-        chartSpecScalarLabelHeader: 'Label',
-        chartSpecScalarUnitHeader: 'Unit',
         toolbarCursorLabel: 'Cursor',
         cursorDisplayHint: 'Cursor time: click a waveform, then fine-tune with ← → (Shift: 100 ms)',
         loopBadge: '🔁 Looping',
@@ -1492,7 +1469,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintZoomReset: 'Show the whole time range (key: 0, or double-click a waveform)',
         hintRectZoom: 'Box zoom mode: drag on a waveform to zoom into that box',
         hintMenuExport: 'Everything that is written out: the tracks (PNG, CSV, WAV, report), the comparison folder, the Recipe for many files, the table and its memos',
-        hintRunRecipe: 'Run an analysis recipe on the loaded tracks',
+        hintOpenRecipe: 'Put a wandas .recipe.json in the step bar and run it on the compared recordings',
         hintSaveRecipe: 'Save the bottom panel analysis over whole files, with its current settings, as a recipe',
         hintSpecZoomOut: 'Zoom the spectrum out',
         hintSpecZoomIn: 'Zoom the spectrum in (or drag a box on the spectrum)',
@@ -1603,17 +1580,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         debugPathNotConfigured: 'Debug audio path is not configured. Set audioWandasAnalyzer.debugFilePath to an audio file or directory.',
         debugPathNotFound: 'Debug audio path was not found: {path}. Update audioWandasAnalyzer.debugFilePath or add the file or directory.',
         analysisProgressTitle: 'Analyzing {files} with wandas',
-        recipePickPlaceholder: 'Select a wandas recipe',
-        recipeBrowseLabel: '$(folder-opened) Browse...',
-        recipeBrowseDescription: 'Pick a recipe JSON from disk',
-        recipeFileFilter: 'Recipe JSON',
-        recipeOpenLabel: 'Use recipe',
-        recipeInputsOpenLabel: 'Use as recipe input',
-        recipeInputPlaceholder: 'Recipe input "{name}" ({index}/{total})',
-        recipeNotDocument: '{path} is not a recipe document',
-        recipeReadFailed: 'Could not read recipes: {message}',
-        recipeRunFailed: 'Recipe execution failed: {message}',
-        recipeRunning: 'Running recipe {title}…',
         calibrationNoPanel: 'Open an audio analysis panel before configuring calibration.',
         calibrationNoChannels: 'The active analysis panel has no calibratable audio channels.',
         calibrationPickTrack: 'Select a track to calibrate',
@@ -1639,7 +1605,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         browserPreparing: 'ローカルPython Workerを準備・ファイルを追加しています…',
         browserReady: '波形の準備完了。{count}トラック。ファイルを追加して比較できます。自動再生は行いません。',
         browserWorkerFailed: '音声Workerで障害が発生しました。ファイルを選択し直してください。',
-        browserAnalysisStopped: '解析を中断しました: {error}',
         browserRemoveFailed: 'トラックを外せませんでした: {error}',
         browserFolderReadFailed: 'フォルダを読めませんでした: {error}',
         browserFileFailed: '{file} を開けませんでした: {error}',
@@ -1653,13 +1618,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         browserFolderOpened: '読み込めるファイルを{count}件含むフォルダを開きました。0〜3 のスロットに入れるか、行の ＋ でトラックとして表示します。',
         browserDropNoWav: 'ドロップできるのは音声ファイルとCSVです。フォルダは「フォルダを開く」から開いてください。',
         browserUnavailable: 'Web版では未対応です。',
-        browserRecipePick: 'レシピ',
-        browserRecipeOpenFile: 'ファイルから…',
-        browserRecipeRun: '実行',
-        hintRecipeOpenFile: '手元の wandas .recipe.json を実行',
-        browserRecipeNoSources: '先にファイルを追加してください。レシピは読み込んだトラックに対して実行します。',
-        browserRecipeDone: 'レシピ実行完了: ',
-        btnCloseRecipeResult: 'レシピ結果を閉じる',
 
         btnOpenAnotherFolder: '別のフォルダを開く',
         btnOpenFolder: 'フォルダを開く',
@@ -1684,11 +1642,13 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         toolbarExportLabel: '書き出し',
         heightTrackLabel: 'トラック',
         heightSpectrumLabel: 'スペクトル',
-        btnRunRecipe: 'レシピ実行',
+        btnOpenRecipe: 'レシピを開く…',
+        recipeOpened: '{name} を手順バーに読み込みました',
+        recipeOpenNotRecipe: '{name} は wandas のレシピではありません',
+        recipeOpenInputs: '{name} は入力が {count} つあるため、手順バーでは開けません（開けるのは入力が 1 つか、基準と応答の 2 つのレシピです）',
+        recipeOpenNotChain: '{name} は途中で分かれているか使われない手順があり、手順バーは一列の手順だけを扱うため開けません',
+        recipeOpenPair: '{name} は手順バーで開けません（2 つの入力が同じ 1 チャンネルを同じ手順で取り、1 つの 2 チャンネル解析で応答／基準を求める形である必要があります）',
         btnSaveRecipe: 'レシピとして保存',
-        chartSpecNoResults: 'レシピは何もチャートを返しませんでした。',
-        chartSpecScalarLabelHeader: '項目',
-        chartSpecScalarUnitHeader: '単位',
         toolbarCursorLabel: 'カーソル',
         cursorDisplayHint: 'カーソル時刻: 波形をクリックし、← → で微調整（Shift: 100 ms）',
         loopBadge: '🔁 ループ再生中',
@@ -2287,7 +2247,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintZoomReset: '全体を表示（キー: 0、または波形をダブルクリック）',
         hintRectZoom: '矩形ズームモード: 波形上をドラッグした範囲にズーム',
         hintMenuExport: '書き出しはすべてここ：トラック（PNG・CSV・WAV・レポート）、比較フォルダ、レシピのまとめ、表とメモ',
-        hintRunRecipe: '読み込んだトラックに解析レシピを実行',
+        hintOpenRecipe: '手元の wandas .recipe.json を手順バーに読み込み、比較中の録音に適用する',
         hintSaveRecipe: '下のパネルの解析を、今の設定でファイル全体を計算するレシピとして保存',
         hintSpecZoomOut: 'スペクトルをズームアウト',
         hintSpecZoomIn: 'スペクトルをズームイン（スペクトル上のドラッグでも可）',
@@ -2398,17 +2358,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         debugPathNotConfigured: 'デバッグ用の音声パスが設定されていません。audioWandasAnalyzer.debugFilePath に音声ファイルかフォルダを指定してください。',
         debugPathNotFound: 'デバッグ用の音声パスが見つかりません: {path}。audioWandasAnalyzer.debugFilePath を直すか、ファイルまたはフォルダを追加してください。',
         analysisProgressTitle: 'wandas で {files} を解析しています',
-        recipePickPlaceholder: 'wandas レシピを選択',
-        recipeBrowseLabel: '$(folder-opened) 参照...',
-        recipeBrowseDescription: 'ディスクからレシピ JSON を選択',
-        recipeFileFilter: 'レシピ JSON',
-        recipeOpenLabel: 'このレシピを使う',
-        recipeInputsOpenLabel: 'レシピの入力にする',
-        recipeInputPlaceholder: 'レシピの入力「{name}」({index}/{total})',
-        recipeNotDocument: '{path} はレシピではありません',
-        recipeReadFailed: 'レシピを読み込めませんでした: {message}',
-        recipeRunFailed: 'レシピを実行できませんでした: {message}',
-        recipeRunning: 'レシピ {title} を実行しています…',
         calibrationNoPanel: '校正を設定する前に音声解析パネルを開いてください。',
         calibrationNoChannels: 'アクティブな解析パネルに校正できる音声チャンネルがありません。',
         calibrationPickTrack: '校正するトラックを選択',

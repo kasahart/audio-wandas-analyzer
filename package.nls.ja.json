@@ -3,7 +3,6 @@
   "command.analyzeThisTarget.title": "Audio Analyzer で解析",
   "command.analyzeDebugFile.title": "Audio Analyzer: デバッグパスを解析",
   "command.selectPythonEnvironment.title": "Audio Analyzer: Python 環境を選択",
-  "command.runRecipe.title": "Audio Analyzer: wandas レシピを実行",
   "command.configureCalibration.title": "Audio Analyzer: 校正値を設定",
   "viewsContainer.title": "Audio Analyzer",
   "views.welcomeView.name": "Audio Analyzer",

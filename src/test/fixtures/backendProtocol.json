@@ -79,29 +79,6 @@
       }
     },
     {
-      "command": "run-recipe",
-      "request": {
-        "cmd": "run-recipe",
-        "requestId": "r1",
-        "recipe": {
-          "schema": "wandas.recipe",
-          "version": 3,
-          "inputs": [
-            {
-              "id": "input-0",
-              "name": "signal",
-              "kind": "frame"
-            }
-          ],
-          "nodes": [],
-          "output": "input-0"
-        },
-        "inputs": {
-          "signal": "tone.wav"
-        }
-      }
-    },
-    {
       "command": "spectrum-slice",
       "request": {
         "cmd": "spectrum-slice",
@@ -267,28 +244,6 @@
         "requestId": "r1"
       },
       "errorField": "unknown cmd"
-    },
-    {
-      "command": "run-recipe",
-      "request": {
-        "cmd": "run-recipe",
-        "requestId": "r1",
-        "recipe": "not an object",
-        "inputs": {}
-      },
-      "errorField": "recipe"
-    },
-    {
-      "command": "run-recipe",
-      "request": {
-        "cmd": "run-recipe",
-        "requestId": "r1",
-        "recipe": {},
-        "inputs": {
-          "signal": 1
-        }
-      },
-      "errorField": "inputs"
     },
     {
       "command": "range",
@@ -580,25 +535,6 @@
         "requestId": "export-wav-loop",
         "wavBase64": "UklGRg==",
         "sampleRate": 16000
-      }
-    },
-    {
-      "command": "run-recipe",
-      "response": {
-        "requestId": "run-recipe",
-        "charts": [
-          {
-            "kind": "scalar",
-            "title": "Peak",
-            "rows": [
-              {
-                "label": "max",
-                "value": 1.5,
-                "unit": "Pa"
-              }
-            ]
-          }
-        ]
       }
     },
     {

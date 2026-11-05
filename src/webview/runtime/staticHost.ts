@@ -1,7 +1,7 @@
 import { createIdbStore } from './idbStore';
 import { SessionRequests, SourceResults } from '../../shared/analysis/analysisSession';
 import { runAnalysisBatch } from '../../shared/analysis/analysisCoordinator';
-import { AnalysisClient, type AnalysisCancellationSignal, type AnalysisContextPolicy } from '../../shared/analysis/analysisClient';
+import { AnalysisClient, type AnalysisCancellationSignal } from '../../shared/analysis/analysisClient';
 import { userErrorText, type ScanResult, type BackendCommand, type BackendPayload, type BackendResult } from '../../shared/protocol/backendProtocol';
 import type { BrowserLimits, StageDetail } from '../../shared/protocol/generated/backendProtocolSchema';
 import { createWorkerConnection } from './staticWorker';
@@ -10,9 +10,7 @@ import { hasPlayableAudio, isSupportedAudioFile } from '../../shared/utils/audio
 import { getStrings, pickLocale } from '../../shared/i18n/strings';
 import { loadSpectrogramSettings, saveSpectrogramSettings } from '../../shared/analysis/savedSpectrogramSettings';
 import { ComparisonSessionController, type ComparisonSessionPorts, type SessionScope } from '../../shared/session/comparisonSessionController';
-import { RecipeFlow, recipeBaseName, type RecipeCatalogEntry } from '../../shared/recipe/recipeFlow';
-import { describeInputs, isRecipeDocument, type RecipeDocument } from '../../shared/recipe/recipeSelection';
-import { createRecipeMenus } from './recipePicker';
+import { isRecipeDocument, type RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { createStaticDownloads } from './staticDownloads';
 import type { HostInboundMessage } from './hostMessaging';
 import type { ComparisonWindow } from './browserAdapter';
@@ -20,7 +18,7 @@ import type { ComparisonTrackState, WebviewHostApi } from './types';
 import { sanitizePersistedState } from './stateStore';
 import type { AnalysisResult, AnalysisResultWithError } from '../../shared/analysis/analysisTypes';
 import type { ScanReference } from '../../shared/analysis/entryScan';
-import { choose, showRecipeCharts } from './staticDialogs';
+import { choose } from './staticDialogs';
 import { createStaticFooter } from './staticFooter';
 import { sampleRecordings } from './sampleRecordings';
 import {
@@ -39,8 +37,6 @@ interface Source {
     result: AnalysisResultWithError;
 }
 
-class RecipeWorkerResetError extends Error {}
-
 /** Browser globals the static host reaches; tests pass fakes instead of running the bundle in a vm. */
 export interface StaticHostDeps {
     window: Window;
@@ -49,8 +45,6 @@ export interface StaticHostDeps {
     fetch: typeof fetch;
     URL: Pick<typeof URL, 'createObjectURL' | 'revokeObjectURL'>;
     setTimeout: typeof setTimeout;
-    /** Overrides AnalysisClient's Recipe timeout; tests shorten it. */
-    recipeTimeoutMs?: number;
     /** Files a scan must load before the Worker is replaced afterwards (20); tests lower it. */
     restartAfterScans?: number;
 }
@@ -193,16 +187,6 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         return appState.spectrogramSettings.auto ? {} : { stftOptions: appState.spectrogramSettings.stft };
     }
     const analysisClient = new class extends AnalysisClient {
-        constructor(policy: AnalysisContextPolicy) {
-            super(policy);
-            if (deps.recipeTimeoutMs !== undefined) this.recipeTimeoutMs = deps.recipeTimeoutMs;
-        }
-        protected override cancelRequest(requestId: string, reason: Error): void {
-            if (!audioWorker.isWaiting(requestId)) return;
-            audioWorker.reset(new RecipeWorkerResetError(reason.message));
-            emit({ type: 'reanalyze-end' });
-            announce(failedWith(strings.browserAnalysisStopped, reason));
-        }
         protected async request<K extends BackendCommand>(command: K, payload: BackendPayload<K>, requestId?: string, cancellation?: AnalysisCancellationSignal): Promise<BackendResult<K>> {
             return audioWorker.request({ ...payload, cmd: command }, undefined, requestId, cancellation);
         }
@@ -226,58 +210,14 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         }
         const myGeneration = sourceGeneration.current;
         try { await audioWorker.request({ cmd: 'unload', filePath: path }); }
-        catch (error) { if (!(error instanceof RecipeWorkerResetError) && sourceGeneration.isCurrent(myGeneration)) { dispose(); snapshot(); emit({ type: 'reanalyze-end' }); announce(failedWith(strings.browserRemoveFailed, error)); } }
+        catch (error) { if (sourceGeneration.isCurrent(myGeneration)) { dispose(); snapshot(); emit({ type: 'reanalyze-end' }); announce(failedWith(strings.browserRemoveFailed, error)); } }
     }
     async function fetchJson(url: string): Promise<unknown> {
         const response = await fetch(url);
         if (!response.ok) throw new Error(`${url}: HTTP ${response.status}`);
         return response.json();
     }
-    const recipeMenus = createRecipeMenus(document, window, strings);
     const downloads = createStaticDownloads({ document, URL, setTimeout });
-    /** Track names, or their paths under `/sources` where two of the given tracks share a name, as the file list shows them. */
-    function trackLabels(paths: string[]): (path: string) => string {
-        const nameOf = (path: string): string => sources.get(path)?.name ?? recipeBaseName(path);
-        const distinct = Array.from(new Set(paths));
-        return path => distinct.some(other => other !== path && nameOf(other) === nameOf(path)) ? path.slice('/sources/'.length) : nameOf(path);
-    }
-    // A recipe opened from disk is run by its file name, so the backend titles its charts after the file.
-    const localRecipes = new Map<string, File>();
-    const recipeFlow = new RecipeFlow({
-        listRecipes: async (): Promise<RecipeCatalogEntry[]> => {
-            const manifest = await fetchJson('./recipes/manifest.json');
-            if (!Array.isArray(manifest)) throw new Error('Invalid recipe manifest');
-            return manifest as RecipeCatalogEntry[];
-        },
-        pickRecipe: async (_items, entries) => {
-            const pick = await recipeMenus.pickRecipe(entries);
-            localRecipes.clear();
-            if (!pick || 'location' in pick) return pick?.location;
-            localRecipes.set(pick.file.name, pick.file);
-            return pick.file.name;
-        },
-        readRecipe: async location => {
-            const local = localRecipes.get(location);
-            const recipe: unknown = local ? JSON.parse(await local.text()) : await fetchJson(location);
-            if (!isRecipeDocument(recipe)) throw new Error(`${location} is not a recipe document`);
-            return recipe;
-        },
-        pickInputFiles: async () => { announce(strings.browserRecipeNoSources); return undefined; },
-        assignInputs: (names, files, proposed) => {
-            const label = trackLabels(files);
-            return recipeMenus.assignInputs(names, files.map(path => ({ path, name: label(path) })), proposed);
-        },
-        runWithProgress: async (title, task) => { announce(title); return task(); },
-        execute: async (recipe, inputs, location) => {
-            if (!sources.size) throw new Error(strings.browserRecipeNoSources);
-            return analysisClient.runRecipe(recipe, inputs, { recipePath: location });
-        },
-        showCharts: (title, charts, inputs) => {
-            showRecipeCharts(document, strings, title, charts, describeInputs(inputs, trackLabels(sources.snapshot(source => source.path))), acceptDrops);
-            announce(strings.browserRecipeDone + title);
-        },
-        showError: announce,
-    }, strings);
     // Browser host: owned sources, Worker transport, localStorage and downloads behind the shared session contract.
     const ports: ComparisonSessionPorts = {
         strings,
@@ -285,10 +225,8 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             const myGeneration = sourceGeneration.current;
             const myReanalysis = message.type === 'request-reanalyze' ? reanalysisGeneration.advance() : undefined;
             const owner = 'filePath' in message ? sources.get(message.filePath) : undefined;
-            const recipeOwners = message.type === 'run-recipe' ? Array.from(sources.values()) : [];
             const isCurrent = (): boolean => sourceGeneration.isCurrent(myGeneration)
                 && (owner === undefined || sources.owns(owner.path, owner))
-                && recipeOwners.every(source => sources.owns(source.path, source))
                 && (myReanalysis === undefined || reanalysisGeneration.isCurrent(myReanalysis));
             return { isCurrent, canPublish: isCurrent };
         },
@@ -376,7 +314,6 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
                     try { await audioWorker.request({ cmd: 'unload', filePath: path }); }
                     catch (error) {
                         if (!sourceGeneration.isCurrent(myGeneration)) return;
-                        if (error instanceof RecipeWorkerResetError) { snapshot(); return; }
                         dispose(); snapshot(); announce(failedWith(strings.browserRemoveFailed, error));
                         return;
                     }
@@ -400,10 +337,6 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         showInformation: announce,
         showError: announce,
         unsupported: reportUnavailable,
-        runRecipe: async (scope): Promise<void> => {
-            if (!sources.size) { announce(strings.browserRecipeNoSources); return; }
-            await recipeFlow.run(sources.snapshot(source => source.path), () => scope.isCurrent());
-        },
         // A browser cannot write a folder, so the report folder arrives as one zip named after it.
         async saveReportFolder(folder, files) {
             downloads.folder(folder, files);
@@ -483,10 +416,10 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
                     const result = await analysisClient.analyze(loadedPath, stft());
                     return { path: loadedPath, sourceId, result };
                 } catch (error) {
-                    if (!(error instanceof RecipeWorkerResetError) && sourceGeneration.isCurrent(myGeneration) && loadedPath) {
+                    if (sourceGeneration.isCurrent(myGeneration) && loadedPath) {
                         try { await audioWorker.request({ cmd: 'unload', filePath: loadedPath }); }
                         catch (releaseError) {
-                            if (!(releaseError instanceof RecipeWorkerResetError) && sourceGeneration.isCurrent(myGeneration)) { dispose(); snapshot(); announce(String(releaseError)); }
+                            if (sourceGeneration.isCurrent(myGeneration)) { dispose(); snapshot(); announce(String(releaseError)); }
                             throw releaseError;
                         }
                     }

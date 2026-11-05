@@ -34,7 +34,6 @@ export const GUI_TRIGGERABILITY_SCOPED_COMMAND_IDS = [
     'audioWandasAnalyzer.analyzeFile',
     'audioWandasAnalyzer.analyzeThisTarget',
     'audioWandasAnalyzer.selectPythonEnvironment',
-    'audioWandasAnalyzer.runRecipe',
     'audioWandasAnalyzer.configureCalibration',
 ] as const;
 
@@ -45,11 +44,6 @@ export const GUI_TRIGGERABILITY_EXCLUDED_COMMAND_IDS = [
 export const GUI_TRIGGERABILITY_WEBVIEW_ACTION_IDS = [
     'browser-open-wav',
     'browser-about',
-    'browser-recipe-close',
-    'browser-recipe-pick',
-    'browser-recipe-file',
-    'browser-recipe-input',
-    'browser-recipe-run',
     'open-file',
     'open-folder',
     'select-python-environment',
@@ -85,7 +79,7 @@ export const GUI_TRIGGERABILITY_WEBVIEW_ACTION_IDS = [
     'wave-mode-rect-zoom',
     'zoom-to-selection',
     'toggle-follow-cursor',
-    'run-recipe',
+    'open-recipe',
     'save-recipe',
     'export-png',
     'export-csv',
@@ -412,10 +406,10 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
         regressionLayers: ['node:test', 'ui-smoke'],
     },
     {
-        id: 'recipe-runner',
-        label: 'Run a wandas recipe from the comparison panel',
-        entryPoints: ['results-toolbar', 'command', 'dialog'],
-        triggers: ['audioWandasAnalyzer.runRecipe', 'run-recipe', 'browser-recipe-pick', 'browser-recipe-file', 'browser-recipe-input', 'browser-recipe-run', 'browser-recipe-close'],
+        id: 'recipe-opener',
+        label: 'Open a wandas recipe file in the Compare step bar (from the Export menu)',
+        entryPoints: ['results-toolbar', 'dialog'],
+        triggers: ['open-recipe'],
         regressionLayers: ['node:test', 'ui-smoke'],
     },
     {

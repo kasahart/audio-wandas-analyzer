@@ -262,3 +262,42 @@ test('a step that cannot run on these recordings says why: ＋ greys a 48 kHz-on
     await expect(bar.locator('.step-chip.is-invalid')).toHaveCount(1);
     await expect.poll(async () => (await page.evaluate(() => (window as unknown as { __drawnTexts: string[] }).__drawnTexts)).join(' ')).toContain('boom on this file');
 });
+
+test('a two-input recipe file opened from the Export menu becomes the step bar\'s chain, its cross-channel step paired with the base', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    const read = (name: string) => readFileSync(path.resolve(__dirname, '..', '..', '..', 'python-backend', 'recipes', name), 'utf8');
+    await openEntry(page, scanned!, { recipe: JSON.parse(read('entry-scan.recipe.json')) });
+    const first = await page.locator('[data-entry-rows] tr').first().getAttribute('data-file-path');
+    await page.keyboard.press('1');
+    await page.keyboard.press('Escape');
+    await page.evaluate(filePath => window.dispatchEvent(new MessageEvent('message', { data: { type: 'analysis-update', results: [{
+        filePath, fileName: filePath.split('/').at(-1), audioSource: '', sampleRateHz: 16000, durationSeconds: 2, channelCount: 1, sampleCount: 32000,
+        channels: [{ label: 'L', peakAbsolute: 0.5, fullScale: true, waveform: { min: [-0.5, -0.4], max: [0.5, 0.4], minT: [0.1, 0.6], maxT: [0.4, 0.9], absolutePeak: 0.5 } }],
+    }] } })), first!);
+    await expect(page.locator('.track-row')).toHaveCount(1);
+    const open = async (name: string, text: string) => {
+        await page.locator('#toolbar #tb-export-menu summary').click();
+        const chooser = page.waitForEvent('filechooser');
+        await page.locator('#toolbar [data-action="open-recipe"]').click();
+        await (await chooser).setFiles({ name, mimeType: 'application/json', buffer: Buffer.from(text) });
+    };
+    // Three inputs cannot be one chain on each recording: it says so and opens nothing.
+    const coherence = JSON.parse(read('coherence.recipe.json'));
+    await open('three.recipe.json', JSON.stringify({ ...coherence, inputs: [...coherence.inputs, { id: 'input-2', name: 'more', kind: 'frame' }] }));
+    await expect(page.locator('#task-status')).toHaveAttribute('data-state', 'failed');
+    await expect(page.locator('#task-status')).toContainText('three.recipe.json');
+    await expect(page.locator('.track-stage-bar')).toBeHidden();
+    // Coherence: the reference's and the response's channel joined become one channel paired with the base slot.
+    await open('coherence.recipe.json', read('coherence.recipe.json'));
+    await expect(page.locator('#task-status')).toHaveAttribute('data-state', 'done');
+    const bar = page.locator('.track-stage-bar');
+    await expect(bar).toBeVisible();
+    await expect(bar.locator('.step-chip').filter({ hasText: /coherence/i })).toHaveCount(1);
+    await expect(bar.locator('.step-chip').filter({ hasText: /concat/i })).toHaveCount(0);
+    // The chain opens on its end: the coherence against the base.
+    await expect(bar.locator('.step-chip.is-current')).toContainText(/coherence/i);
+    // Opening it was one edit: ↶ brings back the chain that was there.
+    await bar.locator('[data-action="step-undo"]').click();
+    await expect(bar.locator('.step-chip').filter({ hasText: /coherence/i })).toHaveCount(0);
+    await expect(bar.locator('.step-chip').filter({ hasText: /average spectrum/i })).toHaveCount(1);
+});
