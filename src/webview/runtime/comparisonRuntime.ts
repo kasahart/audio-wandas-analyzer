@@ -3555,7 +3555,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         spectrumHover.target = 'overlay';
     }
 
-    let overlayPrimaryReference: string | null = null;
     function renderOverlaySpectrum() {
         const canvas = canvasById(document, 'spectrum-overlay-canvas');
         if (!canvas) {
@@ -3590,13 +3589,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             overlaySpectrumPainted = false;
             return;
         }
-        // A dB zoom is kept in the left axis' dB: when another reference takes the left axis, it no longer applies.
-        const primaryReference = overlayLevelAxes(slices, spectrumView.state())[0].reference;
-        if (overlayPrimaryReference !== null && primaryReference !== overlayPrimaryReference) {
-            spectrumView.setDbRange(null, null);
-        }
-        overlayPrimaryReference = primaryReference;
-        const paint = paintOverlaySpectrum(ctx, W, H, slices, spectrumView.state(), spectrumHover, specBoxDrag.box, drawTheme());
+        spectrumView.followLevelReference(overlayLevelAxes(slices, spectrumView.state())[0].reference);
+        const paint = paintOverlaySpectrum(ctx, W, H, slices, spectrumView.state(), spectrumHover, specBoxDrag.box, drawTheme(), STR.axisFrequency);
         spectrumView.recordPaint(paint);
         renderSpectrumAxisLegend(document.getElementById('spectrum-axis-legend'), paint.levelAxes);
         if (paint.readout) {

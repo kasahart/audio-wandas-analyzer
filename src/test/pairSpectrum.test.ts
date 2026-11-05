@@ -94,7 +94,8 @@ function recordingContext(): CanvasDrawCtx & { lines: number; texts: string[] } 
 
 test('the pair plot draws ok responses only and reads out the hovered bin', () => {
     const ctx = recordingContext();
-    const readout = paintPairSpectrum(ctx, 400, 180, {
+    // 200 px: each lane is tall enough for its turned title at the mock's 5 px per character.
+    const readout = paintPairSpectrum(ctx, 400, 200, {
         frequencyBins: 3, maxFrequencyHz: 1000,
         curves: [curve(), curve({ status: 'no-overlap', gainDb: [], phaseRad: [], coherence: [] }, 'c.wav')],
     }, { frequencyMin: 0, frequencyMax: 1000 }, { frequencyHz: 520, y: null }, en, DEFAULT_THEME);
@@ -104,6 +105,8 @@ test('the pair plot draws ok responses only and reads out the hovered bin', () =
     // Units sit in the turned axis titles; the ticks are bare numbers.
     assert.ok(ctx.texts.includes('Gain [dB]') && ctx.texts.includes('Phase [°]') && ctx.texts.includes('γ²'));
     assert.ok(ctx.texts.includes('180') && !ctx.texts.some(text => text.endsWith('°') && text !== 'Phase [°]'));
+    // The shared frequency axis is named under its ticks.
+    assert.ok(ctx.texts.includes('Frequency [Hz]'));
 });
 
 test('a cursor synced from past the reference Nyquist is not drawn on the pair plot', () => {

@@ -1,5 +1,5 @@
 import { readoutText } from '../../shared/gui-core/index';
-import { binFrequencyHz, dbLevelUnitFor, frequencyAtFraction, frequencyFraction, nearestBinIndex, type SpectrumPlotFrame } from '../draw/canvasDrawers';
+import { binFrequencyHz, dbLevelUnitFor, FREQUENCY_TITLE_ROW, frequencyAtFraction, frequencyFraction, nearestBinIndex, type SpectrumPlotFrame } from '../draw/canvasDrawers';
 import { formatReadoutHz } from './canvasOverlays';
 import { nearestLine } from './plotHover';
 import type { HostInboundMessage } from './hostMessaging';
@@ -193,7 +193,8 @@ export function spectrumSlicesFromResult(msg: SpectrumSliceResultMessage, cursor
     }));
 }
 
-const overlayPad = { left: 48, right: 8, top: 8, bottom: 18 };
+// The bottom margin holds the frequency ticks and, under them, the frequency axis' title.
+const overlayPad = { left: 48, right: 8, top: 8, bottom: 18 + FREQUENCY_TITLE_ROW };
 /** The overlay's margins. The right one widens while a secondary level axis is drawn; every reader follows it. */
 export const OVERLAY_SPECTRUM_PAD: Readonly<typeof overlayPad> = overlayPad;
 const OVERLAY_PAD_RIGHT = 8;

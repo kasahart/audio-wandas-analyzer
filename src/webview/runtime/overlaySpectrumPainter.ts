@@ -56,6 +56,7 @@ export function paintOverlaySpectrum(
     hover: OverlaySpectrumHover,
     box: SpectrumBoxSpan | null,
     theme: DrawTheme,
+    frequencyTitle = '',
 ): OverlaySpectrumPaint {
     ctx.clearRect(0, 0, W, H);
     const { maxFrequencyHz, logMinFrequencyHz } = spectrumSeriesRange(slices);
@@ -73,7 +74,7 @@ export function paintOverlaySpectrum(
         unit: commonSlice.unit,
         axisLabel: commonSlice.axisLabel,
     };
-    drawSpectrumAxes(ctx, W, H, sharedAxis, pad.left, pad.right, pad.top, pad.bottom, vis.frequencyMin, vis.frequencyMax, vis.dbMin, vis.dbMax, theme, vis.logFrequency, axes[0].title);
+    drawSpectrumAxes(ctx, W, H, sharedAxis, pad.left, pad.right, pad.top, pad.bottom, vis.frequencyMin, vis.frequencyMax, vis.dbMin, vis.dbMax, theme, vis.logFrequency, axes[0].title, frequencyTitle);
     const levelAxes = axes.map(axis => ({ title: axis.title, reference: axis.reference, colors: [...new Set(axis.series.map(s => s.color))] }));
     const result: OverlaySpectrumPaint = { maxFrequencyHz, logMinFrequencyHz, dbMin: vis.dbMin, dbMax: vis.dbMax, painted: false, readout: null, levelAxes };
     if (vis.frequencyMax - vis.frequencyMin <= 0) {

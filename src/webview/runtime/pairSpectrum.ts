@@ -2,7 +2,7 @@ import type { UiStrings } from '../../shared/i18n/strings';
 import type { PairSpectrumPublication } from '../../shared/session/comparisonSessionController';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { drawCrosshair, drawValueAxis, readoutText, stackFrames, type PlotFrame } from '../../shared/gui-core/index';
-import { AXIS_TITLE_X, frequencyAxisTicks, type CanvasDrawCtx, type DrawTheme, type FrequencyScale } from '../draw/canvasDrawers';
+import { AXIS_TITLE_X, drawFrequencyAxisTitle, FREQUENCY_TITLE_ROW, frequencyAxisTicks, type CanvasDrawCtx, type DrawTheme, type FrequencyScale } from '../draw/canvasDrawers';
 import { formatReadoutHz } from './canvasOverlays';
 import { hintAttr } from './hintFooter';
 import type { TrackId } from './types';
@@ -26,7 +26,7 @@ export interface PairCurve {
 
 export type PairStrings = Pick<UiStrings,
     | 'pairReferenceHint' | 'pairReferenceClearHint' | 'pairReferenceBadge' | 'pairAverages' | 'pairFewAveragesHint'
-    | 'pairResampledHint' | 'pairNoOverlapHint' | 'pairTooShortHint' | 'pairOtherUnitHint' | 'pairPhaseLabel' | 'pairCoherenceLabel'>;
+    | 'pairResampledHint' | 'pairNoOverlapHint' | 'pairTooShortHint' | 'pairOtherUnitHint' | 'pairPhaseLabel' | 'pairCoherenceLabel' | 'axisFrequency'>;
 
 /** Below this many averages the γ² estimate is biased high enough to mislead. */
 export const PAIR_FEW_AVERAGES = 8;
@@ -108,7 +108,8 @@ export function pairLegendHtml(curves: readonly PairCurve[], strings: PairString
 }
 
 /** The same margins as the power spectrum beside it, so both plots and their axes line up. */
-export const PAIR_SPECTRUM_PAD = { left: 48, right: 8, top: 8, bottom: 18, gap: 6 } as const;
+// The bottom margin holds the frequency ticks and, under them, the frequency axis' title.
+export const PAIR_SPECTRUM_PAD = { left: 48, right: 8, top: 8, bottom: 18 + FREQUENCY_TITLE_ROW, gap: 6 } as const;
 
 interface PairRow {
     label: string;
@@ -287,8 +288,9 @@ export function paintPairSpectrum(
     ctx.textBaseline = 'bottom';
     frequencyAxisTicks(visible).forEach((tick, index, ticks) => {
         ctx.textAlign = index === 0 ? 'left' : index === ticks.length - 1 ? 'right' : 'center';
-        ctx.fillText(tick.text, pad.left + tick.fraction * plotW, H - 1);
+        ctx.fillText(tick.text, pad.left + tick.fraction * plotW, H - 1 - FREQUENCY_TITLE_ROW);
     });
+    drawFrequencyAxisTitle(ctx, pad.left, plotW, H, strings.axisFrequency, theme.mutedColor);
     if (hoverBin === null) {
         return null;
     }
