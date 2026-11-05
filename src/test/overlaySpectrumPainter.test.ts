@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { DEFAULT_THEME, type CanvasDrawCtx } from '../webview/draw/canvasDrawers';
+import type { CanvasDrawCtx } from '../webview/draw/canvasDrawers';
 import { paintOverlaySpectrum, renderSpectrumAxisLegend, SECONDARY_AXIS_MARK, type OverlaySpectrumHover } from '../webview/runtime/overlaySpectrumPainter';
 import { SpectrumView } from '../webview/runtime/spectrumView';
 import { OVERLAY_SPECTRUM_PAD, overlayLevelAxes, spectrumReadoutText, spectrumVisibleWindow, steppedOverlaySpectrumHoverNorm, type SpectrumViewState } from '../webview/runtime/spectrumRuntime';
@@ -22,6 +22,11 @@ function recordingCtx(): { ctx: CanvasDrawCtx; calls: string[] } {
     return { ctx, calls };
 }
 
+/** A canvas drawn on through `ctx`, at ratio 1 with no style (as paintOverlay is given a fixed size). */
+function canvasOf(ctx: CanvasDrawCtx): HTMLCanvasElement {
+    return { width: 0, height: 0, clientWidth: 0, clientHeight: 0, ownerDocument: { defaultView: null }, getContext: () => ctx } as unknown as HTMLCanvasElement;
+}
+
 const series: SpectrumSeries[] = [{
     slice: { values: [-60, -20, -40, -50], frequencyBins: 4, maxFrequencyHz: 1000, minDb: -60, maxDb: -20, unit: 'dB' },
     color: '#ff0000',
@@ -34,8 +39,8 @@ const noHover: OverlaySpectrumHover = { norm: null, yFrac: null, target: null };
 
 test('paintOverlaySpectrum reports the visible window and clears the readout without a hover', () => {
     const { ctx, calls } = recordingCtx();
-    const paint = paintOverlaySpectrum(ctx, 400, 200, series, fullView, noHover, null, DEFAULT_THEME);
-    assert.equal(calls[0], 'clearRect');
+    const paint = paintOverlaySpectrum(canvasOf(ctx), 400, 200, series, fullView, noHover, null);
+    assert.ok(calls.indexOf('clearRect') >= 0 && calls.indexOf('clearRect') < calls.indexOf('stroke'), 'cleared before anything is drawn');
     assert.equal(paint.painted, true);
     assert.equal(paint.maxFrequencyHz, 1000);
     assert.ok(paint.dbMin <= -60 && paint.dbMax >= -20);
@@ -44,14 +49,14 @@ test('paintOverlaySpectrum reports the visible window and clears the readout wit
 
 test('paintOverlaySpectrum fills the readout from the nearest series under an overlay hover', () => {
     const { ctx } = recordingCtx();
-    const paint = paintOverlaySpectrum(ctx, 400, 200, series, fullView, { norm: 0.3, yFrac: 0.5, target: 'overlay' }, null, DEFAULT_THEME);
+    const paint = paintOverlaySpectrum(canvasOf(ctx), 400, 200, series, fullView, { norm: 0.3, yFrac: 0.5, target: 'overlay' }, null);
     assert.equal(paint.readout?.color, '#ff0000');
     assert.match(paint.readout?.text ?? '', /^A/);
 });
 
 test('paintOverlaySpectrum stops after the axes when the frequency window is empty', () => {
     const { ctx } = recordingCtx();
-    const paint = paintOverlaySpectrum(ctx, 400, 200, series, { ...fullView, freqStart: 0.5, freqEnd: 0.5 }, { norm: 0.3, yFrac: 0.5, target: 'overlay' }, null, DEFAULT_THEME);
+    const paint = paintOverlaySpectrum(canvasOf(ctx), 400, 200, series, { ...fullView, freqStart: 0.5, freqEnd: 0.5 }, { norm: 0.3, yFrac: 0.5, target: 'overlay' }, null);
     assert.equal(paint.painted, false);
     assert.equal(paint.readout, null);
 });
@@ -66,12 +71,12 @@ for (const [bins, tone] of [[1025, 40], [8193, 320]]) {
         const { ctx } = recordingCtx();
         // The pointer one pixel beside the tone (300 px plot) reads the tone.
         const pointer = { norm: binHz(tone) / 24000 + 1 / 300, yFrac: 0.1, target: 'overlay' as const };
-        assert.equal(paintOverlaySpectrum(ctx, 356, 200, dense, fullView, pointer, null, DEFAULT_THEME).readout?.text, readoutAt(tone));
+        assert.equal(paintOverlaySpectrum(canvasOf(ctx), 356, 200, dense, fullView, pointer, null).readout?.text, readoutAt(tone));
         let norm = binHz(tone) / 24000;
         for (let press = 1; press <= 8; press++) {
             norm = steppedOverlaySpectrumHoverNorm(dense, norm, 0.1, { width: 356, height: 200 }, vis, 1) ?? NaN;
             const hover = { norm, yFrac: 0.1, target: 'overlay' as const, stepped: true };
-            assert.equal(paintOverlaySpectrum(ctx, 356, 200, dense, fullView, hover, null, DEFAULT_THEME).readout?.text, readoutAt(tone + press), `press ${press}`);
+            assert.equal(paintOverlaySpectrum(canvasOf(ctx), 356, 200, dense, fullView, hover, null).readout?.text, readoutAt(tone + press), `press ${press}`);
         }
     });
 }
@@ -86,10 +91,10 @@ for (const [bins, tone] of [[1025, 40], [8193, 320]]) {
             const vis = spectrumVisibleWindow(24000, -100, 0, fullView);
             const { ctx } = recordingCtx();
             const pointer = { norm: binHz(tone) / 24000 + 1 / 300, yFrac: 0.1, target: 'overlay' as const };
-            assert.equal(paintOverlaySpectrum(ctx, 356, 200, dense, fullView, pointer, null, DEFAULT_THEME).readout?.text, readoutAt(tone));
+            assert.equal(paintOverlaySpectrum(canvasOf(ctx), 356, 200, dense, fullView, pointer, null).readout?.text, readoutAt(tone));
             const norm = steppedOverlaySpectrumHoverNorm(dense, pointer.norm, 0.1, { width: 356, height: 200 }, vis, delta, true) ?? NaN;
             const hover = { norm, yFrac: 0.1, target: 'overlay' as const, stepped: true };
-            assert.equal(paintOverlaySpectrum(ctx, 356, 200, dense, fullView, hover, null, DEFAULT_THEME).readout?.text, readoutAt(tone + delta));
+            assert.equal(paintOverlaySpectrum(canvasOf(ctx), 356, 200, dense, fullView, hover, null).readout?.text, readoutAt(tone + delta));
         });
     }
 }
@@ -137,17 +142,17 @@ test('paintOverlaySpectrum: a second reference widens the right margin, names it
     const texts: string[] = [];
     const { ctx } = recordingCtx();
     const recording = new Proxy(ctx, { get(target, prop) { return prop === 'fillText' ? (text: string) => { texts.push(text); } : Reflect.get(target, prop); } });
-    const paint = paintOverlaySpectrum(recording, 400, 200, mixed, fullView, noHover, null, DEFAULT_THEME);
+    const paint = paintOverlaySpectrum(canvasOf(recording), 400, 200, mixed, fullView, noHover, null);
     assert.equal(OVERLAY_SPECTRUM_PAD.right, 48);
     assert.ok(texts.includes(SPL) && texts.includes(VOLT), JSON.stringify(texts));
     assert.deepEqual(paint.levelAxes, [{ title: SPL, reference: 'dB SPL re 20 µPa', colors: ['#0000ff'] }, { title: VOLT, reference: 'dB re 1 V', colors: ['#ffff00'] }]);
     // B's peak (-20 dB re 1 V, bin 1) is at the top of the right axis, where the pointer is.
     const hover = { norm: 1 / 3, yFrac: 8 / 200, target: 'overlay' as const };
-    const readout = paintOverlaySpectrum(ctx, 400, 200, mixed, fullView, hover, null, DEFAULT_THEME).readout;
+    const readout = paintOverlaySpectrum(canvasOf(ctx), 400, 200, mixed, fullView, hover, null).readout;
     assert.equal(readout?.color, '#ffff00');
     // "dB" alone could be either axis: the value names its reference.
     assert.ok(readout?.text.startsWith('B') && readout.text.endsWith(' dB re 1 V'), readout?.text);
-    paintOverlaySpectrum(ctx, 400, 200, series, fullView, noHover, null, DEFAULT_THEME);
+    paintOverlaySpectrum(canvasOf(ctx), 400, 200, series, fullView, noHover, null);
     assert.equal(OVERLAY_SPECTRUM_PAD.right, 8, 'one reference gives the margin back');
 });
 
@@ -187,11 +192,12 @@ test('paintOverlaySpectrum: with two level axes the level guide runs only to the
         if (prop === 'lineTo') return (x: number, y: number) => { lines.push([from[0], from[1], x, y]); };
         return Reflect.get(target, prop);
     } });
-    paintOverlaySpectrum(recording, 400, 200, mixed, fullView, { norm: 1 / 3, yFrac: 8 / 200, target: 'overlay' }, null, DEFAULT_THEME);
-    // The plot runs from x 48 to 352 (400 - 48); B is read on the right axis, so its guide starts at the cursor.
-    const guide = lines.find(([, y0, x1, y1]) => y0 === y1 && y0 < 20 && x1 === 352);
+    paintOverlaySpectrum(canvasOf(recording), 400, 200, mixed, fullView, { norm: 1 / 3, yFrac: 8 / 200, target: 'overlay' }, null);
+    // The plot runs from x 52 to 352 (400 - 48); B is read on the right axis, so its guide starts at the cursor.
+    // (The level gridlines also end there, but start at the left axis.)
+    const guide = lines.find(([x0, y0, x1, y1]) => y0 === y1 && y0 < 20 && x1 === 352 && x0 !== 52);
     assert.ok(guide, JSON.stringify(lines));
-    assert.ok(guide[0] > 48 + 50, 'the guide does not reach the left axis');
+    assert.ok(guide[0] > 52 + 50, 'the guide does not reach the left axis');
 });
 
 test('reordering a Pa track and a V track clears a dB zoom kept in the old left axis\' dB', () => {
@@ -209,14 +215,13 @@ test('reordering a Pa track and a V track clears a dB zoom kept in the old left 
     assert.deepEqual(reordered.map(axis => [axis.reference, axis.visible.dbMin, axis.visible.dbMax]), [['dB re 1 V', -60, -20], ['dB SPL re 20 µPa', 40, 80]]);
 });
 
-test('paintOverlaySpectrum names the frequency axis under its ticks', () => {
-    const texts: Array<{ text: string; y: number }> = [];
+test('paintOverlaySpectrum names the frequency axis at the right end of its ticks, as the comparison does', () => {
+    const texts: Array<{ text: string; x: number; y: number }> = [];
     const { ctx } = recordingCtx();
-    const recording = new Proxy(ctx, { get(target, prop) { return prop === 'fillText' ? (text: string, _x: number, y: number) => { texts.push({ text, y }); } : Reflect.get(target, prop); } });
-    paintOverlaySpectrum(recording, 400, 200, series, fullView, noHover, null, DEFAULT_THEME, 'Frequency [Hz]');
+    const recording = new Proxy(ctx, { get(target, prop) { return prop === 'fillText' ? (text: string, x: number, y: number) => { texts.push({ text, x, y }); } : Reflect.get(target, prop); } });
+    paintOverlaySpectrum(canvasOf(recording), 400, 200, series, fullView, noHover, null, 'Frequency [Hz]');
     const title = texts.find(t => t.text === 'Frequency [Hz]');
-    assert.equal(title?.y, 199, 'in the bottom row');
-    const tick = texts.find(t => t.text === '0 Hz');
-    assert.ok(tick && tick.y < 199 - 9, 'the ticks sit above it');
-    assert.ok(OVERLAY_SPECTRUM_PAD.bottom >= 29);
+    assert.equal(title?.y, 197, 'in the bottom row');
+    const ticks = texts.filter(t => t.y === 197 && t !== title);
+    assert.ok(ticks.length > 1 && ticks.every(t => t.x + 10 < (title?.x ?? 0)), 'its ticks stop short of it');
 });

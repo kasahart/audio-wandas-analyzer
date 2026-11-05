@@ -14,12 +14,8 @@ import {
     formatWaveformAxisLabels,
     drawSpectrogramFrequencyAxis,
     drawSpectrogramColorbar,
-    drawSpectrumLine,
-    drawSpectrumAxes,
-    drawSpectrumCrosshair,
     drawSpectrumSelectionBox,
     drawCanvasMessage,
-    strokeSpectrumSeries,
     DEFAULT_THEME,
     type CanvasDrawCtx,
 } from '../webview/draw/canvasDrawers';
@@ -338,147 +334,9 @@ test('drawSpectrogramFrequencyAxis + drawSpectrogramColorbar: putImageData を 1
     assert.equal(puts.length, 1);
 });
 
-// ── drawSpectrumLine ──
-
-const sampleSlice = {
-    values: [-60, -50, -40, -30, -20, -10],
-    frequencyBins: 6,
-    maxFrequencyHz: 22050,
-    minDb: -90,
-    maxDb: 0,
-};
-
-test('drawSpectrumLine: fBins 個の点で線を描画', () => {
-    const ctx = makeMockCtx();
-    drawSpectrumLine(ctx, 800, 100, sampleSlice, '#4ec994');
-    const moveTos = ctx._ops.filter((o) => o.op === 'moveTo').length;
-    const lineTos = ctx._ops.filter((o) => o.op === 'lineTo').length;
-    assert.equal(moveTos, 1);
-    assert.equal(lineTos, 5);
-});
-
-test('drawSpectrumLine: minDb == maxDb のとき何も描画しない', () => {
-    const ctx = makeMockCtx();
-    const flat = { ...sampleSlice, minDb: 0, maxDb: 0 };
-    drawSpectrumLine(ctx, 800, 100, flat, '#fff');
-    assert.equal(ctx._ops.filter((o) => o.op === 'stroke').length, 0);
-});
-
-test('drawSpectrumLine: opts.padL/padR でプロット領域がシフトする', () => {
-    const ctx = makeMockCtx();
-    drawSpectrumLine(ctx, 200, 100, sampleSlice, '#fff', { padL: 20, padR: 10 });
-    const firstMove = ctx._ops.find((o) => o.op === 'moveTo')!;
-    const lastLine = [...ctx._ops].reverse().find((o) => o.op === 'lineTo')!;
-    assert.equal(firstMove.args[0], 20);
-    assert.equal(lastLine.args[0], 200 - 10);
-});
-
-// ── drawSpectrumAxes ──
-
-test('drawSpectrumAxes: 最大/中央/最小 dB の 3 ラベルを描画', () => {
-    const ctx = makeMockCtx();
-    drawSpectrumAxes(ctx, 800, 100, sampleSlice, 30, 5, 5, 15);
-    const dbLabels = ctx._texts.filter((t) => /dB$/.test(t));
-    assert.equal(dbLabels.length, 3);
-    assert.ok(dbLabels.includes('0 dB'));
-    assert.ok(dbLabels.includes('-90 dB'));
-    assert.ok(dbLabels.includes('-45 dB'));
-});
-
-test('drawSpectrumAxes: 0 Hz / 中央 / 最大の 3 周波数ラベルを描画', () => {
-    const ctx = makeMockCtx();
-    drawSpectrumAxes(ctx, 800, 100, sampleSlice, 30, 5, 5, 15);
-    assert.ok(ctx._texts.includes('0 Hz'));
-    const kHzLabels = ctx._texts.filter((t) => /kHz$/.test(t));
-    assert.equal(kHzLabels.length, 2);
-});
-
-test('drawSpectrumAxes: the right-end frequency label stays whole inside the canvas', () => {
-    const ctx = makeMockCtx();
-    drawSpectrumAxes(ctx, 180, 100, sampleSlice, 30, 2, 5, 15);
-    const labels = ctx._ops.filter((o) => o.op === 'fillText' && /Hz$/.test(o.args[0] as string));
-    for (const { args: [text, x] } of labels) {
-        const half = (text as string).length * 5 / 2;
-        assert.ok((x as number) - half >= 0 && (x as number) + half <= 180, `${String(text)} at ${String(x)}`);
-    }
-});
-
-test('drawSpectrumAxes: DEFAULT_THEME を渡しても theme なしと同じ挙動', () => {
-    const a = makeMockCtx();
-    const b = makeMockCtx();
-    drawSpectrumAxes(a, 800, 100, sampleSlice, 30, 5, 5, 15);
-    drawSpectrumAxes(b, 800, 100, sampleSlice, 30, 5, 5, 15, undefined, undefined, undefined, undefined, DEFAULT_THEME);
-    assert.deepEqual(a._texts, b._texts);
-});
-
-
-test('spectrum line clips to the plot and retains source frequencies under a display limit', () => {
-    const ctx = makeMockCtx();
-    drawSpectrumLine(ctx, 200, 100, { ...sampleSlice, originalMaxFrequencyHz: 22050, maxFrequencyHz: 11025 }, '#fff',
-        { padL: 20, padR: 10, padT: 5, padB: 15 }, 1000, 11025, -50, -20);
-    assert.deepEqual(ctx._ops.find((op) => op.op === 'rect')!.args, [20, 5, 170, 80]);
-    assert.equal(ctx._ops.filter((op) => op.op === 'clip').length, 1);
-    assert.equal(ctx._ops.filter((op) => op.op === 'lineTo').length, 2);
-    assert.ok((ctx._ops.find((op) => op.op === 'moveTo')!.args[1] as number) > 85);
-    assert.equal(ctx._ops.at(-1)!.op, 'restore');
-});
-
-test('spectrum axes display the zoomed physical frequency and calibrated levels', () => {
-    const ctx = makeMockCtx();
-    drawSpectrumAxes(ctx, 200, 100, { ...sampleSlice, unit: 'dB SPL' }, 30, 5, 5, 15, 1000, 5000, 20, 80);
-    assert.deepEqual(ctx._texts, ['80 dB SPL', '50 dB SPL', '20 dB SPL', '1.0 kHz', '3.0 kHz', '5.0 kHz']);
-});
-
-// ── drawSpectrumCrosshair ──
+// ── drawSpectrumSelectionBox ──
 
 const crosshairFrame = { padLeft: 10, plotWidth: 100, padTop: 5, plotHeight: 50, frequencyMin: 0, frequencyMax: 1, dbMin: -1, dbMax: 0 };
-
-test('drawSpectrumCrosshair: y があれば破線の縦線と横線をプロット領域内に描き、破線を戻す', () => {
-    const ctx = makeMockCtx();
-    drawSpectrumCrosshair(ctx, crosshairFrame, 40, 20, 'white', 'red');
-    const geometry = ctx._ops.filter((o) => ['moveTo', 'lineTo', 'set strokeStyle', 'setLineDash'].includes(o.op));
-    assert.deepEqual(geometry, [
-        { op: 'setLineDash', args: [[3, 3]] },
-        { op: 'set strokeStyle', args: ['white'] },
-        { op: 'moveTo', args: [40, 5] },
-        { op: 'lineTo', args: [40, 55] },
-        { op: 'set strokeStyle', args: ['red'] },
-        { op: 'moveTo', args: [10, 20] },
-        { op: 'lineTo', args: [110, 20] },
-    ]);
-    assert.equal(ctx._ops[0].op, 'save');
-    assert.equal(ctx._ops[ctx._ops.length - 1].op, 'restore');
-});
-
-test('drawSpectrumCrosshair: y が null なら縦線だけを描く', () => {
-    const ctx = makeMockCtx();
-    drawSpectrumCrosshair(ctx, crosshairFrame, 40, null, 'white', 'red');
-    assert.equal(ctx._ops.filter((o) => o.op === 'stroke').length, 1);
-    assert.ok(!ctx._ops.some((o) => o.op === 'set strokeStyle' && o.args[0] === 'red'));
-});
-
-// ── strokeSpectrumSeries ──
-
-test('strokeSpectrumSeries: プロット領域でクリップし、系列ごとに色を変えて線を引く', () => {
-    const ctx = makeMockCtx();
-    const slice = { values: [-10, -20, -30], frequencyBins: 3, maxFrequencyHz: 1, minDb: -30, maxDb: -10 };
-    strokeSpectrumSeries(ctx, crosshairFrame, [{ slice, color: 'red' }, { slice, color: 'blue' }], 2.5, 1);
-    assert.deepEqual(ctx._ops.slice(0, 4).map((o) => o.op), ['save', 'beginPath', 'rect', 'clip']);
-    assert.deepEqual(ctx._ops[2].args, [10, 5, 100, 50]);
-    assert.equal(ctx.lineWidth, 2.5);
-    const colors = ctx._ops.filter((o) => o.op === 'set strokeStyle').map((o) => o.args[0]);
-    assert.deepEqual(colors, ['red', 'blue']);
-    assert.equal(ctx._ops.filter((o) => o.op === 'stroke').length, 2);
-    assert.equal(ctx._ops[ctx._ops.length - 1].op, 'restore');
-});
-
-test('strokeSpectrumSeries: 系列が空なら線を引かない', () => {
-    const ctx = makeMockCtx();
-    strokeSpectrumSeries(ctx, crosshairFrame, [], 1.4, 1);
-    assert.equal(ctx._ops.filter((o) => o.op === 'stroke').length, 0);
-});
-
-// ── drawSpectrumSelectionBox ──
 
 test('drawSpectrumSelectionBox: 正規化座標の 2 点から左上基準の矩形を塗りと枠で描く', () => {
     const ctx = makeMockCtx();

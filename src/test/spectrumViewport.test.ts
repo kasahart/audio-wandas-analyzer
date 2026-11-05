@@ -27,9 +27,9 @@ test('spectrumVisibleWindow: dB 上書きはデータ値より優先される（
 test('spectrumPlotFrame: パディングを除いたプロット領域と表示範囲を返す', () => {
     const vis = { frequencyMin: 100, frequencyMax: 900, dbMin: -70, dbMax: -5 };
     const overlay = spectrumPlotFrame(300, 120, OVERLAY_SPECTRUM_PAD, vis);
-    assert.equal(overlay.plotWidth, 244);
-    // 120 - 8 above - 29 below (frequency ticks and the frequency axis' title).
-    assert.equal(overlay.plotHeight, 83);
+    assert.equal(overlay.plotWidth, 240);
+    // 120 - 8 above - 16 below (the frequency ticks, with the frequency axis' title at their right end).
+    assert.equal(overlay.plotHeight, 96);
 });
 
 test('steppedSpectrumHoverNorm: 1 ビン移動した周波数を表示範囲の正規化位置に変換する', () => {

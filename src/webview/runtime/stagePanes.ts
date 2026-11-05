@@ -368,6 +368,8 @@ export interface StagePlot {
      * and the signal drawn again at another width (the hover's thicker line).
      */
     signal?: { unit: string; range?: { min: number; max: number }; paint(context: CanvasRenderingContext2D, layer: StageLayer, width: number): void };
+    /** The lines read on the right-hand level axis (`StagePaintOptions.secondary`), placed by its range. */
+    secondary?: StagePlot;
 }
 
 /** Several pictures of one Frame type on one set of axes, as solid lines (or steps) told apart by colour. */
@@ -414,6 +416,13 @@ export interface StagePaintOptions {
      * middle of the pane while nothing is drawn, in its top right corner once some lines are in.
      */
     pending?: { done: number; total: number; label: string };
+    /** The plot's margins in CSS pixels, for a plot whose pointer handling has its own (the comparison's by default). */
+    margins?: PlotMargins;
+    /**
+     * Lines read against a second level reference, on a level axis of their own at the right: `range` is that
+     * axis' range and `title` its name. They are drawn after the left axis' lines, as lines (not signals).
+     */
+    secondary?: { layers: StageLayer[]; range: PaneRange; title: string };
 }
 
 /**
@@ -467,7 +476,8 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
     const muted = style?.getPropertyValue('--muted').trim() || '#888';
     const line = style?.getPropertyValue('--line').trim() || '#444';
     const text = options.labels ? '#222' : style?.getPropertyValue('--text').trim() || '#ddd';
-    const left = PANE_LEFT, top = options.labels ? 40 : 4, bottom = 16, right = 4;
+    const margins = options.margins;
+    const left = margins?.left ?? PANE_LEFT, top = margins?.top ?? (options.labels ? 40 : 4), bottom = margins?.bottom ?? 16, right = margins?.right ?? 4;
     const plotWidth = Math.max(1, width - left - right), plotHeight = Math.max(1, height - top - bottom);
     if (options.labels) {
         context.font = 'bold 14px sans-serif';
@@ -510,7 +520,8 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
     const xAt = (value: number): number => left + xAxis.fraction(value) * plotWidth;
     const heatmap = view.kind === 'heatmap';
     const yAxis = heatmap ? windowed(rowScale(whole), options.window?.y) : null;
-    const yAt = (value: number): number => top + (1 - (Math.max(range.min, Math.min(range.max, value)) - range.min) / (range.max - range.min)) * plotHeight;
+    const levelAt = (axis: PaneRange) => (value: number): number => top + (1 - (Math.max(axis.min, Math.min(axis.max, value)) - axis.min) / (axis.max - axis.min)) * plotHeight;
+    const yAt = levelAt(range);
 
     let levelTicks: AxisTick[] = [];
     const plot: StagePlot = { frame: { left, top, width: plotWidth, height: plotHeight }, xAt, yAt, ratioStep: 1.12, lines: [], diff: !!options.diff };
@@ -611,6 +622,15 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
             strokeStageLine(context, plot, layer, layer.width ?? (layer.view.kind !== 'bar' ? 1.5 : layer.filled ? 1 : 2));
             context.restore();
         }
+        if (options.secondary) {
+            const second: StagePlot = { ...plot, yAt: levelAt(options.secondary.range), lines: [] };
+            plot.secondary = second;
+            for (const layer of options.secondary.layers) {
+                if (layer.view.kind !== 'line' && layer.view.kind !== 'bar') continue;
+                second.lines.push(layer);
+                strokeStageLine(context, second, layer, layer.width ?? (layer.view.kind !== 'bar' ? 1.5 : 2));
+            }
+        }
         context.restore();
     }
     // The frequency or time axis: ticks along the bottom, its name at the right end; a tick label the name would
@@ -633,9 +653,34 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
     const frame = { left, top, width: plotWidth, height: plotHeight };
     drawValueAxis(context, frame, levelTicks, '', { color: muted, font: context.font, titleX: AXIS_TITLE_X });
     drawValueAxis(context, frame, [], axes.y, { color: text, font: context.font, titleX: AXIS_TITLE_X });
+    if (options.secondary && !heatmap) paintRightAxis(context, frame, options.secondary.range, options.secondary.title, width, { muted, line, text });
     // Under the region's corner tag when there is one.
     if (options.pending) paintPending(context, options.pending, left + plotWidth - 6, top + (options.region?.mark === 'tag' ? 38 : 12), 'right', pendingColors);
     return plot;
+}
+
+/** The right-hand level axis: its edge, its ticks beside it and its name up the canvas' right side. */
+function paintRightAxis(context: CanvasRenderingContext2D, frame: { left: number; top: number; width: number; height: number }, range: PaneRange, title: string, width: number, colors: { muted: string; line: string; text: string }): void {
+    const x = frame.left + frame.width;
+    const span = range.max - range.min;
+    context.save();
+    context.strokeStyle = colors.line;
+    context.lineWidth = 1;
+    context.beginPath(); context.moveTo(x, frame.top); context.lineTo(x, frame.top + frame.height); context.stroke();
+    context.fillStyle = colors.muted;
+    context.textAlign = 'left';
+    for (const value of span > 0 ? niceTicks(range.min, range.max, 4) : []) {
+        const fraction = (value - range.min) / span;
+        context.textBaseline = fraction >= 1 ? 'top' : fraction <= 0 ? 'bottom' : 'middle';
+        context.fillText(levelText(value, span), x + 2, frame.top + (1 - fraction) * frame.height);
+    }
+    context.fillStyle = colors.text;
+    context.translate(width - AXIS_TITLE_X, frame.top + frame.height / 2);
+    context.rotate(-Math.PI / 2);
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillText(fittedAxisTitle(title, frame.height, part => context.measureText(part).width), 0, 0);
+    context.restore();
 }
 
 /** One picture of a pane as its line (or its bands as steps), `width` wide, clipped to the plot. */
