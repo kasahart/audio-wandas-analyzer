@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { axisFractionOf, axisValueAt, emptyStageText, eventLayers, stageAxes, stageLevelsHeadline, stageDiffRange, stageHeadline, stageRange, stageHover, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
+import { axisFractionOf, axisValueAt, byLevel, emptyStageText, eventLayers, stageAxes, stageLevelsHeadline, stageDiffRange, stageHeadline, stageRange, stageHover, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
 import type { StageView } from '../shared/protocol/backendProtocol';
 
 const line = (values: number[], quantity: StageView['quantity'] = 'level'): StageView => ({ frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity, xs: [100, 1000, 10000], values });
@@ -151,4 +151,15 @@ test('a spectrum drawn as its own bins spans its stated limits, not edges read o
     assert.ok(Math.abs(axisFractionOf(bins, 20 * Math.sqrt(1200)) - 0.5) < 1e-9);
     // Band centres without limits keep their geometric edges.
     assert.ok(Math.abs(axisValueAt(line([-40, -30, -20]), 0) - 100 / Math.sqrt(10)) < 1e-9);
+});
+
+test('overlaid lines are drawn loudest first, the quietest last on top, by their level on screen', () => {
+    const layer = (color: string, values: number[], quantity: StageView['quantity'] = 'level') => ({ view: line(values, quantity), color });
+    const base = layer('blue', [-40, -40, -40]), loud = layer('yellow', [-20, -40, -40]), quiet = layer('grey', [-60, -60, -60]);
+    assert.deepEqual(byLevel([quiet, base, loud], line([0, 0, 0])).map(item => item.color), ['yellow', 'blue', 'grey']);
+    // Zoomed past the 100 Hz point, the yellow and blue lines are as loud: they keep their order.
+    assert.deepEqual(byLevel([base, loud, quiet], line([0, 0, 0]), { start: 0.4, end: 1 }).map(item => item.color), ['blue', 'yellow', 'grey']);
+    // Lines not in dB keep their place, after the levels.
+    const coherence = layer('green', [0.9, 0.9, 0.9], 'coherence');
+    assert.deepEqual(byLevel([coherence, quiet, loud], line([0, 0, 0])).map(item => item.color), ['yellow', 'grey', 'green']);
 });
