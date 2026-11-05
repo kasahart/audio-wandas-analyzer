@@ -9,6 +9,8 @@ import { isRecipeChain, recipeChain, recipeNodes, SLOT_REFERABLE, withSlotRefere
 
 const GET_CHANNEL = 'wandas.frame.get_channel';
 const CONCAT = 'wandas.channel.concat_frame';
+const RESAMPLING = 'wandas.audio.resampling';
+const SELECT_PAIR = 'wandas.frame.select_pair';
 
 export type OpenedRecipe = { recipe: RecipeDocument } | { reason: 'not-recipe' | 'not-chain' | 'inputs' };
 
@@ -25,9 +27,12 @@ export function openedRecipe(value: unknown): OpenedRecipe {
 }
 
 /**
- * input-0 → [get_channel] ┐
- * input-1 → [get_channel] ┴ concat_frame → cross-channel step → …   becomes   input-0 → [get_channel] → step (base slot) → …
- * The base slot plays the first input (the reference), each compared recording the second (the response).
+ * input-0 → [get_channel → resampling] ┐
+ * input-1 → [get_channel → resampling] ┴ concat_frame → cross-channel step → [its (response, reference) pair] → …
+ *   becomes   input-0 → [get_channel → resampling] → step (base slot) → …
+ * The base slot plays the first input (the reference), each compared recording the second (the response). Each compared
+ * recording runs the reference's side, so both sides must be the same steps with the same parameters; and the base slot
+ * always gives the compared recording over the base, so a pair picked after the step must be that one.
  */
 function pairedAsSlot(recipe: RecipeDocument): RecipeDocument | undefined {
     const [first, second] = recipe.inputs.map(input => input.id);
@@ -35,22 +40,46 @@ function pairedAsSlot(recipe: RecipeDocument): RecipeDocument | undefined {
     const byId = new Map(nodes.map(node => [node.id, node]));
     const concat = nodes.find(node => node.operation === CONCAT && node.inputs.length === 2);
     if (!concat) return undefined;
-    // Each side is the input itself or one get_channel of it.
-    const side = (id: string, input: string): RecipeNode | null | undefined => {
-        if (id === input) return null;
-        const node = byId.get(id);
-        return node && node.operation === GET_CHANNEL && node.inputs.length === 1 && node.inputs[0] === input ? node : undefined;
+    // A side: the steps from its input to the join, each one a channel pick or a resampling.
+    const side = (id: string, input: string): RecipeNode[] | undefined => {
+        const steps: RecipeNode[] = [];
+        for (let at = id; at !== input;) {
+            const node = byId.get(at);
+            if (!node || !SIDE_STEPS.has(node.operation) || node.inputs.length !== 1 || steps.length >= SIDE_STEPS.size) return undefined;
+            steps.unshift(node);
+            at = node.inputs[0];
+        }
+        return steps;
     };
     const left = side(concat.inputs[0], first), right = side(concat.inputs[1], second);
-    if (left === undefined || right === undefined) return undefined;
-    // Each compared recording runs the base side's chain, so the two sides must pick the same channel.
-    if (JSON.stringify(left?.params ?? null) !== JSON.stringify(right?.params ?? null)) return undefined;
+    if (!left || !right) return undefined;
+    const signature = (steps: RecipeNode[]) => JSON.stringify(steps.map(node => [node.operation, node.params]));
+    if (signature(left) !== signature(right)) return undefined;
     const step = nodes.find(node => node.inputs.length === 1 && node.inputs[0] === concat.id);
     if (!step || !SLOT_REFERABLE.has(step.operation) || nodes.filter(node => node.inputs.includes(concat.id)).length !== 1) return undefined;
-    const dropped = new Set([concat.id, ...(right ? [right.id] : [])]);
+    // The pair picked after the step: none, or (response, reference) — as select_pair or as that pair's row.
+    const pick = nodes.find(node => node.inputs.length === 1 && node.inputs[0] === step.id && PAIR_PICKS.has(node.operation));
+    if (pick && !picksResponseOverReference(pick)) return undefined;
+    const dropped = new Set([concat.id, ...right.map(node => node.id), ...(pick?.operation === GET_CHANNEL ? [pick.id] : [])]);
     const kept = nodes.filter(node => !dropped.has(node.id))
-        .map(node => node.id === step.id ? { ...node, inputs: [left ? left.id : first] } : node);
+        .map(node => node.id === step.id ? { ...node, inputs: [left.at(-1)?.id ?? first] }
+            : pick?.operation === GET_CHANNEL && node.inputs.includes(pick.id) ? { ...node, inputs: node.inputs.map(input => input === pick.id ? step.id : input) } : node);
     if (kept.some(node => node.inputs.some(input => dropped.has(input) || input === second))) return undefined;
-    const single: RecipeDocument = { ...recipe, inputs: [recipe.inputs[0]], nodes: kept };
+    const output = pick?.operation === GET_CHANNEL && recipe.output === pick.id ? step.id : recipe.output;
+    const single: RecipeDocument = { ...recipe, inputs: [recipe.inputs[0]], nodes: kept, output };
     return withSlotReference(single, step.id, true);
+}
+
+const SIDE_STEPS = new Set([GET_CHANNEL, RESAMPLING]);
+const PAIR_PICKS = new Set([SELECT_PAIR, GET_CHANNEL]);
+/** Row 2 of two channels' four pairs is (1, 0): the response over the reference (wandas' pair_row_index). */
+const RESPONSE_OVER_REFERENCE_ROW = 2;
+
+function picksResponseOverReference(node: RecipeNode): boolean {
+    const params = new Map(node.params.entries);
+    if (node.operation === SELECT_PAIR) return params.get('output') === 1 && params.get('input') === 0;
+    const index = params.get('channel_idx');
+    const rows = typeof index === 'number' ? [index]
+        : index && typeof index === 'object' && Array.isArray((index as { items?: unknown }).items) ? (index as { items: unknown[] }).items : [];
+    return rows.length === 1 && rows[0] === RESPONSE_OVER_REFERENCE_ROW;
 }

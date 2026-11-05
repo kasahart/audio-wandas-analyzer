@@ -9,7 +9,10 @@ A recipe with one Frame input opens as it is. A recipe with two inputs opens
 when it joins the same channel of each (`get_channel`, then `concat_frame`) for a
 cross-channel step such as `coherence` or `transfer_function`: the first input
 (the reference) becomes the base slot and each compared recording the second.
-Anything else says why it cannot open.
+Each side may also resample (as **Save as recipe** writes it), as long as both
+sides are the same steps, and a pair picked after the step must be the response
+over the reference, which is what the base slot gives. Anything else says why
+it cannot open.
 
 To add a recipe, run the workflow in wandas and save its plan:
 

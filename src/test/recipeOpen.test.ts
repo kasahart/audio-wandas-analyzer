@@ -33,6 +33,15 @@ for (const [name, operation] of [['transfer-function.recipe.json', 'wandas.audio
     });
 }
 
+test('a transfer function saved from the app (each channel resampled, its pair picked as a row) opens as one chain on the base slot', () => {
+    const saved = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', 'src', 'test', 'fixtures', 'savedTransfer.recipe.json'), 'utf8')) as RecipeDocument;
+    const recipe = opened(saved);
+    const chain = recipeChain(recipe);
+    assert.deepEqual(chain.map(node => node.operation), ['wandas.frame.get_channel', 'wandas.audio.resampling', 'wandas.audio.transfer_function']);
+    assert.equal(recipe.output, chain[2].id);
+    assert.deepEqual(slotReferenced(recipe), [chain[2].id]);
+});
+
 test('what cannot be one chain on each recording says why', () => {
     assert.deepEqual(openedRecipe({ hello: 1 }), { reason: 'not-recipe' });
     const three = bundled('coherence.recipe.json');
@@ -45,6 +54,9 @@ test('what cannot be one chain on each recording says why', () => {
     const transfer = bundled('transfer-function.recipe.json');
     const otherChannel = recipeNodes(transfer).map(node => node.id === 'node-1' ? { ...node, params: { $type: 'map', entries: [['channel_idx', 1]] } } : node);
     assert.deepEqual(openedRecipe({ ...transfer, nodes: otherChannel }), { reason: 'inputs' });
+    // The reference over the response: the base slot gives the other direction, so it cannot open.
+    const reversed = recipeNodes(transfer).map(node => node.operation === 'wandas.frame.select_pair' ? { ...node, params: { $type: 'map', entries: [['input', 1], ['output', 0]] } } : node);
+    assert.deepEqual(openedRecipe({ ...transfer, nodes: reversed }), { reason: 'inputs' });
     // One input, but a node off the chain.
     const entry = bundled('entry-scan.recipe.json');
     const extra = { id: 'node-x', operation: 'wandas.audio.welch', version: 1, inputs: ['input-0'], params: { $type: 'map', entries: [] } };

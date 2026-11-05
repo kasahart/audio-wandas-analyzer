@@ -146,3 +146,12 @@ def test_entry_scan_recipe_file_is_the_generated_recipe() -> None:
         "wandas.frame.time_slice",
         "wandas.audio.welch",
     ]
+
+
+def test_the_saved_transfer_fixture_the_step_bar_opens_is_what_save_as_recipe_writes() -> None:
+    from recipe_builder import RecipeSource, transfer_recipe
+
+    path = Path(__file__).resolve().parents[1] / "src" / "test" / "fixtures" / "savedTransfer.recipe.json"
+    sources = [RecipeSource(1, 16000.0), RecipeSource(1, 16000.0)]
+    built = transfer_recipe(sources, 0, [(1, 0)], n_fft=1024, hop_length=256, window="hann")
+    assert json.loads(path.read_text()) == built
