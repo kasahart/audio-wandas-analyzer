@@ -11,7 +11,7 @@ import { withChannel } from '../../shared/recipe/channelSelection';
 import { INPUT_STAGE, recipeWithout, unpairedRecipe } from './stepBarModel';
 import type { StageSpec } from './stageSource';
 import { FULL_PLOT_WINDOW, type PlotWindow } from './plotInteraction';
-import { medianView, stageDifference } from './stagePanes';
+import type { Combined, StageHeadline } from './combineSource';
 import { regionLabel } from './entryTable';
 
 /** The Recipe the entry table scans with, the one its scans run (the steps that cannot run left out), and the failures. */
@@ -134,23 +134,40 @@ export function pictureSummary(view: StageView | null | undefined): { stageValue
 
 /**
  * The pictures of one paint: the base, the compared file's, the other tracks' and the compared file's difference from
- * the base. A base group of signals has no median signal: `baseMembers` are its files' own waveforms, drawn each (named, for the line under the pointer).
+ * the base, with where it is largest. A base group of signals has no median signal: `baseMembers` are its files' own
+ * waveforms, drawn each (named, for the line under the pointer).
  */
-export interface StagePlots<T> { base: StageView | null; baseMembers: Array<{ path: string; view: StageView }>; compare: StageView | null; others: Array<{ track: T; view: StageView | null }>; diff: StageView | null }
+export interface StagePlots<T> { base: StageView | null; baseMembers: Array<{ path: string; view: StageView }>; compare: StageView | null; others: Array<{ track: T; view: StageView | null }>; diff: StageView | null; headline: StageHeadline | null }
 
 /**
- * The base is the median of its files' pictures (`baseOf`, else `views`) once all are in, else `fallback`; a group's
+ * The base is one file's picture (`baseOf`, else `views`), or a group's median once `combined` (taken from the
+ * Frames' full resolution, combineSource.ts); the difference and its headline are `combined`'s too. A group's
  * waveforms are its members, each drawn as it is.
  */
-export function plotsOf<T extends { filePath: string }>(views: (path: string) => StageView | null | undefined, tracks: readonly T[], comparePath: string | null, basePaths: readonly string[], baseOf = views): StagePlots<T> {
-    const baseViews = basePaths.map(baseOf).filter((view): view is StageView => !!view);
-    const complete = baseViews.length > 0 && baseViews.length === basePaths.length;
-    const base = complete ? medianView(baseViews) : null;
+export function plotsOf<T extends { filePath: string }>(views: (path: string) => StageView | null | undefined, tracks: readonly T[], comparePath: string | null, basePaths: readonly string[], combined: Combined | undefined, baseOf = views): StagePlots<T> {
+    const base = basePaths.length === 1 ? baseOf(basePaths[0]) ?? null : basePaths.length > 1 ? combined?.base ?? null : null;
     const members = basePaths.map(path => ({ path, view: baseOf(path) })).filter((item): item is { path: string; view: StageView } => !!item.view);
     const baseMembers = members.length > 1 && members.every(item => item.view.waveform) ? members : [];
     const compare = comparePath ? views(comparePath) ?? null : null;
     const others = tracks.filter(track => track.filePath !== comparePath && !basePaths.includes(track.filePath)).map(track => ({ track, view: views(track.filePath) ?? null }));
-    return { base, baseMembers, compare, others, diff: comparePath && !basePaths.includes(comparePath) ? stageDifference(base, compare) : null };
+    const compared = !!comparePath && !basePaths.includes(comparePath);
+    return { base, baseMembers, compare, others, diff: compared ? combined?.diff ?? null : null, headline: compared ? combined?.headline ?? null : null };
+}
+
+/**
+ * What to ask the backend to combine for a paint: the base's pictures' kept values (`data`) and the compared
+ * file's. Undefined while a picture is not in; null when there is nothing to combine (one base file and nothing
+ * compared, or a picture without kept values: a step not drawn, a trigger that found no event).
+ */
+export function combineRequest(views: (path: string) => StageView | null | undefined, comparePath: string | null, basePaths: readonly string[]): { base: string[]; compare: string | null } | null | undefined {
+    const compared = !!comparePath && !basePaths.includes(comparePath);
+    if (!basePaths.length || (basePaths.length === 1 && !compared)) return null;
+    const paths = [...basePaths, ...(compared && comparePath ? [comparePath] : [])];
+    const pictures = paths.map(views);
+    if (pictures.some(view => view === undefined)) return undefined;
+    const keys = pictures.map(view => view?.data);
+    if (keys.some(key => !key)) return null;
+    return { base: keys.slice(0, basePaths.length) as string[], compare: compared ? keys[basePaths.length] ?? null : null };
 }
 
 /** A base group's title with its waveforms drawn each: "n files" rather than "median of n". */

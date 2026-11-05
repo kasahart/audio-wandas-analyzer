@@ -217,6 +217,17 @@ def handle_scan(service: AnalysisService, command: Command) -> Mapping[str, obje
     )
 
 
+def handle_stage_combine(_service: AnalysisService, command: Command) -> Mapping[str, object]:
+    from stage_combine import combine_keys
+
+    compare = command.get("compare")
+    return combine_keys(
+        [str(key) for key in command["base"]],
+        str(compare) if compare is not None else None,
+        command.get("detail"),
+    )
+
+
 COMMANDS: dict[str, CommandHandler] = {
     "analyze": handle_analyze,
     "range": handle_range,
@@ -228,6 +239,7 @@ COMMANDS: dict[str, CommandHandler] = {
     "run-recipe": handle_run_recipe,
     "build-recipe": handle_build_recipe,
     "scan": handle_scan,
+    "stage-combine": handle_stage_combine,
 }
 
 

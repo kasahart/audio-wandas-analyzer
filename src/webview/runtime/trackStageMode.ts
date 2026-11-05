@@ -12,7 +12,7 @@
  */
 import { redrawWhenResized } from './canvasResize';
 import type { UiStrings } from '../../shared/i18n/strings';
-import type { CompareScanMessage } from '../../shared/analysis/entryScan';
+import type { CompareCombineMessage, CompareScanMessage } from '../../shared/analysis/entryScan';
 import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import type { ScanResult, StageView } from '../../shared/protocol/backendProtocol';
 import type { EntryRegion } from '../../shared/analysis/entryScan';
@@ -21,7 +21,8 @@ import { eventsKey, excludedOf, withDroppedEvents, withEventExcluded, type Event
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { createStepBar, invalidReason, stepChipLabel, stepLimits, INPUT_STAGE } from './stepBar';
 import { createStageSource, type StageSpec } from './stageSource';
-import { chosenStage, comparedPath as comparedPathOf, eachBaseTitle, enterStageState, holdStageSpec, initialStageState, liveRegion as liveRegionOf, openStageState, pictureSummary, plotsOf, regionStageSpec, stageSpec } from './trackStageModel';
+import { createCombineSource, NOTHING_COMBINED, type Combined } from './combineSource';
+import { chosenStage, combineRequest, comparedPath as comparedPathOf, eachBaseTitle, enterStageState, holdStageSpec, initialStageState, liveRegion as liveRegionOf, openStageState, pictureSummary, plotsOf, regionStageSpec, stageSpec } from './trackStageModel';
 import { createDetailPlanner, onOneRange } from './stageDetail';
 import { attachStageGestures, type StageGestures } from './trackStageGestures';
 import { colorOf, overlayLayers, overlayLegendItems, paintBaseGate, paintNoPicture, paintNoStage, paintStageControls, paintStageLanes, paintStageOverlay, stageDom, stageModeHeadline, writeStageLegend, type Drawn, type StageFrame, type StageTrack } from './trackStagePainter';
@@ -46,7 +47,7 @@ export interface TrackStageDeps {
     /** Watches the plots' own size: any layout change that resizes one (Δ, the step bar, a wrapped legend) draws it again. */
     ResizeObserver?: typeof ResizeObserver;
     strings: UiStrings;
-    post(message: CompareScanMessage): void;
+    post(message: CompareScanMessage | CompareCombineMessage): void;
     /** The Recipe the entry table scans with, and the one its scans run (the steps that cannot run left out). */
     recipe(): { recipe: RecipeDocument; runRecipe?: RecipeDocument; failed?: Readonly<Record<string, string>> } | null;
     recipeChanged(recipe: RecipeDocument): void;
@@ -156,6 +157,9 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
     /** The part of the files compared: the region chip's, unless it is bypassed. */
     const liveRegion = (): EntryRegion | null => liveRegionOf(deps.recipe()?.recipe, state.regionSet);
     const source = createStageSource('track-stage', message => deps.post(message), () => deps.rerender());
+    const combine = createCombineSource('track-combine', message => deps.post(message), () => deps.rerender());
+    /** The last zoomed combination of each comparison, drawn until the next zoom's is in. */
+    const lastFine = new Map<string, Combined>();
     const detail = createDetailPlanner(deps.window.performance, deps.window, () => deps.rerender());
     const stepBar = createStepBar({
         document, strings, mode: 'compare',
@@ -571,9 +575,8 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             const views = onOneRange(paths, fineOf, (fineSpec, path) => source.view(fineSpec, path));
             return views ? (path: string) => views.get(path) : null;
         };
-        // A base group's median: of its recordings' detail once every one has it, of their whole pictures until then.
-        const baseFine = together(basePaths);
-        const baseShown = baseFine ?? coarse;
+        // A base of one recording: its detail once in, its whole picture until then (a group's median is combined).
+        const baseShown = (basePaths.length === 1 ? together(basePaths) : null) ?? coarse;
         stepBar.element.dataset.stage = id;
         stepBar.element.dataset.detail = String(fineSpecs.size > 0 && !fineMissing);
         // How many of the tracks are drawn from their detail, for tests.
@@ -583,12 +586,31 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         root.dataset.xWindow = `${state.window.x.start.toFixed(3)}-${state.window.x.end.toFixed(3)}`;
         painted = true;
         paintBaseGate(dom, strings, { gated, count: allBase.length, ms: cost.ms });
-        const coarsePlots = plotsOf(coarse, tracks, comparePath, basePaths);
+        // A base group's median and the compared file's difference, taken by the backend from the Frames' full
+        // resolution (combineSource.ts): of the whole pictures (the headline and the axes), and once zoomed of the
+        // part on screen. Their pictures' values are scanned again once if the backend no longer keeps them.
+        const combined = [...basePaths, ...(comparePath && !basePaths.includes(comparePath) ? [comparePath] : [])];
+        const combineIdentity = [comparePath ?? '', ...basePaths, ...combined.map(path => specFor(path).key)].join('|');
+        const forget = (keys: readonly string[]): void => {
+            for (const path of combined) {
+                const key = coarse(path)?.data;
+                if (key && keys.includes(key)) source.forget(specFor(path), path);
+            }
+            deps.rerender();
+        };
+        const asked = held_ && !picture ? undefined : combineRequest(coarse, comparePath, basePaths);
+        const coarseCombined = asked === null ? NOTHING_COMBINED : asked ? combine.get(combineIdentity, asked, forget) : undefined;
+        const fineDetail = fineSpecs.get(groupOf(comparePath ?? basePaths[0] ?? ''))?.message.detail;
+        const fineCombined = asked && fineDetail ? combine.get(`${combineIdentity}|${JSON.stringify(fineDetail)}`, { ...asked, detail: fineDetail }, forget) : undefined;
+        if (fineCombined) lastFine.set(combineIdentity, fineCombined);
+        const shownCombined = fineCombined ?? (fineDetail ? lastFine.get(combineIdentity) : undefined) ?? coarseCombined;
+        const combining = !waiting && asked !== null && coarseCombined === undefined;
+        const coarsePlots = plotsOf(coarse, tracks, comparePath, basePaths, coarseCombined);
         shownCompare = { path: comparePath, view: comparePath && !waiting ? coarse(comparePath) : undefined };
         // The events left out of each recording's, on the trigger's picture (and a step after it that keeps them).
         const excluded = (path: string): readonly number[] => (viewTrigger ? excludedOf(recipe.recipe, eventsKey(viewTrigger, path, channelFor(path))) : []);
         channelOf = channelFor;
-        const frame: StageFrame = { strings, tracks, allTracks, referencePath, comparePath, coarse, shown, picture, coarsePlots, window: state.window, regionMark, pending, waiting, role, named, drawnOn, baseEach: each, excluded };
+        const frame: StageFrame = { strings, tracks, allTracks, referencePath, comparePath, coarse, shown, picture, coarsePlots, window: state.window, regionMark, pending, waiting: waiting || combining, role, named, drawnOn, baseEach: each, excluded, ...(coarseCombined?.tooLarge ? { tooLarge: true } : {}) };
         const bypassed = steps.filter(step => step.bypassed).map(step => stepChipLabel(step, strings, state.regionSet));
         query<HTMLElement>('[data-stage-headline]').textContent = stageModeHeadline(frame, bypassed, region);
         if (!overlay) {
@@ -596,11 +618,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             return;
         }
         // Overlaid: the base, the other tracks and the compared one on one plot, as the comparison draws them.
-        const finePlots = plotsOf(shown, tracks, comparePath, basePaths, baseShown);
-        // The difference of a line's detail and a base still whole is no difference (their points are at other places
-        // even where there are as many): the whole pictures' until both sides have their detail.
-        const pairFine = comparePath && basePaths.length > 0 && baseFine ? together([comparePath, ...basePaths]) : null;
-        const plots = { ...finePlots, diff: pairFine ? plotsOf(pairFine, tracks, comparePath, basePaths).diff : coarsePlots.diff };
+        const plots = plotsOf(shown, tracks, comparePath, basePaths, shownCombined, baseShown);
         root.dataset.compared = comparePath ? String(role(comparePath) ?? '') : '';
         root.dataset.base = state.groupBase || !deps.slots()[0] ? 'group' : 'file';
         const baseTitle = (path: string): string => { const title = deps.baseTitle(path, state.groupBase); return each ? eachBaseTitle(title, allBase.length, strings) : title; };
@@ -669,7 +687,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             paintNow();
             if (!lanesMarked) { clearTriggerLanes(document); root.dataset.lanesMarked = ''; marks = null; }
         },
-        handle: message => source.handle(message),
+        handle: message => source.handle(message) || combine.handle(message),
         snapshot() {
             const view = shownCompare.view;
             return {

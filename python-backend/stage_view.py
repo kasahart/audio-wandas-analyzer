@@ -95,6 +95,8 @@ class StageView(TypedDict):
     #: A trigger's segments: every event's signal (channels averaged) over the time from its trigger, each drawn
     #: as its own line. ``values`` are their mean, which a group's median and the readout use.
     events: NotRequired[list[StageEvent]]
+    #: The key the step's full-resolution values are kept under (stage_combine.py), for a median or a difference.
+    data: NotRequired[str]
 
 
 class StageEvent(TypedDict):

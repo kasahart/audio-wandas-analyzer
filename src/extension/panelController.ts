@@ -57,6 +57,7 @@ export interface PanelBackend extends Pick<AnalysisClient,
     | 'exportWavLoop'
     | 'buildRecipe'
     | 'scan'
+    | 'stageCombine'
     | 'calibrationFor'> {}
 
 export interface PanelAnalysis {
@@ -435,6 +436,7 @@ export class PanelController implements vscode.Disposable {
                     if (reference) { this.assertListed(session, reference.filePath); }
                     return this.backend.scan({ filePath, recipe: recipe ?? await this.entryRecipe(), ...(region ? { region } : {}), ...(stage ? { stage } : {}), ...(detail ? { detail } : {}), ...(reference ? { reference } : {}) });
                 },
+                combine: payload => this.backend.stageCombine(payload),
                 recipe: () => this.entryRecipe(),
                 readHead: async (filePath, length) => {
                     this.assertListed(session, filePath);

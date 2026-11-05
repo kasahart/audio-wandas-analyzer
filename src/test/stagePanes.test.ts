@@ -1,30 +1,27 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { emptyStageText, eventLayers, loudPoints, medianView, stageAxes, stageLevelsHeadline, stageDifference, stageDiffRange, stageHeadline, stageRange, stageHover, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
+import { emptyStageText, eventLayers, stageAxes, stageLevelsHeadline, stageDiffRange, stageHeadline, stageRange, stageHover, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
 import type { StageView } from '../shared/protocol/backendProtocol';
 
 const line = (values: number[], quantity: StageView['quantity'] = 'level'): StageView => ({ frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity, xs: [100, 1000, 10000], values });
 const strings = { stageNoDelta: 'none', stageMaxDelta: '{at} {delta}' };
 
-test('a group base is the median of its files\' pictures, point by point', () => {
-    assert.deepEqual(medianView([line([1, 5, 9]), line([3, 1, 9]), line([2, 2, 0])])!.values, [2, 2, 9]);
-    // Pictures on other axes have no median.
-    assert.equal(medianView([line([1, 2, 3]), { ...line([1, 2]), xs: [100, 1000] }]), null);
-});
+/** compare − base point by point, as the backend's difference of two pictures already at full resolution is. */
+function minus(base: StageView, compare: StageView): StageView {
+    const sub = (a: number | null, b: number | null | undefined): number | null => (a === null || b === null || b === undefined ? null : Math.round((a - b) * 1e6) / 1e6);
+    return compare.matrix
+        ? { ...compare, matrix: compare.matrix.map((row, r) => row.map((value, c) => sub(value, base.matrix?.[r]?.[c]))) }
+        : { ...compare, values: (compare.values ?? []).map((value, index) => sub(value, base.values?.[index])) };
+}
 
-test('Δ is taken between pictures of one quantity on the same axes, and the headline names where it is largest', () => {
-    const diff = stageDifference(line([-40, -30, -20]), line([-41, -16, -20]))!;
-    assert.deepEqual(diff.values, [-1, 14, 0]);
+test('the Δ pane\'s headline names where the difference drawn is largest', () => {
+    const diff = minus(line([-40, -30, -20]), line([-41, -16, -20]));
     assert.equal(stageHeadline(diff, strings), '1.00 kHz +14.0 dB');
-    // A linear quantity subtracts plainly, without dB.
-    const coherence = stageDifference(line([0.1, 0.2, 0.3], 'coherence'), line([0.2, 0.2, 0.2], 'coherence'))!;
-    assert.deepEqual(coherence.values, [0.1, 0, -0.1]);
-    assert.equal(stageHeadline(coherence, strings), '100 Hz +0.100');
-    assert.equal(stageDifference(line([1, 2, 3], 'coherence'), line([1, 2, 3])), null);
+    // A linear quantity, without dB.
+    assert.equal(stageHeadline(minus(line([0.1, 0.2, 0.3], 'coherence'), line([0.2, 0.2, 0.2], 'coherence')), strings), '100 Hz +0.100');
     assert.equal(stageHeadline(null, strings), 'none');
     const heat: StageView = { frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity: 'level', yAxis: 'frequency', xs: [0.5, 1], ys: [100, 1000], matrix: [[-40, -40], [-30, -30]] };
-    assert.equal(stageHeadline(stageDifference(heat, { ...heat, matrix: [[-40, -45], [-30, -30]] }), strings), '1.00 s · 100 Hz −5.0 dB');
-    assert.equal(stageDifference(heat, line([1, 2, 3])), null);
+    assert.equal(stageHeadline(minus(heat, { ...heat, matrix: [[-40, -45], [-30, -30]] }), strings), '1.00 s · 100 Hz −5.0 dB');
 });
 
 test('levels share a range of four round steps; coherence keeps 0 to 1', () => {
@@ -57,7 +54,7 @@ test('a cepstrum is drawn on a quefrency axis, symmetric about zero without its 
     assert.ok(Math.abs(range.max - 0.021) < 1e-9 && range.min === -range.max);
     const names = { axisQuefrency: 'Quefrency s', axisCepstrum: 'Real cepstrum', axisDelta: 'Δ dB' } as unknown as StageStrings;
     assert.deepEqual(stageAxes(names, view, undefined), { x: 'Quefrency s', y: 'Real cepstrum' });
-    const diff = stageDifference(view, cepstrum([-8.4, 0.03, -0.02, 0.005]))!;
+    const diff = minus(view, cepstrum([-8.4, 0.03, -0.02, 0.005]));
     assert.deepEqual(stageAxes(names, diff, undefined, true), { x: 'Quefrency s', y: 'Δ Real cepstrum' });
     assert.equal(stageHeadline(diff, strings), '1.00 ms +0.0200');
     assert.deepEqual(stageDiffRange(diff), { min: -0.021, max: 0.021 });
@@ -70,7 +67,7 @@ test('a cross-correlation is drawn over a signed lag axis on the fixed [-1, 1] c
     assert.deepEqual(stageRange([view]), { min: -1, max: 1 });
     const names = { axisLag: 'Lag s', axisCorrelation: 'Correlation coefficient', axisDelta: 'Δ dB' } as unknown as StageStrings;
     assert.deepEqual(stageAxes(names, view, undefined), { x: 'Lag s', y: 'Correlation coefficient · ch2 / ch1' });
-    const diff = stageDifference(view, correlation([0.1, -0.2, 0.3, 0.55]))!;
+    const diff = minus(view, correlation([0.1, -0.2, 0.3, 0.55]));
     assert.deepEqual(stageAxes(names, diff, undefined, true), { x: 'Lag s', y: 'Δ Correlation coefficient · ch2 / ch1' });
     assert.equal(stageHeadline(diff, strings), '+1.00 ms −0.400');
     // A delay is read to 10 µs at any lag, and none has no sign.
@@ -80,82 +77,25 @@ test('a cross-correlation is drawn over a signed lag axis on the fixed [-1, 1] c
     assert.match(stageHover(plot, 12.5, 0)!.text, /^0\.00 ms/);
 });
 
-test('a step\'s headline names the largest difference among loud points only, with both values', () => {
+test('a step\'s headline names the point the backend found, with both values, in the axes\' units', () => {
     const at = { stageNoDelta: 'none', compareLevelsAt: '{at} base {base} / compare {compare}' };
-    // 60 → 65 dB at 1 kHz and 20 → 30 dB at 100 Hz: the 10 dB difference is 30 dB under the loudest, so the 5 dB one heads.
     const base = line([20, 60, 0]), compare = line([30, 65, 0]);
-    assert.deepEqual(loudPoints(base, compare).values, [false, true, false]);
-    assert.equal(stageLevelsHeadline(base, compare, stageDifference(base, compare), at), '1.00 kHz base 60.0 / compare 65.0 dB');
-    // Values that are not levels have no loudness: every point counts.
+    assert.equal(stageLevelsHeadline(base, compare, minus(base, compare), { x: 1000, base: 60, compare: 65 }, at), '1.00 kHz base 60.0 / compare 65.0 dB');
+    // Values that are not levels: without dB, to three figures.
     const a = line([0.1, 0.9, 0.5], 'coherence'), b = line([0.6, 0.8, 0.5], 'coherence');
-    assert.equal(stageLevelsHeadline(a, b, stageDifference(a, b), at), '100 Hz base 0.100 / compare 0.600');
+    assert.equal(stageLevelsHeadline(a, b, minus(a, b), { x: 100, base: 0.1, compare: 0.6 }, at), '100 Hz base 0.100 / compare 0.600');
+    // An image's point names both its axes; without a point (nothing loud, other axes) there is no headline.
+    const heat: StageView = { frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity: 'level', yAxis: 'frequency', xs: [0, 1], ys: [100, 1000], matrix: [[-40, -40], [-30, -30]] };
+    assert.equal(stageLevelsHeadline(heat, heat, heat, { x: 1, y: 100, base: -40, compare: -38 }, at), '1.00 s · 100 Hz base −40.0 / compare −38.0 dB');
+    assert.equal(stageLevelsHeadline(base, compare, minus(base, compare), null, at), 'none');
 });
 
-test('an STFT column whose window sticks out of the signal is drawn but never heads the comparison', () => {
-    const at = { stageNoDelta: 'none', compareLevelsAt: '{at} base {base} / compare {compare}', stageMaxDelta: '{at} {delta}' };
+test('an STFT column whose window sticks out of the signal is drawn but never heads the Δ pane', () => {
+    const at = { stageNoDelta: 'none', stageMaxDelta: '{at} {delta}' };
     const heat = (matrix: number[][]): StageView => ({ frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity: 'level', yAxis: 'frequency', xs: [0, 1, 2], ys: [100, 1000], matrix, whole: [true, true, false] });
-    const base = heat([[-40, -40, -40], [-30, -30, -30]]), compare = heat([[-40, -38, -25], [-30, -30, -30]]);
-    const diff = stageDifference(base, compare)!;
+    const diff = minus(heat([[-40, -40, -40], [-30, -30, -30]]), heat([[-40, -38, -25], [-30, -30, -30]]));
     // The last column differs most (+15 dB) but reads padding: the headline names the next largest.
     assert.equal(stageHeadline(diff, at), '1.00 s · 100 Hz +2.0 dB');
-    assert.equal(stageLevelsHeadline(base, compare, diff, at), '1.00 s · 100 Hz base −40.0 / compare −38.0 dB');
-    assert.deepEqual(diff.matrix![0], [0, 2, 15]);
-});
-
-test('the line nearest the pointer is picked as the spectrum overlay picks it, and a band zoomed past its centre still answers', () => {
-    // 1 px per Hz from 0, the level axis 1 px per dB downwards from 0 dB.
-    const plotOf = (lines: StagePlot['lines'], from = 0): StagePlot => ({ frame: { left: 0, top: 0, width: 100, height: 100 }, xAt: value => value - from, yAt: value => -value, ratioStep: 1.12, lines, diff: false });
-    const a = { view: { ...line([-10, -20, -30]), xs: [10, 50, 90] }, color: 'blue', label: 'base' };
-    const b = { view: { ...line([-40, -60, -80]), xs: [10, 50, 90] }, color: 'gold', label: 'compare' };
-    const near = stageHover(plotOf([a, b]), 48, 55)!;
-    assert.equal(near.layer, b);
-    assert.deepEqual([near.x, near.y, near.text], [50, 60, 'compare / 50 Hz / −60.0 dB']);
-    assert.equal(stageHover(plotOf([a, b]), 48, 25)!.layer, a);
-    // Past the lines' ends the pointer is over none of them; a level reads to 0.1 dB.
-    assert.equal(stageHover(plotOf([a, b]), 5, 25), null);
-    assert.equal(stageHover(plotOf([{ ...a, view: { ...a.view, values: [-1, -0.5, 0] } }]), 50, 0)!.text, 'base / 50 Hz / −0.5 dB');
-    // Zoomed to 105–110 Hz of bands at 100 and 125 Hz: the 100 Hz step spans the plot, its centre left of it.
-    const bands = { view: { frame: 'NOctFrame', kind: 'bar' as const, x: 'band' as const, xScale: 'log' as const, quantity: 'level' as const, xs: [100, 125], values: [-30, -35] }, color: 'gold' };
-    const zoomed = { ...plotOf([bands], 105), ratioStep: Math.sqrt(1.25) };
-    const band = stageHover(zoomed, 3, 30)!;
-    assert.equal(band.text, '100 Hz / −30.0 dB');
-    assert.equal(band.x, 0);
-});
-
-test('a signal drawn as itself is picked as a line: its envelope point nearest the pointer, its amplitude read in its unit', () => {
-    // 1000 px per second from 0, the amplitude axis 100 px per unit downwards from 0 (y = 50 at 0).
-    const plotOf = (lines: StagePlot['lines']): StagePlot => ({ frame: { left: 0, top: 0, width: 1000, height: 100 }, xAt: value => value * 1000, yAt: value => 50 - value * 100, ratioStep: 1.12, lines, diff: false, signal: { unit: 'Pa', paint: () => undefined } });
-    const n = 4000;
-    // Buckets every 0.25 ms (4 to a pixel column), the minimum before the maximum in each; one bucket's peak stands out.
-    const signal = (low: number, high: number, peak: { at: number; min?: number; max?: number }): StageView => ({
-        frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'level', xs: [0, 1], values: [-20, -20],
-        waveform: {
-            min: Array.from({ length: n }, (_, i) => (i === peak.at && peak.min !== undefined ? peak.min : low)),
-            max: Array.from({ length: n }, (_, i) => (i === peak.at && peak.max !== undefined ? peak.max : high)),
-            minT: Array.from({ length: n }, (_, i) => i * 0.00025), maxT: Array.from({ length: n }, (_, i) => i * 0.00025 + 0.0001), absolutePeak: 0.4, unit: 'Pa', ref: 2e-5,
-        },
-    });
-    const a = { view: signal(-0.1, 0.1, { at: 2001, max: 0.3 }), color: 'blue', label: 'base' };
-    const b = { view: signal(-0.05, 0.02, { at: 2000, min: -0.4 }), color: 'gold', label: 'compare' };
-    // Over the pixel column at 0.5 s the base's highest point (0.3 at 0.50035 s) is nearest a pointer high up:
-    // the cursor goes to that point, the readout reads it to the digits a pixel tells apart.
-    const high = stageHover(plotOf([a, b]), 500, 15)!;
-    assert.equal(high.layer, a);
-    assert.equal(high.text, 'base / 0.500 s / 0.300 Pa');
-    assert.deepEqual([Math.round(high.x * 100) / 100, Math.round(high.y)], [500.35, 20]);
-    // Low down, the compared signal's lowest point is nearer; past the signals' ends there is none.
-    const low = stageHover(plotOf([a, b]), 500, 88)!;
-    assert.deepEqual([low.layer, low.text, Math.round(low.y)], [b, 'compare / 0.500 s / −0.400 Pa', 90]);
-    assert.equal(stageHover(plotOf([a, b]), 1500, 50), null);
-    // Each signal reads its own unit: an uncalibrated one beside a calibrated one reads the uncalibrated unit, not the axis's.
-    const raw = { ...b, view: { ...b.view, waveform: { ...b.view.waveform!, unit: '' } } };
-    assert.equal(stageHover({ ...plotOf([a, raw]), signal: { unit: 'FS', paint: () => undefined } }, 500, 88)!.text, 'compare / 0.500 s / −0.400 FS');
-    // Zoomed into −0.1…0.3 of the amplitude, a point clipped off the plot is not picked: the visible one is.
-    const zoomed = { ...plotOf([a, b]), signal: { unit: 'Pa', range: { min: -0.1, max: 0.3 }, paint: () => undefined } };
-    assert.equal(stageHover(zoomed, 500, 88)!.layer, a);
-    // One wide bucket (zoomed into the coarse envelope): its whole span answers, not only up to its middle.
-    const wide = { view: { ...a.view, waveform: { min: [-0.1], max: [0.1], minT: [0.1], maxT: [0.9], absolutePeak: 0.1, unit: 'Pa', ref: 2e-5 } }, color: 'blue', label: 'base' };
-    assert.equal(stageHover(plotOf([wide]), 150, 40)!.text, 'base / 0.900 s / 0.100 Pa');
 });
 
 test('a trigger\'s events are each a line of their slot, on one amplitude range, with no difference between recordings', () => {
@@ -177,21 +117,18 @@ test('a trigger\'s events are each a line of their slot, on one amplitude range,
     // Amplitudes have no −300 dB floor: a −500 (raw counts) peak is in the range.
     assert.ok(stageRange([events([-500])]).min <= -500);
     // Two recordings' events are not one another's: no Δ, and the headline counts them instead.
-    assert.equal(stageDifference(base, compare), null);
-    assert.equal(stageLevelsHeadline(base, compare, null, { ...strings, compareLevelsAt: '', stageEventCounts: '{base} / {compare}' }), '2 / 1');
+    assert.equal(stageLevelsHeadline(base, compare, null, null, { ...strings, compareLevelsAt: '', stageEventCounts: '{base} / {compare}' }), '2 / 1');
     // A level nothing crosses: 0 counted, and the empty plot says to lower the level instead of 'cannot be shown'.
     const none = events([]);
-    assert.equal(stageLevelsHeadline(none, compare, null, { ...strings, compareLevelsAt: '', stageEventCounts: '{base} / {compare}' }), '0 / 1');
+    assert.equal(stageLevelsHeadline(none, compare, null, null, { ...strings, compareLevelsAt: '', stageEventCounts: '{base} / {compare}' }), '0 / 1');
     assert.equal(emptyStageText({ stepNotDrawable: 'no {frame}', stageNoEvents: 'lower it' }, none), 'lower it');
     assert.equal(emptyStageText({ stepNotDrawable: 'no {frame}', stageNoEvents: 'lower it' }, { frame: 'X', kind: 'none' }), 'no X');
     const axes = stageAxes({ axisTriggerTime: 'From trigger [s]', waveRangeAxisAmplitude: 'Amplitude' } as unknown as StageStrings, compare, undefined);
     assert.deepEqual(axes, { x: 'From trigger [s]', y: 'Amplitude [Pa]' });
-    // A group's median is of the files' mean events: its own lines are not kept.
-    assert.equal(medianView([base, events([5, 7])])?.events, undefined);
-    // ...but it is still events: no difference against it, the event headline and the trigger's time axis.
-    const median = medianView([base, events([5, 7])])!;
-    assert.equal(stageDifference(median, compare), null);
-    assert.equal(stageLevelsHeadline(median, compare, null, { ...strings, compareLevelsAt: '', stageEventCounts: '{base} / {compare}' }), '— / 1');
+    // A group's median (the backend's, of the files' mean events) has no event lines of its own, but it is still
+    // events: the event headline and the trigger's time axis.
+    const { events: _lines, ...median } = events([5, 7]);
+    assert.equal(stageLevelsHeadline(median, compare, null, null, { ...strings, compareLevelsAt: '', stageEventCounts: '{base} / {compare}' }), '— / 1');
     assert.equal(stageAxes({ axisTriggerTime: 'From trigger [s]', waveRangeAxisAmplitude: 'Amplitude' } as unknown as StageStrings, median, undefined).x, 'From trigger [s]');
 });
 

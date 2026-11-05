@@ -7,7 +7,7 @@
  * its painter. Let go, the picture stays 150 ms, so a quick look does not flicker.
  */
 import type { UiStrings } from '../../shared/i18n/strings';
-import type { CompareScanMessage } from '../../shared/analysis/entryScan';
+import type { CompareCombineMessage, CompareScanMessage } from '../../shared/analysis/entryScan';
 import type { ScanResult, StageView } from '../../shared/protocol/backendProtocol';
 import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { recipeKey, recipeNodes, recipeSteps, slotReferenced, timeSignalStep, TIME_SLICE, type RecipeStep } from '../../shared/recipe/recipeSteps';
@@ -16,8 +16,9 @@ import { DIFF_COLOR, ROLE_COLORS } from '../../shared/gui/roleColors';
 import { buildCompareModel, sideView, type CompareModel, type LevelInput, type PaneRange } from './comparePanes';
 import type { EntryModel } from './entryTable';
 import type { PlotMargins, PlotWindow } from './plotInteraction';
-import { axisFractionOf, axisValueAt, paintOverlay, stageAxes, stageDiffRange, stageDifference, stageRange, STAGE_MARGINS, type StageAxes } from './stagePanes';
-import { createDetailPlanner, onOneRange } from './stageDetail';
+import { axisFractionOf, axisValueAt, paintOverlay, stageAxes, stageDiffRange, stageRange, STAGE_MARGINS, type StageAxes } from './stagePanes';
+import { createDetailPlanner } from './stageDetail';
+import { createCombineSource, type Combined } from './combineSource';
 import { createStageSource, type StageSpec } from './stageSource';
 import { recipeWithout, stepChipLabel, stepLimits } from './stepBar';
 
@@ -44,7 +45,7 @@ export interface HeldPlotDeps {
     held: HTMLElement;
     title: HTMLElement;
     canvas: HTMLCanvasElement;
-    post(message: CompareScanMessage): void;
+    post(message: CompareScanMessage | CompareCombineMessage): void;
     /** The side plots drawn again on the next frame. */
     scheduleSide(): void;
     /** The plot's zoom, kept while it shows the same thing (`key`), whole again for another. */
@@ -99,6 +100,10 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
         plot: HeldPicture | null;
     } = { slot: null, step: null, plot: null };
     const source = createStageSource('entry-hold', message => deps.post(message), () => deps.scheduleSide());
+    // Without the step − with it, taken by the backend from the Frames' full resolution (combineSource.ts).
+    const combine = createCombineSource('entry-hold-combine', message => deps.post(message), () => deps.scheduleSide());
+    /** The last zoomed difference of each held step, drawn until the next zoom's is in. */
+    const lastFine = new Map<string, Combined>();
     const detail = createDetailPlanner(window.performance, window, () => deps.scheduleSide());
 
     /** The step `id`'s picture under `recipe` (the whole file, as the table scans it). */
@@ -150,14 +155,32 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
             paintView(fine ?? coarse, coarse, stageRange([coarse]), stageAxes(strings, coarse, input), zoom, { color: ROLE_COLORS[1] });
             return;
         }
-        // Without the step − with it, point by point: what the step takes away (negative where it cuts), of both
-        // over one range.
-        const delta = stageDifference(coarse, coarseWithout);
-        const lists = new Map([[specs.with, fineOf(specs.with)], [specs.without, fineOf(specs.without)]]);
-        const fine = onOneRange([specs.with, specs.without], spec => lists.get(spec) ?? [], (spec, _member) => source.view(spec, path));
-        const fineWith = fine?.get(specs.with), fineWithout = fine?.get(specs.without);
-        const shown = fineWith && fineWithout ? stageDifference(fineWith, fineWithout) ?? delta : delta;
-        paintView(shown, delta, stageDiffRange(delta), stageAxes(strings, delta, input, true), zoom, { diff: true, color: DIFF_COLOR, empty: strings.stageNoDelta });
+        // Without the step − with it, at full resolution: what the step takes away (negative where it cuts), the
+        // whole picture's for the axes, the part on screen's once zoomed.
+        const without = specs.without;
+        const identity = `${specs.with.key}|${without.key}|${path}`;
+        const forget = (keys: readonly string[]): void => {
+            for (const spec of [specs.with, without]) {
+                const key = source.view(spec, path)?.data;
+                if (key && keys.includes(key)) source.forget(spec, path);
+            }
+            deps.scheduleSide();
+        };
+        const asked = coarse.data && coarseWithout?.data ? { base: [coarse.data], compare: coarseWithout.data } : null;
+        const whole = asked ? combine.get(identity, asked, forget) : { diff: null, tooLarge: false };
+        if (!whole) {
+            held.classList.add('is-pending');
+            title.textContent += ` · ${strings.comparePending}`;
+            paintView(null, null, { min: 0, max: 1 }, stageAxes(strings, null, input), zoom, { color: DIFF_COLOR, empty: '' });
+            return;
+        }
+        const finer = coarse.kind === 'bar' || coarse.kind === 'none' ? null : detail.spec(specs.with, coarse, zoom.x, zoom.y, canvas.clientWidth || 300);
+        const fineDetail = finer?.message.detail;
+        const zoomed = asked && fineDetail ? combine.get(`${identity}|${JSON.stringify(fineDetail)}`, { ...asked, detail: fineDetail }, forget) : undefined;
+        if (zoomed) lastFine.set(identity, zoomed);
+        const delta = whole.diff;
+        const shown = (zoomed ?? (fineDetail ? lastFine.get(identity) : undefined))?.diff ?? delta;
+        paintView(shown, delta, stageDiffRange(delta), stageAxes(strings, delta, input, true), zoom, { diff: true, color: DIFF_COLOR, empty: whole.tooLarge ? strings.stageTooLarge : strings.stageNoDelta });
     }
     /** The held row's Δ spectrum (from the table's own scan), zoomed as its window says. */
     function paintDelta(comparison: CompareModel, key: string, input: LevelInput | undefined): void {
@@ -218,6 +241,6 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
                 paintDelta(comparison, `slot|${hold.slot}`, path ? deps.results.get(path)?.input : undefined);
             }
         },
-        handle: message => source.handle(message),
+        handle: message => source.handle(message) || combine.handle(message),
     };
 }

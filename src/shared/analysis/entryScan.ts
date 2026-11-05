@@ -1,4 +1,4 @@
-import { parseBackendResult, type ScanResult, type StageDetail } from '../protocol/backendProtocol';
+import { parseBackendResult, type ScanResult, type StageCombinePayload, type StageCombineResult, type StageDetail } from '../protocol/backendProtocol';
 import { isMetadataCandidate } from './entryMetadata';
 import { recipeKey } from '../recipe/recipeSteps';
 import { AUDIO_HEAD_BYTES, channelsFromHeader, type ChannelProbe } from './audioHeader';
@@ -82,6 +82,15 @@ export interface CompareScanMessage {
     reference?: ScanReference;
 }
 
+/**
+ * Webview → host: a base group's median and a recording's difference from it (stage_combine.py), from the values
+ * the scans of their pictures kept (each picture's `data`); `detail` draws only the part on screen.
+ */
+export interface CompareCombineMessage extends StageCombinePayload {
+    type: 'compare-combine';
+    requestId: string;
+}
+
 export interface ScanReference {
     filePath: string;
     step: string;
@@ -109,7 +118,8 @@ export interface EntrySaveSessionMessage {
 
 export type ComparePublication =
     | { type: 'compare-scan-result'; requestId: string; filePath: string; result: ScanResult }
-    | { type: 'compare-scan-done'; requestId: string };
+    | { type: 'compare-scan-done'; requestId: string }
+    | { type: 'compare-combine-result'; requestId: string; result: StageCombineResult };
 
 export type EntryPublication =
     /** `metadataPath` is the listed file read as the metadata table; it is not scanned and gets no row. */
@@ -148,6 +158,8 @@ export interface EntryScanPorts {
     identity(filePath: string): Promise<string | undefined>;
     calibration?(filePath: string): string;
     scan(filePath: string, region?: EntryRegion, recipe?: RecipeDocument, stage?: string, detail?: StageDetail, reference?: ScanReference): Promise<ScanResult>;
+    /** A median and a difference of steps the backend's scans kept (stage-combine). */
+    combine?(payload: StageCombinePayload): Promise<StageCombineResult>;
     /** The entry Recipe the host scans with by default, shown in the step bar. */
     recipe?(): Promise<RecipeDocument>;
     /** The bytes of a listed file, for reading the CSV/TSV files among them as metadata tables. */
@@ -324,8 +336,26 @@ export async function runCompareScan(
         }
         await publish({ type: 'compare-scan-done', requestId: message.requestId });
     } finally {
-        await ports.afterScan?.(scanned);
+        // A step's pictures keep their values in the backend for the comparison's median and difference
+        // (stage-combine): the backend that holds them stays as it is.
+        if (message.stage === undefined) await ports.afterScan?.(scanned);
     }
+}
+
+/** Answers a 'compare-combine': what stage-combine gives, or no difference when it cannot be taken. */
+export async function runCompareCombine(
+    ports: EntryScanPorts,
+    message: CompareCombineMessage,
+    publish: (message: ComparePublication) => void | PromiseLike<unknown>,
+): Promise<void> {
+    const { type: _type, requestId, ...payload } = message;
+    let result: StageCombineResult;
+    try {
+        result = ports.combine ? await ports.combine(payload) : { ok: true };
+    } catch {
+        result = { ok: true };
+    }
+    await publish({ type: 'compare-combine-result', requestId, result });
 }
 
 export function isEntryRegion(value: unknown): value is EntryRegion {

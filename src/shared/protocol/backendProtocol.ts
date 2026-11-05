@@ -22,6 +22,8 @@ import type {
     ScanResult,
     SpectrumSlicePayload,
     SpectrumSliceResult,
+    StageCombinePayload,
+    StageCombineResult,
     StageDetail,
     StageView,
     TrackDetailPayload,
@@ -55,6 +57,8 @@ export type {
     ScanResult,
     SpectrumSlicePayload,
     SpectrumSliceResult,
+    StageCombinePayload,
+    StageCombineResult,
     StageDetail,
     StageView,
     TrackDetailPayload,
@@ -91,6 +95,7 @@ export interface BackendCommandMap {
     'run-recipe': { payload: RunRecipePayload; result: RunRecipeResult };
     'build-recipe': { payload: BuildRecipePayload; result: BuildRecipeResult };
     scan: { payload: ScanPayload; result: ScanResult };
+    'stage-combine': { payload: StageCombinePayload; result: StageCombineResult };
 }
 
 export const BACKEND_COMMANDS = [
@@ -104,6 +109,7 @@ export const BACKEND_COMMANDS = [
     'run-recipe',
     'build-recipe',
     'scan',
+    'stage-combine',
 ] as const satisfies ReadonlyArray<keyof BackendCommandMap>;
 
 export type BackendCommand = typeof BACKEND_COMMANDS[number];
@@ -286,6 +292,13 @@ function isScanResult(value: unknown): value is ScanResult {
         .every(values => values !== undefined && values.length === channels);
 }
 
+function isStageCombineResult(value: unknown): value is StageCombineResult {
+    if (schemaViolation('StageCombineResult', value) !== null) return false;
+    const result = value as StageCombineResult;
+    // Missing keys come alone; a combination never names any.
+    return result.ok ? result.missing === undefined : result.missing !== undefined && !result.base && !result.diff;
+}
+
 type ResultValidator<K extends BackendCommand> = (value: unknown) => value is BackendResult<K>;
 
 const RESULT_VALIDATORS: { [K in BackendCommand]: ResultValidator<K> } = {
@@ -299,6 +312,7 @@ const RESULT_VALIDATORS: { [K in BackendCommand]: ResultValidator<K> } = {
     'run-recipe': isRunRecipeResult,
     'build-recipe': isBuildRecipeResult,
     scan: isScanResult,
+    'stage-combine': isStageCombineResult,
 };
 
 export function parseBackendResult<K extends BackendCommand>(command: K, value: unknown): BackendResult<K> {

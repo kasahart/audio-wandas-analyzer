@@ -1,15 +1,15 @@
 /**
  * The comparison's three panes for one step of the chain: the base's, the compared file's and their
  * difference, each drawn as its Frame type is (stage_view.py): a line over time, log frequency or
- * quefrency, a cross-correlation over lag, bars per band, an image over time and frequency, Bark or quefrency. The base of a group is
- * the median of its files' pictures, point by point. A difference is taken between two pictures of the
- * same quantity on the same axes, in what they measure (dB for levels); otherwise the Δ pane says why it
- * is empty. Pure apart from `paintStage`, which only draws.
+ * quefrency, a cross-correlation over lag, bars per band, an image over time and frequency, Bark or quefrency. The base
+ * of a group (its median) and a difference are taken by the backend from the Frames' full resolution
+ * (combineSource.ts) and drawn here like any picture; without one the Δ pane says why it is empty. Pure apart
+ * from `paintStage`, which only draws.
  */
 import type { StageView } from '../../shared/protocol/backendProtocol';
 import type { UiStrings } from '../../shared/i18n/strings';
-import { BAND_CENTERS_HZ, HEADLINE_WITHIN_DB } from './entryTable';
-import { median } from '../../shared/dataset/distribution';
+import { BAND_CENTERS_HZ } from './entryTable';
+import type { StageHeadline } from './combineSource';
 import { PANE_LEFT, paneAxes, type LevelInput, type PaneRange } from './comparePanes';
 import { uncalibratedUnits } from '../../shared/utils/format';
 import type { NormalizedRange } from './waveformInteraction';
@@ -39,85 +39,18 @@ const skipsFirst = (view: StageView): boolean => view.quantity === 'cepstrum';
  */
 const headlineColumn = (view: StageView, column: number): boolean => view.whole?.[column] !== false;
 
-function sameAxes(a: StageView, b: StageView): boolean {
-    return a.kind === b.kind && a.x === b.x && a.quantity === b.quantity && a.yAxis === b.yAxis
-        && (a.xs?.length ?? 0) === (b.xs?.length ?? 0) && (a.ys?.length ?? 0) === (b.ys?.length ?? 0);
-}
-
-const medianOf = (values: Array<number | null>): number | null => {
-    const known = values.filter((value): value is number => value !== null);
-    return known.length === values.length && known.length ? median(known) : null;
-};
-
-/** The median of several files' pictures, point by point; null when they do not share their axes. */
-export function medianView(views: readonly StageView[]): StageView | null {
-    if (!views.length || views.some(view => !sameAxes(view, views[0]))) return null;
-    if (views.length === 1) return views[0];
-    // A group has a median level, not a median signal: its waveform is not drawn, nor its files' events (the median of
-    // their mean is).
-    const { waveform: _signal, events: _events, ...first } = views[0];
-    if (first.matrix) {
-        return { ...first, matrix: first.matrix.map((row, r) => row.map((_, c) => medianOf(views.map(view => view.matrix?.[r]?.[c] ?? null)))) };
-    }
-    return { ...first, values: (first.values ?? []).map((_, index) => medianOf(views.map(view => view.values?.[index] ?? null))) };
-}
-
-
-/**
- * Where a difference can head the comparison: for pictures of dB levels, the points (or cells) where the louder
- * of base and compare is within HEADLINE_WITHIN_DB of the loudest of either; for other values, every point.
- */
-export function loudPoints(base: StageView, compare: StageView, within = HEADLINE_WITHIN_DB): { values?: boolean[]; matrix?: boolean[][] } {
-    const louder = (a: number | null, b: number | null): number | null => (a === null || b === null ? null : Math.max(a, b));
-    const compareMatrix = compare.matrix;
-    if (base.matrix && compareMatrix) {
-        const cells = base.matrix.map((row, r) => row.map((value, c) => louder(value, compareMatrix[r]?.[c] ?? null)));
-        const top = Math.max(...cells.flat().filter((value): value is number => value !== null && value > -250));
-        return { matrix: cells.map(row => row.map(value => value !== null && (!isDb(base) || value >= top - within))) };
-    }
-    const points = (base.values ?? []).map((value, index) => louder(value, compare.values?.[index] ?? null));
-    const top = Math.max(...points.filter((value): value is number => value !== null && value > -250));
-    return { values: points.map(value => value !== null && (!isDb(base) || value >= top - within)) };
-}
-
 /**
  * The comparison's headline for a step's picture: where base and compare differ most among the points loud
- * enough to be heard (loudPoints), with both their values: "1.00 kHz base −40.0 / compare −26.0 dB".
+ * enough to be heard, with both their values: "1.00 kHz base −40.0 / compare −26.0 dB". `headline` is that point,
+ * found in the Frames' full resolution (stage_combine.py), not in the decimated pictures.
  */
-export function stageLevelsHeadline(base: StageView | null, compare: StageView | null, diff: StageView | null, strings: Pick<StageStrings, 'stageNoDelta' | 'compareLevelsAt'> & Partial<Pick<StageStrings, 'stageEventCounts'>>): string {
+export function stageLevelsHeadline(base: StageView | null, compare: StageView | null, diff: StageView | null, headline: StageHeadline | null | undefined, strings: Pick<StageStrings, 'stageNoDelta' | 'compareLevelsAt'> & Partial<Pick<StageStrings, 'stageEventCounts'>>): string {
     // A trigger's events: how many each found, which is what tells the recordings apart first.
     if (strings.stageEventCounts && (isEventsView(base) || isEventsView(compare))) return strings.stageEventCounts.replace('{base}', base?.events ? String(base.events.length) : '—').replace('{compare}', compare?.events ? String(compare.events.length) : '—');
-    if (!base || !compare || !diff) return strings.stageNoDelta;
-    const loud = loudPoints(base, compare);
-    const skip = skipsFirst(diff) ? 1 : 0;
-    let best: { value: number; index: number; row?: number } | null = null;
-    if (diff.matrix) diff.matrix.forEach((cells, row) => row >= skip && cells.forEach((value, index) => { if (value !== null && loud.matrix?.[row]?.[index] && headlineColumn(diff, index) && (!best || Math.abs(value) > Math.abs(best.value))) best = { value, index, row }; }));
-    else (diff.values ?? []).forEach((value, index) => { if (index >= skip && value !== null && loud.values?.[index] && (!best || Math.abs(value) > Math.abs(best.value))) best = { value, index }; });
-    if (!best) return strings.stageNoDelta;
-    const found = best as { value: number; index: number; row?: number };
-    const at = (view: StageView): number | null => (found.row === undefined ? view.values?.[found.index] : view.matrix?.[found.row]?.[found.index]) ?? null;
+    if (!base || !compare || !diff || !headline) return strings.stageNoDelta;
     const shown = (value: number | null): string => (value === null ? '—' : Math.abs(value) >= 10 ? value.toFixed(1).replace(/^-/, '−') : value.toPrecision(3).replace(/^-/, '−'));
-    return strings.compareLevelsAt.replace('{at}', atText(diff, found.index, found.row)).replace('{base}', shown(at(base))).replace('{compare}', shown(at(compare)))
+    return strings.compareLevelsAt.replace('{at}', atValue(diff, headline.x, headline.y)).replace('{base}', shown(headline.base)).replace('{compare}', shown(headline.compare))
         + (isDb(base) ? ' dB' : '');
-}
-
-/** compare − base, point by point, for two pictures of one quantity on the same axes (dB for levels); otherwise null. */
-export function stageDifference(base: StageView | null, compare: StageView | null): StageView | null {
-    if (!base || !compare || base.kind === 'none' || !base.quantity || !sameAxes(base, compare)) return null;
-    // Two recordings' events are not one another's: their lines are compared overlaid, with no difference.
-    if (isEventsView(base) || isEventsView(compare)) return null;
-    // dB to a hundredth; small linear values (cepstral coefficients, coherence) keep more.
-    const scale = isDb(base) ? 100 : 1e6;
-    // The difference of two signals' levels: it has no waveform of its own.
-    const { waveform: _signal, ...shape } = compare;
-    const minus = (a: number | null, b: number | null): number | null => (a === null || b === null ? null : Math.round((a - b) * scale) / scale);
-    const baseMatrix = base.matrix;
-    if (compare.matrix && baseMatrix) {
-        // A column is a whole window only where it is one for both.
-        const whole = compare.whole || base.whole ? compare.matrix[0]?.map((_, c) => compare.whole?.[c] !== false && base.whole?.[c] !== false) : undefined;
-        return { ...shape, matrix: compare.matrix.map((row, r) => row.map((value, c) => minus(value, baseMatrix[r][c]))), ...(whole ? { whole } : {}) };
-    }
-    return { ...shape, values: (compare.values ?? []).map((value, index) => minus(value, base.values?.[index] ?? null)) };
 }
 
 /**
@@ -267,10 +200,13 @@ const lag = (seconds: number): string => {
 
 /** Where along its axis a point of the picture is, for the readout and the headline. */
 function atText(view: StageView, index: number, row?: number): string {
-    const x = view.xs?.[index] ?? 0;
+    return atValue(view, view.xs?.[index] ?? 0, row === undefined ? undefined : view.ys?.[row] ?? 0);
+}
+
+/** A point of `view`'s axes in their units: "1.00 kHz", "1.00 s · 100 Hz". */
+function atValue(view: StageView, x: number, y?: number): string {
     const along = view.x === 'time' ? `${x.toFixed(2)} s` : view.x === 'quefrency' ? quefrency(x) : view.x === 'lag' ? lag(x) : hz(x);
-    if (row === undefined) return along;
-    const y = view.ys?.[row] ?? 0;
+    if (y === undefined) return along;
     return `${along} · ${view.yAxis === 'bark' ? `${y.toFixed(1)} Bark` : view.yAxis === 'quefrency' ? quefrency(y) : hz(y)}`;
 }
 

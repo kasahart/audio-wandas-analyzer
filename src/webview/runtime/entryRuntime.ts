@@ -9,7 +9,7 @@
 import { redrawWhenResized } from './canvasResize';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import type { UiStrings } from '../../shared/i18n/strings';
-import type { ComparePublication, CompareScanMessage, EntryConditionTable, EntryProbeCancelMessage, EntryProbeMessage, EntryProbePublication, EntryPublication, EntryScanCancelMessage, EntryScanMessage, EntrySaveSessionMessage } from '../../shared/analysis/entryScan';
+import type { CompareCombineMessage, ComparePublication, CompareScanMessage, EntryConditionTable, EntryProbeCancelMessage, EntryProbeMessage, EntryProbePublication, EntryPublication, EntryScanCancelMessage, EntryScanMessage, EntrySaveSessionMessage } from '../../shared/analysis/entryScan';
 import type { ScanResult } from '../../shared/protocol/backendProtocol';
 import { BAND_CENTERS_HZ, bandLabel, buildEntryModel, derivedKey, entryCsv, type BaseDefinition, type DerivedRow, type EntryModel } from './entryTable';
 import { batchBundle, batchCount } from '../../shared/batch/batchBundle';
@@ -93,7 +93,7 @@ export interface EntryScreenDeps {
     document: Document;
     window: Pick<Window, 'addEventListener' | 'setTimeout' | 'clearTimeout' | 'requestAnimationFrame'> & { performance: Pick<Performance, 'now'> };
     strings: UiStrings;
-    post(message: EntryScanMessage | EntryScanCancelMessage | EntryProbeMessage | EntryProbeCancelMessage | EntrySaveSessionMessage | CompareScanMessage): void;
+    post(message: EntryScanMessage | EntryScanCancelMessage | EntryProbeMessage | EntryProbeCancelMessage | EntrySaveSessionMessage | CompareScanMessage | CompareCombineMessage): void;
     loadSlots(): readonly (string | null)[] | undefined;
     saveSlots(slots: (string | null)[]): void;
     /** Differences fixed on the comparison, kept across sessions like the slots. */

@@ -430,6 +430,7 @@ export interface UiStrings {
     axisLag: string;
     axisCorrelation: string;
     stageNoDelta: string;
+    stageTooLarge: string;
     stageEventCounts: string;
     stageNoEvents: string;
     stageEventOut: string;
@@ -1234,6 +1235,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         axisLag: 'Lag [s]',
         axisCorrelation: 'Correlation coefficient',
         stageNoDelta: '— (Δ only between pictures of one kind on the same axes)',
+        stageTooLarge: '— (too much data to take the median and Δ at full resolution)',
         stageEventCounts: '{base} events in the base, {compare} in the compared',
         stageNoEvents: 'No event crossed the trigger level · lower it in ⚙',
         stageEventOut: '{name} #{n} left out',
@@ -2027,6 +2029,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         axisLag: 'ラグ [s]',
         axisCorrelation: '相関係数',
         stageNoDelta: '— 差は同じ種類・同じ軸の結果どうしでだけ出せます',
+        stageTooLarge: '— データが多すぎて、元の分解能で中央値と差を出せません',
         stageEventCounts: 'イベント 基準 {base} 個・比較 {compare} 個',
         stageNoEvents: 'トリガーのレベルを超えたところがありません · ⚙ で下げてください',
         stageEventOut: '{name} #{n} を外しました',

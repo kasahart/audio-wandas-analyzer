@@ -7,7 +7,7 @@ import type { RecipeDocument } from '../shared/recipe/recipeSelection';
 import type { StageView } from '../shared/protocol/backendProtocol';
 import { INPUT_STAGE, runnableRecipe } from '../webview/runtime/stepBarModel';
 import { FULL_PLOT_WINDOW } from '../webview/runtime/plotInteraction';
-import { channelRecipe, chosenStage, comparedPath, eachBaseTitle, enterStageState, holdStageSpec, initialStageState, liveRegion, openStageState, pictureSummary, plotsOf, regionStageSpec, stageSpec } from '../webview/runtime/trackStageModel';
+import { channelRecipe, chosenStage, comparedPath, eachBaseTitle, enterStageState, holdStageSpec, initialStageState, liveRegion, openStageState, pictureSummary, plotsOf, combineRequest, regionStageSpec, stageSpec } from '../webview/runtime/trackStageModel';
 
 const entry = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8')) as RecipeDocument;
 const limits = { sampleRate: 16000 };
@@ -76,16 +76,25 @@ test('holding a step scans the chain without it, on the step before it when it i
     assert.ok(recipeChain(channel?.message.recipe as RecipeDocument).some(node => node.operation === 'wandas.frame.get_channel'));
 });
 
-test('the base is the median of its files once all are in; the compared file\'s difference is against it', () => {
-    const views: Record<string, StageView | null | undefined> = { a: line([-10, -20]), b: line([-30, -40]), c: line([-20, -20]) };
+test('the base is one file\'s picture or a group\'s combined median; the difference is the combination\'s', () => {
+    const views: Record<string, StageView | null | undefined> = { a: { ...line([-10, -20]), data: 'ka' }, b: { ...line([-30, -40]), data: 'kb' }, c: { ...line([-20, -20]), data: 'kc' } };
     const tracks = ['a', 'b', 'c', 'd'].map(filePath => ({ filePath }));
-    const plots = plotsOf(path => views[path], tracks, 'c', ['a', 'b']);
+    const combined = { base: line([-20, -30]), diff: line([0, 10]), headline: { x: 1000, base: -30, compare: -20 } };
+    const plots = plotsOf(path => views[path], tracks, 'c', ['a', 'b'], combined);
     assert.deepEqual(plots.base?.values, [-20, -30]);
     assert.deepEqual(plots.compare?.values, [-20, -20]);
     assert.deepEqual(plots.diff?.values, [0, 10]);
+    assert.deepEqual(plots.headline, combined.headline);
     assert.deepEqual(plots.others.map(item => [item.track.filePath, item.view]), [['d', null]]);
-    assert.equal(plotsOf(path => (path === 'b' ? undefined : views[path]), tracks, 'c', ['a', 'b']).base, null, 'a base file not in yet');
-    assert.equal(plotsOf(path => views[path], tracks, 'a', ['a', 'b']).diff, null, 'a file is not compared with a base it is in');
+    assert.equal(plotsOf(path => views[path], tracks, 'c', ['a', 'b'], undefined).base, null, 'a group\'s median not combined yet');
+    assert.equal(plotsOf(path => views[path], tracks, 'c', ['a'], combined).base, views.a, 'one base file is the base itself');
+    assert.equal(plotsOf(path => views[path], tracks, 'a', ['a', 'b'], combined).diff, null, 'a file is not compared with a base it is in');
+    // What is combined: the pictures' kept values, once every one is in.
+    assert.deepEqual(combineRequest(path => views[path], 'c', ['a', 'b']), { base: ['ka', 'kb'], compare: 'kc' });
+    assert.deepEqual(combineRequest(path => views[path], 'a', ['a', 'b']), { base: ['ka', 'kb'], compare: null });
+    assert.equal(combineRequest(path => (path === 'b' ? undefined : views[path]), 'c', ['a', 'b']), undefined, 'a picture not in yet');
+    assert.equal(combineRequest(path => views[path], 'a', ['a']), null, 'one base file and nothing compared');
+    assert.equal(combineRequest(path => (path === 'c' ? line([1, 2]) : views[path]), 'c', ['a']), null, 'a picture without kept values');
 });
 
 test('a picture is summed up by its points with a level and their median', () => {
@@ -129,11 +138,11 @@ test('the first opening shows the input, from either entrance; later ones the st
 test('a base group of waveforms is drawn each as it is: no median signal, its title counts its files', () => {
     const wave = (peak: number): StageView => ({ ...line([peak, -peak]), x: 'time', waveform: { min: [-peak], max: [peak] } } as unknown as StageView);
     const views: Record<string, StageView> = { a: wave(0.1), b: wave(0.2), c: wave(0.5) };
-    const plots = plotsOf(path => views[path], [{ filePath: 'c' }], 'c', ['a', 'b']);
+    const plots = plotsOf(path => views[path], [{ filePath: 'c' }], 'c', ['a', 'b'], undefined);
     assert.deepEqual(plots.baseMembers, [{ path: 'a', view: views.a }, { path: 'b', view: views.b }]);
     assert.equal(plots.base?.waveform, undefined);
-    assert.deepEqual(plotsOf(path => views[path], [{ filePath: 'c' }], 'c', ['a']).baseMembers, [], 'one base file is the base itself');
-    assert.deepEqual(plotsOf(path => line([views[path].values?.[0] ?? 0]), [{ filePath: 'c' }], 'c', ['a', 'b']).baseMembers, [], 'levels have a median');
+    assert.deepEqual(plotsOf(path => views[path], [{ filePath: 'c' }], 'c', ['a'], undefined).baseMembers, [], 'one base file is the base itself');
+    assert.deepEqual(plotsOf(path => line([views[path].values?.[0] ?? 0]), [{ filePath: 'c' }], 'c', ['a', 'b'], undefined).baseMembers, [], 'levels have a median');
     const strings = { entryBaseMedian: '{count} 件の中央値', entryBaseCount: '{count} 件' };
     assert.equal(eachBaseTitle('基準群 全体 · 12 件の中央値 · ch1', 12, strings), '基準群 全体 · 12 件 · ch1');
 });

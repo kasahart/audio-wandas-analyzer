@@ -83,6 +83,7 @@ export class PythonBackendServer extends AnalysisClient {
         'run-recipe': 0,
         'build-recipe': 120_000,
         scan: 300_000,
+        'stage-combine': 120_000,
     };
 
     constructor(

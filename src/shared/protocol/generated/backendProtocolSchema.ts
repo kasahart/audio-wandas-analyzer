@@ -1412,6 +1412,9 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                     },
                     "additionalProperties": false
                 },
+                "data": {
+                    "type": "string"
+                },
                 "events": {
                     "type": "array",
                     "items": {
@@ -1445,6 +1448,102 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                         },
                         "additionalProperties": false
                     }
+                }
+            },
+            "additionalProperties": false
+        },
+        "StageCombinePayload": {
+            "type": "object",
+            "required": [
+                "base"
+            ],
+            "properties": {
+                "base": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "compare": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "detail": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/$defs/StageDetail"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            },
+            "additionalProperties": false
+        },
+        "StageCombineResult": {
+            "type": "object",
+            "required": [
+                "ok"
+            ],
+            "properties": {
+                "ok": {
+                    "type": "boolean"
+                },
+                "missing": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "base": {
+                    "$ref": "#/$defs/StageView"
+                },
+                "diff": {
+                    "$ref": "#/$defs/StageView"
+                },
+                "headline": {
+                    "type": "object",
+                    "required": [
+                        "x",
+                        "base",
+                        "compare"
+                    ],
+                    "properties": {
+                        "x": {
+                            "type": "number"
+                        },
+                        "y": {
+                            "type": "number"
+                        },
+                        "base": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "compare": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        }
+                    },
+                    "additionalProperties": false
                 }
             },
             "additionalProperties": false
@@ -1768,6 +1867,10 @@ export const BACKEND_PROTOCOL_SCHEMA = {
         "scan": {
             "payload": "ScanPayload",
             "result": "ScanResult"
+        },
+        "stage-combine": {
+            "payload": "StageCombinePayload",
+            "result": "StageCombineResult"
         }
     },
     "x-requestEnvelopeKeys": [
@@ -1779,7 +1882,7 @@ export const BACKEND_PROTOCOL_SCHEMA = {
     ]
 } as const;
 
-export type SchemaCommand = 'analyze' | 'track-detail' | 'range' | 'spectrum-slice' | 'pair-spectrum' | 'export-wav-loop' | 'release-track-detail' | 'build-recipe' | 'scan';
+export type SchemaCommand = 'analyze' | 'track-detail' | 'range' | 'spectrum-slice' | 'pair-spectrum' | 'export-wav-loop' | 'release-track-detail' | 'build-recipe' | 'scan' | 'stage-combine';
 
 export interface StftOptions {
     nFft: number;
@@ -2105,11 +2208,31 @@ export interface StageView {
     unit: string;
     ref: number;
 };
+    data?: string;
     events?: {
     id: number;
     time: number;
     values: (number | null)[];
 }[];
+}
+
+export interface StageCombinePayload {
+    base: string[];
+    compare?: string | null;
+    detail?: StageDetail | null;
+}
+
+export interface StageCombineResult {
+    ok: boolean;
+    missing?: string[];
+    base?: StageView;
+    diff?: StageView;
+    headline?: {
+    x: number;
+    y?: number;
+    base: number | null;
+    compare: number | null;
+};
 }
 
 export interface ScanInput {

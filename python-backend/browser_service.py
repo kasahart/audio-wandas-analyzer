@@ -271,6 +271,10 @@ def _service() -> BrowserService:
     if service is None:
         # Pyodide has no threads; the Worker is this process's only user of dask.
         dask.config.set(scheduler="synchronous")
+        # The steps' values kept for the comparison's medians and differences share the Worker's memory limit.
+        from stage_combine import STORE
+
+        STORE.resize(256 * MIB)
         service = create_service()
     return service
 

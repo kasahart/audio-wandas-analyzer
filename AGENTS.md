@@ -109,7 +109,7 @@ TS/JS の役割分担は `src/**/*.ts` が編集対象のソース、`dist/**/*.
 | `python-backend/decimator.py` | `decimated_waveform()` — bucket-level argmin/argmax |
 | `python-backend/analysis_service.py` | Initial summary, detail, spectrum slice, waveform range, WAV export and Recipe |
 | `python-backend/analysis_engine.py` | Cached audio frames and STFT by calibration/settings |
-| `python-backend/backend_server.py` | Persistent NDJSON server; dispatches the validated commands in `command_dispatch.COMMANDS` (10 today) |
+| `python-backend/backend_server.py` | Persistent NDJSON server; dispatches the validated commands in `command_dispatch.COMMANDS` (11 today) |
 | `python-backend/recipe_runner.py` | Loads and replays a wandas `RecipePlan`; called by `analysis_service` on the persistent backend |
 
 ### Waveform rendering pipeline

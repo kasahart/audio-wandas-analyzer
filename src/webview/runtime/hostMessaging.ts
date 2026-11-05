@@ -189,6 +189,9 @@ export function isHostInboundMessage(value: unknown): value is HostInboundMessag
         case 'compare-scan-result':
             if (!hasString(value, 'requestId') || !hasString(value, 'filePath')) return false;
             try { parseBackendResult('scan', value.result); return true; } catch { return false; }
+        case 'compare-combine-result':
+            if (!hasString(value, 'requestId')) return false;
+            try { parseBackendResult('stage-combine', value.result); return true; } catch { return false; }
         case 'analysis-update':
             return Array.isArray(value.results) && (value.selectedFilePaths === undefined
                 || Array.isArray(value.selectedFilePaths) && value.selectedFilePaths.every(path => typeof path === 'string'));
