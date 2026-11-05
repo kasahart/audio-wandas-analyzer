@@ -161,10 +161,10 @@ test('results-toolbar buttons either change UI state or emit a VS Code side effe
 
     await expect(toolbar.locator('[data-action="zoom-to-selection"]')).toBeDisabled();
 
-    // Two menus: the other zoom tools (⋯) and Export, which also saves or runs a Recipe.
+    // Two menus: the other zoom tools (⋯) and Export, which also saves or opens a Recipe.
     await expect(page.locator('#toolbar details.tb-menu')).toHaveCount(2);
     await openToolbarMenu(page, 'tb-export-menu');
-    await domClick(page, '#toolbar [data-action="run-recipe"]');
+    await domClick(page, '#toolbar [data-action="open-recipe"]');
     await domClick(page, '#toolbar [data-action="save-recipe"]');
     await domClick(page, '#toolbar [data-action="export-png"]');
     await domClick(page, '#toolbar [data-action="export-csv"]');

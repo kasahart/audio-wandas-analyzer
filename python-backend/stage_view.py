@@ -1,6 +1,6 @@
 """One step's Frame as the comparison draws it: few enough points to send for every file of a base.
 
-Each Frame type keeps its own picture (wandas_to_chart draws the same types): a time signal as its level
+Each Frame type keeps its own picture: a time signal as its level
 over time (or, for a metric already sampled slowly, such as loudness, its values), a spectrum on the
 comparison's log frequency axis, 1/3-octave levels as bars, a spectrogram as an image on that axis, a
 cepstrum as its real coefficients over quefrency, a cepstrogram as an image over time and quefrency, a
@@ -33,7 +33,6 @@ from wandas.frames import (
 from wandas.frames.segments import ChannelFrameSegments
 
 import analysis_spec as spec
-from wandas_to_chart import CHART_FRAME_TYPES
 
 # A time signal longer than this is drawn as its level over time; a shorter one is a metric's values.
 LEVEL_SERIES_MIN_SAMPLES = 2048
@@ -65,7 +64,18 @@ CORRELATION_DECIMALS = 4
 #: Points per event of a trigger's segments: each block's sample of largest magnitude, so a hit keeps its peak.
 EVENT_POINTS = 400
 
-#: The Frames the comparison draws: those wandas_to_chart draws, the cepstral ones and the cross-correlation.
+#: The Frames drawn as a line, bars or an image of their own values.
+CHART_FRAME_TYPES = (
+    ChannelFrame,
+    SpectralFrame,
+    CoherenceFrame,
+    CrossSpectralFrame,
+    TransferFunctionFrame,
+    SpectrogramFrame,
+    NOctFrame,
+    RoughnessFrame,
+)
+#: The Frames the comparison draws: those, the cepstral ones, the cross-correlation and a trigger's segments.
 STAGE_FRAME_TYPES = (*CHART_FRAME_TYPES, CepstralFrame, CepstrogramFrame, CrossCorrelationFrame, ChannelFrameSegments)
 
 
@@ -613,8 +623,8 @@ def _envelope(xs: np.ndarray, values: np.ndarray, points: int) -> tuple[np.ndarr
     file's buckets fall at the same places and a group's pictures still have a median point by point.
 
     Not ``decimator.decimated_waveform`` (where a NaN wins its bucket, the points sit at the extremes' own
-    samples and the buckets are sized by ``divmod``) nor ``wandas_to_chart._min_max_envelope`` (which keeps
-    each gap's first sample): a comparison needs fixed bucket positions and ignores non-finite values.
+    samples and the buckets are sized by ``divmod``): a comparison needs fixed bucket positions and ignores
+    non-finite values.
     """
     n = xs.size
     if n <= points:

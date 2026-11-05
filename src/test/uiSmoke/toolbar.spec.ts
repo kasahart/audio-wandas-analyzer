@@ -42,63 +42,6 @@ async function loadUi(page: Page) {
     await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
 }
 
-for (const clearSources of [true, false]) {
-test(clearSources ? 'clearing a pending browser recipe keeps the cleared status' : 'removing one browser recipe input ignores late charts', async ({ page }) => {
-    const fixtures = JSON.parse(readFileSync(join(process.cwd(), 'src/test/fixtures/backendProtocol.json'), 'utf8'));
-    await page.setContent('<html><body></body></html>');
-    await page.addScriptTag({ content: `
-        window.__APP_STATE__ = {};
-        const fixtures = ${JSON.stringify(fixtures.validResponses.map(workerFixture))};
-        window.fetch = async url => ({ ok: true, json: async () => url.endsWith('manifest.json')
-            ? [{ name: 'octave.json', location: './recipes/octave.json' }]
-            : { schema: 'wandas.recipe', version: 2, inputs: [{ id: 'input-0', name: 'signal', kind: 'frame' }], nodes: [], output: 'input-0' } });
-        window.Worker = class {
-            terminate() {}
-            postMessage(command) {
-                if (command.cmd === 'run-recipe') {
-                    window.__pendingRecipe = command;
-                    window.__completeRecipe = () => this.onmessage({ data: { requestId: command.requestId,
-                        result: { charts: [{ kind: 'scalar', title: 'Late', rows: [] }] } } });
-                    return;
-                }
-                const result = command.cmd === 'load' ? { filePath: '/sources/' + command.sourceId }
-                    : command.cmd === 'limits' ? { maxInputBytes: 16777216, maxSources: 8, maxTotalInputBytes: 67108864, maxExportBytes: 33554432 }
-                    // browser_service.py answers the Worker's own release and export-plan commands with an empty object.
-                    : ['unload', 'clear', 'export-plan'].includes(command.cmd) ? {}
-                    : { ...fixtures.find(entry => entry.command === command.cmd)?.response, filePath: command.filePath };
-                queueMicrotask(() => this.onmessage({ data: { requestId: command.requestId, result } }));
-            }
-        };
-    ` });
-    await page.addScriptTag({ content: readFileSync(join(process.cwd(), 'dist/webview/staticHost.js'), 'utf8') });
-    await page.locator('[data-action="browser-open-wav"]').setInputFiles({ name: 'selected.wav', mimeType: 'audio/wav', buffer: tinyWav() });
-    await expect(page.locator('[role="status"]')).toContainText('selected.wav:');
-    if (!clearSources) {
-        await page.locator('[data-action="browser-open-wav"]').setInputFiles({ name: 'second.wav', mimeType: 'audio/wav', buffer: tinyWav() });
-        await expect(page.locator('[role="status"]')).toContainText('second.wav:');
-    }
-    await page.evaluate(() => {
-        (window as typeof window & { __AWA_HOST__: { postMessage(message: unknown): void } }).__AWA_HOST__.postMessage({ type: 'run-recipe' });
-    });
-    await page.locator('[data-recipe-picker] [data-action="browser-recipe-pick"]').first().click();
-    if (!clearSources) await page.locator('[data-recipe-picker] [data-action="browser-recipe-run"]').click();
-    await expect.poll(() => page.evaluate(() => Boolean((window as typeof window & { __pendingRecipe?: unknown }).__pendingRecipe))).toBe(true);
-    const expected = clearSources
-        ? await page.evaluate(() => (window as typeof window & { __APP_STRINGS__: { browserCleared: string } }).__APP_STRINGS__.browserCleared)
-        : await page.locator('[role="status"]').textContent();
-    if (clearSources) await page.evaluate(() => {
-        (window as typeof window & { __AWA_HOST__: { postMessage(message: unknown): void } }).__AWA_HOST__
-            .postMessage({ type: 'analyze-selected-files', requestId: 'clear', filePaths: [] });
-    });
-    else await page.evaluate(() => {
-        (window as typeof window & { __AWA_HOST__: { releaseSource(path: string): void } }).__AWA_HOST__.releaseSource('/sources/selected.wav');
-    });
-    await page.evaluate(() => (window as typeof window & { __completeRecipe(): void }).__completeRecipe());
-    await expect(page.locator('[role="status"]')).toHaveText(expected!);
-    await expect(page.locator('[data-recipe-result]')).toHaveCount(0);
-});
-}
-
 function staticWorkerInit(): string {
     const fixtures = JSON.parse(readFileSync(join(process.cwd(), 'src/test/fixtures/backendProtocol.json'), 'utf8')).validResponses;
     return `window.prompt = () => '1';
@@ -109,7 +52,6 @@ function staticWorkerInit(): string {
                 const result = command.cmd === 'load' ? { filePath: '/sources/' + command.sourceId }
                     : command.cmd === 'limits' ? { maxInputBytes: 16777216, maxSources: 8, maxTotalInputBytes: 67108864, maxExportBytes: 33554432 }
                     : ['unload', 'clear', 'export-plan'].includes(command.cmd) ? {}
-                    : command.cmd === 'run-recipe' ? { charts: [{ kind: 'scalar', title: 'Peak', rows: [] }] }
                     : command.cmd === 'scan' ? { ok: true, conditionId: 'c', input: { id: 'i', fs: 16000, channels: [0], durationS: 2, unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true },
                         leqDbA: [-20], peakHz: [1000], spectrumDb: [[-20]], thirdOctDb: [[-23]], crest: [1.4], specVersion: 1, wandasVersion: '0.9.0', elapsedMs: 1 }
                     : { ...fixtures.find(entry => entry.command === command.cmd)?.response, filePath: command.filePath,
@@ -130,9 +72,7 @@ async function openStaticPage(page: Page, extraInit = ''): Promise<void> {
         const name = new URL(route.request().url()).pathname.slice(1);
         if (!name) { await route.fulfill({ contentType: 'text/html', body: html }); return; }
         if (name.startsWith('recipes/')) {
-            await route.fulfill({ json: name.endsWith('manifest.json')
-                ? [{ name: 'octave.json', location: './recipes/octave.json' }]
-                : { schema: 'wandas.recipe', version: 2, inputs: [{ id: 'input-0', name: 'signal', kind: 'frame' }], nodes: [], output: 'input-0' } });
+            await route.fulfill({ json: { schema: 'wandas.recipe', version: 2, inputs: [{ id: 'input-0', name: 'signal', kind: 'frame' }], nodes: [], output: 'input-0' } });
             return;
         }
         const body = (name === 'staticHost.js' ? init : '') + readFileSync(join(process.cwd(), 'dist/webview', name), 'utf8');
@@ -141,7 +81,7 @@ async function openStaticPage(page: Page, extraInit = ''): Promise<void> {
     await page.goto('http://awa.test/');
 }
 
-test('static page CSP allows recipe charts and calibration clicks report unsupported functionality', async ({ page }) => {
+test('static page CSP allows the page and calibration clicks report unsupported functionality', async ({ page }) => {
     const cspErrors: string[] = [];
     page.on('console', message => {
         if (/Content Security Policy|violates.*directive/i.test(message.text())) cspErrors.push(message.text());
@@ -163,12 +103,6 @@ test('static page CSP allows recipe charts and calibration clicks report unsuppo
     await calibration.focus();
     await expect(calibration).toHaveAttribute('aria-disabled', 'true');
     await expect(page.locator('span[role="status"]')).toHaveText(statusBefore!);
-    await page.evaluate(() => {
-        (window as typeof window & { __AWA_HOST__: { postMessage(message: unknown): void } }).__AWA_HOST__.postMessage({ type: 'run-recipe' });
-    });
-    await page.locator('[data-recipe-picker] [data-action="browser-recipe-pick"]').first().click();
-    await expect(page.frameLocator('[data-recipe-result] iframe').locator('.chart-title')).toHaveText('Peak');
-    await expect(page.frameLocator('[data-recipe-result] iframe').locator('.chart-title')).toBeVisible();
     expect(cspErrors).toEqual([]);
 });
 
@@ -480,73 +414,13 @@ test('the table shows where a recording goes, keeps its exports reachable by key
     await expect(page.locator('#toolbar [data-action="entry-batch"]')).toBeHidden();
 });
 
-test('static page recipe menu drops from the Export menu, stays in the window, closes on Escape and runs a local recipe file', async ({ page }) => {
+test('static page loads WAV files dropped onto the page as tracks', async ({ page }) => {
     await openStaticPage(page);
-    await page.locator('[data-action="browser-open-wav"]').setInputFiles({ name: 'selected.wav', mimeType: 'audio/wav', buffer: tinyWav() });
-    await expect(page.locator('.track-row')).toHaveCount(1);
-    const workflow = page.locator('#toolbar details.tb-menu').filter({ has: page.locator('[data-action="run-recipe"]') });
-    const picker = page.locator('[data-recipe-picker]');
-    await workflow.locator('summary').click();
-    await workflow.locator('[data-action="run-recipe"]').click();
-    await expect(picker).toBeVisible();
-    await expect(workflow).not.toHaveAttribute('open', '');
-    await expect(picker.locator('[data-action="browser-recipe-pick"]')).toHaveText(['octave']);
-    const summaryBox = (await workflow.locator('summary').boundingBox())!;
-    const pickerBox = (await picker.boundingBox())!;
-    expect(pickerBox.x).toBeLessThanOrEqual(summaryBox.x + 1);
-    expect(pickerBox.x + pickerBox.width).toBeLessThanOrEqual((page.viewportSize()?.width ?? 1280) - 7);
-    expect(pickerBox.y).toBeGreaterThan(summaryBox.y + summaryBox.height - 1);
-    await page.evaluate(() => {
-        const keys: string[] = [];
-        (window as typeof window & { __pageKeys?: string[] }).__pageKeys = keys;
-        document.addEventListener('keydown', event => { keys.push(event.key); });
-    });
-    const pageKeys = () => page.evaluate(() => (window as typeof window & { __pageKeys: string[] }).__pageKeys);
-    await picker.locator('[data-action="browser-recipe-file"]').hover();
-    await expect(page.locator('#hint-footer')).toHaveText('Run a wandas .recipe.json from your computer');
-    await page.keyboard.press('Escape');
-    await expect(picker).toHaveCount(0);
-    await expect(page.locator('#hint-footer')).toHaveText('');
-    expect(await pageKeys(), 'Escape closes only the menu').toEqual([]);
-
-    await workflow.locator('summary').click();
-    await workflow.locator('[data-action="run-recipe"]').click();
-    await expect(picker.locator('[data-action="browser-recipe-pick"]')).toBeFocused();
-    await page.keyboard.press('Space');
-    await expect(page.frameLocator('[data-recipe-result] iframe').locator('.chart-title')).toHaveText('Peak');
-    await expect(page.locator('[data-recipe-result]')).toContainText('octave');
-    expect(await pageKeys(), 'Space presses the menu item instead of reaching the playback shortcut').toEqual([]);
-
-    await workflow.locator('summary').click();
-    await workflow.locator('[data-action="run-recipe"]').click();
-    await picker.locator('input[type="file"]').setInputFiles({ name: 'mine.recipe.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(
-        { schema: 'wandas.recipe', version: 2, inputs: [{ id: 'input-0', name: 'signal', kind: 'frame' }], nodes: [], output: 'input-0' })) });
-    await expect(picker).toHaveCount(0);
-    const result = page.locator('[data-recipe-result]');
-    await expect(result).toContainText('mine');
-    await expect(result).toContainText('signal: selected.wav');
-    await expect(page.frameLocator('[data-recipe-result] iframe').locator('.chart-title')).toHaveText('Peak');
-
-    // In a window too short for the menu, it scrolls instead of hiding its last item below the edge.
-    await page.setViewportSize({ width: 1280, height: 110 });
-    await workflow.locator('summary').click();
-    await workflow.locator('[data-action="run-recipe"]').click();
-    const shortBox = (await picker.boundingBox())!;
-    expect(shortBox.y + shortBox.height).toBeLessThanOrEqual(110);
-    await expect(picker).toHaveCSS('overflow-y', 'auto');
-    await picker.locator('[data-action="browser-recipe-file"]').scrollIntoViewIfNeeded();
-    await expect(picker.locator('[data-action="browser-recipe-file"]')).toBeInViewport();
-});
-
-test('static page loads WAV files dropped onto the page or the recipe charts as tracks', async ({ page }) => {
-    await openStaticPage(page);
-    const dropFiles = (type: 'dragover' | 'drop', names: string[], intoRecipe = false) => page.evaluate(({ type, names, intoRecipe, wav }) => {
-        const target = intoRecipe ? document.querySelector('[data-recipe-result] iframe') as HTMLIFrameElement : undefined;
-        const view = target ? target.contentWindow! as typeof window : window;
-        const transfer = new view.DataTransfer();
-        for (const name of names) transfer.items.add(new view.File([new Uint8Array(wav)], name));
-        view.document.body.dispatchEvent(new view.DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: transfer }));
-    }, { type, names, intoRecipe, wav: WAV_BYTES });
+    const dropFiles = (type: 'dragover' | 'drop', names: string[]) => page.evaluate(({ type, names, wav }) => {
+        const transfer = new DataTransfer();
+        for (const name of names) transfer.items.add(new File([new Uint8Array(wav)], name));
+        document.body.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    }, { type, names, wav: WAV_BYTES });
     const outline = page.locator('[data-drop-target]');
     await dropFiles('dragover', ['dropped.wav']);
     await expect(outline).toBeInViewport({ ratio: 1 });
@@ -558,23 +432,9 @@ test('static page loads WAV files dropped onto the page or the recipe charts as 
     await expect(page.locator('.track-row')).toHaveCount(2);
     await expect(page.locator('span[role="status"]')).toContainText('second.WAV:');
 
-    await page.evaluate(() => {
-        (window as typeof window & { __AWA_HOST__: { postMessage(message: unknown): void } }).__AWA_HOST__.postMessage({ type: 'run-recipe' });
-    });
-    await page.locator('[data-recipe-picker] [data-action="browser-recipe-pick"]').first().click();
-    // Two tracks for one input: the menu proposes the first and the user can pick the other before running.
-    const input = page.locator('[data-recipe-picker] select[data-recipe-input="signal"]');
-    await expect(input).toBeFocused();
-    await expect(input.locator('option')).toHaveText(['dropped.wav', 'second.WAV']);
-    await expect(input.locator('option:checked')).toHaveText('dropped.wav');
-    await input.selectOption({ label: 'second.WAV' });
-    await page.locator('[data-recipe-picker] [data-action="browser-recipe-run"]').click();
-    await expect(page.locator('[data-recipe-picker]')).toHaveCount(0);
-    await expect(page.locator('[data-recipe-result]')).toContainText('signal: second.WAV');
-    await expect(page.frameLocator('[data-recipe-result] iframe').locator('.chart-title')).toHaveText('Peak');
-    await dropFiles('dragover', ['third.wav'], true);
+    await dropFiles('dragover', ['third.wav']);
     await expect(outline).toBeVisible();
-    await dropFiles('drop', ['third.wav'], true);
+    await dropFiles('drop', ['third.wav']);
     await expect(page.locator('.track-row')).toHaveCount(3);
     await expect(outline).toBeHidden();
 
@@ -631,28 +491,9 @@ test('toolbar message assertions ignore initial panel bootstrap messages', async
     });
 
     await openToolbarMenu(page, 'tb-export-menu');
-    await page.locator('[data-action="run-recipe"]').click({ force: true });
-    await openToolbarMenu(page, 'tb-export-menu');
     await page.locator('[data-action="export-report"]').click({ force: true });
 
-    expect(await getPostedActionTypes(page)).toEqual([
-        'run-recipe',
-        'export-report-options',
-    ]);
-});
-
-test('results toolbar posts VS Code messages for recipe run and report export', async ({ page }) => {
-    await loadUi(page);
-
-    await openToolbarMenu(page, 'tb-export-menu');
-    await page.locator('[data-action="run-recipe"]').click({ force: true });
-    await openToolbarMenu(page, 'tb-export-menu');
-    await page.locator('[data-action="export-report"]').click({ force: true });
-
-    expect(await getPostedActionTypes(page)).toEqual([
-        'run-recipe',
-        'export-report-options',
-    ]);
+    expect(await getPostedActionTypes(page)).toEqual(['export-report-options']);
 });
 
 test('spectrogram settings apply posts a reanalyze request', async ({ page }) => {

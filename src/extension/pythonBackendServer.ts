@@ -79,8 +79,6 @@ export class PythonBackendServer extends AnalysisClient {
         'spectrum-slice': 60_000,
         'pair-spectrum': 300_000,
         'export-wav-loop': 300_000,
-        // AnalysisClient.runRecipe times the Recipe out itself.
-        'run-recipe': 0,
         'build-recipe': 120_000,
         scan: 300_000,
         'stage-combine': 120_000,

@@ -131,7 +131,6 @@ const CANVAS_DRAWING_FILES = [
     'src/webview/draw/canvasDrawers.ts',
     'src/webview/plot/waveformLayer.ts',
     'src/webview/runtime/canvasOverlays.ts',
-    'src/webview/runtime/chartSpecRuntime.ts',
     'src/webview/runtime/compareReport.ts',
     'src/webview/runtime/comparisonRuntime.ts',
     'src/webview/runtime/entryPlots.ts',

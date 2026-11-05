@@ -9,7 +9,6 @@ import soundfile as sf
 import wandas as wd
 
 from browser_service import BrowserService, create_service
-from command_dispatch import dispatch, validate_request
 from protocol_schema import DEFINITIONS, first_violation
 
 FIXTURE = Path(__file__).resolve().parents[1] / "src/test/fixtures/short-stereo.wav"
@@ -248,38 +247,6 @@ def test_browser_dispatch_errors_carry_codes(monkeypatch) -> None:
     assert "no longer selected" in _input_error(
         browser_service.dispatch_json('{"cmd": "analyze", "requestId": "r", "filePath": "/sources/gone.wav"}')
     )
-
-
-def test_run_recipe_uses_loaded_sources_and_rejects_paths(make_recipe) -> None:
-    service = create_service()
-    service.engine.load("selected.wav", FIXTURE.read_bytes())
-    path = "/sources/selected.wav"
-    service.track_detail(path, stft_options={"nFft": 256, "overlapPercent": 75, "window": "hann"})
-    recipe = make_recipe(lambda sig: sig.welch(n_fft=256))
-    command = {"cmd": "run-recipe", "requestId": "r", "recipe": recipe, "inputs": {"signal": path}}
-    result = dispatch(validate_request({**command, "recipePath": "./recipes/psd.recipe.json"}), service)
-    assert [chart["kind"] for chart in result["charts"]] == ["line"]
-    assert result["charts"][0]["title"] == "psd"
-    assert not service.engine.get_file(path).spectrograms, "recipe execution releases recomputable detail"
-    with pytest.raises(ValueError, match="not a loaded source"):
-        service.run_recipe(recipe, inputs={"signal": str(FIXTURE)})
-    with pytest.raises(ValueError, match="no file for recipe input 'signal'"):
-        service.run_recipe(recipe, inputs={})
-
-
-def test_browser_roughness_recipe_on_a_too_short_source_is_a_settings_error(monkeypatch) -> None:
-    import browser_service
-
-    monkeypatch.setattr(browser_service, "service", create_service())
-    buffer = io.BytesIO()
-    sf.write(buffer, np.random.default_rng(0).normal(size=1000) * 0.1, 48000, format="WAV")
-    assert "error" not in json.loads(browser_service.load_source("short.wav", buffer.getvalue()))
-    recipe = json.loads((Path(__file__).resolve().parent / "recipes/roughness.recipe.json").read_text(encoding="utf-8"))
-    command = {"cmd": "run-recipe", "requestId": "r", "recipe": recipe, "inputs": {"signal": "/sources/short.wav"}}
-
-    error = json.loads(browser_service.dispatch_json(json.dumps(command)))["error"]
-
-    assert (error["code"], error["kind"]) == ("input-error", "analysis-settings"), error
 
 
 def test_browser_limits_are_published_from_the_python_constants() -> None:

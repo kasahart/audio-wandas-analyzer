@@ -9,7 +9,6 @@ import { PanelController } from './panelController';
 import { ComparisonPanel } from '../webview/panels/ComparisonPanel';
 import { PythonEnvironment, setStatusBarImporting } from './pythonEnvironment';
 import { PythonBackendServer } from './pythonBackendServer';
-import { RecipeFlow } from './recipeFlow';
 import { CalibrationStore } from './calibrationStore';
 
 const ANALYZER_VIEW_TYPE_PREFIX = 'audioWandasAnalyzer.';
@@ -62,7 +61,6 @@ export function activate(context: vscode.ExtensionContext, calibration = new Cal
     });
     const analysis = new AnalysisOrchestrator(backend, logPerf);
     const exports = new ExportFlows(backend);
-    const recipeFlow = new RecipeFlow(context.extensionPath, context.extensionUri, backend);
 
     // Nothing touches Python until the user does something that needs it, so opening a window stays free.
     type PythonPreparation = 'idle' | 'checking' | 'ready' | 'failed';
@@ -196,7 +194,6 @@ export function activate(context: vscode.ExtensionContext, calibration = new Cal
         context,
         () => pythonEnvironment.selectPythonEnvironment(pythonStatusBarItem),
         panelController,
-        recipeFlow,
         (reason) => preparePython(reason === 'command'),
     );
 

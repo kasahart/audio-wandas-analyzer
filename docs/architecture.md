@@ -62,17 +62,10 @@ Web host（`staticHost.ts`）は port 実装と組み立てを持ち、Worker �
   `backend_server.py` は native 起動・heartbeat・NDJSON、`browser_service.py` は
   virtual source と Web 上限を担当する。Web 配布物には native transport を含めない。
 
-- Recipe は wandas の `RecipePlan` JSON（`*.recipe.json`）。`src/shared/recipe/` の `RecipeFlow` が一覧・選択・
-  チェック中ファイルの入力名への割り当て（Recipe の入力順を初期値とし、入力が複数かファイルが余るときは実行前に確認・変更できる）・実行・表示の手順を持つ。
-  native は recipes ディレクトリ、QuickPick、常駐 `AnalysisClient.runRecipe`、ChartSpec Panel を port で渡す。
-  Web は build 時の `recipes/manifest.json`、Workflow メニュー下の選択メニュー（同梱 Recipe と手元の `.recipe.json`）、Worker の `run-recipe` command、同一 origin の
-  `chartSpecRuntime.js` を読み込む frame を渡す。両 host の `AnalysisClient.runRecipe` は入力名→ファイルの対応、
-  入力ごとの校正 context と Recipe の場所を送信し、共通の120秒 timeout・cancel を管理する。native は古い校正を通常解析と同じ規則で
-  破棄・再試行する。Python 側の `AnalysisService.run_recipe` は `RecipePlan.from_dict()` で検証し、
-  `engine.get_analysis(file, profile)` の校正済み frame を `RecipePlan.apply()` に渡して出力 Frame をグラフにする（伝達関数は位相も出す）。
-  cancel・timeout は実行中の backend/Worker を終了する。native の他の pending request は
-  再起動後に自動で再送し、Recipe の失敗をパネルの解析エラーにしない。Web は読み込んだ File と表示を保持し、
-  次の要求で新しい Worker に再ロードする。
+- Recipe は wandas の `RecipePlan` JSON（`*.recipe.json`）。書き出しメニューの「レシピを開く…」は Webview 内で
+  ファイルを読み、`src/shared/recipe/recipeOpen.ts` が手順バーの一本の手順にする（入力 1 つはそのまま、
+  基準と応答の channel を `concat_frame` で組にする 2 入力は、その cross-channel step を基準スロットに参照させる）。
+  開いた手順は手順バーで組んだ手順と同じく `scan` で各録音に適用し、比較台に描く。結果専用のパネルや backend command は持たない。
   ChartSpec 文書の CSS と globals は `chartSpecDocument.ts` に置き、renderer は `chartSpecRuntime.ts` の
   `startChartSpecRenderer` を bundle した `dist/webview/chartSpecRuntime.js` を両 host が読み込む。
 - 「レシピとして保存」は webview が下のパネルの内容（スペクトルのファイルと帯域、または基準チャンネルと応答チャンネル）を
@@ -148,7 +141,7 @@ flowchart LR
 
 責務:
 
-- `package.json` の VS Code コマンド（`analyzeFile`、`analyzeThisTarget`、`analyzeDebugFile`、`selectPythonEnvironment`、`runRecipe`、`configureCalibration`）を登録する
+- `package.json` の VS Code コマンド（`analyzeFile`、`analyzeThisTarget`、`analyzeDebugFile`、`selectPythonEnvironment`、`configureCalibration`）を登録する
 - 対象の音声ファイルまたはディレクトリを選択または解決する
 - 受け取った対象を単一ファイル解析導線または比較ビュー導線へ振り分ける
 - Webview から `select-target`、`analyze-selected-files`、`request-waveform-range` を受け取る
@@ -185,7 +178,7 @@ flowchart LR
 責務:
 
 - stdin の NDJSON リクエストを検証し、`AnalysisService` に渡す
-- 共通10コマンド（analyze、range、track-detail、release-track-detail、spectrum-slice、pair-spectrum、export-wav-loop、run-recipe、build-recipe、scan）を dispatch する
+- 共通コマンド（analyze、range、track-detail、release-track-detail、spectrum-slice、pair-spectrum、export-wav-loop、build-recipe、scan、stage-combine）を dispatch する
 - request ID 付きの結果または error を stdout に返す
 - 起動通知・heartbeat・request ごとの実行開始通知 (started) と stderr の診断を提供する
 

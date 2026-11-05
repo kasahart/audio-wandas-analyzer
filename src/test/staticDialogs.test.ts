@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
-import { getStrings } from '../shared/i18n/strings';
-import { choose, showRecipeCharts } from '../webview/runtime/staticDialogs';
+import { choose } from '../webview/runtime/staticDialogs';
 
 function page() {
     const dom = new JSDOM('<!doctype html><body><main id="outside"></main></body>');
@@ -36,28 +35,4 @@ test('Escape or a press outside the choice cancels it', async () => {
     const third = choose(document, window, 'Format', [['a', 'A']] as const);
     document.querySelector<HTMLButtonElement>('[data-web-choice] button')!.click();
     assert.equal(await third, 'a');
-});
-
-test('recipe charts open in one fresh frame with the renderer globals and a close button', () => {
-    const { document } = page();
-    const strings = getStrings('en');
-    const prepared: Window[] = [];
-    const charts = [{ kind: 'scalar', title: 'Level', values: [] }] as never;
-    showRecipeCharts(document, strings, 'octave', charts, 'signal: a.wav', frame => prepared.push(frame));
-    showRecipeCharts(document, strings, 'octave', charts, 'signal: b.wav', frame => prepared.push(frame));
-    const panels = document.querySelectorAll('[data-recipe-result]');
-    assert.equal(panels.length, 1, 'a new run replaces the earlier result');
-    const panel = panels[0];
-    assert.equal(panel.getAttribute('data-recipe-result'), 'octave');
-    assert.match(panel.textContent ?? '', /signal: b\.wav/);
-    const frame = panel.querySelector('iframe')!;
-    assert.equal(prepared.length, 2);
-    assert.equal(prepared[1], frame.contentWindow);
-    assert.deepEqual((frame.contentWindow as unknown as { __CHART_SPECS__: unknown }).__CHART_SPECS__, charts);
-    assert.equal(frame.contentDocument!.getElementById('charts')?.tagName, 'DIV');
-    assert.equal(frame.contentDocument!.querySelector('script')?.getAttribute('src'), './chartSpecRuntime.js');
-    const close = panel.querySelector<HTMLButtonElement>('[data-action="browser-recipe-close"]')!;
-    assert.equal(close.textContent, strings.btnCloseRecipeResult);
-    close.click();
-    assert.equal(document.querySelector('[data-recipe-result]'), null);
 });

@@ -3,7 +3,6 @@
   "command.analyzeThisTarget.title": "Analyze with Audio Analyzer",
   "command.analyzeDebugFile.title": "Audio Analyzer: Analyze Debug Path",
   "command.selectPythonEnvironment.title": "Audio Analyzer: Select Python Environment",
-  "command.runRecipe.title": "Audio Analyzer: Run wandas recipe",
   "command.configureCalibration.title": "Audio Analyzer: Configure Calibration",
   "viewsContainer.title": "Audio Analyzer",
   "views.welcomeView.name": "Audio Analyzer",

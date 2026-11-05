@@ -8,20 +8,16 @@ const out = path.join(root, 'browser-dist');
 fs.mkdirSync(path.join(out, 'python'), { recursive: true });
 fs.mkdirSync(path.join(out, 'runtime'), { recursive: true });
 fs.mkdirSync(path.join(out, 'recipes'), { recursive: true });
-for (const name of ['comparisonWaveform.js', 'comparisonRuntime.js', 'staticHost.js', 'chartSpecRuntime.js']) {
+for (const name of ['comparisonWaveform.js', 'comparisonRuntime.js', 'staticHost.js']) {
     fs.copyFileSync(path.join(root, 'dist/webview', name), path.join(out, name));
 }
 fs.copyFileSync(path.join(root, 'browser/audio.worker.js'), path.join(out, 'audio.worker.js'));
 fs.copyFileSync(path.join(root, 'runtime/lock.json'), path.join(out, 'runtime/lock.json'));
 const recipeNames = fs.readdirSync(path.join(root, 'python-backend/recipes')).filter(name => name.endsWith('.json')).sort();
 for (const name of fs.readdirSync(path.join(out, 'recipes'))) {
-    if (!recipeNames.includes(name) && name !== 'manifest.json') fs.unlinkSync(path.join(out, 'recipes', name));
+    if (!recipeNames.includes(name)) fs.unlinkSync(path.join(out, 'recipes', name));
 }
-const recipeManifest = recipeNames.map(name => {
-    fs.copyFileSync(path.join(root, 'python-backend/recipes', name), path.join(out, 'recipes', name));
-    return { name, location: `./recipes/${name}` };
-});
-fs.writeFileSync(path.join(out, 'recipes/manifest.json'), JSON.stringify(recipeManifest));
+for (const name of recipeNames) fs.copyFileSync(path.join(root, 'python-backend/recipes', name), path.join(out, 'recipes', name));
 // The Worker imports browser_service and optional_packages (browser/audio.worker.js); ship what they import.
 function pythonImportClosure(entries) {
     const dir = path.join(root, 'python-backend');

@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const target = join(root, 'src/shared/protocol/generated/backendProtocolSchema.ts');
-// Same lookup order as src/test/chartSpecSchema.test.ts. protocol_schema.py needs only the standard library.
+// Looks in .venv, then $WANDAS_PYTHON, then PATH. protocol_schema.py needs only the standard library.
 function findPython() {
     for (const candidate of [join(root, '.venv/bin/python'), join(root, '.venv/Scripts/python.exe'), process.env.WANDAS_PYTHON, 'python3', 'python']) {
         if (!candidate) continue;

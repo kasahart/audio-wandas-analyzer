@@ -84,7 +84,6 @@ export interface ComparisonSessionPorts {
     selection?(message: AnalyzeSelectedFilesMessage): Promise<void>;
     panelReady?(message: ComparisonPanelReadyMessage): Promise<void>;
     selectPythonEnvironment?(): Promise<void>;
-    runRecipe?(scope: SessionScope): Promise<void>;
     /** Writes the comparison's report as one folder; the user may still cancel the destination. */
     saveReportFolder?(folder: string, files: Array<{ name: string; bytes: Uint8Array }>): Promise<void>;
     /** The entry table's scan and storage; a host without it routes entry messages to `unsupported`. */
@@ -155,9 +154,6 @@ export class ComparisonSessionController {
                 case 'comparison-panel-ready': await this.ports.panelReady?.(message); return;
                 case 'select-python-environment':
                     if (this.ports.selectPythonEnvironment) await this.ports.selectPythonEnvironment(); else this.ports.unsupported(message.type);
-                    return;
-                case 'run-recipe':
-                    if (this.ports.runRecipe) await this.ports.runRecipe(scope); else this.ports.unsupported(message.type);
                     return;
                 case 'save-recipe': await this.saveRecipe(message); return;
                 case 'entry-scan': {

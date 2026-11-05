@@ -77,10 +77,6 @@
                 "title": "%command.selectPythonEnvironment.title%"
             },
             {
-                "command": "audioWandasAnalyzer.runRecipe",
-                "title": "%command.runRecipe.title%"
-            },
-            {
                 "command": "audioWandasAnalyzer.configureCalibration",
                 "title": "%command.configureCalibration.title%"
             }

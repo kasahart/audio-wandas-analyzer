@@ -259,7 +259,6 @@ test('activation registers the commands and welcome view without starting Python
             'audioWandasAnalyzer.analyzeDebugFile',
             'audioWandasAnalyzer.analyzeThisTarget',
             'audioWandasAnalyzer.selectPythonEnvironment',
-            'audioWandasAnalyzer.runRecipe',
         ]);
         assert.deepEqual(harness.state.createdTreeViewIds, ['audioWandasAnalyzer.welcomeView']);
         assert.deepEqual(harness.state.dependencyChecks, []);
@@ -292,7 +291,7 @@ test('the first command checks the environment and warms the backend once; later
         assert.deepEqual(harness.state.dependencyChecks, ['python3']);
         assert.equal(harness.state.backendWarmupCalls, 1);
 
-        await harness.state.commandHandlers.get('audioWandasAnalyzer.runRecipe')?.([]);
+        await harness.state.commandHandlers.get('audioWandasAnalyzer.analyzeFile')?.();
         await settle();
         assert.deepEqual(harness.state.dependencyChecks, ['python3']);
     } finally {

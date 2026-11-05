@@ -28,7 +28,7 @@ test('toolbar has two menus, the other zoom tools (⋯) and Export, which holds 
     for (const action of ['stage-report', 'entry-batch', 'entry-export-csv', 'entry-export-notes']) assert.ok(html.includes('data-action="' + action + '"'), action);
     assert.ok(html.includes('>' + escapeHtml(strings.toolbarExportLabel) + '</summary>'));
     for (const absent of ['track-height-input', 'spectrum-height-input', 'copy-spec']) assert.ok(!html.includes('data-action="' + absent + '"'), absent);
-    for (const action of ['run-recipe', 'save-recipe', 'export-png', 'export-csv', 'export-wav', 'export-report', 'zoom-to-selection', 'toggle-follow-cursor']) {
+    for (const action of ['open-recipe', 'save-recipe', 'export-png', 'export-csv', 'export-wav', 'export-report', 'zoom-to-selection', 'toggle-follow-cursor']) {
         assert.ok(html.includes('data-action="' + action + '"'), action);
     }
     assert.ok(html.includes('id="cursor-display"'));

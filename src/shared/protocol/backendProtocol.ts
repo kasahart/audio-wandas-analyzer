@@ -1,6 +1,4 @@
-import type { ChartSpec } from '../chartSpec';
 import type { UiStrings } from '../i18n/strings';
-import type { RecipeDocument } from '../recipe/recipeSelection';
 import { isCalibrationProfile } from '../analysis/calibrationModel';
 import { BACKEND_PROTOCOL_SCHEMA } from './generated/backendProtocolSchema';
 import type {
@@ -72,18 +70,6 @@ export interface CalibrationRequestContext {
 
 export type ReleaseTrackDetailResult = Record<never, never>;
 
-export interface RunRecipePayload {
-    recipe: RecipeDocument;
-    /** Recipe input name → file path of a loaded track. */
-    inputs: Record<string, string>;
-    recipePath?: string;
-    inputContexts?: Record<string, CalibrationRequestContext>;
-}
-
-export interface RunRecipeResult {
-    charts: ChartSpec[];
-}
-
 export interface BackendCommandMap {
     analyze: { payload: AnalyzePayload; result: AnalysisResult };
     range: { payload: RangePayload; result: RangeResult };
@@ -92,7 +78,6 @@ export interface BackendCommandMap {
     'spectrum-slice': { payload: SpectrumSlicePayload; result: SpectrumSliceResult };
     'pair-spectrum': { payload: PairSpectrumPayload; result: PairSpectrumResult };
     'export-wav-loop': { payload: ExportWavLoopPayload; result: ExportWavLoopResult };
-    'run-recipe': { payload: RunRecipePayload; result: RunRecipeResult };
     'build-recipe': { payload: BuildRecipePayload; result: BuildRecipeResult };
     scan: { payload: ScanPayload; result: ScanResult };
     'stage-combine': { payload: StageCombinePayload; result: StageCombineResult };
@@ -106,7 +91,6 @@ export const BACKEND_COMMANDS = [
     'spectrum-slice',
     'pair-spectrum',
     'export-wav-loop',
-    'run-recipe',
     'build-recipe',
     'scan',
     'stage-combine',
@@ -258,16 +242,6 @@ function isReleaseTrackDetailResult(value: unknown): value is ReleaseTrackDetail
     return schemaViolation('ReleaseTrackDetailResult', value) === null;
 }
 
-function isRunRecipeResult(value: unknown): value is RunRecipeResult {
-    // Outside the generated schema: the envelope is closed here, each ChartSpec stays open.
-    return isJsonObject(value)
-        && Object.keys(value).every(key => key === 'charts')
-        && Array.isArray(value['charts'])
-        && value['charts'].every((chart) => isJsonObject(chart)
-            && ['line', 'heatmap', 'bar', 'scalar'].includes(String(chart['kind']))
-            && typeof chart['title'] === 'string');
-}
-
 function isBuildRecipeResult(value: unknown): value is BuildRecipeResult {
     return schemaViolation('BuildRecipeResult', value) === null;
 }
@@ -311,7 +285,6 @@ const RESULT_VALIDATORS: { [K in BackendCommand]: ResultValidator<K> } = {
     'spectrum-slice': isSpectrumSliceResult,
     'pair-spectrum': isPairSpectrumResult,
     'export-wav-loop': isExportWavLoopResult,
-    'run-recipe': isRunRecipeResult,
     'build-recipe': isBuildRecipeResult,
     scan: isScanResult,
     'stage-combine': isStageCombineResult,

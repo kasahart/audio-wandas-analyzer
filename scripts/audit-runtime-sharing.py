@@ -11,7 +11,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 UI_ROOTS = [
     'src/webview/runtime/comparisonEntry.ts',
-    'src/webview/runtime/chartSpecEntry.ts',
     'src/webview/waveform/waveformRenderer.ts',
     'src/webview/draw/canvasDrawers.ts',
     'src/webview/panels/comparisonDocument.ts',
@@ -60,7 +59,7 @@ def audit(ref: str | None) -> dict:
                 if child not in parents: parents[child] = p; queue.append(child)
         return parents
 
-    desktop = reach(['src/extension/bootstrap.ts', 'python-backend/backend_server.py', 'python-backend/recipe_runner.py', *UI_ROOTS])
+    desktop = reach(['src/extension/bootstrap.ts', 'python-backend/backend_server.py', *UI_ROOTS])
     web = reach(['src/webview/runtime/staticHostEntry.ts', 'src/shared/analysis/analysisTypes.ts', 'python-backend/browser_service.py', *UI_ROOTS])
     web['browser/audio.worker.js'] = 'copied:scripts/build-browser.js'
     files = [{'path': p, 'language': {'.ts': 'TS', '.py': 'Python', '.js': 'JS'}[Path(p).suffix],

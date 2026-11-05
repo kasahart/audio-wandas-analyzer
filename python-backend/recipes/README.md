@@ -1,16 +1,18 @@
 # Recipes
 
 Each `*.recipe.json` file in this directory is a wandas Recipe: the JSON that
-`wandas.pipeline.RecipePlan.save()` or `to_dict()` writes. The VS Code command
-**Audio Wandas Analyzer: Run wandas recipe** and the static Web host send it to
-`run-recipe`, where `recipe_runner.py` loads it with `RecipePlan.from_dict()`,
-replays it with `apply()` and turns the output Frame into a chart titled
-after the file name (a transfer function also gets a phase chart).
+`wandas.pipeline.RecipePlan.save()` or `to_dict()` writes. **Export → Open
+recipe…** opens one in the Compare step bar: its chain runs on each compared
+recording and each step's Frame is drawn there, like a chain built with ＋.
 
-Recipe inputs must be Frames. The analyzer assigns the checked tracks to them
-in the order the Recipe lists them, as calibrated analysis frames; the browser
-uses already-loaded tracks instead of opening filesystem paths. Extra checked
-tracks are ignored.
+A recipe with one Frame input opens as it is. A recipe with two inputs opens
+when it joins the same channel of each (`get_channel`, then `concat_frame`) for a
+cross-channel step such as `coherence` or `transfer_function`: the first input
+(the reference) becomes the base slot and each compared recording the second.
+Each side may also resample (as **Save as recipe** writes it), as long as both
+sides are the same steps, and a pair picked after the step must be the response
+over the reference, which is what the base slot gives. Anything else says why
+it cannot open.
 
 To add a recipe, run the workflow in wandas and save its plan:
 

@@ -18,10 +18,10 @@ export function toolbarHtml(spec: ToolbarSpec, strings: UiStrings): string {
         + '<button class="tb-btn tb-track-only" data-action="export-wav"' + hintAttr(strings.btnExportWavTitle) + '>' + escapeHtml(strings.btnExportWav) + '</button>'
         + '<button class="tb-btn tb-track-only" data-action="export-report"' + hintAttr(strings.btnExportReportTitle) + '>' + escapeHtml(strings.btnExportReport) + '</button>'
         + '<button class="tb-btn tb-stage-only" data-action="stage-report"' + hintAttr(strings.compareReport) + '>' + escapeHtml(strings.compareReport) + '</button>'
-        // The Recipe is the step bar's chain: it is saved, or one read and run, or written for many files, from here.
+        // The Recipe is the step bar's chain: it is saved, or one opened into it, or written for many files, from here.
         + '<div class="tb-menu-sep"></div>'
         + '<button class="tb-btn" data-action="save-recipe"' + hintAttr(strings.hintSaveRecipe) + '>' + escapeHtml(strings.btnSaveRecipe) + '</button>'
-        + '<button class="tb-btn" data-action="run-recipe"' + hintAttr(strings.hintRunRecipe) + '>' + escapeHtml(strings.btnRunRecipe) + '</button>'
+        + '<button class="tb-btn" data-action="open-recipe"' + hintAttr(strings.hintOpenRecipe) + '>' + escapeHtml(strings.btnOpenRecipe) + '</button>'
         + '<button class="tb-btn tb-entry-only" data-action="entry-batch"' + hintAttr(strings.hintBatch) + '>' + escapeHtml(strings.dsBatch) + '</button>'
         + '<div class="tb-menu-sep tb-entry-only"></div>'
         + '<button class="tb-btn tb-entry-only" data-action="entry-export-csv"' + hintAttr(strings.dsExportTable) + '>' + escapeHtml(strings.dsExportTable) + '</button>'
