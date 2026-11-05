@@ -1340,6 +1340,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         rerender: () => scheduleRender(),
         hint: text => hintFooter.show(text),
         notify: text => taskStatus(text, 'done'),
+        busy: text => taskStatus(text, 'busy'),
         inFront: () => !entryScreen.isOpen(),
         // Esc goes back to where the comparison was opened: the entry table, or the tracks (playback, zoom and
         // selection as they were, the compared recording's lane in sight).
@@ -1402,6 +1403,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }, STR);
             messaging.post({ type: 'save-report-folder', folder, files });
             hintFooter.show(STR.reportSaved + folder);
+            taskStatus(STR.reportSaved + folder, 'done');
         },
     });
     // The lanes' surface takes the shared plot gestures too; they act only in the steps mode.

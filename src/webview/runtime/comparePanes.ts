@@ -243,8 +243,8 @@ export function buildCompareModel(
 }
 
 /**
- * The comparison's bins: the base's and the compared file's, and their difference bin by bin. The files' bins must
- * be alike (one spacing, one count), else there are none to compare.
+ * The comparison's bins: the base's and the compared file's, and their difference bin by bin. Every file's bins must
+ * be in and alike (one spacing, one count), else there are none, and the 192 points are drawn instead.
  */
 function binsOf(results: ReadonlyMap<string, ScanResult>, comparePath: string | null, basePaths: readonly string[], base: CompareSide | null, compare: CompareSide | null, comparable: boolean, nyquist: number): CompareModel['bins'] {
     const spacings = [comparePath, ...basePaths].flatMap(path => {
@@ -252,10 +252,11 @@ function binsOf(results: ReadonlyMap<string, ScanResult>, comparePath: string | 
         return result?.ok && result.spectrumBinsDb ? [result.spectrumBinHz ?? 0] : [];
     });
     const hz = spacings[0];
-    if (!hz || !(nyquist > SPECTRUM_MIN_HZ) || spacings.some(spacing => Math.abs(spacing - hz) > 1e-9 * hz)) return null;
+    const files = [comparePath, ...basePaths].filter(path => results.get(path ?? '')?.ok).length;
+    if (!hz || spacings.length < files || !(nyquist > SPECTRUM_MIN_HZ) || spacings.some(spacing => Math.abs(spacing - hz) > 1e-9 * hz)) return null;
     const baseBins = base?.bins ?? null, compareBins = compare?.bins ?? null;
-    const diff = comparable && baseBins && compareBins && baseBins.length === compareBins.length
-        ? compareBins.map((level, bin) => round2(level - baseBins[bin])) : null;
+    if ((base && !baseBins) || (compare && !compareBins) || (baseBins && compareBins && baseBins.length !== compareBins.length)) return null;
+    const diff = comparable && baseBins && compareBins ? compareBins.map((level, bin) => round2(level - baseBins[bin])) : null;
     return { hz, nyquist, base: baseBins, compare: compareBins, diff };
 }
 

@@ -243,6 +243,13 @@ test('files whose bins differ (another sample rate or n_fft) have no bins to com
     const one = new Map<string, ScanResult>([...files].map(([path, result]) => [path, { ...result, spectrumBinsDb: [[-60, -60]], spectrumBinHz: path.endsWith('run3.wav') ? 4 : 2 }]));
     assert.equal(buildCompareModel(model, one, '/f/L1_900rpm_run3.wav', null, STR).bins, null);
     assert.equal(buildCompareModel(model, files, '/f/L1_900rpm_run3.wav', null, STR).bins, null, 'a scan without bins');
+    // One base file without bins: none, so the figures keep every curve on the 192 points.
+    const partly = new Map(files);
+    partly.set('/f/L1_900rpm_run3.wav', { ...files.get('/f/L1_900rpm_run3.wav')!, spectrumBinsDb: [[-60, -60]], spectrumBinHz: 2 });
+    partly.set('/f/L1_900rpm_run1.wav', { ...files.get('/f/L1_900rpm_run1.wav')!, spectrumBinsDb: [[-60, -60]], spectrumBinHz: 2 });
+    const comparison = buildCompareModel(model, partly, '/f/L1_900rpm_run3.wav', null, STR);
+    assert.equal(comparison.bins, null);
+    assert.ok(comparison.diffDb);
 });
 
 test('the table\'s results take the bins of a scan of the same spectrum only', () => {

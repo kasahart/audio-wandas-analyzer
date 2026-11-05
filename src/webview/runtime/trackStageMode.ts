@@ -100,6 +100,8 @@ export interface TrackStageDeps {
     hint(text: string): void;
     /** A short notice that stays a moment (the task status): what an edit did besides what was asked. */
     notify?(text: string): void;
+    /** The task status while something asked for runs (the report's files measured), until the next notice. */
+    busy?(text: string): void;
 }
 
 export interface TrackStageMode {
@@ -161,7 +163,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
     // The report's files with every Welch bin, asked for on 報告に only (a stored result keeps the 192 points alone).
     const reportSource = createStageSource('report-scan', message => deps.post(message), () => writeReport());
     /** 報告に pressed: the report waits for its files' bins (with Δ shown or not, as when it was pressed). */
-    let pendingReport: { showDiff: boolean } | null = null;
+    let pendingReport: { showDiff: boolean; region: EntryRegion | null } | null = null;
     /** The last zoomed combination of each comparison, drawn until the next zoom's is in. */
     const lastFine = new Map<string, Combined>();
     const detail = createDetailPlanner(deps.window.performance, deps.window, () => deps.rerender());
@@ -204,8 +206,17 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
     function report(): void {
         const recipe = deps.recipe()?.recipe;
         if (recipe && brokenStep(recipe, limits())) { deps.hint(strings.stepOctaveBroken); return; }
-        pendingReport = { showDiff: state.showDiff };
+        // The region as it was pressed: changed meanwhile, the report is still of the comparison asked for.
+        pendingReport = { showDiff: state.showDiff, region: liveRegion() };
+        // Measured afresh on each 報告に: a file recorded again since the last report is not drawn from its old bins.
+        const spec = regionStageSpec(deps.recipe(), pendingReport.region);
+        for (const path of reportPaths()) reportSource.forget(spec, path);
         writeReport();
+    }
+    /** The report's files: the slot-0 file and each compared slot with its base as the report defines it (the table's: slot 0, else the condition's group; not the B switch's). */
+    function reportPaths(): string[] {
+        const slots = deps.slots();
+        return [...new Set([...(slots[0] ? [slots[0]] : []), ...slots.slice(1).flatMap(path => (path ? [path, ...deps.basePaths(path, false)] : []))])];
     }
     /**
      * Writes the pending report once its files' scans with every Welch bin are in: the compared slots, their bases and
@@ -213,23 +224,21 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
      */
     function writeReport(): void {
         if (!pendingReport) return;
-        const region = liveRegion();
-        const slots = deps.slots();
-        const paths = [...new Set([...(slots[0] ? [slots[0]] : []), ...slots.slice(1).flatMap(path => (path ? [path, ...deps.basePaths(path, false)] : []))])];
-        const spec = regionSpec();
+        const { showDiff, region } = pendingReport;
+        const paths = reportPaths();
+        const spec = regionStageSpec(deps.recipe(), region);
         const lacking = paths.filter(path => source.result(spec, path) === undefined && reportSource.result(spec, path) === undefined);
         if (lacking.length) {
             reportSource.ensure(spec, lacking);
-            deps.hint(strings.reportMeasuring.replace('{count}', String(lacking.length)));
+            deps.busy?.(strings.reportMeasuring.replace('{count}', String(lacking.length)));
             return;
         }
-        const { showDiff } = pendingReport;
         pendingReport = null;
         const binned = new Map(paths.flatMap(path => {
             const result = source.result(spec, path) ?? reportSource.result(spec, path);
             return result ? [[path, result] as [string, ScanResult]] : [];
         }));
-        deps.report(showDiff, region, region ? new Map([...measured(), ...binned]) : new Map(), binned);
+        deps.report(showDiff, region, region ? binned : new Map(), binned);
     }
     root.addEventListener('click', event => {
         const action = (event.target as HTMLElement).closest('[data-action]')?.getAttribute('data-action');

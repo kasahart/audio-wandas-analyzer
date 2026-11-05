@@ -195,8 +195,9 @@ test('D fixes the compared file\'s difference; 報告に hands the host one fold
     await page.locator('#tb-export-menu > summary').click();
     await page.locator('[data-action="stage-report"]').click();
     // The report waits for its files' every spectrum bin, and says so meanwhile.
-    await expect(page.locator('#hint-footer')).toContainText(STR.reportMeasuring.split('{count}')[1].trim());
+    await expect(page.locator('#task-status')).toContainText(STR.reportMeasuring.split('{count}')[1].trim());
     await answerReport(page);
+    await expect(page.locator('#task-status')).toContainText(STR.reportSaved.trim());
     await expect.poll(async () => (await posted(page)).some(message => message.type === 'save-report-folder')).toBe(true);
     const report = (await posted(page)).filter(message => message.type === 'save-report-folder').at(-1)!;
     expect(report.folder).toMatch(/^Standard_\d{8}-\d{6}$/);
