@@ -80,20 +80,25 @@ for c in commands:
     c['filePath']=packet['fixture']
     for source in c.get('responses',[]):
         source['filePath']=packet['fixture']
-    if c['cmd']=='run-recipe':
-        c['inputs']={name: packet['fixture'] for name in c['inputs']}
+    if c.get('reference'):
+        c['reference']['filePath']=packet['fixture']
 native_results=[dispatch(c,native_service) for c in commands]
 print(json.dumps([byte_results,native_results],allow_nan=False),file=out)
 `], { maxBuffer: 32 * 1024 * 1024, cwd: root, input: JSON.stringify({commands:fixture.commands || commands,fixture:fixture.path || `src/test/fixtures/${fixture.name}`}), encoding: 'utf8', env: { ...process.env, MPLBACKEND: 'Agg' } });
 assert.equal(native.status, 0, native.stderr);
 return JSON.parse(native.stdout);
 }
-// The time-varying loudness recipe also checks that the Web runtime bundles MoSQITo.
-for (const name of ['loudness.recipe.json', 'coherence.recipe.json', 'transfer-function.recipe.json']) {
-    const recipe = JSON.parse(fs.readFileSync(path.join(root, 'python-backend/recipes', name), 'utf8'));
+// Bundled recipes as the step bar opens them, scanned at their last step (a cross-channel one paired with the
+// same file as its base). The time-varying loudness recipe also checks that the Web runtime bundles MoSQITo.
+const { openedRecipe } = require(path.join(root, 'dist/shared/recipe/recipeOpen.js'));
+for (const name of ['loudness.recipe.json', 'filter-welch.recipe.json', 'coherence.recipe.json', 'transfer-function.recipe.json']) {
+    const opened = openedRecipe(JSON.parse(fs.readFileSync(path.join(root, 'python-backend/recipes', name), 'utf8')));
+    assert.ok(opened.recipe, `${name} opens in the step bar`);
+    const { recipe } = opened;
+    const paired = (recipe.awaSlotReference ?? [])[0];
     commands.push({
-        cmd: 'run-recipe', requestId: `recipe-${name}`, recipePath: `./recipes/${name}`, recipe,
-        inputs: Object.fromEntries(recipe.inputs.map(input => [input.name, '/sources/selected.wav'])),
+        cmd: 'scan', requestId: `recipe-${name}`, filePath: '/sources/selected.wav', recipe, stage: recipe.output,
+        ...(paired ? { reference: { filePath: '/sources/selected.wav', step: paired, recipe } } : {}),
     });
 }
 const nativePairs = fixtures.map(nativeResultsFor);
@@ -101,7 +106,8 @@ const byteResults = nativePairs.map(pair => pair[0]);
 const nativeResults = nativePairs.map(pair => pair[1]);
 let numbers = 0;
 function compare(a, b, at = '') {
-    if (['computeMs', 'filePath', 'fileName'].some(key => at.endsWith('.' + key))) return;
+    // A scan names its file by the host's own identity (a path natively, a content hash on the Web), and so its kept data.
+    if (['computeMs', 'elapsedMs', 'filePath', 'fileName', 'input.id', 'stage.data'].some(key => at.endsWith('.' + key))) return;
     if (typeof a === 'number') {
         assert.equal(typeof b, 'number', at);
         assert.ok(Math.abs(a - b) <= 0.0002 + Math.abs(a) * 0.00002, `${at}: ${a} vs ${b}`); numbers++; return;

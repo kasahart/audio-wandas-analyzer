@@ -5,7 +5,7 @@
  * recordings. Anything else with more than one input, or that is not one chain, cannot open and says why.
  */
 import { isRecipeDocument, type RecipeDocument } from './recipeSelection';
-import { isRecipeChain, recipeChain, recipeNodes, SLOT_REFERABLE, withSlotReference, type RecipeNode } from './recipeSteps';
+import { isRecipeChain, recipeChain, recipeNodes, SLOT_REFERABLE, TIME_SLICE, withSlotReference, type RecipeNode } from './recipeSteps';
 
 const GET_CHANNEL = 'wandas.frame.get_channel';
 const CONCAT = 'wandas.channel.concat_frame';
@@ -16,14 +16,45 @@ export type OpenedRecipe = { recipe: RecipeDocument } | { reason: 'not-recipe' |
 
 export function openedRecipe(value: unknown): OpenedRecipe {
     if (!isRecipeDocument(value) || !isRecipeChain(value)) return { reason: 'not-recipe' };
-    const recipe = value.inputs.length === 2 ? pairedAsSlot(value) : value.inputs.length === 1 ? value : undefined;
-    if (!recipe) return { reason: 'inputs' };
+    if (cyclic(recipeNodes(value))) return { reason: 'not-chain' };
+    const paired = value.inputs.length === 2 ? pairedAsSlot(value) : value.inputs.length === 1 ? value : undefined;
+    if (!paired) return { reason: 'inputs' };
+    const recipe = withRegion(paired);
     const chain = recipeChain(recipe);
     // One chain from the input to the output, every node on it.
     const one = chain.length === recipeNodes(recipe).length && chain.length > 0
         && chain[0].inputs.length === 1 && chain[0].inputs[0] === recipe.inputs[0].id
         && chain.every((node, index) => index === 0 || (node.inputs.length === 1 && node.inputs[0] === chain[index - 1].id));
     return one ? { recipe } : { reason: 'not-chain' };
+}
+
+/** Whether following first inputs from some node comes back to it (a malformed file; a chain walk would not end). */
+function cyclic(nodes: RecipeNode[]): boolean {
+    const byId = new Map(nodes.map(node => [node.id, node]));
+    return nodes.some(start => {
+        let at: RecipeNode | undefined = start;
+        for (let steps = 0; at; steps++) {
+            if (steps > nodes.length) return true;
+            at = byId.get(at.inputs[0]);
+        }
+        return false;
+    });
+}
+
+/**
+ * The scan measures each recording's region at the chain's time slice, so a chain without one gets it first, on the
+ * whole recording (as the entry recipe's: from 0 to the end), before any step that is no longer a time signal.
+ */
+function withRegion(recipe: RecipeDocument): RecipeDocument {
+    const nodes = recipeNodes(recipe);
+    if (nodes.some(node => node.operation === TIME_SLICE)) return recipe;
+    const input = recipe.inputs[0].id;
+    const ids = new Set(nodes.map(node => node.id));
+    let id = 'node-region';
+    for (let index = 1; ids.has(id); index++) id = `node-region-${index}`;
+    const slice: RecipeNode = { id, operation: TIME_SLICE, version: 2, inputs: [input], params: { $type: 'map', entries: [['end', null], ['start', 0.0]] } };
+    const moved = nodes.map(node => node.inputs[0] === input ? { ...node, inputs: [id, ...node.inputs.slice(1)] } : node);
+    return { ...recipe, nodes: [slice, ...moved], output: recipe.output === input ? id : recipe.output };
 }
 
 /**

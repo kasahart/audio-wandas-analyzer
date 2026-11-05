@@ -13,10 +13,16 @@ const opened = (value: unknown): RecipeDocument => {
     return result.recipe;
 };
 
-test('a one-input chain opens as it is', () => {
-    for (const name of ['entry-scan.recipe.json', 'octave.recipe.json', 'filter-welch.recipe.json', 'loudness.recipe.json']) {
+test('a one-input chain opens as it is, measured on each recording\'s region from its first step when it has no time slice', () => {
+    const entry = bundled('entry-scan.recipe.json');
+    assert.equal(opened(entry), entry);
+    for (const name of ['octave.recipe.json', 'filter-welch.recipe.json', 'loudness.recipe.json']) {
         const recipe = bundled(name);
-        assert.equal(opened(recipe), recipe, name);
+        const chain = recipeChain(opened(recipe));
+        assert.equal(chain[0].operation, 'wandas.frame.time_slice', name);
+        assert.deepEqual(chain[0].inputs, ['input-0'], name);
+        assert.deepEqual(chain.slice(1).map(node => node.operation), recipeChain(recipe).map(node => node.operation), name);
+        assert.equal(opened(recipe).output, recipe.output, name);
     }
 });
 
@@ -25,11 +31,11 @@ for (const [name, operation] of [['transfer-function.recipe.json', 'wandas.audio
         const recipe = opened(bundled(name));
         assert.deepEqual(recipe.inputs.map(input => input.id), ['input-0']);
         const chain = recipeChain(recipe);
-        assert.deepEqual(chain.map(node => node.operation), ['wandas.frame.get_channel', operation]);
+        assert.deepEqual(chain.map(node => node.operation), ['wandas.frame.time_slice', 'wandas.frame.get_channel', operation]);
         assert.deepEqual(chain[0].inputs, ['input-0']);
-        assert.equal(recipe.output, chain[1].id);
-        assert.deepEqual(slotReferenced(recipe), [chain[1].id]);
-        assert.equal(recipeNodes(recipe).length, 2);
+        assert.equal(recipe.output, chain[2].id);
+        assert.deepEqual(slotReferenced(recipe), [chain[2].id]);
+        assert.equal(recipeNodes(recipe).length, 3);
     });
 }
 
@@ -37,9 +43,9 @@ test('a transfer function saved from the app (each channel resampled, its pair p
     const saved = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', 'src', 'test', 'fixtures', 'savedTransfer.recipe.json'), 'utf8')) as RecipeDocument;
     const recipe = opened(saved);
     const chain = recipeChain(recipe);
-    assert.deepEqual(chain.map(node => node.operation), ['wandas.frame.get_channel', 'wandas.audio.resampling', 'wandas.audio.transfer_function']);
-    assert.equal(recipe.output, chain[2].id);
-    assert.deepEqual(slotReferenced(recipe), [chain[2].id]);
+    assert.deepEqual(chain.map(node => node.operation), ['wandas.frame.time_slice', 'wandas.frame.get_channel', 'wandas.audio.resampling', 'wandas.audio.transfer_function']);
+    assert.equal(recipe.output, chain[3].id);
+    assert.deepEqual(slotReferenced(recipe), [chain[3].id]);
 });
 
 test('what cannot be one chain on each recording says why', () => {
@@ -57,6 +63,10 @@ test('what cannot be one chain on each recording says why', () => {
     // The reference over the response: the base slot gives the other direction, so it cannot open.
     const reversed = recipeNodes(transfer).map(node => node.operation === 'wandas.frame.select_pair' ? { ...node, params: { $type: 'map', entries: [['input', 1], ['output', 0]] } } : node);
     assert.deepEqual(openedRecipe({ ...transfer, nodes: reversed }), { reason: 'inputs' });
+    // A node that is its own input: not a chain (and opening it must not hang).
+    const loop = bundled('entry-scan.recipe.json');
+    const looped = recipeNodes(loop).map(node => node.id === 'node-0' ? { ...node, inputs: ['node-0'] } : node);
+    assert.deepEqual(openedRecipe({ ...loop, nodes: looped }), { reason: 'not-chain' });
     // One input, but a node off the chain.
     const entry = bundled('entry-scan.recipe.json');
     const extra = { id: 'node-x', operation: 'wandas.audio.welch', version: 1, inputs: ['input-0'], params: { $type: 'map', entries: [] } };
