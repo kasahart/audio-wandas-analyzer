@@ -140,3 +140,13 @@ def test_the_step_bars_fixed_rates_are_the_ones_wandas_enforces() -> None:
     assert spectrum(48000).noct_synthesis(fmin=25.0, fmax=6300.0).n_channels == 1
     with pytest.raises(ValueError, match="48000"):
         spectrum(16000).noct_synthesis(fmin=25.0, fmax=6300.0)
+
+
+@slow
+def test_no_step_offered_on_a_recording_draws_a_flat_picture(runs: list) -> None:
+    # A picture whose values are all one value says nothing (docs/display-rules.md R8). The only one is the
+    # difference of a one-channel file's channel with itself, which the step bar greys out on one channel.
+    flat = sorted({(run["operation"], run["example"]) for run in runs if run["ok"] and run["flat"]})
+    assert flat == [("wandas.audio.channel_difference", "48 kHz 1 ch")]
+    steps = (Path(__file__).parent.parent / "src" / "shared" / "recipe" / "recipeSteps.ts").read_text(encoding="utf-8")
+    assert re.search(r"NEEDS_TWO_CHANNELS[^;]*'wandas\.audio\.channel_difference'", steps)
