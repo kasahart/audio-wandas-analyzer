@@ -521,6 +521,8 @@ DEFINITIONS: dict[str, Schema] = {
             "detail": {"anyOf": [{"$ref": "#/$defs/StageDetail"}, _NULL]},
             # Another recording a cross-channel step (``step``) pairs this one with, and that recording's own Recipe.
             "reference": {"anyOf": [{"$ref": "#/$defs/ScanReference"}, _NULL]},
+            # The Welch spectrum's every bin in the result too (spectrumBinsDb), for a report's median and Δ.
+            "spectrumBins": {"type": "boolean"},
         },
     },
     "ScanReference": {
@@ -692,6 +694,9 @@ DEFINITIONS: dict[str, Schema] = {
             "leqDbA": _NUMBERS,
             "peakHz": {"type": "array", "items": {"type": "integer"}},
             "spectrumDb": {"type": "array", "items": _NUMBERS},
+            # Every Welch bin per channel (bin k at k × spectrumBinHz), for medians and differences.
+            "spectrumBinsDb": {"type": "array", "items": _NUMBERS},
+            "spectrumBinHz": _NUMBER,
             "thirdOctDb": {"type": "array", "items": _NULLABLE_NUMBERS},
             "crest": _NUMBERS,
             "specVersion": {"type": "integer", "minimum": 1},

@@ -174,6 +174,8 @@ export interface UiStrings {
     reportGroupFiles: string;
     reportSpecVersion: string;
     reportSaved: string;
+    /** While the report's files are measured for every spectrum bin, before it is written. */
+    reportMeasuring: string;
     stepRegion: string;
     stepAll: string;
     stepMetrics: string;
@@ -969,17 +971,18 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         reportWhole: 'whole',
         reportDefinitions: 'definitions',
         defLeq: 'A-weighted RMS over the region, 20·log10(rms / ref); ref is the channel calibration (1 = full scale, so an uncalibrated file reads below 0 dB).',
-        defSpectrum: 'Welch power spectrum (wandas welch, n_fft {n_fft}, {window} window) in dB re the channel ref; its bins are power-averaged into 192 log-spaced points from 20 Hz to Nyquist (a point narrower than one bin is interpolated), so a narrow peak reads lower with a longer n_fft.',
+        defSpectrum: 'Welch power spectrum (wandas welch, n_fft {n_fft}, {window} window) in dB re the channel ref; the entry table power-averages its bins into 192 log-spaced points from 20 Hz to Nyquist (a point narrower than one bin is interpolated), so a narrow peak reads lower there with a longer n_fft. The figures, the base\'s median and Δ take every bin, and only the drawn line is decimated: per log-spaced bucket, its lowest and highest bin.',
         defHeadline: 'The headline lists up to three bands whose |Δ| is larger than both neighbours, beyond chance (3 MAD of the base condition\'s other files, at least 1.5 dB) and where the louder of base and compare is within {within} dB of the loudest band, largest |Δ| first, each with both levels; or it says "no clear difference". A band beside such a peak with the same sign is the peak\'s leak through the band filters, drawn as an outline and not listed.',
         defHeadlineEdges: 'In a step\'s spectrogram or cepstrogram, a column whose STFT frames are centred less than n_fft / 2 from the start or end of the signal reads the padding beyond it (its window sticks out of the signal): it is drawn, but never named in the headline.',
         defRegion: 'Every metric skips the first and last 0.15 s of the file, where the Recipe\'s filters ring; the Recipe\'s time slice is the region actually measured.',
         defThirdOct: 'wandas noct_spectrum (n = 3), bands from 25 Hz up to 0.88 × Nyquist, in dB; a band centred outside the Recipe\'s filter passband is left empty.',
         defChannels: 'Channels are combined by their power mean (10·log10 of the mean of 10^(L/10)).',
-        defBase: 'The file in slot 0, or else the median per point and band of the other files of the compared file\'s condition.',
-        defDelta: 'compare − base, in dB, point by point and band by band; Δ max band is the 1/3-octave band with the largest |Δ|.',
+        defBase: 'The file in slot 0, or else the median per bin and band of the other files of the compared file\'s condition.',
+        defDelta: 'compare − base, in dB, bin by bin and band by band; Δ max band is the 1/3-octave band with the largest |Δ|.',
         reportGroupFiles: 'Base group files',
         reportSpecVersion: 'Spec version',
         reportSaved: 'Report saved: ',
+        reportMeasuring: 'Measuring {count} files for the report…',
         stepRegion: 'Region',
         stepAll: 'all',
         stepMetrics: 'Metrics',
@@ -1763,17 +1766,18 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         reportWhole: '全区間',
         reportDefinitions: '定義',
         defLeq: '区間の A 特性 RMS を 20·log10(rms / ref) で dB にした値。ref はチャンネルの校正値（1 = フルスケール。校正していないファイルは 0 dB より小さくなる）。',
-        defSpectrum: 'Welch パワースペクトル（wandas welch、n_fft {n_fft}、{window} 窓）。dB はチャンネルの ref 基準。ビンを 20 Hz〜ナイキストの対数間隔の 192 点にパワー平均でまとめる（1 ビンより狭い点は補間）ので、細いピークは n_fft を長くすると低く出る。',
+        defSpectrum: 'Welch パワースペクトル（wandas welch、n_fft {n_fft}、{window} 窓）。dB はチャンネルの ref 基準。表では、ビンを 20 Hz〜ナイキストの対数間隔の 192 点にパワー平均でまとめる（1 ビンより狭い点は補間）ので、細いピークは n_fft を長くすると低く出る。図・基準の中央値・Δ は全ビンで取り、描く線だけを間引く（対数間隔の区間ごとに最小と最大のビン）。',
         defHeadline: '見出しは、|Δ| が両隣の帯域より大きく、偶然の範囲（基準の条件の他のファイルの 3 MAD（中央絶対偏差）、最小 1.5 dB）を超え、基準と比較の大きい方が最大の帯域から {within} dB 以内の帯域を、|Δ| の大きい順に 3 つまで、両方のレベルで出す。無ければ「有意な差なし」と出す。その山の隣で同じ符号の帯域は、帯域フィルタへの漏れなので枠だけで描き、見出しには出さない。',
         defHeadlineEdges: '手順のスペクトログラム・ケプストログラムでは、STFT のフレームの中心が信号の先頭・末尾から n_fft / 2 未満の列は、窓が信号からはみ出して外側の詰め物を読むので、描くが見出しには選ばない。',
         defRegion: 'どの指標も、手順のフィルタが響くファイルの最初と最後の 0.15 s を除いて測る。手順の time slice は実際に測った区間。',
         defThirdOct: 'wandas noct_spectrum（n = 3）。25 Hz から 0.88 × ナイキストまでの帯域の dB。中心が手順のフィルタの通過帯域の外にある帯域は空欄。',
         defChannels: 'チャンネルはパワー平均でまとめる（10^(L/10) の平均を 10·log10）。',
-        defBase: 'スロット 0 のファイル。無ければ、比較するファイルと同じ条件の他のファイルの、点ごと・帯域ごとの中央値。',
-        defDelta: '比較 − 基準（dB、点ごと・帯域ごと）。Δ最大帯域は |Δ| が最大の 1/3 oct 帯域。',
+        defBase: 'スロット 0 のファイル。無ければ、比較するファイルと同じ条件の他のファイルの、ビンごと・帯域ごとの中央値。',
+        defDelta: '比較 − 基準（dB、ビンごと・帯域ごと）。Δ最大帯域は |Δ| が最大の 1/3 oct 帯域。',
         reportGroupFiles: '基準群ファイル',
         reportSpecVersion: '解析仕様版',
         reportSaved: '報告を保存しました: ',
+        reportMeasuring: '報告のために {count} ファイルを計算しています…',
         stepRegion: '区間',
         stepAll: '全体',
         stepMetrics: '指標',

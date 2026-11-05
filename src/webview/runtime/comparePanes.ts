@@ -20,6 +20,8 @@ export interface CompareSide {
     title: string;
     filePaths: string[];
     spectrumDb: number[];
+    /** The Welch spectrum's every bin (channels power-averaged), when the scan gave them: the median and Δ are taken of these. */
+    bins?: number[];
     leq: number;
     bands: (number | null)[];
     /** A group of three or more files: its lower and upper quartiles, point by point and band by band. */
@@ -31,6 +33,12 @@ export interface CompareModel {
     compare: CompareSide | null;
     /** compare − base, point by point. */
     diffDb: number[] | null;
+    /**
+     * The same at full resolution, bin by bin (bin k at k × hz): the base (one file, or the median per bin of a group),
+     * the compared file and their difference. Drawn by `binsView`, which decimates only the result. Null where a
+     * scan did not give its bins or the files' bins differ (another sample rate or n_fft).
+     */
+    bins: { hz: number; nyquist: number; base: number[] | null; compare: number[] | null; diff: number[] | null } | null;
     /** Frequency of each spectrum point: log-spaced from 20 Hz to Nyquist (analysis spec v4). */
     frequencies: number[];
     /** Rounded so that base + delta = compare exactly as shown. */
@@ -86,12 +94,16 @@ function topEdge(frequencies: readonly number[]): number {
     return SPECTRUM_MIN_HZ * (frequencies[n - 1] / SPECTRUM_MIN_HZ) ** (n / (n - 0.5));
 }
 
+const round2 = (value: number): number => Math.round(value * 100) / 100;
+
 /** One spectrum, Leq and band row per file: channels are power-averaged, as in the entry table. */
 function fileSide(result: ScanOk): Omit<CompareSide, 'title' | 'filePaths'> {
     // A scan that succeeded carries its metrics; one without them has no levels to give.
     const channels = result.spectrumDb ?? [];
+    const binRows = result.spectrumBinsDb;
     return {
         spectrumDb: (channels[0] ?? []).map((_, point) => powerMeanDb(channels.map(row => row[point]))),
+        ...(binRows?.length ? { bins: (binRows[0] ?? []).map((_, bin) => round2(powerMeanDb(binRows.map(row => row[bin])))) } : {}),
         leq: powerMeanDb(result.leqDbA ?? []),
         bands: BAND_CENTERS_HZ.map((_, band) => {
             return powerMeanOrNull((result.thirdOctDb ?? []).map(row => row[band]));
@@ -116,8 +128,13 @@ function medianSide(sides: Array<Omit<CompareSide, 'title' | 'filePaths'>>): Omi
         spectrumDb: [0.25, 0.75].map(p => sides[0].spectrumDb.map((_, point) => quantile(sides.map(side => side.spectrumDb[point]), p))) as [number[], number[]],
         bands: [bandsAt(0.25), bandsAt(0.75)] as [(number | null)[], (number | null)[]],
     } : undefined;
+    // Every bin's median, where every file has the same bins (the same sample rate and n_fft).
+    const first = sides[0].bins;
+    const bins = first && sides.every(side => side.bins?.length === first.length)
+        ? first.map((_, bin) => medianOfSome(sides.map(side => (side.bins as number[])[bin]))) : undefined;
     return {
         ...(spread ? { spread } : {}),
+        ...(bins ? { bins } : {}),
         spectrumDb: sides[0].spectrumDb.map((_, point) => medianOfSome(sides.map(side => side.spectrumDb[point]))),
         leq: medianOfSome(sides.map(side => side.leq)),
         bands: BAND_CENTERS_HZ.map((_, band) => {
@@ -200,6 +217,7 @@ export function buildCompareModel(
     const baseSide: CompareSide | null = base;
     const comparable = !blocked && !!baseSide && !!compare && baseSide.spectrumDb.length === compare.spectrumDb.length;
     const diffDb = comparable ? compare.spectrumDb.map((level, index) => level - baseSide.spectrumDb[index]) : null;
+    const bins = binsOf(results, comparePath, basePaths, base, compare, comparable, fs / 2);
     const leq = comparable ? { base: round1(baseSide.leq), compare: round1(compare.leq), delta: round1(round1(compare.leq) - round1(baseSide.leq)) } : null;
     const bandDeltas = comparable
         ? compare.bands.map((level, band) => {
@@ -221,7 +239,83 @@ export function buildCompareModel(
         .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta)).slice(0, 3);
     // A blocked Δ still shows both levels; only the difference is withheld.
     const levels = blocked && base && compare ? { base: round1(base.leq), compare: round1(compare.leq), delta: Number.NaN } : leq;
-    return { base, compare, diffDb, frequencies, leq: levels, topBands, bandDeltas, ...(blocked ? { blocked } : {}), ...(pending ? { pending } : {}) };
+    return { base, compare, diffDb, bins, frequencies, leq: levels, topBands, bandDeltas, ...(blocked ? { blocked } : {}), ...(pending ? { pending } : {}) };
+}
+
+/**
+ * The comparison's bins: the base's and the compared file's, and their difference bin by bin. The files' bins must
+ * be alike (one spacing, one count), else there are none to compare.
+ */
+function binsOf(results: ReadonlyMap<string, ScanResult>, comparePath: string | null, basePaths: readonly string[], base: CompareSide | null, compare: CompareSide | null, comparable: boolean, nyquist: number): CompareModel['bins'] {
+    const spacings = [comparePath, ...basePaths].flatMap(path => {
+        const result = path ? results.get(path) : undefined;
+        return result?.ok && result.spectrumBinsDb ? [result.spectrumBinHz ?? 0] : [];
+    });
+    const hz = spacings[0];
+    if (!hz || !(nyquist > SPECTRUM_MIN_HZ) || spacings.some(spacing => Math.abs(spacing - hz) > 1e-9 * hz)) return null;
+    const baseBins = base?.bins ?? null, compareBins = compare?.bins ?? null;
+    const diff = comparable && baseBins && compareBins && baseBins.length === compareBins.length
+        ? compareBins.map((level, bin) => round2(level - baseBins[bin])) : null;
+    return { hz, nyquist, base: baseBins, compare: compareBins, diff };
+}
+
+/**
+ * The table's results with every Welch bin from `binned` (scans of the same files asked for with spectrumBins), where
+ * a scan measured the same spectrum as the table's result (its 192 points alike); the rest as they are.
+ */
+export function withBins(results: ReadonlyMap<string, ScanResult>, binned: ReadonlyMap<string, ScanResult>): Map<string, ScanResult> {
+    const out = new Map(results);
+    for (const [path, scan] of binned) {
+        const own = results.get(path);
+        if (!own?.ok || !scan.ok || !scan.spectrumBinsDb || JSON.stringify(own.spectrumDb) !== JSON.stringify(scan.spectrumDb)) continue;
+        out.set(path, { ...own, spectrumBinsDb: scan.spectrumBinsDb, ...(scan.spectrumBinHz !== undefined ? { spectrumBinHz: scan.spectrumBinHz } : {}) });
+    }
+    return out;
+}
+
+/** The comparison draws a spectrum in this many log-spaced buckets from 20 Hz to Nyquist (stage_view.SPECTRUM_LINE_BUCKETS). */
+export const SPECTRUM_LINE_BUCKETS = 640;
+
+/**
+ * A line in at most `buckets` log-spaced buckets between `span`: each bucket's lowest and highest value, each at its
+ * own x (stage_view.min_max_line), so a peak or a narrow difference keeps its height. Fewer values than two per
+ * bucket are all kept; non-finite values and x ≤ 0 are left out.
+ */
+export function minMaxLine(xs: readonly number[], values: readonly number[], buckets: number, span: readonly [number, number]): { xs: number[]; values: number[] } {
+    const count = Math.max(1, buckets);
+    const [low, high] = [Math.min(...span), Math.max(...span)];
+    const kept: number[] = [];
+    for (let index = 0; index < xs.length; index++) {
+        if (xs[index] > 0 && Number.isFinite(values[index]) && xs[index] >= low && xs[index] <= high) kept.push(index);
+    }
+    if (kept.length <= 2 * count) return { xs: kept.map(index => xs[index]), values: kept.map(index => values[index]) };
+    const ratio = Math.log(high / low);
+    const lowest = new Array<number>(count).fill(-1), highest = new Array<number>(count).fill(-1);
+    for (const index of kept) {
+        const bucket = Math.min(count - 1, Math.max(0, Math.floor(count * Math.log(xs[index] / low) / ratio)));
+        const min = lowest[bucket], max = highest[bucket];
+        if (min < 0 || values[index] < values[min]) lowest[bucket] = index;
+        if (max < 0 || values[index] >= values[max]) highest[bucket] = index;
+    }
+    const picked = [...new Set([...lowest, ...highest].filter(index => index >= 0))].sort((a, b) => a - b);
+    return { xs: picked.map(index => xs[index]), values: picked.map(index => values[index]) };
+}
+
+/**
+ * One of the comparison's full-resolution spectra (`CompareModel.bins`) as drawn: between `bounds` Hz (20 Hz to
+ * Nyquist for the whole view) in `buckets` buckets of their lowest and highest bin. Decimated only to be drawn.
+ */
+export function binsView(bins: NonNullable<CompareModel['bins']>, which: 'base' | 'compare' | 'diff', bounds?: readonly [number, number], buckets = SPECTRUM_LINE_BUCKETS): StageView | null {
+    const values = bins[which];
+    if (!values?.length) return null;
+    const span: [number, number] = bounds ? [bounds[0], bounds[1]] : [SPECTRUM_MIN_HZ, bins.nyquist];
+    const xs = values.map((_, bin) => bin * bins.hz);
+    const line = minMaxLine(xs, values, buckets, span);
+    return {
+        frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity: 'level',
+        xs: line.xs, xLimits: [SPECTRUM_MIN_HZ, bins.nyquist], values: line.values,
+        ...(bounds ? { detail: true } : {}),
+    };
 }
 
 const signed = (value: number): string => `${value >= 0 ? '+' : '−'}${Math.abs(value).toFixed(1)}`;

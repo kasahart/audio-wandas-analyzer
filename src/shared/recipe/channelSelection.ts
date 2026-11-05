@@ -39,7 +39,7 @@ export function channelOfRecipe(recipe: RecipeDocument): number | null {
     return typeof index === 'number' ? index + 1 : null;
 }
 
-const PER_CHANNEL = ['leqDbA', 'peakHz', 'spectrumDb', 'thirdOctDb', 'crest'] as const;
+const PER_CHANNEL = ['leqDbA', 'peakHz', 'spectrumDb', 'spectrumBinsDb', 'thirdOctDb', 'crest'] as const;
 
 /** One channel's numbers of a result scanned over every channel; a result without that channel is not ok. */
 export function channelResult(result: ScanResult | undefined, ch: number): ScanResult | undefined {

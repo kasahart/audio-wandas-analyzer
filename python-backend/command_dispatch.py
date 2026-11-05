@@ -214,6 +214,7 @@ def handle_scan(service: AnalysisService, command: Command) -> Mapping[str, obje
         stage=command.get("stage"),
         detail=command.get("detail"),
         reference=command.get("reference"),
+        spectrum_bins=bool(command.get("spectrumBins")),
     )
 
 

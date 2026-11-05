@@ -3,7 +3,7 @@ import test from 'node:test';
 import type { ScanResult } from '../shared/protocol/backendProtocol';
 import { getStrings } from '../shared/i18n/strings';
 import { BAND_CENTERS_HZ, buildEntryModel } from '../webview/runtime/entryTable';
-import { buildCompareModel, diffHeadline, legendHtml, levelsHeadline, paneAxes, trackLevelInput, type LevelInput } from '../webview/runtime/comparePanes';
+import { binsView, buildCompareModel, diffHeadline, minMaxLine, withBins, legendHtml, levelsHeadline, paneAxes, trackLevelInput, type LevelInput } from '../webview/runtime/comparePanes';
 import type { ChannelSummary } from '../shared/analysis/analysisTypes';
 import { paintOverlay, stageAxes } from '../webview/runtime/stagePanes';
 import type { StageView } from '../shared/protocol/backendProtocol';
@@ -200,4 +200,56 @@ test('a track with no entry result takes its level reference from its own analys
     assert.equal(paneAxes(STR, plain as LevelInput).level.y, 'Amplitude [dB]');
     assert.equal(paneAxes(STR, trackLevelInput([channel(false)], undefined)).level.y, 'Amplitude, uncalibrated [dB re 1 input unit]');
     assert.equal(paneAxes(STR, trackLevelInput([channel(true)], undefined)).level.y, 'Amplitude, uncalibrated [dBFS]');
+});
+
+test('the median and Δ are taken bin by bin from every bin, and only drawing decimates them', () => {
+    // 4096 bins of 2 Hz (16 kHz, n_fft 8192): a narrow rise at one bin of the compared file only.
+    const flat = (level: number, at?: number, rise = 0): number[] => Array.from({ length: 4097 }, (_, bin) => (bin === at ? level + rise : level));
+    const withBins = (result: ScanResult, rows: number[][]): ScanResult => ({ ...result, spectrumBinsDb: rows, spectrumBinHz: 2 });
+    const binned = new Map<string, ScanResult>([
+        ['/f/L1_900rpm_run1.wav', withBins(files.get('/f/L1_900rpm_run1.wav')!, [flat(-60)])],
+        ['/f/L1_900rpm_run2.wav', withBins(files.get('/f/L1_900rpm_run2.wav')!, [flat(-62)])],
+        ['/f/L1_900rpm_run3.wav', withBins(files.get('/f/L1_900rpm_run3.wav')!, [flat(-61, 1500, 40)])],
+    ]);
+    const comparison = buildCompareModel(model, binned, '/f/L1_900rpm_run3.wav', null, STR);
+    const bins = comparison.bins!;
+    assert.equal(bins.base![1500], -61, 'the median of -60 and -62 at every bin');
+    assert.equal(bins.diff![1500], 40);
+    assert.equal(bins.diff![1499], 0);
+    // Drawn in 640 log-spaced buckets of their lowest and highest bin: the narrow rise keeps its full height.
+    const drawn = binsView(bins, 'diff')!;
+    assert.ok(drawn.xs!.length <= 2 * 640);
+    assert.equal(Math.max(...(drawn.values as number[])), 40);
+    assert.equal(drawn.xs![(drawn.values as number[]).indexOf(40)], 3000);
+    assert.deepEqual(drawn.xLimits, [20, 8000]);
+    // Zoomed: every bin on screen, still at its own frequency.
+    const zoomed = binsView(bins, 'diff', [2900, 3100], 300)!;
+    assert.equal(zoomed.xs!.length, 101);
+    assert.equal(zoomed.detail, true);
+});
+
+test('a line decimated for drawing keeps each bucket\'s lowest and highest value at their own places', () => {
+    const xs = Array.from({ length: 1000 }, (_, index) => index + 1);
+    const values = xs.map(() => 0);
+    values[122] = 9;
+    values[776] = -4;
+    const line = minMaxLine(xs, values, 50, [1, 1000]);
+    assert.ok(line.xs.length <= 100);
+    assert.equal(line.xs[line.values.indexOf(9)], 123);
+    assert.equal(line.xs[line.values.indexOf(-4)], 777);
+});
+
+test('files whose bins differ (another sample rate or n_fft) have no bins to compare', () => {
+    const one = new Map<string, ScanResult>([...files].map(([path, result]) => [path, { ...result, spectrumBinsDb: [[-60, -60]], spectrumBinHz: path.endsWith('run3.wav') ? 4 : 2 }]));
+    assert.equal(buildCompareModel(model, one, '/f/L1_900rpm_run3.wav', null, STR).bins, null);
+    assert.equal(buildCompareModel(model, files, '/f/L1_900rpm_run3.wav', null, STR).bins, null, 'a scan without bins');
+});
+
+test('the table\'s results take the bins of a scan of the same spectrum only', () => {
+    const own = files.get('/f/free.wav')!;
+    const same: ScanResult = { ...own, elapsedMs: 9, spectrumBinsDb: [[-30, -31]], spectrumBinHz: 2 };
+    const other: ScanResult = { ...own, spectrumDb: [[-1, -2, -3]], spectrumBinsDb: [[-1, -2]], spectrumBinHz: 2 };
+    const merged = withBins(files, new Map([['/f/free.wav', same], ['/f/L1_900rpm_run1.wav', other]]));
+    assert.deepEqual(merged.get('/f/free.wav'), { ...own, spectrumBinsDb: [[-30, -31]], spectrumBinHz: 2 }, 'the table\'s own numbers, with the bins');
+    assert.equal(merged.get('/f/L1_900rpm_run1.wav'), files.get('/f/L1_900rpm_run1.wav'), 'another spectrum: as it was');
 });

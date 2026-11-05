@@ -9,7 +9,7 @@ import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { encodeNumber, plainFloats, recipeSteps, timeSignalStep, upToStep, withDefaults, withParam, TIME_SLICE } from '../../shared/recipe/recipeSteps';
 import { BAND_CENTERS_HZ, bandLabel, csvNumber, EDGE_GUARD_S, HEADLINE_WITHIN_DB, measuredRegion, regionCells, type BaseDefinition, type DerivedRow, type EntryModel } from './entryTable';
 import { withBaseInput, withChannel } from '../../shared/recipe/channelSelection';
-import { buildCompareModel, diffHeadline, levelsHeadline, paneAxes, sideView, type CompareModel, type CompareStrings } from './comparePanes';
+import { binsView, buildCompareModel, diffHeadline, levelsHeadline, paneAxes, sideView, type CompareModel, type CompareStrings } from './comparePanes';
 import { paintOverlay, stageDiffRange, stageRange } from './stagePanes';
 import type { EntryRegion } from '../../shared/analysis/entryScan';
 import type { ScanResult } from '../../shared/protocol/backendProtocol';
@@ -195,9 +195,9 @@ export function outsideRecipe(strings: Pick<UiStrings, 'entryColLeq' | 'outside1
     return [
         { tag: strings.entryColLeq, text: 'Leq dB(A) = 20·log10(rms / ref) of the time slice\'s frame.a_weighting(): an RMS is an array, not a frame, so it is not a Recipe step' },
         // eslint-disable-next-line @typescript-eslint/no-base-to-string, @typescript-eslint/restrict-template-expressions -- Recipe params are JSON scalars
-        { tag: strings.outside192, text: `spectrum: the SpectralFrame's dB (n_fft ${welch?.['n_fft'] ?? 1024}, ${welch?.['window'] ?? 'hann'}), bins power-averaged into 192 log-spaced points from 20 Hz to Nyquist (narrower than a bin: interpolated); channels: power mean (10·log10 of the mean of 10^(L/10))` },
+        { tag: strings.outside192, text: `spectrum: the SpectralFrame's dB (n_fft ${welch?.['n_fft'] ?? 1024}, ${welch?.['window'] ?? 'hann'}), bins power-averaged into 192 log-spaced points from 20 Hz to Nyquist (narrower than a bin: interpolated), as the table shows it; the report's figures, base median and Δ: every bin, decimated only to be drawn (each of 640 log-spaced buckets' lowest and highest bin); channels: power mean (10·log10 of the mean of 10^(L/10))` },
         { tag: strings.stepOctave, text: '1/3 octave bands (the table\'s band values, Δ max band): noct_spectrum (fmin 20, fmax = the highest nominal centre ≤ 0.88 × Nyquist, n = 3) of the chain\'s time signal over the time slice, beside the chain rather than a step of it; the NOctFrame\'s dB, bands centred outside the Recipe\'s filter passband left empty; channels: power mean' },
-        { tag: strings.outsideMedian, text: 'base: the slot-0 file, or the median per point and band of the compared file\'s condition without it' },
+        { tag: strings.outsideMedian, text: 'base: the slot-0 file, or the median per bin and band of the compared file\'s condition without it' },
         { tag: strings.outsideDelta, text: 'Δ = round(compare, 0.1 dB) − round(base, 0.1 dB); Δ max band = the band with the largest |Δ|; headline: see "headline"' },
     ];
 }
@@ -294,8 +294,10 @@ function pngOf(document: Document, paint: (canvas: HTMLCanvasElement) => void): 
 /** One slot's base and compare on one set of axes, as the comparison's overlay: solid lines, no fills. */
 function paintOverlayFigure(canvas: HTMLCanvasElement, comparison: CompareModel, slot: number, title: string, strings: ReportStrings, input: ReportInput, size: { width: number; height: number }): void {
     const axes = paneAxes(strings, input.results.get(comparison.compare?.filePaths[0] ?? '')?.input).level;
-    const base = sideView(comparison.base, comparison.frequencies);
-    const compare = sideView(comparison.compare, comparison.frequencies);
+    // Every bin, decimated only to be drawn, as the comparison draws a spectrum; the 192 points where a scan gave no bins.
+    const { bins } = comparison;
+    const base = bins ? binsView(bins, 'base') : sideView(comparison.base, comparison.frequencies);
+    const compare = bins ? binsView(bins, 'compare') : sideView(comparison.compare, comparison.frequencies);
     const color = ROLE_COLORS[slot] ?? ROLE_COLORS[1];
     paintOverlay(canvas, {
         layers: [...(base ? [{ view: base, color: ROLE_COLORS[0], width: 2 }] : []), ...(compare ? [{ view: compare, color, width: 2 }] : [])],
@@ -313,7 +315,8 @@ function paintOverlayFigure(canvas: HTMLCanvasElement, comparison: CompareModel,
 
 /** A Δ figure: compare − base per point, the 1/3-octave Δ as steps under it, titled and with its legend. */
 function paintDeltaFigure(canvas: HTMLCanvasElement, comparison: CompareModel, title: string, curve: string, strings: ReportStrings, input: ReportInput, size: { width: number; height: number }): void {
-    const view = comparison.diffDb ? sideView({ spectrumDb: comparison.diffDb, bands: [] }, comparison.frequencies) : null;
+    // compare − base bin by bin, then decimated to be drawn (each bucket's lowest and highest Δ).
+    const view = comparison.bins ? binsView(comparison.bins, 'diff') : comparison.diffDb ? sideView({ spectrumDb: comparison.diffDb, bands: [] }, comparison.frequencies) : null;
     const axes = paneAxes(strings, input.results.get(comparison.compare?.filePaths[0] ?? '')?.input).delta;
     // The range covers the band steps too, so a band's step is never cut off.
     const range = stageDiffRange(view && { ...view, values: [...(view.values ?? []), ...comparison.bandDeltas] });

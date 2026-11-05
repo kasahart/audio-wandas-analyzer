@@ -83,7 +83,7 @@ export interface TrackStageDeps {
     /** 「レシピをまとめて書き出す」: the chain taken out for the table's rows (its choice of rows opens on the table). */
     batch?(): void;
     /** 報告に: the comparison written as a report folder (over the region, from `measured`). */
-    report(showDiff: boolean, region: EntryRegion | null, measured: ReadonlyMap<string, ScanResult>): void;
+    report(showDiff: boolean, region: EntryRegion | null, measured: ReadonlyMap<string, ScanResult>, binned: ReadonlyMap<string, ScanResult>): void;
     sampleRate(): number | undefined;
     /** The largest peak of the compared channels' waveforms over the region, in their unit: where a new trigger starts (half of it). */
     peak?(region: EntryRegion | null): number | undefined;
@@ -158,6 +158,10 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
     const liveRegion = (): EntryRegion | null => liveRegionOf(deps.recipe()?.recipe, state.regionSet);
     const source = createStageSource('track-stage', message => deps.post(message), () => deps.rerender());
     const combine = createCombineSource('track-combine', message => deps.post(message), () => deps.rerender());
+    // The report's files with every Welch bin, asked for on 報告に only (a stored result keeps the 192 points alone).
+    const reportSource = createStageSource('report-scan', message => deps.post(message), () => writeReport());
+    /** 報告に pressed: the report waits for its files' bins (with Δ shown or not, as when it was pressed). */
+    let pendingReport: { showDiff: boolean } | null = null;
     /** The last zoomed combination of each comparison, drawn until the next zoom's is in. */
     const lastFine = new Map<string, Combined>();
     const detail = createDetailPlanner(deps.window.performance, deps.window, () => deps.rerender());
@@ -199,8 +203,33 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
     /** The comparison written as a folder (the toolbar's 書き出し menu): a chain that cannot run has no values to report. */
     function report(): void {
         const recipe = deps.recipe()?.recipe;
-        if (recipe && brokenStep(recipe, limits())) deps.hint(strings.stepOctaveBroken);
-        else deps.report(state.showDiff, liveRegion(), measured());
+        if (recipe && brokenStep(recipe, limits())) { deps.hint(strings.stepOctaveBroken); return; }
+        pendingReport = { showDiff: state.showDiff };
+        writeReport();
+    }
+    /**
+     * Writes the pending report once its files' scans with every Welch bin are in: the compared slots, their bases and
+     * the slot-0 file. Over a region they are the region's metrics (asked for already); without one, the whole files'.
+     */
+    function writeReport(): void {
+        if (!pendingReport) return;
+        const region = liveRegion();
+        const slots = deps.slots();
+        const paths = [...new Set([...(slots[0] ? [slots[0]] : []), ...slots.slice(1).flatMap(path => (path ? [path, ...deps.basePaths(path, false)] : []))])];
+        const spec = regionSpec();
+        const lacking = paths.filter(path => source.result(spec, path) === undefined && reportSource.result(spec, path) === undefined);
+        if (lacking.length) {
+            reportSource.ensure(spec, lacking);
+            deps.hint(strings.reportMeasuring.replace('{count}', String(lacking.length)));
+            return;
+        }
+        const { showDiff } = pendingReport;
+        pendingReport = null;
+        const binned = new Map(paths.flatMap(path => {
+            const result = source.result(spec, path) ?? reportSource.result(spec, path);
+            return result ? [[path, result] as [string, ScanResult]] : [];
+        }));
+        deps.report(showDiff, region, region ? new Map([...measured(), ...binned]) : new Map(), binned);
     }
     root.addEventListener('click', event => {
         const action = (event.target as HTMLElement).closest('[data-action]')?.getAttribute('data-action');
@@ -687,7 +716,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             paintNow();
             if (!lanesMarked) { clearTriggerLanes(document); root.dataset.lanesMarked = ''; marks = null; }
         },
-        handle: message => source.handle(message) || combine.handle(message),
+        handle: message => source.handle(message) || combine.handle(message) || reportSource.handle(message),
         snapshot() {
             const view = shownCompare.view;
             return {

@@ -72,6 +72,14 @@ def test_scan_measures_the_analysis_spec_metrics(tmp_path: Path) -> None:
     assert result["peakHz"][0] == 1000
     assert abs(result["peakHz"][1] - 3150) <= RATE / spec.WELCH_N_FFT
     assert [len(row) for row in result["spectrumDb"]] == [spec.SPECTRUM_POINTS] * 2
+    # A stored result keeps only the 192 points; a report asks for every Welch bin too (spectrumBins).
+    assert "spectrumBinsDb" not in result
+    binned = _scan(service, path, spectrumBins=True)
+    assert binned["spectrumDb"] == result["spectrumDb"]
+    assert [len(row) for row in binned["spectrumBinsDb"]] == [spec.WELCH_N_FFT // 2 + 1] * 2
+    assert binned["spectrumBinHz"] == pytest.approx(RATE / spec.WELCH_N_FFT)
+    peak = int(np.argmax(binned["spectrumBinsDb"][0])) * binned["spectrumBinHz"]
+    assert peak == pytest.approx(1000, abs=RATE / spec.WELCH_N_FFT)
     assert [len(row) for row in result["thirdOctDb"]] == [len(spec.THIRD_OCTAVE_CENTERS_HZ)] * 2
     assert _band(result, 0, 1000.0) == pytest.approx(rms_db[0], abs=0.5)
     assert _band(result, 1, 3150.0) == pytest.approx(rms_db[1], abs=0.5)

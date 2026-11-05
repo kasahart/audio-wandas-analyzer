@@ -1152,6 +1152,9 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                             "type": "null"
                         }
                     ]
+                },
+                "spectrumBins": {
+                    "type": "boolean"
                 }
             },
             "additionalProperties": false
@@ -1645,6 +1648,18 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                             "type": "number"
                         }
                     }
+                },
+                "spectrumBinsDb": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "number"
+                        }
+                    }
+                },
+                "spectrumBinHz": {
+                    "type": "number"
                 },
                 "thirdOctDb": {
                     "type": "array",
@@ -2171,6 +2186,7 @@ export interface ScanPayload {
     stage?: string | null;
     detail?: StageDetail | null;
     reference?: ScanReference | null;
+    spectrumBins?: boolean;
 }
 
 export interface ScanReference {
@@ -2262,6 +2278,8 @@ export interface ScanResult {
     leqDbA?: number[];
     peakHz?: number[];
     spectrumDb?: number[][];
+    spectrumBinsDb?: number[][];
+    spectrumBinHz?: number;
     thirdOctDb?: ((number | null)[])[];
     crest?: number[];
     specVersion?: number;
