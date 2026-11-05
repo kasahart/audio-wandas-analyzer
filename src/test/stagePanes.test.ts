@@ -163,3 +163,19 @@ test('overlaid lines are drawn loudest first, the quietest last on top, by their
     const coherence = layer('green', [0.9, 0.9, 0.9], 'coherence');
     assert.deepEqual(byLevel([coherence, quiet, loud], line([0, 0, 0])).map(item => item.color), ['yellow', 'grey', 'green']);
 });
+
+test('waveforms are ordered by their envelope on the shared amplitude axis, whatever their level reference', () => {
+    // 0.1 Pa reads 71 dB re 20 µPa, 0.5 FS −9 dB re 1: on screen the FS one is the larger and goes under.
+    const signal = (color: string, peak: number, level: number, ref: number) => ({ color, view: {
+        frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'level', xs: [0, 1], values: [level, level],
+        waveform: { min: [-peak, -peak], max: [peak, peak], minT: [0, 1], maxT: [0, 1], absolutePeak: peak, unit: ref === 1 ? 'FS' : 'Pa', ref },
+    } as StageView });
+    const pa = signal('blue', 0.1, 71, 2e-5), fs = signal('yellow', 0.5, -9, 1);
+    assert.deepEqual(byLevel([pa, fs], pa.view).map(item => item.color), ['yellow', 'blue']);
+});
+
+test('silence on screen lowers a line\'s level as no power, instead of being left out', () => {
+    const layer = (color: string, values: number[]) => ({ view: { ...line(values), xs: [100, 200, 400, 800] }, color });
+    const gaps = layer('blue', [-20, -300, -300, -300]), steady = layer('yellow', [-23, -23, -23, -23]);
+    assert.deepEqual(byLevel([gaps, steady], steady.view).map(item => item.color), ['yellow', 'blue']);
+});
