@@ -170,7 +170,9 @@ const server = http.createServer((req,res) => {
             const tones = runtime[2];
             const [shown, full] = tones.slice(-2);
             for (const [slice, bins] of [[tones[0], 1025], [tones[3], 1025], [shown, 1025], [full, 4097]]) {
-                assert.equal(slice.frequencyBins, bins);
+                // A cut row keeps each stretch's lowest and highest bin per channel, at most the 1025-point budget.
+                if (slice === shown) assert.ok(slice.frequencyBins > 512 && slice.frequencyBins <= bins, `cut to ${slice.frequencyBins} points`);
+                else assert.equal(slice.frequencyBins, bins);
                 assert.equal(slice.frequenciesHz === undefined, slice !== shown);
                 slice.channels.forEach((channel, i) => {
                     const peak = channel.values.indexOf(Math.max(...channel.values));
