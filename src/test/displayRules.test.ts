@@ -16,7 +16,7 @@ interface Rule { id: string; tests: Array<{ file: string; name: string }>; pendi
 
 function rules(): Rule[] {
     const found: Rule[] = [];
-    for (const line of readFileSync(rulesPath, 'utf8').split('\n')) {
+    for (const line of readFileSync(rulesPath, 'utf8').split(/\r?\n/)) {
         const heading = /^## (R\d+) /.exec(line);
         if (heading) {
             found.push({ id: heading[1], tests: [], pending: false });
