@@ -129,6 +129,7 @@ function collectDialogEscapeFindings(source, filePath) {
 const CANVAS_DRAWING_FILES = [
     'src/shared/gui-core/index.ts',
     'src/webview/draw/canvasDrawers.ts',
+    'src/webview/plot/waveformLayer.ts',
     'src/webview/runtime/canvasOverlays.ts',
     'src/webview/runtime/chartSpecRuntime.ts',
     'src/webview/runtime/compareReport.ts',
@@ -141,7 +142,15 @@ const CANVAS_DRAWING_FILES = [
     'src/webview/runtime/triggerLanes.ts',
     'src/webview/waveform/waveformRenderer.ts',
 ];
-const canvasDrawingRegex = /\.(?:lineTo|fillRect|strokeRect|fillText|strokeText|putImageData|drawImage|arc|bezierCurveTo|quadraticCurveTo)\(/u;
+// Path building and every fill/stroke; `.fill(` / `.stroke(` count only with no argument or a Path2D / fill rule, so
+// Array.prototype.fill(value) does not match. Comments are stripped first, so a leftover comment neither draws nor keeps a file listed.
+const canvasDrawingRegex = /\.\s*(?:lineTo|moveTo|rect|roundRect|arc|arcTo|ellipse|bezierCurveTo|quadraticCurveTo|fillRect|strokeRect|fillText|strokeText|putImageData|drawImage)\s*\(|\.\s*(?:fill|stroke)\s*\(\s*(?:\)|new\s+Path2D|['"](?:nonzero|evenodd)['"]|[\w$]*[Pp]ath\b)/u;
+/** @param {string} source */
+function withoutComments(source) {
+    // Blank comments out (keeping newlines, so line numbers stay right); strings stay as they are.
+    return source.replace(/("(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|`(?:\\.|[^`\\])*`)|\/\*[\s\S]*?\*\/|\/\/[^\n]*/gu,
+        (match, quoted) => quoted ?? match.replace(/[^\n]/gu, ' '));
+}
 
 /** @param {string[]} filePaths */
 function collectCanvasDrawingFindings(filePaths) {
@@ -149,7 +158,7 @@ function collectCanvasDrawingFindings(filePaths) {
     const out = [];
     const drawing = new Set();
     for (const filePath of filePaths) {
-        const source = fs.readFileSync(filePath, 'utf8');
+        const source = withoutComments(fs.readFileSync(filePath, 'utf8'));
         const match = canvasDrawingRegex.exec(source);
         if (!match) continue;
         const relative = path.relative(repoRoot, filePath).split(path.sep).join('/');
