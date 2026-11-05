@@ -22,7 +22,7 @@ from analyzer import (
     build_waveform_envelope,
     channels_first,
     level_scale_metadata,
-    peak_hold_spectrum,
+    min_max_spectrum,
     resolve_stft_params,
     sample_range,
 )
@@ -327,7 +327,7 @@ class AnalysisService:
             self.engine.put_spectrum_slice(cached, slice_key, rows, max_frequency_hz)
         frequencies_hz = None
         if bands is None and not full_resolution:
-            rows, frequencies_hz = peak_hold_spectrum(rows, max_frequency_hz)
+            rows, frequencies_hz = min_max_spectrum(rows, max_frequency_hz)
         quantity = "Band level" if bands is not None else "Spectrum amplitude level"
         channels: list[dict[str, object]] = []
         for channel_index, row in enumerate(rows):
