@@ -1,37 +1,27 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { frequencyAxisTicks, traceSpectrumPath, type CanvasDrawCtx, type SpectrumPlotFrame } from '../webview/draw/canvasDrawers';
+import { frequencyAxisTicks } from '../webview/draw/canvasDrawers';
+import { spectrumLayer } from '../webview/runtime/overlaySpectrumPainter';
 import { spectrumSeriesRange } from '../webview/runtime/spectrumRuntime';
 import type { SpectrumSlice } from '../webview/runtime/types';
-
-const FRAME: SpectrumPlotFrame = {
-    padLeft: 10, plotWidth: 100, padTop: 5, plotHeight: 100,
-    frequencyMin: 0, frequencyMax: 1000, dbMin: -100, dbMax: 0,
-};
-
-function recordingCtx() {
-    const calls: Array<[string, number, number]> = [];
-    const ctx = {
-        moveTo: (x: number, y: number) => calls.push(['moveTo', x, y]),
-        lineTo: (x: number, y: number) => calls.push(['lineTo', x, y]),
-    } as unknown as CanvasDrawCtx;
-    return { ctx, calls };
-}
 
 function slice(values: number[], overrides: Partial<SpectrumSlice> = {}): SpectrumSlice {
     return { values, frequencyBins: values.length, maxFrequencyHz: 1000, minDb: -100, maxDb: 0, ...overrides };
 }
 
-test('traceSpectrumPath maps each bin into the plot frame', () => {
-    const { ctx, calls } = recordingCtx();
-    traceSpectrumPath(ctx, slice([0, -50, -100]), FRAME, 1000);
-    assert.deepEqual(calls, [['moveTo', 10, 5], ['lineTo', 60, 55], ['lineTo', 110, 105]]);
+const layerOf = (values: number[], overrides: Partial<SpectrumSlice> = {}, cutoffHz = 1000) =>
+    spectrumLayer({ slice: slice(values, overrides), color: '#fff', index: 0, channelIndex: 0, label: 'A' }, cutoffHz);
+
+test('a cursor spectrum slice becomes a level line over its bins\' frequencies', () => {
+    const layer = layerOf([0, -50, -100]);
+    assert.deepEqual(layer.view, { frame: 'spectrum', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'level', xs: [0, 500, 1000], values: [0, -50, -100] });
+    assert.equal(layer.label, 'A');
 });
 
-test('traceSpectrumPath spaces bins over the original range and stops past the cutoff', () => {
-    const { ctx, calls } = recordingCtx();
-    traceSpectrumPath(ctx, slice([0, 0, 0, 0, 0], { maxFrequencyHz: 500, originalMaxFrequencyHz: 2000 }), FRAME, 500);
-    assert.deepEqual(calls.map(([op, x]) => [op, x]), [['moveTo', 10], ['lineTo', 60]]);
+test('a slice cut for display keeps its bins\' frequencies over the original range and stops past the cutoff', () => {
+    const layer = layerOf([0, -1, -2, -3, -4], { maxFrequencyHz: 500, originalMaxFrequencyHz: 2000 }, 500);
+    assert.deepEqual(layer.view.xs, [0, 500]);
+    assert.deepEqual(layer.view.values, [0, -1]);
 });
 
 test('spectrumSeriesRange spans every series', () => {
@@ -41,22 +31,14 @@ test('spectrumSeriesRange spans every series', () => {
     ]), { minDb: -90, maxDb: -10, maxFrequencyHz: 24_000 });
 });
 
-const LOG_FRAME: SpectrumPlotFrame = {
-    padLeft: 0, plotWidth: 100, padTop: 0, plotHeight: 100,
-    frequencyMin: 10, frequencyMax: 10_000, logFrequency: true, dbMin: -100, dbMax: 0,
-};
+test('octave bands become steps on a log frequency axis, one per band centre', () => {
+    const layer = layerOf([-50, 0], { bandsPerOctave: 1, bandCentersHz: [100, 1000], maxFrequencyHz: 10_000 }, 10_000);
+    assert.deepEqual([layer.view.kind, layer.view.xScale, layer.view.xs, layer.view.values], ['bar', 'log', [100, 1000], [-50, 0]]);
+});
 
-test('traceSpectrumPath draws octave bands as steps between the band edges on a log axis', () => {
-    const { ctx, calls } = recordingCtx();
-    // 100 Hz and 1 kHz sit a third and two thirds of the way along 10 Hz - 10 kHz.
-    traceSpectrumPath(ctx, slice([-50, 0], { bandsPerOctave: 1, bandCentersHz: [100, 1000], maxFrequencyHz: 10_000 }), LOG_FRAME, 10_000);
-    const round = (v: number) => Math.round(v * 100) / 100;
-    assert.deepEqual(calls.map(([op, x, y]) => [op, round(x), y]), [
-        ['moveTo', round(100 * Math.log10(10 / Math.SQRT2) / 3), 50],
-        ['lineTo', 50, 50],
-        ['lineTo', 50, 0],
-        ['lineTo', round(100 * Math.log10(100 * Math.SQRT2) / 3), 0],
-    ]);
+test('octave bands past the display limit are kept, so each band keeps its width (the plot clips them)', () => {
+    const layer = layerOf([-50, -40, -30], { bandsPerOctave: 1, bandCentersHz: [31.5, 63, 125], maxFrequencyHz: 50 }, 50);
+    assert.deepEqual(layer.view.xs, [31.5, 63, 125]);
 });
 
 test('spectrumSeriesRange reports the shared log axis edge of octave-band series', () => {

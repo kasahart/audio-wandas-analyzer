@@ -3627,7 +3627,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         spectrumView.followLevelReference(overlayLevelAxes(slices, spectrumView.state())[0].reference);
-        const paint = paintOverlaySpectrum(ctx, W, H, slices, spectrumView.state(), spectrumHover, specBoxDrag.box, drawTheme(), STR.axisFrequency);
+        const paint = paintOverlaySpectrum(canvas, W, H, slices, spectrumView.state(), spectrumHover, specBoxDrag.box, STR.axisFrequency);
         spectrumView.recordPaint(paint);
         renderSpectrumAxisLegend(document.getElementById('spectrum-axis-legend'), paint.levelAxes);
         if (paint.readout) {

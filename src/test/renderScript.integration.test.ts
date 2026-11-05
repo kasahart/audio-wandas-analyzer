@@ -2001,12 +2001,10 @@ test('axes: カーソル時刻のスペクトルに Hz と dB のラベルが描
     const overlaySpy = env.domCanvasContexts.get('spectrum-overlay-canvas');
     assert.ok(overlaySpy, 'overlay canvas のスパイが取得できること');
     const overlayLabels = overlaySpy.fillTextCalls;
-    assert.ok(overlayLabels.includes('0 Hz'), 'overlay: 0 Hz ラベルが描かれること');
-    assert.ok(overlayLabels.some((s) => /dB$/.test(s)), 'overlay: dB ラベルが描かれること');
-    assert.ok(
-        overlayLabels.some((s) => s !== '0 Hz' && (/kHz$/.test(s) || /Hz$/.test(s))),
-        'overlay: 0 以外の周波数ラベル (Hz/kHz) が描かれること: ' + JSON.stringify(overlayLabels),
-    );
+    // As the comparison's plots: plain tick numbers, the units in the axes' titles.
+    assert.ok(overlayLabels.includes('0'), 'overlay: 0 Hz の目盛りが描かれること: ' + JSON.stringify(overlayLabels));
+    assert.ok(overlayLabels.some((s) => /\[Hz\]$/.test(s)), 'overlay: 周波数軸の名前 (Hz) が描かれること: ' + JSON.stringify(overlayLabels));
+    assert.ok(overlayLabels.some((s) => /dB/.test(s)), 'overlay: レベル軸の名前 (dB) が描かれること: ' + JSON.stringify(overlayLabels));
     env.dom.window.close();
 });
 

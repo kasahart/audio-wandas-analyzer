@@ -1,4 +1,4 @@
-import { drawCrosshair, drawValueAxis, fittedAxisTitle, normalizedColor, PLOT_FONT, viridis } from '../../shared/gui-core/index';
+import { normalizedColor, PLOT_FONT, viridis } from '../../shared/gui-core/index';
 
 export interface DrawTheme {
     /** 軸ラベル文字色 (--muted) */
@@ -117,14 +117,6 @@ export function nearestBinIndex(slice: SpectrumBinGrid, frequencyHz: number): nu
         return Math.abs(points[high] - frequencyHz) <= Math.abs(points[low] - frequencyHz) ? high : low;
     }
     return Math.round((frequencyHz / (slice.originalMaxFrequencyHz || slice.maxFrequencyHz)) * Math.max(slice.frequencyBins - 1, 1));
-}
-
-/** Nominal centres are rounded, so inner edges are the geometric means of neighbours to keep the bands contiguous. */
-export function bandEdgesHz(centers: readonly number[], bandsPerOctave: number, index: number): [number, number] {
-    const halfBand = Math.pow(2, 1 / (2 * bandsPerOctave));
-    const lower = index > 0 ? Math.sqrt(centers[index - 1] * centers[index]) : centers[index] / halfBand;
-    const upper = index < centers.length - 1 ? Math.sqrt(centers[index] * centers[index + 1]) : centers[index] * halfBand;
-    return [lower, upper];
 }
 
 const OCTAVE_TICKS_HZ = [31.5, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
@@ -347,88 +339,6 @@ export interface SpectrumPlotFrame {
     dbMax: number;
 }
 
-/** FFT bins are joined by a line; octave bands are drawn as steps spanning each band. */
-export function traceSpectrumPath(ctx: CanvasDrawCtx, slice: SpectrumSliceLike, frame: SpectrumPlotFrame, cutoffHz: number): void {
-    const fBins = slice.frequencyBins;
-    const dbRange = frame.dbMax - frame.dbMin;
-    const xAt = (fHz: number) => frame.padLeft + frequencyFraction(fHz, frame) * frame.plotWidth;
-    const centers = slice.bandCentersHz;
-    for (let i = 0; i < fBins; i++) {
-        const fHz = binFrequencyHz(slice, i);
-        if (fHz > cutoffHz) {
-            break;
-        }
-        const y = frame.padTop + (1 - (slice.values[i] - frame.dbMin) / dbRange) * frame.plotHeight;
-        if (centers) {
-            const [lower, upper] = bandEdgesHz(centers, slice.bandsPerOctave || 3, i);
-            if (i === 0) {
-                ctx.moveTo(xAt(lower), y);
-            }
-            else {
-                ctx.lineTo(xAt(lower), y);
-            }
-            ctx.lineTo(xAt(Math.min(upper, cutoffHz)), y);
-            continue;
-        }
-        const x = xAt(fHz);
-        if (i === 0) {
-            ctx.moveTo(x, y);
-        }
-        else {
-            ctx.lineTo(x, y);
-        }
-    }
-}
-
-export function strokeSpectrumSeries(
-    ctx: CanvasDrawCtx,
-    frame: SpectrumPlotFrame,
-    series: ReadonlyArray<{ slice: SpectrumSliceLike; color: string }>,
-    lineWidth: number,
-    cutoffHz: number,
-): void {
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(frame.padLeft, frame.padTop, frame.plotWidth, frame.plotHeight);
-    ctx.clip();
-    ctx.lineWidth = lineWidth;
-    for (const s of series) {
-        ctx.strokeStyle = s.color;
-        ctx.beginPath();
-        traceSpectrumPath(ctx, s.slice, frame, cutoffHz);
-        ctx.stroke();
-    }
-    ctx.restore();
-}
-
-/**
- * A second level axis at the plot's right edge, for series read against another level reference: its values beside
- * the edge and its title (quantity, unit and reference) along the canvas' right side.
- */
-export function drawSpectrumSecondaryLevelAxis(ctx: CanvasDrawCtx, W: number, frame: Pick<SpectrumPlotFrame, 'padLeft' | 'plotWidth' | 'padTop' | 'plotHeight'>, dbMin: number, dbMax: number, title: string, theme: DrawTheme = DEFAULT_THEME): void {
-    const x = frame.padLeft + frame.plotWidth;
-    ctx.save();
-    ctx.strokeStyle = theme.lineColor;
-    ctx.lineWidth = 0.5;
-    ctx.beginPath();
-    ctx.moveTo(x, frame.padTop);
-    ctx.lineTo(x, frame.padTop + frame.plotHeight);
-    ctx.stroke();
-    ctx.fillStyle = theme.mutedColor;
-    ctx.font = PLOT_FONT;
-    ctx.textAlign = 'left';
-    for (const [value, fraction] of [[dbMax, 1], [(dbMax + dbMin) / 2, 0.5], [dbMin, 0]] as const) {
-        ctx.textBaseline = fraction >= 1 ? 'top' : fraction <= 0 ? 'bottom' : 'middle';
-        ctx.fillText(value.toFixed(0), x + 2, frame.padTop + (1 - fraction) * frame.plotHeight);
-    }
-    ctx.translate(W - AXIS_TITLE_X, frame.padTop + frame.plotHeight / 2);
-    ctx.rotate(-Math.PI / 2);
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(fittedAxisTitle(title, frame.plotHeight, text => ctx.measureText(text).width), 0, 0);
-    ctx.restore();
-}
-
 /** Centred text; each `\n`-separated line is drawn `lineHeight` px below the one before. */
 export function drawCanvasMessage(ctx: CanvasDrawCtx, W: number, H: number, text: string, font: string, color: string, lineHeight = 14): void {
     ctx.clearRect(0, 0, W, H);
@@ -461,54 +371,8 @@ export function drawSpectrumSelectionBox(
     ctx.restore();
 }
 
-export function drawSpectrumCrosshair(
-    ctx: CanvasDrawCtx,
-    frame: SpectrumPlotFrame,
-    x: number,
-    y: number | null,
-    verticalColor: string,
-    horizontalColor: string,
-): void {
-    drawCrosshair(ctx, { left: frame.padLeft, top: frame.padTop, width: frame.plotWidth, height: frame.plotHeight }, x, y, verticalColor, horizontalColor);
-}
-
 /** Canvas x of a turned value-axis title, so every titled plot puts it at the same place. */
 export const AXIS_TITLE_X = 7;
-
-export function drawSpectrumLine(ctx: CanvasDrawCtx, W: number, H: number, slice: SpectrumSliceLike, color: string, opts: { padL?: number; padR?: number; padT?: number; padB?: number; lineWidth?: number } = {}, visFreqMin?: number | null, visFreqMax?: number | null, visDbMin?: number | null, visDbMax?: number | null, logFrequency = false): void {
-    const _visFreqMin = (visFreqMin != null) ? visFreqMin : 0;
-    const _visFreqMax = (visFreqMax != null) ? visFreqMax : slice.maxFrequencyHz;
-    const _visDbMin = (visDbMin != null) ? visDbMin : slice.minDb;
-    const _visDbMax = (visDbMax != null) ? visDbMax : slice.maxDb;
-    const range = _visDbMax - _visDbMin;
-    if (range <= 0) {
-        return;
-    }
-    const padL = (opts && opts.padL) || 0;
-    const padR = (opts && opts.padR) || 0;
-    const padT = (opts && opts.padT) || 0;
-    const padB = (opts && opts.padB) || 0;
-    const plotW = W - padL - padR;
-    const plotH = H - padT - padB;
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(padL, padT, plotW, plotH);
-    ctx.clip();
-    ctx.strokeStyle = color;
-    ctx.lineWidth = (opts && opts.lineWidth) || 1.2;
-    ctx.beginPath();
-    const visFreqRange = _visFreqMax - _visFreqMin;
-    if (visFreqRange <= 0) {
-        ctx.restore();
-        return;
-    }
-    traceSpectrumPath(ctx, slice, {
-        padLeft: padL, plotWidth: plotW, padTop: padT, plotHeight: plotH,
-        frequencyMin: _visFreqMin, frequencyMax: _visFreqMax, logFrequency, dbMin: _visDbMin, dbMax: _visDbMax,
-    }, slice.maxFrequencyHz);
-    ctx.stroke();
-    ctx.restore();
-}
 
 /** The row under the frequency ticks that holds the frequency axis' title. */
 export const FREQUENCY_TITLE_ROW = 11;
@@ -522,58 +386,4 @@ export function drawFrequencyAxisTitle(ctx: CanvasDrawCtx, plotLeft: number, plo
     ctx.textBaseline = 'bottom';
     ctx.fillText(title, plotLeft + plotWidth / 2, H - 1);
     ctx.restore();
-}
-
-export function drawSpectrumAxes(ctx: CanvasDrawCtx, W: number, H: number, slice: SpectrumSliceLike, padL: number, padR: number, padT: number, padB: number, visFreqMin?: number | null, visFreqMax?: number | null, visDbMin?: number | null, visDbMax?: number | null, theme: DrawTheme = DEFAULT_THEME, logFrequency = false, axisTitle?: string, frequencyTitle?: string) {
-    const _visFreqMin = (visFreqMin != null) ? visFreqMin : 0;
-    const _visFreqMax = (visFreqMax != null) ? visFreqMax : slice.maxFrequencyHz;
-    const _visDbMin = (visDbMin != null) ? visDbMin : slice.minDb;
-    const _visDbMax = (visDbMax != null) ? visDbMax : slice.maxDb;
-    const mutedColor = theme.mutedColor;
-    const lineColor = theme.lineColor;
-    const plotW = W - padL - padR;
-    const plotH = H - padT - padB;
-    ctx.strokeStyle = lineColor;
-    ctx.lineWidth = 0.5;
-    ctx.beginPath();
-    ctx.moveTo(padL, padT);
-    ctx.lineTo(padL, H - padB);
-    ctx.moveTo(padL, H - padB);
-    ctx.lineTo(W - padR, H - padB);
-    ctx.stroke();
-    // A titled axis carries the unit once in its title, as the time-series lanes do; an untitled one repeats it on each tick.
-    const tickText = (value: number) => axisTitle === undefined ? formatDbLevel(value, slice) : value.toFixed(0);
-    drawValueAxis(ctx, { left: padL, top: padT, width: plotW, height: plotH }, [
-        { text: tickText(_visDbMax), fraction: 1 },
-        { text: tickText((_visDbMax + _visDbMin) / 2), fraction: 0.5 },
-        { text: tickText(_visDbMin), fraction: 0 },
-    ], axisTitle ?? '', { color: mutedColor, titleX: AXIS_TITLE_X });
-    ctx.fillStyle = mutedColor;
-    ctx.font = '9px monospace';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'bottom';
-    // 9px monospace: about 5.5px per character. The edge labels always show; an inner tick is skipped when it would touch a label.
-    const ticks = frequencyAxisTicks({ frequencyMin: _visFreqMin, frequencyMax: _visFreqMax, logFrequency });
-    // An edge label is moved inward rather than cut by the canvas edge ("4.0 kHz" at the right end stays whole).
-    const span = (tick: FrequencyAxisTick) => {
-        const halfWidth = ctx.measureText(tick.text).width / 2 || tick.text.length * 2.75;
-        const x = Math.min(Math.max(padL + tick.fraction * plotW, halfWidth + 1), W - halfWidth - 1);
-        return { x, left: x - halfWidth, right: x + halfWidth };
-    };
-    const lastLeft = span(ticks[ticks.length - 1]).left;
-    let lastRight = -Infinity;
-    // A titled frequency axis has its ticks in the row above the title.
-    const tickY = frequencyTitle ? H - 1 - FREQUENCY_TITLE_ROW : H - 1;
-    ticks.forEach((tick, index) => {
-        const { x, left, right } = span(tick);
-        const inner = index > 0 && index < ticks.length - 1;
-        if (inner && (left < lastRight + 4 || right + 4 > lastLeft)) {
-            return;
-        }
-        ctx.fillText(tick.text, x, tickY);
-        lastRight = right;
-    });
-    if (frequencyTitle) {
-        drawFrequencyAxisTitle(ctx, padL, plotW, H, frequencyTitle, mutedColor);
-    }
 }
