@@ -122,6 +122,58 @@ function collectDialogEscapeFindings(source, filePath) {
     return findings;
 }
 
+// Files that put pixels on a canvas. Every chart used to bring its own axes, scaling, decimation and hover, so the
+// same fix had to be made once per chart. Charts are moving onto shared plot code; this list may only shrink:
+// a new file that draws fails here (draw through the shared code instead), and a listed file that no longer
+// draws must be taken off the list.
+const CANVAS_DRAWING_FILES = [
+    'src/shared/gui-core/index.ts',
+    'src/webview/draw/canvasDrawers.ts',
+    'src/webview/runtime/canvasOverlays.ts',
+    'src/webview/runtime/chartSpecRuntime.ts',
+    'src/webview/runtime/compareReport.ts',
+    'src/webview/runtime/comparisonRuntime.ts',
+    'src/webview/runtime/entryPlots.ts',
+    'src/webview/runtime/exportDownloads.ts',
+    'src/webview/runtime/pairSpectrum.ts',
+    'src/webview/runtime/stagePanes.ts',
+    'src/webview/runtime/trackCanvasPainter.ts',
+    'src/webview/runtime/triggerLanes.ts',
+    'src/webview/waveform/waveformRenderer.ts',
+];
+const canvasDrawingRegex = /\.(?:lineTo|fillRect|strokeRect|fillText|strokeText|putImageData|drawImage|arc|bezierCurveTo|quadraticCurveTo)\(/u;
+
+/** @param {string[]} filePaths */
+function collectCanvasDrawingFindings(filePaths) {
+    /** @type {Array<{filePath:string,line:number,description:string,excerpt:string}>} */
+    const out = [];
+    const drawing = new Set();
+    for (const filePath of filePaths) {
+        const source = fs.readFileSync(filePath, 'utf8');
+        const match = canvasDrawingRegex.exec(source);
+        if (!match) continue;
+        const relative = path.relative(repoRoot, filePath).split(path.sep).join('/');
+        drawing.add(relative);
+        if (!CANVAS_DRAWING_FILES.includes(relative)) {
+            out.push({
+                filePath,
+                line: lineNumberAt(source, match.index),
+                description: 'Only the files in CANVAS_DRAWING_FILES (scripts/lint-webview-patterns.js) draw on a canvas; draw this chart through the shared plot code instead of adding a new painter.',
+                excerpt: excerptAt(source, match.index),
+            });
+        }
+    }
+    for (const relative of CANVAS_DRAWING_FILES.filter(file => !drawing.has(file))) {
+        out.push({
+            filePath: path.join(repoRoot, relative),
+            line: 1,
+            description: 'This file no longer draws on a canvas: take it off CANVAS_DRAWING_FILES so the list keeps shrinking.',
+            excerpt: relative,
+        });
+    }
+    return out;
+}
+
 const findings = [];
 
 for (const filePath of listSourceFiles(webviewRoot)) {
@@ -129,6 +181,7 @@ for (const filePath of listSourceFiles(webviewRoot)) {
     findings.push(...collectInlineVisibilityFindings(source, filePath));
     findings.push(...collectDialogEscapeFindings(source, filePath));
 }
+findings.push(...collectCanvasDrawingFindings([...listSourceFiles(webviewRoot), ...listSourceFiles(path.join(repoRoot, 'src', 'shared'))]));
 
 if (findings.length > 0) {
     console.error('Webview pattern lint failed:\n');
