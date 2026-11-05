@@ -6,6 +6,7 @@ import type { StageView } from '../shared/protocol/backendProtocol';
 import { NO_ROLE_COLOR, ROLE_COLORS } from '../shared/gui/roleColors';
 import { FULL_PLOT_WINDOW } from '../webview/runtime/plotInteraction';
 import { plotsOf } from '../webview/runtime/trackStageModel';
+import type { Combined } from '../webview/runtime/combineSource';
 import { overlayLayers, overlayLegendItems, paintBaseGate, paintNoPicture, paintStageControls, paintStageLanes, paintStageOverlay, stageDom, stageModeHeadline, writeStageLegend, type Drawn, type StageFrame, type StageTrack } from '../webview/runtime/trackStagePainter';
 
 const strings = getStrings('en');
@@ -38,11 +39,14 @@ const slots = ['base.wav', 'one.wav', null, null];
 const role = (path: string): number | undefined => { const at = slots.indexOf(path); return at >= 0 ? at : undefined; };
 const named = (path: string, slot: number | undefined) => ({ label: `${slot ?? '·'} · ${path}` });
 
+/** The backend's difference of one.wav from base.wav (lines of `line`), and where it is largest. */
+const combined: Combined = { base: null, diff: line([10, 0]), headline: { x: 100, base: -20, compare: -10 } };
+
 function frameFor(tracks: StageTrack[], views: Record<string, StageView | null | undefined>, extra: Partial<StageFrame> = {}): StageFrame {
     const coarse = (path: string) => views[path];
     return {
         strings, tracks, allTracks: tracks, referencePath: null, comparePath: 'one.wav', coarse, shown: coarse, picture: views['one.wav'] ?? null,
-        coarsePlots: plotsOf(coarse, tracks, 'one.wav', ['base.wav']), window: FULL_PLOT_WINDOW, waiting: false, role, named, drawnOn: new Map<Element, Drawn>(), ...extra,
+        coarsePlots: plotsOf(coarse, tracks, 'one.wav', ['base.wav'], combined), window: FULL_PLOT_WINDOW, waiting: false, role, named, drawnOn: new Map<Element, Drawn>(), ...extra,
     };
 }
 
@@ -124,7 +128,7 @@ test('overlaid: grey lines under the roles\', the base, the others, the compared
     const tracks = [lane('base.wav'), lane('one.wav'), lane('grey.wav')];
     const views = { 'base.wav': line([-20, -30]), 'one.wav': line([-10, -30]), 'grey.wav': line([-40, -40]) };
     const frame = frameFor(tracks, views);
-    const plots = plotsOf(frame.shown, tracks, 'one.wav', ['base.wav']);
+    const plots = plotsOf(frame.shown, tracks, 'one.wav', ['base.wav'], combined);
     assert.deepEqual(overlayLayers(frame, plots).map(layer => [layer.color, layer.width]), [[NO_ROLE_COLOR, 1.2], [ROLE_COLORS[0], 2], [ROLE_COLORS[1], 2.2]]);
     const members = { ...plots, baseMembers: [{ path: 'm1.wav', view: views['base.wav'] }, { path: 'm2.wav', view: views['grey.wav'] }] };
     assert.deepEqual(overlayLayers(frame, members, 'Base').map(layer => [layer.color, layer.width, layer.label]),
@@ -142,7 +146,7 @@ test('the overlaid plot draws its difference under it only on request, with a co
     const { dom_, lane, painted } = page();
     const tracks = [lane('base.wav'), lane('one.wav')];
     const frame = frameFor(tracks, { 'base.wav': line([-20, -30]), 'one.wav': line([-10, -30]) });
-    const plots = plotsOf(frame.shown, tracks, 'one.wav', ['base.wav']);
+    const plots = plotsOf(frame.shown, tracks, 'one.wav', ['base.wav'], combined);
     const diff = dom_.query<HTMLElement>('[data-stage-diff]');
     paintStageOverlay(dom_, frame, plots, overlayLayers(frame, plots), false);
     assert.equal(diff.hidden, true);
@@ -162,7 +166,7 @@ test('the difference is shown or hidden before the overlay is drawn: the overlay
     const { dom_, lane } = page();
     const tracks = [lane('base.wav'), lane('one.wav')];
     const frame = frameFor(tracks, { 'base.wav': line([-20, -30]), 'one.wav': line([-10, -30]) });
-    const plots = plotsOf(frame.shown, tracks, 'one.wav', ['base.wav']);
+    const plots = plotsOf(frame.shown, tracks, 'one.wav', ['base.wav'], combined);
     const diff = dom_.query<HTMLElement>('[data-stage-diff]');
     const overlay = dom_.query<HTMLCanvasElement>('[data-stage-canvas="overlay"]');
     const hiddenWhenDrawn: boolean[] = [];

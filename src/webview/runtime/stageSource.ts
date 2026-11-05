@@ -19,6 +19,8 @@ export interface StageSource {
     view(spec: StageSpec, filePath: string): StageView | null | undefined;
     /** A file's whole scan result for `spec` (its metrics, for a spec without a step). */
     result(spec: StageSpec, filePath: string): ScanResult | undefined;
+    /** Drops a file's picture for `spec`, so it is asked for again (its kept values are gone from the backend). */
+    forget(spec: StageSpec, filePath: string): void;
     /** Takes the host's answers to this source's requests; false for anything else. */
     handle(message: { type: string }): boolean;
 }
@@ -53,6 +55,7 @@ export function createStageSource(prefix: string, post: (message: CompareScanMes
             return true;
         },
         result: (spec, filePath) => cache.get(spec.key)?.get(filePath),
+        forget(spec, filePath) { cache.get(spec.key)?.delete(filePath); },
         view(spec, filePath) {
             const result = cache.get(spec.key)?.get(filePath);
             return result === undefined ? undefined : result.ok ? result.stage ?? null : null;

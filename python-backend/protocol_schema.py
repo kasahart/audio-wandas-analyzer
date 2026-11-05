@@ -594,6 +594,8 @@ DEFINITIONS: dict[str, Schema] = {
                     "ref": _NUMBER,
                 },
             },
+            # The key the step's full-resolution values are kept under, for a median or a difference (stage-combine).
+            "data": {"type": "string"},
             # A trigger's segments: each event's signal (channels averaged) over the time from its trigger, drawn as
             # its own line; ``values`` are their mean.
             "events": {
@@ -608,6 +610,41 @@ DEFINITIONS: dict[str, Schema] = {
                         "time": _NUMBER,
                         "values": _NULLABLE_NUMBERS,
                     },
+                },
+            },
+        },
+    },
+    # A base group's median and a recording's difference from its base (stage_combine.py), from the steps' values
+    # kept by the scans that drew them (their pictures' ``data``): taken at full resolution, then drawn as the
+    # whole picture, or with ``detail`` its part on screen.
+    "StageCombinePayload": {
+        "type": "object",
+        "required": ["base"],
+        "properties": {
+            "base": {"type": "array", "items": {"type": "string"}},
+            "compare": {"anyOf": [{"type": "string"}, _NULL]},
+            "detail": {"anyOf": [{"$ref": "#/$defs/StageDetail"}, _NULL]},
+        },
+    },
+    # ``ok: false`` names the keys no longer kept (``missing``): their scans are asked for again. On other axes
+    # there is no ``base`` or ``diff``. ``base`` only for two or more recordings (one is its own picture).
+    "StageCombineResult": {
+        "type": "object",
+        "required": ["ok"],
+        "properties": {
+            "ok": {"type": "boolean"},
+            "missing": {"type": "array", "items": {"type": "string"}},
+            "base": {"$ref": "#/$defs/StageView"},
+            "diff": {"$ref": "#/$defs/StageView"},
+            # Where compare − base is largest among what is loud enough to hear: the axis values and both levels.
+            "headline": {
+                "type": "object",
+                "required": ["x", "base", "compare"],
+                "properties": {
+                    "x": _NUMBER,
+                    "y": _NUMBER,
+                    "base": {"anyOf": [_NUMBER, _NULL]},
+                    "compare": {"anyOf": [_NUMBER, _NULL]},
                 },
             },
         },
@@ -745,6 +782,7 @@ COMMANDS: dict[str, dict[str, str]] = {
     "release-track-detail": {"payload": "ReleaseTrackDetailPayload", "result": "ReleaseTrackDetailResult"},
     "build-recipe": {"payload": "BuildRecipePayload", "result": "BuildRecipeResult"},
     "scan": {"payload": "ScanPayload", "result": "ScanResult"},
+    "stage-combine": {"payload": "StageCombinePayload", "result": "StageCombineResult"},
 }
 
 

@@ -46,6 +46,7 @@ import analysis_spec as spec
 from analyzer import has_full_scale
 from backend_errors import InputError
 from calibration_profile import CalibrationStatus, resolve_calibration_profile
+from stage_combine import STORE, stage_data
 from stage_view import StageDetail, StageView, band_levels, rounded_db, stage_view
 
 if TYPE_CHECKING:
@@ -575,17 +576,21 @@ def scan_cached(
         "fullScale": full_scale,
     }
     known = {*plans["upstream"], plans["region"].output, *(step for step, _ in plans["steps"])}
+    # The step's full-resolution values are kept under this key for the comparison's medians and differences.
+    data_key = _data_key(cached, recipe, region, selected, calibration_profile, stage, reference)
     if stage == INPUT_STAGE:
-        return _stage_result(described, stage_view(picked, _length_s(picked), detail))
+        view = stage_view(picked, _length_s(picked), detail)
+        return _stage_result(described, view, picked, _length_s(picked), data_key)
     if stage is not None and stage not in known:
         raise InputError(f"The Recipe has no step {stage!r}")
     if stage is not None and stage in plans["upstream"]:
         # A step before the slice runs over the whole file; nothing after it is needed.
         try:
-            view = stage_view(upstream_plan(recipe, stage).apply({input_name: picked}), _length_s(picked), detail)
+            upstream = upstream_plan(recipe, stage).apply({input_name: picked})
+            view = stage_view(upstream, _length_s(picked), detail)
         except Exception as error:  # noqa: BLE001 - a step that fails on this file is named, whatever it raised.
             raise StepFailure(stage, error) from error
-        return _stage_result(described, view)
+        return _stage_result(described, view, upstream, _length_s(picked), data_key)
     try:
         result = plans["region"].apply({input_name: picked})
         # Computed once: every later step and branch reads it, and a lazy frame would rerun the steps before.
@@ -598,7 +603,7 @@ def scan_cached(
     if not isinstance(region_frame, wd.ChannelFrame):
         raise InputError(f"The Recipe must give a time signal before its slice, not a {type(region_frame).__name__}")
     if stage == plans["region"].output:
-        return _stage_result(described, stage_view(region_frame, None, detail))
+        return _stage_result(described, stage_view(region_frame, None, detail), region_frame, None, data_key)
     # The time signal the metrics read: the region, then each step after it while every step gives a time
     # signal at the file's rate (a loudness over time is a ChannelFrame too, but not a signal to take Leq of).
     signal: wd.ChannelFrame = region_frame
@@ -657,7 +662,7 @@ def scan_cached(
                 # A trigger that found no event has no segment to name its unit: the signal it watched does.
                 if view.get("events") == [] and not view.get("unit"):
                     view["unit"] = timed.channels[0].unit or ""
-                return _stage_result(described, _against_base(view, vs_base))
+                return _stage_result(described, _against_base(view, vs_base), current, _length_s(timed), data_key)
         except Exception as error:  # noqa: BLE001 - as above.
             if step == paired_at and short_base is not None:
                 raise InputError(f"The base recording gives only {short_base:.2f} s of this region: {error}") from error
@@ -754,8 +759,41 @@ def _length_s(frame: wd.ChannelFrame) -> float:
     return float(frame.n_samples) / float(frame.sampling_rate)
 
 
-def _stage_result(described: ScanInput, view: StageView) -> ScanResult:
-    """A step's picture alone: the comparison asks for it per step, so the metrics are not computed again."""
+def _data_key(
+    cached: CachedAnalysis,
+    recipe: Mapping[str, object],
+    region: Mapping[str, float] | None,
+    channels: list[int],
+    calibration_profile: object,
+    stage: str | None,
+    reference: tuple[CachedAnalysis, ScanReference] | None,
+) -> str:
+    """What one scan's step is of: the file as read, the Recipe, region, channels, calibration and step, and the
+    recording a cross-channel step pairs it with."""
+    paired = (
+        [reference[0].input_id, reference[1]["step"], reference[1]["recipe"], reference[1].get("calibration")]
+        if reference is not None
+        else None
+    )
+    identity = [cached.input_id, recipe, region, channels, calibration_profile, stage, paired]
+    return hashlib.sha256(json.dumps(identity, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def _stage_result(
+    described: ScanInput, view: StageView, frame: object, signal_s: float | None, data_key: str
+) -> ScanResult:
+    """A step's picture alone: the comparison asks for it per step, so the metrics are not computed again.
+
+    The step's own values are kept (stage_combine) and the picture names them (``data``), unless they are kept
+    already (a zoomed picture of a step asked for before).
+    """
+    if not STORE.has(data_key):
+        data = stage_data(frame, view, signal_s)
+        if data is not None:
+            STORE.put(data_key, data)
+            view["data"] = data_key
+    else:
+        view["data"] = data_key
     return {
         "ok": True,
         "input": described,

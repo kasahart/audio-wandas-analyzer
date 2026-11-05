@@ -412,6 +412,8 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
         entry: {
             identity: async path => folderKeys.identity(path),
             scan: (path, region, recipe, stage, detail, reference) => scanEntryFile(path, region, recipe, stage, detail, reference),
+            // In turn with the scans: the values they kept are in the Worker that ran them.
+            combine: payload => exclusive(() => analysisClient.stageCombine(payload)),
             recipe: loadEntryRecipe,
             // The picked folder's CSV/TSV files are listed beside its recordings; the browser cannot reach the folder above.
             readFile: async path => {

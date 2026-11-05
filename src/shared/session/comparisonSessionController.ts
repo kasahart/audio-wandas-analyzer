@@ -6,7 +6,7 @@ import type {
     SpectrogramSettings,
     StftOptions,
 } from '../analysis/analysisTypes';
-import { saveSession, runCompareScan, runEntryProbe, runEntryScan, type ComparePublication, type EntryProbePublication, type EntryPublication, type EntryScanPorts } from '../analysis/entryScan';
+import { saveSession, runCompareCombine, runCompareScan, runEntryProbe, runEntryScan, type ComparePublication, type EntryProbePublication, type EntryPublication, type EntryScanPorts } from '../analysis/entryScan';
 import { userErrorText, type CalibrationRequestContext, type ErrorSummaryStrings, type PairSpectrumResult } from '../protocol/backendProtocol';
 import { parsePanelMessage, type PanelMessage, type SaveRecipeMessage } from '../protocol/panelMessages';
 import type { AnalyzeSelectedFilesMessage, ConfigureCalibrationMessage, ExportReportOptionsMessage, ExportWavLoopMessage, PairSpectrumRequest, SelectionTargetKind } from '../utils/audioTarget';
@@ -184,6 +184,12 @@ export class ComparisonSessionController {
                     this.compareScans.set(source, scan);
                     await runCompareScan(entry, message, publication => this.ports.publish(publication),
                         () => this.compareScans.get(source) === scan && scope.isCurrent());
+                    return;
+                }
+                case 'compare-combine': {
+                    const entry = this.ports.entry;
+                    if (!entry) { this.ports.unsupported(message.type); return; }
+                    await runCompareCombine(entry, message, publication => (scope.isCurrent() ? this.ports.publish(publication) : undefined));
                     return;
                 }
                 case 'save-report-folder':

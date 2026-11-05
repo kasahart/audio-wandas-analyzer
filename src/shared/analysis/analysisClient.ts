@@ -1,6 +1,6 @@
 import type { StftOptions } from './analysisTypes';
 import type {
-    AnalyzePayload, BackendCommand, BuildRecipePayload, BuildRecipeResult, BackendPayload, ScanPayload, ScanResult, BackendResult,
+    AnalyzePayload, BackendCommand, BuildRecipePayload, BuildRecipeResult, BackendPayload, ScanPayload, ScanResult, StageCombinePayload, StageCombineResult, BackendResult,
     CalibrationRequestContext, PairSpectrumResult, RangeResult, SpectrumSlicePayload, SpectrumSliceResult,
     TrackDetailPayload, TrackDetailResult, ExportWavLoopResult, RunRecipePayload, RunRecipeResult,
 } from '../protocol/backendProtocol';
@@ -252,6 +252,11 @@ export abstract class AnalysisClient {
         // The recording a step is measured against is calibrated as its own.
         const reference = payload.reference ? { ...payload.reference, ...(this.calibrationFor(payload.reference.filePath) ? { calibration: this.calibrationFor(payload.reference.filePath) } : {}) } : undefined;
         return this.request('scan', { ...payload, ...(calibration ? { calibration } : {}), ...(reference ? { reference } : {}) });
+    }
+
+    /** A base group's median and a recording's difference from it, from the values its scans kept (stage_combine.py). */
+    stageCombine(payload: StageCombinePayload): Promise<StageCombineResult> {
+        return this.request('stage-combine', payload);
     }
 
     protected calibrationPayload(context: CalibrationRequestContext): CalibrationRequestContext {

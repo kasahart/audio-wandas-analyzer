@@ -13,10 +13,63 @@ window.__uiSmokeClipboardWrites = [];
 window.__uiSmokeState = {};
 window.__AWA_TEST_HOOKS__ = true;
 // Smoke pages open with the cursor spectrum unfolded (a fresh panel folds it); a test sets __uiSmokeViewState for a fresh one.
+// The backend's stage-combine for the pictures a test answers with: each picture is taken as the step's full
+// resolution, named by a key as the backend names the values it keeps, and combined point by point.
+window.__uiSmokeStageData = {};
+window.addEventListener('message', function(event) {
+    const data = event.data;
+    const stage = data && data.type === 'compare-scan-result' && data.result && data.result.stage;
+    if (!stage || stage.kind === 'none' || stage.data) return;
+    const key = 'k:' + data.filePath + ':' + Object.keys(window.__uiSmokeStageData).length;
+    stage.data = key;
+    window.__uiSmokeStageData[key] = stage;
+}, true);
+function uiSmokeCombine(message) {
+    const views = message.base.map(function(key) { return window.__uiSmokeStageData[key]; });
+    const compare = message.compare ? window.__uiSmokeStageData[message.compare] : null;
+    if (views.some(function(view) { return !view; }) || (message.compare && !compare)) {
+        return { ok: false, missing: message.base.concat(message.compare ? [message.compare] : []).filter(function(key) { return !window.__uiSmokeStageData[key]; }) };
+    }
+    const first = views[0];
+    const same = function(view) { return view.kind === first.kind && view.x === first.x && view.quantity === first.quantity && (view.xs || []).length === (first.xs || []).length && (view.ys || []).length === (first.ys || []).length; };
+    if (!views.every(same) || (compare && !same(compare))) return { ok: true };
+    const median = function(values) {
+        if (values.some(function(value) { return value === null || value === undefined; })) return null;
+        const sorted = values.slice().sort(function(a, b) { return a - b; });
+        const mid = Math.floor(sorted.length / 2);
+        return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+    };
+    const strip = function(view) { const out = Object.assign({}, view); delete out.waveform; delete out.events; delete out.data; return out; };
+    const base = first.matrix
+        ? Object.assign(strip(first), { matrix: first.matrix.map(function(row, r) { return row.map(function(_, c) { return median(views.map(function(view) { return view.matrix[r][c]; })); }); }) })
+        : Object.assign(strip(first), { values: (first.values || []).map(function(_, i) { return median(views.map(function(view) { return view.values[i]; })); }) });
+    const result = { ok: true };
+    if (views.length > 1) result.base = base;
+    if (!compare || /Segments$/.test(first.frame)) return result;
+    const minus = function(a, b) { return a === null || b === null ? null : Math.round((a - b) * 100) / 100; };
+    const diff = compare.matrix
+        ? Object.assign(strip(compare), { matrix: compare.matrix.map(function(row, r) { return row.map(function(value, c) { return minus(value, base.matrix[r][c]); }); }) })
+        : Object.assign(strip(compare), { values: (compare.values || []).map(function(value, i) { return minus(value, base.values[i]); }) });
+    result.diff = diff;
+    const db = first.quantity === 'level' || first.quantity === 'gain';
+    const points = [];
+    if (diff.matrix) diff.matrix.forEach(function(row, r) { row.forEach(function(value, c) { points.push({ d: value, b: base.matrix[r][c], c: compare.matrix[r][c], x: diff.xs[c], y: diff.ys[r] }); }); });
+    else (diff.values || []).forEach(function(value, i) { points.push({ d: value, b: base.values[i], c: compare.values[i], x: diff.xs[i] }); });
+    const louder = points.filter(function(p) { return p.d !== null; }).map(function(p) { return Math.max(p.b, p.c); }).filter(function(v) { return v > -250; });
+    const top = Math.max.apply(null, louder);
+    let best = null;
+    points.forEach(function(p) { if (p.d !== null && (!db || Math.max(p.b, p.c) >= top - 20) && (!best || Math.abs(p.d) > Math.abs(best.d))) best = p; });
+    if (best) result.headline = Object.assign({ x: best.x, base: best.b, compare: best.c }, best.y === undefined ? {} : { y: best.y });
+    return result;
+}
 window.acquireVsCodeApi = function() {
     return {
         postMessage(message) {
             window.__uiSmokePostedMessages.push(message);
+            if (message && message.type === 'compare-combine' && !window.__uiSmokeHoldCombine) {
+                const answer = uiSmokeCombine(message);
+                window.setTimeout(function() { window.postMessage({ type: 'compare-combine-result', requestId: message.requestId, result: answer }, '*'); }, 0);
+            }
         },
         setState() {},
         getState() { return window.__uiSmokeViewState === undefined ? { spectrumCollapsed: false } : window.__uiSmokeViewState; },

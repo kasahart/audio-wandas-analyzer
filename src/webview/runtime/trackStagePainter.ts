@@ -126,13 +126,15 @@ export interface StageFrame {
     baseEach?: boolean;
     /** The events left out of a recording's (its trigger's), drawn faint; a click on one puts it back. */
     excluded?: (path: string) => readonly number[];
+    /** The backend could not keep every recording's values to take the median and the difference from. */
+    tooLarge?: boolean;
 }
 
 /**
  * The headline over the plots: the recording measured against, or which difference is shown and where it is
  * largest, or what to do while nothing is compared; then the steps bypassed and the region. Empty while computing.
  */
-export function stageModeHeadline(frame: Pick<StageFrame, 'strings' | 'waiting' | 'referencePath' | 'comparePath' | 'role' | 'named' | 'coarsePlots' | 'baseEach'>, bypassed: readonly string[], region: { start: number; end: number } | null): string {
+export function stageModeHeadline(frame: Pick<StageFrame, 'strings' | 'waiting' | 'referencePath' | 'comparePath' | 'role' | 'named' | 'coarsePlots' | 'baseEach' | 'tooLarge'>, bypassed: readonly string[], region: { start: number; end: number } | null): string {
     const { strings, waiting, referencePath, comparePath, coarsePlots, baseEach } = frame;
     const role = comparePath ? frame.role(comparePath) : undefined;
     // While computing, the plots say so (with the files in): the headline waits for the levels.
@@ -141,7 +143,7 @@ export function stageModeHeadline(frame: Pick<StageFrame, 'strings' | 'waiting' 
         // Which difference is shown: the compared slot against the base.
         // A base group drawn as its waveforms has no line to measure against: no difference is named.
         : comparePath ? (baseEach ? '' : (role && !isEventsView(coarsePlots.compare) && !isEventsView(coarsePlots.base) ? strings.stageCompareMinusBase.replace('{n}', String(role)) : '')
-            + stageLevelsHeadline(coarsePlots.base, coarsePlots.compare, coarsePlots.diff, strings))
+            + (frame.tooLarge ? strings.stageTooLarge : stageLevelsHeadline(coarsePlots.base, coarsePlots.compare, coarsePlots.diff, coarsePlots.headline, strings)))
         // No compare role yet: the lines are there, but nothing to measure against a base; the legend's chips set one.
         : strings.stageChooseRoles;
     // The steps bypassed are named: what is drawn is the chain without them.
@@ -271,6 +273,6 @@ export function paintStageOverlay(dom: StageDom, frame: StageFrame, plots: Stage
     const diffAxes = stageAxes(strings, coarsePlots.diff, tracks[0]?.input, true);
     const diffCanvas = dom.query<HTMLCanvasElement>('[data-stage-canvas="diff"]');
     const diffPlot = paintStage(diffCanvas, plots.diff, stageDiffRange(coarsePlots.diff), DIFF_COLOR, stageAxes(strings, coarsePlots.diff, tracks[0]?.input, true),
-        { diff: true, empty: waiting ? '' : strings.stageNoDelta, window: { x: window.x }, axisView: coarsePlots.diff, ...(pending ? { pending } : {}) });
+        { diff: true, empty: waiting ? '' : frame.tooLarge ? strings.stageTooLarge : strings.stageNoDelta, window: { x: window.x }, axisView: coarsePlots.diff, ...(pending ? { pending } : {}) });
     frame.drawnOn.set(diffCanvas, { picture: coarsePlots.diff, range: stageDiffRange(coarsePlots.diff), axes: diffAxes, plot: diffPlot });
 }

@@ -1,6 +1,6 @@
 import { isSpectrogramSettings } from '../analysis/savedSpectrogramSettings';
 import { isRecipeChain } from '../recipe/recipeSteps';
-import { isEntryRegion, type CompareScanMessage, type EntrySaveSessionMessage, type EntryScanCancelMessage, type EntryScanMessage, type EntryProbeMessage, type EntryProbeCancelMessage, type SaveReportFolderMessage } from '../analysis/entryScan';
+import { isEntryRegion, type CompareCombineMessage, type CompareScanMessage, type EntrySaveSessionMessage, type EntryScanCancelMessage, type EntryScanMessage, type EntryProbeMessage, type EntryProbeCancelMessage, type SaveReportFolderMessage } from '../analysis/entryScan';
 import type { BuildRecipePayload } from './backendProtocol';
 import { schemaViolation } from './schemaValidation';
 import type {
@@ -73,6 +73,7 @@ export type PanelMessage =
     | EntryProbeCancelMessage
     | EntrySaveSessionMessage
     | CompareScanMessage
+    | CompareCombineMessage
     | SaveReportFolderMessage
     | ConfigureCalibrationMessage;
 
@@ -143,6 +144,15 @@ function isCompareScanMessage(value: unknown): value is CompareScanMessage {
         && message['filePaths'].every(filePath => typeof filePath === 'string' && filePath.length > 0);
 }
 
+function isCompareCombineMessage(value: unknown): value is CompareCombineMessage {
+    if (!hasType(value, 'compare-combine')) { return false; }
+    const message = value as Record<string, unknown>;
+    const key = (item: unknown): boolean => typeof item === 'string' && item.length > 0;
+    return typeof message['requestId'] === 'string' && Array.isArray(message['base']) && message['base'].length > 0 && message['base'].every(key)
+        && (message['compare'] === undefined || message['compare'] === null || key(message['compare']))
+        && (message['detail'] === undefined || message['detail'] === null || (typeof message['detail'] === 'object' && !Array.isArray(message['detail'])));
+}
+
 const SAFE_NAME = /^(?!\.{1,2}$)[^\\/:*?"<>|\u0000-\u001f]+$/u;
 
 function isSaveReportFolderMessage(value: unknown): value is SaveReportFolderMessage {
@@ -190,6 +200,7 @@ export function parsePanelMessage(value: unknown): PanelMessage | undefined {
         case 'entry-probe-cancel': return { type: 'entry-probe-cancel' };
         case 'entry-save-session': return isEntrySaveSessionMessage(value) ? value : undefined;
         case 'compare-scan': return isCompareScanMessage(value) ? value : undefined;
+        case 'compare-combine': return isCompareCombineMessage(value) ? value : undefined;
         case 'save-report-folder': return isSaveReportFolderMessage(value) ? value : undefined;
         case 'configure-calibration': return isConfigureCalibrationMessage(value) ? value : undefined;
         case 'show-info': {
