@@ -1263,6 +1263,12 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                         "type": "number"
                     }
                 },
+                "xLimits": {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    }
+                },
                 "ys": {
                     "type": "array",
                     "items": {
@@ -2188,6 +2194,7 @@ export interface StageView {
     quantity?: "level" | "gain" | "coherence" | "value" | "roughness" | "cepstrum" | "correlation";
     unit?: string;
     xs?: number[];
+    xLimits?: number[];
     ys?: number[];
     yAxis?: "frequency" | "bark" | "quefrency";
     values?: (number | null)[];

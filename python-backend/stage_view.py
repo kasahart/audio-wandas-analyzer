@@ -81,6 +81,8 @@ class StageView(TypedDict):
     quantity: NotRequired[Quantity]
     unit: NotRequired[str]
     xs: NotRequired[list[float]]
+    #: A log axis's ends [low, high] Hz when its xs are drawn points rather than band centres.
+    xLimits: NotRequired[list[float]]
     #: Heatmap rows: frequencies (Hz, log-spaced), critical-band rates (Bark) or quefrencies (s).
     ys: NotRequired[list[float]]
     yAxis: NotRequired[Literal["frequency", "bark", "quefrency"]]
@@ -191,16 +193,20 @@ def _log_points(levels_db: np.ndarray, freqs: np.ndarray, points: int, nyquist: 
     return np.sqrt(edges[:-1] * edges[1:]), band_levels(levels_db, freqs, edges)
 
 
-def min_max_line(xs: np.ndarray, values: np.ndarray, buckets: int, log: bool) -> tuple[np.ndarray, np.ndarray]:
+def min_max_line(
+    xs: np.ndarray, values: np.ndarray, buckets: int, log: bool, span: Sequence[float] | None = None
+) -> tuple[np.ndarray, np.ndarray]:
     """A line in at most ``buckets`` buckets: each bucket's smallest and largest value, each at its own x, as the
-    lanes draw a waveform (log-spaced buckets on a log axis). Non-finite values are left out; fewer values than
-    two per bucket are all kept."""
+    lanes draw a waveform (log-spaced buckets on a log axis, between ``span`` when given so the buckets stay put
+    while the view pans). Non-finite values are left out; fewer values than two per bucket are all kept."""
+    buckets = max(1, buckets)
     keep = np.isfinite(values) & ((xs > 0) if log else np.ones(xs.size, dtype=bool))
     xs, values = xs[keep], values[keep]
     if xs.size <= 2 * buckets:
         return xs, values
     if log:
-        edges = np.geomspace(xs[0], xs[-1], buckets + 1)
+        low, high = (min(span), max(span)) if span is not None and min(span) > 0 else (xs[0], xs[-1])
+        edges = np.geomspace(low, high, buckets + 1)
         bucket = np.clip(np.searchsorted(edges, xs, side="right") - 1, 0, buckets - 1)
     else:
         bucket = (np.arange(xs.size) * buckets) // xs.size
@@ -217,7 +223,7 @@ def spectrum_line(
     """A level or gain spectrum's line between ``bounds`` Hz: every bin there, or per log-spaced bucket its lowest
     and highest bin (min_max_line). The same at every zoom, so a peak keeps its height and the line its look."""
     inside = _inside(freqs, list(bounds)) & (freqs > 0)
-    return min_max_line(freqs[inside], levels_db[inside], max(1, buckets), True)
+    return min_max_line(freqs[inside], levels_db[inside], buckets, True, bounds)
 
 
 def _waveform(
@@ -406,6 +412,7 @@ def _spectral_view(frame: Any) -> StageView:
         "xScale": "log",
         "quantity": quantity,
         "xs": _axis(centres),
+        "xLimits": [float(spec.SPECTRUM_MIN_HZ), float(nyquist)],
         "values": _json(line),
     }
     if pair is not None:

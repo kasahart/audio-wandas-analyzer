@@ -6,7 +6,7 @@ import wandas as wd
 
 import analysis_spec as spec
 from protocol_schema import DEFINITIONS, first_violation
-from stage_view import LAG_POINTS, QUEFRENCY_POINTS, SPECTRUM_LINE_BUCKETS, TIME_POINTS, stage_view
+from stage_view import LAG_POINTS, QUEFRENCY_POINTS, SPECTRUM_LINE_BUCKETS, TIME_POINTS, spectrum_line, stage_view
 
 RATE = 16000
 
@@ -298,3 +298,19 @@ def test_cepstrum_and_lag_peaks_keep_each_blocks_largest_magnitude(size: int) ->
         else:
             np.testing.assert_array_equal(line, peaks[0])
             np.testing.assert_array_equal(at, (edges[:-1] + edges[1:] - 1) // 2)
+
+
+def test_a_spectrum_drawn_as_its_own_bins_states_its_axis_from_20_hz_to_nyquist(signal: wd.ChannelFrame) -> None:
+    # Its xs are bins, not geometric band centres, so the axis cannot be read off their spacing.
+    view = stage_view(signal.fft(n_fft=1024))
+    assert view["xLimits"] == [float(spec.SPECTRUM_MIN_HZ), signal.sampling_rate / 2]
+
+
+def test_a_zoomed_spectrums_buckets_are_laid_across_the_view_not_its_bins() -> None:
+    # A 16 kHz recording zoomed to the range of a 48 kHz one has bins over only part of the view: its buckets keep
+    # the view's width each, as the other recording's do, instead of packing all of them into its own bins.
+    freqs = np.arange(1, 8001, dtype=np.float64)
+    levels = np.random.default_rng(3).normal(-80, 5, freqs.size)
+    xs, _ = spectrum_line(freqs, levels, [20.0, 24000.0], 100)
+    edges = np.geomspace(20.0, 24000.0, 101)
+    assert len(xs) <= 2 * int(np.sum(edges[:-1] < 8000))

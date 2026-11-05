@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { emptyStageText, eventLayers, stageAxes, stageLevelsHeadline, stageDiffRange, stageHeadline, stageRange, stageHover, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
+import { axisFractionOf, axisValueAt, emptyStageText, eventLayers, stageAxes, stageLevelsHeadline, stageDiffRange, stageHeadline, stageRange, stageHover, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
 import type { StageView } from '../shared/protocol/backendProtocol';
 
 const line = (values: number[], quantity: StageView['quantity'] = 'level'): StageView => ({ frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity, xs: [100, 1000, 10000], values });
@@ -142,4 +142,13 @@ test('the pane\'s message wraps to its width: at spaces, else between Japanese c
     assert.deepEqual(wrapLines('short', 100, width), ['short']);
     // A long word after others is cut too, not left wider than the line.
     assert.ok(wrapLines('reason: noct_synthesis_failed_here', 80, width).every(line => width(line) <= 80));
+});
+
+test('a spectrum drawn as its own bins spans its stated limits, not edges read off its first two bins', () => {
+    const bins: StageView = { ...line([-40, -30, -20]), xs: [46.875, 93.75, 23953.125], xLimits: [20, 24000] };
+    assert.equal(axisValueAt(bins, 0), 20);
+    assert.ok(Math.abs(axisValueAt(bins, 1) - 24000) < 1e-6);
+    assert.ok(Math.abs(axisFractionOf(bins, 20 * Math.sqrt(1200)) - 0.5) < 1e-9);
+    // Band centres without limits keep their geometric edges.
+    assert.ok(Math.abs(axisValueAt(line([-40, -30, -20]), 0) - 100 / Math.sqrt(10)) < 1e-9);
 });

@@ -16,6 +16,7 @@ from __future__ import annotations
 import threading
 import warnings
 from collections import OrderedDict
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import Any, Literal, NotRequired, TypedDict
 
@@ -245,13 +246,15 @@ def stage_data(frame: object, view: StageView, signal_s: float | None = None) ->
 # --- Drawing: what the comparison's lines and images are decimated to -------------------------------------
 
 
-def difference_line(xs: np.ndarray, values: np.ndarray, buckets: int, log: bool) -> tuple[np.ndarray, np.ndarray]:
+def difference_line(
+    xs: np.ndarray, values: np.ndarray, buckets: int, log: bool, span: Sequence[float] | None = None
+) -> tuple[np.ndarray, np.ndarray]:
     """A difference's line in at most ``buckets`` buckets: each bucket's smallest and largest value, each at its
     own x (sv.min_max_line), so no difference is averaged away.
 
     The one reduction of every difference line: drawing a difference otherwise changes it here only.
     """
-    return sv.min_max_line(xs, values, buckets, log)
+    return sv.min_max_line(xs, values, buckets, log, span)
 
 
 def _peak_blocks(values: np.ndarray, count: int) -> tuple[np.ndarray, np.ndarray]:
@@ -320,11 +323,11 @@ def _line(data: StageData, detail: StageDetail | None, diff: bool) -> tuple[np.n
         if mode in ("spectrum", "coherence") and bounds is None:
             inside = (xs >= spec.SPECTRUM_MIN_HZ) & (xs <= data.nyquist)
             buckets = sv.SPECTRUM_LINE_BUCKETS if mode == "spectrum" else spec.SPECTRUM_POINTS
-            return difference_line(xs[inside], values[inside], buckets, True)
+            return difference_line(xs[inside], values[inside], buckets, True, [spec.SPECTRUM_MIN_HZ, data.nyquist])
         if mode == "cepstrum" and xs.size and xs[0] == 0:
             rest = difference_line(xs[1:], values[1:], _line_buckets(mode, points), log)
             return np.concatenate([xs[:1], rest[0]]), np.concatenate([values[:1], rest[1]])
-        return difference_line(xs, values, _line_buckets(mode, points), log)
+        return difference_line(xs, values, _line_buckets(mode, points), log, bounds)
     if mode == "coherence":
         if bounds is None:
             edges = np.geomspace(spec.SPECTRUM_MIN_HZ, data.nyquist, spec.SPECTRUM_POINTS + 1)
