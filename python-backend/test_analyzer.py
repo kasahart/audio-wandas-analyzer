@@ -18,9 +18,10 @@ from analyzer import (
     MeasurementMetadata,
     SpectrogramPayload,
     _build_spectrogram,
+    display_group_starts,
     level_scale_metadata,
-    peak_hold_group_starts,
-    peak_hold_spectrum,
+    min_max_group_starts,
+    min_max_spectrum,
     resample_frequency_bins,
     spectrogram_frame_centers,
 )
@@ -276,7 +277,7 @@ def test_every_reduced_peak_stays_within_half_a_display_bin(source_bins: int) ->
 
 @pytest.mark.parametrize("bin_count", [2049, 4097, 8193])
 def test_display_groups_fill_the_budget_with_whole_low_bins(bin_count: int) -> None:
-    starts = peak_hold_group_starts(bin_count, SPECTRUM_DISPLAY_POINT_LIMIT)
+    starts = display_group_starts(bin_count, SPECTRUM_DISPLAY_POINT_LIMIT)
     widths = np.diff(np.append(starts, bin_count))
     assert SPECTRUM_DISPLAY_POINT_LIMIT - 8 <= starts.size <= SPECTRUM_DISPLAY_POINT_LIMIT
     assert starts[0] == 0 and starts[1] == 1 and np.all(widths >= 1)
@@ -286,25 +287,41 @@ def test_display_groups_fill_the_budget_with_whole_low_bins(bin_count: int) -> N
 
 def test_rows_within_the_display_budget_are_sent_whole() -> None:
     rows = np.zeros((2, SPECTRUM_DISPLAY_POINT_LIMIT))
-    shown, frequencies = peak_hold_spectrum(rows, 4000.0)
+    shown, frequencies = min_max_spectrum(rows, 4000.0)
     assert shown is rows and frequencies is None
 
 
 @pytest.mark.parametrize("bin_count", [2049, 8193])
 def test_every_tone_keeps_its_level_and_bin_frequency_when_cut_for_display(bin_count: int) -> None:
-    rows = np.full((bin_count, bin_count), -120.0)
-    np.fill_diagonal(rows, 0.0)
-    shown, frequencies = peak_hold_spectrum(rows, 6000.0)
-    assert frequencies is not None and shown.shape == (bin_count, frequencies.size)
-    assert np.all(np.diff(frequencies) > 0)
-    np.testing.assert_array_equal(np.max(shown, axis=1), 0.0)
-    # One channel per tone: each point sits on the bin of the loudest channel in it, so the last tone of a
-    # group owns the group's frequency and the others stay within that group.
-    tone_hz = np.arange(bin_count) * 6000.0 / (bin_count - 1)
-    shown_hz = frequencies[np.argmax(shown, axis=1)]
-    starts = peak_hold_group_starts(bin_count, SPECTRUM_DISPLAY_POINT_LIMIT)
-    widths_hz = np.diff(np.append(starts, bin_count))[np.searchsorted(starts, np.arange(bin_count), "right") - 1]
-    assert np.all(np.abs(shown_hz - tone_hz) < widths_hz * 6000.0 / (bin_count - 1))
+    rows = np.full((1, bin_count), -120.0)
+    tones = np.arange(3, bin_count, 97)
+    rows[0, tones] = 0.0
+    shown, frequencies = min_max_spectrum(rows, 6000.0)
+    assert frequencies is not None and shown.shape == (1, frequencies.size)
+    assert frequencies.size <= SPECTRUM_DISPLAY_POINT_LIMIT and np.all(np.diff(frequencies) > 0)
+    bin_hz = 6000.0 / (bin_count - 1)
+    # Each tone is drawn at its own bin's frequency with its own level.
+    for tone in tones:
+        index = int(np.argmin(np.abs(frequencies - tone * bin_hz)))
+        assert frequencies[index] == pytest.approx(tone * bin_hz) and shown[0, index] == 0.0
+
+
+def test_a_cut_row_keeps_each_groups_lowest_and_highest_bin() -> None:
+    bin_count = 8193
+    rng = np.random.default_rng(0)
+    rows = rng.normal(-60.0, 10.0, size=(2, bin_count))
+    shown, frequencies = min_max_spectrum(rows, 24000.0)
+    assert frequencies is not None and shown.shape[1] == frequencies.size <= SPECTRUM_DISPLAY_POINT_LIMIT
+    bins = np.rint(frequencies * (bin_count - 1) / 24000.0).astype(int)
+    # Every value drawn is a real bin of that channel.
+    np.testing.assert_array_equal(shown, rows[:, bins])
+    starts = min_max_group_starts(bin_count, 2)
+    ends = np.append(starts[1:], bin_count)
+    for channel in range(2):
+        for start, end in zip(starts, ends, strict=True):
+            inside = (bins >= start) & (bins < end)
+            assert shown[channel, inside].min() == rows[channel, start:end].min()
+            assert shown[channel, inside].max() == rows[channel, start:end].max()
 
 
 def test_spectrogram_reduction_clamps_silent_power_to_finite_db() -> None:

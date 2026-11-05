@@ -228,14 +228,14 @@ def resample_frequency_bins(spectrogram: np.ndarray, target_bin_count: int) -> n
 
 
 @functools.lru_cache(maxsize=16)
-def peak_hold_group_starts(bin_count: int, point_limit: int) -> np.ndarray:
-    """First FFT bin of each display point: DC alone, then groups equally wide on a log axis, never under one bin."""
+def display_group_starts(bin_count: int, group_limit: int) -> np.ndarray:
+    """First FFT bin of each display group: DC alone, then groups equally wide on a log axis, never under one bin."""
     log_bins = np.log(np.arange(1, bin_count))
-    low, high = 0.0, float(point_limit)
-    # Each point spans 1/scale in ln(bin); the largest scale whose distinct groups fit the budget fills it.
+    low, high = 0.0, float(group_limit)
+    # Each group spans 1/scale in ln(bin); the largest scale whose distinct groups fit the budget fills it.
     for _ in range(50):
         scale = (low + high) / 2
-        if np.unique(np.floor(scale * log_bins)).size + 1 <= point_limit:
+        if np.unique(np.floor(scale * log_bins)).size + 1 <= group_limit:
             low = scale
         else:
             high = scale
@@ -245,21 +245,46 @@ def peak_hold_group_starts(bin_count: int, point_limit: int) -> np.ndarray:
     return starts
 
 
-def peak_hold_spectrum(rows_db: np.ndarray, max_frequency_hz: float) -> tuple[np.ndarray, np.ndarray | None]:
-    """The cursor spectrum to draw: whole rows within the budget, else the peak of each log-spaced group.
+@functools.lru_cache(maxsize=16)
+def min_max_group_starts(bin_count: int, channel_count: int) -> np.ndarray:
+    """The most display groups whose extreme bins (at most two per channel per group) fit the point budget."""
+    per_group = 2 * max(1, channel_count)
 
-    Each channel keeps the highest level in every group, so no tone loses level. The channels share one
-    frequency per point: the bin where the loudest of them peaks in the group, exact for that channel and
-    within the group for the others. ``None`` means the rows are whole.
+    def points(group_limit: int) -> int:
+        sizes = np.diff(np.append(display_group_starts(bin_count, group_limit), bin_count))
+        return int(np.minimum(sizes, per_group).sum())
+
+    low, high = 1, SPECTRUM_DISPLAY_POINT_LIMIT
+    while low < high:
+        middle = (low + high + 1) // 2
+        if points(middle) <= SPECTRUM_DISPLAY_POINT_LIMIT:
+            low = middle
+        else:
+            high = middle - 1
+    return display_group_starts(bin_count, low)
+
+
+def min_max_spectrum(rows_db: np.ndarray, max_frequency_hz: float) -> tuple[np.ndarray, np.ndarray | None]:
+    """The cursor spectrum to draw: whole rows within the budget, else each log-spaced group's extremes.
+
+    As Compare draws a level spectrum (stage_view.min_max_line): every group keeps, for each channel, its lowest
+    and its highest bin, each at its own frequency, so a tone keeps its level and noise keeps its spread. The
+    channels share one frequency list, so a group holds every channel's extreme bins and each channel's line also
+    passes through its real values at the other channels' extremes. ``None`` means the rows are whole.
     """
-    bin_count = rows_db.shape[1]
+    channel_count, bin_count = rows_db.shape
     if bin_count <= SPECTRUM_DISPLAY_POINT_LIMIT:
         return rows_db, None
-    starts = peak_hold_group_starts(bin_count, SPECTRUM_DISPLAY_POINT_LIMIT)
+    starts = min_max_group_starts(bin_count, channel_count)
     sizes = np.diff(np.append(starts, bin_count))
     group = np.repeat(np.arange(starts.size), sizes)
-    peak_bins = np.lexsort((-np.max(rows_db, axis=0), group))[starts]
-    return np.maximum.reduceat(rows_db, starts, axis=1), peak_bins * (max_frequency_hz / (bin_count - 1))
+    picked: list[np.ndarray] = []
+    for row in rows_db:
+        order = np.lexsort((row, group))
+        last = np.append(starts[1:] - 1, bin_count - 1)
+        picked.extend((order[starts], order[last]))
+    bins = np.unique(np.concatenate(picked))
+    return rows_db[:, bins], bins * (max_frequency_hz / (bin_count - 1))
 
 
 def _time_bin_boundaries(frame_count: int, target_bin_count: int) -> np.ndarray:

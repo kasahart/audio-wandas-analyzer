@@ -56,8 +56,12 @@ def test_known_tones_keep_physical_frequency_in_live_fft_and_cached_stft(tmp_pat
                         rate / 2 / 191 / 2 + rate / n_fft
                     )
             result = service.spectrum_slice(path, cursor_norm=0.5, stft_options=options)
-            assert result["frequencyBins"] == min(n_fft // 2 + 1, SPECTRUM_DISPLAY_POINT_LIMIT)
-            assert ("frequenciesHz" in result) == (n_fft // 2 + 1 > SPECTRUM_DISPLAY_POINT_LIMIT)
+            cut = n_fft // 2 + 1 > SPECTRUM_DISPLAY_POINT_LIMIT
+            assert ("frequenciesHz" in result) == cut
+            if cut:
+                assert SPECTRUM_DISPLAY_POINT_LIMIT * 0.8 <= result["frequencyBins"] <= SPECTRUM_DISPLAY_POINT_LIMIT
+            else:
+                assert result["frequencyBins"] == n_fft // 2 + 1
             for tone, channel in zip(tones, result["channels"], strict=False):
                 assert abs(_slice_frequencies(result)[np.argmax(channel["values"])] - tone) <= rate / n_fft / 2
 

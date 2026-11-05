@@ -4,6 +4,7 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 
 ## Unreleased
 
+- Cursor spectrum: a long FFT row is thinned out as each log-spaced stretch's lowest and highest bin, each at its own frequency, as Compare draws a level spectrum, instead of the stretch's highest bin only. A tone keeps its level; noise between tones now shows its spread rather than only its upper edge, so the same recording looks the same in both places. A zoom still draws every bin (#618).
 - Report: the figures' spectra, the base group's median and Δ are taken from every Welch bin and only then decimated to be drawn, as in Compare, so a narrow difference reads the same in the report as on screen. 報告に scans the report's files for every bin first (a stored result keeps the 192 points alone). The entry table's 192-point spectrum, the 1/3-octave Δ and the CSV are unchanged (#610).
 - Cursor spectrum and pair plot: the frequency axis is named ("Frequency [Hz]" / "周波数 [Hz]") under its ticks, as the level axis is (#611).
 - Compare: overlaid recordings are drawn loudest first and quietest last, on top, by their level over the part shown (a waveform as drawn on the shared amplitude axis, a spectrum's bins), so a louder recording no longer covers a quieter one; zooming or panning re-orders them. Colours and the legend stay as they are (#557).
