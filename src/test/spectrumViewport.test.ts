@@ -28,7 +28,8 @@ test('spectrumPlotFrame: パディングを除いたプロット領域と表示�
     const vis = { frequencyMin: 100, frequencyMax: 900, dbMin: -70, dbMax: -5 };
     const overlay = spectrumPlotFrame(300, 120, OVERLAY_SPECTRUM_PAD, vis);
     assert.equal(overlay.plotWidth, 244);
-    assert.equal(overlay.plotHeight, 94);
+    // 120 - 8 above - 29 below (frequency ticks and the frequency axis' title).
+    assert.equal(overlay.plotHeight, 83);
 });
 
 test('steppedSpectrumHoverNorm: 1 ビン移動した周波数を表示範囲の正規化位置に変換する', () => {

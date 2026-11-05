@@ -81,3 +81,23 @@ test('visibleFrequencyHz gives the painted linear window in Hz and nothing for a
     view.recordPaint({ maxFrequencyHz: 22387, logMinFrequencyHz: 22.39, dbMin: -80, dbMax: 0 });
     assert.equal(view.visibleFrequencyHz(), null);
 });
+
+test('SpectrumView clears a dB zoom when another level reference takes the left axis', () => {
+    const view = new SpectrumView();
+    view.followLevelReference('dB SPL re 20 µPa');
+    view.setDbRange(60, 70);
+    // Repainting with the same reference on the left keeps the zoom.
+    view.followLevelReference('dB SPL re 20 µPa');
+    assert.deepEqual([view.dbMin, view.dbMax], [60, 70]);
+    // A track in m/s^2 shown ahead of the Pa one: 60–70 would be read as dB re 1 m/s^2, so the zoom is cleared.
+    view.followLevelReference('dB re 1 m/s^2');
+    assert.deepEqual([view.dbMin, view.dbMax], [null, null]);
+    // A zoom set afterwards is in the new left axis' dB and stays while it does.
+    view.setDbRange(-40, -30);
+    view.followLevelReference('dB re 1 m/s^2');
+    assert.deepEqual([view.dbMin, view.dbMax], [-40, -30]);
+    // The frequency zoom is not the level axis': it stays.
+    view.freqStart = 0.2;
+    view.followLevelReference('dB SPL re 20 µPa');
+    assert.deepEqual([view.freqStart, view.dbMin, view.dbMax], [0.2, null, null]);
+});
