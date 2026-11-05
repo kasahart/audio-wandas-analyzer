@@ -52,6 +52,14 @@ guardrails. Write every comment in Japanese.
   one panel but not for its counterparts; protocol schema and generated types
   out of step; a check that existing commands apply (for example path
   authorization through `lazyContext`) missing from a new command.
+- Same concept in other views: when the PR changes how one chart computes,
+  thins out, draws, labels or answers the pointer, or what ＋ offers, search
+  for every other view and Frame kind that does the same thing (track lanes,
+  cursor spectrum, pair plot, Compare panes, entry strips, report) and check
+  that each follows the same rule. A fix to one of several sibling
+  implementations that leaves the others different without a stated reason is
+  blocking. Check the change against `docs/display-rules.md`; a PR that
+  settles a new rule adds it there with the test that checks it.
 - Recipe replay on other inputs: a Recipe saved from the tracks on screen can
   be run on any assigned tracks. Decisions taken at save time from those
   tracks (sample rate, resampling, channel count, band limits, FFT size) must
