@@ -151,7 +151,7 @@ trackDurRatio  = durationSeconds / globalSpanSec
 
 ### Charts
 
-- Every chart follows the numbered rules in [docs/display-rules.md](docs/display-rules.md). A change that decides a new rule adds it there with the test that checks it; `src/test/displayRules.test.ts` fails when a listed test is missing or the 未 list grows.
+- Every chart follows the numbered rules in [docs/display-rules.md](docs/display-rules.md). A change that decides a new rule adds it there with the test that checks it; `src/test/displayRules.test.ts` fails when a listed test is missing or the rules marked 未 differ from its `PENDING` list, which only shrinks.
 
 ---
 
