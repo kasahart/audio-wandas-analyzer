@@ -43,6 +43,8 @@ function pairedAsSlot(recipe: RecipeDocument): RecipeDocument | undefined {
     };
     const left = side(concat.inputs[0], first), right = side(concat.inputs[1], second);
     if (left === undefined || right === undefined) return undefined;
+    // Each compared recording runs the base side's chain, so the two sides must pick the same channel.
+    if (JSON.stringify(left?.params ?? null) !== JSON.stringify(right?.params ?? null)) return undefined;
     const step = nodes.find(node => node.inputs.length === 1 && node.inputs[0] === concat.id);
     if (!step || !SLOT_REFERABLE.has(step.operation) || nodes.filter(node => node.inputs.includes(concat.id)).length !== 1) return undefined;
     const dropped = new Set([concat.id, ...(right ? [right.id] : [])]);

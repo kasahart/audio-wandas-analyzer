@@ -6,7 +6,7 @@ recipe…** opens one in the Compare step bar: its chain runs on each compared
 recording and each step's Frame is drawn there, like a chain built with ＋.
 
 A recipe with one Frame input opens as it is. A recipe with two inputs opens
-when it joins one channel of each (`get_channel`, then `concat_frame`) for a
+when it joins the same channel of each (`get_channel`, then `concat_frame`) for a
 cross-channel step such as `coherence` or `transfer_function`: the first input
 (the reference) becomes the base slot and each compared recording the second.
 Anything else says why it cannot open.

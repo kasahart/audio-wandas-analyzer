@@ -41,6 +41,10 @@ test('what cannot be one chain on each recording says why', () => {
     const joined = bundled('coherence.recipe.json');
     const nodes = recipeNodes(joined).slice(0, 3).concat([{ id: 'node-3', operation: 'wandas.audio.welch', version: 1, inputs: ['node-2'], params: { $type: 'map', entries: [] } }]);
     assert.deepEqual(openedRecipe({ ...joined, nodes, output: 'node-3' }), { reason: 'inputs' });
+    // A reference and a response on different channels: each compared recording runs the base side's chain, so it cannot open.
+    const transfer = bundled('transfer-function.recipe.json');
+    const otherChannel = recipeNodes(transfer).map(node => node.id === 'node-1' ? { ...node, params: { $type: 'map', entries: [['channel_idx', 1]] } } : node);
+    assert.deepEqual(openedRecipe({ ...transfer, nodes: otherChannel }), { reason: 'inputs' });
     // One input, but a node off the chain.
     const entry = bundled('entry-scan.recipe.json');
     const extra = { id: 'node-x', operation: 'wandas.audio.welch', version: 1, inputs: ['input-0'], params: { $type: 'map', entries: [] } };
