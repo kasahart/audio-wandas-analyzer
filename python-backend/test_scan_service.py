@@ -669,6 +669,19 @@ def test_a_recipe_that_starts_with_get_channel_scans_and_draws_that_channel(tmp_
     assert 2800 < peak < 3500
 
 
+def test_the_input_is_drawn_as_the_channel_the_chain_picks_not_the_channels_mean(tmp_path: Path) -> None:
+    service = AnalysisService(AnalysisEngine())
+    path = _write(tmp_path / "two.wav", [_sine(1000, 0.5), _sine(3150, 0.1)])
+    for index, amplitude in ((0, 0.5), (1, 0.1)):
+        request = {"cmd": "scan", "requestId": "r", "filePath": path, "stage": "node-input"}
+        drawn = dispatch(validate_request({**request, "recipe": _with_channel(ENTRY_RECIPE, index)}), service)
+        assert drawn["ok"] is True
+        waveform = drawn["stage"]["waveform"]
+        # The channel's own peak (the mean of the two would peak near 0.3), as its legend names it.
+        assert max(waveform["max"]) == pytest.approx(amplitude, rel=0.02)
+        assert min(waveform["min"]) == pytest.approx(-amplitude, rel=0.02)
+
+
 def test_a_median_welch_is_never_split_into_parts(monkeypatch: pytest.MonkeyPatch) -> None:
     import scan_service
 

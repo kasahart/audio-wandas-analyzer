@@ -77,6 +77,7 @@ test('a channel row is compared as its channel; recordings without it are left o
     assert.equal(base.stageChannel('/d/b.wav', '/d/a.wav'), 2, 'a base file is drawn as the compared channel');
     assert.equal(base.stageChannel('/d/a.wav', '/d/a.wav'), 2, 'the compared file as its slotted row');
     assert.equal(base.stageChannel('/d/d.wav', null), null);
+    assert.equal(base.stageChannel('/d/b.wav', null), 1, 'a recording without a role as the row its legend names, not its channels\' mean');
     assert.equal(base.slotRowOf('/d/a.wav')?.key, '/d/a.wav#ch2');
 });
 

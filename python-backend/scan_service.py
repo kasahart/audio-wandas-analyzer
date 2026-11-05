@@ -166,6 +166,8 @@ WELCH_OPERATION = "wandas.audio.welch"
 NOCT_OPERATION = "wandas.audio.noct_spectrum"
 # The input as the comparison draws it: the files' signals as they come in, before any step.
 INPUT_STAGE = "node-input"
+#: The step the webview puts at a chain's head to pick the channel a file is compared as (channelSelection.ts).
+CHANNEL_NODE = "node-channel"
 
 
 def _decoded_nodes(recipe: Mapping[str, object]) -> list[tuple[RecipeNode, dict[str, Any]]]:
@@ -591,8 +593,13 @@ def scan_cached(
     # The step's full-resolution values are kept under this key for the comparison's medians and differences.
     data_key = _data_key(cached, recipe, region, selected, calibration_profile, stage, reference)
     if stage == INPUT_STAGE:
-        view = stage_view(picked, _length_s(picked), detail)
-        return _stage_result(described, view, picked, _length_s(picked), data_key)
+        # The channel the comparison draws a file as is the get_channel step at the chain's head (withChannel):
+        # the input is drawn as that channel, as every step after it is, not as all the file's channels.
+        shown = picked
+        if CHANNEL_NODE in plans["upstream"]:
+            shown = upstream_plan(recipe, CHANNEL_NODE).apply({input_name: picked})
+        view = stage_view(shown, _length_s(picked), detail)
+        return _stage_result(described, view, shown, _length_s(picked), data_key)
     if stage is not None and stage not in known:
         raise InputError(f"The Recipe has no step {stage!r}")
     if stage is not None and stage in plans["upstream"]:
