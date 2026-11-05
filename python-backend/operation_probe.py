@@ -134,7 +134,8 @@ def _flat(view: Mapping[str, Any]) -> bool:
     waveform = view.get("waveform")
     parts = [view.get("values"), view.get("matrix")]
     if isinstance(waveform, Mapping):
-        parts += [waveform.get("min"), waveform.get("max")]
+        # The envelope is one part: a steady tone's ±A band is not flat, an all-zero envelope is.
+        parts += [[waveform.get("min"), waveform.get("max")]]
     # Each part on its own: a waveform's envelope and its level line are on different scales.
     present = [_numbers(part) for part in parts if part is not None]
     return bool(present) and all(not numbers or max(numbers) == min(numbers) for numbers in present)

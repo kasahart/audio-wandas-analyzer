@@ -9,7 +9,8 @@ import wandas as wd
 from wandas.pipeline import default_recipe_registry
 
 from operation_catalog import TS_TARGET, catalog, frames, typescript, with_refusals
-from operation_probe import _direct, needs, probe, refusals, verdicts
+from operation_probe import _direct, _flat, needs, probe, refusals, verdicts
+from stage_view import stage_view
 
 # The probe runs every operation on every Frame (1-2 min): CI runs these with AWA_SLOW=1.
 slow = pytest.mark.slow
@@ -150,3 +151,11 @@ def test_no_step_offered_on_a_recording_draws_a_flat_picture(runs: list) -> None
     assert flat == [("wandas.audio.channel_difference", "48 kHz 1 ch")]
     steps = (Path(__file__).parent.parent / "src" / "shared" / "recipe" / "recipeSteps.ts").read_text(encoding="utf-8")
     assert re.search(r"NEEDS_TWO_CHANNELS[^;]*'wandas\.audio\.channel_difference'", steps)
+
+
+def test_a_steady_tone_is_not_flat_and_a_silent_difference_is() -> None:
+    t = np.arange(48000) / 48000
+    tone = wd.from_numpy(0.5 * np.sin(2 * np.pi * 1000 * t)[None], sampling_rate=48000)
+    # A steady tone's level line is one value, but its envelope is a ±0.5 band: it says something.
+    assert not _flat(stage_view(tone))
+    assert _flat(stage_view(tone.channel_difference()))
