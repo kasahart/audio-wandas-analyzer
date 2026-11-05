@@ -604,7 +604,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         const fineCombined = asked && fineDetail ? combine.get(`${combineIdentity}|${JSON.stringify(fineDetail)}`, { ...asked, detail: fineDetail }, forget) : undefined;
         if (fineCombined) lastFine.set(combineIdentity, fineCombined);
         const shownCombined = fineCombined ?? (fineDetail ? lastFine.get(combineIdentity) : undefined) ?? coarseCombined;
-        const combining = !waiting && asked !== null && coarseCombined === undefined;
+        const combining = !waiting && asked != null && coarseCombined === undefined;
         const coarsePlots = plotsOf(coarse, tracks, comparePath, basePaths, coarseCombined);
         shownCompare = { path: comparePath, view: comparePath && !waiting ? coarse(comparePath) : undefined };
         // The events left out of each recording's, on the trigger's picture (and a step after it that keeps them).
