@@ -326,11 +326,15 @@ function axisScale(view: Pick<StageView, 'xs' | 'xScale' | 'xLimits'>): { low: n
 }
 
 function ticks(low: number, high: number, log: boolean): number[] {
-    if (log) return [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000].filter(value => value > low * 1.05 && value < high * 0.95);
+    if (log) {
+        const inside = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000].filter(value => value > low * 1.05 && value < high * 0.95);
+        // Zoomed between two of them, the window's ends are labelled, so the axis still says where it is.
+        return inside.length > 1 ? inside : [low, ...(inside.length ? inside : [Math.sqrt(low * high)]), high];
+    }
     return niceTicks(low, high, 8);
 }
 
-const tickText = (value: number, log: boolean): string => (log ? (value >= 1000 ? `${value / 1000}k` : String(value)) : String(value));
+const tickText = (value: number, log: boolean): string => (log ? (value >= 1000 ? `${Number((value / 1000).toPrecision(3))}k` : String(Number(value.toPrecision(3)))) : String(value));
 /** A value on the level axis with as many decimals as its span needs (cepstral coefficients need four or five). */
 const levelText = (value: number, span: number): string => (span >= 8 ? String(Math.round(value)) : value.toFixed(Math.max(1, Math.min(6, Math.ceil(-Math.log10(span / 8)))))).replace(/^-/, '−');
 
@@ -368,6 +372,11 @@ export interface StagePlot {
      * and the signal drawn again at another width (the hover's thicker line).
      */
     signal?: { unit: string; range?: { min: number; max: number }; paint(context: CanvasRenderingContext2D, layer: StageLayer, width: number): void };
+    /**
+     * `yAt` without holding the value inside the range, for drawing a line: a stretch past the level axis leaves
+     * the plot where it crosses the axis and is clipped, instead of running along the plot's edge.
+     */
+    lineYAt?: (value: number) => number;
     /** The lines read on the right-hand level axis (`StagePaintOptions.secondary`), placed by its range. */
     secondary?: StagePlot;
 }
@@ -522,9 +531,14 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
     const yAxis = heatmap ? windowed(rowScale(whole), options.window?.y) : null;
     const levelAt = (axis: PaneRange) => (value: number): number => top + (1 - (Math.max(axis.min, Math.min(axis.max, value)) - axis.min) / (axis.max - axis.min)) * plotHeight;
     const yAt = levelAt(range);
+    // Ten spans past either end is far outside the plot: a line's slope where it crosses the edge stays right.
+    const looseAt = (axis: PaneRange) => {
+        const span = axis.max - axis.min;
+        return (value: number): number => top + (1 - (Math.max(axis.min - 10 * span, Math.min(axis.max + 10 * span, value)) - axis.min) / span) * plotHeight;
+    };
 
     let levelTicks: AxisTick[] = [];
-    const plot: StagePlot = { frame: { left, top, width: plotWidth, height: plotHeight }, xAt, yAt, ratioStep: 1.12, lines: [], diff: !!options.diff };
+    const plot: StagePlot = { frame: { left, top, width: plotWidth, height: plotHeight }, xAt, yAt, lineYAt: looseAt(range), ratioStep: 1.12, lines: [], diff: !!options.diff };
     if (heatmap && yAxis && view.matrix) {
         const image = context.createImageData(Math.round(plotWidth * ratio), Math.round(plotHeight * ratio));
         const extentAbs = Math.max(Math.abs(range.min), Math.abs(range.max), 1e-9);
@@ -623,7 +637,7 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
             context.restore();
         }
         if (options.secondary) {
-            const second: StagePlot = { ...plot, yAt: levelAt(options.secondary.range), lines: [] };
+            const second: StagePlot = { ...plot, yAt: levelAt(options.secondary.range), lineYAt: looseAt(options.secondary.range), lines: [] };
             plot.secondary = second;
             for (const layer of options.secondary.layers) {
                 if (layer.view.kind !== 'line' && layer.view.kind !== 'bar') continue;
@@ -689,7 +703,9 @@ function paintRightAxis(context: CanvasRenderingContext2D, frame: { left: number
 /** One picture of a pane as its line (or its bands as steps), `width` wide, clipped to the plot. */
 export function strokeStageLine(context: CanvasRenderingContext2D, plot: StagePlot, layer: StageLayer, width: number): void {
     if (layer.view.waveform) { plot.signal?.paint(context, layer, width); return; }
-    const { xAt, yAt, ratioStep, frame } = plot;
+    const { xAt, ratioStep, frame } = plot;
+    // Past the level axis a line leaves the plot (clipped), not along its edge.
+    const yAt = plot.lineYAt ?? plot.yAt;
     const values = layer.view.values ?? [], xs = layer.view.xs ?? [];
     context.save();
     context.beginPath(); context.rect(frame.left, frame.top, frame.width, frame.height); context.clip();

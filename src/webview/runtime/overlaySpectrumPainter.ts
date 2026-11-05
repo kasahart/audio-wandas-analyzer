@@ -51,7 +51,7 @@ function overlayReadout(hover: OverlaySpectrumHover, nearest: (SpectrumSnapHit<S
 
 /**
  * A slice as the comparison draws a level spectrum (stage_view): a line over its bins, or octave bands as steps;
- * bins past the slice's top frequency (a cut for display) are left out.
+ * FFT bins past the slice's top frequency (a cut for display) are left out.
  */
 export function spectrumLayer(series: SpectrumSeries, cutoffHz: number): StageLayer {
     const { slice } = series;
@@ -59,7 +59,8 @@ export function spectrumLayer(series: SpectrumSeries, cutoffHz: number): StageLa
     const xs: number[] = [], values: number[] = [];
     for (let index = 0; index < slice.frequencyBins && index < slice.values.length; index++) {
         const hz = binFrequencyHz(slice, index);
-        if (hz > cutoffHz) break;
+        // Bands are kept whole: their spacing is each band's width, and the plot clips them at the axis' end.
+        if (!bands && hz > cutoffHz) break;
         xs.push(hz);
         values.push(slice.values[index]);
     }

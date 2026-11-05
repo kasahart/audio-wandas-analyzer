@@ -36,6 +36,11 @@ test('octave bands become steps on a log frequency axis, one per band centre', (
     assert.deepEqual([layer.view.kind, layer.view.xScale, layer.view.xs, layer.view.values], ['bar', 'log', [100, 1000], [-50, 0]]);
 });
 
+test('octave bands past the display limit are kept, so each band keeps its width (the plot clips them)', () => {
+    const layer = layerOf([-50, -40, -30], { bandsPerOctave: 1, bandCentersHz: [31.5, 63, 125], maxFrequencyHz: 50 }, 50);
+    assert.deepEqual(layer.view.xs, [31.5, 63, 125]);
+});
+
 test('spectrumSeriesRange reports the shared log axis edge of octave-band series', () => {
     const band = slice([0], { bandCentersHz: [1000], bandsPerOctave: 3, minFrequencyHz: 22.39, maxFrequencyHz: 22_387 });
     assert.equal(spectrumSeriesRange([{ slice: band }]).logMinFrequencyHz, 22.39);

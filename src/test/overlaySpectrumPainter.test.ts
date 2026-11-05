@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { CanvasDrawCtx } from '../webview/draw/canvasDrawers';
+import { frequencyFraction, type CanvasDrawCtx } from '../webview/draw/canvasDrawers';
 import { paintOverlaySpectrum, renderSpectrumAxisLegend, SECONDARY_AXIS_MARK, type OverlaySpectrumHover } from '../webview/runtime/overlaySpectrumPainter';
 import { SpectrumView } from '../webview/runtime/spectrumView';
 import { OVERLAY_SPECTRUM_PAD, overlayLevelAxes, spectrumReadoutText, spectrumVisibleWindow, steppedOverlaySpectrumHoverNorm, type SpectrumViewState } from '../webview/runtime/spectrumRuntime';
@@ -54,7 +54,7 @@ test('paintOverlaySpectrum fills the readout from the nearest series under an ov
     assert.match(paint.readout?.text ?? '', /^A/);
 });
 
-test('paintOverlaySpectrum stops after the axes when the frequency window is empty', () => {
+test('paintOverlaySpectrum draws no line and reads nothing when the frequency window is empty', () => {
     const { ctx } = recordingCtx();
     const paint = paintOverlaySpectrum(canvasOf(ctx), 400, 200, series, { ...fullView, freqStart: 0.5, freqEnd: 0.5 }, { norm: 0.3, yFrac: 0.5, target: 'overlay' }, null);
     assert.equal(paint.painted, false);
@@ -226,4 +226,26 @@ test('paintOverlaySpectrum names the frequency axis at the right end of its tick
     assert.equal(title?.y, 197, 'in the bottom row');
     const ticks = texts.filter(t => t.y === 197 && t !== title);
     assert.ok(ticks.length > 1 && ticks.every(t => t.x + 10 < (title?.x ?? 0)), 'its ticks stop short of it');
+});
+
+test('a line past the dB axis leaves the plot where it crosses the axis (clipped), not along its edge', () => {
+    const ys: number[] = [];
+    const { ctx } = recordingCtx();
+    const recording = new Proxy(ctx, { get(target, prop) { return prop === 'lineTo' ? (_x: number, y: number) => { ys.push(y); } : Reflect.get(target, prop); } });
+    // -60 and -50 dB are below a -45…-15 dB axis: the plot's bottom edge is at 200 - 16 = 184.
+    paintOverlaySpectrum(canvasOf(recording), 400, 200, series, { ...fullView, dbMin: -45, dbMax: -15 }, noHover, null);
+    assert.ok(ys.some(y => y > 184 + 1), JSON.stringify(ys));
+});
+
+test('zoomed between two log ticks, the frequency axis still labels where it is', () => {
+    const centers = Array.from({ length: 31 }, (_, band) => 20 * 2 ** (band / 3));
+    const bands: SpectrumSeries[] = [{ ...series[0], slice: { values: centers.map(() => -30), frequencyBins: 31, maxFrequencyHz: 20000 * 2 ** (1 / 6), minDb: -60, maxDb: 0, unit: 'dB', bandsPerOctave: 3, bandCentersHz: centers, minFrequencyHz: 20 / 2 ** (1 / 6) } }];
+    const axis = { frequencyMin: 20 / 2 ** (1 / 6), frequencyMax: 20000 * 2 ** (1 / 6), logFrequency: true };
+    const view = { ...fullView, freqStart: frequencyFraction(1100, axis), freqEnd: frequencyFraction(1900, axis) };
+    const texts: Array<{ text: string; y: number }> = [];
+    const { ctx } = recordingCtx();
+    const recording = new Proxy(ctx, { get(target, prop) { return prop === 'fillText' ? (text: string, _x: number, y: number) => { texts.push({ text, y }); } : Reflect.get(target, prop); } });
+    paintOverlaySpectrum(canvasOf(recording), 600, 200, bands, view, noHover, null, 'Frequency [Hz]');
+    const labels = texts.filter(t => t.y === 197 && t.text !== 'Frequency [Hz]').map(t => t.text);
+    assert.ok(labels.length >= 2 && labels.every(text => /^\d+(\.\d+)?k?$/.test(text)), JSON.stringify(labels));
 });
