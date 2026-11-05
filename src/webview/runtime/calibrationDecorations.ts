@@ -106,8 +106,8 @@ export function calibrationRequest(trackIndex: number, result: ComparisonTrackSt
     };
 }
 
-// More than one level reference would put incomparable dB values on the shared overlay axis.
-export function hasIncompatibleLevelReferences(results: ComparisonTrackState[]): boolean {
+// More level references than the overlay has level axes would put incomparable dB values on one axis.
+export function hasIncompatibleLevelReferences(results: ComparisonTrackState[], levelAxes = 1): boolean {
     const references = new Set<string>();
     results.forEach(result => channelsForResult(result).forEach(function (channel: Channel) {
         const measurement = measurementFor(channel);
@@ -119,7 +119,7 @@ export function hasIncompatibleLevelReferences(results: ComparisonTrackState[]):
             measurement.levelReferenceLabel,
         ].join('|'));
     }));
-    return references.size > 1;
+    return references.size > levelAxes;
 }
 
 export function applyOverlayCompatibility(document: Document, incompatible: boolean, message: string): void {

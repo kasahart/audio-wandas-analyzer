@@ -4,6 +4,7 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 
 ## Unreleased
 
+- Cursor spectrum: when the visible tracks use two level references (a Pa track and an uncalibrated one, say), the second is read on its own level axis at the right instead of hiding the panel; a legend in the panel's header shows which lines are read on which side and with two axes the cursor readout names the reference ("-17.0 dB re 1 V") and its level guide runs only to the line's own axis. Three or more references still show the warning (#603).
 - Tracks: the spectrogram's colour bar shows its end values (0, -60) and its unit with the reference ("dB SPL re 20 µPa") once along the bar, so no label is cut at the right edge; on a lane too short for the reference it reads the unit alone ("dB SPL") (#601).
 - Tracks: the small power spectrum at the right of each track row is gone; the waveform and spectrogram take its width. The cursor spectrum panel at the bottom (folded until opened from its header) shows every track's spectrum, as before (#589).
 - Tracks: the 🔊 mute button is gone from the track header. One track plays at a time, so muting it only silenced the track you had just chosen to play (#591).

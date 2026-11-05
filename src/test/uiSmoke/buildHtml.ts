@@ -270,12 +270,27 @@ function measurement(
     };
 }
 
-function buildCalibrationStateHtml(): string {
+/**
+ * As the backend does: a calibrated channel's spectrogram (and the cursor spectrum cut from it) reads its own reference.
+ * `shiftTimeBins` moves the picture in time, so two copies of one file show different spectra at the cursor.
+ */
+function readInReference(channel: Record<string, unknown>, levelUnit: string, levelReferenceLabel: string, shiftTimeBins = 0): void {
+    const spectrogram = channel['spectrogram'] as Record<string, unknown> | undefined;
+    if (!spectrogram) return;
+    spectrogram['unit'] = levelUnit;
+    spectrogram['axisLabel'] = 'STFT amplitude level [' + levelReferenceLabel + ']';
+    spectrogram['levelReferenceLabel'] = levelReferenceLabel;
+    const rows = spectrogram['values'] as unknown[];
+    spectrogram['values'] = [...rows.slice(shiftTimeBins), ...rows.slice(0, shiftTimeBins)];
+}
+
+function buildCalibrationStateHtml(voltTrack = false): string {
     return replaceAppState(buildResultsPreviewHtml(), (state) => {
         const first = state.results[0];
         const firstChannel = first.channels[0];
         firstChannel['unit'] = 'Pa';
         firstChannel['measurement'] = measurement('Pa', 'dB SPL', 2e-5, 'dB SPL re 20 µPa', 2.0);
+        readInReference(firstChannel, 'dB SPL', 'dB SPL re 20 µPa');
         firstChannel['peakAbsolute'] = 5.0;
         firstChannel['peakLevelDb'] = 80.0;
         firstChannel['rawPeakFullScale'] = 0.5;
@@ -291,7 +306,17 @@ function buildCalibrationStateHtml(): string {
         secondChannel['peakLevelDb'] = 12.04;
         secondChannel['rawPeakFullScale'] = 0.4;
         secondChannel['clipped'] = false;
+        readInReference(secondChannel, 'dB', 'dB re 1 m/s^2', 16);
         state.results.push(second);
+        if (voltTrack) {
+            const third = JSON.parse(JSON.stringify(second)) as PreviewResult;
+            third.filePath = '/preview/voltage.wav';
+            third.fileName = 'voltage.wav';
+            third.channels[0]['unit'] = 'V';
+            third.channels[0]['measurement'] = measurement('V', 'dB', 1, 'dB re 1 V', 1);
+            readInReference(third.channels[0], 'dB', 'dB re 1 V');
+            state.results.push(third);
+        }
     });
 }
 
@@ -355,8 +380,9 @@ export function buildUiSmokeFractionalLevelsHtml(): string {
     }));
 }
 
-export function buildUiSmokeCalibrationHtml(): string {
-    return finalizeUiSmokeHtml(buildCalibrationStateHtml());
+/** A Pa track and an m/s^2 track; `voltTrack` adds a third track calibrated to V, a third level reference. */
+export function buildUiSmokeCalibrationHtml(voltTrack = false): string {
+    return finalizeUiSmokeHtml(buildCalibrationStateHtml(voltTrack));
 }
 
 export function buildUiSmokeSelectionHtml(): string {

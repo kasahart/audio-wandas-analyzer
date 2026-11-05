@@ -745,6 +745,12 @@ export function renderComparisonStyles(): string {
         .pair-legend-swatch { width: 10px; height: 2px; border-radius: 1px; }
         .pair-legend-item.is-empty .pair-legend-swatch { background: var(--muted) !important; }
         .pair-legend-mark { margin-left: 1px; }
+        /* Only with two level references: which lines are read on the left and on the right level axis. */
+        #spectrum-axis-legend { display: flex; gap: 10px; overflow: hidden; font-family: var(--font-ui); }
+        #spectrum-axis-legend[hidden] { display: none; }
+        .spectrum-axis-legend-item { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
+        .spectrum-axis-legend-swatch { width: 10px; height: 2px; border-radius: 1px; }
+        .spectrum-axis-legend-mark { color: var(--muted); }
         #pair-spectrum-plot { position: relative; flex: 1 1 auto; min-height: 0; }
         /* A replacement request is computing; the plot still shows the previous inputs. */
         #pair-spectrum-wrap.is-stale #pair-spectrum-plot,

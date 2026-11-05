@@ -56,7 +56,7 @@ import { syncPanelToggle, syncSpectrumMaximize } from './panelCollapse';
 import { SpectrumHover } from './spectrumHover';
 import { SpectrumView } from './spectrumView';
 import { WaveformView } from './waveformView';
-import { paintOverlaySpectrum } from './overlaySpectrumPainter';
+import { OVERLAY_LEVEL_AXES, paintOverlaySpectrum, renderSpectrumAxisLegend } from './overlaySpectrumPainter';
 import { referenceButtonHtml } from './pairSpectrum';
 import { PAIR_SPLIT_MAX, PAIR_SPLIT_MIN, PairSpectrumPanel } from './pairSpectrumPanel';
 import { collectSpectrumSeries, type CollectedSpectrumSeries, type SpectrumSeriesSource } from './spectrumSeriesCollector';
@@ -71,6 +71,7 @@ import {
     channelIndexAttribute,
     hoverNormForFrequency,
     OVERLAY_SPECTRUM_PAD,
+    overlayLevelAxes,
     spectrumBoxZoom,
     spectrumSeriesRange,
     spectrumVisibleWindow,
@@ -770,11 +771,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (requestedMaxFreq != null && Number.isFinite(requestedMaxFreq) && requestedMaxFreq > 0) {
             maxFrequencyHz = Math.min(requestedMaxFreq, maxFrequencyHz);
         }
+        // A second level reference is read over its own range (a typed range is in the first reference's dB).
+        const auto = niceRange(slice.autoMinDb ?? slice.minDb, slice.autoMaxDb ?? slice.maxDb);
         return Object.assign({}, slice, {
             originalMaxFrequencyHz: slice.originalMaxFrequencyHz || slice.maxFrequencyHz,
             maxFrequencyHz: maxFrequencyHz,
             minDb: minDb,
             maxDb: maxDb,
+            autoMinDb: auto.low,
+            autoMaxDb: auto.high,
         });
     }
     function trackColor(i: number) {
@@ -3542,7 +3547,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const range = spectrumSeriesRange(slices);
         const vis = spectrumVisibleWindow(range.maxFrequencyHz, range.minDb, range.maxDb, spectrumView.state(), range.logMinFrequencyHz);
         const overlayC = canvasById(document, 'spectrum-overlay-canvas');
-        const nextNorm = steppedOverlaySpectrumHoverNorm(slices, spectrumHover.norm, spectrumHover.yFrac, overlayC, vis, deltaIdx, fromPointer);
+        const nextNorm = steppedOverlaySpectrumHoverNorm(slices, spectrumHover.norm, spectrumHover.yFrac, overlayC, vis, deltaIdx, fromPointer, overlayLevelAxes(slices, spectrumView.state()));
         if (nextNorm === null) {
             return;
         }
@@ -3550,6 +3555,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         spectrumHover.target = 'overlay';
     }
 
+    let overlayPrimaryReference: string | null = null;
     function renderOverlaySpectrum() {
         const canvas = canvasById(document, 'spectrum-overlay-canvas');
         if (!canvas) {
@@ -3558,7 +3564,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const visibleResults = trackStore.displayOrder.map(function (trackId) { return trackStore.require(trackId); })
             .filter(function (record) { return !record.runtime.hidden; })
             .map(function (record) { return record.result; });
-        applyOverlayCompatibility(document, hasIncompatibleLevelReferences(visibleResults), STR.calibrationOverlayIncompatible);
+        applyOverlayCompatibility(document, hasIncompatibleLevelReferences(visibleResults, OVERLAY_LEVEL_AXES), STR.calibrationOverlayIncompatible);
         const wrap = document.getElementById('spectrum-overlay-wrap');
         const wrapStyle = wrap && typeof window !== 'undefined' && typeof window.getComputedStyle === 'function'
             ? window.getComputedStyle(wrap)
@@ -3584,8 +3590,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             overlaySpectrumPainted = false;
             return;
         }
+        // A dB zoom is kept in the left axis' dB: when another reference takes the left axis, it no longer applies.
+        const primaryReference = overlayLevelAxes(slices, spectrumView.state())[0].reference;
+        if (overlayPrimaryReference !== null && primaryReference !== overlayPrimaryReference) {
+            spectrumView.setDbRange(null, null);
+        }
+        overlayPrimaryReference = primaryReference;
         const paint = paintOverlaySpectrum(ctx, W, H, slices, spectrumView.state(), spectrumHover, specBoxDrag.box, drawTheme());
         spectrumView.recordPaint(paint);
+        renderSpectrumAxisLegend(document.getElementById('spectrum-axis-legend'), paint.levelAxes);
         if (paint.readout) {
             setSpectrumReadout(document.getElementById('spectrum-freq-readout'), paint.readout.text, paint.readout.color);
         }
