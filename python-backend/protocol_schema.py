@@ -562,6 +562,8 @@ DEFINITIONS: dict[str, Schema] = {
             },
             "unit": {"type": "string"},
             "xs": _NUMBERS,
+            # A log axis's ends when its xs are drawn points, not band centres (a spectrum's 20 Hz to Nyquist).
+            "xLimits": _NUMBERS,
             "ys": _NUMBERS,
             "yAxis": {"type": "string", "enum": ["frequency", "bark", "quefrency"]},
             "values": _NULLABLE_NUMBERS,

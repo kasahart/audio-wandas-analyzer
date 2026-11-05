@@ -16,6 +16,7 @@ from __future__ import annotations
 import threading
 import warnings
 from collections import OrderedDict
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from typing import Any, Literal, NotRequired, TypedDict
 
@@ -245,26 +246,15 @@ def stage_data(frame: object, view: StageView, signal_s: float | None = None) ->
 # --- Drawing: what the comparison's lines and images are decimated to -------------------------------------
 
 
-def difference_line(xs: np.ndarray, values: np.ndarray, buckets: int, log: bool) -> tuple[np.ndarray, np.ndarray]:
+def difference_line(
+    xs: np.ndarray, values: np.ndarray, buckets: int, log: bool, span: Sequence[float] | None = None
+) -> tuple[np.ndarray, np.ndarray]:
     """A difference's line in at most ``buckets`` buckets: each bucket's smallest and largest value, each at its
-    own x, so no difference is averaged away (log-spaced buckets on a log axis). Fewer values are all kept.
+    own x (sv.min_max_line), so no difference is averaged away.
 
     The one reduction of every difference line: drawing a difference otherwise changes it here only.
     """
-    keep = np.isfinite(values) & ((xs > 0) if log else np.ones(xs.size, dtype=bool))
-    xs, values = xs[keep], values[keep]
-    if xs.size <= 2 * buckets:
-        return xs, values
-    if log:
-        edges = np.geomspace(xs[0], xs[-1], buckets + 1)
-        bucket = np.clip(np.searchsorted(edges, xs, side="right") - 1, 0, buckets - 1)
-    else:
-        bucket = (np.arange(xs.size) * buckets) // xs.size
-    order = np.lexsort((values, bucket))
-    first = np.flatnonzero(np.r_[True, bucket[order][1:] != bucket[order][:-1]])
-    last = np.r_[first[1:] - 1, order.size - 1]
-    picked = np.unique(np.concatenate([order[first], order[last]]))
-    return xs[picked], values[picked]
+    return sv.min_max_line(xs, values, buckets, log, span)
 
 
 def _peak_blocks(values: np.ndarray, count: int) -> tuple[np.ndarray, np.ndarray]:
@@ -315,10 +305,13 @@ def _line(data: StageData, detail: StageDetail | None, diff: bool) -> tuple[np.n
     mode = data.mode
     if mode == "bands":
         return data.xs, data.values
-    if mode == "spectrum" and bounds is not None and not diff:
-        # Bands between the bins on screen, interpolated from every bin where narrower than one (as stage_view).
-        centres, banded = sv._log_rows(data.values[:, np.newaxis], data.xs, bounds, max(1, points))
-        return centres, sv.rounded_db(banded[:, 0]) if banded.size else np.empty(0)
+    if mode == "spectrum" and not diff:
+        # As each recording's own picture (stage_view.spectrum_line).
+        if bounds is None:
+            return sv.spectrum_line(
+                data.xs, data.values, [spec.SPECTRUM_MIN_HZ, data.nyquist], sv.SPECTRUM_LINE_BUCKETS
+            )
+        return sv.spectrum_line(data.xs, data.values, bounds, points // 2)
     xs, values = data.xs, data.values
     if bounds is not None:
         keep = sv._inside(xs, bounds)
@@ -328,16 +321,13 @@ def _line(data: StageData, detail: StageDetail | None, diff: bool) -> tuple[np.n
     log = data.view.get("xScale") == "log"
     if diff:
         if mode in ("spectrum", "coherence") and bounds is None:
-            edges = np.geomspace(spec.SPECTRUM_MIN_HZ, data.nyquist, spec.SPECTRUM_POINTS + 1)
-            inside = (xs >= edges[0]) & (xs <= edges[-1])
-            return difference_line(xs[inside], values[inside], spec.SPECTRUM_POINTS, True)
+            inside = (xs >= spec.SPECTRUM_MIN_HZ) & (xs <= data.nyquist)
+            buckets = sv.SPECTRUM_LINE_BUCKETS if mode == "spectrum" else spec.SPECTRUM_POINTS
+            return difference_line(xs[inside], values[inside], buckets, True, [spec.SPECTRUM_MIN_HZ, data.nyquist])
         if mode == "cepstrum" and xs.size and xs[0] == 0:
             rest = difference_line(xs[1:], values[1:], _line_buckets(mode, points), log)
             return np.concatenate([xs[:1], rest[0]]), np.concatenate([values[:1], rest[1]])
-        return difference_line(xs, values, _line_buckets(mode, points), log)
-    if mode == "spectrum":
-        centres, levels = sv._log_points(values[np.newaxis], xs, spec.SPECTRUM_POINTS, data.nyquist)
-        return centres, sv.rounded_db(levels[0])
+        return difference_line(xs, values, _line_buckets(mode, points), log, bounds)
     if mode == "coherence":
         if bounds is None:
             edges = np.geomspace(spec.SPECTRUM_MIN_HZ, data.nyquist, spec.SPECTRUM_POINTS + 1)

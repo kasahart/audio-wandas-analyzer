@@ -258,20 +258,25 @@ function windowed(scale: AxisScale, window: NormalizedRange = FULL_WINDOW): Axis
 }
 
 /** Where a value of the picture's horizontal axis sits on it (0–1 across the whole axis), and back. */
-export function axisFractionOf(view: Pick<StageView, 'xs' | 'xScale'>, value: number): number { return axisScale(view).fraction(value); }
-export function axisValueAt(view: Pick<StageView, 'xs' | 'xScale'>, fraction: number): number { return axisScale(view).at(fraction); }
+export function axisFractionOf(view: Pick<StageView, 'xs' | 'xScale' | 'xLimits'>, value: number): number { return axisScale(view).fraction(value); }
+export function axisValueAt(view: Pick<StageView, 'xs' | 'xScale' | 'xLimits'>, fraction: number): number { return axisScale(view).at(fraction); }
 /** The same for a heatmap's rows (frequency, Bark or quefrency). */
 export function rowFractionOf(view: StageView, value: number): number { return rowScale(view).fraction(value); }
 export function rowValueAt(view: StageView, fraction: number): number { return rowScale(view).at(fraction); }
 const rowScale = (view: StageView): AxisScale => axisScale({ xs: view.ys, xScale: view.yAxis === 'frequency' ? 'log' : 'linear' });
 
-/** A log axis spans the edges of its geometric points; a linear one its first to last point. */
-function axisScale(view: Pick<StageView, 'xs' | 'xScale'>): { low: number; high: number; log: boolean; fraction(value: number): number; at(fraction: number): number } {
+/**
+ * A log axis spans its stated limits (a spectrum drawn as its own bins), or else the edges of its geometric points;
+ * a linear one its first to last point.
+ */
+function axisScale(view: Pick<StageView, 'xs' | 'xScale' | 'xLimits'>): { low: number; high: number; log: boolean; fraction(value: number): number; at(fraction: number): number } {
     const xs = view.xs ?? [];
     const log = view.xScale === 'log' && xs.length > 1 && xs[0] > 0;
     if (log) {
         const ratio = Math.sqrt(xs[1] / xs[0]);
-        const low = xs[0] / ratio, high = xs[xs.length - 1] * ratio;
+        const limits = view.xLimits;
+        const stated = limits?.length === 2 && limits[0] > 0 && limits[1] > limits[0];
+        const low = stated ? limits[0] : xs[0] / ratio, high = stated ? limits[1] : xs[xs.length - 1] * ratio;
         return { low, high, log, fraction: value => Math.log(value / low) / Math.log(high / low), at: fraction => low * (high / low) ** fraction };
     }
     const low = xs[0] ?? 0, high = xs.length > 1 ? xs[xs.length - 1] : low + 1;
@@ -609,13 +614,16 @@ export function strokeStageLine(context: CanvasRenderingContext2D, plot: StagePl
         });
     } else {
         context.beginPath();
-        let drawing = false;
+        // A point between two gaps (a bucket's peak beside silent nulls) is drawn as a pixel-wide dash.
+        let run = 0, lastX = 0, lastY = 0;
+        const closeRun = (): void => { if (run === 1) context.lineTo(lastX + 1, lastY); run = 0; };
         values.forEach((value, index) => {
-            if (value === null || silent(layer.view, value)) { drawing = false; return; }
+            if (value === null || silent(layer.view, value)) { closeRun(); return; }
             const x = xAt(xs[index]), y = yAt(value);
-            if (drawing) context.lineTo(x, y); else context.moveTo(x, y);
-            drawing = true;
+            if (run) context.lineTo(x, y); else context.moveTo(x, y);
+            run += 1; lastX = x; lastY = y;
         });
+        closeRun();
         context.stroke();
     }
     context.restore();
