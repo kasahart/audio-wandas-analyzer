@@ -471,10 +471,10 @@ def _aligned(items: list[StageData]) -> list[StageData] | None:
     if first.ys is not None and any(item.ys is None or not np.array_equal(item.ys, first.ys) for item in items):
         return None
     if first.mode == "level":
-        if any(item.rate != first.rate or abs(item.start - first.start) > 0.5 / first.rate for item in items):
+        # Blocks are placed in time (_level_edges): recordings at other rates compare too, from one start.
+        if any(abs(item.start - first.start) > 1.0 / min(item.rate, first.rate) for item in items):
             return None
-        n = min(item.values.size for item in items)
-        return [replace(item, values=item.values[:n]) for item in items]
+        return items
     timed = first.view.get("x") == "time"
     n = min(item.xs.size for item in items)
     if not timed and any(item.xs.size != n for item in items):
@@ -504,6 +504,14 @@ def _whole_of(items: list[StageData]) -> np.ndarray | None:
     return np.logical_and.reduce(wholes) if wholes else None
 
 
+def _drawn(data: StageData) -> np.ndarray | None:
+    """The points (an image's rows) a spectrum's picture draws: from SPECTRUM_MIN_HZ to Nyquist."""
+    axis = data.ys if data.mode == "spectrogram" else data.xs if data.mode in ("spectrum", "coherence") else None
+    if axis is None:
+        return None
+    return (axis >= spec.SPECTRUM_MIN_HZ) & (axis <= data.nyquist)
+
+
 def _headline(
     template: StageView,
     xs: np.ndarray,
@@ -511,6 +519,7 @@ def _headline(
     base: np.ndarray,
     compare: np.ndarray,
     whole: np.ndarray | None,
+    drawn: np.ndarray | None = None,
 ) -> Headline | None:
     """Where |compare − base| is largest among the points loud enough to hear: for dB levels, where the louder of
     the two is within HEADLINE_WITHIN_DB of the loudest of either; for other values, every point."""
@@ -530,6 +539,9 @@ def _headline(
         size[0] = -np.inf
     if whole is not None and size.ndim == 2:
         size[:, ~whole] = -np.inf
+    # Only what is drawn heads the comparison: a spectrum's bins from 20 Hz to Nyquist (rows of an image).
+    if drawn is not None:
+        size[~drawn] = -np.inf
     if not np.isfinite(size).any():
         return None
     at = np.unravel_index(int(np.argmax(size)), size.shape)
@@ -543,34 +555,48 @@ def _headline(
     return found
 
 
-def _level_grid(data: StageData, detail: StageDetail | None) -> tuple[np.ndarray, np.ndarray]:
-    """The level's blocks (sample edges) as drawn: the whole picture's, or a zoomed range's (stage_view)."""
-    n = data.values.size
-    if detail is None:
-        return np.linspace(0, n, min(sv.TIME_POINTS, n) + 1).astype(int), np.arange(n)
-    bounds, points = _bounds(detail)
-    times = data.start + np.arange(n) / data.rate
-    keep = np.flatnonzero(sv._inside(times, bounds or []))
-    edges = np.linspace(0, keep.size, min(points, keep.size) + 1).astype(int)
-    return edges, keep
+def _end(data: StageData) -> float:
+    return data.start + data.values.size / data.rate
 
 
-def _block_levels(power: np.ndarray, edges: np.ndarray, keep: np.ndarray) -> np.ndarray:
-    part = _f64(power[keep])
-    filled = edges[1:] > edges[:-1]
-    starts, ends = edges[:-1][filled], edges[1:][filled]
-    if not starts.size:
+def _level_edges(items: list[StageData], detail: StageDetail | None) -> np.ndarray:
+    """The level's blocks as drawn, in seconds: over the time every recording has, as many as the whole picture
+    has (stage_view TIME_POINTS), or one per point of a zoomed range. Each recording measures them from its own
+    samples, so recordings at different rates are compared at the same times."""
+    start, end = max(item.start for item in items), min(_end(item) for item in items)
+    if detail is not None:
+        bounds, points = _bounds(detail)
+        start, end, count = max(start, min(bounds or [start])), min(end, max(bounds or [end])), points
+    else:
+        count = sv.TIME_POINTS
+    samples = min(int((end - start) * item.rate) for item in items) if end > start else 0
+    if samples <= 0:
         return np.empty(0)
-    with np.errstate(divide="ignore"):
-        return sv.rounded_db(10.0 * np.log10(np.add.reduceat(part, starts) / (ends - starts)))
+    return np.linspace(start, end, min(count, samples) + 1)
+
+
+def _block_levels(data: StageData, edges: np.ndarray) -> np.ndarray:
+    """The level of each block between ``edges`` (s), from every sample of ``data`` in it."""
+    if edges.size < 2:
+        return np.empty(0)
+    index = np.clip(np.floor((edges - data.start) * data.rate + 1e-6).astype(int), 0, data.values.size)
+    starts, ends = index[:-1], index[1:]
+    filled = ends > starts
+    levels = np.full(starts.size, np.nan)
+    if filled.any():
+        # Each block's sum on its own (start, end) pair: reduceat over interleaved edges, the odd sums dropped.
+        padded = np.append(_f64(data.values), 0.0)
+        pairs = np.stack([starts[filled], ends[filled]], axis=1).reshape(-1)
+        sums = np.add.reduceat(padded, pairs)[::2]
+        with np.errstate(divide="ignore"):
+            levels[filled] = sv.rounded_db(10.0 * np.log10(sums / (ends[filled] - starts[filled])))
+    return levels
 
 
 def _combine_levels(base: list[StageData], compare: StageData | None, detail: StageDetail | None) -> CombineResult:
-    edges, keep = _level_grid(base[0], detail)
-    filled = edges[1:] > edges[:-1]
-    starts, ends = edges[:-1][filled], edges[1:][filled]
-    times = base[0].start + keep[(starts + ends - 1) // 2] / base[0].rate if starts.size else np.empty(0)
-    median = _median([replace(item, values=_block_levels(item.values, edges, keep)) for item in base])
+    edges = _level_edges([*base, *([compare] if compare is not None else [])], detail)
+    times = (edges[:-1] + edges[1:]) / 2 if edges.size else np.empty(0)
+    median = _median([replace(item, values=_block_levels(item, edges)) for item in base])
     result: CombineResult = {"ok": True}
 
     def line(values: np.ndarray, diff: bool) -> StageView:
@@ -583,7 +609,7 @@ def _combine_levels(base: list[StageData], compare: StageData | None, detail: St
     if len(base) > 1:
         result["base"] = line(median, False)
     if compare is not None:
-        levels = _block_levels(compare.values, edges, keep)
+        levels = _block_levels(compare, edges)
         result["diff"] = line(levels - median, True)
         if detail is None:
             headline = _headline(base[0].view, times, None, median, levels, None)
@@ -615,7 +641,7 @@ def combine(base: list[StageData], compare: StageData | None, detail: StageDetai
     whole = _whole_of([*base, compare])
     result["diff"] = draw(replace(first, values=difference, whole=whole), detail, diff=True)
     if detail is None:
-        headline = _headline(first.view, first.xs, first.ys, median, _f64(compare.values), whole)
+        headline = _headline(first.view, first.xs, first.ys, median, _f64(compare.values), whole, _drawn(first))
         if headline is not None:
             result["headline"] = headline
     return result

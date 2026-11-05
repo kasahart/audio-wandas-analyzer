@@ -193,3 +193,24 @@ def test_a_scans_step_keeps_its_values_for_the_combine_command(tmp_path: Path) -
     )
     STORE.clear()
     assert _combine(service, base=keys[:2], compare=keys[2]) == {"ok": False, "missing": keys}
+
+
+def test_levels_at_different_rates_are_compared_at_the_same_times(signal: wd.ChannelFrame) -> None:
+    base = stage_data(signal, dict(stage_view(signal)))
+    louder = wd.from_numpy(signal.data[np.newaxis] * 2, sampling_rate=RATE).resampling(target_sr=22050)
+    compare = stage_data(louder, dict(stage_view(louder)))
+    assert base is not None and compare is not None
+    result = combine([base], compare)
+    diff = np.asarray(result["diff"]["values"], dtype=float)
+    assert diff.size > 100
+    assert np.nanmedian(diff) == pytest.approx(20 * np.log10(2), abs=0.05)
+
+
+def test_the_headline_names_only_frequencies_that_are_drawn(signal: wd.ChannelFrame) -> None:
+    # 8 Hz is below the drawn range: a large difference there does not head the comparison.
+    t = np.arange(RATE * 2) / RATE
+    low = wd.from_numpy(signal.data[np.newaxis] + 0.5 * np.sin(2 * np.pi * 8 * t), sampling_rate=RATE)
+    base, compare = (stage_data(f.welch(n_fft=4096), dict(stage_view(f.welch(n_fft=4096)))) for f in (signal, low))
+    assert base is not None and compare is not None
+    headline = combine([base], compare)["headline"]
+    assert headline["x"] >= 20
