@@ -41,7 +41,7 @@
 
 ## R5 色は役割だけを表す
 
-基準は青、比較 1 は黄、比較 2 は紫、比較 3 はマゼンタ、差は緑、実行して失敗した手順はオレンジです（`src/shared/gui/roleColors.ts`）。役割のない録音は灰色です。＋ で選べない操作もオレンジにせず、灰色にして理由を書きます（R8）。
+基準は青、比較 1 は黄、比較 2 は紫、比較 3 はマゼンタ、差は緑、手順バーに置いた手順のうち動かないもの（実行して失敗した、サンプルレートや値が合わない、前の手順が動かない）はオレンジです（`src/shared/gui/roleColors.ts`）。役割のない録音は灰色です。＋ で選べない操作はオレンジにせず、灰色にして理由を書きます（R8）。
 
 - テスト: `src/test/uiSmoke/stageReturn.spec.ts` › in Compare, colour is the role's: a recording without one is grey, its name in the legend; the headline names the difference
 - 未: 差の緑、失敗のオレンジ
@@ -62,7 +62,7 @@
 
 ## R8 ＋ で選べる操作は結果を描く
 
-＋ に出る操作は、選ぶと必ず結果のグラフが出ます。その録音で動かない、または意味のある結果にならない操作は、灰色にして理由を書きます。選んで実行したあとに失敗した手順は、オレンジで印を付け、wandas の理由を書きます（R5）。
+＋ に出る操作は、選ぶと必ず結果のグラフが出ます。その録音で動かない、または意味のある結果にならない操作は、灰色にして理由を書きます。置いたあとに動かなくなった手順や、実行して失敗した手順は、オレンジで印を付けて理由を書きます。実行して失敗したときは wandas の理由です（R5）。
 
 - テスト: `src/test/uiSmoke/trackStage.spec.ts` › a step that cannot run on these recordings says why: ＋ greys a 48 kHz-only step out, and a step failing on a file is marked with wandas' reason on the plot
 - テスト: `python-backend/test_operation_catalog.py` › test_no_step_offered_on_a_recording_draws_a_flat_picture
