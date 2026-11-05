@@ -20,6 +20,7 @@
 - テスト: `python-backend/test_stage_combine.py` › test_a_difference_line_keeps_every_buckets_extremes_at_their_own_places
 - テスト: `python-backend/test_analyzer.py` › test_a_cut_row_keeps_each_groups_lowest_and_highest_bin
 - テスト: `python-backend/test_known_answers.py` › test_the_cursor_spectrum_reads_each_channels_tone_at_its_frequency_and_amplitude
+- テスト: `python-backend/test_known_answers.py` › test_band_levels_read_the_tones_rms_in_the_cursor_spectrum_and_in_compare
 - 未: ペア解析（伝達関数・コヒーレンス）の拡大前の線、入口の概観帯
 
 ## R3 拡大しても同じ規則で、範囲の中を全解像度で作り直す
@@ -29,7 +30,6 @@
 - テスト: `python-backend/test_stage_view.py` › test_a_zoomed_spectrum_is_its_own_bins_in_the_range_on_screen
 - テスト: `python-backend/test_stage_view.py` › test_a_zoomed_spectrums_buckets_are_laid_across_the_view_not_its_bins
 - テスト: `python-backend/test_known_answers.py` › test_compare_reads_the_tone_at_its_frequency_and_amplitude_before_and_after_a_zoom
-- テスト: `python-backend/test_known_answers.py` › test_band_levels_read_the_tones_rms_in_the_cursor_spectrum_and_in_compare
 
 ## R4 両軸に量・単位・基準
 

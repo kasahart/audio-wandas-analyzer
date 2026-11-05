@@ -42,15 +42,14 @@ def tones(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return path
 
 
-def _slice_peak(result: dict, channel: int) -> tuple[float, float, float]:
+def _slice_peak(result: dict, channel: int) -> tuple[float, float]:
     values = np.asarray(result["channels"][channel]["values"], dtype=float)
     index = int(np.argmax(values))
-    step = result["maxFrequencyHz"] / (2 * (result.get("frequencyBins", 2) - 1))
     if "frequenciesHz" in result:
-        return float(result["frequenciesHz"][index]), float(values[index]), step
+        return float(result["frequenciesHz"][index]), float(values[index])
     if "bandCentersHz" in result:
-        return float(result["bandCentersHz"][index]), float(values[index]), 0.0
-    return index * result["maxFrequencyHz"] / (result["frequencyBins"] - 1), float(values[index]), step
+        return float(result["bandCentersHz"][index]), float(values[index])
+    return index * result["maxFrequencyHz"] / (result["frequencyBins"] - 1), float(values[index])
 
 
 def _view_peak(view: dict) -> tuple[float, float]:
@@ -74,7 +73,7 @@ def test_the_cursor_spectrum_reads_each_channels_tone_at_its_frequency_and_ampli
     assert ("frequenciesHz" in result) is not full_resolution
     bin_hz = RATE / n_fft
     for channel, (hz, amplitude) in enumerate([(TONE_HZ, AMPLITUDE), (SECOND_HZ, SECOND_AMPLITUDE)]):
-        frequency, level, _ = _slice_peak(result, channel)
+        frequency, level = _slice_peak(result, channel)
         assert abs(frequency - hz) <= bin_hz / 2 + 1e-9
         assert 20 * np.log10(amplitude) - HANN_SCALLOP_DB <= level <= 20 * np.log10(amplitude) + 0.05
 
@@ -85,7 +84,7 @@ def test_the_cursor_spectrums_cut_row_and_every_bin_row_read_the_same_peaks(tone
     shown = service.spectrum_slice(tones, cursor_norm=0.3, stft_options=options)
     full = service.spectrum_slice(tones, cursor_norm=0.3, stft_options=options, full_resolution=True)
     for channel in range(2):
-        assert _slice_peak(shown, channel)[:2] == pytest.approx(_slice_peak(full, channel)[:2], abs=1e-3)
+        assert _slice_peak(shown, channel) == pytest.approx(_slice_peak(full, channel), abs=1e-3)
 
 
 @pytest.mark.parametrize("operation", ["fft", "welch"])
@@ -109,7 +108,7 @@ def test_band_levels_read_the_tones_rms_in_the_cursor_spectrum_and_in_compare(to
     bands = AnalysisService(AnalysisEngine()).spectrum_slice(
         tones, cursor_norm=0.5, stft_options={"nFft": 8192, "overlapPercent": 75, "window": "hann"}, bands_per_octave=3
     )
-    frequency, level, _ = _slice_peak(bands, 0)
+    frequency, level = _slice_peak(bands, 0)
     assert frequency == pytest.approx(TONE_HZ) and level == pytest.approx(RMS_DB, abs=0.3)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
