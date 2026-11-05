@@ -55,7 +55,6 @@ test('parsePanelMessage returns discriminated messages for controller dispatch',
             markdownContent: '# Report',
             notebookContent: '{}',
         },
-        { type: 'run-recipe' },
         { type: 'show-info', message: 'done' },
         { type: 'configure-calibration', trackIndex: 0, filePath: '/tmp/a.wav', channels: [{ channelIndex: 0, label: 'L' }] },
     ];

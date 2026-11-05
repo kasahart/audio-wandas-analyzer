@@ -46,47 +46,14 @@ class MockDocument {
     createElement(tag: string): MockElement { return new MockElement(tag); }
 }
 
-function harness(storage = new Map<string, string>(), language = 'en', denied = false, recipeTimeout = 120_000) {
+function harness(storage = new Map<string, string>(), language = 'en', denied = false) {
     const elements: MockElement[] = [];
     const footer = new MockElement('div');
     const fetched: string[] = [];
     const prompts: string[] = [];
     let promptAnswer: string | null = '1';
-    // How the recipe menu is answered once it opens: an entry index, a local file, or Escape.
-    let recipeAnswer: number | { name: string; text: string } | 'escape' = 0;
-    const recipeMenus: string[][] = [];
-    const assignMenus: string[][] = [];
-    let assignAnswer: ((menu: MockElement) => void) | undefined;
     const documentListeners = new Map<string, (event: unknown) => void>();
-    function answerRecipeMenu(menu: MockElement): void {
-        const run = menu.children.find(child => child.attributes['data-action'] === 'browser-recipe-run');
-        if (run) {
-            // The input assignment keeps the proposed files unless a test changes the selects first.
-            assignMenus.push(menu.children.filter(child => child.tag === 'label').map(row => `${row.children[0].textContent}=${row.children[1].value}`));
-            queueMicrotask(() => { assignAnswer?.(menu); run.onclick!(); });
-            return;
-        }
-        const entries = menu.children.filter(child => child.attributes['data-action'] === 'browser-recipe-pick');
-        recipeMenus.push(menu.children.filter(child => child.tag === 'button').map(child => child.textContent));
-        queueMicrotask(() => {
-            if (recipeAnswer === 'escape') (windowListeners.get('keydown') as unknown as (event: unknown) => void)({ key: 'Escape', preventDefault: () => undefined, stopImmediatePropagation: () => undefined });
-            else if (typeof recipeAnswer === 'number') entries[recipeAnswer].onclick!();
-            else {
-                const { name, text } = recipeAnswer;
-                const input = menu.children.find(child => child.tag === 'input')!;
-                input.files = [{ size: text.length, name, text: async () => text }];
-                input.onchange!();
-            }
-        });
-    }
-    const served: Record<string, unknown> = {
-        './recipes/manifest.json': [
-            { name: 'octave.json', location: './recipes/octave.json' },
-            { name: 'coherence.recipe.json', location: './recipes/coherence.recipe.json' },
-        ],
-        './recipes/coherence.recipe.json': { schema: 'wandas.recipe', version: 2, inputs: [{ id: 'input-0', name: 'reference', kind: 'frame' }, { id: 'input-1', name: 'response', kind: 'frame' }], nodes: [], output: 'input-0' },
-        './recipes/octave.json': { schema: 'wandas.recipe', version: 2, inputs: [{ id: 'input-0', name: 'signal', kind: 'frame' }], nodes: [], output: 'input-0' },
-    };
+    const served: Record<string, unknown> = {};
     const workers: ControlledWorker[] = [];
     const windowListeners = new Map<string, () => void>();
     const blockedWorkerCommands = new Set<string>();
@@ -159,9 +126,8 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
         window: browser,
         document: {
             createElement: (tag: string) => { const element = new MockElement(tag); elements.push(element); return element; },
-            body: { prepend: () => undefined, append: (node: MockElement) => { if ('data-recipe-picker' in node.attributes) answerRecipeMenu(node); } },
+            body: { prepend: () => undefined, append: () => undefined },
             getElementById: (id: string) => id === 'hint-footer' ? footer : null,
-            querySelector: (selector: string) => selector === '[data-recipe-result]' ? elements.find(element => element.tag === 'section' && !element.removed) ?? null : null,
             addEventListener: (type: string, listener: (event: unknown) => void) => { documentListeners.set(type, listener); },
             removeEventListener: (type: string, listener: (event: unknown) => void) => { if (documentListeners.get(type) === listener) documentListeners.delete(type); },
         },
@@ -169,7 +135,6 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
         Worker: ControlledWorker,
         URL: { createObjectURL: () => `blob:fixture-${++blobId}`, revokeObjectURL: (url: string) => { revoked.push(url); } },
         setTimeout,
-        recipeTimeoutMs: recipeTimeout,
         restartAfterScans: 1,
     } as unknown as StaticHostDeps);
     const host = browser.__AWA_HOST__!;
@@ -184,10 +149,8 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
     }
     // Unchecking every file posts an empty selection; the panel's Clear also marks it clearAll.
     const clear = (clearAll = false): void => { host.postMessage({ type: 'analyze-selected-files', requestId: 'clear', filePaths: [], ...(clearAll ? { clearAll: true } : {}) }); };
-    return { host, browser, storage, workers, clear, windowListeners, blockedWorkerCommands, setLimitsReply: (reply: Record<string, unknown>): void => { limitsReply = reply; }, holdSpareBoot: (): void => { spareBooting = true; }, received, load, picker, elements, revoked, fetched, prompts, served, recipeMenus, assignMenus, documentListeners,
-        setAssignAnswer(value: typeof assignAnswer) { assignAnswer = value; },
+    return { host, browser, storage, workers, clear, windowListeners, blockedWorkerCommands, setLimitsReply: (reply: Record<string, unknown>): void => { limitsReply = reply; }, holdSpareBoot: (): void => { spareBooting = true; }, received, load, picker, elements, revoked, fetched, prompts, served, documentListeners,
         setPromptAnswer(value: string | null) { promptAnswer = value; },
-        setRecipeAnswer(value: typeof recipeAnswer) { recipeAnswer = value; },
         get status() { return elements.find(element => element.attributes.role === 'status')!.textContent; },
         get footer() { return footer.textContent; },
         get sourcePath() { return `/sources/${String(workers.at(-1)!.commands.filter(command => command.cmd === 'load').at(-1)!.sourceId)}`; } };
@@ -367,29 +330,6 @@ test('leaving the page stops an idle Worker and a Worker that cannot clear is re
     assert.equal(app.workers[1].terminated, true);
 });
 
-test('a failed boot while restoring sources after a Recipe timeout replays them into the next Worker', async () => {
-    const app = harness(new Map(), 'en', false, 20);
-    await app.load(); await app.load();
-    const retainedIds = app.workers[0].commands.filter(command => command.cmd === 'load').map(command => command.sourceId);
-    app.host.postMessage({ type: 'run-recipe' });
-    await flush(); await flush();
-    await new Promise(resolve => setTimeout(resolve, 40));
-    assert.equal(app.workers[0].terminated, true);
-    app.blockedWorkerCommands.add('load');
-    app.host.postMessage({ ...identity, filePath: `/sources/${String(retainedIds[0])}`, type: 'request-track-detail' });
-    await flush(); await flush();
-    const failed = app.workers[1];
-    failed.onmessage({ data: { ready: false } });
-    failed.reply(failed.commands.find(command => command.cmd === 'load')!, {}, 'Python failed to start');
-    await flush(); await flush();
-    app.blockedWorkerCommands.delete('load');
-    app.host.postMessage({ ...identity, filePath: `/sources/${String(retainedIds[0])}`, type: 'request-track-detail' });
-    await flush(); await flush(); await flush();
-    assert.equal(failed.terminated, true);
-    assert.equal(app.workers.length, 3);
-    assert.deepEqual(app.workers[2].commands.filter(command => command.cmd === 'load').map(command => command.sourceId), retainedIds);
-});
-
 test('clearing during an analysis restarts the busy Worker instead of queueing behind it', async () => {
     const app = harness();
     await app.load();
@@ -554,54 +494,6 @@ test('a load reply without the loaded path is a protocol error, not a track', as
     assert.match(app.status, /Invalid load success response/);
 });
 
-test('browser recipes run on loaded tracks through the Worker and render charts in a fresh frame', async () => {
-    const app = harness();
-    app.host.postMessage({ type: 'run-recipe' });
-    await flush();
-    assert.equal(app.fetched.length, 0, 'recipes need a loaded track first');
-    assert.equal(app.status, app.browser.__APP_STRINGS__.browserRecipeNoSources);
-    await app.load();
-    app.host.postMessage({ type: 'run-recipe' });
-    await flush();
-    assert.deepEqual(app.fetched, ['./recipes/manifest.json', './recipes/octave.json']);
-    assert.deepEqual(app.recipeMenus[0], ['octave', 'coherence', 'From file…']);
-    assert.equal(app.documentListeners.size, 0, 'choosing a recipe closes its menu');
-    const worker = app.workers[0];
-    const command = worker.commands.at(-1)!;
-    assert.equal(command.cmd, 'run-recipe');
-    assert.equal(command.requestId, 'recipe-1');
-    assert.equal(command.recipePath, './recipes/octave.json');
-    assert.equal(JSON.stringify(command.inputContexts), JSON.stringify({ signal: { analysisRevision: 0 } }));
-    assert.deepEqual(command.inputs, { signal: app.sourcePath });
-    worker.reply(command, { charts: [{ kind: 'scalar', title: 'Peak', rows: [] }] });
-    await flush();
-    const frame = app.elements.find(element => element.tag === 'iframe')!;
-    assert.equal(JSON.stringify((frame.contentWindow as { __CHART_SPECS__: unknown }).__CHART_SPECS__), JSON.stringify([{ kind: 'scalar', title: 'Peak', rows: [] }]));
-    assert.equal(frame.contentDocument!.body.children.at(-1)!.src, './chartSpecRuntime.js');
-    assert.equal(frame.contentDocument!.body.children[0].id, 'charts');
-    assert.equal(app.status, app.browser.__APP_STRINGS__.browserRecipeDone + 'octave');
-    assert.ok(app.elements.some(element => element.tag === 'span' && element.textContent === 'signal: selected.wav'), 'the result names the file behind each input');
-    const close = app.elements.find(element => element.attributes['data-action'] === 'browser-recipe-close')!;
-    close.onclick!();
-    assert.equal(app.elements.find(element => element.tag === 'section')!.removed, true);
-    app.setRecipeAnswer(1);
-    app.host.postMessage({ type: 'run-recipe' });
-    await flush();
-    assert.match(app.status, /Recipe expects 2 file\(s\) from the panel selection but 1 is checked/);
-    assert.equal(worker.commands.filter(entry => entry.cmd === 'run-recipe').length, 1);
-    app.setRecipeAnswer('escape');
-    app.host.postMessage({ type: 'run-recipe' });
-    await flush();
-    assert.equal(worker.commands.filter(entry => entry.cmd === 'run-recipe').length, 1, 'Escape cancels the run');
-    assert.equal(app.documentListeners.size, 0);
-    app.setRecipeAnswer(0);
-    app.host.postMessage({ type: 'run-recipe' });
-    await flush();
-    worker.reply(worker.commands.at(-1)!, {}, 'recipe error: Unknown name');
-    await flush();
-    assert.equal(app.status, `Recipe execution failed: ${getStrings('en').errorInvalidInput}\nrecipe error: Unknown name`);
-});
-
 test('Save as recipe builds the Recipe in the Worker and downloads it as a .recipe.json', async () => {
     const app = harness();
     await app.load();
@@ -618,80 +510,6 @@ test('Save as recipe builds the Recipe in the Worker and downloads it as a .reci
     const link = app.elements.find(element => element.tag === 'a' && (element as { download?: string }).download === 'octave-3.recipe.json');
     assert.ok(link, 'the Recipe is offered as a download');
     assert.equal(app.status, app.browser.__APP_STRINGS__.recipeSavedPrefix + 'octave-3.recipe.json');
-});
-
-test('a two-input browser recipe lets the user swap which track fills each input before it runs', async () => {
-    const app = harness();
-    await app.load();
-    await app.load();
-    const worker = app.workers[0];
-    const [first, second] = worker.commands.filter(command => command.cmd === 'load').map(command => `/sources/${String(command.sourceId)}`);
-    app.setRecipeAnswer(1);
-    app.setAssignAnswer(menu => {
-        const [reference, response] = menu.children.filter(child => child.tag === 'label').map(row => row.children[1]);
-        [reference.value, response.value] = [response.value, reference.value];
-    });
-    app.host.postMessage({ type: 'run-recipe' });
-    await flush();
-    assert.deepEqual(app.assignMenus[0], [`reference=${first}`, `response=${second}`], 'the menu proposes the selection order');
-    const options = app.elements.filter(element => element.tag === 'option').map(element => element.textContent);
-    assert.deepEqual(options.slice(0, 2), [first, second].map(path => path.slice('/sources/'.length)), 'tracks sharing a name are told apart by their paths');
-    assert.notEqual(options[0], options[1]);
-    const command = worker.commands.at(-1)!;
-    assert.equal(command.cmd, 'run-recipe');
-    assert.deepEqual(command.inputs, { reference: second, response: first });
-    worker.reply(command, { charts: [] });
-    await flush();
-    assert.ok(app.elements.some(element => element.tag === 'span' && element.textContent === `reference: ${second.slice('/sources/'.length)} · response: ${first.slice('/sources/'.length)}`));
-});
-
-test('a browser recipe opened from disk runs under its file name and reports unreadable files', async () => {
-    const app = harness();
-    await app.load();
-    const recipe = { schema: 'wandas.recipe', version: 2, inputs: [{ id: 'input-0', name: 'signal', kind: 'frame' }], nodes: [], output: 'input-0' };
-    app.setRecipeAnswer({ name: 'mine.recipe.json', text: JSON.stringify(recipe) });
-    app.host.postMessage({ type: 'run-recipe' });
-    await flush();
-    assert.deepEqual(app.fetched, ['./recipes/manifest.json'], 'a local recipe is not fetched');
-    const worker = app.workers[0];
-    const command = worker.commands.at(-1)!;
-    assert.equal(command.cmd, 'run-recipe');
-    assert.equal(command.recipePath, 'mine.recipe.json');
-    assert.deepEqual(command.recipe, recipe);
-    worker.reply(command, { charts: [] });
-    await flush();
-    assert.equal(app.status, app.browser.__APP_STRINGS__.browserRecipeDone + 'mine');
-    app.setRecipeAnswer({ name: 'broken.json', text: '{"schema": "other"}' });
-    app.host.postMessage({ type: 'run-recipe' });
-    await flush();
-    assert.equal(app.status, 'Recipe execution failed: broken.json is not a recipe document');
-    assert.equal(worker.commands.filter(entry => entry.cmd === 'run-recipe').length, 1);
-});
-
-test('the browser build\'s recipe messages follow the UI language', async () => {
-    const app = harness(new Map(), 'ja');
-    await app.load();
-    delete app.served['./recipes/manifest.json'];
-    app.host.postMessage({ type: 'run-recipe' });
-    await flush();
-    assert.equal(app.status, getStrings('ja').recipeReadFailed.replace('{message}', './recipes/manifest.json: HTTP 404'));
-});
-
-test('clearing sources during a recipe preserves the new status and ignores late charts', async () => {
-    const app = harness();
-    await app.load();
-    app.host.postMessage({ type: 'run-recipe' });
-    await flush();
-    const worker = app.workers[0];
-    const command = worker.commands.at(-1)!;
-    assert.equal(command.cmd, 'run-recipe');
-    app.clear();
-    await flush();
-    assert.equal(app.status, app.browser.__APP_STRINGS__.browserCleared);
-    worker.reply(command, { charts: [{ kind: 'scalar', title: 'Late', rows: [] }] });
-    await flush();
-    assert.equal(app.status, app.browser.__APP_STRINGS__.browserCleared);
-    assert.equal(app.elements.some(element => element.tag === 'iframe'), false);
 });
 
 test('static calibration requests explain the unavailable operation and reject malformed messages', async () => {
@@ -715,233 +533,6 @@ test('the browser lets the spectrum kind buttons through to the runtime', () => 
         assert.deepEqual(calls, [], action);
     }
     assert.equal(app.footer, '');
-});
-
-test('removing one recipe input suppresses stale charts and errors while other sources remain', async () => {
-    for (const fail of [false, true]) {
-        const app = harness();
-        await app.load();
-        const removedPath = app.sourcePath;
-        await app.load();
-        const worker = app.workers[0];
-        app.host.postMessage({ type: 'run-recipe' });
-        await flush();
-        const command = worker.commands.at(-1)!;
-        assert.equal(command.cmd, 'run-recipe');
-        app.host.releaseSource!(removedPath);
-        await flush();
-        assert.equal(worker.terminated, false);
-        const currentStatus = app.status;
-        worker.reply(command, { charts: [{ kind: 'scalar', title: 'Removed input', rows: [] }] }, fail ? 'Input removed' : undefined);
-        await flush();
-        assert.equal(app.status, currentStatus);
-        assert.equal(app.elements.some(element => element.tag === 'iframe'), false);
-    }
-});
-
-
-test('Recipe timeout preserves tracks and URLs and reloads the Worker for the next request', async () => {
-    const app = harness(new Map(), 'en', false, 20);
-    await app.load(); await app.load();
-    const before = app.received.filter(message => message.type === 'analysis-update').at(-1)!;
-    const originalWorker = app.workers[0];
-    app.host.postMessage({ type: 'run-recipe' });
-    await flush(); await flush();
-    const recipe = originalWorker.commands.at(-1)!;
-    assert.equal(recipe.cmd, 'run-recipe');
-    await new Promise(resolve => setTimeout(resolve, 40));
-    assert.equal(originalWorker.terminated, true);
-    assert.deepEqual(app.revoked, []);
-    assert.equal(app.received.filter(message => message.type === 'analysis-update').at(-1), before);
-    assert.match(app.status, /timed out/);
-    originalWorker.reply(recipe, { charts: [] });
-    await flush();
-    assert.equal(app.elements.filter(element => element.tag === 'iframe').length, 0);
-    app.host.postMessage({ type: 'request-reanalyze', settings: DEFAULT_SPECTROGRAM_SETTINGS });
-    await flush(); await flush();
-    assert.equal(app.workers.length, 2);
-    const restored = app.workers[1];
-    assert.deepEqual(restored.commands.filter(command => command.cmd === 'load').map(command => command.sourceId),
-        originalWorker.commands.filter(command => command.cmd === 'load').map(command => command.sourceId));
-    assert.equal(restored.commands.filter(command => command.cmd === 'analyze').length, 2);
-    assert.deepEqual(app.revoked, []);
-    const results = app.received.filter(message => message.type === 'analysis-update').at(-1)!.results as Array<{ audioSource: string }>;
-    const originalResults = before.results as Array<{ audioSource: string }>;
-    assert.equal(results.length, 2);
-    assert.deepEqual(results.map(result => result.audioSource), originalResults.map(result => result.audioSource));
-    app.clear();
-    assert.equal(app.revoked.length, 2);
-});
-
-
-test('adding a WAV after Recipe timeout restores retained sources before the new load', async () => {
-    const app = harness(new Map(), 'en', false, 20);
-    await app.load(); await app.load();
-    const originalWorker = app.workers[0];
-    const retainedIds = originalWorker.commands.filter(command => command.cmd === 'load').map(command => command.sourceId);
-    app.host.postMessage({ type: 'run-recipe' });
-    await flush(); await flush();
-    await new Promise(resolve => setTimeout(resolve, 40));
-    assert.equal(originalWorker.terminated, true);
-    await app.load(); await flush();
-    const restored = app.workers[1];
-    const loadedIds = restored.commands.filter(command => command.cmd === 'load').map(command => command.sourceId);
-    assert.deepEqual(loadedIds.slice(0, 2), retainedIds);
-    assert.equal(loadedIds.length, 3);
-    assert.ok(!retainedIds.includes(loadedIds[2]));
-    assert.deepEqual(app.revoked, []);
-    const results = app.received.filter(message => message.type === 'analysis-update').at(-1)!.results as Array<{ filePath: string }>;
-    assert.equal(results.length, 3);
-    app.host.postMessage({ ...identity, filePath: results[0].filePath, type: 'request-track-detail' });
-    await flush();
-    assert.equal(restored.commands.at(-1)!.cmd, 'track-detail');
-    assert.equal(restored.commands.at(-1)!.filePath, results[0].filePath);
-});
-
-
-test('Recipe can run again immediately after timeout by restoring retained tracks', async () => {
-    const app = harness(new Map(), 'en', false, 20);
-    await app.load(); await app.load();
-    const originalWorker = app.workers[0];
-    const retainedIds = originalWorker.commands.filter(command => command.cmd === 'load').map(command => command.sourceId);
-    app.host.postMessage({ type: 'run-recipe' });
-    await flush(); await flush();
-    await new Promise(resolve => setTimeout(resolve, 40));
-    assert.equal(originalWorker.terminated, true);
-    app.host.postMessage({ type: 'run-recipe' });
-    await flush(); await flush();
-    const restored = app.workers[1];
-    assert.ok(restored);
-    assert.deepEqual(restored.commands.filter(command => command.cmd === 'load').map(command => command.sourceId), retainedIds);
-    const recipe = restored.commands.find(command => command.cmd === 'run-recipe')!;
-    assert.ok(recipe);
-    restored.reply(recipe, { charts: [] });
-    await flush();
-    assert.equal(app.elements.filter(element => element.tag === 'iframe').length, 1);
-    assert.deepEqual(app.revoked, []);
-    assert.match(app.status, /octave/);
-});
-
-
-test('Recipe timeout delivers terminal lazy errors so detail and spectrum can retry after recovery', async () => {
-    const app = harness(new Map(), 'en', false, 20);
-    await app.load();
-    const filePath = app.sourcePath;
-    app.host.postMessage({ type: 'run-recipe' });
-    await flush(); await flush();
-    app.host.postMessage({ ...identity, filePath, requestId: 'waiting-detail', type: 'request-track-detail' });
-    app.host.postMessage({ ...identity, filePath, requestId: 'waiting-slice', cursorNorm: 0.5, type: 'request-spectrum-slice' });
-    await flush();
-    const old = app.workers[0];
-    assert.ok(old.commands.some(command => command.cmd === 'track-detail'));
-    assert.ok(old.commands.some(command => command.cmd === 'spectrum-slice'));
-    await new Promise(resolve => setTimeout(resolve, 40));
-    const errors = app.received.filter(message => ['track-detail-error', 'spectrum-slice-error'].includes(String(message.type)));
-    assert.deepEqual(errors.map(message => [message.type, message.requestId]), [
-        ['track-detail-error', 'waiting-detail'], ['spectrum-slice-error', 'waiting-slice'],
-    ]);
-    for (const error of errors) { assert.equal(error.filePath, filePath); assert.match(String(error.error), /timed out/); }
-    app.host.postMessage({ ...identity, filePath, requestId: 'retry-detail', type: 'request-track-detail' });
-    app.host.postMessage({ ...identity, filePath, requestId: 'retry-slice', cursorNorm: 0.6, type: 'request-spectrum-slice' });
-    await flush(); await flush();
-    const restored = app.workers[1];
-    assert.ok(restored);
-    for (const command of restored.commands.filter(command => ['track-detail', 'spectrum-slice'].includes(String(command.cmd)))) {
-        restored.reply(command, {});
-    }
-    await flush();
-    assert.ok(app.received.some(message => message.type === 'track-detail-result' && message.requestId === 'retry-detail'));
-    assert.ok(app.received.some(message => message.type === 'spectrum-slice-result' && message.requestId === 'retry-slice'));
-    assert.deepEqual(app.revoked, []);
-});
-
-
-for (const operation of ['remove', 'add'] as const) {
-    test(`Recipe timeout during ${operation} preserves remaining tracks and audio URLs`, async () => {
-        const app = harness(new Map(), 'en', false, 20);
-        await app.load();
-        const firstPath = app.sourcePath;
-        await app.load();
-        const remainingPath = app.sourcePath;
-        const before = Array.from(app.received.filter(message => message.type === 'analysis-update').at(-1)!.results as Array<{ filePath: string; audioSource: string }>);
-        const original = app.workers[0];
-        app.host.postMessage({ type: 'run-recipe' });
-        await flush(); await flush();
-        assert.equal(original.commands.at(-1)!.cmd, 'run-recipe');
-        if (operation === 'remove') {
-            original.blockedCommands.add('unload');
-            app.host.releaseSource!(firstPath);
-            await flush();
-            assert.equal(original.commands.at(-1)!.cmd, 'unload');
-        } else {
-            original.blockedCommands.add('analyze');
-            await app.load();
-            assert.equal(original.commands.at(-1)!.cmd, 'analyze');
-        }
-        await new Promise(resolve => setTimeout(resolve, 40));
-        assert.equal(original.terminated, true);
-        assert.deepEqual(app.revoked, operation === 'remove' ? [before[0].audioSource] : []);
-        assert.equal(app.workers.length, 1);
-        assert.equal(app.picker.disabled, false);
-        app.host.postMessage({ type: 'request-reanalyze', settings: DEFAULT_SPECTROGRAM_SETTINGS });
-        await flush(); await flush();
-        const restored = app.workers[1];
-        const expected = operation === 'remove' ? before.filter(source => source.filePath === remainingPath) : before;
-        assert.deepEqual(restored.commands.filter(command => command.cmd === 'load').map(command => `/sources/${String(command.sourceId)}`), expected.map(source => source.filePath));
-        assert.equal(restored.commands.some(command => command.cmd === 'unload'), false);
-        const after = app.received.filter(message => message.type === 'analysis-update').at(-1)!.results as Array<{ filePath: string; audioSource: string }>;
-        assert.deepEqual(Array.from(after, source => [source.filePath, source.audioSource]), expected.map(source => [source.filePath, source.audioSource]));
-        assert.deepEqual(app.revoked, operation === 'remove' ? [before[0].audioSource] : []);
-    });
-}
-
-
-test('Recipe timeout stops a hanging recovery load and later requests can recover again', async () => {
-    const app = harness(new Map(), 'en', false, 20);
-    await app.load();
-    const filePath = app.sourcePath;
-    app.host.postMessage({ type: 'run-recipe' });
-    await flush(); await flush();
-    await new Promise(resolve => setTimeout(resolve, 40));
-    assert.equal(app.workers[0].terminated, true);
-    app.blockedWorkerCommands.add('load');
-    app.host.postMessage({ type: 'run-recipe' });
-    await flush(); await flush();
-    const recovering = app.workers[1];
-    assert.equal(recovering.commands.at(-1)!.cmd, 'load');
-    assert.equal(recovering.commands.some(command => command.cmd === 'run-recipe'), false);
-    await new Promise(resolve => setTimeout(resolve, 40));
-    assert.equal(recovering.terminated, true);
-    assert.match(app.status, /timed out/);
-    assert.deepEqual(app.revoked, []);
-    app.blockedWorkerCommands.delete('load');
-    app.host.postMessage({ type: 'request-reanalyze', settings: DEFAULT_SPECTROGRAM_SETTINGS });
-    await flush(); await flush();
-    assert.equal(app.workers.length, 3);
-    assert.ok(app.workers[2].commands.some(command => command.cmd === 'analyze' && command.filePath === filePath));
-    assert.deepEqual(app.revoked, []);
-    assert.equal((app.received.filter(message => message.type === 'analysis-update').at(-1)!.results as unknown[]).length, 1);
-});
-
-
-test('Recipe timeout during a multi-file load keeps the picker disabled until the batch finishes', async () => {
-    const app = harness(new Map(), 'en', false, 20);
-    await app.load();
-    const original = app.workers[0];
-    app.host.postMessage({ type: 'run-recipe' });
-    await flush(); await flush();
-    original.blockedCommands.add('analyze');
-    app.picker.files = ['a.wav', 'b.wav'].map(name => ({ size: 100, name, arrayBuffer: async () => new ArrayBuffer(100) }));
-    app.picker.onchange!();
-    await flush();
-    assert.equal(app.picker.disabled, true);
-    app.host.postMessage({ type: 'select-target', targetKind: 'file' });
-    assert.equal(app.status, 'Preparing local Python Worker / adding files…', 'Open File explains why no chooser opens');
-    app.blockedWorkerCommands.add('load');
-    await new Promise(resolve => setTimeout(resolve, 40));
-    assert.equal(original.terminated, true);
-    assert.equal(app.workers.length, 2, 'the second file restores sources in a new Worker');
-    assert.equal(app.picker.disabled, true);
 });
 
 test('an opened folder lists its WAV files and checked files load as tracks under their tree paths', async () => {

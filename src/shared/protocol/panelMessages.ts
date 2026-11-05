@@ -38,10 +38,6 @@ export interface SelectTargetMessage {
     targetKind: SelectionTargetKind;
 }
 
-export interface RunRecipeMessage {
-    type: 'run-recipe';
-}
-
 /** The bottom panel's analysis to save as a wandas Recipe; the host adds the STFT settings. */
 export type SaveRecipeMessage = { type: 'save-recipe' } & Omit<BuildRecipePayload, 'stftOptions'>;
 
@@ -64,7 +60,6 @@ export type PanelMessage =
     | PairSpectrumRequest
     | ExportWavLoopMessage
     | ExportReportOptionsMessage
-    | RunRecipeMessage
     | SaveRecipeMessage
     | ShowInfoMessage
     | EntryScanMessage
@@ -193,7 +188,6 @@ export function parsePanelMessage(value: unknown): PanelMessage | undefined {
         case 'request-pair-spectrum': return isRequestPairSpectrumMessage(value) ? value : undefined;
         case 'export-wav-loop': return isExportWavLoopMessage(value) ? value : undefined;
         case 'export-report-options': return isExportReportOptionsMessage(value) ? value : undefined;
-        case 'run-recipe': return { type: 'run-recipe' };
         case 'save-recipe': return isSaveRecipeMessage(value) ? value : undefined;
         case 'entry-scan': return isEntryScanMessage(value) ? value : undefined;
         case 'entry-scan-cancel': return { type: 'entry-scan-cancel' };

@@ -10,10 +10,7 @@ keyword can never shape the TS types without also being checked at runtime.
 
 This module must stay importable without numpy so the generator runs on a bare Python.
 
-Every command except ``run-recipe`` is in ``COMMANDS``. ``run-recipe`` keeps its hand-written
-validators in ``command_dispatch`` and ``backendProtocol.ts``: its payload embeds a wandas Recipe
-document and its result is a list of ChartSpecs, and both have schemas of their own
-(``chart_spec.py`` needs ``oneOf``, which this subset leaves out).
+Every command is in ``COMMANDS``.
 The error envelope, the backend notifications, the native ``cancel`` control and the browser Worker's
 ``limits`` reply are definitions without a command.
 """

@@ -29,7 +29,6 @@ window.paintLoopRegion = paintLoopRegion;`,
     ...[
         ['comparisonEntry', 'comparisonRuntime'],
         ['staticHostEntry', 'staticHost'],
-        ['chartSpecEntry', 'chartSpecRuntime'],
     ].map(([entry, output]) => ({
         ...options,
         entryPoints: [path.join(OUT_DIR, 'runtime', `${entry}.js`)],

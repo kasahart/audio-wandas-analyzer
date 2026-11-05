@@ -1,6 +1,3 @@
-import type { ChartSpec } from '../../shared/chartSpec';
-import type { UiStrings } from '../../shared/i18n/strings';
-import { chartSpecGlobals, renderChartSpecStyles } from '../panels/chartSpecDocument';
 import { keyRouterFor } from './keyRouter';
 
 /** A small in-page choice (the page's language and look, not the browser's prompt); Esc or a press outside cancels. */
@@ -47,46 +44,4 @@ export function choose<T extends string>(
         });
         box.querySelector('button')?.focus();
     });
-}
-
-/**
- * Recipe charts render in a same-origin frame: the bundled ChartSpec renderer arrives as ./chartSpecRuntime.js under
- * the page CSP, and a fresh document per run keeps the renderer's one-shot range popup and listeners isolated.
- * `prepareFrame` gets the frame's window before the renderer loads (the host lets it take dropped files too).
- */
-export function showRecipeCharts(
-    document: Document, strings: UiStrings, title: string, charts: ChartSpec[], caption: string, prepareFrame: (frame: Window) => void,
-): void {
-    document.querySelector('[data-recipe-result]')?.remove();
-    const panel = document.createElement('section');
-    panel.setAttribute('data-recipe-result', title);
-    panel.style.cssText = 'margin:8px;border:1px solid #444;border-radius:4px;background:#1e1e1e;color:#ddd';
-    const header = document.createElement('div');
-    header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:6px 8px;border-bottom:1px solid #444';
-    const heading = document.createElement('div');
-    const name = document.createElement('strong'); name.textContent = title;
-    const inputs = document.createElement('span'); inputs.textContent = caption;
-    inputs.style.cssText = 'margin-left:8px;font-size:11px;color:#999';
-    heading.append(name, inputs);
-    const close = document.createElement('button');
-    close.setAttribute('data-action', 'browser-recipe-close');
-    close.textContent = strings.btnCloseRecipeResult;
-    close.onclick = (): void => { panel.remove(); };
-    header.append(heading, close);
-    const frame = document.createElement('iframe');
-    frame.setAttribute('title', title);
-    frame.style.cssText = 'display:block;width:100%;height:60vh;border:0;background:#1e1e1e';
-    panel.append(header, frame);
-    document.body.prepend(panel);
-    // A same-origin frame has its document and window once it is in the page.
-    const target = frame.contentDocument;
-    const frameWindow = frame.contentWindow;
-    if (!target || !frameWindow) throw new Error('The recipe chart frame did not open');
-    const style = target.createElement('style'); style.textContent = renderChartSpecStyles();
-    const chartsHost = target.createElement('div'); chartsHost.id = 'charts';
-    target.head.append(style); target.body.append(chartsHost);
-    Object.assign(frameWindow, chartSpecGlobals(charts, strings));
-    prepareFrame(frameWindow);
-    const script = target.createElement('script'); script.src = './chartSpecRuntime.js';
-    target.body.append(script);
 }

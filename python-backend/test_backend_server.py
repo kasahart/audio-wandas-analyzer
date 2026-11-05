@@ -781,12 +781,26 @@ def _error_reply(command: dict) -> dict[str, str]:
     return backend_errors.error_payload(raised.value)
 
 
+def _replayed(recipe: dict, **inputs: Path) -> object:
+    """The Recipe's output on these files, computed, as the step bar replays it on each recording."""
+    frames = {name: wd.read_wav(str(path)) for name, path in inputs.items()}
+    result = wd.pipeline.RecipePlan.from_dict(recipe).apply(frames)
+    np.asarray(result.data)
+    return result
+
+
+def _recipe_error(recipe: dict, **inputs: Path) -> dict[str, str]:
+    with pytest.raises(Exception) as raised:
+        _replayed(recipe, **inputs)
+    return backend_errors.error_payload(raised.value)
+
+
 def test_a_recipe_stft_longer_than_the_file_is_an_analysis_settings_error(tmp_path: Path, make_recipe) -> None:
     short = tmp_path / "short.wav"
     _write_samples(short, 40)
     recipe = make_recipe(lambda signal: signal.stft(n_fft=128, hop_length=32))
 
-    error = _error_reply({"cmd": "run-recipe", "requestId": "r", "recipe": recipe, "inputs": {"signal": str(short)}})
+    error = _recipe_error(recipe, signal=short)
 
     assert error["kind"] == "analysis-settings", error
     assert "Parameter n must be >= ceil(m_num/2)" in error["message"], "the library's text stays as the detail"
@@ -864,9 +878,9 @@ def test_the_apps_spectrum_and_transfer_recipes_on_a_file_shorter_than_their_win
     spectrum = spectrum_recipe(RecipeSource(1, 48000.0), n_fft=4096, hop_length=1024, window="hann")
     transfer = transfer_recipe([RecipeSource(2, 48000.0)], 0, [(0, 1)], n_fft=4096, hop_length=1024, window="hann")
 
-    for recipe, inputs in ((spectrum, {"signal": str(mono)}), (transfer, {"reference": str(stereo)})):
-        error = _error_reply({"cmd": "run-recipe", "requestId": "r", "recipe": recipe, "inputs": inputs})
-        assert (error["code"], error["kind"]) == ("input-error", "analysis-settings"), error
+    for recipe, inputs in ((spectrum, {"signal": mono}), (transfer, {"reference": stereo})):
+        error = _recipe_error(recipe, **inputs)
+        assert error["kind"] == "analysis-settings", error
         assert "noverlap" in error["message"]
 
 
@@ -902,12 +916,11 @@ def test_a_bundled_roughness_recipe_on_a_file_shorter_than_its_window_is_a_setti
     window = tmp_path / "window.wav"
     sf.write(window, np.random.default_rng(0).normal(size=9600) * 0.1, 48000)
 
-    error = _error_reply({"cmd": "run-recipe", "requestId": "r", "recipe": recipe, "inputs": {"signal": str(short)}})
-    result = _dispatch({"cmd": "run-recipe", "requestId": "r", "recipe": recipe, "inputs": {"signal": str(window)}})
+    error = _recipe_error(recipe, signal=short)
 
-    assert (error["code"], error["kind"]) == ("input-error", "analysis-settings"), error
+    assert error["kind"] == "analysis-settings", error
     assert "FFT data points" in error["message"], "the library's text stays as the detail"
-    assert result["charts"], "a file as long as one window still runs"
+    _replayed(recipe, signal=window)  # a file as long as one window still runs
 
 
 def test_a_numpy_fft_error_outside_a_psychoacoustic_operation_stays_a_fault() -> None:
@@ -925,9 +938,9 @@ def test_a_recipe_filter_cutoff_above_the_files_nyquist_is_an_analysis_settings_
         stand_in.low_pass_filter(cutoff=20000), input_names=("signal",)
     ).to_dict()
 
-    error = _error_reply({"cmd": "run-recipe", "requestId": "r", "recipe": recipe, "inputs": {"signal": str(low_rate)}})
+    error = _recipe_error(recipe, signal=low_rate)
 
-    assert (error["code"], error["kind"]) == ("input-error", "analysis-settings"), error
+    assert error["kind"] == "analysis-settings", error
     assert "Cutoff frequency" in error["message"]
 
 
@@ -990,20 +1003,6 @@ def test_validate_request_accepts_every_command_payload(payload: dict) -> None:
 def test_validate_request_rejects_invalid_payloads(payload: object, message: str) -> None:
     with pytest.raises(ValueError, match=message):
         validate_request(payload)
-
-
-@pytest.mark.parametrize(
-    ("extra", "message"),
-    [
-        ({"typo": 1}, "'typo'"),
-        ({"inputContexts": {"tone": {"analysisRevision": 0, "debug": True}}}, "'inputContexts'"),
-    ],
-)
-def test_validate_request_rejects_unknown_run_recipe_keys(extra: dict, message: str) -> None:
-    base = {"cmd": "run-recipe", "requestId": "r", "recipe": {"version": 1, "extension": {"open": True}}, "inputs": {}}
-    validate_request({**base, "recipePath": "/r.json", "inputContexts": {"tone": {"analysisRevision": 0}}})
-    with pytest.raises(ValueError, match=message):
-        validate_request({**base, **extra})
 
 
 def test_validate_request_rejects_non_finite_numbers() -> None:
@@ -1773,7 +1772,6 @@ def test_a_request_holds_the_lane_of_every_file_it_reads() -> None:
             "responses": [{"filePath": "a.wav"}, {"filePath": "r.wav"}],
         }
     ) == lanes("r.wav", "a.wav")
-    assert _lanes_of({"cmd": "run-recipe", "inputs": {"x": "a.wav", "y": "./sub/../b.wav"}}) == lanes("a.wav", "b.wav")
     assert _lanes_of({"cmd": "build-recipe"}) == frozenset({""})
 
 

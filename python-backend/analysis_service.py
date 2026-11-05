@@ -27,7 +27,6 @@ from analyzer import (
     sample_range,
 )
 from backend_errors import InputError
-from chart_spec import ChartSpec
 from decimator import WaveformEnvelope
 
 if TYPE_CHECKING:
@@ -135,10 +134,6 @@ class WaveformRangeResult(TypedDict):
 class WavLoopExportResult(TypedDict):
     wavBase64: str
     sampleRate: int
-
-
-class RecipeRunResult(TypedDict):
-    charts: list[ChartSpec]
 
 
 class RecipeBuildResult(TypedDict):
@@ -525,31 +520,6 @@ class AnalysisService:
             "sampleRate": sample_rate,
         }
 
-    def run_recipe(
-        self,
-        recipe: Mapping[str, object],
-        *,
-        inputs: Mapping[str, str],
-        recipe_path: str | None = None,
-        input_contexts: Mapping[str, Mapping[str, object]] | None = None,
-    ) -> RecipeRunResult:
-        from recipe_runner import RecipeError, evaluate_recipe, frame_input_names, load_plan, recipe_title
-
-        try:
-            plan = load_plan(recipe)
-            names = frame_input_names(plan)
-            missing = [name for name in names if name not in inputs]
-            if missing:
-                raise RecipeError(f"no file for recipe input {missing[0]!r}")
-            frames = {}
-            for name in names:
-                context = (input_contexts or {}).get(name, {})
-                _, frames[name], _ = self.engine.get_analysis(inputs[name], context.get("calibrationProfile"))
-            charts = evaluate_recipe(plan, frames, title=recipe_title(recipe_path))
-        except RecipeError as error:
-            raise InputError(f"recipe error: {error}") from error
-        return {"charts": charts}
-
     def build_recipe(
         self,
         file_path: str | Path,
@@ -745,7 +715,6 @@ __all__ = [
     "pair_overlap",
     "pair_stft_params",
     "RecipeBuildResult",
-    "RecipeRunResult",
     "SpectrumSliceResult",
     "StftOptions",
     "TrackDetailResult",

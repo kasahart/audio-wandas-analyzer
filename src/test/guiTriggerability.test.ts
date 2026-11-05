@@ -60,7 +60,6 @@ test('GUI triggerability inventory lists in-scope commands and excludes debug-on
         'audioWandasAnalyzer.analyzeFile',
         'audioWandasAnalyzer.analyzeThisTarget',
         'audioWandasAnalyzer.selectPythonEnvironment',
-        'audioWandasAnalyzer.runRecipe',
         'audioWandasAnalyzer.configureCalibration',
     ]);
     assert.deepEqual(inventory.GUI_TRIGGERABILITY_EXCLUDED_COMMAND_IDS, [

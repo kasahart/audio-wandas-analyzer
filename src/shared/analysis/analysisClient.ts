@@ -2,7 +2,7 @@ import type { StftOptions } from './analysisTypes';
 import type {
     AnalyzePayload, BackendCommand, BuildRecipePayload, BuildRecipeResult, BackendPayload, ScanPayload, ScanResult, StageCombinePayload, StageCombineResult, BackendResult,
     CalibrationRequestContext, PairSpectrumResult, RangeResult, SpectrumSlicePayload, SpectrumSliceResult,
-    TrackDetailPayload, TrackDetailResult, ExportWavLoopResult, RunRecipePayload, RunRecipeResult,
+    TrackDetailPayload, TrackDetailResult, ExportWavLoopResult,
 } from '../protocol/backendProtocol';
 import type { PairSourceRef, PairSpectrumRequest, SpectrumSliceRequest, TrackDetailRequest, WaveformRangeRequest } from '../utils/audioTarget';
 
@@ -37,16 +37,9 @@ export class RequestCancellation implements AnalysisCancellationSignal {
     }
 }
 
-export interface RecipeExecutionOptions {
-    recipePath?: string;
-    cancellation?: AnalysisCancellationSignal;
-}
-
 export abstract class AnalysisClient {
     constructor(private readonly contextPolicy?: AnalysisContextPolicy) {}
 
-    private nextRecipeId = 0;
-    protected recipeTimeoutMs = 120_000;
     protected cancelRequest(_requestId: string, _reason: Error): void {}
 
     analysisRevisionFor(filePath: string): number {
@@ -176,65 +169,6 @@ export abstract class AnalysisClient {
             'export-wav-loop',
             { filePath, startNorm, endNorm },
         );
-    }
-
-    async runRecipe(recipe: RunRecipePayload['recipe'], inputs: RunRecipePayload['inputs'], options: RecipeExecutionOptions = {}): Promise<RunRecipeResult> {
-        const cancellation = options.cancellation;
-        if (cancellation?.isCancellationRequested) throw new Error('Recipe execution cancelled');
-        const requestId = `recipe-${++this.nextRecipeId}`;
-        let timer: ReturnType<typeof setTimeout> | undefined;
-        let disposable: { dispose(): void } | undefined;
-        let cancelled = false;
-        const cancellationListeners = new Set<() => void>();
-        const requestCancellation: AnalysisCancellationSignal = {
-            get isCancellationRequested() { return cancelled; },
-            onCancellationRequested: listener => {
-                cancellationListeners.add(listener);
-                return { dispose: () => { cancellationListeners.delete(listener); } };
-            },
-        };
-        const interrupted = new Promise<never>((_resolve, reject) => {
-            const interrupt = (error: Error): void => {
-                cancelled = true;
-                reject(error);
-                // A Recipe may be stuck in Python, so the host stops it the hard way before a request's own listener could only abandon it.
-                this.cancelRequest(requestId, error);
-                cancellationListeners.forEach(listener => listener());
-            };
-            timer = setTimeout(() => interrupt(new Error(`Recipe execution timed out after ${this.recipeTimeoutMs} ms`)), this.recipeTimeoutMs);
-            if (cancellation) {
-                const cancel = (): void => { interrupt(new Error('Recipe execution cancelled')); };
-                disposable = cancellation.onCancellationRequested(cancel);
-                if (cancellation.isCancellationRequested) cancel();
-            }
-        });
-        try {
-            if (cancelled) return await interrupted;
-            return await Promise.race([
-                interrupted,
-                (async () => {
-                    if (this.contextPolicy?.discardStale) {
-                        for (const file of Object.values(inputs)) {
-                            if (this.contextPolicy.current(file).calibrationProfile) {
-                                await this.analyzeWithContext(file, {}, resolved => this.request(
-                                    'analyze', analysisPayload(file, resolved), requestId, requestCancellation,
-                                ));
-                            }
-                            if (cancelled) throw new Error('Recipe execution cancelled');
-                        }
-                    }
-                    const inputContexts = Object.fromEntries(Object.entries(inputs).map(([name, file]) => [
-                        name, this.calibrationPayload(this.requestContext(file, {})),
-                    ]));
-                    return this.request('run-recipe', {
-                        recipe, inputs, inputContexts, ...(options.recipePath ? { recipePath: options.recipePath } : {}),
-                    }, requestId, requestCancellation);
-                })(),
-            ]);
-        } finally {
-            clearTimeout(timer);
-            disposable?.dispose();
-        }
     }
 
     buildRecipe(payload: BuildRecipePayload): Promise<BuildRecipeResult> {

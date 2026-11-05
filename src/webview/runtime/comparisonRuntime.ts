@@ -95,6 +95,8 @@ import { channelResult } from '../../shared/recipe/channelSelection';
 import { reportFiles } from './compareReport';
 import { regionLabel } from './entryTable';
 import { activeSlotReferenced, recipeKey } from '../../shared/recipe/recipeSteps';
+import { openedRecipe } from '../../shared/recipe/recipeOpen';
+import { isRecipeDocument } from '../../shared/recipe/recipeSelection';
 import { LIGHT_THEME_BODY_SELECTORS, ROLE_COLORS, useLightRoleColors } from '../../shared/gui/roleColors';
 import { createTrackStageMode, type StageTrack, type TrackStageMode } from './trackStageMode';
 import { attachRoleChips, roleChipHtml, roleChipText, type RoleChipRole } from './roleChip';
@@ -2771,7 +2773,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             'toggle-follow-cursor': toggleFollowCursor,
             'link-scales': toggleLinkedScales,
             'zoom-to-selection': zoomToSelection,
-            'run-recipe': () => messaging.post({ type: 'run-recipe' }),
+            'open-recipe': openRecipe,
             'save-recipe': saveRecipe,
             'export-png': exportPng,
             'export-csv': exportCsv,
@@ -3006,6 +3008,34 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         taskStatus(STR.exportCsvDone.replace('{name}', 'spectrum-export.csv') + (left ? ' — ' + left : ''), 'done');
         if (messaging.downloadFile(csv, 'spectrum-export.csv', 'text/csv;charset=utf-8')) return;
         triggerAnchorDownload(document, 'data:text/csv;charset=utf-8,' + encodeURIComponent(csv), 'spectrum-export.csv');
+    }
+    /**
+     * A .recipe.json read here, in the page, into the step bar: the comparison runs its chain on the recordings
+     * compared and opens on its last step (recipeOpen.ts says which Recipes can be one chain on each recording).
+     */
+    function openRecipe() {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json,application/json';
+        input.addEventListener('change', () => { void (async () => {
+            const file = input.files?.[0];
+            if (!file) return;
+            let parsed: unknown;
+            try { parsed = JSON.parse(await file.text()); } catch { parsed = undefined; }
+            const opened = openedRecipe(parsed);
+            if ('reason' in opened) {
+                const count = isRecipeDocument(parsed) ? parsed.inputs.length : 0;
+                const text = opened.reason === 'inputs' ? STR.recipeOpenInputs.replace('{count}', String(count))
+                    : opened.reason === 'not-chain' ? STR.recipeOpenNotChain : STR.recipeOpenNotRecipe;
+                taskStatus(text.replace('{name}', file.name), 'failed');
+                return;
+            }
+            entryScreen.setRecipe(opened.recipe);
+            if (contentType !== 'stage') handleToolbarAction('content-stage');
+            stageMode?.open(typeof opened.recipe.output === 'string' ? opened.recipe.output : undefined);
+            taskStatus(STR.recipeOpened.replace('{name}', file.name), 'done');
+        })(); });
+        input.click();
     }
     function saveRecipe() {
         // The bottom panel's analysis: the transfer functions while a reference is set, else the spectrum.

@@ -231,7 +231,7 @@ export async function run(): Promise<void> {
                     'export-report',
                     'stage-report',
                     'save-recipe',
-                    'run-recipe',
+                    'open-recipe',
                     // The entry table's exports share the toolbar's 書き出し menu.
                     'entry-batch',
                     'entry-export-csv',

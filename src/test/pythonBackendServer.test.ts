@@ -606,7 +606,6 @@ function recipeRestartHarness(
     });
     const backendModule = backendExports as unknown as typeof import('../extension/pythonBackendServer');
     const server = new class extends backendModule.PythonBackendServer {
-        protected override recipeTimeoutMs = 30;
         constructor() {
             super('unused', () => 'python3', undefined, undefined, preflight ? {
                 current: () => ({ calibrationProfile: { schemaVersion: 1, channels: [] } }),
@@ -617,81 +616,6 @@ function recipeRestartHarness(
     }();
     return { server, children };
 }
-
-for (const stage of ['queued', 'running', 'preflight'] as const) {
-    for (const mode of ['timeout', 'cancel'] as const) {
-        test(`Recipe ${mode} during ${stage} replays panel analysis, range and detail without rejecting them`, async () => {
-            const { server, children } = recipeRestartHarness(stage === 'preflight');
-            let listener: (() => void) | undefined;
-            let cancelled = false;
-            const cancellation = {
-                get isCancellationRequested() { return cancelled; },
-                onCancellationRequested: (callback: () => void) => {
-                    listener = callback; return { dispose: () => { listener = undefined; } };
-                },
-            };
-            try {
-                await server.warmup();
-                let recipe: Promise<unknown> | undefined;
-                const run = () => server.runRecipe({ schema: 'wandas.recipe', inputs: [] }, { sig: '/recipe.wav' }, { cancellation });
-                if (stage === 'running') recipe = run();
-                const analysis = server.analyze('/panel.wav', {});
-                const range = server.requestRange('/panel.wav', 0, 1, 4, 'panel-range');
-                const detail = server.requestTrackDetail('/panel.wav', { trackIndex: 0, analysisId: 'panel', settingsSignature: 'settings' }, 'panel-detail');
-                recipe ??= run();
-                const interrupted = assert.rejects(recipe, mode === 'timeout' ? /timed out/ : /cancelled/);
-                await new Promise(resolve => setImmediate(resolve));
-                const old = children[0];
-                assert.equal(old.commands.length, 4);
-                const recipeCommand = old.commands.find(command => command.requestId.startsWith('recipe-'))!;
-                assert.equal(recipeCommand.cmd, stage === 'preflight' ? 'analyze' : 'run-recipe');
-                if (mode === 'cancel') { cancelled = true; listener!(); }
-                await interrupted;
-                await new Promise(resolve => setImmediate(resolve));
-                assert.equal(old.killed, true);
-                assert.equal(children.length, 2);
-                const fresh = children[1];
-                assert.deepEqual(fresh.commands.map(command => command.cmd), ['analyze', 'range', 'track-detail']);
-                assert.deepEqual(fresh.commands.filter(command => command.cmd !== 'analyze').map(command => command.requestId), ['panel-range', 'panel-detail']);
-                for (const command of fresh.commands) fresh.reply(command);
-                const results = await Promise.all([analysis, range, detail]);
-                assert.equal(results.length, 3);
-                assert.equal(children.length, 2);
-                assert.equal(listener, undefined);
-            } finally { server.dispose(); }
-        });
-    }
-}
-
-
-test('panel recovery reports a restart failure rather than a Recipe timeout', async () => {
-    const { server, children } = recipeRestartHarness(false, true);
-    try {
-        const panel = server.analyze('/panel.wav', {});
-        const failed = assert.rejects(panel, /restart unavailable/);
-        const recipe = assert.rejects(server.runRecipe({ schema: 'wandas.recipe', inputs: [] }, {}), /timed out/);
-        await Promise.all([failed, recipe]);
-        assert.equal(children.length, 2);
-    } finally { server.dispose(); }
-});
-
-test('disposing during Recipe interruption prevents replay from restarting a closed server', async () => {
-    const { server, children } = recipeRestartHarness(false);
-    let cancel!: () => void;
-    try {
-        const panel = server.requestRange('/panel.wav', 0, 1, 4);
-        const failed = assert.rejects(panel, /backend restarting/i);
-        const recipe = assert.rejects(server.runRecipe({ schema: 'wandas.recipe', inputs: [] }, {}, { cancellation: {
-            isCancellationRequested: false,
-            onCancellationRequested: listener => { cancel = listener; return { dispose() {} }; },
-        } }), /cancelled/);
-        await new Promise(resolve => setImmediate(resolve));
-        cancel(); server.dispose();
-        await Promise.all([failed, recipe]);
-        await new Promise(resolve => setImmediate(resolve));
-        assert.equal(children.length, 1);
-    } finally { server.dispose(); }
-});
 
 test('startup error keeps an unterminated stderr line written after the process exits', async () => {
     const { server } = recipeRestartHarness(false, false, child => child.exit(1, null, 'Traceback: late failure'));
