@@ -149,6 +149,10 @@ trackDurRatio  = durationSeconds / globalSpanSec
 - Prefer wandas APIs over reimplementing DSP. See `python-backend/analyzer.py` for the canonical entry point.
 - Tests use `pytest` and live alongside the module they test (`python-backend/test_*.py`).
 
+### Charts
+
+- Every chart follows the numbered rules in [docs/display-rules.md](docs/display-rules.md). A change that decides a new rule adds it there with the test that checks it; `src/test/displayRules.test.ts` fails when a listed test is missing or the 未 list grows.
+
 ---
 
 ## 6. Testing strategy
