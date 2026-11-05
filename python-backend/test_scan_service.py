@@ -680,6 +680,10 @@ def test_the_input_is_drawn_as_the_channel_the_chain_picks_not_the_channels_mean
         # The channel's own peak (the mean of the two would peak near 0.3), as its legend names it.
         assert max(waveform["max"]) == pytest.approx(amplitude, rel=0.02)
         assert min(waveform["min"]) == pytest.approx(-amplitude, rel=0.02)
+    # A channel the file lacks fails as the channel step, as it does when that step itself is asked for.
+    request = {"cmd": "scan", "requestId": "r", "filePath": path, "recipe": _with_channel(ENTRY_RECIPE, 5)}
+    missing = dispatch(validate_request({**request, "stage": "node-input"}), service)
+    assert missing["ok"] is False and missing["failedStep"] == "node-channel"
 
 
 def test_a_median_welch_is_never_split_into_parts(monkeypatch: pytest.MonkeyPatch) -> None:

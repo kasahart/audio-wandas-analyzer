@@ -597,7 +597,10 @@ def scan_cached(
         # the input is drawn as that channel, as every step after it is, not as all the file's channels.
         shown = picked
         if CHANNEL_NODE in plans["upstream"]:
-            shown = upstream_plan(recipe, CHANNEL_NODE).apply({input_name: picked})
+            try:
+                shown = upstream_plan(recipe, CHANNEL_NODE).apply({input_name: picked})
+            except Exception as error:  # noqa: BLE001 - named as the step's failure, as a step before the slice is.
+                raise StepFailure(CHANNEL_NODE, error) from error
         view = stage_view(shown, _length_s(picked), detail)
         return _stage_result(described, view, shown, _length_s(picked), data_key)
     if stage is not None and stage not in known:
