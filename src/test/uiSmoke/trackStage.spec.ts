@@ -296,4 +296,8 @@ test('a two-input recipe file opened from the Export menu becomes the step bar\'
     await expect(bar.locator('.step-chip').filter({ hasText: /concat/i })).toHaveCount(0);
     // The chain opens on its end: the coherence against the base.
     await expect(bar.locator('.step-chip.is-current')).toContainText(/coherence/i);
+    // Opening it was one edit: ↶ brings back the chain that was there.
+    await bar.locator('[data-action="step-undo"]').click();
+    await expect(bar.locator('.step-chip').filter({ hasText: /coherence/i })).toHaveCount(0);
+    await expect(bar.locator('.step-chip').filter({ hasText: /average spectrum/i })).toHaveCount(1);
 });

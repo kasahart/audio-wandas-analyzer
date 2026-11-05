@@ -120,6 +120,8 @@ export interface TrackStageMode {
     open(stage?: string): void;
     /** The tracks' selection (s) taken as the region, once, when the chain has none yet. */
     importRegion(range: EntryRegion): void;
+    /** Puts an opened Recipe in the step bar as one edit (↶ brings the chain before it back) and shows its end. */
+    openRecipe(recipe: RecipeDocument, said: string): void;
     /** Writes the comparison as a report folder. */
     report(): void;
     /** What the comparison shows, for tests. */
@@ -707,6 +709,14 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         open(next) {
             openStageState(state, next);
             this.setActive(true);
+        },
+        openRecipe(recipe, said) {
+            // Open first, so the bar holds the chain on screen and ↶ can bring it back.
+            if (!state.on) this.open();
+            // The screen redraws later: the bar is handed the chain on screen now, for ↶ to keep.
+            paintNow();
+            stepBar.edit(recipe, said);
+            this.open(typeof recipe.output === 'string' ? recipe.output : undefined);
         },
         setActive(next) {
             if (next) enterStageState(state);

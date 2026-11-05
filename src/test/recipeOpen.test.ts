@@ -55,17 +55,17 @@ test('what cannot be one chain on each recording says why', () => {
     // Two inputs that are not paired for a cross-channel step (here: joined, then a spectrum).
     const joined = bundled('coherence.recipe.json');
     const nodes = recipeNodes(joined).slice(0, 3).concat([{ id: 'node-3', operation: 'wandas.audio.welch', version: 1, inputs: ['node-2'], params: { $type: 'map', entries: [] } }]);
-    assert.deepEqual(openedRecipe({ ...joined, nodes, output: 'node-3' }), { reason: 'inputs' });
+    assert.deepEqual(openedRecipe({ ...joined, nodes, output: 'node-3' }), { reason: 'pair' });
     // A reference and a response on different channels: each compared recording runs the base side's chain, so it cannot open.
     const transfer = bundled('transfer-function.recipe.json');
     const otherChannel = recipeNodes(transfer).map(node => node.id === 'node-1' ? { ...node, params: { $type: 'map', entries: [['channel_idx', 1]] } } : node);
-    assert.deepEqual(openedRecipe({ ...transfer, nodes: otherChannel }), { reason: 'inputs' });
+    assert.deepEqual(openedRecipe({ ...transfer, nodes: otherChannel }), { reason: 'pair' });
     // The reference over the response: the base slot gives the other direction, so it cannot open.
     const reversed = recipeNodes(transfer).map(node => node.operation === 'wandas.frame.select_pair' ? { ...node, params: { $type: 'map', entries: [['input', 1], ['output', 0]] } } : node);
-    assert.deepEqual(openedRecipe({ ...transfer, nodes: reversed }), { reason: 'inputs' });
+    assert.deepEqual(openedRecipe({ ...transfer, nodes: reversed }), { reason: 'pair' });
     // Two channels on each side: the comparison pairs one channel of each recording, so it cannot open.
     const both = recipeNodes(transfer).map(node => node.operation === 'wandas.frame.get_channel' ? { ...node, params: { $type: 'map', entries: [['channel_idx', { $type: 'list', items: [0, 1] }]] } } : node);
-    assert.deepEqual(openedRecipe({ ...transfer, nodes: both }), { reason: 'inputs' });
+    assert.deepEqual(openedRecipe({ ...transfer, nodes: both }), { reason: 'pair' });
     // An input named as the slice would be: the slice gets another id, so no loop.
     const named = bundled('octave.recipe.json');
     const renamed = JSON.parse(JSON.stringify(named).replaceAll('"input-0"', '"node-region"')) as RecipeDocument;

@@ -3026,14 +3026,17 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             if ('reason' in opened) {
                 const count = isRecipeDocument(parsed) ? parsed.inputs.length : 0;
                 const text = opened.reason === 'inputs' ? STR.recipeOpenInputs.replace('{count}', String(count))
+                    : opened.reason === 'pair' ? STR.recipeOpenPair
                     : opened.reason === 'not-chain' ? STR.recipeOpenNotChain : STR.recipeOpenNotRecipe;
                 taskStatus(text.replace('{name}', file.name), 'failed');
                 return;
             }
-            entryScreen.setRecipe(opened.recipe);
             if (contentType !== 'stage') handleToolbarAction('content-stage');
-            stageMode?.open(typeof opened.recipe.output === 'string' ? opened.recipe.output : undefined);
-            taskStatus(STR.recipeOpened.replace('{name}', file.name), 'done');
+            const said = STR.recipeOpened.replace('{name}', file.name);
+            // One edit of the step bar: ↶ brings back the chain that was there.
+            if (stageMode) stageMode.openRecipe(opened.recipe, said);
+            else entryScreen.setRecipe(opened.recipe);
+            taskStatus(said, 'done');
         })(); });
         input.click();
     }

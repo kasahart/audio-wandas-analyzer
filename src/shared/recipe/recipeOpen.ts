@@ -12,13 +12,13 @@ const CONCAT = 'wandas.channel.concat_frame';
 const RESAMPLING = 'wandas.audio.resampling';
 const SELECT_PAIR = 'wandas.frame.select_pair';
 
-export type OpenedRecipe = { recipe: RecipeDocument } | { reason: 'not-recipe' | 'not-chain' | 'inputs' };
+export type OpenedRecipe = { recipe: RecipeDocument } | { reason: 'not-recipe' | 'not-chain' | 'inputs' | 'pair' };
 
 export function openedRecipe(value: unknown): OpenedRecipe {
     if (!isRecipeDocument(value) || !isRecipeChain(value)) return { reason: 'not-recipe' };
     if (cyclic(recipeNodes(value))) return { reason: 'not-chain' };
     const paired = value.inputs.length === 2 ? pairedAsSlot(value) : value.inputs.length === 1 ? value : undefined;
-    if (!paired) return { reason: 'inputs' };
+    if (!paired) return { reason: value.inputs.length === 2 ? 'pair' : 'inputs' };
     const recipe = withRegion(paired);
     const chain = recipeChain(recipe);
     // One chain from the input to the output, every node on it.

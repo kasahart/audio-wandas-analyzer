@@ -77,6 +77,7 @@ export interface UiStrings {
     recipeOpenNotRecipe: string;
     recipeOpenInputs: string;
     recipeOpenNotChain: string;
+    recipeOpenPair: string;
     btnSaveRecipe: string;
     cursorDisplayHint: string;
     toolbarCursorLabel: string;
@@ -866,8 +867,9 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         btnOpenRecipe: 'Open recipe…',
         recipeOpened: 'Opened {name} in the step bar',
         recipeOpenNotRecipe: '{name} is not a wandas recipe',
-        recipeOpenInputs: '{name} has {count} inputs and cannot open in the step bar: it takes recipes with one input, or two inputs that pair the same channel of a reference and a response (the response over the reference)',
-        recipeOpenNotChain: '{name} is not one chain of steps and cannot open in the step bar',
+        recipeOpenInputs: '{name} has {count} inputs and cannot open in the step bar: it takes a recipe with one input, or two (a reference and a response)',
+        recipeOpenNotChain: '{name} branches or leaves steps unused, and the step bar runs one line of steps, so it cannot open',
+        recipeOpenPair: '{name} cannot open in the step bar: its two inputs must take the same single channel, through the same steps, into one cross-channel step (the response over the reference)',
         btnSaveRecipe: 'Save as recipe',
         toolbarCursorLabel: 'Cursor',
         cursorDisplayHint: 'Cursor time: click a waveform, then fine-tune with ← → (Shift: 100 ms)',
@@ -1643,8 +1645,9 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         btnOpenRecipe: 'レシピを開く…',
         recipeOpened: '{name} を手順バーに読み込みました',
         recipeOpenNotRecipe: '{name} は wandas のレシピではありません',
-        recipeOpenInputs: '{name} は入力が {count} つあるため、手順バーでは開けません（開けるのは入力が 1 つのレシピか、基準と応答の同じチャンネルを組にして応答／基準を求める 2 入力のレシピです）',
-        recipeOpenNotChain: '{name} は一本の手順になっていないため、手順バーでは開けません',
+        recipeOpenInputs: '{name} は入力が {count} つあるため、手順バーでは開けません（開けるのは入力が 1 つか、基準と応答の 2 つのレシピです）',
+        recipeOpenNotChain: '{name} は途中で分かれているか使われない手順があり、手順バーは一列の手順だけを扱うため開けません',
+        recipeOpenPair: '{name} は手順バーで開けません（2 つの入力が同じ 1 チャンネルを同じ手順で取り、1 つの 2 チャンネル解析で応答／基準を求める形である必要があります）',
         btnSaveRecipe: 'レシピとして保存',
         toolbarCursorLabel: 'カーソル',
         cursorDisplayHint: 'カーソル時刻: 波形をクリックし、← → で微調整（Shift: 100 ms）',
@@ -2244,7 +2247,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintZoomReset: '全体を表示（キー: 0、または波形をダブルクリック）',
         hintRectZoom: '矩形ズームモード: 波形上をドラッグした範囲にズーム',
         hintMenuExport: '書き出しはすべてここ：トラック（PNG・CSV・WAV・レポート）、比較フォルダ、レシピのまとめ、表とメモ',
-        hintOpenRecipe: '手元の wandas .recipe.json を手順バーに入れ、比較中の録音に掛ける',
+        hintOpenRecipe: '手元の wandas .recipe.json を手順バーに読み込み、比較中の録音に適用する',
         hintSaveRecipe: '下のパネルの解析を、今の設定でファイル全体を計算するレシピとして保存',
         hintSpecZoomOut: 'スペクトルをズームアウト',
         hintSpecZoomIn: 'スペクトルをズームイン（スペクトル上のドラッグでも可）',
