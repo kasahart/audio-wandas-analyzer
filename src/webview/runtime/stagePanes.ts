@@ -260,6 +260,48 @@ function windowed(scale: AxisScale, window: NormalizedRange = FULL_WINDOW): Axis
 /** Where a value of the picture's horizontal axis sits on it (0–1 across the whole axis), and back. */
 export function axisFractionOf(view: Pick<StageView, 'xs' | 'xScale' | 'xLimits'>, value: number): number { return axisScale(view).fraction(value); }
 export function axisValueAt(view: Pick<StageView, 'xs' | 'xScale' | 'xLimits'>, fraction: number): number { return axisScale(view).at(fraction); }
+/**
+ * Overlaid lines in drawing order by level over the shown part of the axis: the loudest first, the quietest last on
+ * top, so a louder recording does not cover a quieter one. A spectrum's level is the power mean of its dB values on
+ * screen; a waveform's, the mean square of its drawn envelope on the amplitude axis the signals share (not dB of each
+ * one's own reference). Lines not in dB, or with nothing on screen, keep their place among themselves after the
+ * rest; the colours and the legend are not changed.
+ */
+export function byLevel(layers: StageLayer[], axisView: Pick<StageView, 'xs' | 'xScale' | 'xLimits'> | undefined, window: NormalizedRange = FULL_WINDOW): StageLayer[] {
+    const scale = axisView?.xs?.length ? axisScale(axisView) : null;
+    const level = (layer: StageLayer): number => {
+        const { view } = layer;
+        const shown = (x: number | null | undefined): boolean => {
+            if (x === null || x === undefined) return false;
+            const at = scale ? scale.fraction(x) : 0.5;
+            return at >= window.start && at <= window.end;
+        };
+        if (view.waveform) {
+            // As drawn: on the amplitude axis all the signals share, not in dB of each one's own reference.
+            const { min, max, minT, maxT } = view.waveform;
+            let power = 0, count = 0;
+            max.forEach((high, index) => {
+                const low = min[index];
+                if (high === null || low === null || !shown(maxT[index] ?? minT[index])) return;
+                power += ((high - low) / 2) ** 2; count += 1;
+            });
+            return count && power > 0 ? 10 * Math.log10(power / count) : -Infinity;
+        }
+        if (!isDb(view)) return -Infinity;
+        const xs = view.xs ?? [], values = view.values ?? [];
+        let power = 0, count = 0;
+        values.forEach((value, index) => {
+            if (value === null || !Number.isFinite(value) || !shown(xs[index])) return;
+            // Silence on screen counts, as no power.
+            if (!silent(view, value)) power += 10 ** (value / 10);
+            count += 1;
+        });
+        return count && power > 0 ? 10 * Math.log10(power / count) : -Infinity;
+    };
+    return layers.map((layer, index) => ({ layer, index, level: level(layer) }))
+        .sort((a, b) => (b.level === a.level ? a.index - b.index : b.level - a.level))
+        .map(item => item.layer);
+}
 /** The same for a heatmap's rows (frequency, Bark or quefrency). */
 export function rowFractionOf(view: StageView, value: number): number { return rowScale(view).fraction(value); }
 export function rowValueAt(view: StageView, fraction: number): number { return rowScale(view).at(fraction); }
