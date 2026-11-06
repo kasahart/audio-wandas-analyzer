@@ -16,6 +16,9 @@ test('the pointer on a track lane reads the point nearest it within a few pixels
     assert.equal(laneHoverPoint(lane, 116, 10, 2)?.x, 100);
     // Past the lane's ends, nothing.
     assert.equal(laneHoverPoint(lane, 260, 50), null);
+    // Zoomed in, samples 100 px apart: between two of them, far from both, the nearest column is still read.
+    const sparse: LanePoint[] = [0, 100, 200].map(x => ({ x, y: 50, value: 0, t: x / 200 }));
+    assert.deepEqual(laneHoverPoint(sparse, 60, 50), sparse[1]);
 });
 
 test('a track lane\'s readout names the recording, its time to the digits a pixel tells apart and the amplitude in its unit', () => {

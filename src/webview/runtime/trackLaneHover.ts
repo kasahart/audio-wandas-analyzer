@@ -22,11 +22,16 @@ export function laneHoverPoint(points: readonly LanePoint[], x: number, y: numbe
     const radius = HOVER_PICK_RADIUS_PX * pixelRatio;
     const hit = nearestPoint([points],
         line => line.filter(point => Math.abs(point.x - x) <= radius),
-        // With none that near: of the points in the pointer's pixel column (or the nearest column), the one nearest in height.
+        // With none that near: of the points in the nearest column, the one nearest in height, anywhere over the
+        // waveform (zoomed in, its samples may lie farther apart than the radius); past its ends, nothing.
         line => {
-            let column = Infinity;
-            for (const point of line) column = Math.min(column, Math.abs(point.x - x));
-            if (!isFinite(column) || column > radius) return null;
+            let column = Infinity, first = Infinity, last = -Infinity;
+            for (const point of line) {
+                column = Math.min(column, Math.abs(point.x - x));
+                first = Math.min(first, point.x);
+                last = Math.max(last, point.x);
+            }
+            if (!isFinite(column) || x < first - radius || x > last + radius) return null;
             let best: LanePoint | null = null;
             for (const point of line) {
                 if (Math.abs(point.x - x) <= column + pixelRatio * 0.5 && (!best || Math.abs(point.y - y) < Math.abs(best.y - y))) best = point;
