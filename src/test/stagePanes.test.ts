@@ -239,6 +239,14 @@ test('the pointer reads the point nearest it within a few pixels, so a narrow pe
     assert.deepEqual(pick(stageHover(zoomed, 108, 3)), { x: 108, y: 100 });
 });
 
+test('a wide waveform bucket whose earlier point is beside the pointer is read, though its middle is past the radius (R7)', () => {
+    const wave: StageView = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'amplitude', xs: [], values: [],
+        waveform: { min: [-0.5, -0.2], max: [0.5, 0.9], minT: [0, 99], maxT: [40, 51] } } as unknown as StageView;
+    const plot: StagePlot = { frame: { left: 0, top: 0, width: 200, height: 100 }, xAt: value => value, yAt: value => 50 - value * 50, ratioStep: 1.12, lines: [{ view: wave, color: 'blue' }], diff: false };
+    // The second bucket's highest point at (51, 5) is 1 px from the pointer; the first bucket's at (40, 25) is farther.
+    assert.deepEqual(pick(stageHover(plot, 50, 5)), { x: 51, y: 5 });
+});
+
 function pick(hit: ReturnType<typeof stageHover>): { x: number; y: number } | null {
     return hit ? { x: hit.x, y: hit.y } : null;
 }

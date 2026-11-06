@@ -914,7 +914,8 @@ function signalPointsNear(plot: StagePlot, waveform: NonNullable<StageView['wave
     const points: Array<{ index: number; time: number; x: number; y: number; value: number }> = [];
     // A bucket's two points sit at their own times, up to a bucket from its middle: start one bucket early.
     for (let index = Math.max(0, firstAtOrRight(n, i => plot.xAt(timeOf(i)), x - radius) - 1); index < n; index++) {
-        if (plot.xAt(timeOf(index)) > x + radius + 1) break;
+        // Past the radius once the bucket's earlier point is: a wide bucket's middle may be past it while that point is not.
+        if (plot.xAt(Math.min(minT[index] ?? timeOf(index), maxT[index] ?? timeOf(index))) > x + radius) break;
         for (const [raw, time] of [[min[index], minT[index]], [max[index], maxT[index]]] as const) {
             const value = raw ?? 0, at = plot.xAt(time ?? timeOf(index));
             if (shown && (value < shown.min || value > shown.max)) continue;
