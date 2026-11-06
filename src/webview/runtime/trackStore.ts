@@ -9,6 +9,7 @@ import type {
     WaveformRangeCache,
 } from './types';
 import { HostRequests } from './hostRequests';
+import { OWN_COLORS } from '../../shared/gui/roleColors';
 
 export interface TrackRecord {
     readonly id: TrackId;
@@ -46,7 +47,20 @@ export class TrackStore {
             const record = this.createRecord(result, protocolIndex);
             this.protocolOrder.push(record.id);
             this.displayOrder.push(record.id);
+            this.assignOwnColor(record);
         });
+    }
+
+    /**
+     * Gives a new track the own colour (roleColors.ownColor) the tracks on screen use least, the first such: up to as many
+     * tracks as there are colours, each has a different one. A track keeps its colour while it stays.
+     */
+    private assignOwnColor(record: TrackRecord): void {
+        const uses = OWN_COLORS.map(() => 0);
+        this.records.forEach((other) => {
+            if (other !== record && other.active && other.runtime.ownColorIndex !== undefined) uses[other.runtime.ownColorIndex % uses.length]++;
+        });
+        record.runtime.ownColorIndex = uses.indexOf(Math.min(...uses));
     }
 
     get(id: TrackId): TrackRecord | undefined {
@@ -216,6 +230,8 @@ export class TrackStore {
         nextProtocolOrder.forEach((id, protocolIndex) => {
             this.require(id).protocolIndex = protocolIndex;
         });
+        // Colours for the new tracks once the tracks gone have given theirs back.
+        added.forEach((id) => this.assignOwnColor(this.require(id)));
         this.protocolOrder = nextProtocolOrder;
         const retainedDisplay = previousDisplayOrder.filter((id) => retained.has(id));
         this.displayOrder = retainedDisplay.concat(added);

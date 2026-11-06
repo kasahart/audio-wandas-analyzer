@@ -452,9 +452,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function setLoopRegion(region: LoopRegion | null): void {
         viewState.setLoop(region);
     }
-    let nextOwnColorIndex = 0;
     function createTrackRuntime(): TrackRuntimeState {
-        return { offsetSeconds: 0, hidden: false, ownColorIndex: nextOwnColorIndex++ };
+        return { offsetSeconds: 0, hidden: false };
     }
     const trackStore = new TrackStore(state.results, createTrackRuntime);
     const runtimeSessionId = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
@@ -787,10 +786,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function trackOwnColor(i: number): string {
         return ownColor(trackRuntimeAt(i).ownColorIndex ?? i);
     }
-    function ownColorOf(filePath: string): string {
-        const i = state.results.findIndex(result => result.filePath === filePath);
-        return i >= 0 ? trackOwnColor(i) : ownColor(0);
-    }
     /** The role chips on the track headers follow the slots (set here, on the entry table or on the comparison's legend). */
     function syncRoleChips() {
         let roleChanged = false;
@@ -800,7 +795,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const face = chip.querySelector<HTMLElement>('.role-chip-face');
             if (chip.open || !face || (face.dataset.role === String(role?.slot ?? '') && face.textContent === roleChipText(role))) return;
             if (face.dataset.role !== String(role?.slot ?? '')) roleChanged = true;
-            chip.outerHTML = roleChipHtml(filePath, role, ownColorOf(filePath), STR);
+            // The chip's own track (a file opened twice is two tracks, each its own colour).
+            const trackId = chip.closest<HTMLElement>('.track-row')?.dataset.trackId as TrackId | undefined;
+            const index = trackId ? trackStore.protocolIndexForId(trackId) : null;
+            chip.outerHTML = roleChipHtml(filePath, role, index !== null ? trackOwnColor(index) : ownColor(0), STR);
         });
         // The cursor spectra are drawn in each track's role colour: repaint them (without asking for slices) when a role changes.
         if (roleChanged && !spectraHidden) spectrumRequests.scheduleFrame(false, false);
@@ -1279,9 +1277,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         stageChannel: (path, comparePath, group) => entryScreen.stageChannel(path, comparePath, group),
         rowInfo: path => entryScreen.rowInfo(path),
         roleChip(path) {
-            // The legend's label names the channel already: the chip says the role alone.
+            // The legend's label names the channel already: the chip says the role alone (a named chip has no colour of its own).
             const role = trackRole(path);
-            return roleChipHtml(path, role && { slot: role.slot, ch: null }, ownColorOf(path), STR, true);
+            return roleChipHtml(path, role && { slot: role.slot, ch: null }, '', STR, true);
         },
         cost: paths => entryScreen.cost(paths),
         showCompared: () => entryScreen.showCompared(),
