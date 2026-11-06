@@ -899,8 +899,8 @@ function linePointsNear(plot: StagePlot, layer: StageLayer, x: number, radius: n
         if (at > x + radius) break;
         const value = values[index];
         if (value === null || value === undefined || silent(layer.view, value)) continue;
-        const y = plot.yAt(value);
-        if (onPlot(plot, at, y)) points.push({ index, x: at, y, value });
+        // yAt holds a value past the level axis at the plot's edge: whether it is on screen is read unclamped.
+        if (onPlot(plot, at, (plot.lineYAt ?? plot.yAt)(value))) points.push({ index, x: at, y: plot.yAt(value), value });
     }
     return points;
 }

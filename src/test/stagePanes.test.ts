@@ -233,6 +233,10 @@ test('the pointer reads the point nearest it within a few pixels, so a narrow pe
     assert.deepEqual(pick(stageHover(plot, 108, 98)), { x: 108, y: 100 });
     // Past the radius, the point under the pointer as before.
     assert.deepEqual(pick(stageHover(plot, 150, 20)), { x: 150, y: 100 });
+    // Zoomed into the level axis, the peak past its top is off the plot: the line under the pointer is read, not the clamped peak.
+    const clamped = (value: number): number => 100 - Math.min(0.5, Math.max(0, value)) * 200;
+    const zoomed: StagePlot = { ...plot, yAt: clamped, lineYAt: value => 100 - value * 200 };
+    assert.deepEqual(pick(stageHover(zoomed, 108, 3)), { x: 108, y: 100 });
 });
 
 function pick(hit: ReturnType<typeof stageHover>): { x: number; y: number } | null {
