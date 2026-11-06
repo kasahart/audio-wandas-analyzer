@@ -86,9 +86,10 @@
 
 ## R10 レイアウトが変わったら描き直す
 
-パネルの大きさが変わったら、グラフをその大きさで描き直します。引き伸ばしたまま残しません。
+パネルの大きさが変わったら、グラフをその大きさで描き直します。引き伸ばしたまま残しません。グラフはほかのグラフやレーンに重なりません。トリガーの重ね描きはトラックの上に自分の高さを保ち、トラックはその下でスクロールします。
 
 - テスト: `src/test/uiSmoke/visibility.spec.ts` › track canvas width follows layout changes without a window resize event
+- テスト: `src/test/uiSmoke/trackCompare.spec.ts` › a trigger added from ＋ fires at half the tracks' peak, draws each event of each recording over the time from its trigger, and is followed only by what takes events
 
 ## R11 凡例が名指すチャンネルを描く
 

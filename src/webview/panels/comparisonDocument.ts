@@ -429,6 +429,8 @@ export function renderComparisonStyles(): string {
         .track-stage-base-info .tb-link { border: none; background: none; padding: 0; color: var(--accent); cursor: pointer; }
         /* Overlaid, the steps view fills the height the lanes leave (the cursor spectrum is folded): both axes in sight. */
         .track-stage[data-layout="overlay"] { flex: 1 1 auto; min-height: 0; }
+        /* With the tracks under it (a trigger's events), the plot keeps its own height and the tracks scroll below it. */
+        .track-stage[data-layout="overlay"][data-marked="true"] { flex: 0 0 auto; }
         .track-stage-panel > canvas { flex: 1 1 0; width: 100%; min-height: 0; }
         .track-stage-diff { display: flex; flex-direction: column; flex: 0 0 35%; min-height: 0; border-top: 1px solid var(--line); }
         .track-stage-diff > canvas { flex: 1 1 0; width: 100%; min-height: 0; }

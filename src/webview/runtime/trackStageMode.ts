@@ -412,6 +412,8 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         }
         const allTracks = deps.tracks();
         painted = false;
+        // Until a trigger's events are drawn over the tracks again, the stage takes the space it is given.
+        root.dataset.marked = 'false';
         // Each plot drawn below says again what it holds: one drawn empty keeps no lines to hover.
         drawnOn.clear();
         stepBar.element.dataset.drawn = '0';
@@ -623,6 +625,8 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         // How many of the tracks are drawn from their detail, for tests.
         stepBar.element.dataset.detailLines = String(tracks.filter(track => fine(track.filePath)).length);
         root.dataset.layout = overlay ? 'overlay' : 'lanes';
+        // A trigger's events over the tracks: the plot keeps its height above them rather than spill over them.
+        root.dataset.marked = String(marked);
         // The zoom, for tests: "start–end" of the horizontal axis.
         root.dataset.xWindow = `${state.window.x.start.toFixed(3)}-${state.window.x.end.toFixed(3)}`;
         painted = true;
