@@ -4,7 +4,7 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 
 ## Unreleased
 
-- Track view and cursor spectrum: a recording without a role is drawn grey, as in Compare, instead of a teal or brown of its own; its role chip is grey too. The analysis window band under the cursor is a neutral grey instead of amber, which read as a failed step's orange (#640).
+- Track view and cursor spectrum: a recording without a role is drawn grey, as in Compare, instead of a teal or brown of its own; its role chip is grey too. With two level axes, a line read on the right-hand one is dashed, as its swatch in the legend, so two grey lines are still told apart. The analysis window band under the cursor is a neutral grey instead of amber, which read as a failed step's orange (#640).
 - Compare: in the steps view, a two-channel recording is one lane holding its step's picture. Before, a blank second-channel lane took half the track's height, and the first lane's header named "ch1" above a picture of the compared channel (#638).
 - Compare: the value axis names what a step made of the sound: RMS after rms_trend (not "Value"), time-weighted RMS after sound_level, and power in the unit squared after power (not "Amplitude"). Like the level axis, an amplitude axis now says it is uncalibrated while the files are (#636).
 - Compare: a heatmap (STFT, roughness over frequency, cepstrogram, their difference) has a colour bar that names what its colour measures, with unit and reference, and shows both ends of the scale, instead of a bare span such as `±0.079` in the corner (#634).

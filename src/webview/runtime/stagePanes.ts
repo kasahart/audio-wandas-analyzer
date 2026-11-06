@@ -368,6 +368,8 @@ export interface StageLayer {
     filled?: boolean;
     /** What the readout calls it while the pointer is on it (the legend's name). */
     label?: string;
+    /** A dash pattern (px) for a line told apart by more than its colour: one read on the second level axis. */
+    dash?: readonly number[];
     /** The recording a trigger's events are of, whose events a click leaves out (or puts back), and those left out. */
     source?: string;
     excluded?: readonly number[];
@@ -779,6 +781,7 @@ export function strokeStageLine(context: CanvasRenderingContext2D, plot: StagePl
     context.strokeStyle = layer.color;
     context.globalAlpha = layer.alpha ?? 1;
     context.lineWidth = width;
+    if (layer.dash) context.setLineDash([...layer.dash]);
     if (layer.view.kind === 'bar') {
         values.forEach((value, index) => {
             if (value === null) return;
