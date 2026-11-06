@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { expect, test, type Page } from './canvasAudit';
-import { NO_ROLE_COLOR, ROLE_COLORS } from '../../shared/gui/roleColors';
+import { OWN_COLORS, ROLE_COLORS } from '../../shared/gui/roleColors';
 import { getStrings } from '../../shared/i18n/strings';
 import { entry100Results, openEntry, type ScannedFile } from './entryHelpers';
 
@@ -192,7 +192,7 @@ test('a selection the compared recording does not reach is read in the next reco
     await expect(page.locator('.track-stage')).toHaveAttribute('data-region', '0.50–1.50');
 });
 
-test('in Compare, colour is the role\'s: a recording without one is grey, its name in the legend; the headline names the difference', async ({ page }) => {
+test('in Compare, colour is the role\'s: a recording without one has its own colour, its name in the legend; the headline names the difference', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     const STR = getStrings('en');
     const compared = await comparedTrack(page);
@@ -205,7 +205,7 @@ test('in Compare, colour is the role\'s: a recording without one is grey, its na
     const other = items.filter({ has: page.locator(`[data-action="compare-play"]:not([data-path="${compared}"])`) });
     expect(await stroke(items.first())).toBe(ROLE_COLORS[0]);
     expect(await stroke(comparedItem)).toBe(ROLE_COLORS[1]);
-    expect(await stroke(other)).toBe(NO_ROLE_COLOR);
+    expect(OWN_COLORS).toContain(await stroke(other));
     await expect(other.locator('.compare-legend-label')).not.toBeEmpty();
     await expect(page.locator('[data-stage-headline]')).toContainText(STR.stageCompareMinusBase.replace('{n}', '1'));
 });

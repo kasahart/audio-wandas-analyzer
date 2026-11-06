@@ -161,7 +161,7 @@ test('paintOverlaySpectrum: a second reference widens the right margin, names it
     assert.equal(OVERLAY_SPECTRUM_PAD.right, 8, 'one reference gives the margin back');
 });
 
-test('paintOverlaySpectrum: a line read on the right-hand axis is dashed, so lines of one colour (grey, without a role) are told apart', () => {
+test('paintOverlaySpectrum: a line read on the right-hand axis is dashed, so lines of one colour are told apart', () => {
     const grey = mixed.map(s => ({ ...s, color: '#8b949e' }));
     const strokes: Array<{ dash: number[] }> = [];
     let dash: number[] = [];

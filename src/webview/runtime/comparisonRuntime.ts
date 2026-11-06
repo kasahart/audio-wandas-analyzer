@@ -97,7 +97,7 @@ import { regionLabel } from './entryTable';
 import { activeSlotReferenced, recipeKey } from '../../shared/recipe/recipeSteps';
 import { openedRecipe } from '../../shared/recipe/recipeOpen';
 import { isRecipeDocument } from '../../shared/recipe/recipeSelection';
-import { LIGHT_THEME_BODY_SELECTORS, NO_ROLE_COLOR, ROLE_COLORS, useLightRoleColors } from '../../shared/gui/roleColors';
+import { LIGHT_THEME_BODY_SELECTORS, ROLE_COLORS, ownColor, useLightRoleColors } from '../../shared/gui/roleColors';
 import { createTrackStageMode, type StageTrack, type TrackStageMode } from './trackStageMode';
 import { attachRoleChips, roleChipHtml, roleChipText, type RoleChipRole } from './roleChip';
 import { triggerAnchorDownload as downloadEntryCsv } from './exportDownloads';
@@ -452,8 +452,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function setLoopRegion(region: LoopRegion | null): void {
         viewState.setLoop(region);
     }
+    let nextOwnColorIndex = 0;
     function createTrackRuntime(): TrackRuntimeState {
-        return { offsetSeconds: 0, hidden: false };
+        return { offsetSeconds: 0, hidden: false, ownColorIndex: nextOwnColorIndex++ };
     }
     const trackStore = new TrackStore(state.results, createTrackRuntime);
     const runtimeSessionId = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
@@ -777,11 +778,18 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         });
     }
     function trackColor(i: number) {
-        trackRuntimeAt(i);
-        // Its role from the entry table's slots (base blue, slots 1–3); a recording without one is grey, as in Compare.
+        // Its role from the entry table's slots (base blue, slots 1–3); a recording without one has its own colour, as in Compare.
         const filePath = state.results[i]?.filePath;
         const role = filePath && stageMode ? stageMode.role(filePath) : undefined;
-        return (role !== undefined ? ROLE_COLORS[role] : undefined) || NO_ROLE_COLOR;
+        return (role !== undefined ? ROLE_COLORS[role] : undefined) || trackOwnColor(i);
+    }
+    /** The track's own colour, which it has without a role: given when the track comes in, kept as tracks come and go. */
+    function trackOwnColor(i: number): string {
+        return ownColor(trackRuntimeAt(i).ownColorIndex ?? i);
+    }
+    function ownColorOf(filePath: string): string {
+        const i = state.results.findIndex(result => result.filePath === filePath);
+        return i >= 0 ? trackOwnColor(i) : ownColor(0);
     }
     /** The role chips on the track headers follow the slots (set here, on the entry table or on the comparison's legend). */
     function syncRoleChips() {
@@ -792,7 +800,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const face = chip.querySelector<HTMLElement>('.role-chip-face');
             if (chip.open || !face || (face.dataset.role === String(role?.slot ?? '') && face.textContent === roleChipText(role))) return;
             if (face.dataset.role !== String(role?.slot ?? '')) roleChanged = true;
-            chip.outerHTML = roleChipHtml(filePath, role, NO_ROLE_COLOR, STR);
+            chip.outerHTML = roleChipHtml(filePath, role, ownColorOf(filePath), STR);
         });
         // The cursor spectra are drawn in each track's role colour: repaint them (without asking for slices) when a role changes.
         if (roleChanged && !spectraHidden) spectrumRequests.scheduleFrame(false, false);
@@ -1273,7 +1281,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         roleChip(path) {
             // The legend's label names the channel already: the chip says the role alone.
             const role = trackRole(path);
-            return roleChipHtml(path, role && { slot: role.slot, ch: null }, NO_ROLE_COLOR, STR, true);
+            return roleChipHtml(path, role && { slot: role.slot, ch: null }, ownColorOf(path), STR, true);
         },
         cost: paths => entryScreen.cost(paths),
         showCompared: () => entryScreen.showCompared(),
@@ -1660,7 +1668,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             channelCount: result.channelCount,
             sampleRateHz: result.sampleRateHz,
             channels: channelsForResult(result),
-            roleChipHtml: roleChipHtml(result.filePath, trackRole(result.filePath), NO_ROLE_COLOR, STR),
+            roleChipHtml: roleChipHtml(result.filePath, trackRole(result.filePath), trackOwnColor(i), STR),
             playable: !!result.audioSource,
             lanesHtml: buildChannelLanes(result, i),
             referenceButtonHtml: channelsForResult(result).length === 1 ? referenceButtonHtml(trackId, 0, STR) : undefined,
