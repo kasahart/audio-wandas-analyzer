@@ -297,15 +297,28 @@ def _chain(full: Mapping[str, object]) -> list[Mapping[str, object]]:
 
 def _upstream_step(recipe: Mapping[str, object], stage: str, input_name: str, picked: object) -> Any:
     """A step before the slice over the whole file. A trigger there gives segments, which a Recipe cannot output:
-    the steps before it run as a plan and the trigger as the scan runs a step after the slice (apply_step)."""
+    up to the first step giving segments the chain runs as a plan, and from it each step as the scan runs a step
+    after the slice (apply_step), so the trigger and what takes its segments (select, drop, average) are drawn."""
     full = RecipePlan.from_dict(dict(recipe)).to_dict()
-    node = next(node for node in full["nodes"] if node["id"] == stage)
-    if not _gives_segments(str(node["operation"]), int(node["version"])):  # type: ignore[call-overload]
+    by_id = {node["id"]: node for node in full["nodes"]}
+    path: list[Mapping[str, object]] = []
+    node_id: object = stage
+    while node_id in by_id:
+        path.insert(0, by_id[node_id])
+        node_id = by_id[node_id]["inputs"][0]  # type: ignore[index]
+    first = next(
+        (index for index, node in enumerate(path) if _gives_segments(str(node["operation"]), int(node["version"]))),  # type: ignore[call-overload]
+        None,
+    )
+    if first is None:
         return upstream_plan(recipe, stage).apply({input_name: picked})
-    before = str(node["inputs"][0])  # type: ignore[index]
-    is_input = any(item["id"] == before for item in full["inputs"])
-    current = picked if is_input else upstream_plan(recipe, before).apply({input_name: picked}).cache()
-    return apply_step(_single_node_plan(node, input_name), current)
+    before = path[first]["inputs"][0]  # type: ignore[index]
+    current: Any = (
+        picked if before not in by_id else upstream_plan(recipe, str(before)).apply({input_name: picked}).cache()
+    )
+    for node in path[first:]:
+        current = apply_step(_single_node_plan(node, input_name), current)
+    return current
 
 
 def upstream_plan(recipe: Mapping[str, object], target: str) -> RecipePlan:
