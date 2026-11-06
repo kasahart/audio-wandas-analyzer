@@ -258,16 +258,34 @@ type Invalid = { param: string; reason: NonNullable<RecipeStep['reason']> } | un
 export const FIXED_RATE: Readonly<Record<string, number>> = { 'wandas.spectral.noct_synthesis': 48000 };
 
 /**
- * The sampling rate after a step: a resampling step's target; unknown after a metric over time (rms_trend's rate is
- * the input's over its hop, loudness and the others have their own), so FIXED_RATE is not judged on a stale rate;
- * else the rate before it.
+ * The rate of a metric's series, where wandas fixes it whatever the input's rate (MoSQITo's time steps):
+ * test_operation_catalog.py checks wandas still gives these. rms_trend's is the input's over its hop.
+ */
+export const METRIC_RATE: Readonly<Record<string, number>> = {
+    'wandas.audio.loudness_zwtv': 500, 'wandas.audio.sharpness_din': 500, 'wandas.audio.roughness_dw': 10,
+};
+
+/**
+ * The sampling rate after a step: a resampling step's target; a metric's series' rate (METRIC_RATE, or the input's
+ * over rms_trend's hop), so a filter or an FFT after it is judged at the rate it runs at; unknown after the other
+ * metrics over time (roughness_dw_spec), so FIXED_RATE is not judged on a stale rate; else the rate before it.
  */
 function rateAfter(node: RecipeNode, rate: number | undefined): number | undefined {
+    const value = (name: string): ParamValue | undefined => {
+        const found = node.params.entries.find(([key]) => key === name)?.[1];
+        return found === undefined ? undefined : decodeParam(found);
+    };
+    if (node.operation in METRIC_RATE) return METRIC_RATE[node.operation];
+    if (node.operation === 'wandas.audio.rms_trend') {
+        const hop = value('hop_length') ?? 512;
+        return rate !== undefined && typeof hop === 'number' && hop > 0 ? rate / hop : undefined;
+    }
+    // A level over time and a trigger's segments keep the recording's rate.
+    if (['wandas.audio.sound_level', 'wandas.audio.trigger', 'wandas.segments.average'].includes(node.operation)) return rate;
     if (operationGroup(node.operation) === 'time') return undefined;
     if (node.operation !== 'wandas.audio.resampling') return rate;
-    const target = node.params.entries.find(([name]) => name === 'target_sr')?.[1];
-    const value = target === undefined ? undefined : decodeParam(target);
-    return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
+    const target = value('target_sr');
+    return typeof target === 'number' && Number.isFinite(target) && target > 0 ? target : undefined;
 }
 
 /** Whether `operation` cannot run at `rate`: it needs another one (FIXED_RATE). Unknown rates are not judged. */
@@ -343,6 +361,8 @@ export function recipeSteps(recipe: RecipeDocument, limits?: number | StepLimits
     // The channels the Frame here has, as far as the steps say (get_channel leaves one).
     let channels = bounds.channels;
     let rate = bounds.sampleRate;
+    // Samples in the shortest file here: a metric's series or a resampling has as many fewer as its rate is lower.
+    let samples = bounds.shortestSamples;
     // The step that left one channel, if one did (rather than the files having one).
     let narrowedBy: string | undefined;
     // The metric the time signal here came through, as stage_view.metric_operation reads it from the history.
@@ -365,7 +385,7 @@ export function recipeSteps(recipe: RecipeDocument, limits?: number | StepLimits
             // so the channels there do not bound it.
             : NEEDS_TWO_CHANNELS.has(node.operation) && !skipped.has(node.id) && !slotted.has(node.id) && channels !== undefined && channels < 2 ? { param: '', reason: { kind: 'channels', limit: 2, ...(narrowedBy ? { text: narrowedBy } : {}) } }
                 // A pairwise Frame's rows are its pairs (n² of n channels): get_channel there picks a row.
-                : invalidParam(params, editable, bounds, skipped.has(node.id) ? undefined : PAIRWISE_FRAMES.has(frame) && node.operation === 'wandas.frame.get_channel' && channels !== undefined ? channels * channels : channels);
+                : invalidParam(params, editable, { ...bounds, sampleRate: rate, shortestSamples: samples }, skipped.has(node.id) ? undefined : PAIRWISE_FRAMES.has(frame) && node.operation === 'wandas.frame.get_channel' && channels !== undefined ? channels * channels : channels);
         const step: RecipeStep = {
             id: node.id, operation: node.operation, name: lastSegment(node.operation), params, editable,
             input: frame, output: output ?? declaredOutput(node.operation, frame), ...(invalid ? { invalid: invalid.param, reason: invalid.reason } : {}),
@@ -380,7 +400,9 @@ export function recipeSteps(recipe: RecipeDocument, limits?: number | StepLimits
             // Measured against the base slot, it runs on the joined pair: a channel of each recording.
             channels = channelsAfter(node, slotted.has(node.id) ? 2 : channels, step.input);
             if (before !== undefined && before > 1 && channels === 1) narrowedBy = step.id;
-            rate = rateAfter(node, rate);
+            const next = rateAfter(node, rate);
+            samples = samples !== undefined && rate !== undefined && next !== undefined ? Math.floor(samples * next / rate) : next === rate ? samples : undefined;
+            rate = next;
             metric = metricSeries(node.operation) !== undefined ? node.operation : metric;
         }
         const series = metric !== undefined && frame === INPUT_FRAME ? metricSeries(metric) : undefined;

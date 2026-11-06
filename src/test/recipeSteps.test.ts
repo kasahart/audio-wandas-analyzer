@@ -106,15 +106,16 @@ test('each step takes the Frame the step before gives; one that cannot is left o
     const menu = addableOperations('SpectralFrame');
     assert.equal(menu.find(item => item.name === 'welch')!.off, 'frame');
     assert.equal(menu.find(item => item.operation.id === 'wandas.spectral.ifft')!.off, undefined);
-    // After a metric's series (rms_trend), what fails on it whatever the file is off with wandas' reason; a time range is on.
+    // After a metric's series (rms_trend), what fails on it whatever the file is (HPSS crashes there) is off with the
+    // reason; a time range, a filter and a Welch are on, and judged at the series' rate when placed.
     const { recipe: trended, id: trend } = withStep(entry, 'node-0', catalogOperation('wandas.audio.rms_trend')!);
     const series = recipeSteps(trended, 16000).find(step => step.id === trend)!.series;
     assert.equal(recipeSteps(entry, 16000)[0].series, undefined, 'a filtered recording is a sound signal');
     assert.equal(series, 'ChannelFrame:wandas.audio.rms_trend');
     const afterMetric = addableOperations('ChannelFrame', undefined, undefined, undefined, series);
-    assert.equal(afterMetric.find(item => item.name === 'welch')!.off, 'refuses');
-    assert.ok(afterMetric.find(item => item.name === 'welch')!.why);
-    assert.equal(afterMetric.find(item => item.name === 'trim')!.off, undefined);
+    assert.equal(afterMetric.find(item => item.name === 'hpss_harmonic')!.off, 'refuses');
+    assert.ok(afterMetric.find(item => item.name === 'hpss_harmonic')!.why);
+    for (const name of ['trim', 'welch', 'lowpass_filter']) assert.equal(afterMetric.find(item => item.name === name)!.off, undefined, name);
     assert.equal(addableOperations('ChannelFrame').find(item => item.name === 'welch')!.off, undefined, 'a recording takes it');
     // A required parameter the app cannot set keeps an operation off; the time slice is never offered twice.
     assert.equal(addableOperations('ChannelFrame').find(item => item.name === 'remove_channel')!.off, 'required');
@@ -144,6 +145,24 @@ test('each step takes the Frame the step before gives; one that cannot is left o
     const slow = addableOperations('SpectralFrame', undefined, undefined, 16000).find(item => item.name === 'noct_synthesis')!;
     assert.deepEqual([slow.off, slow.why], ['rate', '48000']);
     assert.equal(addableOperations('SpectrogramFrame').find(item => item.operation.id === 'wandas.spectrogram.cepstrum')!.off, undefined);
+});
+
+test("after a metric, a filter or an FFT is judged at the metric's series rate and length, not the recording's", async () => {
+    const { catalogOperation } = await import('../shared/recipe/recipeCatalog');
+    const { recipe: trended, id: trend } = withStep(entry, 'node-0', catalogOperation('wandas.audio.rms_trend')!);
+    // rms_trend's series of a 2 s file at 16 kHz is 31.25 Hz over 62 points: a 1 kHz cutoff is above its Nyquist,
+    // and a Welch's FFT longer than 32 points has nothing to average.
+    const limits = { sampleRate: 16000, shortestSamples: 32000 };
+    const { recipe: trendLow, id: low } = withStep(trended, trend, catalogOperation('wandas.audio.lowpass_filter')!);
+    const lowStep = recipeSteps(trendLow, limits).find(step => step.id === low)!;
+    assert.deepEqual([lowStep.invalid, lowStep.reason], ['cutoff', { kind: 'below', limit: 15.625 }]);
+    assert.equal(lowStep.sampleRate, 31.25);
+    const { recipe: trendWelch, id: welch } = withStep(trended, trend, catalogOperation('wandas.audio.welch')!);
+    assert.deepEqual(recipeSteps(trendWelch, limits).find(step => step.id === welch)!.reason, { kind: 'pow2', limit: 32 });
+    // A longer file's series takes a longer FFT; a loudness series is at 500 Hz whatever the recording's rate.
+    assert.equal(recipeSteps(withParam(trendWelch, welch, STEP_PARAMS['wandas.audio.welch'].find(param => param.name === 'n_fft')!, 256), { sampleRate: 16000, shortestSamples: 160000 }).find(step => step.id === welch)!.invalid, undefined);
+    const { recipe: loud, id: loudness } = withStep(entry, 'node-0', catalogOperation('wandas.audio.loudness_zwtv')!);
+    assert.equal(recipeSteps(loud, 48000).find(step => step.id === loudness)!.sampleRate, 500);
 });
 
 test('a step moved by dragging keeps its parameters and the chain stays one chain', () => {
@@ -395,9 +414,9 @@ test('a step wandas runs at one sampling rate only is marked at another rate, af
     const steps = recipeSteps(to48k, 16000);
     assert.equal(steps.find(step => step.id === id)!.invalid, undefined);
     assert.equal(steps.find(step => step.id === id)!.sampleRate, 48000);
-    // After a metric over time the rate is not known (rms_trend divides it by its hop): not judged.
+    // After rms_trend the rate is the recording's over its hop: 96 kHz becomes 187.5 Hz, not 48 kHz.
     const { recipe: trend } = withStep(recipe, null, catalogOperation('wandas.audio.rms_trend')!);
-    assert.equal(recipeSteps(trend, 96000).find(step => step.id === id)!.invalid, undefined);
+    assert.deepEqual(recipeSteps(trend, 96000).find(step => step.id === id)!.reason, { kind: 'rate', limit: 48000, text: '187.5' });
     // Bypassed, it does not run, so the rate does not bound it.
     assert.equal(recipeSteps(withBypass(recipe, id, true), 16000).find(step => step.id === id)!.invalid, undefined);
 });

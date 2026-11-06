@@ -105,6 +105,8 @@ METRIC_SERIES = {metric_series(operation): operation for operation in METRIC_SER
 #: Operations that crash the Python process (librosa's HPSS segfaults) on a metric's short series, so are not run
 #: on one: they count as failing there, and ＋ greys them out after a metric rather than let them kill the backend.
 CRASHES_ON_SERIES = {"wandas.audio.hpss_harmonic", "wandas.audio.hpss_percussive"}
+CRASHES = "crashes on a metric's series"
+UNDRAWN = "no picture of a metric's series"
 
 
 def _recordings() -> dict[str, wd.ChannelFrame]:
@@ -227,14 +229,14 @@ def probe(depth: int = 2, recordings: int = 2) -> list[ProbeRun]:
                         continue
                     tried.add((operation["id"], label))
                     if frame_type in METRIC_SERIES and operation["id"] in CRASHES_ON_SERIES:
-                        runs.append(_refused(operation["id"], frame_type, label, "crashes on a metric's series"))
+                        runs.append(_refused(operation["id"], frame_type, label, CRASHES))
                         continue
                     run, result = _run(operation, frame_type, label, frame)
                     if frame_type in METRIC_SERIES and run["ok"] and not run["drawn"]:
                         # After a metric, ＋ offers only what draws a picture of it (R8): one the app cannot draw
                         # counts as failing there.
                         run["ok"] = False
-                        run["error"] = "no picture of a metric's series"
+                        run["error"] = UNDRAWN
                     runs.append(run)
                     named = f"{operation['id'].split('.')[-1]}({label})"
                     if result is None or frame_type in METRIC_SERIES:
@@ -253,12 +255,19 @@ def probe(depth: int = 2, recordings: int = 2) -> list[ProbeRun]:
 
 
 def refusals(runs: list[ProbeRun]) -> dict[str, dict[str, str]]:
-    """Per operation, the Frames it failed on in every run, with the first run's reason."""
+    """Per operation, the Frames it failed on in every run, with the first run's reason.
+
+    On a metric's series only what fails whatever the series is counts: a crash, or a Frame the comparison
+    cannot draw. A filter's cutoff above the series' Nyquist or an FFT longer than the probe's short series
+    depends on the step's values and the file's length, so the step bar judges those at the series' rate.
+    """
     found: dict[str, dict[str, str]] = {}
     for operation, by_frame in verdicts(runs).items():
         for frame, verdict in by_frame.items():
             if verdict == "fails":
                 reason = next(run["error"] for run in runs if run["operation"] == operation and run["input"] == frame)
+                if frame in METRIC_SERIES and reason not in (CRASHES, UNDRAWN):
+                    continue
                 found.setdefault(operation, {})[frame] = reason
     return found
 
