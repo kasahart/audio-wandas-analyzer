@@ -32,10 +32,16 @@ export function stepFormHtml(step: RecipeStep, state: StepBarState, strings: Ste
         const nullable = 'nullable' in param && param.nullable;
         const input = param.kind === 'enum'
             ? `<select data-step-param="${name}">${param.options.map(option => `<option${option === value ? ' selected' : ''}>${escapeHtml(option)}</option>`).join('')}${nullable ? `<option value=""${value === null || value === undefined ? ' selected' : ''}>${escapeHtml(strings.stepNone)}</option>` : ''}</select>`
-            : param.kind === 'bool'
+            : param.kind === 'bool' && nullable
+                // Three values (on, off, None) are a choice, not a checkbox.
+                ? `<select data-step-param="${name}">${['true', 'false'].map(option => `<option${String(value) === option ? ' selected' : ''}>${option}</option>`).join('')}<option value=""${value === null || value === undefined ? ' selected' : ''}>${escapeHtml(strings.stepNone)}</option></select>`
+                : param.kind === 'bool'
                 ? `<input type="checkbox" data-step-param="${name}"${value === true ? ' checked' : ''}>`
                 : param.kind === 'str'
                     ? `<input type="text" data-step-param="${name}" value="${escapeHtml(typeof value === 'string' ? value : '')}"${nullable ? ` data-step-nullable placeholder="${escapeHtml(strings.stepAuto)}"` : ''}>`
+                    // An infinite value (normalize's norm) does not fit a number field: typed as text, "inf" or "Infinity".
+                    : param.kind === 'float' && typeof value === 'number' && !Number.isFinite(value)
+                        ? `<input type="text" inputmode="decimal" data-step-param="${name}" value="${escapeHtml(String(value))}"${nullable ? ` data-step-nullable placeholder="${escapeHtml(strings.stepAuto)}"` : ''}>`
                     : `<input type="number" data-step-param="${name}" value="${value === null || value === undefined ? '' : escapeHtml(param.kind === 'int' && param.channel ? channelText(value, channels) : fieldNumber(value))}" step="${param.kind === 'int' ? 1 : 'any'}"${param.kind === 'int' && param.channel ? ` min="1"${channels ? ` max="${channels}"` : ''}` : ''}${nullable ? ` data-step-nullable placeholder="${escapeHtml(strings.stepAuto)}"` : ''}>`;
         const bad = step.invalid === param.name;
         const label = param.kind === 'int' && param.channel ? (param.channel === 'output' ? strings.stepPairOutput : param.channel === 'input' ? strings.stepPairInput : strings.stepTriggerChannel) : param.name;
@@ -69,10 +75,17 @@ export function stepFormHtml(step: RecipeStep, state: StepBarState, strings: Ste
     return `<div class="step-form" role="dialog" aria-label="${escapeHtml(step.name)}" data-step-form="${escapeHtml(step.id)}">${title}${why}${fields}<div class="step-form-bar">${remove}${apply}</div></div>`;
 }
 
-/** What a key does in the open form: Esc closes it, dropping the draft; Enter applies it. */
-export function stepFormKey(event: Pick<KeyboardEvent, 'key'>): 'close' | 'apply' | null {
+/**
+ * What a key does in the open form: Esc closes it, dropping the draft; Enter applies it, except on "more", where
+ * Enter opens or closes the folded fields as on any disclosure.
+ */
+export function stepFormKey(event: Pick<KeyboardEvent, 'key'> & { target?: EventTarget | null }): 'close' | 'apply' | null {
+    if (event.key === 'Enter' && (event.target as Element | null)?.closest?.('summary')) return null;
     return event.key === 'Escape' ? 'close' : event.key === 'Enter' ? 'apply' : null;
 }
+
+/** A number as typed: "inf" and "-inf" (as Python writes them) or "Infinity" are infinite. */
+const typedNumber = (text: string): number => (/^\s*[+-]?inf(inity)?\s*$/i.test(text) ? (text.trim().startsWith('-') ? -Infinity : Infinity) : Number(text));
 
 /** The Recipe the open form would give, to check it before Apply; null without a step's form. */
 export function stepFormDraft(form: HTMLElement | null, recipe: RecipeDocument | null, limits: StepLimits): RecipeDocument | null {
@@ -88,7 +101,8 @@ export function stepFormDraft(form: HTMLElement | null, recipe: RecipeDocument |
         if (input.tagName === 'SELECT') {
             const option = (input as HTMLSelectElement).selectedOptions[0];
             if (!option || option.defaultSelected) continue;
-            next = withParam(next, step.id, param, option.value === '' && 'nullable' in param && param.nullable ? null : option.value);
+            const chosen = option.value === '' && 'nullable' in param && param.nullable ? null : option.value;
+            next = withParam(next, step.id, param, param.kind === 'bool' && chosen !== null ? chosen === 'true' : chosen);
             continue;
         }
         const box = input as HTMLInputElement;
@@ -102,7 +116,7 @@ export function stepFormDraft(form: HTMLElement | null, recipe: RecipeDocument |
             if (box.hasAttribute('data-step-nullable')) next = withParam(next, step.id, param, null);
             continue;
         }
-        next = withParam(next, step.id, param, param.kind === 'str' ? box.value : fromShown(param, Number(box.value)));
+        next = withParam(next, step.id, param, param.kind === 'str' ? box.value : fromShown(param, typedNumber(box.value)));
     }
     return next;
 }

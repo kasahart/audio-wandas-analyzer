@@ -44,9 +44,10 @@ def test_a_level_set_to_db_in_its_step_is_drawn_as_its_db_values(signal: wd.Chan
     # their unit, not as a level of them (a dB of dB).
     for frame in (signal.sound_level(dB=True), signal.rms_trend(dB=True)):
         view = _checked(frame)
-        assert (view["kind"], view["quantity"]) == ("line", "value")
+        # A level (the headline's audible floor and the dB ranges apply), with no waveform to take a level of.
+        assert (view["kind"], view["quantity"]) == ("line", "level")
         assert view["unit"].startswith("dB")
-        assert "measure" not in view
+        assert "measure" not in view and "waveform" not in view
         # A 0.5 sine is 3 dB below its peak: −9 dB re 1 (as the level over time of the plain signal reads).
         assert np.nanmedian([v for v in view["values"] if v is not None]) == pytest.approx(-9.0, abs=0.5)
 

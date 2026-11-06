@@ -306,6 +306,11 @@ def signal_measure(frame: ChannelFrame) -> Measure | None:
     return SIGNAL_MEASURES[operation]
 
 
+def _in_db(frame: ChannelFrame) -> bool:
+    """Whether the time signal's values are already dB levels (wandas names their unit "dB …")."""
+    return (frame.channels[0].unit or "").startswith("dB")
+
+
 def metric_operation(frame: ChannelFrame) -> str | None:
     """The latest metric `frame` came through (a trim after it keeps it one), or None for a sound signal."""
     for item in reversed(frame.operation_history):
@@ -321,9 +326,21 @@ def _channel_view(frame: ChannelFrame) -> StageView:
     times = np.asarray(frame.source_time, dtype=np.float64).reshape(frame.n_channels, -1)[0]
     metric = metric_operation(frame)
     measure = signal_measure(frame)
-    # A level already in dB (sound_level or rms_trend with dB=True) is its own values, never a level of them.
-    in_db = (frame.channels[0].unit or "").startswith("dB")
-    if metric is not None or in_db or data.shape[1] <= LEVEL_SERIES_MIN_SAMPLES:
+    if _in_db(frame):
+        # A level already in dB (sound_level or rms_trend with dB=True): a level, drawn and compared as one (the
+        # headline's audible floor, the dB ranges), from its own values: channels power-averaged, never a level of them.
+        xs, values = _envelope(times, _power_mean(data), LEVEL_SERIES_MIN_SAMPLES)
+        return {
+            "frame": type(frame).__name__,
+            "kind": "line",
+            "x": "time",
+            "xScale": "linear",
+            "quantity": "level",
+            "unit": frame.channels[0].unit or "",
+            "xs": _axis(xs),
+            "values": _json(rounded_db(values)),
+        }
+    if metric is not None or data.shape[1] <= LEVEL_SERIES_MIN_SAMPLES:
         # A metric (loudness at 500 Hz, …) is its own values however long the region: never a level of them.
         xs, values = _envelope(times, np.mean(data, axis=0), LEVEL_SERIES_MIN_SAMPLES)
         series: StageView = {

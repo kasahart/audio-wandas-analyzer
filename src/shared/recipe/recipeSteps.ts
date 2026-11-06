@@ -18,7 +18,7 @@ export type StepParam =
     | { name: string; kind: 'float'; unit?: string; min?: number; max?: 'nyquist' | number; nullable?: boolean; default?: number; initial?: number }
     | { name: string; kind: 'int'; min?: number; max?: number; powerOfTwo?: boolean; nullable?: boolean; default?: number; initial?: number; belowChannels?: boolean; channel?: 'output' | 'input' | 'watched' }
     | { name: string; kind: 'enum'; options: readonly string[]; nullable?: boolean; default?: string }
-    | { name: string; kind: 'bool'; default?: boolean }
+    | { name: string; kind: 'bool'; nullable?: boolean; default?: boolean }
     | { name: string; kind: 'str'; nullable?: boolean; default?: string };
 
 const WINDOWS = ['hann', 'hamming', 'blackman', 'boxcar'] as const;
@@ -151,7 +151,8 @@ function describedParam(param: CatalogParam): StepParam | undefined {
     const nullable = param.nullable ? { nullable: true } : {};
     switch (param.kind) {
         case 'enum': return { name: param.name, kind: 'enum', options: param.choices ?? [], ...nullable };
-        case 'bool': return { name: param.name, kind: 'bool' };
+        // A nullable flag has a third value (normalize's fill: None keeps a quiet channel, false zeroes it).
+        case 'bool': return { name: param.name, kind: 'bool', ...nullable };
         case 'int': return { name: param.name, kind: 'int', ...nullable };
         case 'float': return { name: param.name, kind: 'float', ...nullable };
         // A window is any of SciPy's names: the step bar offers the ones it draws with (as welch's and stft's).
@@ -368,7 +369,9 @@ function invalidParam(params: Record<string, ParamValue>, editable: readonly Ste
         const max = param.max === 'nyquist' ? nyquist : param.max ?? Infinity;
         // The bound that is broken is the one named: above the minimum, or below the maximum.
         if (typeof value === 'number' && param.min !== undefined && value <= param.min) return { param: param.name, reason: { kind: 'above', limit: param.min } };
-        if (typeof value !== 'number' || !Number.isFinite(value) || value >= max) {
+        // An unbounded parameter (one only wandas describes) may be infinite: normalize's norm is inf by default.
+        const infinite = typeof value === 'number' && Math.abs(value) === Infinity && param.min === undefined && param.max === undefined;
+        if (!infinite && (typeof value !== 'number' || !Number.isFinite(value) || value >= max)) {
             return { param: param.name, reason: { kind: 'below', limit: max } };
         }
     }

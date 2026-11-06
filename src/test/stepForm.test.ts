@@ -218,3 +218,35 @@ test('an operation without parameters says it has none', () => {
     assert.equal(getStrings('ja').stepNoSettings, '設定項目はありません');
     assert.equal(form.querySelector('[data-action="step-apply"]'), null);
 });
+
+test('Enter on "more" opens the folded fields instead of applying the form', () => {
+    const welch = recipeSteps(entry).find(item => item.name === 'welch')!;
+    const { form } = formFor(stepFormHtml(welch, state, strings));
+    const summary = form.querySelector('details.step-more > summary');
+    assert.ok(summary);
+    assert.equal(stepFormKey({ key: 'Enter', target: summary }), null);
+    assert.equal(stepFormKey({ key: 'Enter', target: form.querySelector('[data-step-param="n_fft"]') }), 'apply');
+});
+
+test('normalize runs at wandas\' defaults: an infinite norm is a value, and fill keeps its third value (none)', () => {
+    const { recipe, id, step } = added('wandas.audio.normalize');
+    assert.equal(step.invalid, undefined, 'a new normalize runs');
+    assert.equal(step.params['norm'], Infinity);
+    const { form, type } = formFor(stepFormHtml(step, state, strings));
+    assert.equal(form.querySelector<HTMLInputElement>('[data-step-param="norm"]')!.value, 'Infinity');
+    const fill = form.querySelector<HTMLSelectElement>('select[data-step-param="fill"]')!;
+    assert.deepEqual(Array.from(fill.options, option => option.value), ['true', 'false', '']);
+    assert.equal(fill.value, '');
+    fill.value = 'false';
+    type('[data-step-param="norm"]', '2');
+    const nodes = (draft: RecipeDocument) => (draft['nodes'] as Array<{ id: string; params: { entries: unknown[] } }>).find(node => node.id === id)!.params.entries;
+    assert.deepEqual(nodes(stepFormDraft(form, recipe, { sampleRate: 48000 })!), [['fill', false], ['norm', 2]]);
+    // Back to none and to "inf" as Python writes it: None and infinity again.
+    fill.value = '';
+    type('[data-step-param="norm"]', 'inf');
+    const back = stepFormDraft(form, recipe, { sampleRate: 48000 })!;
+    const entries = nodes(back);
+    assert.equal(entries.length, 1);
+    assert.equal(recipeSteps(back, 48000).find(item => item.id === id)!.params['norm'], Infinity);
+    assert.equal(recipeSteps(back, 48000).find(item => item.id === id)!.invalid, undefined);
+});
