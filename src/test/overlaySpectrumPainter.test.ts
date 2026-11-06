@@ -191,7 +191,7 @@ test('renderSpectrumAxisLegend names every line by its colour, grouped by the si
     const host = { hidden: true, ownerDocument: { createElement: makeEl }, getAttribute: (k: string) => hostAttrs[k] ?? null, setAttribute: (k: string, v: string) => { hostAttrs[k] = v; }, replaceChildren() { children.length = 0; }, appendChild(item: Record<string, unknown>) {
         const attrs = item.attrs as Record<string, string>;
         assert.ok(attrs['data-hint'], 'each side names its lines in the footer');
-        children.push({ attrs: { 'data-axis': attrs['data-axis'] }, parts: (item.kids as Array<{ textContent: string; style: { background?: string } }>).map(k => k.textContent || (k.style.background ?? '')) });
+        children.push({ attrs: { 'data-axis': attrs['data-axis'] }, parts: (item.kids as Array<{ textContent: string; style: { background?: string }; kids: Array<{ textContent: string }> }>).map(k => k.textContent || k.kids.map(part => part.textContent).join('|') || (k.style.background ?? '')) });
     } };
     const two = [
         { title: SPL, reference: 'dB SPL re 20 µPa', colors: ['#0000ff', '#00ffff'], lines: [{ color: '#0000ff', label: 'A' }, { color: '#00ffff', label: 'A2' }] },
@@ -211,6 +211,9 @@ test('renderSpectrumAxisLegend names every line by its colour, grouped by the si
     renderSpectrumAxisLegend(host as unknown as HTMLElement, [{ title: SPL, reference: 'dB SPL re 20 µPa', colors: ['#8b949e'], lines: [{ color: '#8b949e', label: 'A' }, { color: '#8b949e', label: 'C' }] }]);
     assert.equal(host.hidden, false);
     assert.deepEqual(children, [{ attrs: { 'data-axis': 'left' }, parts: [SPL, '#8b949e', 'A', '#8b949e', 'C'] }]);
+    // A file's name and its channel are apart, so a long name is cut and the channel stays.
+    renderSpectrumAxisLegend(host as unknown as HTMLElement, [{ title: SPL, reference: 'dB SPL re 20 µPa', colors: ['#8b949e'], lines: [{ color: '#8b949e', label: 'take00.wav / Channel 1 / 2 (L)' }] }]);
+    assert.deepEqual(children, [{ attrs: { 'data-axis': 'left' }, parts: [SPL, '#8b949e', 'take00.wav| / Channel 1 / 2 (L)'] }]);
     renderSpectrumAxisLegend(host as unknown as HTMLElement, [{ title: '', reference: '', colors: [], lines: [] }]);
     assert.equal(host.hidden, true);
     assert.equal(children.length, 0);

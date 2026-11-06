@@ -754,7 +754,10 @@ export function renderComparisonStyles(): string {
         .spectrum-axis-legend-item { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; min-width: 0; overflow: hidden; }
         .spectrum-axis-legend-swatch { flex: none; width: 10px; height: 2px; border-radius: 1px; }
         .spectrum-axis-legend-mark { color: var(--muted); }
-        .spectrum-axis-legend-label { max-width: 14em; overflow: hidden; text-overflow: ellipsis; margin-right: 4px; }
+        /* Whole entries until the row is full: the ones past its end are left out, not each squeezed to a few letters. */
+        .spectrum-axis-legend-label { display: inline-flex; flex: none; margin-right: 4px; }
+        .spectrum-axis-legend-file { max-width: 10em; overflow: hidden; text-overflow: ellipsis; }
+        .spectrum-axis-legend-channel { flex: none; white-space: pre; }
         .spectrum-axis-legend-reference { color: var(--muted); flex: none; margin-right: 4px; }
         #pair-spectrum-plot { position: relative; flex: 1 1 auto; min-height: 0; }
         /* A replacement request is computing; the plot still shows the previous inputs. */

@@ -192,7 +192,14 @@ export function renderSpectrumAxisLegend(el: HTMLElement | null, levelAxes: Over
             // The right-hand axis' lines are dashed: so are their swatches.
             swatch.style.background = index === 0 ? line.color : `repeating-linear-gradient(90deg, ${line.color} 0 ${SECONDARY_AXIS_DASH[0]}px, transparent ${SECONDARY_AXIS_DASH[0]}px ${SECONDARY_AXIS_DASH[0] + SECONDARY_AXIS_DASH[1]}px)`;
             item.appendChild(swatch);
-            item.appendChild(text('spectrum-axis-legend-label', line.label));
+            // A long file name is cut, not the channel after it: two channels of one recording stay apart.
+            const cut = line.label.indexOf(' / ');
+            const label = text('spectrum-axis-legend-label', cut < 0 ? line.label : '');
+            if (cut >= 0) {
+                label.appendChild(text('spectrum-axis-legend-file', line.label.slice(0, cut)));
+                label.appendChild(text('spectrum-axis-legend-channel', line.label.slice(cut)));
+            }
+            item.appendChild(label);
         });
         if (two && index > 0) { item.appendChild(text('spectrum-axis-legend-mark', SECONDARY_AXIS_MARK)); }
         // Named in the footer, as every hint is: a long name is cut short on the line.
