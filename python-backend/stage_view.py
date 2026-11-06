@@ -270,7 +270,7 @@ def _waveform(
     }
 
 
-def _metric_operation(frame: ChannelFrame) -> str | None:
+def metric_operation(frame: ChannelFrame) -> str | None:
     """The latest metric `frame` came through (a trim after it keeps it one), or None for a sound signal."""
     for item in reversed(frame.operation_history):
         operation = str(item.get("operation", ""))
@@ -283,7 +283,7 @@ def _channel_view(frame: ChannelFrame) -> StageView:
     data = _rows(frame.data, frame.n_channels)
     # Seconds into the file, so a region's level reads at the region's times.
     times = np.asarray(frame.source_time, dtype=np.float64).reshape(frame.n_channels, -1)[0]
-    metric = _metric_operation(frame)
+    metric = metric_operation(frame)
     if metric is not None or data.shape[1] <= LEVEL_SERIES_MIN_SAMPLES:
         # A metric (loudness at 500 Hz, …) is its own values however long the region: never a level of them.
         xs, values = _envelope(times, np.mean(data, axis=0), LEVEL_SERIES_MIN_SAMPLES)

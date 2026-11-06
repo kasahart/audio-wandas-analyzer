@@ -135,7 +135,7 @@ export function currentStepId(recipe: RecipeDocument, state: StepBarState, mode:
  * A place in the chain before ＋'s: after which step (null: the input), the Frame there, its channels and sampling
  * rate (as far as known), and the chip that follows.
  */
-export interface EarlierPlace { after: string | null; frame: string; channels?: number; sampleRate?: number; next?: RecipeStep }
+export interface EarlierPlace { after: string | null; frame: string; channels?: number; sampleRate?: number; series?: string; next?: RecipeStep }
 
 /** The places before ＋'s, nearest first. */
 export function earlierPlaces(recipe: RecipeDocument, state: StepBarState, after: string | null): EarlierPlace[] {
@@ -148,6 +148,7 @@ export function earlierPlaces(recipe: RecipeDocument, state: StepBarState, after
         places.push({
             after: before ? before.id : null, frame: before ? frameAfter(before) : INPUT_FRAME,
             channels: before ? before.channels : limits.channels, sampleRate: before ? before.sampleRate : limits.sampleRate,
+            ...(before && frameAfter(before) === before.output && before.series ? { series: before.series } : {}),
             next: steps.slice(index + 1).find(step => shownStep(step, state)),
         });
     }

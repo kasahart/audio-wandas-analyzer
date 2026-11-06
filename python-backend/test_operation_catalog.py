@@ -9,7 +9,7 @@ import wandas as wd
 from wandas.pipeline import default_recipe_registry
 
 from operation_catalog import TS_TARGET, catalog, frames, typescript, with_refusals
-from operation_probe import _direct, _flat, needs, probe, refusals, verdicts
+from operation_probe import _direct, _flat, metric_series, needs, probe, refusals, verdicts
 from stage_view import stage_view
 
 # The probe runs every operation on every Frame (1-2 min): CI runs these with AWA_SLOW=1.
@@ -147,10 +147,54 @@ def test_the_step_bars_fixed_rates_are_the_ones_wandas_enforces() -> None:
 def test_no_step_offered_on_a_recording_draws_a_flat_picture(runs: list) -> None:
     # A picture whose values are all one value says nothing (docs/display-rules.md R8). The only one is the
     # difference of a one-channel file's channel with itself, which the step bar greys out on one channel.
-    flat = sorted({(run["operation"], run["example"]) for run in runs if run["ok"] and run["flat"]})
+    # The Frames a recording's steps give; a metric's series is probed one step further (and greys what fails there).
+    flat = sorted(
+        {
+            (run["operation"], run["example"])
+            for run in runs
+            if run["ok"] and run["flat"] and not run["input"].startswith("ChannelFrame:")
+        }
+    )
     assert flat == [("wandas.audio.channel_difference", "48 kHz 1 ch")]
     steps = (Path(__file__).parent.parent / "src" / "shared" / "recipe" / "recipeSteps.ts").read_text(encoding="utf-8")
     assert re.search(r"NEEDS_TWO_CHANNELS[^;]*'wandas\.audio\.channel_difference'", steps)
+
+
+@slow
+def test_after_a_metric_the_steps_that_fail_on_its_series_are_refused(runs: list) -> None:
+    # A metric's series is a ChannelFrame at the metric's rate (docs/display-rules.md R8). What fails on any series
+    # is greyed out after it: HPSS would take the backend down with it (librosa segfaults on a short series).
+    found = refusals(runs)
+    for metric in ("wandas.audio.rms_trend", "wandas.audio.loudness_zwtv"):
+        series = metric_series(metric)
+        assert found["wandas.audio.hpss_harmonic"][series] == "crashes on a metric's series"
+        # A filter at a new step's cutoff or a Welch of the probe's short series fails there, but a lower cutoff
+        # or a longer file runs: the step bar judges those at the series' rate (recipeSteps METRIC_RATE), not ＋.
+        for operation in (
+            "wandas.audio.lowpass_filter",
+            "wandas.audio.welch",
+            "wandas.audio.stft",
+            "wandas.audio.trim",
+        ):
+            assert series not in found.get(operation, {}), (operation, metric)
+    # Every run on a metric's series that is kept as running draws something.
+    on_series = [run for run in runs if run["input"].startswith("ChannelFrame:")]
+    assert on_series and all(run["drawn"] for run in on_series if run["ok"])
+
+
+def test_the_step_bars_metric_rates_are_the_ones_wandas_gives() -> None:
+    # recipeSteps.ts METRIC_RATE judges a filter's cutoff and an FFT's length after a metric at its series' rate.
+    source = (Path(__file__).parents[1] / "src" / "shared" / "recipe" / "recipeSteps.ts").read_text(encoding="utf-8")
+    table = re.search(r"METRIC_RATE[^=]*=\s*\{([^}]*)\}", source)
+    assert table is not None
+    rates = {name: float(rate) for name, rate in re.findall(r"'wandas\.audio\.(\w+)':\s*(\d+)", table.group(1))}
+    for sampling_rate in (16000, 48000):
+        t = np.arange(sampling_rate) / sampling_rate
+        tone = wd.from_numpy(0.3 * np.sin(2 * np.pi * 1000 * t)[None], sampling_rate=sampling_rate)
+        assert {name: getattr(tone, name)().sampling_rate for name in rates} == rates
+        # rms_trend's is the input's over its hop.
+        assert tone.rms_trend().sampling_rate == sampling_rate / 512
+        assert tone.rms_trend(hop_length=256).sampling_rate == sampling_rate / 256
 
 
 def test_a_steady_tone_is_not_flat_and_a_silent_difference_is() -> None:

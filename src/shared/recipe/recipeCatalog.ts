@@ -3,7 +3,7 @@
  * written by python-backend/operation_catalog.py): which Frame each takes and gives, and which of its
  * parameters it cannot do without. The step bar's ＋ lists these.
  */
-import { WANDAS_FRAMES, WANDAS_OPERATIONS } from './generated/wandasOperations';
+import { METRIC_SERIES_OPERATIONS, WANDAS_FRAMES, WANDAS_OPERATIONS } from './generated/wandasOperations';
 
 export interface CatalogParam {
     name: string;
@@ -42,6 +42,11 @@ export const INPUT_FRAME = 'ChannelFrame';
 
 export function catalogOperation(id: string): CatalogOperation | undefined {
     return WANDAS_OPERATIONS.find(operation => operation.id === id);
+}
+
+/** The name a metric's time series has in the catalog's refusals (operation_probe.metric_series), or undefined for another operation. */
+export function metricSeries(operation: string): string | undefined {
+    return METRIC_SERIES_OPERATIONS.includes(operation) ? `${INPUT_FRAME}:${operation}` : undefined;
 }
 
 /** The events a trigger cuts from a recording (wandas' FrameSegments and its kinds): not a Frame. */

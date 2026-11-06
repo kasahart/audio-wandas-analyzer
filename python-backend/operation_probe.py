@@ -31,7 +31,7 @@ from wandas.pipeline import RecipePlan
 from operation_catalog import catalog, frames
 from optional_packages import OPTIONAL_MODULES
 from scan_service import TIME_SLICE_OPERATION, apply_step, wandas_cause
-from stage_view import stage_view
+from stage_view import METRIC_SERIES_UNITS, metric_operation, stage_view
 
 # The parameters a new step starts with where wandas has none (the step bar's STEP_PARAMS `initial`).
 INITIAL: Mapping[str, Mapping[str, float | int]] = {
@@ -94,6 +94,21 @@ def _apply(operation: Mapping[str, Any], frame: object) -> object:
     return apply_step(plan, frame)
 
 
+def metric_series(operation: str) -> str:
+    """The name the catalog gives a time series a metric gives (rms_trend, loudness…): a ChannelFrame, though not
+    a sound signal. Its rate is the metric's and it is drawn as its values, so what follows it is probed apart."""
+    return f"ChannelFrame:{operation}"
+
+
+#: Each metric's series, as the catalog's refusals name it.
+METRIC_SERIES = {metric_series(operation): operation for operation in METRIC_SERIES_UNITS}
+#: Operations that crash the Python process (librosa's HPSS segfaults) on a metric's short series, so are not run
+#: on one: they count as failing there, and ＋ greys them out after a metric rather than let them kill the backend.
+CRASHES_ON_SERIES = {"wandas.audio.hpss_harmonic", "wandas.audio.hpss_percussive"}
+CRASHES = "crashes on a metric's series"
+UNDRAWN = "no picture of a metric's series"
+
+
 def _recordings() -> dict[str, wd.ChannelFrame]:
     rng = np.random.default_rng(7)
 
@@ -141,6 +156,19 @@ def _flat(view: Mapping[str, Any]) -> bool:
     return bool(present) and all(not numbers or max(numbers) == min(numbers) for numbers in present)
 
 
+def _refused(operation: str, frame_type: str, label: str, error: str) -> ProbeRun:
+    return {
+        "operation": operation,
+        "input": frame_type,
+        "example": label,
+        "ok": False,
+        "output": "",
+        "drawn": False,
+        "flat": False,
+        "error": error,
+    }
+
+
 def _run(operation: Mapping[str, Any], frame_type: str, label: str, frame: object) -> tuple[ProbeRun, object | None]:
     run: ProbeRun = {
         "operation": operation["id"],
@@ -182,6 +210,9 @@ def probe(depth: int = 2, recordings: int = 2) -> list[ProbeRun]:
         and not any(p["required"] for p in operation["params"] if p["name"] not in INITIAL.get(operation["id"], {}))
     ]
     bases = {frame["name"]: list(frame["bases"]) for frame in frames()}
+    # A metric's series takes what a ChannelFrame takes.
+    for series in METRIC_SERIES:
+        bases[series] = ["ChannelFrame", *bases["ChannelFrame"]]
     examples: dict[str, list[tuple[str, object]]] = {
         "ChannelFrame": [(name, frame) for name, frame in list(_recordings().items())[:recordings]]
     }
@@ -197,10 +228,24 @@ def probe(depth: int = 2, recordings: int = 2) -> list[ProbeRun]:
                     if (operation["id"], label) in tried:
                         continue
                     tried.add((operation["id"], label))
+                    if frame_type in METRIC_SERIES and operation["id"] in CRASHES_ON_SERIES:
+                        runs.append(_refused(operation["id"], frame_type, label, CRASHES))
+                        continue
                     run, result = _run(operation, frame_type, label, frame)
+                    if frame_type in METRIC_SERIES and run["ok"] and not run["drawn"]:
+                        # After a metric, ＋ offers only what draws a picture of it (R8): one the app cannot draw
+                        # counts as failing there.
+                        run["ok"] = False
+                        run["error"] = UNDRAWN
                     runs.append(run)
-                    if result is not None and run["output"] != "ChannelFrame":
-                        produced.append((run["output"], (f"{operation['id'].split('.')[-1]}({label})", result)))
+                    named = f"{operation['id'].split('.')[-1]}({label})"
+                    if result is None or frame_type in METRIC_SERIES:
+                        # What follows a metric is probed one step only: its Frames are not examples of their type.
+                        continue
+                    if run["output"] != "ChannelFrame":
+                        produced.append((run["output"], (named, result)))
+                    elif isinstance(result, wd.ChannelFrame) and metric_operation(result) == operation["id"]:
+                        produced.append((metric_series(operation["id"]), (named, result)))
         if not produced:
             break
         for output, item in produced:
@@ -210,12 +255,19 @@ def probe(depth: int = 2, recordings: int = 2) -> list[ProbeRun]:
 
 
 def refusals(runs: list[ProbeRun]) -> dict[str, dict[str, str]]:
-    """Per operation, the Frames it failed on in every run, with the first run's reason."""
+    """Per operation, the Frames it failed on in every run, with the first run's reason.
+
+    On a metric's series only what fails whatever the series is counts: a crash, or a Frame the comparison
+    cannot draw. A filter's cutoff above the series' Nyquist or an FFT longer than the probe's short series
+    depends on the step's values and the file's length, so the step bar judges those at the series' rate.
+    """
     found: dict[str, dict[str, str]] = {}
     for operation, by_frame in verdicts(runs).items():
         for frame, verdict in by_frame.items():
             if verdict == "fails":
                 reason = next(run["error"] for run in runs if run["operation"] == operation and run["input"] == frame)
+                if frame in METRIC_SERIES and reason not in (CRASHES, UNDRAWN):
+                    continue
                 found.setdefault(operation, {})[frame] = reason
     return found
 

@@ -205,6 +205,10 @@ def typescript(operations: list[CatalogOperation], frame_types: list[CatalogFram
         + ";\n\n"
         "export const WANDAS_FRAMES: readonly CatalogFrame[] = "
         + json.dumps(frame_types, indent=4, ensure_ascii=False)
+        + ";\n\n"
+        "/** Metrics whose series a refusal names `ChannelFrame:<operation>` (operation_probe.metric_series). */\n"
+        "export const METRIC_SERIES_OPERATIONS: readonly string[] = "
+        + json.dumps(sorted(__import__("stage_view").METRIC_SERIES_UNITS), indent=4)
         + ";\n"
     )
 

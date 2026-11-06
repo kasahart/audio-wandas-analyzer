@@ -564,6 +564,12 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
                 "default": "constant"
             }
         ],
+        "refuses": {
+            "ChannelFrame:wandas.audio.rms_trend": "crashes on a metric's series",
+            "ChannelFrame:wandas.audio.loudness_zwtv": "crashes on a metric's series",
+            "ChannelFrame:wandas.audio.roughness_dw": "crashes on a metric's series",
+            "ChannelFrame:wandas.audio.sharpness_din": "crashes on a metric's series"
+        },
         "needs": [
             "librosa"
         ]
@@ -618,6 +624,12 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
                 "default": "constant"
             }
         ],
+        "refuses": {
+            "ChannelFrame:wandas.audio.rms_trend": "crashes on a metric's series",
+            "ChannelFrame:wandas.audio.loudness_zwtv": "crashes on a metric's series",
+            "ChannelFrame:wandas.audio.roughness_dw": "crashes on a metric's series",
+            "ChannelFrame:wandas.audio.sharpness_din": "crashes on a metric's series"
+        },
         "needs": [
             "librosa"
         ]
@@ -743,7 +755,10 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
                 "required": false,
                 "default": "hann"
             }
-        ]
+        ],
+        "refuses": {
+            "ChannelFrame:wandas.audio.roughness_dw": "no picture of a metric's series"
+        }
     },
     {
         "id": "wandas.audio.welch",
@@ -1529,4 +1544,12 @@ export const WANDAS_FRAMES: readonly CatalogFrame[] = [
         ],
         "charted": true
     }
+];
+
+/** Metrics whose series a refusal names `ChannelFrame:<operation>` (operation_probe.metric_series). */
+export const METRIC_SERIES_OPERATIONS: readonly string[] = [
+    "wandas.audio.loudness_zwtv",
+    "wandas.audio.rms_trend",
+    "wandas.audio.roughness_dw",
+    "wandas.audio.sharpness_din"
 ];

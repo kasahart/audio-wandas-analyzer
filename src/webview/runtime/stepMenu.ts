@@ -54,11 +54,13 @@ export function stepMenuListHtml(menu: StepMenuState, context: StepMenuContext):
     const placed = menu.after ? recipeSteps(recipe, limits).find(step => step.id === menu.after) : undefined;
     const channels = placed ? placed.channels : limits.channels;
     const rate = placed ? placed.sampleRate : limits.sampleRate;
-    // What can go at a place: by its Frame, channels and sampling rate (a resampling step changes the rate).
-    const at = (frame: string, where: { channels?: number; sampleRate?: number } = { channels, sampleRate: rate }): AddableOperation[] => {
-        const key = `${frame}|${where.channels ?? ''}|${where.sampleRate ?? ''}`;
+    const series = placed && frameAfter(placed) === placed.output ? placed.series : undefined;
+    // What can go at a place: by its Frame, channels and sampling rate (a resampling step changes the rate), and
+    // whether it is a metric's series.
+    const at = (frame: string, where: { channels?: number; sampleRate?: number; series?: string } = { channels, sampleRate: rate, series }): AddableOperation[] => {
+        const key = `${frame}|${where.channels ?? ''}|${where.sampleRate ?? ''}|${where.series ?? ''}`;
         let entries = byFrame.get(key);
-        if (!entries) { entries = addableOperations(frame, lacks, where.channels, where.sampleRate); byFrame.set(key, entries); }
+        if (!entries) { entries = addableOperations(frame, lacks, where.channels, where.sampleRate, where.series); byFrame.set(key, entries); }
         return entries;
     };
     const places = earlierPlaces(recipe, state, menu.after);
