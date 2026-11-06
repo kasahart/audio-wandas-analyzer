@@ -207,6 +207,10 @@ test('renderSpectrumAxisLegend names every line by its colour, grouped by the si
     children.push({ attrs: { 'data-axis': 'marker' }, parts: [] });
     renderSpectrumAxisLegend(host as unknown as HTMLElement, two);
     assert.equal(children.length, 3);
+    // Calibrated with the same reference (FS, ref 1: still dBFS), only the level's name changes: the legend follows it.
+    renderSpectrumAxisLegend(host as unknown as HTMLElement, [{ ...two[0], title: 'Amplitude [dB SPL re 20 µPa]' }, two[1]]);
+    assert.equal(children.length, 2);
+    assert.equal(children[0].parts[1], 'Amplitude [dB SPL re 20 µPa]');
     // One axis: the level's name and the lines'. Grey lines without a role are told apart by their names.
     renderSpectrumAxisLegend(host as unknown as HTMLElement, [{ title: SPL, reference: 'dB SPL re 20 µPa', colors: ['#8b949e'], lines: [{ color: '#8b949e', label: 'A' }, { color: '#8b949e', label: 'C' }] }]);
     assert.equal(host.hidden, false);

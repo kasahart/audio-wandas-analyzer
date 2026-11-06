@@ -168,8 +168,8 @@ export function renderSpectrumAxisLegend(el: HTMLElement | null, levelAxes: Over
         return;
     }
     const shown = levelAxes.slice(0, OVERLAY_LEVEL_AXES).filter(axis => axis.lines.length > 0);
-    // The overlay repaints on every cursor move; the legend is rebuilt only when what it says changes.
-    const key = JSON.stringify(shown.map(axis => [axis.reference, axis.lines.map(line => [line.color, line.label])]));
+    // The overlay repaints on every cursor move; the legend is rebuilt only when what it says changes (calibrated or not, too).
+    const key = JSON.stringify(shown.map(axis => [axis.title, axis.reference, axis.lines.map(line => [line.color, line.label])]));
     if (el.getAttribute('data-legend-key') === key) {
         return;
     }
