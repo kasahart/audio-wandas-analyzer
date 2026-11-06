@@ -135,7 +135,7 @@ test('a trigger\'s events are each a line of their slot, on one amplitude range,
     assert.equal(stageLevelsHeadline(none, compare, null, null, { ...strings, compareLevelsAt: '', stageEventCounts: '{base} / {compare}' }), '0 / 1');
     assert.equal(emptyStageText({ stepNotDrawable: 'no {frame}', stageNoEvents: 'lower it' }, none), 'lower it');
     assert.equal(emptyStageText({ stepNotDrawable: 'no {frame}', stageNoEvents: 'lower it' }, { frame: 'X', kind: 'none' }), 'no X');
-    const axes = stageAxes({ axisTriggerTime: 'From trigger [s]', waveRangeAxisAmplitude: 'Amplitude' } as unknown as StageStrings, compare, undefined);
+    const axes = stageAxes({ axisTriggerTime: 'From trigger [s]', waveRangeAxisAmplitude: 'Amplitude', axisUncalibrated: ', uncalibrated' } as unknown as StageStrings, compare, { unit: 'Pa', ref: 2e-5, levelReferenceLabel: 'dB SPL re 20 µPa', calibrationStatus: 'calibrated', fullScale: false });
     assert.deepEqual(axes, { x: 'From trigger [s]', y: 'Amplitude [Pa]' });
     // A group's median (the backend's, of the files' mean events) has no event lines of its own, but it is still
     // events: the event headline and the trigger's time axis.

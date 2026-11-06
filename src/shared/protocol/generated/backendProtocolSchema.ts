@@ -1345,6 +1345,14 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "detail": {
                     "type": "boolean"
                 },
+                "measure": {
+                    "type": "string",
+                    "enum": [
+                        "rms",
+                        "timeWeightedRms",
+                        "power"
+                    ]
+                },
                 "waveform": {
                     "type": "object",
                     "required": [
@@ -2222,6 +2230,7 @@ export interface StageView {
     base?: boolean;
 };
     detail?: boolean;
+    measure?: "rms" | "timeWeightedRms" | "power";
     waveform?: {
     min: (number | null)[];
     max: (number | null)[];

@@ -416,6 +416,12 @@ export interface UiStrings {
     axisGain: string;
     axisCoherence: string;
     axisLoudness: string;
+    /** A time signal's value axis after rms_trend, sound_level or power (StageView.measure). */
+    axisRms: string;
+    axisRmsTimeWeighted: string;
+    axisPower: string;
+    /** Appended to a linear axis's name while the files are uncalibrated, as axisLevelUncal says it. */
+    axisUncalibrated: string;
     axisSharpness: string;
     axisRoughness: string;
     axisLevelOf: string;
@@ -1205,6 +1211,10 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         axisGain: 'Gain [dB]',
         axisCoherence: 'Coherence',
         axisLoudness: 'Loudness',
+        axisRms: 'RMS',
+        axisRmsTimeWeighted: 'Time-weighted RMS',
+        axisPower: 'Power',
+        axisUncalibrated: ', uncalibrated',
         axisSharpness: 'Sharpness',
         axisRoughness: 'Roughness',
         axisLevelOf: 'Level',
@@ -1983,6 +1993,10 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         axisGain: '利得 [dB]',
         axisCoherence: 'コヒーレンス',
         axisLoudness: 'ラウドネス',
+        axisRms: '実効値',
+        axisRmsTimeWeighted: '時間重み付き実効値',
+        axisPower: 'パワー',
+        axisUncalibrated: ' 未校正',
         axisSharpness: 'シャープネス',
         axisRoughness: 'ラフネス',
         axisLevelOf: 'レベル',
