@@ -4,6 +4,7 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 
 ## Unreleased
 
+- Compare: the value axis names what a step made of the sound: RMS after rms_trend (not "Value"), time-weighted RMS after sound_level, and power in the unit squared after power (not "Amplitude"). Like the level axis, an amplitude axis now says it is uncalibrated while the files are (#636).
 - Compare: a heatmap (STFT, roughness over frequency, cepstrogram, their difference) has a colour bar that names what its colour measures, with unit and reference, and shows both ends of the scale, instead of a bare span such as `±0.079` in the corner (#634).
 - Compare: after a metric step (rms_trend, loudness, roughness, sharpness), the step bar judges the steps that follow at the metric's series rate (rms_trend's is the recording's over its hop; loudness and sharpness 500 Hz; roughness 10 Hz). A filter cutoff above that Nyquist, or an FFT longer than the series, is marked orange with its limit, not left to fail with wandas' English error. HPSS, which crashes the backend on a short series, is greyed out in ＋ there, and so is fft after roughness, whose result cannot be drawn (#632).
 - Compare: the input chip draws a multi-channel recording as the channel it is compared as, like every step after it, instead of the mean of its channels under a legend that named one channel; a recording without a role is drawn as the channel its legend names (#628).

@@ -33,13 +33,14 @@
 
 ## R4 両軸に量・単位・基準
 
-どのグラフも、縦軸と横軸に量の名前と単位を書きます。熱図は色の意味もカラーバーに量・単位・両端の値で書きます。dB は wandas のレベル基準（「dB SPL re 20 µPa」など）で書き、未校正なら未校正と書きます。重ねた線には凡例を付けます。
+どのグラフも、縦軸と横軸に量の名前と単位を書きます。熱図は色の意味もカラーバーに量・単位・両端の値で書きます。dB は wandas のレベル基準（「dB SPL re 20 µPa」など）で書きます。dB でも振幅でも、未校正なら未校正と書きます。重ねた線には凡例を付けます。
 
 - テスト: `src/test/comparePanes.test.ts` › every pane names its axes: level and frequency, Δ with its legend, in the language and calibration of the files
 - テスト: `src/test/comparePanes.test.ts` › the level axis is named by wandas' level reference, and says uncalibrated from the calibration status, not the unit
 - テスト: `src/test/stagePanes.test.ts` › a metric over time names what it measures on its value axis, from its unit
 - テスト: `src/test/stagePanes.test.ts` › a heatmap names what its colour measures, with its unit and reference, for its colour bar
 - テスト: `src/test/stagePanes.test.ts` › a colour bar stays inside a narrow plot: its name shrinks to the unit, then is left out
+- テスト: `python-backend/test_stage_view.py` › test_a_time_signal_names_the_measure_a_step_made_of_it
 
 ## R5 色は役割だけを表す
 

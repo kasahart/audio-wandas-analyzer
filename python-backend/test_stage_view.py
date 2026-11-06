@@ -314,3 +314,16 @@ def test_a_zoomed_spectrums_buckets_are_laid_across_the_view_not_its_bins() -> N
     xs, _ = spectrum_line(freqs, levels, [20.0, 24000.0], 100)
     edges = np.geomspace(20.0, 24000.0, 101)
     assert len(xs) <= 2 * int(np.sum(edges[:-1] < 8000))
+
+
+def test_a_time_signal_names_the_measure_a_step_made_of_it() -> None:
+    # rms_trend, sound_level and power turn the sound into another quantity: the value axis names it (R4).
+    t = np.arange(16000) / 16000
+    tone = wd.from_numpy(0.3 * np.sin(2 * np.pi * 1000 * t)[None], sampling_rate=16000)
+    assert "measure" not in stage_view(tone)
+    assert stage_view(tone.rms_trend())["measure"] == "rms"
+    assert stage_view(tone.sound_level())["measure"] == "timeWeightedRms"
+    assert stage_view(tone.power())["measure"] == "power"
+    # A step after it keeps it; a metric after it is its own quantity.
+    assert stage_view(tone.power().trim(0.1, 0.5))["measure"] == "power"
+    assert "measure" not in stage_view(tone.power().loudness_zwtv())

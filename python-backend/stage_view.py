@@ -105,6 +105,8 @@ class StageView(TypedDict):
     pair: NotRequired[StagePair]
     #: A picture of only part of its axes, at the Frame's full resolution (a zoomed comparison's StageDetail).
     detail: NotRequired[bool]
+    #: What a time signal's values are when a step made them from the sound (SIGNAL_MEASURES), for its axis's name.
+    measure: NotRequired[Literal["rms", "timeWeightedRms", "power"]]
     #: A time signal's own waveform, as the track lanes draw it: per bucket its minimum and maximum, each at the
     #: time it occurred (s into the file). ``values`` keep the level over time the headline and Δ are read from.
     waveform: NotRequired[StageWaveform]
@@ -270,6 +272,27 @@ def _waveform(
     }
 
 
+#: What a time signal's values are when a step made them from the sound, for its value axis to name: a root mean
+#: square over a window, a time-weighted one (Fast, Slow), or the squared signal.
+Measure = Literal["rms", "timeWeightedRms", "power"]
+SIGNAL_MEASURES: dict[str, Measure] = {
+    "wandas.audio.rms_trend": "rms",
+    "wandas.audio.sound_level": "timeWeightedRms",
+    "wandas.audio.power": "power",
+}
+
+
+def signal_measure(frame: ChannelFrame) -> Measure | None:
+    """What the latest of rms_trend, sound_level and power made `frame`'s values (SIGNAL_MEASURES), or None."""
+    for item in reversed(frame.operation_history):
+        operation = str(item.get("operation", ""))
+        if operation in SIGNAL_MEASURES:
+            return SIGNAL_MEASURES[operation]
+        if operation in METRIC_SERIES_UNITS:
+            return None
+    return None
+
+
 def metric_operation(frame: ChannelFrame) -> str | None:
     """The latest metric `frame` came through (a trim after it keeps it one), or None for a sound signal."""
     for item in reversed(frame.operation_history):
@@ -284,10 +307,11 @@ def _channel_view(frame: ChannelFrame) -> StageView:
     # Seconds into the file, so a region's level reads at the region's times.
     times = np.asarray(frame.source_time, dtype=np.float64).reshape(frame.n_channels, -1)[0]
     metric = metric_operation(frame)
+    measure = signal_measure(frame)
     if metric is not None or data.shape[1] <= LEVEL_SERIES_MIN_SAMPLES:
         # A metric (loudness at 500 Hz, …) is its own values however long the region: never a level of them.
         xs, values = _envelope(times, np.mean(data, axis=0), LEVEL_SERIES_MIN_SAMPLES)
-        return {
+        series: StageView = {
             "frame": type(frame).__name__,
             "kind": "line",
             "x": "time",
@@ -297,6 +321,9 @@ def _channel_view(frame: ChannelFrame) -> StageView:
             "xs": _axis(xs),
             "values": _json(values),
         }
+        if measure:
+            series["measure"] = measure
+        return series
     edges = np.linspace(0, data.shape[1], min(TIME_POINTS, data.shape[1]) + 1).astype(int)
     refs = np.array([channel.ref for channel in frame.channels], dtype=np.float64)[:, np.newaxis]
     power = np.stack(
@@ -304,7 +331,7 @@ def _channel_view(frame: ChannelFrame) -> StageView:
     )
     with np.errstate(divide="ignore"):
         levels = 10.0 * np.log10(power / refs**2)
-    return {
+    view: StageView = {
         "frame": type(frame).__name__,
         "kind": "line",
         "x": "time",
@@ -314,6 +341,9 @@ def _channel_view(frame: ChannelFrame) -> StageView:
         "values": _json(rounded_db(_power_mean(levels))),
         "waveform": _waveform(frame),
     }
+    if measure:
+        view["measure"] = measure
+    return view
 
 
 def _event_rows(segments: ChannelFrameSegments) -> tuple[np.ndarray, np.ndarray]:

@@ -22,7 +22,7 @@ import { niceTicks } from '../../shared/utils/ticks';
 /** Canvas x the level axis's turned title is centred on, in the gutter left of its tick labels. */
 const AXIS_TITLE_X = 10;
 
-export type StageStrings = Pick<UiStrings, 'axisFrequency' | 'axisTime' | 'axisTriggerTime' | 'axisBand' | 'axisBark' | 'axisQuefrency' | 'axisCepstrum' | 'axisLag' | 'axisCorrelation' | 'axisLevel' | 'axisLevelUncal' | 'axisLevelCal' | 'axisDelta' | 'dsValue' | 'axisGain' | 'axisCoherence' | 'legendHeadline' | 'legendLeak' | 'legendLine' | 'stageNoDelta' | 'stageEventCounts' | 'stageNoEvents' | 'stageMaxDelta' | 'stepNotDrawable' | 'compareLevelsAt' | 'waveRangeAxisAmplitude' | 'stagePairBase' | 'axisLoudness' | 'axisSharpness' | 'axisRoughness' | 'axisLevelOf'>;
+export type StageStrings = Pick<UiStrings, 'axisFrequency' | 'axisTime' | 'axisTriggerTime' | 'axisBand' | 'axisBark' | 'axisQuefrency' | 'axisCepstrum' | 'axisLag' | 'axisCorrelation' | 'axisLevel' | 'axisLevelUncal' | 'axisLevelCal' | 'axisDelta' | 'dsValue' | 'axisGain' | 'axisCoherence' | 'legendHeadline' | 'legendLeak' | 'legendLine' | 'stageNoDelta' | 'stageEventCounts' | 'stageNoEvents' | 'stageMaxDelta' | 'stepNotDrawable' | 'compareLevelsAt' | 'waveRangeAxisAmplitude' | 'stagePairBase' | 'axisLoudness' | 'axisSharpness' | 'axisRoughness' | 'axisLevelOf' | 'axisRms' | 'axisRmsTimeWeighted' | 'axisPower' | 'axisUncalibrated'>;
 
 const DB_QUANTITIES = ['level', 'gain'];
 const isDb = (view: StageView | null): boolean => DB_QUANTITIES.includes(view?.quantity ?? '');
@@ -172,10 +172,18 @@ export function stageAxes(strings: StageStrings, view: StageView | null, input: 
         return { x, y, colour: diff ? (isDb(view) ? strings.axisDelta : `Δ ${colour}`) : colour };
     }
     if (diff && (!view || isDb(view))) return { x, y: strings.axisDelta };
-    // A time signal is drawn as itself: its amplitude, in its unit (full scale, or raw input units without one, while uncalibrated).
-    if (view?.waveform) return { x, y: `${strings.waveRangeAxisAmplitude} [${view.waveform.unit || uncalibratedUnits(!input || input.fullScale).linear}]` };
+    // A time signal is drawn as itself: its amplitude, in its unit (full scale, or raw input units without one), and
+    // says it is uncalibrated as the level axis does. After rms_trend, sound_level or power it names that measure.
+    const linear = (unit: string | undefined): string => {
+        const name = view?.measure === 'rms' ? strings.axisRms : view?.measure === 'timeWeightedRms' ? strings.axisRmsTimeWeighted : view?.measure === 'power' ? strings.axisPower : strings.waveRangeAxisAmplitude;
+        const base = unit || uncalibratedUnits(!input || input.fullScale).linear;
+        return `${name}${input?.calibrationStatus === 'calibrated' ? '' : strings.axisUncalibrated} [${view?.measure === 'power' ? `${base}²` : base}]`;
+    };
+    if (view?.waveform) return { x, y: linear(view.waveform.unit) };
     // A trigger's events are their signals: amplitude in the signal's unit, as a waveform's.
-    if (isEventsView(view)) return { x, y: `${strings.waveRangeAxisAmplitude} [${view?.unit || uncalibratedUnits(!input || input.fullScale).linear}]` };
+    if (isEventsView(view)) return { x, y: linear(view?.unit) };
+    // rms_trend's series is its own values (a metric's series), in the signal's unit.
+    if (view?.measure && view.quantity === 'value') return { x, y: diff ? `Δ ${linear(view.unit)}` : linear(view.unit) };
     const unit = view?.unit ? ` [${view.unit}]` : '';
     const y = view?.quantity === 'level' ? paneAxes(strings, input).level.y
         : view?.quantity === 'gain' ? strings.axisGain

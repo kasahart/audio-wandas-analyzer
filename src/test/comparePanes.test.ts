@@ -146,8 +146,15 @@ test('the level axis is named by wandas\' level reference, and says uncalibrated
     }
     const waveform = { min: [0], max: [1], minT: [0], maxT: [0], absolutePeak: 1, ref: 1 };
     const view = (unit: string): StageView => ({ frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs: [0], values: [0], waveform: { ...waveform, unit } });
-    assert.equal(stageAxes(STR, view('FS'), { unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true }).y, 'Amplitude [FS]');
-    assert.equal(stageAxes(STR, view(''), RAW).y, 'Amplitude [input unit]');
+    // A waveform says it is uncalibrated as the level axis does; a calibrated one names its unit only.
+    assert.equal(stageAxes(STR, view('FS'), { unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true }).y, 'Amplitude, uncalibrated [FS]');
+    assert.equal(stageAxes(STR, view(''), RAW).y, 'Amplitude, uncalibrated [input unit]');
+    assert.equal(stageAxes(STR, view('Pa'), SPL).y, 'Amplitude [Pa]');
+    // After rms_trend, sound_level or power the axis names that measure; power is in the unit squared.
+    assert.equal(stageAxes(STR, { ...view('Pa'), measure: 'timeWeightedRms' }, SPL).y, 'Time-weighted RMS [Pa]');
+    assert.equal(stageAxes(STR, { ...view(''), measure: 'power' }, FS).y, 'Power, uncalibrated [FS²]');
+    const series: StageView = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', unit: '', xs: [0], values: [0], measure: 'rms' };
+    assert.equal(stageAxes(getStrings('ja'), series, FS).y, '実効値 未校正 [FS]');
 });
 
 test('the headline gives both levels, and a band far below the loudest does not head it however large its Δ', () => {

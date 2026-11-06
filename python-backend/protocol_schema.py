@@ -581,6 +581,9 @@ DEFINITIONS: dict[str, Schema] = {
             },
             # Set on a picture of only part of its axes (StageDetail): the range it covers.
             "detail": {"type": "boolean"},
+            # What a time signal's values are when a step made them from the sound (stage_view.SIGNAL_MEASURES):
+            # a windowed RMS, a time-weighted RMS or the squared signal, for its value axis to name.
+            "measure": {"type": "string", "enum": ["rms", "timeWeightedRms", "power"]},
             # A time signal's waveform as the lanes draw it: per bucket min and max at the times they occurred.
             "waveform": {
                 "type": "object",
