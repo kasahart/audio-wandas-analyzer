@@ -295,6 +295,19 @@ def _chain(full: Mapping[str, object]) -> list[Mapping[str, object]]:
     return chain
 
 
+def _upstream_step(recipe: Mapping[str, object], stage: str, input_name: str, picked: object) -> Any:
+    """A step before the slice over the whole file. A trigger there gives segments, which a Recipe cannot output:
+    the steps before it run as a plan and the trigger as the scan runs a step after the slice (apply_step)."""
+    full = RecipePlan.from_dict(dict(recipe)).to_dict()
+    node = next(node for node in full["nodes"] if node["id"] == stage)
+    if not _gives_segments(str(node["operation"]), int(node["version"])):  # type: ignore[call-overload]
+        return upstream_plan(recipe, stage).apply({input_name: picked})
+    before = str(node["inputs"][0])  # type: ignore[index]
+    is_input = any(item["id"] == before for item in full["inputs"])
+    current = picked if is_input else upstream_plan(recipe, before).apply({input_name: picked}).cache()
+    return apply_step(_single_node_plan(node, input_name), current)
+
+
 def upstream_plan(recipe: Mapping[str, object], target: str) -> RecipePlan:
     """The Recipe up to one of its steps, which is then its output: that step's Frame over the whole file."""
     full = RecipePlan.from_dict(dict(recipe)).to_dict()
@@ -608,7 +621,7 @@ def scan_cached(
     if stage is not None and stage in plans["upstream"]:
         # A step before the slice runs over the whole file; nothing after it is needed.
         try:
-            upstream = upstream_plan(recipe, stage).apply({input_name: picked})
+            upstream = _upstream_step(recipe, stage, input_name, picked)
             view = stage_view(upstream, _length_s(picked), detail)
         except Exception as error:  # noqa: BLE001 - a step that fails on this file is named, whatever it raised.
             raise StepFailure(stage, error) from error

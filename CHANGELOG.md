@@ -4,6 +4,7 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 
 ## Unreleased
 
+- Compare: a trigger added right after the input (before the chain's high-pass and slice) draws its events over the whole file, instead of failing on every recording with "Recipe output is ChannelFrameSegments, not a Frame" (#648).
 - Compare: a trigger's events plot keeps its height above the tracks instead of covering the top of the base lane (by 24% at 1600×1000, and half the lane on a short window); the tracks scroll below it (#646).
 - Cursor spectrum: the level axis is named as in Compare, in the UI's language and saying when the files are uncalibrated ("Amplitude, uncalibrated [dBFS]"), instead of the backend's "Spectrum amplitude level" or "Band level". A panel too short for the name keeps the unit on its axis, and the header now has a legend with the full level name and each line's colour and name. With two level axes the legend groups the lines by side, as before (#642).
 - Compare, track view and cursor spectrum: each recording without a role has a colour of its own (teal, brown, olive, sand) in every view, so its peaks can be followed from line to line. Compare drew all of them grey before. The colour is kept when other recordings change role or new recordings are added (#644). With two level axes, a line read on the right-hand one is dashed, like its swatch in the legend. The analysis window band under the cursor is a neutral grey instead of amber, which read as a failed step's orange (#640).

@@ -503,6 +503,34 @@ def _hits(times: list[float], seconds: float = 2.0) -> np.ndarray:
     return signal
 
 
+def test_a_trigger_right_after_the_input_draws_its_events_over_the_whole_file(tmp_path: Path) -> None:
+    # ＋ right after the input on the default chain: the trigger comes before the high-pass and the slice, so it runs
+    # over the whole file, and wandas will not end a Recipe in its segments.
+    service = AnalysisService(AnalysisEngine())
+    path = _write(tmp_path / "hits.wav", [_hits([0.3, 0.8, 1.3])])
+    chain = json.loads(json.dumps(ENTRY_RECIPE))
+    head = chain["nodes"][0]
+    trigger = {
+        "id": "node-t",
+        "operation": "wandas.audio.trigger",
+        "version": 1,
+        "inputs": list(head["inputs"]),
+        "params": {"$type": "map", "entries": [["duration", _float(0.2)], ["threshold", _float(0.5)]]},
+    }
+    head["inputs"] = ["node-t"]
+    chain["nodes"].insert(0, trigger)
+    # As the step bar asks for the trigger's picture: the chain cut at it.
+    cut = {**json.loads(json.dumps(chain)), "nodes": [trigger], "output": "node-t"}
+    for recipe in (cut, chain):
+        events = _scan(service, path, recipe=recipe, stage="node-t")
+        assert events["ok"] is True, events
+        assert events["stage"]["frame"] == "ChannelFrameSegments"
+        assert [round(event["time"], 2) for event in events["stage"]["events"]] == [0.3, 0.8, 1.3]
+    # The steps before the slice that take a time signal cannot follow it: the high-pass is named as the step failing.
+    after = _scan(service, path, recipe=chain, stage=head["id"])
+    assert after["ok"] is False and after["failedStep"] == head["id"]
+
+
 def test_a_trigger_step_draws_each_event_and_the_steps_after_it_take_them(tmp_path: Path) -> None:
     service = AnalysisService(AnalysisEngine())
     hits = _hits([0.3, 0.8, 1.3])
