@@ -2083,7 +2083,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const span = trackStore.globalSpan();
         const secondsPerPixel = rect.width > 0 ? (range.end - range.start) * span.spanSec / rect.width : 0.01;
         // On the lanes' time axis, as the ruler and the cursor show it (a shifted track's offset included).
-        const seconds = span.startSec + (placement.offsetNorm + hit.t * placement.trackDurRatio) * span.spanSec;
+        const readNorm = placement.offsetNorm + hit.t * placement.trackDurRatio;
+        const seconds = span.startSec + readNorm * span.spanSec;
+        // The other lanes and the time shown follow the point read, not the pointer beside it (as the spectra do).
+        if (viewState.hover === null || Math.abs(viewState.hover - readNorm) > 1e-9) viewState.setHover(readNorm);
         const unit = channelsForResult(result)[channelIndex]?.unit?.trim() || null;
         laneReadout.textContent = laneReadoutText(spectrumReadoutTrackLabel(result, channelIndex), seconds, secondsPerPixel, hit.value, unit);
         laneReadout.style.color = color;

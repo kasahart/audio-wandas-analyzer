@@ -10,6 +10,10 @@ test('the pointer on a track\'s waveform reads the point nearest it as every plo
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await expect(readout).toHaveCount(1);
     await expect(readout).toHaveText(/^.+ \/ −?\d+\.\d+ s \/ −?[\d.]+/);
+    // The time shown in the toolbar is the point read, not the pointer beside it.
+    const readSeconds = Number(/ \/ (\d+\.\d+) s \//.exec((await readout.textContent()) ?? '')?.[1]);
+    const [minutes, rest] = ((await page.locator('#cursor-display').textContent()) ?? '').split(':');
+    expect(Math.abs(Number(minutes) * 60 + Number(rest) - readSeconds)).toBeLessThan(0.006);
     // On the spectrogram below it, no readout: an image has the cursor alone.
     const spectrogram = page.locator('.track-spec-canvas').first();
     const specBox = await spectrogram.boundingBox();
