@@ -594,7 +594,8 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
         const edge = Math.max(Math.abs(range.min), Math.abs(range.max));
         const low = signedScale ? -edge : range.min, high = signedScale ? edge : range.max;
         const endText = (value: number): string => levelText(value, high - low);
-        paintColourBar(context, { left: left + 4, right: left + plotWidth - 4, top: top + 3 }, axes.colour ?? '', endText(low), endText(high), fraction => {
+        // Under the region's corner tag when there is one, as the pending note is.
+        paintColourBar(context, { left: left + 4, right: left + plotWidth - 4, top: colourBarTop(top, options.region?.mark === 'tag') }, axes.colour ?? '', endText(low), endText(high), fraction => {
             const [r, g, b] = rgbOf(low + fraction * (high - low));
             return `rgb(${r}, ${g}, ${b})`;
         }, { text, back: pendingColors.back, line });
@@ -686,9 +687,13 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
     drawValueAxis(context, frame, [], axes.y, { color: text, font: context.font, titleX: AXIS_TITLE_X });
     if (options.secondary && !heatmap) paintRightAxis(context, frame, levelTicks.map(tick => tick.fraction), options.secondary.range, options.secondary.title, width, { muted, line, text });
     // Under the region's corner tag when there is one.
-    if (options.pending) paintPending(context, options.pending, left + plotWidth - 6, top + (options.region?.mark === 'tag' ? 38 : 12), 'right', pendingColors);
+    // A heatmap's colour bar holds that corner: the note goes under it.
+    if (options.pending) paintPending(context, options.pending, left + plotWidth - 6, heatmap ? colourBarTop(top, options.region?.mark === 'tag') + 23 : top + (options.region?.mark === 'tag' ? 38 : 12), 'right', pendingColors);
     return plot;
 }
+
+/** Where a heatmap's colour bar starts: the plot's top right, or under the region's corner tag (top + 4 to + 21). */
+export const colourBarTop = (top: number, tagged: boolean): number => top + (tagged ? 25 : 3);
 
 /** A heatmap's colour bar: its name, then the low end, a strip of the colours and the high end, on a backing box. */
 export function paintColourBar(context: CanvasRenderingContext2D, at: { left: number; right: number; top: number }, fullTitle: string, lowText: string, highText: string, colourAt: (fraction: number) => string, colors: { text: string; back: string; line: string }): void {

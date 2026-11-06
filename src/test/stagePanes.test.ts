@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { axisFractionOf, axisValueAt, byLevel, emptyStageText, eventLayers, stageAxes, paintColourBar, stageLevelsHeadline, stageDiffRange, stageHeadline, stageRange, stageHover, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
+import { axisFractionOf, axisValueAt, byLevel, emptyStageText, eventLayers, stageAxes, paintColourBar, colourBarTop, stageLevelsHeadline, stageDiffRange, stageHeadline, stageRange, stageHover, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
 import type { StageView } from '../shared/protocol/backendProtocol';
 
 const line = (values: number[], quantity: StageView['quantity'] = 'level'): StageView => ({ frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity, xs: [100, 1000, 10000], values });
@@ -215,4 +215,9 @@ test('a colour bar stays inside a narrow plot: its name shrinks to the unit, the
     const narrow = paint(56, 150);
     assert.deepEqual(narrow.titles, []);
     assert.ok(narrow.left >= 56);
+});
+
+test("a colour bar moves under the region's corner tag, which covers the plot's top right from 4 to 21 px down", () => {
+    assert.equal(colourBarTop(10, false), 13);
+    assert.ok(colourBarTop(10, true) >= 10 + 21);
 });
