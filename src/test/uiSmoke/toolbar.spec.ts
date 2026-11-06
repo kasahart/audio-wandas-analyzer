@@ -608,9 +608,11 @@ test('the cursor readout is labelled and follows a loop drag to where it was rel
     const dragged = await readout.textContent();
     await page.mouse.up();
     await expect(readout).toHaveText(dragged ?? '');
-    // The same place hovered afresh reads the same time.
+    // The same time hovered afresh reads the same time: on the spectrogram, where the time is the pointer's (on the
+    // waveform it is the point the lane reads, R7).
+    const spec = (await page.locator('#track-spec-canvas-0').boundingBox())!;
     await page.mouse.move(0, 0);
-    await page.mouse.move(wave.x + wave.width * 0.6, y);
+    await page.mouse.move(wave.x + wave.width * 0.6, spec.y + spec.height / 2);
     await expect(readout).toHaveText(dragged ?? '');
 });
 
