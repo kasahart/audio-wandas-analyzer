@@ -365,6 +365,8 @@ export interface WaveformPipelineParams {
     amplitudeScale?: number;
     amplitudeMinNorm?: number;
     amplitudeMaxNorm?: number;
+    /** Told each point drawn: where (canvas pixels), its value and its time (the file's 0..1). */
+    onPoint?: (x: number, y: number, value: number, t: number) => void;
 }
 
 /**
@@ -467,6 +469,10 @@ export function renderWaveformPipeline(
         const sy = tMin <= tMax ? toY(maxVal) : toY(minVal);
         if (!started) { ctx.moveTo(fx, fy); started = true; } else { ctx.lineTo(fx, fy); }
         ctx.lineTo(sx, sy);
+        if (params.onPoint) {
+            params.onPoint(toX(tMin), toY(minVal), minVal, tMin);
+            params.onPoint(toX(tMax), toY(maxVal), maxVal, tMax);
+        }
     }
     ctx.stroke();
 }

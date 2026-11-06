@@ -2,6 +2,8 @@ import { channelLabel, channelsForResult, formatClockTime } from '../../shared/u
 import { niceRange } from '../../shared/utils/ticks';
 import { linkedSpectrogramBounds, spectrogramDisplayBounds, spectrogramFailureText } from './spectrogramRaster';
 import { paintTrackSpectrogram, paintTrackWaveform, spectrogramPlotWidth, type SpectrogramRasterCacheEntry } from './trackCanvasPainter';
+import { laneHoverPoint, laneReadoutText, type LanePoint } from './trackLaneHover';
+import { paintHoverMarks } from './plotHover';
 import { trackTimelinePlacement } from './waveformCoverage';
 import { envelopePeak } from '../waveform/envelopePeak';
 import { fileOfKey } from '../../shared/dataset/datasetTable';
@@ -1876,6 +1878,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const record = trackRecordAtIndex(trackIndex);
         const placement = trackTimelinePlacement(offsetSeconds, result.durationSeconds, trackStore.globalSpan());
         const amplitudeZoomed = waveformView.isAmplitudeZoomed();
+        // Only the lane under the pointer reads its points: the others draw without keeping them.
+        const points: LanePoint[] | undefined = laneHover && laneHover.canvas === canvas ? [] : undefined;
         const coverage = paintTrackWaveform(ctx, W, H, color, src, {
             zoomStart: waveformView.start,
             zoomEnd: waveformView.end,
@@ -1883,7 +1887,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             trackDurRatio: placement.trackDurRatio,
             amplitudeMinNorm: amplitudeZoomed ? waveformView.amplitudeMin : undefined,
             amplitudeMaxNorm: amplitudeZoomed ? waveformView.amplitudeMax : undefined,
-        }, window.renderWaveformPipeline);
+        }, window.renderWaveformPipeline, points);
         if (record) {
             record.waveformCoverage = coverage;
         }
@@ -1891,7 +1895,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             drawLoopRegionOnCanvas(ctx, W, H);
             drawAnalysisWindowOnCanvas(ctx, W, H, trackIndex, channelIndex);
             drawCursorOnCanvas(ctx, W, H, waveformCursorLineStyle(getComputedStyle(document.body).getPropertyValue('--text').trim()));
-            drawHoverLineOnCanvas(ctx, W, H);
+            // The lane under the pointer reads its waveform as every plot of lines does (R7); the others follow its time.
+            if (laneHover && laneHover.canvas === canvas) drawLaneHover(ctx, W, H, points ?? [], result, channelIndex, color, placement);
+            else drawHoverLineOnCanvas(ctx, W, H);
             drawRectZoomSelectionOnCanvas(ctx, W, H, trackIndex);
         }
         const axisCanvas = canvasById(document, trackAxisCanvasId(trackIndex, channelIndex));
@@ -2046,6 +2052,48 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function drawCursorOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number, style = CURSOR_LINE_STYLE) {
         drawDashedTimeLine(ctx, viewState.cursor, waveformView.timeRange(), W, H, style);
+    }
+    /** The pointer over a waveform lane (client pixels), whose lane reads the point nearest it (R7). */
+    let laneHover: { canvas: HTMLCanvasElement; clientX: number; clientY: number } | null = null;
+    const laneReadout = document.createElement('div');
+    laneReadout.className = 'compare-readout track-lane-readout';
+    laneReadout.hidden = true;
+    document.body.append(laneReadout);
+    // The readout sits where the lane was on screen: a scroll under a still pointer takes it away.
+    document.addEventListener('scroll', () => { if (laneHover) { hideLaneHover(); scheduleRender(); } }, true);
+    function hideLaneHover(): void {
+        laneHover = null;
+        laneReadout.hidden = true;
+    }
+    function drawLaneHover(ctx: CanvasRenderingContext2D, W: number, H: number, points: readonly LanePoint[], result: ComparisonTrackState, channelIndex: number, color: string, placement: { offsetNorm: number; trackDurRatio: number }): void {
+        if (!laneHover) return;
+        const rect = laneHover.canvas.getBoundingClientRect();
+        const ratioX = rect.width > 0 ? W / rect.width : 1, ratioY = rect.height > 0 ? H / rect.height : 1;
+        const hit = laneHoverPoint(points, (laneHover.clientX - rect.left) * ratioX, (laneHover.clientY - rect.top) * ratioY, ratioX);
+        if (!hit) {
+            drawHoverLineOnCanvas(ctx, W, H);
+            laneReadout.hidden = true;
+            return;
+        }
+        ctx.save();
+        ctx.scale(ratioX, ratioY);
+        paintHoverMarks(ctx, { left: 0, top: 0, width: W / ratioX, height: H / ratioY }, hit.x / ratioX, hit.y / ratioY, color);
+        ctx.restore();
+        const range = waveformView.timeRange();
+        const span = trackStore.globalSpan();
+        const secondsPerPixel = rect.width > 0 ? (range.end - range.start) * span.spanSec / rect.width : 0.01;
+        // On the lanes' time axis, as the ruler and the cursor show it (a shifted track's offset included).
+        const readNorm = placement.offsetNorm + hit.t * placement.trackDurRatio;
+        const seconds = span.startSec + readNorm * span.spanSec;
+        // The other lanes and the time shown follow the point read, not the pointer beside it (as the spectra do).
+        if (viewState.hover === null || Math.abs(viewState.hover - readNorm) > 1e-9) viewState.setHover(readNorm);
+        const unit = channelsForResult(result)[channelIndex]?.unit?.trim() || null;
+        laneReadout.textContent = laneReadoutText(spectrumReadoutTrackLabel(result, channelIndex), seconds, secondsPerPixel, hit.value, unit);
+        laneReadout.style.color = color;
+        laneReadout.hidden = false;
+        // Beside the pointer, on its left where the right of the lane has no room for it.
+        const right = laneHover.clientX + 12 + laneReadout.offsetWidth > rect.right;
+        Object.assign(laneReadout.style, { left: `${Math.max(0, right ? laneHover.clientX - 12 - laneReadout.offsetWidth : laneHover.clientX + 12)}px`, top: `${Math.max(4, rect.top + 4)}px` });
     }
     function drawHoverLineOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number) {
         if (viewState.hover !== null) {
@@ -2587,6 +2635,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         // Not drawn while the comparison showed: the spectra are drawn again, from what is held, with the next frame.
         if (contentType === 'stage' && next !== 'stage') spectraHidden = true;
         contentType = next;
+        hideLaneHover();
         stageMode?.setActive(next === 'stage');
         document.body.classList.toggle('is-stage-view', next === 'stage');
         layout.invalidateCanvasSizes();
@@ -3347,10 +3396,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function handleCanvasMouseMove(e: MouseEvent): void {
         if (dragState && dragState.isDrag) {
             hintFooter.clear();
+            if (laneHover) { hideLaneHover(); scheduleRender(); }
             return;
         }
         const canvas = canvasTarget(e, 'track-canvas');
         if (!canvas) {
+            // Off the lanes but still among the tracks (an axis, a header, the split): the lane's readout goes.
+            if (laneHover) { hideLaneHover(); scheduleRender(); }
             return;
         }
         if (dragState) {
@@ -3366,6 +3418,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const norm = hit.norm;
+        if (canvas.classList.contains('track-spec-canvas')) hideLaneHover();
+        else laneHover = { canvas, clientX: e.clientX, clientY: e.clientY };
         // Same precedence as handleCanvasMouseDown so the hint names the drag that will run.
         const rectZoom = rectZoomOn(canvas);
         const gripType = rectZoom ? null : loopGripAt(viewState.loop, norm, waveformView.span());
@@ -3518,6 +3572,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         viewState.setHover(norm);
     }
     function clearHover() {
+        if (laneHover) { hideLaneHover(); scheduleRender(); }
         if (viewState.clearHover()) {
             hintFooter.clear();
         }

@@ -3,6 +3,7 @@ import { drawSpectrogramColorbar, SPECTROGRAM_COLORBAR_WIDTH, type DrawTheme } f
 import { paintSpectrogramRaster, type SpectrogramRasterView } from './spectrogramRaster';
 import type { RuntimeWindow, WaveformCoverage } from './types';
 import { traceXExtent, waveformCoverageFromExtent } from './waveformCoverage';
+import type { LanePoint } from './trackLaneHover';
 
 export function spectrogramPlotWidth(canvasWidth: number): number {
     return Math.max(1, canvasWidth - SPECTROGRAM_COLORBAR_WIDTH);
@@ -46,6 +47,8 @@ export function paintTrackWaveform(
     src: WaveformPaintSource | null,
     view: WaveformPaintView,
     pipeline: WaveformPipeline | undefined,
+    /** Filled with the points drawn on the canvas, for the pointer to read (trackLaneHover.ts). */
+    points?: LanePoint[],
 ): WaveformCoverage | null {
     ctx.strokeStyle = hexToRgba(color, 0.25);
     ctx.lineWidth = 0.5;
@@ -56,12 +59,16 @@ export function paintTrackWaveform(
     if (!src || !pipeline) {
         return null;
     }
+    // Each part keeps the points it draws inside its own span (a clip), on the canvas.
+    const collect = (from: number, to: number) => points
+        ? { onPoint: (x: number, y: number, value: number, t: number) => { if (x >= from && x <= to && y >= 0 && y <= H) points.push({ x, y, value, t }); } }
+        : {};
     const extent = traceXExtent(ctx, function () {
         ctx.save();
         try {
             const detail = src.detail;
             if (!detail) {
-                pipeline(ctx, W, H, src.waveform, { ...view, dataStart: src.dataStart, dataEnd: src.dataEnd, color, amplitudeScale: src.amplitudeScale });
+                pipeline(ctx, W, H, src.waveform, { ...view, dataStart: src.dataStart, dataEnd: src.dataEnd, color, amplitudeScale: src.amplitudeScale, ...collect(0, W) });
                 return;
             }
             const span = Math.max(view.zoomEnd - view.zoomStart, 1e-12);
@@ -70,12 +77,15 @@ export function paintTrackWaveform(
             const x0 = Math.max(0, Math.min(W, Math.round(xAt(detail.dataStart))));
             const x1 = Math.max(x0, Math.min(W, Math.round(xAt(detail.dataEnd))));
             const clipped = (rects: Array<[number, number]>, part: WaveformPaintSource) => {
+                const own = points ? (x: number, y: number, value: number, t: number) => {
+                    if (y >= 0 && y <= H && rects.some(([from, to]) => to > from && x >= from && x < to)) points.push({ x, y, value, t });
+                } : undefined;
                 ctx.save();
                 try {
                     ctx.beginPath();
                     rects.forEach(([from, to]) => { if (to > from) ctx.rect(from, 0, to - from, H); });
                     ctx.clip();
-                    pipeline(ctx, W, H, part.waveform, { ...view, dataStart: part.dataStart, dataEnd: part.dataEnd, color, amplitudeScale: part.amplitudeScale });
+                    pipeline(ctx, W, H, part.waveform, { ...view, dataStart: part.dataStart, dataEnd: part.dataEnd, color, amplitudeScale: part.amplitudeScale, ...(own ? { onPoint: own } : {}) });
                 }
                 finally {
                     ctx.restore();
