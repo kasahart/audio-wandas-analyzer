@@ -1,7 +1,7 @@
 import { expect, test } from './canvasAudit';
 import { buildUiSmokeHtml } from './buildHtml';
 
-test('the pointer on a track\'s waveform reads the point nearest it as every plot of lines does: name, time and amplitude, gone off the lane (R7)', async ({ page }) => {
+test('the pointer on a track\'s waveform reads the point nearest it as every plot of lines does: name, time and amplitude in the toolbar, gone off the lane (R7)', async ({ page }) => {
     await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
     const lane = page.locator('.track-canvas:not(.track-spec-canvas)').first();
     const box = await lane.boundingBox();
@@ -10,6 +10,11 @@ test('the pointer on a track\'s waveform reads the point nearest it as every plo
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await expect(readout).toHaveCount(1);
     await expect(readout).toHaveText(/^.+ \/ −?\d+\.\d+ s \/ −?[\d.]+/);
+    // Shown in the toolbar beside the cursor's time, never over the waveform it reads.
+    await expect(page.locator('#toolbar .track-lane-readout:not([hidden])')).toHaveCount(1);
+    const readoutBox = await readout.boundingBox();
+    if (!readoutBox) throw new Error('readout has no layout box');
+    expect(readoutBox.y + readoutBox.height <= box.y || readoutBox.y >= box.y + box.height).toBe(true);
     // The time shown in the toolbar is the point read, not the pointer beside it.
     const readSeconds = Number(/ \/ (\d+\.\d+) s \//.exec((await readout.textContent()) ?? '')?.[1]);
     const [minutes, rest] = ((await page.locator('#cursor-display').textContent()) ?? '').split(':');

@@ -2056,10 +2056,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     /** The pointer over a waveform lane (client pixels), whose lane reads the point nearest it (R7). */
     let laneHover: { canvas: HTMLCanvasElement; clientX: number; clientY: number } | null = null;
     const laneReadout = document.createElement('div');
-    laneReadout.className = 'compare-readout track-lane-readout';
+    laneReadout.className = 'track-lane-readout';
     laneReadout.hidden = true;
-    document.body.append(laneReadout);
-    // The readout sits where the lane was on screen: a scroll under a still pointer takes it away.
+    // A scroll under a still pointer moves the lane from under it: the point read goes with it.
     document.addEventListener('scroll', () => { if (laneHover) { hideLaneHover(); scheduleRender(); } }, true);
     function hideLaneHover(): void {
         laneHover = null;
@@ -2091,9 +2090,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         laneReadout.textContent = laneReadoutText(spectrumReadoutTrackLabel(result, channelIndex), seconds, secondsPerPixel, hit.value, unit);
         laneReadout.style.color = color;
         laneReadout.hidden = false;
-        // Beside the pointer, on its left where the right of the lane has no room for it.
-        const right = laneHover.clientX + 12 + laneReadout.offsetWidth > rect.right;
-        Object.assign(laneReadout.style, { left: `${Math.max(0, right ? laneHover.clientX - 12 - laneReadout.offsetWidth : laneHover.clientX + 12)}px`, top: `${Math.max(4, rect.top + 4)}px` });
+        // In the toolbar beside the cursor's time, not over the lane: the waveform under the pointer stays in view.
+        const cursorDisplay = document.getElementById('cursor-display');
+        if (cursorDisplay && laneReadout.previousElementSibling !== cursorDisplay) cursorDisplay.after(laneReadout);
     }
     function drawHoverLineOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number) {
         if (viewState.hover !== null) {

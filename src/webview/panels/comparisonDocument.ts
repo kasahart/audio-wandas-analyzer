@@ -173,6 +173,7 @@ export function renderComparisonStyles(): string {
             border: 1px solid var(--line); background: var(--surface); color: var(--text);
         }
         #cursor-display { font-size: 11px; font-family: var(--font-mono); color: var(--muted); min-width: 80px; }
+        .track-lane-readout { display: inline-block; font-size: 11px; font-family: var(--font-mono); margin-left: 6px; min-width: 0; max-width: 45vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; pointer-events: none; }
         #playback-display { font-size: 11px; font-family: var(--font-mono); color: #64a0ff; min-width: 70px; display: none; }
         #loop-time-display { font-size: 0.85em; font-family: var(--font-mono); color: #64a0ff; margin-left: 6px; cursor: pointer; }
 
@@ -416,7 +417,7 @@ export function renderComparisonStyles(): string {
         .track-stage-bar[hidden], .track-stage[hidden], .track-stage-panel[hidden], .track-stage-diff[hidden] { display: none; }
         .track-stage-cursor { position: fixed; pointer-events: none; z-index: 20; }
         .track-stage-cursor[hidden], .track-stage-readout[hidden], .track-lane-readout[hidden], .track-stage-box[hidden] { display: none; }
-        .track-stage-readout, .track-lane-readout { position: fixed; z-index: 21; bottom: auto; right: auto; white-space: nowrap; pointer-events: none; }
+        .track-stage-readout { position: fixed; z-index: 21; bottom: auto; right: auto; white-space: nowrap; pointer-events: none; }
         .track-stage-box { position: fixed; z-index: 21; }
         .track-stage { position: relative; z-index: 20; display: flex; flex-direction: column; flex-shrink: 0; font-family: var(--font-ui); font-size: 12px; color: var(--text); }
         .track-stage-controls { display: flex; align-items: center; gap: 6px; padding: 2px 12px 4px; }
