@@ -748,12 +748,14 @@ export function renderComparisonStyles(): string {
         .pair-legend-swatch { width: 10px; height: 2px; border-radius: 1px; }
         .pair-legend-item.is-empty .pair-legend-swatch { background: var(--muted) !important; }
         .pair-legend-mark { margin-left: 1px; }
-        /* Only with two level references: which lines are read on the left and on the right level axis. */
-        #spectrum-axis-legend { display: flex; gap: 10px; overflow: hidden; font-family: var(--font-ui); }
+        /* The legend takes what the cursor's time and the readout leave, and cuts its last lines when they do not fit. */
+        .spectrum-pane-header > #spectrum-axis-legend { display: flex; flex: 1 1 0; gap: 10px; overflow: hidden; font-family: var(--font-ui); }
         #spectrum-axis-legend[hidden] { display: none; }
-        .spectrum-axis-legend-item { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
-        .spectrum-axis-legend-swatch { width: 10px; height: 2px; border-radius: 1px; }
+        .spectrum-axis-legend-item { display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; min-width: 0; overflow: hidden; }
+        .spectrum-axis-legend-swatch { flex: none; width: 10px; height: 2px; border-radius: 1px; }
         .spectrum-axis-legend-mark { color: var(--muted); }
+        .spectrum-axis-legend-label { max-width: 14em; overflow: hidden; text-overflow: ellipsis; margin-right: 4px; }
+        .spectrum-axis-legend-reference { color: var(--muted); flex: none; margin-right: 4px; }
         #pair-spectrum-plot { position: relative; flex: 1 1 auto; min-height: 0; }
         /* A replacement request is computing; the plot still shows the previous inputs. */
         #pair-spectrum-wrap.is-stale #pair-spectrum-plot,

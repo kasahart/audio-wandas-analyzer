@@ -34,7 +34,7 @@ export interface OverlaySpectrumPaint {
     /** null leaves the readout as is: nothing was drawn to read. */
     readout: { text: string; color: string } | null;
     /** Each level axis with the colours of the lines read on it, left first; one entry when the references agree. */
-    levelAxes: Array<{ title: string; reference: string; colors: string[] }>;
+    levelAxes: Array<{ title: string; reference: string; colors: string[]; lines: Array<{ color: string; label: string }> }>;
 }
 
 /** Marks the right-hand axis in the legend. */
@@ -87,13 +87,18 @@ export function paintOverlaySpectrum(
     hover: OverlaySpectrumHover,
     box: SpectrumBoxSpan | null,
     frequencyTitle = '',
+    /** Names a level axis from its reference and the lines read on it (the UI's words, calibrated or not); the slice's own label otherwise. */
+    levelTitle?: (reference: string, series: readonly SpectrumSeries[]) => string,
 ): OverlaySpectrumPaint {
     const { maxFrequencyHz, logMinFrequencyHz } = spectrumSeriesRange(slices);
-    const axes = overlayLevelAxes(slices, view);
+    const axes = overlayLevelAxes(slices, view).map(axis => (levelTitle && axis.series.length ? { ...axis, title: levelTitle(axis.reference, axis.series) } : axis));
     setOverlaySecondaryLevelAxis(axes.length > 1);
     const pad = OVERLAY_SPECTRUM_PAD;
     const vis = axes[0].visible;
-    const levelAxes = axes.map(axis => ({ title: axis.title, reference: axis.reference, colors: [...new Set(axis.series.map(s => s.color))] }));
+    const levelAxes = axes.map(axis => ({
+        title: axis.title, reference: axis.reference, colors: [...new Set(axis.series.map(s => s.color))],
+        lines: axis.series.filter((s, i, all) => all.findIndex(o => o.label === s.label && o.color === s.color) === i).map(s => ({ color: s.color, label: s.label })),
+    }));
     const result: OverlaySpectrumPaint = { maxFrequencyHz, logMinFrequencyHz, dbMin: vis.dbMin, dbMax: vis.dbMax, painted: false, readout: null, levelAxes };
     const empty = vis.frequencyMax - vis.frequencyMin <= 0;
     // Each series' layer, so the hover draws the line it read thicker on the same axes.
@@ -154,43 +159,46 @@ export const SECONDARY_AXIS_DASH: readonly number[] = [5, 3];
 export const OVERLAY_LEVEL_AXES = 2;
 
 /**
- * Only with two level axes: which lines are read on which side, as the lines' colours beside each axis' level
- * ("◀ ■ ■ dB SPL re 20 µPa   ■ dB re 1 V ▶"). With one axis the legend is empty and the panel reads as before.
+ * The panel's legend: the level's name, then each line's colour and name, so overlaid lines are named without a hover
+ * ("Amplitude, uncalibrated [dBFS] ■ A ■ B"). With two level axes the lines are grouped by the side they are read on
+ * ("◀ Amplitude [dB SPL re 20 µPa] ■ A   Amplitude, uncalibrated [dB re 1 V] ┄ C ▶"), the right-hand side's swatches dashed as its lines are.
  */
 export function renderSpectrumAxisLegend(el: HTMLElement | null, levelAxes: OverlaySpectrumPaint['levelAxes']): void {
     if (!el) {
         return;
     }
+    const shown = levelAxes.slice(0, OVERLAY_LEVEL_AXES).filter(axis => axis.lines.length > 0);
     // The overlay repaints on every cursor move; the legend is rebuilt only when what it says changes.
-    const key = levelAxes.length < 2 ? '' : JSON.stringify(levelAxes.map(axis => [axis.reference, axis.colors]));
+    const key = JSON.stringify(shown.map(axis => [axis.reference, axis.lines.map(line => [line.color, line.label])]));
     if (el.getAttribute('data-legend-key') === key) {
         return;
     }
     el.setAttribute('data-legend-key', key);
     el.replaceChildren();
-    el.hidden = levelAxes.length < 2;
-    if (levelAxes.length < 2) {
-        return;
-    }
+    el.hidden = shown.length === 0;
+    const two = shown.length > 1;
     const doc = el.ownerDocument;
-    levelAxes.slice(0, OVERLAY_LEVEL_AXES).forEach((axis, index) => {
+    shown.forEach((axis, index) => {
         const item = doc.createElement('span');
         item.className = 'spectrum-axis-legend-item';
         item.setAttribute('data-axis', index === 0 ? 'left' : 'right');
-        const mark = (text: string) => { const m = doc.createElement('span'); m.className = 'spectrum-axis-legend-mark'; m.textContent = text; return m; };
-        if (index === 0) { item.appendChild(mark('◀')); }
-        axis.colors.forEach(color => {
+        const text = (className: string, value: string) => { const m = doc.createElement('span'); m.className = className; m.textContent = value; return m; };
+        if (two && index === 0) { item.appendChild(text('spectrum-axis-legend-mark', '◀')); }
+        // The level's whole name first (a short panel's axis has room for its unit alone), then its lines: many lines are cut, not the name.
+        item.appendChild(text('spectrum-axis-legend-reference', axis.title || axis.reference));
+        axis.lines.forEach(line => {
             const swatch = doc.createElement('span');
             swatch.className = 'spectrum-axis-legend-swatch';
             // The right-hand axis' lines are dashed: so are their swatches.
-            swatch.style.background = index === 0 ? color : `repeating-linear-gradient(90deg, ${color} 0 ${SECONDARY_AXIS_DASH[0]}px, transparent ${SECONDARY_AXIS_DASH[0]}px ${SECONDARY_AXIS_DASH[0] + SECONDARY_AXIS_DASH[1]}px)`;
+            swatch.style.background = index === 0 ? line.color : `repeating-linear-gradient(90deg, ${line.color} 0 ${SECONDARY_AXIS_DASH[0]}px, transparent ${SECONDARY_AXIS_DASH[0]}px ${SECONDARY_AXIS_DASH[0] + SECONDARY_AXIS_DASH[1]}px)`;
             item.appendChild(swatch);
+            item.appendChild(text('spectrum-axis-legend-label', line.label));
         });
-        const label = doc.createElement('span');
-        label.textContent = axis.reference;
-        item.appendChild(label);
-        if (index > 0) { item.appendChild(mark(SECONDARY_AXIS_MARK)); }
-        item.title = axis.title;
+        if (two && index > 0) { item.appendChild(text('spectrum-axis-legend-mark', SECONDARY_AXIS_MARK)); }
+        // Named in the footer, as every hint is: a long name is cut short on the line.
+        const hint = [axis.title, ...axis.lines.map(line => line.label)].join(' · ');
+        item.setAttribute('data-hint', hint);
+        item.setAttribute('aria-description', hint);
         el.appendChild(item);
     });
 }

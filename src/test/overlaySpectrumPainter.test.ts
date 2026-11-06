@@ -147,7 +147,10 @@ test('paintOverlaySpectrum: a second reference widens the right margin, names it
     assert.ok(texts.includes(SPL) && texts.includes(VOLT), JSON.stringify(texts));
     // The right axis' values sit at the left axis' gridlines (40–80 dB SPL in tens), so a gridline reads on both sides.
     assert.ok(['50', '60', '70', '−50', '−40', '−30'].every(value => texts.includes(value)), JSON.stringify(texts));
-    assert.deepEqual(paint.levelAxes, [{ title: SPL, reference: 'dB SPL re 20 µPa', colors: ['#0000ff'] }, { title: VOLT, reference: 'dB re 1 V', colors: ['#ffff00'] }]);
+    assert.deepEqual(paint.levelAxes, [
+        { title: SPL, reference: 'dB SPL re 20 µPa', colors: ['#0000ff'], lines: [{ color: '#0000ff', label: 'A' }] },
+        { title: VOLT, reference: 'dB re 1 V', colors: ['#ffff00'], lines: [{ color: '#ffff00', label: 'B' }] },
+    ]);
     // B's peak (-20 dB re 1 V, bin 1) is at the top of the right axis, where the pointer is.
     const hover = { norm: 1 / 3, yFrac: 8 / 200, target: 'overlay' as const };
     const readout = paintOverlaySpectrum(canvasOf(ctx), 400, 200, mixed, fullView, hover, null).readout;
@@ -176,7 +179,7 @@ test('paintOverlaySpectrum: a line read on the right-hand axis is dashed, so lin
     assert.ok(strokes.some(s => s.dash.join() === SECONDARY_AXIS_DASH.join()), 'the right axis\' line is dashed');
 });
 
-test('renderSpectrumAxisLegend shows which lines are read on which side, only with two axes', () => {
+test('renderSpectrumAxisLegend names every line by its colour, grouped by the side it is read on with two axes', () => {
     const children: Array<{ attrs: Record<string, string>; parts: string[] }> = [];
     const makeEl = (): Record<string, unknown> => {
         const el: Record<string, unknown> = { textContent: '', style: {}, className: '', title: '', attrs: {}, kids: [] as unknown[] };
@@ -186,21 +189,45 @@ test('renderSpectrumAxisLegend shows which lines are read on which side, only wi
     };
     const hostAttrs: Record<string, string> = {};
     const host = { hidden: true, ownerDocument: { createElement: makeEl }, getAttribute: (k: string) => hostAttrs[k] ?? null, setAttribute: (k: string, v: string) => { hostAttrs[k] = v; }, replaceChildren() { children.length = 0; }, appendChild(item: Record<string, unknown>) {
-        children.push({ attrs: item.attrs as Record<string, string>, parts: (item.kids as Array<{ textContent: string; style: { background?: string } }>).map(k => k.textContent || (k.style.background ?? '')) });
+        const attrs = item.attrs as Record<string, string>;
+        assert.ok(attrs['data-hint'], 'each side names its lines in the footer');
+        children.push({ attrs: { 'data-axis': attrs['data-axis'] }, parts: (item.kids as Array<{ textContent: string; style: { background?: string } }>).map(k => k.textContent || (k.style.background ?? '')) });
     } };
-    renderSpectrumAxisLegend(host as unknown as HTMLElement, [{ title: SPL, reference: 'dB SPL re 20 µPa', colors: ['#0000ff', '#00ffff'] }, { title: VOLT, reference: 'dB re 1 V', colors: ['#ffff00'] }]);
+    const two = [
+        { title: SPL, reference: 'dB SPL re 20 µPa', colors: ['#0000ff', '#00ffff'], lines: [{ color: '#0000ff', label: 'A' }, { color: '#00ffff', label: 'A2' }] },
+        { title: VOLT, reference: 'dB re 1 V', colors: ['#ffff00'], lines: [{ color: '#ffff00', label: 'B' }] },
+    ];
+    renderSpectrumAxisLegend(host as unknown as HTMLElement, two);
     assert.equal(host.hidden, false);
     assert.deepEqual(children, [
-        { attrs: { 'data-axis': 'left' }, parts: ['◀', '#0000ff', '#00ffff', 'dB SPL re 20 µPa'] },
-        { attrs: { 'data-axis': 'right' }, parts: ['repeating-linear-gradient(90deg, #ffff00 0 5px, transparent 5px 8px)', 'dB re 1 V', SECONDARY_AXIS_MARK] },
+        { attrs: { 'data-axis': 'left' }, parts: ['◀', SPL, '#0000ff', 'A', '#00ffff', 'A2'] },
+        { attrs: { 'data-axis': 'right' }, parts: [VOLT, 'repeating-linear-gradient(90deg, #ffff00 0 5px, transparent 5px 8px)', 'B', SECONDARY_AXIS_MARK] },
     ]);
-    // Repainting with the same axes leaves the legend as it is (a rebuild would clear the marker).
+    // Repainting with the same lines leaves the legend as it is (a rebuild would clear the marker).
     children.push({ attrs: { 'data-axis': 'marker' }, parts: [] });
-    renderSpectrumAxisLegend(host as unknown as HTMLElement, [{ title: SPL, reference: 'dB SPL re 20 µPa', colors: ['#0000ff', '#00ffff'] }, { title: VOLT, reference: 'dB re 1 V', colors: ['#ffff00'] }]);
+    renderSpectrumAxisLegend(host as unknown as HTMLElement, two);
     assert.equal(children.length, 3);
-    renderSpectrumAxisLegend(host as unknown as HTMLElement, [{ title: SPL, reference: 'dB SPL re 20 µPa', colors: ['#0000ff'] }]);
+    // One axis: the level's name and the lines'. Grey lines without a role are told apart by their names.
+    renderSpectrumAxisLegend(host as unknown as HTMLElement, [{ title: SPL, reference: 'dB SPL re 20 µPa', colors: ['#8b949e'], lines: [{ color: '#8b949e', label: 'A' }, { color: '#8b949e', label: 'C' }] }]);
+    assert.equal(host.hidden, false);
+    assert.deepEqual(children, [{ attrs: { 'data-axis': 'left' }, parts: [SPL, '#8b949e', 'A', '#8b949e', 'C'] }]);
+    renderSpectrumAxisLegend(host as unknown as HTMLElement, [{ title: '', reference: '', colors: [], lines: [] }]);
     assert.equal(host.hidden, true);
     assert.equal(children.length, 0);
+});
+
+test('paintOverlaySpectrum names a level axis as the caller says, from its reference and the lines read on it', () => {
+    const texts: string[] = [];
+    const { ctx } = recordingCtx();
+    const recording = new Proxy(ctx, { get(target, prop) { return prop === 'fillText' ? (text: string) => { texts.push(text); } : Reflect.get(target, prop); } });
+    const named: Array<[string, string[]]> = [];
+    const paint = paintOverlaySpectrum(canvasOf(recording), 400, 200, mixed, fullView, noHover, null, '', (reference, series) => {
+        named.push([reference, series.map(s => s.label)]);
+        return `Amplitude, uncalibrated [${reference}]`;
+    });
+    assert.deepEqual(named, [['dB SPL re 20 µPa', ['A']], ['dB re 1 V', ['B']]]);
+    assert.deepEqual(paint.levelAxes.map(axis => axis.title), ['Amplitude, uncalibrated [dB SPL re 20 µPa]', 'Amplitude, uncalibrated [dB re 1 V]']);
+    assert.ok(texts.some(text => text.startsWith('Amplitude, uncalibrated')), JSON.stringify(texts));
 });
 
 test('paintOverlaySpectrum: with two level axes the level guide runs only to the axis the line is read on', () => {
