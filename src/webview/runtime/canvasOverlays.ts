@@ -122,7 +122,8 @@ export interface AnalysisWindowBand {
     window?: string;
 }
 
-const ANALYSIS_WINDOW_COLOR = '255, 190, 70';
+/** The band's colour, for a dark and a light lane: a neutral grey, since every hue is a role's (R5). */
+export const ANALYSIS_WINDOW_COLORS = { dark: '201, 209, 217', light: '87, 96, 106' } as const;
 const ANALYSIS_WINDOW_MIN_PX = 3;
 const ANALYSIS_WINDOW_CURVE_MIN_PX = 12;
 
@@ -147,7 +148,9 @@ export function drawAnalysisWindowBand(
     view: NormalizedRange,
     width: number,
     height: number,
+    light = false,
 ): void {
+    const color = light ? ANALYSIS_WINDOW_COLORS.light : ANALYSIS_WINDOW_COLORS.dark;
     const span = view.end - view.start;
     if (span <= 0 || !(band.endNorm > band.startNorm)) {
         return;
@@ -164,12 +167,12 @@ export function drawAnalysisWindowBand(
     if (x1 - x0 < ANALYSIS_WINDOW_CURVE_MIN_PX) {
         const mid = (x0 + x1) / 2;
         const half = Math.max(ANALYSIS_WINDOW_MIN_PX, x1 - x0) / 2;
-        ctx.fillStyle = 'rgba(' + ANALYSIS_WINDOW_COLOR + ', 0.45)';
+        ctx.fillStyle = 'rgba(' + color + ', 0.45)';
         ctx.fillRect(mid - half, 0, half * 2, height);
         ctx.restore();
         return;
     }
-    ctx.fillStyle = 'rgba(' + ANALYSIS_WINDOW_COLOR + ', 0.08)';
+    ctx.fillStyle = 'rgba(' + color + ', 0.08)';
     ctx.fillRect(x0, 0, x1 - x0, height);
     const steps = Math.max(8, Math.min(256, Math.ceil(x1 - x0)));
     // Mirrored about the centre line, the curve reads as the envelope the window imposes on the waveform.
@@ -186,9 +189,9 @@ export function drawAnalysisWindowBand(
         ctx.lineTo(xAt(i), centre + offsetAt(i));
     }
     ctx.closePath();
-    ctx.fillStyle = 'rgba(' + ANALYSIS_WINDOW_COLOR + ', 0.18)';
+    ctx.fillStyle = 'rgba(' + color + ', 0.18)';
     ctx.fill();
-    ctx.strokeStyle = 'rgba(' + ANALYSIS_WINDOW_COLOR + ', 0.9)';
+    ctx.strokeStyle = 'rgba(' + color + ', 0.9)';
     ctx.lineWidth = 1;
     ctx.stroke();
     ctx.restore();

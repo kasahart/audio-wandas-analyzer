@@ -97,7 +97,7 @@ import { regionLabel } from './entryTable';
 import { activeSlotReferenced, recipeKey } from '../../shared/recipe/recipeSteps';
 import { openedRecipe } from '../../shared/recipe/recipeOpen';
 import { isRecipeDocument } from '../../shared/recipe/recipeSelection';
-import { LIGHT_THEME_BODY_SELECTORS, ROLE_COLORS, useLightRoleColors } from '../../shared/gui/roleColors';
+import { LIGHT_THEME_BODY_SELECTORS, NO_ROLE_COLOR, ROLE_COLORS, useLightRoleColors } from '../../shared/gui/roleColors';
 import { createTrackStageMode, type StageTrack, type TrackStageMode } from './trackStageMode';
 import { attachRoleChips, roleChipHtml, roleChipText, type RoleChipRole } from './roleChip';
 import { triggerAnchorDownload as downloadEntryCsv } from './exportDownloads';
@@ -169,11 +169,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     const LANE_PLOT_MIN = 40;
     // A tall spectrum still leaves the tracks this much room so the cursor stays reachable.
     const TRACKS_MIN_VISIBLE = 120;
-    // A track's own colour never looks like a role's: no blue (base), yellow / purple / magenta (slots 1–3),
-    // green (Δ), orange (outliers) or grey (no role in Compare); those belong to the roles (ROLE_COLORS) and the entry table.
-    const TRACK_COLORS = ['#2bb3a3', '#b08968', '#8a9a5b', '#c8b79c'];
-    // The same four darkened for a light background (each at least 3:1 against the lanes' background).
-    const LIGHT_TRACK_COLORS = ['#1a8a7c', '#94704f', '#6f7d44', '#8f7a55'];
     function isLightTheme(): boolean {
         return document.body.matches(LIGHT_THEME_BODY_SELECTORS.join(', '));
     }
@@ -457,11 +452,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function setLoopRegion(region: LoopRegion | null): void {
         viewState.setLoop(region);
     }
-    let nextDefaultTrackColorIndex = 0;
     function createTrackRuntime(): TrackRuntimeState {
-        const defaultColor = TRACK_COLORS[nextDefaultTrackColorIndex % TRACK_COLORS.length];
-        nextDefaultTrackColorIndex += 1;
-        return { offsetSeconds: 0, hidden: false, defaultColor: defaultColor };
+        return { offsetSeconds: 0, hidden: false };
     }
     const trackStore = new TrackStore(state.results, createTrackRuntime);
     const runtimeSessionId = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
@@ -786,16 +778,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function trackColor(i: number) {
         trackRuntimeAt(i);
-        // Its role from the entry table's slots (base blue, slots 1–3); otherwise its own colour, never a role's.
+        // Its role from the entry table's slots (base blue, slots 1–3); a recording without one is grey, as in Compare.
         const filePath = state.results[i]?.filePath;
         const role = filePath && stageMode ? stageMode.role(filePath) : undefined;
-        return (role !== undefined ? ROLE_COLORS[role] : undefined) || ownTrackColor(i);
-    }
-    /** The track's own colour, which it has without a role. */
-    function ownTrackColor(i: number) {
-        const runtime = trackRuntimeAt(i);
-        const color = (runtime && runtime.defaultColor) || TRACK_COLORS[i % TRACK_COLORS.length];
-        return isLightTheme() ? LIGHT_TRACK_COLORS[TRACK_COLORS.indexOf(color)] ?? color : color;
+        return (role !== undefined ? ROLE_COLORS[role] : undefined) || NO_ROLE_COLOR;
     }
     /** The role chips on the track headers follow the slots (set here, on the entry table or on the comparison's legend). */
     function syncRoleChips() {
@@ -805,9 +791,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const role = trackRole(filePath);
             const face = chip.querySelector<HTMLElement>('.role-chip-face');
             if (chip.open || !face || (face.dataset.role === String(role?.slot ?? '') && face.textContent === roleChipText(role))) return;
-            const i = state.results.findIndex(function (result) { return result.filePath === filePath; });
             if (face.dataset.role !== String(role?.slot ?? '')) roleChanged = true;
-            chip.outerHTML = roleChipHtml(filePath, role, i >= 0 ? ownTrackColor(i) : '', STR);
+            chip.outerHTML = roleChipHtml(filePath, role, NO_ROLE_COLOR, STR);
         });
         // The cursor spectra are drawn in each track's role colour: repaint them (without asking for slices) when a role changes.
         if (roleChanged && !spectraHidden) spectrumRequests.scheduleFrame(false, false);
@@ -1286,10 +1271,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         stageChannel: (path, comparePath, group) => entryScreen.stageChannel(path, comparePath, group),
         rowInfo: path => entryScreen.rowInfo(path),
         roleChip(path) {
-            const i = state.results.findIndex(function (result) { return result.filePath === path; });
             // The legend's label names the channel already: the chip says the role alone.
             const role = trackRole(path);
-            return roleChipHtml(path, role && { slot: role.slot, ch: null }, i >= 0 ? ownTrackColor(i) : '', STR, true);
+            return roleChipHtml(path, role && { slot: role.slot, ch: null }, NO_ROLE_COLOR, STR, true);
         },
         cost: paths => entryScreen.cost(paths),
         showCompared: () => entryScreen.showCompared(),
@@ -1676,7 +1660,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             channelCount: result.channelCount,
             sampleRateHz: result.sampleRateHz,
             channels: channelsForResult(result),
-            roleChipHtml: roleChipHtml(result.filePath, trackRole(result.filePath), ownTrackColor(i), STR),
+            roleChipHtml: roleChipHtml(result.filePath, trackRole(result.filePath), NO_ROLE_COLOR, STR),
             playable: !!result.audioSource,
             lanesHtml: buildChannelLanes(result, i),
             referenceButtonHtml: channelsForResult(result).length === 1 ? referenceButtonHtml(trackId, 0, STR) : undefined,
@@ -2045,7 +2029,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         const band = displayedWindowBand(trackIndex, channelIndex, holdingSpectrumCommit());
         if (band) {
-            drawAnalysisWindowBand(ctx, band, waveformView.timeRange(), W, H);
+            drawAnalysisWindowBand(ctx, band, waveformView.timeRange(), W, H, isLightTheme());
         }
     }
     function drawCursorOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number, style = CURSOR_LINE_STYLE) {

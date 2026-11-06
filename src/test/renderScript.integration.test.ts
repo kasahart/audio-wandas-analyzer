@@ -514,16 +514,16 @@ test('directory selection mode keeps the side panel while rendering selected tra
     assert.ok(toolbar, 'comparison toolbar should be visible in selection mode');
 });
 
-test('directory selection mode keeps existing track color stable when a new earlier tree item appears', () => {
+test('directory selection mode keeps an existing track, grey without a role, when a new earlier tree item appears', () => {
     const { dom } = setupEnvWithState(DUMMY_SELECTION_WITH_B_RESULT_STATE);
-    // A track without a role: its chip shows the track's own colour.
+    // A track without a role: its chip is grey, as in Compare (R5).
     const initialSwatch = dom.window.document.querySelector<HTMLElement>(
         '.track-row[data-track-id="track-1"] .role-chip-face',
     );
 
     assert.ok(initialSwatch);
     const initialBColor = initialSwatch.style.getPropertyValue('--role-fallback');
-    assert.ok(initialBColor);
+    assert.equal(initialBColor, '#8b949e');
 
     dom.window.dispatchEvent(new dom.window.MessageEvent('message', {
         data: {

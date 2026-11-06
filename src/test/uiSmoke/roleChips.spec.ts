@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { expect, test, type Page } from './canvasAudit';
 import { getStrings } from '../../shared/i18n/strings';
+import { NO_ROLE_COLOR, ROLE_COLORS } from '../../shared/gui/roleColors';
 import { entry100Results, openEntry, type ScannedFile } from './entryHelpers';
 
 let scanned: ScannedFile[] | undefined;
@@ -73,6 +74,31 @@ test('a track\'s role chip sets the entry table\'s slots from the track view, by
     const row = page.locator('[data-entry-rows] tr.entry-row').nth(4);
     await row.hover();
     await expect(row.locator('[data-action="entry-row-exclude"]')).toHaveText(STR.dsRowExcludeShort);
+});
+
+test('in the track view, a recording without a role is grey on its lane and its chip, as in Compare; a role gives it the role\'s colour', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    const [first] = await twoTracks(page);
+    // The colours each canvas strokes with, from here on.
+    await page.evaluate(() => {
+        const strokes: Record<string, string[]> = {};
+        (window as unknown as { __strokes: typeof strokes }).__strokes = strokes;
+        const proto = CanvasRenderingContext2D.prototype;
+        const { stroke } = Object.getOwnPropertyDescriptors(proto);
+        proto.stroke = function (this: CanvasRenderingContext2D, path?: Path2D) {
+            const style = typeof this.strokeStyle === 'string' ? this.strokeStyle.toLowerCase() : '';
+            (strokes[this.canvas.id] ??= []).push(style);
+            const draw = stroke.value as (this: CanvasRenderingContext2D, path?: Path2D) => void;
+            if (path) draw.call(this, path); else draw.call(this);
+        };
+    });
+    const stroked = (id: string): Promise<string[]> => page.evaluate(id => (window as unknown as { __strokes: Record<string, string[]> }).__strokes[id] ?? [], id);
+    await expect(chipOf(page, first).locator('.role-chip-face')).toHaveAttribute('style', new RegExp(`--role-fallback:\\s*${NO_ROLE_COLOR}`));
+    await page.setViewportSize({ width: 1281, height: 900 });
+    await expect.poll(() => stroked('track-canvas-0')).toContain(NO_ROLE_COLOR);
+    await chipOf(page, first).locator('summary').click();
+    await chipOf(page, first).locator('[data-action="track-role-set"][data-slot="1"]').click();
+    await expect.poll(() => stroked('track-canvas-0')).toContain(ROLE_COLORS[1]);
 });
 
 test('opened with no role, the comparison starts with the first two tracks as base and compare 1; the legend\'s chips change the roles there', async ({ page }) => {

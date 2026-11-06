@@ -1,15 +1,15 @@
 import { expect, test, type Page } from './canvasAudit';
 import { buildExtensionHostPathManyTracksHtml, buildExtensionHostPathUiSmokeHtml } from './buildHtml';
 
-/** Counts amber band pixels (the analysis-window fill and curve) per canvas column. */
-async function amberColumns(page: Page, canvasId: string): Promise<number[]> {
+/** Counts the band's pixels (its curve: a light blue-grey, unlike the white cursor, the grey of a track without a role and the roles' hues) per canvas column. */
+async function bandColumns(page: Page, canvasId: string): Promise<number[]> {
     return page.evaluate((id) => {
         const canvas = document.getElementById(id) as HTMLCanvasElement;
         const data = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data;
         const columns = new Array<number>(canvas.width).fill(0);
         for (let i = 0; i < data.length; i += 4) {
             const [r, g, b] = [data[i], data[i + 1], data[i + 2]];
-            if (r > 60 && r > b * 1.6 && g > b * 1.2 && r >= g) {
+            if (r > 150 && b - r >= 8 && g > r) {
                 columns[(i / 4) % canvas.width] += 1;
             }
         }
@@ -26,7 +26,7 @@ test('analysis window band follows the cursor on the waveform only and the heade
     await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
     await expect(page.locator('#spectrum-cursor-time')).not.toHaveText(/@ 0:00\.00/);
     await expect.poll(async () => {
-        const columns = await amberColumns(page, 'track-canvas-0');
+        const columns = await bandColumns(page, 'track-canvas-0');
         const lit = columns.flatMap((count, x) => (count > 0 ? [x] : []));
         const middle = columns.length / 2;
         return lit.length > 0 && Math.min(...lit) < middle && Math.max(...lit) > middle && lit.every((x) => Math.abs(x - middle) < columns.length / 4);
@@ -55,7 +55,7 @@ test('the spectrogram lane does not repeat the analysis window band', async ({ p
         }, '*');
         return true;
     })).toBe(true);
-    await expect.poll(async () => (await amberColumns(page, 'track-canvas-0')).some((count) => count > 0)).toBe(true);
+    await expect.poll(async () => (await bandColumns(page, 'track-canvas-0')).some((count) => count > 0)).toBe(true);
     // The raster fills the plot once the spectrogram arrives; before that only a loading message is drawn.
     await expect.poll(() => page.evaluate(() => {
         const canvas = document.getElementById('track-spec-canvas-0') as HTMLCanvasElement;
@@ -66,7 +66,7 @@ test('the spectrogram lane does not repeat the analysis window band', async ({ p
         }
         return opaque > (canvas.width * canvas.height) / 2;
     })).toBe(true);
-    expect((await amberColumns(page, 'track-spectrogram-overlay-0')).every((count) => count === 0)).toBe(true);
+    expect((await bandColumns(page, 'track-spectrogram-overlay-0')).every((count) => count === 0)).toBe(true);
 });
 
 /** Records, every frame, where each track waveform canvas last drew the analysis window band (twentieths of its width; null for none). */
@@ -74,7 +74,7 @@ async function recordBandFrames(page: Page): Promise<string[]> {
     const canvasIds = await page.evaluate(() => [...document.querySelectorAll<HTMLCanvasElement>('canvas.track-canvas')]
         .map((canvas) => canvas.id).filter((id) => /^track-canvas-\d+(-\d+)?$/u.test(id)));
     await page.evaluate((ids) => {
-        // The tracks' own colours can be amber too, so the band is told apart by how it is drawn, not by its pixels.
+        // The band is told apart by how it is drawn, not by its pixels.
         const shown: Record<string, number | null> = {};
         const proto = CanvasRenderingContext2D.prototype;
         const { clearRect, fillRect } = Object.getOwnPropertyDescriptors(proto);
@@ -84,7 +84,7 @@ async function recordBandFrames(page: Page): Promise<string[]> {
         };
         proto.fillRect = function (this: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) {
             const style = typeof this.fillStyle === 'string' ? this.fillStyle.replace(/\s/gu, '') : '';
-            if (this.canvas.id && style.startsWith('rgba(255,190,70')) {
+            if (this.canvas.id && style.startsWith('rgba(201,209,217')) {
                 shown[this.canvas.id] = Math.round((x + w / 2) / this.canvas.width * 20);
             }
             (fillRect.value as CanvasRenderingContext2D['fillRect']).call(this, x, y, w, h);
