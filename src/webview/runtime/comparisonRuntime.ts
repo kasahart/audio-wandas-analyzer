@@ -1307,7 +1307,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 const result = record.result;
                 if (record.runtime.hidden || result.error || !result.filePath) return;
                 const i = record.protocolIndex;
-                // The step's picture is of all channels together: it is drawn on the first lane, the others left clear.
+                // The step's picture is one per recording: it is drawn on the first lane; the steps view hides the others.
                 channelsForResult(result).forEach(function (_, channelIndex: number) {
                     if (channelIndex === 0) return;
                     const canvas = canvasById(document, trackCanvasId(i, channelIndex));
