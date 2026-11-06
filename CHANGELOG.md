@@ -4,6 +4,7 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 
 ## Unreleased
 
+- Track view: the pointer on a waveform lane now reads the waveform as Compare and the cursor spectrum do. It reads the point nearest the pointer within 20 px (a narrow peak beside the pointer at its top), and shows a cursor, a level line in the lane's colour, and a readout of the recording, the time and the amplitude. Before, it showed a time line only. The other lanes and the spectrograms still show the time line, and the click cursor and analysis window are unchanged (#652).
 - Compare, cursor spectrum and pair plot: the cursor reads the point nearest the pointer, measured across and up within 20 px. A narrow peak a few pixels beside the pointer is now read at its top instead of at its skirt under the pointer. With no point that near, the cursor reads the point under the pointer, as before. Arrow keys still step one bin. The cursor spectrum and the pair plot follow each other at the frequency that was read (#650).
 - Compare: a trigger added right after the input (before the chain's high-pass and slice) draws its events over the whole file, instead of failing on every recording with "Recipe output is ChannelFrameSegments, not a Frame" (#648).
 - Compare: a trigger's events plot keeps its height above the tracks instead of covering the top of the base lane (by 24% at 1600×1000, and half the lane on a short window); the tracks scroll below it (#646).
