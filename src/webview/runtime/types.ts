@@ -119,6 +119,8 @@ export interface RuntimeWindow extends Omit<Window, 'addEventListener' | 'remove
 export interface TrackRuntimeState {
     offsetSeconds: number;
     hidden: boolean;
+    /** Which own colour (roleColors.ownColor) the recording has without a role: given by the TrackStore, kept while the track stays. */
+    ownColorIndex?: number;
 }
 
 export interface SpectrumSlice {

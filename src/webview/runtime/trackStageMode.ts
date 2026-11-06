@@ -10,6 +10,7 @@
  * answered by the shared plot gestures (plotInteraction.ts); zoomed in, they draw from the Frames' full
  * resolution once it is in (stageDetail.ts), as the waveform lanes do.
  */
+import { ownColor } from '../../shared/gui/roleColors';
 import { redrawWhenResized } from './canvasResize';
 import type { UiStrings } from '../../shared/i18n/strings';
 import type { CompareCombineMessage, CompareScanMessage } from '../../shared/analysis/entryScan';
@@ -690,7 +691,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             const lanesDrawn = paintTriggerLanes({
                 strings, tracks, trigger, excluded, drawnOn, window: state.window, events,
                 signal: path => { const wanted = signalSpec(path); return wanted ? source.view(wanted, path) : undefined; },
-                color: path => colorOf(role, path),
+                color: path => colorOf(role, path, tracks.find(track => track.filePath === path)?.color ?? ownColor(0)),
                 axes: view => stageAxes(strings, view, tracks.find(track => track.input)?.input),
             });
             root.dataset.lanesMarked = String(lanesDrawn);

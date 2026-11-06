@@ -209,3 +209,21 @@ test('TrackStore lets the remaining tracks ask for a failed spectrogram again wh
 
     assert.equal(store.require(bId).detailError, null);
 });
+
+test('TrackStore gives each new track the own colour least in use: a file swapped in again and again never takes the colour of the one kept', () => {
+    const store = new TrackStore([result('/a.wav'), result('/b.wav')], runtime);
+    const colourOf = (path: string): number | undefined => store.activeResults().map((r) => store.require(r.trackId!)).find((record) => record.result.filePath === path)?.runtime.ownColorIndex;
+    assert.deepEqual([colourOf('/a.wav'), colourOf('/b.wav')], [0, 1]);
+    for (const other of ['/c.wav', '/d.wav', '/e.wav', '/f.wav']) {
+        store.applyAnalysisUpdate([result('/a.wav'), result(other)]);
+        assert.equal(colourOf('/a.wav'), 0, 'the kept track keeps its colour');
+        assert.notEqual(colourOf(other), 0, `${other} has a colour of its own`);
+    }
+    store.applyAnalysisUpdate([result('/a.wav'), result('/f.wav'), result('/g.wav'), result('/h.wav')]);
+    assert.deepEqual(new Set(['/a.wav', '/f.wav', '/g.wav', '/h.wav'].map(colourOf)).size, 4, 'four tracks, four colours');
+});
+
+test('TrackStore gives a file opened twice two colours', () => {
+    const store = new TrackStore([result('/same.wav'), result('/same.wav')], runtime);
+    assert.deepEqual(store.activeIds().map((id) => store.require(id).runtime.ownColorIndex), [0, 1]);
+});

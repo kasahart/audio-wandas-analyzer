@@ -3,7 +3,7 @@ import test from 'node:test';
 import { JSDOM } from 'jsdom';
 import { getStrings } from '../shared/i18n/strings';
 import type { StageView } from '../shared/protocol/backendProtocol';
-import { NO_ROLE_COLOR, ROLE_COLORS } from '../shared/gui/roleColors';
+import { ROLE_COLORS } from '../shared/gui/roleColors';
 import { FULL_PLOT_WINDOW } from '../webview/runtime/plotInteraction';
 import { plotsOf } from '../webview/runtime/trackStageModel';
 import type { Combined } from '../webview/runtime/combineSource';
@@ -123,18 +123,18 @@ test('side by side, every lane draws its own picture and says it shows the step;
     assert.ok(painted.includes(reference.canvas as Element));
 });
 
-test('overlaid: grey lines under the roles\', the base, the others, the compared file on top; the legend names them', () => {
+test('overlaid: lines without a role, each in its track\'s own colour, under the roles\', the base, the others, the compared file on top; the legend names them', () => {
     const { lane } = page();
-    const tracks = [lane('base.wav'), lane('one.wav'), lane('grey.wav')];
+    const tracks = [lane('base.wav'), lane('one.wav'), { ...lane('grey.wav'), color: '#2bb3a3' }];
     const views = { 'base.wav': line([-20, -30]), 'one.wav': line([-10, -30]), 'grey.wav': line([-40, -40]) };
     const frame = frameFor(tracks, views);
     const plots = plotsOf(frame.shown, tracks, 'one.wav', ['base.wav'], combined);
-    assert.deepEqual(overlayLayers(frame, plots).map(layer => [layer.color, layer.width]), [[NO_ROLE_COLOR, 1.2], [ROLE_COLORS[0], 2], [ROLE_COLORS[1], 2.2]]);
+    assert.deepEqual(overlayLayers(frame, plots).map(layer => [layer.color, layer.width]), [['#2bb3a3', 1.2], [ROLE_COLORS[0], 2], [ROLE_COLORS[1], 2.2]]);
     const members = { ...plots, baseMembers: [{ path: 'm1.wav', view: views['base.wav'] }, { path: 'm2.wav', view: views['grey.wav'] }] };
     assert.deepEqual(overlayLayers(frame, members, 'Base').map(layer => [layer.color, layer.width, layer.label]),
-        [[NO_ROLE_COLOR, 1.2, '· · grey.wav'], [ROLE_COLORS[0], 1, 'Base · m1.wav'], [ROLE_COLORS[0], 1, 'Base · m2.wav'], [ROLE_COLORS[1], 2.2, '1 · one.wav']], 'a base group\'s waveforms, each thin under the compared one (no median line)');
+        [['#2bb3a3', 1.2, '· · grey.wav'], [ROLE_COLORS[0], 1, 'Base · m1.wav'], [ROLE_COLORS[0], 1, 'Base · m2.wav'], [ROLE_COLORS[1], 2.2, '1 · one.wav']], 'a base group\'s waveforms, each thin under the compared one (no median line)');
     const items = overlayLegendItems(frame, plots, { title: 'Base', group: true, gated: false, count: 1, held: false, playable: path => ({ path }) });
-    assert.deepEqual(items.map(item => [item.label, item.color, !!item.trailingHtml, item.path]), [['Base', ROLE_COLORS[0], true, undefined], ['1 · one.wav', ROLE_COLORS[1], false, 'one.wav'], ['· · grey.wav', NO_ROLE_COLOR, false, 'grey.wav']]);
+    assert.deepEqual(items.map(item => [item.label, item.color, !!item.trailingHtml, item.path]), [['Base', ROLE_COLORS[0], true, undefined], ['1 · one.wav', ROLE_COLORS[1], false, 'one.wav'], ['· · grey.wav', '#2bb3a3', false, 'grey.wav']]);
     const gated = overlayLegendItems(frame, plots, { title: 'Base', group: false, gated: true, count: 40, held: true, playable: () => ({}) });
     assert.equal(gated[0].label, `Base${strings.stageBaseNoLine}`);
     assert.equal(gated[0].hint, undefined);

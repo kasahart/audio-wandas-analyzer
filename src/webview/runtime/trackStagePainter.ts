@@ -7,7 +7,7 @@ import type { UiStrings } from '../../shared/i18n/strings';
 import type { StageView } from '../../shared/protocol/backendProtocol';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { baseName } from '../../shared/analysis/entryMetadata';
-import { DIFF_COLOR, NO_ROLE_COLOR, ROLE_COLORS } from '../../shared/gui/roleColors';
+import { DIFF_COLOR, ROLE_COLORS } from '../../shared/gui/roleColors';
 import type { LegendItem, LevelInput, PaneRange } from './comparePanes';
 import { byLevel, emptyStageText, isEventsView, paintOverlay, paintStage, stageAxes, stageDiffRange, stageHeadline, stageLevelsHeadline, stageRange, type StageAxes, type StageLayer, type StagePlot } from './stagePanes';
 import type { PlotWindow } from './plotInteraction';
@@ -154,8 +154,8 @@ export function stageModeHeadline(frame: Pick<StageFrame, 'strings' | 'waiting' 
     return text.replace(/^\s*(·\s*)?/, '');
 }
 
-/** Colour is the role's: a recording without one is grey, its name in the legend telling it apart. */
-export const colorOf = (role: StageFrame['role'], path: string, fallback = NO_ROLE_COLOR): string => ROLE_COLORS[role(path) ?? -1] ?? fallback;
+/** Colour is the role's: a recording without one has its own (`fallback`, the track's colour), its name in the legend too. */
+export const colorOf = (role: StageFrame['role'], path: string, fallback: string): string => ROLE_COLORS[role(path) ?? -1] ?? fallback;
 const widthOf = (role: StageFrame['role'], path: string, width: number): number => (role(path) === undefined ? 1.2 : width);
 
 /** Side by side: every track's lane, on one range so the tracks compare at a glance; how many lanes drew a picture. */
@@ -178,7 +178,7 @@ export function paintStageLanes(frame: StageFrame): number {
         const empty = missing ? '' : emptyStageText(strings, coarse(track.filePath) ?? picture);
         const axes = stageAxes(strings, coarse(track.filePath) ?? picture, track.input);
         // A lane holds one picture, drawn as it is (1/3-octave levels as steps, without a fill).
-        const lanePlot = paintOverlay(track.canvas, { layers: view ? [{ view, color: colorOf(frame.role, track.filePath), width: widthOf(frame.role, track.filePath, 2), label: frame.named(track.filePath, frame.role(track.filePath)).label, ...eventsOf(frame, track.filePath, view) }] : [] }, heat ? range : narrowed(range, window.y), axes,
+        const lanePlot = paintOverlay(track.canvas, { layers: view ? [{ view, color: colorOf(frame.role, track.filePath, track.color), width: widthOf(frame.role, track.filePath, 2), label: frame.named(track.filePath, frame.role(track.filePath)).label, ...eventsOf(frame, track.filePath, view) }] : [] }, heat ? range : narrowed(range, window.y), axes,
             { empty, window: { x: window.x, ...(heat ? { y: window.y } : {}) }, axisView: coarse(track.filePath) ?? picture, ...(regionMark ? { region: regionMark } : {}), ...((missing || track.filePath === progressLane) && pending ? { pending } : {}) });
         frame.drawnOn.set(track.canvas, { picture: coarse(track.filePath) ?? picture, range, axes, plot: lanePlot });
         if (view) drawn++;
@@ -196,20 +196,20 @@ function eventsOf(frame: Pick<StageFrame, 'excluded'>, path: string, view: Stage
 }
 
 /**
- * The overlaid plot's lines: the grey ones (no role) under the roles' ones, the base, the other tracks, the compared
+ * The overlaid plot's lines: those without a role (each its own colour) under the roles' ones, the base, the other tracks, the compared
  * file on top. Each carries its legend name (the base's `baseLabel`), for the readout of the line under the pointer.
  */
 export function overlayLayers(frame: Pick<StageFrame, 'comparePath' | 'role' | 'named' | 'excluded'>, plots: StagePlots<StageTrack>, baseLabel?: string, basePath?: string): StageLayer[] {
-    const roleColor = (path: string, fallback?: string): string => colorOf(frame.role, path, fallback);
+    const roleColor = (path: string, fallback: string): string => colorOf(frame.role, path, fallback);
     const nameOf = (path: string): string => frame.named(path, frame.role(path)).label;
     const { comparePath } = frame;
     return [
-        // The grey lines (no role) under the roles' ones.
-        ...plots.others.filter(item => frame.role(item.track.filePath) === undefined).flatMap(item => (item.view ? [{ view: item.view, color: NO_ROLE_COLOR, width: 1.2, label: nameOf(item.track.filePath), ...eventsOf(frame, item.track.filePath, item.view) }] : [])),
+        // The lines without a role, each in its recording's own colour, under the roles' ones.
+        ...plots.others.filter(item => frame.role(item.track.filePath) === undefined).flatMap(item => (item.view ? [{ view: item.view, color: item.track.color, width: 1.2, label: nameOf(item.track.filePath), ...eventsOf(frame, item.track.filePath, item.view) }] : [])),
         // A base group's waveforms, each thin in the base's colour (a group has no median signal).
         ...plots.baseMembers.map(({ path, view }) => ({ view, color: ROLE_COLORS[0], width: 1, label: baseLabel !== undefined ? `${baseLabel} · ${baseName(path)}` : baseName(path) })),
         ...(plots.base && !plots.baseMembers.length ? [{ view: plots.base, color: ROLE_COLORS[0], width: 2, ...(baseLabel !== undefined ? { label: baseLabel } : {}), ...(basePath !== undefined ? eventsOf(frame, basePath, plots.base) : {}) }] : []),
-        ...plots.others.filter(item => frame.role(item.track.filePath) !== undefined).flatMap(item => (item.view ? [{ view: item.view, color: roleColor(item.track.filePath), width: 1.8, label: nameOf(item.track.filePath), ...eventsOf(frame, item.track.filePath, item.view) }] : [])),
+        ...plots.others.filter(item => frame.role(item.track.filePath) !== undefined).flatMap(item => (item.view ? [{ view: item.view, color: roleColor(item.track.filePath, item.track.color), width: 1.8, label: nameOf(item.track.filePath), ...eventsOf(frame, item.track.filePath, item.view) }] : [])),
         ...(plots.compare && comparePath ? [{ view: plots.compare, color: roleColor(comparePath, ROLE_COLORS[1]), width: 2.2, label: nameOf(comparePath), ...eventsOf(frame, comparePath, plots.compare) }] : []),
     ];
 }
@@ -227,13 +227,13 @@ export function overlayLegendItems(frame: Pick<StageFrame, 'comparePath' | 'refe
     playable: (path: string) => Pick<LegendItem, 'path' | 'playing'>;
 }): LegendItem[] {
     const { comparePath, referencePath, strings } = frame;
-    const roleColor = (path: string, fallback?: string): string => colorOf(frame.role, path, fallback);
+    const roleColor = (path: string, fallback: string): string => colorOf(frame.role, path, fallback);
     return [
         // A base group not analysed is not drawn, as its entry says.
         ...(comparePath && !referencePath ? [{ color: ROLE_COLORS[0], label: base.title + (base.gated ? strings.stageBaseNoLine : ''),
             ...(base.group ? { trailingHtml: `<button type="button" class="tb-link stage-base-more" data-action="stage-base-info" aria-label="${escapeHtml(base.aggregate ?? strings.stageBaseAggregate)}">▾</button>` } : {}) }] : []),
         ...(comparePath ? [{ color: roleColor(comparePath, ROLE_COLORS[1]), ...frame.named(comparePath, frame.role(comparePath)), active: true, held: base.held, ...base.playable(comparePath) }] : []),
-        ...plots.others.map(item => ({ color: roleColor(item.track.filePath), ...frame.named(item.track.filePath, frame.role(item.track.filePath)), ...base.playable(item.track.filePath) })),
+        ...plots.others.map(item => ({ color: roleColor(item.track.filePath, item.track.color), ...frame.named(item.track.filePath, frame.role(item.track.filePath)), ...base.playable(item.track.filePath) })),
     ];
 }
 

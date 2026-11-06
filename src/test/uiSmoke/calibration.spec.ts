@@ -46,7 +46,7 @@ test('two level references: the overlay reads the second on its own axis at the 
     await expect(legend.locator('[data-axis="right"]')).toHaveText(/^.*\[dB re 1 m\/s\^2\].+▶$/);
     await expect(legend.locator('.spectrum-axis-legend-label')).toHaveCount(2);
     await expect(legend.locator('.spectrum-axis-legend-swatch')).toHaveCount(2);
-    // Two recordings without a role are both grey: the right axis' swatch is dashed, as its line, so the sides stay apart.
+    // The right axis' swatch is dashed, as its line, so the sides stay apart whatever the colours.
     await expect(legend.locator('[data-axis="left"] .spectrum-axis-legend-swatch')).not.toHaveCSS('background-image', /gradient/);
     await expect(legend.locator('[data-axis="right"] .spectrum-axis-legend-swatch')).toHaveCSS('background-image', /repeating-linear-gradient/);
 });

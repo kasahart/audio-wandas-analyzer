@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { expect, test, type Page } from './canvasAudit';
 import { getStrings } from '../../shared/i18n/strings';
-import { NO_ROLE_COLOR, ROLE_COLORS } from '../../shared/gui/roleColors';
+import { OWN_COLORS, ROLE_COLORS } from '../../shared/gui/roleColors';
 import { entry100Results, openEntry, type ScannedFile } from './entryHelpers';
 
 let scanned: ScannedFile[] | undefined;
@@ -76,9 +76,11 @@ test('a track\'s role chip sets the entry table\'s slots from the track view, by
     await expect(row.locator('[data-action="entry-row-exclude"]')).toHaveText(STR.dsRowExcludeShort);
 });
 
-test('in the track view, a recording without a role is grey on its lane and its chip, as in Compare; a role gives it the role\'s colour', async ({ page }) => {
+test('in the track view, each recording without a role has its own colour on its lane and its chip, as in Compare; a role gives it the role\'s colour', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
-    const [first] = await twoTracks(page);
+    const [first, second] = await twoTracks(page);
+    // Each recording without a role has a colour of its own, so their lines are told apart.
+    await expect(chipOf(page, second).locator('.role-chip-face')).toHaveAttribute('style', new RegExp(`--role-fallback:\\s*${OWN_COLORS[1]}`));
     // The colours each canvas strokes with, from here on.
     await page.evaluate(() => {
         const strokes: Record<string, string[]> = {};
@@ -93,9 +95,9 @@ test('in the track view, a recording without a role is grey on its lane and its 
         };
     });
     const stroked = (id: string): Promise<string[]> => page.evaluate(id => (window as unknown as { __strokes: Record<string, string[]> }).__strokes[id] ?? [], id);
-    await expect(chipOf(page, first).locator('.role-chip-face')).toHaveAttribute('style', new RegExp(`--role-fallback:\\s*${NO_ROLE_COLOR}`));
+    await expect(chipOf(page, first).locator('.role-chip-face')).toHaveAttribute('style', new RegExp(`--role-fallback:\\s*${OWN_COLORS[0]}`));
     await page.setViewportSize({ width: 1281, height: 900 });
-    await expect.poll(() => stroked('track-canvas-0')).toContain(NO_ROLE_COLOR);
+    await expect.poll(() => stroked('track-canvas-0')).toContain(OWN_COLORS[0]);
     await chipOf(page, first).locator('summary').click();
     await chipOf(page, first).locator('[data-action="track-role-set"][data-slot="1"]').click();
     await expect.poll(() => stroked('track-canvas-0')).toContain(ROLE_COLORS[1]);
@@ -120,7 +122,7 @@ test('opened with no role, the comparison starts with the first two tracks as ba
         await legendChip(filePath).locator('summary').click();
         await legendChip(filePath).locator(`[data-action="track-role-set"][data-slot="${slot}"]`).click();
     };
-    // Nothing is drawn grey: the first track is the base, the second compare 1, in the table too.
+    // No line is left without a role: the first track is the base, the second compare 1, in the table too.
     await expect.poll(async () => (await scans()).length).toBeGreaterThan(0);
     await answer((await scans()).at(-1)!);
     await expect(slotText(page, 0)).toContainText(first.split('/').pop()!);

@@ -19,6 +19,7 @@ import { join } from 'node:path';
 // vscode モックを先に設定してから ComparisonPanel をロードするヘルパー
 import { getRenderScript, getRenderStyles } from './helpers/comparisonScriptLoader';
 import { createWebviewEnv, evalScript } from './helpers/webviewTestEnv';
+import { OWN_COLORS } from '../shared/gui/roleColors';
 
 // scripts/build-webview.js が tsc 後に生成。__dirname は dist/test なので 1 階層上が dist/。
 const WAVEFORM_PIPELINE_JS = readFileSync(
@@ -514,16 +515,16 @@ test('directory selection mode keeps the side panel while rendering selected tra
     assert.ok(toolbar, 'comparison toolbar should be visible in selection mode');
 });
 
-test('directory selection mode keeps an existing track, grey without a role, when a new earlier tree item appears', () => {
+test('directory selection mode keeps an existing track and its own colour when a new earlier tree item appears', () => {
     const { dom } = setupEnvWithState(DUMMY_SELECTION_WITH_B_RESULT_STATE);
-    // A track without a role: its chip is grey, as in Compare (R5).
+    // A track without a role: its chip has the track's own colour, as in Compare (R5), kept when a track comes in before it.
     const initialSwatch = dom.window.document.querySelector<HTMLElement>(
         '.track-row[data-track-id="track-1"] .role-chip-face',
     );
 
     assert.ok(initialSwatch);
     const initialBColor = initialSwatch.style.getPropertyValue('--role-fallback');
-    assert.equal(initialBColor, '#8b949e');
+    assert.ok(OWN_COLORS.includes(initialBColor), initialBColor);
 
     dom.window.dispatchEvent(new dom.window.MessageEvent('message', {
         data: {
