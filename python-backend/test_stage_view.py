@@ -327,6 +327,9 @@ def test_a_time_signal_names_the_measure_a_step_made_of_it() -> None:
     # In dB they give a level, which the axis names from its unit.
     assert "measure" not in stage_view(tone.rms_trend(dB=True))
     assert "measure" not in stage_view(tone.sound_level(dB=True))
+    # A power other than the square, or an RMS of a power, is in neither's unit: drawn as an amplitude.
+    assert "measure" not in stage_view(tone.power(exponent=3))
+    assert "measure" not in stage_view(tone.power().rms_trend())
     # A step after it keeps it; a metric after it is its own quantity.
     assert stage_view(tone.power().trim(0.1, 0.5))["measure"] == "power"
     assert "measure" not in stage_view(tone.power().loudness_zwtv())

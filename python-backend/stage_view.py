@@ -283,16 +283,27 @@ SIGNAL_MEASURES: dict[str, Measure] = {
 
 
 def signal_measure(frame: ChannelFrame) -> Measure | None:
-    """What the latest of rms_trend, sound_level and power made `frame`'s values (SIGNAL_MEASURES), or None."""
+    """What rms_trend, sound_level or power made `frame`'s values (SIGNAL_MEASURES), or None.
+
+    None where the name would be wrong: in dB they give a level (named from its unit, as a metric's is); a power
+    other than the square is not in the unit squared; and one of them after another (an RMS of a power) is in
+    neither's unit. Those are drawn as an amplitude, as before.
+    """
+    found: list[tuple[str, dict]] = []
     for item in reversed(frame.operation_history):
         operation = str(item.get("operation", ""))
         if operation in SIGNAL_MEASURES:
-            # rms_trend(dB=True) and sound_level(dB=True) give a level: named from its unit, as a metric's is.
-            params = item.get("params") or {}
-            return None if isinstance(params, dict) and params.get("dB") else SIGNAL_MEASURES[operation]
-        if operation in METRIC_SERIES_UNITS:
-            return None
-    return None
+            params = item.get("params")
+            found.append((operation, params if isinstance(params, dict) else {}))
+        elif operation in METRIC_SERIES_UNITS:
+            # A metric (loudness, …) is its own quantity: what came before it does not name its values.
+            break
+    if len(found) != 1:
+        return None
+    operation, params = found[0]
+    if params.get("dB") or (operation == "wandas.audio.power" and params.get("exponent", 2.0) != 2.0):
+        return None
+    return SIGNAL_MEASURES[operation]
 
 
 def metric_operation(frame: ChannelFrame) -> str | None:
