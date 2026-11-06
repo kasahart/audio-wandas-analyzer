@@ -436,6 +436,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         viewState.setCursor(norm);
     }
     const spectrumHover = new SpectrumHover();
+    /** The frequency the power spectrum's cursor last read under the pointer (R7). */
+    let overlayReadHz: number | null = null;
     // ── スペクトルズーム ───────────────────────────────────
     const spectrumView = new SpectrumView();
     const specBoxDrag = new SpectrumBoxDrag();
@@ -539,6 +541,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const visible = spectrumView.visibleFrequencyHz();
             if (spectrumHover.target !== 'overlay' || spectrumHover.norm === null || !visible) {
                 return null;
+            }
+            // The pair plot follows the point the power spectrum's cursor reads (R7), not the pointer beside it.
+            if (spectrumHover.hasMouse && overlayReadHz !== null) {
+                return overlayReadHz;
             }
             return visible.frequencyMin + spectrumHover.norm * (visible.frequencyMax - visible.frequencyMin);
         },
@@ -3625,6 +3631,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return (calibrated ? STR.axisLevelCal : STR.axisLevelUncal).replace('{label}', reference);
         };
         const paint = paintOverlaySpectrum(canvas, W, H, slices, spectrumView.state(), spectrumHover, specBoxDrag.box, STR.axisFrequency, levelTitle);
+        overlayReadHz = paint.hoverFrequencyHz ?? null;
         spectrumView.recordPaint(paint);
         renderSpectrumAxisLegend(document.getElementById('spectrum-axis-legend'), paint.levelAxes);
         if (paint.readout) {

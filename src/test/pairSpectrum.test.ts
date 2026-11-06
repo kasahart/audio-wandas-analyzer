@@ -487,3 +487,20 @@ test('a newer lazy request for the same track cancels the older one in flight, a
     assert.deepEqual(failed, [], 'a superseded request is not a failure');
     assert.deepEqual(published.map(message => 'requestId' in message ? message.requestId : ''), ['other-track', 'new']);
 });
+
+test('the pointer reads the pair point nearest it within a few pixels, and names that point\'s frequency (R7)', () => {
+    const bins = 201;
+    const gainDb = Array.from({ length: bins }, (_, bin) => (bin === 100 ? 20 : 0));
+    const flat = Array.from({ length: bins }, () => 0), ones = Array.from({ length: bins }, () => 1);
+    const input = { frequencyBins: bins, maxFrequencyHz: 1000, curves: [curve({ gainDb, phaseRad: flat, coherence: ones }, 'b.wav')] };
+    const visible = { frequencyMin: 0, frequencyMax: 1000 };
+    const [gain] = pairLaneFrames(400, 180);
+    const xOf = (hz: number) => gain.left + hz / 1000 * gain.width;
+    const read = (hz: number, y: number, radius?: number) => paintPairSpectrum(recordingContext(), 400, 180, input, visible,
+        { frequencyHz: hz, y, x: xOf(hz), ...(radius === undefined ? {} : { radius }) }, en, DEFAULT_THEME);
+    // A few pixels beside the peak, near its top: the peak.
+    const beside = 500 + 6 / gain.width * 1000;
+    assert.equal(read(beside, gain.top + 2, 20)?.frequencyHz, 500);
+    // Without a radius (the pointer is not given), the bin under the pointer.
+    assert.notEqual(read(beside, gain.top + 2)?.frequencyHz, 500);
+});

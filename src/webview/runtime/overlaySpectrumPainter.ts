@@ -1,6 +1,6 @@
 import { binFrequencyHz, drawSpectrumSelectionBox } from '../draw/canvasDrawers';
 import type { SpectrumBoxSpan } from './spectrumBoxDrag';
-import { paintHoverMarks } from './plotHover';
+import { HOVER_PICK_RADIUS_PX, paintHoverMarks } from './plotHover';
 import type { SpectrumHoverTarget } from './spectrumHover';
 import { paintOverlay, strokeStageLine, type StageLayer, type StagePlot } from './stagePanes';
 import {
@@ -33,6 +33,8 @@ export interface OverlaySpectrumPaint {
     painted: boolean;
     /** null leaves the readout as is: nothing was drawn to read. */
     readout: { text: string; color: string } | null;
+    /** The frequency of the point the cursor reads; null when no line is read. */
+    hoverFrequencyHz?: number | null;
     /** Each level axis with the colours of the lines read on it, left first; one entry when the references agree. */
     levelAxes: Array<{ title: string; reference: string; colors: string[]; lines: Array<{ color: string; label: string }> }>;
 }
@@ -125,7 +127,9 @@ export function paintOverlaySpectrum(
     let nearest: (SpectrumSnapHit<SpectrumSeries> & { axisIndex: number; frame: typeof frame }) | null = null;
     if (hover.norm !== null && hover.target === 'overlay') {
         // With no pointer height (the cursor follows the pair plot) no line is nearest, so only the frequency line shows.
-        nearest = hover.yFrac !== null ? nearestOverlaySnap(axes, frameFor, hover.norm, hover.yFrac * H, !hover.stepped) : null;
+        // A pointer reads the point nearest it within a few pixels (R7); an arrow key's step reads the bin stepped to.
+        const radius = hover.stepped ? 0 : HOVER_PICK_RADIUS_PX * (W / (canvas.clientWidth || W));
+        nearest = hover.yFrac !== null ? nearestOverlaySnap(axes, frameFor, hover.norm, hover.yFrac * H, !hover.stepped, radius) : null;
         const hit = nearest;
         const full = { left: frame.padLeft, top: frame.padTop, width: frame.plotWidth, height: frame.plotHeight };
         // With two level axes the level guide runs only to the axis the line is read on, so it is not read on the other.
@@ -149,6 +153,8 @@ export function paintOverlaySpectrum(
     }
     result.painted = true;
     result.readout = overlayReadout(hover, nearest, axes.map(axis => axis.reference));
+    // The frequency the cursor is drawn at, for the pair plot to follow: the point read, else the pointer's.
+    result.hoverFrequencyHz = nearest ? (nearest as SpectrumSnapHit<SpectrumSeries>).snap.freqHz : null;
     return result;
 }
 

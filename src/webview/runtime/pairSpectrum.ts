@@ -162,6 +162,9 @@ export interface PairPaintInput {
 export interface PairHover {
     frequencyHz: number;
     y: number | null;
+    /** The pointer's canvas x and the pick radius (canvas pixels): the point nearest it within that is read (R7). */
+    x?: number;
+    radius?: number;
 }
 
 export interface PairHoverReadout {
@@ -218,7 +221,7 @@ export function paintPairSpectrum(
     // A cursor that only follows the power spectrum is dropped past the reference's Nyquist rather than pinned to the last bin, away from it.
     const halfBin = input.maxFrequencyHz / Math.max(input.frequencyBins - 1, 1) / 2;
     const outOfRange = hover !== null && hover.y === null && hover.frequencyHz > input.maxFrequencyHz + halfBin;
-    const hoverBin = hover === null || outOfRange || bins.length === 0 ? null : bins.reduce((best, candidate) =>
+    let hoverBin = hover === null || outOfRange || bins.length === 0 ? null : bins.reduce((best, candidate) =>
         Math.abs(binFrequency(input, candidate) - hover.frequencyHz) < Math.abs(binFrequency(input, best) - hover.frequencyHz) ? candidate : best, bins[0]);
     // The line nearest the pointer in the lane under it; none when the cursor only follows the power spectrum.
     let picked: { curve: PairCurve; lane: number; value: number } | null = null;
@@ -227,7 +230,30 @@ export function paintPairSpectrum(
         // The lane under the pointer, or the nearest one when it is in a gap, so crossing lanes keeps a readout.
         const gapTo = (frame: PlotFrame) => Math.max(frame.top - pointerY, pointerY - frame.top - frame.height, 0);
         const lane = frames.reduce((nearest, frame, index) => gapTo(frame) < gapTo(frames[nearest]) ? index : nearest, 0);
-        let best = Infinity;
+        // The point nearest the pointer across and up within the radius, so a narrow peak beside it is read at its top (R7).
+        const pointerX = hover.x, radius = hover.radius ?? 0;
+        if (pointerX !== undefined && radius > 0) {
+            const frame = frames[lane];
+            let nearest = Infinity;
+            for (const curve of drawn) {
+                const values = rows[lane].values(curve.response);
+                for (const bin of bins) {
+                    const x = xOf(binFrequency(input, bin));
+                    if (Math.abs(x - pointerX) > radius) continue;
+                    const value = values[bin];
+                    if (value === null || value === undefined) continue;
+                    const fraction = (value - rows[lane].min) / (rows[lane].max - rows[lane].min);
+                    if (!(fraction >= 0 && fraction <= 1)) continue;
+                    const away = Math.hypot(x - pointerX, frame.top + (1 - fraction) * frame.height - pointerY);
+                    if (away <= radius && away < nearest) {
+                        nearest = away;
+                        picked = { curve, lane, value };
+                        hoverBin = bin;
+                    }
+                }
+            }
+        }
+        let best = picked ? -Infinity : Infinity;
         for (const curve of drawn) {
             const value = rows[lane].values(curve.response)[hoverBin];
             if (value === null || value === undefined) {
