@@ -1878,7 +1878,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const record = trackRecordAtIndex(trackIndex);
         const placement = trackTimelinePlacement(offsetSeconds, result.durationSeconds, trackStore.globalSpan());
         const amplitudeZoomed = waveformView.isAmplitudeZoomed();
-        const points: LanePoint[] = [];
+        // Only the lane under the pointer reads its points: the others draw without keeping them.
+        const points: LanePoint[] | undefined = laneHover && laneHover.canvas === canvas ? [] : undefined;
         const coverage = paintTrackWaveform(ctx, W, H, color, src, {
             zoomStart: waveformView.start,
             zoomEnd: waveformView.end,
@@ -1895,7 +1896,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             drawAnalysisWindowOnCanvas(ctx, W, H, trackIndex, channelIndex);
             drawCursorOnCanvas(ctx, W, H, waveformCursorLineStyle(getComputedStyle(document.body).getPropertyValue('--text').trim()));
             // The lane under the pointer reads its waveform as every plot of lines does (R7); the others follow its time.
-            if (laneHover && laneHover.canvas === canvas) drawLaneHover(ctx, W, H, points, result, channelIndex, color, placement);
+            if (laneHover && laneHover.canvas === canvas) drawLaneHover(ctx, W, H, points ?? [], result, channelIndex, color, placement);
             else drawHoverLineOnCanvas(ctx, W, H);
             drawRectZoomSelectionOnCanvas(ctx, W, H, trackIndex);
         }
@@ -3397,6 +3398,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         const canvas = canvasTarget(e, 'track-canvas');
         if (!canvas) {
+            // Off the lanes but still among the tracks (an axis, a header, the split): the lane's readout goes.
+            if (laneHover) { hideLaneHover(); scheduleRender(); }
             return;
         }
         if (dragState) {

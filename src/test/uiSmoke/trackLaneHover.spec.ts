@@ -18,6 +18,11 @@ test('the pointer on a track\'s waveform reads the point nearest it as every plo
     await expect(readout).toHaveCount(0);
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await expect(readout).toHaveCount(1);
+    // Onto the lane's amplitude axis, still among the tracks: gone.
+    await page.locator('.track-axis-canvas').first().hover();
+    await expect(readout).toHaveCount(0);
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await expect(readout).toHaveCount(1);
     await page.mouse.move(0, 0);
     await expect(readout).toHaveCount(0);
 });
