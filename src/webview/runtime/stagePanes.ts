@@ -14,7 +14,7 @@ import { PANE_LEFT, paneAxes, type LevelInput, type PaneRange } from './compareP
 import { uncalibratedUnits } from '../../shared/utils/format';
 import type { NormalizedRange } from './waveformInteraction';
 import { plotPointIn, type PlotMargins } from './plotInteraction';
-import { nearestLine } from './plotHover';
+import { HOVER_PICK_RADIUS_PX, nearestPoint } from './plotHover';
 import { paintWaveformLayer, waveformRange } from '../plot/waveformLayer';
 import { drawValueAxis, fittedAxisTitle, readoutText, type AxisTick } from '../../shared/gui-core/index';
 import { niceTicks } from '../../shared/utils/ticks';
@@ -873,13 +873,68 @@ function linePointAt(plot: StagePlot, layer: StageLayer, x: number): { index: nu
     return { index, x: at, y: plot.yAt(value), value };
 }
 
+/** Whether (`x`, `y`) is inside the plot's frame: a point clipped off it is not on screen to pick. */
+function onPlot(plot: StagePlot, x: number, y: number): boolean {
+    const { left, top, width, height } = plot.frame;
+    return x >= left && x <= left + width && y >= top && y <= top + height;
+}
+
+/** The first index of ascending `xs` drawn at or right of `x`. */
+function firstAtOrRight(count: number, xAt: (index: number) => number, x: number): number {
+    let low = 0, high = count;
+    while (low < high) {
+        const middle = (low + high) >> 1;
+        if (xAt(middle) < x) low = middle + 1; else high = middle;
+    }
+    return low;
+}
+
+/** A line's points drawn within `radius` across of `x` and on the plot (bands are read under the pointer only). */
+function linePointsNear(plot: StagePlot, layer: StageLayer, x: number, radius: number): Array<{ index: number; x: number; y: number; value: number }> {
+    const xs = layer.view.xs ?? [], values = layer.view.values ?? [];
+    if (layer.view.kind === 'bar' || !xs.length) return [];
+    const points: Array<{ index: number; x: number; y: number; value: number }> = [];
+    for (let index = firstAtOrRight(xs.length, i => plot.xAt(xs[i]), x - radius); index < xs.length; index++) {
+        const at = plot.xAt(xs[index]);
+        if (at > x + radius) break;
+        const value = values[index];
+        if (value === null || value === undefined || silent(layer.view, value)) continue;
+        const y = plot.yAt(value);
+        if (onPlot(plot, at, y)) points.push({ index, x: at, y, value });
+    }
+    return points;
+}
+
+/** A signal's envelope points (each bucket's lowest and highest) drawn within `radius` across of `x` and on the plot. */
+function signalPointsNear(plot: StagePlot, waveform: NonNullable<StageView['waveform']>, x: number, radius: number): Array<{ index: number; time: number; x: number; y: number; value: number }> {
+    const { min, max, minT, maxT } = waveform;
+    const n = Math.min(min.length, max.length, minT.length, maxT.length);
+    const timeOf = (index: number): number => ((minT[index] ?? maxT[index] ?? 0) + (maxT[index] ?? minT[index] ?? 0)) / 2;
+    const shown = plot.signal?.range;
+    const points: Array<{ index: number; time: number; x: number; y: number; value: number }> = [];
+    // A bucket's two points sit at their own times, up to a bucket from its middle: start one bucket early.
+    for (let index = Math.max(0, firstAtOrRight(n, i => plot.xAt(timeOf(i)), x - radius) - 1); index < n; index++) {
+        if (plot.xAt(timeOf(index)) > x + radius + 1) break;
+        for (const [raw, time] of [[min[index], minT[index]], [max[index], maxT[index]]] as const) {
+            const value = raw ?? 0, at = plot.xAt(time ?? timeOf(index));
+            if (shown && (value < shown.min || value > shown.max)) continue;
+            const y = plot.yAt(value);
+            if (Math.abs(at - x) <= radius && onPlot(plot, at, y)) points.push({ index: -1, time: time ?? timeOf(index), x: at, y, value });
+        }
+    }
+    return points;
+}
+
 /**
  * The line of a pane nearest the pointer at (`x`, `y`) on its canvas, as the spectrum overlay picks it
  * (plotHover.ts): that line, its point and the readout (its name, where, its value).
  */
 export function stageHover(plot: StagePlot, x: number, y: number): { layer: StageLayer; x: number; y: number; text: string } | null {
     type Point = { index: number; time?: number; x: number; y: number; value: number };
-    const hit = nearestLine<StageLayer, Point>(plot.lines, layer => (layer.view.waveform ? signalPointAt(plot, layer.view.waveform, x, y) : linePointAt(plot, layer, x)), y);
+    // The point nearest the pointer within a few pixels, so a narrow peak beside it is read at its top (R7).
+    const hit = nearestPoint<StageLayer, Point>(plot.lines,
+        layer => (layer.view.waveform ? signalPointsNear(plot, layer.view.waveform, x, HOVER_PICK_RADIUS_PX) : linePointsNear(plot, layer, x, HOVER_PICK_RADIUS_PX)),
+        layer => (layer.view.waveform ? signalPointAt(plot, layer.view.waveform, x, y) : linePointAt(plot, layer, x)), x, y, HOVER_PICK_RADIUS_PX);
     if (!hit) return null;
     const view = hit.s.view;
     if (view.waveform) {

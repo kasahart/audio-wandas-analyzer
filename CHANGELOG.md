@@ -4,6 +4,7 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 
 ## Unreleased
 
+- Compare, cursor spectrum and pair plot: the cursor reads the point nearest the pointer, measured across and up within 20 px. A narrow peak a few pixels beside the pointer is now read at its top instead of at its skirt under the pointer. With no point that near, the cursor reads the point under the pointer, as before. Arrow keys still step one bin. The cursor spectrum and the pair plot follow each other at the frequency that was read (#650).
 - Compare: a trigger added right after the input (before the chain's high-pass and slice) draws its events over the whole file, instead of failing on every recording with "Recipe output is ChannelFrameSegments, not a Frame" (#648).
 - Compare: a trigger's events plot keeps its height above the tracks instead of covering the top of the base lane (by 24% at 1600×1000, and half the lane on a short window); the tracks scroll below it (#646).
 - Cursor spectrum: the level axis is named as in Compare, in the UI's language and saying when the files are uncalibrated ("Amplitude, uncalibrated [dBFS]"), instead of the backend's "Spectrum amplitude level" or "Band level". A panel too short for the name keeps the unit on its axis, and the header now has a legend with the full level name and each line's colour and name. With two level axes the legend groups the lines by side, as before (#642).

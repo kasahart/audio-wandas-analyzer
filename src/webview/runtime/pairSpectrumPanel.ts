@@ -1,6 +1,7 @@
 import type { PairSpectrumRequest } from '../../shared/utils/audioTarget';
 import type { CanvasDrawCtx, DrawTheme, FrequencyScale } from '../draw/canvasDrawers';
 import { syncCanvasSize } from './canvasSizing';
+import { HOVER_PICK_RADIUS_PX } from './plotHover';
 import type { HostInboundMessage } from './hostMessaging';
 import {
     paintPairSpectrum, pairHeader, pairLegendHtml, PAIR_SPECTRUM_PAD, syncReferenceButtons,
@@ -67,6 +68,8 @@ export class PairSpectrumPanel {
     private error: string | null = null;
     private timer: ReturnType<typeof setTimeout> | null = null;
     private hoverPoint: { x: number; y: number } | null = null;
+    /** The frequency the pair cursor last read under the pointer. */
+    private readHz: number | null = null;
     private splitFraction = 0.5;
 
     constructor(private readonly doc: Document, private readonly host: PairPanelHost, private readonly strings: PairPanelStrings) { }
@@ -309,11 +312,13 @@ export class PairSpectrumPanel {
         const point = this.hoverPoint;
         const own = point ? this.frequencyAt(point.x, canvas.width, visible) : null;
         const synced = own === null ? this.host.hoverFrequencyHz() : null;
-        const hover = point && own !== null ? { frequencyHz: own, y: point.y } : synced !== null ? { frequencyHz: synced, y: null } : null;
+        const radius = HOVER_PICK_RADIUS_PX * (canvas.width / (canvas.clientWidth || canvas.width));
+        const hover = point && own !== null ? { frequencyHz: own, y: point.y, x: point.x, radius } : synced !== null ? { frequencyHz: synced, y: null } : null;
         const readout = paintPairSpectrum(ctx, canvas.width, canvas.height,
             { frequencyBins: result.frequencyBins, maxFrequencyHz: result.maxFrequencyHz, curves },
             visible, hover, this.strings, this.host.theme());
         this.setReadout(readout);
+        this.readHz = point && own !== null && readout ? readout.frequencyHz : null;
     }
 
     private visibleFrequencyHz(result: PairSpectrumResultMessage): FrequencyScale {
@@ -332,8 +337,9 @@ export class PairSpectrumPanel {
     private syncHostHover(): void {
         const canvas = this.doc.getElementById('pair-spectrum-canvas') as HTMLCanvasElement | null;
         const result = this.result;
+        // The power spectrum follows the point the pair cursor reads (R7), not the pointer beside it.
         const frequencyHz = canvas && result && this.hoverPoint
-            ? this.frequencyAt(this.hoverPoint.x, canvas.width, this.visibleFrequencyHz(result)) : null;
+            ? this.readHz ?? this.frequencyAt(this.hoverPoint.x, canvas.width, this.visibleFrequencyHz(result)) : null;
         // The power spectrum may reach past the reference's Nyquist, where the pair cursor stops at its last bin.
         this.host.onHoverFrequency(frequencyHz === null || !result ? null : Math.min(frequencyHz, result.maxFrequencyHz));
     }

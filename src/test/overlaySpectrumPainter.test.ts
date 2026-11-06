@@ -3,7 +3,7 @@ import test from 'node:test';
 import { frequencyFraction, type CanvasDrawCtx } from '../webview/draw/canvasDrawers';
 import { paintOverlaySpectrum, renderSpectrumAxisLegend, SECONDARY_AXIS_DASH, SECONDARY_AXIS_MARK, type OverlaySpectrumHover } from '../webview/runtime/overlaySpectrumPainter';
 import { SpectrumView } from '../webview/runtime/spectrumView';
-import { OVERLAY_SPECTRUM_PAD, overlayLevelAxes, spectrumReadoutText, spectrumVisibleWindow, steppedOverlaySpectrumHoverNorm, type SpectrumViewState } from '../webview/runtime/spectrumRuntime';
+import { OVERLAY_SPECTRUM_PAD, overlayLevelAxes, spectrumPlotFrame, spectrumReadoutText, spectrumVisibleWindow, steppedOverlaySpectrumHoverNorm, type SpectrumViewState } from '../webview/runtime/spectrumRuntime';
 import type { SpectrumSeries } from '../webview/runtime/types';
 
 function recordingCtx(): { ctx: CanvasDrawCtx; calls: string[] } {
@@ -69,8 +69,9 @@ for (const [bins, tone] of [[1025, 40], [8193, 320]]) {
         const readoutAt = (bin: number) => spectrumReadoutText('A', dense[0].slice, binHz(bin), values[bin]);
         const vis = spectrumVisibleWindow(24000, -100, 0, fullView);
         const { ctx } = recordingCtx();
-        // The pointer one pixel beside the tone (300 px plot) reads the tone.
-        const pointer = { norm: binHz(tone) / 24000 + 1 / 300, yFrac: 0.1, target: 'overlay' as const };
+        // The pointer on the tone's top reads the tone (the nearest point to it, R7).
+        const tipFrac = spectrumPlotFrame(356, 200, OVERLAY_SPECTRUM_PAD, vis).padTop / 200;
+        const pointer = { norm: binHz(tone) / 24000, yFrac: tipFrac, target: 'overlay' as const };
         assert.equal(paintOverlaySpectrum(canvasOf(ctx), 356, 200, dense, fullView, pointer, null).readout?.text, readoutAt(tone));
         let norm = binHz(tone) / 24000;
         for (let press = 1; press <= 8; press++) {
@@ -90,9 +91,10 @@ for (const [bins, tone] of [[1025, 40], [8193, 320]]) {
             const readoutAt = (bin: number) => spectrumReadoutText('A', dense[0].slice, binHz(bin), values[bin]);
             const vis = spectrumVisibleWindow(24000, -100, 0, fullView);
             const { ctx } = recordingCtx();
-            const pointer = { norm: binHz(tone) / 24000 + 1 / 300, yFrac: 0.1, target: 'overlay' as const };
+            const tipFrac = spectrumPlotFrame(356, 200, OVERLAY_SPECTRUM_PAD, vis).padTop / 200;
+            const pointer = { norm: binHz(tone) / 24000, yFrac: tipFrac, target: 'overlay' as const };
             assert.equal(paintOverlaySpectrum(canvasOf(ctx), 356, 200, dense, fullView, pointer, null).readout?.text, readoutAt(tone));
-            const norm = steppedOverlaySpectrumHoverNorm(dense, pointer.norm, 0.1, { width: 356, height: 200 }, vis, delta, true) ?? NaN;
+            const norm = steppedOverlaySpectrumHoverNorm(dense, pointer.norm, tipFrac, { width: 356, height: 200 }, vis, delta, true) ?? NaN;
             const hover = { norm, yFrac: 0.1, target: 'overlay' as const, stepped: true };
             assert.equal(paintOverlaySpectrum(canvasOf(ctx), 356, 200, dense, fullView, hover, null).readout?.text, readoutAt(tone + delta));
         });
@@ -300,4 +302,22 @@ test('zoomed between two log ticks, the frequency axis still labels where it is'
     paintOverlaySpectrum(canvasOf(recording), 600, 200, bands, view, noHover, null, 'Frequency [Hz]');
     const labels = texts.filter(t => t.y === 197 && t.text !== 'Frequency [Hz]').map(t => t.text);
     assert.ok(labels.length >= 2 && labels.every(text => /^\d+(\.\d+)?k?$/.test(text)), JSON.stringify(labels));
+});
+
+test('the pointer reads the point nearest it within a few pixels, so a narrow peak beside it is read at its top (R7)', () => {
+    const bins = 1025, tone = 400;
+    const values = Array.from({ length: bins }, (_, bin) => (bin === tone ? 0 : -60));
+    const spiky: SpectrumSeries[] = [{ ...series[0], slice: { values, frequencyBins: bins, maxFrequencyHz: 24000, minDb: -100, maxDb: 0, unit: 'dB' } }];
+    const binHz = (bin: number) => bin * 24000 / (bins - 1);
+    const vis = spectrumVisibleWindow(24000, -100, 0, fullView);
+    const frame = spectrumPlotFrame(356, 200, OVERLAY_SPECTRUM_PAD, vis);
+    const { ctx } = recordingCtx();
+    // 6 px right of the peak, a few px under its top.
+    const beside = { norm: binHz(tone) / 24000 + 6 / frame.plotWidth, yFrac: (frame.padTop + 4) / 200, target: 'overlay' as const };
+    const paint = paintOverlaySpectrum(canvasOf(ctx), 356, 200, spiky, fullView, beside, null);
+    assert.equal(paint.readout?.text, spectrumReadoutText('A', spiky[0].slice, binHz(tone), 0));
+    assert.equal(paint.hoverFrequencyHz, binHz(tone));
+    // An arrow key's step reads the bin stepped to, not a peak beside it.
+    const stepped = paintOverlaySpectrum(canvasOf(ctx), 356, 200, spiky, fullView, { ...beside, stepped: true }, null);
+    assert.notEqual(stepped.readout?.text, paint.readout?.text);
 });

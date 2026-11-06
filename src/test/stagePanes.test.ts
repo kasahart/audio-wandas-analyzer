@@ -84,9 +84,10 @@ test('a cross-correlation is drawn over a signed lag axis on the fixed [-1, 1] c
     assert.equal(stageHeadline(diff, strings), '+1.00 ms −0.400');
     // A delay is read to 10 µs at any lag, and none has no sign.
     const long: StageView = { ...view, xs: [-0.0125, 0, 0.0125, 0.02] };
-    const plot: StagePlot = { frame: { left: 0, top: 0, width: 100, height: 100 }, xAt: value => (value + 0.0125) * 1000, yAt: value => -value, ratioStep: 1.12, lines: [{ view: long, color: 'blue' }], diff: false };
+    // Points 50 px apart, so the pointer over each reads that one.
+    const plot: StagePlot = { frame: { left: 0, top: 0, width: 200, height: 100 }, xAt: value => (value + 0.0125) * 4000, yAt: value => -value, ratioStep: 1.12, lines: [{ view: long, color: 'blue' }], diff: false };
     assert.match(stageHover(plot, 0, 0)!.text, /^−12\.50 ms/);
-    assert.match(stageHover(plot, 12.5, 0)!.text, /^0\.00 ms/);
+    assert.match(stageHover(plot, 50, 0)!.text, /^0\.00 ms/);
 });
 
 test('a step\'s headline names the point the backend found, with both values, in the axes\' units', () => {
@@ -221,3 +222,19 @@ test("a colour bar moves under the region's corner tag, which covers the plot's 
     assert.equal(colourBarTop(10, false), 13);
     assert.ok(colourBarTop(10, true) >= 10 + 21);
 });
+
+test('the pointer reads the point nearest it within a few pixels, so a narrow peak beside it is read at its top (R7)', () => {
+    const xs = Array.from({ length: 101 }, (_, i) => i), values = xs.map(i => (i === 50 ? 1 : 0));
+    const spiky: StageView = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'coherence', xs, values };
+    const plot: StagePlot = { frame: { left: 0, top: 0, width: 200, height: 100 }, xAt: value => value * 2, yAt: value => 100 - value * 80, ratioStep: 1.12, lines: [{ view: spiky, color: 'blue' }], diff: false };
+    // 8 px right of the peak and a little under its top: the top.
+    assert.deepEqual(pick(stageHover(plot, 108, 25)), { x: 100, y: 20 });
+    // Down by the floor at the same place: the floor under the pointer.
+    assert.deepEqual(pick(stageHover(plot, 108, 98)), { x: 108, y: 100 });
+    // Past the radius, the point under the pointer as before.
+    assert.deepEqual(pick(stageHover(plot, 150, 20)), { x: 150, y: 100 });
+});
+
+function pick(hit: ReturnType<typeof stageHover>): { x: number; y: number } | null {
+    return hit ? { x: hit.x, y: hit.y } : null;
+}

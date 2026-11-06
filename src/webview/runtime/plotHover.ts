@@ -39,6 +39,35 @@ export function nearestLine<S, P extends { y: number }>(series: readonly S[], po
     return nearest;
 }
 
+/** How near the pointer (CSS pixels, across and up together) a line's point is picked over the one under it. */
+export const HOVER_PICK_RADIUS_PX = 20;
+
+/**
+ * The point the pointer at (`x`, `y`) reads (R7): of every series' points within `radius` of it (`pointsNear`,
+ * in the plot's pixels), the nearest by distance across and up, so a narrow peak a few pixels beside the pointer
+ * is read at its top; with none that near, the series nearest in height at the pointer's own column
+ * (`pointAt`, as nearestLine). `away` orders hits of several plots: any point within the radius before any other.
+ */
+export function nearestPoint<S, P extends { x: number; y: number }>(
+    series: readonly S[],
+    pointsNear: (s: S) => Iterable<P>,
+    pointAt: (s: S) => P | null,
+    x: number,
+    y: number,
+    radius: number,
+): { s: S; point: P; away: number } | null {
+    let nearest: { s: S; point: P; away: number } | null = null;
+    for (const s of series) {
+        for (const point of pointsNear(s)) {
+            const away = Math.hypot(point.x - x, point.y - y);
+            if (away <= radius && (!nearest || away < nearest.away)) nearest = { s, point, away };
+        }
+    }
+    if (nearest) return nearest;
+    const under = nearestLine(series, pointAt, y);
+    return under ? { ...under, away: radius + Math.abs(under.point.y - y) } : null;
+}
+
 /**
  * The marks of a hover: the nearest line drawn again at HOVER_LINE_WIDTH (`restroke`, with the width set), and
  * the cursor at (`x`, `y`): `y` null draws only the cursor across, where no line is nearest.

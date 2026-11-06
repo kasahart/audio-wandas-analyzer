@@ -1,7 +1,7 @@
 import { readoutText } from '../../shared/gui-core/index';
 import { binFrequencyHz, dbLevelUnitFor, frequencyAtFraction, frequencyFraction, nearestBinIndex, type SpectrumPlotFrame } from '../draw/canvasDrawers';
 import { formatReadoutHz } from './canvasOverlays';
-import { nearestLine } from './plotHover';
+import { HOVER_PICK_RADIUS_PX, nearestLine, nearestPoint } from './plotHover';
 import type { HostInboundMessage } from './hostMessaging';
 import type { DragPoint, SpectrumSlice, SpectrumSnap } from './types';
 import { type NormalizedRange, zoomNormalizedRange } from './waveformInteraction';
@@ -139,18 +139,53 @@ export function spectrumBinAtHover(slice: SpectrumSlice, hoverNorm: number, fram
         frame.frequencyMin, frame.frequencyMax, frame.dbMin, frame.dbMax, frame.logFrequency, pixelPeak);
 }
 
+/**
+ * A slice's bins drawn within `radius` across of the plot x `pointerX` and inside the frame, each as its snap
+ * (`frame`'s pixels).
+ */
+export function spectrumBinsNear(slice: SpectrumSlice, pointerX: number, radius: number, frame: SpectrumPlotFrame): SpectrumSnap[] {
+    if (frame.plotWidth <= 0 || slice.frequencyBins <= 0) return [];
+    const scale = { frequencyMin: frame.frequencyMin, frequencyMax: frame.frequencyMax, logFrequency: frame.logFrequency };
+    const xOf = (hz: number): number => frame.padLeft + frequencyFraction(hz, scale) * frame.plotWidth;
+    const hzAt = (x: number): number => frequencyAtFraction(Math.max(0, Math.min(1, (x - frame.padLeft) / frame.plotWidth)), frame);
+    const last = Math.min(slice.frequencyBins, slice.values.length) - 1;
+    const from = Math.max(0, nearestBinIndex(slice, hzAt(pointerX - radius)) - 1);
+    const to = Math.min(last, nearestBinIndex(slice, hzAt(pointerX + radius)) + 1);
+    const dbRange = frame.dbMax - frame.dbMin;
+    const snaps: SpectrumSnap[] = [];
+    for (let binIdx = from; binIdx <= to; binIdx++) {
+        const freqHz = binFrequencyHz(slice, binIdx), dbVal = slice.values[binIdx];
+        if (dbVal === undefined || !isFinite(dbVal) || dbRange <= 0 || freqHz < frame.frequencyMin || freqHz > Math.min(frame.frequencyMax, slice.maxFrequencyHz)) continue;
+        const x = xOf(freqHz), fraction = (dbVal - frame.dbMin) / dbRange;
+        // A level past the axis is not on screen to pick.
+        if (Math.abs(x - pointerX) > radius || fraction < 0 || fraction > 1) continue;
+        snaps.push({ binIdx, freqHz, x, dbVal, y: frame.padTop + (1 - fraction) * frame.plotHeight });
+    }
+    return snaps;
+}
+
+/**
+ * The series and bin the pointer reads: with a `radius` (a pointer, in `frame`'s pixels), the bin nearest it across
+ * and up within that radius (R7, plotHover.ts nearestPoint), else the series nearest in height at its frequency.
+ * `away` orders hits read on several axes.
+ */
 export function nearestSpectrumSnap<S extends { slice: SpectrumSlice }>(
     series: readonly S[],
     hoverNorm: number,
     mouseY: number | null,
     frame: SpectrumPlotFrame,
     pixelPeak = false,
-): SpectrumSnapHit<S> | null {
-    const hit = nearestLine(series, s => {
-        const snap = spectrumBinAtHover(s.slice, hoverNorm, frame, pixelPeak);
-        return snap && snap.dbVal !== undefined && snap.y !== null ? { snap, dbVal: snap.dbVal, y: snap.y } : null;
-    }, mouseY);
-    return hit ? { s: hit.s, snap: hit.point.snap, dbVal: hit.point.dbVal, snapY: hit.point.y } : null;
+    radius = 0,
+): (SpectrumSnapHit<S> & { away: number }) | null {
+    type Point = { snap: SpectrumSnap; dbVal: number; x: number; y: number };
+    const asPoint = (snap: SpectrumSnap | null): Point | null =>
+        snap && snap.dbVal !== undefined && snap.y !== null ? { snap, dbVal: snap.dbVal, x: snap.x, y: snap.y } : null;
+    const pointAt = (s: S): Point | null => asPoint(spectrumBinAtHover(s.slice, hoverNorm, frame, pixelPeak));
+    const pointerX = frame.padLeft + hoverNorm * frame.plotWidth;
+    const hit = mouseY !== null && radius > 0
+        ? nearestPoint(series, s => spectrumBinsNear(s.slice, pointerX, radius, frame).map(asPoint).filter((p): p is Point => p !== null), pointAt, pointerX, mouseY, radius)
+        : (() => { const under = nearestLine(series, pointAt, mouseY); return under ? { ...under, away: mouseY === null ? 0 : Math.abs(under.point.y - mouseY) } : null; })();
+    return hit ? { s: hit.s, snap: hit.point.snap, dbVal: hit.point.dbVal, snapY: hit.point.y, away: hit.away } : null;
 }
 
 export function spectrumReadoutText(label: string, slice: SpectrumSlice, freqHz: number, dbVal: number): string {
@@ -277,12 +312,13 @@ export function nearestOverlaySnap<S extends { slice: SpectrumSlice }>(
     hoverNorm: number,
     mouseY: number | null,
     pixelPeak = false,
-): (SpectrumSnapHit<S> & { axisIndex: number; frame: SpectrumPlotFrame }) | null {
-    let best: (SpectrumSnapHit<S> & { axisIndex: number; frame: SpectrumPlotFrame }) | null = null;
+    radius = 0,
+): (SpectrumSnapHit<S> & { axisIndex: number; frame: SpectrumPlotFrame; away: number }) | null {
+    let best: (SpectrumSnapHit<S> & { axisIndex: number; frame: SpectrumPlotFrame; away: number }) | null = null;
     axes.forEach((axis, axisIndex) => {
         const frame = frameFor(axis.visible);
-        const hit = nearestSpectrumSnap(axis.series, hoverNorm, mouseY, frame, pixelPeak);
-        if (hit && (best === null || (mouseY !== null && Math.abs(hit.snapY - mouseY) < Math.abs(best.snapY - mouseY)))) {
+        const hit = nearestSpectrumSnap(axis.series, hoverNorm, mouseY, frame, pixelPeak, radius);
+        if (hit && (best === null || (mouseY !== null && hit.away < best.away))) {
             best = { ...hit, axisIndex, frame };
         }
     });
@@ -411,7 +447,7 @@ export function steppedOverlaySpectrumHoverNorm(
     series: ReadonlyArray<{ slice: SpectrumSlice }>,
     hoverNorm: number,
     yFrac: number | null,
-    canvas: { width: number; height: number } | null,
+    canvas: { width: number; height: number; clientWidth?: number } | null,
     visible: SpectrumVisibleWindow,
     deltaIdx: number,
     fromPointer = false,
@@ -425,9 +461,11 @@ export function steppedOverlaySpectrumHoverNorm(
     const mouseY = canvas && yFrac !== null ? yFrac * canvas.height : null;
     // After the pointer, the first step starts from the bin its readout shows, which reads its pixel's loudest bin.
     const pixelPeak = fromPointer && canvas !== null;
+    // From the pointer, the step starts at the point its readout read (R7).
+    const radius = pixelPeak && canvas ? HOVER_PICK_RADIUS_PX * (canvas.width / (canvas.clientWidth || canvas.width)) : 0;
     const nearest = axes
-        ? nearestOverlaySnap(axes, frameFor, hoverNorm, mouseY, pixelPeak)
-        : nearestSpectrumSnap(series, hoverNorm, mouseY, frameFor(visible), pixelPeak);
+        ? nearestOverlaySnap(axes, frameFor, hoverNorm, mouseY, pixelPeak, radius)
+        : nearestSpectrumSnap(series, hoverNorm, mouseY, frameFor(visible), pixelPeak, radius);
     const chosen = nearest ? nearest.s : series[0];
     const snap = nearest ? nearest.snap : spectrumBinAtHover(chosen.slice, hoverNorm, frameFor(visible), pixelPeak);
     return snap ? steppedSpectrumHoverNorm(chosen.slice, snap.binIdx, deltaIdx, visible.frequencyMin, visible.frequencyMax, visible.logFrequency) : null;
