@@ -287,7 +287,9 @@ def signal_measure(frame: ChannelFrame) -> Measure | None:
     for item in reversed(frame.operation_history):
         operation = str(item.get("operation", ""))
         if operation in SIGNAL_MEASURES:
-            return SIGNAL_MEASURES[operation]
+            # rms_trend(dB=True) and sound_level(dB=True) give a level: named from its unit, as a metric's is.
+            params = item.get("params") or {}
+            return None if isinstance(params, dict) and params.get("dB") else SIGNAL_MEASURES[operation]
         if operation in METRIC_SERIES_UNITS:
             return None
     return None

@@ -324,6 +324,9 @@ def test_a_time_signal_names_the_measure_a_step_made_of_it() -> None:
     assert stage_view(tone.rms_trend())["measure"] == "rms"
     assert stage_view(tone.sound_level())["measure"] == "timeWeightedRms"
     assert stage_view(tone.power())["measure"] == "power"
+    # In dB they give a level, which the axis names from its unit.
+    assert "measure" not in stage_view(tone.rms_trend(dB=True))
+    assert "measure" not in stage_view(tone.sound_level(dB=True))
     # A step after it keeps it; a metric after it is its own quantity.
     assert stage_view(tone.power().trim(0.1, 0.5))["measure"] == "power"
     assert "measure" not in stage_view(tone.power().loudness_zwtv())
