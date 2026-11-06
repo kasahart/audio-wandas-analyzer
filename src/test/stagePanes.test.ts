@@ -46,6 +46,18 @@ test('a metric over time names what it measures on its value axis, from its unit
     assert.equal(stageAxes(names, series('Pa'), undefined).y, 'Value [Pa]');
 });
 
+test('a heatmap names what its colour measures, with its unit and reference, for its colour bar', () => {
+    const names = { axisTime: 'Time [s]', axisFrequency: 'Frequency [Hz]', axisBark: 'Critical band [Bark]', axisQuefrency: 'Quefrency [ms]', axisCepstrum: 'Real cepstrum', axisRoughness: 'Roughness', axisDelta: 'Δ level [dB]', axisLevelUncal: 'Level [dBFS, uncalibrated]', axisLevelCal: 'Level [{ref}]' } as unknown as StageStrings;
+    const heat = (quantity: StageView['quantity'], extra: Partial<StageView> = {}): StageView => ({ frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity, yAxis: 'frequency', xs: [0, 1], ys: [100, 1000], matrix: [[-40, -40], [-30, -30]], ...extra });
+    const spectrogram = stageAxes(names, heat('level'), undefined);
+    assert.equal(spectrogram.y, 'Frequency [Hz]');
+    assert.ok(spectrogram.colour && spectrogram.colour.length > 0, 'a spectrogram\'s colour is its level');
+    assert.equal(spectrogram.colour, stageAxes(names, { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity: 'level', xs: [100], values: [-40] }, undefined).y, 'named as a spectrum\'s level axis is');
+    assert.equal(stageAxes(names, heat('roughness', { unit: 'asper', yAxis: 'bark' }), undefined).colour, 'Roughness [asper]');
+    assert.equal(stageAxes(names, heat('cepstrum', { yAxis: 'quefrency' }), undefined).colour, 'Real cepstrum');
+    assert.equal(stageAxes(names, heat('level'), undefined, true).colour, 'Δ level [dB]');
+});
+
 const cepstrum = (values: number[]): StageView => ({ frame: 'CepstralFrame', kind: 'line', x: 'quefrency', xScale: 'linear', quantity: 'cepstrum', xs: [0, 0.001, 0.002, 0.003], values });
 
 test('a cepstrum is drawn on a quefrency axis, symmetric about zero without its zero-quefrency coefficient', () => {
