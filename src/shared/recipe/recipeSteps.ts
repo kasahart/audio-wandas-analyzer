@@ -7,16 +7,19 @@
  */
 import type { RecipeDocument } from './recipeSelection';
 import { operationGroup } from './operationGuide';
-import { catalogOperation, INPUT_FRAME, isSegments, metricSeries, outputOf, WANDAS_OPERATIONS, type CatalogOperation } from './recipeCatalog';
+import { catalogOperation, INPUT_FRAME, isSegments, metricSeries, outputOf, WANDAS_OPERATIONS, type CatalogOperation, type CatalogParam } from './recipeCatalog';
 
 /**
  * `default`: what wandas uses when the Recipe leaves the parameter out (from its description), shown and
  * written as the actual value. `initial`: what a new step starts with for a parameter wandas has no default for.
+ * `nullable`: None is a value of it (wandas then picks one itself): an empty number field, or "none" in a choice.
  */
 export type StepParam =
-    | { name: string; kind: 'float'; unit?: string; min?: number; max?: 'nyquist' | number; optional?: boolean; default?: number; initial?: number }
-    | { name: string; kind: 'int'; min: number; max: number; powerOfTwo?: boolean; optional?: boolean; default?: number; initial?: number; belowChannels?: boolean; channel?: 'output' | 'input' | 'watched' }
-    | { name: string; kind: 'enum'; options: readonly string[]; default?: string };
+    | { name: string; kind: 'float'; unit?: string; min?: number; max?: 'nyquist' | number; nullable?: boolean; default?: number; initial?: number }
+    | { name: string; kind: 'int'; min?: number; max?: number; powerOfTwo?: boolean; nullable?: boolean; default?: number; initial?: number; belowChannels?: boolean; channel?: 'output' | 'input' | 'watched' }
+    | { name: string; kind: 'enum'; options: readonly string[]; nullable?: boolean; default?: string }
+    | { name: string; kind: 'bool'; nullable?: boolean; default?: boolean }
+    | { name: string; kind: 'str'; nullable?: boolean; default?: string };
 
 const WINDOWS = ['hann', 'hamming', 'blackman', 'boxcar'] as const;
 
@@ -134,11 +137,53 @@ function channelsAfter(node: RecipeNode, channels: number | undefined, frame: st
     return channels;
 }
 
-/** The settable parameters, each with the default wandas describes for it. */
-export const STEP_PARAMS: Record<string, readonly StepParam[]> = Object.fromEntries(Object.entries(SETTABLE).map(([id, params]) => [id, params.map(param => {
-    const described = catalogOperation(id)?.params.find(item => item.name === param.name)?.default;
-    return described === undefined || typeof described === 'boolean' || (param.kind === 'enum') !== (typeof described === 'string') ? param : { ...param, default: described } as StepParam;
-})]));
+/**
+ * Parameters a step's form leaves out although they are one plain value, because the app sets them elsewhere; with
+ * why. Every other parameter wandas describes as one plain value is a field (recipeSteps.test.ts checks it).
+ */
+export const APP_SET_PARAMS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+    'wandas.frame.get_channel': { validate_query_keys: 'goes with query, which the step bar does not use: it picks channels by index' },
+    'wandas.frame.time_slice': { reference: "the region chip's start and end are the file's own seconds" },
+};
+
+/** A parameter's field from wandas' description of it alone: its kind, and whether None is a value of it. */
+function describedParam(param: CatalogParam): StepParam | undefined {
+    const nullable = param.nullable ? { nullable: true } : {};
+    switch (param.kind) {
+        case 'enum': return { name: param.name, kind: 'enum', options: param.choices ?? [], ...nullable };
+        // A nullable flag has a third value (normalize's fill: None keeps a quiet channel, false zeroes it).
+        case 'bool': return { name: param.name, kind: 'bool', ...nullable };
+        case 'int': return { name: param.name, kind: 'int', ...nullable };
+        case 'float': return { name: param.name, kind: 'float', ...nullable };
+        // A window is any of SciPy's names: the step bar offers the ones it draws with (as welch's and stft's).
+        case 'str': return param.name === 'window' ? { name: param.name, kind: 'enum', options: WINDOWS } : { name: param.name, kind: 'str', ...nullable };
+        default: return undefined;
+    }
+}
+
+/** `param` with the default wandas describes for it, when that default is a value of its kind. */
+function withDescribedDefault(param: StepParam, described: CatalogParam['default']): StepParam {
+    if (described === undefined) return param;
+    const fits = param.kind === 'bool' ? typeof described === 'boolean'
+        : param.kind === 'enum' || param.kind === 'str' ? typeof described === 'string'
+            : typeof described === 'number';
+    return fits ? { ...param, default: described } as StepParam : param;
+}
+
+/**
+ * Every operation's form fields: those the analyzer lists (SETTABLE: units, bounds, a new step's value) first, then
+ * every other parameter wandas describes as one plain value, in wandas' order, each with wandas' default.
+ */
+export const STEP_PARAMS: Record<string, readonly StepParam[]> = Object.fromEntries([...new Set([...WANDAS_OPERATIONS.map(operation => operation.id), ...Object.keys(SETTABLE)])].map((id): [string, StepParam[]] => {
+    const described = catalogOperation(id)?.params ?? [];
+    const listed = SETTABLE[id] ?? [];
+    const others = described.filter(param => !listed.some(item => item.name === param.name) && !(APP_SET_PARAMS[id]?.[param.name]))
+        .flatMap(param => describedParam(param) ?? []);
+    return [id, [...listed, ...others].map(param => withDescribedDefault(param, described.find(item => item.name === param.name)?.default))];
+}).filter(([, params]) => params.length));
+
+/** What a new step starts with for `param`, when the analyzer sets one (a number wandas has no default for). */
+const initialOf = (param: StepParam): number | undefined => ((param.kind === 'int' || param.kind === 'float') ? param.initial : undefined);
 
 export const TIME_SLICE = 'wandas.frame.time_slice';
 
@@ -150,7 +195,7 @@ export interface RecipeNode {
     params: { $type: 'map'; entries: Array<[string, unknown]> };
 }
 
-type ParamValue = number | string | null;
+type ParamValue = number | string | boolean | null;
 
 /** A wandas Recipe number: integers as they are, floats as their big-endian IEEE 754 bytes. */
 /**
@@ -173,7 +218,7 @@ export function plainFloats(recipe: RecipeDocument): boolean {
 }
 
 export function decodeParam(value: unknown): ParamValue {
-    if (value === null || typeof value === 'number' || typeof value === 'string') return value;
+    if (value === null || typeof value === 'number' || typeof value === 'string' || typeof value === 'boolean') return value;
     const encoded = value as { $type?: string; kind?: string; data?: string };
     if (encoded?.$type === 'number' && encoded.kind === 'python-float' && typeof encoded.data === 'string' && /^[0-9a-f]{16}$/.test(encoded.data)) {
         const view = new DataView(new ArrayBuffer(8));
@@ -300,6 +345,8 @@ function invalidParam(params: Record<string, ParamValue>, editable: readonly Ste
         const value = params[param.name];
         if (value === null || value === undefined) continue;
         if (param.kind === 'enum') { if (!param.options.includes(String(value))) return { param: param.name, reason: { kind: 'below', limit: 0 } }; continue; }
+        // On or off, or text: wandas judges the value (a refusal marks the step with wandas' reason).
+        if (param.kind === 'bool' || param.kind === 'str') continue;
         if (param.kind === 'int') {
             // A channel named by its source id (select_pair's "c1") is wandas' to resolve: kept as it is.
             if (param.channel && typeof value === 'string') continue;
@@ -311,16 +358,20 @@ function invalidParam(params: Record<string, ParamValue>, editable: readonly Ste
                 continue;
             }
             // The largest power of two that fits the shortest file, so the limit itself is a value one can type.
-            const limit = param.powerOfTwo && limits.shortestSamples ? Math.min(param.max, 2 ** Math.floor(Math.log2(limits.shortestSamples)))
-                : param.belowChannels && channels ? Math.min(param.max, channels - 1) : param.max;
-            const ok = typeof value === 'number' && Number.isInteger(value) && value >= param.min && value <= limit && (!param.powerOfTwo || (value & (value - 1)) === 0);
+            // A parameter without bounds here (one only wandas describes) is wandas' to judge past being an integer.
+            const max = param.max ?? Infinity;
+            const limit = param.powerOfTwo && limits.shortestSamples ? Math.min(max, 2 ** Math.floor(Math.log2(limits.shortestSamples)))
+                : param.belowChannels && channels ? Math.min(max, channels - 1) : max;
+            const ok = typeof value === 'number' && Number.isInteger(value) && value >= (param.min ?? -Infinity) && value <= limit && (!param.powerOfTwo || (value & (value - 1)) === 0);
             if (!ok) return { param: param.name, reason: param.powerOfTwo ? { kind: 'pow2', limit } : { kind: 'below', limit: limit + 1 } };
             continue;
         }
         const max = param.max === 'nyquist' ? nyquist : param.max ?? Infinity;
         // The bound that is broken is the one named: above the minimum, or below the maximum.
         if (typeof value === 'number' && param.min !== undefined && value <= param.min) return { param: param.name, reason: { kind: 'above', limit: param.min } };
-        if (typeof value !== 'number' || !Number.isFinite(value) || value >= max) {
+        // An unbounded parameter (one only wandas describes) may be infinite: normalize's norm is inf by default.
+        const infinite = typeof value === 'number' && Math.abs(value) === Infinity && param.min === undefined && param.max === undefined;
+        if (!infinite && (typeof value !== 'number' || !Number.isFinite(value) || value >= max)) {
             return { param: param.name, reason: { kind: 'below', limit: max } };
         }
     }
@@ -478,7 +529,7 @@ export interface AddableOperation {
      */
     off?: 'frame' | 'refuses' | 'unavailable' | 'required' | 'channels' | 'rate';
     why?: string;
-    /** Parameters the step bar can set (STEP_PARAMS); without, it runs with wandas' defaults. */
+    /** Whether the step bar can set its parameters (STEP_PARAMS), or it has none; without, it runs with wandas' defaults. */
     settable: boolean;
 }
 
@@ -497,8 +548,8 @@ const MENU_HIDDEN: ReadonlySet<string> = new Set([TIME_SLICE, 'wandas.numpy.ufun
 
 export function addableOperations(frame: string, lacks?: ReadonlySet<string>, channels?: number, sampleRate?: number, series?: string): AddableOperation[] {
     return WANDAS_OPERATIONS.filter(operation => !MENU_HIDDEN.has(operation.id)).map(operation => {
-        const settable = operation.id in STEP_PARAMS;
-        const known = new Set((STEP_PARAMS[operation.id] ?? []).filter(param => param.kind === 'enum' || param.initial !== undefined || param.default !== undefined).map(param => param.name));
+        const settable = operation.id in STEP_PARAMS || !operation.params.some(param => param.kind !== undefined);
+        const known = new Set((STEP_PARAMS[operation.id] ?? []).filter(param => param.kind === 'enum' || initialOf(param) !== undefined || param.default !== undefined).map(param => param.name));
         const needs = operation.params.filter(param => param.required && !known.has(param.name));
         // After a metric, what fails on its series (a filter's cutoff above its rate, a Welch longer than it).
         const refused = (series !== undefined ? operation.refuses?.[series] : undefined) ?? operation.refuses?.[frame];
@@ -529,7 +580,7 @@ export function withStep(recipe: RecipeDocument, after: string | null, operation
     const source = after ?? recipeChain(copy)[0]?.inputs[0] ?? copy.inputs[0]?.id;
     const id = freshId(copy);
     // `start` overrides an initial value with one from the folder (fix_length's duration: the region's length).
-    const entries = (STEP_PARAMS[operation.id] ?? []).flatMap(param => (param.kind !== 'enum' && param.initial !== undefined ? [[param.name, encodeNumber(start[param.name] ?? param.initial, param.kind, plainFloats(recipe))] as [string, unknown]] : []))
+    const entries = (STEP_PARAMS[operation.id] ?? []).flatMap(param => ((param.kind === 'int' || param.kind === 'float') && param.initial !== undefined ? [[param.name, encodeNumber(start[param.name] ?? param.initial, param.kind, plainFloats(recipe))] as [string, unknown]] : []))
         .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
     copy.nodes.forEach(node => { node.inputs = node.inputs.map(input => (input === source ? id : input)); });
     // A Recipe lists a node after the node it reads.
@@ -556,12 +607,15 @@ export function movedStep(recipe: RecipeDocument, stepId: string, after: string 
     return copy;
 }
 
-/** A copy of the Recipe with one parameter of one node set. */
-export function withParam(recipe: RecipeDocument, nodeId: string, param: StepParam, value: number | string): RecipeDocument {
+/**
+ * A copy of the Recipe with one parameter of one node set, in wandas' encoding: a choice or text as it is, on/off as
+ * true/false, None (wandas picks the value) as null, a number as encodeNumber writes it.
+ */
+export function withParam(recipe: RecipeDocument, nodeId: string, param: StepParam, value: number | string | boolean | null): RecipeDocument {
     const copy = JSON.parse(JSON.stringify(recipe)) as RecipeDocument;
     const node = recipeNodes(copy).find(item => item.id === nodeId);
     if (!node) return copy;
-    const encoded = param.kind === 'enum' ? String(value) : encodeNumber(Number(value), param.kind, plainFloats(recipe));
+    const encoded = value === null ? null : param.kind === 'bool' ? value === true : param.kind === 'enum' || param.kind === 'str' ? String(value) : encodeNumber(Number(value), param.kind, plainFloats(recipe));
     const entries = node.params.entries.filter(([name]) => name !== param.name);
     entries.push([param.name, encoded]);
     entries.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));

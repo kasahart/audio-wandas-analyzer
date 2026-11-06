@@ -206,6 +206,9 @@ def stage_data(frame: object, view: StageView, signal_s: float | None = None) ->
     if isinstance(frame, ChannelFrame):
         data = sv._rows(frame.data, frame.n_channels)
         times = _f64(frame.source_time).reshape(frame.n_channels, -1)[0]
+        if sv._in_db(frame):
+            # Already dB levels: compared as the levels they are, channels power-averaged as the picture averages them.
+            return StageData("series", template, times, sv._power_mean(data))
         if view.get("quantity") != "level":
             return StageData("series", template, times, np.mean(data, axis=0))
         refs = _f64([channel.ref for channel in frame.channels])[:, np.newaxis]

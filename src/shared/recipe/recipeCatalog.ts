@@ -13,6 +13,10 @@ export interface CatalogParam {
     default?: number | string | boolean;
     /** The values wandas accepts, when it lists them. */
     choices?: readonly string[];
+    /** What one value of it is, from its wandas annotation; absent when it is not one plain value (a list, an array, a callable). */
+    kind?: 'int' | 'float' | 'bool' | 'str' | 'enum';
+    /** Whether it takes None, wandas then picking the value itself ("auto"). */
+    nullable?: boolean;
 }
 
 export interface CatalogOperation {

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import struct
 from pathlib import Path
 
 import numpy as np
@@ -203,3 +204,107 @@ def test_a_steady_tone_is_not_flat_and_a_silent_difference_is() -> None:
     # A steady tone's level line is one value, but its envelope is a ±0.5 band: it says something.
     assert not _flat(stage_view(tone))
     assert _flat(stage_view(tone.channel_difference()))
+
+
+def test_a_parameters_field_kind_is_read_from_its_wandas_annotation() -> None:
+    # The step bar builds a step's form from these (recipeSteps.ts STEP_PARAMS): one field per plain value.
+    def kinds(operation: str) -> dict[str, tuple[str | None, bool]]:
+        return {
+            param["name"]: (param.get("kind"), param.get("nullable", False)) for param in _by_id()[operation]["params"]
+        }
+
+    assert kinds("wandas.audio.sound_level") == {
+        "freq_weighting": ("enum", True),  # Optional[Literal['A', 'C', 'Z']]
+        "time_weighting": ("enum", False),
+        "dB": ("bool", False),
+    }
+    assert kinds("wandas.audio.welch") == {
+        "n_fft": ("int", False),
+        "hop_length": ("int", True),  # int | None: wandas picks it
+        "win_length": ("int", True),
+        "window": ("str", False),
+        "average": ("enum", False),
+    }
+    assert kinds("wandas.audio.normalize")["norm"] == ("float", True)
+    # SupportsFloat / SupportsIndex are a number; an int or a float is a number.
+    hpss = kinds("wandas.audio.hpss_harmonic")
+    assert hpss["power"] == ("float", False) and hpss["n_fft"] == ("int", False)
+    assert kinds("wandas.operator.reverse_add")["other"] == ("float", False)
+    # Lists, arrays, tuples, Any and channel names or numbers are not one plain value: no field.
+    assert hpss["kernel_size"][0] is None and hpss["window"][0] is None
+    assert kinds("wandas.frame.get_channel")["channel_idx"][0] is None
+    assert kinds("wandas.audio.channel_difference")["other_channel"][0] is None
+    assert kinds("wandas.frame.time_slice")["start"][0] is None
+    sound_level = {param["name"]: param for param in _by_id()["wandas.audio.sound_level"]["params"]}
+    assert sound_level["freq_weighting"]["choices"] == ["A", "C", "Z"]
+
+
+_EXAMPLE_INPUTS = ("ChannelFrame", "SpectralFrame", "SpectrogramFrame", "CepstralFrame", "CepstrogramFrame")
+
+
+def _example(frame: str) -> wd.ChannelFrame:
+    rate = 48000
+    t = np.arange(rate) / rate
+    signal = wd.from_numpy(
+        np.stack([0.3 * np.sin(2 * np.pi * 1000 * t), 0.1 * np.sin(2 * np.pi * 250 * t)]),
+        sampling_rate=rate,
+        ch_units=["m/s^2", "m/s^2"],  # integrate infers its unit from an acceleration
+    )
+    return {
+        "ChannelFrame": signal,
+        "SpectralFrame": signal.welch(),
+        "SpectrogramFrame": signal.stft(),
+        "CepstralFrame": signal.cepstrum(),
+        "CepstrogramFrame": signal.stft().cepstrum(),
+    }[frame]
+
+
+_STARTS: dict[str, dict[str, object]] = {
+    "wandas.audio.fix_length": {"duration": 0.5},
+    "wandas.frame.get_channel": {"channel_idx": 0},
+}
+
+
+def _encoded(value: object) -> object:
+    # As recipeSteps.ts encodeNumber writes it: a finite float plainly, infinity as its IEEE 754 bytes.
+    if isinstance(value, float) and not np.isfinite(value):
+        return {"$type": "number", "kind": "python-float", "data": struct.pack(">d", value).hex()}
+    return value
+
+
+def test_every_operation_runs_with_the_values_its_form_shows_written_into_the_recipe() -> None:
+    # A form writes what it shows in wandas' Recipe encoding (true/false, null, text, numbers): wandas must take
+    # each operation's shown defaults written out explicitly, as an exported Recipe carries them.
+    from wandas.pipeline import RecipePlan
+
+    ran: list[str] = []
+    for operation in catalog():
+        if operation["input"] not in _EXAMPLE_INPUTS or any(param["required"] for param in operation["params"]):
+            continue
+        entries = [
+            [param["name"], _encoded(param["default"]) if "default" in param else None]
+            for param in operation["params"]
+            if "kind" in param and ("default" in param or param.get("nullable"))
+        ]
+        # Two optional values of which one is needed: the step bar starts a new step with it (recipeSteps.ts).
+        entries += [[name, value] for name, value in _STARTS.get(operation["id"], {}).items()]
+        recipe = {
+            "schema": "wandas.recipe",
+            "version": 3,
+            "inputs": [{"id": "input-0", "name": "input_0", "kind": "frame"}],
+            "nodes": [
+                {
+                    "id": "node-0",
+                    "operation": operation["id"],
+                    "version": operation["version"],
+                    "inputs": ["input-0"],
+                    "params": {"$type": "map", "entries": [list(item) for item in sorted(dict(entries).items())]},
+                }
+            ],
+            "output": "node-0",
+        }
+        if operation["id"].startswith("wandas.audio.hpss"):
+            continue  # librosa: covered by the slow probe
+        _ = RecipePlan.from_dict(recipe).apply({"input_0": _example(operation["input"])}).data
+        ran.append(operation["id"])
+    assert {"wandas.audio.sound_level", "wandas.audio.welch", "wandas.audio.normalize", "wandas.audio.stft"} <= set(ran)
