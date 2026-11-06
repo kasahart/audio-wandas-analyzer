@@ -2055,14 +2055,16 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     /** The pointer over a waveform lane (client pixels), whose lane reads the point nearest it (R7). */
     let laneHover: { canvas: HTMLCanvasElement; clientX: number; clientY: number } | null = null;
-    const laneReadout = document.createElement('div');
-    laneReadout.className = 'track-lane-readout';
-    laneReadout.hidden = true;
+    /** The readout in the toolbar (toolbarHtml), looked up each time as the toolbar may be drawn again. */
+    function laneReadoutEl(): HTMLElement | null {
+        return document.getElementById('track-lane-readout');
+    }
     // A scroll under a still pointer moves the lane from under it: the point read goes with it.
     document.addEventListener('scroll', () => { if (laneHover) { hideLaneHover(); scheduleRender(); } }, true);
     function hideLaneHover(): void {
         laneHover = null;
-        laneReadout.hidden = true;
+        const readout = laneReadoutEl();
+        if (readout) readout.hidden = true;
     }
     function drawLaneHover(ctx: CanvasRenderingContext2D, W: number, H: number, points: readonly LanePoint[], result: ComparisonTrackState, channelIndex: number, color: string, placement: { offsetNorm: number; trackDurRatio: number }): void {
         if (!laneHover) return;
@@ -2071,7 +2073,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const hit = laneHoverPoint(points, (laneHover.clientX - rect.left) * ratioX, (laneHover.clientY - rect.top) * ratioY, ratioX);
         if (!hit) {
             drawHoverLineOnCanvas(ctx, W, H);
-            laneReadout.hidden = true;
+            const readout = laneReadoutEl();
+            if (readout) readout.hidden = true;
             return;
         }
         ctx.save();
@@ -2087,12 +2090,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         // The other lanes and the time shown follow the point read, not the pointer beside it (as the spectra do).
         if (viewState.hover === null || Math.abs(viewState.hover - readNorm) > 1e-9) viewState.setHover(readNorm);
         const unit = channelsForResult(result)[channelIndex]?.unit?.trim() || null;
-        laneReadout.textContent = laneReadoutText(spectrumReadoutTrackLabel(result, channelIndex), seconds, secondsPerPixel, hit.value, unit);
-        laneReadout.style.color = color;
-        laneReadout.hidden = false;
-        // In the toolbar beside the cursor's time, not over the lane: the waveform under the pointer stays in view.
-        const cursorDisplay = document.getElementById('cursor-display');
-        if (cursorDisplay && laneReadout.previousElementSibling !== cursorDisplay) cursorDisplay.after(laneReadout);
+        const label = spectrumReadoutTrackLabel(result, channelIndex);
+        // In the toolbar after the cursor's time, not over the lane, so the waveform under the pointer stays in view.
+        const readout = laneReadoutEl();
+        if (!readout) return;
+        const [name, values] = Array.from(readout.children) as HTMLElement[];
+        name.textContent = label;
+        values.textContent = `${label ? ' / ' : ''}${laneReadoutText('', seconds, secondsPerPixel, hit.value, unit)}`;
+        readout.style.color = color;
+        readout.hidden = false;
     }
     function drawHoverLineOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number) {
         if (viewState.hover !== null) {
