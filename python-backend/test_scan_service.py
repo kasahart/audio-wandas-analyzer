@@ -503,6 +503,91 @@ def _hits(times: list[float], seconds: float = 2.0) -> np.ndarray:
     return signal
 
 
+def test_a_trigger_right_after_the_input_draws_its_events_over_the_whole_file(tmp_path: Path) -> None:
+    # ＋ right after the input on the default chain: the trigger comes before the high-pass and the slice, so it runs
+    # over the whole file, and wandas will not end a Recipe in its segments.
+    service = AnalysisService(AnalysisEngine())
+    path = _write(tmp_path / "hits.wav", [_hits([0.3, 0.8, 1.3])])
+    chain = json.loads(json.dumps(ENTRY_RECIPE))
+    head = chain["nodes"][0]
+    trigger = {
+        "id": "node-t",
+        "operation": "wandas.audio.trigger",
+        "version": 1,
+        "inputs": list(head["inputs"]),
+        "params": {"$type": "map", "entries": [["duration", _float(0.2)], ["threshold", _float(0.5)]]},
+    }
+    head["inputs"] = ["node-t"]
+    chain["nodes"].insert(0, trigger)
+    # As the step bar asks for the trigger's picture: the chain cut at it.
+    cut = {**json.loads(json.dumps(chain)), "nodes": [trigger], "output": "node-t"}
+    for recipe in (cut, chain):
+        events = _scan(service, path, recipe=recipe, stage="node-t")
+        assert events["ok"] is True, events
+        assert events["stage"]["frame"] == "ChannelFrameSegments"
+        assert [round(event["time"], 2) for event in events["stage"]["events"]] == [0.3, 0.8, 1.3]
+    # The steps before the slice that take a time signal cannot follow it: the high-pass is named as the step failing.
+    after = _scan(service, path, recipe=chain, stage=head["id"])
+    assert after["ok"] is False and after["failedStep"] == head["id"]
+    # Events left out on the comparison: a drop after it takes its segments, and their mean after that is a Frame.
+    dropped = json.loads(json.dumps(cut))
+    dropped["nodes"].append(
+        {
+            "id": "node-d",
+            "operation": "wandas.segments.drop",
+            "version": 1,
+            "inputs": ["node-t"],
+            "params": {"$type": "map", "entries": [["event_ids", {"$type": "list", "items": [0]}]]},
+        }
+    )
+    dropped["nodes"].append(
+        {
+            "id": "node-m",
+            "operation": "wandas.segments.average",
+            "version": 1,
+            "inputs": ["node-d"],
+            "params": {"$type": "map", "entries": []},
+        }
+    )
+    dropped["output"] = "node-m"
+    kept = _scan(service, path, recipe=dropped, stage="node-d")
+    assert kept["ok"] is True, kept
+    assert [round(event["time"], 2) for event in kept["stage"]["events"]] == [0.8, 1.3]
+    mean = _scan(service, path, recipe=dropped, stage="node-m")
+    assert mean["ok"] is True and mean["stage"]["frame"] == "ChannelFrame"
+
+
+def test_a_trigger_after_the_channel_picked_fires_on_that_channel_over_the_whole_file(tmp_path: Path) -> None:
+    # As the app sends it: get_channel heads the chain, and the trigger right after it (the failure in #648).
+    service = AnalysisService(AnalysisEngine())
+    tone = 0.3 * np.sin(2 * np.pi * 1000 * np.arange(2 * RATE) / RATE)
+    path = _write(tmp_path / "two.wav", [tone, _hits([0.3, 0.8, 1.3])])
+    recipe = {
+        **json.loads(json.dumps(ENTRY_RECIPE)),
+        "nodes": [
+            {
+                "id": "node-channel",
+                "operation": "wandas.frame.get_channel",
+                "version": 1,
+                "inputs": ["input-0"],
+                "params": {"$type": "map", "entries": [["channel_idx", 1]]},
+            },
+            {
+                "id": "node-t",
+                "operation": "wandas.audio.trigger",
+                "version": 1,
+                "inputs": ["node-channel"],
+                "params": {"$type": "map", "entries": [["duration", _float(0.2)], ["threshold", _float(0.5)]]},
+            },
+        ],
+        "output": "node-t",
+    }
+    events = _scan(service, path, recipe=recipe, stage="node-t")
+    assert events["ok"] is True, events
+    # The second channel's hits only: the first channel's tone never crosses the level.
+    assert [round(event["time"], 2) for event in events["stage"]["events"]] == [0.3, 0.8, 1.3]
+
+
 def test_a_trigger_step_draws_each_event_and_the_steps_after_it_take_them(tmp_path: Path) -> None:
     service = AnalysisService(AnalysisEngine())
     hits = _hits([0.3, 0.8, 1.3])
