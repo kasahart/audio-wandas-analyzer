@@ -44,7 +44,7 @@
 
 ## R5 色は役割だけを表す
 
-基準は青、比較 1 は黄、比較 2 は紫、比較 3 はマゼンタ、差は緑、手順バーに置いた手順のうち動かないもの（実行して失敗した、サンプルレートや値が合わない、前の手順が動かない）はオレンジです（`src/shared/gui/roleColors.ts`）。役割のない録音は、比較台でもトラック表示でもカーソルスペクトルでも灰色です。解析窓の帯も灰色です。＋ で選べない操作はオレンジにせず、灰色にして理由を書きます（R8）。
+基準は青、比較 1 は黄、比較 2 は紫、比較 3 はマゼンタ、差は緑、手順バーに置いた手順のうち動かないもの（実行して失敗した、サンプルレートや値が合わない、前の手順が動かない）はオレンジです（`src/shared/gui/roleColors.ts`）。役割のない録音は、比較台でもトラック表示でもカーソルスペクトルとペアスペクトルでも灰色です。解析窓の帯も灰色です。＋ で選べない操作はオレンジにせず、灰色にして理由を書きます（R8）。
 
 - テスト: `src/test/uiSmoke/stageReturn.spec.ts` › in Compare, colour is the role's: a recording without one is grey, its name in the legend; the headline names the difference
 - テスト: `src/test/uiSmoke/roleChips.spec.ts` › in the track view, a recording without a role is grey on its lane and its chip, as in Compare; a role gives it the role's colour
