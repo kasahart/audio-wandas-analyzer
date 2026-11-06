@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { axisFractionOf, axisValueAt, byLevel, emptyStageText, eventLayers, stageAxes, stageLevelsHeadline, stageDiffRange, stageHeadline, stageRange, stageHover, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
+import { axisFractionOf, axisValueAt, byLevel, emptyStageText, eventLayers, stageAxes, paintColourBar, stageLevelsHeadline, stageDiffRange, stageHeadline, stageRange, stageHover, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
 import type { StageView } from '../shared/protocol/backendProtocol';
 
 const line = (values: number[], quantity: StageView['quantity'] = 'level'): StageView => ({ frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity, xs: [100, 1000, 10000], values });
@@ -190,4 +190,29 @@ test('silence on screen lowers a line\'s level as no power, instead of being lef
     const layer = (color: string, values: number[]) => ({ view: { ...line(values), xs: [100, 200, 400, 800] }, color });
     const gaps = layer('blue', [-20, -300, -300, -300]), steady = layer('yellow', [-23, -23, -23, -23]);
     assert.deepEqual(byLevel([gaps, steady], steady.view).map(item => item.color), ['yellow', 'blue']);
+});
+
+test('a colour bar stays inside a narrow plot: its name shrinks to the unit, then is left out', () => {
+    // 10px sans-serif, about 5.6 px a character.
+    const drawn: Array<{ text: string; x: number }> = [];
+    let box = { x: 0, width: 0 };
+    const context = {
+        measureText: (text: string) => ({ width: text.length * 5.6 }),
+        fillText: (text: string, x: number) => drawn.push({ text, x }),
+        fillRect: (x: number, _y: number, width: number) => { if (!box.width) box = { x, width }; },
+        createLinearGradient: () => ({ addColorStop: () => undefined }),
+        strokeRect: () => undefined, save: () => undefined, restore: () => undefined,
+    } as unknown as CanvasRenderingContext2D;
+    const paint = (left: number, right: number) => {
+        drawn.length = 0; box = { x: 0, width: 0 };
+        paintColourBar(context, { left, right, top: 0 }, 'Amplitude, uncalibrated [dBFS]', '−80', '0', () => '#000', { text: '#000', back: '#fff', line: '#000' });
+        return { titles: drawn.map(item => item.text).filter(text => text !== '−80' && text !== '0'), left: box.x };
+    };
+    assert.deepEqual(paint(56, 600).titles, ['Amplitude, uncalibrated [dBFS]'], 'a wide plot names it in full');
+    const mid = paint(56, 296);
+    assert.deepEqual(mid.titles, ['dBFS']);
+    assert.ok(mid.left >= 56, 'inside the plot');
+    const narrow = paint(56, 150);
+    assert.deepEqual(narrow.titles, []);
+    assert.ok(narrow.left >= 56);
 });

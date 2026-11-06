@@ -594,7 +594,7 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
         const edge = Math.max(Math.abs(range.min), Math.abs(range.max));
         const low = signedScale ? -edge : range.min, high = signedScale ? edge : range.max;
         const endText = (value: number): string => levelText(value, high - low);
-        paintColourBar(context, { right: left + plotWidth - 4, top: top + 3 }, axes.colour ?? '', endText(low), endText(high), fraction => {
+        paintColourBar(context, { left: left + 4, right: left + plotWidth - 4, top: top + 3 }, axes.colour ?? '', endText(low), endText(high), fraction => {
             const [r, g, b] = rgbOf(low + fraction * (high - low));
             return `rgb(${r}, ${g}, ${b})`;
         }, { text, back: pendingColors.back, line });
@@ -690,16 +690,18 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
     return plot;
 }
 
-/**
- * The right-hand level axis: its edge, its values at the left axis' gridlines (`fractions` up the plot), so a
- * gridline reads on either side, and its name up the canvas' right side.
- */
 /** A heatmap's colour bar: its name, then the low end, a strip of the colours and the high end, on a backing box. */
-function paintColourBar(context: CanvasRenderingContext2D, at: { right: number; top: number }, title: string, lowText: string, highText: string, colourAt: (fraction: number) => string, colors: { text: string; back: string; line: string }): void {
+export function paintColourBar(context: CanvasRenderingContext2D, at: { left: number; right: number; top: number }, fullTitle: string, lowText: string, highText: string, colourAt: (fraction: number) => string, colors: { text: string; back: string; line: string }): void {
     const strip = 48, height = 6, gap = 4, pad = 3;
-    const parts = [title, lowText].map(part => context.measureText(part).width);
+    const lowWidth = context.measureText(lowText).width;
     const highWidth = context.measureText(highText).width;
-    const width = pad + (title ? parts[0] + gap * 2 : 0) + parts[1] + gap + strip + gap + highWidth + pad;
+    const scale = pad + lowWidth + gap + strip + gap + highWidth + pad;
+    // In a narrow plot the name shrinks to its unit ("[dBFS]"), then is left out: the bar stays inside the plot.
+    const room = at.right - at.left - scale - gap * 2;
+    const fitted = fullTitle ? fittedAxisTitle(fullTitle, room, part => context.measureText(part).width) : '';
+    const title = fitted && context.measureText(fitted).width <= room ? fitted : '';
+    const parts = [context.measureText(title).width, lowWidth];
+    const width = scale + (title ? parts[0] + gap * 2 : 0);
     const x = at.right - width, y = at.top;
     context.save();
     context.globalAlpha = 0.8;
@@ -725,6 +727,10 @@ function paintColourBar(context: CanvasRenderingContext2D, at: { right: number; 
     context.restore();
 }
 
+/**
+ * The right-hand level axis: its edge, its values at the left axis' gridlines (`fractions` up the plot), so a
+ * gridline reads on either side, and its name up the canvas' right side.
+ */
 function paintRightAxis(context: CanvasRenderingContext2D, frame: { left: number; top: number; width: number; height: number }, fractions: readonly number[], range: PaneRange, title: string, width: number, colors: { muted: string; line: string; text: string }): void {
     const x = frame.left + frame.width;
     const span = range.max - range.min;

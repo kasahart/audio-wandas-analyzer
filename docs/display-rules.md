@@ -39,6 +39,7 @@
 - テスト: `src/test/comparePanes.test.ts` › the level axis is named by wandas' level reference, and says uncalibrated from the calibration status, not the unit
 - テスト: `src/test/stagePanes.test.ts` › a metric over time names what it measures on its value axis, from its unit
 - テスト: `src/test/stagePanes.test.ts` › a heatmap names what its colour measures, with its unit and reference, for its colour bar
+- テスト: `src/test/stagePanes.test.ts` › a colour bar stays inside a narrow plot: its name shrinks to the unit, then is left out
 
 ## R5 色は役割だけを表す
 
