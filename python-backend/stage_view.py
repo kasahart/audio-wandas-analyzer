@@ -321,7 +321,9 @@ def _channel_view(frame: ChannelFrame) -> StageView:
     times = np.asarray(frame.source_time, dtype=np.float64).reshape(frame.n_channels, -1)[0]
     metric = metric_operation(frame)
     measure = signal_measure(frame)
-    if metric is not None or data.shape[1] <= LEVEL_SERIES_MIN_SAMPLES:
+    # A level already in dB (sound_level or rms_trend with dB=True) is its own values, never a level of them.
+    in_db = (frame.channels[0].unit or "").startswith("dB")
+    if metric is not None or in_db or data.shape[1] <= LEVEL_SERIES_MIN_SAMPLES:
         # A metric (loudness at 500 Hz, …) is its own values however long the region: never a level of them.
         xs, values = _envelope(times, np.mean(data, axis=0), LEVEL_SERIES_MIN_SAMPLES)
         series: StageView = {

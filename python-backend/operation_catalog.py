@@ -17,9 +17,10 @@ from __future__ import annotations
 
 import inspect
 import json
+import re
 import sys
 from pathlib import Path
-from typing import Any, NotRequired, TypedDict, TypeVar
+from typing import Any, Literal, NotRequired, TypedDict, TypeVar
 
 from wandas.pipeline import RecipeParameterDescription, default_recipe_registry
 from wandas.pipeline.registry import RecipeOperation
@@ -30,6 +31,11 @@ TS_TARGET = Path(__file__).parents[1] / "src" / "shared" / "recipe" / "generated
 class CatalogParam(TypedDict):
     name: str
     required: bool
+    #: What one value of it is, read from its annotation; left out when it is not one plain value (a list, an
+    #: array, a callable, a Frame), which a step's form has no field for.
+    kind: NotRequired[Literal["int", "float", "bool", "str", "enum"]]
+    #: Whether None is a value it takes (wandas then picks one itself: "auto").
+    nullable: NotRequired[bool]
     #: What wandas uses when a Recipe leaves it out (numbers, text and flags only).
     default: NotRequired[int | float | str | bool]
     #: The values wandas accepts, when it lists them.
@@ -98,6 +104,52 @@ def _output(method: Any, taken: str) -> str:
     return name if name.endswith(("Frame", "Segments")) else taken
 
 
+#: One plain value's annotations, as wandas' description spells them, and the field kind each one is.
+_PLAIN_KINDS: dict[frozenset[str], Literal["int", "float", "bool", "str"]] = {
+    frozenset({"int"}): "int",
+    frozenset({"SupportsIndex"}): "int",
+    frozenset({"float"}): "float",
+    frozenset({"SupportsFloat"}): "float",
+    frozenset({"int", "float"}): "float",
+    frozenset({"bool"}): "bool",
+    frozenset({"str"}): "str",
+}
+
+
+def _annotation_parts(annotation: str) -> list[str]:
+    """The alternatives of an annotation ("int | None" → int, None; "Optional[int]" → int, None)."""
+    text = re.sub(r"<class '(?:[\w.]+\.)?(\w+)'>", r"\1", annotation.replace("typing.", "")).strip()
+    optional = re.fullmatch(r"Optional\[(.*)\]", text)
+    if optional:
+        return [*_annotation_parts(optional.group(1)), "None"]
+    union = re.fullmatch(r"Union\[(.*)\]", text)
+    parts: list[str] = []
+    depth = 0
+    current = ""
+    for char in union.group(1) if union else text:
+        if char in "[(":
+            depth += 1
+        elif char in "])":
+            depth -= 1
+        if char in ("|", ",") and depth == 0 and (char == "|" or union):
+            parts.append(current.strip())
+            current = ""
+        else:
+            current += char
+    parts.append(current.strip())
+    return [part for part in parts if part]
+
+
+def param_kind(parameter: RecipeParameterDescription) -> tuple[str | None, bool]:
+    """A parameter's field kind and whether it takes None; no kind when it is not one plain value."""
+    choices = parameter.choices or ()
+    if choices and all(isinstance(choice, str) or choice is None for choice in choices):
+        return "enum", None in choices or parameter.default is None
+    parts = _annotation_parts(parameter.annotation or "")
+    nullable = "None" in parts or (parameter.default is None and not parameter.required)
+    return _PLAIN_KINDS.get(frozenset(part for part in parts if part != "None")), nullable
+
+
 def _param(parameter: RecipeParameterDescription) -> CatalogParam:
     entry: CatalogParam = {"name": parameter.name, "required": parameter.required}
     if isinstance(parameter.default, int | float | str | bool):
@@ -105,6 +157,11 @@ def _param(parameter: RecipeParameterDescription) -> CatalogParam:
     choices = [choice for choice in parameter.choices or () if isinstance(choice, str)]
     if choices:
         entry["choices"] = choices
+    kind, nullable = param_kind(parameter)
+    if kind is not None:
+        entry["kind"] = kind  # type: ignore[typeddict-item]
+        if nullable:
+            entry["nullable"] = True
     return entry
 
 

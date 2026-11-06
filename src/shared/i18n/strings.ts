@@ -210,6 +210,12 @@ export interface UiStrings {
     stepOffUnavailable: string;
     stepDefaultsOnly: string;
     stepNoSettings: string;
+    /** A number field wandas picks itself when left empty (None). */
+    stepAuto: string;
+    /** The choice of None (no weighting, no detrend). */
+    stepNone: string;
+    /** The folded fields of a long form: {n} of them, {names}. */
+    stepMore: string;
     stepInputFiles: string;
     stepInput: string;
     stepHintLocale: string;
@@ -1005,7 +1011,10 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepOffRefuses: 'Does not run on a {frame} ({reason})',
         stepOffUnavailable: 'Not available in the Web version (no {packages})',
         stepDefaultsOnly: 'defaults',
-        stepNoSettings: "No settings known for this step: it runs with wandas' defaults.",
+        stepNoSettings: 'No settings',
+        stepAuto: 'auto',
+        stepNone: 'none',
+        stepMore: '{n} more ({names})',
         stepInputFiles: 'Input · {n} files',
         stepInput: 'Input',
         stepHintLocale: 'en',
@@ -1787,7 +1796,10 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepOffRefuses: '{frame} では動きません（{reason}）',
         stepOffUnavailable: 'Web 版では使えません（{packages} が無い）',
         stepDefaultsOnly: '既定値',
-        stepNoSettings: '設定項目の情報なし（wandas の既定値で実行します）',
+        stepNoSettings: '設定項目はありません',
+        stepAuto: '自動',
+        stepNone: 'なし',
+        stepMore: 'その他 {n} 件（{names}）',
         stepInputFiles: '入力 {n} 本',
         stepInput: '入力',
         stepHintLocale: 'ja',

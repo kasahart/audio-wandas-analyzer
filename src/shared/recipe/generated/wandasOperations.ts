@@ -46,7 +46,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             {
                 "name": "validate_query_keys",
                 "required": false,
-                "default": true
+                "default": true,
+                "kind": "bool"
             }
         ]
     },
@@ -91,7 +92,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             {
                 "name": "reverse",
                 "required": false,
-                "default": false
+                "default": false,
+                "kind": "bool"
             }
         ]
     },
@@ -163,7 +165,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         "params": [
             {
                 "name": "other",
-                "required": true
+                "required": true,
+                "kind": "float"
             }
         ]
     },
@@ -175,7 +178,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         "params": [
             {
                 "name": "other",
-                "required": true
+                "required": true,
+                "kind": "float"
             }
         ]
     },
@@ -187,7 +191,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         "params": [
             {
                 "name": "other",
-                "required": true
+                "required": true,
+                "kind": "float"
             }
         ]
     },
@@ -199,7 +204,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         "params": [
             {
                 "name": "other",
-                "required": true
+                "required": true,
+                "kind": "float"
             }
         ]
     },
@@ -211,7 +217,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         "params": [
             {
                 "name": "other",
-                "required": true
+                "required": true,
+                "kind": "float"
             }
         ]
     },
@@ -223,12 +230,14 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         "params": [
             {
                 "name": "cutoff",
-                "required": true
+                "required": true,
+                "kind": "float"
             },
             {
                 "name": "order",
                 "required": false,
-                "default": 4
+                "default": 4,
+                "kind": "int"
             }
         ]
     },
@@ -240,12 +249,14 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         "params": [
             {
                 "name": "cutoff",
-                "required": true
+                "required": true,
+                "kind": "float"
             },
             {
                 "name": "order",
                 "required": false,
-                "default": 4
+                "default": 4,
+                "kind": "int"
             }
         ]
     },
@@ -257,16 +268,19 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         "params": [
             {
                 "name": "low_cutoff",
-                "required": true
+                "required": true,
+                "kind": "float"
             },
             {
                 "name": "high_cutoff",
-                "required": true
+                "required": true,
+                "kind": "float"
             },
             {
                 "name": "order",
                 "required": false,
-                "default": 4
+                "default": 4,
+                "kind": "int"
             }
         ]
     },
@@ -279,20 +293,28 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             {
                 "name": "norm",
                 "required": false,
-                "default": Infinity
+                "default": Infinity,
+                "kind": "float",
+                "nullable": true
             },
             {
                 "name": "axis",
                 "required": false,
-                "default": -1
+                "default": -1,
+                "kind": "int",
+                "nullable": true
             },
             {
                 "name": "threshold",
-                "required": false
+                "required": false,
+                "kind": "float",
+                "nullable": true
             },
             {
                 "name": "fill",
-                "required": false
+                "required": false,
+                "kind": "bool",
+                "nullable": true
             }
         ]
     },
@@ -319,11 +341,14 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             {
                 "name": "order",
                 "required": false,
-                "default": 1
+                "default": 1,
+                "kind": "int"
             },
             {
                 "name": "unit",
-                "required": false
+                "required": false,
+                "kind": "str",
+                "nullable": true
             }
         ],
         "refuses": {
@@ -353,7 +378,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             {
                 "name": "exponent",
                 "required": false,
-                "default": 2.0
+                "default": 2.0,
+                "kind": "float"
             }
         ]
     },
@@ -380,11 +406,14 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             {
                 "name": "start",
                 "required": false,
-                "default": 0
+                "default": 0,
+                "kind": "float"
             },
             {
                 "name": "end",
-                "required": false
+                "required": false,
+                "kind": "float",
+                "nullable": true
             }
         ]
     },
@@ -409,7 +438,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
                 "choices": [
                     "local",
                     "source"
-                ]
+                ],
+                "kind": "enum"
             }
         ]
     },
@@ -421,11 +451,15 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         "params": [
             {
                 "name": "length",
-                "required": false
+                "required": false,
+                "kind": "int",
+                "nullable": true
             },
             {
                 "name": "duration",
-                "required": false
+                "required": false,
+                "kind": "float",
+                "nullable": true
             }
         ]
     },
@@ -438,22 +472,26 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             {
                 "name": "frame_length",
                 "required": false,
-                "default": 2048
+                "default": 2048,
+                "kind": "int"
             },
             {
                 "name": "hop_length",
                 "required": false,
-                "default": 512
+                "default": 512,
+                "kind": "int"
             },
             {
                 "name": "dB",
                 "required": false,
-                "default": false
+                "default": false,
+                "kind": "bool"
             },
             {
                 "name": "Aw",
                 "required": false,
-                "default": false
+                "default": false,
+                "kind": "bool"
             }
         ]
     },
@@ -471,7 +509,9 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
                     "A",
                     "C",
                     "Z"
-                ]
+                ],
+                "kind": "enum",
+                "nullable": true
             },
             {
                 "name": "time_weighting",
@@ -480,12 +520,14 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
                 "choices": [
                     "Fast",
                     "Slow"
-                ]
+                ],
+                "kind": "enum"
             },
             {
                 "name": "dB",
                 "required": false,
-                "default": false
+                "default": false,
+                "kind": "bool"
             }
         ]
     },
@@ -510,7 +552,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         "params": [
             {
                 "name": "target_sr",
-                "required": true
+                "required": true,
+                "kind": "float"
             }
         ]
     },
@@ -528,7 +571,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             {
                 "name": "power",
                 "required": false,
-                "default": 2
+                "default": 2,
+                "kind": "float"
             },
             {
                 "name": "margin",
@@ -538,15 +582,20 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             {
                 "name": "n_fft",
                 "required": false,
-                "default": 2048
+                "default": 2048,
+                "kind": "int"
             },
             {
                 "name": "hop_length",
-                "required": false
+                "required": false,
+                "kind": "int",
+                "nullable": true
             },
             {
                 "name": "win_length",
-                "required": false
+                "required": false,
+                "kind": "int",
+                "nullable": true
             },
             {
                 "name": "window",
@@ -556,12 +605,14 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             {
                 "name": "center",
                 "required": false,
-                "default": true
+                "default": true,
+                "kind": "bool"
             },
             {
                 "name": "pad_mode",
                 "required": false,
-                "default": "constant"
+                "default": "constant",
+                "kind": "str"
             }
         ],
         "refuses": {
@@ -588,7 +639,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             {
                 "name": "power",
                 "required": false,
-                "default": 2
+                "default": 2,
+                "kind": "float"
             },
             {
                 "name": "margin",
@@ -598,15 +650,20 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             {
                 "name": "n_fft",
                 "required": false,
-                "default": 2048
+                "default": 2048,
+                "kind": "int"
             },
             {
                 "name": "hop_length",
-                "required": false
+                "required": false,
+                "kind": "int",
+                "nullable": true
             },
             {
                 "name": "win_length",
-                "required": false
+                "required": false,
+                "kind": "int",
+                "nullable": true
             },
             {
                 "name": "window",
@@ -616,12 +673,14 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             {
                 "name": "center",
                 "required": false,
-                "default": true
+                "default": true,
+                "kind": "bool"
             },
             {
                 "name": "pad_mode",
                 "required": false,
-                "default": "constant"
+                "default": "constant",
+                "kind": "str"
             }
         ],
         "refuses": {
@@ -647,7 +706,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
                 "choices": [
                     "free",
                     "diffuse"
-                ]
+                ],
+                "kind": "enum"
             }
         ]
     },
@@ -660,7 +720,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             {
                 "name": "overlap",
                 "required": false,
-                "default": 0.5
+                "default": 0.5,
+                "kind": "float"
             }
         ]
     },
@@ -673,7 +734,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             {
                 "name": "overlap",
                 "required": false,
-                "default": 0.5
+                "default": 0.5,
+                "kind": "float"
             }
         ]
     },
@@ -686,7 +748,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             {
                 "name": "fade_ms",
                 "required": false,
-                "default": 50
+                "default": 50,
+                "kind": "float"
             }
         ]
     },
@@ -705,7 +768,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
                     "aures",
                     "bismarck",
                     "fastl"
-                ]
+                ],
+                "kind": "enum"
             },
             {
                 "name": "field_type",
@@ -714,7 +778,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
                 "choices": [
                     "free",
                     "diffuse"
-                ]
+                ],
+                "kind": "enum"
             }
         ]
     },
@@ -726,17 +791,21 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         "params": [
             {
                 "name": "n_fft",
-                "required": false
+                "required": false,
+                "kind": "int",
+                "nullable": true
             },
             {
                 "name": "window",
                 "required": false,
-                "default": "hann"
+                "default": "hann",
+                "kind": "str"
             },
             {
                 "name": "floor",
                 "required": false,
-                "default": 1e-12
+                "default": 1e-12,
+                "kind": "float"
             }
         ]
     },
@@ -748,12 +817,15 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         "params": [
             {
                 "name": "n_fft",
-                "required": false
+                "required": false,
+                "kind": "int",
+                "nullable": true
             },
             {
                 "name": "window",
                 "required": false,
-                "default": "hann"
+                "default": "hann",
+                "kind": "str"
             }
         ],
         "refuses": {
@@ -769,20 +841,26 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             {
                 "name": "n_fft",
                 "required": false,
-                "default": 2048
+                "default": 2048,
+                "kind": "int"
             },
             {
                 "name": "hop_length",
-                "required": false
+                "required": false,
+                "kind": "int",
+                "nullable": true
             },
             {
                 "name": "win_length",
-                "required": false
+                "required": false,
+                "kind": "int",
+                "nullable": true
             },
             {
                 "name": "window",
                 "required": false,
-                "default": "hann"
+                "default": "hann",
+                "kind": "str"
             },
             {
                 "name": "average",
@@ -791,7 +869,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
                 "choices": [
                     "mean",
                     "median"
-                ]
+                ],
+                "kind": "enum"
             }
         ]
     },
@@ -804,27 +883,32 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             {
                 "name": "fmin",
                 "required": false,
-                "default": 25
+                "default": 25,
+                "kind": "float"
             },
             {
                 "name": "fmax",
                 "required": false,
-                "default": 20000
+                "default": 20000,
+                "kind": "float"
             },
             {
                 "name": "n",
                 "required": false,
-                "default": 3
+                "default": 3,
+                "kind": "int"
             },
             {
                 "name": "G",
                 "required": false,
-                "default": 10
+                "default": 10,
+                "kind": "int"
             },
             {
                 "name": "fr",
                 "required": false,
-                "default": 1000
+                "default": 1000,
+                "kind": "int"
             }
         ]
     },
@@ -837,25 +921,32 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             {
                 "name": "n_fft",
                 "required": false,
-                "default": 2048
+                "default": 2048,
+                "kind": "int"
             },
             {
                 "name": "hop_length",
-                "required": false
+                "required": false,
+                "kind": "int",
+                "nullable": true
             },
             {
                 "name": "win_length",
-                "required": false
+                "required": false,
+                "kind": "int",
+                "nullable": true
             },
             {
                 "name": "window",
                 "required": false,
-                "default": "hann"
+                "default": "hann",
+                "kind": "str"
             },
             {
                 "name": "allow_sparse",
                 "required": false,
-                "default": false
+                "default": false,
+                "kind": "bool"
             },
             {
                 "name": "detrend",
@@ -863,7 +954,9 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
                 "choices": [
                     "constant",
                     "linear"
-                ]
+                ],
+                "kind": "enum",
+                "nullable": true
             }
         ]
     },
@@ -876,25 +969,32 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             {
                 "name": "n_fft",
                 "required": false,
-                "default": 2048
+                "default": 2048,
+                "kind": "int"
             },
             {
                 "name": "hop_length",
-                "required": false
+                "required": false,
+                "kind": "int",
+                "nullable": true
             },
             {
                 "name": "win_length",
-                "required": false
+                "required": false,
+                "kind": "int",
+                "nullable": true
             },
             {
                 "name": "window",
                 "required": false,
-                "default": "hann"
+                "default": "hann",
+                "kind": "str"
             },
             {
                 "name": "detrend",
                 "required": false,
-                "default": "constant"
+                "default": "constant",
+                "kind": "str"
             }
         ]
     },
@@ -906,7 +1006,9 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         "params": [
             {
                 "name": "max_lag",
-                "required": false
+                "required": false,
+                "kind": "float",
+                "nullable": true
             }
         ]
     },
@@ -919,25 +1021,32 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             {
                 "name": "n_fft",
                 "required": false,
-                "default": 2048
+                "default": 2048,
+                "kind": "int"
             },
             {
                 "name": "hop_length",
-                "required": false
+                "required": false,
+                "kind": "int",
+                "nullable": true
             },
             {
                 "name": "win_length",
-                "required": false
+                "required": false,
+                "kind": "int",
+                "nullable": true
             },
             {
                 "name": "window",
                 "required": false,
-                "default": "hann"
+                "default": "hann",
+                "kind": "str"
             },
             {
                 "name": "detrend",
                 "required": false,
-                "default": "constant"
+                "default": "constant",
+                "kind": "str"
             },
             {
                 "name": "scaling",
@@ -946,7 +1055,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
                 "choices": [
                     "spectrum",
                     "density"
-                ]
+                ],
+                "kind": "enum"
             },
             {
                 "name": "average",
@@ -955,7 +1065,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
                 "choices": [
                     "mean",
                     "median"
-                ]
+                ],
+                "kind": "enum"
             }
         ]
     },
@@ -968,25 +1079,32 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             {
                 "name": "n_fft",
                 "required": false,
-                "default": 2048
+                "default": 2048,
+                "kind": "int"
             },
             {
                 "name": "hop_length",
-                "required": false
+                "required": false,
+                "kind": "int",
+                "nullable": true
             },
             {
                 "name": "win_length",
-                "required": false
+                "required": false,
+                "kind": "int",
+                "nullable": true
             },
             {
                 "name": "window",
                 "required": false,
-                "default": "hann"
+                "default": "hann",
+                "kind": "str"
             },
             {
                 "name": "detrend",
                 "required": false,
-                "default": "constant"
+                "default": "constant",
+                "kind": "str"
             },
             {
                 "name": "scaling",
@@ -995,7 +1113,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
                 "choices": [
                     "spectrum",
                     "density"
-                ]
+                ],
+                "kind": "enum"
             },
             {
                 "name": "average",
@@ -1004,7 +1123,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
                 "choices": [
                     "mean",
                     "median"
-                ]
+                ],
+                "kind": "enum"
             },
             {
                 "name": "estimator",
@@ -1013,7 +1133,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
                 "choices": [
                     "H1",
                     "H2"
-                ]
+                ],
+                "kind": "enum"
             }
         ]
     },
@@ -1037,16 +1158,19 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         "params": [
             {
                 "name": "threshold",
-                "required": true
+                "required": true,
+                "kind": "float"
             },
             {
                 "name": "duration",
-                "required": true
+                "required": true,
+                "kind": "float"
             },
             {
                 "name": "pre",
                 "required": false,
-                "default": 0.0
+                "default": 0.0,
+                "kind": "float"
             },
             {
                 "name": "channel",
@@ -1060,11 +1184,14 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
                 "choices": [
                     "rising",
                     "falling"
-                ]
+                ],
+                "kind": "enum"
             },
             {
                 "name": "holdoff",
-                "required": false
+                "required": false,
+                "kind": "float",
+                "nullable": true
             }
         ]
     },
@@ -1080,12 +1207,14 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             },
             {
                 "name": "duration",
-                "required": true
+                "required": true,
+                "kind": "float"
             },
             {
                 "name": "pre",
                 "required": false,
-                "default": 0.0
+                "default": 0.0,
+                "kind": "float"
             }
         ]
     },
@@ -1109,7 +1238,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         "params": [
             {
                 "name": "cutoff",
-                "required": true
+                "required": true,
+                "kind": "float"
             },
             {
                 "name": "mode",
@@ -1118,7 +1248,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
                 "choices": [
                     "low",
                     "high"
-                ]
+                ],
+                "kind": "enum"
             }
         ]
     },
@@ -1150,7 +1281,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
                 "choices": [
                     "local",
                     "source"
-                ]
+                ],
+                "kind": "enum"
             }
         ]
     },
@@ -1162,7 +1294,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         "params": [
             {
                 "name": "cutoff",
-                "required": true
+                "required": true,
+                "kind": "float"
             },
             {
                 "name": "mode",
@@ -1171,7 +1304,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
                 "choices": [
                     "low",
                     "high"
-                ]
+                ],
+                "kind": "enum"
             }
         ]
     },
@@ -1197,26 +1331,31 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         "params": [
             {
                 "name": "fmin",
-                "required": true
+                "required": true,
+                "kind": "float"
             },
             {
                 "name": "fmax",
-                "required": true
+                "required": true,
+                "kind": "float"
             },
             {
                 "name": "n",
                 "required": false,
-                "default": 3
+                "default": 3,
+                "kind": "int"
             },
             {
                 "name": "G",
                 "required": false,
-                "default": 10
+                "default": 10,
+                "kind": "int"
             },
             {
                 "name": "fr",
                 "required": false,
-                "default": 1000
+                "default": 1000,
+                "kind": "int"
             }
         ]
     },
@@ -1229,7 +1368,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             {
                 "name": "floor",
                 "required": false,
-                "default": 1e-12
+                "default": 1e-12,
+                "kind": "float"
             }
         ]
     },
@@ -1248,7 +1388,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
         "params": [
             {
                 "name": "time_idx",
-                "required": true
+                "required": true,
+                "kind": "int"
             }
         ]
     },
@@ -1273,7 +1414,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
                 "choices": [
                     "local",
                     "source"
-                ]
+                ],
+                "kind": "enum"
             }
         ]
     },
@@ -1294,7 +1436,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
                 "choices": [
                     "local",
                     "source"
-                ]
+                ],
+                "kind": "enum"
             },
             {
                 "name": "tolerance",
@@ -1322,7 +1465,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
                 "choices": [
                     "spectrum",
                     "density"
-                ]
+                ],
+                "kind": "enum"
             }
         ]
     },
@@ -1355,7 +1499,8 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
                 "choices": [
                     "H1",
                     "H2"
-                ]
+                ],
+                "kind": "enum"
             }
         ]
     },
@@ -1406,12 +1551,15 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             },
             {
                 "name": "n_fft",
-                "required": false
+                "required": false,
+                "kind": "int",
+                "nullable": true
             },
             {
                 "name": "window",
                 "required": false,
-                "default": "boxcar"
+                "default": "boxcar",
+                "kind": "str"
             },
             {
                 "name": "detrend",
@@ -1419,7 +1567,9 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
                 "choices": [
                     "constant",
                     "linear"
-                ]
+                ],
+                "kind": "enum",
+                "nullable": true
             }
         ]
     },
@@ -1439,12 +1589,15 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             },
             {
                 "name": "n_fft",
-                "required": false
+                "required": false,
+                "kind": "int",
+                "nullable": true
             },
             {
                 "name": "window",
                 "required": false,
-                "default": "boxcar"
+                "default": "boxcar",
+                "kind": "str"
             },
             {
                 "name": "detrend",
@@ -1452,7 +1605,9 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
                 "choices": [
                     "constant",
                     "linear"
-                ]
+                ],
+                "kind": "enum",
+                "nullable": true
             }
         ]
     },

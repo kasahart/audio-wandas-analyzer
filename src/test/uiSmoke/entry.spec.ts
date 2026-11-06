@@ -512,6 +512,57 @@ test('a step added between two chips measures every file again; one that fails o
     await expect(values).toHaveText([STR.dsLeq.replace('{label}', 'dBFS'), STR.dsCrest]);
 });
 
+test('a step\'s ⚙ offers every value wandas describes: sound_level\'s weighting and dB, welch\'s average under "more", written into the Recipe', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    const STR = getStrings('en');
+    const recipe = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', '..', 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8'));
+    await openEntry(page, scanned!, { recipe });
+    await openStepsView(page, scanned!, SPECTRUM_VIEW);
+    const bar = page.locator('.track-stage-bar');
+    type Node = { id: string; operation: string; params: { entries: Array<[string, unknown]> } };
+    type Scan = { type: string; recipe?: { nodes: Node[] } };
+    const lastScan = (): Promise<Scan> => page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Scan[] })
+        .__uiSmokePostedMessages.filter(message => message.type === 'entry-scan').at(-1)!);
+    await bar.locator('[data-action="step-expand"]').click();
+    await bar.locator('[data-action="step-insert"][data-after="node-1"]').click();
+    await bar.locator('[data-step-menu-filter]').fill('sound_level');
+    await bar.locator('.step-menu-item', { hasText: 'sound_level' }).click();
+    // Its ⚙ has wandas' values at wandas' defaults, not "no settings".
+    await bar.locator('.step-chip', { hasText: 'sound_level' }).locator('[data-action="step-settings"]').click();
+    const form = bar.locator('[data-step-form]');
+    await expect(form.locator('.step-form-note')).toHaveCount(0);
+    await expect(form.locator('[data-step-param="freq_weighting"]')).toHaveValue('Z');
+    await expect(form.locator('[data-step-param="freq_weighting"] option')).toHaveText(['A', 'C', 'Z', STR.stepNone]);
+    await expect(form.locator('[data-step-param="time_weighting"]')).toHaveValue('Fast');
+    await expect(form.locator('[data-step-param="dB"]')).not.toBeChecked();
+    await form.locator('[data-step-param="freq_weighting"]').selectOption('A');
+    await form.locator('[data-step-param="dB"]').check();
+    await form.locator('[data-action="step-apply"]').click();
+    await expect(bar.locator('[data-step-form]')).toHaveCount(0);
+    // Reopened, the form keeps them and marks them as changed.
+    await bar.locator('.step-chip', { hasText: 'sound_level' }).locator('[data-action="step-settings"]').click();
+    await expect(form.locator('[data-step-param="freq_weighting"]')).toHaveValue('A');
+    await expect(form.locator('.step-field.is-changed')).toHaveCount(2);
+    await page.keyboard.press('Escape');
+    // welch's five values: four shown, average behind "1 more (average)".
+    await bar.locator('.step-chip', { hasText: STR.stepAverage }).locator('[data-action="step-settings"]').click();
+    const more = form.locator('details.step-more');
+    await expect(more.locator('summary')).toHaveText(STR.stepMore.replace('{n}', '1').replace('{names}', 'average'));
+    await expect(more.locator('[data-step-param="average"]')).toBeHidden();
+    await more.locator('summary').click();
+    await more.locator('[data-step-param="average"]').selectOption('median');
+    await form.locator('[data-action="step-apply"]').click();
+    // The Recipe the table is computed with carries exactly the changed values, in wandas' encoding.
+    await page.locator('[data-action="entry-compute"]').click();
+    const nodes = (await lastScan()).recipe!.nodes;
+    expect(nodes.find(node => node.operation === 'wandas.audio.sound_level')!.params.entries).toEqual([['dB', true], ['freq_weighting', 'A']]);
+    expect(nodes.find(node => node.operation === 'wandas.audio.welch')!.params.entries).toContainEqual(['average', 'median']);
+    // ↶ takes the last change back.
+    await bar.locator('[data-action="step-undo"]').click();
+    await bar.locator('.step-chip', { hasText: STR.stepAverage }).locator('[data-action="step-settings"]').click();
+    await expect(form.locator('[data-step-param="average"]')).toHaveValue('mean');
+});
+
 test('the overview strip answers the lanes\' gestures, and a press that stays put is still a click', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     await openEntry(page, scanned!);
