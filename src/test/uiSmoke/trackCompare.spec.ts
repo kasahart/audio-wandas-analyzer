@@ -772,6 +772,14 @@ test('a trigger added from ＋ fires at half the tracks\' peak, draws each event
     const counts = page.locator('.stage-event-count');
     await expect(counts.first()).toHaveText(STR.stageEventsUsed.replace('{used}', '3').replace('{total}', '3'));
     await expect(page.locator('.stage-event-mark').first()).toContainText('▶ 1');
+    // The events' plot stays above the tracks, on a short window too: it covers no lane (R10).
+    const panelBottom = async (): Promise<number> => { const b = (await page.locator('.track-stage-panel').boundingBox())!; return b.y + b.height; };
+    const firstLaneTop = async (): Promise<number> => (await page.locator('#stacked-wrap').boundingBox())!.y;
+    for (const size of [{ width: 1100, height: 700 }, { width: 1600, height: 1000 }, { width: 1280, height: 1100 }]) {
+        await page.setViewportSize(size);
+        await expect.poll(async () => (await firstLaneTop()) - (await panelBottom()), `at ${size.width}x${size.height}`).toBeGreaterThanOrEqual(0);
+        expect((await page.locator('.track-stage-panel').boundingBox())!.height).toBeGreaterThanOrEqual(200);
+    }
     const plot = page.locator('[data-stage-canvas="overlay"]');
     const box = (await plot.boundingBox())!;
     // The pointer on a line names its recording and event.
