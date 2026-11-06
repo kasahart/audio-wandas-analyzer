@@ -7,7 +7,7 @@
  */
 import type { RecipeDocument } from './recipeSelection';
 import { operationGroup } from './operationGuide';
-import { catalogOperation, INPUT_FRAME, isSegments, outputOf, WANDAS_OPERATIONS, type CatalogOperation } from './recipeCatalog';
+import { catalogOperation, INPUT_FRAME, isSegments, metricSeries, outputOf, WANDAS_OPERATIONS, type CatalogOperation } from './recipeCatalog';
 
 /**
  * `default`: what wandas uses when the Recipe leaves the parameter out (from its description), shown and
@@ -225,6 +225,11 @@ export interface RecipeStep {
     /** The sampling rate (Hz) after it, when the folder's is known (a resampling step changes it). */
     sampleRate?: number;
     /**
+     * A metric's time series (rms_trend, loudness…) after it: a ChannelFrame, though not a sound signal, whose
+     * refusals the catalog names apart (`ChannelFrame:<metric>`, operation_probe.metric_series).
+     */
+    series?: string;
+    /**
      * Why: the value must stay below `limit`, or be a power of two from 64 up to `limit`; the step cannot
      * take the Frame before it (`frame`); it failed on a file (`failed`, wandas' own words in `text`); it runs
      * at one sampling rate only (`rate`: `limit`, the rate there in `text`); or a step before it cannot run
@@ -340,6 +345,8 @@ export function recipeSteps(recipe: RecipeDocument, limits?: number | StepLimits
     let rate = bounds.sampleRate;
     // The step that left one channel, if one did (rather than the files having one).
     let narrowedBy: string | undefined;
+    // The metric the time signal here came through, as stage_view.metric_operation reads it from the history.
+    let metric: string | undefined;
     const skipped = new Set(bypassedSteps(recipe));
     const slotted = new Set(slotReferenced(recipe));
     return recipeChain(recipe).map(node => {
@@ -374,7 +381,10 @@ export function recipeSteps(recipe: RecipeDocument, limits?: number | StepLimits
             channels = channelsAfter(node, slotted.has(node.id) ? 2 : channels, step.input);
             if (before !== undefined && before > 1 && channels === 1) narrowedBy = step.id;
             rate = rateAfter(node, rate);
+            metric = metricSeries(node.operation) !== undefined ? node.operation : metric;
         }
+        const series = metric !== undefined && frame === INPUT_FRAME ? metricSeries(metric) : undefined;
+        if (series !== undefined) step.series = series;
         if (channels !== undefined) step.channels = channels;
         if (rate !== undefined) step.sampleRate = rate;
         return step;
@@ -463,12 +473,13 @@ const MENU_HIDDEN: ReadonlySet<string> = new Set([TIME_SLICE, 'wandas.numpy.ufun
     // Events cut at given times, and events dropped or picked by their IDs: lists of values the step bar has no field for.
     'wandas.audio.segment', 'wandas.segments.drop', 'wandas.segments.select']);
 
-export function addableOperations(frame: string, lacks?: ReadonlySet<string>, channels?: number, sampleRate?: number): AddableOperation[] {
+export function addableOperations(frame: string, lacks?: ReadonlySet<string>, channels?: number, sampleRate?: number, series?: string): AddableOperation[] {
     return WANDAS_OPERATIONS.filter(operation => !MENU_HIDDEN.has(operation.id)).map(operation => {
         const settable = operation.id in STEP_PARAMS;
         const known = new Set((STEP_PARAMS[operation.id] ?? []).filter(param => param.kind === 'enum' || param.initial !== undefined || param.default !== undefined).map(param => param.name));
         const needs = operation.params.filter(param => param.required && !known.has(param.name));
-        const refused = operation.refuses?.[frame];
+        // After a metric, what fails on its series (a filter's cutoff above its rate, a Welch longer than it).
+        const refused = (series !== undefined ? operation.refuses?.[series] : undefined) ?? operation.refuses?.[frame];
         // A package the operation needs that the runtime reports it cannot import (the Web version's).
         const lacking = (operation.needs ?? []).filter(name => lacks?.has(name));
         const required = wrongRate(operation.id, sampleRate);

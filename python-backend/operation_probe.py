@@ -31,7 +31,7 @@ from wandas.pipeline import RecipePlan
 from operation_catalog import catalog, frames
 from optional_packages import OPTIONAL_MODULES
 from scan_service import TIME_SLICE_OPERATION, apply_step, wandas_cause
-from stage_view import stage_view
+from stage_view import METRIC_SERIES_UNITS, metric_operation, stage_view
 
 # The parameters a new step starts with where wandas has none (the step bar's STEP_PARAMS `initial`).
 INITIAL: Mapping[str, Mapping[str, float | int]] = {
@@ -92,6 +92,16 @@ def _apply(operation: Mapping[str, Any], frame: object) -> object:
     )
     # Frames are lazy: an operation that fails inside only does so when computed (apply_step caches it).
     return apply_step(plan, frame)
+
+
+def metric_series(operation: str) -> str:
+    """The name the catalog gives a time series a metric gives (rms_trend, loudness…): a ChannelFrame, though not
+    a sound signal. Its rate is the metric's and it is drawn as its values, so what follows it is probed apart."""
+    return f"ChannelFrame:{operation}"
+
+
+#: Each metric's series, as the catalog's refusals name it.
+METRIC_SERIES = {metric_series(operation): operation for operation in METRIC_SERIES_UNITS}
 
 
 def _recordings() -> dict[str, wd.ChannelFrame]:
@@ -182,6 +192,9 @@ def probe(depth: int = 2, recordings: int = 2) -> list[ProbeRun]:
         and not any(p["required"] for p in operation["params"] if p["name"] not in INITIAL.get(operation["id"], {}))
     ]
     bases = {frame["name"]: list(frame["bases"]) for frame in frames()}
+    # A metric's series takes what a ChannelFrame takes.
+    for series in METRIC_SERIES:
+        bases[series] = ["ChannelFrame", *bases["ChannelFrame"]]
     examples: dict[str, list[tuple[str, object]]] = {
         "ChannelFrame": [(name, frame) for name, frame in list(_recordings().items())[:recordings]]
     }
@@ -198,9 +211,20 @@ def probe(depth: int = 2, recordings: int = 2) -> list[ProbeRun]:
                         continue
                     tried.add((operation["id"], label))
                     run, result = _run(operation, frame_type, label, frame)
+                    if frame_type in METRIC_SERIES and run["ok"] and not run["drawn"]:
+                        # After a metric, ＋ offers only what draws a picture of it (R8): one the app cannot draw
+                        # counts as failing there.
+                        run["ok"] = False
+                        run["error"] = "no picture of a metric's series"
                     runs.append(run)
-                    if result is not None and run["output"] != "ChannelFrame":
-                        produced.append((run["output"], (f"{operation['id'].split('.')[-1]}({label})", result)))
+                    named = f"{operation['id'].split('.')[-1]}({label})"
+                    if result is None or frame_type in METRIC_SERIES:
+                        # What follows a metric is probed one step only: its Frames are not examples of their type.
+                        continue
+                    if run["output"] != "ChannelFrame":
+                        produced.append((run["output"], (named, result)))
+                    elif isinstance(result, wd.ChannelFrame) and metric_operation(result) == operation["id"]:
+                        produced.append((metric_series(operation["id"]), (named, result)))
         if not produced:
             break
         for output, item in produced:

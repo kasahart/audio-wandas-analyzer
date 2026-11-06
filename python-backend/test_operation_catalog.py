@@ -9,7 +9,7 @@ import wandas as wd
 from wandas.pipeline import default_recipe_registry
 
 from operation_catalog import TS_TARGET, catalog, frames, typescript, with_refusals
-from operation_probe import _direct, _flat, needs, probe, refusals, verdicts
+from operation_probe import _direct, _flat, metric_series, needs, probe, refusals, verdicts
 from stage_view import stage_view
 
 # The probe runs every operation on every Frame (1-2 min): CI runs these with AWA_SLOW=1.
@@ -147,10 +147,33 @@ def test_the_step_bars_fixed_rates_are_the_ones_wandas_enforces() -> None:
 def test_no_step_offered_on_a_recording_draws_a_flat_picture(runs: list) -> None:
     # A picture whose values are all one value says nothing (docs/display-rules.md R8). The only one is the
     # difference of a one-channel file's channel with itself, which the step bar greys out on one channel.
-    flat = sorted({(run["operation"], run["example"]) for run in runs if run["ok"] and run["flat"]})
+    # The Frames a recording's steps give; a metric's series is probed one step further (and greys what fails there).
+    flat = sorted(
+        {
+            (run["operation"], run["example"])
+            for run in runs
+            if run["ok"] and run["flat"] and not run["input"].startswith("ChannelFrame:")
+        }
+    )
     assert flat == [("wandas.audio.channel_difference", "48 kHz 1 ch")]
     steps = (Path(__file__).parent.parent / "src" / "shared" / "recipe" / "recipeSteps.ts").read_text(encoding="utf-8")
     assert re.search(r"NEEDS_TWO_CHANNELS[^;]*'wandas\.audio\.channel_difference'", steps)
+
+
+@slow
+def test_after_a_metric_the_steps_that_fail_on_its_series_are_refused(runs: list) -> None:
+    # A metric's series is a ChannelFrame at the metric's rate (docs/display-rules.md R8): a filter at a new
+    # step's cutoff, a Welch or an STFT of a recording's length cannot run on it, so ＋ greys them out there.
+    found = refusals(runs)
+    for metric in ("wandas.audio.rms_trend", "wandas.audio.loudness_zwtv"):
+        series = metric_series(metric)
+        for operation in ("wandas.audio.lowpass_filter", "wandas.audio.welch", "wandas.audio.stft"):
+            assert series in found[operation], (operation, metric)
+        # What does run on it and draws it is still offered: a time range of it.
+        assert series not in found.get("wandas.audio.trim", {})
+    # Every run on a metric's series that is kept as running draws something.
+    on_series = [run for run in runs if run["input"].startswith("ChannelFrame:")]
+    assert on_series and all(run["drawn"] for run in on_series if run["ok"])
 
 
 def test_a_steady_tone_is_not_flat_and_a_silent_difference_is() -> None:

@@ -230,7 +230,10 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
                 "required": false,
                 "default": 4
             }
-        ]
+        ],
+        "refuses": {
+            "ChannelFrame:wandas.audio.roughness_dw": "Cutoff frequency out of valid range"
+        }
     },
     {
         "id": "wandas.audio.lowpass_filter",
@@ -247,7 +250,13 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
                 "required": false,
                 "default": 4
             }
-        ]
+        ],
+        "refuses": {
+            "ChannelFrame:wandas.audio.rms_trend": "Cutoff frequency out of valid range",
+            "ChannelFrame:wandas.audio.loudness_zwtv": "Cutoff frequency out of valid range",
+            "ChannelFrame:wandas.audio.roughness_dw": "Cutoff frequency out of valid range",
+            "ChannelFrame:wandas.audio.sharpness_din": "Cutoff frequency out of valid range"
+        }
     },
     {
         "id": "wandas.audio.bandpass_filter",
@@ -268,7 +277,13 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
                 "required": false,
                 "default": 4
             }
-        ]
+        ],
+        "refuses": {
+            "ChannelFrame:wandas.audio.rms_trend": "Lower cutoff frequency out of valid range",
+            "ChannelFrame:wandas.audio.loudness_zwtv": "Higher cutoff frequency out of valid range",
+            "ChannelFrame:wandas.audio.roughness_dw": "Lower cutoff frequency out of valid range",
+            "ChannelFrame:wandas.audio.sharpness_din": "Higher cutoff frequency out of valid range"
+        }
     },
     {
         "id": "wandas.audio.normalize",
@@ -327,7 +342,11 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
             }
         ],
         "refuses": {
-            "ChannelFrame": "Cannot infer the unit of the integrated signal"
+            "ChannelFrame": "Cannot infer the unit of the integrated signal",
+            "ChannelFrame:wandas.audio.rms_trend": "Cannot infer the unit of the integrated signal",
+            "ChannelFrame:wandas.audio.loudness_zwtv": "Cannot infer the unit of the integrated signal",
+            "ChannelFrame:wandas.audio.roughness_dw": "Cannot infer the unit of the integrated signal",
+            "ChannelFrame:wandas.audio.sharpness_din": "Cannot infer the unit of the integrated signal"
         }
     },
     {
@@ -650,7 +669,11 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
                 "required": false,
                 "default": 0.5
             }
-        ]
+        ],
+        "refuses": {
+            "ChannelFrame:wandas.audio.rms_trend": "index 6 is out of bounds for axis 1 with size 6",
+            "ChannelFrame:wandas.audio.roughness_dw": "index 2 is out of bounds for axis 1 with size 2"
+        }
     },
     {
         "id": "wandas.audio.roughness_dw_spec",
@@ -663,7 +686,11 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
                 "required": false,
                 "default": 0.5
             }
-        ]
+        ],
+        "refuses": {
+            "ChannelFrame:wandas.audio.rms_trend": "Could not initialize RoughnessDwSpec: error retrieving bark_axis from MoSQITo.",
+            "ChannelFrame:wandas.audio.roughness_dw": "Could not initialize RoughnessDwSpec: error retrieving bark_axis from MoSQITo."
+        }
     },
     {
         "id": "wandas.audio.fade",
@@ -743,7 +770,10 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
                 "required": false,
                 "default": "hann"
             }
-        ]
+        ],
+        "refuses": {
+            "ChannelFrame:wandas.audio.roughness_dw": "no picture of a metric's series"
+        }
     },
     {
         "id": "wandas.audio.welch",
@@ -778,7 +808,13 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
                     "median"
                 ]
             }
-        ]
+        ],
+        "refuses": {
+            "ChannelFrame:wandas.audio.rms_trend": "noverlap=1536 must be less than nperseg=63!",
+            "ChannelFrame:wandas.audio.loudness_zwtv": "noverlap=1536 must be less than nperseg=1000!",
+            "ChannelFrame:wandas.audio.roughness_dw": "noverlap=1536 must be less than nperseg=19!",
+            "ChannelFrame:wandas.audio.sharpness_din": "noverlap=1536 must be less than nperseg=1000!"
+        }
     },
     {
         "id": "wandas.audio.noct_spectrum",
@@ -811,7 +847,13 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
                 "required": false,
                 "default": 1000
             }
-        ]
+        ],
+        "refuses": {
+            "ChannelFrame:wandas.audio.rms_trend": "ERROR: Design not possible. Filter center frequency shall",
+            "ChannelFrame:wandas.audio.loudness_zwtv": "ERROR: Design not possible. Filter center frequency shall",
+            "ChannelFrame:wandas.audio.roughness_dw": "ERROR: Design not possible. Filter center frequency shall",
+            "ChannelFrame:wandas.audio.sharpness_din": "ERROR: Design not possible. Filter center frequency shall"
+        }
     },
     {
         "id": "wandas.audio.stft",
@@ -850,7 +892,13 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
                     "linear"
                 ]
             }
-        ]
+        ],
+        "refuses": {
+            "ChannelFrame:wandas.audio.rms_trend": "Parameter n must be >= ceil(m_num/2) = 1024!",
+            "ChannelFrame:wandas.audio.loudness_zwtv": "Parameter n must be >= ceil(m_num/2) = 1024!",
+            "ChannelFrame:wandas.audio.roughness_dw": "Parameter n must be >= ceil(m_num/2) = 1024!",
+            "ChannelFrame:wandas.audio.sharpness_din": "Parameter n must be >= ceil(m_num/2) = 1024!"
+        }
     },
     {
         "id": "wandas.audio.coherence",
@@ -881,7 +929,13 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
                 "required": false,
                 "default": "constant"
             }
-        ]
+        ],
+        "refuses": {
+            "ChannelFrame:wandas.audio.rms_trend": "noverlap=1536 must be less than nperseg=63!",
+            "ChannelFrame:wandas.audio.loudness_zwtv": "noverlap=1536 must be less than nperseg=1000!",
+            "ChannelFrame:wandas.audio.roughness_dw": "noverlap=1536 must be less than nperseg=19!",
+            "ChannelFrame:wandas.audio.sharpness_din": "noverlap=1536 must be less than nperseg=1000!"
+        }
     },
     {
         "id": "wandas.audio.cross_correlation",
@@ -942,7 +996,13 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
                     "median"
                 ]
             }
-        ]
+        ],
+        "refuses": {
+            "ChannelFrame:wandas.audio.rms_trend": "noverlap=1536 must be less than nperseg=63!",
+            "ChannelFrame:wandas.audio.loudness_zwtv": "noverlap=1536 must be less than nperseg=1000!",
+            "ChannelFrame:wandas.audio.roughness_dw": "noverlap=1536 must be less than nperseg=19!",
+            "ChannelFrame:wandas.audio.sharpness_din": "noverlap=1536 must be less than nperseg=1000!"
+        }
     },
     {
         "id": "wandas.audio.transfer_function",
@@ -1000,7 +1060,13 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
                     "H2"
                 ]
             }
-        ]
+        ],
+        "refuses": {
+            "ChannelFrame:wandas.audio.rms_trend": "noverlap=1536 must be less than nperseg=63!",
+            "ChannelFrame:wandas.audio.loudness_zwtv": "noverlap=1536 must be less than nperseg=1000!",
+            "ChannelFrame:wandas.audio.roughness_dw": "noverlap=1536 must be less than nperseg=19!",
+            "ChannelFrame:wandas.audio.sharpness_din": "noverlap=1536 must be less than nperseg=1000!"
+        }
     },
     {
         "id": "wandas.channel.with_calibration",
@@ -1529,4 +1595,12 @@ export const WANDAS_FRAMES: readonly CatalogFrame[] = [
         ],
         "charted": true
     }
+];
+
+/** Metrics whose series a refusal names `ChannelFrame:<operation>` (operation_probe.metric_series). */
+export const METRIC_SERIES_OPERATIONS: readonly string[] = [
+    "wandas.audio.loudness_zwtv",
+    "wandas.audio.rms_trend",
+    "wandas.audio.roughness_dw",
+    "wandas.audio.sharpness_din"
 ];

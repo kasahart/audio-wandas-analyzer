@@ -106,6 +106,16 @@ test('each step takes the Frame the step before gives; one that cannot is left o
     const menu = addableOperations('SpectralFrame');
     assert.equal(menu.find(item => item.name === 'welch')!.off, 'frame');
     assert.equal(menu.find(item => item.operation.id === 'wandas.spectral.ifft')!.off, undefined);
+    // After a metric's series (rms_trend), what fails on it whatever the file is off with wandas' reason; a time range is on.
+    const { recipe: trended, id: trend } = withStep(entry, 'node-0', catalogOperation('wandas.audio.rms_trend')!);
+    const series = recipeSteps(trended, 16000).find(step => step.id === trend)!.series;
+    assert.equal(recipeSteps(entry, 16000)[0].series, undefined, 'a filtered recording is a sound signal');
+    assert.equal(series, 'ChannelFrame:wandas.audio.rms_trend');
+    const afterMetric = addableOperations('ChannelFrame', undefined, undefined, undefined, series);
+    assert.equal(afterMetric.find(item => item.name === 'welch')!.off, 'refuses');
+    assert.ok(afterMetric.find(item => item.name === 'welch')!.why);
+    assert.equal(afterMetric.find(item => item.name === 'trim')!.off, undefined);
+    assert.equal(addableOperations('ChannelFrame').find(item => item.name === 'welch')!.off, undefined, 'a recording takes it');
     // A required parameter the app cannot set keeps an operation off; the time slice is never offered twice.
     assert.equal(addableOperations('ChannelFrame').find(item => item.name === 'remove_channel')!.off, 'required');
     // wandas.numpy.ufunc needs a NumPy function name the app cannot set: it is not offered at all.
