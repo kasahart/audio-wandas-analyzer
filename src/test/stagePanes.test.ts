@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { axisFractionOf, axisValueAt, byLevel, emptyStageText, eventLayers, stageAxes, stageLevelsHeadline, stageDiffRange, stageHeadline, stageRange, stageHover, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
+import { axisFractionOf, axisValueAt, byLevel, emptyStageText, eventLayers, stageAxes, paintColourBar, colourBarTop, stageLevelsHeadline, stageDiffRange, stageHeadline, stageRange, stageHover, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
 import type { StageView } from '../shared/protocol/backendProtocol';
 
 const line = (values: number[], quantity: StageView['quantity'] = 'level'): StageView => ({ frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity, xs: [100, 1000, 10000], values });
@@ -44,6 +44,18 @@ test('a metric over time names what it measures on its value axis, from its unit
     assert.equal(stageAxes(names, series('acum'), undefined).y, 'Sharpness [acum]');
     assert.equal(stageAxes(names, series('dB re 1 FS'), undefined).y, 'Level [dB re 1 FS]');
     assert.equal(stageAxes(names, series('Pa'), undefined).y, 'Value [Pa]');
+});
+
+test('a heatmap names what its colour measures, with its unit and reference, for its colour bar', () => {
+    const names = { axisTime: 'Time [s]', axisFrequency: 'Frequency [Hz]', axisBark: 'Critical band [Bark]', axisQuefrency: 'Quefrency [ms]', axisCepstrum: 'Real cepstrum', axisRoughness: 'Roughness', axisDelta: 'Δ level [dB]', axisLevelUncal: 'Level [dBFS, uncalibrated]', axisLevelCal: 'Level [{ref}]' } as unknown as StageStrings;
+    const heat = (quantity: StageView['quantity'], extra: Partial<StageView> = {}): StageView => ({ frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity, yAxis: 'frequency', xs: [0, 1], ys: [100, 1000], matrix: [[-40, -40], [-30, -30]], ...extra });
+    const spectrogram = stageAxes(names, heat('level'), undefined);
+    assert.equal(spectrogram.y, 'Frequency [Hz]');
+    assert.ok(spectrogram.colour && spectrogram.colour.length > 0, 'a spectrogram\'s colour is its level');
+    assert.equal(spectrogram.colour, stageAxes(names, { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity: 'level', xs: [100], values: [-40] }, undefined).y, 'named as a spectrum\'s level axis is');
+    assert.equal(stageAxes(names, heat('roughness', { unit: 'asper', yAxis: 'bark' }), undefined).colour, 'Roughness [asper]');
+    assert.equal(stageAxes(names, heat('cepstrum', { yAxis: 'quefrency' }), undefined).colour, 'Real cepstrum');
+    assert.equal(stageAxes(names, heat('level'), undefined, true).colour, 'Δ level [dB]');
 });
 
 const cepstrum = (values: number[]): StageView => ({ frame: 'CepstralFrame', kind: 'line', x: 'quefrency', xScale: 'linear', quantity: 'cepstrum', xs: [0, 0.001, 0.002, 0.003], values });
@@ -178,4 +190,34 @@ test('silence on screen lowers a line\'s level as no power, instead of being lef
     const layer = (color: string, values: number[]) => ({ view: { ...line(values), xs: [100, 200, 400, 800] }, color });
     const gaps = layer('blue', [-20, -300, -300, -300]), steady = layer('yellow', [-23, -23, -23, -23]);
     assert.deepEqual(byLevel([gaps, steady], steady.view).map(item => item.color), ['yellow', 'blue']);
+});
+
+test('a colour bar stays inside a narrow plot: its name shrinks to the unit, then is left out', () => {
+    // 10px sans-serif, about 5.6 px a character.
+    const drawn: Array<{ text: string; x: number }> = [];
+    let box = { x: 0, width: 0 };
+    const context = {
+        measureText: (text: string) => ({ width: text.length * 5.6 }),
+        fillText: (text: string, x: number) => drawn.push({ text, x }),
+        fillRect: (x: number, _y: number, width: number) => { if (!box.width) box = { x, width }; },
+        createLinearGradient: () => ({ addColorStop: () => undefined }),
+        strokeRect: () => undefined, save: () => undefined, restore: () => undefined,
+    } as unknown as CanvasRenderingContext2D;
+    const paint = (left: number, right: number) => {
+        drawn.length = 0; box = { x: 0, width: 0 };
+        paintColourBar(context, { left, right, top: 0 }, 'Amplitude, uncalibrated [dBFS]', '−80', '0', () => '#000', { text: '#000', back: '#fff', line: '#000' });
+        return { titles: drawn.map(item => item.text).filter(text => text !== '−80' && text !== '0'), left: box.x };
+    };
+    assert.deepEqual(paint(56, 600).titles, ['Amplitude, uncalibrated [dBFS]'], 'a wide plot names it in full');
+    const mid = paint(56, 296);
+    assert.deepEqual(mid.titles, ['dBFS']);
+    assert.ok(mid.left >= 56, 'inside the plot');
+    const narrow = paint(56, 150);
+    assert.deepEqual(narrow.titles, []);
+    assert.ok(narrow.left >= 56);
+});
+
+test("a colour bar moves under the region's corner tag, which covers the plot's top right from 4 to 21 px down", () => {
+    assert.equal(colourBarTop(10, false), 13);
+    assert.ok(colourBarTop(10, true) >= 10 + 21);
 });

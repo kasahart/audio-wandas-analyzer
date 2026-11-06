@@ -153,12 +153,24 @@ export function stageDiffRange(view: StageView | null): PaneRange {
     return { min: -rounded, max: rounded };
 }
 
-export interface StageAxes { x: string; y: string }
+export interface StageAxes {
+    x: string;
+    y: string;
+    /** A heatmap's colour: what it measures, with its unit and reference (the colour bar's name). */
+    colour?: string;
+}
 
 /** What each axis of a picture measures; a heatmap's y is its rows' axis, its colour the level. */
 export function stageAxes(strings: StageStrings, view: StageView | null, input: LevelInput | undefined, diff = false): StageAxes {
     const x = isEventsView(view) ? strings.axisTriggerTime : view?.x === 'time' ? strings.axisTime : view?.x === 'band' ? strings.axisBand : view?.x === 'quefrency' ? strings.axisQuefrency : view?.x === 'lag' ? strings.axisLag : strings.axisFrequency;
-    if (view?.kind === 'heatmap') return { x, y: view.yAxis === 'bark' ? strings.axisBark : view.yAxis === 'quefrency' ? strings.axisQuefrency : strings.axisFrequency };
+    if (view?.kind === 'heatmap') {
+        const y = view.yAxis === 'bark' ? strings.axisBark : view.yAxis === 'quefrency' ? strings.axisQuefrency : strings.axisFrequency;
+        const unit = view.unit ? ` [${view.unit}]` : '';
+        const colour = view.quantity === 'level' ? paneAxes(strings, input).level.y
+            : view.quantity === 'cepstrum' ? strings.axisCepstrum
+                : `${metricName(strings, view.unit)}${unit}`;
+        return { x, y, colour: diff ? (isDb(view) ? strings.axisDelta : `Δ ${colour}`) : colour };
+    }
     if (diff && (!view || isDb(view))) return { x, y: strings.axisDelta };
     // A time signal is drawn as itself: its amplitude, in its unit (full scale, or raw input units without one, while uncalibrated).
     if (view?.waveform) return { x, y: `${strings.waveRangeAxisAmplitude} [${view.waveform.unit || uncalibratedUnits(!input || input.fullScale).linear}]` };
@@ -549,23 +561,26 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
         const columnOf = Array.from({ length: image.width }, (_, px) => nearestIndex(xs, xAxis.at((px + 0.5) / image.width), false));
         const pixels = new Uint32Array(image.data.buffer);
         // One colour per cell (ABGR as the canvas stores it), looked up for every pixel of that cell.
-        const colours = view.matrix.map((cells, row) => cells.map((cell, column) => {
-            if (cell === null || cell === undefined) return 0;
+        // A cell's colour as [r, g, b]; `dim` for a difference where both levels are far below the loudest.
+        const rgbOf = (cell: number, dim = false): [number, number, number] => {
             if (options.diff) {
                 // A difference where both levels are far below the loudest is dimmed: it is not what is heard.
-                const amount = Math.min(1, Math.abs(cell) / extentAbs) * (options.loud && !options.loud[row]?.[column] ? 0.2 : 1);
-                const [r, g, b] = (cell >= 0 ? [63, 185, 80] : [150, 150, 150]).map(channel => Math.round(channel * amount));
-                return (255 << 24 | b << 16 | g << 8 | r) >>> 0;
+                const amount = Math.min(1, Math.abs(cell) / extentAbs) * (dim ? 0.2 : 1);
+                return (cell >= 0 ? [63, 185, 80] : [150, 150, 150]).map(channel => Math.round(channel * amount)) as [number, number, number];
             }
             if (view.quantity === 'cepstrum') {
                 // Signed coefficients as wandas draws them (RdBu_r): blue below zero, white at zero, red above.
                 const amount = Math.max(-1, Math.min(1, cell / extentAbs));
                 const fade = Math.round(255 * (1 - Math.abs(amount)));
-                const [r, g, b] = amount >= 0 ? [255, fade, fade] : [fade, fade, 255];
-                return (255 << 24 | b << 16 | g << 8 | r) >>> 0;
+                return amount >= 0 ? [255, fade, fade] : [fade, fade, 255];
             }
             const level = Math.round(Math.max(0, Math.min(1, (cell - range.min) / (range.max - range.min || 1))) * 255);
-            return (255 << 24 | level << 16 | level << 8 | level) >>> 0;
+            return [level, level, level];
+        };
+        const colours = view.matrix.map((cells, row) => cells.map((cell, column) => {
+            if (cell === null || cell === undefined) return 0;
+            const [r, g, b] = rgbOf(cell, !!options.loud && !options.loud[row]?.[column]);
+            return (255 << 24 | b << 16 | g << 8 | r) >>> 0;
         }));
         for (let py = 0; py < image.height; py++) {
             const cells = rowOf[py] < 0 ? [] : colours[rowOf[py]] ?? [];
@@ -574,13 +589,16 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
         }
         context.putImageData(image, Math.round(left * ratio), Math.round(top * ratio));
         levelTicks = ticks(yAxis.low, yAxis.high, yAxis.log).map(value => ({ text: tickText(value, yAxis.log), fraction: yAxis.fraction(value) }));
-        // The colours' range, top right, as the spectrograms say theirs.
+        // The colour bar, top right inside the plot: what the colour measures, and its ends.
+        const signedScale = !!options.diff || view.quantity === 'cepstrum';
         const edge = Math.max(Math.abs(range.min), Math.abs(range.max));
-        const span = options.diff || view.quantity === 'cepstrum'
-            ? `±${isDb(view) ? `${Math.round(edge)} dB` : levelText(edge, edge)}`
-            : `${Math.round(range.min)}…${Math.round(range.max)}${view.quantity === 'level' ? ' dB' : ''}`;
-        context.fillStyle = text;
-        context.fillText(span, left + plotWidth - context.measureText(span).width - 4, top + 11);
+        const low = signedScale ? -edge : range.min, high = signedScale ? edge : range.max;
+        const endText = (value: number): string => levelText(value, high - low);
+        // Under the region's corner tag when there is one, as the pending note is.
+        paintColourBar(context, { left: left + 4, right: left + plotWidth - 4, top: colourBarTop(top, options.region?.mark === 'tag') }, axes.colour ?? '', endText(low), endText(high), fraction => {
+            const [r, g, b] = rgbOf(low + fraction * (high - low));
+            return `rgb(${r}, ${g}, ${b})`;
+        }, { text, back: pendingColors.back, line });
     } else {
         context.strokeStyle = line;
         context.lineWidth = 1;
@@ -669,8 +687,49 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
     drawValueAxis(context, frame, [], axes.y, { color: text, font: context.font, titleX: AXIS_TITLE_X });
     if (options.secondary && !heatmap) paintRightAxis(context, frame, levelTicks.map(tick => tick.fraction), options.secondary.range, options.secondary.title, width, { muted, line, text });
     // Under the region's corner tag when there is one.
-    if (options.pending) paintPending(context, options.pending, left + plotWidth - 6, top + (options.region?.mark === 'tag' ? 38 : 12), 'right', pendingColors);
+    // A heatmap's colour bar holds that corner: the note goes under it.
+    if (options.pending) paintPending(context, options.pending, left + plotWidth - 6, heatmap ? colourBarTop(top, options.region?.mark === 'tag') + 23 : top + (options.region?.mark === 'tag' ? 38 : 12), 'right', pendingColors);
     return plot;
+}
+
+/** Where a heatmap's colour bar starts: the plot's top right, or under the region's corner tag (top + 4 to + 21). */
+export const colourBarTop = (top: number, tagged: boolean): number => top + (tagged ? 25 : 3);
+
+/** A heatmap's colour bar: its name, then the low end, a strip of the colours and the high end, on a backing box. */
+export function paintColourBar(context: CanvasRenderingContext2D, at: { left: number; right: number; top: number }, fullTitle: string, lowText: string, highText: string, colourAt: (fraction: number) => string, colors: { text: string; back: string; line: string }): void {
+    const strip = 48, height = 6, gap = 4, pad = 3;
+    const lowWidth = context.measureText(lowText).width;
+    const highWidth = context.measureText(highText).width;
+    const scale = pad + lowWidth + gap + strip + gap + highWidth + pad;
+    // In a narrow plot the name shrinks to its unit ("[dBFS]"), then is left out: the bar stays inside the plot.
+    const room = at.right - at.left - scale - gap * 2;
+    const fitted = fullTitle ? fittedAxisTitle(fullTitle, room, part => context.measureText(part).width) : '';
+    const title = fitted && context.measureText(fitted).width <= room ? fitted : '';
+    const parts = [context.measureText(title).width, lowWidth];
+    const width = scale + (title ? parts[0] + gap * 2 : 0);
+    const x = at.right - width, y = at.top;
+    context.save();
+    context.globalAlpha = 0.8;
+    context.fillStyle = colors.back;
+    context.fillRect(x, y, width, 14);
+    context.globalAlpha = 1;
+    context.fillStyle = colors.text;
+    context.textBaseline = 'middle';
+    context.textAlign = 'left';
+    let cursor = x + pad;
+    if (title) { context.fillText(title, cursor, y + 7); cursor += parts[0] + gap * 2; }
+    context.fillText(lowText, cursor, y + 7);
+    cursor += parts[1] + gap;
+    const gradient = context.createLinearGradient(cursor, 0, cursor + strip, 0);
+    for (let step = 0; step <= 8; step++) gradient.addColorStop(step / 8, colourAt(step / 8));
+    context.fillStyle = gradient;
+    context.fillRect(cursor, y + 7 - height / 2, strip, height);
+    context.strokeStyle = colors.line;
+    context.lineWidth = 1;
+    context.strokeRect(cursor, y + 7 - height / 2, strip, height);
+    context.fillStyle = colors.text;
+    context.fillText(highText, cursor + strip + gap, y + 7);
+    context.restore();
 }
 
 /**
