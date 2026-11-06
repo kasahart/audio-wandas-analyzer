@@ -691,6 +691,9 @@ export function renderComparisonStyles(): string {
         .track-split:hover, body.is-split-resizing .track-split { opacity: 1; background: color-mix(in srgb, var(--accent) 45%, transparent); }
         body.is-stage-view .track-split, body.is-stage-view .track-spec-wrap { display: none; }
         body.is-stage-view .track-canvas-wrap { padding-right: 0; }
+        /* A step's picture is one per recording (the channel its role compares, R11): drawn on the first lane, the
+           others are left out rather than empty, and the channel names over the lanes with them. */
+        body.is-stage-view .track-channel-lane:not([data-channel-index="0"]), body.is-stage-view .track-channel-lane-header { display: none; }
         .track-axis-canvas { flex: none; display: block; }
         .track-canvas { display: block; width: 100%; height: 80px; cursor: crosshair; }
         .height-resizer { position: absolute; z-index: 5; cursor: row-resize; background: transparent; }

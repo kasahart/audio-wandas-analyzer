@@ -135,6 +135,34 @@ test('the track view\'s steps mode draws every track as the chosen step\'s Frame
     await expect(page.locator('#stacked-wrap')).toBeVisible();
 });
 
+test('a two-channel recording is one lane in the steps view: its second channel is left out, not drawn empty', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    const recipe = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', '..', 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8'));
+    await openEntry(page, scanned!, { recipe });
+    const first = await page.locator('[data-entry-rows] tr').first().getAttribute('data-file-path');
+    await page.keyboard.press('1');
+    await page.keyboard.press('Escape');
+    const channel = (label: string) => ({ label, peakAbsolute: 0.5, fullScale: true, waveform: { min: [-0.5, -0.4], max: [0.5, 0.4], minT: [0.1, 0.6], maxT: [0.4, 0.9], absolutePeak: 0.5 } });
+    await page.evaluate(({ filePath, channels }) => window.dispatchEvent(new MessageEvent('message', { data: { type: 'analysis-update', results: [{
+        filePath, fileName: filePath.split('/').at(-1), audioSource: '', sampleRateHz: 16000, durationSeconds: 2, channelCount: 2, sampleCount: 32000, channels,
+    }] } })), { filePath: first!, channels: [channel('L'), channel('R')] });
+    const lane = (index: number) => page.locator(`.track-row .track-channel-lane[data-channel-index="${index}"]`);
+    // The track view: a lane per channel, each named.
+    await expect(lane(1)).toBeVisible();
+    await expect(page.locator('.track-row .track-channel-lane-header').first()).toBeVisible();
+    await page.locator('[data-action="content-stage"]').click();
+    await expect.poll(async () => (await stageScans(page)).at(-1)?.stage).toBe('node-input');
+    // A heatmap is drawn in the lanes (it has no overlay).
+    await answer(page, { frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity: 'level', yAxis: 'frequency', xs: [0.5, 1.5], ys: [100, 1000], matrix: [[-40, -30], [-50, -20]] });
+    await expect(page.locator('#stacked-wrap')).toBeVisible();
+    // The picture on the first lane; the second channel's lane and the channel names are out of the way.
+    await expect(lane(0)).toBeVisible();
+    await expect(lane(1)).toBeHidden();
+    await expect(page.locator('.track-row .track-channel-lane-header').first()).toBeHidden();
+    await page.locator('[data-action="content-waveform"]').click();
+    await expect(lane(1)).toBeVisible();
+});
+
 // The level references wandas reports for a scanned channel.
 const FS_INPUT = { unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true };
 const RAW_INPUT = { unit: '', ref: 1, levelReferenceLabel: 'dB re 1 input unit', calibrationStatus: 'uncalibrated', fullScale: false };
