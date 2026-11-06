@@ -98,8 +98,9 @@ export function paintOverlaySpectrum(
     const empty = vis.frequencyMax - vis.frequencyMin <= 0;
     // Each series' layer, so the hover draws the line it read thicker on the same axes.
     const layerOf = new Map<SpectrumSeries, StageLayer>();
-    const layersOf = (series: readonly SpectrumSeries[], visible: SpectrumVisibleWindow): StageLayer[] => (visible.dbMax - visible.dbMin > 0 && !empty ? series : []).map(s => {
-        const layer = spectrumLayer(s, maxFrequencyHz);
+    // A line read on the right-hand axis is dashed, as its swatch in the legend: lines of one colour (grey, without a role) are told apart.
+    const layersOf = (series: readonly SpectrumSeries[], visible: SpectrumVisibleWindow, dash?: readonly number[]): StageLayer[] => (visible.dbMax - visible.dbMin > 0 && !empty ? series : []).map(s => {
+        const layer = { ...spectrumLayer(s, maxFrequencyHz), ...(dash ? { dash } : {}) };
         layerOf.set(s, layer);
         return layer;
     });
@@ -108,7 +109,7 @@ export function paintOverlaySpectrum(
         size: { width: W, height: H },
         margins: { ...pad },
         axisView: frequencyAxis(empty ? { ...vis, frequencyMax: vis.frequencyMin + 1 } : vis),
-        ...(secondary ? { secondary: { layers: layersOf(secondary.series, secondary.visible), range: { min: secondary.visible.dbMin, max: secondary.visible.dbMax }, title: secondary.title } } : {}),
+        ...(secondary ? { secondary: { layers: layersOf(secondary.series, secondary.visible, SECONDARY_AXIS_DASH), range: { min: secondary.visible.dbMin, max: secondary.visible.dbMax }, title: secondary.title } } : {}),
     });
     const ctx = canvas.getContext('2d');
     if (empty || !ctx) {
@@ -146,6 +147,9 @@ export function paintOverlaySpectrum(
     return result;
 }
 
+/** The dash (px) of a line read on the right-hand level axis, and of its swatches in the legend. */
+export const SECONDARY_AXIS_DASH: readonly number[] = [5, 3];
+
 /** The overlay draws at most this many level axes: a second level reference gets the right-hand one. */
 export const OVERLAY_LEVEL_AXES = 2;
 
@@ -178,7 +182,8 @@ export function renderSpectrumAxisLegend(el: HTMLElement | null, levelAxes: Over
         axis.colors.forEach(color => {
             const swatch = doc.createElement('span');
             swatch.className = 'spectrum-axis-legend-swatch';
-            swatch.style.background = color;
+            // The right-hand axis' lines are dashed: so are their swatches.
+            swatch.style.background = index === 0 ? color : `repeating-linear-gradient(90deg, ${color} 0 ${SECONDARY_AXIS_DASH[0]}px, transparent ${SECONDARY_AXIS_DASH[0]}px ${SECONDARY_AXIS_DASH[0] + SECONDARY_AXIS_DASH[1]}px)`;
             item.appendChild(swatch);
         });
         const label = doc.createElement('span');

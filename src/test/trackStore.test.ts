@@ -24,7 +24,7 @@ function result(filePath: string, peakAbsolute = 0.5): ComparisonTrackState {
 }
 
 function runtime(): TrackRuntimeState {
-    return { offsetSeconds: 0, hidden: false, defaultColor: '#123456' };
+    return { offsetSeconds: 0, hidden: false };
 }
 
 test('TrackStore assigns unique identities to duplicate file instances', () => {

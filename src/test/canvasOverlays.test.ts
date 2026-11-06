@@ -22,6 +22,7 @@ function recordingContext() {
         },
         set(target, key: string, value) {
             target[key] = value;
+            calls.push(['set:' + key, [value]]);
             return true;
         },
     }) as unknown as CanvasRenderingContext2D;
@@ -125,6 +126,20 @@ test('drawAnalysisWindowBand keeps a visible minimum width and skips bands outsi
     const outside = recordingContext();
     drawAnalysisWindowBand(outside.ctx, { startNorm: 0.8, endNorm: 0.9 }, { start: 0, end: 0.5 }, 200, 40);
     assert.equal(outside.calls.length, 0);
+});
+
+test('drawAnalysisWindowBand is a neutral grey, not a role\'s or the failure\'s hue, on a dark and a light lane (R5)', () => {
+    for (const light of [false, true]) {
+        const { ctx, calls } = recordingContext();
+        drawAnalysisWindowBand(ctx, { startNorm: 0.25, endNorm: 0.75, window: 'hann' }, { start: 0, end: 1 }, 200, 40, light);
+        const styles = calls.filter(([name]) => name === 'set:strokeStyle' || name === 'set:fillStyle').map(([, args]) => String(args[0]));
+        assert.ok(styles.length > 0);
+        for (const style of styles) {
+            const [r, g, b] = style.match(/\d+/g)!.map(Number);
+            assert.ok(Math.max(r, g, b) - Math.min(r, g, b) <= 20, `${style} is a grey`);
+            assert.ok(light ? r < 128 : r > 128, `${style} stands out on the lane`);
+        }
+    }
 });
 
 test('drawRectZoomSelection uses the explicit amplitude range even when it spans both peaks', () => {

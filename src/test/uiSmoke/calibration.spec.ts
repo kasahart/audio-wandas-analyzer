@@ -33,7 +33,7 @@ test('calibrated channels show physical metrics and reference badges', async ({ 
     await expect(page.locator('#track-row-1 .clip-badge')).toHaveCount(0);
 });
 
-test('two level references: the overlay reads the second on its own axis at the right, with a legend for each side', async ({ page }) => {
+test('two level references: the overlay reads the second on its own axis at the right, dashed, with a legend for each side', async ({ page }) => {
     await loadCalibrationUi(page);
     await openSpectrumPanel(page);
 
@@ -44,6 +44,9 @@ test('two level references: the overlay reads the second on its own axis at the 
     await expect(legend.locator('[data-axis="left"]')).toHaveText('◀dB SPL re 20 µPa');
     await expect(legend.locator('[data-axis="right"]')).toHaveText('dB re 1 m/s^2▶');
     await expect(legend.locator('.spectrum-axis-legend-swatch')).toHaveCount(2);
+    // Two recordings without a role are both grey: the right axis' swatch is dashed, as its line, so the sides stay apart.
+    await expect(legend.locator('[data-axis="left"] .spectrum-axis-legend-swatch')).not.toHaveCSS('background-image', /gradient/);
+    await expect(legend.locator('[data-axis="right"] .spectrum-axis-legend-swatch')).toHaveCSS('background-image', /repeating-linear-gradient/);
 });
 
 test('three level references disable only the shared spectrum overlay', async ({ page }) => {

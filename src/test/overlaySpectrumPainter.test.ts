@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { frequencyFraction, type CanvasDrawCtx } from '../webview/draw/canvasDrawers';
-import { paintOverlaySpectrum, renderSpectrumAxisLegend, SECONDARY_AXIS_MARK, type OverlaySpectrumHover } from '../webview/runtime/overlaySpectrumPainter';
+import { paintOverlaySpectrum, renderSpectrumAxisLegend, SECONDARY_AXIS_DASH, SECONDARY_AXIS_MARK, type OverlaySpectrumHover } from '../webview/runtime/overlaySpectrumPainter';
 import { SpectrumView } from '../webview/runtime/spectrumView';
 import { OVERLAY_SPECTRUM_PAD, overlayLevelAxes, spectrumReadoutText, spectrumVisibleWindow, steppedOverlaySpectrumHoverNorm, type SpectrumViewState } from '../webview/runtime/spectrumRuntime';
 import type { SpectrumSeries } from '../webview/runtime/types';
@@ -158,6 +158,24 @@ test('paintOverlaySpectrum: a second reference widens the right margin, names it
     assert.equal(OVERLAY_SPECTRUM_PAD.right, 8, 'one reference gives the margin back');
 });
 
+test('paintOverlaySpectrum: a line read on the right-hand axis is dashed, so lines of one colour (grey, without a role) are told apart', () => {
+    const grey = mixed.map(s => ({ ...s, color: '#8b949e' }));
+    const strokes: Array<{ dash: number[] }> = [];
+    let dash: number[] = [];
+    const { ctx } = recordingCtx();
+    const recording = new Proxy(ctx, { get(target, prop) {
+        if (prop === 'setLineDash') return (pattern: number[]) => { dash = pattern; };
+        if (prop === 'save') return () => undefined;
+        if (prop === 'restore') return () => { dash = []; };
+        if (prop === 'stroke') return () => { strokes.push({ dash }); };
+        return Reflect.get(target, prop);
+    } });
+    const paint = paintOverlaySpectrum(canvasOf(recording), 400, 200, grey, fullView, noHover, null);
+    assert.deepEqual(paint.levelAxes.map(axis => axis.colors), [['#8b949e'], ['#8b949e']]);
+    assert.ok(strokes.some(s => s.dash.length === 0), 'the left axis\' line is solid');
+    assert.ok(strokes.some(s => s.dash.join() === SECONDARY_AXIS_DASH.join()), 'the right axis\' line is dashed');
+});
+
 test('renderSpectrumAxisLegend shows which lines are read on which side, only with two axes', () => {
     const children: Array<{ attrs: Record<string, string>; parts: string[] }> = [];
     const makeEl = (): Record<string, unknown> => {
@@ -174,7 +192,7 @@ test('renderSpectrumAxisLegend shows which lines are read on which side, only wi
     assert.equal(host.hidden, false);
     assert.deepEqual(children, [
         { attrs: { 'data-axis': 'left' }, parts: ['◀', '#0000ff', '#00ffff', 'dB SPL re 20 µPa'] },
-        { attrs: { 'data-axis': 'right' }, parts: ['#ffff00', 'dB re 1 V', SECONDARY_AXIS_MARK] },
+        { attrs: { 'data-axis': 'right' }, parts: ['repeating-linear-gradient(90deg, #ffff00 0 5px, transparent 5px 8px)', 'dB re 1 V', SECONDARY_AXIS_MARK] },
     ]);
     // Repainting with the same axes leaves the legend as it is (a rebuild would clear the marker).
     children.push({ attrs: { 'data-axis': 'marker' }, parts: [] });

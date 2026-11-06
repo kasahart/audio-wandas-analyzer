@@ -119,7 +119,6 @@ export interface RuntimeWindow extends Omit<Window, 'addEventListener' | 'remove
 export interface TrackRuntimeState {
     offsetSeconds: number;
     hidden: boolean;
-    defaultColor: string;
 }
 
 export interface SpectrumSlice {
