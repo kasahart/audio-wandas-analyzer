@@ -114,7 +114,7 @@ import {
     ZOOM_IN_FACTOR,
 } from './waveformInteraction';
 import type { ChannelSummary, SpectrogramData, SpectrogramDisplaySettings, } from '../../shared/analysis/analysisTypes';
-import type { ComparisonBootstrap, ComparisonTrackState, LazyRequestState, LoopRegion, PersistedWebviewState, RectZoomSelection, SpectrumSlice, TestAction, TrackFileView, TrackId, TrackRuntimeState, WaveformDragState, WaveformDrawOptions, } from './types';
+import type { ComparisonBootstrap, ComparisonTrackState, LazyRequestState, LoopRegion, PersistedWebviewState, RectZoomSelection, SpectrumSeries, SpectrumSlice, TestAction, TrackFileView, TrackId, TrackRuntimeState, WaveformDragState, WaveformDrawOptions, } from './types';
 export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     const { host: vscode, state: injectedState, strings: STR, window, document } = bootstrap;
     const state = normalizeRuntimeState(injectedState);
@@ -3607,11 +3607,18 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         if (slices.length === 0) {
             drawCanvasMessage(ctx, W, H, STR.spectrumNoData, '11px sans-serif', drawTheme().mutedColor);
+            // No line is drawn: none is named.
+            renderSpectrumAxisLegend(document.getElementById('spectrum-axis-legend'), []);
             overlaySpectrumPainted = false;
             return;
         }
         spectrumView.followLevelReference(overlayLevelAxes(slices, spectrumView.state())[0].reference);
-        const paint = paintOverlaySpectrum(canvas, W, H, slices, spectrumView.state(), spectrumHover, specBoxDrag.box, STR.axisFrequency);
+        // A level axis is named as Compare names it: amplitude, uncalibrated unless every line read on it is calibrated.
+        const levelTitle = (reference: string, series: readonly SpectrumSeries[]): string => {
+            const calibrated = series.every(s => channelsForResult(state.results[s.index])[s.channelIndex]?.measurement?.calibrationStatus === 'calibrated');
+            return (calibrated ? STR.axisLevelCal : STR.axisLevelUncal).replace('{label}', reference);
+        };
+        const paint = paintOverlaySpectrum(canvas, W, H, slices, spectrumView.state(), spectrumHover, specBoxDrag.box, STR.axisFrequency, levelTitle);
         spectrumView.recordPaint(paint);
         renderSpectrumAxisLegend(document.getElementById('spectrum-axis-legend'), paint.levelAxes);
         if (paint.readout) {

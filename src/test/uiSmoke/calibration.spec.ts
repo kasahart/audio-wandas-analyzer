@@ -41,8 +41,10 @@ test('two level references: the overlay reads the second on its own axis at the 
     await expect(page.locator('#spectrum-overlay-canvas')).toHaveCSS('visibility', 'visible');
     const legend = page.locator('#spectrum-axis-legend');
     await expect(legend).toBeVisible();
-    await expect(legend.locator('[data-axis="left"]')).toHaveText('◀dB SPL re 20 µPa');
-    await expect(legend.locator('[data-axis="right"]')).toHaveText('dB re 1 m/s^2▶');
+    // Each side names its lines and its level.
+    await expect(legend.locator('[data-axis="left"]')).toHaveText(/^◀.*\[dB SPL re 20 µPa\].+$/);
+    await expect(legend.locator('[data-axis="right"]')).toHaveText(/^.*\[dB re 1 m\/s\^2\].+▶$/);
+    await expect(legend.locator('.spectrum-axis-legend-label')).toHaveCount(2);
     await expect(legend.locator('.spectrum-axis-legend-swatch')).toHaveCount(2);
     // Two recordings without a role are both grey: the right axis' swatch is dashed, as its line, so the sides stay apart.
     await expect(legend.locator('[data-axis="left"] .spectrum-axis-legend-swatch')).not.toHaveCSS('background-image', /gradient/);
