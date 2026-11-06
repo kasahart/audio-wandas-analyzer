@@ -583,6 +583,12 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
                 "default": "constant"
             }
         ],
+        "refuses": {
+            "ChannelFrame:wandas.audio.rms_trend": "crashes on a metric's series",
+            "ChannelFrame:wandas.audio.loudness_zwtv": "crashes on a metric's series",
+            "ChannelFrame:wandas.audio.roughness_dw": "crashes on a metric's series",
+            "ChannelFrame:wandas.audio.sharpness_din": "crashes on a metric's series"
+        },
         "needs": [
             "librosa"
         ]
@@ -637,6 +643,12 @@ export const WANDAS_OPERATIONS: readonly CatalogOperation[] = [
                 "default": "constant"
             }
         ],
+        "refuses": {
+            "ChannelFrame:wandas.audio.rms_trend": "crashes on a metric's series",
+            "ChannelFrame:wandas.audio.loudness_zwtv": "crashes on a metric's series",
+            "ChannelFrame:wandas.audio.roughness_dw": "crashes on a metric's series",
+            "ChannelFrame:wandas.audio.sharpness_din": "crashes on a metric's series"
+        },
         "needs": [
             "librosa"
         ]

@@ -102,6 +102,9 @@ def metric_series(operation: str) -> str:
 
 #: Each metric's series, as the catalog's refusals name it.
 METRIC_SERIES = {metric_series(operation): operation for operation in METRIC_SERIES_UNITS}
+#: Operations that crash the Python process (librosa's HPSS segfaults) on a metric's short series, so are not run
+#: on one: they count as failing there, and ＋ greys them out after a metric rather than let them kill the backend.
+CRASHES_ON_SERIES = {"wandas.audio.hpss_harmonic", "wandas.audio.hpss_percussive"}
 
 
 def _recordings() -> dict[str, wd.ChannelFrame]:
@@ -149,6 +152,19 @@ def _flat(view: Mapping[str, Any]) -> bool:
     # Each part on its own: a waveform's envelope and its level line are on different scales.
     present = [_numbers(part) for part in parts if part is not None]
     return bool(present) and all(not numbers or max(numbers) == min(numbers) for numbers in present)
+
+
+def _refused(operation: str, frame_type: str, label: str, error: str) -> ProbeRun:
+    return {
+        "operation": operation,
+        "input": frame_type,
+        "example": label,
+        "ok": False,
+        "output": "",
+        "drawn": False,
+        "flat": False,
+        "error": error,
+    }
 
 
 def _run(operation: Mapping[str, Any], frame_type: str, label: str, frame: object) -> tuple[ProbeRun, object | None]:
@@ -210,6 +226,9 @@ def probe(depth: int = 2, recordings: int = 2) -> list[ProbeRun]:
                     if (operation["id"], label) in tried:
                         continue
                     tried.add((operation["id"], label))
+                    if frame_type in METRIC_SERIES and operation["id"] in CRASHES_ON_SERIES:
+                        runs.append(_refused(operation["id"], frame_type, label, "crashes on a metric's series"))
+                        continue
                     run, result = _run(operation, frame_type, label, frame)
                     if frame_type in METRIC_SERIES and run["ok"] and not run["drawn"]:
                         # After a metric, ＋ offers only what draws a picture of it (R8): one the app cannot draw

@@ -171,6 +171,8 @@ def test_after_a_metric_the_steps_that_fail_on_its_series_are_refused(runs: list
             assert series in found[operation], (operation, metric)
         # What does run on it and draws it is still offered: a time range of it.
         assert series not in found.get("wandas.audio.trim", {})
+        # HPSS would take the backend down with it (librosa segfaults on a short series): greyed out, not run.
+        assert found["wandas.audio.hpss_harmonic"][series] == "crashes on a metric's series"
     # Every run on a metric's series that is kept as running draws something.
     on_series = [run for run in runs if run["input"].startswith("ChannelFrame:")]
     assert on_series and all(run["drawn"] for run in on_series if run["ok"])
