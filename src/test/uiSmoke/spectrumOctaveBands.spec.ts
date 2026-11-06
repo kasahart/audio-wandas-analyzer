@@ -1,5 +1,5 @@
 import { expect, test, type Page } from './canvasAudit';
-import { buildExtensionHostPathUiSmokeHtml } from './buildHtml';
+import { buildExtensionHostPathManyTracksHtml, buildExtensionHostPathUiSmokeHtml } from './buildHtml';
 
 interface PostedSliceRequest {
     type: string;
@@ -78,4 +78,20 @@ test('the cursor spectrum names its level axis as Compare does, uncalibrated, an
     await expect.poll(() => sliceRequests(page).then(requests => requests.some(request => request.bandsPerOctave === 3))).toBe(true);
     await expect(legend.locator('.spectrum-axis-legend-reference')).toHaveText(/^Amplitude, uncalibrated \[dB/);
     expect((await overlayTexts()).some(text => text.startsWith('Band level'))).toBe(false);
+});
+
+test('the cursor spectrum\'s legend leaves with its lines: with every track taken off, none is named', async ({ page }) => {
+    await page.setViewportSize({ width: 1200, height: 900 });
+    await page.setContent(buildExtensionHostPathManyTracksHtml(2), { waitUntil: 'domcontentloaded' });
+    await hoverOverlayAt(page, 0.5);
+    const legend = page.locator('#spectrum-axis-legend');
+    await expect(legend).toBeVisible();
+    // Every track taken off: no line is drawn, the panel says there is no data.
+    await page.evaluate(() => window.postMessage({
+        type: 'comparison-panel-test-action', actionId: 'take-off',
+        actions: [{ action: 'remove-track', trackIndex: 1 }, { action: 'remove-track', trackIndex: 0 }],
+    }, '*'));
+    await expect(page.locator('.track-row')).toHaveCount(0);
+    await expect(page.locator('#spectrum-overlay-canvas')).toBeVisible();
+    await expect(legend).toBeHidden();
 });

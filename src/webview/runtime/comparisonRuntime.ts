@@ -3607,6 +3607,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         if (slices.length === 0) {
             drawCanvasMessage(ctx, W, H, STR.spectrumNoData, '11px sans-serif', drawTheme().mutedColor);
+            // No line is drawn: none is named.
+            renderSpectrumAxisLegend(document.getElementById('spectrum-axis-legend'), []);
             overlaySpectrumPainted = false;
             return;
         }
