@@ -1895,7 +1895,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             drawAnalysisWindowOnCanvas(ctx, W, H, trackIndex, channelIndex);
             drawCursorOnCanvas(ctx, W, H, waveformCursorLineStyle(getComputedStyle(document.body).getPropertyValue('--text').trim()));
             // The lane under the pointer reads its waveform as every plot of lines does (R7); the others follow its time.
-            if (laneHover && laneHover.canvas === canvas) drawLaneHover(ctx, W, H, points, result, channelIndex, color);
+            if (laneHover && laneHover.canvas === canvas) drawLaneHover(ctx, W, H, points, result, channelIndex, color, placement);
             else drawHoverLineOnCanvas(ctx, W, H);
             drawRectZoomSelectionOnCanvas(ctx, W, H, trackIndex);
         }
@@ -2064,7 +2064,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         laneHover = null;
         laneReadout.hidden = true;
     }
-    function drawLaneHover(ctx: CanvasRenderingContext2D, W: number, H: number, points: readonly LanePoint[], result: ComparisonTrackState, channelIndex: number, color: string): void {
+    function drawLaneHover(ctx: CanvasRenderingContext2D, W: number, H: number, points: readonly LanePoint[], result: ComparisonTrackState, channelIndex: number, color: string, placement: { offsetNorm: number; trackDurRatio: number }): void {
         if (!laneHover) return;
         const rect = laneHover.canvas.getBoundingClientRect();
         const ratioX = rect.width > 0 ? W / rect.width : 1, ratioY = rect.height > 0 ? H / rect.height : 1;
@@ -2078,11 +2078,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         ctx.scale(ratioX, ratioY);
         paintHoverMarks(ctx, { left: 0, top: 0, width: W / ratioX, height: H / ratioY }, hit.x / ratioX, hit.y / ratioY, color);
         ctx.restore();
-        const duration = result.durationSeconds || 0;
         const range = waveformView.timeRange();
-        const secondsPerPixel = rect.width > 0 ? (range.end - range.start) * trackStore.globalSpan().spanSec / rect.width : 0.01;
+        const span = trackStore.globalSpan();
+        const secondsPerPixel = rect.width > 0 ? (range.end - range.start) * span.spanSec / rect.width : 0.01;
+        // On the lanes' time axis, as the ruler and the cursor show it (a shifted track's offset included).
+        const seconds = span.startSec + (placement.offsetNorm + hit.t * placement.trackDurRatio) * span.spanSec;
         const unit = channelsForResult(result)[channelIndex]?.unit?.trim() || null;
-        laneReadout.textContent = laneReadoutText(spectrumReadoutTrackLabel(result, channelIndex), hit.t * duration, secondsPerPixel, hit.value, unit);
+        laneReadout.textContent = laneReadoutText(spectrumReadoutTrackLabel(result, channelIndex), seconds, secondsPerPixel, hit.value, unit);
         laneReadout.style.color = color;
         laneReadout.hidden = false;
         // Beside the pointer, on its left where the right of the lane has no room for it.
