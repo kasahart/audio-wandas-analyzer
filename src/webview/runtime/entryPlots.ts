@@ -97,7 +97,11 @@ export function paintOverview(
     const width = canvas.clientWidth || 400, height = canvas.clientHeight || 120;
     const plotWidth = Math.max(1, width - left - right), plotHeight = Math.max(1, height - top - bottom);
     const colour = (level.calibrated ? strings.axisLevelCal : strings.axisLevelUncal).replace('{label}', level.label);
-    const key = `${bandsVersion}|${width}x${height}|${window.x.start},${window.x.end},${window.y.start},${window.y.end}|${colour}`;
+    // The theme's colours and the screen's pixel ratio too: a theme switch or another monitor draws the cells again.
+    const view = canvas.ownerDocument.defaultView;
+    const style = view?.getComputedStyle(canvas);
+    const theme = ['--text', '--muted', '--line'].map(name => style?.getPropertyValue(name).trim() ?? '').join(',');
+    const key = `${bandsVersion}|${width}x${height}@${view?.devicePixelRatio ?? 1}|${window.x.start},${window.x.end},${window.y.start},${window.y.end}|${colour}|${theme}`;
     const cached = overviewCache.get(canvas);
     let drawn: StagePlot | null;
     if (bandsVersion !== undefined && cached && cached.key === key && cached.rows === rows) drawn = cached.drawn;
