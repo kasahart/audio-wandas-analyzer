@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { overlayPlotPoint, overlaySpectrumRegionAt, spectrumBoxZoom } from '../webview/runtime/spectrumRuntime';
+import { overlayPlotPoint, overlaySpectrumRegionAt, spectrumZoomFromWindow } from '../webview/runtime/spectrumRuntime';
 
 const W = 144;
 const H = 126;
@@ -13,21 +13,14 @@ test('overlayPlotPoint normalizes a canvas point inside the padded plot and clam
     assert.equal(overlayPlotPoint(10, 10, 40, H), null);
 });
 
-test('spectrumBoxZoom ignores boxes under 5 px in either direction', () => {
-    const view = { freqStart: 0, freqEnd: 1 };
-    assert.equal(spectrumBoxZoom({ freqNorm: 0.1, dbNorm: 0.1 }, { freqNorm: 0.13, dbNorm: 0.9 }, W, H, view, null), null);
-    assert.equal(spectrumBoxZoom({ freqNorm: 0.1, dbNorm: 0.1 }, { freqNorm: 0.9, dbNorm: 0.13 }, W, H, view, null), null);
-});
-
-test('spectrumBoxZoom narrows the current frequency view and maps dB onto the visible range', () => {
+test('spectrumZoomFromWindow takes the frequency part as it is and maps the level part onto the dB on screen', () => {
     assert.deepEqual(
-        spectrumBoxZoom({ freqNorm: 0.75, dbNorm: 0.2 }, { freqNorm: 0.25, dbNorm: 0.6 }, W, H, { freqStart: 0.2, freqEnd: 0.6 }, { min: -100, max: 0 }),
+        spectrumZoomFromWindow({ x: { start: 0.3, end: 0.5 }, y: { start: 0.2, end: 0.6 } }, { min: -100, max: 0 }),
         { freqStart: 0.3, freqEnd: 0.5, dbMin: -80, dbMax: -40 },
     );
-    assert.deepEqual(
-        spectrumBoxZoom({ freqNorm: 0, dbNorm: 0 }, { freqNorm: 1, dbNorm: 1 }, W, H, { freqStart: 0, freqEnd: 1 }, null),
-        { freqStart: 0, freqEnd: 1 },
-    );
+    // A Ctrl+wheel zoom keeps every level on screen: the dB axis keeps following the data.
+    assert.deepEqual(spectrumZoomFromWindow({ x: { start: 0.1, end: 0.4 }, y: { start: 0, end: 1 } }, { min: -100, max: 0 }), { freqStart: 0.1, freqEnd: 0.4 });
+    assert.deepEqual(spectrumZoomFromWindow({ x: { start: 0, end: 1 }, y: { start: 0.2, end: 0.6 } }, null), { freqStart: 0, freqEnd: 1 });
 });
 
 test('overlaySpectrumRegionAt splits the canvas into dB axis, frequency axis and plot', () => {

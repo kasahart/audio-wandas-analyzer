@@ -345,33 +345,24 @@ export interface SpectrumBoxZoom {
     dbMax?: number;
 }
 
-const MIN_BOX_ZOOM_PX = 5;
+export interface SpectrumBoxZoom {
+    freqStart: number;
+    freqEnd: number;
+    dbMin?: number;
+    dbMax?: number;
+}
 
-export function spectrumBoxZoom(
-    anchor: DragPoint,
-    current: DragPoint,
-    width: number,
-    height: number,
-    view: { freqStart: number; freqEnd: number },
-    visibleDb: { min: number; max: number } | null,
-): SpectrumBoxZoom | null {
-    const pad = OVERLAY_SPECTRUM_PAD;
-    const pxDx = Math.abs((anchor.freqNorm - current.freqNorm) * (width - pad.left - pad.right));
-    const pxDy = Math.abs((anchor.dbNorm - current.dbNorm) * (height - pad.top - pad.bottom));
-    if (pxDx < MIN_BOX_ZOOM_PX || pxDy < MIN_BOX_ZOOM_PX) {
-        return null;
-    }
-    const f0 = Math.min(anchor.freqNorm, current.freqNorm);
-    const f1 = Math.max(anchor.freqNorm, current.freqNorm);
-    const freqSpan = view.freqEnd - view.freqStart;
-    const zoom: SpectrumBoxZoom = {
-        freqStart: view.freqStart + f0 * freqSpan,
-        freqEnd: view.freqStart + f1 * freqSpan,
-    };
-    if (visibleDb) {
-        const dbSpan = visibleDb.max - visibleDb.min;
-        zoom.dbMin = visibleDb.min + Math.min(anchor.dbNorm, current.dbNorm) * dbSpan;
-        zoom.dbMax = visibleDb.min + Math.max(anchor.dbNorm, current.dbNorm) * dbSpan;
+/**
+ * The cursor spectrum's zoom for a window the plot gestures set (plotInteraction.ts): across, the part of the whole
+ * frequency axis; up, the part of the levels on screen, kept as dB since the level axis follows the data. A window that
+ * keeps every level on screen leaves the dB axis as it is.
+ */
+export function spectrumZoomFromWindow(next: { x: { start: number; end: number }; y: { start: number; end: number } }, visibleDb: { min: number; max: number } | null): SpectrumBoxZoom {
+    const zoom: SpectrumBoxZoom = { freqStart: next.x.start, freqEnd: next.x.end };
+    if (visibleDb && (next.y.start !== 0 || next.y.end !== 1)) {
+        const span = visibleDb.max - visibleDb.min;
+        zoom.dbMin = visibleDb.min + next.y.start * span;
+        zoom.dbMax = visibleDb.min + next.y.end * span;
     }
     return zoom;
 }
