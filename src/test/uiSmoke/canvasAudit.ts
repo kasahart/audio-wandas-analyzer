@@ -56,11 +56,26 @@ function installCanvasAudit(settle: { frames: number; ms: number }): void {
         // Not offsetParent: a readout laid over a plot is often position: fixed, which has none.
         return box.width > 1 && box.height > 1 && style.visibility === 'visible' && element.checkVisibility({ visibilityProperty: true, opacityProperty: true }) ? box : null;
     };
-    /** Each readout with something in it, on screen over a canvas on screen: recorded once per pair. */
+    /** The part of a canvas that can be seen: its box cut by every ancestor that clips (a scrolled list of lanes). */
+    const seenBox = (canvas: HTMLCanvasElement): DOMRect | null => {
+        const box = shownBox(canvas);
+        if (!box) return null;
+        let left = box.left, top = box.top, right = box.right, bottom = box.bottom;
+        for (let parent = canvas.parentElement; parent; parent = parent.parentElement) {
+            const style = window.getComputedStyle(parent);
+            if (style.overflowX === 'visible' && style.overflowY === 'visible') continue;
+            const clip = parent.getBoundingClientRect();
+            left = Math.max(left, clip.left); top = Math.max(top, clip.top); right = Math.min(right, clip.right); bottom = Math.min(bottom, clip.bottom);
+        }
+        return right - left > 1 && bottom - top > 1 ? new DOMRect(left, top, right - left, bottom - top) : null;
+    };
+    /** Each readout with something in it, on screen over the seen part of a plot: recorded once per pair. */
     const sampleReadouts = (): void => {
-        const readouts = Array.from(document.querySelectorAll('[id*="readout"], [class*="readout"]')).filter(element => element.textContent?.trim());
+        // The outermost readout only (not its name and values again), and the plots (not the hover marks laid over one).
+        const readouts = Array.from(document.querySelectorAll('[id*="readout"], [class*="readout"]'))
+            .filter(element => element.textContent?.trim() && !element.parentElement?.closest('[id*="readout"], [class*="readout"]'));
         if (!readouts.length) return;
-        const canvases = Array.from(document.querySelectorAll('canvas')).map(canvas => ({ canvas, box: shownBox(canvas) })).filter(item => item.box);
+        const canvases = Array.from(document.querySelectorAll('canvas')).filter(canvas => !canvas.classList.contains('track-stage-cursor')).map(canvas => ({ canvas, box: seenBox(canvas) })).filter(item => item.box);
         for (const readout of readouts) {
             const box = shownBox(readout);
             if (!box) continue;
@@ -68,7 +83,7 @@ function installCanvasAudit(settle: { frames: number; ms: number }): void {
                 const across = Math.min(box.right, plot!.right) - Math.max(box.left, plot!.left);
                 const up = Math.min(box.bottom, plot!.bottom) - Math.max(box.top, plot!.top);
                 if (across <= 1 || up <= 1) continue;
-                const name = `${readout.id ? `#${readout.id}` : `.${String(readout.className).split(' ').join('.')}`} over ${canvas.id ? `#${canvas.id}` : canvas.dataset.stageCanvas ? `[data-stage-canvas="${canvas.dataset.stageCanvas}"]` : `canvas.${canvas.className}`}`;
+                const name = `${readout.id ? `#${readout.id}` : `.${String(readout.className).trim().split(/\s+/).join('.')}`} over ${canvas.id ? `#${canvas.id}` : canvas.dataset.stageCanvas ? `[data-stage-canvas="${canvas.dataset.stageCanvas}"]` : `canvas.${canvas.className}`}`;
                 if (!reported.has(name)) { reported.add(name); readoutsOver.push(`${name} ("${readout.textContent?.trim()}")`); }
             }
         }

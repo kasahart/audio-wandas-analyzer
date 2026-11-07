@@ -50,6 +50,19 @@ test('the lane readout keeps its room in the toolbar, so a hover never wraps it 
     const values = page.locator('#plot-readout .plot-readout-values');
     await expect(values).toHaveText(/^( \/ )?−?\d+\.\d+ s \/ −?[\d.]+/);
     expect(await values.evaluate(el => el.getBoundingClientRect().right <= el.parentElement!.getBoundingClientRect().right + 0.5)).toBe(true);
+    // Nor does a long name where the readout's room fits on the toolbar's first row: it wraps by that room, never by
+    // the text in it.
+    await page.setViewportSize({ width: 1100, height: 700 });
+    await page.mouse.move(0, 0);
+    await expect(page.locator('#plot-readout:not([hidden])')).toHaveCount(0);
+    const wide = (await lane.boundingBox())!;
+    const wideHeight = (await page.locator('#toolbar').boundingBox())?.height;
+    await page.mouse.move(wide.x + wide.width / 2, wide.y + 4);
+    await expect(page.locator('#plot-readout:not([hidden])')).toHaveCount(1);
+    await page.locator('#plot-readout .plot-readout-name').evaluate(element => { element.textContent = 'a-very-long-recording-name-from-a-field-test-at-the-plant-line-3-motor-bearing-left-run-0042.wav'; });
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    expect((await page.locator('#toolbar').boundingBox())?.height).toBe(wideHeight);
+    expect((await lane.boundingBox())?.y).toBe(wide.y);
 });
 
 test('every ui-smoke test fails on a hover readout shown over a plot, whichever plot and readout it is (R7)', async ({ page }) => {

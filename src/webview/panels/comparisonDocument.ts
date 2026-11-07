@@ -174,8 +174,9 @@ export function renderComparisonStyles(): string {
         }
         #cursor-display { font-size: 11px; font-family: var(--font-mono); color: var(--muted); min-width: 80px; }
         /* The plots' readout (R7) keeps its room in the toolbar whether shown or not (hidden only from sight), so a hover
-           never wraps the toolbar and moves the plots under the pointer; short of room, the name is cut, never the values. */
-        .plot-readout { display: flex; flex: 1 1 auto; min-width: 28ch; height: 14px; line-height: 14px; font-size: 11px; font-family: var(--font-mono); white-space: nowrap; pointer-events: none; }
+           never wraps the toolbar and moves the plots under the pointer: the toolbar wraps by its basis, never by its
+           text, so a long name does not either. Short of room, the name is cut, never the values. */
+        .plot-readout { display: flex; flex: 1 1 28ch; min-width: 28ch; height: 14px; line-height: 14px; font-size: 11px; font-family: var(--font-mono); white-space: nowrap; pointer-events: none; }
         .plot-readout[hidden] { visibility: hidden; }
         .plot-readout-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
         .plot-readout-values { flex-shrink: 0; white-space: pre; }
