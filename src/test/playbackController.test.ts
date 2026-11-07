@@ -43,7 +43,7 @@ function fakeFader(): AudioFader & { fades: Array<[number, number]> } {
 const A = 'track-a' as TrackId;
 const B = 'track-b' as TrackId;
 
-function setup(options: { loop?: LoopRegion | null } = {}) {
+function setup(options: { loop?: LoopRegion | null; viewMoves?: boolean } = {}) {
     const audios = [new FakeAudio(), new FakeAudio()];
     const frames = new Map<number, () => void>();
     let frameId = 0;
@@ -65,7 +65,7 @@ function setup(options: { loop?: LoopRegion | null } = {}) {
         loopRegion: () => options.loop ?? null,
         cursorNorm: () => cursor.norm,
         moveCursor: (norm, playing) => { cursor.norm = norm; calls.push('cursor ' + norm.toFixed(2) + (playing ? ' playing' : '')); },
-        centerOn: norm => { centered.push(norm); },
+        centerOn: norm => { centered.push(norm); return options.viewMoves !== false; },
         invalidateSpectrumRequests: () => { calls.push('invalidate'); },
         scheduleRender: () => { calls.push('render'); },
         refreshSpectrum: mode => { calls.push('spectrum ' + mode); },
@@ -110,13 +110,28 @@ test('each playback frame moves the cursor as playing and keeps the view on it w
     calls.length = 0;
     audios[0].currentTime = 3;
     runFrame();
-    assert.deepEqual(calls, ['cursor 0.30 playing', 'render', 'spectrum playback', 'time 3.0', 'badge']);
+    // The cursor alone moves: the moveCursor 'playing' redraw is the only one, not a full render.
+    assert.deepEqual(calls, ['cursor 0.30 playing', 'spectrum playback', 'time 3.0', 'badge']);
     assert.deepEqual(centered, []);
     assert.equal(playback.setFollow(true), true);
     assert.equal(playback.setFollow(true), false);
+    calls.length = 0;
     audios[0].currentTime = 4;
     runFrame();
     assert.deepEqual(centered, [0.4]);
+    // The view scrolled with the cursor, so everything is drawn again.
+    assert.deepEqual(calls, ['render', 'cursor 0.40 playing', 'spectrum playback', 'time 4.0', 'badge']);
+});
+
+test('following a cursor whose view cannot scroll (the whole timeline shown) still redraws only the cursor', () => {
+    const { playback, audios, runFrame, calls, centered } = setup({ viewMoves: false });
+    playback.toggle(A);
+    playback.setFollow(true);
+    calls.length = 0;
+    audios[0].currentTime = 3;
+    runFrame();
+    assert.deepEqual(centered, [0.3]);
+    assert.deepEqual(calls, ['cursor 0.30 playing', 'spectrum playback', 'time 3.0', 'badge']);
 });
 
 test('toggling the playing track pauses it and leaves the cursor where it stopped', () => {

@@ -7,6 +7,7 @@ function setup() {
     const calls: string[] = [];
     const view = new LaneViewState({
         scheduleRender: () => { calls.push('render'); },
+        scheduleCursorRender: () => { calls.push('cursor render'); },
         showTime: norm => { calls.push('time ' + norm); },
         loopChanged: (region: LoopRegion | null) => { calls.push('loop ' + (region ? region.start + '-' + region.end : 'none')); },
     });
@@ -29,6 +30,13 @@ test('the cursor is clamped to the tracks, shown and redrawn', () => {
     assert.equal(view.cursor, 0);
     view.setCursor(0.25);
     assert.deepEqual(calls, ['time 1', 'render', 'time 0', 'render', 'time 0.25', 'render']);
+});
+
+test('a cursor move that changes nothing else redraws only the cursor', () => {
+    const { view, calls } = setup();
+    view.setCursor(0.5, 'cursor');
+    assert.equal(view.cursor, 0.5);
+    assert.deepEqual(calls, ['time 0.5', 'cursor render']);
 });
 
 test('the hover shows its own time and clearing it shows the cursor again', () => {

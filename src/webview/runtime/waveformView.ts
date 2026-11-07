@@ -55,8 +55,12 @@ export class WaveformView {
         this.setTimeRange(panNormalizedRangeBy(this.timeRange(), fraction));
     }
 
-    centerOn(norm: number): void {
-        this.setTimeRange(centerRangeOn(this.timeRange(), norm));
+    /** Returns whether the visible range moved (it cannot when the whole timeline is shown, or at either end). */
+    centerOn(norm: number): boolean {
+        const next = centerRangeOn(this.timeRange(), norm);
+        const moved = next.start !== this.start || next.end !== this.end;
+        this.setTimeRange(next);
+        return moved;
     }
 
     showRegion(region: NormalizedRange, padRatio: number): void {

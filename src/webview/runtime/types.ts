@@ -244,8 +244,8 @@ export interface SpectrumSnap {
 }
 
 export interface WaveformDrawOptions {
-    clear?: boolean;
-    drawCursor?: boolean;
+    /** false: the amplitude axis beside the lane is left as drawn (it does not follow the cursor). */
+    drawAxis?: boolean;
 }
 
 export interface CanvasSyncOptions {
