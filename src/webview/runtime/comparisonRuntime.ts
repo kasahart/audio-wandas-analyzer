@@ -768,15 +768,18 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const settingsSignature = currentSpectrumDataSignature();
+        // Every bin, for the CSV or while the spectrum is zoomed in (R3: the zoomed range drawn again from full
+        // resolution, not the whole spectrum's thinned line stretched); thinned again only to be drawn.
+        const fullResolution = spectrumCsvExportOpen || spectrumView.frequencyZoomed();
         const cached = record.spectrumSliceCache.get(0);
         if (cached && cached.settingsSignature === settingsSignature && Math.abs((cached.cursorNorm ?? -1) - localNorm) < spectrumCursorTolerance(result)
-            && !(spectrumCsvExportOpen && cached.frequenciesHz)) {
+            && !(fullResolution && cached.frequenciesHz)) {
             return;
         }
         const key = spectrumSliceRequestKey(record.id);
         const pending = currentSpectrumSliceRequest(record);
         if (pending && pending.settingsSignature === settingsSignature && Math.abs((pending.cursorNorm ?? -1) - localNorm) < spectrumCursorTolerance(result)
-            && (pending.fullResolution || !spectrumCsvExportOpen)) {
+            && (pending.fullResolution || !fullResolution)) {
             return;
         }
         const requestId = nextRequestId('slice', i);
@@ -792,7 +795,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             filePath: result.filePath,
             generation: spectrumRequests.generation,
             requestedAt: spectrumNow(),
-            fullResolution: spectrumCsvExportOpen,
+            fullResolution,
         });
     }
     function queuePlaybackSpectrumRequests(cursorNormValue: number) {

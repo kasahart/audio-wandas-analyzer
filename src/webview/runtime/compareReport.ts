@@ -9,7 +9,7 @@ import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { encodeNumber, plainFloats, recipeSteps, timeSignalStep, upToStep, withDefaults, withParam, TIME_SLICE } from '../../shared/recipe/recipeSteps';
 import { BAND_CENTERS_HZ, bandLabel, csvNumber, EDGE_GUARD_S, HEADLINE_WITHIN_DB, measuredRegion, regionCells, type BaseDefinition, type DerivedRow, type EntryModel } from './entryTable';
 import { withBaseInput, withChannel } from '../../shared/recipe/channelSelection';
-import { binsView, buildCompareModel, diffHeadline, levelsHeadline, paneAxes, sideView, type CompareModel, type CompareStrings } from './comparePanes';
+import { binsView, buildCompareModel, deltaViews, diffHeadline, levelsHeadline, paneAxes, sideView, type CompareModel, type CompareStrings } from './comparePanes';
 import { paintOverlay, stageDiffRange, stageRange } from './stagePanes';
 import type { EntryRegion } from '../../shared/analysis/entryScan';
 import type { ScanResult } from '../../shared/protocol/backendProtocol';
@@ -316,7 +316,7 @@ function paintOverlayFigure(canvas: HTMLCanvasElement, comparison: CompareModel,
 /** A Δ figure: compare − base per point, the 1/3-octave Δ as steps under it, titled and with its legend. */
 function paintDeltaFigure(canvas: HTMLCanvasElement, comparison: CompareModel, title: string, curve: string, strings: ReportStrings, input: ReportInput, size: { width: number; height: number }): void {
     // compare − base bin by bin, then decimated to be drawn (each bucket's lowest and highest Δ).
-    const view = comparison.bins ? binsView(comparison.bins, 'diff') : comparison.diffDb ? sideView({ spectrumDb: comparison.diffDb, bands: [] }, comparison.frequencies) : null;
+    const view = deltaViews(comparison).picture;
     const axes = paneAxes(strings, input.results.get(comparison.compare?.filePaths[0] ?? '')?.input).delta;
     // The range covers the band steps too, so a band's step is never cut off.
     const range = stageDiffRange(view && { ...view, values: [...(view.values ?? []), ...comparison.bandDeltas] });

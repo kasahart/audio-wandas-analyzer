@@ -12,6 +12,7 @@ import { BAND_CENTERS_HZ, bandLabel, HEADLINE_WITHIN_DB, quantile, roundedDelta,
 import { baseName } from '../../shared/analysis/entryMetadata';
 import { median } from '../../shared/dataset/distribution';
 import { powerMeanDb, powerMeanOrNull } from '../../shared/utils/levels';
+import { axisValueAt } from './stagePanes';
 
 type ScanOk = ScanResult & { ok: true };
 
@@ -317,6 +318,19 @@ export function binsView(bins: NonNullable<CompareModel['bins']>, which: 'base' 
         xs: line.xs, xLimits: [SPECTRUM_MIN_HZ, bins.nyquist], values: line.values,
         ...(bounds ? { detail: true } : {}),
     };
+}
+
+/**
+ * The comparison's Δ spectrum to draw (R1, R3): from the full-resolution bins when the scans gave them, decimated
+ * only to be drawn, and with the x window `zoom` (fractions of the whole Δ's axis) narrower than the whole, drawn
+ * again from the bins between its ends, so zooming in shows every bin there. `picture` is the whole Δ, for the axis.
+ * Without the bins, the scans' per-band Δ.
+ */
+export function deltaViews(comparison: Pick<CompareModel, 'bins' | 'diffDb' | 'frequencies'>, zoom?: { start: number; end: number }): { picture: StageView | null; view: StageView | null } {
+    const picture = comparison.bins ? binsView(comparison.bins, 'diff') : comparison.diffDb ? sideView({ spectrumDb: comparison.diffDb, bands: [] }, comparison.frequencies) : null;
+    if (!picture || !comparison.bins || !zoom || (zoom.start <= 0 && zoom.end >= 1)) return { picture, view: picture };
+    const low = axisValueAt(picture, Math.max(0, zoom.start)), high = axisValueAt(picture, Math.min(1, zoom.end));
+    return { picture, view: high > low ? binsView(comparison.bins, 'diff', [low, high]) ?? picture : picture };
 }
 
 const signed = (value: number): string => `${value >= 0 ? '+' : '−'}${Math.abs(value).toFixed(1)}`;

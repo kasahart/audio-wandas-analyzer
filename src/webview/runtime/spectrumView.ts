@@ -39,6 +39,11 @@ export class SpectrumView {
         this.painted = { maxFrequencyHz: painted.maxFrequencyHz, logMinFrequencyHz: painted.logMinFrequencyHz, dbMin: painted.dbMin, dbMax: painted.dbMax };
     }
 
+    /** Whether the frequency axis shows less than the whole spectrum: its slices are then asked for at full resolution (R3). */
+    frequencyZoomed(): boolean {
+        return this.freqStart > 0 || this.freqEnd < 1;
+    }
+
     hasData(): boolean {
         return !!this.painted && this.painted.maxFrequencyHz > 0;
     }

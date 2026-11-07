@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { frequencyFraction, type CanvasDrawCtx } from '../webview/draw/canvasDrawers';
-import { paintOverlaySpectrum, renderSpectrumAxisLegend, SECONDARY_AXIS_DASH, SECONDARY_AXIS_MARK, type OverlaySpectrumHover } from '../webview/runtime/overlaySpectrumPainter';
+import { paintOverlaySpectrum, renderSpectrumAxisLegend, spectrumLayer, SECONDARY_AXIS_DASH, SECONDARY_AXIS_MARK, type OverlaySpectrumHover } from '../webview/runtime/overlaySpectrumPainter';
 import { SpectrumView } from '../webview/runtime/spectrumView';
 import { OVERLAY_SPECTRUM_PAD, overlayLevelAxes, spectrumPlotFrame, spectrumReadoutText, spectrumVisibleWindow, steppedOverlaySpectrumHoverNorm, type SpectrumViewState } from '../webview/runtime/spectrumRuntime';
 import type { SpectrumSeries } from '../webview/runtime/types';
@@ -320,4 +320,20 @@ test('the pointer reads the point nearest it within a few pixels, so a narrow pe
     // An arrow key's step reads the bin stepped to, not a peak beside it.
     const stepped = paintOverlaySpectrum(canvasOf(ctx), 356, 200, spiky, fullView, { ...beside, stepped: true }, null);
     assert.notEqual(stepped.readout?.text, paint.readout?.text);
+});
+
+test('a full-resolution slice is thinned only to be drawn: every bin in a narrow zoomed range is kept, a bucket per two pixels across a wide one (R2, R3)', () => {
+    const bins = 8193;
+    const slice = { values: Array.from({ length: bins }, (_, bin) => Math.sin(bin * 1.3) * 20 - 40), frequencyBins: bins, maxFrequencyHz: 8192, minDb: -60, maxDb: -20 } as unknown as SpectrumSeries['slice'];
+    const series = { slice, color: '#fff', label: 'a' } as unknown as SpectrumSeries;
+    const zoomed = spectrumLayer(series, 8192, { frequencyMin: 1000, frequencyMax: 1100, buckets: 300 });
+    const inside = (zoomed.view.xs ?? []).filter(x => x >= 1000 && x <= 1100);
+    assert.equal(inside.length, 101, 'every 1 Hz bin from 1000 to 1100 Hz');
+    const whole = spectrumLayer(series, 8192, { frequencyMin: 0, frequencyMax: 8192, buckets: 300 });
+    const wholeXs = whole.view.xs ?? [];
+    assert.ok(wholeXs.length <= 2 * 300 + 1, `${wholeXs.length} points`);
+    assert.equal(wholeXs[0], 0, 'DC kept');
+    // A slice the backend already thinned (it names its frequencies) is drawn as it came.
+    const thinned = spectrumLayer({ ...series, slice: { ...slice, frequenciesHz: slice.values.map((_, bin) => bin) } }, 8192, { frequencyMin: 0, frequencyMax: 8192, buckets: 300 });
+    assert.equal(thinned.view.xs?.length, bins);
 });

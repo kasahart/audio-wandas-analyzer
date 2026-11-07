@@ -13,7 +13,7 @@ import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { recipeKey, recipeNodes, recipeSteps, slotReferenced, timeSignalStep, TIME_SLICE, type RecipeStep } from '../../shared/recipe/recipeSteps';
 import { baseName } from '../../shared/analysis/entryMetadata';
 import { DIFF_COLOR, ROLE_COLORS } from '../../shared/gui/roleColors';
-import { buildCompareModel, sideView, type CompareModel, type LevelInput, type PaneRange } from './comparePanes';
+import { buildCompareModel, deltaViews, type CompareModel, type LevelInput, type PaneRange } from './comparePanes';
 import type { EntryModel } from './entryTable';
 import type { PlotMargins, PlotWindow } from './plotInteraction';
 import { axisFractionOf, axisValueAt, paintOverlay, stageAxes, stageDiffRange, stageRange, STAGE_MARGINS, type StageAxes, type StagePlot } from './stagePanes';
@@ -187,8 +187,9 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
     /** The held row's Δ spectrum (from the table's own scan), zoomed as its window says. */
     function paintDelta(comparison: CompareModel, key: string, input: LevelInput | undefined): void {
         const zoom = deps.keepWindow('held', `delta|${key}`);
-        const delta = comparison.diffDb ? sideView({ spectrumDb: comparison.diffDb, bands: [] }, comparison.frequencies) : null;
-        paintView(delta, delta, stageDiffRange(delta), stageAxes(strings, delta, input, true), zoom, { diff: true, color: DIFF_COLOR, empty: strings.stageNoDelta });
+        // From every bin, zoomed or not (R1, R3): the table's per-band Δ only where the scans gave no bins.
+        const { picture, view } = deltaViews(comparison, zoom.x);
+        paintView(view, picture, stageDiffRange(picture), stageAxes(strings, picture, input, true), zoom, { diff: true, color: DIFF_COLOR, empty: strings.stageNoDelta });
     }
 
     return {
