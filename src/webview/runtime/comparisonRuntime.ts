@@ -3,7 +3,7 @@ import { niceRange } from '../../shared/utils/ticks';
 import { linkedSpectrogramBounds, spectrogramDisplayBounds, spectrogramFailureText } from './spectrogramRaster';
 import { PaintedLayerCache, paintTrackSpectrogram, paintTrackWaveform, spectrogramPlotWidth, type SpectrogramRasterCacheEntry } from './trackCanvasPainter';
 import { laneHoverPoint, laneReadoutText, type LanePoint } from './trackLaneHover';
-import { hidePlotReadout, paintHoverMarks, showPlotReadout } from './plotHover';
+import { hidePlotReadout, paintHoverMarks, PLOT_READOUT_ID, showPlotReadout } from './plotHover';
 import { trackTimelinePlacement } from './waveformCoverage';
 import { envelopePeak } from '../waveform/envelopePeak';
 import { fileOfKey } from '../../shared/dataset/datasetTable';
@@ -2138,7 +2138,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     document.addEventListener('scroll', () => { if (laneHover) { hideLaneHover(); scheduleRender(); } }, true);
     function hideLaneHover(): void {
         laneHover = null;
-        hidePlotReadout(document);
+        hidePlotReadout(document.getElementById(PLOT_READOUT_ID));
     }
     function drawLaneHover(ctx: CanvasRenderingContext2D, W: number, H: number, points: readonly LanePoint[], result: ComparisonTrackState, channelIndex: number, color: string, placement: { offsetNorm: number; trackDurRatio: number }): void {
         if (!laneHover) return;
@@ -2147,7 +2147,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const hit = laneHoverPoint(points, (laneHover.clientX - rect.left) * ratioX, (laneHover.clientY - rect.top) * ratioY, ratioX);
         if (!hit) {
             drawHoverLineOnCanvas(ctx, W, H);
-            hidePlotReadout(document);
+            hidePlotReadout(document.getElementById(PLOT_READOUT_ID));
             return;
         }
         ctx.save();
@@ -2163,7 +2163,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         // The other lanes and the time shown follow the point read, not the pointer beside it (as the spectra do).
         if (viewState.hover === null || Math.abs(viewState.hover - readNorm) > 1e-9) viewState.setHover(readNorm);
         const unit = channelsForResult(result)[channelIndex]?.unit?.trim() || null;
-        showPlotReadout(document, spectrumReadoutTrackLabel(result, channelIndex), laneReadoutText('', seconds, secondsPerPixel, hit.value, unit), color);
+        showPlotReadout(document.getElementById(PLOT_READOUT_ID), spectrumReadoutTrackLabel(result, channelIndex), laneReadoutText('', seconds, secondsPerPixel, hit.value, unit), color);
     }
     function drawHoverLineOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number) {
         if (viewState.hover !== null) {

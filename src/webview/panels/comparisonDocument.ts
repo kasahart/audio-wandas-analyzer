@@ -430,6 +430,7 @@ export function renderComparisonStyles(): string {
         .track-stage-box { position: fixed; z-index: 21; }
         .track-stage { position: relative; z-index: 20; display: flex; flex-direction: column; flex-shrink: 0; font-family: var(--font-ui); font-size: 12px; color: var(--text); }
         .track-stage-controls { display: flex; align-items: center; gap: 6px; padding: 2px 12px 4px; }
+        .track-stage-controls > .plot-readout { margin-left: auto; justify-content: flex-end; }
         .track-stage.is-step-held .track-stage-panel, .track-stage.is-step-held ~ #stacked-wrap { outline: 2px solid var(--entry-delta); outline-offset: -2px; }
         .track-stage-headline { margin-left: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .track-stage-panel { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 220px; margin: 0 10px 8px; border: 1px solid var(--line); border-radius: 4px; position: relative; }

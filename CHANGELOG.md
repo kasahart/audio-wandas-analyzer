@@ -4,6 +4,7 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 
 ## Unreleased
 
+- Compare: the row above the plots shows the pointer's readout on its right, as the cursor spectrum's header does, instead of the largest difference ("Compare 1 − base · 100 Hz base … / compare …"), which read like a readout of the cursor. The row keeps its notes (choose a role, steps bypassed, the region, a trigger's event counts). Compare's readout is no longer in the toolbar (#664).
 - Compare: the readout of a hover on a step's plots (name / where / value) is shown in the toolbar's readout row, as the track lanes' is, instead of in a box over the plot that hid the lines around the point being read. Every plot's readout now has a row outside the plots, and every UI smoke test fails if a readout is shown over a plot (#662).
 - Track view: the readout of a waveform lane's hover (recording / time / amplitude) is shown in the toolbar beside the cursor time, in the lane's colour, instead of in a box over the lane that hid the waveform around the point being read. Its room in the toolbar is kept while it is empty, so a hover never wraps the toolbar and moves the lanes, and a long recording name is cut short before the time and amplitude are (#656).
 - Compare: in a step's ⚙, Enter applies the form only from one of its fields. On a button such as Remove it now presses that button instead of applying the form (#658).

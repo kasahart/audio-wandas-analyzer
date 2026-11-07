@@ -92,13 +92,13 @@ test('a gated base group\'s button says how many recordings and about how long',
     assert.equal(dom_.root.dataset.baseGate, '');
 });
 
-test('the headline: the difference shown and where it is largest, then the steps bypassed and the region; nothing while computing', () => {
+test('the headline names no difference (the row holds the pointer\'s readout): the steps bypassed and the region; nothing while computing', () => {
     const { lane } = page();
     const tracks = [lane('base.wav'), lane('one.wav')];
     const frame = frameFor(tracks, { 'base.wav': line([-20, -30]), 'one.wav': line([-10, -30]) });
     const text = stageModeHeadline(frame, ['HPF 20 Hz'], { start: 0.5, end: 1 });
-    assert.ok(text.startsWith(strings.stageCompareMinusBase.replace('{n}', '1')));
-    assert.ok(text.endsWith(`${strings.stepBypassing.replace('{ops}', 'HPF 20 Hz')} · ${strings.stepRegion} 0.50–1.00 s`));
+    assert.equal(text, `${strings.stepBypassing.replace('{ops}', 'HPF 20 Hz')} · ${strings.stepRegion} 0.50–1.00 s`.replace(/^\s*(·\s*)?/, ''));
+    assert.equal(stageModeHeadline(frame, [], null), '');
     assert.equal(stageModeHeadline({ ...frame, waiting: true }, ['x'], null), '');
     assert.equal(stageModeHeadline({ ...frame, comparePath: null }, [], null), strings.stageChooseRoles);
     assert.equal(stageModeHeadline({ ...frame, referencePath: 'base.wav' }, [], null), strings.stageVsBase.replace('{file}', '0 · base.wav'));

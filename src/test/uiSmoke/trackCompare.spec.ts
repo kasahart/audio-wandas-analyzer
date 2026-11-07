@@ -87,7 +87,7 @@ async function showTracks(page: Page, paths: string[]): Promise<void> {
     await expect(page.locator('.track-stage')).toHaveAttribute('data-layout', 'overlay');
 }
 
-test('Enter on the entry table compares the slotted files in the track view: overlaid, both levels in the headline, roles by colour', async ({ page }) => {
+test('Enter on the entry table compares the slotted files in the track view: overlaid, no difference named over the plots, roles by colour', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     const [first, second] = await openComparison(page);
     const root = page.locator('.track-stage');
@@ -96,7 +96,8 @@ test('Enter on the entry table compares the slotted files in the track view: ove
     await page.locator('[data-action="stage-base-scan"]').click();
     await expect.poll(async () => (await stageScans(page)).at(-1)!.filePaths.length).toBeGreaterThan(2);
     await answer(page);
-    await expect(page.locator('[data-stage-headline]')).toHaveText(/^Compare 1 − base · [\d.]+ k?Hz base −?\d+\.\d \/ compare −?\d+\.\d dB$/);
+    // The row above the plots names no difference: its numbers are the pointer's readout (R7).
+    await expect(page.locator('[data-stage-headline]')).toHaveText('');
     await expect(page.locator('[data-stage-legend] .compare-legend-item')).toHaveText([/^Base group/, new RegExp(`^Compare 1 ▾${first.split('/').pop()} ch1 ${STR_EN.dsLeq.replace('{label}', 'dBFS').replace(/[[\]]/g, '\\$&')} −?\\d`), new RegExp(`^Compare 2 ▾${second.split('/').pop()} ch1 `)]);
     expect(await page.locator('[data-stage-legend] line').evaluateAll(lines => lines.map(line => line.getAttribute('stroke')))).toEqual(['#3b82f6', '#d4b20f', '#a371f7']);
     // The base group's ▾ says how its curve is made; "Show on the list" lists the compared files and their base on the table.
@@ -333,7 +334,6 @@ test('the comparison\'s step bar grows the chain with ＋, offers only what take
     await page.locator('[data-action="stage-base-scan"]').click();
     await expect.poll(async () => (await stageScans(page)).at(-1)!.filePaths.length).toBeGreaterThan(30);
     await answer(page);
-    await expect(page.locator('[data-stage-headline]')).toHaveText(/ base /);
     // The overlaid plot: hover says what the pointer can do; Shift+wheel or a sideways swipe pans, Ctrl+wheel zooms, a double-click resets.
     const root = page.locator('.track-stage');
     const plot = page.locator('[data-stage-canvas="overlay"]');
@@ -344,8 +344,11 @@ test('the comparison\'s step bar grows the chain with ＋, offers only what take
     // As on the spectrum overlay under the tracks: the line nearest the pointer drawn thicker, the cursor at its
     // point, and its name, where and its value in its colour.
     await expect(page.locator('.track-stage-cursor')).toBeVisible();
-    await expect(page.locator('#plot-readout')).toHaveText(/^.+ \/ [\d.]+ k?Hz \/ −?\d+\.\d dB$/);
-    const readoutColor = await page.locator('#plot-readout').evaluate(element => (element as HTMLElement).style.color);
+    await expect(page.locator('[data-plot-readout]')).toHaveText(/^.+ \/ [\d.]+ k?Hz \/ −?\d+\.\d dB$/);
+    const readoutColor = await page.locator('[data-plot-readout]').evaluate(element => (element as HTMLElement).style.color);
+    // In the row just above the plots, as the cursor spectrum's readout is in its header (R7).
+    await expect(page.locator('.track-stage-controls [data-plot-readout]:not([hidden])')).toHaveCount(1);
+    await expect(page.locator('#plot-readout')).toBeHidden();
     expect(readoutColor).not.toBe('');
     // + and − zoom about the middle.
     await page.keyboard.press('+');
@@ -725,8 +728,8 @@ test('the first opening shows the input: a base group draws each of its waveform
     const overlay = (await page.locator('[data-stage-canvas="overlay"]').boundingBox())!;
     await page.mouse.move(overlay.x + 52 + (overlay.width - 56) * 0.75, overlay.y + overlay.height * 0.3);
     await expect(page.locator('.track-stage-cursor')).toBeVisible();
-    await expect(page.locator('#plot-readout')).toHaveText(/^.+ \/ 1\.\d+ s \/ −?0\.\d+ FS$/);
-    expect(await page.locator('#plot-readout').evaluate(element => (element as HTMLElement).style.color)).not.toBe('');
+    await expect(page.locator('[data-plot-readout]')).toHaveText(/^.+ \/ 1\.\d+ s \/ −?0\.\d+ FS$/);
+    expect(await page.locator('[data-plot-readout]').evaluate(element => (element as HTMLElement).style.color)).not.toBe('');
     await page.mouse.move(0, 0);
     // No level difference against a median that is on no line: no headline numbers, no Δ.
     await expect(page.locator('[data-stage-headline]')).toHaveText('');
@@ -791,7 +794,7 @@ test('a trigger added from ＋ fires at half the tracks\' peak, draws each event
         if (await page.locator('#hint-footer').textContent() === STR.stageEventClickOut) break;
     }
     // …and where in the recording it was cut; a click on it leaves it out.
-    await expect(page.locator('#plot-readout')).toHaveText(/#[123] @ \d\.\d\d s \/ 0\.00 s/);
+    await expect(page.locator('[data-plot-readout]')).toHaveText(/#[123] @ \d\.\d\d s \/ 0\.00 s/);
     await page.screenshot({ path: 'test-results/trigger-events.png' });
     const footer = page.locator('#hint-footer');
     await expect(footer).toHaveText(STR.stageEventClickOut);

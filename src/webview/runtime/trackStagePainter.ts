@@ -136,14 +136,13 @@ export interface StageFrame {
  */
 export function stageModeHeadline(frame: Pick<StageFrame, 'strings' | 'waiting' | 'referencePath' | 'comparePath' | 'role' | 'named' | 'coarsePlots' | 'baseEach' | 'tooLarge'>, bypassed: readonly string[], region: { start: number; end: number } | null): string {
     const { strings, waiting, referencePath, comparePath, coarsePlots, baseEach } = frame;
-    const role = comparePath ? frame.role(comparePath) : undefined;
     // While computing, the plots say so (with the files in): the headline waits for the levels.
     let text = waiting ? ''
         : referencePath ? strings.stageVsBase.replace('{file}', frame.named(referencePath, 0).label)
-        // Which difference is shown: the compared slot against the base.
-        // A base group drawn as its waveforms has no line to measure against: no difference is named.
-        : comparePath ? (baseEach ? '' : (role && !isEventsView(coarsePlots.compare) && !isEventsView(coarsePlots.base) ? strings.stageCompareMinusBase.replace('{n}', String(role)) : '')
-            + (frame.tooLarge ? strings.stageTooLarge : stageLevelsHeadline(coarsePlots.base, coarsePlots.compare, coarsePlots.diff, coarsePlots.headline, strings)))
+        // The row's numbers are the pointer's readout (R7, as over the cursor spectrum): no difference is named here.
+        // A trigger's events say how many each found; a base too large for the median says so.
+        : comparePath ? (baseEach ? '' : frame.tooLarge ? strings.stageTooLarge
+            : isEventsView(coarsePlots.compare) || isEventsView(coarsePlots.base) ? stageLevelsHeadline(coarsePlots.base, coarsePlots.compare, coarsePlots.diff, coarsePlots.headline, strings) : '')
         // No compare role yet: the lines are there, but nothing to measure against a base; the legend's chips set one.
         : strings.stageChooseRoles;
     // The steps bypassed are named: what is drawn is the chain without them.
