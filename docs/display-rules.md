@@ -63,7 +63,9 @@
 
 ## R7 ポインタの動きはどのグラフでも同じ
 
-カーソル、最寄りの線の強調、読み値、拡大の操作は、どのグラフでも同じ部品で同じように動きます。マウスは、どの線の点でも、縦横の距離でマウスに一番近い点（半径 20 px 以内）を読みます。細いピークの少し横に置いても、頂上の近くなら頂上を読みます。半径の中に点がなければ、マウスの真下の周波数（時刻）で高さが一番近い線を読みます。矢印キーの移動は、1 ビンずつ動いた先を読みます。カーソルスペクトルとペアの図は、読んだ点の周波数でたがいのカーソルを合わせます。トラック表示の波形のレーンも同じで、マウスの下のレーンだけが点を読み（時刻は目盛りと同じ全体の時間軸）、ほかのレーンはその時刻に線を引きます。読み値は波形に重ねず、上のツールバーのカーソル時刻の横に出します。クリックで決めるカーソル（カーソルスペクトルの時刻と解析窓）はこれとは別です。
+カーソル、最寄りの線の強調、読み値、拡大の操作は、どのグラフでも同じ部品で同じように動きます。マウスは、どの線の点でも、縦横の距離でマウスに一番近い点（半径 20 px 以内）を読みます。細いピークの少し横に置いても、頂上の近くなら頂上を読みます。半径の中に点がなければ、マウスの真下の周波数（時刻）で高さが一番近い線を読みます。矢印キーの移動は、1 ビンずつ動いた先を読みます。カーソルスペクトルとペアの図は、読んだ点の周波数でたがいのカーソルを合わせます。トラック表示の波形のレーンも同じで、マウスの下のレーンだけが点を読み（時刻は目盛りと同じ全体の時間軸）、ほかのレーンはその時刻に線を引きます。クリックで決めるカーソル（カーソルスペクトルの時刻と解析窓）はこれとは別です。
+
+読み値は、どのグラフでもグラフに重ねず、グラフの外の決まった行に出します。重ねると、読みたい線のまわりが隠れるからです。トラックと比較の図はツールバーの行（共通部品 `showPlotReadout`）に、カーソルスペクトルとペアの図はそれぞれの見出しの行に出します。ツールバーの行は空のときも場所を取っておくので、マウスを乗せてもグラフは動きません。名前が長いときは名前の側を省略し、時刻（周波数）と値は省略しません。この決まりは UI テスト全件で確かめます。どのテストでも、読み値がグラフに重なって表示されたら、そのテストを失敗にします（`src/test/uiSmoke/canvasAudit.ts`）。
 
 - テスト: `src/test/pairSpectrum.test.ts` › the pointer picks the line nearest it and reads that lane only
 - テスト: `src/test/stagePanes.test.ts` › the pointer reads the point nearest it within a few pixels, so a narrow peak beside it is read at its top (R7)
@@ -71,6 +73,8 @@
 - テスト: `src/test/pairSpectrum.test.ts` › the pointer reads the pair point nearest it within a few pixels, and names that point's frequency (R7)
 - テスト: `src/test/trackLaneHover.test.ts` › the pointer on a track lane reads the point nearest it within a few pixels, so a narrow peak beside it is read at its top (R7)
 - テスト: `src/test/uiSmoke/trackLaneHover.spec.ts` › the pointer on a track's waveform reads the point nearest it as every plot of lines does: name, time and amplitude in the toolbar, gone off the lane (R7)
+- テスト: `src/test/uiSmoke/trackLaneHover.spec.ts` › every ui-smoke test fails on a hover readout shown over a plot, whichever plot and readout it is (R7)
+- テスト: `src/test/uiSmoke/trackLaneHover.spec.ts` › the lane readout keeps its room in the toolbar, so a hover never wraps it and moves the lanes; short of room, the name is cut, never the values
 - 未: Frame の全種類に対する同じ操作の確認
 
 ## R8 ＋ で選べる操作は結果を描く

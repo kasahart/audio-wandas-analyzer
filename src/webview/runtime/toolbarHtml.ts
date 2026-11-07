@@ -48,6 +48,7 @@ export function toolbarHtml(spec: ToolbarSpec, strings: UiStrings): string {
         + '<span id="playback-display"' + hintAttr(strings.playbackDisplayTitle) + '></span>'
         + '<span id="loop-badge" style="display:none; color:#64a0ff; font-size:0.85em; margin-left:8px;">' + escapeHtml(strings.loopBadge) + '</span>'
         + '<span id="loop-time-display"' + hintAttr(strings.loopTimeDisplayTitle) + ' style="display:none;"></span>'
-        // The readout of a waveform lane's hover: its room is kept while it is empty, so it never wraps the toolbar.
-        + '<span id="track-lane-readout" class="track-lane-readout tb-track-only" hidden><span class="track-lane-readout-name"></span><span class="track-lane-readout-values"></span></span>';
+        // The readout of a hover on the tracks' and Compare's plots (plotHover.ts, R7): never over a plot, and its
+        // room is kept while it is empty, so a hover never wraps the toolbar.
+        + '<span id="plot-readout" class="plot-readout" hidden><span class="plot-readout-name"></span><span class="plot-readout-values"></span></span>';
 }

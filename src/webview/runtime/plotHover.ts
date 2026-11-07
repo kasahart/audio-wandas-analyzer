@@ -76,3 +76,26 @@ export function paintHoverMarks(ctx: CanvasDrawCtx, frame: HoverFrame, x: number
     if (restroke) restroke(ctx, HOVER_LINE_WIDTH);
     drawCrosshair(ctx, frame, x, y, HOVER_CURSOR_COLOR, color);
 }
+
+/**
+ * Where every plot's hover readout is shown (R7): in a row of its own outside the plots, never laid over one, so the
+ * lines under the pointer stay in view. The tracks and Compare share the toolbar's (toolbarHtml), whose room is kept
+ * while it is empty so a hover never moves the plots; the cursor spectrum and the pair plot have their header's.
+ */
+export const PLOT_READOUT_ID = 'plot-readout';
+
+/** Shows `name / values` in the readout row in `color`; short of room, the name is cut, never the values. */
+export function showPlotReadout(doc: Document, name: string, values: string, color: string): void {
+    const readout = doc.getElementById(PLOT_READOUT_ID);
+    if (!readout) return;
+    const [nameEl, valuesEl] = Array.from(readout.children) as HTMLElement[];
+    if (nameEl) nameEl.textContent = name;
+    if (valuesEl) valuesEl.textContent = `${name && values ? ' / ' : ''}${values}`;
+    readout.style.color = color;
+    readout.hidden = !(name || values);
+}
+
+export function hidePlotReadout(doc: Document): void {
+    const readout = doc.getElementById(PLOT_READOUT_ID);
+    if (readout) readout.hidden = true;
+}

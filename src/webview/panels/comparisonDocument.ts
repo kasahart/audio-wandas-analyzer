@@ -173,12 +173,12 @@ export function renderComparisonStyles(): string {
             border: 1px solid var(--line); background: var(--surface); color: var(--text);
         }
         #cursor-display { font-size: 11px; font-family: var(--font-mono); color: var(--muted); min-width: 80px; }
-        /* The lane readout keeps its room in the toolbar whether shown or not (hidden only from sight), so a hover never
-           wraps the toolbar and moves the lanes under the pointer; short of room, the name is cut, never the values. */
-        .track-lane-readout { display: flex; flex: 1 1 auto; min-width: 28ch; height: 14px; line-height: 14px; font-size: 11px; font-family: var(--font-mono); white-space: nowrap; pointer-events: none; }
-        .track-lane-readout[hidden] { visibility: hidden; }
-        .track-lane-readout-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-        .track-lane-readout-values { flex-shrink: 0; white-space: pre; }
+        /* The plots' readout (R7) keeps its room in the toolbar whether shown or not (hidden only from sight), so a hover
+           never wraps the toolbar and moves the plots under the pointer; short of room, the name is cut, never the values. */
+        .plot-readout { display: flex; flex: 1 1 auto; min-width: 28ch; height: 14px; line-height: 14px; font-size: 11px; font-family: var(--font-mono); white-space: nowrap; pointer-events: none; }
+        .plot-readout[hidden] { visibility: hidden; }
+        .plot-readout-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+        .plot-readout-values { flex-shrink: 0; white-space: pre; }
         #playback-display { font-size: 11px; font-family: var(--font-mono); color: #64a0ff; min-width: 70px; display: none; }
         #loop-time-display { font-size: 0.85em; font-family: var(--font-mono); color: #64a0ff; margin-left: 6px; cursor: pointer; }
 
@@ -420,15 +420,12 @@ export function renderComparisonStyles(): string {
         .entry-row.is-derived td { color: var(--muted); }
         .compare-play { padding: 0 6px !important; background: transparent; color: var(--text); border: 1px solid var(--line); border-radius: 4px; font-size: 10px; line-height: 16px; cursor: pointer; }
         .compare-play:hover { border-color: var(--accent); color: var(--accent); }
-        .compare-readout { position: absolute; bottom: 30px; right: 14px; padding: 2px 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; font-family: var(--font-mono); pointer-events: none; }
-        .compare-readout[hidden] { display: none; }
         .compare-zoom-box { position: absolute; border: 1px dashed var(--text); pointer-events: none; }
         .compare-zoom-box[hidden] { display: none; }
         .entry-side { position: relative; }
         .track-stage-bar[hidden], .track-stage[hidden], .track-stage-panel[hidden], .track-stage-diff[hidden] { display: none; }
         .track-stage-cursor { position: fixed; pointer-events: none; z-index: 20; }
-        .track-stage-cursor[hidden], .track-stage-readout[hidden], .track-stage-box[hidden] { display: none; }
-        .track-stage-readout { position: fixed; z-index: 21; bottom: auto; right: auto; white-space: nowrap; pointer-events: none; }
+        .track-stage-cursor[hidden], .track-stage-box[hidden] { display: none; }
         .track-stage-box { position: fixed; z-index: 21; }
         .track-stage { position: relative; z-index: 20; display: flex; flex-direction: column; flex-shrink: 0; font-family: var(--font-ui); font-size: 12px; color: var(--text); }
         .track-stage-controls { display: flex; align-items: center; gap: 6px; padding: 2px 12px 4px; }
