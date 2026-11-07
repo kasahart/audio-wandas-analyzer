@@ -345,13 +345,6 @@ export interface SpectrumBoxZoom {
     dbMax?: number;
 }
 
-export interface SpectrumBoxZoom {
-    freqStart: number;
-    freqEnd: number;
-    dbMin?: number;
-    dbMax?: number;
-}
-
 /**
  * The cursor spectrum's zoom for a window the plot gestures set (plotInteraction.ts): across, the part of the whole
  * frequency axis; up, the part of the levels on screen, kept as dB since the level axis follows the data. A window that

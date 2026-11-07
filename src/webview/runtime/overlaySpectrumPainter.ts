@@ -1,12 +1,6 @@
 import { binFrequencyHz, drawSpectrumSelectionBox } from '../draw/canvasDrawers';
 import { HOVER_PICK_RADIUS_PX, paintHoverMarks } from './plotHover';
 import type { SpectrumHoverTarget } from './spectrumHover';
-
-/** A box being dragged on the cursor spectrum, from where the press was to where the pointer is (0–1 of the plot). */
-export interface SpectrumBoxSpan {
-    anchor: DragPoint;
-    current: DragPoint;
-}
 import { paintOverlay, strokeStageLine, type StageLayer, type StagePlot } from './stagePanes';
 import {
     nearestOverlaySnap,
@@ -21,6 +15,12 @@ import {
     type SpectrumVisibleWindow,
 } from './spectrumRuntime';
 import type { DragPoint, SpectrumSeries } from './types';
+
+/** A box being dragged on the cursor spectrum, from where the press was to where the pointer is (0–1 of the plot). */
+export interface SpectrumBoxSpan {
+    anchor: DragPoint;
+    current: DragPoint;
+}
 
 export interface OverlaySpectrumHover {
     norm: number | null;
