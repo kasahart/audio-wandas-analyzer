@@ -140,3 +140,33 @@ def test_all_zero_signal_reports_positive_zero_peak():
     result = decimated_waveform(np.zeros(100), 10, 0, 100)
     assert result["absolutePeak"] == 0.0
     assert math.copysign(1.0, result["absolutePeak"]) == 1.0
+
+
+@pytest.mark.parametrize("n,count", [(1, 1), (7, 3), (10, 6), (31, 8), (1000, 7), (48000, 1024)])
+def test_bucket_starts_follow_array_split(n, count):
+    from decimator import bucket_starts
+
+    expected = [part[0] for part in np.array_split(np.arange(n), count)]
+    np.testing.assert_equal(bucket_starts(n, count), expected)
+
+
+@pytest.mark.parametrize("n,points", [(7, 4), (31, 8), (1001, 64), (48000, 1024)])
+def test_every_time_decimation_shares_the_bucket_rule(n, points):
+    """The lanes' waveform (decimated_waveform) and the comparison's lines (stage_view._envelope) put the same
+    samples in a bucket: the comparison's points sit at each bucket's first and last sample."""
+    from decimator import bucket_starts
+    from stage_view import _envelope
+
+    xs = np.arange(n, dtype=float)
+    values = np.random.default_rng(n).normal(size=n)
+    count = points // 2
+    starts = bucket_starts(n, count)
+    ends = np.append(starts[1:], n) - 1
+    line_xs, line_values = _envelope(xs, values, points)
+    np.testing.assert_equal(line_xs, np.stack([starts, ends], axis=1).reshape(-1))
+    parts = np.array_split(values, count)
+    np.testing.assert_allclose(line_values[0::2], [part.min() for part in parts])
+    np.testing.assert_allclose(line_values[1::2], [part.max() for part in parts])
+    waveform = decimated_waveform(values, count, 0, n)
+    np.testing.assert_allclose(waveform["min"], [part.min() for part in parts])
+    np.testing.assert_allclose(waveform["max"], [part.max() for part in parts])

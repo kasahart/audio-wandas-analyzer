@@ -24,6 +24,9 @@
 - テスト: `src/test/comparePanes.test.ts` › the webview thins a spectrum exactly as the backend does: the shared cases both test suites check (#683)
 - テスト: `python-backend/test_known_answers.py` › test_the_cursor_spectrum_reads_each_channels_tone_at_its_frequency_and_amplitude
 - テスト: `python-backend/test_known_answers.py` › test_band_levels_read_the_tones_rms_in_the_cursor_spectrum_and_in_compare
+- 時間軸の線（トラックの波形、比較台の波形・レベルの時系列・ケプストラム）は、区間の区切りを 1 つの規則（`decimator.bucket_starts`）で決めます。webview でさらに間引くときも、区間は描く範囲の先頭ではなく決まった位置から始まるので、パンしても線が揺れません。
+- テスト: `python-backend/test_decimator.py` › test_every_time_decimation_shares_the_bucket_rule
+- テスト: `src/test/waveformRenderer.test.ts` › decimateBuckets: パンしてもバケットの境界は動かない（div の倍数から始まる）
 - ペアの図（伝達関数・位相・コヒーレンス）は全ビンを線で結ぶので、区間ごとの最小と最大はそのまま見えます。
 - 未: 入口の概観帯
 

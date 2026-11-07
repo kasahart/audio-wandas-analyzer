@@ -24,6 +24,16 @@ def _absolute_peak(samples: np.ndarray) -> float:
     return float(np.maximum(np.max(samples), -np.min(samples))) + 0.0
 
 
+def bucket_starts(n: int, count: int) -> np.ndarray:
+    """Where each of `count` buckets over `n` samples starts: the one bucket rule of every time-axis decimation
+    (this one and stage_view._envelope). As ``np.array_split``: the first ``n % count`` buckets are one sample
+    longer. `count` is at most `n`, at least 1."""
+    width, remainder = divmod(n, count)
+    sizes = np.full(count, width)
+    sizes[:remainder] += 1
+    return np.concatenate(([0], np.cumsum(sizes[:-1]))).astype(int)
+
+
 def decimated_waveform(
     samples: np.ndarray,
     point_limit: int,
@@ -51,10 +61,8 @@ def decimated_waveform(
             "absolutePeak": _absolute_peak(samples),
         }
     denom = max(1, total_samples - 1)
-    width, remainder = divmod(n, point_count)
-    sizes = np.full(point_count, width)
-    sizes[:remainder] += 1
-    starts = np.concatenate(([0], np.cumsum(sizes[:-1])))
+    starts = bucket_starts(n, point_count)
+    sizes = np.diff(np.append(starts, n))
     minimum_indices = np.full(point_count, n)
     maximum_indices = np.full(point_count, n)
     minima = np.full(point_count, np.inf)

@@ -4,6 +4,7 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 
 ## Unreleased
 
+- Track view and Compare: every time-axis line thins its points by one bucket rule, so a waveform, a level series and a cepstrum split their samples the same way. When a zoomed waveform is panned, its buckets stay at the same samples, so the line no longer flickers while it moves (#685).
 - Cursor spectrum: a long FFT is thinned for drawing by the same rule and code as Compare's spectra: per log-spaced bucket, each channel's lowest and highest bin at its own frequency. Every tone still keeps its frequency and level, and the lowest bins are all drawn. The webview's own copy of the rule is checked against the same cases (#683).
 - Entry: the overview strip (each row's 1/3-octave levels) is drawn by the shared plot component. It has a row axis (the table's rows, counted down from the top), the shared frequency axis and the shared colour bar in its top right. The pointer reads the row's recording, the band and its level in a row just above the strip, and a double-click on an axis sets its range, as on every plot. Every heatmap now reads the cell under the pointer the same way (#681).
 - Track view: a spectrogram lane's colour bar is now the one Compare's heatmaps draw: the level with its reference, the low end, the colour strip and the high end, in the plot's top right. The 50 px column it used to take beside the plot is gone, so the waveform and spectrogram lanes use the whole width. A double-click on the colour bar still sets the colour range (#678).

@@ -733,15 +733,16 @@ def _envelope(xs: np.ndarray, values: np.ndarray, points: int) -> tuple[np.ndarr
     Fewer values than points are all kept. A bucket's two points sit at its first and last x, so every
     file's buckets fall at the same places and a group's pictures still have a median point by point.
 
-    Not ``decimator.decimated_waveform`` (where a NaN wins its bucket, the points sit at the extremes' own
-    samples and the buckets are sized by ``divmod``): a comparison needs fixed bucket positions and ignores
-    non-finite values.
+    The buckets are ``decimator.bucket_starts``'s, as the lanes' waveforms. Unlike ``decimated_waveform`` (where
+    a NaN wins its bucket and the points sit at the extremes' own samples), a comparison needs fixed point
+    positions and ignores non-finite values.
     """
+    from decimator import bucket_starts
+
     n = xs.size
     if n <= points:
         return xs, values
-    count = max(1, points // 2)
-    starts = np.unique(np.linspace(0, n, count + 1).astype(int)[:-1])
+    starts = bucket_starts(n, max(1, points // 2))
     ends = np.append(starts[1:], n) - 1
     masked = np.where(np.isfinite(values), values, np.nan)
     with warnings.catch_warnings():
