@@ -80,8 +80,9 @@ export function stepFormHtml(step: RecipeStep, state: StepBarState, strings: Ste
  * Enter opens or closes the folded fields as on any disclosure.
  */
 export function stepFormKey(event: Pick<KeyboardEvent, 'key'> & { target?: EventTarget | null }): 'close' | 'apply' | null {
-    if (event.key === 'Enter' && (event.target as Element | null)?.closest?.('summary')) return null;
-    return event.key === 'Escape' ? 'close' : event.key === 'Enter' ? 'apply' : null;
+    if (event.key === 'Escape') return 'close';
+    // Enter applies from a field only: on a button or the fold it does what that control does.
+    return event.key === 'Enter' && (event.target as Element | null)?.matches?.('input, select') ? 'apply' : null;
 }
 
 /** A number as typed: "inf" and "-inf" (as Python writes them) or "Infinity" are infinite. */
