@@ -170,3 +170,31 @@ def test_every_time_decimation_shares_the_bucket_rule(n, points):
     waveform = decimated_waveform(values, count, 0, n)
     np.testing.assert_allclose(waveform["min"], [part.min() for part in parts])
     np.testing.assert_allclose(waveform["max"], [part.max() for part in parts])
+
+
+@pytest.mark.parametrize("n,buckets", [(100, 30), (1001, 64), (2000, 1024)])
+def test_a_difference_line_on_a_time_axis_buckets_as_the_lines_it_compares(n, buckets):
+    """Compare's Δ of a level series or cepstrum (difference_line → min_max_indices, linear axis) splits the samples
+    at the same places as each recording's own line (_envelope)."""
+    from decimator import bucket_edges, bucket_starts
+    from stage_view import min_max_indices
+
+    xs = np.arange(n, dtype=float)
+    values = np.random.default_rng(n).normal(size=n)
+    picked = min_max_indices(xs, values, buckets, False)
+    edges = bucket_edges(n, buckets)
+    np.testing.assert_equal(edges[:-1], bucket_starts(n, buckets))
+    owner = np.searchsorted(edges, picked, side="right") - 1
+    for bucket, (start, end) in enumerate(zip(edges[:-1], edges[1:], strict=True)):
+        mine = picked[owner == bucket]
+        part = values[start:end]
+        assert values[mine].min() == part.min() and values[mine].max() == part.max()
+
+
+def test_bucket_edges_cover_every_sample_once():
+    from decimator import bucket_edges
+
+    assert bucket_edges(0, 5).tolist() == [0]
+    assert bucket_edges(10, 0).tolist() == [0]
+    assert bucket_edges(3, 10).tolist() == [0, 1, 2, 3]
+    assert bucket_edges(10, 3).tolist() == [0, 4, 7, 10]

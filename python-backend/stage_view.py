@@ -33,6 +33,7 @@ from wandas.frames import (
 from wandas.frames.segments import ChannelFrameSegments
 
 import analysis_spec as spec
+from decimator import bucket_edges, bucket_starts
 
 # A time signal longer than this is drawn as its level over time; a shorter one is a metric's values.
 LEVEL_SERIES_MIN_SAMPLES = 2048
@@ -225,7 +226,11 @@ def min_max_indices(
     kept = np.flatnonzero(np.isfinite(values) & ((xs > 0) if log else np.ones(xs.size, dtype=bool)))
     if kept.size <= 2 * buckets:
         return kept
-    bucket = log_buckets(xs[kept], buckets, span) if log else (np.arange(kept.size) * buckets) // kept.size
+    if log:
+        bucket = log_buckets(xs[kept], buckets, span)
+    else:
+        # On a linear axis, the one bucket rule of every time axis (decimator.bucket_starts).
+        bucket = np.repeat(np.arange(buckets), np.diff(bucket_edges(kept.size, buckets)))
     kept_values = values[kept]
     # The buckets are runs of the ascending xs: each run's extremes by reduceat, in one pass.
     starts = np.flatnonzero(np.r_[True, bucket[1:] != bucket[:-1]])
@@ -405,7 +410,7 @@ def _channel_view(frame: ChannelFrame) -> StageView:
         if measure:
             series["measure"] = measure
         return series
-    edges = np.linspace(0, data.shape[1], min(TIME_POINTS, data.shape[1]) + 1).astype(int)
+    edges = bucket_edges(data.shape[1], TIME_POINTS)
     refs = np.array([channel.ref for channel in frame.channels], dtype=np.float64)[:, np.newaxis]
     power = np.stack(
         [np.mean(data[:, start:end] ** 2, axis=1) for start, end in zip(edges[:-1], edges[1:], strict=True)], axis=1
@@ -560,7 +565,7 @@ def _offset(frame: Any) -> float:
 
 
 def _time_blocks(count: int) -> list[slice]:
-    edges = np.linspace(0, count, min(HEATMAP_TIMES, count) + 1).astype(int)
+    edges = bucket_edges(count, HEATMAP_TIMES)
     return [slice(start, end) for start, end in zip(edges[:-1], edges[1:], strict=True)]
 
 
@@ -627,7 +632,7 @@ def _roughness_view(frame: RoughnessFrame) -> StageView:
 
 def _block_peaks(values: np.ndarray, count: int) -> tuple[np.ndarray, np.ndarray]:
     """`values` (last axis) in at most `count` blocks, each the value of largest magnitude, and the block edges."""
-    edges = np.linspace(0, values.shape[-1], min(count, values.shape[-1]) + 1).astype(int)
+    edges = bucket_edges(values.shape[-1], count)
     picked = [
         np.take_along_axis(block, np.argmax(np.abs(block), axis=-1)[..., np.newaxis], axis=-1)[..., 0]
         for block in (values[..., start:end] for start, end in zip(edges[:-1], edges[1:], strict=True))
@@ -737,8 +742,6 @@ def _envelope(xs: np.ndarray, values: np.ndarray, points: int) -> tuple[np.ndarr
     a NaN wins its bucket and the points sit at the extremes' own samples), a comparison needs fixed point
     positions and ignores non-finite values.
     """
-    from decimator import bucket_starts
-
     n = xs.size
     if n <= points:
         return xs, values
@@ -818,7 +821,7 @@ def _detail_view(frame: object, coarse: StageView, detail: StageDetail) -> Stage
         if part.shape[1] == 0:
             view.update({"xs": [], "values": []})
             return view
-        edges = np.linspace(0, part.shape[1], min(points, part.shape[1]) + 1).astype(int)
+        edges = bucket_edges(part.shape[1], points)
         refs = np.array([channel.ref for channel in frame.channels], dtype=np.float64)[:, np.newaxis]
         # Each non-empty bucket's mean power at once (a prefetched range has tens of thousands of buckets).
         filled = edges[1:] > edges[:-1]
@@ -866,9 +869,7 @@ def _detail_view(frame: object, coarse: StageView, detail: StageDetail) -> Stage
         blocks = [
             slice(a, b)
             for a, b in zip(
-                *(lambda e: (e[:-1], e[1:]))(
-                    np.linspace(0, times.size, min(max(2, points // 2), times.size) + 1).astype(int)
-                ),
+                *(lambda e: (e[:-1], e[1:]))(bucket_edges(times.size, max(2, points // 2))),
                 strict=True,
             )
             if b > a

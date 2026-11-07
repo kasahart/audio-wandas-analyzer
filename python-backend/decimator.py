@@ -34,6 +34,13 @@ def bucket_starts(n: int, count: int) -> np.ndarray:
     return np.concatenate(([0], np.cumsum(sizes[:-1]))).astype(int)
 
 
+def bucket_edges(n: int, count: int) -> np.ndarray:
+    """``bucket_starts`` with ``n`` appended: the edges of `count` buckets over `n` samples (``[0]`` without any)."""
+    if n <= 0 or count <= 0:
+        return np.array([0])
+    return np.append(bucket_starts(n, min(count, n)), n)
+
+
 def decimated_waveform(
     samples: np.ndarray,
     point_limit: int,
