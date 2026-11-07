@@ -96,7 +96,8 @@ export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 
     }, true);
     let press: { plot: HTMLElement; from: PlotPoint; clientX: number; clientY: number; isDrag: boolean; to: PlotPoint } | null = null;
     let lastDouble: PlotHit | null = null;
-    // Each new window is named on the plot, so one test reads every plot's zoom the same way (R13).
+    // The window these gestures last set is named on the plot they were made on, so one test reads every plot's
+    // gestures the same way (R13). Other ways to the window (keys, an axis's range, a pane sharing it) do not write it.
     const setWindow = (plot: HTMLElement, next: PlotWindow | null): void => {
         deps.setWindow(plot, next);
         const now = deps.window(plot);
