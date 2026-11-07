@@ -6,7 +6,7 @@ import type { UiStrings } from '../../shared/i18n/strings';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
 import { attachPlotInteraction, FULL_PLOT_WINDOW, type PlotHit } from './plotInteraction';
 import { axisFractionOf, axisValueAt, rowFractionOf, rowValueAt, STAGE_MARGINS, stageHover, stagePlotPoint, strokeStageLine } from './stagePanes';
-import { paintHoverMarks } from './plotHover';
+import { hidePlotReadout, paintHoverMarks, showPlotReadout } from './plotHover';
 import { installRangePopover, linearAxis, openAxisPart, type AxisMapping } from '../rangePopover';
 import { positionPopover } from './settingsPopover';
 import type { Drawn } from './trackStagePainter';
@@ -39,16 +39,14 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
     toggleEvent?: (event: { id: number; source: string; out: boolean }) => (() => void) | undefined;
 }): StageGestures {
     const { strings, state, drawnOn } = deps;
-    // The pointer's marks (plotHover.ts: the nearest line thicker, the cursor at its point), its readout, the
-    // box being dragged and an axis's range, for any plot of the mode. The marks are drawn on a canvas laid
-    // over the plot, so a hover does not draw the plot again.
+    // The pointer's marks (plotHover.ts: the nearest line thicker, the cursor at its point), the box being dragged
+    // and an axis's range, for any plot of the mode. The marks are drawn on a canvas laid over the plot, so a hover
+    // does not draw the plot again; the readout is the plots' row in the toolbar, never over a plot (R7).
     const cursor = document.createElement('canvas');
     cursor.className = 'track-stage-cursor';
-    const readout = document.createElement('div');
-    readout.className = 'compare-readout track-stage-readout';
     const box = document.createElement('div');
     box.className = 'compare-zoom-box track-stage-box';
-    for (const element of [cursor, readout, box]) { element.hidden = true; document.body.append(element); }
+    for (const element of [cursor, box]) { element.hidden = true; document.body.append(element); }
     const rangePopover = installRangePopover(document, { rootId: 'track-stage-range-popover', badgeId: 'track-stage-range-axis-badge', idPrefix: 'track-stage-range', strings: rangePopoverStrings(strings), position: positionPopover });
     /** The plot's rectangle on screen (inside its canvas's axis margins). */
     const plotBox = (plot: HTMLElement): { left: number; top: number; width: number; height: number } => {
@@ -65,7 +63,7 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
     };
     /** Where the pointer is over a plot, so its marks follow a plot drawn anew under a still pointer. */
     let hovered: { plot: HTMLElement; clientX: number; clientY: number } | null = null;
-    const hideHover = (): void => { cursor.hidden = true; readout.hidden = true; };
+    const hideHover = (): void => { cursor.hidden = true; hidePlotReadout(document); };
     /**
      * The hover as the spectrum overlay under the tracks draws it: the line nearest the pointer thicker, a dashed
      * cursor at its point and a dashed level line in its colour, its name, where and its value in the readout.
@@ -90,14 +88,7 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
         const frame = plot?.frame ?? { left: STAGE_MARGINS.left, top: STAGE_MARGINS.top, width: plotBox(hovered.plot).width, height: plotBox(hovered.plot).height };
         paintHoverMarks(context, frame, hit ? hit.x : x, hit ? hit.y : null, hit?.layer.color ?? '', hit && plot ? (ctx, width) => strokeStageLine(ctx as CanvasRenderingContext2D, plot, hit.layer, width) : undefined);
         cursor.hidden = false;
-        const text = hit ? hit.text : '';
-        readout.textContent = text;
-        readout.style.color = hit?.layer.color ?? '';
-        readout.hidden = !text;
-        // Beside the pointer, on its left where the right of the plot has no room for it.
-        // Kept in the window: a plot scrolled partly out of view still shows it.
-        const right = hovered.clientX + 12 + readout.offsetWidth > rect.right;
-        Object.assign(readout.style, { left: `${Math.max(0, right ? hovered.clientX - 12 - readout.offsetWidth : hovered.clientX + 12)}px`, top: `${Math.max(4, rect.top + frame.top + 4)}px` });
+        showPlotReadout(document, hit?.name ?? '', hit?.values ?? '', hit?.layer.color ?? '');
     };
     // The marks sit where the plot was on screen: a scroll under a still pointer takes them away.
     document.addEventListener('scroll', () => { if (hovered) { hovered = null; hideHover(); } }, true);

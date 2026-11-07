@@ -930,7 +930,7 @@ function signalPointsNear(plot: StagePlot, waveform: NonNullable<StageView['wave
  * The line of a pane nearest the pointer at (`x`, `y`) on its canvas, as the spectrum overlay picks it
  * (plotHover.ts): that line, its point and the readout (its name, where, its value).
  */
-export function stageHover(plot: StagePlot, x: number, y: number): { layer: StageLayer; x: number; y: number; text: string } | null {
+export function stageHover(plot: StagePlot, x: number, y: number): { layer: StageLayer; x: number; y: number; text: string; name: string; values: string } | null {
     type Point = { index: number; time?: number; x: number; y: number; value: number };
     // The point nearest the pointer within a few pixels, so a narrow peak beside it is read at its top (R7).
     const hit = nearestPoint<StageLayer, Point>(plot.lines,
@@ -942,12 +942,17 @@ export function stageHover(plot: StagePlot, x: number, y: number): { layer: Stag
         // A signal reads its amplitude in its unit, to 3 figures, where its point is.
         const value = hit.point.value, unit = view.waveform.unit || plot.signal?.unit;
         const amount = `${(Math.abs(value) >= 10 ? value.toFixed(1) : value.toPrecision(3)).replace(/^-/, '−')}${unit ? ` ${unit}` : ''}`;
-        return { layer: hit.s, x: hit.point.x, y: hit.point.y, text: readoutText([...(hit.s.label ? [hit.s.label] : []), timeText(plot, hit.point.time ?? 0), amount]) };
+        return readoutOf(hit.s, hit.point, hit.s.label ?? '', [timeText(plot, hit.point.time ?? 0), amount]);
     }
     const amount = plot.diff ? signed(hit.point.value, isDb(view))
         // Levels to 0.1 dB, as the spectrum overlay reads them; other quantities (a coherence) to 3 figures.
         : (isDb(view) ? `${hit.point.value.toFixed(1)} dB` : Math.abs(hit.point.value) >= 10 ? hit.point.value.toFixed(1) : hit.point.value.toPrecision(3)).replace(/^-/, '−');
-    return { layer: hit.s, x: hit.point.x, y: hit.point.y, text: readoutText([...(hit.s.label ? [hit.s.label] : plot.diff ? ['Δ'] : []), atText(view, hit.point.index), amount]) };
+    return readoutOf(hit.s, hit.point, hit.s.label || (plot.diff ? 'Δ' : ''), [atText(view, hit.point.index), amount]);
+}
+
+/** A hover's readout: the line's name (cut short first where there is no room) and where and what it reads. */
+function readoutOf(layer: StageLayer, point: { x: number; y: number }, name: string, values: string[]): { layer: StageLayer; x: number; y: number; text: string; name: string; values: string } {
+    return { layer, x: point.x, y: point.y, text: readoutText([...(name ? [name] : []), ...values]), name, values: readoutText(values) };
 }
 
 /**
