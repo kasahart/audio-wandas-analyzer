@@ -34,7 +34,7 @@ function scanEntry100(): ScannedFile[] | undefined {
         const run = spawnSync(python, [path.join(repoRoot, 'src', 'test', 'fixtures', 'entry100', 'scan.py'), out], {
             encoding: 'utf8', timeout: 120_000, maxBuffer: 16 * 1024 * 1024,
         });
-        if (run.status !== 0) { scanError = `exit ${run.status}: ${(run.stderr || String(run.error ?? '')).slice(-2000)}`; return undefined; }
+        if (run.status !== 0) { scanError = `exit ${run.status}${run.signal ? ` (${run.signal})` : ''}${run.error ? ` ${String(run.error)}` : ''}: ${(run.stderr ?? '').slice(-2000)}`; return undefined; }
         metadataText = readFileSync(path.join(out, 'motor.csv'), 'utf8');
         return JSON.parse(run.stdout) as ScannedFile[];
     } finally {
