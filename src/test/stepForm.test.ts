@@ -113,9 +113,11 @@ test('the region form keeps Apply off and says why while its values are not a re
     assert.ok(Array.from(form.querySelectorAll('.step-field')).every(label => label.classList.contains('is-invalid')));
 });
 
-test('in the form Esc closes it and Enter applies it', () => {
+test('in the form Esc closes it and Enter applies it from a field', () => {
+    const field = new JSDOM('<input>').window.document.querySelector('input');
     assert.equal(stepFormKey({ key: 'Escape' }), 'close');
-    assert.equal(stepFormKey({ key: 'Enter' }), 'apply');
+    assert.equal(stepFormKey({ key: 'Enter', target: field }), 'apply');
+    assert.equal(stepFormKey({ key: 'Enter' }), null);
     assert.equal(stepFormKey({ key: 'Tab' }), null);
 });
 

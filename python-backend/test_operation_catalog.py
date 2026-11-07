@@ -272,39 +272,89 @@ def _encoded(value: object) -> object:
     return value
 
 
+def _one_step(operation: dict, entries: list) -> dict:
+    return {
+        "schema": "wandas.recipe",
+        "version": 3,
+        "inputs": [{"id": "input-0", "name": "input_0", "kind": "frame"}],
+        "nodes": [
+            {
+                "id": "node-0",
+                "operation": operation["id"],
+                "version": operation["version"],
+                "inputs": ["input-0"],
+                "params": {"$type": "map", "entries": [list(item) for item in sorted(dict(entries).items())]},
+            }
+        ],
+        "output": "node-0",
+    }
+
+
+def _shown(operation: dict) -> list:
+    """What a form shows for each field: wandas' default, None for an auto value, and the start a step bar gives."""
+    entries = [
+        [param["name"], _encoded(param["default"]) if "default" in param else None]
+        for param in operation["params"]
+        if "kind" in param and ("default" in param or param.get("nullable"))
+    ]
+    # Two optional values of which one is needed: the step bar starts a new step with it (recipeSteps.ts).
+    return entries + [[name, value] for name, value in _STARTS.get(operation["id"], {}).items()]
+
+
+def _formed() -> list[dict]:
+    """The operations a form is shown for on these examples (librosa's hpss is the slow probe's)."""
+    return [
+        operation
+        for operation in catalog()
+        if operation["input"] in _EXAMPLE_INPUTS
+        and not any(param["required"] for param in operation["params"])
+        and not operation["id"].startswith("wandas.audio.hpss")
+    ]
+
+
+def test_every_choice_a_field_offers_runs_and_a_level_it_gives_is_drawn_as_a_level() -> None:
+    # Each choice of an enum (and None when it takes None) and each side of a bool, one at a time with the rest as
+    # shown: wandas takes it, its result is drawn, and a time signal in dB (sound_level's dB, rms_trend's dB=True) is
+    # drawn as a level, whichever choice made it.
+    from wandas.pipeline import RecipePlan
+
+    failed: list[str] = []
+    levels: list[str] = []
+    for operation in _formed():
+        shown = dict(_shown(operation))
+        for param in operation["params"]:
+            values: list[object] = list(param.get("choices", [])) if param.get("kind") == "enum" else []
+            values += [True, False] if param.get("kind") == "bool" else []
+            values += [None] if values and param.get("nullable") else []
+            for value in values:
+                entries = list({**shown, param["name"]: value}.items())
+                where = f"{operation['id']}.{param['name']}={value!r}"
+                try:
+                    result = RecipePlan.from_dict(_one_step(operation, entries)).apply(
+                        {"input_0": _example(operation["input"])}
+                    )
+                except Exception as error:  # noqa: BLE001 - every refusal is listed with wandas' reason
+                    failed.append(f"{where}: {error}")
+                    continue
+                view = stage_view(result)
+                if isinstance(result, wd.ChannelFrame) and (result.channels[0].unit or "").startswith("dB"):
+                    levels.append(where)
+                    assert view.get("quantity") == "level", where
+    assert failed == [], failed
+    assert any(item.startswith("wandas.audio.rms_trend.dB=True") for item in levels), levels
+
+
 def test_every_operation_runs_with_the_values_its_form_shows_written_into_the_recipe() -> None:
     # A form writes what it shows in wandas' Recipe encoding (true/false, null, text, numbers): wandas must take
     # each operation's shown defaults written out explicitly, as an exported Recipe carries them.
     from wandas.pipeline import RecipePlan
 
     ran: list[str] = []
-    for operation in catalog():
-        if operation["input"] not in _EXAMPLE_INPUTS or any(param["required"] for param in operation["params"]):
-            continue
-        entries = [
-            [param["name"], _encoded(param["default"]) if "default" in param else None]
-            for param in operation["params"]
-            if "kind" in param and ("default" in param or param.get("nullable"))
-        ]
-        # Two optional values of which one is needed: the step bar starts a new step with it (recipeSteps.ts).
-        entries += [[name, value] for name, value in _STARTS.get(operation["id"], {}).items()]
-        recipe = {
-            "schema": "wandas.recipe",
-            "version": 3,
-            "inputs": [{"id": "input-0", "name": "input_0", "kind": "frame"}],
-            "nodes": [
-                {
-                    "id": "node-0",
-                    "operation": operation["id"],
-                    "version": operation["version"],
-                    "inputs": ["input-0"],
-                    "params": {"$type": "map", "entries": [list(item) for item in sorted(dict(entries).items())]},
-                }
-            ],
-            "output": "node-0",
-        }
-        if operation["id"].startswith("wandas.audio.hpss"):
-            continue  # librosa: covered by the slow probe
-        _ = RecipePlan.from_dict(recipe).apply({"input_0": _example(operation["input"])}).data
+    for operation in _formed():
+        _ = (
+            RecipePlan.from_dict(_one_step(operation, _shown(operation)))
+            .apply({"input_0": _example(operation["input"])})
+            .data
+        )
         ran.append(operation["id"])
     assert {"wandas.audio.sound_level", "wandas.audio.welch", "wandas.audio.normalize", "wandas.audio.stft"} <= set(ran)
