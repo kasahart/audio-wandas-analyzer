@@ -519,3 +519,26 @@ def test_zoomed_track_detail_draws_the_window_from_every_frame_in_it(tmp_path: P
     assert centers[0] <= 12.0 <= centers[1] and centers[-2] <= 13.5 <= centers[-1]
     assert np.all(np.diff(centers) == pytest.approx(hop_sec))
     assert len(centers) == pytest.approx(1.5 / hop_sec, abs=3)
+
+
+def test_a_zoom_window_costs_its_own_frames_and_samples_not_the_whole_files(
+    tmp_path: Path, service: AnalysisService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The STFT is cut before its dB conversion, and the envelope is built from the window's samples only.
+    wav = tmp_path / "long.wav"
+    _write_sine_wav(wav, seconds=30.0)
+    options = {"n_fft": 256, "overlap_percent": 75, "window": "hann"}
+    service.track_detail(wav, stft_options=options)
+    converted: list[int] = []
+    original = wd.SpectrogramFrame.dB.fget
+    assert original is not None
+
+    def recording_db(self: wd.SpectrogramFrame) -> np.ndarray:
+        converted.append(int(self.n_frames))
+        return original(self)
+
+    monkeypatch.setattr(wd.SpectrogramFrame, "dB", property(recording_db))
+    zoomed = service.track_detail(wav, stft_options=options, time_window=(0.4, 0.45))["channels"][0]
+    assert converted and max(converted) < 400  # the window's ~377 frames, not the file's 7500
+    waveform = zoomed["waveform"]
+    assert min(waveform["minT"]) >= 0.4 - 1e-6 and max(waveform["maxT"]) <= 0.45 + 1e-6
