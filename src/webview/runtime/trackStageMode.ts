@@ -203,7 +203,9 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         + `<div class="track-stage-diff" data-stage-diff hidden><div class="track-stage-diff-head"><span class="compare-value" data-stage-diff-headline></span>`
         // The Δ pane's own readout row, just above it (R7, R13).
         + `<span class="plot-readout" data-plot-readout hidden><span class="plot-readout-name"></span><span class="plot-readout-values"></span></span></div><canvas data-stage-canvas="diff" role="img" aria-label="${escapeHtml(strings.ariaStageDiffCanvas)}"></canvas></div>`
-        + `</div>`;
+        + `</div>`
+        // The lanes' own readout row, just above them, while they sit under a trigger's events plot (R7, R13).
+        + `<div class="track-stage-lanes-head" data-stage-lanes-head><span class="plot-readout" data-plot-readout hidden><span class="plot-readout-name"></span><span class="plot-readout-values"></span></span></div>`;
     root.prepend(stepBar.element);
     const dom = stageDom(root, stepBar.element);
     const { query, panel } = dom;

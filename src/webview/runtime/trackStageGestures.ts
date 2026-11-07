@@ -47,8 +47,14 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
     box.className = 'compare-zoom-box track-stage-box';
     box.hidden = true;
     document.body.append(box);
-    /** Each plot's readout row, just above it: the Δ pane's own head, else the controls row over the plots. */
-    const slotOf = (plot: HTMLElement): HTMLElement | null => (plot.closest('[data-stage-diff]') ?? root.querySelector('.track-stage-controls'))?.querySelector<HTMLElement>('[data-plot-readout]') ?? null;
+    /** Each plot's readout row, just above it: the Δ pane's own head; the lanes' row while they sit under a trigger's
+     *  events plot; else the controls row over the plots. */
+    const slotOf = (plot: HTMLElement): HTMLElement | null => {
+        const lanesHead = root.querySelector<HTMLElement>('[data-stage-lanes-head]');
+        const row = plot.closest('[data-stage-diff]')
+            ?? (!root.contains(plot) && lanesHead && lanesHead.getClientRects().length ? lanesHead : root.querySelector('.track-stage-controls'));
+        return row?.querySelector<HTMLElement>('[data-plot-readout]') ?? null;
+    };
     const rangePopover = installRangePopover(document, { rootId: 'track-stage-range-popover', badgeId: 'track-stage-range-axis-badge', idPrefix: 'track-stage-range', strings: rangePopoverStrings(strings), position: positionPopover });
     /** The plot's rectangle on screen (inside its canvas's axis margins). */
     const plotBox = (plot: HTMLElement): { left: number; top: number; width: number; height: number } => {
