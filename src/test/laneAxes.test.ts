@@ -13,17 +13,19 @@ const H = 120;
 
 test('a waveform lane\'s amplitude ticks sit where the waveform draws their values, zoomed or not', () => {
     for (const viewport of [undefined, { minNorm: -0.3, maxNorm: 0.7 }]) {
-        for (const peak of [1, 0.005, 16383]) {
+        for (const peak of [1, 0.005, 16383, 2e-5, 1e-6, 1e-9]) {
             const range = laneAmplitudeRange(peak, viewport);
             const transform = makeCoordTransform(0, 1, 0, 800, H, peak, 1, viewport);
             assert.ok(Math.abs(transform.toY(range.max)) < 1e-9, 'the top edge');
             assert.ok(Math.abs(transform.toY(range.min) - H) < 1e-9, 'the bottom edge');
             const ticks = laneAmplitudeTicks(range);
             assert.ok(ticks.length >= 2);
+            // A quiet signal's ticks read their own values, not all "0".
+            assert.equal(new Set(ticks.map(tick => tick.text)).size, ticks.length, `${peak}: ${ticks.map(tick => tick.text).join(' ')}`);
             for (const tick of ticks) {
                 const value = range.min + tick.fraction * (range.max - range.min);
                 assert.ok(Math.abs(transform.toY(value) - (1 - tick.fraction) * H) < 1e-6, `${tick.text} at its value`);
-                assert.ok(Math.abs(Number(tick.text.replace('−', '-')) - value) <= Math.abs(value) * 1e-9 + (range.max - range.min) * 1e-3, `${tick.text} reads ${value}`);
+                assert.ok(Math.abs(Number(tick.text.replaceAll('−', '-')) - value) <= Math.abs(value) * 1e-9 + (range.max - range.min) * 1e-3, `${tick.text} reads ${value}`);
             }
         }
     }

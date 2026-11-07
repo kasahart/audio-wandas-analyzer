@@ -361,10 +361,22 @@ export const PLOT_TEXT_FONT = '10px sans-serif';
 export function valueAxisTicks(range: PaneRange): AxisTick[] {
     const span = range.max - range.min || 1;
     const values = niceTicks(range.min, range.max, 4);
-    // As many decimals as the ticks need (a step of 0.25 two, a step of 1 none), the same on every tick.
-    let decimals = 0;
-    while (decimals < 6 && values.some(value => Math.abs(value * 10 ** decimals - Math.round(value * 10 ** decimals)) > 1e-6)) decimals++;
-    return values.map(value => ({ text: (decimals ? value.toFixed(decimals) : String(Math.round(value))).replace(/^-/, '−'), fraction: (value - range.min) / span }));
+    return values.map(value => ({ text: valueTickTexts(values)(value), fraction: (value - range.min) / span }));
+}
+
+/**
+ * How a value axis writes its ticks: with as many decimals as their step needs (a step of 0.25 two, a step of 1
+ * none), the same on every tick; a step finer than 0.00001 in powers of ten ("2.5e−7"), so a quiet signal's ticks
+ * still read their own values. Each tick's place is a whole number of steps, so the step's decimals are all it needs.
+ */
+export function valueTickTexts(values: readonly number[]): (value: number) => string {
+    const step = values.length > 1 ? Math.abs(values[1] - values[0]) : Math.abs(values[0] ?? 0);
+    const whole = (x: number): boolean => Math.abs(x - Math.round(x)) <= 1e-6 * Math.max(1, Math.abs(x));
+    let decimals = step > 0 && Number.isFinite(step) ? Math.max(0, Math.floor(-Math.log10(step))) : 0;
+    while (decimals < 20 && step > 0 && !whole(step * 10 ** decimals)) decimals++;
+    const minus = (text: string): string => text.replace(/^-/, '−').replace('e-', 'e−').replace('e+', 'e');
+    if (decimals > 5) return value => (value === 0 ? '0' : minus((+value.toPrecision(6)).toExponential()));
+    return value => minus(decimals ? value.toFixed(decimals) : String(Math.round(value)));
 }
 
 /**
