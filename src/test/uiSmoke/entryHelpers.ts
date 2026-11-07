@@ -19,19 +19,22 @@ export function entry100Metadata(): string {
 /** Real scan results for the entry100 fixture, from the Python backend (generated once per worker, never committed). */
 export function entry100Results(): ScannedFile[] | undefined {
     if (cached === undefined) cached = scanEntry100() ?? null;
+    // Where the backend is required (CI), a test that needs it fails instead of skipping, so it cannot pass unseen.
+    if (cached === null && process.env.AWA_REQUIRE_BACKEND === '1') throw new Error(`AWA_REQUIRE_BACKEND=1 but the entry100 fixture could not be scanned: ${scanError}`);
     return cached ?? undefined;
 }
 
+let scanError = '';
 function scanEntry100(): ScannedFile[] | undefined {
     const python = [path.join(repoRoot, '.venv', 'bin', 'python'), process.env.WANDAS_PYTHON, 'python3']
         .find(candidate => candidate && (candidate === 'python3' || existsSync(candidate)));
-    if (!python) return undefined;
+    if (!python) { scanError = 'no Python found'; return undefined; }
     const out = mkdtempSync(path.join(tmpdir(), 'entry100-ui-'));
     try {
         const run = spawnSync(python, [path.join(repoRoot, 'src', 'test', 'fixtures', 'entry100', 'scan.py'), out], {
             encoding: 'utf8', timeout: 120_000, maxBuffer: 16 * 1024 * 1024,
         });
-        if (run.status !== 0) return undefined;
+        if (run.status !== 0) { scanError = `exit ${run.status}: ${(run.stderr || String(run.error ?? '')).slice(-2000)}`; return undefined; }
         metadataText = readFileSync(path.join(out, 'motor.csv'), 'utf8');
         return JSON.parse(run.stdout) as ScannedFile[];
     } finally {
