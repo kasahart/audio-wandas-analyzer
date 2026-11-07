@@ -82,7 +82,9 @@ export class PairSpectrumPanel {
     /** What each plot last drew, for the pointer and the gestures. */
     private readonly drawn = new Map<PairLaneKey, { canvas: HTMLCanvasElement; plot: StagePlot | null; range: { min: number; max: number }; label: string }>();
     /** Each plot's part of its level axis on screen (the frequency axis is the power spectrum's). */
-    private readonly levelWindow = new Map<PairLaneKey, NormalizedRange>();
+    /** Each plot's level zoom in its own values (dB, °, γ²): the whole range is refitted to the bins on screen, so a
+     *  fraction of it would show other values after the next pan. */
+    private readonly levelWindow = new Map<PairLaneKey, { min: number; max: number }>();
     private marks: Map<PairLaneKey, PlotHoverLayer> | null = null;
     private splitFraction = 0.5;
 
@@ -111,6 +113,8 @@ export class PairSpectrumPanel {
         this.error = null;
         this.pointer = null;
         this.levelWindow.clear();
+        // The marks are laid over the page, not inside the pane: closing the pane takes them away too.
+        this.marks?.forEach(layer => layer.hide());
         this.doc.getElementById('spectrum-section')?.classList.toggle('has-pair', next !== null);
         this.applySplit();
         syncReferenceButtons(this.doc, next, this.strings);
@@ -334,10 +338,23 @@ export class PairSpectrumPanel {
 
     /** The plot's level range on screen: its whole range, or the part of it zoomed to. */
     private levelRange(key: PairLaneKey, whole: { min: number; max: number }): { min: number; max: number } {
-        const part = this.levelWindow.get(key);
-        if (!part) return whole;
+        return this.levelWindow.get(key) ?? whole;
+    }
+
+    /** The plot's level zoom as the part of its whole range now drawn (what the gestures and the range popover take). */
+    private levelPart(key: PairLaneKey): NormalizedRange {
+        const zoom = this.levelWindow.get(key), whole = this.drawn.get(key)?.range;
+        if (!zoom || !whole) return FULL_PLOT_WINDOW.y;
+        const span = whole.max - whole.min || 1;
+        return { start: (zoom.min - whole.min) / span, end: (zoom.max - whole.min) / span };
+    }
+
+    /** Keeps `part` of the plot's whole range now drawn as its level zoom, in its values (null: the whole range). */
+    private setLevelPart(key: PairLaneKey, part: NormalizedRange | null): void {
+        const whole = this.drawn.get(key)?.range;
+        if (!part || !whole || (part.start <= 0 && part.end >= 1)) { this.levelWindow.delete(key); return; }
         const span = whole.max - whole.min;
-        return { min: whole.min + part.start * span, max: whole.min + part.end * span };
+        this.levelWindow.set(key, { min: whole.min + part.start * span, max: whole.min + part.end * span });
     }
 
     /** The power spectrum's Hz window as the part of the pair view's frequency axis (0 to the reference's Nyquist). */
@@ -379,7 +396,9 @@ export class PairSpectrumPanel {
             lineAt(null, pointer.lane);
             const x = marks.get(pointer.lane)?.show(drawn.canvas, drawn.plot, pointer.clientX, pointer.clientY, slot) ?? null;
             this.readHz = x === null ? null : this.frequencyAtX(pointer.lane, x);
-            if (this.readHz !== null) lineAt(this.readHz, pointer.lane);
+            // With no line read there, the others follow the frequency under the pointer, as the power spectrum does.
+            const followed = this.readHz ?? this.frequencyAtX(pointer.lane, pointer.clientX - drawn.canvas.getBoundingClientRect().left);
+            if (followed !== null) lineAt(followed, pointer.lane);
             return;
         }
         this.readHz = null;
@@ -426,7 +445,7 @@ export class PairSpectrumPanel {
                     return { plot, point: { fx, fy }, axis };
                 },
                 pointOn: (plot, clientX, clientY) => { const { fx, fy } = stagePlotPoint(plot, clientX, clientY); return { fx, fy }; },
-                window: plot => ({ x: this.result ? this.frequencyWindow(this.result) : FULL_PLOT_WINDOW.x, y: this.levelWindow.get(laneOf(plot)) ?? FULL_PLOT_WINDOW.y }),
+                window: plot => ({ x: this.result ? this.frequencyWindow(this.result) : FULL_PLOT_WINDOW.x, y: this.levelPart(laneOf(plot)) }),
                 setWindow: (plot, next: PlotWindow | null) => {
                     if (!this.result) return;
                     const max = this.result.maxFrequencyHz;
@@ -436,9 +455,11 @@ export class PairSpectrumPanel {
                     }
                     else {
                         const key = laneOf(plot);
-                        if (next.y.start <= 0 && next.y.end >= 1) this.levelWindow.delete(key);
-                        else this.levelWindow.set(key, next.y);
-                        this.host.setFrequencyWindowHz({ min: next.x.start * max, max: next.x.end * max });
+                        this.setLevelPart(key, next.y);
+                        // The pair axis ends at the reference's Nyquist, where the power spectrum may reach further: a
+                        // gesture that leaves the frequency part as it is (a pan with nothing past the ends) keeps that.
+                        const now = this.frequencyWindow(this.result);
+                        if (Math.abs(next.x.start - now.start) > 1e-9 || Math.abs(next.x.end - now.end) > 1e-9) this.host.setFrequencyWindowHz({ min: next.x.start * max, max: next.x.end * max });
                     }
                     this.render();
                 },
@@ -467,8 +488,8 @@ export class PairSpectrumPanel {
                     const key = laneOf(hit.plot), drawn = this.drawn.get(key);
                     if (!drawn) return false;
                     this.host.openLevelRange({
-                        label: drawn.label, min: drawn.range.min, max: drawn.range.max, current: this.levelWindow.get(key) ?? FULL_PLOT_WINDOW.y, clientX, clientY,
-                        set: part => { if (part) this.levelWindow.set(key, part); else this.levelWindow.delete(key); this.render(); },
+                        label: drawn.label, min: drawn.range.min, max: drawn.range.max, current: this.levelPart(key), clientX, clientY,
+                        set: part => { this.setLevelPart(key, part); this.render(); },
                     });
                     return true;
                 },

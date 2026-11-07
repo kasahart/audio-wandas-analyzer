@@ -240,6 +240,7 @@ function panelFixture() {
     let synced: number | null = null;
     const windows: Array<{ min: number; max: number } | null> = [];
     const opened: string[] = [];
+    const levelRequests: Array<Parameters<PairPanelHost['openLevelRange']>[0]> = [];
     const host: PairPanelHost = {
         channels: () => channels,
         range: () => range,
@@ -256,11 +257,11 @@ function panelFixture() {
         onLayoutChange: () => undefined,
         setFrequencyWindowHz: range => { windows.push(range); visible = range && { frequencyMin: range.min, frequencyMax: range.max }; },
         openFrequencyRange: () => { opened.push('frequency'); },
-        openLevelRange: request => { opened.push(request.label); },
+        openLevelRange: request => { opened.push(request.label); levelRequests.push(request); },
     };
     const panel = new PairSpectrumPanel(doc, host, en);
     return {
-        doc, panel, posted, references, hoverFrequencies, windows, opened,
+        doc, panel, posted, references, hoverFrequencies, windows, opened, levelRequests,
         setSynced(next: number | null) { synced = next; },
         /** The pointer at (x, y) on one plot, in its CSS pixels. */
         hover(key: string, x: number, y: number) {
@@ -398,6 +399,7 @@ test('closing the pair pane under the pointer clears the synced power spectrum c
         const fixture = shownFixture();
         fixture.hover('gain', xOfHz(500), yOf(0.5));
         assert.notEqual(fixture.hoverFrequencies.at(-1), null);
+        assert.deepEqual(fixture.cursors(), [true, true, true]);
         fixture.hoverFrequencies.length = 0;
 
         fixture.setChannels([]);
@@ -405,6 +407,8 @@ test('closing the pair pane under the pointer clears the synced power spectrum c
         mock.timers.tick(PAIR_REQUEST_DELAY_MS);
         assert.equal(fixture.panel.reference, null);
         assert.deepEqual(fixture.hoverFrequencies, [null]);
+        // The marks are laid over the page: they go with the pane.
+        assert.deepEqual(fixture.cursors(), [false, false, false]);
     }
     finally {
         mock.timers.reset();
@@ -428,7 +432,7 @@ test('the plot under the pointer reads its nearest line in the row above, in its
         assert.deepEqual(fixture.cursors(), [true, true, true], 'every plot shows the cursor line');
         assert.deepEqual(fixture.hoverFrequencies.at(-1), 500);
         fixture.hover('coherence', xOfHz(500), yOf(0.99));
-        assert.match(fixture.readout().textContent ?? '', /500 Hz.*0\.990/);
+        assert.match(fixture.readout().textContent ?? '', /500 Hz.*0\.990 γ²$/);
         fixture.doc.getElementById('pair-spectrum-plot')!.dispatchEvent(new fixture.doc.defaultView!.MouseEvent('mouseleave'));
         assert.equal(fixture.readout().hidden, true);
         assert.deepEqual(fixture.cursors(), [false, false, false]);
@@ -500,13 +504,43 @@ test('the pair plots zoom with every plot\'s gestures: the frequency shared with
         fixture.doc.dispatchEvent(new mouse('mouseup', { bubbles: true, clientX: xOfHz(750), clientY: yOf(0.5) }));
         const zoomed = fixture.windows.at(-1)!;
         assert.ok(Math.abs(zoomed.min - 250) < 1 && Math.abs(zoomed.max - 750) < 1, JSON.stringify(zoomed));
-        assert.match(lane.dataset.plotWindow ?? '', /^0\.\d+ 0\.\d+ 0\.500 1\.000$/);
+        // The level part is of the whole range refitted to the bins now on screen, so it is not the box's 0.5–1 (see below).
+        assert.match(lane.dataset.plotWindow ?? '', /^0\.250 0\.750 /);
+        assert.notEqual(lane.dataset.plotWindow?.endsWith('0.000 1.000'), true);
         // A double-click on the plot resets every axis; on an axis it opens that axis's range.
         lane.dispatchEvent(new mouse('dblclick', { bubbles: true, clientX: xOfHz(500), clientY: yOf(0.5) }));
         assert.equal(fixture.windows.at(-1), null);
         lane.dispatchEvent(new mouse('dblclick', { bubbles: true, clientX: 2, clientY: yOf(0.5) }));
         lane.dispatchEvent(new mouse('dblclick', { bubbles: true, clientX: xOfHz(500), clientY: LANE_HEIGHT - 2 }));
         assert.deepEqual(fixture.opened, ['Gain [dB]', 'frequency']);
+        // Shift+wheel on the whole pair axis has nothing to pan to: the power spectrum, which may reach past the
+        // reference's Nyquist, keeps its frequency range.
+        const before = fixture.windows.length;
+        lane.dispatchEvent(new fixture.doc.defaultView!.WheelEvent('wheel', { bubbles: true, cancelable: true, shiftKey: true, deltaY: 100, clientX: xOfHz(500), clientY: yOf(0.5) }));
+        assert.equal(fixture.windows.length, before);
+    }
+    finally {
+        mock.timers.reset();
+    }
+});
+
+test('a boxed level zoom keeps the values boxed when the frequency zoom refits the plot\'s whole range', () => {
+    mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+        const fixture = shownFixture();
+        const mouse = fixture.doc.defaultView!.MouseEvent;
+        const lane = fixture.lane('gain');
+        // The gain (0, −6, −12 dB) spans −12.6 to 0.6 dB; the box takes its upper half (−6 to 0.6 dB) up to 600 Hz,
+        // which leaves 0 and −6 dB on screen, so the whole range is refitted to −6.3 to 0.3 dB.
+        lane.dispatchEvent(new mouse('mousedown', { bubbles: true, button: 0, clientX: xOfHz(0), clientY: yOf(1) }));
+        fixture.doc.dispatchEvent(new mouse('mousemove', { bubbles: true, clientX: xOfHz(600), clientY: yOf(0.5) }));
+        fixture.doc.dispatchEvent(new mouse('mouseup', { bubbles: true, clientX: xOfHz(600), clientY: yOf(0.5) }));
+        lane.dispatchEvent(new mouse('dblclick', { bubbles: true, clientX: 2, clientY: yOf(0.5) }));
+        const request = fixture.levelRequests.at(-1)!;
+        const span = request.max - request.min;
+        assert.ok(Math.abs(request.min - -6.3) < 0.01 && Math.abs(request.max - 0.3) < 0.01, JSON.stringify(request));
+        assert.ok(Math.abs(request.min + request.current.start * span - -6) < 0.05, JSON.stringify(request));
+        assert.ok(Math.abs(request.min + request.current.end * span - 0.6) < 0.05, JSON.stringify(request));
     }
     finally {
         mock.timers.reset();

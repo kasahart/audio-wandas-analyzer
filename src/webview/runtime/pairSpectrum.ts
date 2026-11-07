@@ -168,6 +168,6 @@ export function pairLanes(input: PairPaintInput, visible: FrequencyScale, string
     return [
         { key: 'gain', axes: { x: strings.axisFrequency, y: drawn[0]?.response.axisLabel ?? 'Gain [dB]' }, range: gainRange(drawn, shown), layers: lines(response => response.gainDb, 'gain', 'dB') },
         { key: 'phase', axes: { x: strings.axisFrequency, y: strings.pairPhaseLabel }, range: { min: -180, max: 180 }, layers: lines(response => response.phaseRad.map(value => (value === null ? null : value * DEGREES)), 'value', '°') },
-        { key: 'coherence', axes: { x: strings.axisFrequency, y: strings.pairCoherenceLabel }, range: { min: 0, max: 1 }, layers: lines(response => response.coherence, 'coherence', '') },
+        { key: 'coherence', axes: { x: strings.axisFrequency, y: strings.pairCoherenceLabel }, range: { min: 0, max: 1 }, layers: lines(response => response.coherence, 'coherence', 'γ²') },
     ];
 }
