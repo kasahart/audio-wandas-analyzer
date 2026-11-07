@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { SpectrogramData, WaveformEnvelope } from '../shared/analysis/analysisTypes';
-import { DEFAULT_THEME } from '../webview/draw/canvasDrawers';
-import { hexToRgba, paintTrackSpectrogram, paintTrackWaveform, spectrogramPlotWidth, type WaveformPaintView } from '../webview/runtime/trackCanvasPainter';
+import { hexToRgba, onColourBar, paintTrackSpectrogram, paintTrackWaveform, type WaveformPaintView } from '../webview/runtime/trackCanvasPainter';
 
 function recordingCtx(): { ctx: CanvasRenderingContext2D; calls: string[]; props: Record<string, unknown> } {
     const calls: string[] = [];
@@ -18,7 +17,13 @@ function recordingCtx(): { ctx: CanvasRenderingContext2D; calls: string[]; props
                 return () => ({ width: 10 });
             }
             if (key === 'createImageData') {
-                return (w: number, h: number) => ({ data: new Uint8ClampedArray(w * h * 4), width: w, height: h });
+                return (w: number, h: number) => { calls.push(`createImageData ${w}x${h}`); return { data: new Uint8ClampedArray(w * h * 4), width: w, height: h }; };
+            }
+            if (key === 'createLinearGradient') {
+                return () => ({ addColorStop() { /* recorded by nothing */ } });
+            }
+            if (key === 'fillText') {
+                return (text: string) => { calls.push(`fillText ${text}`); };
             }
             return () => { calls.push(key); };
         },
@@ -91,25 +96,37 @@ const spec: SpectrogramData = {
     timeBins: 2, frequencyBins: 2, windowSize: 1024, hopSize: 256,
     maxFrequencyHz: 1000, minDb: -80, maxDb: -20, unit: 'dB',
 };
+const STYLE = { title: 'Level [dBFS]', text: '#ddd', back: '#111', line: '#444' };
 const rasterView = { zoomStart: 0, zoomEnd: 1, trackStart: 0, trackDurRatio: 1, dbLo: -80, dbHi: -20, maxFrequencyHz: 1000 };
 
 test('paintTrackSpectrogram repaints only when the spectrogram or its view changes', () => {
     const first = recordingCtx();
-    const entry = paintTrackSpectrogram(first.ctx, 120, 40, spec, rasterView, undefined, DEFAULT_THEME);
+    const entry = paintTrackSpectrogram(first.ctx, 120, 40, spec, rasterView, undefined, STYLE);
     assert.ok(first.calls.includes('putImageData'));
     assert.equal(entry.source, spec);
 
     const same = recordingCtx();
-    assert.equal(paintTrackSpectrogram(same.ctx, 120, 40, spec, rasterView, entry, DEFAULT_THEME), entry);
+    assert.equal(paintTrackSpectrogram(same.ctx, 120, 40, spec, rasterView, entry, STYLE), entry);
     assert.deepEqual(same.calls, []);
 
     const zoomed = recordingCtx();
-    const next = paintTrackSpectrogram(zoomed.ctx, 120, 40, spec, { ...rasterView, zoomEnd: 0.5 }, entry, DEFAULT_THEME);
+    const next = paintTrackSpectrogram(zoomed.ctx, 120, 40, spec, { ...rasterView, zoomEnd: 0.5 }, entry, STYLE);
     assert.notEqual(next, entry);
     assert.ok(zoomed.calls.includes('putImageData'));
 });
 
-test('spectrogramPlotWidth leaves room for the colorbar and never drops below one pixel', () => {
-    assert.equal(spectrogramPlotWidth(200), 150);
-    assert.equal(spectrogramPlotWidth(10), 1);
+test('a spectrogram lane is drawn over its whole width, with the colour bar every coloured picture draws in its top right (R13)', () => {
+    const { ctx, calls } = recordingCtx();
+    const entry = paintTrackSpectrogram(ctx, 400, 60, spec, rasterView, undefined, STYLE);
+    // The raster spans the canvas: the lanes share one time axis with nothing beside it.
+    assert.ok(calls.includes('createImageData 400x60'), calls.join(','));
+    // paintColourBar: the name, the low end, the strip, the high end.
+    assert.ok(calls.includes('fillText Level [dBFS]') && calls.includes('fillText -80') && calls.includes('fillText -20'), calls.join(','));
+    const box = entry.colourBar;
+    assert.ok(box.x > 0 && box.x + box.width <= 396 && box.y === 3 && box.height === 14, JSON.stringify(box));
+    assert.equal(onColourBar(entry, box.x + 1, box.y + 1), true);
+    assert.equal(onColourBar(entry, 10, 50), false);
+    // A new name is a new look: the lane is painted again.
+    const renamed = recordingCtx();
+    assert.notEqual(paintTrackSpectrogram(renamed.ctx, 400, 60, spec, rasterView, entry, { ...STYLE, title: 'Level [dB SPL]' }), entry);
 });

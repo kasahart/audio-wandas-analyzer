@@ -1,7 +1,7 @@
 import { channelLabel, channelsForResult, formatClockTime } from '../../shared/utils/format';
 import { niceRange } from '../../shared/utils/ticks';
 import { linkedSpectrogramBounds, spectrogramDisplayBounds, spectrogramFailureText } from './spectrogramRaster';
-import { PaintedLayerCache, paintTrackSpectrogram, paintTrackWaveform, spectrogramPlotWidth, type SpectrogramRasterCacheEntry } from './trackCanvasPainter';
+import { onColourBar, PaintedLayerCache, paintTrackSpectrogram, paintTrackWaveform, type SpectrogramRasterCacheEntry } from './trackCanvasPainter';
 import { laneHoverPoint, laneReadoutText, type LanePoint } from './trackLaneHover';
 import { hidePlotReadout, paintHoverMarks, PLOT_READOUT_ID, showPlotReadout } from './plotHover';
 import { trackTimelinePlacement } from './waveformCoverage';
@@ -95,7 +95,7 @@ import { installSpectrogramSettingsPopover } from './spectrogramSettingsPopover'
 import { installReanalyzeOverlay } from './reanalyzeOverlay';
 import { SpectrogramSettingsStore } from './spectrogramSettingsStore';
 import { createEntryScreen } from './entryRuntime';
-import { diffHeadline, trackLevelInput, withBins } from './comparePanes';
+import { diffHeadline, paneAxes, trackLevelInput, withBins } from './comparePanes';
 import { baseName } from '../../shared/analysis/entryMetadata';
 import { channelResult } from '../../shared/recipe/channelSelection';
 import { reportFiles } from './compareReport';
@@ -1760,8 +1760,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             if (!layout.canvasSizeChanged(cacheIdx, cacheKey)) {
                 return;
             }
-            // Outside the steps view the waveform stops where the spectrogram's colour bar starts.
-            const waveW = contentType === 'stage' ? newW - AXIS_W : spectrogramPlotWidth(newW - AXIS_W);
+            // The waveform and the spectrogram span the same width: one time axis for every lane.
+            const waveW = newW - AXIS_W;
             syncCanvasSize(canvas, waveW, heights.wave);
             const axisCanvas = canvasById(document, trackAxisCanvasId(i, channelIndex));
             if (axisCanvas) {
@@ -1791,9 +1791,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const W = canvas.width;
-        // The ticks follow the lanes' time span: the waveform's width, which ends at the spectrogram's colour bar.
+        // The ticks follow the lanes' time span: the waveform's width.
         const lane = canvasesMatching(document, '.track-canvas:not(.track-spec-canvas)').find(function (c) { return c.width > 1 && c.offsetParent !== null; });
-        const timeW = lane ? Math.min(W, lane.width) : spectrogramPlotWidth(W);
+        const timeW = lane ? Math.min(W, lane.width) : W;
         const H = canvas.height;
         ctx.clearRect(0, 0, W, H);
         const gs = trackStore.globalSpan();
@@ -1903,7 +1903,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 const overlayCtx = overlayCanvas ? overlayCanvas.getContext('2d') : null;
                 if (overlayCanvas && overlayCtx) {
                     overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-                    drawSpectrogramOverlayLines(overlayCtx, spectrogramPlotWidth(overlayCanvas.width), overlayCanvas.height);
+                    drawSpectrogramOverlayLines(overlayCtx, overlayCanvas.width, overlayCanvas.height);
                 }
             });
         });
@@ -2034,21 +2034,25 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const spec = ch.spectrogram;
         const { offsetNorm: trackStart, trackDurRatio } = trackTimelinePlacement(offsetSeconds, result.durationSeconds, trackStore.globalSpan());
         const { dbLo, dbHi, maxFrequencyHz: maxFreq, minFrequencyHz: minFreq } = spectrogramDisplayBounds(spec, spectrogramSettings.display, spectrogramAutoBounds(spec));
-        const plotW = spectrogramPlotWidth(W);
         const record = trackRecordAtIndex(trackIndex);
         if (!record) {
             return;
         }
         const cacheId = record.id + ':' + channelIndex;
-        spectrogramRasterCache.set(cacheId, paintTrackSpectrogram(ctx, W, H, spec, {
+        const theme = drawTheme(), text = getComputedStyle(document.body).getPropertyValue('--text').trim() || '#ddd';
+        // The colour bar is named as the comparison's heatmaps name their colour: the level, with the channel's reference.
+        const title = paneAxes(STR, trackLevelInput([ch], undefined)).level.y;
+        const painted = paintTrackSpectrogram(ctx, W, H, spec, {
             zoomStart: waveformView.start, zoomEnd: waveformView.end, trackStart, trackDurRatio, dbLo, dbHi, maxFrequencyHz: maxFreq, minFrequencyHz: minFreq,
             durationSec: result.durationSeconds,
-        }, spectrogramRasterCache.get(cacheId), drawTheme()));
+        }, spectrogramRasterCache.get(cacheId), { title, text, back: theme.bgColor, line: theme.lineColor });
+        spectrogramRasterCache.set(cacheId, painted);
+        canvas.dataset.colourBar = [painted.colourBar.x, painted.colourBar.y, painted.colourBar.width, painted.colourBar.height].map(value => Math.round(value)).join(' ');
         if (axisCanvas && axisCtx) {
             drawSpectrogramFrequencyAxis(axisCtx, axisCanvas.width, axisCanvas.height, spec, { maxFreq: maxFreq, minFreq: minFreq, label: STR.axisFrequency }, drawTheme());
         }
         if (overlayCtx) {
-            drawSpectrogramOverlayLines(overlayCtx, plotW, H);
+            drawSpectrogramOverlayLines(overlayCtx, W, H);
         }
     }
     /** The loop region, cursor and hover over a spectrogram: on their own canvas, so the raster under them stays as painted. */
@@ -2059,10 +2063,20 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
 
     type CanvasHitTarget = Pick<Element, 'getBoundingClientRect'> & { width: number; classList?: DOMTokenList };
-    /** The spectrogram canvas ends in its colour bar; the waveform's own width is already its time span. */
-    function trackCanvasTimeHit(canvas: CanvasHitTarget, clientX: number) {
-        const timeWidth = canvas.classList?.contains('track-spec-canvas') ? spectrogramPlotWidth(canvas.width) : canvas.width;
-        return canvasTimeHit(canvas.getBoundingClientRect().left, clientX, timeWidth, waveformView.timeRange());
+    /** A lane's canvas is its time span; a spectrogram's colour bar in its corner is not a time (null there). */
+    function trackCanvasTimeHit(canvas: CanvasHitTarget, clientX: number, clientY?: number) {
+        if (clientY !== undefined && onSpectrogramColourBar(canvas, clientX, clientY)) return null;
+        return canvasTimeHit(canvas.getBoundingClientRect().left, clientX, canvas.width, waveformView.timeRange());
+    }
+    /** Whether the pointer is on a spectrogram lane's colour bar, as last painted there. */
+    function onSpectrogramColourBar(canvas: CanvasHitTarget, clientX: number, clientY: number): boolean {
+        if (!canvas.classList?.contains('track-spec-canvas')) return false;
+        const box = (canvas as HTMLCanvasElement).dataset?.colourBar?.split(' ').map(Number);
+        if (!box || box.length !== 4) return false;
+        const rect = canvas.getBoundingClientRect();
+        const [x, y, width, height] = box;
+        const sx = canvas.width / Math.max(rect.width, 1), sy = (canvas as HTMLCanvasElement).height / Math.max(rect.height, 1);
+        return onColourBar({ colourBar: { x, y, width, height } }, (clientX - rect.left) * sx, (clientY - rect.top) * sy);
     }
     function clampedTrackCanvasNorm(canvas: Pick<Element, 'getBoundingClientRect'>, clientX: number, timeWidth: number) {
         return clampedCanvasNorm(canvas.getBoundingClientRect().left, clientX, timeWidth, waveformView.timeRange());
@@ -3357,10 +3371,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return openSpectrogramRangePopup(element, 'frequency', clientX, clientY);
         }
         if (element.classList.contains('track-spec-canvas')) {
-            const canvas = element as HTMLCanvasElement;
-            const rect = canvas.getBoundingClientRect();
-            const x = (clientX - rect.left) * (canvas.width / Math.max(rect.width, 1));
-            return x >= spectrogramPlotWidth(canvas.width) && openSpectrogramRangePopup(element, 'level', clientX, clientY);
+            return onSpectrogramColourBar(element as HTMLCanvasElement, clientX, clientY) && openSpectrogramRangePopup(element, 'level', clientX, clientY);
         }
         return element.classList.contains('track-axis-canvas') && openWaveformRangePopup(element, clientX, clientY);
     }
@@ -3459,7 +3470,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             ? target.closest<HTMLCanvasElement>('.track-canvas')
             : null;
         if (wheelCanvas) {
-            const hit = trackCanvasTimeHit(wheelCanvas, e.clientX);
+            const hit = trackCanvasTimeHit(wheelCanvas, e.clientX, e.clientY);
             if (!hit) {
                 return;
             }
@@ -3487,7 +3498,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const canvas = target && typeof target.closest === 'function' ? target.closest<HTMLCanvasElement>('.track-canvas') : null;
         const wrapper = document.getElementById('tracks-wrapper');
         const width = canvas
-            ? (canvas.classList.contains('track-spec-canvas') ? spectrogramPlotWidth(canvas.width) : canvas.width)
+            ? canvas.width
             : (wrapper ? wrapper.getBoundingClientRect().width - TRACK_HEADER_W : 0);
         if (width <= 0) {
             return;
@@ -3510,8 +3521,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (dragState) {
             return;
         }
-        const hit = trackCanvasTimeHit(canvas, e.clientX);
-        const onColorbar = !hit && contentType === 'waveform' && canvas.classList.contains('track-spec-canvas');
+        const hit = trackCanvasTimeHit(canvas, e.clientX, e.clientY);
+        const onColorbar = contentType === 'waveform' && onSpectrogramColourBar(canvas, e.clientX, e.clientY);
         canvas.style.cursor = onColorbar ? 'pointer' : '';
         if (!hit) {
             clearHover();
@@ -3552,7 +3563,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         if (e.button === 0) {
             const rect = canvas.getBoundingClientRect();
-            const hit = trackCanvasTimeHit(canvas, e.clientX);
+            const hit = trackCanvasTimeHit(canvas, e.clientX, e.clientY);
             if (!hit) {
                 return;
             }
@@ -3635,7 +3646,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             // クリック（ドラッグなし）: カーソル移動 + ループ区間解除
             const canvas = trackStore.protocolIndexForId(dragState.trackId) === null ? null : canvasById(document, dragState.canvasId);
             if (canvas) {
-                const hit = trackCanvasTimeHit(canvas, e.clientX);
+                const hit = trackCanvasTimeHit(canvas, e.clientX, e.clientY);
                 if (hit) {
                     moveCursor(hit.norm);
                     setLoopRegion(null);
@@ -3666,7 +3677,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function followPointerAfterDrag(e: MouseEvent): void {
         const under = document.elementFromPoint(e.clientX, e.clientY);
         const canvas = under instanceof HTMLCanvasElement && under.classList.contains('track-canvas') ? under : null;
-        const hit = canvas ? trackCanvasTimeHit(canvas, e.clientX) : null;
+        const hit = canvas ? trackCanvasTimeHit(canvas, e.clientX, e.clientY) : null;
         if (hit) renderWithHoverAt(hit.norm);
         else { clearHover(); updateCursorDisplay(viewState.cursor); }
     }

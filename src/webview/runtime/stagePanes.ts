@@ -703,8 +703,14 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
 /** Where a heatmap's colour bar starts: the plot's top right, or under the region's corner tag (top + 4 to + 21). */
 export const colourBarTop = (top: number, tagged: boolean): number => top + (tagged ? 25 : 3);
 
-/** A heatmap's colour bar: its name, then the low end, a strip of the colours and the high end, on a backing box. */
-export function paintColourBar(context: CanvasRenderingContext2D, at: { left: number; right: number; top: number }, fullTitle: string, lowText: string, highText: string, colourAt: (fraction: number) => string, colors: { text: string; back: string; line: string }): void {
+/** A colour bar's box on its canvas, in the units it was drawn in (a double-click there opens its range). */
+export interface ColourBarBox { x: number; y: number; width: number; height: number }
+
+/**
+ * A heatmap's colour bar, for every picture drawn in colours (the comparison's heatmaps, a track's spectrogram): its
+ * name, then the low end, a strip of the colours and the high end, on a backing box. Returns the box.
+ */
+export function paintColourBar(context: CanvasRenderingContext2D, at: { left: number; right: number; top: number }, fullTitle: string, lowText: string, highText: string, colourAt: (fraction: number) => string, colors: { text: string; back: string; line: string }): ColourBarBox {
     const strip = 48, height = 6, gap = 4, pad = 3;
     const lowWidth = context.measureText(lowText).width;
     const highWidth = context.measureText(highText).width;
@@ -738,6 +744,7 @@ export function paintColourBar(context: CanvasRenderingContext2D, at: { left: nu
     context.fillStyle = colors.text;
     context.fillText(highText, cursor + strip + gap, y + 7);
     context.restore();
+    return { x, y, width, height: 14 };
 }
 
 /**

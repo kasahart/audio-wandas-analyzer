@@ -131,7 +131,7 @@ test('track canvas width follows layout changes without a window resize event', 
         const canvas = document.getElementById('track-canvas-0') as HTMLCanvasElement | null;
         const axis = document.getElementById('track-axis-canvas-0') as HTMLCanvasElement | null;
         if (!wrap || !canvas || !axis) { return false; }
-        const expected = Math.max(1, Math.round(wrap.clientWidth - axis.width - 50 /* the spectrogram's colour bar */));
+        const expected = Math.max(1, Math.round(wrap.clientWidth - axis.width));
         return Math.abs(canvas.width - expected) <= 1;
     })).toBe(true);
 
@@ -146,7 +146,7 @@ test('track canvas width follows layout changes without a window resize event', 
         const canvas = document.getElementById('track-canvas-0') as HTMLCanvasElement | null;
         const axis = document.getElementById('track-axis-canvas-0') as HTMLCanvasElement | null;
         if (!wrap || !canvas || !axis) { return false; }
-        const expected = Math.max(1, Math.round(wrap.clientWidth - axis.width - 50 /* the spectrogram's colour bar */));
+        const expected = Math.max(1, Math.round(wrap.clientWidth - axis.width));
         const renderedWidth = Math.round(canvas.getBoundingClientRect().width);
         return Math.abs(canvas.width - expected) <= 1 && Math.abs(renderedWidth - expected) <= 1;
     })).toBe(true);

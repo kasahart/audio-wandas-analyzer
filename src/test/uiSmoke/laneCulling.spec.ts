@@ -81,7 +81,7 @@ test('a lane resized while out of view paints its spectrogram again when scrolle
     await page.setContent(buildUiSmokeManyTracksHtml(40, true), { waitUntil: 'domcontentloaded' });
     await expect(page.locator('.track-row')).toHaveCount(40);
     const painted = () => page.locator('#track-spec-canvas-0').evaluate((canvas: HTMLCanvasElement) => {
-        // The left half: the plot, not the colour bar drawn beside it on every paint.
+        // The left half: the plot, not the colour bar drawn in its top right on every paint.
         const data = canvas.getContext('2d')?.getImageData(0, 0, Math.floor(canvas.width / 2), canvas.height).data;
         return Boolean(data && data.some((value, index) => index % 4 === 3 && value > 0));
     });

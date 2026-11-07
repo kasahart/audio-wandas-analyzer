@@ -466,7 +466,9 @@ async function getPostedActionTypes(page: Page): Promise<string[]> {
             .map((message) => message.type ?? '')
             .filter((type) => type !== 'comparison-panel-test-snapshot'
                 && type !== 'comparison-panel-ready'
-                && type !== 'request-spectrum-slice');
+                && type !== 'request-spectrum-slice'
+                // The lanes fetch the waveform they draw at their width: data, not an action.
+                && type !== 'request-waveform-range');
     });
 }
 
@@ -525,10 +527,10 @@ test('a lane shows the waveform over its spectrogram on one time axis, split by 
     await expect(spec).toBeVisible();
     const box = async () => ({ wave: (await wave.boundingBox())!, spec: (await spec.boundingBox())! });
     const before = await box();
-    // Both plots start at the same time; the waveform stops where the spectrogram's colour bar begins.
+    // Both plots span the same time: the spectrogram's colour bar is in its corner, not beside it (R13).
     expect(before.wave.x).toBeCloseTo(before.spec.x, 0);
     expect(before.spec.y).toBeGreaterThan(before.wave.y + before.wave.height - 1);
-    expect(before.spec.width - before.wave.width).toBeCloseTo(50, 0);
+    expect(before.spec.width).toBeCloseTo(before.wave.width, 0);
     // Hovering either plot moves the same cursor time.
     await page.mouse.move(before.spec.x + before.wave.width / 2, before.spec.y + before.spec.height / 2);
     const fromSpec = await page.locator('#cursor-display').textContent();
@@ -653,8 +655,11 @@ test('a theme switched while open repaints the lanes: the colour bar\'s strip ta
     await page.setContent(buildUiSmokeHtml().replace(/<body([^>]*)>/, '<body$1 data-theme-kind="dark">'), { waitUntil: 'domcontentloaded' });
     const spec = page.locator('#track-spec-canvas-0');
     await expect(spec).toBeVisible();
-    // The pixel in the colour bar's strip, right of the bar itself.
-    const strip = () => spec.evaluate((canvas: HTMLCanvasElement) => Array.from(canvas.getContext('2d')!.getImageData(canvas.width - 4, Math.floor(canvas.height / 2), 1, 1).data.slice(0, 3)));
+    // A pixel of the colour bar's backing, before its name: the lane's background, over the picture.
+    const strip = () => spec.evaluate((canvas: HTMLCanvasElement) => {
+        const [x, y] = (canvas.dataset.colourBar ?? '0 0').split(' ').map(Number);
+        return Array.from(canvas.getContext('2d')!.getImageData(x + 1, y + 1, 1, 1).data.slice(0, 3));
+    });
     await expect.poll(async () => (await strip())[0]).toBeLessThan(60);
     await page.evaluate(() => document.body.setAttribute('data-theme-kind', 'light'));
     await expect.poll(async () => (await strip())[0]).toBeGreaterThan(200);

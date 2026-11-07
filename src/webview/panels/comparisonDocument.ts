@@ -3,7 +3,6 @@ import { getStrings, pickLocale } from '../../shared/i18n/strings';
 import type { ComparisonState } from '../runtime/types';
 import { createNonce } from './nonce';
 import { DIFF_COLOR, FLAG_COLOR, LIGHT_DIFF_COLOR, LIGHT_ROLE_COLORS, LIGHT_THEME_BODY_SELECTORS, ROLE_COLORS } from '../../shared/gui/roleColors';
-import { SPECTROGRAM_COLORBAR_WIDTH } from '../draw/canvasDrawers';
 
 export interface ComparisonAssets {
     waveformScriptUri: string;
@@ -696,8 +695,7 @@ export function renderComparisonStyles(): string {
         }
         .track-offset-input { width: 5em; font-size: inherit; font-family: var(--font-mono); text-align: right; background: var(--vscode-input-background, #1e1e1e); color: var(--vscode-input-foreground, #d4d4d4); border: 1px solid var(--vscode-input-border, #3c3c3c); border-radius: 2px; }
         .track-canvas-stack { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-        /* The right padding is the spectrogram's colour bar, so both plots share one time axis. */
-        .track-canvas-wrap { display: flex; position: relative; overflow: hidden; background: var(--track-bg); padding-right: ${SPECTROGRAM_COLORBAR_WIDTH}px; }
+        .track-canvas-wrap { display: flex; position: relative; overflow: hidden; background: var(--track-bg); }
         .track-spec-wrap { display: flex; position: relative; overflow: hidden; background: var(--track-bg); }
         /* A trigger's tracks: a mark per event over the lane (▶ plays it, × leaves it out), the lane's count in its corner. */
         .stage-event-marks { position: absolute; top: 0; pointer-events: none; }

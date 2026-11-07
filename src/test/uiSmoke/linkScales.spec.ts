@@ -1,14 +1,14 @@
 import { expect, test, type Page } from './canvasAudit';
 import { getStrings } from '../../shared/i18n/strings';
 import { buildUiSmokeTwoLevelsHtml } from './buildHtml';
+import { colourBarAt } from './colourBar';
 
-/** The range popover's Min and Max after double-clicking `selector` of track `trackIndex` (at its right edge if asked). */
-async function rangeAt(page: Page, selector: string, trackIndex: number, rightEdge = false): Promise<{ min: string; max: string }> {
+/** The range popover's Min and Max after double-clicking `selector` of track `trackIndex` (on its colour bar if asked). */
+async function rangeAt(page: Page, selector: string, trackIndex: number, colourBar = false): Promise<{ min: string; max: string }> {
     const target = page.locator('#track-row-' + trackIndex + ' ' + selector).first();
-    if (rightEdge) {
-        const box = await target.boundingBox();
-        if (!box) throw new Error('no box for ' + selector);
-        await target.dblclick({ position: { x: box.width - 30, y: box.height / 2 } });
+    if (colourBar) {
+        await expect(target).toHaveAttribute('data-colour-bar', /\d/);
+        await target.dblclick({ position: await colourBarAt(target) });
     }
     else {
         await target.dblclick();
@@ -64,7 +64,8 @@ test('the spectrogram frequency axis and colour bar set the range of every track
     await expect(page.locator('#waveform-range-popover')).toBeHidden();
     expect(await rangeAt(page, '.track-spec-axis', 1)).toEqual({ min: '500', max: '2000' });
 
-    await page.locator('#track-row-1 .track-spec-canvas').first().dblclick({ position: { x: (await page.locator('#track-row-1 .track-spec-canvas').first().boundingBox())!.width - 30, y: 10 } });
+    const colourBar = page.locator('#track-row-1 .track-spec-canvas').first();
+    await colourBar.dblclick({ position: await colourBarAt(colourBar) });
     await page.locator('#wave-range-min').fill('-80');
     await page.locator('#wave-range-max').fill('-10');
     await page.locator('#wave-range-apply').click();
@@ -81,9 +82,17 @@ test('the colour bar says it sets the colour scale when the pointer is on it', a
     const canvas = page.locator('#track-row-0 .track-spec-canvas').first();
     const box = await canvas.boundingBox();
     if (!box) throw new Error('no spectrogram box');
-    await page.mouse.move(box.x + box.width - 30, box.y + box.height / 2);
+    await expect(canvas).toHaveAttribute('data-colour-bar', /\d/);
+    // The colour bar is the one every coloured picture draws, in the plot's top right (R13).
+    const bar = await colourBarAt(canvas);
+    expect(bar.x).toBeGreaterThan(box.width / 2);
+    expect(bar.y).toBeLessThan(box.height / 2);
+    await page.mouse.move(box.x + bar.x, box.y + bar.y);
     await expect(page.locator('#hint-footer')).toHaveText(getStrings('en').hintSpectrogramColorbar);
     await expect(canvas).toHaveCSS('cursor', 'pointer');
+    // Off the bar the plot reads the time again.
+    await page.mouse.move(box.x + box.width / 4, box.y + box.height * 0.75);
+    await expect(canvas).not.toHaveCSS('cursor', 'pointer');
 });
 
 test('tracks in another unit keep their own scales when linked', async ({ page }) => {
