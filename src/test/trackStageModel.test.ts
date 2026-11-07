@@ -79,12 +79,11 @@ test('holding a step scans the chain without it, on the step before it when it i
 test('the base is one file\'s picture or a group\'s combined median; the difference is the combination\'s', () => {
     const views: Record<string, StageView | null | undefined> = { a: { ...line([-10, -20]), data: 'ka' }, b: { ...line([-30, -40]), data: 'kb' }, c: { ...line([-20, -20]), data: 'kc' } };
     const tracks = ['a', 'b', 'c', 'd'].map(filePath => ({ filePath }));
-    const combined = { base: line([-20, -30]), diff: line([0, 10]), headline: { x: 1000, base: -30, compare: -20 } };
+    const combined = { base: line([-20, -30]), diff: line([0, 10]) };
     const plots = plotsOf(path => views[path], tracks, 'c', ['a', 'b'], combined);
     assert.deepEqual(plots.base?.values, [-20, -30]);
     assert.deepEqual(plots.compare?.values, [-20, -20]);
     assert.deepEqual(plots.diff?.values, [0, 10]);
-    assert.deepEqual(plots.headline, combined.headline);
     assert.deepEqual(plots.others.map(item => [item.track.filePath, item.view]), [['d', null]]);
     assert.equal(plotsOf(path => views[path], tracks, 'c', ['a', 'b'], undefined).base, null, 'a group\'s median not combined yet');
     assert.equal(plotsOf(path => views[path], tracks, 'c', ['a'], combined).base, views.a, 'one base file is the base itself');

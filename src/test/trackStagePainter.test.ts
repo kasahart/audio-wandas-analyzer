@@ -40,7 +40,7 @@ const role = (path: string): number | undefined => { const at = slots.indexOf(pa
 const named = (path: string, slot: number | undefined) => ({ label: `${slot ?? '·'} · ${path}` });
 
 /** The backend's difference of one.wav from base.wav (lines of `line`), and where it is largest. */
-const combined: Combined = { base: null, diff: line([10, 0]), headline: { x: 100, base: -20, compare: -10 } };
+const combined: Combined = { base: null, diff: line([10, 0]) };
 
 function frameFor(tracks: StageTrack[], views: Record<string, StageView | null | undefined>, extra: Partial<StageFrame> = {}): StageFrame {
     const coarse = (path: string) => views[path];

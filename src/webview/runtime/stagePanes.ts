@@ -9,7 +9,6 @@
 import type { StageView } from '../../shared/protocol/backendProtocol';
 import type { UiStrings } from '../../shared/i18n/strings';
 import { BAND_CENTERS_HZ } from './entryTable';
-import type { StageHeadline } from './combineSource';
 import { PANE_LEFT, paneAxes, type LevelInput, type PaneRange } from './comparePanes';
 import { uncalibratedUnits } from '../../shared/utils/format';
 import type { NormalizedRange } from './waveformInteraction';
@@ -22,7 +21,7 @@ import { niceTicks } from '../../shared/utils/ticks';
 /** Canvas x the level axis's turned title is centred on, in the gutter left of its tick labels. */
 const AXIS_TITLE_X = 10;
 
-export type StageStrings = Pick<UiStrings, 'axisFrequency' | 'axisTime' | 'axisTriggerTime' | 'axisBand' | 'axisBark' | 'axisQuefrency' | 'axisCepstrum' | 'axisLag' | 'axisCorrelation' | 'axisLevel' | 'axisLevelUncal' | 'axisLevelCal' | 'axisDelta' | 'dsValue' | 'axisGain' | 'axisCoherence' | 'legendHeadline' | 'legendLeak' | 'legendLine' | 'stageNoDelta' | 'stageEventCounts' | 'stageNoEvents' | 'stageMaxDelta' | 'stepNotDrawable' | 'compareLevelsAt' | 'waveRangeAxisAmplitude' | 'stagePairBase' | 'axisLoudness' | 'axisSharpness' | 'axisRoughness' | 'axisLevelOf' | 'axisRms' | 'axisRmsTimeWeighted' | 'axisPower' | 'axisUncalibrated'>;
+export type StageStrings = Pick<UiStrings, 'axisFrequency' | 'axisTime' | 'axisTriggerTime' | 'axisBand' | 'axisBark' | 'axisQuefrency' | 'axisCepstrum' | 'axisLag' | 'axisCorrelation' | 'axisLevel' | 'axisLevelUncal' | 'axisLevelCal' | 'axisDelta' | 'dsValue' | 'axisGain' | 'axisCoherence' | 'legendHeadline' | 'legendLeak' | 'legendLine' | 'stageNoDelta' | 'stageEventCounts' | 'stageNoEvents' | 'stageMaxDelta' | 'stepNotDrawable' | 'waveRangeAxisAmplitude' | 'stagePairBase' | 'axisLoudness' | 'axisSharpness' | 'axisRoughness' | 'axisLevelOf' | 'axisRms' | 'axisRmsTimeWeighted' | 'axisPower' | 'axisUncalibrated'>;
 
 const DB_QUANTITIES = ['level', 'gain'];
 const isDb = (view: StageView | null): boolean => DB_QUANTITIES.includes(view?.quantity ?? '');
@@ -39,18 +38,9 @@ const skipsFirst = (view: StageView): boolean => view.quantity === 'cepstrum';
  */
 const headlineColumn = (view: StageView, column: number): boolean => view.whole?.[column] !== false;
 
-/**
- * The comparison's headline for a step's picture: where base and compare differ most among the points loud
- * enough to be heard, with both their values: "1.00 kHz base −40.0 / compare −26.0 dB". `headline` is that point,
- * found in the Frames' full resolution (stage_combine.py), not in the decimated pictures.
- */
-export function stageLevelsHeadline(base: StageView | null, compare: StageView | null, diff: StageView | null, headline: StageHeadline | null | undefined, strings: Pick<StageStrings, 'stageNoDelta' | 'compareLevelsAt'> & Partial<Pick<StageStrings, 'stageEventCounts'>>): string {
-    // A trigger's events: how many each found, which is what tells the recordings apart first.
-    if (strings.stageEventCounts && (isEventsView(base) || isEventsView(compare))) return strings.stageEventCounts.replace('{base}', base?.events ? String(base.events.length) : '—').replace('{compare}', compare?.events ? String(compare.events.length) : '—');
-    if (!base || !compare || !diff || !headline) return strings.stageNoDelta;
-    const shown = (value: number | null): string => (value === null ? '—' : Math.abs(value) >= 10 ? value.toFixed(1).replace(/^-/, '−') : value.toPrecision(3).replace(/^-/, '−'));
-    return strings.compareLevelsAt.replace('{at}', atValue(diff, headline.x, headline.y)).replace('{base}', shown(headline.base)).replace('{compare}', shown(headline.compare))
-        + (isDb(base) ? ' dB' : '');
+/** A trigger's events in the row above the plots: how many each recording found, which tells them apart first. */
+export function stageEventCounts(base: StageView | null, compare: StageView | null, strings: Pick<StageStrings, 'stageEventCounts'>): string {
+    return strings.stageEventCounts.replace('{base}', base?.events ? String(base.events.length) : '—').replace('{compare}', compare?.events ? String(compare.events.length) : '—');
 }
 
 /**

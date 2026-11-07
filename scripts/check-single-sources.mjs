@@ -2,7 +2,6 @@
 // Keeps values that must live in several files in step with their single source:
 //   - Python runtime dependencies: pyproject.toml [project].dependencies
 //   - Browser session limits: python-backend/browser_service.py (README tables, browserAbout*Limits)
-//   - The comparison headline's loudness threshold: src/webview/runtime/entryTable.ts HEADLINE_WITHIN_DB
 //   - How many buckets a spectrum is drawn in: python-backend/stage_view.py SPECTRUM_LINE_BUCKETS
 // `--write` regenerates the README limit tables; without it the script only checks (used by verify).
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -116,15 +115,6 @@ for (const [readme, rows] of Object.entries(limitRows)) {
     if (text.slice(start, end + END.length) === expected) continue;
     if (write) writeFileSync(join(root, readme), text.slice(0, start) + expected + text.slice(end + END.length));
     else problems.push(`${readme}: browser limit table is out of date; run node scripts/check-single-sources.mjs --write`);
-}
-
-// --- Comparison headline -------------------------------------------------------------------
-// The step pictures' headline is found by the backend (stage_combine.py); the 1/3-octave headline and the
-// report's definitions read the same threshold from entryTable.ts.
-const tableWithin = /^export const HEADLINE_WITHIN_DB = ([\d.]+);$/m.exec(read('src/webview/runtime/entryTable.ts'))?.[1];
-const backendWithin = /^HEADLINE_WITHIN_DB = ([\d.]+)$/m.exec(read('python-backend/stage_combine.py'))?.[1];
-if (tableWithin === undefined || backendWithin === undefined || Number(tableWithin) !== Number(backendWithin)) {
-    problems.push(`stage_combine.py HEADLINE_WITHIN_DB (${backendWithin}) must equal entryTable.ts HEADLINE_WITHIN_DB (${tableWithin})`);
 }
 
 // The report draws a spectrum's bins as the comparison does (comparePanes.ts minMaxLine, stage_view.min_max_line).

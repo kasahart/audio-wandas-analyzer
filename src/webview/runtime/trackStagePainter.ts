@@ -9,7 +9,7 @@ import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { baseName } from '../../shared/analysis/entryMetadata';
 import { DIFF_COLOR, ROLE_COLORS } from '../../shared/gui/roleColors';
 import type { LegendItem, LevelInput, PaneRange } from './comparePanes';
-import { byLevel, emptyStageText, isEventsView, paintOverlay, paintStage, stageAxes, stageDiffRange, stageHeadline, stageLevelsHeadline, stageRange, type StageAxes, type StageLayer, type StagePlot } from './stagePanes';
+import { byLevel, emptyStageText, isEventsView, paintOverlay, paintStage, stageAxes, stageDiffRange, stageEventCounts, stageHeadline, stageRange, type StageAxes, type StageLayer, type StagePlot } from './stagePanes';
 import type { PlotWindow } from './plotInteraction';
 import type { StagePlots } from './trackStageModel';
 
@@ -131,8 +131,9 @@ export interface StageFrame {
 }
 
 /**
- * The headline over the plots: the recording measured against, or which difference is shown and where it is
- * largest, or what to do while nothing is compared; then the steps bypassed and the region. Empty while computing.
+ * The notes in the row over the plots (its numbers are the pointer's readout, R7): the recording measured against, a
+ * trigger's event counts, a base too large, or what to do while nothing is compared; then the steps bypassed and
+ * the region. Empty while computing.
  */
 export function stageModeHeadline(frame: Pick<StageFrame, 'strings' | 'waiting' | 'referencePath' | 'comparePath' | 'role' | 'named' | 'coarsePlots' | 'baseEach' | 'tooLarge'>, bypassed: readonly string[], region: { start: number; end: number } | null): string {
     const { strings, waiting, referencePath, comparePath, coarsePlots, baseEach } = frame;
@@ -142,7 +143,7 @@ export function stageModeHeadline(frame: Pick<StageFrame, 'strings' | 'waiting' 
         // The row's numbers are the pointer's readout (R7, as over the cursor spectrum): no difference is named here.
         // A trigger's events say how many each found; a base too large for the median says so.
         : comparePath ? (baseEach ? '' : frame.tooLarge ? strings.stageTooLarge
-            : isEventsView(coarsePlots.compare) || isEventsView(coarsePlots.base) ? stageLevelsHeadline(coarsePlots.base, coarsePlots.compare, coarsePlots.diff, coarsePlots.headline, strings) : '')
+            : isEventsView(coarsePlots.compare) || isEventsView(coarsePlots.base) ? stageEventCounts(coarsePlots.base, coarsePlots.compare, strings) : '')
         // No compare role yet: the lines are there, but nothing to measure against a base; the legend's chips set one.
         : strings.stageChooseRoles;
     // The steps bypassed are named: what is drawn is the chain without them.

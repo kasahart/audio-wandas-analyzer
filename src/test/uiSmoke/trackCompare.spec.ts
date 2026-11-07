@@ -559,6 +559,30 @@ test('a base group of more than 30 recordings is not analysed by opening a compa
     await expect(gate).toBeHidden();
 });
 
+test('the readout row above the comparison keeps the values whole at any width, with the base group\'s button in it, and a hover never moves the plots', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    await page.setViewportSize({ width: 1100, height: 800 });
+    await openComparison(page);
+    await expect(page.locator('[data-stage-base-gate]')).toBeVisible();
+    for (const width of [1100, 700, 600]) {
+        await page.setViewportSize({ width, height: 800 });
+        const row = page.locator('.track-stage-controls');
+        const plot = page.locator('[data-stage-canvas="overlay"]');
+        const before = (await plot.boundingBox())!;
+        await page.mouse.move(before.x + 52 + (before.width - 56) / 2, before.y + before.height / 2);
+        const readout = page.locator('.track-stage-controls [data-plot-readout]');
+        await expect(readout).toHaveText(/ \/ [\d.]+ k?Hz \/ −?\d+\.\d dB$/);
+        // The values end inside the row and the window (the canvas audit checks this in every test too); the row is above the plot.
+        const values = (await readout.locator('.plot-readout-values').boundingBox())!;
+        const rowBox = (await row.boundingBox())!;
+        expect(values.x + values.width, `values at ${width} px`).toBeLessThanOrEqual(Math.min(rowBox.x + rowBox.width, width) + 1);
+        expect(rowBox.y + rowBox.height).toBeLessThanOrEqual(before.y + 1);
+        // The hover moved nothing: the plot is where it was.
+        expect((await plot.boundingBox())!.y).toBeCloseTo(before.y, 0);
+        await page.mouse.move(1, 1);
+    }
+});
+
 test('coherence compares two channels of each recording: it comes with its pair (ch2 / ch1), which its settings change, and × takes both', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     const STR = getStrings('en');

@@ -11,7 +11,7 @@ import { withChannel } from '../../shared/recipe/channelSelection';
 import { INPUT_STAGE, recipeWithout, unpairedRecipe } from './stepBarModel';
 import type { StageSpec } from './stageSource';
 import { FULL_PLOT_WINDOW, type PlotWindow } from './plotInteraction';
-import type { Combined, StageHeadline } from './combineSource';
+import type { Combined } from './combineSource';
 import { regionLabel } from './entryTable';
 
 /** The Recipe the entry table scans with, the one its scans run (the steps that cannot run left out), and the failures. */
@@ -137,14 +137,14 @@ export function pictureSummary(view: StageView | null | undefined): { stageValue
 
 /**
  * The pictures of one paint: the base, the compared file's, the other tracks' and the compared file's difference from
- * the base, with where it is largest. A base group of signals has no median signal: `baseMembers` are its files' own
+ * the base. A base group of signals has no median signal: `baseMembers` are its files' own
  * waveforms, drawn each (named, for the line under the pointer).
  */
-export interface StagePlots<T> { base: StageView | null; baseMembers: Array<{ path: string; view: StageView }>; compare: StageView | null; others: Array<{ track: T; view: StageView | null }>; diff: StageView | null; headline: StageHeadline | null }
+export interface StagePlots<T> { base: StageView | null; baseMembers: Array<{ path: string; view: StageView }>; compare: StageView | null; others: Array<{ track: T; view: StageView | null }>; diff: StageView | null }
 
 /**
  * The base is one file's picture (`baseOf`, else `views`), or a group's median once `combined` (taken from the
- * Frames' full resolution, combineSource.ts); the difference and its headline are `combined`'s too. A group's
+ * Frames' full resolution, combineSource.ts); the difference is `combined`'s too. A group's
  * waveforms are its members, each drawn as it is.
  */
 export function plotsOf<T extends { filePath: string }>(views: (path: string) => StageView | null | undefined, tracks: readonly T[], comparePath: string | null, basePaths: readonly string[], combined: Combined | undefined, baseOf = views): StagePlots<T> {
@@ -154,7 +154,7 @@ export function plotsOf<T extends { filePath: string }>(views: (path: string) =>
     const compare = comparePath ? views(comparePath) ?? null : null;
     const others = tracks.filter(track => track.filePath !== comparePath && !basePaths.includes(track.filePath)).map(track => ({ track, view: views(track.filePath) ?? null }));
     const compared = !!comparePath && !basePaths.includes(comparePath);
-    return { base, baseMembers, compare, others, diff: compared ? combined?.diff ?? null : null, headline: compared ? combined?.headline ?? null : null };
+    return { base, baseMembers, compare, others, diff: compared ? combined?.diff ?? null : null };
 }
 
 /**

@@ -45,11 +45,6 @@ from stage_view import StageDetail, StageView
 #: A base group the comparison scans without asking (up to 30 recordings or 30 minutes) fits: half an hour of a
 #: 48 kHz signal's level, or of a spectrogram at the default hop. The browser keeps less (browser_service.py).
 STAGE_DATA_BUDGET_BYTES = 768 * 1024 * 1024
-#: Where both recordings are this far below the loudest of either (dB), a difference does not head the
-#: comparison: entryTable.ts HEADLINE_WITHIN_DB.
-HEADLINE_WITHIN_DB = 20.0
-#: Silence floors at MIN_LEVEL_DB; the headline only reads levels above this.
-AUDIBLE_FLOOR_DB = -250.0
 #: A difference of dB levels to a hundredth; small linear values (cepstral coefficients, coherence) keep more.
 DB_DIFF_DECIMALS = 2
 VALUE_DIFF_DECIMALS = 6
@@ -95,15 +90,6 @@ class StageData:
         return int(self.xs.nbytes + self.values.nbytes + (self.ys.nbytes if self.ys is not None else 0))
 
 
-class Headline(TypedDict):
-    """Where the recording compared differs most from its base among what is loud enough to hear."""
-
-    x: float
-    y: NotRequired[float]
-    base: float | None
-    compare: float | None
-
-
 class CombineResult(TypedDict):
     ok: bool
     #: The keys no longer kept (the scans that made them are asked for again).
@@ -111,7 +97,6 @@ class CombineResult(TypedDict):
     #: The base group's median (a base of one recording is its own picture, which the comparison has).
     base: NotRequired[StageView]
     diff: NotRequired[StageView]
-    headline: NotRequired[Headline]
 
 
 class _Store:
@@ -497,58 +482,6 @@ def _whole_of(items: list[StageData]) -> np.ndarray | None:
     return np.logical_and.reduce(wholes) if wholes else None
 
 
-def _drawn(data: StageData) -> np.ndarray | None:
-    """The points (an image's rows) a spectrum's picture draws: from SPECTRUM_MIN_HZ to Nyquist."""
-    axis = data.ys if data.mode == "spectrogram" else data.xs if data.mode in ("spectrum", "coherence") else None
-    if axis is None:
-        return None
-    return (axis >= spec.SPECTRUM_MIN_HZ) & (axis <= data.nyquist)
-
-
-def _headline(
-    template: StageView,
-    xs: np.ndarray,
-    ys: np.ndarray | None,
-    base: np.ndarray,
-    compare: np.ndarray,
-    whole: np.ndarray | None,
-    drawn: np.ndarray | None = None,
-) -> Headline | None:
-    """Where |compare − base| is largest among the points loud enough to hear: for dB levels, where the louder of
-    the two is within HEADLINE_WITHIN_DB of the loudest of either; for other values, every point."""
-    with np.errstate(invalid="ignore"):
-        louder = np.fmax(base, compare)
-        known = np.isfinite(base) & np.isfinite(compare)
-        # Only what is drawn heads the comparison, or sets how loud it must be: a spectrum's bins from 20 Hz to
-        # Nyquist (an image's rows).
-        if drawn is not None:
-            known[~drawn] = False
-        if template.get("quantity") in DB_QUANTITIES:
-            audible = known & (louder > AUDIBLE_FLOOR_DB)
-            if not audible.any():
-                return None
-            loud = known & (louder >= np.max(louder[audible]) - HEADLINE_WITHIN_DB)
-        else:
-            loud = known
-        size = np.where(loud, np.abs(compare - base), -np.inf)
-    # A cepstrum's zero-quefrency coefficient is left out, as its ranges leave it out.
-    if template.get("quantity") == "cepstrum" and size.shape[0]:
-        size[0] = -np.inf
-    if whole is not None and size.ndim == 2:
-        size[:, ~whole] = -np.inf
-    if not np.isfinite(size).any():
-        return None
-    at = np.unravel_index(int(np.argmax(size)), size.shape)
-    found: Headline = {
-        "x": float(xs[at[-1]]),
-        "base": float(base[at]) if np.isfinite(base[at]) else None,
-        "compare": float(compare[at]) if np.isfinite(compare[at]) else None,
-    }
-    if size.ndim == 2 and ys is not None:
-        found["y"] = float(ys[at[0]])
-    return found
-
-
 def _end(data: StageData) -> float:
     return data.start + data.values.size / data.rate
 
@@ -605,10 +538,6 @@ def _combine_levels(base: list[StageData], compare: StageData | None, detail: St
     if compare is not None:
         levels = _block_levels(compare, edges)
         result["diff"] = line(levels - median, True)
-        if detail is None:
-            headline = _headline(base[0].view, times, None, median, levels, None)
-            if headline is not None:
-                result["headline"] = headline
     return result
 
 
@@ -634,10 +563,6 @@ def combine(base: list[StageData], compare: StageData | None, detail: StageDetai
     difference = _f64(compare.values) - median
     whole = _whole_of([*base, compare])
     result["diff"] = draw(replace(first, values=difference, whole=whole), detail, diff=True)
-    if detail is None:
-        headline = _headline(first.view, first.xs, first.ys, median, _f64(compare.values), whole, _drawn(first))
-        if headline is not None:
-            result["headline"] = headline
     return result
 
 

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { axisFractionOf, axisValueAt, byLevel, emptyStageText, eventLayers, stageAxes, paintColourBar, colourBarTop, stageLevelsHeadline, stageDiffRange, stageHeadline, stageRange, stageHover, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
+import { axisFractionOf, axisValueAt, byLevel, emptyStageText, eventLayers, stageAxes, paintColourBar, colourBarTop, stageEventCounts, stageDiffRange, stageHeadline, stageRange, stageHover, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
 import type { StageView } from '../shared/protocol/backendProtocol';
 
 const line = (values: number[], quantity: StageView['quantity'] = 'level'): StageView => ({ frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity, xs: [100, 1000, 10000], values });
@@ -90,19 +90,6 @@ test('a cross-correlation is drawn over a signed lag axis on the fixed [-1, 1] c
     assert.match(stageHover(plot, 50, 0)!.text, /^0\.00 ms/);
 });
 
-test('a step\'s headline names the point the backend found, with both values, in the axes\' units', () => {
-    const at = { stageNoDelta: 'none', compareLevelsAt: '{at} base {base} / compare {compare}' };
-    const base = line([20, 60, 0]), compare = line([30, 65, 0]);
-    assert.equal(stageLevelsHeadline(base, compare, minus(base, compare), { x: 1000, base: 60, compare: 65 }, at), '1.00 kHz base 60.0 / compare 65.0 dB');
-    // Values that are not levels: without dB, to three figures.
-    const a = line([0.1, 0.9, 0.5], 'coherence'), b = line([0.6, 0.8, 0.5], 'coherence');
-    assert.equal(stageLevelsHeadline(a, b, minus(a, b), { x: 100, base: 0.1, compare: 0.6 }, at), '100 Hz base 0.100 / compare 0.600');
-    // An image's point names both its axes; without a point (nothing loud, other axes) there is no headline.
-    const heat: StageView = { frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity: 'level', yAxis: 'frequency', xs: [0, 1], ys: [100, 1000], matrix: [[-40, -40], [-30, -30]] };
-    assert.equal(stageLevelsHeadline(heat, heat, heat, { x: 1, y: 100, base: -40, compare: -38 }, at), '1.00 s · 100 Hz base −40.0 / compare −38.0 dB');
-    assert.equal(stageLevelsHeadline(base, compare, minus(base, compare), null, at), 'none');
-});
-
 test('an STFT column whose window sticks out of the signal is drawn but never heads the Δ pane', () => {
     const at = { stageNoDelta: 'none', stageMaxDelta: '{at} {delta}' };
     const heat = (matrix: number[][]): StageView => ({ frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity: 'level', yAxis: 'frequency', xs: [0, 1, 2], ys: [100, 1000], matrix, whole: [true, true, false] });
@@ -130,10 +117,10 @@ test('a trigger\'s events are each a line of their slot, on one amplitude range,
     // Amplitudes have no −300 dB floor: a −500 (raw counts) peak is in the range.
     assert.ok(stageRange([events([-500])]).min <= -500);
     // Two recordings' events are not one another's: no Δ, and the headline counts them instead.
-    assert.equal(stageLevelsHeadline(base, compare, null, null, { ...strings, compareLevelsAt: '', stageEventCounts: '{base} / {compare}' }), '2 / 1');
+    assert.equal(stageEventCounts(base, compare, { stageEventCounts: '{base} / {compare}' }), '2 / 1');
     // A level nothing crosses: 0 counted, and the empty plot says to lower the level instead of 'cannot be shown'.
     const none = events([]);
-    assert.equal(stageLevelsHeadline(none, compare, null, null, { ...strings, compareLevelsAt: '', stageEventCounts: '{base} / {compare}' }), '0 / 1');
+    assert.equal(stageEventCounts(none, compare, { stageEventCounts: '{base} / {compare}' }), '0 / 1');
     assert.equal(emptyStageText({ stepNotDrawable: 'no {frame}', stageNoEvents: 'lower it' }, none), 'lower it');
     assert.equal(emptyStageText({ stepNotDrawable: 'no {frame}', stageNoEvents: 'lower it' }, { frame: 'X', kind: 'none' }), 'no X');
     const axes = stageAxes({ axisTriggerTime: 'From trigger [s]', waveRangeAxisAmplitude: 'Amplitude', axisUncalibrated: ', uncalibrated' } as unknown as StageStrings, compare, { unit: 'Pa', ref: 2e-5, levelReferenceLabel: 'dB SPL re 20 µPa', calibrationStatus: 'calibrated', fullScale: false });
@@ -141,7 +128,7 @@ test('a trigger\'s events are each a line of their slot, on one amplitude range,
     // A group's median (the backend's, of the files' mean events) has no event lines of its own, but it is still
     // events: the event headline and the trigger's time axis.
     const { events: _lines, ...median } = events([5, 7]);
-    assert.equal(stageLevelsHeadline(median, compare, null, null, { ...strings, compareLevelsAt: '', stageEventCounts: '{base} / {compare}' }), '— / 1');
+    assert.equal(stageEventCounts(median, compare, { stageEventCounts: '{base} / {compare}' }), '— / 1');
     assert.equal(stageAxes({ axisTriggerTime: 'From trigger [s]', waveRangeAxisAmplitude: 'Amplitude' } as unknown as StageStrings, median, undefined).x, 'From trigger [s]');
 });
 

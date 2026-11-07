@@ -1524,43 +1524,6 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 },
                 "diff": {
                     "$ref": "#/$defs/StageView"
-                },
-                "headline": {
-                    "type": "object",
-                    "required": [
-                        "x",
-                        "base",
-                        "compare"
-                    ],
-                    "properties": {
-                        "x": {
-                            "type": "number"
-                        },
-                        "y": {
-                            "type": "number"
-                        },
-                        "base": {
-                            "anyOf": [
-                                {
-                                    "type": "number"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ]
-                        },
-                        "compare": {
-                            "anyOf": [
-                                {
-                                    "type": "number"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ]
-                        }
-                    },
-                    "additionalProperties": false
                 }
             },
             "additionalProperties": false
@@ -2259,12 +2222,6 @@ export interface StageCombineResult {
     missing?: string[];
     base?: StageView;
     diff?: StageView;
-    headline?: {
-    x: number;
-    y?: number;
-    base: number | null;
-    compare: number | null;
-};
 }
 
 export interface ScanInput {
