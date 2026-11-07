@@ -200,7 +200,9 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         + `<div class="track-stage-base-info" data-stage-base-info hidden><div data-stage-base-aggregate>${escapeHtml(strings.stageBaseAggregate)}</div>`
         + `<button type="button" class="tb-link" data-action="stage-base-list">${escapeHtml(strings.stageBaseList)}</button></div>`
         + `<canvas data-stage-canvas="overlay" role="img" aria-label="${escapeHtml(strings.ariaStageOverlayCanvas)}"></canvas>`
-        + `<div class="track-stage-diff" data-stage-diff hidden><span class="compare-value" data-stage-diff-headline></span><canvas data-stage-canvas="diff" role="img" aria-label="${escapeHtml(strings.ariaStageDiffCanvas)}"></canvas></div>`
+        + `<div class="track-stage-diff" data-stage-diff hidden><div class="track-stage-diff-head"><span class="compare-value" data-stage-diff-headline></span>`
+        // The Δ pane's own readout row, just above it (R7, R13).
+        + `<span class="plot-readout" data-plot-readout hidden><span class="plot-readout-name"></span><span class="plot-readout-values"></span></span></div><canvas data-stage-canvas="diff" role="img" aria-label="${escapeHtml(strings.ariaStageDiffCanvas)}"></canvas></div>`
         + `</div>`;
     root.prepend(stepBar.element);
     const dom = stageDom(root, stepBar.element);

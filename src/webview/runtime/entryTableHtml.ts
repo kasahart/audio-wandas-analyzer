@@ -95,7 +95,7 @@ export function entryScreenHtml(strings: EntryStrings): string {
             <div class="entry-dist-area" data-entry-dist-area>
                 ${distributionHtml(strings)}
                 <div class="entry-held" data-entry-held hidden>
-                    <span data-entry-held-title></span>
+                    <div class="entry-held-head"><span data-entry-held-title></span><span class="plot-readout" data-plot-readout hidden><span class="plot-readout-name"></span><span class="plot-readout-values"></span></span></div>
                     <canvas data-entry-held-canvas></canvas>
                 </div>
             </div>

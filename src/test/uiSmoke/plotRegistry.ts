@@ -15,4 +15,4 @@ export const PLOTS_PENDING: ReadonlyArray<{ selector: string; why: string }> = [
 ];
 
 /** Layers laid over a plot (its hover marks, a cursor): not plots of their own. */
-export const PLOT_LAYERS: readonly string[] = ['.track-stage-cursor', '.track-spectrogram-overlay'];
+export const PLOT_LAYERS: readonly string[] = ['.plot-hover-layer', '.track-spectrogram-overlay'];

@@ -344,8 +344,8 @@ test('the comparison\'s step bar grows the chain with ＋, offers only what take
     // As on the spectrum overlay under the tracks: the line nearest the pointer drawn thicker, the cursor at its
     // point, and its name, where and its value in its colour.
     await expect(page.locator('.track-stage-cursor')).toBeVisible();
-    await expect(page.locator('[data-plot-readout]')).toHaveText(/^.+ \/ [\d.]+ k?Hz \/ −?\d+\.\d dB$/);
-    const readoutColor = await page.locator('[data-plot-readout]').evaluate(element => (element as HTMLElement).style.color);
+    await expect(page.locator('.track-stage-controls [data-plot-readout]')).toHaveText(/^.+ \/ [\d.]+ k?Hz \/ −?\d+\.\d dB$/);
+    const readoutColor = await page.locator('.track-stage-controls [data-plot-readout]').evaluate(element => (element as HTMLElement).style.color);
     // In the row just above the plots, as the cursor spectrum's readout is in its header (R7).
     await expect(page.locator('.track-stage-controls [data-plot-readout]:not([hidden])')).toHaveCount(1);
     await expect(page.locator('#plot-readout')).toBeHidden();
@@ -752,8 +752,8 @@ test('the first opening shows the input: a base group draws each of its waveform
     const overlay = (await page.locator('[data-stage-canvas="overlay"]').boundingBox())!;
     await page.mouse.move(overlay.x + 52 + (overlay.width - 56) * 0.75, overlay.y + overlay.height * 0.3);
     await expect(page.locator('.track-stage-cursor')).toBeVisible();
-    await expect(page.locator('[data-plot-readout]')).toHaveText(/^.+ \/ 1\.\d+ s \/ −?0\.\d+ FS$/);
-    expect(await page.locator('[data-plot-readout]').evaluate(element => (element as HTMLElement).style.color)).not.toBe('');
+    await expect(page.locator('.track-stage-controls [data-plot-readout]')).toHaveText(/^.+ \/ 1\.\d+ s \/ −?0\.\d+ FS$/);
+    expect(await page.locator('.track-stage-controls [data-plot-readout]').evaluate(element => (element as HTMLElement).style.color)).not.toBe('');
     await page.mouse.move(0, 0);
     // No level difference against a median that is on no line: no headline numbers, no Δ.
     await expect(page.locator('[data-stage-headline]')).toHaveText('');
@@ -818,7 +818,7 @@ test('a trigger added from ＋ fires at half the tracks\' peak, draws each event
         if (await page.locator('#hint-footer').textContent() === STR.stageEventClickOut) break;
     }
     // …and where in the recording it was cut; a click on it leaves it out.
-    await expect(page.locator('[data-plot-readout]')).toHaveText(/#[123] @ \d\.\d\d s \/ 0\.00 s/);
+    await expect(page.locator('.track-stage-controls [data-plot-readout]')).toHaveText(/#[123] @ \d\.\d\d s \/ 0\.00 s/);
     await page.screenshot({ path: 'test-results/trigger-events.png' });
     const footer = page.locator('#hint-footer');
     await expect(footer).toHaveText(STR.stageEventClickOut);

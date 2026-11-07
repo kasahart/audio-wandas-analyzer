@@ -82,7 +82,7 @@ function installCanvasAudit({ settle, others }: { settle: { frames: number; ms: 
         const readouts = Array.from(document.querySelectorAll('[id*="readout"], [class*="readout"]'))
             .filter(element => element.textContent?.trim() && !element.parentElement?.closest('[id*="readout"], [class*="readout"]'));
         if (!readouts.length) return;
-        const canvases = Array.from(document.querySelectorAll('canvas')).filter(canvas => !canvas.classList.contains('track-stage-cursor')).map(canvas => ({ canvas, box: seenBox(canvas) })).filter(item => item.box);
+        const canvases = Array.from(document.querySelectorAll('canvas')).filter(canvas => !canvas.classList.contains('plot-hover-layer')).map(canvas => ({ canvas, box: seenBox(canvas) })).filter(item => item.box);
         for (const readout of readouts) {
             const box = shownBox(readout);
             if (!box) continue;
@@ -90,6 +90,11 @@ function installCanvasAudit({ settle, others }: { settle: { frames: number; ms: 
                 const across = Math.min(box.right, plot!.right) - Math.max(box.left, plot!.left);
                 const up = Math.min(box.bottom, plot!.bottom) - Math.max(box.top, plot!.top);
                 if (across <= 1 || up <= 1) continue;
+                // Over the plot only where the plot is seen there: a readout in a panel laid over a plot hides it.
+                const atX = (Math.max(box.left, plot!.left) + Math.min(box.right, plot!.right)) / 2, atY = (Math.max(box.top, plot!.top) + Math.min(box.bottom, plot!.bottom)) / 2;
+                const stack = document.elementsFromPoint(atX, atY);
+                const under = stack.indexOf(canvas);
+                if (under < 0 || stack.slice(0, under).some(element => !readout.contains(element) && !element.contains(canvas))) continue;
                 const name = `${readout.id ? `#${readout.id}` : `.${String(readout.className).trim().split(/\s+/).join('.')}`} over ${canvas.id ? `#${canvas.id}` : canvas.dataset.stageCanvas ? `[data-stage-canvas="${canvas.dataset.stageCanvas}"]` : `canvas.${canvas.className}`}`;
                 if (!reported.has(name)) { reported.add(name); readoutsOver.push(`${name} ("${readout.textContent?.trim()}")`); }
             }

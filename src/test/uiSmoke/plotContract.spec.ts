@@ -15,10 +15,6 @@ type Check = 'readout' | 'zoom' | 'reset' | 'axis range' | 'axes';
 const KNOWN_GAPS: Record<string, readonly Check[]> = {
     // 3: the cursor spectrum zooms with its own events, not the plot component's.
     'cursor spectrum': ['zoom', 'reset'],
-    // 12: the Δ pane's readout is in the row over the overlaid plot, not in its own headline row just above it.
-    'comparison Δ': ['readout'],
-    // 1: the entry's held plot has no hover readout.
-    'entry held': ['readout'],
     // 13: the trigger lanes' readout is in the comparison's row, far above the lanes, not in a row just above them.
     'trigger lane': ['readout'],
 };
