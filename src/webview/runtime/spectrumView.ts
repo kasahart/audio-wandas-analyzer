@@ -52,6 +52,15 @@ export class SpectrumView {
         return { frequencyMin: this.freqStart * painted.maxFrequencyHz, frequencyMax: this.freqEnd * painted.maxFrequencyHz };
     }
 
+    /** The last linear paint's frequency axis (0 to its top) and the part of it on screen; null on a log axis or before a paint. */
+    linearFrequencyAxis(): { maxFrequencyHz: number; window: { start: number; end: number } } | null {
+        const painted = this.painted;
+        if (!painted || painted.logMinFrequencyHz !== undefined || !(painted.maxFrequencyHz > 0)) {
+            return null;
+        }
+        return { maxFrequencyHz: painted.maxFrequencyHz, window: { start: this.freqStart, end: this.freqEnd } };
+    }
+
     paintedDb(): { min: number; max: number } | null {
         return this.painted ? { min: this.painted.dbMin, max: this.painted.dbMax } : null;
     }

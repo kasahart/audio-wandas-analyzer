@@ -437,6 +437,8 @@ export interface StagePaintOptions {
      * middle of the pane while nothing is drawn, in its top right corner once some lines are in.
      */
     pending?: { done: number; total: number; label: string };
+    /** false for a plot stacked over another on the same horizontal axis: its gridlines only, the one below labels it. */
+    xAxisLabels?: boolean;
     /** The plot's margins in CSS pixels, for a plot whose pointer handling has its own (the comparison's by default). */
     margins?: PlotMargins;
     /**
@@ -681,12 +683,12 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
     for (const value of ticks(xAxis.low, xAxis.high, xAxis.log)) {
         const x = xAt(value), label = tickText(value, xAxis.log);
         if (!heatmap) { context.beginPath(); context.moveTo(x, top); context.lineTo(x, top + plotHeight); context.stroke(); }
-        if (x - 6 + context.measureText(label).width < xTitleLeft - 4) context.fillText(label, x - 6, height - 3);
+        if (options.xAxisLabels !== false && x - 6 + context.measureText(label).width < xTitleLeft - 4) context.fillText(label, x - 6, height - 3);
     }
     if (options.region) paintRegion(context, options.region, view, { left, top, width: plotWidth, height: plotHeight }, xAt, { muted, text });
     if (options.bandSteps?.legend) paintBandLegend(context, options.bandSteps.legend, options.bandSteps.color, left + plotWidth - 6, top, muted);
     context.fillStyle = text;
-    context.fillText(xTitle, xTitleLeft, height - 3);
+    if (options.xAxisLabels !== false) context.fillText(xTitle, xTitleLeft, height - 3);
     // The level axis: its ticks in the muted colour, and what it measures up the left edge in the text colour.
     const frame = { left, top, width: plotWidth, height: plotHeight };
     drawValueAxis(context, frame, levelTicks, '', { color: muted, font: context.font, titleX: AXIS_TITLE_X });
@@ -942,7 +944,9 @@ export function stageHover(plot: StagePlot, x: number, y: number): { layer: Stag
     }
     const amount = plot.diff ? signed(hit.point.value, isDb(view))
         // Levels to 0.1 dB, as the spectrum overlay reads them; other quantities (a coherence) to 3 figures.
-        : (isDb(view) ? `${hit.point.value.toFixed(1)} dB` : Math.abs(hit.point.value) >= 10 ? hit.point.value.toFixed(1) : hit.point.value.toPrecision(3)).replace(/^-/, '−');
+        : (isDb(view) ? `${hit.point.value.toFixed(1)} dB` : Math.abs(hit.point.value) >= 10 ? hit.point.value.toFixed(1) : hit.point.value.toPrecision(3)).replace(/^-/, '−')
+            // In its unit where it has one (a phase in degrees).
+            + (isDb(view) || !view.unit ? '' : view.unit === '°' ? '°' : ` ${view.unit}`);
     return readoutOf(hit.s, hit.point, hit.s.label || (plot.diff ? 'Δ' : ''), [atText(view, hit.point.index), amount]);
 }
 

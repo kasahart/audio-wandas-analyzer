@@ -4,6 +4,7 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 
 ## Unreleased
 
+- Pair view: gain, phase and γ² are three plots on one frequency axis, drawn by the shared plot component like every other plot. The pointer reads the nearest line in the pair header row, in that plot's unit (the phase in °), and the other two plots draw the cursor at its frequency. Ctrl+wheel, Shift+wheel, a dragged box, a double-click reset and a double-click on an axis work as on every plot. The frequency zoom is shared with the cursor spectrum, and each plot keeps its own level zoom (#676).
 - Cursor spectrum: zoom works as on every other plot. Ctrl+wheel zooms the frequency axis around the pointer, and Shift+wheel or a sideways swipe pans it. A dragged box still zooms both axes, a double-click resets, and a double-click on an axis opens its range. Before, it had only its own box and double-click (#674).
 - Compare: after a trigger step, the lanes under the events plot read the pointer in their own row just above them, instead of at the right end of the controls row above the events plot, far from the lane being read. The row's room is kept while it is empty, so the lanes stay put (#672).
 - Entry and Compare: the held plot (a slot key held down) and Compare's Δ pane now read the pointer like every other plot. The point nearest the pointer is marked, and its readout appears in the plot's own row just above it: the held plot's title row, and the Δ pane's headline row instead of the controls row over the overlaid plot (#670).
