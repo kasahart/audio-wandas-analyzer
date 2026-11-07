@@ -12,10 +12,7 @@ import { entry100Results, openEntry, type ScannedFile } from './entryHelpers';
  * for; a gap that is fixed fails here until it is taken off, so the list only shrinks.
  */
 type Check = 'readout' | 'zoom' | 'reset' | 'axis range' | 'axes';
-const KNOWN_GAPS: Record<string, readonly Check[]> = {
-    // 3: the cursor spectrum zooms with its own events, not the plot component's.
-    'cursor spectrum': ['zoom', 'reset'],
-};
+const KNOWN_GAPS: Record<string, readonly Check[]> = {};
 
 const FULL = '0.000 1.000 0.000 1.000';
 let scanned: ScannedFile[] | undefined;

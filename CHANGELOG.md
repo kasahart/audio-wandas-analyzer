@@ -4,6 +4,7 @@ User-visible changes per release. Pull requests add a line under **Unreleased**;
 
 ## Unreleased
 
+- Cursor spectrum: zoom works as on every other plot. Ctrl+wheel zooms the frequency axis around the pointer, and Shift+wheel or a sideways swipe pans it. A dragged box still zooms both axes, a double-click resets, and a double-click on an axis opens its range. Before, it had only its own box and double-click (#674).
 - Compare: after a trigger step, the lanes under the events plot read the pointer in their own row just above them, instead of at the right end of the controls row above the events plot, far from the lane being read. The row's room is kept while it is empty, so the lanes stay put (#672).
 - Entry and Compare: the held plot (a slot key held down) and Compare's Δ pane now read the pointer like every other plot. The point nearest the pointer is marked, and its readout appears in the plot's own row just above it: the held plot's title row, and the Δ pane's headline row instead of the controls row over the overlaid plot (#670).
 - Cursor spectrum: with no line to draw, "no data" is shown in the middle of the plot by the shared plot component, as every other plot says why it is empty. Every UI smoke test now fails on a plot on screen that the shared plot component did not draw (unless it is on the list of plots still waiting to move), and one test gives every plot the same gestures (#668).

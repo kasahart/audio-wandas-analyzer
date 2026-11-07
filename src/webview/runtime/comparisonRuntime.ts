@@ -41,11 +41,12 @@ import { buildTrackSnapshot } from './comparisonSnapshot';
 import { contentBoxWidth, readThenWrite, syncCanvasSize } from './canvasSizing';
 import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpecAxisCanvasId, trackSpecCanvasId, trackSpectrogramOverlayCanvasId } from './trackCanvasIds';
 import { channelLaneHtml, trackRowHtml } from './trackLaneHtml';
-import { attachSpectrumBoxDrag, SpectrumBoxDrag } from './spectrumBoxDrag';
+import { attachPlotInteraction, FULL_PLOT_WINDOW, type PlotPoint } from './plotInteraction';
+import type { SpectrumBoxSpan } from './overlaySpectrumPainter';
 import { attachCanvasFocusHint, attachHoverHints, createHintFooter, createTaskStatus, setHint } from './hintFooter';
 import { attachSpectrumCursorListeners, createSpectrumCursorHandlers } from './spectrumCursorHandlers';
 import { attachTrackLaneActions } from './trackLaneActions';
-import { attachOverlaySpectrumDoubleClick, attachOverlaySpectrumHints } from './overlaySpectrumEvents';
+import { attachOverlaySpectrumHints } from './overlaySpectrumEvents';
 import { attachGlobalKeyboardListeners } from './globalKeyboardEvents';
 import { keyRouterFor } from './keyRouter';
 import { attachSeparatorKeys } from './separatorKeys';
@@ -68,14 +69,16 @@ import { attachExclusiveMenus, attachHeightResizeListeners, attachToolbarActions
 import { resultsPaneHtml, trackAudioHtml, type SpectrumBandsSetting } from './resultsPaneHtml';
 import { selectionFolderButton, selectionLayoutHtml } from './selectionLayoutHtml';
 import { SpectrumCommitHold } from './spectrumCommitHold';
-import { type AnalysisWindowBand, canvasTimeHit, clampedCanvasNorm, CURSOR_LINE_STYLE, drawAnalysisWindowBand, drawDashedTimeLine, drawRectZoomSelection, HOVER_LINE_STYLE, waveformCursorLineStyle } from './canvasOverlays';
+import { type AnalysisWindowBand, canvasTimeHit, clampedCanvasNorm, clientToCanvasPixels, CURSOR_LINE_STYLE, drawAnalysisWindowBand, drawDashedTimeLine, drawRectZoomSelection, HOVER_LINE_STYLE, waveformCursorLineStyle } from './canvasOverlays';
 import { applyOverlayCompatibility, calibrationRequest, channelMetricSummaryHtml, ensureCalibrationStyles, hasIncompatibleLevelReferences } from './calibrationDecorations';
 import {
     channelIndexAttribute,
     hoverNormForFrequency,
     OVERLAY_SPECTRUM_PAD,
     overlayLevelAxes,
-    spectrumBoxZoom,
+    overlayPlotPoint,
+    overlaySpectrumRegionAt,
+    spectrumZoomFromWindow,
     spectrumSeriesRange,
     spectrumVisibleWindow,
     steppedOverlaySpectrumHoverNorm,
@@ -461,7 +464,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     let overlayReadHz: number | null = null;
     // ── スペクトルズーム ───────────────────────────────────
     const spectrumView = new SpectrumView();
-    const specBoxDrag = new SpectrumBoxDrag();
+    /** The box being dragged on the cursor spectrum to zoom into (drawn on it), while one is. */
+    let specBox: SpectrumBoxSpan | null = null;
     const heightResize = createHeightResize({
         currentHeight: kind => kind === 'track' ? layout.trackHeight : layout.spectrumOverlayHeight,
         canBegin: kind => kind === 'track' || (!layout.spectrumCollapsed && !layout.spectrumMaximized),
@@ -2562,28 +2566,39 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const overlayCanvas = canvasById(document, 'spectrum-overlay-canvas');
             if (overlayCanvas) {
                 // ドラッグ中はホバー不要
-                attachSpectrumCursorListeners(overlayCanvas, spectrumCursor, OVERLAY_SPECTRUM_PAD, () => specBoxDrag.active);
-                attachSpectrumBoxDrag(overlayCanvas, document, specBoxDrag, {
-                    onUpdate: () => scheduleSpectrumRefresh('hover'),
-                    onFinish(drag) {
-                        const zoom = spectrumBoxZoom(
-                            drag.anchor,
-                            drag.current,
-                            overlayCanvas.width,
-                            overlayCanvas.height,
-                            { freqStart: spectrumView.freqStart, freqEnd: spectrumView.freqEnd },
-                            spectrumView.paintedDb(),
-                        );
-                        if (zoom) {
-                            spectrumView.applyBoxZoom(zoom);
-                        }
+                attachSpectrumCursorListeners(overlayCanvas, spectrumCursor, OVERLAY_SPECTRUM_PAD, () => specBox !== null);
+                // The plot component's gestures (plotInteraction.ts, R9, R13): a box dragged zooms both axes, Ctrl+wheel
+                // zooms and Shift+wheel or a swipe pans the frequency axis, a double-click resets, or on an axis opens
+                // its range. Across: the frequency axis as a whole; up: the levels on screen (the dB axis follows the data).
+                const canvasPoint = (clientX: number, clientY: number): { x: number; y: number } =>
+                    clientToCanvasPixels(clientX, clientY, overlayCanvas.getBoundingClientRect(), overlayCanvas.width, overlayCanvas.height);
+                const pointOn = (clientX: number, clientY: number): PlotPoint => {
+                    const at = canvasPoint(clientX, clientY);
+                    const point = overlayPlotPoint(at.x, at.y, overlayCanvas.width, overlayCanvas.height);
+                    return { fx: point?.freqNorm ?? 0, fy: point?.dbNorm ?? 0 };
+                };
+                const spanOf = (from: PlotPoint, to: PlotPoint): SpectrumBoxSpan => ({ anchor: { freqNorm: from.fx, dbNorm: from.fy }, current: { freqNorm: to.fx, dbNorm: to.fy } });
+                attachPlotInteraction(overlayCanvas.parentElement ?? overlayCanvas, document, '#spectrum-overlay-canvas', {
+                    locate(target, clientX, clientY) {
+                        if (target !== overlayCanvas || !spectrumView.hasData()) return null;
+                        const at = canvasPoint(clientX, clientY);
+                        const region = overlaySpectrumRegionAt(at.x, at.y, overlayCanvas.width, overlayCanvas.height);
+                        if (!region) return null;
+                        return { plot: overlayCanvas, point: pointOn(clientX, clientY), axis: region === 'db-axis' ? 'y' : region === 'freq-axis' ? 'x' : null };
+                    },
+                    pointOn: (_plot, clientX, clientY) => pointOn(clientX, clientY),
+                    window: () => ({ x: { start: spectrumView.freqStart, end: spectrumView.freqEnd }, y: FULL_PLOT_WINDOW.y }),
+                    setWindow(_plot, next) {
+                        if (!next) { specZoomReset(); return; }
+                        spectrumView.applyBoxZoom(spectrumZoomFromWindow(next, spectrumView.paintedDb()));
                         scheduleSpectrumRefresh('immediate');
                     },
-                });
-                attachOverlaySpectrumDoubleClick(overlayCanvas, {
-                    hasData: () => spectrumView.hasData(),
-                    openRangePopup: openSpectrumRangePopup,
-                    resetZoom: specZoomReset,
+                    // The pointer's readout and marks are the cursor spectrum's own (spectrumCursorHandlers.ts).
+                    hover() { /* followed by attachSpectrumCursorListeners */ },
+                    clearHover() { /* followed by attachSpectrumCursorListeners */ },
+                    showBox(_plot, from, to) { specBox = spanOf(from, to); scheduleSpectrumRefresh('hover'); },
+                    hideBox() { specBox = null; scheduleSpectrumRefresh('hover'); },
+                    openAxisRange(hit, clientX, clientY) { openSpectrumRangePopup(hit.axis === 'y' ? 'db' : 'freq', clientX, clientY); return true; },
                 });
                 attachOverlaySpectrumHints(overlayCanvas, hintFooter, {
                     'db-axis': STR.hintSpectrumDbAxis,
@@ -3760,7 +3775,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const calibrated = series.every(s => channelsForResult(state.results[s.index])[s.channelIndex]?.measurement?.calibrationStatus === 'calibrated');
             return (calibrated ? STR.axisLevelCal : STR.axisLevelUncal).replace('{label}', reference);
         };
-        const paint = paintOverlaySpectrum(canvas, W, H, slices, spectrumView.state(), spectrumHover, specBoxDrag.box, STR.axisFrequency, levelTitle);
+        const paint = paintOverlaySpectrum(canvas, W, H, slices, spectrumView.state(), spectrumHover, specBox, STR.axisFrequency, levelTitle);
         overlayReadHz = paint.hoverFrequencyHz ?? null;
         spectrumView.recordPaint(paint);
         renderSpectrumAxisLegend(document.getElementById('spectrum-axis-legend'), paint.levelAxes);
