@@ -2196,10 +2196,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     /** The pointer over a waveform lane (client pixels), whose lane reads the point nearest it (R7). */
     let laneHover: { canvas: HTMLCanvasElement; clientX: number; clientY: number } | null = null;
+    /** Whether a spectrogram lane's cell readout is shown (its pointer reads the cell, not a line's point). */
+    let spectrogramHover = false;
     // A scroll under a still pointer moves the lane from under it: the point read goes with it.
-    document.addEventListener('scroll', () => { if (laneHover) { hideLaneHover(); scheduleRender(); } }, true);
+    document.addEventListener('scroll', () => { if (laneHover || spectrogramHover) { hideLaneHover(); scheduleRender(); } }, true);
     function hideLaneHover(): void {
         laneHover = null;
+        spectrogramHover = false;
         hidePlotReadout(document.getElementById(PLOT_READOUT_ID));
     }
     function drawLaneHover(ctx: CanvasRenderingContext2D, W: number, H: number, points: readonly LanePoint[], result: ComparisonTrackState, channelIndex: number, color: string, placement: { offsetNorm: number; trackDurRatio: number }): void {
@@ -2242,6 +2245,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const local = placement.trackDurRatio > 0 ? (norm - placement.offsetNorm) / placement.trackDurRatio : NaN;
         const cell = spectrogramCellAt(spec, local, bounds.minFrequencyHz + up * (bounds.maxFrequencyHz - bounds.minFrequencyHz), result.durationSeconds);
         if (!cell) { hidePlotReadout(slot); return; }
+        spectrogramHover = true;
         const range = waveformView.timeRange(), span = trackStore.globalSpan();
         const secondsPerPixel = rect.width > 0 ? (range.end - range.start) * span.spanSec / rect.width : 0.01;
         showPlotReadout(slot, spectrumReadoutTrackLabel(result, channelIndex), spectrogramReadoutText('', span.startSec + norm * span.spanSec, secondsPerPixel, cell, spec.unit ?? 'dB'), trackColor(trackIndex));
@@ -3557,13 +3561,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function handleCanvasMouseMove(e: MouseEvent): void {
         if (dragState && dragState.isDrag) {
             hintFooter.clear();
-            if (laneHover) { hideLaneHover(); scheduleRender(); }
+            if (laneHover || spectrogramHover) { hideLaneHover(); scheduleRender(); }
             return;
         }
         const canvas = canvasTarget(e, 'track-canvas');
         if (!canvas) {
             // Off the lanes but still among the tracks (an axis, a header, the split): the lane's readout goes.
-            if (laneHover) { hideLaneHover(); scheduleRender(); }
+            if (laneHover || spectrogramHover) { hideLaneHover(); scheduleRender(); }
             return;
         }
         if (dragState) {
@@ -3733,7 +3737,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         viewState.setHover(norm);
     }
     function clearHover() {
-        if (laneHover) { hideLaneHover(); scheduleRender(); }
+        if (laneHover || spectrogramHover) { hideLaneHover(); scheduleRender(); }
         if (viewState.clearHover()) {
             hintFooter.clear();
         }

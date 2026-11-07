@@ -26,6 +26,13 @@ test('the pointer on a track\'s waveform reads the point nearest it as every plo
     await page.mouse.move(specBox.x + specBox.width / 2, specBox.y + specBox.height / 2);
     await expect(readout).toHaveText(/^.+ \/ −?\d+\.\d+ s \/ [\d.]+ Hz \/ −?[\d.]+ /);
     await expect(page.locator('#toolbar #plot-readout:not([hidden])')).toHaveCount(1);
+    // Onto its frequency axis, or out of the tracks: the cell's readout goes, as a waveform point's does.
+    await page.locator('.track-spec-axis').first().hover();
+    await expect(readout).toHaveCount(0);
+    await page.mouse.move(specBox.x + specBox.width / 2, specBox.y + specBox.height / 2);
+    await expect(readout).toHaveCount(1);
+    await page.mouse.move(0, 0);
+    await expect(readout).toHaveCount(0);
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await expect(readout).toHaveCount(1);
     // Onto the lane's amplitude axis, still among the tracks: gone.
