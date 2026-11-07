@@ -3522,7 +3522,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const hit = trackCanvasTimeHit(canvas, e.clientX, e.clientY);
-        const onColorbar = !hit && contentType === 'waveform' && canvas.classList.contains('track-spec-canvas');
+        const onColorbar = contentType === 'waveform' && onSpectrogramColourBar(canvas, e.clientX, e.clientY);
         canvas.style.cursor = onColorbar ? 'pointer' : '';
         if (!hit) {
             clearHover();
