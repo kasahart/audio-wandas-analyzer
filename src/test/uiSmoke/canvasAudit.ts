@@ -7,8 +7,11 @@
  * And with this one (R7): a hover's readout shown over a plot fails the test, whichever plot and readout it is. The
  * readout of every plot has a row of its own outside the plots, so the lines under the pointer stay in view; and its
  * values shown past the end of that row or the window fail it too.
+ *
+ * And (R13): a canvas on screen not drawn by the plot component fails it, unless plotRegistry.ts lists it.
  */
 import { test as base } from '@playwright/test';
+import { PLOT_LAYERS, PLOTS_PENDING } from './plotRegistry';
 
 export * from '@playwright/test';
 
@@ -17,14 +20,17 @@ export * from '@playwright/test';
  * so 6 frames and 100 ms (both, for a slow machine's long frames) is a canvas that will not be drawn again.
  */
 const SETTLE = { frames: 6, ms: 100 };
+const AUDIT = { settle: SETTLE, others: [...PLOTS_PENDING.map(item => item.selector), ...PLOT_LAYERS].join(', ') };
 
 declare global {
-    interface Window { __canvasAudit?: string[]; __readoutAudit?: string[] }
+    interface Window { __canvasAudit?: string[]; __readoutAudit?: string[]; __plotAudit?: string[] }
 }
 
 /** Runs in the page: samples the canvases on screen and records each one that stayed at another size. */
-function installCanvasAudit(settle: { frames: number; ms: number }): void {
+function installCanvasAudit({ settle, others }: { settle: { frames: number; ms: number }; others: string }): void {
     if (window.__canvasAudit) return;
+    const unregistered: string[] = [];
+    window.__plotAudit = unregistered;
     const found: string[] = [];
     window.__canvasAudit = found;
     const since = new WeakMap<HTMLCanvasElement, { frame: number; at: number }>();
@@ -97,18 +103,34 @@ function installCanvasAudit(settle: { frames: number; ms: number }): void {
             }
         }
     };
-    const tick = (): void => { sample(); sampleReadouts(); window.requestAnimationFrame(tick); };
+    /**
+     * Each canvas on screen that the plot component did not draw and that is on neither list (plotRegistry.ts), past
+     * the frames a plot just shown takes to be drawn.
+     */
+    const unmarkedSince = new WeakMap<HTMLCanvasElement, { frame: number; at: number }>();
+    const samplePlots = (): void => {
+        const now = performance.now();
+        for (const canvas of Array.from(document.querySelectorAll('canvas'))) {
+            if (canvas.hasAttribute('data-plot') || (others && canvas.matches(others)) || !shownBox(canvas)) { unmarkedSince.delete(canvas); continue; }
+            const from = unmarkedSince.get(canvas) ?? { frame, at: now };
+            unmarkedSince.set(canvas, from);
+            if (frame - from.frame < settle.frames || now - from.at < settle.ms) continue;
+            const name = canvas.id ? `#${canvas.id}` : `canvas${Array.from(canvas.attributes).filter(a => a.name === 'class' || a.name.startsWith('data-')).map(a => (a.name === 'class' ? `.${a.value.trim().split(/\s+/).join('.')}` : `[${a.name}]`)).join('')}`;
+            if (!reported.has(`plot ${name}`)) { reported.add(`plot ${name}`); unregistered.push(name); }
+        }
+    };
+    const tick = (): void => { sample(); sampleReadouts(); samplePlots(); window.requestAnimationFrame(tick); };
     window.requestAnimationFrame(tick);
 }
 
 export const test = base.extend<{ canvasAudit: void }>({
     canvasAudit: [async ({ page }, use) => {
-        await page.addInitScript(installCanvasAudit, SETTLE);
+        await page.addInitScript(installCanvasAudit, AUDIT);
         // setContent writes the document without a navigation, so the init script does not run for it.
         const setContent = page.setContent.bind(page);
         page.setContent = async (html, options) => {
             await setContent(html, options);
-            await page.evaluate(installCanvasAudit, SETTLE);
+            await page.evaluate(installCanvasAudit, AUDIT);
         };
         await use();
         // A page the test closed has nothing left to check; any other failure to read the audit fails the test.
@@ -117,5 +139,7 @@ export const test = base.extend<{ canvasAudit: void }>({
         base.expect(found, 'canvases left drawn at another size than they are shown at').toEqual([]);
         const over = await page.evaluate(() => window.__readoutAudit ?? []);
         base.expect(over, 'hover readouts shown over a plot, or their values cut off (R7: each has its own row outside the plots)').toEqual([]);
+        const unregistered = await page.evaluate(() => window.__plotAudit ?? []);
+        base.expect(unregistered, 'plots on screen not drawn by the plot component (R13: draw them with paintOverlay, or list them in plotRegistry.ts while they wait)').toEqual([]);
     }, { auto: true }],
 });

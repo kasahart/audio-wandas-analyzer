@@ -96,10 +96,17 @@ export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 
     }, true);
     let press: { plot: HTMLElement; from: PlotPoint; clientX: number; clientY: number; isDrag: boolean; to: PlotPoint } | null = null;
     let lastDouble: PlotHit | null = null;
+    // The window these gestures last set is named on the plot they were made on, so one test reads every plot's
+    // gestures the same way (R13). Other ways to the window (keys, an axis's range, a pane sharing it) do not write it.
+    const setWindow = (plot: HTMLElement, next: PlotWindow | null): void => {
+        deps.setWindow(plot, next);
+        const now = deps.window(plot);
+        plot.dataset.plotWindow = [now.x.start, now.x.end, now.y.start, now.y.end].map(value => value.toFixed(3)).join(' ');
+    };
     attachTrackPointerListeners(surface, doc, {
         resetZoom() {
             const plot = lastDouble?.plot;
-            if (plot) deps.setWindow(plot, null);
+            if (plot) setWindow(plot, null);
         },
         openAxisRange(element, clientX, clientY) {
             lastDouble = deps.locate(element, clientX, clientY);
@@ -131,23 +138,23 @@ export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 
             draggedAt = event.timeStamp;
             deps.hideBox();
             const next = windowFromBox(deps.window(done.plot), done.from, done.to);
-            if (next) deps.setWindow(done.plot, next);
+            if (next) setWindow(done.plot, next);
         },
         zoomWheel(event) {
             const hit = deps.locate(event.target, event.clientX, event.clientY);
-            if (hit) deps.setWindow(hit.plot, wheelZoomWindow(deps.window(hit.plot), hit.point, event.deltaY));
+            if (hit) setWindow(hit.plot, wheelZoomWindow(deps.window(hit.plot), hit.point, event.deltaY));
         },
         panWheel(event, swipe) {
             const hit = deps.locate(event.target, event.clientX, event.clientY);
             if (!hit) return;
             if (!swipe) {
-                deps.setWindow(hit.plot, wheelPanWindow(deps.window(hit.plot), wheelStepDirection(event) * PAN_STEP_RATIO));
+                setWindow(hit.plot, wheelPanWindow(deps.window(hit.plot), wheelStepDirection(event) * PAN_STEP_RATIO));
                 return;
             }
             // The plot's width from two points across its middle, so the content follows the fingers.
             const box = hit.plot.getBoundingClientRect(), middle = box.left + box.width / 2;
             const perPixel = deps.pointOn(hit.plot, middle + 1, event.clientY).fx - deps.pointOn(hit.plot, middle, event.clientY).fx;
-            if (perPixel > 0) deps.setWindow(hit.plot, wheelPanWindow(deps.window(hit.plot), wheelPanPixels(event, 1 / perPixel) * perPixel));
+            if (perPixel > 0) setWindow(hit.plot, wheelPanWindow(deps.window(hit.plot), wheelPanPixels(event, 1 / perPixel) * perPixel));
         },
     }, { plot: plotSelector });
 }
