@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { expect, test, type Locator, type Page } from './canvasAudit';
 import { getStrings } from '../../shared/i18n/strings';
+import { OVERVIEW_MARGINS } from '../../webview/runtime/entryPlots';
 import { answerProbe, entry100Metadata, entry100Results, openEntry, openStepsView, pickCsv, type ScannedFile } from './entryHelpers';
 
 const SPECTRUM_VIEW = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity: 'level', xs: [100, 1000, 5000], values: [-40, -30, -50] };
@@ -575,8 +576,8 @@ test('the overview strip answers the lanes\' gestures, and a press that stays pu
     await page.mouse.wheel(0, -100);
     await page.keyboard.up('Control');
     await expect(strip).not.toHaveAttribute('data-window', /^0\.000-1\.000\|/);
-    // Its plot sits between the colour scale (14 px) and the frequency axis (26 px).
-    await page.mouse.click(stripBox.x + stripBox.width / 2, stripBox.y + 14 + (stripBox.height - 40) * 0.9);
+    // Its plot sits inside the strip's margins.
+    await page.mouse.click(stripBox.x + stripBox.width / 2, stripBox.y + OVERVIEW_MARGINS.top + (stripBox.height - OVERVIEW_MARGINS.top - OVERVIEW_MARGINS.bottom) * 0.9);
     await expect(page.locator('[data-entry-rows] tr.is-focused')).toHaveCount(1);
     expect(await page.locator('[data-entry-rows] tr.is-focused').getAttribute('data-file-path')).not.toBe(focusedBefore);
 });

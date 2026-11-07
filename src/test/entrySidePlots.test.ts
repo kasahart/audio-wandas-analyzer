@@ -3,7 +3,7 @@ import test from 'node:test';
 import { JSDOM } from 'jsdom';
 import { getStrings } from '../shared/i18n/strings';
 import { datasetRows } from '../shared/dataset/datasetTable';
-import { OVERVIEW_MARGINS } from '../webview/runtime/entryPlots';
+import { OVERVIEW_MARGINS, overviewPicture } from '../webview/runtime/entryPlots';
 import { createSidePlots, type SidePlotsDeps } from '../webview/runtime/entrySidePlots';
 import { sharedLevelLabel } from '../shared/utils/format';
 import { entryScreenHtml } from '../webview/runtime/entryTableHtml';
@@ -105,4 +105,27 @@ test('the overview colour scale and the dataset table name the recordings\' shar
     assert.equal(plots.levelLabel(), 'dB SPL re 20 µPa', 'a file that cannot be read has no reference');
     plots.clear();
     assert.equal(plots.levelLabel(), 'dBFS');
+});
+
+test('the strip is a heatmap of the table: a row per table row counted down from the top, the loudest per line when they outnumber its lines', () => {
+    const rows = ['/d/a.wav', '/d/b.wav', '/d/c.wav', '/d/d.wav'].map(filePath => ({ filePath }));
+    const bands = new Map<string, (number | null)[]>([['/d/a.wav', [-40.4, -30]], ['/d/b.wav', [-20, null]], ['/d/d.wav', [-60, -10.2]]]);
+    const whole = overviewPicture(rows, bands, FULL_PLOT_WINDOW, 100);
+    assert.ok(whole);
+    // Bottom first, as the axis runs: the last table row at the bottom, each at minus its centre's place.
+    assert.deepEqual(whole.view.ys, [-3.5, -2.5, -1.5, -0.5]);
+    assert.deepEqual(whole.names, ['d.wav', 'c.wav', 'b.wav', 'a.wav']);
+    assert.deepEqual(whole.view.matrix?.[3].slice(0, 2), [-40.4, -30]);
+    assert.ok(whole.view.matrix?.[1].every(value => value === null), 'a row not scanned yet has no cells');
+    assert.deepEqual(whole.whole.ys, [-4, 0], 'the whole table\'s axis, for a zoomed strip');
+    assert.deepEqual(whole.range, { min: -60, max: -10 });
+    // Two lines for four rows: each holds the loudest of its two rows per band.
+    const binned = overviewPicture(rows, bands, FULL_PLOT_WINDOW, 2);
+    assert.deepEqual(binned?.view.ys, [-3, -1]);
+    assert.deepEqual(binned?.view.matrix?.map(row => row.slice(0, 2)), [[-60, -10.2], [-20, -30]]);
+    // Zoomed to the top half: only its rows, on the whole table's axis; the shades keep every row's range.
+    const top = overviewPicture(rows, bands, { x: FULL_PLOT_WINDOW.x, y: { start: 0.5, end: 1 } }, 100);
+    assert.deepEqual(top?.view.ys, [-1.5, -0.5]);
+    assert.deepEqual(top?.range, { min: -60, max: -10 });
+    assert.equal(overviewPicture(rows, new Map(), FULL_PLOT_WINDOW, 100), null, 'no levels, nothing to draw');
 });

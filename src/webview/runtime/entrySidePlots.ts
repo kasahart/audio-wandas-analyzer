@@ -15,7 +15,8 @@ import type { HeldPicture } from './entryHeldPlot';
 import { OVERVIEW_MARGINS, paintOverview } from './entryPlots';
 import { attachPlotInteraction, FULL_PLOT_WINDOW, plotPointIn, type PlotMargins, type PlotWindow } from './plotInteraction';
 import { positionPopover } from './settingsPopover';
-import { STAGE_MARGINS } from './stagePanes';
+import { BAND_CENTERS_HZ } from './entryTable';
+import { STAGE_MARGINS, type StagePlot } from './stagePanes';
 import { createPlotHoverLayer } from './plotHoverLayer';
 
 export interface SidePlotsDeps {
@@ -57,16 +58,28 @@ export interface SidePlots {
     attach(): void;
 }
 
+/** The strip's band axis: log in Hz, from the lowest band's lower edge to the highest band's upper edge. */
+function bandAxis(label: string): AxisMapping {
+    const step = Math.sqrt(BAND_CENTERS_HZ[1] / BAND_CENTERS_HZ[0]);
+    const low = BAND_CENTERS_HZ[0] / step, high = BAND_CENTERS_HZ[BAND_CENTERS_HZ.length - 1] * step;
+    return { at: f => low * (high / low) ** f, of: v => Math.log(v / low) / Math.log(high / low), label };
+}
+
 export function createSidePlots(deps: SidePlotsDeps): SidePlots {
     const { document, strings, screen, side, body, tableWrap, overview, heldCanvas } = deps;
     // The held plot's pointer marks and readout (R7): its readout in its own head row, just above it.
     // In the entry screen: maximized, it is laid over the window above the page, and the marks must be above it.
     const marks = createPlotHoverLayer(document, '', screen);
-    let pointer: { clientX: number; clientY: number } | null = null;
+    let pointer: { plot: HTMLElement; clientX: number; clientY: number } | null = null;
+    /** What the strip last drew, for its readout. */
+    let overviewDrawn: StagePlot | null = null;
     const showMarks = (): void => {
-        const drawn = deps.heldPicture()?.drawn ?? null;
-        if (!pointer || !drawn || heldCanvas.closest('[hidden]')) { marks.hide(); return; }
-        marks.show(heldCanvas, drawn, pointer.clientX, pointer.clientY, heldCanvas.parentElement?.querySelector<HTMLElement>('[data-plot-readout]') ?? null);
+        const drawn = pointer?.plot === heldCanvas ? deps.heldPicture()?.drawn ?? null : overviewDrawn;
+        if (!pointer || !drawn || pointer.plot.closest('[hidden]')) { marks.hide(); return; }
+        // Each plot's readout row is just above it.
+        const slot = pointer.plot === heldCanvas ? heldCanvas.parentElement?.querySelector<HTMLElement>('[data-plot-readout]')
+            : overview.closest('.entry-overview-box')?.querySelector<HTMLElement>('[data-plot-readout]');
+        marks.show(pointer.plot, drawn, pointer.clientX, pointer.clientY, slot ?? null);
     };
     const windows = new Map<string, PlotWindow>();
     const windowKeys = new Map<string, string>();
@@ -78,6 +91,8 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
     /** Each scanned recording's bands and the level reference wandas names its levels by, kept as results arrive so scrolling does not redo them. */
     const levels = new Map<string, (number | null)[]>();
     const levelLabels = new Map<string, string>();
+    /** The recordings scanned with a calibration (their levels are not relative to full scale). */
+    const calibrated = new Set<string>();
     /** Bumped on every change to them, so the strip knows when to draw its cells again. */
     let version = 0;
     let shared = { version: -1, label: '' };
@@ -95,8 +110,8 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
         const rows = deps.rows();
         const rowHeight = (body.querySelector('tr') as HTMLElement | null)?.offsetHeight || 22;
         const first = Math.floor(tableWrap.scrollTop / rowHeight);
-        paintOverview(overview, rows, levels, { first, last: first + Math.ceil(tableWrap.clientHeight / rowHeight) - 2 }, deps.focusedFile(), keepWindow('overview', String(rows.length)),
-            levelLabel(), version);
+        overviewDrawn = paintOverview(overview, strings, rows, levels, { first, last: first + Math.ceil(tableWrap.clientHeight / rowHeight) - 2 }, deps.focusedFile(), keepWindow('overview', String(rows.length)),
+            { label: levelLabel(), calibrated: levelLabels.size > 0 && calibrated.size === levelLabels.size }, version).drawn;
         // The zoom on each plot, for tests: "x0-x1|y0-y1".
         for (const [name, canvas] of [['overview', overview], ['held', heldCanvas]] as const) {
             const zoom = plotWindow(name);
@@ -147,7 +162,7 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
                 schedule();
             },
             hover(event, hit) {
-                pointer = hit && !hit.axis && hit.plot === heldCanvas ? { clientX: event.clientX, clientY: event.clientY } : null;
+                pointer = hit && !hit.axis ? { plot: hit.plot, clientX: event.clientX, clientY: event.clientY } : null;
                 showMarks();
                 // A point's name stays where hints go while the pointer is on it.
                 if (!hit) return;
@@ -167,11 +182,20 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
             hideBox() { zoomBox.hidden = true; },
             openAxisRange(hit, clientX, clientY) {
                 const name = plotName(hit.plot);
+                const zoom = plotWindow(name);
+                if (name === 'overview' && hit.axis === 'y') {
+                    // The strip's rows, counted down from the top as its axis counts them: its window runs up from the bottom.
+                    const total = deps.rows().length;
+                    openAxisPart(rangePopover, {
+                        mapping: linearAxis(0, total, strings.axisEntryRows), horizontal: false, current: { start: 1 - zoom.y.end, end: 1 - zoom.y.start }, clientX, clientY, invalid: strings.specRangeErrorMinMax,
+                        set(range) { windows.set(name, { ...zoom, y: { start: 1 - range.end, end: 1 - range.start } }); schedule(); },
+                    });
+                    return true;
+                }
                 const picture = deps.heldPicture();
                 const mapping: AxisMapping | null = name === 'held' && picture ? (hit.axis === 'x' ? { at: picture.x, of: picture.ofX, label: picture.xLabel } : linearAxis(picture.range.min, picture.range.max, picture.yLabel))
-                    : null;
+                    : name === 'overview' ? bandAxis(strings.axisBand) : null;
                 if (!mapping) return false;
-                const zoom = plotWindow(name);
                 openAxisPart(rangePopover, {
                     mapping, horizontal: hit.axis === 'x', current: hit.axis === 'x' ? zoom.x : zoom.y, clientX, clientY, invalid: strings.specRangeErrorMinMax,
                     set(range) { windows.set(name, hit.axis === 'x' ? { ...zoom, x: range } : { ...zoom, y: range }); schedule(); },
@@ -192,10 +216,13 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
             else levels.delete(filePath);
             if (result.ok && result.input) levelLabels.set(filePath, result.input.levelReferenceLabel);
             else levelLabels.delete(filePath);
+            if (result.ok && result.input?.calibrationStatus === 'calibrated') calibrated.add(filePath);
+            else calibrated.delete(filePath);
         },
         clear(): void {
             levels.clear();
             levelLabels.clear();
+            calibrated.clear();
             version++;
         },
         schedule,

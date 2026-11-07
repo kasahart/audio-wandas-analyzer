@@ -133,7 +133,6 @@ const CANVAS_DRAWING_FILES = [
     'src/webview/runtime/canvasOverlays.ts',
     'src/webview/runtime/compareReport.ts',
     'src/webview/runtime/comparisonRuntime.ts',
-    'src/webview/runtime/entryPlots.ts',
     'src/webview/runtime/exportDownloads.ts',
     'src/webview/runtime/stagePanes.ts',
     'src/webview/runtime/trackCanvasPainter.ts',

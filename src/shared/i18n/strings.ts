@@ -431,6 +431,8 @@ export interface UiStrings {
     axisRoughness: string;
     axisLevelOf: string;
     axisBand: string;
+    /** The entry strip's row axis: the table's rows, counted down from the top. */
+    axisEntryRows: string;
     axisBark: string;
     axisQuefrency: string;
     axisCepstrum: string;
@@ -1226,6 +1228,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         axisRoughness: 'Roughness',
         axisLevelOf: 'Level',
         axisBand: 'Band centre [Hz]',
+        axisEntryRows: 'Row (table order)',
         axisBark: 'Critical band [Bark]',
         axisQuefrency: 'Quefrency [s]',
         axisCepstrum: 'Real cepstrum',
@@ -2010,6 +2013,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         axisRoughness: 'ラフネス',
         axisLevelOf: 'レベル',
         axisBand: '帯域中心 [Hz]',
+        axisEntryRows: '行（表の順）',
         axisBark: '臨界帯域 [Bark]',
         axisQuefrency: 'ケフレンシー [s]',
         axisCepstrum: '実ケプストラム',

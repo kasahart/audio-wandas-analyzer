@@ -99,7 +99,14 @@ export function entryScreenHtml(strings: EntryStrings): string {
                     <canvas data-entry-held-canvas></canvas>
                 </div>
             </div>
-            <canvas class="entry-overview" data-entry-overview aria-label="${escapeHtml(strings.ariaEntryOverview)}"${hintAttr(strings.hintOverview)}></canvas>
+            <div class="entry-overview-box">
+                <div class="entry-overview-head"><span class="plot-readout" data-plot-readout hidden><span class="plot-readout-name"></span><span class="plot-readout-values"></span></span></div>
+                <div class="entry-overview-plot">
+                    <canvas class="entry-overview" data-entry-overview aria-label="${escapeHtml(strings.ariaEntryOverview)}"${hintAttr(strings.hintOverview)}></canvas>
+                    <div class="entry-overview-frame" data-entry-overview-frame hidden></div>
+                    <div class="entry-overview-focus" data-entry-overview-focus hidden></div>
+                </div>
+            </div>
         </aside>
     </div>
 </section>`;

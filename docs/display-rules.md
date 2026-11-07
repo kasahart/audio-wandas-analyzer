@@ -134,3 +134,4 @@
 - テスト: `src/test/uiSmoke/plotContract.spec.ts` › the entry's held plot answers the same gestures as every plot (R13)
 - テスト: `src/test/uiSmoke/plotContract.spec.ts` › the pair view's gain, phase and γ² plots answer the same gestures as every plot (R13)
 - テスト: `src/test/trackCanvasPainter.test.ts` › a spectrogram lane is drawn over its whole width, with the colour bar every coloured picture draws in its top right (R13)
+- テスト: `src/test/uiSmoke/plotContract.spec.ts` › the entry's overview strip answers the same gestures as every plot (R13)
