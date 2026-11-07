@@ -5,8 +5,8 @@
 import type { UiStrings } from '../../shared/i18n/strings';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
 import { attachPlotInteraction, FULL_PLOT_WINDOW, type PlotHit } from './plotInteraction';
-import { axisFractionOf, axisValueAt, rowFractionOf, rowValueAt, STAGE_MARGINS, stageHover, stagePlotPoint, strokeStageLine } from './stagePanes';
-import { hidePlotReadout, paintHoverMarks, showPlotReadout } from './plotHover';
+import { axisFractionOf, axisValueAt, rowFractionOf, rowValueAt, STAGE_MARGINS, stageHover, stagePlotPoint } from './stagePanes';
+import { createPlotHoverLayer } from './plotHoverLayer';
 import { installRangePopover, linearAxis, openAxisPart, type AxisMapping } from '../rangePopover';
 import { positionPopover } from './settingsPopover';
 import type { Drawn } from './trackStagePainter';
@@ -42,11 +42,13 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
     // The pointer's marks (plotHover.ts: the nearest line thicker, the cursor at its point), the box being dragged
     // and an axis's range, for any plot of the mode. The marks are drawn on a canvas laid over the plot, so a hover
     // does not draw the plot again; the readout is in the controls row above the plots, never over a plot (R7).
-    const cursor = document.createElement('canvas');
-    cursor.className = 'track-stage-cursor';
+    const marks = createPlotHoverLayer(document, 'track-stage-cursor');
     const box = document.createElement('div');
     box.className = 'compare-zoom-box track-stage-box';
-    for (const element of [cursor, box]) { element.hidden = true; document.body.append(element); }
+    box.hidden = true;
+    document.body.append(box);
+    /** Each plot's readout row, just above it: the Δ pane's own head, else the controls row over the plots. */
+    const slotOf = (plot: HTMLElement): HTMLElement | null => (plot.closest('[data-stage-diff]') ?? root.querySelector('.track-stage-controls'))?.querySelector<HTMLElement>('[data-plot-readout]') ?? null;
     const rangePopover = installRangePopover(document, { rootId: 'track-stage-range-popover', badgeId: 'track-stage-range-axis-badge', idPrefix: 'track-stage-range', strings: rangePopoverStrings(strings), position: positionPopover });
     /** The plot's rectangle on screen (inside its canvas's axis margins). */
     const plotBox = (plot: HTMLElement): { left: number; top: number; width: number; height: number } => {
@@ -63,32 +65,11 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
     };
     /** Where the pointer is over a plot, so its marks follow a plot drawn anew under a still pointer. */
     let hovered: { plot: HTMLElement; clientX: number; clientY: number } | null = null;
-    const hideHover = (): void => { cursor.hidden = true; hidePlotReadout(root.querySelector<HTMLElement>('[data-plot-readout]')); };
-    /**
-     * The hover as the spectrum overlay under the tracks draws it: the line nearest the pointer thicker, a dashed
-     * cursor at its point and a dashed level line in its colour, its name, where and its value in the readout.
-     * A signal drawn as itself is such a line too (its envelope's point nearest the pointer, its amplitude read).
-     * An image has no lines: the cursor alone.
-     */
+    const hideHover = (): void => marks.hide();
     const showHover = (): void => {
         const drawn = hovered ? drawnOn.get(hovered.plot) : undefined;
         if (!hovered || !drawn || !hovered.plot.isConnected || hovered.plot.closest('[hidden]')) { hideHover(); return; }
-        const rect = hovered.plot.getBoundingClientRect();
-        const ratio = document.defaultView?.devicePixelRatio || 1;
-        Object.assign(cursor.style, { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px` });
-        cursor.width = Math.round(rect.width * ratio);
-        cursor.height = Math.round(rect.height * ratio);
-        const context = cursor.getContext('2d');
-        if (!context) return;
-        context.setTransform(ratio, 0, 0, ratio, 0, 0);
-        context.clearRect(0, 0, rect.width, rect.height);
-        const x = hovered.clientX - rect.left, y = hovered.clientY - rect.top;
-        const plot = drawn.plot;
-        const hit = plot ? stageHover(plot, x, y) : null;
-        const frame = plot?.frame ?? { left: STAGE_MARGINS.left, top: STAGE_MARGINS.top, width: plotBox(hovered.plot).width, height: plotBox(hovered.plot).height };
-        paintHoverMarks(context, frame, hit ? hit.x : x, hit ? hit.y : null, hit?.layer.color ?? '', hit && plot ? (ctx, width) => strokeStageLine(ctx as CanvasRenderingContext2D, plot, hit.layer, width) : undefined);
-        cursor.hidden = false;
-        showPlotReadout(root.querySelector<HTMLElement>('[data-plot-readout]'), hit?.name ?? '', hit?.values ?? '', hit?.layer.color ?? '');
+        marks.show(hovered.plot, drawn.plot ?? null, hovered.clientX, hovered.clientY, slotOf(hovered.plot));
     };
     // The marks sit where the plot was on screen: a scroll under a still pointer takes them away.
     document.addEventListener('scroll', () => { if (hovered) { hovered = null; hideHover(); } }, true);

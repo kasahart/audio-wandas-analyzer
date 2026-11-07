@@ -277,6 +277,9 @@ export function renderComparisonStyles(): string {
         .entry-held { position: absolute; inset: 0; z-index: 1; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--entry-delta); border-radius: 4px; padding: 2px 6px; }
         .entry-held[hidden] { display: none; }
         .entry-held canvas { flex: 1; width: 100%; min-height: 0; }
+        .entry-held-head { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; }
+        .entry-held-head > [data-entry-held-title] { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .entry-held-head > .plot-readout { justify-content: flex-end; }
         .entry-overview { height: 114px; width: 100%; }
         .entry-row.is-derived .entry-name { color: var(--muted); padding-left: 16px; }
         .entry-table { border-collapse: collapse; width: 100%; outline: 1px solid transparent; outline-offset: -1px; }
@@ -425,8 +428,8 @@ export function renderComparisonStyles(): string {
         .compare-zoom-box[hidden] { display: none; }
         .entry-side { position: relative; }
         .track-stage-bar[hidden], .track-stage[hidden], .track-stage-panel[hidden], .track-stage-diff[hidden] { display: none; }
-        .track-stage-cursor { position: fixed; pointer-events: none; z-index: 20; }
-        .track-stage-cursor[hidden], .track-stage-box[hidden] { display: none; }
+        .plot-hover-layer { position: fixed; pointer-events: none; z-index: 20; }
+        .plot-hover-layer[hidden], .track-stage-box[hidden] { display: none; }
         .track-stage-box { position: fixed; z-index: 21; }
         .track-stage { position: relative; z-index: 20; display: flex; flex-direction: column; flex-shrink: 0; font-family: var(--font-ui); font-size: 12px; color: var(--text); }
         /* Short of room, the readout takes a line of its own under the buttons (still above the plots), never past the row's end. */
@@ -446,6 +449,9 @@ export function renderComparisonStyles(): string {
         .track-stage-panel > canvas { flex: 1 1 0; width: 100%; min-height: 0; }
         .track-stage-diff { display: flex; flex-direction: column; flex: 0 0 35%; min-height: 0; border-top: 1px solid var(--line); }
         .track-stage-diff > canvas { flex: 1 1 0; width: 100%; min-height: 0; }
+        .track-stage-diff-head { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; padding: 0 2px; }
+        .track-stage-diff-head > [data-stage-diff-headline] { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .track-stage-diff-head > .plot-readout { justify-content: flex-end; }
         .track-stage-bar { flex-shrink: 0; font-family: var(--font-ui); }
         .entry-zoom-box { position: absolute; border: 1px dashed var(--text); pointer-events: none; z-index: 2; }
         .entry-zoom-box[hidden] { display: none; }

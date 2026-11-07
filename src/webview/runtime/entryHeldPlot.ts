@@ -16,7 +16,7 @@ import { DIFF_COLOR, ROLE_COLORS } from '../../shared/gui/roleColors';
 import { buildCompareModel, sideView, type CompareModel, type LevelInput, type PaneRange } from './comparePanes';
 import type { EntryModel } from './entryTable';
 import type { PlotMargins, PlotWindow } from './plotInteraction';
-import { axisFractionOf, axisValueAt, paintOverlay, stageAxes, stageDiffRange, stageRange, STAGE_MARGINS, type StageAxes } from './stagePanes';
+import { axisFractionOf, axisValueAt, paintOverlay, stageAxes, stageDiffRange, stageRange, STAGE_MARGINS, type StageAxes, type StagePlot } from './stagePanes';
 import { createDetailPlanner } from './stageDetail';
 import { createCombineSource, type Combined } from './combineSource';
 import { createStageSource, type StageSpec } from './stageSource';
@@ -35,6 +35,8 @@ export interface HeldPicture {
     range: PaneRange;
     xLabel: string;
     yLabel: string;
+    /** What the plot component drew, which the pointer reads (R7). */
+    drawn: StagePlot | null;
 }
 
 export interface HeldPlotDeps {
@@ -122,9 +124,9 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
     }
     /** The held plot's picture and what it was drawn on, for its readout and an axis's range. */
     function paintView(view: StageView | null, picture: StageView | null, range: PaneRange, axes: StageAxes, zoom: PlotWindow, options: { diff?: boolean; color: string; empty?: string }): void {
-        hold.plot = picture ? { margins: STAGE_MARGINS, x: f => axisValueAt(picture, f), ofX: number => axisFractionOf(picture, number), range, xLabel: axes.x, yLabel: axes.y } : null;
-        paintOverlay(canvas, { layers: view ? [{ view, color: options.color, width: 2 }] : [] }, narrowed(range, zoom), axes,
+        const drawn = paintOverlay(canvas, { layers: view ? [{ view, color: options.color, width: 2}] : [] }, narrowed(range, zoom), axes,
             { diff: options.diff, empty: options.empty ?? '', window: { x: zoom.x }, axisView: picture });
+        hold.plot = picture ? { margins: STAGE_MARGINS, x: f => axisValueAt(picture, f), ofX: number => axisFractionOf(picture, number), range, xLabel: axes.x, yLabel: axes.y, drawn: view ? drawn : null } : null;
     }
     function paintStep({ step, path }: { step: RecipeStep; path: string }): void {
         held.hidden = false;

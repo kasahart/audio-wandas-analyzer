@@ -15,10 +15,6 @@ type Check = 'readout' | 'zoom' | 'reset' | 'axis range' | 'axes';
 const KNOWN_GAPS: Record<string, readonly Check[]> = {
     // 3: the cursor spectrum zooms with its own events, not the plot component's.
     'cursor spectrum': ['zoom', 'reset'],
-    // 12: the Δ pane's readout is in the row over the overlaid plot, not in its own headline row just above it.
-    'comparison Δ': ['readout'],
-    // 1: the entry's held plot has no hover readout.
-    'entry held': ['readout'],
     // 13: the trigger lanes' readout is in the comparison's row, far above the lanes, not in a row just above them.
     'trigger lane': ['readout'],
 };
@@ -92,7 +88,12 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
     await page.waitForTimeout(80);
     const after = await readouts(box.y);
     const above = after.some((text, index) => text && text !== before[index]);
-    if (above && Math.abs((await plot.boundingBox())!.y - box.y) < 0.5) passed.add('readout');
+    // The pointer's marks are seen: a marks layer shown over the plot is the topmost thing there, not under a screen.
+    const buried = await page.evaluate(({ x, y }) => Array.from(document.querySelectorAll<HTMLElement>('.plot-hover-layer:not([hidden])')).some(layer => {
+        layer.style.pointerEvents = 'auto';
+        try { const stack = document.elementsFromPoint(x, y); return stack.includes(layer) && stack[0] !== layer; } finally { layer.style.pointerEvents = ''; }
+    }), middle);
+    if (above && !buried && Math.abs((await plot.boundingBox())!.y - box.y) < 0.5) passed.add('readout');
     // Ctrl+wheel zooms; a double-click resets.
     await page.keyboard.down('Control');
     await page.mouse.wheel(0, -240);

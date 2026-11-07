@@ -16,6 +16,7 @@ import { OVERVIEW_MARGINS, paintOverview } from './entryPlots';
 import { attachPlotInteraction, FULL_PLOT_WINDOW, plotPointIn, type PlotMargins, type PlotWindow } from './plotInteraction';
 import { positionPopover } from './settingsPopover';
 import { STAGE_MARGINS } from './stagePanes';
+import { createPlotHoverLayer } from './plotHoverLayer';
 
 export interface SidePlotsDeps {
     document: Document;
@@ -58,6 +59,15 @@ export interface SidePlots {
 
 export function createSidePlots(deps: SidePlotsDeps): SidePlots {
     const { document, strings, screen, side, body, tableWrap, overview, heldCanvas } = deps;
+    // The held plot's pointer marks and readout (R7): its readout in its own head row, just above it.
+    // In the entry screen: maximized, it is laid over the window above the page, and the marks must be above it.
+    const marks = createPlotHoverLayer(document, '', screen);
+    let pointer: { clientX: number; clientY: number } | null = null;
+    const showMarks = (): void => {
+        const drawn = deps.heldPicture()?.drawn ?? null;
+        if (!pointer || !drawn || heldCanvas.closest('[hidden]')) { marks.hide(); return; }
+        marks.show(heldCanvas, drawn, pointer.clientX, pointer.clientY, heldCanvas.parentElement?.querySelector<HTMLElement>('[data-plot-readout]') ?? null);
+    };
     const windows = new Map<string, PlotWindow>();
     const windowKeys = new Map<string, string>();
     const plotWindow = (name: string): PlotWindow => windows.get(name) ?? FULL_PLOT_WINDOW;
@@ -81,7 +91,7 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
     function paint(): void {
         if (pending.distribution) { pending.distribution = false; deps.paintDistribution(); }
         // The side plots are drawn only while the table is wide enough to show them.
-        if (screen.hidden || !side.offsetWidth) return;
+        if (screen.hidden || !side.offsetWidth) { marks.hide(); return; }
         const rows = deps.rows();
         const rowHeight = (body.querySelector('tr') as HTMLElement | null)?.offsetHeight || 22;
         const first = Math.floor(tableWrap.scrollTop / rowHeight);
@@ -93,6 +103,8 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
             canvas.dataset.window = `${zoom.x.start.toFixed(3)}-${zoom.x.end.toFixed(3)}|${zoom.y.start.toFixed(3)}-${zoom.y.end.toFixed(3)}`;
         }
         deps.paintHeld();
+        // Drawn anew under a still pointer (a zoom, the held picture coming in): the marks follow; let go, they go.
+        showMarks();
     }
     function schedule(distribution = true): void {
         pending.distribution ||= distribution;
@@ -135,6 +147,8 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
                 schedule();
             },
             hover(event, hit) {
+                pointer = hit && !hit.axis && hit.plot === heldCanvas ? { clientX: event.clientX, clientY: event.clientY } : null;
+                showMarks();
                 // A point's name stays where hints go while the pointer is on it.
                 if (!hit) return;
                 // A plot that says what it is (the strip) keeps saying it, before the gestures.
@@ -142,7 +156,7 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
                 const gestures = hit.axis ? strings.compareHintAxis : strings.compareHintPlot;
                 document.getElementById('hint-footer')?.replaceChildren(own ? `${own} · ${gestures}` : gestures);
             },
-            clearHover() { /* the panel's own hints stay */ },
+            clearHover() { pointer = null; marks.hide(); /* the panel's own hints stay */ },
             showBox(plot, from, to) {
                 const box = plot.getBoundingClientRect(), outer = side.getBoundingClientRect(), margins = marginsOf(plot);
                 const width = box.width - margins.left - margins.right, height = box.height - margins.top - margins.bottom;
