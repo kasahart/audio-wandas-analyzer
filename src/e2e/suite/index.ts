@@ -113,6 +113,12 @@ interface E2ETestCase {
     run: (ctx: { snapshot: TestSnapshot }) => Promise<void>;
 }
 
+/** A waveform lane's amplitude ticks, as the plot rules write them ("−0.5", "0.0", "0.5"): below, at and above zero. */
+function waveformTicksSpanZero(labels: readonly string[]): boolean {
+    const values = labels.map((label) => Number(label.replace('−', '-'))).filter((value) => Number.isFinite(value));
+    return values.some((value) => value < 0) && values.includes(0) && values.some((value) => value > 0);
+}
+
 function formatProgress(passed: number, total: number): string {
     return `[${passed}/${total}]`;
 }
@@ -635,9 +641,7 @@ export async function run(): Promise<void> {
                     const wf = axes.waveformPerTrack[0] ?? [];
                     const sg = axes.spectrogramPerTrack[0] ?? [];
                     const overlay = axes.spectrumOverlay;
-                    return wf.some((s) => /^\+/.test(s))
-                        && wf.some((s) => /^-/.test(s))
-                        && wf.includes('0')
+                    return waveformTicksSpanZero(wf)
                         && wf.some((s) => s.includes('Amp'))
                         && sg.includes('0 Hz')
                         && sg.some((s) => /Hz$/.test(s) && s !== '0 Hz')
@@ -650,7 +654,7 @@ export async function run(): Promise<void> {
                 assert.ok(axes, 'axisLabels must be present in snapshot');
 
                 const wf = axes.waveformPerTrack[0] ?? [];
-                assert.ok(wf.some((s) => /^\+/.test(s)) && wf.some((s) => /^-/.test(s)) && wf.includes('0'),
+                assert.ok(waveformTicksSpanZero(wf),
                     `waveform axis labels missing: ${JSON.stringify(wf)}`);
                 assert.ok(wf.some((s) => s.includes('Amp')),
                     `waveform axis title (Amp) missing: ${JSON.stringify(wf)}`);

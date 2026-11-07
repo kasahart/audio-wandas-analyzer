@@ -10,12 +10,8 @@ import assert from 'node:assert/strict';
 import {
     formatHz,
     dbToRgb,
-    drawWaveformAmplitudeAxis,
-    formatWaveformAxisLabels,
-    drawSpectrogramFrequencyAxis,
     drawSpectrumSelectionBox,
     drawCanvasMessage,
-    DEFAULT_THEME,
     type CanvasDrawCtx,
 } from '../webview/draw/canvasDrawers';
 
@@ -115,79 +111,6 @@ test('dbToRgb: 各セグメント境界で連続している', () => {
                 `discontinuity at norm=${boundary} channel ${c}: ${lo[c]} -> ${hi[c]}`);
         }
     }
-});
-
-// ── drawWaveformAmplitudeAxis ──
-
-test('drawWaveformAmplitudeAxis: absolutePeak の実スケールで振幅ラベルを描画', () => {
-    const ctx = makeMockCtx();
-    drawWaveformAmplitudeAxis(ctx, 800, 80, formatWaveformAxisLabels(16383, null, 'Amp'), DEFAULT_THEME);
-    assert.ok(ctx._texts.includes('+16383'));
-    assert.ok(ctx._texts.includes('0'));
-    assert.ok(ctx._texts.includes('-16383'));
-    assert.ok(ctx._texts.includes('Amp'));
-});
-
-test('drawWaveformAmplitudeAxis: unit がある場合は Amp タイトルに表示', () => {
-    const ctx = makeMockCtx();
-    drawWaveformAmplitudeAxis(ctx, 800, 80, formatWaveformAxisLabels(0.5, 'Pa', 'Amp'), DEFAULT_THEME);
-    assert.ok(ctx._texts.includes('+0.50'));
-    assert.ok(ctx._texts.includes('-0.50'));
-    assert.ok(ctx._texts.includes('Amp (Pa)'));
-});
-
-test('drawWaveformAmplitudeAxis: very small absolutePeak は 0.00 に丸めない', () => {
-    const ctx = makeMockCtx();
-    drawWaveformAmplitudeAxis(ctx, 64, 80, formatWaveformAxisLabels(0.005, null, 'Amp'), DEFAULT_THEME);
-    assert.ok(ctx._texts.includes('+0.0050'));
-    assert.ok(ctx._texts.includes('-0.0050'));
-});
-
-test('drawWaveformAmplitudeAxis: invalid absolutePeak は 1 にフォールバック', () => {
-    const ctx = makeMockCtx();
-    drawWaveformAmplitudeAxis(ctx, 800, 80, formatWaveformAxisLabels(0, null, 'Amp'), DEFAULT_THEME);
-    assert.ok(ctx._texts.includes('+1.0'));
-    assert.ok(ctx._texts.includes('-1.0'));
-    assert.ok(ctx._texts.includes('Amp'));
-});
-
-test('drawWaveformAmplitudeAxis: 半透明バックプレートとして fillRect を呼ぶ', () => {
-    const ctx = makeMockCtx();
-    drawWaveformAmplitudeAxis(ctx, 800, 80);
-    const rects = ctx._ops.filter((o) => o.op === 'fillRect');
-    assert.equal(rects.length, 1);
-    assert.deepEqual(rects[0].args, [0, 0, 64, 80]);
-});
-
-test('drawWaveformAmplitudeAxis: save/restore はペアで呼ばれる', () => {
-    const ctx = makeMockCtx();
-    drawWaveformAmplitudeAxis(ctx, 800, 80);
-    const saves = ctx._ops.filter((o) => o.op === 'save').length;
-    const restores = ctx._ops.filter((o) => o.op === 'restore').length;
-    assert.equal(saves, restores);
-});
-
-// ── drawSpectrogramFrequencyAxis ──
-// (A spectrogram's colour bar is the one every coloured picture draws: paintColourBar, stagePanes.ts.)
-
-const sampleSpec = { minDb: -90, maxDb: 0, maxFrequencyHz: 22050 };
-
-test('drawSpectrogramFrequencyAxis: Hz ラベルを描画', () => {
-    const ctx = makeMockCtx();
-    drawSpectrogramFrequencyAxis(ctx, 64, 80, sampleSpec);
-    assert.ok(ctx._texts.includes('0 Hz'));
-    assert.ok(ctx._texts.some((t) => /kHz$/.test(t)));
-});
-
-test('drawSpectrogramFrequencyAxis: 渡された axis canvas 幅だけを背景として塗る', () => {
-    const ctx = makeMockCtx();
-    drawSpectrogramFrequencyAxis(ctx, 32, 80, sampleSpec);
-    const rects = ctx._ops.filter((o) => o.op === 'fillRect');
-    assert.deepEqual(rects.map((r) => r.args), [[0, 0, 32, 80]]);
-    const textXs = ctx._ops
-        .filter((o) => o.op === 'fillText' && o.args[0] !== 'Freq')
-        .map((o) => o.args[1]);
-    assert.ok(textXs.every((x) => x === 30));
 });
 
 // ── drawSpectrumSelectionBox ──

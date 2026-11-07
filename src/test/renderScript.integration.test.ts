@@ -1706,19 +1706,17 @@ test('axes: 振幅軸ラベルが absolutePeak と unit から track-axis-canvas
     const env = setupEnvWithState(REAL_SCALE_AXIS_APP_STATE);
     await nextAnimationFrame(env.dom);
 
+    // Every plot's value-axis ticks over what the lane shows (the peak at 88 % of the half height), and its
+    // quantity, calibration and unit as Compare's waveform axis names them (R3).
     const int16Spy = env.domCanvasContexts.get('track-axis-canvas-0');
     assert.ok(int16Spy, 'track-axis-canvas-0 のスパイが取得できること');
-    assert.ok(int16Spy.fillTextCalls.includes('+16383'), '+16383 ラベルが描かれること');
-    assert.ok(int16Spy.fillTextCalls.includes('-16383'), '-16383 ラベルが描かれること');
-    assert.ok(int16Spy.fillTextCalls.includes('0'), '0 ラベルが描かれること');
-    assert.ok(int16Spy.fillTextCalls.includes('Amp'), '単位なし Amp タイトルが描かれること');
-    assert.ok(int16Spy.fillRectCalls > 0, 'ラベル用の半透明バックプレートが描かれること');
+    for (const label of ['−10000', '0', '10000']) assert.ok(int16Spy.fillTextCalls.includes(label), label + ' ラベルが描かれること');
+    assert.ok(int16Spy.fillTextCalls.some((text: string) => /\[input unit\]$/.test(text)), '単位なしは input unit と書かれること: ' + JSON.stringify(int16Spy.fillTextCalls));
 
     const paSpy = env.domCanvasContexts.get('track-axis-canvas-1');
     assert.ok(paSpy, 'track-axis-canvas-1 のスパイが取得できること');
-    assert.ok(paSpy.fillTextCalls.includes('+0.50'), '+0.50 ラベルが描かれること');
-    assert.ok(paSpy.fillTextCalls.includes('-0.50'), '-0.50 ラベルが描かれること');
-    assert.ok(paSpy.fillTextCalls.includes('Amp (Pa)'), 'Amp (Pa) タイトルが描かれること');
+    for (const label of ['−0.5', '0.0', '0.5']) assert.ok(paSpy.fillTextCalls.includes(label), label + ' ラベルが描かれること');
+    assert.ok(paSpy.fillTextCalls.some((text: string) => /\[Pa\]$/.test(text)), '単位 Pa がタイトルに書かれること');
     env.dom.window.close();
 });
 
@@ -1729,8 +1727,8 @@ test('snapshot: waveformPerTrack が absolutePeak と unit から生成される
         .filter((msg: any) => msg.type === 'comparison-panel-test-snapshot')
         .at(-1) as any;
 
-    assert.deepEqual(Array.from(snap.renderedUi.axisLabels.waveformPerTrack[0]), ['+16383', '0', '-16383', 'Amp']);
-    assert.deepEqual(Array.from(snap.renderedUi.axisLabels.waveformPerTrack[1]), ['+0.50', '0', '-0.50', 'Amp (Pa)']);
+    assert.deepEqual(Array.from(snap.renderedUi.axisLabels.waveformPerTrack[0]), ['−10000', '0', '10000', 'Amplitude, uncalibrated [input unit]']);
+    assert.deepEqual(Array.from(snap.renderedUi.axisLabels.waveformPerTrack[1]), ['−0.5', '0.0', '0.5', 'Amplitude, uncalibrated [Pa]']);
     assert.equal((env.dom.window.document.getElementById('track-axis-canvas-0') as HTMLCanvasElement).width, 64);
     env.dom.window.close();
 });
@@ -1765,11 +1763,9 @@ test('axes: スペクトログラム表示で周波数軸 (Hz) とカラーバ�
     const axisSpy = env.domCanvasContexts.get('track-spec-axis-canvas-0');
     assert.ok(axisSpy, 'track-spec-axis-canvas-0 のスパイが取得できること');
     const axisLabels = axisSpy.fillTextCalls;
-    assert.ok(axisLabels.includes('0 Hz'), '0 Hz ラベルが描かれること: ' + JSON.stringify(axisLabels));
-    assert.ok(
-        axisLabels.some((s) => /\bkHz\b/.test(s) || /\bHz\b/.test(s)),
-        'Hz または kHz の周波数ラベルが axis canvas に描かれること',
-    );
+    // Compare's frequency ticks (plain Hz) and the axis named with its unit.
+    assert.ok(axisLabels.includes('0') && axisLabels.includes('10000'), '0 と 10000 のラベルが描かれること: ' + JSON.stringify(axisLabels));
+    assert.ok(axisLabels.some((s) => /\[Hz\]$/.test(s)), '周波数軸の名前に Hz が書かれること');
 
     const spy = env.domCanvasContexts.get('track-spec-canvas-0');
     assert.ok(spy, 'track-spec-canvas-0 のスパイが取得できること');
@@ -2005,9 +2001,9 @@ test('spectrogram ruler maps time ticks to the lane width', async () => {
 
     const rulerSpy = env.domCanvasContexts.get('ruler-canvas');
     assert.ok(rulerSpy);
-    const halfSecondTick = rulerSpy.fillTextArgs.filter((call) => call.text === '0:00.50').at(-1);
-    assert.ok(halfSecondTick, '0.5 秒 tick が描画されること');
-    assert.equal(halfSecondTick.x, 402, 'the ruler\'s middle tick is drawn at the middle of the 800px lane + its label offset');
+    const tick = rulerSpy.fillTextArgs.filter((call) => call.text === '0.4').at(-1);
+    assert.ok(tick, '0.4 秒 tick が描画されること: ' + JSON.stringify(rulerSpy.fillTextArgs.map((call) => call.text)));
+    assert.equal(tick.x, 322, 'the ruler\'s 0.4 s tick (of 1 s) is drawn at 40 % of the 800px lane + its label offset');
     env.dom.window.close();
 });
 
@@ -3383,14 +3379,14 @@ test('renderScript: 波形の振幅軸 dblclick → popover で振幅レンジ�
     assert.strictEqual(pop.style.display, 'none', 'Apply 後に popover が閉じること');
     const applied = await latestWaveformLabels('post-amp-apply');
     assert.ok(applied.zoomStart > 0, '振幅軸 dblclick で時間ズームはリセットされないこと');
-    assert.deepEqual(Array.from(applied.axisLabels.waveformPerTrack[1]), ['+0.20', '0', '-0.20', 'Amp (Pa)']);
-    assert.deepEqual(Array.from(applied.axisLabels.waveformPerTrack[0]), ['+6553', '0', '-6553', 'Amp'], '他トラックは自分のピーク比で同じ倍率になること');
+    assert.deepEqual(Array.from(applied.axisLabels.waveformPerTrack[1]), ['−0.2', '−0.1', '0.0', '0.1', '0.2', 'Amplitude, uncalibrated [Pa]']);
+    assert.deepEqual(Array.from(applied.axisLabels.waveformPerTrack[0]), ['−5000', '0', '5000', 'Amplitude, uncalibrated [input unit]'], '他トラックは自分のピーク比で同じ倍率になること');
 
     axis.dispatchEvent(new env.dom.window.MouseEvent('dblclick', { bubbles: true, clientX: 10, clientY: 40 }));
     assert.strictEqual(minI.value, '-0.2', '再オープン時は設定中の値をプリフィルすること');
     (doc.getElementById('wave-range-auto') as HTMLElement).click();
     const auto = await latestWaveformLabels('post-amp-auto');
-    assert.deepEqual(Array.from(auto.axisLabels.waveformPerTrack[1]), ['+0.50', '0', '-0.50', 'Amp (Pa)']);
+    assert.deepEqual(Array.from(auto.axisLabels.waveformPerTrack[1]), ['−0.5', '0.0', '0.5', 'Amplitude, uncalibrated [Pa]']);
     env.dom.window.close();
 });
 // NOTE: jsdom テスト env (createWebviewEnv) は __APP_STRINGS__ を注入しないため

@@ -557,7 +557,6 @@ export interface UiStrings {
     playbackDisplayTitle: string;
     clipBadgeTitle: string;
     peakLabel: string;
-    waveformAmplitudeLabel: string;
     calibrationBadgeUncalibratedHint: string;
     calibrationBadgeRawHint: string;
     calibrationBadgePartialHint: string;
@@ -1349,7 +1348,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         playbackDisplayTitle: 'Playback position',
         clipBadgeTitle: 'Peak ≥ 0.99 — possible clipping',
         peakLabel: 'Peak',
-        waveformAmplitudeLabel: 'Amp',
         calibrationBadgeUncalibratedHint: 'Uncalibrated full scale (dBFS)',
         calibrationBadgeRawHint: 'Uncalibrated raw input units (dB re 1 input unit)',
         calibrationBadgePartialHint: 'Some channels use physical calibration',
@@ -2134,7 +2132,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         playbackDisplayTitle: '再生位置',
         clipBadgeTitle: 'ピーク ≥ 0.99 — クリッピングの可能性',
         peakLabel: 'ピーク',
-        waveformAmplitudeLabel: '振幅',
         calibrationBadgeUncalibratedHint: '未校正のフルスケール (dBFS)',
         calibrationBadgeRawHint: '未校正の生の入力単位 (dB re 1 input unit)',
         calibrationBadgePartialHint: '一部のチャンネルのみ物理量に校正済み',

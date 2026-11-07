@@ -11,7 +11,7 @@ import { attachOffsetEditing } from './offsetInlineEditor';
 import { dispatchTestMouseEvent, fillSpectrogramDisplayForm, fillSpectrogramSettingsForm, heightDragFromPayload, loopRegionFromPayload, setTestInputValue, testActionTrackId } from './testActionForms';
 import { nextRequestId } from './hostRequests';
 import { DEFAULT_PYTHON_ENVIRONMENT_STATE, isResponseToLazyRequest, mergeDetailSpectrograms, pythonEnvironmentStateFromMessage } from './lazyResponses';
-import { formatAmplitudeValue, formatWaveformAxisLabels, drawWaveformAmplitudeAxis, drawSpectrogramFrequencyAxis, drawCanvasMessage, type DrawTheme } from '../draw/canvasDrawers';
+import { drawCanvasMessage, type DrawTheme } from '../draw/canvasDrawers';
 import { isCacheSufficient, isOverviewSufficient, isRangeCacheDrawable, parseRangeRequestKey, planLaneRange, rangeCacheCoversView, rangeHasDetail } from '../waveform/rangeRequestPolicy';
 import { extractSpectrumAtCursor as extractCursorSpectrum } from '../spectrum/cursorSpectrum';
 import { buildSpectrumCsv, wavLoopRegions } from './runtimeExports';
@@ -52,7 +52,7 @@ import { keyRouterFor } from './keyRouter';
 import { attachSeparatorKeys } from './separatorKeys';
 import { attachTrackPointerListeners } from './trackPointerEvents';
 import { buildPythonButtonText, buildPythonTooltip, isPythonEnvError } from './pythonEnvironmentLabels';
-import { rulerTicks } from './timeRuler';
+import { laneAmplitudeRange, laneAmplitudeTicks, laneFrequencyTicks, laneTimeTicks, paintLaneAxis } from './laneAxes';
 import { createPlaybackDisplay } from './playbackDisplay';
 import { installLayoutResizeHandling } from './layoutResize';
 import { syncPanelToggle, syncSpectrumMaximize } from './panelCollapse';
@@ -60,7 +60,7 @@ import { SpectrumHover } from './spectrumHover';
 import { SpectrumView } from './spectrumView';
 import { WaveformView } from './waveformView';
 import { OVERLAY_LEVEL_AXES, paintOverlaySpectrum, renderSpectrumAxisLegend } from './overlaySpectrumPainter';
-import { paintOverlay } from './stagePanes';
+import { amplitudeAxisTitle, paintOverlay, PLOT_TEXT_FONT } from './stagePanes';
 import { referenceButtonHtml } from './pairSpectrum';
 import { PAIR_SPLIT_MAX, PAIR_SPLIT_MIN, PairSpectrumPanel } from './pairSpectrumPanel';
 import { collectSpectrumSeries, type CollectedSpectrumSeries, type SpectrumSeriesSource } from './spectrumSeriesCollector';
@@ -154,6 +154,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         persistedWebviewState = persistedStore.snapshot;
     }
     let pythonEnvironmentState = state.pythonEnvironmentState || DEFAULT_PYTHON_ENVIRONMENT_STATE;
+    /** The colours every plot's axes are written in: the ticks muted, the titles in the text colour. */
+    function laneAxisColors() {
+        const style = getComputedStyle(document.body);
+        return { muted: style.getPropertyValue('--muted').trim() || '#888', text: style.getPropertyValue('--text').trim() || '#ddd' };
+    }
     function drawTheme(): DrawTheme {
         const style = getComputedStyle(document.body);
         return {
@@ -1475,27 +1480,21 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         return spectrogramSettings.reanalyzeBusy;
     }
 
-    function waveformAxisLabelsForChannel(result: ComparisonTrackState, channelIndex: number) {
+    /** A waveform lane's amplitude axis: what it shows from bottom to top (as the waveform is drawn), its ticks and its title. */
+    function laneAmplitudeAxis(result: ComparisonTrackState, channelIndex: number) {
         const ch = channelsForResult(result)[channelIndex];
-        const peak = amplitudeScaleFor(ch);
-        const unitText = ch && typeof ch.unit === 'string' && ch.unit.trim() ? ch.unit.trim() : null;
-        if (waveformView.isAmplitudeZoomed()) {
-            const top = formatSignedAmplitudeValue(waveformView.amplitudeMax * peak);
-            const middle = formatSignedAmplitudeValue(((waveformView.amplitudeMin + waveformView.amplitudeMax) / 2) * peak);
-            const bottom = formatSignedAmplitudeValue(waveformView.amplitudeMin * peak);
-            return [top, middle, bottom, unitText ? STR.waveformAmplitudeLabel + ' (' + unitText + ')' : STR.waveformAmplitudeLabel];
-        }
-        return formatWaveformAxisLabels(peak, ch && ch.unit, STR.waveformAmplitudeLabel);
+        const range = laneAmplitudeRange(amplitudeScaleFor(ch), waveformView.isAmplitudeZoomed() ? { minNorm: waveformView.amplitudeMin, maxNorm: waveformView.amplitudeMax } : undefined);
+        const unit = ch && typeof ch.unit === 'string' && ch.unit.trim() ? ch.unit.trim() : undefined;
+        return { range, ticks: laneAmplitudeTicks(range), title: amplitudeAxisTitle(STR, unit, trackLevelInput([ch], undefined)) };
+    }
+    /** The lanes' visible time span in seconds (the ruler's and every lane's time axis). */
+    function laneVisibleSeconds() {
+        const gs = trackStore.globalSpan();
+        return { start: gs.startSec + waveformView.start * gs.spanSec, end: gs.startSec + waveformView.end * gs.spanSec };
     }
     function waveformAxisLabelsForResult(result: ComparisonTrackState, _trackIndex: number) {
-        return waveformAxisLabelsForChannel(result, 0);
-    }
-    function formatSignedAmplitudeValue(value: number): string {
-        if (value === 0) {
-            return '0';
-        }
-        const prefix = value > 0 ? '+' : value < 0 ? '-' : '';
-        return prefix + formatAmplitudeValue(value);
+        const axis = laneAmplitudeAxis(result, 0);
+        return [...axis.ticks.map(tick => tick.text), axis.title];
     }
     function buildTestSnapshot(): Record<string, unknown> {
         const trackSnapshot = buildTrackSnapshot({
@@ -1796,15 +1795,28 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const timeW = lane ? Math.min(W, lane.width) : W;
         const H = canvas.height;
         ctx.clearRect(0, 0, W, H);
-        const gs = trackStore.globalSpan();
-        const visStart = gs.startSec + waveformView.start * gs.spanSec;
-        const visEnd = gs.startSec + waveformView.end * gs.spanSec;
-        ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--muted').trim() || '#888';
-        ctx.font = '9px monospace';
+        const seconds = laneVisibleSeconds();
+        const style = getComputedStyle(document.body);
+        // The lanes' time axis as every plot's: its ticks and their numbers, and its name at the right end; a number the
+        // name would overlap is left out.
+        ctx.font = PLOT_TEXT_FONT;
         ctx.textAlign = 'left';
-        rulerTicks(visStart, visEnd, timeW).forEach(function (tick) {
-            ctx.fillText(tick.label, tick.x + 2, H - 4);
+        ctx.textBaseline = 'alphabetic';
+        const title = STR.axisTime;
+        const titleLeft = timeW - ctx.measureText(title).width - 2;
+        ctx.fillStyle = style.getPropertyValue('--muted').trim() || '#888';
+        ctx.strokeStyle = style.getPropertyValue('--line').trim() || '#444';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        laneTimeTicks(seconds.start, seconds.end, timeW).forEach(function (tick) {
+            const x = Math.round(tick.x) + 0.5;
+            ctx.moveTo(x, H - 4);
+            ctx.lineTo(x, H);
+            if (tick.x + 2 + ctx.measureText(tick.text).width < titleLeft - 4) ctx.fillText(tick.text, tick.x + 2, H - 6);
         });
+        ctx.stroke();
+        ctx.fillStyle = style.getPropertyValue('--text').trim() || '#ddd';
+        ctx.fillText(title, titleLeft, H - 6);
     }
     function renderStackedTracks() {
         linkedScaleMemo = null;
@@ -1952,6 +1964,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const amplitudeZoomed = waveformView.isAmplitudeZoomed();
         // Only the lane under the pointer reads its points: the others draw without keeping them.
         const points: LanePoint[] | undefined = laneHover && laneHover.canvas === canvas ? [] : undefined;
+        const axis = laneAmplitudeAxis(result, channelIndex);
+        const seconds = laneVisibleSeconds();
+        const grid = {
+            ys: axis.ticks.map(tick => (1 - tick.fraction) * H),
+            xs: laneTimeTicks(seconds.start, seconds.end, W).map(tick => tick.x),
+            color: drawTheme().lineColor,
+        };
         const coverage = paintTrackWaveform(ctx, W, H, color, src, {
             zoomStart: waveformView.start,
             zoomEnd: waveformView.end,
@@ -1959,7 +1978,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             trackDurRatio: placement.trackDurRatio,
             amplitudeMinNorm: amplitudeZoomed ? waveformView.amplitudeMin : undefined,
             amplitudeMaxNorm: amplitudeZoomed ? waveformView.amplitudeMax : undefined,
-        }, window.renderWaveformPipeline, points);
+        }, window.renderWaveformPipeline, points, grid);
         if (record) {
             record.waveformCoverage = coverage;
         }
@@ -1977,7 +1996,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (axisCanvas) {
             const axisCtx = axisCanvas.getContext('2d');
             if (axisCtx) {
-                drawWaveformAmplitudeAxis(axisCtx, AXIS_W, H, waveformAxisLabelsForChannel(result, channelIndex), drawTheme());
+                paintLaneAxis(axisCtx, AXIS_W, H, axis.ticks, axis.title, laneAxisColors());
             }
         }
     }
@@ -2049,7 +2068,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         spectrogramRasterCache.set(cacheId, painted);
         canvas.dataset.colourBar = [painted.colourBar.x, painted.colourBar.y, painted.colourBar.width, painted.colourBar.height].map(value => Math.round(value)).join(' ');
         if (axisCanvas && axisCtx) {
-            drawSpectrogramFrequencyAxis(axisCtx, axisCanvas.width, axisCanvas.height, spec, { maxFreq: maxFreq, minFreq: minFreq, label: STR.axisFrequency }, drawTheme());
+            paintLaneAxis(axisCtx, axisCanvas.width, axisCanvas.height, laneFrequencyTicks(minFreq > 0 ? minFreq : 0, maxFreq, axisCanvas.height), STR.axisFrequency, laneAxisColors());
         }
         if (overlayCtx) {
             drawSpectrogramOverlayLines(overlayCtx, W, H);
