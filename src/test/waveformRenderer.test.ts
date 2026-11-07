@@ -502,3 +502,23 @@ test('paintLoopRegion: save/restore がペアで呼ばれる', () => {
     paintLoopRegion(ctx, 800, 100, 0.2, 0.6, 0, 1);
     assert.equal(ctx.savedCount, 0); // save と restore がペア
 });
+
+test('decimateBuckets: パンしてもバケットの境界は動かない（div の倍数から始まる）', () => {
+    const n = 40;
+    const env = {
+        min: Array.from({ length: n }, (_, i) => -((i * 7) % 11)),
+        max: Array.from({ length: n }, (_, i) => (i * 5) % 13),
+        minT: Array.from({ length: n }, (_, i) => i / n),
+        maxT: Array.from({ length: n }, (_, i) => (i + 0.5) / n),
+        absolutePeak: 13,
+    };
+    const key = (pts: Array<[{ tNorm: number; value: number }, { tNorm: number; value: number }]>): string[] =>
+        pts.map(([a, b]) => `${a.tNorm},${a.value},${b.tNorm},${b.value}`);
+    const base = key(decimateBuckets(env, { i0: 8, i1: 31, div: 4 }, 0, 1));
+    for (const shift of [1, 2, 3]) {
+        const moved = key(decimateBuckets(env, { i0: 8 + shift, i1: 31 + shift, div: 4 }, 0, 1));
+        // The buckets the two views share are the same buckets, picked from the same samples.
+        const shared = moved.filter(point => base.includes(point));
+        assert.ok(shared.length >= base.length - 1, `shift ${shift}: ${shared.length} of ${base.length} buckets kept`);
+    }
+});

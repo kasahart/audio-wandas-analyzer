@@ -38,6 +38,7 @@ from wandas.frames.segments import ChannelFrameSegments
 
 import analysis_spec as spec
 import stage_view as sv
+from decimator import bucket_edges
 from stage_view import StageDetail, StageView
 
 #: How much of the Frames' values the backend keeps for the comparison's medians and differences. The least
@@ -247,7 +248,7 @@ def difference_line(
 
 def _peak_blocks(values: np.ndarray, count: int) -> tuple[np.ndarray, np.ndarray]:
     """The last axis in at most ``count`` blocks, each the (signed) value of largest magnitude, ignoring NaN."""
-    edges = np.linspace(0, values.shape[-1], min(count, values.shape[-1]) + 1).astype(int)
+    edges = bucket_edges(values.shape[-1], count)
     filled = np.nan_to_num(values, nan=0.0)
     picked = [
         np.take_along_axis(block, np.argmax(np.abs(block), axis=-1)[..., np.newaxis], axis=-1)[..., 0]
@@ -363,7 +364,7 @@ def _image(data: StageData, detail: StageDetail | None, diff: bool) -> StageView
         plane, times = plane[:, columns], times[columns]
         whole = whole[columns] if whole is not None else None
     count = sv.HEATMAP_TIMES if bounds is None else max(2, points // 2)
-    edges = np.linspace(0, times.size, min(count, times.size) + 1).astype(int)
+    edges = bucket_edges(times.size, count)
     blocks = [slice(start, end) for start, end in zip(edges[:-1], edges[1:], strict=True) if end > start]
     edges = np.array([block.start for block in blocks] + [blocks[-1].stop]) if blocks else np.array([0])
     view: StageView = dict(data.view)  # type: ignore[assignment]

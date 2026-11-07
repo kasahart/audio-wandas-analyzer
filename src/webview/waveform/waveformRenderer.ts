@@ -217,6 +217,7 @@ export function computeViewRange(
 
 /**
  * バケットごとに argmin/argmax を選択し、時系列順ペアで返す。
+ * バケットは div の倍数の位置から始まる（描画範囲の先頭からではない）。パンしても同じ点が同じバケットに入り、線が揺れない。
  * 座標変換は行わない（Canvas に依存しない純粋関数）。
  */
 export function decimateBuckets(
@@ -245,8 +246,8 @@ export function decimateBuckets(
 
     const result: Array<[DecimatedPoint, DecimatedPoint]> = [];
 
-    for (let b = i0; b <= i1; b += div) {
-        const bEnd = Math.min(i1 + 1, b + div);
+    for (let b = i0 - (i0 % div); b <= i1; b += div) {
+        const bEnd = Math.min(n, b + div);
         let minIdx = b, maxIdx = b;
         let minVal = lo(b), maxVal = hi(b);
         for (let i = b + 1; i < bEnd; i++) {

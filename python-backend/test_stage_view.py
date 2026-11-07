@@ -298,7 +298,8 @@ def test_cepstrum_and_lag_peaks_keep_each_blocks_largest_magnitude(size: int) ->
     values = np.random.default_rng(size).normal(size=(2, size))
     for count in (1, 8, 64, 5000):
         peaks, starts = _signed_peaks(values, count)
-        edges = np.linspace(0, size, min(count, size) + 1).astype(int)
+        # The blocks are every time axis's buckets (np.array_split's, decimator.bucket_edges).
+        edges = np.cumsum([0] + [part.size for part in np.array_split(np.arange(size), min(count, size))])
         for row in range(2):
             blocks = zip(edges[:-1], edges[1:], strict=True)
             expected = [values[row, a + np.argmax(np.abs(values[row, a:b]))] for a, b in blocks]
