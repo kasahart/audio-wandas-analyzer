@@ -247,7 +247,9 @@ def min_max_line(
 
 def rows_bucket_count(xs: np.ndarray, rows: int, point_limit: int, span: Sequence[float] | None = None) -> int:
     """The most log buckets whose points fit ``point_limit`` for ``rows`` lines sharing ``xs`` (at most two per row
-    per bucket, and no more than the bucket holds), whatever their values."""
+    per bucket, and no more than the bucket holds), for rows of finite values (the cursor spectrum's are: wandas
+    floors its dB at -240). A row with missing values keeps its finite ones whole once they are few enough
+    (min_max_indices), which this count does not foresee."""
     positive = xs[xs > 0]
     if positive.size == 0:
         return 1
