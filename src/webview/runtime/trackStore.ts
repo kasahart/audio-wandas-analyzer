@@ -8,6 +8,7 @@ import type {
     WaveformCoverage,
     WaveformRangeCache,
 } from './types';
+import type { SpectrogramData } from '../../shared/analysis/analysisTypes';
 import { HostRequests } from './hostRequests';
 import { OWN_COLORS } from '../../shared/gui/roleColors';
 
@@ -23,7 +24,18 @@ export interface TrackRecord {
     readonly requests: HostRequests<LazyRequestState | null>;
     /** The host's answer when the spectrogram failed: shown in the lane, and asked again only after a pause. */
     detailError: { settingsSignature: string; message: string; at: number } | null;
+    /** A zoomed lane's spectrogram window, asked again at full resolution (R3); drawn while it covers the view. */
+    spectrogramZoom: SpectrogramZoom | null;
     readonly spectrumSliceCache: Map<number, SpectrumSlice>;
+}
+
+export interface SpectrogramZoom {
+    startNorm: number;
+    endNorm: number;
+    analysisId: string;
+    settingsSignature: string;
+    /** Per channel, as the whole file's spectrograms are. */
+    spectrograms: Array<SpectrogramData | null>;
 }
 
 export interface ReconcileResult {
@@ -253,6 +265,7 @@ export class TrackStore {
             rangeCache: null,
             requests: new HostRequests(),
             detailError: null,
+            spectrogramZoom: null,
             spectrumSliceCache: new Map(),
         };
         result.trackId = id;
@@ -269,6 +282,7 @@ export class TrackStore {
     private clearAsyncState(record: TrackRecord): void {
         record.requests.clear();
         record.detailError = null;
+        record.spectrogramZoom = null;
         record.spectrumSliceCache.clear();
     }
 }

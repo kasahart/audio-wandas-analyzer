@@ -28,8 +28,8 @@ export type HostInboundMessage =
         endNorm: number;
         channels: RangeWaveform[];
     }
-    | (LazyResponseIdentity & { type: 'track-detail-result'; channels: ChannelSummary[]; channelIndex?: number })
-    | (LazyResponseIdentity & { type: 'track-detail-error'; error: string; channelIndex?: number })
+    | (LazyResponseIdentity & { type: 'track-detail-result'; channels: ChannelSummary[]; channelIndex?: number; startNorm?: number; endNorm?: number })
+    | (LazyResponseIdentity & { type: 'track-detail-error'; error: string; channelIndex?: number; startNorm?: number; endNorm?: number })
     | (LazyResponseIdentity & {
         type: 'spectrum-slice-result';
         channels: Array<{
