@@ -9,11 +9,11 @@ import { isRequestPairSpectrumMessage, type PairSpectrumRequest } from '../share
 import { DEFAULT_THEME } from '../webview/draw/canvasDrawers';
 import { isHostInboundMessage } from '../webview/runtime/hostMessaging';
 import {
-    PAIR_LANES, pairLanes, pairHeader, pairLegendHtml, referenceButtonHtml, syncReferenceButtons,
+    PAIR_LANES, pairLanes, pairHeader, type PairLaneKey, pairLegendHtml, referenceButtonHtml, syncReferenceButtons,
     type PairCurve, type PairSpectrumResponse, type PairSpectrumResultMessage,
 } from '../webview/runtime/pairSpectrum';
 import { STAGE_MARGINS } from '../webview/runtime/stagePanes';
-import { PAIR_REQUEST_DELAY_MS, PairSpectrumPanel, type PairChannelSource, type PairPanelHost } from '../webview/runtime/pairSpectrumPanel';
+import { pairMargins, PAIR_REQUEST_DELAY_MS, PairSpectrumPanel, type PairChannelSource, type PairPanelHost } from '../webview/runtime/pairSpectrumPanel';
 import type { TrackId } from '../webview/runtime/types';
 
 const en = getStrings('en');
@@ -236,6 +236,8 @@ function panelFixture() {
     ];
     let range: { startSeconds: number; endSeconds: number } | null = null;
     let visible: { frequencyMin: number; frequencyMax: number } | null = null;
+    // The power spectrum's linear axis: 0 to its top (null: a log axis, which the pair view does not share).
+    let axisMax: number | null = 1000;
     let requestCount = 0;
     let synced: number | null = null;
     const windows: Array<{ min: number; max: number } | null> = [];
@@ -248,7 +250,9 @@ function panelFixture() {
         settingsSignature: () => 's',
         nextRequestId: () => 'pair-' + (++requestCount),
         post: request => { posted.push(request); },
-        visibleFrequencyHz: () => visible,
+        frequencyAxisHz: () => (axisMax === null ? null : {
+            maxFrequencyHz: axisMax, window: visible ? { start: visible.frequencyMin / axisMax, end: visible.frequencyMax / axisMax } : { start: 0, end: 1 },
+        }),
         plotHeight: () => 140,
         hoverFrequencyHz: () => synced,
         onHoverFrequency: hz => { hoverFrequencies.push(hz); },
@@ -275,6 +279,7 @@ function panelFixture() {
         setChannels(next: PairChannelSource[]) { channels = next; },
         setRange(next: typeof range) { range = next; },
         setVisible(next: typeof visible) { visible = next; },
+        setAxisMax(next: number | null) { axisMax = next; },
     };
 }
 
@@ -380,9 +385,13 @@ test('the pair panel clears the reference with its lane and reports failures', (
 });
 
 /** The plot component's frame on a 600 × 120 plot: where 0 Hz and the reference's Nyquist sit, and each lane's top and height. */
-const FRAME = { left: STAGE_MARGINS.left, width: 600 - STAGE_MARGINS.left - STAGE_MARGINS.right, top: STAGE_MARGINS.top, height: LANE_HEIGHT - STAGE_MARGINS.top - STAGE_MARGINS.bottom };
-const xOfHz = (hz: number) => FRAME.left + hz / 1000 * FRAME.width;
-const yOf = (fraction: number) => FRAME.top + (1 - fraction) * FRAME.height;
+const FRAME = { left: STAGE_MARGINS.left, width: 600 - STAGE_MARGINS.left - STAGE_MARGINS.right };
+const xOfHz = (hz: number, axisMax = 1000) => FRAME.left + hz / axisMax * FRAME.width;
+/** Up a plot's frame: only the bottom plot has the frequency axis's numbers under it. */
+const yOf = (fraction: number, key: PairLaneKey = 'gain') => {
+    const margins = pairMargins(key);
+    return margins.top + (1 - fraction) * (LANE_HEIGHT - margins.top - margins.bottom);
+};
 
 function shownFixture(result: PairSpectrumResultMessage = resultFor('pair-1')) {
     const fixture = panelFixture();
@@ -426,12 +435,12 @@ test('the plot under the pointer reads its nearest line in the row above, in its
             ],
         });
         // 90° sits three quarters of the way up the phase plot.
-        fixture.hover('phase', xOfHz(500), yOf(0.75));
+        fixture.hover('phase', xOfHz(500), yOf(0.75, 'phase'));
         assert.equal(fixture.readout().hidden, false);
         assert.match(fixture.readout().textContent ?? '', /500 Hz.*90\.0°/);
         assert.deepEqual(fixture.cursors(), [true, true, true], 'every plot shows the cursor line');
         assert.deepEqual(fixture.hoverFrequencies.at(-1), 500);
-        fixture.hover('coherence', xOfHz(500), yOf(0.99));
+        fixture.hover('coherence', xOfHz(500), yOf(0.99, 'coherence'));
         assert.match(fixture.readout().textContent ?? '', /500 Hz.*0\.990 γ²$/);
         fixture.doc.getElementById('pair-spectrum-plot')!.dispatchEvent(new fixture.doc.defaultView!.MouseEvent('mouseleave'));
         assert.equal(fixture.readout().hidden, true);
@@ -460,15 +469,42 @@ test('a cursor synced from past the reference Nyquist is not drawn on the pair p
     }
 });
 
-test('the pair plots end at the reference Nyquist however far the power spectrum reaches, and sync it from their ends', () => {
+test('the pair plots lie on the power spectrum\'s frequency axis past the reference Nyquist, and sync it no further than their last bin', () => {
     mock.timers.enable({ apis: ['setTimeout'] });
     try {
         const fixture = shownFixture();
-        fixture.setVisible({ frequencyMin: 0, frequencyMax: 4000 });
+        // A faster track takes the power spectrum to 4 kHz; the pair (a 2 kHz reference) ends at 1 kHz on the same axis.
+        fixture.setAxisMax(4000);
         fixture.panel.render();
-        fixture.hover('gain', xOfHz(1000), yOf(0.5));
-        fixture.hover('gain', xOfHz(0), yOf(0.5));
+        fixture.hover('gain', xOfHz(3000, 4000), yOf(0.5));
+        fixture.hover('gain', xOfHz(0, 4000), yOf(0.5));
         assert.deepEqual(fixture.hoverFrequencies.filter(hz => hz !== null), [1000, 0]);
+        // A box on the pair view zooms the power spectrum in its own Hz.
+        const lane = fixture.lane('gain'), mouse = fixture.doc.defaultView!.MouseEvent;
+        lane.dispatchEvent(new mouse('mousedown', { bubbles: true, button: 0, clientX: xOfHz(1000, 4000), clientY: yOf(1) }));
+        fixture.doc.dispatchEvent(new mouse('mousemove', { bubbles: true, clientX: xOfHz(3000, 4000), clientY: yOf(0) }));
+        fixture.doc.dispatchEvent(new mouse('mouseup', { bubbles: true, clientX: xOfHz(3000, 4000), clientY: yOf(0) }));
+        const zoomed = fixture.windows.at(-1)!;
+        assert.ok(Math.abs(zoomed.min - 1000) < 5 && Math.abs(zoomed.max - 3000) < 5, JSON.stringify(zoomed));
+    }
+    finally {
+        mock.timers.reset();
+    }
+});
+
+test('on a log power spectrum the pair view zooms on its own and leaves the power spectrum\'s range', () => {
+    mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+        const fixture = shownFixture();
+        fixture.setAxisMax(null);
+        fixture.panel.render();
+        const lane = fixture.lane('gain');
+        lane.dispatchEvent(new fixture.doc.defaultView!.WheelEvent('wheel', { bubbles: true, cancelable: true, ctrlKey: true, deltaY: -240, clientX: xOfHz(500), clientY: yOf(0.5) }));
+        assert.deepEqual(fixture.windows, []);
+        assert.notEqual(lane.dataset.plotWindow, '0.000 1.000 0.000 1.000');
+        lane.dispatchEvent(new fixture.doc.defaultView!.MouseEvent('dblclick', { bubbles: true, clientX: xOfHz(500), clientY: yOf(0.5) }));
+        assert.equal(lane.dataset.plotWindow, '0.000 1.000 0.000 1.000');
+        assert.deepEqual(fixture.windows, []);
     }
     finally {
         mock.timers.reset();
@@ -513,11 +549,7 @@ test('the pair plots zoom with every plot\'s gestures: the frequency shared with
         lane.dispatchEvent(new mouse('dblclick', { bubbles: true, clientX: 2, clientY: yOf(0.5) }));
         lane.dispatchEvent(new mouse('dblclick', { bubbles: true, clientX: xOfHz(500), clientY: LANE_HEIGHT - 2 }));
         assert.deepEqual(fixture.opened, ['Gain [dB]', 'frequency']);
-        // Shift+wheel on the whole pair axis has nothing to pan to: the power spectrum, which may reach past the
-        // reference's Nyquist, keeps its frequency range.
-        const before = fixture.windows.length;
-        lane.dispatchEvent(new fixture.doc.defaultView!.WheelEvent('wheel', { bubbles: true, cancelable: true, shiftKey: true, deltaY: 100, clientX: xOfHz(500), clientY: yOf(0.5) }));
-        assert.equal(fixture.windows.length, before);
+
     }
     finally {
         mock.timers.reset();

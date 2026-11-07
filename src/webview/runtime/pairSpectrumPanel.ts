@@ -5,9 +5,9 @@ import {
     pairHeader, pairLanes, pairLegendHtml, PAIR_LANES, syncReferenceButtons,
     type PairCurve, type PairLaneKey, type PairReference, type PairSpectrumResultMessage, type PairStrings,
 } from './pairSpectrum';
-import { attachPlotInteraction, FULL_PLOT_WINDOW, type PlotWindow } from './plotInteraction';
+import { attachPlotInteraction, FULL_PLOT_WINDOW, plotPointIn, type PlotMargins, type PlotWindow } from './plotInteraction';
 import { createPlotHoverLayer, type PlotHoverLayer } from './plotHoverLayer';
-import { paintOverlay, stagePlotPoint, type StagePlot } from './stagePanes';
+import { paintOverlay, STAGE_MARGINS, type StagePlot } from './stagePanes';
 import type { NormalizedRange } from './waveformInteraction';
 import type { TrackId } from './types';
 import { HostRequests } from './hostRequests';
@@ -37,8 +37,9 @@ export interface PairPanelHost {
     settingsSignature(): string;
     nextRequestId(): string;
     post(request: PairSpectrumRequest): void;
-    /** The power spectrum's visible Hz window, or null before it painted an FFT axis. */
-    visibleFrequencyHz(): FrequencyScale | null;
+    /** The power spectrum's linear frequency axis (0 to its top, which may pass the reference's Nyquist) and the
+     *  part of it on screen; null on a log axis or before it painted, when the pair view zooms on its own. */
+    frequencyAxisHz(): { maxFrequencyHz: number; window: NormalizedRange } | null;
     /** A zoom on the pair view moves the frequency axis it shares with the power spectrum (null: the whole axis). */
     setFrequencyWindowHz(range: { min: number; max: number } | null): void;
     /** A double-click on the pair view's frequency axis opens the power spectrum's frequency range. */
@@ -58,6 +59,11 @@ export interface PairPanelHost {
 }
 
 export const PAIR_REQUEST_DELAY_MS = 150;
+
+/** The plots share one frequency axis: only the bottom one has room under it for the axis's numbers and name. */
+export function pairMargins(key: PairLaneKey): PlotMargins {
+    return key === PAIR_LANES[PAIR_LANES.length - 1] ? STAGE_MARGINS : { ...STAGE_MARGINS, bottom: 4 };
+}
 export const PAIR_SPLIT_MIN = 0.25;
 export const PAIR_SPLIT_MAX = 0.75;
 
@@ -84,6 +90,8 @@ export class PairSpectrumPanel {
     /** Each plot's part of its level axis on screen (the frequency axis is the power spectrum's). */
     /** Each plot's level zoom in its own values (dB, °, γ²): the whole range is refitted to the bins on screen, so a
      *  fraction of it would show other values after the next pan. */
+    /** The frequency part on screen while the power spectrum has no linear axis to share (of 0 to the reference's Nyquist). */
+    private ownWindow: NormalizedRange = FULL_PLOT_WINDOW.x;
     private readonly levelWindow = new Map<PairLaneKey, { min: number; max: number }>();
     private marks: Map<PairLaneKey, PlotHoverLayer> | null = null;
     private splitFraction = 0.5;
@@ -113,6 +121,7 @@ export class PairSpectrumPanel {
         this.error = null;
         this.pointer = null;
         this.levelWindow.clear();
+        this.ownWindow = FULL_PLOT_WINDOW.x;
         // The marks are laid over the page, not inside the pane: closing the pane takes them away too.
         this.marks?.forEach(layer => layer.hide());
         this.doc.getElementById('spectrum-section')?.classList.toggle('has-pair', next !== null);
@@ -321,16 +330,20 @@ export class PairSpectrumPanel {
             message.style.display = text ? '' : 'none';
         }
         // The plots together take the power spectrum's height beside them.
-        plot.style.height = `${Math.max(180, this.host.plotHeight())}px`;
+        plot.style.height = `${this.host.plotHeight()}px`;
         const result = this.result;
-        const lanes = result && !text ? pairLanes({ frequencyBins: result.frequencyBins, maxFrequencyHz: result.maxFrequencyHz, curves }, this.visibleFrequencyHz(result), this.strings) : [];
-        const window = result ? this.frequencyWindow(result) : FULL_PLOT_WINDOW.x;
+        const axis = result ? this.frequencyAxis(result) : null;
+        const lanes = result && axis && !text ? pairLanes({ frequencyBins: result.frequencyBins, maxFrequencyHz: result.maxFrequencyHz, curves }, axis.visible, this.strings) : [];
         this.drawn.clear();
         for (const { key, canvas } of this.canvases()) {
             const lane = lanes.find(item => item.key === key);
-            // Each plot is drawn by the plot component (R13): its axes, its zoom, its cursor and readout.
+            // Each plot is drawn by the plot component (R13): its axes, its zoom, its cursor and readout. They are laid
+            // on the power spectrum's frequency axis, so the same x is the same frequency on both sides, and only the
+            // bottom one labels it.
             const range = lane ? this.levelRange(key, lane.range) : { min: 0, max: 1 };
-            const drawn = paintOverlay(canvas, { layers: lane?.layers ?? [] }, range, lane?.axes ?? { x: '', y: '' }, { window: { x: window } });
+            const axisView = lane?.layers[0] && axis ? { ...lane.layers[0].view, xs: [0, axis.maxFrequencyHz], values: [0, 0] } : null;
+            const drawn = paintOverlay(canvas, { layers: lane?.layers ?? [] }, range, lane?.axes ?? { x: '', y: '' },
+                { window: { x: axis?.window ?? FULL_PLOT_WINDOW.x }, axisView, margins: pairMargins(key), xAxisLabels: key === PAIR_LANES[PAIR_LANES.length - 1] });
             this.drawn.set(key, { canvas, plot: drawn, range: lane?.range ?? range, label: lane?.axes.y ?? '' });
         }
         this.showMarks();
@@ -357,21 +370,23 @@ export class PairSpectrumPanel {
         this.levelWindow.set(key, { min: whole.min + part.start * span, max: whole.min + part.end * span });
     }
 
-    /** The power spectrum's Hz window as the part of the pair view's frequency axis (0 to the reference's Nyquist). */
-    private frequencyWindow(result: PairSpectrumResultMessage): NormalizedRange {
-        const visible = this.visibleFrequencyHz(result);
-        const max = result.maxFrequencyHz || 1;
-        const start = Math.max(0, Math.min(1, visible.frequencyMin / max)), end = Math.max(0, Math.min(1, visible.frequencyMax / max));
-        return end > start ? { start, end } : FULL_PLOT_WINDOW.x;
+    /** The frequency axis the plots are laid on: the power spectrum's (which may pass the reference's Nyquist) and
+     *  the part of it on screen, or, while it has no linear axis to share, 0 to the reference's Nyquist and the pair
+     *  view's own part. `visible` is that part in Hz, which the gain's range fits. */
+    private frequencyAxis(result: PairSpectrumResultMessage): { maxFrequencyHz: number; window: NormalizedRange; shared: boolean; visible: FrequencyScale } {
+        const host = this.host.frequencyAxisHz();
+        const maxFrequencyHz = host?.maxFrequencyHz ?? (result.maxFrequencyHz || 1);
+        const window = host?.window ?? this.ownWindow;
+        return { maxFrequencyHz, window, shared: !!host, visible: { frequencyMin: window.start * maxFrequencyHz, frequencyMax: window.end * maxFrequencyHz } };
     }
 
     /** The frequency at a point across a plot (CSS pixels from its left), on the frequency axis now on screen. */
     private frequencyAtX(key: PairLaneKey, x: number): number | null {
         const drawn = this.drawn.get(key), result = this.result;
         if (!drawn?.plot || !result) return null;
-        const window = this.frequencyWindow(result);
+        const { window, maxFrequencyHz } = this.frequencyAxis(result);
         const fraction = (x - drawn.plot.frame.left) / Math.max(1, drawn.plot.frame.width);
-        return (window.start + fraction * (window.end - window.start)) * result.maxFrequencyHz;
+        return (window.start + fraction * (window.end - window.start)) * maxFrequencyHz;
     }
 
     /** The cursor: the plot under the pointer reads its point and the others follow its frequency; with the pointer
@@ -411,14 +426,10 @@ export class PairSpectrumPanel {
     private xOfFrequency(key: PairLaneKey, hz: number): number | null {
         const drawn = this.drawn.get(key), result = this.result;
         if (!drawn?.plot || !result) return null;
-        const window = this.frequencyWindow(result);
-        const fraction = (hz / (result.maxFrequencyHz || 1) - window.start) / Math.max(1e-9, window.end - window.start);
+        const { window, maxFrequencyHz } = this.frequencyAxis(result);
+        const fraction = (hz / maxFrequencyHz - window.start) / Math.max(1e-9, window.end - window.start);
         if (fraction < 0 || fraction > 1) return null;
         return drawn.plot.frame.left + fraction * drawn.plot.frame.width;
-    }
-
-    private visibleFrequencyHz(result: PairSpectrumResultMessage): FrequencyScale {
-        return this.host.visibleFrequencyHz() ?? { frequencyMin: 0, frequencyMax: result.maxFrequencyHz };
     }
 
     private syncHostHover(): void {
@@ -441,26 +452,19 @@ export class PairSpectrumPanel {
                     const plot = (target as Element | null)?.closest?.<HTMLElement>('[data-pair-lane]');
                     // A plot still waiting for its result takes the pointer too, so it reads once the result arrives.
                     if (!plot || (this.result && !this.drawn.get(laneOf(plot))?.plot)) return null;
-                    const { fx, fy, axis } = stagePlotPoint(plot, clientX, clientY);
+                    const { fx, fy, axis } = plotPointIn(plot, pairMargins(laneOf(plot)), clientX, clientY);
                     return { plot, point: { fx, fy }, axis };
                 },
-                pointOn: (plot, clientX, clientY) => { const { fx, fy } = stagePlotPoint(plot, clientX, clientY); return { fx, fy }; },
-                window: plot => ({ x: this.result ? this.frequencyWindow(this.result) : FULL_PLOT_WINDOW.x, y: this.levelPart(laneOf(plot)) }),
+                pointOn: (plot, clientX, clientY) => { const { fx, fy } = plotPointIn(plot, pairMargins(laneOf(plot)), clientX, clientY); return { fx, fy }; },
+                window: plot => ({ x: this.result ? this.frequencyAxis(this.result).window : FULL_PLOT_WINDOW.x, y: this.levelPart(laneOf(plot)) }),
                 setWindow: (plot, next: PlotWindow | null) => {
                     if (!this.result) return;
-                    const max = this.result.maxFrequencyHz;
-                    if (!next) {
-                        this.levelWindow.clear();
-                        this.host.setFrequencyWindowHz(null);
-                    }
-                    else {
-                        const key = laneOf(plot);
-                        this.setLevelPart(key, next.y);
-                        // The pair axis ends at the reference's Nyquist, where the power spectrum may reach further: a
-                        // gesture that leaves the frequency part as it is (a pan with nothing past the ends) keeps that.
-                        const now = this.frequencyWindow(this.result);
-                        if (Math.abs(next.x.start - now.start) > 1e-9 || Math.abs(next.x.end - now.end) > 1e-9) this.host.setFrequencyWindowHz({ min: next.x.start * max, max: next.x.end * max });
-                    }
+                    const axis = this.frequencyAxis(this.result);
+                    if (!next) this.levelWindow.clear();
+                    else this.setLevelPart(laneOf(plot), next.y);
+                    // On the power spectrum's axis, the zoom moves both (R8); with none to share, the pair view's own.
+                    if (!axis.shared) this.ownWindow = next?.x ?? FULL_PLOT_WINDOW.x;
+                    else this.host.setFrequencyWindowHz(next ? { min: next.x.start * axis.maxFrequencyHz, max: next.x.end * axis.maxFrequencyHz } : null);
                     this.render();
                 },
                 hover: (event, hit) => {

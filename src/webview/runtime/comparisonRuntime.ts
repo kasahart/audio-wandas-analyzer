@@ -560,7 +560,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         settingsSignature: currentSettingsSignature,
         nextRequestId: () => nextRequestId('pair', 0),
         post: request => messaging.post(request),
-        visibleFrequencyHz: () => spectrumView.visibleFrequencyHz(),
+        frequencyAxisHz: () => spectrumView.linearFrequencyAxis(),
         setFrequencyWindowHz(range) {
             // The pair view shares the power spectrum's frequency axis (R8): a zoom on either moves both.
             if (!range) specZoomReset();

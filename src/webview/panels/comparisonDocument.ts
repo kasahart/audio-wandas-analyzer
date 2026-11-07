@@ -789,6 +789,8 @@ export function renderComparisonStyles(): string {
         #pair-spectrum-wrap.is-stale #pair-spectrum-plot,
         #pair-spectrum-wrap.is-stale #pair-spectrum-summary { opacity: 0.45; }
         .pair-lane-canvas { display: block; width: 100%; flex: 1 1 0; min-height: 0; cursor: crosshair; }
+        /* The bottom plot carries the shared frequency axis's numbers (12 px more), so the three plots are as tall. */
+        .pair-lane-canvas[data-pair-lane="coherence"] { flex-basis: 12px; }
         #pair-spectrum-message {
             position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
             font-size: 11px; color: var(--muted); text-align: center; padding: 0 12px; pointer-events: none;
