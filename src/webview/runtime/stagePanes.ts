@@ -491,6 +491,12 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
     canvas.height = Math.round(height * ratio);
     const context = canvas.getContext('2d');
     if (!context) return null;
+    // Drawn by the one plot component (R13): every ui-smoke test fails a plot on screen without this mark, and the
+    // plot contract test gives each one marked the same gestures. Its axes are named on it for that test.
+    if (canvas.dataset) {
+        canvas.dataset.plot = '';
+        canvas.dataset.plotAxes = overlay.layers.length ? `${axes.x}|${axes.y}` : '';
+    }
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
     context.clearRect(0, 0, width, height);
     const style = canvas.ownerDocument.defaultView?.getComputedStyle(canvas);

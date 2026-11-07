@@ -59,6 +59,7 @@ import { SpectrumHover } from './spectrumHover';
 import { SpectrumView } from './spectrumView';
 import { WaveformView } from './waveformView';
 import { OVERLAY_LEVEL_AXES, paintOverlaySpectrum, renderSpectrumAxisLegend } from './overlaySpectrumPainter';
+import { paintOverlay } from './stagePanes';
 import { referenceButtonHtml } from './pairSpectrum';
 import { PAIR_SPLIT_MAX, PAIR_SPLIT_MIN, PairSpectrumPanel } from './pairSpectrumPanel';
 import { collectSpectrumSeries, type CollectedSpectrumSeries, type SpectrumSeriesSource } from './spectrumSeriesCollector';
@@ -1920,6 +1921,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     /** The points the lane under the pointer drew in its last paint, which its cursor-only frames read again. */
     let hoveredLanePoints: { canvas: HTMLCanvasElement; points: LanePoint[] } | null = null;
     function drawTrackWaveform(canvas: HTMLCanvasElement, result: ComparisonTrackState, trackIndex: number, channelIndex: number, offsetSeconds: number, color: string, options: WaveformDrawOptions = {}): void {
+        // Not the plot component's (R13, pending): the comparison's mark from drawing this lane goes.
+        delete canvas.dataset.plot;
         const ctx = canvas.getContext('2d');
         if (!ctx) {
             return;
@@ -1984,6 +1987,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         drawRectZoomSelectionOnCanvas(ctx, W, H, trackIndex);
     }
     function drawSpectrogram(canvas: HTMLCanvasElement, result: ComparisonTrackState, trackIndex: number, channelIndex: number, offsetSeconds: number) {
+        delete canvas.dataset.plot;
         const ctx = canvas.getContext('2d');
         if (!ctx) {
             return;
@@ -3743,7 +3747,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         if (slices.length === 0) {
-            drawCanvasMessage(ctx, W, H, STR.spectrumNoData, '11px sans-serif', drawTheme().mutedColor);
+            // Empty, the plot component says why in its middle, as every plot does (R13).
+            paintOverlay(canvas, { layers: [] }, { min: 0, max: 1 }, { x: '', y: '' }, { size: { width: W, height: H }, empty: STR.spectrumNoData });
             // No line is drawn: none is named.
             renderSpectrumAxisLegend(document.getElementById('spectrum-axis-legend'), []);
             overlaySpectrumPainted = false;
