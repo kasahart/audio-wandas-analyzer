@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import test from 'node:test';
 import type { ScanResult } from '../shared/protocol/backendProtocol';
 import { getStrings } from '../shared/i18n/strings';
@@ -244,6 +246,18 @@ test('a line decimated for drawing keeps each bucket\'s lowest and highest value
     assert.ok(line.xs.length <= 100);
     assert.equal(line.xs[line.values.indexOf(9)], 123);
     assert.equal(line.xs[line.values.indexOf(-4)], 777);
+});
+
+test('the webview thins a spectrum exactly as the backend does: the shared cases both test suites check (#683)', () => {
+    const fixture = JSON.parse(readFileSync(path.resolve(process.cwd(), 'src/test/fixtures/spectrumDecimation.json'), 'utf8')) as {
+        cases: Array<{ name: string; binHz: number; bins: number; values: Array<number | null>; buckets: number; span: [number, number]; expectedBins: number[] }>;
+    };
+    assert.ok(fixture.cases.length >= 5);
+    for (const item of fixture.cases) {
+        const xs = Array.from({ length: item.bins }, (_, bin) => bin * item.binHz);
+        const line = minMaxLine(xs, item.values.map(value => value ?? Number.NaN), item.buckets, item.span);
+        assert.deepEqual(line.xs.map(x => Math.round(x / item.binHz)), item.expectedBins, item.name);
+    }
 });
 
 test('files whose bins differ (another sample rate or n_fft) have no bins to compare', () => {
