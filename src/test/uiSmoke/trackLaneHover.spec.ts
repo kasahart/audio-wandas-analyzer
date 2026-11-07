@@ -1,5 +1,5 @@
 import { expect, test } from './canvasAudit';
-import { buildUiSmokeHtml } from './buildHtml';
+import { buildUiSmokeHtml, buildUiSmokeManyTracksHtml } from './buildHtml';
 
 test('the pointer on a track\'s waveform reads the point nearest it as every plot of lines does: name, time and amplitude in the toolbar, gone off the lane (R7)', async ({ page }) => {
     await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
@@ -82,3 +82,34 @@ test('every ui-smoke test fails on a hover readout shown over a plot, whichever 
     // Taken away before the test ends, so this test itself passes the audit's check.
     await page.evaluate(() => { document.querySelector('.stray-readout')?.remove(); window.__readoutAudit?.splice(0); });
 });
+
+test('a lane scrolled partly under the toolbar is hovered on its seen part without the readout counting as over it', async ({ page }) => {
+    await page.setContent(buildUiSmokeManyTracksHtml(12, true), { waitUntil: 'domcontentloaded' });
+    await page.locator('#tracks-wrapper').evaluate(element => { element.scrollTop = 50; });
+    const lane = page.locator('.track-canvas:not(.track-spec-canvas)').first();
+    const box = await lane.boundingBox();
+    const clip = await page.locator('#tracks-wrapper').boundingBox();
+    if (!box || !clip) throw new Error('no layout box');
+    // On the part of the first waveform still in view: the readout is shown, and the audit (run after every test)
+    // does not count the part of the lane hidden under the toolbar.
+    await page.mouse.move(box.x + box.width / 2, Math.max(box.y, clip.y) + 3);
+    await expect(page.locator('#plot-readout:not([hidden])')).toHaveCount(1);
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    expect(await page.evaluate(() => window.__readoutAudit ?? [])).toEqual([]);
+});
+
+for (const width of [600, 800, 1100]) {
+    test(`at ${width} px a long recording name is cut in the readout's room, never wrapping the toolbar`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 700 });
+        await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
+        const lane = page.locator('.track-canvas:not(.track-spec-canvas)').first();
+        const box = (await lane.boundingBox())!;
+        const toolbarHeight = (await page.locator('#toolbar').boundingBox())?.height;
+        await page.mouse.move(box.x + box.width / 2, box.y + 4);
+        await expect(page.locator('#plot-readout:not([hidden])')).toHaveCount(1);
+        await page.locator('#plot-readout .plot-readout-name').evaluate(element => { element.textContent = 'a_long_recording_name_from_a_real_measurement_session_at_the_plant.wav'; });
+        await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+        expect((await page.locator('#toolbar').boundingBox())?.height).toBe(toolbarHeight);
+        expect((await lane.boundingBox())?.y).toBe(box.y);
+    });
+}
