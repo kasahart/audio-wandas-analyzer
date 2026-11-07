@@ -31,7 +31,7 @@ import { positionPopover } from './settingsPopover';
 import { composeTrackCanvases, triggerAnchorDownload, visibleExportCanvases } from './exportDownloads';
 import { clampHeight, createHeightResize, type HeightKind } from './heightResize';
 import { LayoutSettings, SPECTRUM_HEIGHT_MAX, SPECTRUM_HEIGHT_MIN, TRACK_HEIGHT_MAX, TRACK_HEIGHT_MIN, WAVE_SHARE_MAX, WAVE_SHARE_MIN, type LayoutChange } from './layoutSettings';
-import { installRangePopover } from '../rangePopover';
+import { installRangePopover, linearAxis, openAxisPart } from '../rangePopover';
 import { buildMarkdownReport, buildNotebook, type ReportLoopRegion, type ReportTrack } from '../../shared/report/analysisReport';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
 import { installHelpOverlay } from './helpOverlay';
@@ -561,6 +561,19 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         nextRequestId: () => nextRequestId('pair', 0),
         post: request => messaging.post(request),
         visibleFrequencyHz: () => spectrumView.visibleFrequencyHz(),
+        setFrequencyWindowHz(range) {
+            // The pair view shares the power spectrum's frequency axis (R8): a zoom on either moves both.
+            if (!range) specZoomReset();
+            else if (spectrumView.setFrequencyRangeHz(range.min, range.max)) scheduleSpectrumRefresh('immediate');
+        },
+        openFrequencyRange: (clientX, clientY) => openSpectrumRangePopup('freq', clientX, clientY),
+        openLevelRange(request) {
+            openAxisPart(spectrumRangePopover, {
+                mapping: linearAxis(request.min, request.max, request.label), horizontal: false, current: request.current,
+                clientX: request.clientX, clientY: request.clientY, invalid: STR.specRangeErrorMinMax,
+                set: part => request.set(part.start <= 0 && part.end >= 1 ? null : part),
+            });
+        },
         plotHeight: effectiveSpectrumHeight,
         hoverFrequencyHz() {
             const visible = spectrumView.visibleFrequencyHz();

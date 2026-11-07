@@ -8,8 +8,11 @@ import { STAGE_MARGINS, stageHover, strokeStageLine, type StagePlot } from './st
 import { hidePlotReadout, paintHoverMarks, showPlotReadout } from './plotHover';
 
 export interface PlotHoverLayer {
-    /** The marks over `plot` for the pointer at (clientX, clientY), and its readout in `slot`. */
-    show(plot: HTMLElement, drawn: StagePlot | null, clientX: number, clientY: number, slot: HTMLElement | null): void;
+    /** The marks over `plot` for the pointer at (clientX, clientY), and its readout in `slot`; returns where the
+     *  point read is across the plot (CSS pixels from its left), or null when none is read. */
+    show(plot: HTMLElement, drawn: StagePlot | null, clientX: number, clientY: number, slot: HTMLElement | null): number | null;
+    /** Only the cursor line at `clientX` over `plot`: a plot linked to the one under the pointer follows it (R8). */
+    line(plot: HTMLElement, drawn: StagePlot | null, clientX: number): void;
     /** No marks, and every readout this layer filled emptied. */
     hide(): void;
 }
@@ -23,26 +26,41 @@ export function createPlotHoverLayer(document: Document, className = '', parent:
     parent.append(layer);
     const filled = new Set<HTMLElement>();
     const emptyAll = (): void => { for (const slot of filled) hidePlotReadout(slot); filled.clear(); };
+    /** The layer laid over `plot`, cleared, with its context in CSS pixels and the plot's frame on it. */
+    const cover = (plot: HTMLElement, drawn: StagePlot | null) => {
+        const rect = plot.getBoundingClientRect();
+        const ratio = document.defaultView?.devicePixelRatio || 1;
+        Object.assign(layer.style, { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px` });
+        layer.width = Math.round(rect.width * ratio);
+        layer.height = Math.round(rect.height * ratio);
+        const context = layer.getContext('2d');
+        if (!context) return null;
+        context.setTransform(ratio, 0, 0, ratio, 0, 0);
+        context.clearRect(0, 0, rect.width, rect.height);
+        const frame = drawn?.frame ?? { left: STAGE_MARGINS.left, top: STAGE_MARGINS.top, width: Math.max(1, rect.width - STAGE_MARGINS.left - STAGE_MARGINS.right), height: Math.max(1, rect.height - STAGE_MARGINS.top - STAGE_MARGINS.bottom) };
+        return { context, rect, frame };
+    };
     return {
         show(plot, drawn, clientX, clientY, slot) {
-            const rect = plot.getBoundingClientRect();
-            const ratio = document.defaultView?.devicePixelRatio || 1;
-            Object.assign(layer.style, { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px` });
-            layer.width = Math.round(rect.width * ratio);
-            layer.height = Math.round(rect.height * ratio);
-            const context = layer.getContext('2d');
-            if (!context) return;
-            context.setTransform(ratio, 0, 0, ratio, 0, 0);
-            context.clearRect(0, 0, rect.width, rect.height);
+            const on = cover(plot, drawn);
+            if (!on) return null;
+            const { context, rect, frame } = on;
             const x = clientX - rect.left, y = clientY - rect.top;
             const hit = drawn ? stageHover(drawn, x, y) : null;
-            const frame = drawn?.frame ?? { left: STAGE_MARGINS.left, top: STAGE_MARGINS.top, width: Math.max(1, rect.width - STAGE_MARGINS.left - STAGE_MARGINS.right), height: Math.max(1, rect.height - STAGE_MARGINS.top - STAGE_MARGINS.bottom) };
             paintHoverMarks(context, frame, hit ? hit.x : x, hit ? hit.y : null, hit?.layer.color ?? '', hit && drawn ? (ctx, width) => strokeStageLine(ctx as CanvasRenderingContext2D, drawn, hit.layer, width) : undefined);
             layer.hidden = false;
             // Only this plot's row reads the pointer: another plot's readout left from before is emptied.
             for (const other of filled) if (other !== slot) hidePlotReadout(other);
             filled.clear();
             if (slot) { filled.add(slot); showPlotReadout(slot, hit?.name ?? '', hit?.values ?? '', hit?.layer.color ?? ''); }
+            return hit ? hit.x : null;
+        },
+        line(plot, drawn, clientX) {
+            const on = cover(plot, drawn);
+            if (!on) return;
+            paintHoverMarks(on.context, on.frame, clientX - on.rect.left, null, '');
+            layer.hidden = false;
+            emptyAll();
         },
         hide() { layer.hidden = true; emptyAll(); },
     };

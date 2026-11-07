@@ -10,7 +10,6 @@ export const PLOTS_PENDING: ReadonlyArray<{ selector: string; why: string }> = [
     { selector: '.track-spec-canvas', why: '8: a track\'s spectrogram lane, drawn by trackCanvasPainter' },
     { selector: '.track-spec-axis', why: '8: a spectrogram lane\'s frequency axis and colour bar' },
     { selector: '#ruler-canvas', why: '4: the track lanes\' time axis, drawn apart from them' },
-    { selector: '#pair-spectrum-canvas', why: '5: the pair plot, drawn by pairSpectrum.ts' },
     { selector: '[data-entry-overview]', why: '9: the entry\'s overview strip, drawn by entryPlots.ts' },
 ];
 

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { expect, test, type Locator, type Page } from './canvasAudit';
-import { buildUiSmokeHtml } from './buildHtml';
+import { buildExtensionHostPathUiSmokeHtml, buildUiSmokeHtml } from './buildHtml';
 import { getStrings } from '../../shared/i18n/strings';
 import { entry100Results, openEntry, type ScannedFile } from './entryHelpers';
 
@@ -78,10 +78,12 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
         .map(element => (element.checkVisibility({ visibilityProperty: true }) ? element.textContent?.trim() ?? '' : '')), top);
     await page.mouse.move(1, 1);
     await page.waitForTimeout(80);
-    const before = await readouts(box.y);
+    // Plots stacked on one shared axis (data-plot-stack) share the one readout row above the stack.
+    const rowTop = await plot.evaluate(canvas => (canvas.closest('[data-plot-stack]') ?? canvas).getBoundingClientRect().top);
+    const before = await readouts(rowTop);
     await page.mouse.move(middle.x, middle.y);
     await page.waitForTimeout(80);
-    const after = await readouts(box.y);
+    const after = await readouts(rowTop);
     const above = after.some((text, index) => text && text !== before[index]);
     // The pointer's marks are seen: a marks layer shown over the plot is the topmost thing there, not under a screen.
     const buried = await page.evaluate(({ x, y }) => Array.from(document.querySelectorAll<HTMLElement>('.plot-hover-layer:not([hidden])')).some(layer => {
@@ -175,6 +177,18 @@ test('the cursor spectrum answers the same gestures as every plot (R13)', async 
     const plot = page.locator('#spectrum-overlay-canvas');
     await expect.poll(() => plot.evaluate(canvas => (canvas as HTMLCanvasElement).dataset.plotAxes ?? '')).not.toBe('');
     await expectContract(page, 'cursor spectrum', plot);
+});
+
+test('the pair view\'s gain, phase and γ² plots answer the same gestures as every plot (R13)', async ({ page }) => {
+    await page.setViewportSize({ width: 1200, height: 900 });
+    await page.setContent(buildExtensionHostPathUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
+    await page.locator('[data-action="set-pair-reference"]').first().click();
+    await expect(page.locator('[data-pair-lane][data-plot]')).toHaveCount(3);
+    for (const lane of ['gain', 'phase', 'coherence']) {
+        const plot = page.locator(`[data-pair-lane="${lane}"]`);
+        await expect.poll(() => plot.getAttribute('data-plot-axes')).not.toBe('');
+        await expectContract(page, `pair ${lane}`, plot);
+    }
 });
 
 test('every ui-smoke test fails on a plot on screen that the plot component did not draw, unless plotRegistry.ts lists it (R13)', async ({ page }) => {

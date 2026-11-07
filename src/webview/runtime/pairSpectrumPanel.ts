@@ -1,12 +1,14 @@
 import type { PairSpectrumRequest } from '../../shared/utils/audioTarget';
-import type { CanvasDrawCtx, DrawTheme, FrequencyScale } from '../draw/canvasDrawers';
-import { syncCanvasSize } from './canvasSizing';
-import { HOVER_PICK_RADIUS_PX } from './plotHover';
+import type { DrawTheme, FrequencyScale } from '../draw/canvasDrawers';
 import type { HostInboundMessage } from './hostMessaging';
 import {
-    paintPairSpectrum, pairHeader, pairLegendHtml, PAIR_SPECTRUM_PAD, syncReferenceButtons,
-    type PairCurve, type PairReference, type PairSpectrumResultMessage, type PairStrings,
+    pairHeader, pairLanes, pairLegendHtml, PAIR_LANES, syncReferenceButtons,
+    type PairCurve, type PairLaneKey, type PairReference, type PairSpectrumResultMessage, type PairStrings,
 } from './pairSpectrum';
+import { attachPlotInteraction, FULL_PLOT_WINDOW, type PlotWindow } from './plotInteraction';
+import { createPlotHoverLayer, type PlotHoverLayer } from './plotHoverLayer';
+import { paintOverlay, stagePlotPoint, type StagePlot } from './stagePanes';
+import type { NormalizedRange } from './waveformInteraction';
 import type { TrackId } from './types';
 import { HostRequests } from './hostRequests';
 
@@ -37,6 +39,12 @@ export interface PairPanelHost {
     post(request: PairSpectrumRequest): void;
     /** The power spectrum's visible Hz window, or null before it painted an FFT axis. */
     visibleFrequencyHz(): FrequencyScale | null;
+    /** A zoom on the pair view moves the frequency axis it shares with the power spectrum (null: the whole axis). */
+    setFrequencyWindowHz(range: { min: number; max: number } | null): void;
+    /** A double-click on the pair view's frequency axis opens the power spectrum's frequency range. */
+    openFrequencyRange(clientX: number, clientY: number): void;
+    /** A double-click on a pair plot's level axis opens its range (the shared range popover). */
+    openLevelRange(request: { label: string; min: number; max: number; current: NormalizedRange; clientX: number; clientY: number; set(part: NormalizedRange | null): void }): void;
     /** The plot height the power spectrum next to it has. */
     plotHeight(): number;
     /** The frequency under the cursor on the power spectrum, or null when the cursor is elsewhere. */
@@ -67,9 +75,15 @@ export class PairSpectrumPanel {
     private result: PairSpectrumResultMessage | null = null;
     private error: string | null = null;
     private timer: ReturnType<typeof setTimeout> | null = null;
-    private hoverPoint: { x: number; y: number } | null = null;
+    /** The pointer over one of the pair plots, while it is. */
+    private pointer: { lane: PairLaneKey; clientX: number; clientY: number } | null = null;
     /** The frequency the pair cursor last read under the pointer. */
     private readHz: number | null = null;
+    /** What each plot last drew, for the pointer and the gestures. */
+    private readonly drawn = new Map<PairLaneKey, { canvas: HTMLCanvasElement; plot: StagePlot | null; range: { min: number; max: number }; label: string }>();
+    /** Each plot's part of its level axis on screen (the frequency axis is the power spectrum's). */
+    private readonly levelWindow = new Map<PairLaneKey, NormalizedRange>();
+    private marks: Map<PairLaneKey, PlotHoverLayer> | null = null;
     private splitFraction = 0.5;
 
     constructor(private readonly doc: Document, private readonly host: PairPanelHost, private readonly strings: PairPanelStrings) { }
@@ -88,14 +102,15 @@ export class PairSpectrumPanel {
     }
 
     setReference(next: PairReference | null): void {
-        const hadHover = this.hoverPoint !== null;
+        const hadHover = this.pointer !== null;
         this.referenceState = next;
         this.sentKey = null;
         this.observedKey = null;
         this.requests.drop('pair');
         this.result = null;
         this.error = null;
-        this.hoverPoint = null;
+        this.pointer = null;
+        this.levelWindow.clear();
         this.doc.getElementById('spectrum-section')?.classList.toggle('has-pair', next !== null);
         this.applySplit();
         syncReferenceButtons(this.doc, next, this.strings);
@@ -224,7 +239,7 @@ export class PairSpectrumPanel {
             this.error = null;
         }
         this.render();
-        if (this.hoverPoint) {
+        if (this.pointer) {
             this.syncHostHover();
         }
         return true;
@@ -257,6 +272,13 @@ export class PairSpectrumPanel {
         });
     }
 
+    private canvases(): Array<{ key: PairLaneKey; canvas: HTMLCanvasElement }> {
+        return PAIR_LANES.flatMap(key => {
+            const canvas = this.doc.querySelector<HTMLCanvasElement>(`[data-pair-lane="${key}"]`);
+            return canvas ? [{ key, canvas }] : [];
+        });
+    }
+
     render(): void {
         syncReferenceButtons(this.doc, this.referenceState, this.strings);
         if (!this.referenceState) {
@@ -265,9 +287,8 @@ export class PairSpectrumPanel {
         const summary = this.doc.getElementById('pair-spectrum-summary');
         const legend = this.doc.getElementById('pair-spectrum-legend');
         const message = this.doc.getElementById('pair-spectrum-message');
-        const canvas = this.doc.getElementById('pair-spectrum-canvas') as HTMLCanvasElement | null;
         const plot = this.doc.getElementById('pair-spectrum-plot');
-        if (!canvas || !plot) {
+        if (!plot) {
             return;
         }
         this.doc.getElementById('pair-spectrum-wrap')?.classList.toggle('is-stale', this.waiting && !!this.result);
@@ -295,80 +316,164 @@ export class PairSpectrumPanel {
             message.textContent = text;
             message.style.display = text ? '' : 'none';
         }
-        const width = plot.clientWidth || 400;
-        syncCanvasSize(canvas, width, Math.max(60, this.host.plotHeight()));
-        const ctx = canvas.getContext('2d') as CanvasDrawCtx | null;
-        if (!ctx) {
-            return;
-        }
+        // The plots together take the power spectrum's height beside them.
+        plot.style.height = `${Math.max(180, this.host.plotHeight())}px`;
         const result = this.result;
-        if (!result || text) {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            this.setReadout(null);
+        const lanes = result && !text ? pairLanes({ frequencyBins: result.frequencyBins, maxFrequencyHz: result.maxFrequencyHz, curves }, this.visibleFrequencyHz(result), this.strings) : [];
+        const window = result ? this.frequencyWindow(result) : FULL_PLOT_WINDOW.x;
+        this.drawn.clear();
+        for (const { key, canvas } of this.canvases()) {
+            const lane = lanes.find(item => item.key === key);
+            // Each plot is drawn by the plot component (R13): its axes, its zoom, its cursor and readout.
+            const range = lane ? this.levelRange(key, lane.range) : { min: 0, max: 1 };
+            const drawn = paintOverlay(canvas, { layers: lane?.layers ?? [] }, range, lane?.axes ?? { x: '', y: '' }, { window: { x: window } });
+            this.drawn.set(key, { canvas, plot: drawn, range: lane?.range ?? range, label: lane?.axes.y ?? '' });
+        }
+        this.showMarks();
+    }
+
+    /** The plot's level range on screen: its whole range, or the part of it zoomed to. */
+    private levelRange(key: PairLaneKey, whole: { min: number; max: number }): { min: number; max: number } {
+        const part = this.levelWindow.get(key);
+        if (!part) return whole;
+        const span = whole.max - whole.min;
+        return { min: whole.min + part.start * span, max: whole.min + part.end * span };
+    }
+
+    /** The power spectrum's Hz window as the part of the pair view's frequency axis (0 to the reference's Nyquist). */
+    private frequencyWindow(result: PairSpectrumResultMessage): NormalizedRange {
+        const visible = this.visibleFrequencyHz(result);
+        const max = result.maxFrequencyHz || 1;
+        const start = Math.max(0, Math.min(1, visible.frequencyMin / max)), end = Math.max(0, Math.min(1, visible.frequencyMax / max));
+        return end > start ? { start, end } : FULL_PLOT_WINDOW.x;
+    }
+
+    /** The frequency at a point across a plot (CSS pixels from its left), on the frequency axis now on screen. */
+    private frequencyAtX(key: PairLaneKey, x: number): number | null {
+        const drawn = this.drawn.get(key), result = this.result;
+        if (!drawn?.plot || !result) return null;
+        const window = this.frequencyWindow(result);
+        const fraction = (x - drawn.plot.frame.left) / Math.max(1, drawn.plot.frame.width);
+        return (window.start + fraction * (window.end - window.start)) * result.maxFrequencyHz;
+    }
+
+    /** The cursor: the plot under the pointer reads its point and the others follow its frequency; with the pointer
+     *  on the power spectrum, every plot follows the frequency read there (R7, R8). */
+    private showMarks(): void {
+        const marks = this.marks, result = this.result;
+        if (!marks) return;
+        const lineAt = (hz: number | null, except?: PairLaneKey): void => {
+            for (const key of PAIR_LANES) {
+                if (key === except) continue;
+                const drawn = this.drawn.get(key);
+                const x = hz === null || !result || !drawn?.plot ? null : this.xOfFrequency(key, hz);
+                if (x === null || !drawn) marks.get(key)?.hide();
+                else marks.get(key)?.line(drawn.canvas, drawn.plot, drawn.canvas.getBoundingClientRect().left + x);
+            }
+        };
+        const pointer = this.pointer;
+        const drawn = pointer ? this.drawn.get(pointer.lane) : undefined;
+        if (pointer && drawn && result) {
+            const slot = this.doc.getElementById('pair-spectrum-readout');
+            // The others first: the plot under the pointer then fills the readout row.
+            lineAt(null, pointer.lane);
+            const x = marks.get(pointer.lane)?.show(drawn.canvas, drawn.plot, pointer.clientX, pointer.clientY, slot) ?? null;
+            this.readHz = x === null ? null : this.frequencyAtX(pointer.lane, x);
+            if (this.readHz !== null) lineAt(this.readHz, pointer.lane);
             return;
         }
-        // The power spectrum's Hz window, not its zoom fractions: they scale to the fastest track's Nyquist, the pair view's to the reference's.
-        const visible = this.visibleFrequencyHz(result);
-        const point = this.hoverPoint;
-        const own = point ? this.frequencyAt(point.x, canvas.width, visible) : null;
-        const synced = own === null ? this.host.hoverFrequencyHz() : null;
-        const radius = HOVER_PICK_RADIUS_PX * (canvas.width / (canvas.clientWidth || canvas.width));
-        const hover = point && own !== null ? { frequencyHz: own, y: point.y, x: point.x, radius } : synced !== null ? { frequencyHz: synced, y: null } : null;
-        const readout = paintPairSpectrum(ctx, canvas.width, canvas.height,
-            { frequencyBins: result.frequencyBins, maxFrequencyHz: result.maxFrequencyHz, curves },
-            visible, hover, this.strings, this.host.theme());
-        this.setReadout(readout);
-        this.readHz = point && own !== null && readout ? readout.frequencyHz : null;
+        this.readHz = null;
+        // A cursor that only follows the power spectrum is dropped past the reference's Nyquist rather than pinned to the last bin.
+        const synced = result ? this.host.hoverFrequencyHz() : null;
+        const halfBin = result ? result.maxFrequencyHz / Math.max(result.frequencyBins - 1, 1) / 2 : 0;
+        lineAt(synced !== null && result && synced <= result.maxFrequencyHz + halfBin ? synced : null);
+    }
+
+    private xOfFrequency(key: PairLaneKey, hz: number): number | null {
+        const drawn = this.drawn.get(key), result = this.result;
+        if (!drawn?.plot || !result) return null;
+        const window = this.frequencyWindow(result);
+        const fraction = (hz / (result.maxFrequencyHz || 1) - window.start) / Math.max(1e-9, window.end - window.start);
+        if (fraction < 0 || fraction > 1) return null;
+        return drawn.plot.frame.left + fraction * drawn.plot.frame.width;
     }
 
     private visibleFrequencyHz(result: PairSpectrumResultMessage): FrequencyScale {
         return this.host.visibleFrequencyHz() ?? { frequencyMin: 0, frequencyMax: result.maxFrequencyHz };
     }
 
-    private frequencyAt(x: number, canvasWidth: number, visible: FrequencyScale): number | null {
-        const plotWidth = canvasWidth - PAIR_SPECTRUM_PAD.left - PAIR_SPECTRUM_PAD.right;
-        if (plotWidth <= 0) {
-            return null;
-        }
-        const fraction = Math.max(0, Math.min(1, (x - PAIR_SPECTRUM_PAD.left) / plotWidth));
-        return visible.frequencyMin + fraction * (visible.frequencyMax - visible.frequencyMin);
-    }
-
     private syncHostHover(): void {
-        const canvas = this.doc.getElementById('pair-spectrum-canvas') as HTMLCanvasElement | null;
         const result = this.result;
         // The power spectrum follows the point the pair cursor reads (R7), not the pointer beside it.
-        const frequencyHz = canvas && result && this.hoverPoint
-            ? this.readHz ?? this.frequencyAt(this.hoverPoint.x, canvas.width, this.visibleFrequencyHz(result)) : null;
+        const frequencyHz = result && this.pointer
+            ? this.readHz ?? this.frequencyAtX(this.pointer.lane, this.pointer.clientX - (this.drawn.get(this.pointer.lane)?.canvas.getBoundingClientRect().left ?? 0)) : null;
         // The power spectrum may reach past the reference's Nyquist, where the pair cursor stops at its last bin.
         this.host.onHoverFrequency(frequencyHz === null || !result ? null : Math.min(frequencyHz, result.maxFrequencyHz));
     }
 
-    private setReadout(readout: { text: string; color: string } | null): void {
-        const el = this.doc.getElementById('pair-spectrum-readout');
-        if (el) {
-            el.textContent = readout ? readout.text : '';
-            el.style.color = readout ? readout.color : '';
-        }
-    }
-
-    /** Hover on the pair plot and the divider drag; call again after the spectrum section is rebuilt. */
+    /** The plots' gestures (the plot component's, R9) and the divider drag; call again after the spectrum section is rebuilt. */
     attach(): void {
-        const canvas = this.doc.getElementById('pair-spectrum-canvas');
-        canvas?.addEventListener('mousemove', event => {
-            const rect = canvas.getBoundingClientRect();
-            const element = canvas as HTMLCanvasElement;
-            const scaleX = rect.width > 0 ? element.width / rect.width : 1;
-            const scaleY = rect.height > 0 ? element.height / rect.height : 1;
-            this.hoverPoint = { x: (event.clientX - rect.left) * scaleX, y: (event.clientY - rect.top) * scaleY };
-            this.render();
-            this.syncHostHover();
-        });
-        canvas?.addEventListener('mouseleave', () => {
-            this.hoverPoint = null;
-            this.render();
-            this.host.onHoverFrequency(null);
-        });
+        const plotsEl = this.doc.getElementById('pair-spectrum-plot');
+        if (plotsEl) {
+            this.marks = new Map(PAIR_LANES.map(key => [key, createPlotHoverLayer(this.doc, 'pair-cursor')]));
+            const laneOf = (element: Element): PairLaneKey => (element.getAttribute('data-pair-lane') ?? 'gain') as PairLaneKey;
+            attachPlotInteraction(plotsEl, this.doc, '[data-pair-lane]', {
+                locate: (target, clientX, clientY) => {
+                    const plot = (target as Element | null)?.closest?.<HTMLElement>('[data-pair-lane]');
+                    // A plot still waiting for its result takes the pointer too, so it reads once the result arrives.
+                    if (!plot || (this.result && !this.drawn.get(laneOf(plot))?.plot)) return null;
+                    const { fx, fy, axis } = stagePlotPoint(plot, clientX, clientY);
+                    return { plot, point: { fx, fy }, axis };
+                },
+                pointOn: (plot, clientX, clientY) => { const { fx, fy } = stagePlotPoint(plot, clientX, clientY); return { fx, fy }; },
+                window: plot => ({ x: this.result ? this.frequencyWindow(this.result) : FULL_PLOT_WINDOW.x, y: this.levelWindow.get(laneOf(plot)) ?? FULL_PLOT_WINDOW.y }),
+                setWindow: (plot, next: PlotWindow | null) => {
+                    if (!this.result) return;
+                    const max = this.result.maxFrequencyHz;
+                    if (!next) {
+                        this.levelWindow.clear();
+                        this.host.setFrequencyWindowHz(null);
+                    }
+                    else {
+                        const key = laneOf(plot);
+                        if (next.y.start <= 0 && next.y.end >= 1) this.levelWindow.delete(key);
+                        else this.levelWindow.set(key, next.y);
+                        this.host.setFrequencyWindowHz({ min: next.x.start * max, max: next.x.end * max });
+                    }
+                    this.render();
+                },
+                hover: (event, hit) => {
+                    this.pointer = hit && !hit.axis ? { lane: laneOf(hit.plot), clientX: event.clientX, clientY: event.clientY } : null;
+                    this.showMarks();
+                    if (this.pointer) this.syncHostHover();
+                    else this.host.onHoverFrequency(null);
+                },
+                clearHover: () => {
+                    this.pointer = null;
+                    this.showMarks();
+                    this.host.onHoverFrequency(null);
+                },
+                showBox: (plot, from, to) => {
+                    const box = this.zoomBox();
+                    const rect = plot.getBoundingClientRect(), frame = this.drawn.get(laneOf(plot))?.plot?.frame;
+                    if (!frame) return;
+                    const [x0, x1] = [Math.min(from.fx, to.fx), Math.max(from.fx, to.fx)], [y0, y1] = [Math.min(from.fy, to.fy), Math.max(from.fy, to.fy)];
+                    Object.assign(box.style, { left: `${rect.left + frame.left + x0 * frame.width}px`, top: `${rect.top + frame.top + (1 - y1) * frame.height}px`, width: `${(x1 - x0) * frame.width}px`, height: `${(y1 - y0) * frame.height}px` });
+                    box.hidden = false;
+                },
+                hideBox: () => { this.zoomBox().hidden = true; },
+                openAxisRange: (hit, clientX, clientY) => {
+                    if (hit.axis === 'x') { this.host.openFrequencyRange(clientX, clientY); return true; }
+                    const key = laneOf(hit.plot), drawn = this.drawn.get(key);
+                    if (!drawn) return false;
+                    this.host.openLevelRange({
+                        label: drawn.label, min: drawn.range.min, max: drawn.range.max, current: this.levelWindow.get(key) ?? FULL_PLOT_WINDOW.y, clientX, clientY,
+                        set: part => { if (part) this.levelWindow.set(key, part); else this.levelWindow.delete(key); this.render(); },
+                    });
+                    return true;
+                },
+            });
+        }
         const divider = this.doc.getElementById('pair-divider');
         const split = this.doc.getElementById('spectrum-split');
         divider?.addEventListener('pointerdown', event => {
@@ -394,6 +499,19 @@ export class PairSpectrumPanel {
             this.doc.addEventListener('pointerup', up);
             this.doc.addEventListener('pointercancel', up);
         });
+    }
+
+    /** The box being dragged on a pair plot, as Compare's plots draw theirs. */
+    private zoomBox(): HTMLElement {
+        let box = this.doc.getElementById('pair-zoom-box');
+        if (!box) {
+            box = this.doc.createElement('div');
+            box.id = 'pair-zoom-box';
+            box.className = 'compare-zoom-box';
+            box.hidden = true;
+            this.doc.body.append(box);
+        }
+        return box;
     }
 
     dispose(): void {

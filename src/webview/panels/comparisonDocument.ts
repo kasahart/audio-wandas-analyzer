@@ -783,11 +783,12 @@ export function renderComparisonStyles(): string {
         .spectrum-axis-legend-file { max-width: 10em; overflow: hidden; text-overflow: ellipsis; }
         .spectrum-axis-legend-channel { flex: none; white-space: pre; }
         .spectrum-axis-legend-reference { color: var(--muted); flex: none; margin-right: 4px; }
-        #pair-spectrum-plot { position: relative; flex: 1 1 auto; min-height: 0; }
+        /* Gain, phase and γ² stacked, each a plot of its own (R1). */
+        #pair-spectrum-plot { position: relative; flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
         /* A replacement request is computing; the plot still shows the previous inputs. */
         #pair-spectrum-wrap.is-stale #pair-spectrum-plot,
         #pair-spectrum-wrap.is-stale #pair-spectrum-summary { opacity: 0.45; }
-        #pair-spectrum-canvas { display: block; width: 100%; cursor: crosshair; }
+        .pair-lane-canvas { display: block; width: 100%; flex: 1 1 0; min-height: 0; cursor: crosshair; }
         #pair-spectrum-message {
             position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
             font-size: 11px; color: var(--muted); text-align: center; padding: 0 12px; pointer-events: none;

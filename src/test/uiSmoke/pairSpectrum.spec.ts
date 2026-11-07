@@ -40,27 +40,33 @@ test('a reference lane splits the spectrum section into the power spectrum and t
     await expect(page.locator('#pair-spectrum-summary')).toHaveText(/^H1 · \d+ avg · \d+\.\d\d–\d+\.\d\d s$/u);
     await expect(page.locator('.pair-legend-item')).toHaveCount(laneCount - 1);
 
-    const canvas = page.locator('#pair-spectrum-canvas');
+    // Three plots, gain, phase and γ², stacked on one frequency axis, each drawn by the plot component (R13).
+    await expect(page.locator('[data-pair-lane][data-plot]')).toHaveCount(3);
+    const canvas = page.locator('[data-pair-lane="phase"]');
     const box = await canvas.boundingBox();
     if (!box) throw new Error('pair canvas has no layout box');
-    expect(box.height).toBeGreaterThan(60);
+    expect(box.height).toBeGreaterThan(40);
     const pixels = (id: string) => page.evaluate(selector => (document.querySelector(selector) as HTMLCanvasElement).toDataURL(), id);
     const powerBefore = await pixels('#spectrum-overlay-canvas');
-    // Hovering a lane reads only the line nearest the pointer, in that lane's unit, without asking the host again.
+    const cursors = page.locator('.pair-cursor:not([hidden])');
+    // Hovering a plot reads only the line nearest the pointer, in that plot's unit, without asking the host again;
+    // the other two plots draw the cursor line at its frequency.
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await expect(page.locator('#pair-spectrum-readout')).toHaveText(/ Hz \/ -?\d+°$/u);
+    await expect(page.locator('#pair-spectrum-readout')).toBeVisible();
+    await expect(page.locator('#pair-spectrum-readout')).toHaveText(/ k?Hz \/ −?\d+(\.\d)?°$/u);
+    await expect(cursors).toHaveCount(3);
     // The power spectrum follows the pair plot's cursor frequency with a vertical line, and the other way round.
     await expect.poll(() => pixels('#spectrum-overlay-canvas')).not.toBe(powerBefore);
     await expect(page.locator('#spectrum-freq-readout')).toHaveText('');
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height + 40);
-    await expect(page.locator('#pair-spectrum-readout')).toHaveText('');
-    const pairIdle = await pixels('#pair-spectrum-canvas');
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height * 2 + 120);
+    await expect(page.locator('#pair-spectrum-readout')).toBeHidden();
+    await expect(cursors).toHaveCount(0);
     const overlay = await page.locator('#spectrum-overlay-canvas').boundingBox();
     if (!overlay) throw new Error('power spectrum canvas has no layout box');
     await page.mouse.move(overlay.x + overlay.width / 2, overlay.y + overlay.height / 2);
     await expect(page.locator('#spectrum-freq-readout')).toContainText(/ \/ \d+(\.\d)? Hz \/ .* dB$/u);
-    await expect.poll(() => pixels('#pair-spectrum-canvas')).not.toBe(pairIdle);
-    await expect(page.locator('#pair-spectrum-readout')).toHaveText('');
+    await expect(cursors).toHaveCount(3);
+    await expect(page.locator('#pair-spectrum-readout')).toBeHidden();
     // Both readouts sit at the right end of their own half's header row.
     const readoutRight = async (id: string, pane: string) => {
         const [readout, half] = await Promise.all([page.locator(id).boundingBox(), page.locator(pane).boundingBox()]);

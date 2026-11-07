@@ -942,7 +942,9 @@ export function stageHover(plot: StagePlot, x: number, y: number): { layer: Stag
     }
     const amount = plot.diff ? signed(hit.point.value, isDb(view))
         // Levels to 0.1 dB, as the spectrum overlay reads them; other quantities (a coherence) to 3 figures.
-        : (isDb(view) ? `${hit.point.value.toFixed(1)} dB` : Math.abs(hit.point.value) >= 10 ? hit.point.value.toFixed(1) : hit.point.value.toPrecision(3)).replace(/^-/, '−');
+        : (isDb(view) ? `${hit.point.value.toFixed(1)} dB` : Math.abs(hit.point.value) >= 10 ? hit.point.value.toFixed(1) : hit.point.value.toPrecision(3)).replace(/^-/, '−')
+            // In its unit where it has one (a phase in degrees).
+            + (isDb(view) || !view.unit ? '' : view.unit === '°' ? '°' : ` ${view.unit}`);
     return readoutOf(hit.s, hit.point, hit.s.label || (plot.diff ? 'Δ' : ''), [atText(view, hit.point.index), amount]);
 }
 
