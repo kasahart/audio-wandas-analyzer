@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { addableOperations, brokenStep, chainEnd, endsInEvents, bypassedSteps, SELECT_PAIR, decodeParam, encodeNumber, isRecipeChain, movedStep, recipeKey, recipeNodes, recipeSteps, withBypass, withDefaults, withParam, withoutSteps, withStep, withSlotReference, slotReferenced, activeSlotReferenced, withoutBypassed, recipeChain, REFERENCE_KEY, BYPASS_KEY, STEP_PARAMS, TRIGGER, PAIRED_ON_ADD, CROSS_CHANNEL, SLOT_REFERABLE } from '../shared/recipe/recipeSteps';
+import { addableOperations, brokenStep, chainEnd, endsInEvents, bypassedSteps, SELECT_PAIR, decodeParam, encodeNumber, isRecipeChain, movedStep, recipeKey, recipeNodes, recipeSteps, withBypass, withDefaults, withParam, withoutSteps, withStep, withSlotReference, slotReferenced, activeSlotReferenced, withoutBypassed, recipeChain, REFERENCE_KEY, BYPASS_KEY, STEP_PARAMS, APP_SET_PARAMS, TRIGGER, PAIRED_ON_ADD, CROSS_CHANNEL, SLOT_REFERABLE } from '../shared/recipe/recipeSteps';
 import { operationGroup, operationHint } from '../shared/recipe/operationGuide';
 import { catalogOperation, takes } from '../shared/recipe/recipeCatalog';
+import { WANDAS_OPERATIONS } from '../shared/recipe/generated/wandasOperations';
 import type { RecipeDocument } from '../shared/recipe/recipeSelection';
 import { recipeWithout, runnableRecipe, unpairedRecipe } from '../webview/runtime/stepBar';
 
@@ -22,7 +23,107 @@ test('the entry Recipe reads as its chain of steps, with the parameters the step
     const steps = recipeSteps(entry, 16000);
     assert.deepEqual(steps.map(step => [step.name, step.invalid]), [['highpass_filter', undefined], ['time_slice', undefined], ['welch', undefined]]);
     assert.equal(steps[0].params['cutoff'], 20);
-    assert.deepEqual(steps[2].editable.map(param => param.name), ['n_fft', 'window']);
+    // The analyzer's own fields first, then every other value wandas describes, in wandas' order.
+    assert.deepEqual(steps[2].editable.map(param => param.name), ['n_fft', 'window', 'hop_length', 'win_length', 'average']);
+});
+
+/** The entry Recipe with `operation` added after its high-pass filter (the time signal). */
+function withOperation(operation: string): { recipe: RecipeDocument; id: string } {
+    const hpf = recipeSteps(entry).find(step => step.name === 'highpass_filter')!;
+    return withStep(entry, hpf.id, catalogOperation(operation)!);
+}
+
+test('every parameter wandas describes is a field of its step, or is left out with why', () => {
+    // A field per plain value (wandas' annotation: a number, on/off, a choice, text); left out: values that are not
+    // one plain value (lists, arrays, callables, channel names or numbers), and those the app sets elsewhere.
+    const silent: string[] = [];
+    for (const operation of WANDAS_OPERATIONS) {
+        const fields = new Set((STEP_PARAMS[operation.id] ?? []).map(param => param.name));
+        for (const param of operation.params) {
+            if (fields.has(param.name) || APP_SET_PARAMS[operation.id]?.[param.name]) continue;
+            if (param.kind === undefined) continue;
+            silent.push(`${operation.id}:${param.name}`);
+        }
+    }
+    assert.deepEqual(silent, []);
+    // An app-set parameter names why; a field is never also app-set.
+    for (const [id, params] of Object.entries(APP_SET_PARAMS)) {
+        for (const [name, why] of Object.entries(params)) {
+            assert.ok(why.length > 10, `${id}:${name}`);
+            assert.ok(!(STEP_PARAMS[id] ?? []).some(param => param.name === name), `${id}:${name}`);
+        }
+    }
+});
+
+test('sound_level offers its weightings and dB, each at wandas\' default', () => {
+    const { recipe, id } = withOperation('wandas.audio.sound_level');
+    const step = recipeSteps(recipe, 48000).find(item => item.id === id)!;
+    assert.deepEqual(step.editable, [
+        { name: 'freq_weighting', kind: 'enum', options: ['A', 'C', 'Z'], nullable: true, default: 'Z' },
+        { name: 'time_weighting', kind: 'enum', options: ['Fast', 'Slow'], default: 'Fast' },
+        { name: 'dB', kind: 'bool', default: false },
+    ]);
+    assert.deepEqual(step.params, { freq_weighting: 'Z', time_weighting: 'Fast', dB: false });
+    assert.equal(step.invalid, undefined);
+    // Nothing is written until a value is changed: the new step runs as wandas' defaults.
+    assert.deepEqual(recipeNodes(recipe).find(node => node.id === id)!.params.entries, []);
+});
+
+test('a value wandas picks itself (None) is an empty field, not a number', () => {
+    const welch = recipeSteps(entry).find(step => step.name === 'welch')!;
+    const hop = welch.editable.find(param => param.name === 'hop_length')!;
+    assert.deepEqual(hop, { name: 'hop_length', kind: 'int', nullable: true });
+    assert.equal(welch.params['hop_length'], undefined);
+    // A window is offered as the windows the step bar draws with, on every operation that takes one.
+    const { recipe, id } = withOperation('wandas.audio.coherence');
+    const coherence = recipeSteps(recipe).find(step => step.id === id)!;
+    assert.deepEqual(coherence.editable.find(param => param.name === 'window'), { name: 'window', kind: 'enum', options: ['hann', 'hamming', 'blackman', 'boxcar'], default: 'hann' });
+    assert.deepEqual(coherence.editable.find(param => param.name === 'detrend'), { name: 'detrend', kind: 'str', default: 'constant' });
+});
+
+test('a changed value is written in wandas\' encoding: on/off as true/false, none as null, text as it is', () => {
+    const { recipe, id } = withOperation('wandas.audio.sound_level');
+    const [frequency, time, dB] = recipeSteps(recipe).find(item => item.id === id)!.editable;
+    let next = withParam(recipe, id, frequency, null);
+    next = withParam(next, id, time, 'Slow');
+    next = withParam(next, id, dB, true);
+    assert.deepEqual(recipeNodes(next).find(node => node.id === id)!.params.entries, [['dB', true], ['freq_weighting', null], ['time_weighting', 'Slow']]);
+    const step = recipeSteps(next, 48000).find(item => item.id === id)!;
+    assert.deepEqual(step.params, { freq_weighting: null, time_weighting: 'Slow', dB: true });
+    assert.equal(step.invalid, undefined);
+    // An exported Recipe writes every default, so it reads as it runs: dB false, not left out.
+    const exported = recipeNodes(withDefaults(recipe)).find(node => node.id === id)!.params.entries;
+    assert.deepEqual(exported, [['dB', false], ['freq_weighting', 'Z'], ['time_weighting', 'Fast']]);
+    // A cleared number wandas picks itself is None again.
+    const welch = recipeSteps(entry).find(item => item.name === 'welch')!;
+    const hop = welch.editable.find(param => param.name === 'hop_length')!;
+    const set = withParam(entry, welch.id, hop, 512);
+    assert.equal(recipeSteps(set).find(item => item.name === 'welch')!.params['hop_length'], 512);
+    assert.equal(recipeSteps(withParam(set, welch.id, hop, null)).find(item => item.name === 'welch')!.params['hop_length'], null);
+});
+
+test('a field only wandas describes is checked for its kind, and its range is left to wandas', () => {
+    const { recipe, id } = withOperation('wandas.audio.roughness_dw');
+    const overlap = recipeSteps(recipe).find(item => item.id === id)!.editable[0];
+    assert.deepEqual(overlap, { name: 'overlap', kind: 'float', default: 0.5 });
+    // 5 is not an overlap wandas takes, but that is wandas' to say (the step then shows wandas' reason).
+    assert.equal(recipeSteps(withParam(recipe, id, overlap, 5), 48000).find(item => item.id === id)!.invalid, undefined);
+    const failed = recipeSteps(withParam(recipe, id, overlap, 5), { sampleRate: 48000, failed: { [id]: 'overlap must be in [0, 1]' } }).find(item => item.id === id)!;
+    assert.deepEqual(failed.reason, { kind: 'failed', limit: 0, text: 'overlap must be in [0, 1]' });
+    // An integer field takes no fraction.
+    const { recipe: rms, id: rmsId } = withOperation('wandas.audio.power');
+    const exponent = recipeSteps(rms).find(item => item.id === rmsId)!.editable[0];
+    assert.equal(exponent.kind, 'float');
+    const integrate = withOperation('wandas.audio.integrate');
+    const order = recipeSteps(integrate.recipe).find(item => item.id === integrate.id)!.editable[0];
+    assert.equal(recipeSteps(withParam(integrate.recipe, integrate.id, order, 2.5)).find(item => item.id === integrate.id)!.invalid, 'order');
+});
+
+test('an operation without parameters has nothing to set and is not marked as running on defaults only', () => {
+    const entryFor = (id: string) => addableOperations('ChannelFrame').find(item => item.operation.id === id)!;
+    assert.equal(entryFor('wandas.audio.a_weighting').settable, true);
+    assert.equal(entryFor('wandas.audio.sound_level').settable, true);
+    assert.equal(STEP_PARAMS['wandas.audio.a_weighting'], undefined);
 });
 
 test('recipeNodes reads the nodes RecipeDocument leaves untyped, and none of a missing or malformed Recipe', () => {

@@ -39,6 +39,19 @@ def test_a_metric_over_time_is_drawn_as_its_values(signal: wd.ChannelFrame) -> N
     assert (view["kind"], view["quantity"]) == ("line", "value")
 
 
+def test_a_level_set_to_db_in_its_step_is_drawn_as_its_db_values(signal: wd.ChannelFrame) -> None:
+    # sound_level / rms_trend with dB=True (a step's form can set it) already give dB: drawn as those values in
+    # their unit, not as a level of them (a dB of dB).
+    for frame in (signal.sound_level(dB=True), signal.rms_trend(dB=True)):
+        view = _checked(frame)
+        # A level (the headline's audible floor and the dB ranges apply), with no waveform to take a level of.
+        assert (view["kind"], view["quantity"]) == ("line", "level")
+        assert view["unit"].startswith("dB")
+        assert "measure" not in view and "waveform" not in view
+        # A 0.5 sine is 3 dB below its peak: −9 dB re 1 (as the level over time of the plain signal reads).
+        assert np.nanmedian([v for v in view["values"] if v is not None]) == pytest.approx(-9.0, abs=0.5)
+
+
 def test_a_long_metric_stays_its_values_with_its_unit_even_after_a_trim() -> None:
     # 6 s of loudness at 500 Hz is 3000 points: more than a sound's level series would keep as values.
     noise = np.random.default_rng(5).normal(0.0, 0.05, RATE * 6)

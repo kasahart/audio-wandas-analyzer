@@ -384,6 +384,12 @@ export function renderComparisonStyles(): string {
         .step-field.is-invalid { color: var(--entry-flag); }
         .step-form [data-action="step-apply"]:disabled { opacity: 0.4; cursor: not-allowed; }
         .step-field input, .step-field select { width: 90px; font: inherit; color: inherit; background: var(--surface); border: 1px solid var(--line); border-radius: 3px; }
+        .step-field input[type="checkbox"] { width: auto; }
+        .step-field input::placeholder { color: var(--muted); }
+        /* A value other than wandas' default: its name in bold (colour is the recordings' roles). */
+        .step-field.is-changed { font-weight: 600; }
+        .step-more { display: grid; gap: 6px; }
+        .step-more > summary { cursor: pointer; color: var(--muted); }
         /* A refused key or a new card lights up once. */
         @keyframes awa-flash { 0%, 60% { box-shadow: 0 0 0 2px var(--entry-flag); } 100% { box-shadow: none; } }
         .is-flash { animation: awa-flash 0.9s ease-out; }

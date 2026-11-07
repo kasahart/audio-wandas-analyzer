@@ -18,7 +18,8 @@ EXPECTED = {
     "spectrum": ("SpectralFrame", "line", "level", None),
     "octave": ("NOctFrame", "bar", "level", None),
     "spectrogram": ("SpectrogramFrame", "heatmap", "level", None),
-    "level": ("ChannelFrame", "line", "value", "dB re 1 FS"),
+    # rms_trend in dB is a level (its own dB values): compared with the audible floor, drawn on the level axis.
+    "level": ("ChannelFrame", "line", "level", "dB re 1 FS"),
     "loudness": ("ChannelFrame", "line", "value", "sone"),
     "roughness": ("ChannelFrame", "line", "value", "asper"),
 }

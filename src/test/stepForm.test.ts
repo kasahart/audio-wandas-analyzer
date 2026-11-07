@@ -113,9 +113,11 @@ test('the region form keeps Apply off and says why while its values are not a re
     assert.ok(Array.from(form.querySelectorAll('.step-field')).every(label => label.classList.contains('is-invalid')));
 });
 
-test('in the form Esc closes it and Enter applies it', () => {
+test('in the form Esc closes it and Enter applies it from a field', () => {
+    const field = new JSDOM('<input>').window.document.querySelector('input');
     assert.equal(stepFormKey({ key: 'Escape' }), 'close');
-    assert.equal(stepFormKey({ key: 'Enter' }), 'apply');
+    assert.equal(stepFormKey({ key: 'Enter', target: field }), 'apply');
+    assert.equal(stepFormKey({ key: 'Enter' }), null);
     assert.equal(stepFormKey({ key: 'Tab' }), null);
 });
 
@@ -130,4 +132,123 @@ test('a field shows the stored value unrounded: a 0.0015 s lifter cutoff reads 0
     type('[data-step-param="cutoff"]', '0.002');
     const draft = stepFormDraft(form, recipe, { sampleRate: 16000 })!;
     assert.equal(recipeSteps(draft, 16000).find(item => item.id === lifter.id)!.params['cutoff'], 0.002);
+});
+
+/** The entry Recipe with `operation` added after its high-pass filter, and that step as the form sees it. */
+function added(operation: string) {
+    const hpf = recipeSteps(entry).find(step => step.name === 'highpass_filter')!;
+    const { recipe, id } = withStep(entry, hpf.id, catalogOperation(operation)!);
+    const step = recipeSteps(recipe, 48000).find(item => item.id === id)!;
+    return { recipe, id, step };
+}
+
+test('every field wandas describes is in the form: a choice, on/off, and a number wandas picks itself (auto)', () => {
+    const { step } = added('wandas.audio.sound_level');
+    const { form } = formFor(stepFormHtml(step, state, strings));
+    const frequency = form.querySelector<HTMLSelectElement>('select[data-step-param="freq_weighting"]')!;
+    assert.deepEqual(Array.from(frequency.options, option => [option.value, option.textContent]), [['A', 'A'], ['C', 'C'], ['Z', 'Z'], ['', strings.stepNone]]);
+    assert.equal(frequency.value, 'Z');
+    assert.equal(form.querySelector<HTMLSelectElement>('select[data-step-param="time_weighting"]')!.value, 'Fast');
+    const dB = form.querySelector<HTMLInputElement>('input[type="checkbox"][data-step-param="dB"]')!;
+    assert.equal(dB.checked, false);
+    assert.equal(form.querySelector('.step-form-note'), null, 'no "no settings" note');
+    assert.ok(form.querySelector('[data-action="step-apply"]'));
+    const welch = recipeSteps(entry).find(item => item.name === 'welch')!;
+    const hop = formFor(stepFormHtml(welch, state, strings)).form.querySelector<HTMLInputElement>('[data-step-param="hop_length"]')!;
+    assert.equal(hop.value, '');
+    assert.equal(hop.placeholder, strings.stepAuto);
+});
+
+test('the draft writes the values changed in the form, in wandas\' encoding, and nothing else', () => {
+    const { recipe, id, step } = added('wandas.audio.sound_level');
+    const { form } = formFor(stepFormHtml(step, state, strings));
+    assert.equal(stepFormDraft(form, recipe, { sampleRate: 48000 }), recipe, 'untouched: the stored Recipe');
+    form.querySelector<HTMLSelectElement>('[data-step-param="freq_weighting"]')!.value = 'A';
+    form.querySelector<HTMLInputElement>('[data-step-param="dB"]')!.checked = true;
+    const draft = stepFormDraft(form, recipe, { sampleRate: 48000 })!;
+    const entries = (draft['nodes'] as Array<{ id: string; params: { entries: unknown[] } }>).find(node => node.id === id)!.params.entries;
+    assert.deepEqual(entries, [['dB', true], ['freq_weighting', 'A']]);
+    // "none" is None: wandas' sound_level without a frequency weighting.
+    form.querySelector<HTMLSelectElement>('[data-step-param="freq_weighting"]')!.value = '';
+    const none = stepFormDraft(form, recipe, { sampleRate: 48000 })!;
+    assert.deepEqual((none['nodes'] as Array<{ id: string; params: { entries: unknown[] } }>).find(node => node.id === id)!.params.entries, [['dB', true], ['freq_weighting', null]]);
+});
+
+test('an emptied number wandas picks itself is auto (None), not a missing value', () => {
+    const welch = recipeSteps(entry).find(item => item.name === 'welch')!;
+    const hop = welch.editable.find(param => param.name === 'hop_length')!;
+    const set = withParam(entry, welch.id, hop, 256);
+    const step = recipeSteps(set, 16000).find(item => item.name === 'welch')!;
+    const { form, type } = formFor(`<div data-step-bar>${stepFormHtml(step, { ...state, recipe: set }, strings)}</div>`);
+    assert.equal(form.querySelector<HTMLInputElement>('[data-step-param="hop_length"]')!.value, '256');
+    type('[data-step-param="hop_length"]', '');
+    const draft = stepFormDraft(form, set, { sampleRate: 16000 })!;
+    assert.equal(recipeSteps(draft).find(item => item.name === 'welch')!.params['hop_length'], null);
+    const footer: string[] = [];
+    checkStepForm(form, { recipe: set, state: { ...state, recipe: set }, strings, footer: text => footer.push(text) });
+    assert.equal(form.querySelector<HTMLButtonElement>('[data-action="step-apply"]')!.disabled, false, 'auto is a value');
+    assert.deepEqual(footer, []);
+});
+
+test('a form of many fields shows the first four and the changed ones; the rest open from "more"', () => {
+    const { recipe, id } = added('wandas.audio.transfer_function');
+    const estimator = recipeSteps(recipe).find(item => item.id === id)!.editable.find(param => param.name === 'estimator')!;
+    const changed = withParam(recipe, id, estimator, 'H2');
+    const step = recipeSteps(changed, { sampleRate: 48000, channels: 2 }).find(item => item.id === id)!;
+    const { form } = formFor(stepFormHtml(step, { ...state, recipe: changed, channels: 2 }, strings));
+    const shown = Array.from(form.querySelectorAll(':scope > .step-field [data-step-param]'), input => input.getAttribute('data-step-param'));
+    assert.deepEqual(shown, ['n_fft', 'hop_length', 'win_length', 'window', 'estimator']);
+    const more = form.querySelector<HTMLDetailsElement>('details.step-more')!;
+    assert.equal(more.open, false);
+    assert.deepEqual(Array.from(more.querySelectorAll('[data-step-param]'), input => input.getAttribute('data-step-param')), ['detrend', 'scaling', 'average']);
+    assert.equal(more.querySelector('summary')!.textContent, strings.stepMore.replace('{n}', '3').replace('{names}', 'detrend, scaling, average'));
+    // A changed value is marked; a folded field still counts in the draft.
+    assert.ok(form.querySelector('.step-field.is-changed [data-step-param="estimator"]'));
+    assert.equal(form.querySelectorAll('.step-field.is-changed').length, 1);
+    more.querySelector<HTMLSelectElement>('[data-step-param="average"]')!.value = 'median';
+    const draft = stepFormDraft(form, changed, { sampleRate: 48000 })!;
+    assert.equal(recipeSteps(draft).find(item => item.id === id)!.params['average'], 'median');
+    // Four or fewer: no "more".
+    assert.equal(formFor(stepFormHtml(added('wandas.audio.sound_level').step, state, strings)).form.querySelector('details.step-more'), null);
+});
+
+test('an operation without parameters says it has none', () => {
+    const { step } = added('wandas.audio.a_weighting');
+    const { form } = formFor(stepFormHtml(step, state, strings));
+    assert.equal(form.querySelector('.step-form-note')?.textContent, strings.stepNoSettings);
+    assert.equal(strings.stepNoSettings, 'No settings');
+    assert.equal(getStrings('ja').stepNoSettings, '設定項目はありません');
+    assert.equal(form.querySelector('[data-action="step-apply"]'), null);
+});
+
+test('Enter on "more" opens the folded fields instead of applying the form', () => {
+    const welch = recipeSteps(entry).find(item => item.name === 'welch')!;
+    const { form } = formFor(stepFormHtml(welch, state, strings));
+    const summary = form.querySelector('details.step-more > summary');
+    assert.ok(summary);
+    assert.equal(stepFormKey({ key: 'Enter', target: summary }), null);
+    assert.equal(stepFormKey({ key: 'Enter', target: form.querySelector('[data-step-param="n_fft"]') }), 'apply');
+});
+
+test('normalize runs at wandas\' defaults: an infinite norm is a value, and fill keeps its third value (none)', () => {
+    const { recipe, id, step } = added('wandas.audio.normalize');
+    assert.equal(step.invalid, undefined, 'a new normalize runs');
+    assert.equal(step.params['norm'], Infinity);
+    const { form, type } = formFor(stepFormHtml(step, state, strings));
+    assert.equal(form.querySelector<HTMLInputElement>('[data-step-param="norm"]')!.value, 'Infinity');
+    const fill = form.querySelector<HTMLSelectElement>('select[data-step-param="fill"]')!;
+    assert.deepEqual(Array.from(fill.options, option => option.value), ['true', 'false', '']);
+    assert.equal(fill.value, '');
+    fill.value = 'false';
+    type('[data-step-param="norm"]', '2');
+    const nodes = (draft: RecipeDocument) => (draft['nodes'] as Array<{ id: string; params: { entries: unknown[] } }>).find(node => node.id === id)!.params.entries;
+    assert.deepEqual(nodes(stepFormDraft(form, recipe, { sampleRate: 48000 })!), [['fill', false], ['norm', 2]]);
+    // Back to none and to "inf" as Python writes it: None and infinity again.
+    fill.value = '';
+    type('[data-step-param="norm"]', 'inf');
+    const back = stepFormDraft(form, recipe, { sampleRate: 48000 })!;
+    const entries = nodes(back);
+    assert.equal(entries.length, 1);
+    assert.equal(recipeSteps(back, 48000).find(item => item.id === id)!.params['norm'], Infinity);
+    assert.equal(recipeSteps(back, 48000).find(item => item.id === id)!.invalid, undefined);
 });

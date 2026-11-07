@@ -187,7 +187,8 @@ export function createStepBar(deps: {
         const next = draft();
         if (!next || !form.querySelector('[data-action="step-apply"]')) return;
         // Invalid values never leave the form: the Recipe the scans run stays valid.
-        const blank = Array.from(form.querySelectorAll<HTMLInputElement>('input[data-step-param]')).some(input => input.value.trim() === '');
+        // An empty field wandas fills itself (auto) is a value; on/off always is one.
+        const blank = Array.from(form.querySelectorAll<HTMLInputElement>('input[data-step-param]:not([data-step-nullable]):not([type="checkbox"])')).some(input => input.value.trim() === '');
         if (blank || recipeSteps(next, limits()).find(item => item.id === stepId)?.invalid) { checkForm(); return; }
         open = null;
         emit(next);
