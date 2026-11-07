@@ -5,7 +5,8 @@
  * the new size: every hovered line looks doubled. Specs import `test` and `expect` from here, not '@playwright/test'.
  *
  * And with this one (R7): a hover's readout shown over a plot fails the test, whichever plot and readout it is. The
- * readout of every plot has a row of its own outside the plots, so the lines under the pointer stay in view.
+ * readout of every plot has a row of its own outside the plots, so the lines under the pointer stay in view; and its
+ * values shown past the end of that row or the window fail it too.
  */
 import { test as base } from '@playwright/test';
 
@@ -86,6 +87,14 @@ function installCanvasAudit(settle: { frames: number; ms: number }): void {
                 const name = `${readout.id ? `#${readout.id}` : `.${String(readout.className).trim().split(/\s+/).join('.')}`} over ${canvas.id ? `#${canvas.id}` : canvas.dataset.stageCanvas ? `[data-stage-canvas="${canvas.dataset.stageCanvas}"]` : `canvas.${canvas.className}`}`;
                 if (!reported.has(name)) { reported.add(name); readoutsOver.push(`${name} ("${readout.textContent?.trim()}")`); }
             }
+            // Its values are read whole: inside its row and the window, never pushed past their end (the name is cut first).
+            const values = readout.querySelector('[class*="readout-values"]');
+            const row = readout.parentElement?.getBoundingClientRect();
+            const at = values ? shownBox(values) : null;
+            if (at && row && (at.right > Math.min(row.right, window.innerWidth) + 1 || at.left < Math.max(row.left, 0) - 1)) {
+                const name = `${readout.id ? `#${readout.id}` : `.${String(readout.className).trim().split(/\s+/).join('.')}`} values cut off at ${window.innerWidth} px`;
+                if (!reported.has(name)) { reported.add(name); readoutsOver.push(`${name} ("${values!.textContent?.trim()}")`); }
+            }
         }
     };
     const tick = (): void => { sample(); sampleReadouts(); window.requestAnimationFrame(tick); };
@@ -107,6 +116,6 @@ export const test = base.extend<{ canvasAudit: void }>({
         const found = await page.evaluate(() => window.__canvasAudit ?? []);
         base.expect(found, 'canvases left drawn at another size than they are shown at').toEqual([]);
         const over = await page.evaluate(() => window.__readoutAudit ?? []);
-        base.expect(over, 'hover readouts shown over a plot (R7: each has its own row outside the plots)').toEqual([]);
+        base.expect(over, 'hover readouts shown over a plot, or their values cut off (R7: each has its own row outside the plots)').toEqual([]);
     }, { auto: true }],
 });

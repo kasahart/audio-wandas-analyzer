@@ -176,7 +176,7 @@ export function renderComparisonStyles(): string {
         /* The plots' readout (R7) keeps its room in the toolbar whether shown or not (hidden only from sight), so a hover
            never wraps the toolbar and moves the plots under the pointer: the toolbar wraps by its basis, never by its
            text, so a long name does not either. Short of room, the name is cut, never the values. */
-        .plot-readout { display: flex; flex: 1 1 28ch; min-width: 28ch; height: 14px; line-height: 14px; font-size: 11px; font-family: var(--font-mono); white-space: nowrap; pointer-events: none; }
+        .plot-readout { display: flex; flex: 1 1 28ch; min-width: 28ch; max-width: 100%; height: 14px; line-height: 14px; font-size: 11px; font-family: var(--font-mono); white-space: nowrap; pointer-events: none; }
         .plot-readout[hidden] { visibility: hidden; }
         .plot-readout-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
         .plot-readout-values { flex-shrink: 0; white-space: pre; }
@@ -429,9 +429,11 @@ export function renderComparisonStyles(): string {
         .track-stage-cursor[hidden], .track-stage-box[hidden] { display: none; }
         .track-stage-box { position: fixed; z-index: 21; }
         .track-stage { position: relative; z-index: 20; display: flex; flex-direction: column; flex-shrink: 0; font-family: var(--font-ui); font-size: 12px; color: var(--text); }
-        .track-stage-controls { display: flex; align-items: center; gap: 6px; padding: 2px 12px 4px; }
+        /* Short of room, the readout takes a line of its own under the buttons (still above the plots), never past the row's end. */
+        .track-stage-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; padding: 2px 12px 4px; }
+        .track-stage-controls > .plot-readout { justify-content: flex-end; }
         .track-stage.is-step-held .track-stage-panel, .track-stage.is-step-held ~ #stacked-wrap { outline: 2px solid var(--entry-delta); outline-offset: -2px; }
-        .track-stage-headline { margin-left: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .track-stage-headline { margin-left: 8px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .track-stage-panel { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 220px; margin: 0 10px 8px; border: 1px solid var(--line); border-radius: 4px; position: relative; }
         .stage-base-more { border: none; background: none; color: var(--muted); padding: 0 2px; cursor: pointer; }
         .track-stage-base-info { position: absolute; z-index: 5; left: 8px; top: 28px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel, var(--bg)); font-size: 12px; line-height: 1.7; }

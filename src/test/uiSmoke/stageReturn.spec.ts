@@ -192,9 +192,8 @@ test('a selection the compared recording does not reach is read in the next reco
     await expect(page.locator('.track-stage')).toHaveAttribute('data-region', '0.50–1.50');
 });
 
-test('in Compare, colour is the role\'s: a recording without one has its own colour, its name in the legend; the headline names the difference', async ({ page }) => {
+test('in Compare, colour is the role\'s: a recording without one has its own colour, its name in the legend', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
-    const STR = getStrings('en');
     const compared = await comparedTrack(page);
     await page.locator('[data-action="content-stage"]').click();
     await answer(page);
@@ -207,5 +206,5 @@ test('in Compare, colour is the role\'s: a recording without one has its own col
     expect(await stroke(comparedItem)).toBe(ROLE_COLORS[1]);
     expect(OWN_COLORS).toContain(await stroke(other));
     await expect(other.locator('.compare-legend-label')).not.toBeEmpty();
-    await expect(page.locator('[data-stage-headline]')).toContainText(STR.stageCompareMinusBase.replace('{n}', '1'));
+    await expect(page.locator('.track-stage')).toHaveAttribute('data-compared', '1');
 });

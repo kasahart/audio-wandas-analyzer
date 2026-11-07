@@ -18,9 +18,9 @@ test('a combination is asked for once, answered from its cache, and kept per par
     assert.deepEqual(posted, [{ type: 'compare-combine', requestId: 't-1', base: ['ka', 'kb'], compare: 'kc' }]);
     assert.ok(parsePanelMessage(posted[0]), 'the host takes the message');
     assert.equal(source.handle({ type: 'compare-combine-result', requestId: 'x-1', result: { ok: true } } as { type: string }), false, 'another source\'s answer');
-    source.handle({ type: 'compare-combine-result', requestId: 't-1', result: { ok: true, diff, headline: { x: 1000, base: -40, compare: -20 } } } as { type: string });
+    source.handle({ type: 'compare-combine-result', requestId: 't-1', result: { ok: true, diff } } as { type: string });
     assert.equal(changed, 1);
-    assert.deepEqual(source.get('id', request, () => undefined), { base: null, diff, headline: { x: 1000, base: -40, compare: -20 } });
+    assert.deepEqual(source.get('id', request, () => undefined), { base: null, diff });
     // Zoomed: the part on screen is another combination.
     assert.equal(source.get('id|zoom', { ...request, detail: { x: [100, 200], points: 400 } }, () => undefined), undefined);
     assert.deepEqual(posted.at(-1)?.detail, { x: [100, 200], points: 400 });
@@ -40,7 +40,7 @@ test('values the backend no longer keeps are scanned again once, then the combin
     assert.equal(posted.length, 2);
     source.handle({ type: 'compare-combine-result', requestId: 't-2', result: { ok: false, missing: ['ka'] } } as { type: string });
     assert.deepEqual(forgotten, [['kc']], 'not scanned again a second time');
-    assert.deepEqual(source.get('id', request, forget), { base: null, diff: null, headline: null, tooLarge: true });
+    assert.deepEqual(source.get('id', request, forget), { base: null, diff: null, tooLarge: true });
 });
 
 test('the host refuses a combination without base keys', () => {

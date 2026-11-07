@@ -192,7 +192,9 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         + `<button type="button" class="tb-btn" data-action="stage-layout" aria-pressed="true">${escapeHtml(strings.stageLayoutSide)}</button>`
         + `<button type="button" class="tb-btn" data-action="stage-diff" aria-pressed="false">${escapeHtml(strings.compareDiffShow)}</button>`
         + `<span class="compare-value track-stage-headline" data-stage-headline></span>`
-        + `<span class="track-stage-gate" data-stage-base-gate hidden><button type="button" class="tb-btn" data-action="stage-base-scan"></button></span></div>`
+        + `<span class="track-stage-gate" data-stage-base-gate hidden><button type="button" class="tb-btn" data-action="stage-base-scan"></button></span>`
+        // The pointer's readout on the plots below (R7): in this row above them, as the cursor spectrum's is in its header.
+        + `<span class="plot-readout" data-plot-readout hidden><span class="plot-readout-name"></span><span class="plot-readout-values"></span></span></div>`
         + `<div class="track-stage-panel" data-stage-panel>`
         + `<div class="compare-pane-head compare-legend" data-stage-legend></div>`
         + `<div class="track-stage-base-info" data-stage-base-info hidden><div data-stage-base-aggregate>${escapeHtml(strings.stageBaseAggregate)}</div>`

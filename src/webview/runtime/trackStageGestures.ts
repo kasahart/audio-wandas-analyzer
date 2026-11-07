@@ -41,7 +41,7 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
     const { strings, state, drawnOn } = deps;
     // The pointer's marks (plotHover.ts: the nearest line thicker, the cursor at its point), the box being dragged
     // and an axis's range, for any plot of the mode. The marks are drawn on a canvas laid over the plot, so a hover
-    // does not draw the plot again; the readout is the plots' row in the toolbar, never over a plot (R7).
+    // does not draw the plot again; the readout is in the controls row above the plots, never over a plot (R7).
     const cursor = document.createElement('canvas');
     cursor.className = 'track-stage-cursor';
     const box = document.createElement('div');
@@ -63,7 +63,7 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
     };
     /** Where the pointer is over a plot, so its marks follow a plot drawn anew under a still pointer. */
     let hovered: { plot: HTMLElement; clientX: number; clientY: number } | null = null;
-    const hideHover = (): void => { cursor.hidden = true; hidePlotReadout(document); };
+    const hideHover = (): void => { cursor.hidden = true; hidePlotReadout(root.querySelector<HTMLElement>('[data-plot-readout]')); };
     /**
      * The hover as the spectrum overlay under the tracks draws it: the line nearest the pointer thicker, a dashed
      * cursor at its point and a dashed level line in its colour, its name, where and its value in the readout.
@@ -88,7 +88,7 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
         const frame = plot?.frame ?? { left: STAGE_MARGINS.left, top: STAGE_MARGINS.top, width: plotBox(hovered.plot).width, height: plotBox(hovered.plot).height };
         paintHoverMarks(context, frame, hit ? hit.x : x, hit ? hit.y : null, hit?.layer.color ?? '', hit && plot ? (ctx, width) => strokeStageLine(ctx as CanvasRenderingContext2D, plot, hit.layer, width) : undefined);
         cursor.hidden = false;
-        showPlotReadout(document, hit?.name ?? '', hit?.values ?? '', hit?.layer.color ?? '');
+        showPlotReadout(root.querySelector<HTMLElement>('[data-plot-readout]'), hit?.name ?? '', hit?.values ?? '', hit?.layer.color ?? '');
     };
     // The marks sit where the plot was on screen: a scroll under a still pointer takes them away.
     document.addEventListener('scroll', () => { if (hovered) { hovered = null; hideHover(); } }, true);

@@ -51,15 +51,6 @@ function uiSmokeCombine(message) {
         ? Object.assign(strip(compare), { matrix: compare.matrix.map(function(row, r) { return row.map(function(value, c) { return minus(value, base.matrix[r][c]); }); }) })
         : Object.assign(strip(compare), { values: (compare.values || []).map(function(value, i) { return minus(value, base.values[i]); }) });
     result.diff = diff;
-    const db = first.quantity === 'level' || first.quantity === 'gain';
-    const points = [];
-    if (diff.matrix) diff.matrix.forEach(function(row, r) { row.forEach(function(value, c) { points.push({ d: value, b: base.matrix[r][c], c: compare.matrix[r][c], x: diff.xs[c], y: diff.ys[r] }); }); });
-    else (diff.values || []).forEach(function(value, i) { points.push({ d: value, b: base.values[i], c: compare.values[i], x: diff.xs[i] }); });
-    const louder = points.filter(function(p) { return p.d !== null; }).map(function(p) { return Math.max(p.b, p.c); }).filter(function(v) { return v > -250; });
-    const top = Math.max.apply(null, louder);
-    let best = null;
-    points.forEach(function(p) { if (p.d !== null && (!db || Math.max(p.b, p.c) >= top - 20) && (!best || Math.abs(p.d) > Math.abs(best.d))) best = p; });
-    if (best) result.headline = Object.assign({ x: best.x, base: best.b, compare: best.c }, best.y === undefined ? {} : { y: best.y });
     return result;
 }
 window.acquireVsCodeApi = function() {

@@ -8,20 +8,17 @@
  * finds them gone (more than the backend keeps at once) is given up, and says so.
  */
 import type { CompareCombineMessage, ComparePublication } from '../../shared/analysis/entryScan';
-import type { StageCombineResult, StageDetail, StageView } from '../../shared/protocol/backendProtocol';
+import type { StageDetail, StageView } from '../../shared/protocol/backendProtocol';
 
-export type StageHeadline = NonNullable<StageCombineResult['headline']>;
-
-/** What a combination gives: the median (of two or more recordings), the difference and where it is largest. */
+/** What a combination gives: the median (of two or more recordings) and the difference. */
 export interface Combined {
     base: StageView | null;
     diff: StageView | null;
-    headline: StageHeadline | null;
     /** The backend could not keep every recording's values at once. */
     tooLarge?: boolean;
 }
 
-export const NOTHING_COMBINED: Combined = { base: null, diff: null, headline: null };
+export const NOTHING_COMBINED: Combined = { base: null, diff: null };
 
 export interface CombineRequest {
     base: readonly string[];
@@ -79,7 +76,7 @@ export function createCombineSource(prefix: string, post: (message: CompareCombi
             const { result } = publication;
             if (result.ok) {
                 retried.delete(request.identity);
-                keep(request.key, { base: result.base ?? null, diff: result.diff ?? null, headline: result.headline ?? null });
+                keep(request.key, { base: result.base ?? null, diff: result.diff ?? null });
             } else if (!retried.has(request.identity)) {
                 retried.add(request.identity);
                 request.forget(result.missing ?? []);

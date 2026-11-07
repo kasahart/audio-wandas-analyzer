@@ -61,7 +61,6 @@ export interface UiStrings {
     /** The comparison legend's chip of a recording without a role: it offers to choose one. */
     roleChoose: string;
     stageChooseRoles: string;
-    stageCompareMinusBase: string;
     stageLayoutOverlay: string;
     compareFixedHint: string;
     hintContentStage: string;
@@ -865,7 +864,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         roleNone: 'None',
         roleChoose: 'Role',
         stageChooseRoles: 'Choose recordings to compare: their chips in the legend',
-        stageCompareMinusBase: 'Compare {n} − base · ',
         stageLayoutOverlay: 'Overlay',
         compareFixedHint: 'Fixed: the difference is now the └ Δ row of the table (Esc to see it)',
         hintContentStage: 'Compare the tracks through an analysis: build it from wandas steps and see every track at any step, overlaid',
@@ -1650,7 +1648,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         roleNone: 'なし',
         roleChoose: '役割',
         stageChooseRoles: '比べる録音を選ぶ：凡例のチップで',
-        stageCompareMinusBase: '比較 {n} − 基準 · ',
         stageLayoutOverlay: '重ねる',
         compareFixedHint: '差を表の └ Δ 行として残しました（Esc で一覧）',
         hintContentStage: '比較解析：wandas の手順を組んで、どの段でもトラックどうしを重ねて比べる',

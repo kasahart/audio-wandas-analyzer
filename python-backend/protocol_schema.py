@@ -640,17 +640,6 @@ DEFINITIONS: dict[str, Schema] = {
             "missing": {"type": "array", "items": {"type": "string"}},
             "base": {"$ref": "#/$defs/StageView"},
             "diff": {"$ref": "#/$defs/StageView"},
-            # Where compare − base is largest among what is loud enough to hear: the axis values and both levels.
-            "headline": {
-                "type": "object",
-                "required": ["x", "base", "compare"],
-                "properties": {
-                    "x": _NUMBER,
-                    "y": _NUMBER,
-                    "base": {"anyOf": [_NUMBER, _NULL]},
-                    "compare": {"anyOf": [_NUMBER, _NULL]},
-                },
-            },
         },
     },
     "ScanInput": {
