@@ -452,6 +452,10 @@ export function renderComparisonStyles(): string {
         .track-stage-diff-head { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; padding: 0 2px; }
         .track-stage-diff-head > [data-stage-diff-headline] { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .track-stage-diff-head > .plot-readout { justify-content: flex-end; }
+        /* Only while the lanes sit under a trigger's events plot; its room is kept while empty so the lanes stay put. */
+        .track-stage-lanes-head { display: none; min-height: 18px; padding: 0 12px 2px; justify-content: flex-end; align-items: center; }
+        .track-stage[data-layout="overlay"][data-marked="true"] .track-stage-lanes-head { display: flex; }
+        .track-stage-lanes-head > .plot-readout { justify-content: flex-end; }
         .track-stage-bar { flex-shrink: 0; font-family: var(--font-ui); }
         .entry-zoom-box { position: absolute; border: 1px dashed var(--text); pointer-events: none; z-index: 2; }
         .entry-zoom-box[hidden] { display: none; }

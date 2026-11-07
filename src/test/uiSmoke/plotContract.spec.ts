@@ -15,8 +15,6 @@ type Check = 'readout' | 'zoom' | 'reset' | 'axis range' | 'axes';
 const KNOWN_GAPS: Record<string, readonly Check[]> = {
     // 3: the cursor spectrum zooms with its own events, not the plot component's.
     'cursor spectrum': ['zoom', 'reset'],
-    // 13: the trigger lanes' readout is in the comparison's row, far above the lanes, not in a row just above them.
-    'trigger lane': ['readout'],
 };
 
 const FULL = '0.000 1.000 0.000 1.000';
@@ -154,7 +152,7 @@ test('a trigger\'s events plot and the lanes under it answer the same gestures a
     await answer(page, scanned!, { frame: 'ChannelFrameSegments', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', unit: 'FS', xs: [-0.01, 0, 0.05, 0.19], events: [event(0, 0.5), event(1, 0.4)] });
     await expect.poll(async () => (await stageScans(page)).at(-1)?.stage).toBe('node-1');
     await answer(page, scanned!, { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', unit: 'FS', xs: [0, 0.75, 1.5], values: [-0.5, 0.5, -0.5],
-        waveform: { min: [-0.5, -0.4], max: [0.5, 0.4], minT: [0.2, 0.7], maxT: [0.3, 0.8], absolutePeak: 0.5, unit: 'FS', ref: 1 } });
+        waveform: { min: [-0.5, -0.4, -0.3], max: [0.5, 0.4, 0.3], minT: [0.2, 0.7, 1.1], maxT: [0.3, 0.8, 1.2], absolutePeak: 0.5, unit: 'FS', ref: 1 } });
     await expect.poll(async () => Number(await page.locator('.track-stage').getAttribute('data-lanes-marked'))).toBeGreaterThan(0);
     await expectContract(page, 'trigger events', page.locator('[data-stage-canvas="overlay"]'));
     await expectContract(page, 'trigger lane', page.locator('.track-canvas[data-plot]').first());
