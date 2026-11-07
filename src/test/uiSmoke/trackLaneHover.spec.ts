@@ -26,6 +26,16 @@ test('the pointer on a track\'s waveform reads the point nearest it as every plo
     await page.mouse.move(specBox.x + specBox.width / 2, specBox.y + specBox.height / 2);
     await expect(readout).toHaveText(/^.+ \/ −?\d+\.\d+ s \/ [\d.]+ Hz \/ −?[\d.]+ /);
     await expect(page.locator('#toolbar #plot-readout:not([hidden])')).toHaveCount(1);
+    // Zoomed in, then panned under the still pointer: the readout reads the cell under it now, not the one it read.
+    await page.keyboard.down('Control');
+    await page.mouse.wheel(0, -480);
+    await page.keyboard.up('Control');
+    const seconds = async (): Promise<number> => Number(/ \/ (\d+\.\d+) s \//.exec((await readout.textContent()) ?? '')?.[1]);
+    const before = await seconds();
+    await page.keyboard.down('Shift');
+    await page.mouse.wheel(0, 240);
+    await page.keyboard.up('Shift');
+    await expect.poll(seconds).not.toBe(before);
     // Onto its frequency axis, or out of the tracks: the cell's readout goes, as a waveform point's does.
     await page.locator('.track-spec-axis').first().hover();
     await expect(readout).toHaveCount(0);

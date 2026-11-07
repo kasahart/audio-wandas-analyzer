@@ -2078,6 +2078,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (axisCanvas && axisCtx) {
             paintLaneAxis(axisCtx, axisCanvas.width, axisCanvas.height, laneFrequencyTicks(minFreq > 0 ? minFreq : 0, maxFreq, axisCanvas.height), STR.axisFrequency, laneAxisColors());
         }
+        if (spectrogramHover && spectrogramHover.canvas === canvas) showSpectrogramReadout(canvas, spectrogramHover.clientX, spectrogramHover.clientY);
         if (overlayCtx) {
             drawSpectrogramOverlayLines(overlayCtx, W, H);
         }
@@ -2196,13 +2197,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     /** The pointer over a waveform lane (client pixels), whose lane reads the point nearest it (R7). */
     let laneHover: { canvas: HTMLCanvasElement; clientX: number; clientY: number } | null = null;
-    /** Whether a spectrogram lane's cell readout is shown (its pointer reads the cell, not a line's point). */
-    let spectrogramHover = false;
+    /** The pointer over a spectrogram lane (client pixels), whose lane reads the cell under it on every paint (R7). */
+    let spectrogramHover: { canvas: HTMLCanvasElement; clientX: number; clientY: number } | null = null;
     // A scroll under a still pointer moves the lane from under it: the point read goes with it.
     document.addEventListener('scroll', () => { if (laneHover || spectrogramHover) { hideLaneHover(); scheduleRender(); } }, true);
     function hideLaneHover(): void {
         laneHover = null;
-        spectrogramHover = false;
+        spectrogramHover = null;
         hidePlotReadout(document.getElementById(PLOT_READOUT_ID));
     }
     function drawLaneHover(ctx: CanvasRenderingContext2D, W: number, H: number, points: readonly LanePoint[], result: ComparisonTrackState, channelIndex: number, color: string, placement: { offsetNorm: number; trackDurRatio: number }): void {
@@ -2230,24 +2231,32 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const unit = channelsForResult(result)[channelIndex]?.unit?.trim() || null;
         showPlotReadout(document.getElementById(PLOT_READOUT_ID), spectrumReadoutTrackLabel(result, channelIndex), laneReadoutText('', seconds, secondsPerPixel, hit.value, unit), color);
     }
-    /** The pointer over a spectrogram lane reads the cell under it in the toolbar, as a waveform lane reads its point (R7). */
-    function showSpectrogramReadout(canvas: HTMLCanvasElement, clientY: number, norm: number): void {
+    /**
+     * The pointer over a spectrogram lane reads the cell under it in the toolbar, as a waveform lane reads its point
+     * (R7). Read again on every paint of the lane, so a view panned or a range changed under a still pointer reads
+     * what is under it now.
+     */
+    function showSpectrogramReadout(canvas: HTMLCanvasElement, clientX: number, clientY: number): void {
+        spectrogramHover = { canvas, clientX, clientY };
         const slot = document.getElementById(PLOT_READOUT_ID);
         const trackIndex = trackIndexFromElement(canvas);
         const result = trackIndex === null ? undefined : state.results[trackIndex];
         const channelIndex = channelIndexAttribute(canvas) ?? 0;
         const spec = result ? channelsForResult(result)[channelIndex]?.spectrogram : undefined;
         const rect = canvas.getBoundingClientRect();
-        if (trackIndex === null || !result || !spec || rect.height <= 0) { hidePlotReadout(slot); return; }
+        if (trackIndex === null || !result || !spec || rect.height <= 0 || rect.width <= 0) { hidePlotReadout(slot); return; }
+        const view = waveformView.timeRange();
+        const norm = view.start + Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)) * (view.end - view.start);
+        // The other lanes' time line follows the time read, as a waveform lane's point sets it.
+        if (viewState.hover === null || Math.abs(viewState.hover - norm) > 1e-9) viewState.setHover(norm);
         const bounds = spectrogramDisplayBounds(spec, spectrogramSettings.display, spectrogramAutoBounds(spec));
         const up = Math.max(0, Math.min(1, 1 - (clientY - rect.top) / rect.height));
         const placement = trackTimelinePlacement(trackRuntimeAt(trackIndex).offsetSeconds, result.durationSeconds, trackStore.globalSpan());
         const local = placement.trackDurRatio > 0 ? (norm - placement.offsetNorm) / placement.trackDurRatio : NaN;
         const cell = spectrogramCellAt(spec, local, bounds.minFrequencyHz + up * (bounds.maxFrequencyHz - bounds.minFrequencyHz), result.durationSeconds);
         if (!cell) { hidePlotReadout(slot); return; }
-        spectrogramHover = true;
-        const range = waveformView.timeRange(), span = trackStore.globalSpan();
-        const secondsPerPixel = rect.width > 0 ? (range.end - range.start) * span.spanSec / rect.width : 0.01;
+        const span = trackStore.globalSpan();
+        const secondsPerPixel = (view.end - view.start) * span.spanSec / rect.width;
         showPlotReadout(slot, spectrumReadoutTrackLabel(result, channelIndex), spectrogramReadoutText('', span.startSec + norm * span.spanSec, secondsPerPixel, cell, spec.unit ?? 'dB'), trackColor(trackIndex));
     }
     function drawHoverLineOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number) {
@@ -3583,7 +3592,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const norm = hit.norm;
-        if (canvas.classList.contains('track-spec-canvas')) { hideLaneHover(); showSpectrogramReadout(canvas, e.clientY, norm); }
+        if (canvas.classList.contains('track-spec-canvas')) { hideLaneHover(); showSpectrogramReadout(canvas, e.clientX, e.clientY); }
         else laneHover = { canvas, clientX: e.clientX, clientY: e.clientY };
         // Same precedence as handleCanvasMouseDown so the hint names the drag that will run.
         const rectZoom = rectZoomOn(canvas);
