@@ -164,11 +164,7 @@ export function stageAxes(strings: StageStrings, view: StageView | null, input: 
     if (diff && (!view || isDb(view))) return { x, y: strings.axisDelta };
     // A time signal is drawn as itself: its amplitude, in its unit (full scale, or raw input units without one), and
     // says it is uncalibrated as the level axis does. After rms_trend, sound_level or power it names that measure.
-    const linear = (unit: string | undefined): string => {
-        const name = view?.measure === 'rms' ? strings.axisRms : view?.measure === 'timeWeightedRms' ? strings.axisRmsTimeWeighted : view?.measure === 'power' ? strings.axisPower : strings.waveRangeAxisAmplitude;
-        const base = unit || uncalibratedUnits(!input || input.fullScale).linear;
-        return `${name}${input?.calibrationStatus === 'calibrated' ? '' : strings.axisUncalibrated} [${view?.measure === 'power' ? `${base}²` : base}]`;
-    };
+    const linear = (unit: string | undefined): string => amplitudeAxisTitle(strings, unit, input, view?.measure);
     if (view?.waveform) return { x, y: linear(view.waveform.unit) };
     // A trigger's events are their signals: amplitude in the signal's unit, as a waveform's.
     if (isEventsView(view)) return { x, y: linear(view?.unit) };
@@ -184,6 +180,17 @@ export function stageAxes(strings: StageStrings, view: StageView | null, input: 
     // A cross-channel Frame names its pair: which channel over which reference, or the recording over the base slot's.
     const pair = view?.pair?.base ? ` · ${strings.stagePairBase}` : view?.pair ? ` · ch${view.pair.output} / ch${view.pair.input}` : '';
     return { x, y: diff ? `Δ ${y}${pair}` : `${y}${pair}` };
+}
+
+/**
+ * A time signal's amplitude axis, in its unit (full scale, or raw input units without one), saying whether it is
+ * calibrated as the level axis does; after rms_trend, sound_level or power it names that measure. Compare's waveform
+ * panes and the track lanes name their amplitude axis by it.
+ */
+export function amplitudeAxisTitle(strings: Pick<StageStrings, 'axisRms' | 'axisRmsTimeWeighted' | 'axisPower' | 'waveRangeAxisAmplitude' | 'axisUncalibrated'>, unit: string | undefined, input: LevelInput | undefined, measure?: StageView['measure']): string {
+    const name = measure === 'rms' ? strings.axisRms : measure === 'timeWeightedRms' ? strings.axisRmsTimeWeighted : measure === 'power' ? strings.axisPower : strings.waveRangeAxisAmplitude;
+    const base = unit || uncalibratedUnits(!input || input.fullScale).linear;
+    return `${name}${input?.calibrationStatus === 'calibrated' ? '' : strings.axisUncalibrated} [${measure === 'power' ? `${base}²` : base}]`;
 }
 
 /** What a metric over time measures, named by its unit (stage_view.METRIC_SERIES_UNITS); a value otherwise. */
@@ -342,6 +349,37 @@ function ticks(low: number, high: number, log: boolean): number[] {
         return inside.length > 1 ? inside : [low, ...(inside.length ? inside : [Math.sqrt(low * high)]), high];
     }
     return niceTicks(low, high, 8);
+}
+
+/** The text every plot's axes are written in: Compare's panes, the entry's plots and the track lanes' axes. */
+export const PLOT_TEXT_FONT = '10px sans-serif';
+
+/**
+ * A level or amplitude axis's ticks over `range`, as fractions up the axis: the one rule for every plot's value axis
+ * (Compare's panes and the track lanes' amplitude axis), with as many decimals as the span needs.
+ */
+export function valueAxisTicks(range: PaneRange): AxisTick[] {
+    const span = range.max - range.min || 1;
+    const values = niceTicks(range.min, range.max, 4);
+    // As many decimals as the ticks need (a step of 0.25 two, a step of 1 none), the same on every tick.
+    let decimals = 0;
+    while (decimals < 6 && values.some(value => Math.abs(value * 10 ** decimals - Math.round(value * 10 ** decimals)) > 1e-6)) decimals++;
+    return values.map(value => ({ text: (decimals ? value.toFixed(decimals) : String(Math.round(value))).replace(/^-/, '−'), fraction: (value - range.min) / span }));
+}
+
+/**
+ * A heatmap's row axis ticks between `low` and `high` (fractions up the axis): at a log axis's round values, or on a
+ * linear one as many as `height` px is tall for. Compare's heatmaps and the track spectrogram lanes use it.
+ */
+export function rowAxisTicks(low: number, high: number, log: boolean, height: number, text?: (value: number) => string): Array<AxisTick & { value: number }> {
+    const span = high - low || 1;
+    const values = log ? ticks(low, high, true) : niceTicks(low, high, Math.max(2, Math.min(8, Math.floor(height / 22))));
+    return values.map(value => ({ value, text: text?.(value) ?? tickText(value, log), fraction: log ? Math.log(value / low) / Math.log(high / low) : (value - low) / span }));
+}
+
+/** A time or frequency axis's ticks between `low` and `high` (a log frequency axis's at its round values), with their text. */
+export function alongAxisTicks(low: number, high: number, log = false): Array<{ value: number; text: string }> {
+    return ticks(low, high, log).map(value => ({ value, text: tickText(value, log) }));
 }
 
 const tickText = (value: number, log: boolean): string => (log ? (value >= 1000 ? `${Number((value / 1000).toPrecision(3))}k` : String(Number(value.toPrecision(3)))) : String(value));
@@ -529,7 +567,7 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
             x += 30 + context.measureText(item.text).width;
         }
     }
-    context.font = '10px sans-serif';
+    context.font = PLOT_TEXT_FONT;
     const layers = overlay.layers.flatMap(eventLayers);
     const view = layers.find(layer => layer.view.kind !== 'none' && layer.view.xs?.length)?.view;
     // Neutral: blue and the other colours are the roles'.
@@ -612,7 +650,7 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
             },
         };
         // A linear row axis (Bark, quefrency, the entry strip's rows) gets as many ticks as the plot is tall for.
-        levelTicks = (yAxis.log ? ticks(yAxis.low, yAxis.high, true) : niceTicks(yAxis.low, yAxis.high, Math.max(2, Math.min(8, Math.floor(plotHeight / 22))))).map(value => ({ text: options.yTickText?.(value) ?? tickText(value, yAxis.log), fraction: yAxis.fraction(value) }));
+        levelTicks = rowAxisTicks(yAxis.low, yAxis.high, yAxis.log, plotHeight, options.yTickText).map(tick => ({ text: tick.text, fraction: yAxis.fraction(tick.value) }));
         // The colour bar, top right inside the plot: what the colour measures, and its ends.
         const signedScale = !!options.diff || view.quantity === 'cepstrum';
         const edge = Math.max(Math.abs(range.min), Math.abs(range.max));
@@ -626,9 +664,10 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
     } else {
         context.strokeStyle = line;
         context.lineWidth = 1;
-        for (const value of niceTicks(range.min, range.max, 4)) {
-            context.beginPath(); context.moveTo(left, yAt(value)); context.lineTo(left + plotWidth, yAt(value)); context.stroke();
-            levelTicks.push({ text: levelText(value, range.max - range.min), fraction: (value - range.min) / (range.max - range.min) });
+        levelTicks = valueAxisTicks(range);
+        for (const tick of levelTicks) {
+            const y = top + (1 - tick.fraction) * plotHeight;
+            context.beginPath(); context.moveTo(left, y); context.lineTo(left + plotWidth, y); context.stroke();
         }
         if (options.diff) {
             context.strokeStyle = muted;
@@ -696,8 +735,8 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
     context.fillStyle = muted;
     context.strokeStyle = line;
     context.lineWidth = 1;
-    for (const value of ticks(xAxis.low, xAxis.high, xAxis.log)) {
-        const x = xAt(value), label = tickText(value, xAxis.log);
+    for (const { value, text: label } of alongAxisTicks(xAxis.low, xAxis.high, xAxis.log)) {
+        const x = xAt(value);
         if (!heatmap) { context.beginPath(); context.moveTo(x, top); context.lineTo(x, top + plotHeight); context.stroke(); }
         if (options.xAxisLabels !== false && x - 6 + context.measureText(label).width < xTitleLeft - 4) context.fillText(label, x - 6, height - 3);
     }

@@ -46,12 +46,21 @@ export function paintTrackWaveform(
     pipeline: WaveformPipeline | undefined,
     /** Filled with the points drawn on the canvas, for the pointer to read (trackLaneHover.ts). */
     points?: LanePoint[],
+    /** Gridlines at the axes' ticks (canvas pixels), as every line plot has; without them, a line at zero. */
+    grid?: { xs: readonly number[]; ys: readonly number[]; color: string },
 ): WaveformCoverage | null {
-    ctx.strokeStyle = hexToRgba(color, 0.25);
-    ctx.lineWidth = 0.5;
+    ctx.lineWidth = grid ? 1 : 0.5;
+    ctx.strokeStyle = grid ? grid.color : hexToRgba(color, 0.25);
     ctx.beginPath();
-    ctx.moveTo(0, H / 2);
-    ctx.lineTo(W, H / 2);
+    if (grid) {
+        // On the pixel's centre, so a 1 px line is not smeared over two.
+        grid.ys.forEach(y => { const at = Math.round(y) + 0.5; ctx.moveTo(0, at); ctx.lineTo(W, at); });
+        grid.xs.forEach(x => { const at = Math.round(x) + 0.5; ctx.moveTo(at, 0); ctx.lineTo(at, H); });
+    }
+    else {
+        ctx.moveTo(0, H / 2);
+        ctx.lineTo(W, H / 2);
+    }
     ctx.stroke();
     if (!src || !pipeline) {
         return null;

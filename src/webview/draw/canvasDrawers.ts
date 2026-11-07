@@ -139,40 +139,10 @@ export function frequencyAxisTicks(scale: FrequencyScale): FrequencyAxisTick[] {
     return [ticks[0], ...octaves, ticks[1]];
 }
 
-export interface SpectrogramSpecLike {
-    minDb: number;
-    maxDb: number;
-    maxFrequencyHz: number;
-    unit?: string;
-    axisLabel?: string;
-}
-
 export interface SpectrogramAxesOpts {
     dbLo?: number;
     dbHi?: number;
     maxFreq?: number;
-}
-
-export function formatAmplitudeValue(value: number): string {
-    const absValue = Math.abs(value);
-    if (absValue >= 100) {
-        return absValue.toFixed(0);
-    }
-    if (absValue >= 1) {
-        return absValue.toFixed(1);
-    }
-    if (absValue >= 0.01) {
-        return absValue.toFixed(2);
-    }
-    return absValue.toPrecision(2);
-}
-
-export function formatWaveformAxisLabels(absolutePeak: number | null | undefined, unit: string | null | undefined, amplitudeLabel: string) {
-    const rawPeak = typeof absolutePeak === 'number' ? absolutePeak : NaN;
-    const peak = Number.isFinite(rawPeak) && rawPeak > 0 ? rawPeak : 1;
-    const value = formatAmplitudeValue(peak);
-    const unitText = typeof unit === 'string' && unit.trim() ? unit.trim() : null;
-    return ['+' + value, '0', '-' + value, unitText ? amplitudeLabel + ' (' + unitText + ')' : amplitudeLabel];
 }
 
 export function formatHz(hz: number) {
@@ -193,62 +163,6 @@ export function dbLevelUnitFor(value: { unit?: string } | null): string {
 export function formatDbLevel(value: number, source: { unit?: string } | null): string {
     return value.toFixed(0) + ' ' + dbLevelUnitFor(source);
 }
-
-export function drawWaveformAmplitudeAxis(ctx: CanvasDrawCtx, W: number, H: number, labels: string[] = formatWaveformAxisLabels(null, null, 'Amp'), theme: DrawTheme = DEFAULT_THEME): void {
-    const mutedColor = theme.mutedColor;
-    const bgColor = theme.bgColor;
-    const axisLabels = labels || formatWaveformAxisLabels(null, null, 'Amp');
-    const labelW = Math.max(30, Math.min(W, 64));
-    ctx.save();
-    ctx.fillStyle = bgColor;
-    ctx.fillRect(0, 0, labelW, H);
-    ctx.fillStyle = mutedColor;
-    ctx.font = '9px monospace';
-    ctx.textAlign = 'right';
-    ctx.textBaseline = 'top';
-    ctx.fillText(axisLabels[0], labelW - 2, 1);
-    ctx.textBaseline = 'middle';
-    ctx.fillText(axisLabels[1], labelW - 2, H / 2);
-    ctx.textBaseline = 'bottom';
-    ctx.fillText(axisLabels[2], labelW - 2, H - 1);
-    ctx.save();
-    ctx.translate(8, H / 2);
-    ctx.rotate(-Math.PI / 2);
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(axisLabels[3], 0, 0);
-    ctx.restore();
-    ctx.restore();
-}
-
-export function drawSpectrogramFrequencyAxis(ctx: CanvasDrawCtx, W: number, H: number, spec: SpectrogramSpecLike, opts: { maxFreq?: number; minFreq?: number; label?: string } = {}, theme: DrawTheme = DEFAULT_THEME): void {
-    const mutedColor = theme.mutedColor;
-    const bgColor = theme.bgColor;
-    const o = opts || {};
-    const maxHz = (o.maxFreq != null) ? o.maxFreq : spec.maxFrequencyHz;
-    const minHz = o.minFreq != null && o.minFreq > 0 ? o.minFreq : 0;
-    ctx.save();
-    ctx.fillStyle = bgColor;
-    ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = mutedColor;
-    ctx.font = '9px monospace';
-    ctx.textAlign = 'right';
-    ctx.textBaseline = 'top';
-    ctx.fillText(formatHz(maxHz), W - 2, 1);
-    ctx.textBaseline = 'middle';
-    ctx.fillText(formatHz((minHz + maxHz) / 2), W - 2, H / 2);
-    ctx.textBaseline = 'bottom';
-    ctx.fillText(minHz > 0 ? formatHz(minHz) : '0 Hz', W - 2, H - 1);
-    ctx.save();
-    ctx.translate(9, H / 2);
-    ctx.rotate(-Math.PI / 2);
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(o.label ?? 'Freq', 0, 0);
-    ctx.restore();
-    ctx.restore();
-}
-
 
 export interface SpectrumPlotFrame {
     padLeft: number;
