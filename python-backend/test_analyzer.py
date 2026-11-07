@@ -22,6 +22,7 @@ from analyzer import (
     min_max_spectrum,
     resample_frequency_bins,
     spectrogram_frame_centers,
+    spectrogram_window_frames,
 )
 from stage_view import log_buckets, min_max_indices, rows_bucket_count
 
@@ -492,3 +493,29 @@ def test_sparse_stft_matches_dense_frames_for_odd_and_even_windows(n_fft: int) -
     assert values.dtype == np.complex64
     np.testing.assert_allclose(values[..., :count], np.asarray(dense.data)[..., ::4][..., :count], rtol=1e-5, atol=1e-7)
     np.testing.assert_allclose(sparse.frame_center_times, dense.frame_center_times[:, ::4][:, :count])
+
+
+def test_spectrogram_window_frames_keeps_the_frames_in_the_window_and_one_beside_each_end() -> None:
+    centers = np.arange(100) * 0.01  # 0.00 .. 0.99 s in a 1 s file
+    frames = spectrogram_window_frames(centers, 1.0, (0.25, 0.5))
+    assert (frames.start, frames.stop) == (24, 52)
+    # A window narrower than one hop still gets two frames, whose centres place the cells.
+    narrow = spectrogram_window_frames(centers, 1.0, (0.995, 1.0))
+    assert narrow.stop - narrow.start == 2 and narrow.stop == 100
+    assert spectrogram_window_frames(centers, 1.0, (0.0, 0.001)) == slice(0, 2)
+
+
+def test_zoomed_track_detail_draws_the_window_from_every_frame_in_it(tmp_path: Path, service: AnalysisService) -> None:
+    # R3: a zoomed lane asks for its window, and gets every STFT frame centred in it instead of the whole file's
+    # 720 display columns stretched.
+    wav = tmp_path / "long.wav"
+    _write_sine_wav(wav, seconds=30.0)
+    options = {"n_fft": 256, "overlap_percent": 75, "window": "hann"}
+    whole = service.track_detail(wav, stft_options=options)["channels"][0]["spectrogram"]
+    zoomed = service.track_detail(wav, stft_options=options, time_window=(0.4, 0.45))["channels"][0]["spectrogram"]
+    hop_sec = 64 / 16000
+    assert len(whole["timeCentersSec"]) == 720
+    centers = np.asarray(zoomed["timeCentersSec"])
+    assert centers[0] <= 12.0 <= centers[1] and centers[-2] <= 13.5 <= centers[-1]
+    assert np.all(np.diff(centers) == pytest.approx(hop_sec))
+    assert len(centers) == pytest.approx(1.5 / hop_sec, abs=3)

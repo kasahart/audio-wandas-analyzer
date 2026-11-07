@@ -430,6 +430,12 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 },
                 "analysisRevision": {
                     "$ref": "#/$defs/AnalysisRevision"
+                },
+                "startNorm": {
+                    "type": "number"
+                },
+                "endNorm": {
+                    "type": "number"
                 }
             },
             "additionalProperties": false
@@ -1978,6 +1984,8 @@ export interface TrackDetailPayload {
     stftOptions?: StftOptions;
     calibrationProfile?: CalibrationProfile;
     analysisRevision?: number;
+    startNorm?: number;
+    endNorm?: number;
 }
 
 export interface TrackDetailResult {

@@ -98,6 +98,9 @@ export interface TrackDetailRequest {
     settingsSignature: string;
     trackIndex: number;
     filePath: string;
+    /** A zoomed lane's time window (fractions of the file): its spectrogram from the frames in it (R3). Absent for the whole file. */
+    startNorm?: number;
+    endNorm?: number;
 }
 
 export function isRequestTrackDetailMessage(message: unknown): message is TrackDetailRequest {
@@ -111,7 +114,9 @@ export function isRequestTrackDetailMessage(message: unknown): message is TrackD
         typeof m['analysisId'] === 'string' &&
         typeof m['settingsSignature'] === 'string' &&
         typeof m['trackIndex'] === 'number' &&
-        typeof m['filePath'] === 'string' && m['filePath'].length > 0
+        typeof m['filePath'] === 'string' && m['filePath'].length > 0 &&
+        (m['startNorm'] === undefined && m['endNorm'] === undefined
+            || typeof m['startNorm'] === 'number' && typeof m['endNorm'] === 'number' && m['startNorm'] < m['endNorm'])
     );
 }
 

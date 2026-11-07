@@ -88,6 +88,11 @@ def handle_analyze(service: AnalysisService, command: Command) -> Mapping[str, o
 
 
 def handle_track_detail(service: AnalysisService, command: Command) -> Mapping[str, object]:
+    window = (
+        (float(command["startNorm"]), float(command["endNorm"]))
+        if "startNorm" in command and "endNorm" in command
+        else None
+    )
     return service.track_detail(
         str(command["filePath"]),
         track_index=int(command["trackIndex"]),
@@ -96,6 +101,7 @@ def handle_track_detail(service: AnalysisService, command: Command) -> Mapping[s
         stft_options=_stft_options(command),
         calibration_profile=_calibration_profile(command),
         analysis_revision=_analysis_revision(command),
+        time_window=window,
     )
 
 

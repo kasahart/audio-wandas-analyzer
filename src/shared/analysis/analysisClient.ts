@@ -102,6 +102,7 @@ export abstract class AnalysisClient {
                 analysisId: payload.analysisId,
                 settingsSignature: payload.settingsSignature,
                 ...(payload.stftOptions ? { stftOptions: payload.stftOptions } : {}),
+                ...(payload.startNorm !== undefined && payload.endNorm !== undefined ? { startNorm: payload.startNorm, endNorm: payload.endNorm } : {}),
                 ...this.calibrationPayload(this.requestContext(filePath, payload)),
             },
             requestId,
@@ -218,8 +219,10 @@ export async function executeLazyAnalysis(
     }
     const payload = { trackIndex: message.trackIndex, analysisId: message.analysisId,
         settingsSignature: message.settingsSignature, ...context };
+    const window = message.type === 'request-track-detail' && message.startNorm !== undefined && message.endNorm !== undefined
+        ? { startNorm: message.startNorm, endNorm: message.endNorm } : undefined;
     const result = message.type === 'request-track-detail'
-        ? await backend.requestTrackDetail(message.filePath, payload, message.requestId, cancellation)
+        ? await backend.requestTrackDetail(message.filePath, { ...payload, ...window }, message.requestId, cancellation)
         : await backend.requestSpectrumSlice(message.filePath,
             { ...payload, cursorNorm: message.cursorNorm, ...(message.bandsPerOctave ? { bandsPerOctave: message.bandsPerOctave } : {}),
                 ...(message.fullResolution ? { fullResolution: true } : {}) }, message.requestId, cancellation);
@@ -233,14 +236,16 @@ export async function executeLazyAnalysis(
             ...(result.frequenciesHz ? { frequenciesHz: result.frequenciesHz } : {}),
             ...(message.type === 'request-spectrum-slice' ? { cursorNorm: message.cursorNorm } : {}) };
     }
-    return { ...identity, analysisRevision: result.analysisRevision, type: 'track-detail-result' as const, channels: result.channels };
+    return { ...identity, analysisRevision: result.analysisRevision, type: 'track-detail-result' as const, channels: result.channels, ...window };
 }
 
 export function lazyAnalysisError(message: TrackDetailRequest | SpectrumSliceRequest, reason: string) {
     return { requestId: message.requestId, analysisId: message.analysisId,
         settingsSignature: message.settingsSignature, trackIndex: message.trackIndex, filePath: message.filePath,
         type: message.type === 'request-track-detail' ? 'track-detail-error' as const : 'spectrum-slice-error' as const,
-        error: reason };
+        error: reason,
+        ...(message.type === 'request-track-detail' && message.startNorm !== undefined && message.endNorm !== undefined
+            ? { startNorm: message.startNorm, endNorm: message.endNorm } : {}) };
 }
 
 export function analysisPayload(filePath: string, options: AnalyzeOptions): AnalyzePayload {

@@ -285,6 +285,20 @@ def spectrogram_frame_centers(spectrogram_frame: wd.SpectrogramFrame) -> np.ndar
     return float(origin) + np.arange(spectrogram_frame.n_frames) * hop_seconds
 
 
+def spectrogram_window_frames(frame_centers_sec: np.ndarray, duration_sec: float, window: tuple[float, float]) -> slice:
+    """The STFT frames a zoomed lane draws: those centred in ``window`` (fractions of the file), one more beside each
+    end so the picture reaches the window's edges, and at least two (their centres place the cells)."""
+    count = len(frame_centers_sec)
+    start, end = sorted((float(window[0]), float(window[1])))
+    first = int(np.searchsorted(frame_centers_sec, start * duration_sec, side="left")) - 1
+    last = int(np.searchsorted(frame_centers_sec, end * duration_sec, side="right")) + 1
+    first, last = max(0, first), min(count, last)
+    if last - first < 2:
+        last = min(count, max(last, first + 2))
+        first = max(0, min(first, last - 2))
+    return slice(first, last)
+
+
 def _build_spectrogram(
     spectrogram_db: np.ndarray,
     sample_rate_hz: float,
@@ -393,8 +407,13 @@ def analyze_from_frame(
     spectrogram_frame: wd.SpectrogramFrame | None = None,
     include_spectrogram: bool = False,
     raw_peaks: Sequence[float] | None = None,
+    spectrogram_window: tuple[float, float] | None = None,
 ) -> AnalysisResult:
-    """Build the AnalysisResult JSON payload from a ChannelFrame."""
+    """Build the AnalysisResult JSON payload from a ChannelFrame.
+
+    ``spectrogram_window`` (fractions of the file) keeps only the STFT frames whose centres lie in it, and one beside
+    each end, so a zoomed lane is drawn from every frame on screen (R3) rather than the whole file's averaged down.
+    """
     target = Path(file_path)
     t_frame = time.perf_counter()
     channel_count = int(frame.n_channels)
@@ -423,6 +442,10 @@ def analyze_from_frame(
         elif stft_db.ndim != 3:
             raise ValueError(f"Expected 2D or 3D spectrogram data, got shape {stft_db.shape}")
         frame_centers = spectrogram_frame_centers(spectrogram_frame)
+        if spectrogram_window is not None and frame_centers is not None:
+            frames = spectrogram_window_frames(frame_centers, sample_count / sample_rate_hz, spectrogram_window)
+            stft_db = stft_db[:, :, frames]
+            frame_centers = frame_centers[frames]
 
     t_channels = time.perf_counter()
     channels: list[ChannelSummary] = []
