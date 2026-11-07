@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { laneHoverPoint, laneReadoutText, type LanePoint } from '../webview/runtime/trackLaneHover';
+import { laneHoverPoint, laneReadoutText, spectrogramCellAt, spectrogramReadoutText, type LanePoint } from '../webview/runtime/trackLaneHover';
 import { renderWaveformPipeline } from '../webview/waveform/waveformRenderer';
 
 /** A lane's points: a flat line at y = 50 with a narrow peak to y = 5 at x = 100. */
@@ -33,4 +33,17 @@ test('the waveform pipeline tells each point it draws, where and with its value 
         { zoomStart: 0, zoomEnd: 1, offsetNorm: 0, dataStart: 0, dataEnd: 1, color: '#fff', onPoint: (x, y, value, t) => points.push([x, y, value, t]) });
     assert.deepEqual(points.map(([, , value]) => value), [-1, 1, -0.5, 0.5]);
     assert.ok(points.every(([x, y]) => x >= 0 && x <= 4 && y >= 0 && y <= 100));
+});
+
+test('the pointer on a spectrogram lane reads the cell under it: its frequency bin and level, with the time, in the toolbar (R7)', () => {
+    // 4 time bins × 5 frequency bins up to 4000 Hz (1000 Hz apart); each cell's level names its place.
+    const spec = { timeBins: 4, frequencyBins: 5, maxFrequencyHz: 4000, values: [0, 1, 2, 3].map(t => [0, 1, 2, 3, 4].map(f => -(10 * t + f) || 0)) };
+    assert.deepEqual(spectrogramCellAt(spec, 0.6, 2400), { frequencyHz: 2000, level: -22 });
+    assert.deepEqual(spectrogramCellAt(spec, 0, 0), { frequencyHz: 0, level: 0 });
+    // The last bin's cell holds the file's end; above the data and off the file, nothing.
+    assert.deepEqual(spectrogramCellAt(spec, 1, 4000), { frequencyHz: 4000, level: -34 });
+    assert.equal(spectrogramCellAt(spec, 0.5, 4600), null);
+    assert.equal(spectrogramCellAt(spec, -0.1, 1000), null);
+    assert.equal(spectrogramCellAt(spec, 1.2, 1000), null);
+    assert.equal(spectrogramReadoutText('', 0.25, 0.01, { frequencyHz: 2000, level: -22 }, 'dB'), '0.25 s / 2000 Hz / −22.0 dB');
 });

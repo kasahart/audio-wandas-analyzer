@@ -101,8 +101,11 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
     await page.mouse.dblclick(middle.x, middle.y);
     await page.waitForTimeout(80);
     if (zoomed && (await plot.getAttribute('data-plot-window')) === FULL) passed.add('reset');
-    // A double-click on the level axis opens its range.
-    await page.mouse.dblclick(box.x + 8, middle.y);
+    // A double-click on the level axis opens its range: the plot's own left margin, or the canvas beside it that
+    // holds its value axis (data-plot-axis).
+    const axisId = await plot.getAttribute('data-plot-axis');
+    const axisBox = axisId ? await page.locator(`[id="${axisId}"]`).boundingBox() : null;
+    await page.mouse.dblclick(axisBox ? axisBox.x + axisBox.width / 2 : box.x + 8, axisBox ? axisBox.y + axisBox.height / 2 : middle.y);
     const popover = page.locator('[id$="range-popover"]:visible');
     if (await popover.count()) passed.add('axis range');
     await page.keyboard.press('Escape');
@@ -197,6 +200,17 @@ test('the pair view\'s gain, phase and γ² plots answer the same gestures as ev
         const plot = page.locator(`[data-pair-lane="${lane}"]`);
         await expect.poll(() => plot.getAttribute('data-plot-axes')).not.toBe('');
         await expectContract(page, `pair ${lane}`, plot);
+    }
+});
+
+test('the track view\'s waveform and spectrogram lanes answer the same gestures as every plot: readout in the toolbar above them (R13)', async ({ page }) => {
+    await page.setViewportSize({ width: 1200, height: 900 });
+    await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
+    for (const [name, selector] of [['track waveform', '.track-canvas:not(.track-spec-canvas)'], ['track spectrogram', '.track-spec-canvas']] as const) {
+        const plot = page.locator(`${selector}[data-plot]`).first();
+        await expect(plot).toBeVisible();
+        await expect.poll(() => plot.getAttribute('data-plot-axes')).not.toBe(null);
+        await expectContract(page, name, plot);
     }
 });
 

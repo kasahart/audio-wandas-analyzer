@@ -73,6 +73,12 @@ export class WaveformView {
         this.amplitudeMax = target.amplitudeMax;
     }
 
+    /** The amplitude on screen as a part of the unzoomed lane's (0 at its bottom edge, 1 at its top). */
+    amplitudeWindow(): { start: number; end: number } {
+        const span = 2 * AUTO_AMPLITUDE_EDGE;
+        return { start: (this.amplitudeMin + AUTO_AMPLITUDE_EDGE) / span, end: (this.amplitudeMax + AUTO_AMPLITUDE_EDGE) / span };
+    }
+
     reset(): void {
         this.setTimeRange({ start: 0, end: 1 });
         this.resetAmplitude();

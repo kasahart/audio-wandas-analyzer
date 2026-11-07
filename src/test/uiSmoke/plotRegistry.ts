@@ -5,11 +5,9 @@
  * spec), or a layer of marks laid over a plot. The list only shrinks: a plot that moves over is taken off it.
  */
 export const PLOTS_PENDING: ReadonlyArray<{ selector: string; why: string }> = [
-    { selector: '.track-canvas:not(.track-spec-canvas)', why: '4: a track\'s waveform lane, drawn by waveformRenderer; its axes follow the plot rules (laneAxes.ts, 7), its gestures are its own' },
-    { selector: '.track-axis-canvas:not(.track-spec-axis)', why: '4: a waveform lane\'s amplitude axis, by the plot rules (laneAxes.ts) on a canvas of its own beside the lane' },
-    { selector: '.track-spec-canvas', why: '4: a track\'s spectrogram lane; its colour bar is the shared one (8), its plot and time axis move with the waveform lanes' },
-    { selector: '.track-spec-axis', why: '4: a spectrogram lane\'s frequency axis, by the plot rules (laneAxes.ts) on a canvas of its own' },
-    { selector: '#ruler-canvas', why: '4: the track lanes\' time axis, by the plot rules (laneAxes.ts), drawn once above them' },
+    { selector: '.track-axis-canvas:not(.track-spec-axis)', why: 'a waveform lane\'s amplitude axis (the lane\'s data-plot-axis), by the plot rules (laneAxes.ts) on a canvas of its own beside the lane' },
+    { selector: '.track-spec-axis', why: 'a spectrogram lane\'s frequency axis (the lane\'s data-plot-axis), by the plot rules (laneAxes.ts) on a canvas of its own' },
+    { selector: '#ruler-canvas', why: 'the track lanes\' shared time axis, by the plot rules (laneAxes.ts), drawn once above them' },
 ];
 
 /** Layers laid over a plot (its hover marks, a cursor): not plots of their own. */
