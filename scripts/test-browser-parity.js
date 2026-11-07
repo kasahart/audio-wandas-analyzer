@@ -413,10 +413,10 @@ const server = http.createServer((req,res) => {
         await page.locator('#spec-apply').click();
         await page.waitForFunction(() => window.__testInbound.some(m => m.type === 'track-detail-result'
             && m.channels.every(c => c.spectrogram?.windowSize === 2048)),undefined,{timeout:120000});
-        // The spectrogram under the waveform: its plot ends 50 px before the canvas does, at the colour bar.
+        // The spectrogram under the waveform fills its canvas; the colour bar sits over its top right.
         const toneCanvas = await page.locator((await firstCanvas()).replace('track-canvas-', 'track-spec-canvas-')).boundingBox();
         await page.evaluate(() => {window.__testInbound = [];});
-        await page.mouse.click(toneCanvas.x + (toneCanvas.width - 50) * .5, toneCanvas.y + toneCanvas.height * .5);
+        await page.mouse.click(toneCanvas.x + toneCanvas.width * .5, toneCanvas.y + toneCanvas.height * .5);
         await page.waitForFunction(() => window.__testInbound.some(m => m.type === 'spectrum-slice-result' && Math.abs(m.cursorNorm - .5) < .01));
         const toneCsvMenu = page.locator('details').filter({has:page.locator('[data-action="export-csv"]')});
         if (!await toneCsvMenu.evaluate(node=>node.open)) await toneCsvMenu.locator('summary').click();
@@ -446,7 +446,7 @@ const server = http.createServer((req,res) => {
             },{hz:peakHz,db:peakDb});
             const stftId = (await firstCanvas()).replace('track-canvas-', 'track-spec-canvas-') + (channel ? '-1' : '');
             const band = await page.locator(stftId).evaluate(canvas=>{
-                const x=Math.floor((canvas.width-50)*.5), h=canvas.height;
+                const x=Math.floor(canvas.width*.5), h=canvas.height;
                 const data=canvas.getContext('2d').getImageData(x,0,1,h).data;
                 const green=Array.from({length:h},(_,y)=>data[y*4+1]);
                 const top=Math.max(...green), rows=green.map((v,y)=>v===top?y:-1).filter(y=>y>=0);
@@ -482,7 +482,7 @@ const server = http.createServer((req,res) => {
         await mobile.waitForFunction(()=>{
             const canvas=document.getElementById('track-spec-canvas-0');
             if(!canvas?.width) return false;
-            const data=canvas.getContext('2d').getImageData(0,0,Math.max(1,canvas.width-50),canvas.height).data;
+            const data=canvas.getContext('2d').getImageData(0,0,canvas.width,canvas.height).data;
             return data.some((value,index)=>index%4===3&&value>0);
         },undefined,{timeout:120000});
         await mobile.screenshot({path:path.join(root,'test-results/static-mobile.png')});
