@@ -2,7 +2,7 @@ import { channelLabel, channelsForResult, formatClockTime } from '../../shared/u
 import { niceRange } from '../../shared/utils/ticks';
 import { linkedSpectrogramBounds, spectrogramDisplayBounds, spectrogramFailureText } from './spectrogramRaster';
 import { onColourBar, PaintedLayerCache, paintTrackSpectrogram, paintTrackWaveform, type SpectrogramRasterCacheEntry } from './trackCanvasPainter';
-import { laneHoverPoint, laneReadoutText, type LanePoint } from './trackLaneHover';
+import { laneHoverPoint, laneReadoutText, spectrogramCellAt, spectrogramReadoutText, type LanePoint } from './trackLaneHover';
 import { hidePlotReadout, paintHoverMarks, PLOT_READOUT_ID, showPlotReadout } from './plotHover';
 import { trackTimelinePlacement } from './waveformCoverage';
 import { envelopePeak } from '../waveform/envelopePeak';
@@ -52,7 +52,7 @@ import { keyRouterFor } from './keyRouter';
 import { attachSeparatorKeys } from './separatorKeys';
 import { attachTrackPointerListeners } from './trackPointerEvents';
 import { buildPythonButtonText, buildPythonTooltip, isPythonEnvError } from './pythonEnvironmentLabels';
-import { laneAmplitudeRange, laneAmplitudeTicks, laneFrequencyTicks, laneTimeTicks, paintLaneAxis } from './laneAxes';
+import { laneAmplitudeRange, laneAmplitudeTicks, laneFrequencyTicks, laneTimeTicks, markEmptyLanePlot, markLanePlot, paintLaneAxis } from './laneAxes';
 import { createPlaybackDisplay } from './playbackDisplay';
 import { installLayoutResizeHandling } from './layoutResize';
 import { syncPanelToggle, syncSpectrumMaximize } from './panelCollapse';
@@ -1950,8 +1950,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     /** The points the lane under the pointer drew in its last paint, which its cursor-only frames read again. */
     let hoveredLanePoints: { canvas: HTMLCanvasElement; points: LanePoint[] } | null = null;
     function drawTrackWaveform(canvas: HTMLCanvasElement, result: ComparisonTrackState, trackIndex: number, channelIndex: number, offsetSeconds: number, color: string, options: WaveformDrawOptions = {}): void {
-        // Not the plot component's (R13, pending): the comparison's mark from drawing this lane goes.
-        delete canvas.dataset.plot;
         const ctx = canvas.getContext('2d');
         if (!ctx) {
             return;
@@ -1966,6 +1964,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const points: LanePoint[] | undefined = laneHover && laneHover.canvas === canvas ? [] : undefined;
         const axis = laneAmplitudeAxis(result, channelIndex);
         const seconds = laneVisibleSeconds();
+        markLanePlot(canvas, { x: STR.axisTime, y: axis.title }, trackAxisCanvasId(trackIndex, channelIndex), {
+            x: { start: waveformView.start, end: waveformView.end },
+            y: amplitudeZoomed ? waveformView.amplitudeWindow() : { start: 0, end: 1 },
+        });
         const grid = {
             ys: axis.ticks.map(tick => (1 - tick.fraction) * H),
             xs: laneTimeTicks(seconds.start, seconds.end, W).map(tick => tick.x),
@@ -2023,7 +2025,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         drawRectZoomSelectionOnCanvas(ctx, W, H, trackIndex);
     }
     function drawSpectrogram(canvas: HTMLCanvasElement, result: ComparisonTrackState, trackIndex: number, channelIndex: number, offsetSeconds: number) {
-        delete canvas.dataset.plot;
+        // Its axes are named once its picture is drawn (below); until then it is an empty plot, as an empty pane is.
+        markEmptyLanePlot(canvas);
         const ctx = canvas.getContext('2d');
         if (!ctx) {
             return;
@@ -2066,6 +2069,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             durationSec: result.durationSeconds,
         }, spectrogramRasterCache.get(cacheId), { title, text, back: theme.bgColor, line: theme.lineColor });
         spectrogramRasterCache.set(cacheId, painted);
+        const specTop = spec.maxFrequencyHz || maxFreq || 1;
+        markLanePlot(canvas, { x: STR.axisTime, y: STR.axisFrequency }, trackSpecAxisCanvasId(trackIndex, channelIndex), {
+            x: { start: waveformView.start, end: waveformView.end },
+            y: { start: Math.max(0, minFreq) / specTop, end: Math.min(1, maxFreq / specTop) },
+        });
         canvas.dataset.colourBar = [painted.colourBar.x, painted.colourBar.y, painted.colourBar.width, painted.colourBar.height].map(value => Math.round(value)).join(' ');
         if (axisCanvas && axisCtx) {
             paintLaneAxis(axisCtx, axisCanvas.width, axisCanvas.height, laneFrequencyTicks(minFreq > 0 ? minFreq : 0, maxFreq, axisCanvas.height), STR.axisFrequency, laneAxisColors());
@@ -2218,6 +2226,25 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (viewState.hover === null || Math.abs(viewState.hover - readNorm) > 1e-9) viewState.setHover(readNorm);
         const unit = channelsForResult(result)[channelIndex]?.unit?.trim() || null;
         showPlotReadout(document.getElementById(PLOT_READOUT_ID), spectrumReadoutTrackLabel(result, channelIndex), laneReadoutText('', seconds, secondsPerPixel, hit.value, unit), color);
+    }
+    /** The pointer over a spectrogram lane reads the cell under it in the toolbar, as a waveform lane reads its point (R7). */
+    function showSpectrogramReadout(canvas: HTMLCanvasElement, clientY: number, norm: number): void {
+        const slot = document.getElementById(PLOT_READOUT_ID);
+        const trackIndex = trackIndexFromElement(canvas);
+        const result = trackIndex === null ? undefined : state.results[trackIndex];
+        const channelIndex = channelIndexAttribute(canvas) ?? 0;
+        const spec = result ? channelsForResult(result)[channelIndex]?.spectrogram : undefined;
+        const rect = canvas.getBoundingClientRect();
+        if (trackIndex === null || !result || !spec || rect.height <= 0) { hidePlotReadout(slot); return; }
+        const bounds = spectrogramDisplayBounds(spec, spectrogramSettings.display, spectrogramAutoBounds(spec));
+        const up = Math.max(0, Math.min(1, 1 - (clientY - rect.top) / rect.height));
+        const placement = trackTimelinePlacement(trackRuntimeAt(trackIndex).offsetSeconds, result.durationSeconds, trackStore.globalSpan());
+        const local = placement.trackDurRatio > 0 ? (norm - placement.offsetNorm) / placement.trackDurRatio : NaN;
+        const cell = spectrogramCellAt(spec, local, bounds.minFrequencyHz + up * (bounds.maxFrequencyHz - bounds.minFrequencyHz), result.durationSeconds);
+        if (!cell) { hidePlotReadout(slot); return; }
+        const range = waveformView.timeRange(), span = trackStore.globalSpan();
+        const secondsPerPixel = rect.width > 0 ? (range.end - range.start) * span.spanSec / rect.width : 0.01;
+        showPlotReadout(slot, spectrumReadoutTrackLabel(result, channelIndex), spectrogramReadoutText('', span.startSec + norm * span.spanSec, secondsPerPixel, cell, spec.unit ?? 'dB'), trackColor(trackIndex));
     }
     function drawHoverLineOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number) {
         if (viewState.hover !== null) {
@@ -2773,6 +2800,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         hideLaneHover();
         stageMode?.setActive(next === 'stage');
         document.body.classList.toggle('is-stage-view', next === 'stage');
+        // The track lanes, on one time axis, share the toolbar's readout above them (R7); the steps view reads in its own row.
+        document.getElementById('tracks-wrapper')?.toggleAttribute('data-plot-stack', next !== 'stage');
         layout.invalidateCanvasSizes();
         buttonMatching(document, '[data-action="content-waveform"]')?.classList.toggle('is-active', next === 'waveform');
         buttonMatching(document, '[data-action="content-stage"]')?.classList.toggle('is-active', next === 'stage');
@@ -3550,7 +3579,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const norm = hit.norm;
-        if (canvas.classList.contains('track-spec-canvas')) hideLaneHover();
+        if (canvas.classList.contains('track-spec-canvas')) { hideLaneHover(); showSpectrogramReadout(canvas, e.clientY, norm); }
         else laneHover = { canvas, clientX: e.clientX, clientY: e.clientY };
         // Same precedence as handleCanvasMouseDown so the hint names the drag that will run.
         const rectZoom = rectZoomOn(canvas);

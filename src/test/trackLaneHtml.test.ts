@@ -38,7 +38,7 @@ test('multi-channel lane shows the label header with the metric summary', () => 
 
 test('the waveform and spectrogram canvases are named by file, channel and kind, with no inline outline over the focus ring', () => {
     const html = channelLaneHtml(base);
-    assert.ok(html.includes('class="track-canvas" id="track-canvas-1" data-track-id="t1" data-channel-index="0" tabindex="0" role="img" aria-label="a&lt;b&gt;.wav · Ch 1 · waveform"'));
+    assert.ok(html.includes('class="track-canvas" id="track-canvas-1" data-track-id="t1" data-channel-index="0" data-plot data-plot-axes="" tabindex="0" role="img" aria-label="a&lt;b&gt;.wav · Ch 1 · waveform"'));
     assert.ok(html.includes('aria-label="a&lt;b&gt;.wav · Ch 1 · spectrogram"'));
     assert.ok(!html.includes('outline:none'));
     assert.ok(html.includes('role="separator" tabindex="0"'));

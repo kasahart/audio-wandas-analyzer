@@ -5,6 +5,9 @@
  */
 import { readoutText } from '../../shared/gui-core/index';
 import { HOVER_PICK_RADIUS_PX, nearestPoint } from './plotHover';
+import { formatReadoutHz } from './canvasOverlays';
+import { spectrogramTimeBinAt, spectrogramTimeBinEdges } from '../spectrum/spectrogramTimeBins';
+import type { SpectrogramData } from '../../shared/analysis/analysisTypes';
 
 /** A point of a lane's waveform as drawn: where on the canvas (bitmap pixels), its value and time (the file's 0..1). */
 export interface LanePoint {
@@ -47,4 +50,30 @@ export function laneReadoutText(label: string, seconds: number, secondsPerPixel:
     const time = `${seconds.toFixed(digits).replace(/^-/, '−')} s`;
     const amount = `${(Math.abs(value) >= 10 ? value.toFixed(1) : value.toPrecision(3)).replace(/^-/, '−')}${unit ? ` ${unit}` : ''}`;
     return readoutText([...(label ? [label] : []), time, amount]);
+}
+
+/** The part of a track's spectrogram the pointer reads: its cell's frequency bin and level. */
+export interface SpectrogramCell {
+    frequencyHz: number;
+    level: number;
+}
+
+/**
+ * The cell of a spectrogram under the pointer (R7): the time bin holding `localNorm` (the file's 0..1, as the
+ * raster places its cells), the frequency bin nearest `frequencyHz`; null off the file or above the data.
+ */
+export function spectrogramCellAt(spec: Pick<SpectrogramData, 'values' | 'timeBins' | 'frequencyBins' | 'maxFrequencyHz' | 'timeCentersSec'>, localNorm: number, frequencyHz: number, durationSec?: number): SpectrogramCell | null {
+    if (!(spec.timeBins > 0 && spec.frequencyBins > 0 && spec.maxFrequencyHz > 0) || !(localNorm >= 0 && localNorm <= 1) || !(frequencyHz >= 0)) return null;
+    const edges = spectrogramTimeBinEdges(spec, durationSec);
+    const time = edges ? spectrogramTimeBinAt(edges, localNorm) : Math.min(spec.timeBins - 1, Math.floor(localNorm * spec.timeBins));
+    const intervals = Math.max(spec.frequencyBins - 1, 1);
+    const bin = Math.round(frequencyHz / spec.maxFrequencyHz * intervals);
+    const level = bin < spec.frequencyBins ? spec.values[time]?.[bin] : undefined;
+    return level === undefined || !Number.isFinite(level) ? null : { frequencyHz: bin / intervals * spec.maxFrequencyHz, level };
+}
+
+/** "name / 1.234 s / 1000 Hz / −40.0 dB": the time as the waveform lanes read it, the cell's bin and level. */
+export function spectrogramReadoutText(label: string, seconds: number, secondsPerPixel: number, cell: SpectrogramCell, unit: string): string {
+    const [time] = laneReadoutText('', seconds, secondsPerPixel, 0, null).split(' / ');
+    return readoutText([...(label ? [label] : []), time, formatReadoutHz(cell.frequencyHz), `${cell.level.toFixed(1).replace(/^-/, '−')} ${unit}`]);
 }

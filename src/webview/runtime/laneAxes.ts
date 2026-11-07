@@ -46,3 +46,24 @@ export function paintLaneAxis(context: PlotContext & { clearRect(x: number, y: n
     drawValueAxis(context, frame, ticks, '', { color: colors.muted, font: PLOT_TEXT_FONT, titleX: TITLE_X });
     drawValueAxis(context, frame, [], title, { color: colors.text, font: PLOT_TEXT_FONT, titleX: TITLE_X });
 }
+
+/**
+ * Marks a lane as a plot that answers the plot contract (R13): its axes' names, the element holding its value axis
+ * (a canvas of its own beside the lane), and the part of each axis on screen ("x.start x.end y.start y.end"), as
+ * plotInteraction names a plot's window. The lane's line is drawn by the shared waveform layer and its axes by
+ * these rules, so it is held to the same gestures as every plot.
+ */
+export function markLanePlot(canvas: HTMLElement, axes: { x: string; y: string }, axisId: string, window: { x: { start: number; end: number }; y: { start: number; end: number } }): void {
+    canvas.dataset.plot = '';
+    canvas.dataset.plotAxes = `${axes.x}|${axes.y}`;
+    canvas.dataset.plotAxis = axisId;
+    canvas.dataset.plotWindow = [window.x.start, window.x.end, window.y.start, window.y.end].map(value => value.toFixed(3)).join(' ');
+}
+
+/** A lane with nothing drawn yet (a message in its place): still the plot component's, with no axes, as paintOverlay marks an empty pane. */
+export function markEmptyLanePlot(canvas: HTMLElement): void {
+    canvas.dataset.plot = '';
+    canvas.dataset.plotAxes = '';
+    delete canvas.dataset.plotAxis;
+    delete canvas.dataset.plotWindow;
+}

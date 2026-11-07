@@ -34,7 +34,7 @@ function spectrumBandsButtons(selected: SpectrumBandsSetting, strings: ResultsPa
 
 export function resultsPaneHtml(parts: ResultsPaneParts, strings: ResultsPaneStrings): string {
     return '<div id="toolbar" role="toolbar" aria-label="' + escapeHtml(strings.ariaToolbar) + '">' + parts.toolbarHtml + '</div>'
-        + '<div id="tracks-wrapper">'
+        + '<div id="tracks-wrapper" data-plot-stack>'
         + '  <div id="ruler-row"><div id="ruler-spacer"></div><div id="ruler-axis-spacer" style="width:' + parts.axisWidth + 'px;flex:none"></div><canvas id="ruler-canvas"' + hintAttr(strings.hintWheelGestures) + '></canvas></div>'
         + '  <div id="stacked-wrap">' + parts.tracksHtml + '</div>'
         + '  <div id="empty-state"><p>' + escapeHtml(parts.emptyMessage) + '</p>'
