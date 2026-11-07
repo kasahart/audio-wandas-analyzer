@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import functools
+import math
 import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -413,6 +414,8 @@ def analyze_from_frame(
 
     ``spectrogram_window`` (fractions of the file) keeps only the STFT frames whose centres lie in it, and one beside
     each end, so a zoomed lane is drawn from every frame on screen (R3) rather than the whole file's averaged down.
+    The STFT is cut before its dB conversion and each channel's envelope and peak are built from the window's samples,
+    so the answer costs the window, not the file.
     """
     target = Path(file_path)
     t_frame = time.perf_counter()
@@ -433,27 +436,37 @@ def analyze_from_frame(
     window_size, hop_size, window_name = resolve_stft_params(sample_count, stft_options)
     stft_db: np.ndarray | None = None
     frame_centers: np.ndarray | None = None
+    # A zoom window's samples: its envelope is built from them only (the lane reads only its spectrogram).
+    window_samples: tuple[int, int] = (0, sample_count)
     if include_spectrogram:
         if spectrogram_frame is None:
             raise ValueError("spectrogram_frame is required when include_spectrogram is true")
-        stft_db = np.asarray(spectrogram_frame.dB, dtype=np.float64)
+        frame_centers = spectrogram_frame_centers(spectrogram_frame)
+        source = spectrogram_frame
+        if spectrogram_window is not None and frame_centers is not None:
+            # Cut before the dB conversion: a window costs its own frames, not the whole file's.
+            frames = spectrogram_window_frames(frame_centers, sample_count / sample_rate_hz, spectrogram_window)
+            source = spectrogram_frame[:, :, frames]
+            frame_centers = frame_centers[frames]
+            window_samples = (
+                max(0, int(math.floor(spectrogram_window[0] * sample_count))),
+                min(sample_count, int(math.ceil(spectrogram_window[1] * sample_count))),
+            )
+        stft_db = np.asarray(source.dB, dtype=np.float64)
         if stft_db.ndim == 2:
             stft_db = stft_db[np.newaxis, :, :]
         elif stft_db.ndim != 3:
             raise ValueError(f"Expected 2D or 3D spectrogram data, got shape {stft_db.shape}")
-        frame_centers = spectrogram_frame_centers(spectrogram_frame)
-        if spectrogram_window is not None and frame_centers is not None:
-            frames = spectrogram_window_frames(frame_centers, sample_count / sample_rate_hz, spectrogram_window)
-            stft_db = stft_db[:, :, frames]
-            frame_centers = frame_centers[frames]
 
     t_channels = time.perf_counter()
     channels: list[ChannelSummary] = []
     for index in range(channel_count):
-        samples = data[index]
+        samples = data[index][window_samples[0] : window_samples[1]]
         measurement = measurements[index]
         # The envelope reads every sample once and keeps its largest magnitude: no separate pass for the peak.
-        waveform = build_waveform_envelope(samples, WAVEFORM_POINT_LIMIT, start_sample=0, total_samples=sample_count)
+        waveform = build_waveform_envelope(
+            samples, WAVEFORM_POINT_LIMIT, start_sample=window_samples[0], total_samples=sample_count
+        )
         peak = float(waveform["absolutePeak"])
         raw_peak = float(raw_peaks[index])
         full_scale = has_full_scale(raw_frame, index)
