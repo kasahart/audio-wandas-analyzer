@@ -22,9 +22,10 @@ export interface PlaybackControllerDeps {
     durationSeconds(trackIndex: number): number;
     loopRegion(): LoopRegion | null;
     cursorNorm(): number;
+    /** `playing`: a playback frame, which draws only the cursor again. */
     moveCursor(norm: number, playing?: boolean): void;
-    /** Keeps the visible window on the cursor while the view follows it. */
-    centerOn(norm: number): void;
+    /** Keeps the visible window on the cursor while the view follows it; returns whether the window moved. */
+    centerOn(norm: number): boolean;
     invalidateSpectrumRequests(): void;
     scheduleRender(): void;
     refreshSpectrum(mode: 'immediate' | 'playback'): void;
@@ -297,11 +298,11 @@ export class PlaybackController {
                 }
                 const nextCursor = deps.globalNormAt(playbackTrackIndex, this.element.currentTime);
                 if (nextCursor !== null) {
-                    if (this.following) {
-                        deps.centerOn(nextCursor);
+                    // A view that scrolls with the cursor draws everything again; otherwise only the cursor moves (moveCursor).
+                    if (this.following && deps.centerOn(nextCursor)) {
+                        deps.scheduleRender();
                     }
                     deps.moveCursor(nextCursor, true);
-                    deps.scheduleRender();
                     deps.refreshSpectrum('playback');
                 }
                 deps.showTime(this.element.currentTime);

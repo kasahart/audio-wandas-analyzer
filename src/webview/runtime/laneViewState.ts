@@ -2,6 +2,8 @@ import type { LoopRegion } from './types';
 
 export interface LaneViewStateHooks {
     scheduleRender(): void;
+    /** Only what follows the cursor is drawn again (its lines); the plots under it stay as drawn. */
+    scheduleCursorRender(): void;
     /** The time readout shows `norm`: the cursor, or the hover while there is one. */
     showTime(norm: number): void;
     /** The loop region was set or cleared (its time readout and the zoom-to-selection button follow). */
@@ -29,11 +31,12 @@ export class LaneViewState {
         return this.loopRegion;
     }
 
-    /** Clamped to the tracks. */
-    setCursor(norm: number): void {
+    /** Clamped to the tracks; 'cursor' draws only the cursor again, for a move that changes nothing else (playback). */
+    setCursor(norm: number, redraw: 'all' | 'cursor' = 'all'): void {
         this.cursorNorm = Math.max(0, Math.min(1, norm));
         this.hooks.showTime(this.cursorNorm);
-        this.hooks.scheduleRender();
+        if (redraw === 'cursor') this.hooks.scheduleCursorRender();
+        else this.hooks.scheduleRender();
     }
 
     setHover(norm: number): void {

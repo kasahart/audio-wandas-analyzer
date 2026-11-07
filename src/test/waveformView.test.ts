@@ -20,9 +20,10 @@ test('WaveformView time operations update the visible window', () => {
     view.pan(1);
     close(view.start, 0.3);
     close(view.end, 0.8);
-    view.centerOn(0.5);
+    assert.equal(view.centerOn(0.5), true);
     close(view.start, 0.25);
     close(view.end, 0.75);
+    assert.equal(view.centerOn(0.5), false);
     view.zoomAround(0.25, 2);
     close(view.start, 0);
     close(view.end, 1);
