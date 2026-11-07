@@ -1943,7 +1943,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (record) {
             record.waveformCoverage = coverage;
         }
-        waveformLayers.keep(canvas);
+        // Only playback frames copy it back; otherwise nothing is kept, so lanes not playing cost no second bitmap.
+        if (playback.isRunning()) waveformLayers.keep(canvas);
+        else waveformLayers.forget(canvas);
         if (points) hoveredLanePoints = { canvas, points };
         else if (hoveredLanePoints?.canvas === canvas) hoveredLanePoints = null;
         drawWaveformCursorLayers(ctx, W, H, trackIndex, channelIndex);
