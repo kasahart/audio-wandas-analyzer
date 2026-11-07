@@ -24,7 +24,7 @@ export function overviewPicture(
     bands: ReadonlyMap<string, (number | null)[]>,
     window: PlotWindow,
     lines: number,
-): { view: StageView; whole: StageView; names: string[]; range: { min: number; max: number } } | null {
+): { view: StageView; whole: StageView; names: string[][]; range: { min: number; max: number } } | null {
     const bandCount = BAND_CENTERS_HZ.length;
     const total = rows.length;
     const firstRow = Math.max(0, Math.floor((1 - window.y.end) * total));
@@ -33,20 +33,25 @@ export function overviewPicture(
     const binned = count > lines;
     const cellsTotal = binned ? lines : count;
     const loudest: (number | null)[][] = Array.from({ length: cellsTotal }, () => new Array<number | null>(bandCount).fill(null));
-    const names: string[] = Array.from({ length: cellsTotal }, () => '');
+    // Per cell and band, the file whose level it shows (the loudest of a line's rows), so the readout names the
+    // recording its value is from; a cell with no level names the line's first row.
+    const names: string[][] = Array.from({ length: cellsTotal }, () => new Array<string>(bandCount).fill(''));
     let low = Infinity, high = -Infinity;
     // One pass, loops not spreads (a large folder has more levels than a call can take as arguments).
     for (let index = 0; index < total; index++) {
         const levels = bands.get(rows[index].filePath);
         const cell = index >= firstRow && index < lastRow ? (binned ? Math.min(lines - 1, Math.floor((index - firstRow) * lines / count)) : index - firstRow) : -1;
-        if (cell >= 0 && !names[cell]) names[cell] = fileName(rows[index].filePath);
+        if (cell >= 0 && !names[cell][0]) names[cell].fill(fileName(rows[index].filePath));
         if (!levels) continue;
         for (let band = 0; band < Math.min(bandCount, levels.length); band++) {
             const value = levels[band];
             if (value === null || value === undefined) continue;
             if (value < low) low = value;
             if (value > high) high = value;
-            if (cell >= 0) { const was = loudest[cell][band]; if (was === null || value > was) loudest[cell][band] = value; }
+            if (cell >= 0) {
+                const was = loudest[cell][band];
+                if (was === null || value > was) { loudest[cell][band] = value; names[cell][band] = fileName(rows[index].filePath); }
+            }
         }
     }
     if (!Number.isFinite(low)) return null;
@@ -98,7 +103,7 @@ export function paintOverview(
     if (bandsVersion !== undefined && cached && cached.key === key && cached.rows === rows) drawn = cached.drawn;
     else {
         const picture = overviewPicture(rows, bands, window, Math.ceil(plotHeight));
-        drawn = paintOverlay(canvas, { layers: picture ? [{ view: picture.view, color: '', rowName: row => picture.names[row] ?? '' }] : [] }, picture?.range ?? { min: 0, max: 1 },
+        drawn = paintOverlay(canvas, { layers: picture ? [{ view: picture.view, color: '', rowName: (row, column) => picture.names[row]?.[column] ?? '' }] : [] }, picture?.range ?? { min: 0, max: 1 },
             { x: strings.axisBand, y: strings.axisEntryRows, colour }, {
                 margins: OVERVIEW_MARGINS,
                 window: { x: window.x, y: window.y }, axisView: picture?.whole ?? null,

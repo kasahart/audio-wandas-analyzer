@@ -365,8 +365,8 @@ export interface StageLayer {
     excluded?: readonly number[];
     /** One event of `source` (eventLayers'), and whether it is left out. */
     event?: { id: number; source: string; out: boolean };
-    /** A heatmap whose rows are things, not an axis (the entry strip's recordings): the readout's name for row `row` of `view.ys`. */
-    rowName?: (row: number) => string;
+    /** A heatmap whose rows are things, not an axis (the entry strip's recordings): the readout's name for the cell at `row` of `view.ys`, `column` of `view.xs` (a cell may show the loudest of several things). */
+    rowName?: (row: number, column: number) => string;
 }
 
 /**
@@ -986,7 +986,7 @@ function imageHover(plot: StagePlot, image: NonNullable<StagePlot['image']>, x: 
     const amount = plot.diff ? signed(value, isDb(view))
         : (isDb(view) ? `${value.toFixed(1)} dB` : Math.abs(value) >= 10 ? value.toFixed(1) : value.toPrecision(3)).replace(/^-/, '−');
     const at = layer.rowName ? atValue(view, view.xs?.[column] ?? 0) : atText(view, column, row);
-    return { ...readoutOf(layer, { x, y }, layer.rowName?.(row) ?? layer.label ?? (plot.diff ? 'Δ' : ''), [at, amount]), image: true };
+    return { ...readoutOf(layer, { x, y }, layer.rowName?.(row, column) ?? layer.label ?? (plot.diff ? 'Δ' : ''), [at, amount]), image: true };
 }
 
 /** A hover's readout: the line's name (cut short first where there is no room) and where and what it reads. */

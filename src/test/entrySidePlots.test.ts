@@ -114,7 +114,7 @@ test('the strip is a heatmap of the table: a row per table row counted down from
     assert.ok(whole);
     // Bottom first, as the axis runs: the last table row at the bottom, each at minus its centre's place.
     assert.deepEqual(whole.view.ys, [-3.5, -2.5, -1.5, -0.5]);
-    assert.deepEqual(whole.names, ['d.wav', 'c.wav', 'b.wav', 'a.wav']);
+    assert.deepEqual(whole.names.map(row => row[0]), ['d.wav', 'c.wav', 'b.wav', 'a.wav']);
     assert.deepEqual(whole.view.matrix?.[3].slice(0, 2), [-40.4, -30]);
     assert.ok(whole.view.matrix?.[1].every(value => value === null), 'a row not scanned yet has no cells');
     assert.deepEqual(whole.whole.ys, [-4, 0], 'the whole table\'s axis, for a zoomed strip');
@@ -123,6 +123,8 @@ test('the strip is a heatmap of the table: a row per table row counted down from
     const binned = overviewPicture(rows, bands, FULL_PLOT_WINDOW, 2);
     assert.deepEqual(binned?.view.ys, [-3, -1]);
     assert.deepEqual(binned?.view.matrix?.map(row => row.slice(0, 2)), [[-60, -10.2], [-20, -30]]);
+    // The readout names the recording each value is from: b's −20 dB and a's −30 dB share a line.
+    assert.deepEqual(binned?.names.map(row => row.slice(0, 2)), [['d.wav', 'd.wav'], ['b.wav', 'a.wav']]);
     // Zoomed to the top half: only its rows, on the whole table's axis; the shades keep every row's range.
     const top = overviewPicture(rows, bands, { x: FULL_PLOT_WINDOW.x, y: { start: 0.5, end: 1 } }, 100);
     assert.deepEqual(top?.view.ys, [-1.5, -0.5]);
