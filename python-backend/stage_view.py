@@ -205,28 +205,77 @@ def _log_points(levels_db: np.ndarray, freqs: np.ndarray, points: int, nyquist: 
     return np.sqrt(edges[:-1] * edges[1:]), band_levels(levels_db, freqs, edges)
 
 
+def log_buckets(xs: np.ndarray, buckets: int, span: Sequence[float] | None = None) -> np.ndarray:
+    """Each x's bucket among ``buckets`` equally wide on a log axis, between ``span`` when given (else the xs' own
+    ends), so the buckets stay put while the view pans. ``xs`` must be positive."""
+    low, high = (min(span), max(span)) if span is not None and min(span) > 0 else (float(xs[0]), float(xs[-1]))
+    edges = np.geomspace(low, high, buckets + 1)
+    return np.clip(np.searchsorted(edges, xs, side="right") - 1, 0, buckets - 1)
+
+
+def min_max_indices(
+    xs: np.ndarray, values: np.ndarray, buckets: int, log: bool, span: Sequence[float] | None = None
+) -> np.ndarray:
+    """The points of a line to draw in at most ``buckets`` buckets: each bucket's smallest and largest value, each
+    at its own x (the one display decimation of a line over frequency, rule 4 of the unified plot spec). Buckets are
+    log-spaced on a log axis (``log_buckets``), equal in count on a linear one. Non-finite values (and on a log axis,
+    x <= 0) are left out; fewer values than two per bucket are all kept. Of equal values, a bucket's lowest is its
+    first and its highest its last. ``xs`` ascending; indices into it, ascending."""
+    buckets = max(1, buckets)
+    kept = np.flatnonzero(np.isfinite(values) & ((xs > 0) if log else np.ones(xs.size, dtype=bool)))
+    if kept.size <= 2 * buckets:
+        return kept
+    bucket = log_buckets(xs[kept], buckets, span) if log else (np.arange(kept.size) * buckets) // kept.size
+    kept_values = values[kept]
+    # The buckets are runs of the ascending xs: each run's extremes by reduceat, in one pass.
+    starts = np.flatnonzero(np.r_[True, bucket[1:] != bucket[:-1]])
+    sizes = np.diff(np.r_[starts, kept.size])
+    lowest, highest = np.minimum.reduceat(kept_values, starts), np.maximum.reduceat(kept_values, starts)
+    index = np.arange(kept.size)
+    first = np.minimum.reduceat(np.where(kept_values == np.repeat(lowest, sizes), index, kept.size), starts)
+    last = np.maximum.reduceat(np.where(kept_values == np.repeat(highest, sizes), index, -1), starts)
+    return kept[np.unique(np.concatenate([first, last]))]
+
+
 def min_max_line(
     xs: np.ndarray, values: np.ndarray, buckets: int, log: bool, span: Sequence[float] | None = None
 ) -> tuple[np.ndarray, np.ndarray]:
-    """A line in at most ``buckets`` buckets: each bucket's smallest and largest value, each at its own x, as the
-    lanes draw a waveform (log-spaced buckets on a log axis, between ``span`` when given so the buckets stay put
-    while the view pans). Non-finite values are left out; fewer values than two per bucket are all kept."""
-    buckets = max(1, buckets)
-    keep = np.isfinite(values) & ((xs > 0) if log else np.ones(xs.size, dtype=bool))
-    xs, values = xs[keep], values[keep]
-    if xs.size <= 2 * buckets:
-        return xs, values
-    if log:
-        low, high = (min(span), max(span)) if span is not None and min(span) > 0 else (xs[0], xs[-1])
-        edges = np.geomspace(low, high, buckets + 1)
-        bucket = np.clip(np.searchsorted(edges, xs, side="right") - 1, 0, buckets - 1)
-    else:
-        bucket = (np.arange(xs.size) * buckets) // xs.size
-    order = np.lexsort((values, bucket))
-    first = np.flatnonzero(np.r_[True, bucket[order][1:] != bucket[order][:-1]])
-    last = np.r_[first[1:] - 1, order.size - 1]
-    picked = np.unique(np.concatenate([order[first], order[last]]))
+    """A line in at most ``buckets`` buckets (min_max_indices), as its xs and values."""
+    picked = min_max_indices(xs, values, buckets, log, span)
     return xs[picked], values[picked]
+
+
+def rows_bucket_count(xs: np.ndarray, rows: int, point_limit: int, span: Sequence[float] | None = None) -> int:
+    """The most log buckets whose points fit ``point_limit`` for ``rows`` lines sharing ``xs`` (at most two per row
+    per bucket, and no more than the bucket holds), for rows of finite values (the cursor spectrum's are: wandas
+    floors its dB at -240). A row with missing values keeps its finite ones whole once they are few enough
+    (min_max_indices), which this count does not foresee."""
+    positive = xs[xs > 0]
+    if positive.size == 0:
+        return 1
+
+    def points(buckets: int) -> int:
+        # As min_max_indices: no more values than two per bucket are all kept.
+        if positive.size <= 2 * buckets:
+            return int(positive.size)
+        sizes = np.bincount(log_buckets(positive, buckets, span), minlength=buckets)
+        return int(np.minimum(sizes, 2 * max(1, rows)).sum())
+
+    low, high = 1, max(1, positive.size)
+    while low < high:
+        middle = (low + high + 1) // 2
+        if points(middle) <= point_limit:
+            low = middle
+        else:
+            high = middle - 1
+    return low
+
+
+def min_max_rows(xs: np.ndarray, rows: np.ndarray, buckets: int, span: Sequence[float] | None = None) -> np.ndarray:
+    """Lines that share one x list (a recording's channels): the union of every row's extreme points
+    (min_max_indices on a log axis), so each row's line also passes through its real values at the others'
+    extremes. ``rows_bucket_count`` gives the buckets that fit a point budget. Indices into ``xs``, ascending."""
+    return np.unique(np.concatenate([min_max_indices(xs, row, buckets, True, span) for row in rows]))
 
 
 def spectrum_line(

@@ -18,7 +18,7 @@ from calibration_profile import (
 )
 from decimator import WaveformEnvelope, decimated_waveform
 from perf import perf_log
-from stage_view import power_mean_db
+from stage_view import min_max_rows, power_mean_db, rows_bucket_count
 
 WAVEFORM_POINT_LIMIT = 1200
 SPECTROGRAM_TIME_BIN_LIMIT = 720
@@ -227,64 +227,26 @@ def resample_frequency_bins(spectrogram: np.ndarray, target_bin_count: int) -> n
     return reduced
 
 
-@functools.lru_cache(maxsize=16)
-def display_group_starts(bin_count: int, group_limit: int) -> np.ndarray:
-    """First FFT bin of each display group: DC alone, then groups equally wide on a log axis, never under one bin."""
-    log_bins = np.log(np.arange(1, bin_count))
-    low, high = 0.0, float(group_limit)
-    # Each group spans 1/scale in ln(bin); the largest scale whose distinct groups fit the budget fills it.
-    for _ in range(50):
-        scale = (low + high) / 2
-        if np.unique(np.floor(scale * log_bins)).size + 1 <= group_limit:
-            low = scale
-        else:
-            high = scale
-    groups = np.floor(low * log_bins)
-    starts = np.concatenate(([0, 1], 1 + np.flatnonzero(np.diff(groups)) + 1))
-    starts.setflags(write=False)
-    return starts
-
-
-@functools.lru_cache(maxsize=16)
-def min_max_group_starts(bin_count: int, channel_count: int) -> np.ndarray:
-    """The most display groups whose extreme bins (at most two per channel per group) fit the point budget."""
-    per_group = 2 * max(1, channel_count)
-
-    def points(group_limit: int) -> int:
-        sizes = np.diff(np.append(display_group_starts(bin_count, group_limit), bin_count))
-        return int(np.minimum(sizes, per_group).sum())
-
-    low, high = 1, SPECTRUM_DISPLAY_POINT_LIMIT
-    while low < high:
-        middle = (low + high + 1) // 2
-        if points(middle) <= SPECTRUM_DISPLAY_POINT_LIMIT:
-            low = middle
-        else:
-            high = middle - 1
-    return display_group_starts(bin_count, low)
-
-
 def min_max_spectrum(rows_db: np.ndarray, max_frequency_hz: float) -> tuple[np.ndarray, np.ndarray | None]:
-    """The cursor spectrum to draw: whole rows within the budget, else each log-spaced group's extremes.
-
-    As Compare draws a level spectrum (stage_view.min_max_line): every group keeps, for each channel, its lowest
-    and its highest bin, each at its own frequency, so a tone keeps its level and noise keeps its spread. The
-    channels share one frequency list, so a group holds every channel's extreme bins and each channel's line also
-    passes through its real values at the other channels' extremes. ``None`` means the rows are whole.
+    """The cursor spectrum to draw: whole rows within the budget, else DC and every channel's lowest and highest bin
+    per log-spaced bucket (stage_view.min_max_rows, the decimation Compare's spectra use), each at its own
+    frequency, so a tone keeps its level and noise keeps its spread. ``None`` means the rows are whole.
     """
-    channel_count, bin_count = rows_db.shape
+    _channel_count, bin_count = rows_db.shape
     if bin_count <= SPECTRUM_DISPLAY_POINT_LIMIT:
         return rows_db, None
-    starts = min_max_group_starts(bin_count, channel_count)
-    sizes = np.diff(np.append(starts, bin_count))
-    group = np.repeat(np.arange(starts.size), sizes)
-    picked: list[np.ndarray] = []
-    for row in rows_db:
-        order = np.lexsort((row, group))
-        last = np.append(starts[1:] - 1, bin_count - 1)
-        picked.extend((order[starts], order[last]))
-    bins = np.unique(np.concatenate(picked))
-    return rows_db[:, bins], bins * (max_frequency_hz / (bin_count - 1))
+    freqs = np.arange(bin_count) * (max_frequency_hz / (bin_count - 1))
+    buckets = _cursor_buckets(bin_count, rows_db.shape[0])
+    bins = np.concatenate(([0], min_max_rows(freqs, rows_db, buckets, (freqs[1], freqs[-1]))))
+    return rows_db[:, bins], freqs[bins]
+
+
+@functools.lru_cache(maxsize=16)
+def _cursor_buckets(bin_count: int, channel_count: int) -> int:
+    """The cursor spectrum's bucket count for its FFT size: the most whose points fit the budget beside DC (the same
+    for any frequency scale, since the buckets are equally wide on a log axis from bin 1 to the last)."""
+    bins = np.arange(bin_count, dtype=np.float64)
+    return rows_bucket_count(bins, channel_count, SPECTRUM_DISPLAY_POINT_LIMIT - 1, (1.0, float(bin_count - 1)))
 
 
 def _time_bin_boundaries(frame_count: int, target_bin_count: int) -> np.ndarray:

@@ -482,7 +482,8 @@ def test_spectrum_slice_cuts_long_rows_for_display_unless_every_bin_is_asked_for
     }
     resp = handle_spectrum_slice(request, AnalysisService(AnalysisEngine(cache_limit_bytes=10_000_000)))
 
-    assert resp["frequencyBins"] == (2049 if full_resolution else 1025)
+    # Cut for display, the row fits the point budget (SPECTRUM_DISPLAY_POINT_LIMIT); asked for, every bin comes.
+    assert resp["frequencyBins"] == 2049 if full_resolution else 400 < resp["frequencyBins"] <= 1025
     assert ("frequenciesHz" in resp) is not full_resolution
     assert len(resp["channels"][0]["values"]) == resp["frequencyBins"]
 

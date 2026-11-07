@@ -18,13 +18,12 @@ from analyzer import (
     MeasurementMetadata,
     SpectrogramPayload,
     _build_spectrogram,
-    display_group_starts,
     level_scale_metadata,
-    min_max_group_starts,
     min_max_spectrum,
     resample_frequency_bins,
     spectrogram_frame_centers,
 )
+from stage_view import log_buckets, min_max_indices, rows_bucket_count
 
 _SCALE = level_scale_metadata(wd.from_numpy(np.zeros((1, 8)), sampling_rate=8).channels[0].level_reference, "STFT")
 
@@ -275,14 +274,16 @@ def test_every_reduced_peak_stays_within_half_a_display_bin(source_bins: int) ->
     assert peak_positions[-1] == 1.0
 
 
-@pytest.mark.parametrize("bin_count", [2049, 4097, 8193])
-def test_display_groups_fill_the_budget_with_whole_low_bins(bin_count: int) -> None:
-    starts = display_group_starts(bin_count, SPECTRUM_DISPLAY_POINT_LIMIT)
-    widths = np.diff(np.append(starts, bin_count))
-    assert SPECTRUM_DISPLAY_POINT_LIMIT - 8 <= starts.size <= SPECTRUM_DISPLAY_POINT_LIMIT
-    assert starts[0] == 0 and starts[1] == 1 and np.all(widths >= 1)
-    # Widths grow with frequency in whole bins (a neighbour may be one narrower); the lowest 100 bins stay single.
-    assert np.all(np.diff(widths) >= -1) and widths[-1] > widths[100] and np.all(widths[:100] == 1)
+@pytest.mark.parametrize("bin_count", [2049, 4097, 8193, 32769])
+@pytest.mark.parametrize("channels", [1, 2, 8])
+def test_a_cut_spectrum_fits_the_budget_with_whole_low_bins(bin_count: int, channels: int) -> None:
+    rows = np.random.default_rng(bin_count + channels).normal(-60.0, 10.0, size=(channels, bin_count))
+    shown, frequencies = min_max_spectrum(rows, 24000.0)
+    assert frequencies is not None and shown.shape == (channels, frequencies.size)
+    assert frequencies.size <= SPECTRUM_DISPLAY_POINT_LIMIT and np.all(np.diff(frequencies) > 0)
+    bins = np.rint(frequencies * (bin_count - 1) / 24000.0).astype(int)
+    # DC and the lowest bins are all drawn (their buckets are under a bin wide); the rest are thinned.
+    assert np.array_equal(bins[:40], np.arange(40))
 
 
 def test_rows_within_the_display_budget_are_sent_whole() -> None:
@@ -306,7 +307,7 @@ def test_every_tone_keeps_its_level_and_bin_frequency_when_cut_for_display(bin_c
         assert frequencies[index] == pytest.approx(tone * bin_hz) and shown[0, index] == 0.0
 
 
-def test_a_cut_row_keeps_each_groups_lowest_and_highest_bin() -> None:
+def test_a_cut_row_keeps_each_buckets_lowest_and_highest_bin_as_compare_does() -> None:
     bin_count = 8193
     rng = np.random.default_rng(0)
     rows = rng.normal(-60.0, 10.0, size=(2, bin_count))
@@ -315,13 +316,20 @@ def test_a_cut_row_keeps_each_groups_lowest_and_highest_bin() -> None:
     bins = np.rint(frequencies * (bin_count - 1) / 24000.0).astype(int)
     # Every value drawn is a real bin of that channel.
     np.testing.assert_array_equal(shown, rows[:, bins])
-    starts = min_max_group_starts(bin_count, 2)
-    ends = np.append(starts[1:], bin_count)
+    # Each channel's line holds, per bucket, the bins Compare's decimation (stage_view.min_max_indices) picks.
+    freqs = np.arange(bin_count) * (24000.0 / (bin_count - 1))
+    buckets = rows_bucket_count(
+        np.arange(bin_count, dtype=np.float64), 2, SPECTRUM_DISPLAY_POINT_LIMIT - 1, (1.0, bin_count - 1.0)
+    )
     for channel in range(2):
-        for start, end in zip(starts, ends, strict=True):
-            inside = (bins >= start) & (bins < end)
-            assert shown[channel, inside].min() == rows[channel, start:end].min()
-            assert shown[channel, inside].max() == rows[channel, start:end].max()
+        picked = min_max_indices(freqs, rows[channel], buckets, True, (freqs[1], freqs[-1]))
+        assert np.isin(picked, bins).all()
+        bucket = log_buckets(freqs[1:], buckets, (freqs[1], freqs[-1]))
+        for index in np.unique(bucket)[::37]:
+            inside = np.flatnonzero(bucket == index) + 1
+            drawn = np.isin(bins, inside)
+            assert shown[channel, drawn].min() == rows[channel, inside].min()
+            assert shown[channel, drawn].max() == rows[channel, inside].max()
 
 
 def test_spectrogram_reduction_clamps_silent_power_to_finite_db() -> None:

@@ -346,3 +346,19 @@ def test_a_time_signal_names_the_measure_a_step_made_of_it() -> None:
     # A step after it keeps it; a metric after it is its own quantity.
     assert stage_view(tone.power().trim(0.1, 0.5))["measure"] == "power"
     assert "measure" not in stage_view(tone.power().loudness_zwtv())
+
+
+def test_spectrum_decimation_matches_the_shared_cases_the_webview_is_held_to() -> None:
+    # One rule for thinning a spectrum (unified plot spec, rule 4): Compare's backend lines and the webview's
+    # full-resolution lines (comparePanes.minMaxLine) are both checked against these cases.
+    import json
+    from pathlib import Path
+
+    cases = json.loads(
+        (Path(__file__).resolve().parents[1] / "src/test/fixtures/spectrumDecimation.json").read_text(encoding="utf-8")
+    )
+    for case in cases["cases"]:
+        freqs = np.arange(case["bins"]) * case["binHz"]
+        values = np.array([np.nan if value is None else value for value in case["values"]], dtype=np.float64)
+        xs, _ = spectrum_line(freqs, values, case["span"], case["buckets"])
+        assert np.rint(xs / case["binHz"]).astype(int).tolist() == case["expectedBins"], case["name"]
