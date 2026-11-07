@@ -365,6 +365,8 @@ export interface StageLayer {
     excluded?: readonly number[];
     /** One event of `source` (eventLayers'), and whether it is left out. */
     event?: { id: number; source: string; out: boolean };
+    /** A heatmap whose rows are things, not an axis (the entry strip's recordings): the readout's name for the cell at `row` of `view.ys`, `column` of `view.xs` (a cell may show the loudest of several things). */
+    rowName?: (row: number, column: number) => string;
 }
 
 /**
@@ -391,6 +393,8 @@ export interface StagePlot {
     lineYAt?: (value: number) => number;
     /** The lines read on the right-hand level axis (`StagePaintOptions.secondary`), placed by its range. */
     secondary?: StagePlot;
+    /** A heatmap drawn: its picture, and the cell (column, row of its matrix; −1 off the picture) at a point of the canvas. */
+    image?: { layer: StageLayer; cellAt(x: number, y: number): { column: number; row: number } };
 }
 
 /** Several pictures of one Frame type on one set of axes, as solid lines (or steps) told apart by colour. */
@@ -441,6 +445,8 @@ export interface StagePaintOptions {
     xAxisLabels?: boolean;
     /** The plot's margins in CSS pixels, for a plot whose pointer handling has its own (the comparison's by default). */
     margins?: PlotMargins;
+    /** A heatmap's row-axis tick text, for rows counted another way than their values (the entry strip's, down from the top). */
+    yTickText?: (value: number) => string;
     /**
      * Lines read against a second level reference, on a level axis of their own at the right: `range` is that
      * axis' range and `title` its name. They are drawn after the left axis' lines, as lines (not signals).
@@ -596,7 +602,17 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
             for (let px = 0; px < image.width; px++) pixels[offset + px] = columnOf[px] < 0 ? 0 : cells[columnOf[px]] ?? 0;
         }
         context.putImageData(image, Math.round(left * ratio), Math.round(top * ratio));
-        levelTicks = ticks(yAxis.low, yAxis.high, yAxis.log).map(value => ({ text: tickText(value, yAxis.log), fraction: yAxis.fraction(value) }));
+        const imageLayer = layers.find(layer => layer.view === view) ?? layers[0];
+        plot.image = {
+            layer: imageLayer,
+            cellAt: (x, y) => {
+                const fx = (x - left) / plotWidth, fy = (y - top) / plotHeight;
+                if (fx < 0 || fx > 1 || fy < 0 || fy > 1) return { column: -1, row: -1 };
+                return { column: nearestIndex(xs, xAxis.at(fx), false), row: nearestIndex(ys, yAxis.at(1 - fy), yAxis.log) };
+            },
+        };
+        // A linear row axis (Bark, quefrency, the entry strip's rows) gets as many ticks as the plot is tall for.
+        levelTicks = (yAxis.log ? ticks(yAxis.low, yAxis.high, true) : niceTicks(yAxis.low, yAxis.high, Math.max(2, Math.min(8, Math.floor(plotHeight / 22))))).map(value => ({ text: options.yTickText?.(value) ?? tickText(value, yAxis.log), fraction: yAxis.fraction(value) }));
         // The colour bar, top right inside the plot: what the colour measures, and its ends.
         const signedScale = !!options.diff || view.quantity === 'cepstrum';
         const edge = Math.max(Math.abs(range.min), Math.abs(range.max));
@@ -935,7 +951,8 @@ function signalPointsNear(plot: StagePlot, waveform: NonNullable<StageView['wave
  * The line of a pane nearest the pointer at (`x`, `y`) on its canvas, as the spectrum overlay picks it
  * (plotHover.ts): that line, its point and the readout (its name, where, its value).
  */
-export function stageHover(plot: StagePlot, x: number, y: number): { layer: StageLayer; x: number; y: number; text: string; name: string; values: string } | null {
+export function stageHover(plot: StagePlot, x: number, y: number): { layer: StageLayer; x: number; y: number; text: string; name: string; values: string; image?: boolean } | null {
+    if (plot.image) return imageHover(plot, plot.image, x, y);
     type Point = { index: number; time?: number; x: number; y: number; value: number };
     // The point nearest the pointer within a few pixels, so a narrow peak beside it is read at its top (R7).
     const hit = nearestPoint<StageLayer, Point>(plot.lines,
@@ -955,6 +972,21 @@ export function stageHover(plot: StagePlot, x: number, y: number): { layer: Stag
             // In its unit where it has one (a phase in degrees).
             + (isDb(view) || !view.unit ? '' : view.unit === '°' ? '°' : ` ${view.unit}`);
     return readoutOf(hit.s, hit.point, hit.s.label || (plot.diff ? 'Δ' : ''), [atText(view, hit.point.index), amount]);
+}
+
+/**
+ * A heatmap's hover (R7): the cell under the pointer, read as its name (the row's, for rows that are things), where it
+ * is and its value in the colour's unit. An image has no line to mark: the cursor alone, at the pointer.
+ */
+function imageHover(plot: StagePlot, image: NonNullable<StagePlot['image']>, x: number, y: number): ReturnType<typeof stageHover> {
+    const { column, row } = image.cellAt(x, y);
+    const { layer } = image, view = layer.view;
+    const value = column < 0 || row < 0 ? null : view.matrix?.[row]?.[column] ?? null;
+    if (value === null) return null;
+    const amount = plot.diff ? signed(value, isDb(view))
+        : (isDb(view) ? `${value.toFixed(1)} dB` : Math.abs(value) >= 10 ? value.toFixed(1) : value.toPrecision(3)).replace(/^-/, '−');
+    const at = layer.rowName ? atValue(view, view.xs?.[column] ?? 0) : atText(view, column, row);
+    return { ...readoutOf(layer, { x, y }, layer.rowName?.(row, column) ?? layer.label ?? (plot.diff ? 'Δ' : ''), [at, amount]), image: true };
 }
 
 /** A hover's readout: the line's name (cut short first where there is no room) and where and what it reads. */

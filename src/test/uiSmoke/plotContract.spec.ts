@@ -171,6 +171,15 @@ test('the entry\'s held plot answers the same gestures as every plot (R13)', asy
     await page.keyboard.up('1');
 });
 
+test('the entry\'s overview strip answers the same gestures as every plot (R13)', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await openEntry(page, scanned!, { language: 'en' });
+    const plot = page.locator('[data-entry-overview]');
+    await expect.poll(() => plot.getAttribute('data-plot-axes')).not.toBe('');
+    await expectContract(page, 'entry overview', plot);
+});
+
 test('the cursor spectrum answers the same gestures as every plot (R13)', async ({ page }) => {
     await page.setViewportSize({ width: 1200, height: 900 });
     await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });

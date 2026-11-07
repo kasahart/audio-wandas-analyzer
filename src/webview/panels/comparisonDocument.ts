@@ -234,7 +234,7 @@ export function renderComparisonStyles(): string {
             .entry-screen.is-max .entry-table-wrap { flex: 1 1 0; min-height: 120px; }
             .entry-screen.is-max .entry-side { width: auto; height: 300px; border-left: 0; border-top: 1px solid var(--line); flex-direction: row; }
             .entry-screen.is-max .entry-side > * { flex: 1 1 0; min-width: 0; }
-            .entry-screen.is-max .entry-side .entry-overview { height: auto; align-self: stretch; }
+            .entry-screen.is-max .entry-side .entry-overview-box { height: auto; align-self: stretch; }
         }
         .entry-side { width: 420px; flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; padding: 8px; border-left: 1px solid var(--line); background: var(--panel); }
         /* The distribution: neutral bars (lighter where a picked range takes them), the slots as ticks in their role colours. */
@@ -279,7 +279,13 @@ export function renderComparisonStyles(): string {
         .entry-held-head { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; }
         .entry-held-head > [data-entry-held-title] { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .entry-held-head > .plot-readout { justify-content: flex-end; }
-        .entry-overview { height: 114px; width: 100%; }
+        .entry-overview-box { height: 132px; display: flex; flex-direction: column; min-width: 0; }
+        .entry-overview-head { display: flex; justify-content: flex-end; min-height: 16px; }
+        .entry-overview-plot { position: relative; flex: 1; min-height: 0; }
+        .entry-overview { display: block; height: 100%; width: 100%; }
+        .entry-overview-frame { position: absolute; border: 1px solid var(--text); box-sizing: border-box; pointer-events: none; }
+        .entry-overview-focus { position: absolute; background: var(--text); pointer-events: none; }
+        .entry-overview-frame[hidden], .entry-overview-focus[hidden] { display: none; }
         .entry-row.is-derived .entry-name { color: var(--muted); padding-left: 16px; }
         .entry-table { border-collapse: collapse; width: 100%; outline: 1px solid transparent; outline-offset: -1px; }
         .entry-table th { position: sticky; top: 0; background: var(--panel); text-align: left; font-weight: 600; padding: 4px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }

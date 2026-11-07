@@ -47,12 +47,14 @@ export function createPlotHoverLayer(document: Document, className = '', parent:
             const { context, rect, frame } = on;
             const x = clientX - rect.left, y = clientY - rect.top;
             const hit = drawn ? stageHover(drawn, x, y) : null;
-            paintHoverMarks(context, frame, hit ? hit.x : x, hit ? hit.y : null, hit?.layer.color ?? '', hit && drawn ? (ctx, width) => strokeStageLine(ctx as CanvasRenderingContext2D, drawn, hit.layer, width) : undefined);
+            // An image's cell is read at the pointer: the cursor line alone (R7).
+            const line = hit && !hit.image ? hit : null;
+            paintHoverMarks(context, frame, hit ? hit.x : x, line ? line.y : null, line?.layer.color ?? '', line && drawn ? (ctx, width) => strokeStageLine(ctx as CanvasRenderingContext2D, drawn, line.layer, width) : undefined);
             layer.hidden = false;
             // Only this plot's row reads the pointer: another plot's readout left from before is emptied.
             for (const other of filled) if (other !== slot) hidePlotReadout(other);
             filled.clear();
-            if (slot) { filled.add(slot); showPlotReadout(slot, hit?.name ?? '', hit?.values ?? '', hit?.layer.color ?? ''); }
+            if (slot) { filled.add(slot); showPlotReadout(slot, hit?.name ?? '', hit?.values ?? '', line?.layer.color ?? ''); }
             return hit ? hit.x : null;
         },
         line(plot, drawn, clientX) {
