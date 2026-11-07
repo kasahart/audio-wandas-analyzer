@@ -1,13 +1,13 @@
 import { expect, test } from './canvasAudit';
 import { buildUiSmokeFractionalLevelsHtml } from './buildHtml';
+import { colourBarAt } from './colourBar';
 
 test('the auto colour scale opens with round dB ends, and typed ends are kept as typed', async ({ page }) => {
     await page.setContent(buildUiSmokeFractionalLevelsHtml(), { waitUntil: 'domcontentloaded' });
     const canvas = page.locator('#track-row-0 .track-spec-canvas').first();
     const openColourRange = async () => {
-        const box = await canvas.boundingBox();
-        if (!box) throw new Error('no spectrogram box');
-        await canvas.dblclick({ position: { x: box.width - 30, y: box.height / 2 } });
+        await expect(canvas).toHaveAttribute('data-colour-bar', /\d/);
+        await canvas.dblclick({ position: await colourBarAt(canvas) });
         await expect(page.locator('#waveform-range-popover')).toBeVisible();
     };
     await openColourRange();

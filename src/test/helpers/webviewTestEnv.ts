@@ -106,6 +106,8 @@ function createDomCanvasContextProxy(spy: DomCanvasSpyCtx): CanvasRenderingConte
             };
         },
         measureText: () => ({ width: 0 }),
+        // A colour bar's strip (paintColourBar).
+        createLinearGradient: () => ({ addColorStop: () => undefined }),
     };
 
     return new Proxy({}, {

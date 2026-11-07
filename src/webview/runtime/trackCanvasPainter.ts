@@ -1,13 +1,10 @@
 import type { SpectrogramData, WaveformEnvelope } from '../../shared/analysis/analysisTypes';
-import { drawSpectrogramColorbar, SPECTROGRAM_COLORBAR_WIDTH, type DrawTheme } from '../draw/canvasDrawers';
+import { dbToRgb } from '../draw/canvasDrawers';
 import { paintSpectrogramRaster, type SpectrogramRasterView } from './spectrogramRaster';
+import { paintColourBar, type ColourBarBox } from './stagePanes';
 import type { RuntimeWindow, WaveformCoverage } from './types';
 import { traceXExtent, waveformCoverageFromExtent } from './waveformCoverage';
 import type { LanePoint } from './trackLaneHover';
-
-export function spectrogramPlotWidth(canvasWidth: number): number {
-    return Math.max(1, canvasWidth - SPECTROGRAM_COLORBAR_WIDTH);
-}
 
 export function hexToRgba(hex: string, alpha: number): string {
     const r = parseInt(hex.slice(1, 3), 16);
@@ -104,9 +101,24 @@ export function paintTrackWaveform(
 export interface SpectrogramRasterCacheEntry {
     source: SpectrogramData;
     key: string;
+    /** Where its colour bar is on the canvas. */
+    colourBar: ColourBarBox;
 }
 
-/** Repaints the raster and colorbar only when the spectrogram, its view or the theme changed; otherwise the canvas keeps the previous pixels. */
+/** The colour bar's look: its text in the axes' colour on the lane's background, framed as the axes are. */
+export interface SpectrogramColourBarStyle {
+    /** What the colour measures, with its unit and reference, as the comparison's heatmaps name it. */
+    title: string;
+    text: string;
+    back: string;
+    line: string;
+}
+
+/**
+ * Repaints the raster and its colour bar only when the spectrogram, its view or the look changed; otherwise the canvas
+ * keeps the previous pixels. The raster takes the whole width, as every lane's time axis does, and the colour bar is
+ * the one every coloured picture draws (paintColourBar), in the plot's top right (R13).
+ */
 export function paintTrackSpectrogram(
     ctx: CanvasRenderingContext2D,
     W: number,
@@ -114,19 +126,28 @@ export function paintTrackSpectrogram(
     spec: SpectrogramData,
     view: SpectrogramRasterView,
     cached: SpectrogramRasterCacheEntry | undefined,
-    theme: DrawTheme,
+    style: SpectrogramColourBarStyle,
 ): SpectrogramRasterCacheEntry {
-    const plotW = spectrogramPlotWidth(W);
-    const key = [plotW, H, view.zoomStart, view.zoomEnd, view.trackStart, view.trackDurRatio, view.dbLo, view.dbHi, view.maxFrequencyHz, view.minFrequencyHz, view.durationSec, theme.bgColor, theme.mutedColor].join(':');
+    const key = [W, H, view.zoomStart, view.zoomEnd, view.trackStart, view.trackDurRatio, view.dbLo, view.dbHi, view.maxFrequencyHz, view.minFrequencyHz, view.durationSec, style.title, style.text, style.back, style.line].join(':');
     if (cached && cached.source === spec && cached.key === key) {
         return cached;
     }
     ctx.clearRect(0, 0, W, H);
-    const imageData = ctx.createImageData(plotW, H);
-    paintSpectrogramRaster(spec, plotW, H, view, imageData.data);
+    const imageData = ctx.createImageData(W, H);
+    paintSpectrogramRaster(spec, W, H, view, imageData.data);
     ctx.putImageData(imageData, 0, 0);
-    drawSpectrogramColorbar(ctx, W, H, spec, { dbLo: view.dbLo, dbHi: view.dbHi }, theme);
-    return { source: spec, key };
+    ctx.font = '10px sans-serif';
+    const colourBar = paintColourBar(ctx, { left: 4, right: W - 4, top: 3 }, style.title, view.dbLo.toFixed(0), view.dbHi.toFixed(0), fraction => {
+        const [r, g, b] = dbToRgb(fraction);
+        return `rgb(${r}, ${g}, ${b})`;
+    }, style);
+    return { source: spec, key, colourBar };
+}
+
+/** Whether (x, y), in the canvas's own pixels, is on the colour bar last painted there. */
+export function onColourBar(entry: Pick<SpectrogramRasterCacheEntry, 'colourBar'> | undefined, x: number, y: number): boolean {
+    const box = entry?.colourBar;
+    return !!box && x >= box.x && x <= box.x + box.width && y >= box.y && y <= box.y + box.height;
 }
 
 /**

@@ -7,8 +7,8 @@
 export const PLOTS_PENDING: ReadonlyArray<{ selector: string; why: string }> = [
     { selector: '.track-canvas:not(.track-spec-canvas)', why: '7: a track\'s waveform lane, drawn by waveformRenderer' },
     { selector: '.track-axis-canvas:not(.track-spec-axis)', why: '7: a waveform lane\'s amplitude axis, drawn apart from its plot' },
-    { selector: '.track-spec-canvas', why: '8: a track\'s spectrogram lane, drawn by trackCanvasPainter' },
-    { selector: '.track-spec-axis', why: '8: a spectrogram lane\'s frequency axis and colour bar' },
+    { selector: '.track-spec-canvas', why: '4・7: a track\'s spectrogram lane; its colour bar is the shared one (8), its plot and time axis move with the waveform lanes' },
+    { selector: '.track-spec-axis', why: '4・7: a spectrogram lane\'s frequency axis, drawn apart from its plot as the waveform lane\'s amplitude axis is' },
     { selector: '#ruler-canvas', why: '4: the track lanes\' time axis, drawn apart from them' },
     { selector: '[data-entry-overview]', why: '9: the entry\'s overview strip, drawn by entryPlots.ts' },
 ];

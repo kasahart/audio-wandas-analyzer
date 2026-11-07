@@ -1775,10 +1775,13 @@ test('axes: スペクトログラム表示で周波数軸 (Hz) とカラーバ�
     assert.ok(spy, 'track-spec-canvas-0 のスパイが取得できること');
     const labels = spy.fillTextCalls;
     assert.ok(labels.some((s) => /^-?\d+$/.test(s)), 'カラーバーの両端に dB 値が描かれること');
-    assert.ok(labels.some((s) => /^dB/.test(s)), 'カラーバーに単位 (dB…) が描かれること: ' + JSON.stringify(labels));
+    // The shared colour bar (paintColourBar) names the colour as Compare's heatmaps do: the level, with its reference.
+    assert.ok(labels.some((s) => /\[dB[^\]]*\]$/.test(s)), 'カラーバーに量と単位 ([dB…]) が描かれること: ' + JSON.stringify(labels));
     assert.equal(labels.some((s) => /\bkHz\b/.test(s) || /\bHz\b/.test(s)), false, '周波数ラベルはプロット canvas に描かれないこと');
-    assert.ok(spy.putImageDataCalls >= 2,
-        'プロット領域とカラーバーで putImageData が複数回呼ばれること');
+    // Each paint puts one picture and draws the bar over it as a gradient, so pictures and bar titles pair up.
+    const barTitles = labels.filter((s) => /\[dB[^\]]*\]$/.test(s)).length;
+    assert.ok(spy.putImageDataCalls >= 1, 'プロット画像が putImageData で描かれること');
+    assert.equal(spy.putImageDataCalls, barTitles, 'カラーバーは putImageData ではなく色の帯で描くこと');
     env.dom.window.close();
 });
 
@@ -1843,7 +1846,7 @@ test('renderScript: spectrogram reuses its decimated base during playback and re
     env.dom.window.close();
 });
 
-test('axes: スペクトログラム画像はカラーバー領域に重ならない', async () => {
+test('axes: スペクトログラム画像はレーンの幅いっぱいに描き、カラーバーは右上に重ねる', async () => {
     const env = setupSpectrumEnv();
     await nextAnimationFrame(env.dom);
     const spectrogramBtn = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="content-waveform"]');
@@ -1859,14 +1862,20 @@ test('axes: スペクトログラム画像はカラーバー領域に重なら�
     const spectrogramImage = spy.putImageDataArgs[0];
     assert.ok(spectrogramImage, 'スペクトログラム画像の putImageData が記録されること');
     assert.equal(spectrogramImage.x, 0);
-    assert.ok(
-        spectrogramImage.width <= canvas.width - 50,
-        `スペクトログラム画像幅 ${spectrogramImage.width} が canvas 幅 ${canvas.width} のカラーバー領域まで伸びないこと`,
-    );
+    assert.equal(spectrogramImage.width, canvas.width, '波形のレーンと同じ時間軸: 画像は canvas の幅いっぱい');
+    const [x, y, width] = (canvas.dataset.colourBar ?? '').split(' ').map(Number);
+    assert.ok(x > canvas.width / 2 && x + width <= canvas.width && y < canvas.height / 2, 'カラーバーは図の右上: ' + canvas.dataset.colourBar);
     env.dom.window.close();
 });
 
-test('spectrogram hit testing maps pointer positions to the plot width and ignores the colorbar', async () => {
+/** The middle of a spectrogram lane's colour bar, in client pixels, on a canvas laid out 1:1 from `left`. */
+function colourBarClientPoint(canvas: HTMLCanvasElement, left: number): { clientX: number; clientY: number } {
+    const [x, y, width, height] = (canvas.dataset.colourBar ?? '').split(' ').map(Number);
+    assert.ok(width > 0 && height > 0, 'colour bar painted: ' + canvas.dataset.colourBar);
+    return { clientX: left + x + width / 2, clientY: y + height / 2 };
+}
+
+test('spectrogram hit testing maps pointer positions to the whole lane width and ignores the colour bar', async () => {
     const env = setupSpectrumEnv();
     await nextAnimationFrame(env.dom);
     const spectrogramBtn = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="content-waveform"]');
@@ -1881,9 +1890,13 @@ test('spectrogram hit testing maps pointer positions to the plot width and ignor
     canvas.getBoundingClientRect = () => ({
         left: 0, top: 0, right: 800, bottom: 100, width: 800, height: 100,
     } as DOMRect);
+    // Painted again at its new size, so its colour bar is placed for it.
+    env.dom.window.dispatchEvent(new env.dom.window.Event('resize'));
+    await nextAnimationFrame(env.dom);
+    await nextAnimationFrame(env.dom);
 
-    canvas.dispatchEvent(new env.dom.window.MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 375, clientY: 50 }));
-    env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mouseup', { bubbles: true, button: 0, clientX: 375, clientY: 50 }));
+    canvas.dispatchEvent(new env.dom.window.MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 400, clientY: 80 }));
+    env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mouseup', { bubbles: true, button: 0, clientX: 400, clientY: 80 }));
     await nextAnimationFrame(env.dom);
     env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', {
         data: { type: 'comparison-panel-test-action', actions: [], actionId: 'spectrogram-hit-plot' },
@@ -1891,10 +1904,11 @@ test('spectrogram hit testing maps pointer positions to the plot width and ignor
     await nextAnimationFrame(env.dom);
 
     let snap = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any;
-    assert.equal(snap.renderedUi.cursorNorm, 0.5, 'x=375 on an 800px canvas with a 50px colorbar maps to 50% plot time');
+    assert.equal(snap.renderedUi.cursorNorm, 0.5, 'x=400 on an 800px lane maps to 50% time');
 
-    canvas.dispatchEvent(new env.dom.window.MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 775, clientY: 50 }));
-    env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mouseup', { bubbles: true, button: 0, clientX: 775, clientY: 50 }));
+    const bar = colourBarClientPoint(canvas, 0);
+    canvas.dispatchEvent(new env.dom.window.MouseEvent('mousedown', { bubbles: true, button: 0, ...bar }));
+    env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mouseup', { bubbles: true, button: 0, ...bar }));
     await nextAnimationFrame(env.dom);
     env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', {
         data: { type: 'comparison-panel-test-action', actions: [], actionId: 'spectrogram-hit-colorbar' },
@@ -1902,11 +1916,11 @@ test('spectrogram hit testing maps pointer positions to the plot width and ignor
     await nextAnimationFrame(env.dom);
 
     snap = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any;
-    assert.equal(snap.renderedUi.cursorNorm, 0.5, 'clicks in the spectrogram colorbar do not update audio time');
+    assert.equal(snap.renderedUi.cursorNorm, 0.5, 'clicks on the spectrogram colour bar do not update audio time');
     env.dom.window.close();
 });
 
-test('spectrogram Ctrl+wheel zoom uses the plot width and ignores the colorbar', async () => {
+test('spectrogram Ctrl+wheel zoom uses the whole lane width and ignores the colour bar', async () => {
     const env = setupSpectrumEnv();
     await nextAnimationFrame(env.dom);
     const spectrogramBtn = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="content-waveform"]');
@@ -1926,14 +1940,17 @@ test('spectrogram Ctrl+wheel zoom uses the plot width and ignores the colorbar',
     canvas.getBoundingClientRect = () => ({
         left: 130, top: 0, right: 930, bottom: 100, width: 800, height: 100,
     } as DOMRect);
+    env.dom.window.dispatchEvent(new env.dom.window.Event('resize'));
+    await nextAnimationFrame(env.dom);
+    await nextAnimationFrame(env.dom);
 
     const plotWheel = new env.dom.window.WheelEvent('wheel', {
         bubbles: true,
         cancelable: true,
         ctrlKey: true,
         deltaY: -120,
-        clientX: 505,
-        clientY: 50,
+        clientX: 530,
+        clientY: 80,
     });
     const plotWheelNotCanceled = canvas.dispatchEvent(plotWheel);
     await nextAnimationFrame(env.dom);
@@ -1945,8 +1962,8 @@ test('spectrogram Ctrl+wheel zoom uses the plot width and ignores the colorbar',
     let snap = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any;
     assert.equal(plotWheelNotCanceled, false, 'Ctrl+wheel は標準スクロールへ渡さないこと');
     assert.equal(plotWheel.defaultPrevented, true);
-    assert.ok(Math.abs(snap.renderedUi.zoomStart - 0.075) < 1e-9, 'x=375 on the 750px spectrogram plot uses a 50% zoom pivot');
-    assert.ok(Math.abs(snap.renderedUi.zoomEnd - 0.925) < 1e-9, 'x=375 on the 750px spectrogram plot keeps the pivot centered');
+    assert.ok(Math.abs(snap.renderedUi.zoomStart - 0.075) < 1e-9, 'x=400 on the 800px lane uses a 50% zoom pivot');
+    assert.ok(Math.abs(snap.renderedUi.zoomEnd - 0.925) < 1e-9, 'x=400 on the 800px lane keeps the pivot centered');
 
     const beforeColorbar = snap.renderedUi;
     const colorbarWheel = new env.dom.window.WheelEvent('wheel', {
@@ -1954,8 +1971,7 @@ test('spectrogram Ctrl+wheel zoom uses the plot width and ignores the colorbar',
         cancelable: true,
         ctrlKey: true,
         deltaY: -120,
-        clientX: 905,
-        clientY: 50,
+        ...colourBarClientPoint(canvas, 130),
     });
     canvas.dispatchEvent(colorbarWheel);
     await nextAnimationFrame(env.dom);
@@ -1966,18 +1982,18 @@ test('spectrogram Ctrl+wheel zoom uses the plot width and ignores the colorbar',
 
     snap = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any;
     assert.equal(colorbarWheel.defaultPrevented, true);
-    assert.equal(snap.renderedUi.zoomStart, beforeColorbar.zoomStart, 'Ctrl+wheel in the colorbar does not change audio zoom');
-    assert.equal(snap.renderedUi.zoomEnd, beforeColorbar.zoomEnd, 'Ctrl+wheel in the colorbar does not change audio zoom');
+    assert.equal(snap.renderedUi.zoomStart, beforeColorbar.zoomStart, 'Ctrl+wheel on the colour bar does not change audio zoom');
+    assert.equal(snap.renderedUi.zoomEnd, beforeColorbar.zoomEnd, 'Ctrl+wheel on the colour bar does not change audio zoom');
     env.dom.window.close();
 });
 
-test('spectrogram ruler maps time ticks to the plot width', async () => {
+test('spectrogram ruler maps time ticks to the lane width', async () => {
     const env = setupSpectrumEnv();
     await nextAnimationFrame(env.dom);
     const row = env.dom.window.document.getElementById('ruler-row');
     assert.ok(row);
     Object.defineProperty(row, 'clientWidth', { configurable: true, value: 994 });
-    // The lane: 64 px amplitude axis, a 750 px waveform, then the spectrogram's 50 px colour bar.
+    // The lane: 64 px amplitude axis, then an 800 px waveform over the spectrogram, on the same time axis.
     Object.defineProperty(env.dom.window.document.getElementById('track-canvas-wrap-0'), 'clientWidth', { configurable: true, value: 864 });
     const ruler = env.dom.window.document.getElementById('ruler-canvas') as HTMLCanvasElement | null;
     assert.ok(ruler);
@@ -1991,7 +2007,7 @@ test('spectrogram ruler maps time ticks to the plot width', async () => {
     assert.ok(rulerSpy);
     const halfSecondTick = rulerSpy.fillTextArgs.filter((call) => call.text === '0:00.50').at(-1);
     assert.ok(halfSecondTick, '0.5 秒 tick が描画されること');
-    assert.equal(halfSecondTick.x, 377, 'spectrogram ruler の中央 tick は 750px plot の中央 + label offset に描画されること');
+    assert.equal(halfSecondTick.x, 402, 'the ruler\'s middle tick is drawn at the middle of the 800px lane + its label offset');
     env.dom.window.close();
 });
 
