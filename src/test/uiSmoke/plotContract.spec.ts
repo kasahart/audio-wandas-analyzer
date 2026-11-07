@@ -88,7 +88,12 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
     await page.waitForTimeout(80);
     const after = await readouts(box.y);
     const above = after.some((text, index) => text && text !== before[index]);
-    if (above && Math.abs((await plot.boundingBox())!.y - box.y) < 0.5) passed.add('readout');
+    // The pointer's marks are seen: a marks layer shown over the plot is the topmost thing there, not under a screen.
+    const buried = await page.evaluate(({ x, y }) => Array.from(document.querySelectorAll<HTMLElement>('.plot-hover-layer:not([hidden])')).some(layer => {
+        layer.style.pointerEvents = 'auto';
+        try { const stack = document.elementsFromPoint(x, y); return stack.includes(layer) && stack[0] !== layer; } finally { layer.style.pointerEvents = ''; }
+    }), middle);
+    if (above && !buried && Math.abs((await plot.boundingBox())!.y - box.y) < 0.5) passed.add('readout');
     // Ctrl+wheel zooms; a double-click resets.
     await page.keyboard.down('Control');
     await page.mouse.wheel(0, -240);

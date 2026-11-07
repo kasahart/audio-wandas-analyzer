@@ -14,11 +14,13 @@ export interface PlotHoverLayer {
     hide(): void;
 }
 
-export function createPlotHoverLayer(document: Document, className = ''): PlotHoverLayer {
+/** `parent`: where the layer goes. A plot inside a screen laid over the page (a stacking context of its own) puts its
+ *  layer in that screen, so the marks are drawn above the screen and not under it. */
+export function createPlotHoverLayer(document: Document, className = '', parent: HTMLElement = document.body): PlotHoverLayer {
     const layer = document.createElement('canvas');
     layer.className = `plot-hover-layer ${className}`.trim();
     layer.hidden = true;
-    document.body.append(layer);
+    parent.append(layer);
     const filled = new Set<HTMLElement>();
     const emptyAll = (): void => { for (const slot of filled) hidePlotReadout(slot); filled.clear(); };
     return {

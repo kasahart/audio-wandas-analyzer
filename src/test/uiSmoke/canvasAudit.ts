@@ -94,7 +94,7 @@ function installCanvasAudit({ settle, others }: { settle: { frames: number; ms: 
                 const atX = (Math.max(box.left, plot!.left) + Math.min(box.right, plot!.right)) / 2, atY = (Math.max(box.top, plot!.top) + Math.min(box.bottom, plot!.bottom)) / 2;
                 const stack = document.elementsFromPoint(atX, atY);
                 const under = stack.indexOf(canvas);
-                if (under < 0 || stack.slice(0, under).some(element => !readout.contains(element) && !element.contains(canvas))) continue;
+                if (under < 0 || stack.slice(0, under).some(element => !readout.contains(element) && !element.contains(readout) && !element.contains(canvas))) continue;
                 const name = `${readout.id ? `#${readout.id}` : `.${String(readout.className).trim().split(/\s+/).join('.')}`} over ${canvas.id ? `#${canvas.id}` : canvas.dataset.stageCanvas ? `[data-stage-canvas="${canvas.dataset.stageCanvas}"]` : `canvas.${canvas.className}`}`;
                 if (!reported.has(name)) { reported.add(name); readoutsOver.push(`${name} ("${readout.textContent?.trim()}")`); }
             }
