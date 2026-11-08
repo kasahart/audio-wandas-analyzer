@@ -26,7 +26,7 @@ test('analysis window band follows the cursor on the waveform only and the heade
     await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
     await expect(page.locator('#spectrum-cursor-time')).not.toHaveText(/@ 0:00\.00/);
     await expect.poll(async () => {
-        const columns = await bandColumns(page, 'track-canvas-0');
+        const columns = await bandColumns(page, 'track-waveform-overlay-0');
         const lit = columns.flatMap((count, x) => (count > 0 ? [x] : []));
         const middle = columns.length / 2;
         return lit.length > 0 && Math.min(...lit) < middle && Math.max(...lit) > middle && lit.every((x) => Math.abs(x - middle) < columns.length / 4);
@@ -55,7 +55,7 @@ test('the spectrogram lane does not repeat the analysis window band', async ({ p
         }, '*');
         return true;
     })).toBe(true);
-    await expect.poll(async () => (await bandColumns(page, 'track-canvas-0')).some((count) => count > 0)).toBe(true);
+    await expect.poll(async () => (await bandColumns(page, 'track-waveform-overlay-0')).some((count) => count > 0)).toBe(true);
     // The raster fills the plot once the spectrogram arrives; before that only a loading message is drawn.
     await expect.poll(() => page.evaluate(() => {
         const canvas = document.getElementById('track-spec-canvas-0') as HTMLCanvasElement;
@@ -69,10 +69,9 @@ test('the spectrogram lane does not repeat the analysis window band', async ({ p
     expect((await bandColumns(page, 'track-spectrogram-overlay-0')).every((count) => count === 0)).toBe(true);
 });
 
-/** Records, every frame, where each track waveform canvas last drew the analysis window band (twentieths of its width; null for none). */
+/** Records, every frame, where the layer over each track waveform last drew the analysis window band (twentieths of its width; null for none). */
 async function recordBandFrames(page: Page): Promise<string[]> {
-    const canvasIds = await page.evaluate(() => [...document.querySelectorAll<HTMLCanvasElement>('canvas.track-canvas')]
-        .map((canvas) => canvas.id).filter((id) => /^track-canvas-\d+(-\d+)?$/u.test(id)));
+    const canvasIds = await page.evaluate(() => [...document.querySelectorAll<HTMLCanvasElement>('canvas.track-waveform-overlay')].map((canvas) => canvas.id));
     await page.evaluate((ids) => {
         // The band is told apart by how it is drawn, not by its pixels.
         const shown: Record<string, number | null> = {};
