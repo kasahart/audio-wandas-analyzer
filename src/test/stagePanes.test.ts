@@ -16,7 +16,7 @@ function minus(base: StageView, compare: StageView): StageView {
 
 test('the Δ pane\'s headline names where the difference drawn is largest', () => {
     const diff = minus(line([-40, -30, -20]), line([-41, -16, -20]));
-    assert.equal(stageHeadline(diff, strings), '1.00 kHz +14.0 dB');
+    assert.equal(stageHeadline(diff, strings), '1 kHz +14.0 dB');
     // A linear quantity, without dB.
     assert.equal(stageHeadline(minus(line([0.1, 0.2, 0.3], 'coherence'), line([0.2, 0.2, 0.2], 'coherence')), strings), '100 Hz +0.100');
     assert.equal(stageHeadline(null, strings), 'none');

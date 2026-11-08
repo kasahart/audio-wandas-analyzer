@@ -1,6 +1,6 @@
 import { readoutText } from '../../shared/gui-core/index';
 import { binFrequencyHz, dbLevelUnitFor, frequencyAtFraction, frequencyFraction, nearestBinIndex, type SpectrumPlotFrame } from '../draw/canvasDrawers';
-import { formatReadoutHz } from './canvasOverlays';
+import { frequencyText, levelText } from '../plot/plotText';
 import { HOVER_PICK_RADIUS_PX, nearestLine, nearestPoint } from './plotHover';
 import type { HostInboundMessage } from './hostMessaging';
 import type { DragPoint, SpectrumSlice, SpectrumSnap } from './types';
@@ -189,7 +189,7 @@ export function nearestSpectrumSnap<S extends { slice: SpectrumSlice }>(
 }
 
 export function spectrumReadoutText(label: string, slice: SpectrumSlice, freqHz: number, dbVal: number): string {
-    return readoutText([label, formatReadoutHz(freqHz), dbVal.toFixed(1) + ' ' + dbLevelUnitFor(slice)]);
+    return readoutText([label, frequencyText(freqHz), levelText(dbVal, dbLevelUnitFor(slice))]);
 }
 
 export interface SpectrumReadoutElement {

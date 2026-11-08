@@ -5,7 +5,7 @@
  */
 import { readoutText } from '../../shared/gui-core/index';
 import { HOVER_PICK_RADIUS_PX, nearestPoint } from './plotHover';
-import { formatReadoutHz } from './canvasOverlays';
+import { amountText, frequencyText, levelText, secondsText } from '../plot/plotText';
 import { spectrogramTimeBinAt, spectrogramTimeBinEdges } from '../spectrum/spectrogramTimeBins';
 import type { SpectrogramData } from '../../shared/analysis/analysisTypes';
 
@@ -47,8 +47,8 @@ export function laneHoverPoint(points: readonly LanePoint[], x: number, y: numbe
 /** "name / 1.234 s / 0.123 FS": the time to the digits a pixel tells apart (at least 10 ms), the amplitude to 3 figures. */
 export function laneReadoutText(label: string, seconds: number, secondsPerPixel: number, value: number, unit: string | null): string {
     const digits = Math.max(2, Math.min(6, Math.ceil(-Math.log10(Math.max(secondsPerPixel, 1e-6)))));
-    const time = `${seconds.toFixed(digits).replace(/^-/, '−')} s`;
-    const amount = `${(Math.abs(value) >= 10 ? value.toFixed(1) : value.toPrecision(3)).replace(/^-/, '−')}${unit ? ` ${unit}` : ''}`;
+    const time = secondsText(seconds, digits);
+    const amount = amountText(value, unit);
     return readoutText([...(label ? [label] : []), time, amount]);
 }
 
@@ -72,8 +72,8 @@ export function spectrogramCellAt(spec: Pick<SpectrogramData, 'values' | 'timeBi
     return level === undefined || !Number.isFinite(level) ? null : { frequencyHz: bin / intervals * spec.maxFrequencyHz, level };
 }
 
-/** "name / 1.234 s / 1000 Hz / −40.0 dB": the time as the waveform lanes read it, the cell's bin and level. */
+/** "name / 1.234 s / 1 kHz / −40.0 dB": the time as the waveform lanes read it, the cell's bin and level. */
 export function spectrogramReadoutText(label: string, seconds: number, secondsPerPixel: number, cell: SpectrogramCell, unit: string): string {
     const [time] = laneReadoutText('', seconds, secondsPerPixel, 0, null).split(' / ');
-    return readoutText([...(label ? [label] : []), time, formatReadoutHz(cell.frequencyHz), `${cell.level.toFixed(1).replace(/^-/, '−')} ${unit}`]);
+    return readoutText([...(label ? [label] : []), time, frequencyText(cell.frequencyHz), levelText(cell.level, unit)]);
 }

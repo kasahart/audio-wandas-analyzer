@@ -45,5 +45,5 @@ test('the pointer on a spectrogram lane reads the cell under it: its frequency b
     assert.equal(spectrogramCellAt(spec, 0.5, 4600), null);
     assert.equal(spectrogramCellAt(spec, -0.1, 1000), null);
     assert.equal(spectrogramCellAt(spec, 1.2, 1000), null);
-    assert.equal(spectrogramReadoutText('', 0.25, 0.01, { frequencyHz: 2000, level: -22 }, 'dB'), '0.25 s / 2000 Hz / −22.0 dB');
+    assert.equal(spectrogramReadoutText('', 0.25, 0.01, { frequencyHz: 2000, level: -22 }, 'dB'), '0.25 s / 2 kHz / −22.0 dB');
 });
