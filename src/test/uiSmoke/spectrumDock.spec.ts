@@ -1,5 +1,5 @@
 import { expect, test, type Page } from './canvasAudit';
-import { buildUiSmokeHtml, buildUiSmokeSelectionHtml } from './buildHtml';
+import { buildExtensionHostPathUiSmokeHtml, buildUiSmokeHtml, buildUiSmokeSelectionHtml } from './buildHtml';
 
 async function expectSpectrumDockedAboveFooter(page: Page): Promise<void> {
     const section = await page.locator('#spectrum-section').boundingBox();
@@ -97,4 +97,22 @@ test('a cursor spectrum request left unanswered by a replaced analysis does not 
     if (!box) throw new Error('track canvas has no layout box');
     await page.mouse.click(box.x + box.width * 0.3, box.y + box.height / 2);
     await expect.poll(sliceRequests).toBeGreaterThan(0);
+});
+
+test('the cursor spectrum zoomed in asks for its slices at full resolution, so the range on screen is drawn again from every bin (R3)', async ({ page }) => {
+    await page.setViewportSize({ width: 1200, height: 900 });
+    await page.setContent(buildExtensionHostPathUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
+    const plot = page.locator('#spectrum-overlay-canvas');
+    await expect.poll(() => plot.getAttribute('data-plot-axes')).not.toBe('');
+    const asked = (): Promise<boolean[]> => page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Array<{ type: string; fullResolution?: boolean }> }).__uiSmokePostedMessages
+        .filter(message => message.type === 'request-spectrum-slice').map(message => !!message.fullResolution));
+    // The whole spectrum: its thinned rows are enough.
+    await expect.poll(async () => (await asked()).length).toBeGreaterThan(0);
+    expect((await asked()).every(full => !full)).toBe(true);
+    const box = (await plot.boundingBox())!;
+    await page.mouse.move(box.x + box.width * 0.4, box.y + box.height * 0.5);
+    await page.keyboard.down('Control');
+    await page.mouse.wheel(0, -480);
+    await page.keyboard.up('Control');
+    await expect.poll(async () => (await asked()).at(-1)).toBe(true);
 });

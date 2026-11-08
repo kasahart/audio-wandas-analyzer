@@ -23,8 +23,10 @@ from analyzer import (
     channels_first,
     level_scale_metadata,
     min_max_spectrum,
+    normalize_stft_options,
     resolve_stft_params,
     sample_range,
+    zoom_window_spectrogram,
 )
 from backend_errors import InputError
 from decimator import WaveformEnvelope
@@ -247,16 +249,23 @@ class AnalysisService:
         stft_options: Mapping[str, object] | None = None,
         calibration_profile: object = None,
         analysis_revision: object = 0,
+        time_window: tuple[float, float] | None = None,
     ) -> TrackDetailResult:
         cached, analysis_frame, resolved = self.engine.get_analysis(file_path, calibration_profile)
         n_fft, hop_length, window = resolve_stft_params(analysis_frame.n_samples, stft_options)
-        spectrogram = self.engine.get_spectrogram(
-            cached.path,
-            n_fft,
-            hop_length,
-            window,
-            calibration_profile,
-        )
+        centers: np.ndarray | None = None
+        window_hop: int | None = None
+        if time_window is not None and normalize_stft_options(stft_options) is None:
+            # Automatic settings: the window gets an STFT of its own, as finely hopped as its length allows (R3).
+            spectrogram, centers, window_hop = zoom_window_spectrogram(analysis_frame, n_fft, window, time_window)
+        else:
+            spectrogram = self.engine.get_spectrogram(
+                cached.path,
+                n_fft,
+                hop_length,
+                window,
+                calibration_profile,
+            )
         result = analyze_from_frame(
             analysis_frame,
             cached.path,
@@ -266,6 +275,9 @@ class AnalysisService:
             spectrogram_frame=spectrogram,
             include_spectrogram=True,
             raw_peaks=cached.source_peaks,
+            spectrogram_window=time_window,
+            spectrogram_centers_sec=centers,
+            spectrogram_hop_size=window_hop,
         )
         return {
             "trackIndex": track_index,

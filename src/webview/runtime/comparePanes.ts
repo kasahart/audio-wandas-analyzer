@@ -12,6 +12,7 @@ import { BAND_CENTERS_HZ, bandLabel, HEADLINE_WITHIN_DB, quantile, roundedDelta,
 import { baseName } from '../../shared/analysis/entryMetadata';
 import { median } from '../../shared/dataset/distribution';
 import { powerMeanDb, powerMeanOrNull } from '../../shared/utils/levels';
+import { axisValueAt } from './stagePanes';
 
 type ScanOk = ScanResult & { ok: true };
 
@@ -303,13 +304,16 @@ export function minMaxLine(xs: readonly number[], values: readonly number[], buc
 }
 
 /**
- * One of the comparison's full-resolution spectra (`CompareModel.bins`) as drawn: between `bounds` Hz (20 Hz to
- * Nyquist for the whole view) in `buckets` buckets of their lowest and highest bin. Decimated only to be drawn.
+ * One of the comparison's full-resolution spectra (`CompareModel.bins`) as drawn: between `bounds` Hz and a bin beyond
+ * each (20 Hz to Nyquist for the whole view) in `buckets` buckets of their lowest and highest bin. Decimated only to be drawn.
  */
 export function binsView(bins: NonNullable<CompareModel['bins']>, which: 'base' | 'compare' | 'diff', bounds?: readonly [number, number], buckets = SPECTRUM_LINE_BUCKETS): StageView | null {
     const values = bins[which];
     if (!values?.length) return null;
-    const span: [number, number] = bounds ? [bounds[0], bounds[1]] : [SPECTRUM_MIN_HZ, bins.nyquist];
+    // A zoomed range keeps the bin beyond each end, so the line still crosses a range between two bins (the plot clips it).
+    const span: [number, number] = bounds
+        ? [Math.max(bins.hz, Math.min(bounds[0], bounds[1]) - bins.hz), Math.max(bounds[0], bounds[1]) + bins.hz]
+        : [SPECTRUM_MIN_HZ, bins.nyquist];
     const xs = values.map((_, bin) => bin * bins.hz);
     const line = minMaxLine(xs, values, buckets, span);
     return {
@@ -317,6 +321,19 @@ export function binsView(bins: NonNullable<CompareModel['bins']>, which: 'base' 
         xs: line.xs, xLimits: [SPECTRUM_MIN_HZ, bins.nyquist], values: line.values,
         ...(bounds ? { detail: true } : {}),
     };
+}
+
+/**
+ * The comparison's Δ spectrum to draw (R1, R3): from the full-resolution bins when the scans gave them, decimated
+ * only to be drawn, and with the x window `zoom` (fractions of the whole Δ's axis) narrower than the whole, drawn
+ * again from the bins between its ends, so zooming in shows every bin there. `picture` is the whole Δ, for the axis.
+ * Without the bins, the scans' per-band Δ.
+ */
+export function deltaViews(comparison: Pick<CompareModel, 'bins' | 'diffDb' | 'frequencies'>, zoom?: { start: number; end: number }): { picture: StageView | null; view: StageView | null } {
+    const picture = comparison.bins ? binsView(comparison.bins, 'diff') : comparison.diffDb ? sideView({ spectrumDb: comparison.diffDb, bands: [] }, comparison.frequencies) : null;
+    if (!picture || !comparison.bins || !zoom || (zoom.start <= 0 && zoom.end >= 1)) return { picture, view: picture };
+    const low = axisValueAt(picture, Math.max(0, zoom.start)), high = axisValueAt(picture, Math.min(1, zoom.end));
+    return { picture, view: high > low ? binsView(comparison.bins, 'diff', [low, high]) ?? picture : picture };
 }
 
 const signed = (value: number): string => `${value >= 0 ? '+' : '−'}${Math.abs(value).toFixed(1)}`;

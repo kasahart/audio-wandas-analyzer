@@ -5,7 +5,7 @@ import test from 'node:test';
 import type { ScanResult } from '../shared/protocol/backendProtocol';
 import { getStrings } from '../shared/i18n/strings';
 import { BAND_CENTERS_HZ, buildEntryModel } from '../webview/runtime/entryTable';
-import { binsView, buildCompareModel, diffHeadline, minMaxLine, withBins, legendHtml, levelsHeadline, paneAxes, trackLevelInput, type LevelInput } from '../webview/runtime/comparePanes';
+import { binsView, buildCompareModel, deltaViews, diffHeadline, minMaxLine, withBins, legendHtml, levelsHeadline, paneAxes, trackLevelInput, type LevelInput } from '../webview/runtime/comparePanes';
 import type { ChannelSummary } from '../shared/analysis/analysisTypes';
 import { paintOverlay, stageAxes } from '../webview/runtime/stagePanes';
 import type { StageView } from '../shared/protocol/backendProtocol';
@@ -231,9 +231,10 @@ test('the median and Δ are taken bin by bin from every bin, and only drawing de
     assert.equal(Math.max(...(drawn.values as number[])), 40);
     assert.equal(drawn.xs![(drawn.values as number[]).indexOf(40)], 3000);
     assert.deepEqual(drawn.xLimits, [20, 8000]);
-    // Zoomed: every bin on screen, still at its own frequency.
+    // Zoomed: every bin on screen, still at its own frequency, and the one beyond each end for the line to the edge.
     const zoomed = binsView(bins, 'diff', [2900, 3100], 300)!;
-    assert.equal(zoomed.xs!.length, 101);
+    assert.equal(zoomed.xs!.length, 103);
+    assert.deepEqual([zoomed.xs![0], zoomed.xs!.at(-1)], [2898, 3102]);
     assert.equal(zoomed.detail, true);
 });
 
@@ -280,4 +281,27 @@ test('the table\'s results take the bins of a scan of the same spectrum only', (
     const merged = withBins(files, new Map([['/f/free.wav', same], ['/f/L1_900rpm_run1.wav', other]]));
     assert.deepEqual(merged.get('/f/free.wav'), { ...own, spectrumBinsDb: [[-30, -31]], spectrumBinHz: 2 }, 'the table\'s own numbers, with the bins');
     assert.equal(merged.get('/f/L1_900rpm_run1.wav'), files.get('/f/L1_900rpm_run1.wav'), 'another spectrum: as it was');
+});
+
+test('the held Δ zoomed in is drawn again from every bin between its ends, not the whole Δ decimated and stretched (R1, R3)', () => {
+    // 8192 bins of 1 Hz, each Δ its own: the whole view keeps only a bucket's lowest and highest.
+    const diff = Array.from({ length: 8192 }, (_, bin) => Math.sin(bin * 1.7) * 10);
+    const comparison = { bins: { hz: 1, nyquist: 8191, base: null, compare: null, diff }, diffDb: null, frequencies: [] };
+    const whole = deltaViews(comparison);
+    assert.equal(whole.view, whole.picture);
+    // Zoomed to the window from 1 kHz up: in it, every bin while there are no more than the buckets.
+    const from = 1000, to = 1100;
+    const fraction = (hz: number): number => Math.log(hz / 20) / Math.log(8191 / 20);
+    const zoomed = deltaViews(comparison, { start: fraction(from), end: fraction(to) });
+    assert.deepEqual(zoomed.picture, whole.picture);
+    const inside = (view: typeof whole.view): number => (view?.xs ?? []).filter(x => x >= from + 1 && x <= to - 1).length;
+    assert.ok(inside(zoomed.view) >= 98, `zoomed: ${inside(zoomed.view)} bins`);
+    assert.ok(inside(whole.picture) < inside(zoomed.view) / 2, `whole: ${inside(whole.picture)} bins`);
+    // Zoomed between two bins (100.3 to 100.7 Hz of 1 Hz bins), the line between them still crosses the range: the bin
+    // beyond each end is kept, for the plot to clip.
+    const between = deltaViews(comparison, { start: fraction(100.3), end: fraction(100.7) });
+    assert.deepEqual(between.view?.xs, [100, 101]);
+    // Without bins, the scans' Δ as it is.
+    const banded = deltaViews({ bins: null, diffDb: [1, 2], frequencies: [100, 200] }, { start: 0.2, end: 0.4 });
+    assert.equal(banded.view, banded.picture);
 });

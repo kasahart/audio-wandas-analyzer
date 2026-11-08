@@ -249,6 +249,10 @@ DEFINITIONS: dict[str, Schema] = {
             "stftOptions": {"$ref": "#/$defs/StftOptions"},
             "calibrationProfile": {"$ref": "#/$defs/CalibrationProfile"},
             "analysisRevision": {"$ref": "#/$defs/AnalysisRevision"},
+            # A zoomed lane's time window (fractions of the file): its spectrogram from the frames in it, at full
+            # resolution up to the display limits (R3); absent for the whole file.
+            "startNorm": _NUMBER,
+            "endNorm": _NUMBER,
         },
     },
     "TrackDetailResult": {
