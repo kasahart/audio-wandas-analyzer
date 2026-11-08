@@ -101,3 +101,18 @@ test('the distribution\'s value axis opens at round ends, as every automatic ran
     assert.deepEqual({ low: leq.low, high: leq.high }, { low: -44, high: -16 });
     assert.ok(leq.low < -42.7 && leq.high > -18.3, 'the extremes stay off the edge');
 });
+
+test('a range far narrower than its values keeps ends that hold every value, never rounded inward past them (R9)', () => {
+    const results = new Map([['/d/a.wav', ok([-68.83992944547917])], ['/d/b.wav', ok([-68.83992944508262])]]);
+    const rows = datasetRows(['/d/a.wav', '/d/b.wav'], '/d', new Map(), results, new Map());
+    const leq = distribution(rows, 'leq', 'none', results, null);
+    assert.ok(leq.low <= -68.83992944547917 && leq.high >= -68.83992944508262, `${leq.low}…${leq.high}`);
+    // niceRange itself, over many narrow spans: the range always holds both ends.
+    let seed = 7;
+    const random = (): number => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+    for (let i = 0; i < 20000; i++) {
+        const low = (random() - 0.5) * 10 ** Math.floor(random() * 12 - 2), high = low + Math.abs(low || 1) * 10 ** -(6 + random() * 10);
+        const range = niceRange(low, high);
+        assert.ok(range.low <= low && range.high >= high, `${low}…${high} → ${range.low}…${range.high}`);
+    }
+});
