@@ -35,11 +35,11 @@ test('levels share a range of four round steps; coherence keeps 0 to 1', () => {
     assert.deepEqual(stageRange([line([0.2, 0.5, 0.9], 'coherence')]), { min: 0, max: 1 });
 });
 
-test('a cross-channel picture names its pair on the value axis: the channel over its reference', () => {
-    const names = { axisFrequency: 'Frequency [Hz]', axisCoherence: 'Coherence', axisGain: 'Gain [dB]' } as unknown as StageStrings;
-    assert.deepEqual(stageAxes(names, { ...line([0.2, 0.5, 0.9], 'coherence'), pair: { output: 2, input: 1 } }, undefined), { x: 'Frequency [Hz]', y: 'Coherence · ch2 / ch1' });
-    assert.equal(stageAxes(names, { ...line([0, -3, -6], 'gain'), pair: { output: 3, input: 1 } }, undefined).y, 'Gain [dB] · ch3 / ch1');
-    assert.equal(stageAxes(names, line([0.2, 0.5, 0.9], 'coherence'), undefined).y, 'Coherence');
+test('a cross-channel picture names its pair on the value axis: the channel over its reference, before the unit', () => {
+    const names = { axisFrequency: 'Frequency [Hz]', axisCoherence: 'Coherence γ² [–]', axisGain: 'Gain [dB]' } as unknown as StageStrings;
+    assert.deepEqual(stageAxes(names, { ...line([0.2, 0.5, 0.9], 'coherence'), pair: { output: 2, input: 1 } }, undefined), { x: 'Frequency [Hz]', y: 'Coherence γ² · ch2 / ch1 [–]' });
+    assert.equal(stageAxes(names, { ...line([0, -3, -6], 'gain'), pair: { output: 3, input: 1 } }, undefined).y, 'Gain · ch3 / ch1 [dB]');
+    assert.equal(stageAxes(names, line([0.2, 0.5, 0.9], 'coherence'), undefined).y, 'Coherence γ² [–]');
 });
 
 test('a metric over time names what it measures on its value axis, from its unit', () => {
@@ -352,7 +352,7 @@ test('a level drawn with no levels from its values before thinning is written as
     assert.match(canvas.dataset.plotOrder ?? '', /\?/u);
 });
 
-test('a colour bar stays inside a narrow plot: its name shrinks to the unit, then is left out', () => {
+test('a colour bar stays inside a narrow plot: its name shortens its quantity and keeps its unit, then is left out', () => {
     // 10px sans-serif, about 5.6 px a character.
     const drawn: Array<{ text: string; x: number }> = [];
     let box = { x: 0, width: 0 };
@@ -370,7 +370,8 @@ test('a colour bar stays inside a narrow plot: its name shrinks to the unit, the
     };
     assert.deepEqual(paint(56, 600).titles, ['Amplitude, uncalibrated [dBFS]'], 'a wide plot names it in full');
     const mid = paint(56, 296);
-    assert.deepEqual(mid.titles, ['dBFS']);
+    assert.equal(mid.titles.length, 1);
+    assert.match(mid.titles[0], /^Amplitude, unc.*… \[dBFS\]$/u, 'its quantity, shortened, and its unit');
     assert.ok(mid.left >= 56, 'inside the plot');
     const narrow = paint(56, 150);
     assert.deepEqual(narrow.titles, []);
