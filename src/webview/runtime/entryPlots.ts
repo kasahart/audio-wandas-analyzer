@@ -19,8 +19,14 @@ export const OVERVIEW_MARGINS: PlotMargins = { left: 30, top: 2, right: 4, botto
  * picture's rows run up from its bottom), so the axis counts the table's rows down from the top. The colour range is
  * every row's, not only the window's: zooming does not change what a shade means.
  */
+/** A table row as the strip reads it: its recording, and the channel it is (`key`, rowKey) when it is one of several. */
+export type OverviewRow = Pick<EntryRow, 'filePath'> & { key?: string; ch?: number; channels?: number };
+
+/** A row's name in the readout: its file, and its channel when the recording has more than one. */
+const rowName = (row: OverviewRow): string => `${fileName(row.filePath)}${(row.channels ?? 1) > 1 && row.ch ? ` ch${row.ch}` : ''}`;
+
 export function overviewPicture(
-    rows: ReadonlyArray<Pick<EntryRow, 'filePath'>>,
+    rows: ReadonlyArray<OverviewRow>,
     bands: ReadonlyMap<string, (number | null)[]>,
     window: PlotWindow,
     lines: number,
@@ -39,9 +45,9 @@ export function overviewPicture(
     let low = Infinity, high = -Infinity;
     // One pass, loops not spreads (a large folder has more levels than a call can take as arguments).
     for (let index = 0; index < total; index++) {
-        const levels = bands.get(rows[index].filePath);
+        const levels = bands.get(rows[index].key ?? rows[index].filePath);
         const cell = index >= firstRow && index < lastRow ? (binned ? Math.min(lines - 1, Math.floor((index - firstRow) * lines / count)) : index - firstRow) : -1;
-        if (cell >= 0 && !names[cell][0]) names[cell].fill(fileName(rows[index].filePath));
+        if (cell >= 0 && !names[cell][0]) names[cell].fill(rowName(rows[index]));
         if (!levels) continue;
         for (let band = 0; band < Math.min(bandCount, levels.length); band++) {
             const value = levels[band];
@@ -50,7 +56,7 @@ export function overviewPicture(
             if (value > high) high = value;
             if (cell >= 0) {
                 const was = loudest[cell][band];
-                if (was === null || value > was) { loudest[cell][band] = value; names[cell][band] = fileName(rows[index].filePath); }
+                if (was === null || value > was) { loudest[cell][band] = value; names[cell][band] = rowName(rows[index]); }
             }
         }
     }
@@ -82,7 +88,7 @@ export interface OverviewPaint {
 export function paintOverview(
     canvas: HTMLCanvasElement,
     strings: Pick<UiStrings, 'axisBand' | 'axisEntryRows' | 'axisLevelCal' | 'axisLevelUncal'>,
-    rows: ReadonlyArray<Pick<EntryRow, 'filePath'>>,
+    rows: ReadonlyArray<OverviewRow>,
     bands: ReadonlyMap<string, (number | null)[]>,
     visible: { first: number; last: number },
     focused: string | null,
@@ -136,4 +142,4 @@ export function paintOverview(
     return { drawn };
 }
 
-const overviewCache = new WeakMap<HTMLCanvasElement, { key: string; rows: ReadonlyArray<Pick<EntryRow, 'filePath'>>; drawn: StagePlot | null }>();
+const overviewCache = new WeakMap<HTMLCanvasElement, { key: string; rows: ReadonlyArray<OverviewRow>; drawn: StagePlot | null }>();

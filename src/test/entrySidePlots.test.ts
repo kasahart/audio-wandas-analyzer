@@ -87,6 +87,33 @@ test('a click on the strip picks the row under it; the gestures add a zoom box a
     assert.deepEqual(calls, ['pick /d/a.wav', 'pick /d/c.wav'], 'below the rows is no row');
 });
 
+test('a recording of several channels has a strip row per channel: each its own levels, named by its channel', () => {
+    const rows = [
+        { filePath: '/d/a.wav', key: '/d/a.wav#ch1', ch: 1, channels: 2 },
+        { filePath: '/d/a.wav', key: '/d/a.wav#ch2', ch: 2, channels: 2 },
+        { filePath: '/d/b.wav', key: '/d/b.wav', ch: 1, channels: 1 },
+    ];
+    const bands = new Map<string, (number | null)[]>([['/d/a.wav#ch1', [-40, -30]], ['/d/a.wav#ch2', [-20, -50]], ['/d/b.wav', [-35, -35]]]);
+    const picture = overviewPicture(rows, bands, FULL_PLOT_WINDOW, 100);
+    // Bottom first: b, then a's ch2, then a's ch1.
+    assert.deepEqual(picture?.view.matrix?.map(row => row.slice(0, 2)), [[-35, -35], [-20, -50], [-40, -30]]);
+    assert.deepEqual(picture?.names.map(row => row[0]), ['b.wav', 'a.wav ch2', 'a.wav ch1']);
+});
+
+test('the side plots keep each channel\'s own levels, as the table\'s rows are keyed, and a new result replaces all of them', () => {
+    const { plots } = setup();
+    const input = { id: 'x', fs: 48000, channels: [0, 1], durationS: 1, unit: 'Pa', ref: 2e-5, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated' as const, fullScale: true };
+    plots.noteResult('/d/a.wav', { ok: true, input, thirdOctDb: [[-40, -30], [-20, -50]] });
+    assert.deepEqual(plots.levels('/d/a.wav#ch1'), [-40, -30]);
+    assert.deepEqual(plots.levels('/d/a.wav#ch2'), [-20, -50]);
+    assert.equal(plots.levels('/d/a.wav'), undefined, 'no channel-averaged row: the table has none');
+    plots.noteResult('/d/a.wav', { ok: true, input: { ...input, channels: [0] }, thirdOctDb: [[-10, -10]] });
+    assert.deepEqual(plots.levels('/d/a.wav'), [-10, -10]);
+    assert.equal(plots.levels('/d/a.wav#ch2'), undefined);
+    plots.noteResult('/d/a.wav', { ok: false, reason: 'unreadable' });
+    assert.equal(plots.levels('/d/a.wav'), undefined);
+});
+
 test('the overview colour scale and the dataset table name the recordings\' shared level reference, plain dB once they differ', () => {
     assert.equal(sharedLevelLabel([]), 'dBFS');
     assert.equal(sharedLevelLabel(['dBFS', 'dBFS']), 'dBFS');
