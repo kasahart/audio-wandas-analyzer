@@ -23,7 +23,9 @@
  * "missing: …", fullRead.ts) fails it: its readout would read the points thinned to be drawn.
  *
  * And (R4): a plot on screen with an axis whose name (`data-plot-axes`) gives no quantity and unit in closing brackets
- * ("Phase [°]", "Coherence γ² [–]", "temp_c (CSV column) [unit unknown]") fails it, whichever plot it is.
+ * ("Phase [°]", "Coherence γ² [–]", "temp_c (CSV column) [unit unknown]") fails it, whichever plot it is; so does a
+ * plot on screen with two tick labels of one axis (numbers written in one column: the same alignment and x) whose
+ * ink overlaps, however short the plot is.
  */
 import { test as base } from '@playwright/test';
 import { DRAWN_OUTSIDE_PENDING, PLOT_LAYERS, PLOTS_PENDING, SVG_CHARTS_PENDING } from './plotRegistry';
@@ -45,7 +47,7 @@ const AUDIT = {
 const SVG_CHART_MIN = { width: 64, height: 40 };
 
 declare global {
-    interface Window { __canvasAudit?: string[]; __readoutAudit?: string[]; __plotAudit?: string[]; __drawnAudit?: string[]; __svgAudit?: string[]; __orderAudit?: string[]; __fullAudit?: string[]; __unitAudit?: string[]; __plotPainting?: number }
+    interface Window { __canvasAudit?: string[]; __readoutAudit?: string[]; __plotAudit?: string[]; __drawnAudit?: string[]; __svgAudit?: string[]; __orderAudit?: string[]; __fullAudit?: string[]; __unitAudit?: string[]; __tickAudit?: string[]; __plotPainting?: number }
 }
 
 /** Runs in the page: samples the canvases on screen and records each one that stayed at another size. */
@@ -83,14 +85,25 @@ function installCanvasAudit({ settle, others, drawnOutside, svgCharts, svgMin }:
     }
     // The words each canvas shows (fillText), whoever drew them, since the whole of it was last cleared: what a test
     // reads to see an axis's name on screen, not only in the plot's attributes.
-    type Texted = HTMLCanvasElement & { __plotTexts?: string[] };
+    type Texted = HTMLCanvasElement & { __plotTexts?: string[]; __tickBoxes?: Array<{ text: string; column: string; top: number; bottom: number }> };
     const fillText = proto.fillText;
+    const measureText = proto.measureText;
+    const tickText = /^[−+-]?\d[\d.]*(e[−+-]?\d+)?k?$/u;
     proto.fillText = function (this: CanvasRenderingContext2D, ...args: unknown[]) {
         const canvas = this.canvas as Texted;
         if (canvas instanceof HTMLCanvasElement && typeof args[0] === 'string') {
             canvas.__plotTexts ??= [];
             canvas.__plotTexts.push(args[0]);
             if (canvas.__plotTexts.length > 400) canvas.__plotTexts.shift();
+            // A number written unturned: a tick label, kept with its ink's extent up the canvas (in its bitmap's pixels).
+            const at = this.getTransform();
+            if (tickText.test(args[0]) && at.b === 0 && at.c === 0) {
+                const metrics = measureText.call(this, args[0]) as TextMetrics;
+                const [x, y] = [Number(args[1]), Number(args[2])];
+                canvas.__tickBoxes ??= [];
+                canvas.__tickBoxes.push({ text: args[0], column: `${this.textAlign}@${Math.round(at.a * x + at.e)}`, top: at.d * (y - metrics.actualBoundingBoxAscent) + at.f, bottom: at.d * (y + metrics.actualBoundingBoxDescent) + at.f });
+                if (canvas.__tickBoxes.length > 400) canvas.__tickBoxes.shift();
+            }
         }
         return fillText.apply(this, args);
     };
@@ -101,7 +114,7 @@ function installCanvasAudit({ settle, others, drawnOutside, svgCharts, svgMin }:
         // In the bitmap's own pixels, through the context's transform.
         const at = this.getTransform();
         const corner = at.transformPoint({ x, y }), far = at.transformPoint({ x: x + width, y: y + height });
-        if (canvas instanceof HTMLCanvasElement && corner.x <= 0 && corner.y <= 0 && far.x >= canvas.width - 1 && far.y >= canvas.height - 1) canvas.__plotTexts = [];
+        if (canvas instanceof HTMLCanvasElement && corner.x <= 0 && corner.y <= 0 && far.x >= canvas.width - 1 && far.y >= canvas.height - 1) { canvas.__plotTexts = []; canvas.__tickBoxes = []; }
         return clearRect.apply(this, args);
     };
     /** A plot with draws from outside the component still on it (made before it was marked, or off the page): reported. */
@@ -277,6 +290,19 @@ function installCanvasAudit({ settle, others, drawnOutside, svgCharts, svgMin }:
     // Each plot on screen with an axis named without its quantity and unit (R4).
     const unitless: string[] = [];
     window.__unitAudit = unitless;
+    // Each plot on screen with two tick labels of one axis whose ink overlaps.
+    const crowded: string[] = [];
+    window.__tickAudit = crowded;
+    const overlappingTicks = (canvas: Texted): string[] => {
+        const columns = new Map<string, Array<{ text: string; top: number; bottom: number }>>();
+        for (const box of canvas.__tickBoxes ?? []) columns.set(box.column, [...(columns.get(box.column) ?? []), box]);
+        const found: string[] = [];
+        for (const boxes of columns.values()) {
+            boxes.sort((a, b) => a.top - b.top);
+            boxes.forEach((box, index) => { const next = boxes[index + 1]; if (next && next.top < box.bottom - 0.5) found.push(`"${box.text}"/"${next.text}"`); });
+        }
+        return found;
+    };
     const named = (name: string): boolean => /^.*\S\s*\[[^\]]*[^\]\s][^\]]*\]$/su.test(name.trim());
     const rises = (order: string): boolean => order.split(';').some(axis => {
         // A compared level ordered with no levels from the values before thinning ('?', drawnLevelsText) fails too.
@@ -295,6 +321,14 @@ function installCanvasAudit({ settle, others, drawnOutside, svgCharts, svgMin }:
             if (shownBox(canvas)) reportUnseen(canvas, 'drawn before it was a plot, or off the page');
             const axes = canvas.getAttribute('data-plot-axes');
             const bare = axes && canvas.hasAttribute('data-plot') && shownBox(canvas) ? axes.split('|').filter(name => !named(name)) : [];
+            // The plot's own ticks, and those on the canvas beside it that holds its value axis (a lane's).
+            const axisCanvas = canvas.dataset.plotAxis ? document.getElementById(canvas.dataset.plotAxis) : null;
+            const crowd = canvas.hasAttribute('data-plot') && shownBox(canvas)
+                ? [...overlappingTicks(canvas), ...(axisCanvas instanceof HTMLCanvasElement ? overlappingTicks(axisCanvas) : [])] : [];
+            if (crowd.length) {
+                const name = `ticks ${canvasName(canvas)}: ${crowd.join(' ')}`;
+                if (!reported.has(name)) { reported.add(name); crowded.push(`${canvasName(canvas)} (${canvas.clientWidth}×${canvas.clientHeight}) writes ${crowd.join(', ')} over each other`); }
+            }
             if (bare.length) {
                 const name = `units ${canvasName(canvas)}: ${bare.join(' | ')}`;
                 if (!reported.has(name)) { reported.add(name); unitless.push(`${canvasName(canvas)} names ${bare.map(text => `"${text}"`).join(', ')}`); }
@@ -352,6 +386,8 @@ export const test = base.extend<{ canvasAudit: void }>({
         base.expect.soft(undeclaredFound, 'plots that draw a layer without its full data declared (R7: give the layer `full`, fullRead.ts)').toEqual([]);
         const unitlessFound = await page.evaluate(() => window.__unitAudit ?? []);
         base.expect.soft(unitlessFound, 'plots with an axis named without its quantity and unit (R4: "Quantity [unit]", "[–]" when dimensionless)').toEqual([]);
+        const crowdedFound = await page.evaluate(() => window.__tickAudit ?? []);
+        base.expect.soft(crowdedFound, 'plots with two tick labels of one axis over each other (fewer ticks on a short plot: valueAxisTicks, spacedTicks)').toEqual([]);
         const svgFound = await page.evaluate(() => window.__svgAudit ?? []);
         base.expect.soft(svgFound, 'charts drawn as SVG (R13: draw them with paintOverlay, or list them in plotRegistry.ts while they wait)').toEqual([]);
     }, { auto: true }],

@@ -436,14 +436,59 @@ function ticks(low: number, high: number, log: boolean): number[] {
 /** The text every plot's axes are written in: Compare's panes, the entry's plots and the track lanes' axes. */
 export const PLOT_TEXT_FONT = '10px sans-serif';
 
+/** How tall a tick label is (PLOT_TEXT_FONT's size), and the least room left between two on one axis. */
+export const TICK_LABEL_PX = 10;
+const TICK_LABEL_GAP_PX = 2;
+
+/**
+ * Where a value axis's tick label is drawn up an axis `height` px tall, from its top: as drawValueAxis sets it, the
+ * top tick hangs below the top edge, the bottom one stands on the bottom edge, the others are centred on their place.
+ */
+export function tickLabelSpan(fraction: number, height: number): { top: number; bottom: number } {
+    const y = (1 - fraction) * height;
+    if (fraction >= 1) return { top: y, bottom: y + TICK_LABEL_PX };
+    if (fraction <= 0) return { top: y - TICK_LABEL_PX, bottom: y };
+    return { top: y - TICK_LABEL_PX / 2, bottom: y + TICK_LABEL_PX / 2 };
+}
+
+/** Whether no two of the ticks' labels touch on an axis `height` px tall (TICK_LABEL_GAP_PX apart at least). */
+export function ticksFit(ticks: readonly AxisTick[], height: number): boolean {
+    if (!Number.isFinite(height)) return true;
+    const spans = ticks.map(tick => tickLabelSpan(tick.fraction, height)).sort((a, b) => a.top - b.top);
+    return spans.every((span, index) => index === 0 || span.top - spans[index - 1].bottom >= TICK_LABEL_GAP_PX);
+}
+
+/**
+ * The ticks whose labels fit up an axis `height` px tall: from the bottom up, each one that would touch the last one
+ * kept is left out (its value stays readable from its neighbours), so no two labels on one axis ever overlap.
+ */
+export function spacedTicks<T extends AxisTick>(ticks: readonly T[], height: number): T[] {
+    const kept: T[] = [];
+    for (const tick of [...ticks].sort((a, b) => a.fraction - b.fraction)) {
+        if (tick.fraction < -1e-9 || tick.fraction > 1 + 1e-9) continue;
+        const last = kept[kept.length - 1];
+        if (!last || ticksFit([last, tick], height)) kept.push(tick);
+    }
+    return kept;
+}
+
 /**
  * A level or amplitude axis's ticks over `range`, as fractions up the axis: the one rule for every plot's value axis
- * (Compare's panes and the track lanes' amplitude axis), with as many decimals as the span needs.
+ * (Compare's panes and the track lanes' amplitude axis), with as many decimals as the span needs. On an axis
+ * `height` px tall, as many round steps as fit without their labels touching: fewer on a short plot.
  */
-export function valueAxisTicks(range: PaneRange): AxisTick[] {
+export function valueAxisTicks(range: PaneRange, height = Infinity): AxisTick[] {
     const span = range.max - range.min || 1;
-    const values = niceTicks(range.min, range.max, 4);
-    return values.map(value => ({ text: valueTickTexts(values)(value), fraction: (value - range.min) / span }));
+    const at = (count: number): AxisTick[] => {
+        const values = niceTicks(range.min, range.max, count);
+        return values.map(value => ({ text: valueTickTexts(values)(value), fraction: (value - range.min) / span }));
+    };
+    const full = at(4);
+    if (ticksFit(full, height)) return full;
+    // Coarser round steps, or every k-th of the finest (−80, −40, 0): whichever keeps the most labels apart.
+    const everyKth = Array.from({ length: full.length }, (_, k) => Array.from({ length: k + 1 }, (_, offset) => full.filter((_, index) => index % (k + 1) === offset))).flat();
+    const candidates = [at(3), at(2), at(1), ...everyKth, spacedTicks(full, height)].filter(ticks => ticksFit(ticks, height));
+    return candidates.reduce<AxisTick[]>((best, ticks) => (ticks.length > best.length ? ticks : best), []);
 }
 
 /**
@@ -742,7 +787,7 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
     const pendingColors = { muted, line, fill: text, back: style?.getPropertyValue('--track-bg').trim() || '#0b0d10' };
     if (!view) {
         // A lane with nothing to draw yet keeps its value axis (ticks and name) beside it, as data-plot-axes names it.
-        if (options.axisCanvas) paintSideAxis(options.axisCanvas, valueAxisTicks(range), axes.y, { muted, text });
+        if (options.axisCanvas) paintSideAxis(options.axisCanvas, valueAxisTicks(range, plotHeight), axes.y, { muted, text });
         if (options.pending) paintPending(context, options.pending, left + plotWidth / 2, top + plotHeight / 2, 'center', pendingColors);
         else if (options.empty) {
             // Across the whole pane (no axes are drawn), wrapped to its width: a narrow screen keeps every word.
@@ -867,7 +912,7 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
     } else {
         context.strokeStyle = line;
         context.lineWidth = 1;
-        levelTicks = valueAxisTicks(range);
+        levelTicks = valueAxisTicks(range, plotHeight);
         for (const tick of levelTicks) {
             const y = top + (1 - tick.fraction) * plotHeight;
             context.beginPath(); context.moveTo(left, y); context.lineTo(left + plotWidth, y); context.stroke();
@@ -976,6 +1021,8 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
     }
     // The level axis: its ticks in the muted colour, and what it measures up the left edge in the text colour.
     const frame = { left, top, width: plotWidth, height: plotHeight };
+    // No two tick labels on the value axis touch, whatever the plot's height (a heatmap's rows, a short pair plot).
+    levelTicks = spacedTicks(levelTicks, plotHeight);
     plot.levelTicks = levelTicks;
     if (options.axisCanvas) paintSideAxis(options.axisCanvas, levelTicks, axes.y, { muted, text });
     else if (!lane && options.yAxisLabels !== false) {
@@ -999,7 +1046,7 @@ export function paintSideAxis(canvas: HTMLCanvasElement, ticks: readonly AxisTic
     context.setTransform(1, 0, 0, 1, 0, 0);
     context.clearRect(0, 0, canvas.width, canvas.height);
     const frame = { left: canvas.width, top: 0, width: 0, height: canvas.height };
-    drawValueAxis(context, frame, ticks, '', { color: colors.muted, font: PLOT_TEXT_FONT, titleX: AXIS_TITLE_X });
+    drawValueAxis(context, frame, spacedTicks(ticks, canvas.height), '', { color: colors.muted, font: PLOT_TEXT_FONT, titleX: AXIS_TITLE_X });
     context.font = PLOT_TEXT_FONT;
     paintValueTitle(context, frame, title, colors.text, AXIS_TITLE_X);
 }
