@@ -152,6 +152,7 @@ trackDurRatio  = durationSeconds / globalSpanSec
 ### Charts
 
 - Every chart follows the numbered rules in [docs/display-rules.md](docs/display-rules.md). A change that decides a new rule adds it there with the test that checks it; `src/test/displayRules.test.ts` fails when a listed test is missing or the rules marked 未 differ from its `PENDING` list, which only shrinks.
+- Every chart and every value a user reads off it (readout, ← / →, Δ, median, headline, order, auto range, ticks, axis names, exports, counts) is a row of `src/test/plotContracts.ts`, rendered to [docs/plot-contracts.md](docs/plot-contracts.md). `src/test/plotContracts.test.ts` fails when a plot-component call, a `plotRegistry.ts` plot, or a function that writes a number (`toFixed`… or a `VALUE_HELPERS` call) is missing from it, when a named test or function does not exist, or when the gap rows differ from `KNOWN_GAPS`, which only shrinks. Regenerate the doc with `npm run compile && node dist/test/plotContracts.js`.
 
 ---
 
