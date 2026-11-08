@@ -116,6 +116,18 @@ class StageView(TypedDict):
     events: NotRequired[list[StageEvent]]
     #: The key the step's full-resolution values are kept under (stage_combine.py), for a median or a difference.
     data: NotRequired[str]
+    #: A compared line's power in stretches of its axis, from every value before thinning (stage_combine.level_bins):
+    #: what the plot orders overlaid lines by, quietest on top, over the part on screen (R6).
+    levelBins: NotRequired[StageLevelBins]
+
+
+class StageLevelBins(TypedDict):
+    #: The stretches' edges on the x axis (one more than the stretches).
+    edges: list[float]
+    #: Each stretch's mean power (linear: mean square of a signal, mean of 10^(dB/10) of a level).
+    power: list[float]
+    #: How many values each stretch holds.
+    count: list[int]
 
 
 class StageEvent(TypedDict):
@@ -919,9 +931,13 @@ def stage_view(frame: object, signal_s: float | None = None, detail: StageDetail
     ``detail``: only the part on screen of a zoomed picture, at the Frame's full resolution.
     """
     coarse = _stage_view(frame, signal_s)
-    if detail is None or coarse["kind"] in ("none", "bar"):
-        return coarse
-    return _detail_view(frame, coarse, detail)
+    view = coarse if detail is None or coarse["kind"] in ("none", "bar") else _detail_view(frame, coarse, detail)
+    if view["kind"] in ("line", "bar"):
+        # The order overlaid lines are drawn in comes from every value, not the drawn points (R2, R6).
+        from stage_combine import stage_data, with_level_bins
+
+        with_level_bins(view, stage_data(frame, coarse, signal_s), detail if view is not coarse else None)
+    return view
 
 
 def _stage_view(frame: object, signal_s: float | None) -> StageView:

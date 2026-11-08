@@ -1,5 +1,6 @@
 import { binFrequencyHz } from '../draw/canvasDrawers';
-import { paintOverlay, type StageLayer, type StagePlot } from './stagePanes';
+import { levelBinsOf, paintOverlay, type StageLayer, type StagePlot } from './stagePanes';
+import type { StageView } from '../../shared/protocol/backendProtocol';
 import { minMaxLine } from './comparePanes';
 import {
     OVERLAY_SPECTRUM_PAD,
@@ -36,6 +37,7 @@ export function spectrumLayer(series: SpectrumSeries, cutoffHz: number, visible?
     const { slice } = series;
     const bands = !!slice.bandCentersHz?.length;
     let xs: number[] = [], values: number[] = [];
+    let levelBins: StageView['levelBins'];
     for (let index = 0; index < slice.frequencyBins && index < slice.values.length; index++) {
         const hz = binFrequencyHz(slice, index);
         // Bands are kept whole: their spacing is each band's width, and the plot clips them at the axis' end.
@@ -43,6 +45,9 @@ export function spectrumLayer(series: SpectrumSeries, cutoffHz: number, visible?
         xs.push(hz);
         values.push(slice.values[index]);
     }
+    // Ordered among the overlaid slices by every bin's power before thinning (R6), over the axis drawn.
+    const firstPositive = xs.find(hz => hz > 0);
+    if (firstPositive !== undefined) levelBins = levelBinsOf(xs, values, [firstPositive, xs[xs.length - 1]], true);
     // A slice at full resolution (asked for while zoomed in, R3) is thinned here, only to be drawn, by the rule every
     // spectrum is thinned by (R2: each bucket's lowest and highest bin), between the frequencies on screen and a bin
     // past each, so the line reaches the plot's edges.
@@ -57,7 +62,7 @@ export function spectrumLayer(series: SpectrumSeries, cutoffHz: number, visible?
     // slice's unit, or with two level axes in the reference of the axis it is read on.
     const level = levelUnit ? { ...slice, unit: levelUnit } : slice;
     return {
-        view: { frame: 'spectrum', kind: bands ? 'bar' : 'line', x: 'frequency', xScale: bands ? 'log' : 'linear', quantity: 'level', xs, values },
+        view: { frame: 'spectrum', kind: bands ? 'bar' : 'line', x: 'frequency', xScale: bands ? 'log' : 'linear', quantity: 'level', xs, values, ...(levelBins ? { levelBins } : {}) },
         color: series.color,
         width: bands ? 2 : 1.4,
         label: series.label,

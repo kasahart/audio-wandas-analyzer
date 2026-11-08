@@ -39,7 +39,7 @@ from wandas.frames.segments import ChannelFrameSegments
 import analysis_spec as spec
 import stage_view as sv
 from decimator import bucket_edges
-from stage_view import StageDetail, StageView
+from stage_view import StageDetail, StageLevelBins, StageView
 
 #: How much of the Frames' values the backend keeps for the comparison's medians and differences. The least
 #: recently used go first; a picture asked for again (zooming, another compared recording) uses what is kept.
@@ -64,6 +64,8 @@ Mode = Literal[
     "correlation",
 ]
 DB_QUANTITIES = ("level", "gain")
+#: A level at or below this is silence (the webview's `silent`): no power.
+SILENT_DB = -250.0
 
 
 @dataclass(frozen=True)
@@ -383,6 +385,58 @@ def _signal_line(
     return data.start + (first + picked) / data.rate, _f64(values[picked])
 
 
+#: How many stretches of the axis a line's level on screen is kept in (StageView ``levelBins``).
+LEVEL_BINS = 256
+
+
+def level_bins(data: StageData, detail: StageDetail | None = None) -> StageLevelBins | None:
+    """The power of a compared line's every value, in ``LEVEL_BINS`` stretches of the axis it is drawn over (the
+    whole picture, or ``detail``'s part): for the plot to draw the quietest line on top over whatever part is on
+    screen (R6) from the values before they were thinned to be drawn. A signal's power is the mean square of its
+    samples (on the amplitude axis the signals share); a level's or gain's, the mean of 10^(dB/10), silence (−250
+    dB and below) counted as no power. None for a line of other values (a coherence) or an image."""
+    bounds, _ = _bounds(detail)
+    if data.mode == "signal":
+        first, last = _signal_range(data, bounds)
+        if last <= first:
+            return None
+        edges = np.linspace(first, last, min(LEVEL_BINS, last - first) + 1).round().astype(np.int64)
+        powers, counts = [], []
+        for start, end in zip(edges[:-1], edges[1:], strict=True):
+            block = data.values[start:end].astype(np.float64)
+            finite = block[np.isfinite(block)]
+            counts.append(int(finite.size))
+            powers.append(float(np.dot(finite, finite) / finite.size) if finite.size else 0.0)
+        times = data.start + edges / data.rate
+        # The last stretch ends at its last sample's time.
+        times[-1] = data.start + (last - 1) / data.rate
+        return {"edges": sv._axis(times), "power": powers, "count": counts}
+    if data.view.get("quantity") not in DB_QUANTITIES or data.values.ndim != 1:
+        return None
+    xs, values = data.xs, _f64(data.values)
+    log = data.view.get("xScale") == "log"
+    if bounds is None and data.mode == "spectrum":
+        bounds = [spec.SPECTRUM_MIN_HZ, data.nyquist]
+    keep = np.isfinite(values) & np.isfinite(xs) & ((xs > 0) if log else True)
+    if bounds is not None:
+        keep &= sv._inside(xs, bounds)
+    xs, values = xs[keep], values[keep]
+    if not xs.size:
+        return None
+    low, high = (min(bounds), max(bounds)) if bounds is not None else (float(xs[0]), float(xs[-1]))
+    if log:
+        low = max(low, float(xs[0]))
+    edges = (
+        np.geomspace(low, high, LEVEL_BINS + 1) if log and high > low > 0 else np.linspace(low, high, LEVEL_BINS + 1)
+    )
+    which = np.clip(np.searchsorted(edges, xs, side="right") - 1, 0, LEVEL_BINS - 1)
+    power = np.where(values <= SILENT_DB, 0.0, 10.0 ** (values / 10.0))
+    counts = np.bincount(which, minlength=LEVEL_BINS)
+    sums = np.bincount(which, weights=power, minlength=LEVEL_BINS)
+    means = np.divide(sums, counts, out=np.zeros(LEVEL_BINS), where=counts > 0)
+    return {"edges": sv._axis(edges), "power": [float(v) for v in means], "count": [int(c) for c in counts]}
+
+
 def _line_buckets(mode: Mode, points: int) -> int:
     """How many buckets a difference line has: as many points as the recordings' own pictures have."""
     if points:
@@ -490,7 +544,18 @@ def draw(data: StageData, detail: StageDetail | None = None, *, diff: bool = Fal
             )
     if detail is not None:
         view["detail"] = True
+    if not diff:
+        with_level_bins(view, data, detail)
     return view  # type: ignore[return-value]
+
+
+def with_level_bins(view: StageView | dict, data: StageData | None, detail: StageDetail | None = None) -> None:
+    """``view`` with its line's levelBins (level_bins) when it is a line the plot compares (R6)."""
+    if data is None or view.get("kind") not in ("line", "bar"):
+        return
+    bins = level_bins(data, detail)
+    if bins is not None:
+        view["levelBins"] = bins  # type: ignore[typeddict-unknown-key]
 
 
 # --- Combining ---------------------------------------------------------------------------------------------

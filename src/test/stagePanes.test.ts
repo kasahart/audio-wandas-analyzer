@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import { axisFractionOf, axisValueAt, byLevel, emptyStageText, eventLayers, paintOverlay, stageAxes, paintColourBar, colourBarTop, stageEventCounts, stageDiffRange, stageHeadline, stageRange, stageHover, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
+import { axisFractionOf, axisValueAt, byLevel, levelBinsOf, emptyStageText, eventLayers, paintOverlay, stageAxes, paintColourBar, colourBarTop, stageEventCounts, stageDiffRange, stageHeadline, stageRange, stageHover, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
 import type { StageView } from '../shared/protocol/backendProtocol';
 
 const line = (values: number[], quantity: StageView['quantity'] = 'level'): StageView => ({ frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity, xs: [100, 1000, 10000], values });
@@ -155,8 +155,14 @@ test('a spectrum drawn as its own bins spans its stated limits, not edges read o
     assert.ok(Math.abs(axisValueAt(line([-40, -30, -20]), 0) - 100 / Math.sqrt(10)) < 1e-9);
 });
 
+/** A view with the levelBins the backend gives it, from `full` (its values before thinning; its drawn values by default). */
+function measured(view: StageView, full: number[] = (view.values ?? []).map(value => value ?? Number.NaN)): StageView {
+    const xs = view.xs ?? [];
+    return { ...view, levelBins: levelBinsOf(xs, full, [xs[0], xs[xs.length - 1]], view.xScale === 'log') };
+}
+
 test('overlaid lines are drawn loudest first, the quietest last on top, by their level on screen', () => {
-    const layer = (color: string, values: number[], quantity: StageView['quantity'] = 'level') => ({ view: line(values, quantity), color });
+    const layer = (color: string, values: number[], quantity: StageView['quantity'] = 'level') => ({ view: quantity === 'level' ? measured(line(values, quantity)) : line(values, quantity), color });
     const base = layer('blue', [-40, -40, -40]), loud = layer('yellow', [-20, -40, -40]), quiet = layer('grey', [-60, -60, -60]);
     assert.deepEqual(byLevel([quiet, base, loud], line([0, 0, 0])).map(item => item.color), ['yellow', 'blue', 'grey']);
     // Zoomed past the 100 Hz point, the yellow and blue lines are as loud: they keep their order.
@@ -180,7 +186,7 @@ function strokingCanvas(): { canvas: HTMLCanvasElement; strokes: string[] } {
 }
 
 test('every plot draws its overlaid lines loudest first and the quietest last on top, whatever order the caller gives them (R6)', () => {
-    const layer = (color: string, values: number[]) => ({ view: line(values), color, width: 2 });
+    const layer = (color: string, values: number[]) => ({ view: measured(line(values)), color, width: 2 });
     const { canvas, strokes } = strokingCanvas();
     // Given the quiet one first, as the report gives its base before the compared file: the plot puts it on top.
     paintOverlay(canvas, { layers: [layer('quiet', [-60, -60, -60]), layer('loud', [-20, -20, -20]), layer('base', [-40, -40, -40])] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dB]' });
@@ -201,7 +207,7 @@ test('a picture that is not a compared line keeps the place its caller gave it a
     const { canvas, strokes } = strokingCanvas();
     // A median tick (a line without a level) first, then a quiet and a loud line: the tick stays first, the lines swap.
     const tick = { view: { ...line([0, 1, 0]), quantity: undefined }, color: 'tick' };
-    const quiet = { view: line([-60, -60, -60]), color: 'quiet' }, loud = { view: line([-20, -20, -20]), color: 'loud' };
+    const quiet = { view: measured(line([-60, -60, -60])), color: 'quiet' }, loud = { view: measured(line([-20, -20, -20])), color: 'loud' };
     paintOverlay(canvas, { layers: [quiet, loud, tick] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dB]' });
     assert.deepEqual(strokes.filter(color => ['tick', 'quiet', 'loud'].includes(color)), ['loud', 'quiet', 'tick']);
     // A lane's finer data over part of its view is a part of one picture, not a line compared: drawn as given.
@@ -223,20 +229,48 @@ test('no chart orders its own overlaid lines: the order is the plot component\'s
     assert.match(plot, /const order = overlayOrder\(overlay\.layers,/u);
 });
 
-test('waveforms are ordered by their envelope on the shared amplitude axis, whatever their level reference', () => {
+test('waveforms are ordered by their samples\' mean square on the shared amplitude axis, whatever their level reference', () => {
     // 0.1 Pa reads 71 dB re 20 µPa, 0.5 FS −9 dB re 1: on screen the FS one is the larger and goes under.
     const signal = (color: string, peak: number, level: number, ref: number) => ({ color, view: {
         frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'level', xs: [0, 1], values: [level, level],
         waveform: { min: [-peak, -peak], max: [peak, peak], minT: [0, 1], maxT: [0, 1], absolutePeak: peak, unit: ref === 1 ? 'FS' : 'Pa', ref },
+        levelBins: { edges: [0, 1], power: [peak * peak / 2], count: [48000] },
     } as StageView });
     const pa = signal('blue', 0.1, 71, 2e-5), fs = signal('yellow', 0.5, -9, 1);
     assert.deepEqual(byLevel([pa, fs], pa.view).map(item => item.color), ['yellow', 'blue']);
 });
 
 test('silence on screen lowers a line\'s level as no power, instead of being left out', () => {
-    const layer = (color: string, values: number[]) => ({ view: { ...line(values), xs: [100, 200, 400, 800] }, color });
+    const layer = (color: string, values: number[]) => ({ view: measured({ ...line(values), xs: [100, 200, 400, 800] }), color });
     const gaps = layer('blue', [-20, -300, -300, -300]), steady = layer('yellow', [-23, -23, -23, -23]);
     assert.deepEqual(byLevel([gaps, steady], steady.view).map(item => item.color), ['yellow', 'blue']);
+});
+
+test('the order comes from every value before thinning, never from the points drawn (R2, R6)', () => {
+    // Drawn, the blue line's thinned points look louder (one −10 dB spike kept as a bucket's highest); over every bin
+    // it is the quieter. It goes on top.
+    const spiky = { view: measured(line([-10, -70, -70]), [-40, -70, -70]), color: 'blue' };
+    const steady = { view: measured(line([-30, -30, -30])), color: 'yellow' };
+    assert.deepEqual(byLevel([spiky, steady], line([0, 0, 0])).map(item => item.color), ['yellow', 'blue']);
+    // A DC signal, and a signal zoomed in to single samples, have their mean square, not the zero of max − min.
+    const signal = (color: string, power: number) => ({ color, view: {
+        frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs: [0, 1], values: [0.5, 0.5],
+        waveform: { min: [0.5, 0.5], max: [0.5, 0.5], minT: [0, 1], maxT: [0, 1], absolutePeak: 0.5, unit: '', ref: 1 },
+        levelBins: { edges: [0, 0.5, 1], power: [power, power], count: [2, 2] },
+    } as StageView });
+    const dc = signal('dc', 0.25), faint = signal('faint', 0.0001);
+    assert.deepEqual(byLevel([faint, dc], dc.view).map(item => item.color), ['dc', 'faint']);
+    // Over part of the axis, only the stretches on screen count.
+    const late = { color: 'late', view: { ...dc.view, levelBins: { edges: [0, 0.5, 1], power: [0, 1], count: [2, 2] } } };
+    const early = { color: 'early', view: { ...dc.view, levelBins: { edges: [0, 0.5, 1], power: [0.5, 0], count: [2, 2] } } };
+    assert.deepEqual(byLevel([late, early], dc.view, { start: 0, end: 0.5 }).map(item => item.color), ['early', 'late']);
+    assert.deepEqual(byLevel([early, late], dc.view, { start: 0.5, end: 1 }).map(item => item.color), ['late', 'early']);
+});
+
+test('a level drawn with no levels from its values before thinning is written as unmeasured, for the audit to fail (R6)', () => {
+    const { canvas } = strokingCanvas();
+    paintOverlay(canvas, { layers: [{ view: line([-20, -20, -20]), color: 'a' }, { view: measured(line([-40, -40, -40])), color: 'b' }] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dB]' });
+    assert.match(canvas.dataset.plotOrder ?? '', /\?/u);
 });
 
 test('a colour bar stays inside a narrow plot: its name shrinks to the unit, then is left out', () => {

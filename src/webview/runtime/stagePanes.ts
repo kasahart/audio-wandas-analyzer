@@ -297,10 +297,11 @@ export function axisFractionOf(view: Pick<StageView, 'xs' | 'xScale' | 'xLimits'
 export function axisValueAt(view: Pick<StageView, 'xs' | 'xScale' | 'xLimits'>, fraction: number): number { return axisScale(view).at(fraction); }
 /**
  * Overlaid lines in drawing order by level over the shown part of the axis: the loudest first, the quietest last on
- * top, so a louder recording does not cover a quieter one. A spectrum's level is the power mean of its dB values on
- * screen; a waveform's, the mean square of its drawn envelope on the amplitude axis the signals share (not dB of each
- * one's own reference). Lines not in dB, or with nothing on screen, keep their place among themselves after the
- * rest; the colours and the legend are not changed.
+ * top, so a louder recording does not cover a quieter one. A line's level is its power over the stretches of its axis
+ * on screen (`levelBins`, R6), taken by the backend from every value before the line was thinned to be drawn (R2): a
+ * signal's mean square on the amplitude axis the signals share, a spectrum's power mean of its dB. The drawn points
+ * are never measured. Lines with no levelBins (not a level, or nothing shown) keep their place among themselves after
+ * the rest; the colours and the legend are not changed.
  */
 export function byLevel(layers: StageLayer[], axisView: Pick<StageView, 'xs' | 'xScale' | 'xLimits'> | undefined, window: NormalizedRange = FULL_WINDOW): StageLayer[] {
     const level = levelOnScreen(axisView, window);
@@ -309,38 +310,44 @@ export function byLevel(layers: StageLayer[], axisView: Pick<StageView, 'xs' | '
         .map(item => item.layer);
 }
 
-/** A line's level as byLevel orders it, over the part of the axis on screen (−Infinity: not a level, or nothing shown). */
+/** A line's level as byLevel orders it, over the part of the axis on screen (−Infinity: no levelBins, or nothing shown). */
 function levelOnScreen(axisView: Pick<StageView, 'xs' | 'xScale' | 'xLimits'> | undefined, window: NormalizedRange): (layer: StageLayer) => number {
     const scale = axisView?.xs?.length ? axisScale(axisView) : null;
     return (layer: StageLayer): number => {
-        const { view } = layer;
-        const shown = (x: number | null | undefined): boolean => {
-            if (x === null || x === undefined) return false;
-            const at = scale ? scale.fraction(x) : 0.5;
-            return at >= window.start && at <= window.end;
-        };
-        if (view.waveform) {
-            // As drawn: on the amplitude axis all the signals share, not in dB of each one's own reference.
-            const { min, max, minT, maxT } = view.waveform;
-            let power = 0, count = 0;
-            max.forEach((high, index) => {
-                const low = min[index];
-                if (high === null || low === null || !shown(maxT[index] ?? minT[index])) return;
-                power += ((high - low) / 2) ** 2; count += 1;
-            });
-            return count && power > 0 ? 10 * Math.log10(power / count) : -Infinity;
-        }
-        if (!isDb(view)) return -Infinity;
-        const xs = view.xs ?? [], values = view.values ?? [];
+        const bins = layer.view.levelBins;
+        if (!bins) return -Infinity;
         let power = 0, count = 0;
-        values.forEach((value, index) => {
-            if (value === null || !Number.isFinite(value) || !shown(xs[index])) return;
-            // Silence on screen counts, as no power.
-            if (!silent(view, value)) power += 10 ** (value / 10);
-            count += 1;
-        });
+        for (let index = 0; index < bins.count.length; index++) {
+            const n = bins.count[index] ?? 0;
+            if (!n) continue;
+            // A stretch is on screen when its middle is (on the axis's own scale: log for a spectrum).
+            const low = bins.edges[index], high = bins.edges[index + 1];
+            const middle = scale ? (scale.fraction(low) + scale.fraction(high)) / 2 : 0.5;
+            if (middle < window.start || middle > window.end) continue;
+            power += (bins.power[index] ?? 0) * n;
+            count += n;
+        }
         return count && power > 0 ? 10 * Math.log10(power / count) : -Infinity;
     };
+}
+
+/**
+ * A line's levelBins (see byLevel) from the values it has before thinning, for a line the webview holds in full (the
+ * cursor spectrum's slice): its dB values' power in `bins` stretches of `span` on its axis, silence as no power.
+ */
+export function levelBinsOf(xs: ArrayLike<number>, values: ArrayLike<number | null>, span: readonly [number, number], log: boolean, bins = 256): NonNullable<StageView['levelBins']> {
+    const [low, high] = log ? [Math.max(span[0], Number.MIN_VALUE), span[1]] : span;
+    const edges = Array.from({ length: bins + 1 }, (_, i) => (log && low > 0 && high > low ? low * (high / low) ** (i / bins) : low + (high - low) * (i / bins)));
+    const power = new Array<number>(bins).fill(0), count = new Array<number>(bins).fill(0);
+    for (let index = 0; index < xs.length; index++) {
+        const x = xs[index], value = values[index];
+        if (value === null || value === undefined || !Number.isFinite(value) || !Number.isFinite(x) || x < low || x > high || (log && x <= 0)) continue;
+        const at = log ? Math.log(x / low) / Math.log(high / low) : (x - low) / (high - low || 1);
+        const bin = Math.min(bins - 1, Math.max(0, Math.floor(at * bins)));
+        power[bin] += value <= -250 ? 0 : 10 ** (value / 10);
+        count[bin] += 1;
+    }
+    return { edges, power: power.map((sum, i) => (count[i] ? sum / count[i] : 0)), count };
 }
 
 /**
@@ -373,7 +380,13 @@ export function drawnLevelsText(drawn: readonly StageLayer[], axisView: Pick<Sta
     const lines = drawn.filter(comparedLine);
     if (lines.length < 2) return '';
     const level = levelOnScreen(axisView, window);
-    return lines.map(layer => { const value = level(layer); return Number.isFinite(value) ? value.toFixed(2) : '-inf'; }).join(',');
+    // A level (or a signal) drawn with no levelBins could only be ordered by its drawn points: written as '?', which
+    // the audit fails on every plot shown (R2, R6).
+    return lines.map(layer => {
+        if (!layer.view.levelBins && (isDb(layer.view) || layer.view.waveform)) return '?';
+        const value = level(layer);
+        return Number.isFinite(value) ? value.toFixed(2) : '-inf';
+    }).join(',');
 }
 /** The same for a heatmap's rows (frequency, Bark or quefrency). */
 export function rowFractionOf(view: StageView, value: number): number { return rowScale(view).fraction(value); }
