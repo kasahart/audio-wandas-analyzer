@@ -31,7 +31,8 @@ export interface SidePlotsDeps {
     heldCanvas: HTMLCanvasElement;
     /** The rows the table shows, in its order. */
     rows(): readonly DatasetRow[];
-    focusedFile(): string | null;
+    /** The focused table row's key (rowKey: a channel's row of a recording of several), for the strip's mark. */
+    focusedRow(): string | null;
     paintDistribution(): void;
     /** The held plot drawn (or hidden), and what it last drew. */
     paintHeld(): void;
@@ -116,7 +117,7 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
         const rows = deps.rows();
         const rowHeight = (body.querySelector('tr') as HTMLElement | null)?.offsetHeight || 22;
         const first = Math.floor(tableWrap.scrollTop / rowHeight);
-        overviewDrawn = paintOverview(overview, strings, rows, levels, { first, last: first + Math.ceil(tableWrap.clientHeight / rowHeight) - 2 }, deps.focusedFile(), keepWindow('overview', String(rows.length)),
+        overviewDrawn = paintOverview(overview, strings, rows, levels, { first, last: first + Math.ceil(tableWrap.clientHeight / rowHeight) - 2 }, deps.focusedRow(), keepWindow('overview', String(rows.length)),
             { label: levelLabel(), calibrated: levelLabels.size > 0 && calibrated.size === levelLabels.size }, version).drawn;
         // The zoom on each plot, for tests: "x0-x1|y0-y1".
         for (const [name, canvas] of [['overview', overview], ['held', heldCanvas]] as const) {

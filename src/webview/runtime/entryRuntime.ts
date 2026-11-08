@@ -242,7 +242,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     /** The overview strip and the held plot beside the distribution, each zoomed as the lanes are. */
     const sidePlots = createSidePlots({
         document, window, strings, screen, side, body, tableWrap, overview, heldCanvas,
-        rows: () => shownRows, focusedFile: () => focusedFile(), paintDistribution: () => paintDistribution(),
+        rows: () => shownRows, focusedRow: () => focus.key, paintDistribution: () => paintDistribution(),
         paintHeld: () => heldPlot.paint(), heldPicture: () => heldPlot.picture(), pickRow: key => redraw.batch(() => focusRow(key, true)),
     });
     const distPane = createDistributionPane({

@@ -91,6 +91,7 @@ export function paintOverview(
     rows: ReadonlyArray<OverviewRow>,
     bands: ReadonlyMap<string, (number | null)[]>,
     visible: { first: number; last: number },
+    /** The focused table row's key (rowKey), marked on the strip. */
     focused: string | null,
     /** The part on screen (zoomed): x of the bands, y of the rows (0 at the bottom). */
     window: PlotWindow = FULL_PLOT_WINDOW,
@@ -137,7 +138,7 @@ export function paintOverview(
         if (box) Object.assign(element.style, { left: `${canvas.offsetLeft + x}px`, top: `${canvas.offsetTop + box.top}px`, width: `${w}px`, height: `${box.height}px` });
     };
     place(frame, visible.last >= visible.first ? clip(rowTop(visible.first), rowTop(visible.last + 1)) : null, left, plotWidth);
-    const at = rows.findIndex(row => row.filePath === focused);
+    const at = rows.findIndex(row => (row.key ?? row.filePath) === focused);
     place(mark, at >= 0 ? clip(rowTop(at), Math.max(rowTop(at) + 2, rowTop(at + 1))) : null, left, 3);
     return { drawn };
 }
