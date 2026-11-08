@@ -6,11 +6,11 @@ import test from 'node:test';
 /**
  * R7, R13: every plot answers the pointer and the keys from one place, the shared plot gestures: the listeners in
  * trackPointerEvents.ts, which plotInteraction.ts builds every plot's hover, ← / → step, box zoom, Alt+ and
- * Shift+drag, wheel and double-click on. No other webview module listens for pointer or key events of its own for a
- * plot, and none attaches those listeners but plotInteraction.ts: a plot that needs another gesture gets an option
- * there, for every plot.
+ * Shift+drag, wheel, double-click and click (a press that stayed put: the `tap` option) on. No other webview module
+ * listens for pointer, click or key events of its own for a plot, and none attaches those listeners but
+ * plotInteraction.ts: a plot that needs another gesture gets an option there, for every plot.
  *
- * A module that listens for those events for something that is not a plot (a resize edge, a popover, a chip) is in
+ * A module that listens for those events for something that is not a plot (a resize edge, a popover, a chip, a button) is in
  * NOT_PLOTS with each event it listens to and why. The list only shrinks: an event a module no longer listens to fails
  * until it is taken off, and a new one fails until it is put on with its reason.
  */
@@ -20,32 +20,35 @@ const webview = path.resolve(__dirname, '..', '..', 'src', 'webview');
 const SHARED: Record<string, string> = {
     'runtime/trackPointerEvents.ts': 'the plots\' pointer listeners and their ← / → key context',
     'runtime/keyRouter.ts': 'the one window key listener every key context goes through',
+    'runtime/plotInteraction.ts': 'the click a drag (a box zoom) ends with is not passed on: a plot\'s own click is its `tap`',
 };
 
 const NOT_PLOTS: Record<string, { events: readonly string[]; why: string }> = {
-    'rangePopover.ts': { events: ['mousedown'], why: 'a press outside the axis range popover closes it' },
-    'runtime/comparisonRuntime.ts': { events: ['dblclick', 'pointerdown', 'pointermove', 'pointerup', 'pointercancel'], why: 'the waveform/spectrogram split and the side panel\'s edge dragged, a panel edge double-clicked to fold it' },
-    'runtime/entryRuntime.ts': { events: ['dblclick', 'mouseover', 'pointerdown'], why: 'the entry table\'s rows and bar (double-click a row or the bar, a row lights its lane, a press outside its popovers)' },
-    'runtime/helpOverlay.ts': { events: ['mousedown'], why: 'the help button keeps the focus where it was' },
+    'rangePopover.ts': { events: ['mousedown', 'click'], why: 'a press outside the axis range popover closes it; its Apply, Auto and close buttons' },
+    'runtime/comparisonRuntime.ts': { events: ['dblclick', 'pointerdown', 'pointermove', 'pointerup', 'pointercancel', 'click'], why: 'the waveform/spectrogram split and the side panel\'s edge dragged, a panel edge double-clicked to fold it; the Python setup button, the folded spectrum header, the loop time copied, the folder selection\'s buttons' },
+    'runtime/entryRuntime.ts': { events: ['dblclick', 'mouseover', 'pointerdown', 'click'], why: 'the entry table\'s rows and bar (double-click a row or the bar, a row lights its lane, a press outside its popovers, the screen\'s buttons and menus)' },
+    'runtime/helpOverlay.ts': { events: ['mousedown', 'click'], why: 'the help button keeps the focus where it was; it opens the help, and its backdrop or × closes it' },
     'runtime/hintFooter.ts': { events: ['mousemove', 'mouseover', 'mouseout', 'focus', 'blur'], why: 'the footer names what is under the pointer or focused (data-hint), on every element' },
-    'runtime/offsetInlineEditor.ts': { events: ['keydown', 'blur', 'dblclick'], why: 'the track offset\'s text field, opened or reset on its value' },
+    'runtime/offsetInlineEditor.ts': { events: ['keydown', 'blur', 'dblclick', 'click'], why: 'the track offset\'s text field, opened or reset on its value' },
     'runtime/pairSpectrumPanel.ts': { events: ['pointerdown', 'pointermove', 'pointerup', 'pointercancel'], why: 'the divider between the power spectrum and the pair view dragged' },
-    'runtime/roleChip.ts': { events: ['keydown', 'pointerdown'], why: 'a role chip\'s menu' },
+    'runtime/roleChip.ts': { events: ['keydown', 'pointerdown', 'click'], why: 'a role chip\'s menu' },
     'runtime/separatorKeys.ts': { events: ['focusin'], why: 'a focused resize edge says its value' },
-    'runtime/staticDialogs.ts': { events: ['pointerdown'], why: 'a press outside a dialog of the browser build closes it' },
-    'runtime/staticFooter.ts': { events: ['mouseover', 'focusin', 'pointerdown'], why: 'the browser build\'s footer and its about popover' },
-    'runtime/stepBar.ts': { events: ['keydown', 'pointerdown'], why: 'the step bar\'s chips, menu and forms' },
+    'runtime/spectrogramSettingsPopover.ts': { events: ['click'], why: 'a lane\'s spectrogram settings: its gear button, Reset and Apply, a click outside closes it' },
+    'runtime/staticDialogs.ts': { events: ['pointerdown', 'click'], why: 'a press outside a dialog of the browser build closes it; its buttons' },
+    'runtime/staticFooter.ts': { events: ['mouseover', 'focusin', 'pointerdown', 'click'], why: 'the browser build\'s footer and its about popover; a control the browser build does not have says so' },
+    'runtime/stepBar.ts': { events: ['keydown', 'pointerdown', 'click'], why: 'the step bar\'s chips, menu and forms' },
     'runtime/stepGestures.ts': { events: ['pointerdown', 'pointerup', 'pointercancel'], why: 'a step chip held to show the chain without it' },
-    'runtime/toolbarEvents.ts': { events: ['pointerdown', 'pointermove', 'pointerup', 'pointercancel'], why: 'the toolbar\'s menus and the height edges dragged' },
-    'runtime/trackLaneActions.ts': { events: ['pointerdown'], why: 'a press outside a lane\'s menu closes it' },
+    'runtime/toolbarEvents.ts': { events: ['pointerdown', 'pointermove', 'pointerup', 'pointercancel', 'click'], why: 'the toolbar\'s buttons and menus, and the height edges dragged' },
+    'runtime/trackLaneActions.ts': { events: ['pointerdown', 'click'], why: 'a lane\'s buttons and … menu; a press outside the menu closes it' },
+    'runtime/trackStageMode.ts': { events: ['click'], why: 'the comparison\'s buttons (layout, Δ, play, the base group\'s scan and info) and a lane\'s event marks (▶, ×, ↺)' },
 };
 
-const EVENTS = /addEventListener\(\s*['"](mouse(?:down|move|up|leave|enter|over|out)|pointer(?:down|move|up|cancel)|wheel|dblclick|key(?:down|up)|focus(?:in|out)?|blur)['"]/g;
+const EVENTS = /addEventListener\(\s*['"](mouse(?:down|move|up|leave|enter|over|out)|pointer(?:down|move|up|cancel)|wheel|click|dblclick|key(?:down|up)|focus(?:in|out)?|blur)['"]/g;
 /**
  * A pointer event named anywhere else (a loop over names, `.onwheel =`) is listened to as well; one taken off
  * (removeEventListener) is not.
  */
-const NAMED = /(['"`])((?:mouse|pointer)[a-z]+|wheel|dblclick|contextmenu)\1|\.on((?:mouse|pointer)[a-z]+|wheel|dblclick|contextmenu)\s*=/g;
+const NAMED = /(['"`])((?:mouse|pointer)[a-z]+|wheel|click|dblclick|contextmenu)\1|\.on((?:mouse|pointer)[a-z]+|wheel|click|dblclick|contextmenu)\s*=/g;
 
 function sources(dir: string, base = dir): string[] {
     return readdirSync(dir).flatMap(name => {
@@ -70,7 +73,8 @@ test('pointer events are found however they are listened to, and not where a lis
         "canvas.removeEventListener('mousedown', press);",
         "canvas.addEventListener('click', pick);",
         "field.addEventListener('keydown', key);",
-    ].join('\n')).sort(), ['dblclick', 'keydown', 'pointerup', 'wheel']);
+        'canvas.onclick = pick;',
+    ].join('\n')).sort(), ['click', 'dblclick', 'keydown', 'pointerup', 'wheel']);
 });
 
 test('no webview module listens for pointer or key events of a plot outside the shared plot gestures, except those listed with why (R7, R13)', () => {

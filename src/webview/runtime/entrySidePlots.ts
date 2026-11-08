@@ -136,15 +136,6 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
     }
 
     function attach(): void {
-        overview.addEventListener('click', event => {
-            const rows = deps.rows();
-            const box = overview.getBoundingClientRect();
-            // The strip's rows (top first) over the part of it on screen.
-            const zoom = plotWindow('overview');
-            const plotTop = box.top + OVERVIEW_MARGINS.top, plotHeight = box.height - OVERVIEW_MARGINS.top - OVERVIEW_MARGINS.bottom;
-            const row = rows[Math.floor(((1 - zoom.y.end) + (event.clientY - plotTop) / Math.max(1, plotHeight) * (zoom.y.end - zoom.y.start)) * rows.length)];
-            if (row) deps.pickRow(row.key);
-        });
         const zoomBox = document.createElement('div');
         zoomBox.className = 'entry-zoom-box';
         zoomBox.hidden = true;
@@ -180,6 +171,17 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
             },
             clearHover() { pointer = null; marks.hide(); /* the panel's own hints stay */ },
             stepFrom(plot, delta, arrived) { return marks.stepFrom(plot, plot === heldCanvas ? deps.heldPicture()?.drawn ?? null : overviewDrawn, delta, arrived); },
+            // A press on the strip that stayed put (a drag zooms instead) goes to the row under it.
+            tap(plot, event) {
+                if (plot !== overview) return;
+                const rows = deps.rows();
+                const box = overview.getBoundingClientRect();
+                // The strip's rows (top first) over the part of it on screen.
+                const zoom = plotWindow('overview');
+                const plotTop = box.top + OVERVIEW_MARGINS.top, plotHeight = box.height - OVERVIEW_MARGINS.top - OVERVIEW_MARGINS.bottom;
+                const row = rows[Math.floor(((1 - zoom.y.end) + (event.clientY - plotTop) / Math.max(1, plotHeight) * (zoom.y.end - zoom.y.start)) * rows.length)];
+                if (row) deps.pickRow(row.key);
+            },
             showBox(plot, from, to) {
                 const box = plot.getBoundingClientRect(), outer = side.getBoundingClientRect(), margins = marginsOf(plot);
                 const width = box.width - margins.left - margins.right, height = box.height - margins.top - margins.bottom;

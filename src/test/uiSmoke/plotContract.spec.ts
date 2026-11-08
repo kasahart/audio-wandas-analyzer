@@ -65,6 +65,70 @@ async function openComparison(page: Page, files: ScannedFile[]): Promise<void> {
     await answer(page, files);
 }
 
+/**
+ * The point a plot reads now (plotHoverLayer.ts's notePlotRead keeps it on the plot, `__plotRead`): where it is along
+ * the horizontal axis (`at`), its row for an image, and whether it is on the line the first read was on. Polled until
+ * there is one (its full data may be on its way) and, given `from`, until it is another than that one.
+ */
+type PointRead = { at: number; row: number | null; sameLayer: boolean };
+type NotedPlot = HTMLElement & { __plotRead?: { at?: number; row?: number; image?: boolean; layer: { label?: string; color?: string; source?: string; event?: { id: number } } } | null; __stepLayer?: string };
+async function pointRead(plot: Locator, from?: PointRead | null): Promise<PointRead | null> {
+    const now = (): Promise<PointRead | null> => plot.evaluate((canvas, first) => {
+        const noted = canvas as NotedPlot;
+        const read = noted.__plotRead;
+        if (!read || read.at === undefined) return null;
+        // The line read, by what tells it apart (a plot drawn again under a step makes its layers anew).
+        const layer = [read.layer.label, read.layer.color, read.layer.source, read.layer.event?.id].join('|');
+        if (first) noted.__stepLayer = layer;
+        return { at: read.at, row: read.row ?? null, sameLayer: layer === noted.__stepLayer };
+    }, !from);
+    for (let tries = 0; tries < 100; tries++) {
+        const point = await now();
+        if (point && (!from || point.at !== from.at || point.row !== from.row)) return point;
+        await plot.page().waitForTimeout(100);
+    }
+    return now();
+}
+
+/**
+ * The next point to the right of the one the plot reads, in the full-resolution data that point is read from (R7):
+ * the layer's full source (fullRead.ts: StageLayer.full), asked as the plot asks it, or the points it draws where
+ * they are every point ('drawn', bars). A line's next point is the next with a value to read (not a gap, nor the
+ * silent floor below −250 dB that it draws as a gap); an image's, the next column (time frame, band) on its row.
+ * Null where the plot reads no point of its data.
+ */
+async function nextPoint(plot: Locator): Promise<number | null> {
+    return plot.evaluate(async canvas => {
+        type Points = { xs: number[]; values?: Array<number | null> };
+        type Source = { line?(query: Record<string, unknown>, ready: () => void): Points | null | undefined; cells?(query: Record<string, unknown>, ready: () => void): Points | null | undefined };
+        type Layer = { full?: 'drawn' | Source; view: { kind: string; quantity?: string; xs?: number[]; values?: Array<number | null> } };
+        const read = (canvas as NotedPlot).__plotRead as { at?: number; row?: number; image?: boolean; layer: Layer } | null | undefined;
+        if (!read || read.at === undefined) return null;
+        const at = read.at, layer = read.layer;
+        const source = layer.full && layer.full !== 'drawn' && layer.view.kind !== 'bar' ? layer.full : null;
+        // Asked as the plot asks it: an answer on its way calls `ready`, and is asked again then.
+        const ask = (query: (ready: () => void) => Points | null | undefined): Promise<Points | null> => new Promise(resolve => {
+            let done = false;
+            const finish = (points: Points | null): void => { if (!done) { done = true; resolve(points); } };
+            const ready = (): void => { const got = query(ready); if (got !== undefined) finish(got); };
+            setTimeout(() => finish(null), 15_000);
+            ready();
+        });
+        if (read.image) {
+            if (!source?.cells || read.row === undefined) return null;
+            const got = await ask(ready => source.cells!({ x: at, y: read.row, beyond: 8 }, ready));
+            const xs = got?.xs ?? [];
+            const column = xs.findIndex(x => x === at);
+            return column >= 0 && column + 1 < xs.length ? xs[column + 1] : null;
+        }
+        const got = source?.line ? await ask(ready => source.line!({ x0: at, x1: at, beyond: 8 }, ready)) : source ? null : { xs: layer.view.xs ?? [], values: layer.view.values };
+        if (!got) return null;
+        const readable = (value: number | null | undefined): boolean => value !== null && value !== undefined && Number.isFinite(value) && !(value <= -250 && layer.view.quantity !== 'value');
+        const index = got.xs.findIndex((x, i) => x > at && readable(got.values?.[i]));
+        return index >= 0 ? got.xs[index] : null;
+    });
+}
+
 /** The checks a plot passes, each tried on its own; a failure is noted, not thrown, so every check is tried. */
 async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
     const passed = new Set<Check>();
@@ -113,17 +177,27 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
         try { const stack = document.elementsFromPoint(x, y); return stack.includes(layer) && stack[0] !== layer; } finally { layer.style.pointerEvents = ''; }
     }), middle);
     if (above && !buried && Math.abs((await plot.boundingBox())!.y - box.y) < 0.5) passed.add('readout');
-    // ← / → under the still pointer step the readout one point at a time (R7): → reads another point, ← another
-    // again, and → once more the one the first → read; the readout stays in its row above the plot.
+    // ← / → under the still pointer step the readout one point at a time (R7): → reads the very next point of the
+    // full-resolution data the plot reads from (its next sample, bin, band or frame, however many share a pixel), ←
+    // the one before it again, and → once more that next one; the readout stays in its row above the plot.
     const read = async (): Promise<string> => (await readouts(rowTop)).filter(Boolean).join(' | ');
+    const origin = await pointRead(plot);
+    const next = origin ? await nextPoint(plot) : null;
     const steps: string[] = [];
+    const stepped: Array<PointRead | null> = [];
     for (const key of ['ArrowRight', 'ArrowLeft', 'ArrowRight']) {
+        const from = stepped.at(-1) ?? origin;
         await page.keyboard.press(key);
         await page.waitForTimeout(80);
+        stepped.push(await pointRead(plot, from));
         steps.push(await read());
     }
     const hovered = await read();
-    if (above && steps.every(Boolean) && steps[0] !== after.filter(Boolean).join(' | ') && steps[1] !== steps[0] && steps[2] === steps[0] && hovered === steps[2]) passed.add('step');
+    const same = (a: number, b: number): boolean => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a), Math.abs(b));
+    const onPoint = (point: PointRead | null, at: number | null | undefined): boolean => !!point && !!origin && at !== null && at !== undefined
+        && point.sameLayer && same(point.at, at) && (origin.row === null ? point.row === null : point.row !== null && same(point.row, origin.row));
+    const onePoint = !!next && onPoint(stepped[0], next) && onPoint(stepped[1], origin?.at) && onPoint(stepped[2], next);
+    if (above && onePoint && steps.every(Boolean) && steps[0] !== after.filter(Boolean).join(' | ') && steps[1] !== steps[0] && steps[2] === steps[0] && hovered === steps[2]) passed.add('step');
     // Ctrl+wheel zooms; a double-click resets. Each is seen in what the plot shows, not only in its attributes: its
     // picture is drawn again and differs from the one before (reset need not be the very first picture: a plot may
     // have taken finer data while zoomed).
