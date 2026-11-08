@@ -11,7 +11,6 @@ import {
     formatHz,
     dbToRgb,
     drawSpectrumSelectionBox,
-    drawCanvasMessage,
     type CanvasDrawCtx,
 } from '../webview/draw/canvasDrawers';
 
@@ -127,25 +126,4 @@ test('drawSpectrumSelectionBox: 正規化座標の 2 点から左上基準の矩
     ]);
     assert.ok(ctx._ops.some((o) => o.op === 'setLineDash'));
     assert.equal(ctx._ops[ctx._ops.length - 1].op, 'restore');
-});
-
-// ── drawCanvasMessage ──
-
-test('drawCanvasMessage: キャンバスを消去してから中央にメッセージを描く', () => {
-    const ctx = makeMockCtx();
-    drawCanvasMessage(ctx, 200, 80, 'No data', '11px sans-serif', '#888');
-    assert.deepEqual(ctx._ops[0], { op: 'clearRect', args: [0, 0, 200, 80] });
-    assert.deepEqual(ctx._ops[ctx._ops.length - 1], { op: 'fillText', args: ['No data', 100, 40] });
-    assert.equal(ctx.fillStyle, '#888');
-    assert.equal(ctx.font, '11px sans-serif');
-    assert.equal(ctx.textAlign, 'center');
-});
-
-test('drawCanvasMessage: 改行ごとに 1 行ずつ、まとまりを中央に描く', () => {
-    const ctx = makeMockCtx();
-    drawCanvasMessage(ctx, 200, 80, 'Summary\nDetail', '11px sans-serif', '#888');
-    assert.deepEqual(ctx._ops.filter((o) => o.op === 'fillText'), [
-        { op: 'fillText', args: ['Summary', 100, 33] },
-        { op: 'fillText', args: ['Detail', 100, 47] },
-    ]);
 });

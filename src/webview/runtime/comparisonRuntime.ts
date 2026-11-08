@@ -11,7 +11,7 @@ import { attachOffsetEditing } from './offsetInlineEditor';
 import { dispatchTestMouseEvent, fillSpectrogramDisplayForm, fillSpectrogramSettingsForm, heightDragFromPayload, loopRegionFromPayload, setTestInputValue, testActionTrackId } from './testActionForms';
 import { nextRequestId } from './hostRequests';
 import { DEFAULT_PYTHON_ENVIRONMENT_STATE, isResponseToLazyRequest, mergeDetailSpectrograms, pythonEnvironmentStateFromMessage } from './lazyResponses';
-import { drawCanvasMessage, type DrawTheme } from '../draw/canvasDrawers';
+import type { DrawTheme } from '../draw/canvasDrawers';
 import { isCacheSufficient, isOverviewSufficient, isRangeCacheDrawable, parseRangeRequestKey, planLaneRange, rangeCacheCoversView, rangeHasDetail } from '../waveform/rangeRequestPolicy';
 import { extractSpectrumAtCursor as extractCursorSpectrum } from '../spectrum/cursorSpectrum';
 import { spectrogramWindowServes, spectrogramZoomWindow, type SpectrogramWindow, type SpectrogramZoomSource } from '../spectrum/spectrogramZoom';
@@ -53,7 +53,7 @@ import { keyRouterFor } from './keyRouter';
 import { attachSeparatorKeys } from './separatorKeys';
 import { attachTrackPointerListeners } from './trackPointerEvents';
 import { buildPythonButtonText, buildPythonTooltip, isPythonEnvError } from './pythonEnvironmentLabels';
-import { laneAmplitudeRange, laneAmplitudeTicks, laneTimeTicks, markEmptyLanePlot, markLanePlot } from './laneAxes';
+import { laneAmplitudeRange, laneAmplitudeTicks, laneTimeTicks, markLanePlot } from './laneAxes';
 import { createPlaybackDisplay } from './playbackDisplay';
 import { installLayoutResizeHandling } from './layoutResize';
 import { syncPanelToggle, syncSpectrumMaximize } from './panelCollapse';
@@ -2130,8 +2130,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         drawRectZoomSelectionOnCanvas(ctx, W, H, trackIndex);
     }
     function drawSpectrogram(canvas: HTMLCanvasElement, result: ComparisonTrackState, trackIndex: number, channelIndex: number, offsetSeconds: number) {
-        // Its axes are named once its picture is drawn (below); until then it is an empty plot, as an empty pane is.
-        markEmptyLanePlot(canvas);
         const ctx = canvas.getContext('2d');
         if (!ctx) {
             return;
@@ -2155,7 +2153,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const message = failure && failure.settingsSignature === currentSettingsSignature()
                 ? spectrogramFailureText(STR, failure.message)
                 : STR.spectrogramLoading;
-            drawCanvasMessage(ctx, W, H, message, '11px sans-serif', drawTheme().mutedColor);
+            // An empty plot with its message, drawn by the plot component as an empty pane is: no axes named yet.
+            paintOverlay(canvas, { layers: [] }, { min: 0, max: 1 }, { x: STR.axisTime, y: STR.axisFrequency }, { axisCanvas: null, empty: message });
+            delete canvas.dataset.plotAxis;
+            delete canvas.dataset.plotWindow;
             return;
         }
         // The colours and frequency range follow the whole file's, so a zoom window drawn in its place keeps them.

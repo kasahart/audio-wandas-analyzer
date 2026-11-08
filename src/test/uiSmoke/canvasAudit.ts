@@ -8,10 +8,12 @@
  * readout of every plot has a row of its own outside the plots, so the lines under the pointer stay in view; and its
  * values shown past the end of that row or the window fail it too.
  *
- * And (R13): a canvas on screen not drawn by the plot component fails it, unless plotRegistry.ts lists it.
+ * And (R13): a canvas on screen not drawn by the plot component fails it, unless plotRegistry.ts lists it; so does a
+ * plot (a canvas the component marked) drawn into by anything but the component, which is what drew it, not its
+ * mark; and a chart drawn as SVG or as boxes of the page instead of on a plot.
  */
 import { test as base } from '@playwright/test';
-import { PLOT_LAYERS, PLOTS_PENDING } from './plotRegistry';
+import { DRAWN_OUTSIDE_PENDING, PLOT_LAYERS, PLOTS_PENDING, SVG_CHARTS_PENDING } from './plotRegistry';
 
 export * from '@playwright/test';
 
@@ -20,15 +22,55 @@ export * from '@playwright/test';
  * so 6 frames and 100 ms (both, for a slow machine's long frames) is a canvas that will not be drawn again.
  */
 const SETTLE = { frames: 6, ms: 100 };
-const AUDIT = { settle: SETTLE, others: [...PLOTS_PENDING.map(item => item.selector), ...PLOT_LAYERS].join(', ') };
+const AUDIT = {
+    settle: SETTLE,
+    others: [...PLOTS_PENDING.map(item => item.selector), ...PLOT_LAYERS].join(', '),
+    drawnOutside: DRAWN_OUTSIDE_PENDING.map(item => item.selector).join(', '),
+    svgCharts: SVG_CHARTS_PENDING.map(item => item.selector).join(', '),
+};
+/** An SVG this large on both sides is a chart, not an icon. */
+const SVG_CHART_MIN = { width: 64, height: 40 };
 
 declare global {
-    interface Window { __canvasAudit?: string[]; __readoutAudit?: string[]; __plotAudit?: string[] }
+    interface Window { __canvasAudit?: string[]; __readoutAudit?: string[]; __plotAudit?: string[]; __drawnAudit?: string[]; __svgAudit?: string[]; __plotPainting?: number }
 }
 
 /** Runs in the page: samples the canvases on screen and records each one that stayed at another size. */
-function installCanvasAudit({ settle, others }: { settle: { frames: number; ms: number }; others: string }): void {
+function installCanvasAudit({ settle, others, drawnOutside, svgCharts, svgMin }: { settle: { frames: number; ms: number }; others: string; drawnOutside: string; svgCharts: string; svgMin: { width: number; height: number } }): void {
     if (window.__canvasAudit) return;
+    const canvasName = (canvas: HTMLCanvasElement): string => (canvas.id ? `#${canvas.id}` : `canvas${Array.from(canvas.attributes).filter(a => a.name === 'class' || (a.name.startsWith('data-') && !a.name.startsWith('data-plot'))).map(a => (a.name === 'class' ? `.${a.value.trim().split(/\s+/).join('.')}` : `[${a.name}]`)).join('')}`);
+    // What drew each plot: a draw into a canvas the plot component marked, made while the component is not drawing,
+    // is recorded (copying a kept picture back, drawImage of a canvas, is the component's own picture again).
+    const drawn: string[] = [];
+    window.__drawnAudit = drawn;
+    const drawnSeen = new Set<string>();
+    const proto = CanvasRenderingContext2D.prototype as unknown as Record<string, (...args: unknown[]) => unknown>;
+    for (const method of ['fill', 'stroke', 'fillRect', 'strokeRect', 'fillText', 'strokeText', 'putImageData', 'drawImage']) {
+        const original = proto[method];
+        proto[method] = function (this: CanvasRenderingContext2D, ...args: unknown[]) {
+            const canvas = this.canvas;
+            // A plot on the page (an export's picture made off the page, with its white paper under it, is not one).
+            if (canvas instanceof HTMLCanvasElement && canvas.isConnected && canvas.hasAttribute('data-plot') && !(window.__plotPainting ?? 0)
+                && !(method === 'drawImage' && args[0] instanceof HTMLCanvasElement) && !(drawnOutside && canvas.matches(drawnOutside))) {
+                const name = `${canvasName(canvas)}: ${method}`;
+                if (!drawnSeen.has(name)) { drawnSeen.add(name); drawn.push(name); }
+            }
+            return original.apply(this, args);
+        };
+    }
+    // Charts drawn as SVG: on screen, a chart's size, and not listed while it waits for its move.
+    const svgs: string[] = [];
+    window.__svgAudit = svgs;
+    const svgSeen = new Set<string>();
+    const sampleSvgs = (): void => {
+        for (const svg of Array.from(document.querySelectorAll('svg'))) {
+            if (svg.parentElement?.closest('svg')) continue;
+            const box = svg.getBoundingClientRect();
+            if (box.width < svgMin.width || box.height < svgMin.height || !svg.checkVisibility({ visibilityProperty: true }) || (svgCharts && svg.matches(svgCharts))) continue;
+            const name = svg.id ? `svg#${svg.id}` : `svg${Array.from(svg.attributes).filter(a => a.name === 'class' || a.name.startsWith('data-')).map(a => (a.name === 'class' ? `.${String(a.value).trim().split(/\s+/).join('.')}` : `[${a.name}]`)).join('')} in ${svg.parentElement?.id ? `#${svg.parentElement.id}` : svg.parentElement?.className ?? ''}`;
+            if (!svgSeen.has(name)) { svgSeen.add(name); svgs.push(`${name} (${Math.round(box.width)}×${Math.round(box.height)})`); }
+        }
+    };
     const unregistered: string[] = [];
     window.__plotAudit = unregistered;
     const found: string[] = [];
@@ -124,27 +166,41 @@ function installCanvasAudit({ settle, others }: { settle: { frames: number; ms: 
             if (!reported.has(`plot ${name}`)) { reported.add(`plot ${name}`); unregistered.push(name); }
         }
     };
-    const tick = (): void => { sample(); sampleReadouts(); samplePlots(); window.requestAnimationFrame(tick); };
+    const tick = (): void => { sample(); sampleReadouts(); samplePlots(); sampleSvgs(); window.requestAnimationFrame(tick); };
     window.requestAnimationFrame(tick);
+}
+
+/** The page with the audit installed by its first script, before any of its own run. */
+export function withAuditFirst(html: string): string {
+    const first = html.search(/<script\b/u);
+    if (first < 0) return html;
+    const nonce = /<script nonce="([^"]+)"/u.exec(html)?.[1];
+    const script = `<script${nonce ? ` nonce="${nonce}"` : ''}>(${installCanvasAudit.toString()})(${JSON.stringify({ ...AUDIT, svgMin: SVG_CHART_MIN })});</script>`;
+    return html.slice(0, first) + script + html.slice(first);
 }
 
 export const test = base.extend<{ canvasAudit: void }>({
     canvasAudit: [async ({ page }, use) => {
-        await page.addInitScript(installCanvasAudit, AUDIT);
-        // setContent writes the document without a navigation, so the init script does not run for it.
+        await page.addInitScript(installCanvasAudit, { ...AUDIT, svgMin: SVG_CHART_MIN });
+        // setContent writes the document without a navigation, so the init script does not run for it: the audit goes
+        // in as the document's first script (with the page's nonce), so the first drawing is audited too.
         const setContent = page.setContent.bind(page);
         page.setContent = async (html, options) => {
-            await setContent(html, options);
-            await page.evaluate(installCanvasAudit, AUDIT);
+            await setContent(withAuditFirst(html), options);
+            await page.evaluate(installCanvasAudit, { ...AUDIT, svgMin: SVG_CHART_MIN });
         };
         await use();
         // A page the test closed has nothing left to check; any other failure to read the audit fails the test.
         if (page.isClosed()) return;
         const found = await page.evaluate(() => window.__canvasAudit ?? []);
-        base.expect(found, 'canvases left drawn at another size than they are shown at').toEqual([]);
+        base.expect.soft(found, 'canvases left drawn at another size than they are shown at').toEqual([]);
         const over = await page.evaluate(() => window.__readoutAudit ?? []);
-        base.expect(over, 'hover readouts shown over a plot, or their values cut off (R7: each has its own row outside the plots)').toEqual([]);
+        base.expect.soft(over, 'hover readouts shown over a plot, or their values cut off (R7: each has its own row outside the plots)').toEqual([]);
         const unregistered = await page.evaluate(() => window.__plotAudit ?? []);
-        base.expect(unregistered, 'plots on screen not drawn by the plot component (R13: draw them with paintOverlay, or list them in plotRegistry.ts while they wait)').toEqual([]);
+        base.expect.soft(unregistered, 'plots on screen not drawn by the plot component (R13: draw them with paintOverlay, or list them in plotRegistry.ts while they wait)').toEqual([]);
+        const drawnOutsideFound = await page.evaluate(() => window.__drawnAudit ?? []);
+        base.expect.soft(drawnOutsideFound, 'plots drawn into outside the plot component (R13: draw it as a layer of paintOverlay, or list it in plotRegistry.ts while it waits)').toEqual([]);
+        const svgFound = await page.evaluate(() => window.__svgAudit ?? []);
+        base.expect.soft(svgFound, 'charts drawn as SVG (R13: draw them with paintOverlay, or list them in plotRegistry.ts while they wait)').toEqual([]);
     }, { auto: true }],
 });

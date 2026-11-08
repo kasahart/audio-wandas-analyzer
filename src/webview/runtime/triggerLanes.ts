@@ -59,43 +59,20 @@ export function paintTriggerLanes(frame: TriggerLanesFrame): number {
         if (!canvas) return;
         const view = views[index];
         const axes = frame.axes(view);
-        const plot = paintOverlay(canvas, { layers: view ? [{ view, color: frame.color(track.filePath), width: 1.5 }] : [] }, range, axes, { window: { x: frame.window.x }, ...(view ? { axisView: view } : {}) });
-        frame.drawnOn.set(canvas, { picture: view, range, axes, plot });
-        const marks = marksOf(canvas);
         const events = frame.events(track.filePath) ?? [];
         const out = new Set(frame.excluded(track.filePath));
+        // Where each event used was cut (its pre-trigger part and the rest of its length), and the level the trigger
+        // fires at, named with its value and unit: guides the plot component draws over the signal.
+        const guides = view ? {
+            spans: events.filter(event => !out.has(event.id)).map(event => ({ start: event.time - trigger.pre, end: event.time - trigger.pre + trigger.duration })),
+            level: { value: trigger.threshold, label: strings.stageThreshold.replace('{value}', String(trigger.threshold)).replace('{unit}', view.unit ?? '').trim() },
+        } : undefined;
+        const plot = paintOverlay(canvas, { layers: view ? [{ view, color: frame.color(track.filePath), width: 1.5 }] : [] }, range, axes, { window: { x: frame.window.x }, ...(view ? { axisView: view, guides } : {}) });
+        frame.drawnOn.set(canvas, { picture: view, range, axes, plot });
+        const marks = marksOf(canvas);
         if (!view || !plot || !marks) { if (marks) { marks.innerHTML = ''; delete marks.dataset.html; } return; }
         drawn++;
-        const context = canvas.getContext('2d');
         const { left, top, width, height } = plot.frame;
-        const unit = view.unit ?? '';
-        if (context) {
-            context.save();
-            context.beginPath(); context.rect(left, top, width, height); context.clip();
-            const style = canvas.ownerDocument.defaultView?.getComputedStyle(canvas);
-            const text = style?.getPropertyValue('--text').trim() || '#ddd';
-            // Where each event used was cut: its pre-trigger part and the rest of its length.
-            context.fillStyle = text;
-            context.globalAlpha = 0.08;
-            for (const event of events) {
-                if (out.has(event.id)) continue;
-                const x0 = plot.xAt(event.time - trigger.pre), x1 = plot.xAt(event.time - trigger.pre + trigger.duration);
-                context.fillRect(x0, top, Math.max(1, x1 - x0), height);
-            }
-            // The level the trigger fires at, named with its value and unit.
-            context.globalAlpha = 0.9;
-            context.strokeStyle = text;
-            context.setLineDash([5, 3]);
-            context.lineWidth = 1;
-            const y = plot.yAt(trigger.threshold);
-            context.beginPath(); context.moveTo(left, y); context.lineTo(left + width, y); context.stroke();
-            context.setLineDash([]);
-            context.font = '10px sans-serif';
-            const label = strings.stageThreshold.replace('{value}', String(trigger.threshold)).replace('{unit}', unit).trim();
-            context.fillStyle = text;
-            context.fillText(label, left + width - context.measureText(label).width - 4, Math.max(top + 10, y - 3));
-            context.restore();
-        }
         // The marks: over the canvas, one per event at its trigger, and the lane's count in its corner.
         Object.assign(marks.style, { left: `${canvas.offsetLeft}px`, width: `${canvas.clientWidth}px`, height: `${canvas.clientHeight}px` });
         const used = events.filter(event => !out.has(event.id)).length;
