@@ -1,4 +1,4 @@
-import { normalizedColor, PLOT_FONT, viridis } from '../../shared/gui-core/index';
+import { normalizedColor, viridis } from '../../shared/gui-core/index';
 
 export interface DrawTheme {
     /** 軸ラベル文字色 (--muted) */
@@ -195,22 +195,5 @@ export function drawSpectrumSelectionBox(
     ctx.setLineDash([4, 3]);
     ctx.fillRect(rx, ry, rw, rh);
     ctx.strokeRect(rx, ry, rw, rh);
-    ctx.restore();
-}
-
-/** Canvas x of a turned value-axis title, so every titled plot puts it at the same place. */
-export const AXIS_TITLE_X = 7;
-
-/** The row under the frequency ticks that holds the frequency axis' title. */
-export const FREQUENCY_TITLE_ROW = 11;
-
-/** The frequency axis' title ("Frequency [Hz]"), centred under the plot in the canvas' bottom row. */
-export function drawFrequencyAxisTitle(ctx: CanvasDrawCtx, plotLeft: number, plotWidth: number, H: number, title: string, color: string): void {
-    ctx.save();
-    ctx.fillStyle = color;
-    ctx.font = PLOT_FONT;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'bottom';
-    ctx.fillText(title, plotLeft + plotWidth / 2, H - 1);
     ctx.restore();
 }

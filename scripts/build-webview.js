@@ -18,8 +18,7 @@ const BUILDS = [
     {
         ...options,
         stdin: {
-            contents: `import { renderWaveformPipeline, paintLoopRegion } from './dist/webview/waveform/waveformRenderer.js';
-window.renderWaveformPipeline = renderWaveformPipeline;
+            contents: `import { paintLoopRegion } from './dist/webview/waveform/waveformRenderer.js';
 window.paintLoopRegion = paintLoopRegion;`,
             resolveDir: ROOT,
             sourcefile: 'waveformWindow.js',

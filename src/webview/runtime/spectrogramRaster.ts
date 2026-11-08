@@ -1,6 +1,4 @@
-import { rasterize, viridis, type RasterPlan } from '../../shared/gui-core/index';
 import type { SpectrogramData, SpectrogramDisplaySettings } from '../../shared/analysis/analysisTypes';
-import { spectrogramTimeBinEdges, spectrogramTimeBinSpan } from '../spectrum/spectrogramTimeBins';
 import { middleEllipsis } from '../../shared/dataset/datasetTable';
 import { niceRange } from '../../shared/utils/ticks';
 import type { UiStrings } from '../../shared/i18n/strings';
@@ -62,40 +60,4 @@ export function linkedSpectrogramBounds(specs: readonly SpectrogramAutoBounds[])
         if (Number.isFinite(spec.maxFrequencyHz)) maxFrequencyHz = Math.max(maxFrequencyHz, spec.maxFrequencyHz);
     }
     return minDb <= maxDb && maxFrequencyHz > 0 ? { minDb, maxDb, maxFrequencyHz } : null;
-}
-
-export function paintSpectrogramRaster(spec: SpectrogramData, width: number, height: number, view: SpectrogramRasterView, destination?: Uint8ClampedArray) {
-    const edges = spectrogramTimeBinEdges(spec, view.durationSec);
-    const columns: RasterPlan['columns'] = Array.from({ length: width }, (_, px) => {
-        const globalStart = view.zoomStart + (px / width) * (view.zoomEnd - view.zoomStart);
-        const globalEnd = view.zoomStart + ((px + 1) / width) * (view.zoomEnd - view.zoomStart);
-        const localStart = (globalStart - view.trackStart) / view.trackDurRatio;
-        const localEnd = (globalEnd - view.trackStart) / view.trackDurRatio;
-        if (edges) {
-            return localEnd <= 0 || localStart >= 1 ? null : spectrogramTimeBinSpan(edges, localStart, localEnd);
-        }
-        const first = Math.max(0, Math.floor(localStart * spec.timeBins));
-        const after = Math.min(spec.timeBins, Math.max(first + 1, Math.ceil(localEnd * spec.timeBins)));
-        return localEnd <= 0 || localStart >= 1 || first >= spec.timeBins || after <= 0 ? null : [first, after];
-    });
-    // Plot rows as fractions of the spectrogram's own frequency span; rows above its data stay blank.
-    const specMax = Math.max(spec.maxFrequencyHz, 1);
-    const bottom = Math.max(0, view.minFrequencyHz ?? 0) / specMax;
-    const top = Math.max(0, view.maxFrequencyHz) / specMax;
-    const rows: RasterPlan['rows'] = Array.from({ length: height }, (_, row) => {
-        const py = height - row - 1;
-        const high = bottom + (1 - py / height) * (top - bottom);
-        const low = bottom + (1 - (py + 1) / height) * (top - bottom);
-        const intervals = Math.max(spec.frequencyBins - 1, 0);
-        const halfBin = intervals > 0 ? 0.5 / intervals : 0;
-        if (low >= 1 + halfBin || high <= low) {
-            return null;
-        }
-        const first = Math.max(0, Math.floor(low * intervals + 0.5));
-        if (first >= spec.frequencyBins) {
-            return null;
-        }
-        return [first, Math.min(spec.frequencyBins, Math.max(first + 1, Math.ceil(Math.min(high, 1) * intervals + 0.5)))];
-    });
-    return rasterize({ layout: 'rows', values: spec.values, bins: spec.frequencyBins, level: { quantity: 'STFT amplitude', unit: spec.unit ?? 'dB', axisLabel: spec.axisLabel ?? 'STFT amplitude level', referenceValue: spec.referenceValue, referenceUnit: spec.referenceUnit, levelReferenceLabel: spec.levelReferenceLabel } }, { columns, rows, peakMode: 'comparison' }, { min: view.dbLo, max: view.dbHi }, viridis, destination);
 }

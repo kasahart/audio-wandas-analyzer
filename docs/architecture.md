@@ -339,7 +339,7 @@ sequenceDiagram
     P-->>WS: JSON response via stdout
     WS-->>E: resolve promise
     E->>W: postMessage("waveform-range-result", waveformData)
-    W->>W: renderWaveformPipeline() で再描画
+    W->>W: 共通の描画部品 (paintOverlay) でレーンを再描画
 ```
 
 ### 単一ファイル解析
