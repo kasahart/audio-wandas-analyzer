@@ -35,12 +35,6 @@ const isDb = (view: StageView | null): boolean => DB_QUANTITIES.includes(view?.q
  */
 const skipsFirst = (view: StageView): boolean => view.quantity === 'cepstrum';
 
-/**
- * Whether a heatmap column can head the comparison: an STFT's frame centred less than n_fft / 2 from either end of
- * the signal reads padding beyond it, so such columns (stage_view `whole`) are drawn but never named.
- */
-const headlineColumn = (view: StageView, column: number): boolean => view.whole?.[column] !== false;
-
 /** A trigger's events in the row above the plots: how many each recording found, which tells them apart first. */
 export function stageEventCounts(base: StageView | null, compare: StageView | null, strings: Pick<StageStrings, 'stageEventCounts'>): string {
     return strings.stageEventCounts.replace('{base}', base?.events ? String(base.events.length) : '—').replace('{compare}', compare?.events ? String(compare.events.length) : '—');
@@ -239,16 +233,16 @@ function atValue(view: StageView, x: number, y?: number, xStep?: number, yStep?:
     return `${along} · ${view.yAxis === 'bark' ? barkText(y) : view.yAxis === 'quefrency' ? quefrency(y) : hz(y, yStep)}`;
 }
 
-/** The Δ pane's headline: where the difference is largest, or why there is none. */
+/**
+ * The Δ pane's headline: where the difference is largest over the part on screen, or why there is none. The place
+ * and value are the backend's (`peak`, stage_combine.difference_peak), found among every value before thinning (R2):
+ * never the largest of the points drawn.
+ */
 export function stageHeadline(diff: StageView | null, strings: Pick<StageStrings, 'stageNoDelta' | 'stageMaxDelta'>): string {
-    if (!diff) return strings.stageNoDelta;
-    let best: { value: number; index: number; row?: number } | null = null;
-    const skip = skipsFirst(diff) ? 1 : 0;
-    if (diff.matrix) diff.matrix.forEach((cells, row) => row >= skip && cells.forEach((value, index) => { if (value !== null && headlineColumn(diff, index) && (!best || Math.abs(value) > Math.abs(best.value))) best = { value, index, row }; }));
-    else (diff.values ?? []).forEach((value, index) => { if (index >= skip && value !== null && (!best || Math.abs(value) > Math.abs(best.value))) best = { value, index }; });
-    if (!best) return strings.stageNoDelta;
-    const found = best as { value: number; index: number; row?: number };
-    return strings.stageMaxDelta.replace('{at}', atText(diff, found.index, found.row)).replace('{delta}', signed(found.value, isDb(diff)));
+    const peak = diff?.peak;
+    if (!diff || !peak) return strings.stageNoDelta;
+    const at = atValue(diff, peak.x, diff.matrix ? peak.y ?? 0 : undefined, peak.xStep, peak.yStep);
+    return strings.stageMaxDelta.replace('{at}', at).replace('{delta}', signed(peak.value, isDb(diff)));
 }
 
 /**

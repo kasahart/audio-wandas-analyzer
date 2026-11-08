@@ -40,7 +40,7 @@ import analysis_spec as spec
 import stage_view as sv
 from decimator import bucket_edges
 from full_read import StagePoints, StageRead, read_cells, read_line, sorted_axis, uniform_axis
-from stage_view import StageDetail, StageLevelBins, StageView
+from stage_view import StageDetail, StageLevelBins, StagePeak, StageView
 
 #: How much of the Frames' values the backend keeps for the comparison's medians and differences. The least
 #: recently used go first; a picture asked for again (zooming, another compared recording) uses what is kept.
@@ -680,8 +680,91 @@ def combine(base: list[StageData], compare: StageData | None, detail: StageDetai
         else _f64(compare.values) - median
     )
     whole = _whole_of([*base, compare])
-    result["diff"] = draw(replace(first, values=difference, whole=whole), detail, diff=True)
+    drawn = replace(first, values=difference, whole=whole)
+    result["diff"] = draw(drawn, detail, diff=True)
+    peak = difference_peak(drawn, difference, detail)
+    if peak is not None:
+        result["diff"]["peak"] = peak
     return result
+
+
+def _step_at(axis: np.ndarray, index: int) -> float | None:
+    """The gap from ``axis[index]`` to its nearer neighbour, so the headline writes the digits that tell them apart."""
+    gaps = [abs(float(axis[i + 1] - axis[i])) for i in (index - 1, index) if 0 <= i < axis.size - 1]
+    gaps = [gap for gap in gaps if gap > 0 and np.isfinite(gap)]
+    return min(gaps) if gaps else None
+
+
+def difference_peak(data: StageData, values: np.ndarray, detail: StageDetail | None = None) -> StagePeak | None:
+    """Where the difference ``values`` (``data``'s axes) is largest in magnitude over the part on screen, from every
+    value before thinning (R2): the Δ pane's headline. Its first quefrency and an STFT's columns that read padding
+    are left out, as the headline leaves them out; None with nothing to find."""
+    bounds, _ = _bounds(detail)
+    if data.mode == "signal":
+        # Only the samples on screen, and never the whole recording as float64.
+        first, last = _signal_range(data, bounds)
+        part = values[first:last]
+        if not part.size:
+            return None
+        # Its highest and lowest sample, with no copy of the samples unless one is NaN (nanargmax copies to skip it).
+        if np.isnan(part.max()):
+            if np.all(np.isnan(part)):
+                return None
+            high, low = int(np.nanargmax(part)), int(np.nanargmin(part))
+        else:
+            high, low = int(part.argmax()), int(part.argmin())
+        index = high if abs(float(part[high])) >= abs(float(part[low])) else low
+        signal_peak: StagePeak = {
+            "x": data.start + (first + index) / data.rate,
+            "value": float(_shown(data, part[index : index + 1], True)[0]),
+        }
+        if data.rate > 0:
+            signal_peak["xStep"] = 1 / data.rate
+        return signal_peak
+    shown = _shown(data, values, True)
+    if data.mode in ("spectrogram", "roughness", "cepstrogram"):
+        ys = data.ys if data.ys is not None else np.empty(0)
+        columns = np.ones(data.xs.size, dtype=bool) if bounds is None else sv._inside(data.xs, bounds)
+        if data.whole is not None:
+            columns &= data.whole[: data.xs.size].astype(bool)
+        rows_bounds = [float(value) for value in detail.get("y", [-np.inf, np.inf])] if detail else None
+        if data.mode == "spectrogram":
+            limits = (
+                rows_bounds
+                if rows_bounds is not None and np.all(np.isfinite(rows_bounds))
+                else [spec.SPECTRUM_MIN_HZ, data.nyquist]
+            )
+            rows = sv._inside(ys, limits) & (ys > 0)
+        else:
+            rows = sv._inside(ys, rows_bounds) if rows_bounds is not None else np.ones(ys.size, dtype=bool)
+            if data.mode == "cepstrogram":
+                rows &= ys > 0
+        plane = np.where(rows[:, np.newaxis] & columns[np.newaxis, :], np.abs(shown), np.nan)
+        if not np.any(np.isfinite(plane)):
+            return None
+        row, column = np.unravel_index(int(np.nanargmax(plane)), plane.shape)
+        peak: StagePeak = {"x": float(data.xs[column]), "y": float(ys[row]), "value": float(shown[row, column])}
+        x_step, y_step = _step_at(data.xs, int(column)), _step_at(ys, int(row))
+    else:
+        xs = data.xs
+        keep = np.ones(xs.size, dtype=bool) if bounds is None else sv._inside(xs, bounds)
+        if data.mode in ("spectrum", "coherence"):
+            keep &= xs > 0
+            if bounds is None:
+                keep &= (xs >= spec.SPECTRUM_MIN_HZ) & (xs <= data.nyquist)
+        if data.view.get("quantity") == "cepstrum":
+            keep &= xs > 0
+        line = np.where(keep, np.abs(shown), np.nan)
+        if not np.any(np.isfinite(line)):
+            return None
+        index = int(np.nanargmax(line))
+        peak = {"x": float(xs[index]), "value": float(shown[index])}
+        x_step, y_step = _step_at(xs, index), None
+    if x_step is not None:
+        peak["xStep"] = x_step
+    if y_step is not None:
+        peak["yStep"] = y_step
+    return peak
 
 
 def _shown(data: StageData, values: np.ndarray, diff: bool) -> np.ndarray:

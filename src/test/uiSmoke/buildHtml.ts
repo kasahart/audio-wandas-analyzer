@@ -84,6 +84,12 @@ function uiSmokeCombined(message) {
     const diff = compare.matrix
         ? Object.assign(strip(compare), { matrix: compare.matrix.map(function(row, r) { return row.map(function(value, c) { return minus(value, base.matrix[r][c]); }); }) })
         : Object.assign(strip(compare), { values: (compare.values || []).map(function(value, i) { return minus(value, base.values[i]); }) });
+    // Its largest difference, found among the values the test answered with (taken as every value), as the backend's
+    // stage_combine.difference_peak finds it: what the Δ pane's headline names.
+    let peak = null;
+    if (diff.matrix) diff.matrix.forEach(function(row, r) { row.forEach(function(value, c) { if (value !== null && (diff.whole ? diff.whole[c] !== false : true) && (!peak || Math.abs(value) > Math.abs(peak.value))) peak = { x: diff.xs[c], y: diff.ys[r], value: value }; }); });
+    else (diff.values || []).forEach(function(value, i) { if (value !== null && (!peak || Math.abs(value) > Math.abs(peak.value))) peak = { x: diff.xs[i], value: value }; });
+    if (peak) diff.peak = peak;
     result.diff = diff;
     return result;
 }

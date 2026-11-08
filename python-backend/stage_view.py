@@ -120,6 +120,20 @@ class StageView(TypedDict):
     #: A compared line's power in stretches of its axis, from every value before thinning (stage_combine.level_bins):
     #: what the plot orders overlaid lines by, quietest on top, over the part on screen (R6).
     levelBins: NotRequired[StageLevelBins]
+    #: A difference's largest magnitude over the part on screen, from every value before thinning
+    #: (stage_combine.difference_peak): where the Δ pane's headline says it is.
+    peak: NotRequired[StagePeak]
+
+
+class StagePeak(TypedDict):
+    #: Where it is on the x axis, and (an image) on the y axis, at the point's own full-resolution place.
+    x: float
+    y: NotRequired[float]
+    #: The difference there, rounded as the picture's values are.
+    value: float
+    #: The gap to the nearer neighbouring point on each axis, for the digits the headline writes.
+    xStep: NotRequired[float]
+    yStep: NotRequired[float]
 
 
 class StageLevelBins(TypedDict):

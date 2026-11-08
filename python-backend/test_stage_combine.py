@@ -14,7 +14,17 @@ from analysis_engine import AnalysisEngine
 from analysis_service import AnalysisService
 from command_dispatch import dispatch, validate_request
 from protocol_schema import DEFINITIONS, first_violation
-from stage_combine import STORE, StageData, _Store, combine, difference_line, draw, level_bins, stage_data
+from stage_combine import (
+    STORE,
+    StageData,
+    _Store,
+    combine,
+    difference_line,
+    difference_peak,
+    draw,
+    level_bins,
+    stage_data,
+)
 from stage_view import stage_view
 
 RATE = 16000
@@ -396,3 +406,81 @@ def test_every_line_keeps_a_one_point_dip_and_peak_when_drawn(signal: wd.Channel
         assert xs[int(np.nanargmin(line))] == pytest.approx(data.xs[low_at])
         if name != "coherence":
             assert xs[int(np.nanargmax(line))] == pytest.approx(data.xs[high_at])
+
+
+@pytest.mark.parametrize(
+    "name", ["series", "spectrum", "fft", "coherence", "bands", "spectrogram", "cepstrum", "cepstrogram", "correlation"]
+)
+def test_the_headlines_largest_difference_is_found_among_every_value_at_its_own_place(
+    signal: wd.ChannelFrame, name: str
+) -> None:
+    """R2: the Δ pane's headline (``peak``) is the largest |compare − base| among every value before thinning, at
+    that value's own x (and row): never a drawn bucket's place (a block's mean time, a band's centre)."""
+    frame, signal_s = _frames(signal)[name]
+    data = stage_data(frame, dict(stage_view(frame, signal_s)), signal_s)
+    assert data is not None
+    raised = _f64(data.values).copy()
+    if raised.ndim == 2:
+        low = 50 if data.mode == "spectrogram" else 0
+        rows = np.flatnonzero((data.ys > low) & (data.ys < 0.9 * (data.nyquist or np.inf)))
+        columns = np.flatnonzero(data.whole) if data.whole is not None else np.arange(raised.shape[1])
+        row, column = int(rows[rows.size // 3]), int(columns[columns.size // 2 + 1])
+        raised[row, column] += 7.0
+        where = {"x": data.xs[column], "y": data.ys[row]}
+    else:
+        inside = np.flatnonzero((data.xs > 50) & (data.xs < 0.9 * data.nyquist)) if data.nyquist else None
+        span = inside if inside is not None and inside.size else np.arange(1, raised.size)
+        at = int(span[span.size // 3 + 1])
+        raised[at] += 0.4 if name in ("coherence", "correlation", "cepstrum") else 7.0
+        where = {"x": data.xs[at]}
+    result = combine([data], replace(data, values=raised))
+    peak = result["diff"]["peak"]
+    assert first_violation(DEFINITIONS["StageView"], result["diff"]) is None
+    assert peak["x"] == pytest.approx(where["x"])
+    if "y" in where:
+        assert peak["y"] == pytest.approx(where["y"])
+    assert abs(peak["value"]) == pytest.approx(
+        0.4 if name in ("coherence", "correlation", "cepstrum") else 7.0, abs=0.06
+    )
+
+
+def test_the_headline_leaves_out_padding_columns_the_zero_quefrency_and_whatever_is_off_screen(
+    signal: wd.ChannelFrame,
+) -> None:
+    frames = _frames(signal)
+    stft, signal_s = frames["spectrogram"]
+    data = stage_data(stft, dict(stage_view(stft, signal_s)), signal_s)
+    assert data is not None and data.whole is not None and not data.whole[-1]
+    values = np.zeros_like(_f64(data.values))
+    row = int(np.argmin(np.abs(data.ys - 1000)))
+    values[row, -1] = 30.0  # reads padding: drawn, never the headline
+    values[row, 10] = 3.0
+    assert difference_peak(data, values)["x"] == pytest.approx(data.xs[10])
+    # Zoomed to where it is not, the headline is the largest there.
+    values[row, 40] = 1.0
+    zoomed = difference_peak(data, values, {"x": [data.xs[35], data.xs[45]], "points": 200})
+    assert zoomed is not None and zoomed["x"] == pytest.approx(data.xs[40]) and zoomed["value"] == pytest.approx(1.0)
+    ceps, _ = frames["cepstrum"]
+    cdata = stage_data(ceps, dict(stage_view(ceps)))
+    assert cdata is not None
+    line = np.zeros_like(_f64(cdata.values))
+    line[0], line[5] = 9.0, 0.2
+    assert difference_peak(cdata, line)["x"] == pytest.approx(cdata.xs[5])
+
+
+def test_a_time_signals_headline_is_its_largest_sample_difference_at_that_samples_time(
+    signal: wd.ChannelFrame,
+) -> None:
+    view = dict(stage_view(signal))
+    data = stage_data(signal, view)
+    assert data is not None and data.mode == "signal"
+    raised = data.values.copy()
+    raised[12345] += 0.75
+    peak = combine([data], replace(data, values=raised))["diff"]["peak"]
+    assert peak["x"] == pytest.approx(data.start + 12345 / RATE)
+    assert peak["value"] == pytest.approx(0.75, abs=1e-3)
+    assert peak["xStep"] == pytest.approx(1 / RATE)
+
+
+def _f64(values: object) -> np.ndarray:
+    return np.asarray(values, dtype=np.float64)
