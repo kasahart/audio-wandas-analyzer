@@ -112,6 +112,18 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
     };
     // The marks sit where the plot was on screen: a scroll under a still pointer takes them away.
     document.addEventListener('scroll', () => { if (hovered) { hovered = null; hideHover(); } }, true);
+    // A click on an event's line (the plot gestures' tap: a press that stayed put, a drag zooms instead) leaves it out
+    // or puts it back. It waits out a double-click (which resets the zoom): the second press takes the first one back.
+    let pending: number | undefined;
+    const view = document.defaultView;
+    const tap = (plot: HTMLElement, event: MouseEvent): void => {
+        if (!state.on || !deps.toggleEvent || !view) return;
+        if (pending !== undefined) { view.clearTimeout(pending); pending = undefined; }
+        if (event.detail > 1) return;
+        const line = eventAt(plot, event.clientX, event.clientY);
+        const edit = line ? deps.toggleEvent(line) : undefined;
+        if (edit) pending = view.setTimeout(() => { pending = undefined; edit(); }, DOUBLE_CLICK_MS);
+    };
     const gestures = (selector: string, container: HTMLElement): void => attachPlotInteraction(container, document, selector, {
         locate(target, clientX, clientY): PlotHit | null {
             const plot = (target as HTMLElement | null)?.closest?.<HTMLElement>(selector);
@@ -132,6 +144,7 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
             showHover();
         },
         clearHover() { hovered = null; hideHover(); },
+        tap,
         stepFrom(plot, delta, arrived) {
             const drawn = drawnOn.get(plot)?.plot;
             return state.on && drawn && deps.painted() ? marks.stepFrom(plot, drawn, delta, arrived) : null;
@@ -162,21 +175,6 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
     });
     gestures('.track-canvas', surface);
     gestures('[data-stage-canvas]', root);
-    // A click on an event's line (a press that stayed put: a drag's click is not passed on) leaves it out or puts it back.
-    // It waits out a double-click (which resets the zoom): the second click takes the first one back.
-    let pending: number | undefined;
-    const view = document.defaultView;
-    const clicked = (selector: string) => (event: MouseEvent): void => {
-        const plot = (event.target as HTMLElement | null)?.closest?.<HTMLElement>(selector);
-        if (!state.on || !plot || !deps.toggleEvent || !view) return;
-        if (pending !== undefined) { view.clearTimeout(pending); pending = undefined; }
-        if (event.detail > 1) return;
-        const line = eventAt(plot, event.clientX, event.clientY);
-        const edit = line ? deps.toggleEvent(line) : undefined;
-        if (edit) pending = view.setTimeout(() => { pending = undefined; edit(); }, DOUBLE_CLICK_MS);
-    };
-    surface.addEventListener('click', clicked('.track-canvas'));
-    root.addEventListener('click', clicked('[data-stage-canvas]'));
     return {
         hovering: () => hovered !== null,
         redraw: showHover,

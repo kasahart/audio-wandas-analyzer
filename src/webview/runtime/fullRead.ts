@@ -32,6 +32,43 @@ export interface CellQuery {
     beyond: number;
 }
 
+/**
+ * Every value of a line between two places of its axis (both in), for the order of overlaid lines (R6): a level's
+ * power 10^(dB/10), silence (−250 dB and below) as none, or a signal's square (`square`).
+ */
+export interface LevelQuery {
+    x0: number;
+    x1: number;
+    square: boolean;
+}
+
+/** The mean power of the `count` finite values a LevelQuery takes (full_read.read_level). */
+export interface LevelSum {
+    power: number;
+    count: number;
+}
+
+/** undefined: being fetched (`ready` is called once it is in); null: there is no full data to measure. */
+export type LevelAnswer = LevelSum | null | undefined;
+
+/** A value's power as the overlay orders lines by (full_read.read_level). */
+export function valuePower(value: number, square: boolean): number {
+    return square ? value * value : value <= -250 ? 0 : 10 ** (value / 10);
+}
+
+/** The mean power of `values` (over ascending `xs`) between x0 and x1, every finite value taken (LevelQuery). */
+export function levelOfValues(xs: ArrayLike<number>, values: ArrayLike<number | null>, query: LevelQuery): LevelSum {
+    const low = Math.min(query.x0, query.x1), high = Math.max(query.x0, query.x1);
+    let power = 0, count = 0;
+    for (let index = firstFrom(xs, low), n = Math.min(xs.length, values.length); index < n && xs[index] <= high; index++) {
+        const value = values[index];
+        if (value === null || value === undefined || !Number.isFinite(value)) continue;
+        power += valuePower(value, query.square);
+        count += 1;
+    }
+    return { power: count ? power / count : 0, count };
+}
+
 /** Points as full_read.py gives them; an image's cells may name their rows (the entry overview's recordings). */
 export type FullPoints = StagePoints & { rowNames?: readonly string[] };
 
@@ -41,6 +78,8 @@ export type FullAnswer = FullPoints | null | undefined;
 export interface FullSource {
     line?(query: LineQuery, ready: () => void): FullAnswer;
     cells?(query: CellQuery, ready: () => void): FullAnswer;
+    /** The power of every value of the line in a window (R6), from its full data. */
+    level?(query: LevelQuery, ready: () => void): LevelAnswer;
     /** A trigger's event drawn as a line of its own (eventLayers): its own points. */
     event?(id: number): FullSource;
 }
@@ -70,6 +109,7 @@ export function localLine(xs: readonly number[], values: readonly (number | null
             const first = Math.max(0, low - query.beyond), after = Math.min(n, Math.max(low, high) + query.beyond);
             return { xs: xs.slice(first, after), values: values.slice(first, after), start: first > 0 ? xs[first] : null, end: after < n ? xs[after - 1] : null, complete: true };
         },
+        level: query => levelOfValues(xs, values, query),
     };
 }
 
@@ -127,7 +167,7 @@ function holdsDense(read: StageRead, x0: number, x1: number, columns: number, lo
  * (null: none). Each window is asked for once and kept; one request is on its way at a time, and the latest one
  * asked for meanwhile goes next, so a moving pointer never queues a request per pixel.
  */
-export function fetchedSource(fetch: (read: StageRead, done: (points: StagePoints | null | undefined) => void) => void, extra: Omit<StageRead, 'x' | 'y' | 'beyond' | 'near' | 'columns' | 'log'> = {}): FullSource {
+export function fetchedSource(fetch: (read: StageRead, done: (points: StagePoints | null | undefined) => void) => void, extra: Omit<StageRead, 'x' | 'y' | 'beyond' | 'near' | 'columns' | 'log' | 'level'> = {}): FullSource {
     const kept: Array<{ key: string; read: StageRead; points: FullPoints | null }> = [];
     let busy: string | null = null;
     let next: { key: string; read: StageRead } | null = null;
@@ -187,6 +227,12 @@ export function fetchedSource(fetch: (read: StageRead, done: (points: StagePoint
                 : !points.complete && query.columns !== undefined && holdsDense(asked, x0, x1, query.columns, log)
                     ? (asked.near === read.near ? 'whole' : 'meanwhile') : false));
         },
+        level(query, ready) {
+            // Every value of the window, measured where the data is (full_read.read_level): never the drawn points.
+            const read: StageRead = { ...extra, x: [Math.min(query.x0, query.x1), Math.max(query.x0, query.x1)], level: query.square ? 'square' : 'db' };
+            const got = answer(JSON.stringify(read), read, ready, () => false);
+            return got === undefined ? undefined : got?.level ?? null;
+        },
         cells(query, ready) {
             // A hover asks for a block of cells around the pointer (HOVER_CELLS), so moving to the next frame or bin
             // reads what came; a step asks for its own columns ahead, with the rows either side of the one read.
@@ -235,5 +281,6 @@ export function mappedSource(source: FullSource, to: (x: number) => number, from
     return {
         ...(source.line ? { line: (query: LineQuery, ready: () => void) => back(source.line?.({ ...query, x0: to(query.x0), x1: to(query.x1) }, ready)) } : {}),
         ...(source.cells ? { cells: (query: CellQuery, ready: () => void) => back(source.cells?.({ ...query, x: to(query.x) }, ready)) } : {}),
+        ...(source.level ? { level: (query: LevelQuery, ready: () => void) => source.level?.({ ...query, x0: to(query.x0), x1: to(query.x1) }, ready) } : {}),
     };
 }

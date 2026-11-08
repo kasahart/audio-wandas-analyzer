@@ -45,6 +45,16 @@ class StageRead(TypedDict):
     of: NotRequired[Literal["base", "diff"]]
     #: A track lane's channel (from 0).
     channel: NotRequired[int]
+    #: Instead of points: the power of every value in the window ``x`` (both ends in), for the order of overlaid
+    #: lines (R6): a level's 10^(dB/10) (``"db"``, silence counted as none) or a signal's square (``"square"``).
+    level: NotRequired[Literal["db", "square"]]
+
+
+class StageLevel(TypedDict):
+    """The mean ``power`` of the ``count`` finite values in a window (read_level)."""
+
+    power: float
+    count: int
 
 
 class StagePoints(TypedDict):
@@ -59,6 +69,12 @@ class StagePoints(TypedDict):
     start: float | None
     end: float | None
     complete: bool
+    #: A level read's answer (StageRead ``level``), with no points.
+    level: NotRequired[StageLevel]
+
+
+#: A level at or below this is silence (the webview's `silent`): no power.
+SILENT_DB = -250.0
 
 
 IndexOf = Callable[[float, Literal["left", "right"]], int]
@@ -98,6 +114,14 @@ def read_line(
     bounds = [float(value) for value in read["x"]]
     x0, x1 = min(bounds), max(bounds)
     low, high = index_of(x0, "left"), index_of(x1, "right")
+    if "level" in read:
+        return {
+            "xs": [],
+            "start": None,
+            "end": None,
+            "complete": False,
+            "level": read_level(values_in(low, max(low, high)), read["level"]),
+        }
     beyond = _limited(read, "beyond", 1, READ_BEYOND_LIMIT)
     first, after = max(0, low - beyond), min(count, max(high, low) + beyond)
     if high - low <= READ_POINT_LIMIT or "near" not in read:
@@ -140,6 +164,17 @@ def read_line(
         "end": float(x_at(np.asarray(after - 1))) if after < count and complete else None,
         "complete": complete,
     }
+
+
+def read_level(values: np.ndarray, kind: Literal["db", "square"]) -> StageLevel:
+    """The mean power of every finite value of a window, as the overlay orders its lines by (R6): a level's
+    10^(dB/10), silence (SILENT_DB and below) as none, or a signal's square. Every value is taken, none thinned."""
+    block = np.asarray(values, dtype=np.float64)
+    finite = block[np.isfinite(block)]
+    if not finite.size:
+        return {"power": 0.0, "count": 0}
+    power = np.square(finite) if kind == "square" else np.where(finite <= SILENT_DB, 0.0, 10.0 ** (finite / 10.0))
+    return {"power": float(np.mean(power)), "count": int(finite.size)}
 
 
 def read_cells(

@@ -39,8 +39,8 @@ from wandas.frames.segments import ChannelFrameSegments
 import analysis_spec as spec
 import stage_view as sv
 from decimator import bucket_edges
-from full_read import StagePoints, StageRead, read_cells, read_line, sorted_axis, uniform_axis
-from stage_view import StageDetail, StageLevelBins, StageView
+from full_read import SILENT_DB, StagePoints, StageRead, read_cells, read_line, sorted_axis, uniform_axis
+from stage_view import StageDetail, StageLevelBins, StagePeak, StageView
 
 #: How much of the Frames' values the backend keeps for the comparison's medians and differences. The least
 #: recently used go first; a picture asked for again (zooming, another compared recording) uses what is kept.
@@ -65,8 +65,6 @@ Mode = Literal[
     "correlation",
 ]
 DB_QUANTITIES = ("level", "gain")
-#: A level at or below this is silence (the webview's `silent`): no power.
-SILENT_DB = -250.0
 
 
 @dataclass(frozen=True)
@@ -680,8 +678,106 @@ def combine(base: list[StageData], compare: StageData | None, detail: StageDetai
         else _f64(compare.values) - median
     )
     whole = _whole_of([*base, compare])
-    result["diff"] = draw(replace(first, values=difference, whole=whole), detail, diff=True)
+    drawn = replace(first, values=difference, whole=whole)
+    result["diff"] = draw(drawn, detail, diff=True)
+    peak = difference_peak(drawn, difference, detail)
+    if peak is not None:
+        result["diff"]["peak"] = peak
     return result
+
+
+def _step_at(axis: np.ndarray, index: int) -> float | None:
+    """The gap from ``axis[index]`` to its nearer neighbour, so the headline writes the digits that tell them apart."""
+    gaps = [abs(float(axis[i + 1] - axis[i])) for i in (index - 1, index) if 0 <= i < axis.size - 1]
+    gaps = [gap for gap in gaps if gap > 0 and np.isfinite(gap)]
+    return min(gaps) if gaps else None
+
+
+def difference_peak(data: StageData, values: np.ndarray, detail: StageDetail | None = None) -> StagePeak | None:
+    """Where the difference ``values`` (``data``'s axes) is largest in magnitude over the part on screen, from every
+    value before thinning (R2): the Δ pane's headline. Its first quefrency and an STFT's columns that read padding
+    are left out, as the headline leaves them out; None with nothing to find."""
+    bounds, _ = _bounds(detail)
+    if data.mode == "signal":
+        # Only the samples on screen, and never the whole recording as float64.
+        first, last = _signal_range(data, bounds)
+        part = values[first:last]
+        if not part.size:
+            return None
+        # Its highest and lowest sample, with no copy of the samples unless one is NaN (nanargmax copies to skip it).
+        if np.isnan(part.max()):
+            if np.all(np.isnan(part)):
+                return None
+            high, low = int(np.nanargmax(part)), int(np.nanargmin(part))
+        else:
+            high, low = int(part.argmax()), int(part.argmin())
+        index = high if abs(float(part[high])) >= abs(float(part[low])) else low
+        signal_peak: StagePeak = {
+            "x": data.start + (first + index) / data.rate,
+            "value": float(_shown(data, part[index : index + 1], True)[0]),
+        }
+        if data.rate > 0:
+            signal_peak["xStep"] = 1 / data.rate
+        return signal_peak
+    if data.mode in ("spectrogram", "roughness", "cepstrogram"):
+        ys = data.ys if data.ys is not None else np.empty(0)
+        columns = np.ones(data.xs.size, dtype=bool) if bounds is None else sv._inside(data.xs, bounds)
+        if data.whole is not None:
+            columns &= data.whole[: data.xs.size].astype(bool)
+        rows_bounds = [float(value) for value in detail.get("y", [-np.inf, np.inf])] if detail else None
+        if data.mode == "spectrogram":
+            limits = (
+                rows_bounds
+                if rows_bounds is not None and np.all(np.isfinite(rows_bounds))
+                else [spec.SPECTRUM_MIN_HZ, data.nyquist]
+            )
+            rows = sv._inside(ys, limits) & (ys > 0)
+        else:
+            rows = sv._inside(ys, rows_bounds) if rows_bounds is not None else np.ones(ys.size, dtype=bool)
+            if data.mode == "cepstrogram":
+                rows &= ys > 0
+        # Only the part on screen is copied (rounded as drawn), never the whole plane.
+        row_at, column_at = np.flatnonzero(rows), np.flatnonzero(columns)
+        if not row_at.size or not column_at.size:
+            return None
+        # Searched a block of columns at a time: never a copy of the whole part on screen, let alone the plane.
+        plane = np.asarray(values)
+        best, row, column = -1.0, -1, -1
+        for start in range(0, column_at.size, 256):
+            block = np.abs(plane[np.ix_(row_at, column_at[start : start + 256])], dtype=np.float64)
+            np.nan_to_num(block, copy=False, nan=-1.0, posinf=-1.0, neginf=-1.0)
+            at = int(np.argmax(block))
+            if block.flat[at] > best:
+                best = float(block.flat[at])
+                row, column = int(row_at[at // block.shape[1]]), int(column_at[start + at % block.shape[1]])
+        if best < 0:
+            return None
+        value = float(_shown(data, np.asarray(values)[row : row + 1, column : column + 1], True)[0, 0])
+        peak: StagePeak = {"x": float(data.xs[column]), "y": float(ys[row]), "value": value}
+        x_step, y_step = _step_at(data.xs, int(column)), _step_at(ys, int(row))
+    else:
+        xs = data.xs
+        keep = np.ones(xs.size, dtype=bool) if bounds is None else sv._inside(xs, bounds)
+        if data.mode in ("spectrum", "coherence"):
+            keep &= xs > 0
+            if bounds is None:
+                keep &= (xs >= spec.SPECTRUM_MIN_HZ) & (xs <= data.nyquist)
+        if data.view.get("quantity") == "cepstrum":
+            keep &= xs > 0
+        # Found among the unrounded values (two that round alike still differ), rounded as drawn only once found.
+        at = np.flatnonzero(keep)
+        line = np.abs(_f64(np.asarray(values)[at]))
+        line[~np.isfinite(line)] = -1.0
+        if not line.size or float(line.max()) < 0:
+            return None
+        index = int(at[int(np.argmax(line))])
+        peak = {"x": float(xs[index]), "value": float(_shown(data, np.asarray(values)[index : index + 1], True)[0])}
+        x_step, y_step = _step_at(xs, index), None
+    if x_step is not None:
+        peak["xStep"] = x_step
+    if y_step is not None:
+        peak["yStep"] = y_step
+    return peak
 
 
 def _shown(data: StageData, values: np.ndarray, diff: bool) -> np.ndarray:

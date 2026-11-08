@@ -19,7 +19,7 @@ import { packRgb, paletteColour, rasterizeHeatmap, unpackRgb } from '../plot/hea
 import { drawValueAxis, fittedAxisTitle, readoutText, type AxisTick, type Palette } from '../../shared/gui-core/index';
 import { niceRange, niceTicks } from '../../shared/utils/ticks';
 import { amountText, barkText, frequencyText, lagText, levelText, quefrencyText, secondsText, signedText, withMinus } from '../plot/plotText';
-import { cellIndex, STEP_AHEAD, type FullPoints, type FullRead, type FullSource } from './fullRead';
+import { cellIndex, levelOfValues, STEP_AHEAD, type FullPoints, type FullRead, type FullSource, type LevelAnswer } from './fullRead';
 
 /** Canvas x the level axis's turned title is centred on, in the gutter left of its tick labels. */
 const AXIS_TITLE_X = 10;
@@ -34,12 +34,6 @@ const isDb = (view: StageView | null): boolean => DB_QUANTITIES.includes(view?.q
  * the ranges leave it out, as wandas' cepstrogram plot leaves it out of its colour scale.
  */
 const skipsFirst = (view: StageView): boolean => view.quantity === 'cepstrum';
-
-/**
- * Whether a heatmap column can head the comparison: an STFT's frame centred less than n_fft / 2 from either end of
- * the signal reads padding beyond it, so such columns (stage_view `whole`) are drawn but never named.
- */
-const headlineColumn = (view: StageView, column: number): boolean => view.whole?.[column] !== false;
 
 /** A trigger's events in the row above the plots: how many each recording found, which tells them apart first. */
 export function stageEventCounts(base: StageView | null, compare: StageView | null, strings: Pick<StageStrings, 'stageEventCounts'>): string {
@@ -239,16 +233,16 @@ function atValue(view: StageView, x: number, y?: number, xStep?: number, yStep?:
     return `${along} · ${view.yAxis === 'bark' ? barkText(y) : view.yAxis === 'quefrency' ? quefrency(y) : hz(y, yStep)}`;
 }
 
-/** The Δ pane's headline: where the difference is largest, or why there is none. */
+/**
+ * The Δ pane's headline: where the difference is largest over the part on screen, or why there is none. The place
+ * and value are the backend's (`peak`, stage_combine.difference_peak), found among every value before thinning (R2):
+ * never the largest of the points drawn.
+ */
 export function stageHeadline(diff: StageView | null, strings: Pick<StageStrings, 'stageNoDelta' | 'stageMaxDelta'>): string {
-    if (!diff) return strings.stageNoDelta;
-    let best: { value: number; index: number; row?: number } | null = null;
-    const skip = skipsFirst(diff) ? 1 : 0;
-    if (diff.matrix) diff.matrix.forEach((cells, row) => row >= skip && cells.forEach((value, index) => { if (value !== null && headlineColumn(diff, index) && (!best || Math.abs(value) > Math.abs(best.value))) best = { value, index, row }; }));
-    else (diff.values ?? []).forEach((value, index) => { if (index >= skip && value !== null && (!best || Math.abs(value) > Math.abs(best.value))) best = { value, index }; });
-    if (!best) return strings.stageNoDelta;
-    const found = best as { value: number; index: number; row?: number };
-    return strings.stageMaxDelta.replace('{at}', atText(diff, found.index, found.row)).replace('{delta}', signed(found.value, isDb(diff)));
+    const peak = diff?.peak;
+    if (!diff || !peak) return strings.stageNoDelta;
+    const at = atValue(diff, peak.x, diff.matrix ? peak.y ?? 0 : undefined, peak.xStep, peak.yStep);
+    return strings.stageMaxDelta.replace('{at}', at).replace('{delta}', signed(peak.value, isDb(diff)));
 }
 
 /**
@@ -300,41 +294,78 @@ export function axisFractionOf(view: Pick<StageView, 'xs' | 'xScale' | 'xLimits'
 export function axisValueAt(view: Pick<StageView, 'xs' | 'xScale' | 'xLimits'>, fraction: number): number { return axisScale(view).at(fraction); }
 /**
  * Overlaid lines in drawing order by level over the shown part of the axis: the loudest first, the quietest last on
- * top, so a louder recording does not cover a quieter one. A line's level is its power over the stretches of its axis
- * on screen (`levelBins`, R6), taken by the backend from every value before the line was thinned to be drawn (R2): a
- * signal's mean square on the amplitude axis the signals share, a spectrum's power mean of its dB. The drawn points
- * are never measured. Lines with no levelBins (not a level, or nothing shown) keep their place among themselves after
- * the rest; the colours and the legend are not changed.
+ * top, so a louder recording does not cover a quieter one. A line's level is the power of its every value inside the
+ * part on screen (R6), from the values before the line was thinned to be drawn (R2): a signal's mean square on the
+ * amplitude axis the signals share, a spectrum's power mean of its dB (screenLevels). The drawn points are never
+ * measured. Lines with no level (not a level, or nothing shown) keep their place among themselves after the rest; the
+ * colours and the legend are not changed.
  */
-export function byLevel(layers: StageLayer[], axisView: Pick<StageView, 'xs' | 'xScale' | 'xLimits'> | undefined, window: NormalizedRange = FULL_WINDOW): StageLayer[] {
-    const level = levelOnScreen(axisView, window);
+export function byLevel(layers: StageLayer[], axisView: Pick<StageView, 'xs' | 'xScale' | 'xLimits'> | undefined, window: NormalizedRange = FULL_WINDOW, levels: ReadonlyMap<StageLayer, ScreenLevel> = screenLevels(layers, axisView, window)): StageLayer[] {
+    const level = (layer: StageLayer): number => levels.get(layer)?.level ?? -Infinity;
     return layers.map((layer, index) => ({ layer, index, level: level(layer) }))
         .sort((a, b) => (b.level === a.level ? a.index - b.index : b.level - a.level))
         .map(item => item.layer);
 }
 
-/** A line's level as byLevel orders it, over the part of the axis on screen (−Infinity: no levelBins, or nothing shown). */
-function levelOnScreen(axisView: Pick<StageView, 'xs' | 'xScale' | 'xLimits'> | undefined, window: NormalizedRange): (layer: StageLayer) => number {
+/**
+ * A compared line's level over the part of the axis on screen (dB; −Infinity for none): 'exact' from every value
+ * inside it, 'pending' while those are being fetched (`level` is then the stretches' share on screen, until they are
+ * in), 'unmeasured' for a level or signal with no values before thinning to measure, 'none' for a line that is not a
+ * level (it keeps its place).
+ */
+export interface ScreenLevel { level: number; state: 'exact' | 'pending' | 'unmeasured' | 'none' }
+
+/**
+ * Each line's ScreenLevel. A line's `levelBins` (the backend's, or levelBinsOf) give it at once while every stretch
+ * holding values is wholly on screen or wholly off it; a stretch the screen's edge cuts cannot say which of its values
+ * are on screen, so the line is measured from its full data instead (`full`, fullRead.ts): its drawn points when they
+ * are all its points, else every value of the window, read where the data is (`ready` is called once a fetched one is
+ * in). A line with no levelBins is measured so only when it says so (`measured`).
+ */
+export function screenLevels(layers: readonly StageLayer[], axisView: Pick<StageView, 'xs' | 'xScale' | 'xLimits'> | undefined, window: NormalizedRange = FULL_WINDOW, context: { ready?: () => void } = {}): Map<StageLayer, ScreenLevel> {
     const scale = axisView?.xs?.length ? axisScale(axisView) : null;
-    return (layer: StageLayer): number => {
-        const bins = layer.view.levelBins;
-        if (!bins) return -Infinity;
-        let power = 0, count = 0;
-        for (let index = 0; index < bins.count.length; index++) {
-            const n = bins.count[index] ?? 0;
-            if (!n) continue;
-            // A stretch counts by how much of it is on screen (on the axis's own scale: log for a spectrum), so a zoom
-            // narrower than a stretch still reads the stretch it is in.
-            const low = scale ? scale.fraction(bins.edges[index]) : 0, high = scale ? scale.fraction(bins.edges[index + 1]) : 1;
-            const [from, to] = low <= high ? [low, high] : [high, low];
-            const shown = to > from ? (Math.min(to, window.end) - Math.max(from, window.start)) / (to - from)
-                : from >= window.start && from <= window.end ? 1 : 0;
-            if (shown <= 0) continue;
-            power += (bins.power[index] ?? 0) * n * shown;
-            count += n * shown;
+    const whole = window.start <= 0 && window.end >= 1;
+    const dB = (sum: { power: number; count: number }): number => (sum.count && sum.power > 0 ? 10 * Math.log10(sum.power) : -Infinity);
+    const levels = new Map<StageLayer, ScreenLevel>();
+    for (const layer of layers) {
+        const { view } = layer;
+        const bins = view.levelBins;
+        const signal = !!view.waveform;
+        if (!bins && !layer.measured) {
+            levels.set(layer, { level: -Infinity, state: isDb(view) || signal ? 'unmeasured' : 'none' });
+            continue;
         }
-        return count && power > 0 ? 10 * Math.log10(power / count) : -Infinity;
-    };
+        let estimate = -Infinity;
+        if (bins) {
+            let power = 0, count = 0, shownPower = 0, shownCount = 0, cut = false;
+            const last = bins.count.length - 1;
+            for (let index = 0; index <= last; index++) {
+                const n = bins.count[index] ?? 0;
+                if (!n) continue;
+                const low = scale ? scale.fraction(bins.edges[index]) : 0, high = scale ? scale.fraction(bins.edges[index + 1]) : 1;
+                const [from, to] = low <= high ? [low, high] : [high, low];
+                const stretchPower = (bins.power[index] ?? 0) * n;
+                // Its values are from its first edge up to (the last stretch: up to and with) its second.
+                const inside = whole || (from >= window.start && to <= window.end);
+                const outside = !whole && (from > window.end || to < window.start || (to === window.start && index < last && to > from));
+                if (inside) { power += stretchPower; count += n; }
+                else if (!outside) cut = true;
+                // Its share on screen, the level shown while a cut line's values are fetched.
+                const shown = inside ? 1 : outside ? 0 : to > from ? (Math.min(to, window.end) - Math.max(from, window.start)) / (to - from) : 1;
+                shownPower += stretchPower * shown; shownCount += n * shown;
+            }
+            if (!cut) { levels.set(layer, { level: dB({ power: count ? power / count : 0, count }), state: 'exact' }); continue; }
+            estimate = dB({ power: shownCount ? shownPower / shownCount : 0, count: shownCount });
+        }
+        const xs = view.xs ?? [];
+        const ends: [number, number] | null = scale ? [scale.at(window.start), scale.at(window.end)] : xs.length ? [xs[0], xs[xs.length - 1]] : null;
+        const full = layer.full;
+        let sum: LevelAnswer = null;
+        if (ends && full === 'drawn' && !signal) sum = levelOfValues(xs, view.values ?? [], { x0: ends[0], x1: ends[1], square: false });
+        else if (ends && full && full !== 'drawn' && full.level) sum = full.level({ x0: ends[0], x1: ends[1], square: signal }, context.ready ?? (() => undefined));
+        levels.set(layer, sum === undefined ? { level: estimate, state: 'pending' } : sum === null ? { level: estimate, state: 'unmeasured' } : { level: dB(sum), state: 'exact' });
+    }
+    return levels;
 }
 
 /**
@@ -369,10 +400,11 @@ const comparedLine = (layer: StageLayer): boolean =>
  * quietest last on top, in the places the lines held among the caller's pictures; every other picture keeps its own
  * place. Whatever order a caller gives its lines in, the plot draws the quietest on top, in the caller's colours.
  */
-export function overlayOrder(layers: readonly StageLayer[], axisView: Pick<StageView, 'xs' | 'xScale' | 'xLimits'> | undefined, window: NormalizedRange = FULL_WINDOW): StageLayer[] {
+export function overlayOrder(layers: readonly StageLayer[], axisView: Pick<StageView, 'xs' | 'xScale' | 'xLimits'> | undefined, window: NormalizedRange = FULL_WINDOW, levels?: ReadonlyMap<StageLayer, ScreenLevel>): StageLayer[] {
     const places = layers.flatMap((layer, index) => (comparedLine(layer) ? [index] : []));
     if (places.length < 2) return [...layers];
-    const ordered = byLevel(places.map(index => layers[index]), axisView, window);
+    const lines = places.map(index => layers[index]);
+    const ordered = byLevel(lines, axisView, window, levels ?? screenLevels(lines, axisView, window));
     const drawn = [...layers];
     places.forEach((place, index) => { drawn[place] = ordered[index]; });
     return drawn;
@@ -382,16 +414,18 @@ export function overlayOrder(layers: readonly StageLayer[], axisView: Pick<Stage
  * The levels of a plot's compared lines in the order they were drawn, as the plot writes them on its canvas
  * (`data-plot-order`) for the ui-smoke audit (canvasAudit.ts) to check on every plot shown: never rising (R6).
  */
-export function drawnLevelsText(drawn: readonly StageLayer[], axisView: Pick<StageView, 'xs' | 'xScale' | 'xLimits'> | undefined, window: NormalizedRange = FULL_WINDOW): string {
+export function drawnLevelsText(drawn: readonly StageLayer[], axisView: Pick<StageView, 'xs' | 'xScale' | 'xLimits'> | undefined, window: NormalizedRange = FULL_WINDOW, levels?: ReadonlyMap<StageLayer, ScreenLevel>): string {
     const lines = drawn.filter(comparedLine);
     if (lines.length < 2) return '';
-    const level = levelOnScreen(axisView, window);
-    // A level (or a signal) drawn with no levelBins could only be ordered by its drawn points: written as '?', which
-    // the audit fails on every plot shown (R2, R6).
+    const measured = levels ?? screenLevels(lines, axisView, window);
+    // A level (or a signal) with no values before thinning to measure could only be ordered by its drawn points:
+    // written as '?', which the audit fails on every plot shown (R2, R6). One whose values are still being fetched is
+    // written as '…': the audit waits for it, and fails a plot that stays so.
     return lines.map(layer => {
-        if (!layer.view.levelBins && (isDb(layer.view) || layer.view.waveform)) return '?';
-        const value = level(layer);
-        return Number.isFinite(value) ? value.toFixed(2) : '-inf';
+        const level = measured.get(layer) ?? { level: -Infinity, state: 'none' };
+        if (level.state === 'unmeasured') return '?';
+        if (level.state === 'pending') return '…';
+        return Number.isFinite(level.level) ? level.level.toFixed(2) : '-inf';
     }).join(',');
 }
 /** The same for a heatmap's rows (frequency, Bark or quefrency). */
@@ -501,6 +535,11 @@ export interface StageLayer {
      * bands): the plot marks one that does not (`data-plot-full`), and every ui-smoke test fails it.
      */
     full?: FullRead;
+    /**
+     * A level line with no levelBins, measured for the overlay's order (R6) from every value on screen of its full
+     * data (`full`): a cursor slice cut for display, which holds only the points kept to draw it.
+     */
+    measured?: boolean;
     /** Drawn as marks, not a line: a dot at each point (`width` its radius), or a rug tick up from the floor at each point's x. */
     marks?: 'dots' | 'rug';
     /** The stretch of the horizontal axis (its values) this picture is drawn over, clipped there: finer data over part of the view. */
@@ -676,14 +715,33 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
     // (R13: what drew a canvas, not only its mark, is what makes it the plot component's).
     const scope = globalThis as { __plotPainting?: number };
     scope.__plotPainting = (scope.__plotPainting ?? 0) + 1;
+    const generation = (paintedGenerations.get(canvas) ?? 0) + 1;
+    paintedGenerations.set(canvas, generation);
+    let plot: StagePlot | null = null;
+    let again = false;
+    // A line's level on screen fetched for the order (R6) is in: the plot is drawn again with it, in place, unless its
+    // caller has drawn the canvas since. The caller's StagePlot is kept, with the lines in their new order.
+    const ready = (): void => {
+        if (again) return;
+        again = true;
+        queueMicrotask(() => {
+            if (paintedGenerations.get(canvas) !== generation) return;
+            const redrawn = paintOverlay(canvas, overlay, range, axes, options);
+            if (plot && redrawn) Object.assign(plot, redrawn);
+        });
+    };
     try {
-        return paintPlot(canvas, overlay, range, axes, options);
+        plot = paintPlot(canvas, overlay, range, axes, options, ready);
+        return plot;
     } finally {
         scope.__plotPainting -= 1;
     }
 }
 
-function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: PaneRange, axes: StageAxes, options: StagePaintOptions): StagePlot | null {
+/** How many times each canvas was drawn by paintOverlay: a redraw for a fetched level is for the latest only. */
+const paintedGenerations = new WeakMap<HTMLCanvasElement, number>();
+
+function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: PaneRange, axes: StageAxes, options: StagePaintOptions, ready: () => void): StagePlot | null {
     const lane = options.axisCanvas !== undefined;
     // A lane keeps the size its layout gave its canvas; any other plot is sized to its box at the screen's ratio.
     const ratio = options.size ? 1 : lane ? canvas.width / (canvas.clientWidth || canvas.width || 1) : canvas.ownerDocument.defaultView?.devicePixelRatio ?? 1;
@@ -752,15 +810,19 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
     }
     const xWindow = options.window?.x ?? FULL_WINDOW;
     const whole = options.axisView ?? view;
-    // Drawn in the plot's own order (R6): the quietest compared line last, on top, on every plot.
-    const order = overlayOrder(overlay.layers, whole, xWindow);
+    // Drawn in the plot's own order (R6): the quietest compared line last, on top, on every plot, by every value on
+    // screen; a level still being fetched draws the plot again once it is in (`ready`).
+    const levelContext = { ready };
+    const levels = screenLevels(overlay.layers.filter(comparedLine), whole, xWindow, levelContext);
+    const order = overlayOrder(overlay.layers, whole, xWindow, levels);
     const layers = order.flatMap(layer => events.get(layer) ?? []);
     // Each line drawn, as the caller's picture (a trigger's events are their recording's), in the order drawn.
     const pictureOf = new Map(order.flatMap(layer => (events.get(layer) ?? []).map(drawn => [drawn, layer] as const)));
     const drawnPictures: StageLayer[] = [];
     const secondDrawn: StageLayer[] = [];
     const drew = (layer: StageLayer): void => { const picture = pictureOf.get(layer) ?? layer; if (drawnPictures[drawnPictures.length - 1] !== picture) drawnPictures.push(picture); };
-    const secondaryOrder = options.secondary ? overlayOrder(options.secondary.layers, whole, xWindow) : [];
+    const secondLevels = options.secondary ? screenLevels(options.secondary.layers.filter(comparedLine), whole, xWindow, levelContext) : undefined;
+    const secondaryOrder = options.secondary ? overlayOrder(options.secondary.layers, whole, xWindow, secondLevels) : [];
     const xAxis = windowed(axisScale(whole), xWindow);
     // Zoomed, the pictures run past the plot's edges: they are clipped to it.
     const xAt = (value: number): number => left + xAxis.fraction(value) * plotWidth;
@@ -943,7 +1005,7 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
     }
     // What was drawn in which order, for the audit of every plot (R6): a trigger's events are their recording's line.
     if (canvas.dataset) {
-        canvas.dataset.plotOrder = [drawnLevelsText(drawnPictures, whole, xWindow), drawnLevelsText(secondDrawn, whole, xWindow)].filter(Boolean).join(';');
+        canvas.dataset.plotOrder = [drawnLevelsText(drawnPictures, whole, xWindow, levels), drawnLevelsText(secondDrawn, whole, xWindow, secondLevels)].filter(Boolean).join(';');
     }
     // The frequency or time axis: ticks along the bottom, its name at the right end; a tick label the name would
     // overlap is left out (its gridline stays).
