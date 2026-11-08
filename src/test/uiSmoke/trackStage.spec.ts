@@ -121,6 +121,8 @@ test('the track view\'s steps mode draws every track as the chosen step\'s Frame
     await page.locator('[data-action="stage-layout"]').click();
     await expect(stage).toHaveAttribute('data-layout', 'lanes');
     await expect(page.locator('#stacked-wrap')).toBeVisible();
+    // The step's plot in the lane carries none of the waveform view's cursor, loop or band: their layer stays out of sight.
+    await expect(page.locator('.track-waveform-overlay').first()).toBeHidden();
     // The HPF chip: the track as a time signal, drawn as its waveform in its lane.
     await bar.locator('.step-chip', { hasText: 'HPF' }).locator('[data-step-hold]').click();
     await expect.poll(async () => (await stageScans(page)).at(-1)?.stage).toBe('node-0');
@@ -131,6 +133,7 @@ test('the track view\'s steps mode draws every track as the chosen step\'s Frame
     // Back to the waveform: the lanes and the ruler are as before.
     await page.locator('[data-action="content-waveform"]').click();
     await expect(stage).toBeHidden();
+    await expect(page.locator('.track-waveform-overlay').first()).toBeVisible();
     await expect(page.locator('#ruler-row')).toBeVisible();
     await expect(page.locator('#stacked-wrap')).toBeVisible();
 });

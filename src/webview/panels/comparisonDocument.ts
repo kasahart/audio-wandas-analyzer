@@ -717,6 +717,8 @@ export function renderComparisonStyles(): string {
         [role="separator"]:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; background: color-mix(in srgb, var(--accent) 45%, transparent); opacity: 1; }
         .track-split:hover, body.is-split-resizing .track-split { opacity: 1; background: color-mix(in srgb, var(--accent) 45%, transparent); }
         body.is-stage-view .track-split, body.is-stage-view .track-spec-wrap { display: none; }
+        /* The waveform view's cursor, loop and band are not the step's: their layer is out of sight over a step's plot. */
+        body.is-stage-view .track-waveform-overlay { display: none; }
         body.is-stage-view .track-canvas-wrap { padding-right: 0; }
         /* A step's picture is one per recording (the channel its role compares, R11): drawn on the first lane, the
            others are left out rather than empty, and the channel names over the lanes with them. */
