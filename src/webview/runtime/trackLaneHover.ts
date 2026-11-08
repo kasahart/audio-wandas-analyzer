@@ -56,6 +56,8 @@ export function laneReadoutText(label: string, seconds: number, secondsPerPixel:
 export interface SpectrogramCell {
     frequencyHz: number;
     level: number;
+    /** The spacing of the spectrogram's bins, so neighbouring bins read apart (R7). */
+    stepHz?: number;
 }
 
 /**
@@ -69,11 +71,11 @@ export function spectrogramCellAt(spec: Pick<SpectrogramData, 'values' | 'timeBi
     const intervals = Math.max(spec.frequencyBins - 1, 1);
     const bin = Math.round(frequencyHz / spec.maxFrequencyHz * intervals);
     const level = bin < spec.frequencyBins ? spec.values[time]?.[bin] : undefined;
-    return level === undefined || !Number.isFinite(level) ? null : { frequencyHz: bin / intervals * spec.maxFrequencyHz, level };
+    return level === undefined || !Number.isFinite(level) ? null : { frequencyHz: bin / intervals * spec.maxFrequencyHz, level, stepHz: spec.maxFrequencyHz / intervals };
 }
 
 /** "name / 1.234 s / 1 kHz / −40.0 dB": the time as the waveform lanes read it, the cell's bin and level. */
 export function spectrogramReadoutText(label: string, seconds: number, secondsPerPixel: number, cell: SpectrogramCell, unit: string): string {
     const [time] = laneReadoutText('', seconds, secondsPerPixel, 0, null).split(' / ');
-    return readoutText([...(label ? [label] : []), time, frequencyText(cell.frequencyHz), levelText(cell.level, unit)]);
+    return readoutText([...(label ? [label] : []), time, frequencyText(cell.frequencyHz, cell.stepHz), levelText(cell.level, unit)]);
 }

@@ -17,6 +17,24 @@ test('a frequency reads in Hz below 1 kHz and in kHz to the hertz from there, so
     assert.equal(frequencyText(12500), '12.5 kHz');
 });
 
+test('a frequency read among points finer than 1 Hz apart gets the digits that tell neighbouring bins apart (R7)', () => {
+    // A 65536-point Welch at 48 kHz: 0.732 Hz bins.
+    const step = 48000 / 65536;
+    assert.equal(frequencyText(1369 * step, step), '1.0027 kHz');
+    assert.equal(frequencyText(1370 * step, step), '1.0034 kHz');
+    // A 16384-point STFT at 8 kHz: 0.488 Hz bins, below 1 kHz too.
+    const fine = 8000 / 16384;
+    assert.notEqual(frequencyText(100 * fine, fine), frequencyText(101 * fine, fine));
+    assert.equal(frequencyText(0.05, 0.01), '0.05 Hz');
+    // Bins a hertz or more apart keep the plain form.
+    assert.equal(frequencyText(1015.625, 15.625), '1.016 kHz');
+    assert.equal(frequencyText(250, 31.25), '250 Hz');
+    // Any spacing: every pair of neighbours reads apart.
+    for (const spacing of [0.05, 0.1, 0.15, 0.49, 0.73, 1, 2.7, 15.625]) {
+        for (let k = 1; k < 4000; k += 37) assert.notEqual(frequencyText(k * spacing, spacing), frequencyText((k + 1) * spacing, spacing), `${k} × ${spacing} Hz`);
+    }
+});
+
 test('a level reads to a tenth of a decibel in its unit, a time in seconds, other values to three figures (R7)', () => {
     assert.equal(levelText(-42.31), '−42.3 dB');
     assert.equal(levelText(61, 'dB SPL'), '61.0 dB SPL');
@@ -49,4 +67,10 @@ test('the same frequency and level read the same on the comparison, the cursor s
         assert.ok(text.includes('1.016 kHz'), text);
         assert.ok(text.includes('−42.3 dB'), text);
     }
+    // Bins 0.732 Hz apart: each plot tells two neighbours apart, the same way.
+    const step = 48000 / 65536, xs = [1369 * step, 1370 * step];
+    const fine: StagePlot = { ...plot, xAt: value => (value === xs[0] ? 50 : 150), lines: [{ view: { ...view, xs, values: [-42.3, -42.3] }, color: 'blue', label: 'a.wav' }] };
+    const fineSlice = { values: [], frequencyBins: 65537, maxFrequencyHz: 48000, minDb: 0, maxDb: 0, unit: 'dB' };
+    const readouts = xs.map((hz, i) => [stageHover(fine, i ? 150 : 50, 50)!.text, spectrumReadoutText('a.wav', fineSlice, hz, -42.3), spectrogramReadoutText('a.wav', 1, 0.01, { frequencyHz: hz, level: -42.3, stepHz: step }, 'dB')]);
+    for (const [i, expected] of ['1.0027 kHz', '1.0034 kHz'].entries()) for (const text of readouts[i]) assert.ok(text.includes(expected), text);
 });

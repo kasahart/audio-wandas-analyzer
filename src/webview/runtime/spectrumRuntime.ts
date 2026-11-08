@@ -189,7 +189,19 @@ export function nearestSpectrumSnap<S extends { slice: SpectrumSlice }>(
 }
 
 export function spectrumReadoutText(label: string, slice: SpectrumSlice, freqHz: number, dbVal: number): string {
-    return readoutText([label, frequencyText(freqHz), levelText(dbVal, dbLevelUnitFor(slice))]);
+    return readoutText([label, frequencyText(freqHz, sliceStepHz(slice, freqHz)), levelText(dbVal, dbLevelUnitFor(slice))]);
+}
+
+/** The spacing of a slice's points around `freqHz` (its drawn points', else its even bins'), for the readout's digits. */
+function sliceStepHz(slice: SpectrumSlice, freqHz: number): number | undefined {
+    const points = slice.bandCentersHz ?? slice.frequenciesHz;
+    if (points && points.length > 1) {
+        let at = 0;
+        for (let i = 1; i < points.length; i++) if (Math.abs(points[i] - freqHz) < Math.abs(points[at] - freqHz)) at = i;
+        const gaps = [points[at] - points[at - 1], points[at + 1] - points[at]].filter(gap => Number.isFinite(gap) && gap > 0);
+        return gaps.length ? Math.min(...gaps) : undefined;
+    }
+    return slice.frequencyBins > 1 && slice.maxFrequencyHz > 0 ? slice.maxFrequencyHz / (slice.frequencyBins - 1) : undefined;
 }
 
 export interface SpectrumReadoutElement {

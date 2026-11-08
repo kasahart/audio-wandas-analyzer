@@ -217,14 +217,21 @@ const lag = (seconds: number): string => {
 
 /** Where along its axis a point of the picture is, for the readout and the headline. */
 function atText(view: StageView, index: number, row?: number): string {
-    return atValue(view, view.xs?.[index] ?? 0, row === undefined ? undefined : view.ys?.[row] ?? 0);
+    return atValue(view, view.xs?.[index] ?? 0, row === undefined ? undefined : view.ys?.[row] ?? 0, spacingAt(view.xs, index), row === undefined ? undefined : spacingAt(view.ys, row));
+}
+
+/** The gap from a point to its nearer neighbour, so a readout writes the digits that tell the two apart (R7). */
+function spacingAt(values: readonly number[] | undefined, index: number): number | undefined {
+    if (!values) return undefined;
+    const gaps = [values[index] - values[index - 1], values[index + 1] - values[index]].map(Math.abs).filter(gap => Number.isFinite(gap) && gap > 0);
+    return gaps.length ? Math.min(...gaps) : undefined;
 }
 
 /** A point of `view`'s axes in their units: "1 kHz", "1.00 s · 100 Hz". */
-function atValue(view: StageView, x: number, y?: number): string {
-    const along = view.x === 'time' ? secondsText(x) : view.x === 'quefrency' ? quefrency(x) : view.x === 'lag' ? lag(x) : hz(x);
+function atValue(view: StageView, x: number, y?: number, xStep?: number, yStep?: number): string {
+    const along = view.x === 'time' ? secondsText(x) : view.x === 'quefrency' ? quefrency(x) : view.x === 'lag' ? lag(x) : hz(x, xStep);
     if (y === undefined) return along;
-    return `${along} · ${view.yAxis === 'bark' ? `${y.toFixed(1)} Bark` : view.yAxis === 'quefrency' ? quefrency(y) : hz(y)}`;
+    return `${along} · ${view.yAxis === 'bark' ? `${y.toFixed(1)} Bark` : view.yAxis === 'quefrency' ? quefrency(y) : hz(y, yStep)}`;
 }
 
 /** The Δ pane's headline: where the difference is largest, or why there is none. */

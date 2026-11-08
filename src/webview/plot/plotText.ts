@@ -14,14 +14,18 @@ const trimmed = (text: string): string => (text.includes('.') ? text.replace(/\.
 
 /**
  * A frequency: below 1 kHz in Hz (a tenth where it is not whole: a bin at 15.6 Hz), from 1 kHz in kHz to the hertz
- * ("1.016 kHz", "3.15 kHz", "12.5 kHz"), so two neighbouring bins never read the same.
+ * ("1.016 kHz", "3.15 kHz", "12.5 kHz"). `stepHz`, the spacing of the points it is read among, adds the digits that
+ * spacing needs, so two neighbouring bins never read the same (0.73 Hz apart: "1.0027 kHz", "1.0034 kHz").
  */
-export function frequencyText(hz: number): string {
+export function frequencyText(hz: number, stepHz?: number): string {
+    // Decimals in Hz that tell points `stepHz` apart: a resolution no coarser than the step.
+    const needed = stepHz !== undefined && stepHz > 0 && Number.isFinite(stepHz) ? Math.max(0, Math.ceil(-Math.log10(stepHz) - 1e-9)) : 0;
     if (Math.abs(hz) < 1000) {
+        if (needed > 1) return `${withMinus(trimmed(hz.toFixed(needed)))} Hz`;
         const whole = Math.round(hz);
         return `${withMinus(Math.abs(hz - whole) < 0.05 ? String(whole) : hz.toFixed(1))} Hz`;
     }
-    return `${withMinus(trimmed((hz / 1000).toFixed(3)))} kHz`;
+    return `${withMinus(trimmed((hz / 1000).toFixed(3 + needed)))} kHz`;
 }
 
 /** A time in seconds to `digits` decimals (2 by default: 10 ms). */
