@@ -134,20 +134,19 @@ def test_a_new_steps_cross_correlation_keeps_every_lag_so_its_peak_is_at_its_own
     assert view["xs"][int(np.argmax(view["values"]))] == pytest.approx(0.001)
 
 
-def test_long_cross_correlations_share_their_lags_so_they_are_compared_at_one_lag() -> None:
+def test_a_long_cross_correlations_peak_is_drawn_at_its_own_lag() -> None:
     signal = np.random.default_rng(1).standard_normal(64000)
 
     def view(delay: int) -> dict:
         frame = wd.from_numpy(np.vstack([signal, np.roll(signal, delay)]), sampling_rate=16000)
         return _checked(frame.cross_correlation(max_lag=3.0))
 
-    # 96,001 lags over ±3 s are drawn in blocks of 10 (0.625 ms), each at its centre: 1 ms and 2 ms stay apart.
-    early, late = view(16), view(32)
-    assert early["xs"] == late["xs"]
-    block = 3.0 * 2 / 9601
-    for drawn, delay in ((early, 0.001), (late, 0.002)):
-        assert abs(drawn["xs"][int(np.argmax(drawn["values"]))] - delay) <= block / 2
-    assert int(np.argmax(early["values"])) != int(np.argmax(late["values"]))
+    # 96,001 lags over ±3 s are drawn as each bucket's lowest and highest lag, each at its own lag (R2):
+    # a 1 ms and a 2 ms delay peak at 1 ms and 2 ms, not at their buckets' centres.
+    for delay in (16, 32):
+        drawn = view(delay)
+        assert len(drawn["xs"]) <= 9601
+        assert drawn["xs"][int(np.argmax(drawn["values"]))] == pytest.approx(delay / 16000)
 
 
 def test_a_cepstrogram_is_an_image_over_time_and_quefrency(signal: wd.ChannelFrame) -> None:
@@ -292,8 +291,8 @@ def test_power_mean_db_is_the_power_average_every_view_used() -> None:
 
 
 @pytest.mark.parametrize("size", [1, 7, 64, 65, 1000, 4097])
-def test_cepstrum_and_lag_peaks_keep_each_blocks_largest_magnitude(size: int) -> None:
-    from stage_view import _peak_points, _signed_peaks
+def test_cepstrogram_rows_keep_each_blocks_largest_magnitude(size: int) -> None:
+    from stage_view import _signed_peaks
 
     values = np.random.default_rng(size).normal(size=(2, size))
     for count in (1, 8, 64, 5000):
@@ -305,13 +304,6 @@ def test_cepstrum_and_lag_peaks_keep_each_blocks_largest_magnitude(size: int) ->
             expected = [values[row, a + np.argmax(np.abs(values[row, a:b]))] for a, b in blocks]
             np.testing.assert_array_equal(peaks[row], expected)
         np.testing.assert_array_equal(starts, edges[:-1])
-        line, at = _peak_points(values[0], count)
-        if size <= count:
-            np.testing.assert_array_equal(line, values[0])
-            np.testing.assert_array_equal(at, np.arange(size))
-        else:
-            np.testing.assert_array_equal(line, peaks[0])
-            np.testing.assert_array_equal(at, (edges[:-1] + edges[1:] - 1) // 2)
 
 
 def test_a_spectrum_drawn_as_its_own_bins_states_its_axis_from_20_hz_to_nyquist(signal: wd.ChannelFrame) -> None:

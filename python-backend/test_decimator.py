@@ -153,23 +153,28 @@ def test_bucket_starts_follow_array_split(n, count):
 @pytest.mark.parametrize("n,points", [(7, 4), (31, 8), (1001, 64), (48000, 1024)])
 def test_every_time_decimation_shares_the_bucket_rule(n, points):
     """The lanes' waveform (decimated_waveform) and the comparison's lines (stage_view._envelope) put the same
-    samples in a bucket: the comparison's points sit at each bucket's first and last sample."""
+    samples in a bucket and keep the same points: each bucket's lowest and highest sample, each at its own place.
+    A trigger's events, which share one x list, keep the same extremes at each bucket's first and last sample."""
     from decimator import bucket_starts
-    from stage_view import _envelope
+    from stage_view import _envelope, _shared_envelope
 
     xs = np.arange(n, dtype=float)
     values = np.random.default_rng(n).normal(size=n)
     count = points // 2
-    starts = bucket_starts(n, count)
-    ends = np.append(starts[1:], n) - 1
-    line_xs, line_values = _envelope(xs, values, points)
-    np.testing.assert_equal(line_xs, np.stack([starts, ends], axis=1).reshape(-1))
     parts = np.array_split(values, count)
-    np.testing.assert_allclose(line_values[0::2], [part.min() for part in parts])
-    np.testing.assert_allclose(line_values[1::2], [part.max() for part in parts])
     waveform = decimated_waveform(values, count, 0, n)
     np.testing.assert_allclose(waveform["min"], [part.min() for part in parts])
     np.testing.assert_allclose(waveform["max"], [part.max() for part in parts])
+    at = np.round(np.concatenate([waveform["minT"], waveform["maxT"]]) * (n - 1)).astype(int)
+    line_xs, line_values = _envelope(xs, values, points)
+    np.testing.assert_equal(line_xs, np.unique(at))
+    np.testing.assert_equal(line_values, values[np.unique(at)])
+    starts = bucket_starts(n, count)
+    ends = np.append(starts[1:], n) - 1
+    shared_xs, shared = _shared_envelope(xs, values[np.newaxis], points)
+    np.testing.assert_equal(shared_xs, np.stack([starts, ends], axis=1).reshape(-1))
+    np.testing.assert_allclose(shared[0][0::2], [part.min() for part in parts])
+    np.testing.assert_allclose(shared[0][1::2], [part.max() for part in parts])
 
 
 @pytest.mark.parametrize("n,buckets", [(100, 30), (1001, 64), (2000, 1024)])

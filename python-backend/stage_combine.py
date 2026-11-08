@@ -294,13 +294,15 @@ def _line(data: StageData, detail: StageDetail | None, diff: bool) -> tuple[np.n
     mode = data.mode
     if mode == "bands":
         return data.xs, data.values
-    if mode == "spectrum" and not diff:
+    if mode in ("spectrum", "coherence") and not diff:
         # As each recording's own picture (stage_view.spectrum_line).
         if bounds is None:
-            return sv.spectrum_line(
+            line = sv.spectrum_line(
                 data.xs, data.values, [spec.SPECTRUM_MIN_HZ, data.nyquist], sv.SPECTRUM_LINE_BUCKETS
             )
-        return sv.spectrum_line(data.xs, data.values, bounds, points // 2)
+        else:
+            line = sv.spectrum_line(data.xs, data.values, bounds, points // 2)
+        return (line[0], np.round(line[1], 4)) if mode == "coherence" else line
     xs, values = data.xs, data.values
     if bounds is not None:
         keep = sv._inside(xs, bounds)
@@ -311,30 +313,24 @@ def _line(data: StageData, detail: StageDetail | None, diff: bool) -> tuple[np.n
     if diff:
         if mode in ("spectrum", "coherence") and bounds is None:
             inside = (xs >= spec.SPECTRUM_MIN_HZ) & (xs <= data.nyquist)
-            buckets = sv.SPECTRUM_LINE_BUCKETS if mode == "spectrum" else spec.SPECTRUM_POINTS
-            return difference_line(xs[inside], values[inside], buckets, True, [spec.SPECTRUM_MIN_HZ, data.nyquist])
+            return difference_line(
+                xs[inside], values[inside], sv.SPECTRUM_LINE_BUCKETS, True, [spec.SPECTRUM_MIN_HZ, data.nyquist]
+            )
         if mode == "cepstrum" and xs.size and xs[0] == 0:
             rest = difference_line(xs[1:], values[1:], _line_buckets(mode, points), log)
             return np.concatenate([xs[:1], rest[0]]), np.concatenate([values[:1], rest[1]])
         return difference_line(xs, values, _line_buckets(mode, points), log, bounds)
-    if mode == "coherence":
-        if bounds is None:
-            edges = np.geomspace(spec.SPECTRUM_MIN_HZ, data.nyquist, spec.SPECTRUM_POINTS + 1)
-            centres = np.sqrt(edges[:-1] * edges[1:])
-            return centres, np.round(np.interp(centres, xs, values), 4)
-        line = sv._envelope(xs, values, points)
-        return line[0], np.round(line[1], 4)
     if mode == "series":
         return sv._envelope(xs, values, points or sv.LEVEL_SERIES_MIN_SAMPLES)
     if mode == "cepstrum":
         line = sv._cepstrum_envelope(xs, values, points or sv.QUEFRENCY_POINTS)
         return line[0], np.round(line[1], sv.CEPSTRUM_DECIMALS)
     if mode == "correlation":
-        peaks, picked = sv._peak_points(values, points or sv.LAG_POINTS)
-        return xs[picked], np.round(peaks, sv.CORRELATION_DECIMALS)
+        line = sv._envelope(xs, values, points or sv.LAG_POINTS)
+        return line[0], np.round(line[1], sv.CORRELATION_DECIMALS)
     if mode == "events":
-        peaks, edges = sv._block_peaks(values, points or sv.EVENT_POINTS)
-        return xs[(edges[:-1] + edges[1:] - 1) // 2], peaks
+        line = sv._shared_envelope(xs, values[np.newaxis], points or sv.EVENT_POINTS)
+        return line[0], line[1][0]
     raise ValueError(f"not a line: {mode}")
 
 
