@@ -365,11 +365,13 @@ def test_track_detail_spectrogram_bins_stay_aligned_with_time(tmp_path: Path) ->
     loudest = np.asarray(spec["values"]).max(axis=1)
     loud_bins = np.nonzero(loudest > loudest.min() + 40)[0]
     bin_seconds = seconds / spec["timeBins"]
+    centres = spec["timeCentersSec"]
 
-    # Many more STFT frames than display bins: every display bin must still sit at its own time.
+    # Many more STFT frames than display bins: every display bin must still sit at its own time, the centre of its
+    # frames that the lane places it at.
     assert spec["timeBins"] == 720
-    assert loud_bins[0] * bin_seconds == pytest.approx(burst_start, abs=2 * bin_seconds)
-    assert (loud_bins[-1] + 1) * bin_seconds == pytest.approx(burst_end, abs=2 * bin_seconds)
+    assert centres[loud_bins[0]] == pytest.approx(burst_start, abs=2 * bin_seconds)
+    assert centres[loud_bins[-1]] == pytest.approx(burst_end, abs=2 * bin_seconds)
 
 
 @pytest.mark.parametrize(("cursor_norm", "expected_start"), [(0.0, 0), (1.0, 8000 - 256)])

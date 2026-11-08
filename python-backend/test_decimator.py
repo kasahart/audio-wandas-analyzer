@@ -198,3 +198,18 @@ def test_bucket_edges_cover_every_sample_once():
     assert bucket_edges(10, 0).tolist() == [0]
     assert bucket_edges(3, 10).tolist() == [0, 1, 2, 3]
     assert bucket_edges(10, 3).tolist() == [0, 4, 7, 10]
+
+
+@pytest.mark.parametrize("frames,columns", [(7, 4), (31, 8), (1001, 64), (48000, 1024)])
+def test_a_lanes_spectrogram_columns_share_the_bucket_rule(frames, columns):
+    """The track lanes' spectrogram puts the same STFT frames in a column as every other time axis puts samples in
+    a bucket (decimator.bucket_starts, np.array_split's), and each column's time is its frames' mean centre."""
+    from analyzer import _mean_power_db, _resample_time_bins, _resample_time_centers
+
+    levels = np.random.default_rng(frames).normal(-40, 10, size=(frames, 3))
+    centres = np.arange(frames) * 0.01 + 0.005
+    groups = np.array_split(np.arange(frames), columns)
+    np.testing.assert_allclose(
+        _resample_time_bins(levels, columns), [_mean_power_db(levels[group], axis=0) for group in groups]
+    )
+    np.testing.assert_allclose(_resample_time_centers(centres, columns), [centres[group].mean() for group in groups])

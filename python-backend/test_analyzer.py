@@ -468,8 +468,8 @@ def test_spectrogram_time_centers_follow_stft_window_centers() -> None:
         time_bin_limit=8,
         frame_centers_sec=centers,
     )
-    boundaries = (np.arange(1, 8) * spectrogram.n_frames) // 8
-    expected = [float(np.mean(group)) for group in np.split(centers, boundaries)]
+    # Columns are every time axis's buckets (decimator.bucket_starts, np.array_split's), each at its frames' centre.
+    expected = [float(np.mean(group)) for group in np.array_split(centers, 8)]
     assert spec["timeCentersSec"] == pytest.approx(expected)
 
 
