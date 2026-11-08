@@ -1,14 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
-  <g stroke="currentColor" stroke-width="2" stroke-linecap="round">
-    <path d="M2.4 12v2" opacity="0.55" />
-    <path d="M4.6 9.5v5" opacity="0.7" />
-    <path d="M6.8 11v2" opacity="0.6" />
-    <path d="M9 7.2v9.6" opacity="0.75" />
-    <path d="M11.2 4.2v15.6" />
-    <path d="M13.4 2.8v18.4" />
-    <path d="M15.6 7.2v9.6" opacity="0.85" />
-    <path d="M17.8 10.8v2.4" opacity="0.65" />
-    <path d="M20 8.5v7" opacity="0.7" />
-    <path d="M21.8 11.4v1.2" opacity="0.55" />
+  <g stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
+    <path d="M3 10v4" />
+    <path d="M6 7.5v9" />
+    <path d="M9 5v14" />
+    <path d="M12 2.5v19" />
+    <path d="M15 5v14" />
+    <path d="M18 7.5v9" />
+    <path d="M21 10v4" />
   </g>
 </svg>
