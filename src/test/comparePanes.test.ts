@@ -305,3 +305,35 @@ test('the held Δ zoomed in is drawn again from every bin between its ends, not 
     const banded = deltaViews({ bins: null, diffDb: [1, 2], frequencies: [100, 200] }, { start: 0.2, end: 0.4 });
     assert.equal(banded.view, banded.picture);
 });
+
+/** A 2D context that records each call by name, with its arguments. */
+function recordingCanvas(): { canvas: HTMLCanvasElement; calls: Array<[string, unknown[]]> } {
+    const calls: Array<[string, unknown[]]> = [];
+    const context = new Proxy({}, {
+        get: (_target, key) => (key === 'measureText' ? (text: string) => ({ width: text.length * 6 }) : (...args: unknown[]) => { calls.push([String(key), args]); }),
+        set: () => true,
+    });
+    const canvas = { width: 0, height: 0, clientWidth: 600, clientHeight: 200, ownerDocument: {}, dataset: {}, setAttribute: () => undefined, getContext: () => context } as unknown as HTMLCanvasElement;
+    return { canvas, calls };
+}
+
+test('an empty plot\'s message keeps its line breaks: the summary and the backend\'s text each on their own line', () => {
+    const { canvas, calls } = recordingCanvas();
+    paintOverlay(canvas, { layers: [] }, { min: 0, max: 1 }, { x: 'Time [s]', y: 'Frequency [Hz]' }, { axisCanvas: null, size: { width: 600, height: 200 }, empty: 'Summary\nDetail' });
+    const texts = calls.filter(([name]) => name === 'fillText').map(([, args]) => args[0]);
+    assert.ok(texts.includes('Summary') && texts.includes('Detail'), JSON.stringify(texts));
+    assert.ok(!texts.some(text => String(text).includes('Summary') && String(text).includes('Detail')));
+});
+
+test('a plot\'s guides are drawn by the plot component: each span shaded, the level dashed and named', () => {
+    const { canvas, calls } = recordingCanvas();
+    const view: StageView = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs: [0, 1, 2], values: [0, 0.5, 0] };
+    const fills = (): number => calls.filter(([name]) => name === 'fillRect').length;
+    paintOverlay(canvas, { layers: [{ view, color: '#00f' }] }, { min: -1, max: 1 }, { x: 'Time [s]', y: 'Value' }, { axisView: view });
+    const without = { fills: fills(), dashes: calls.filter(([name, args]) => name === 'setLineDash' && JSON.stringify(args[0]) === '[5,3]').length };
+    calls.length = 0;
+    paintOverlay(canvas, { layers: [{ view, color: '#00f' }] }, { min: -1, max: 1 }, { x: 'Time [s]', y: 'Value' }, { axisView: view, guides: { spans: [{ start: 0.5, end: 1 }], level: { value: 0.25, label: 'Threshold 0.25' } } });
+    assert.equal(fills() - without.fills, 1, 'one shaded span');
+    assert.equal(calls.filter(([name, args]) => name === 'setLineDash' && JSON.stringify(args[0]) === '[5,3]').length - without.dashes, 1, 'the level dashed');
+    assert.ok(calls.some(([name, args]) => name === 'fillText' && args[0] === 'Threshold 0.25'), 'the level named');
+});
