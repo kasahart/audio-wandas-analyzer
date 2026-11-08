@@ -6,7 +6,14 @@ import wandas as wd
 
 import analysis_spec as spec
 from protocol_schema import DEFINITIONS, first_violation
-from stage_view import LAG_POINTS, QUEFRENCY_POINTS, SPECTRUM_LINE_BUCKETS, TIME_POINTS, spectrum_line, stage_view
+from stage_view import (
+    LAG_POINTS,
+    LEVEL_SERIES_MIN_SAMPLES,
+    QUEFRENCY_POINTS,
+    SPECTRUM_LINE_BUCKETS,
+    spectrum_line,
+    stage_view,
+)
 
 RATE = 16000
 
@@ -24,11 +31,13 @@ def _checked(frame: object) -> dict:
     return dict(view)
 
 
-def test_a_time_signal_is_its_level_over_time(signal: wd.ChannelFrame) -> None:
+def test_a_time_signal_is_its_own_values_never_a_level_the_comparison_makes(signal: wd.ChannelFrame) -> None:
+    # The sound as wandas gives it: its samples' extremes per bucket, in its unit. A level is a wandas step's
+    # (sound_level, rms_trend), whose window the recipe records, never one the comparison picks.
     view = _checked(signal)
-    assert (view["kind"], view["x"], view["quantity"], len(view["xs"])) == ("line", "time", "level", TIME_POINTS)
-    # A 0.5 sine is 3 dB below its peak: −9 dB re 1.
-    assert np.median(view["values"]) == pytest.approx(20 * np.log10(0.5 / np.sqrt(2)), abs=0.2)
+    assert (view["kind"], view["x"], view["quantity"]) == ("line", "time", "value")
+    assert len(view["xs"]) <= LEVEL_SERIES_MIN_SAMPLES
+    assert max(view["values"]) == pytest.approx(0.5, abs=0.15) and min(view["values"]) == pytest.approx(-0.5, abs=0.15)
     # A region keeps the file's seconds.
     region = _checked(signal.trim(0.5, 1.0))
     assert region["xs"][0] >= 0.5 and region["xs"][-1] <= 1.0
@@ -134,20 +143,19 @@ def test_a_new_steps_cross_correlation_keeps_every_lag_so_its_peak_is_at_its_own
     assert view["xs"][int(np.argmax(view["values"]))] == pytest.approx(0.001)
 
 
-def test_long_cross_correlations_share_their_lags_so_they_are_compared_at_one_lag() -> None:
+def test_a_long_cross_correlations_peak_is_drawn_at_its_own_lag() -> None:
     signal = np.random.default_rng(1).standard_normal(64000)
 
     def view(delay: int) -> dict:
         frame = wd.from_numpy(np.vstack([signal, np.roll(signal, delay)]), sampling_rate=16000)
         return _checked(frame.cross_correlation(max_lag=3.0))
 
-    # 96,001 lags over ±3 s are drawn in blocks of 10 (0.625 ms), each at its centre: 1 ms and 2 ms stay apart.
-    early, late = view(16), view(32)
-    assert early["xs"] == late["xs"]
-    block = 3.0 * 2 / 9601
-    for drawn, delay in ((early, 0.001), (late, 0.002)):
-        assert abs(drawn["xs"][int(np.argmax(drawn["values"]))] - delay) <= block / 2
-    assert int(np.argmax(early["values"])) != int(np.argmax(late["values"]))
+    # 96,001 lags over ±3 s are drawn as each bucket's lowest and highest lag, each at its own lag (R2):
+    # a 1 ms and a 2 ms delay peak at 1 ms and 2 ms, not at their buckets' centres.
+    for delay in (16, 32):
+        drawn = view(delay)
+        assert len(drawn["xs"]) <= 9601
+        assert drawn["xs"][int(np.argmax(drawn["values"]))] == pytest.approx(delay / 16000)
 
 
 def test_a_cepstrogram_is_an_image_over_time_and_quefrency(signal: wd.ChannelFrame) -> None:
@@ -244,8 +252,8 @@ def test_a_time_signal_carries_its_own_waveform_as_the_lanes_decimate_it(signal:
     expected = decimated_waveform(samples, 1200, 0, samples.size)
     assert waveform["min"] == pytest.approx(expected["min"]) and waveform["max"] == pytest.approx(expected["max"])
     assert waveform["minT"][0] >= 0 and waveform["maxT"][-1] <= 2.0
-    # The level over time stays for the headline and Δ.
-    assert view["quantity"] == "level" and len(view["values"]) == TIME_POINTS
+    # Its values are the samples themselves, not a level of them.
+    assert view["quantity"] == "value"
     # Zoomed into 10 ms: every sample there (160 at 16 kHz), not buckets.
     detail = stage_view(signal, None, {"x": [0.5, 0.51], "points": 2000})
     assert len(detail["waveform"]["min"]) == 161 and detail["waveform"]["min"] == detail["waveform"]["max"]
@@ -292,8 +300,8 @@ def test_power_mean_db_is_the_power_average_every_view_used() -> None:
 
 
 @pytest.mark.parametrize("size", [1, 7, 64, 65, 1000, 4097])
-def test_cepstrum_and_lag_peaks_keep_each_blocks_largest_magnitude(size: int) -> None:
-    from stage_view import _peak_points, _signed_peaks
+def test_cepstrogram_rows_keep_each_blocks_largest_magnitude(size: int) -> None:
+    from stage_view import _signed_peaks
 
     values = np.random.default_rng(size).normal(size=(2, size))
     for count in (1, 8, 64, 5000):
@@ -305,13 +313,6 @@ def test_cepstrum_and_lag_peaks_keep_each_blocks_largest_magnitude(size: int) ->
             expected = [values[row, a + np.argmax(np.abs(values[row, a:b]))] for a, b in blocks]
             np.testing.assert_array_equal(peaks[row], expected)
         np.testing.assert_array_equal(starts, edges[:-1])
-        line, at = _peak_points(values[0], count)
-        if size <= count:
-            np.testing.assert_array_equal(line, values[0])
-            np.testing.assert_array_equal(at, np.arange(size))
-        else:
-            np.testing.assert_array_equal(line, peaks[0])
-            np.testing.assert_array_equal(at, (edges[:-1] + edges[1:] - 1) // 2)
 
 
 def test_a_spectrum_drawn_as_its_own_bins_states_its_axis_from_20_hz_to_nyquist(signal: wd.ChannelFrame) -> None:

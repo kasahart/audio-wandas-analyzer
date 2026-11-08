@@ -70,7 +70,13 @@ function hasAny(tag, regexes) {
 /** @param {string} source @param {string} filePath */
 function collectInlineVisibilityFindings(source, filePath) {
     /** @type {Array<{filePath:string,line:number,description:string,excerpt:string}>} */
-    const findings = [];
+    // `--minus-hits <file>...`: only the hand-made minus signs of those files, one line each (for its test).
+if (process.argv[2] === '--minus-hits') {
+    for (const finding of collectMinusFindings(process.argv.slice(3))) console.log(`${finding.filePath}:${finding.line}`);
+    process.exit(0);
+}
+
+const findings = [];
     tagRegex.lastIndex = 0;
     let match;
     while ((match = tagRegex.exec(source)) !== null) {
@@ -179,7 +185,8 @@ function collectCanvasDrawingFindings(filePaths) {
 
 // A minus sign is written by plotText.ts alone (R7), so every number reads the same and none keeps a hyphen.
 const MINUS_FILE = 'src/webview/plot/plotText.ts';
-const handMadeMinusRegex = /\.replace\(\s*\/\^?-\/[gu]*\s*,\s*['"`]\u2212['"`]/u;
+// Either a hyphen replaced by a minus, or a minus sign alone in a string (a sign picked by hand: `x < 0 ? '−' : ''`).
+const handMadeMinusRegex = /\.replace\(\s*\/\^?-\/[gu]*\s*,\s*['"`]\u2212['"`]|(['"`])\u2212\1/u;
 /** @param {string[]} filePaths */
 function collectMinusFindings(filePaths) {
     /** @type {Array<{filePath:string,line:number,description:string,excerpt:string}>} */
@@ -187,9 +194,7 @@ function collectMinusFindings(filePaths) {
     for (const filePath of filePaths) {
         if (path.relative(repoRoot, filePath).split(path.sep).join('/') === MINUS_FILE) continue;
         const source = withoutComments(fs.readFileSync(filePath, 'utf8'));
-        const match = handMadeMinusRegex.exec(source);
-        if (!match) continue;
-        out.push({
+        for (const match of source.matchAll(new RegExp(handMadeMinusRegex, 'gu'))) out.push({
             filePath,
             line: lineNumberAt(source, match.index),
             description: `Write a number's minus sign with withMinus (or another formatter) from ${MINUS_FILE}, not by hand.`,

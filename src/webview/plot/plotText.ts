@@ -33,10 +33,41 @@ export function secondsText(seconds: number, digits = 2): string {
     return `${withMinus(seconds.toFixed(digits))} s`;
 }
 
-/** A value to three significant figures (a tenth from 10 up), in its unit where it has one (° with no space). */
+/**
+ * A number to three significant figures ("0.500", "12.3", "123", "1230"): no exponent from 0.001 up to a million,
+ * and an exponent outside ("2.50e−7", "1.23e6").
+ */
+function significant(value: number): string {
+    // Decided on the rounded value, so 999.6 (→ 1000) reads as 1000 does.
+    const rounded = Number(value.toPrecision(3));
+    const size = Math.abs(rounded);
+    if (size === 0 || (size >= 0.001 && size < 1e6)) return withMinus(size >= 1000 ? String(rounded) : value.toPrecision(3));
+    return withMinus(rounded.toExponential(2));
+}
+
+/** A value to three significant figures, in its unit where it has one (° with no space). */
 export function amountText(value: number, unit?: string | null): string {
-    const number = withMinus(Math.abs(value) >= 10 ? value.toFixed(1) : value.toPrecision(3));
+    const number = withMinus(significant(value));
     return unit ? `${number}${unit === '°' ? '°' : ` ${unit}`}` : number;
+}
+
+/** A quefrency in milliseconds: to 10 µs under 10 ms, to 0.1 ms from there ("2.50 ms", "12.5 ms"). */
+export function quefrencyText(seconds: number): string {
+    return `${withMinus((seconds * 1000).toFixed(Math.abs(seconds) < 0.01 ? 2 : 1))} ms`;
+}
+
+/**
+ * A signed lag in milliseconds: the output later than the input when positive. To 10 µs at any lag (a sample at
+ * 96 kHz, since a delay is read sample by sample), and no sign on none ("+1.25 ms", "−0.50 ms", "0.00 ms").
+ */
+export function lagText(seconds: number): string {
+    const ms = (Math.abs(seconds) * 1000).toFixed(2);
+    return `${Number(ms) === 0 ? '' : seconds > 0 ? '+' : '−'}${ms} ms`;
+}
+
+/** A Bark value to a tenth ("12.5 Bark"). */
+export function barkText(bark: number): string {
+    return `${withMinus(bark.toFixed(1))} Bark`;
 }
 
 /** A level to a tenth of a decibel, in its unit ("−42.3 dB", "61.0 dB SPL"). */
@@ -44,7 +75,12 @@ export function levelText(db: number, unit = 'dB'): string {
     return `${withMinus(db.toFixed(1))} ${unit}`;
 }
 
+/** A signed number with a sign always written: to a tenth by default ("+23.7", "−1.4"). */
+export function signedNumberText(value: number, digits = 1): string {
+    return `${value >= 0 ? '+' : '−'}${Math.abs(value).toFixed(digits)}`;
+}
+
 /** A signed difference: dB to a tenth with its unit, other values to three significant figures ("+3.2 dB", "−0.125"). */
 export function signedText(value: number, db = true): string {
-    return `${value >= 0 ? '+' : '−'}${db ? `${Math.abs(value).toFixed(1)} dB` : Math.abs(value).toPrecision(3)}`;
+    return db ? `${signedNumberText(value)} dB` : `${value >= 0 ? '+' : '−'}${significant(Math.abs(value))}`;
 }

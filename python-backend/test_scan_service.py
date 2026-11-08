@@ -475,9 +475,9 @@ def test_scan_names_the_frame_the_chain_ends_in_and_draws_any_step(tmp_path: Pat
     assert len(whole) == len(view["xs"]) and not whole[0] and not whole[-1] and any(whole)
     # The metrics still read the time signal: Leq is the same as with the spectrum.
     assert result["leqDbA"] == _scan(service, path)["leqDbA"]
-    # A step before the slice runs over the whole file: its level over time spans the file.
+    # A step before the slice runs over the whole file: its signal over time spans the file.
     hpf = _scan(service, path, stage="node-0", region={"start": 0.5, "end": 1.0})["stage"]
-    assert (hpf["frame"], hpf["kind"], hpf["x"], hpf["quantity"]) == ("ChannelFrame", "line", "time", "level")
+    assert (hpf["frame"], hpf["kind"], hpf["x"], hpf["quantity"]) == ("ChannelFrame", "line", "time", "value")
     assert hpf["xs"][0] < 0.01 and hpf["xs"][-1] > 1.99
     # The time slice's Frame is the region.
     region = _scan(service, path, stage="node-1", region={"start": 0.5, "end": 1.0})["stage"]

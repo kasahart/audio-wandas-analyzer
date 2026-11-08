@@ -18,7 +18,7 @@ import { deltaViews, withBins, type CompareModel, type LevelInput, type PaneRang
 import type { PlotMargins, PlotWindow } from './plotInteraction';
 import { axisFractionOf, axisValueAt, paintOverlay, stageAxes, stageDiffRange, stageRange, STAGE_MARGINS, type StageAxes, type StagePlot } from './stagePanes';
 import { createDetailPlanner } from './stageDetail';
-import { createCombineSource, type Combined } from './combineSource';
+import { createCombineSource, noDeltaNote, type Combined } from './combineSource';
 import { createStageSource, type StageSpec } from './stageSource';
 import { recipeWithout, stepChipLabel, stepLimits } from './stepBar';
 
@@ -193,7 +193,7 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
         if (zoomed) lastFine.set(identity, zoomed);
         const delta = whole.diff;
         const shown = (zoomed ?? (fineDetail ? lastFine.get(identity) : undefined))?.diff ?? delta;
-        paintView(shown, delta, stageDiffRange(delta), stageAxes(strings, delta, input, true), zoom, { diff: true, color: DIFF_COLOR, empty: whole.tooLarge ? strings.stageTooLarge : strings.stageNoDelta });
+        paintView(shown, delta, stageDiffRange(delta), stageAxes(strings, delta, input, true), zoom, { diff: true, color: DIFF_COLOR, empty: noDeltaNote(whole, strings) });
     }
     /** The held row's Δ spectrum (from the table's own scan), zoomed as its window says. */
     function paintDelta(comparison: CompareModel, key: string, input: LevelInput | undefined): void {

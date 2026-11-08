@@ -35,7 +35,7 @@ from wandas.frames.segments import ChannelFrameSegments
 import analysis_spec as spec
 from decimator import bucket_edges, bucket_starts
 
-# A time signal longer than this is drawn as its level over time; a shorter one is a metric's values.
+# A time signal longer than this is drawn as its waveform (its own samples); a shorter one is a metric's values.
 LEVEL_SERIES_MIN_SAMPLES = 2048
 #: Operations whose ChannelFrame is a metric over time, drawn as its own values however long it is, and
 #: the unit of those values: wandas keeps the input channel's unit on them (rms_trend's is right: its own).
@@ -62,7 +62,7 @@ CEPSTRUM_DECIMALS = 5
 LAG_POINTS = 9601
 # Normalized cross-correlation coefficients lie in [-1, 1].
 CORRELATION_DECIMALS = 4
-#: Points per event of a trigger's segments: each block's sample of largest magnitude, so a hit keeps its peak.
+#: Points per event of a trigger's segments: each bucket's lowest and highest sample, so a hit keeps both its peaks.
 EVENT_POINTS = 400
 
 #: The Frames drawn as a line, bars or an image of their own values.
@@ -109,7 +109,7 @@ class StageView(TypedDict):
     #: What a time signal's values are when a step made them from the sound (SIGNAL_MEASURES), for its axis's name.
     measure: NotRequired[Literal["rms", "timeWeightedRms", "power"]]
     #: A time signal's own waveform, as the track lanes draw it: per bucket its minimum and maximum, each at the
-    #: time it occurred (s into the file). ``values`` keep the level over time the headline and Δ are read from.
+    #: time it occurred (s into the file). ``values`` keep the samples' min/max line; the Δ is taken sample by sample.
     waveform: NotRequired[StageWaveform]
     #: A trigger's segments: every event's signal (channels averaged) over the time from its trigger, each drawn
     #: as its own line. ``values`` are their mean, which a group's median and the readout use.
@@ -223,7 +223,12 @@ def min_max_indices(
     x <= 0) are left out; fewer values than two per bucket are all kept. Of equal values, a bucket's lowest is its
     first and its highest its last. ``xs`` ascending; indices into it, ascending."""
     buckets = max(1, buckets)
-    kept = np.flatnonzero(np.isfinite(values) & ((xs > 0) if log else np.ones(xs.size, dtype=bool)))
+    finite = np.isfinite(values)
+    if not log and finite.all():
+        # Every value kept on a linear axis (a long signal): each bucket's extremes from views of the values,
+        # without arrays of indices as long as the line.
+        return _linear_extremes(values, buckets)
+    kept = np.flatnonzero(finite & ((xs > 0) if log else np.ones(xs.size, dtype=bool)))
     if kept.size <= 2 * buckets:
         return kept
     if log:
@@ -240,6 +245,20 @@ def min_max_indices(
     first = np.minimum.reduceat(np.where(kept_values == np.repeat(lowest, sizes), index, kept.size), starts)
     last = np.maximum.reduceat(np.where(kept_values == np.repeat(highest, sizes), index, -1), starts)
     return kept[np.unique(np.concatenate([first, last]))]
+
+
+def _linear_extremes(values: np.ndarray, buckets: int) -> np.ndarray:
+    """min_max_indices of finite values on a linear axis: per bucket (decimator.bucket_edges) the first lowest and
+    the last highest value's index, ascending."""
+    if values.size <= 2 * buckets:
+        return np.arange(values.size)
+    edges = bucket_edges(values.size, buckets)
+    picked = np.empty(2 * buckets, dtype=np.int64)
+    for bucket, (start, end) in enumerate(zip(edges[:-1], edges[1:], strict=True)):
+        block = values[start:end]
+        picked[2 * bucket] = start + int(np.argmin(block))
+        picked[2 * bucket + 1] = end - 1 - int(np.argmax(block[::-1]))
+    return np.unique(picked)
 
 
 def min_max_line(
@@ -296,33 +315,35 @@ def _waveform(
     frame: ChannelFrame, keep: np.ndarray | None = None, points: int = WAVEFORM_OVERVIEW_POINTS
 ) -> StageWaveform:
     """The signal itself (channels averaged) as the lanes draw it, by the lanes' own decimation (decimator.py)."""
-    from decimator import decimated_waveform
-
     samples = np.mean(_rows(frame.data, frame.n_channels), axis=0)
     times = np.asarray(frame.source_time, dtype=np.float64).reshape(frame.n_channels, -1)[0]
     if keep is not None:
         samples, times = samples[keep], times[keep]
+    first, last = (float(times[0]), float(times[-1])) if times.size else (0.0, 0.0)
+    return samples_waveform(samples, first, last, frame.channels[0].unit or "", float(frame.channels[0].ref), points)
+
+
+def samples_waveform(
+    samples: np.ndarray, first: float, last: float, unit: str, ref: float, points: int
+) -> StageWaveform:
+    """Evenly spaced samples, the first at ``first`` and the last at ``last`` (s), as the lanes draw a waveform:
+    per bucket its minimum and maximum, each at the time it occurred (decimator.decimated_waveform). No array of
+    the samples' times is made."""
+    from decimator import decimated_waveform
+
     if samples.size == 0:
-        return {
-            "min": [],
-            "max": [],
-            "minT": [],
-            "maxT": [],
-            "absolutePeak": 0.0,
-            "unit": frame.channels[0].unit or "",
-            "ref": float(frame.channels[0].ref),
-        }
+        return {"min": [], "max": [], "minT": [], "maxT": [], "absolutePeak": 0.0, "unit": unit, "ref": ref}
     envelope = decimated_waveform(samples, min(points, samples.size), 0, samples.size)
-    span = times[-1] - times[0] if samples.size > 1 else 0.0
-    at = lambda norms: _json(times[0] + np.asarray(norms, dtype=np.float64) * span)  # noqa: E731
+    span = last - first if samples.size > 1 else 0.0
+    at = lambda norms: _json(first + np.asarray(norms, dtype=np.float64) * span)  # noqa: E731
     return {
         "min": _json(np.asarray(envelope["min"])),
         "max": _json(np.asarray(envelope["max"])),
         "minT": at(envelope["minT"]),
         "maxT": at(envelope["maxT"]),
         "absolutePeak": float(envelope["absolutePeak"]),
-        "unit": frame.channels[0].unit or "",
-        "ref": float(frame.channels[0].ref),
+        "unit": unit,
+        "ref": ref,
     }
 
 
@@ -410,21 +431,19 @@ def _channel_view(frame: ChannelFrame) -> StageView:
         if measure:
             series["measure"] = measure
         return series
-    edges = bucket_edges(data.shape[1], TIME_POINTS)
-    refs = np.array([channel.ref for channel in frame.channels], dtype=np.float64)[:, np.newaxis]
-    power = np.stack(
-        [np.mean(data[:, start:end] ** 2, axis=1) for start, end in zip(edges[:-1], edges[1:], strict=True)], axis=1
-    )
-    with np.errstate(divide="ignore"):
-        levels = 10.0 * np.log10(power / refs**2)
+    # The sound itself, as wandas gives it: drawn as its waveform and compared sample by sample (a difference is
+    # compare − base, a ChannelFrame subtraction). The comparison makes no level of it: a level is a wandas step's
+    # (sound_level, rms_trend), whose window the recipe records.
+    xs, values = _envelope(times, np.mean(data, axis=0), LEVEL_SERIES_MIN_SAMPLES)
     view: StageView = {
         "frame": type(frame).__name__,
         "kind": "line",
         "x": "time",
         "xScale": "linear",
-        "quantity": "level",
-        "xs": _axis(times[(edges[:-1] + edges[1:] - 1) // 2]),
-        "values": _json(rounded_db(_power_mean(levels))),
+        "quantity": "value",
+        "unit": frame.channels[0].unit or "",
+        "xs": _axis(xs),
+        "values": _json(values),
         "waveform": _waveform(frame),
     }
     if measure:
@@ -441,8 +460,9 @@ def _event_rows(segments: ChannelFrameSegments) -> tuple[np.ndarray, np.ndarray]
 
 
 def _events_view(segments: ChannelFrameSegments, rows: np.ndarray, times: np.ndarray, points: int) -> StageView:
-    peaks, edges = _block_peaks(rows, points)
-    centres = (edges[:-1] + edges[1:] - 1) // 2
+    # Every event's line and their mean by one rule: each bucket's lowest and highest value, at shared xs.
+    xs, lines = _shared_envelope(times, np.vstack([np.mean(rows, axis=0), rows]), points)
+    mean, lines = lines[0], lines[1:]
     return {
         "frame": type(segments).__name__,
         "kind": "line",
@@ -450,12 +470,12 @@ def _events_view(segments: ChannelFrameSegments, rows: np.ndarray, times: np.nda
         "xScale": "linear",
         "quantity": "value",
         "unit": segments[0].channels[0].unit or "",
-        "xs": _axis(times[centres]),
-        "values": _json(np.mean(peaks, axis=0)),
+        "xs": _axis(xs),
+        "values": _json(mean),
         # Each event's trigger in the file's own time (trigger_times count from the region the events were cut from).
         "events": [
             {"id": int(event_id), "time": float(item.source_time_offset[0]) + float(segments.pre), "values": _json(row)}
-            for event_id, item, row in zip(segments.event_ids, segments, peaks, strict=True)
+            for event_id, item, row in zip(segments.event_ids, segments, lines, strict=True)
         ],
     }
 
@@ -524,9 +544,9 @@ def _spectral_view(frame: Any) -> StageView:
             return {"frame": type(frame).__name__, "kind": "none"}
         values, pair = values[row : row + 1], _pair_of(frame, row)
     if quantity == "coherence":
-        edges = np.geomspace(spec.SPECTRUM_MIN_HZ, nyquist, spec.SPECTRUM_POINTS + 1)
-        centres = np.sqrt(edges[:-1] * edges[1:])
-        line = np.round(np.interp(centres, freqs, values[0]), 4)
+        # As a spectrum's line: each bucket's lowest and highest bin at its own frequency, so a dip stays.
+        centres, line = spectrum_line(freqs, values[0], [spec.SPECTRUM_MIN_HZ, nyquist], SPECTRUM_LINE_BUCKETS)
+        line = np.round(line, 4)
     else:
         centres, line = spectrum_line(
             freqs, rounded_db(_power_mean(rounded_db(values))), [spec.SPECTRUM_MIN_HZ, nyquist], SPECTRUM_LINE_BUCKETS
@@ -649,18 +669,6 @@ def _signed_peaks(values: np.ndarray, count: int) -> tuple[np.ndarray, np.ndarra
     return peaks, edges[:-1]
 
 
-def _peak_points(values: np.ndarray, count: int) -> tuple[np.ndarray, np.ndarray]:
-    """`values` (1-D) in at most `count` blocks, each the value of largest magnitude, at its block's centre index.
-
-    Every lag is kept when they fit, so a peak is at its own lag. Over more, the blocks' centres are the same for
-    every view of as many lags: the median and the difference pair values by index, so they meet at one lag.
-    """
-    if values.size <= count:
-        return values, np.arange(values.size)
-    peaks, edges = _block_peaks(values, count)
-    return peaks, (edges[:-1] + edges[1:] - 1) // 2
-
-
 def _cepstrum_envelope(quefrencies: np.ndarray, coefficients: np.ndarray, points: int) -> tuple[np.ndarray, np.ndarray]:
     """A cepstrum's line: the zero-quefrency coefficient as it is (the first point, which the ranges leave out),
     then the rest's minimum and maximum per bucket (_envelope)."""
@@ -698,14 +706,14 @@ def _correlation_view(frame: CrossCorrelationFrame) -> StageView:
     if drawn is None or frame.n_lags < 2:
         return {"frame": type(frame).__name__, "kind": "none"}
     row, coefficients = drawn
-    values, picked = _peak_points(coefficients, LAG_POINTS)
+    lags, values = _envelope(np.asarray(frame.lags, dtype=np.float64), coefficients, LAG_POINTS)
     return {
         "frame": type(frame).__name__,
         "kind": "line",
         "x": "lag",
         "xScale": "linear",
         "quantity": "correlation",
-        "xs": _axis(np.asarray(frame.lags, dtype=np.float64)[picked]),
+        "xs": _axis(lags),
         "values": _json(np.round(values, CORRELATION_DECIMALS)),
         "pair": _pair_of(frame, row),
     }
@@ -733,25 +741,29 @@ def _cepstrogram_view(frame: CepstrogramFrame, signal_s: float | None = None) ->
 
 
 def _envelope(xs: np.ndarray, values: np.ndarray, points: int) -> tuple[np.ndarray, np.ndarray]:
-    """At most `points` points, as the track lanes decimate: per bucket its minimum and its maximum.
+    """A line over time, quefrency or lag in at most `points` points: per bucket its lowest and highest value, each
+    at its own x (min_max_line on a linear axis, whose buckets are ``decimator.bucket_starts``'s, as the lanes'
+    waveforms). Fewer values than points are all kept; non-finite values are left out."""
+    if xs.size <= points:
+        return xs, values
+    return min_max_line(xs, values, max(1, points // 2), False)
 
-    Fewer values than points are all kept. A bucket's two points sit at its first and last x, so every
-    file's buckets fall at the same places and a group's pictures still have a median point by point.
 
-    The buckets are ``decimator.bucket_starts``'s, as the lanes' waveforms. Unlike ``decimated_waveform`` (where
-    a NaN wins its bucket and the points sit at the extremes' own samples), a comparison needs fixed point
-    positions and ignores non-finite values.
-    """
+def _shared_envelope(xs: np.ndarray, rows: np.ndarray, points: int) -> tuple[np.ndarray, np.ndarray]:
+    """Lines that share one x list (a trigger's events): per bucket each row's lowest and highest value, at the
+    bucket's first and last x, so every row has a value at every x. Non-finite values are ignored."""
     n = xs.size
     if n <= points:
-        return xs, values
+        return xs, rows
     starts = bucket_starts(n, max(1, points // 2))
     ends = np.append(starts[1:], n) - 1
-    masked = np.where(np.isfinite(values), values, np.nan)
+    masked = np.where(np.isfinite(rows), rows, np.nan)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)
-        low, high = np.fmin.reduceat(masked, starts), np.fmax.reduceat(masked, starts)
-    return np.stack([xs[starts], xs[ends]], axis=1).reshape(-1), np.stack([low, high], axis=1).reshape(-1)
+        low, high = np.fmin.reduceat(masked, starts, axis=-1), np.fmax.reduceat(masked, starts, axis=-1)
+    return np.stack([xs[starts], xs[ends]], axis=1).reshape(-1), np.stack([low, high], axis=-1).reshape(
+        *rows.shape[:-1], -1
+    )
 
 
 def _inside(axis: np.ndarray, bounds: list[float]) -> np.ndarray:
@@ -795,12 +807,9 @@ def _detail_view(frame: object, coarse: StageView, detail: StageDetail) -> Stage
         if _pairwise(frame):
             row = _cross_pair(frame)
             rows = rows[row : row + 1] if row is not None else rows
-        if coarse.get("quantity") == "coherence":
-            keep = _inside(freqs, bounds) & (freqs > 0)
-            xs, values = _envelope(freqs[keep], rows[0][keep], points)
-        else:
-            # As the whole picture: each two pixels' lowest and highest bin.
-            xs, values = spectrum_line(freqs, rounded_db(_power_mean(rounded_db(rows))), bounds, points // 2)
+        # As the whole picture: each two pixels' lowest and highest bin.
+        drawn = rows[0] if coarse.get("quantity") == "coherence" else rounded_db(_power_mean(rounded_db(rows)))
+        xs, values = spectrum_line(freqs, drawn, bounds, points // 2)
         view.update(
             {
                 "xs": _axis(xs),
@@ -812,33 +821,23 @@ def _detail_view(frame: object, coarse: StageView, detail: StageDetail) -> Stage
         data = _rows(frame.data, frame.n_channels)
         times = np.asarray(frame.source_time, dtype=np.float64).reshape(frame.n_channels, -1)[0]
         keep = _inside(times, bounds)
-        if coarse.get("quantity") != "level":
+        # As the whole picture's (_channel_view): dB levels power-averaged over channels, other values averaged.
+        if _in_db(frame):
+            xs, values = _envelope(times[keep], _power_mean(data[:, keep]), points)
+            values = rounded_db(values)
+        else:
             xs, values = _envelope(times[keep], np.mean(data[:, keep], axis=0), points)
-            view.update({"xs": _axis(xs), "values": _json(values)})
-            return view
-        part = data[:, keep]
-        view["waveform"] = _waveform(frame, keep, points)
-        if part.shape[1] == 0:
-            view.update({"xs": [], "values": []})
-            return view
-        edges = bucket_edges(part.shape[1], points)
-        refs = np.array([channel.ref for channel in frame.channels], dtype=np.float64)[:, np.newaxis]
-        # Each non-empty bucket's mean power at once (a prefetched range has tens of thousands of buckets).
-        filled = edges[1:] > edges[:-1]
-        starts, ends = edges[:-1][filled], edges[1:][filled]
-        power = np.add.reduceat(part**2, starts, axis=1) / (ends - starts)
-        centres = (starts + ends - 1) // 2
-        with np.errstate(divide="ignore"):
-            levels = 10.0 * np.log10(power / refs**2)
-        view.update({"xs": _axis(times[keep][centres]), "values": _json(rounded_db(_power_mean(levels)))})
+        view.update({"xs": _axis(xs), "values": _json(values)})
+        if "waveform" in coarse:
+            view["waveform"] = _waveform(frame, keep, points)
         return view
     if isinstance(frame, CrossCorrelationFrame):
         lags = np.asarray(frame.lags, dtype=np.float64)
         keep = _inside(lags, bounds)
         drawn = _correlation_rows(frame)
         if drawn is not None and keep.any():
-            values, picked = _peak_points(drawn[1][keep], points)
-            view.update({"xs": _axis(lags[keep][picked]), "values": _json(np.round(values, CORRELATION_DECIMALS))})
+            xs, values = _envelope(lags[keep], drawn[1][keep], points)
+            view.update({"xs": _axis(xs), "values": _json(np.round(values, CORRELATION_DECIMALS))})
             return view
         return coarse
     if isinstance(frame, CepstralFrame):

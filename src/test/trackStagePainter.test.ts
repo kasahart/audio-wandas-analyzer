@@ -42,6 +42,8 @@ const named = (path: string, slot: number | undefined) => ({ label: `${slot ?? '
 /** The backend's difference of one.wav from base.wav (lines of `line`), and where it is largest. */
 const combined: Combined = { base: null, diff: line([10, 0]) };
 
+const coarseOf = (views: Record<string, StageView | null | undefined>) => (path: string) => views[path];
+
 function frameFor(tracks: StageTrack[], views: Record<string, StageView | null | undefined>, extra: Partial<StageFrame> = {}): StageFrame {
     const coarse = (path: string) => views[path];
     return {
@@ -160,6 +162,25 @@ test('the overlaid plot draws its difference under it only on request, with a co
     // A base group drawn as its waveforms: no Δ.
     paintStageOverlay(dom_, { ...frame, baseEach: true }, plots, overlayLayers(frame, plots), true);
     assert.equal(diff.hidden, true);
+});
+
+test('with no difference, the Δ headline says the same reason as its plot: other rates, other units, too much data', () => {
+    const { dom_, lane } = page();
+    const tracks = [lane('base.wav'), lane('one.wav')];
+    const views = { 'base.wav': line([-20, -30]), 'one.wav': line([-10, -30]) };
+    const none: Combined = { base: null, diff: null };
+    const cases: Array<[Partial<StageFrame>, string]> = [
+        [{ noDelta: 'rate' }, strings.stageNoDeltaRate],
+        [{ noDelta: 'unit' }, strings.stageNoDeltaUnit],
+        [{ tooLarge: true }, strings.stageTooLarge],
+        [{}, strings.stageNoDelta],
+    ];
+    for (const [extra, reason] of cases) {
+        const frame = { ...frameFor(tracks, views, extra), coarsePlots: plotsOf(coarseOf(views), tracks, 'one.wav', ['base.wav'], none) };
+        const plots = plotsOf(frame.shown, tracks, 'one.wav', ['base.wav'], none);
+        paintStageOverlay(dom_, frame, plots, overlayLayers(frame, plots), true);
+        assert.equal(dom_.query('[data-stage-diff-headline]').textContent, reason);
+    }
 });
 
 test('the difference is shown or hidden before the overlay is drawn: the overlay is measured at the height it keeps', () => {

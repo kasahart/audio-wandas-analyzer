@@ -34,7 +34,8 @@ export interface DistributionPicture {
     groupPrefix: string;
     axisLabel: string;
     unitLabel: string;
-    format(value: number): string;
+    /** A value's text; `step`, the bins' width, adds the digits that tell neighbouring bins apart. */
+    format(value: number, step?: number): string;
     name(key: string): string;
 }
 
@@ -117,7 +118,7 @@ export function distributionRows(dist: Distribution, picture: DistributionPictur
     return dist.groups.map(group => {
         const label = `${picture.groupPrefix}${picture.labels.get(group.name) ?? group.name}` || strings.dsFilterBlank;
         const members = [...group.members].sort((a, b) => a.value - b.value);
-        const memberText = (index: number): string[] => [picture.name(members[index].key), picture.format(members[index].value)];
+        const memberText = (index: number): string[] => [picture.name(members[index].key), picture.format(members[index].value, binWidth)];
         const layers: StageLayer[] = [];
         const dots: DistributionRow['dots'] = [];
         let top = 1, max = '';
@@ -146,7 +147,7 @@ export function distributionRows(dist: Distribution, picture: DistributionPictur
             const { counts, inRange, max: most } = binCounts(group.members, dist.low, dist.high);
             top = most * 1.08;
             if (!picture.strip) max = strings.dsDistMax.replace('{n}', String(most));
-            const binText = (bin: number, count: number): string[] => [`${picture.format(dist.low + bin * binWidth)}–${picture.format(dist.low + (bin + 1) * binWidth)}`, `${count} ${unit}`];
+            const binText = (bin: number, count: number): string[] => [`${picture.format(dist.low + bin * binWidth, binWidth)}–${picture.format(dist.low + (bin + 1) * binWidth, binWidth)}`, `${count} ${unit}`];
             layers.push({ view: line(centres, counts.map(count => count || null), 'bar'), color: colours.bar, filled: true, fill: 1, label, readout: bin => binText(bin, counts[bin]) });
             if (picture.range) layers.push({ view: line(centres, inRange.map(count => count || null), 'bar'), color: colours.barIn, filled: true, fill: 1, label, readout: bin => binText(bin, inRange[bin]) });
             // The rug: a tick per member, so a few far from the rest show even where their bar is thin.
@@ -158,14 +159,14 @@ export function distributionRows(dist: Distribution, picture: DistributionPictur
         for (const slot of picture.slots) {
             if (slot.group !== group.name) continue;
             slots.push(slot.slot);
-            layers.push({ view: line([slot.value, slot.value], [0, top]), color: colours.slots[slot.slot] ?? colours.bar, width: 2, label: picture.name(slot.key), readout: () => [picture.format(slot.value)] });
+            layers.push({ view: line([slot.value, slot.value], [0, top]), color: colours.slots[slot.slot] ?? colours.bar, width: 2, label: picture.name(slot.key), readout: () => [picture.format(slot.value, binWidth)] });
         }
         let base = false;
         if (picture.baseGroup === group.name) {
             const middle = median(group.members.map(member => member.value));
             if (middle !== null) {
                 base = true;
-                layers.push({ view: line([middle, middle], [0, top]), color: colours.slots[0] ?? colours.bar, width: 2, dash: [3, 2], label: strings.dsLegendBaseMedian.replace('{group}', label), readout: () => [picture.format(middle)] });
+                layers.push({ view: line([middle, middle], [0, top]), color: colours.slots[0] ?? colours.bar, width: 2, dash: [3, 2], label: strings.dsLegendBaseMedian.replace('{group}', label), readout: () => [picture.format(middle, binWidth)] });
             }
         }
         return {

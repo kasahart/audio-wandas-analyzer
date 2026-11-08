@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import tracemalloc
 from dataclasses import replace
 from pathlib import Path
 
@@ -13,7 +14,7 @@ from analysis_engine import AnalysisEngine
 from analysis_service import AnalysisService
 from command_dispatch import dispatch, validate_request
 from protocol_schema import DEFINITIONS, first_violation
-from stage_combine import STORE, _Store, combine, difference_line, draw, stage_data
+from stage_combine import STORE, StageData, _Store, combine, difference_line, draw, stage_data
 from stage_view import stage_view
 
 RATE = 16000
@@ -123,17 +124,100 @@ def test_a_groups_median_is_taken_bin_by_bin_before_it_is_drawn(signal: wd.Chann
     assert "diff" not in result
 
 
-def test_levels_over_time_are_compared_block_by_block(signal: wd.ChannelFrame) -> None:
+def test_a_time_signals_difference_is_compare_minus_base_sample_by_sample(signal: wd.ChannelFrame) -> None:
+    """The sound's Δ is the ChannelFrame subtraction compare − base, from every sample, and is only thinned to be
+    drawn (R1, R2): drawn as a waveform, as the recordings are, whole and zoomed."""
     louder = wd.from_numpy(signal.data[np.newaxis] * 2, sampling_rate=RATE)
     base, compare = (stage_data(frame, dict(stage_view(frame))) for frame in (signal, louder))
     assert base is not None and compare is not None
+    expected = np.asarray((louder - signal).data, dtype=float)
     result = combine([base], compare)
-    assert len(result["diff"]["values"]) == len(stage_view(signal)["values"])
-    assert np.asarray(result["diff"]["values"], dtype=float) == pytest.approx(20 * np.log10(2), abs=0.02)
-    # Of different lengths: the part both have.
+    diff = result["diff"]
+    assert diff["quantity"] == "value" and first_violation(DEFINITIONS["StageView"], diff) is None
+    assert max(diff["waveform"]["max"]) == pytest.approx(expected.max(), abs=1e-5)
+    assert min(diff["waveform"]["min"]) == pytest.approx(expected.min(), abs=1e-5)
+    assert max(diff["values"]) == pytest.approx(expected.max(), abs=1e-5)
+    # Zoomed into 10 ms: every sample of the difference there.
+    zoomed = combine([base], compare, {"x": [0.5, 0.51], "points": 2000})["diff"]
+    inside = expected[int(0.5 * RATE) : int(0.51 * RATE) + 1]
+    assert zoomed["detail"] is True and len(zoomed["waveform"]["min"]) == inside.size
+    assert zoomed["waveform"]["min"] == pytest.approx(inside, abs=1e-5)
+    # A group's base is its median sample by sample; of different lengths, the samples both have.
     shorter = stage_data(signal.trim(0, 1.0), dict(stage_view(signal.trim(0, 1.0))))
     assert shorter is not None
-    assert combine([base, shorter], None)["base"]["xs"][-1] <= 1.0
+    grouped = combine([base, shorter], compare)
+    assert grouped["diff"]["waveform"]["maxT"][-1] <= 1.0
+
+
+def test_a_time_signal_at_another_rate_has_no_sample_difference(signal: wd.ChannelFrame) -> None:
+    # Samples at other times are not one another's: no Δ (the comparison says why), never a resampled guess.
+    base = stage_data(signal, dict(stage_view(signal)))
+    other = wd.from_numpy(signal.data[np.newaxis] * 2, sampling_rate=RATE).resampling(target_sr=22050)
+    compare = stage_data(other, dict(stage_view(other)))
+    assert base is not None and compare is not None
+    assert combine([base], compare) == {"ok": True, "noDelta": "rate"}
+
+
+def test_time_signals_in_other_units_or_calibrations_have_no_sample_difference(signal: wd.ChannelFrame) -> None:
+    # Samples are subtracted as they are, so only in one unit against one reference: Pa against an uncalibrated
+    # recording has no Δ (the comparison says why), and no group median either.
+    calibrated = wd.from_numpy(signal.data[np.newaxis], sampling_rate=RATE, ch_units="Pa")
+    base = stage_data(calibrated, dict(stage_view(calibrated)))
+    compare = stage_data(signal, dict(stage_view(signal)))
+    assert base is not None and compare is not None
+    assert combine([base], compare) == {"ok": True, "noDelta": "unit"}
+    assert combine([base, compare], None) == {"ok": True, "noDelta": "unit"}
+
+
+def test_a_small_signal_difference_keeps_its_significant_figures() -> None:
+    # A difference of 1e-7 Pa is drawn as it is (six significant figures), never rounded to zero by decimals.
+    view = {"frame": "ChannelFrame", "kind": "line", "x": "time", "xScale": "linear", "quantity": "value", "unit": "Pa"}
+    level = np.full(4096, 1e-4, dtype=np.float32)
+    base = StageData("signal", view, np.empty(0), level, start=0.0, rate=48_000.0)  # type: ignore[arg-type]
+    compare = replace(base, values=level + np.float32(1e-7))
+    diff = combine([base], compare)["diff"]
+    assert min(diff["values"]) == pytest.approx(1e-7, rel=1e-2)
+    assert diff["waveform"]["absolutePeak"] == pytest.approx(1e-7, rel=1e-2)
+
+
+def test_a_long_signals_difference_needs_no_array_of_times_or_float64_copy() -> None:
+    # A minute at 48 kHz: the Δ is a float32 subtraction, and drawing it (whole or zoomed) takes each bucket's
+    # extremes by index, so the memory beyond the kept samples stays near the difference's own 4 bytes a sample.
+    count, rate = 48_000 * 60, 48_000.0
+    view = {"frame": "ChannelFrame", "kind": "line", "x": "time", "xScale": "linear", "quantity": "value", "unit": "Pa"}
+    rng = np.random.default_rng(5)
+
+    def recording() -> StageData:
+        samples = rng.standard_normal(count).astype(np.float32)
+        return StageData("signal", view, np.empty(0), samples, start=0.0, rate=rate)  # type: ignore[arg-type]
+
+    base, compare = recording(), recording()
+    for detail in (None, {"x": [10.0, 10.01], "points": 800}):
+        tracemalloc.start()
+        result = combine([base], compare, detail)  # type: ignore[arg-type]
+        peak = tracemalloc.get_traced_memory()[1]
+        tracemalloc.stop()
+        assert peak < 8 * count, f"{peak / count:.1f} bytes a sample"
+        assert result["diff"]["xs"]
+
+
+def test_a_long_lines_extremes_are_each_buckets_first_lowest_and_last_highest() -> None:
+    # The path for a line of finite values on a linear axis (no index arrays as long as the line) keeps what every
+    # line keeps: per bucket of decimator.bucket_starts (as np.array_split) its first lowest and last highest value.
+    from stage_view import min_max_indices
+
+    values = np.round(np.random.default_rng(6).standard_normal(10_007), 1)  # rounded: many ties
+    xs = np.arange(values.size, dtype=np.float64)
+    for buckets in (1, 7, 300, 5003, 6000):
+        expected: set[int] = set()
+        if values.size <= 2 * buckets:
+            expected = set(range(values.size))
+        else:
+            for chunk in np.array_split(np.arange(values.size), buckets):
+                block = values[chunk]
+                expected |= {int(chunk[np.flatnonzero(block == block.min())[0]])}
+                expected |= {int(chunk[np.flatnonzero(block == block.max())[-1]])}
+        assert min_max_indices(xs, values, buckets, False).tolist() == sorted(expected)
 
 
 def test_pictures_on_other_axes_have_no_median_or_difference(signal: wd.ChannelFrame) -> None:
@@ -189,12 +273,37 @@ def test_a_scans_step_keeps_its_values_for_the_combine_command(tmp_path: Path) -
     assert _combine(service, base=keys[:2], compare=keys[2]) == {"ok": False, "missing": keys}
 
 
-def test_levels_at_different_rates_are_compared_at_the_same_times(signal: wd.ChannelFrame) -> None:
-    base = stage_data(signal, dict(stage_view(signal)))
-    louder = wd.from_numpy(signal.data[np.newaxis] * 2, sampling_rate=RATE).resampling(target_sr=22050)
-    compare = stage_data(louder, dict(stage_view(louder)))
-    assert base is not None and compare is not None
-    result = combine([base], compare)
-    diff = np.asarray(result["diff"]["values"], dtype=float)
-    assert diff.size > 100
-    assert np.nanmedian(diff) == pytest.approx(20 * np.log10(2), abs=0.05)
+@pytest.mark.parametrize("name", ["coherence", "correlation", "cepstrum", "series", "events"])
+def test_every_line_keeps_a_one_point_dip_and_peak_when_drawn(signal: wd.ChannelFrame, name: str) -> None:
+    """R2: a line with more points than the screen keeps each bucket's lowest and highest value, at its own x (a
+    trigger's events, which share one x list, at their bucket's ends): a one-bin coherence dip, a one-lag
+    correlation peak or a one-sample hit of either sign is never averaged away, interpolated past or dropped for
+    the other sign's extreme."""
+    frames = _frames(signal)
+    frames["events"] = (signal.segment([0.5], duration=0.5), None)
+    frames["series"] = (signal.rms_trend(frame_length=64, hop_length=8), None)
+    frame, signal_s = frames[name]
+    data = stage_data(frame, dict(stage_view(frame, signal_s)), signal_s)
+    assert data is not None
+    values = data.values.copy()
+    inside = np.flatnonzero((data.xs >= 20) & (data.xs <= data.nyquist)) if name == "coherence" else None
+    span = inside if inside is not None else np.arange(1, values.size)
+    # Side by side, so in one bucket.
+    low_at = int(span[span.size // 3])
+    high_at = low_at + 1
+    floor, top = np.nanmin(values) - 1.0, np.nanmax(values) + 1.0
+    if name == "coherence":
+        floor, top = 0.0, float(np.nanmax(values))
+    values[low_at] = floor
+    if name != "coherence":
+        values[high_at] = top
+    drawn = draw(replace(data, values=values))
+    xs, line = np.asarray(drawn["xs"], dtype=float), np.asarray(drawn["values"], dtype=float)
+    assert xs.size < values.size
+    assert np.nanmin(line) == pytest.approx(floor, abs=1e-3)
+    if name != "coherence":
+        assert np.nanmax(line) == pytest.approx(top, abs=1e-3)
+    if name != "events":
+        assert xs[int(np.nanargmin(line))] == pytest.approx(data.xs[low_at])
+        if name != "coherence":
+            assert xs[int(np.nanargmax(line))] == pytest.approx(data.xs[high_at])
