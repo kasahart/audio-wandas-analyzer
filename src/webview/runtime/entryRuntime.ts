@@ -568,6 +568,9 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     /** The view the rows on screen were drawn from: scrolling and resizing draw more of it instead of building it again. */
     let rowsView: DatasetScreenView | null = null;
     /** Only the rows on screen are drawn (rowWindow): the rest are spacers. */
+    /** The 0–3 button lit to show where a recording goes, and when (performance.now()); FLASH_MS is the .is-flash animation's length. */
+    let flash: { key: string; at: number } | null = null;
+    const FLASH_MS = 900;
     function renderRows(view = rowsView ?? datasetView()): void {
         rowsView = view;
         if (chosen.mode === 'unmatched') { body.innerHTML = unmatchedRowsHtml(unmatchedItems(), unreadable(), text); return; }
@@ -579,6 +582,14 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const markKey = focusedMark && body.contains(focusedMark) ? focusedMark.getAttribute('data-key') : null;
         body.innerHTML = datasetRowsHtml(view, first, last, ROW_HEIGHT, text);
         if (markKey !== null) body.querySelector<HTMLElement>(`[data-action="entry-row-track"][data-key="${CSS.escape(focus.key ?? markKey)}"]`)?.focus({ preventScroll: true });
+        // A 0–3 button still lighting up (openSlotted) goes on with its light where it was: the rows are drawn again on
+        // any change of size (a footer line, a scan landing), which would put it out at once.
+        if (flash) {
+            const elapsed = performance.now() - flash.at;
+            const button = elapsed < FLASH_MS ? body.querySelector<HTMLElement>(`tr[data-key="${CSS.escape(flash.key)}"] [data-action="entry-row-slotmenu"]`) : null;
+            if (elapsed >= FLASH_MS) flash = null;
+            else if (button) { button.style.animationDelay = `${-Math.round(elapsed)}ms`; button.classList.add('is-flash'); }
+        }
         // Redrawn rows keep the light of the lane under the mouse.
         if (tracks.linked && document.querySelector(`.track-row[data-file-path="${CSS.escape(tracks.linked)}"]`)) {
             body.querySelectorAll(`tr.entry-row[data-file-path="${CSS.escape(tracks.linked)}"]`).forEach(row => row.classList.add('is-linked'));
@@ -1021,6 +1032,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             if (focus.key && !slotButton()) focusRow(focus.key, true);
             redraw.after(() => {
                 const button = slotButton();
+                flash = focus.key ? { key: focus.key, at: performance.now() } : null;
+                if (button) button.style.animationDelay = '';
                 button?.classList.remove('is-flash'); void button?.offsetWidth; button?.classList.add('is-flash');
             });
             return;

@@ -400,6 +400,7 @@ export function renderComparisonStyles(): string {
         .step-more > summary { cursor: pointer; color: var(--muted); }
         /* A refused key or a new card lights up once. */
         @keyframes awa-flash { 0%, 60% { box-shadow: 0 0 0 2px var(--entry-flag); } 100% { box-shadow: none; } }
+        /* 0.9 s: entryRuntime's FLASH_MS, which lights a row's button again where it was when the rows are drawn again. */
         .is-flash { animation: awa-flash 0.9s ease-out; }
         .screen-help { position: fixed; inset: 0; z-index: 80; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.45); font-family: var(--font-ui); font-size: 12px; color: var(--text); }
         .screen-help[hidden] { display: none; }
