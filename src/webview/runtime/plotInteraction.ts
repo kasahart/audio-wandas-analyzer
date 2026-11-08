@@ -3,8 +3,11 @@
  * the same hand the same way everywhere. Hover shows the cursor line and readout; a press dragged past the
  * lanes' threshold draws a box and zooms into it (both axes); Ctrl+wheel zooms the horizontal axis around
  * the pointer and Shift+wheel pans it, by the lanes' steps, and a sideways swipe pans it with the fingers; a double-click resets the zoom, or on an axis
- * opens its range. Built on the lanes' own listeners (attachTrackPointerListeners) and zoom arithmetic.
+ * opens its range; ← / → step the readout to the next point, read as the pointer on it would read it (R7).
+ * Built on the lanes' own listeners (attachTrackPointerListeners) and zoom arithmetic.
  */
+import { keyRouterFor } from './keyRouter';
+import type { PlotPlace } from './plotHoverLayer';
 import { attachTrackPointerListeners } from './trackPointerEvents';
 import { exceedsDragThreshold, MIN_SELECTION_SPAN, PAN_STEP_RATIO, panNormalizedRangeBy, wheelPanPixels, wheelStepDirection, wheelZoomFactor, zoomRangeAroundPivot, type NormalizedRange } from './waveformInteraction';
 
@@ -82,16 +85,30 @@ export interface PlotInteractionDeps {
     window(plot: HTMLElement): PlotWindow;
     /** A new window for the plot (null: the whole of every axis). */
     setWindow(plot: HTMLElement, window: PlotWindow | null): void;
-    hover(event: MouseEvent, hit: PlotHit | null): void;
+    /** The pointer (or an arrow key's step, at the point it steps to) over `hit`. */
+    hover(event: PlotPointer, hit: PlotHit | null): void;
     clearHover(): void;
     /** The box being dragged (null: none). */
     showBox(plot: HTMLElement, from: PlotPoint, to: PlotPoint): void;
     hideBox(): void;
     /** Double-click on an axis: open its range; false when it has none, so the zoom is reset instead. */
     openAxisRange(hit: PlotHit, clientX: number, clientY: number): boolean;
+    /**
+     * Where an arrow key reads on `plot`: the point `delta` along from the one it reads (0: that one), as its hover
+     * layer gives it (PlotHoverLayer.stepFrom); null when the plot reads nothing, so the key goes on.
+     */
+    stepFrom(plot: HTMLElement, delta: -1 | 0 | 1): PlotPlace | null;
+    /**
+     * Alt+drag picks a stretch of the horizontal axis instead of zooming into a box (the distribution's value range;
+     * the lanes' loop is the same gesture). `end` is told whether the press moved past the drag threshold.
+     */
+    altDrag?: { start(hit: PlotHit, event: MouseEvent): void; move(event: MouseEvent): void; end(event: MouseEvent, dragged: boolean): void };
     /** A box zooms only the horizontal axis (the vertical one stays whole, e.g. counts). */
     horizontalOnly?: boolean;
 }
+
+/** What a hover is given of the pointer: a mouse event, or an arrow key's step at the point it reads. */
+export type PlotPointer = Pick<MouseEvent, 'clientX' | 'clientY' | 'target'>;
 
 export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 'addEventListener'>, plotSelector: string, deps: PlotInteractionDeps): void {
     // A press that became a drag (a box zoom) is not a click: the click it ends with is not passed on, so a
@@ -101,7 +118,7 @@ export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 
         if (event.timeStamp - draggedAt < 300) { event.stopPropagation(); event.preventDefault(); }
         draggedAt = -Infinity;
     }, true);
-    let press: { plot: HTMLElement; from: PlotPoint; clientX: number; clientY: number; isDrag: boolean; to: PlotPoint } | null = null;
+    let press: { plot: HTMLElement; from: PlotPoint; clientX: number; clientY: number; isDrag: boolean; to: PlotPoint; alt: boolean } | null = null;
     let lastDouble: PlotHit | null = null;
     // The window these gestures last set is named on the plot they were made on, so one test reads every plot's
     // gestures the same way (R13). Other ways to the window (keys, an axis's range, a pane sharing it) do not write it.
@@ -110,7 +127,15 @@ export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 
         const now = deps.window(plot);
         plot.dataset.plotWindow = [now.x.start, now.x.end, now.y.start, now.y.end].map(value => value.toFixed(3)).join(' ');
     };
-    attachTrackPointerListeners(surface, doc, {
+    const view = surface.ownerDocument.defaultView;
+    attachTrackPointerListeners(surface, doc, view ? keyRouterFor(view) : { add: () => () => undefined }, {
+        step(plot, delta) {
+            if (press?.isDrag) return false;
+            const at = deps.stepFrom(plot as HTMLElement, delta);
+            if (!at) return false;
+            deps.hover({ ...at, target: plot }, deps.locate(plot, at.clientX, at.clientY));
+            return true;
+        },
         resetZoom() {
             const plot = lastDouble?.plot;
             if (plot) setWindow(plot, null);
@@ -128,21 +153,27 @@ export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 
             if (event.button !== 0) return;
             const hit = deps.locate(event.target, event.clientX, event.clientY);
             if (!hit || hit.axis) return;
-            press = { plot: hit.plot, from: hit.point, to: hit.point, clientX: event.clientX, clientY: event.clientY, isDrag: false };
+            // The same hand everywhere: a drag zooms into its box, Alt+drag picks a stretch of the horizontal axis.
+            const alt = event.altKey && !!deps.altDrag;
+            press = { plot: hit.plot, from: hit.point, to: hit.point, clientX: event.clientX, clientY: event.clientY, isDrag: false, alt };
+            if (alt) deps.altDrag?.start(hit, event);
             event.preventDefault();
         },
         drag(event) {
             if (!press) return;
             if (!press.isDrag && exceedsDragThreshold(event.clientX - press.clientX, event.clientY - press.clientY)) press.isDrag = true;
             if (!press.isDrag) return;
+            if (press.alt) { deps.altDrag?.move(event); return; }
             press.to = deps.pointOn(press.plot, event.clientX, event.clientY);
             deps.showBox(press.plot, press.from, press.to);
         },
         release(event) {
             const done = press;
             press = null;
+            if (done?.alt) deps.altDrag?.end(event, done.isDrag);
             if (!done?.isDrag) return;
             draggedAt = event.timeStamp;
+            if (done.alt) return;
             deps.hideBox();
             const next = windowFromBox(deps.window(done.plot), done.from, done.to, deps.horizontalOnly);
             if (next) setWindow(done.plot, next);

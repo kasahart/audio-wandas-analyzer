@@ -21,6 +21,7 @@ const ZOOM_BINDINGS = { '+': 'zoom-in', '=': 'zoom-in', '-': 'zoom-out', '_': 'z
 export const GENERAL_KEYS: readonly KeyRow[] = [
     { shortcut: '? / F1', labelKey: 'helpRowQuestion' },
     { shortcut: 'Esc', labelKey: 'helpRowEsc' },
+    { shortcut: '← / → (over a plot)', labelKey: 'helpRowPlotStep' },
 ];
 
 export const LANE_KEYS: readonly KeyRow<GlobalShortcutAction>[] = [
@@ -108,7 +109,6 @@ export function arrowCursorStep(shiftKey: boolean, spanSec: number, zoomStart: n
 }
 
 export type KeydownIntent =
-    | { kind: 'spectrum-step'; delta: -1 | 1 }
     | { kind: 'shortcut'; action: GlobalShortcutAction }
     | { kind: 'toggle-playback'; target: 'focused-track' | 'current' }
     | { kind: 'cursor-step'; direction: -1 | 1 };
@@ -122,7 +122,6 @@ export interface KeydownEventLike {
 }
 
 export interface KeydownContext {
-    spectrumActive: boolean;
     helpOpen: boolean;
     textEntryFocused: boolean;
     trackCanvasFocused: boolean;
@@ -134,9 +133,8 @@ export interface FocusedElementLike {
     classList: { contains(token: string): boolean };
 }
 
-export function keydownContextFor(active: FocusedElementLike | null, helpOverlay: { hidden: boolean } | null, spectrumHasMouse: boolean): KeydownContext {
+export function keydownContextFor(active: FocusedElementLike | null, helpOverlay: { hidden: boolean } | null): KeydownContext {
     return {
-        spectrumActive: spectrumHasMouse || !!(active && active.id === 'spectrum-overlay-canvas'),
         helpOpen: !!(helpOverlay && !helpOverlay.hidden),
         textEntryFocused: isTextEntryTag(active && active.tagName),
         trackCanvasFocused: !!(active && active.classList.contains('track-canvas')),
@@ -152,9 +150,6 @@ export function keydownIntent(e: KeydownEventLike, ctx: KeydownContext): Keydown
         return null;
     }
     const arrow = arrowDirection(e.code);
-    if (ctx.spectrumActive && arrow !== null) {
-        return { kind: 'spectrum-step', delta: arrow };
-    }
     if (ctx.helpOpen) {
         return null;
     }

@@ -2,7 +2,7 @@ import { channelLabel, channelsForResult, formatClockTime } from '../../shared/u
 import { niceRange } from '../../shared/utils/ticks';
 import { linkedSpectrogramBounds, spectrogramDisplayBounds, spectrogramFailureText } from './spectrogramRaster';
 import { laneWaveformOverlay, onColourBar, paintTrackSpectrogram, type SpectrogramRasterCacheEntry } from './trackCanvasPainter';
-import { laneHoverPoint, laneReadoutText, spectrogramCellAt, spectrogramReadoutText, type LanePoint } from './trackLaneHover';
+import { laneHoverPoint, laneReadoutText, spectrogramCellAt, spectrogramNeighbourNorm, spectrogramReadoutText, type LanePoint } from './trackLaneHover';
 import { hidePlotReadout, paintHoverMarks, PLOT_READOUT_ID, showPlotReadout } from './plotHover';
 import { trackTimelinePlacement, waveformCoverageFromExtent } from './waveformCoverage';
 import { envelopePeak } from '../waveform/envelopePeak';
@@ -43,11 +43,9 @@ import { contentBoxWidth, readThenWrite, syncCanvasSize } from './canvasSizing';
 import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpecAxisCanvasId, trackSpecCanvasId, trackSpectrogramOverlayCanvasId, trackWaveformOverlayCanvasId } from './trackCanvasIds';
 import { channelLaneHtml, trackRowHtml } from './trackLaneHtml';
 import { attachPlotInteraction, FULL_PLOT_WINDOW, type PlotPoint } from './plotInteraction';
-import type { SpectrumBoxSpan } from './overlaySpectrumPainter';
+import { createPlotHoverLayer, type PlotPlace } from './plotHoverLayer';
 import { attachCanvasFocusHint, attachHoverHints, createHintFooter, createTaskStatus, setHint } from './hintFooter';
-import { attachSpectrumCursorListeners, createSpectrumCursorHandlers } from './spectrumCursorHandlers';
 import { attachTrackLaneActions } from './trackLaneActions';
-import { attachOverlaySpectrumHints } from './overlaySpectrumEvents';
 import { attachGlobalKeyboardListeners } from './globalKeyboardEvents';
 import { keyRouterFor } from './keyRouter';
 import { attachSeparatorKeys } from './separatorKeys';
@@ -57,11 +55,10 @@ import { laneAmplitudeRange, laneAmplitudeTicks, laneTimeTicks, markLanePlot } f
 import { createPlaybackDisplay } from './playbackDisplay';
 import { installLayoutResizeHandling } from './layoutResize';
 import { syncPanelToggle, syncSpectrumMaximize } from './panelCollapse';
-import { SpectrumHover } from './spectrumHover';
 import { SpectrumView } from './spectrumView';
 import { WaveformView } from './waveformView';
-import { OVERLAY_LEVEL_AXES, overlaySpectrumMarks, paintOverlaySpectrum, renderSpectrumAxisLegend } from './overlaySpectrumPainter';
-import { amplitudeAxisTitle, paintOverlay, PLOT_TEXT_FONT } from './stagePanes';
+import { OVERLAY_LEVEL_AXES, paintOverlaySpectrum, renderSpectrumAxisLegend } from './overlaySpectrumPainter';
+import { amplitudeAxisTitle, paintOverlay, PLOT_TEXT_FONT, type StagePlot } from './stagePanes';
 import { referenceButtonHtml } from './pairSpectrum';
 import { PAIR_SPLIT_MAX, PAIR_SPLIT_MIN, PairSpectrumPanel } from './pairSpectrumPanel';
 import { collectSpectrumSeries, type CollectedSpectrumSeries, type SpectrumSeriesSource } from './spectrumSeriesCollector';
@@ -74,16 +71,10 @@ import { type AnalysisWindowBand, canvasTimeHit, clampedCanvasNorm, clientToCanv
 import { applyOverlayCompatibility, calibrationRequest, channelMetricSummaryHtml, ensureCalibrationStyles, hasIncompatibleLevelReferences } from './calibrationDecorations';
 import {
     channelIndexAttribute,
-    hoverNormForFrequency,
-    OVERLAY_SPECTRUM_PAD,
     overlayLevelAxes,
     overlayPlotPoint,
     overlaySpectrumRegionAt,
     spectrumZoomFromWindow,
-    spectrumSeriesRange,
-    spectrumVisibleWindow,
-    steppedOverlaySpectrumHoverNorm,
-    setSpectrumReadout,
     spectrumSlicesFromResult,
 } from './spectrumRuntime';
 import { normalizeRuntimeState, PersistedStateStore } from './stateStore';
@@ -460,13 +451,18 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (!playing) invalidateDesiredSpectrumSliceRequests();
         viewState.setCursor(norm, playing ? 'cursor' : 'all');
     }
-    const spectrumHover = new SpectrumHover();
+    /** The cursor spectrum's pointer marks and readout, as every plot's (plotHoverLayer.ts, R7). */
+    const spectrumMarks = createPlotHoverLayer(document, 'spectrum-cursor');
+    /** Where the pointer (or an arrow key's step) is over the cursor spectrum, while it is. */
+    let spectrumPointer: PlotPlace | null = null;
+    /** The pair plot's frequency the cursor spectrum's line follows while the pointer is on a pair plot. */
+    let spectrumFollowHz: number | null = null;
+    /** Where the cursor spectrum last drew its lines. */
+    let spectrumDrawn: StagePlot | null = null;
     /** The frequency the power spectrum's cursor last read under the pointer (R7). */
     let overlayReadHz: number | null = null;
     // ── スペクトルズーム ───────────────────────────────────
     const spectrumView = new SpectrumView();
-    /** The box being dragged on the cursor spectrum to zoom into (drawn on it), while one is. */
-    let specBox: SpectrumBoxSpan | null = null;
     const heightResize = createHeightResize({
         currentHeight: kind => kind === 'track' ? layout.trackHeight : layout.spectrumOverlayHeight,
         canBegin: kind => kind === 'track' || (!layout.spectrumCollapsed && !layout.spectrumMaximized),
@@ -582,29 +578,22 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         plotHeight: effectiveSpectrumHeight,
         hoverFrequencyHz() {
             const visible = spectrumView.visibleFrequencyHz();
-            if (spectrumHover.target !== 'overlay' || spectrumHover.norm === null || !visible) {
+            const canvas = canvasById(document, 'spectrum-overlay-canvas');
+            if (!spectrumPointer || !visible || !canvas || !spectrumDrawn) {
                 return null;
             }
             // The pair plot follows the point the power spectrum's cursor reads (R7), not the pointer beside it.
-            if (spectrumHover.hasMouse && overlayReadHz !== null) {
+            if (overlayReadHz !== null) {
                 return overlayReadHz;
             }
-            return visible.frequencyMin + spectrumHover.norm * (visible.frequencyMax - visible.frequencyMin);
+            const { frame } = spectrumDrawn;
+            const across = Math.max(0, Math.min(1, (spectrumPointer.clientX - canvas.getBoundingClientRect().left - frame.left) / Math.max(1, frame.width)));
+            return visible.frequencyMin + across * (visible.frequencyMax - visible.frequencyMin);
         },
         onHoverFrequency(frequencyHz) {
-            const visible = spectrumView.visibleFrequencyHz();
-            if (frequencyHz === null || !visible) {
-                if (spectrumHover.target === 'overlay') {
-                    spectrumHover.clear();
-                }
-            }
-            else {
-                // The pointer is on the pair plot, so the power spectrum's line follows its frequency with no pointer height of its own.
-                spectrumHover.norm = hoverNormForFrequency(frequencyHz, visible.frequencyMin, visible.frequencyMax);
-                spectrumHover.yFrac = null;
-                spectrumHover.target = 'overlay';
-                spectrumHover.hasMouse = false;
-            }
+            // The pointer is on the pair plot: the power spectrum's line follows its frequency, with no point read of its own.
+            spectrumFollowHz = frequencyHz;
+            if (frequencyHz !== null) spectrumPointer = null;
             scheduleSpectrumRefresh('hover');
         },
         theme: drawTheme,
@@ -2353,7 +2342,55 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     let spectrogramHover: { canvas: HTMLCanvasElement; clientX: number; clientY: number } | null = null;
     // A scroll under a still pointer moves the lane from under it: the point read goes with it.
     document.addEventListener('scroll', () => { if (laneHover || spectrogramHover) { hideLaneHover(); scheduleRender(); } }, true);
+    /** The points a waveform lane drew and the one its readout last read, for an arrow key to step from (R7). */
+    let laneRead: { canvas: HTMLCanvasElement; points: readonly LanePoint[]; hit: LanePoint; ratioX: number; ratioY: number } | null = null;
+    /**
+     * ← / → over a lane (R7): a waveform lane reads the next point it drew, a spectrogram lane the next time bin's cell
+     * at the same height, as the pointer there would; the other lanes' time line follows. False with nothing read.
+     */
+    function stepLaneReadout(plot: Element, delta: -1 | 0 | 1): boolean {
+        if (laneHover && laneHover.canvas === plot) {
+            if (delta === 0) return true;
+            const read = laneRead;
+            if (!read || read.canvas !== plot) return false;
+            const sorted = [...read.points].sort((a, b) => a.x - b.x || a.y - b.y);
+            const from = sorted.indexOf(read.hit);
+            let next: LanePoint | undefined;
+            for (let index = from + delta; from >= 0 && index >= 0 && index < sorted.length; index += delta) {
+                if (sorted[index].x !== read.hit.x || sorted[index].y !== read.hit.y) { next = sorted[index]; break; }
+            }
+            if (!next) return false;
+            const rect = read.canvas.getBoundingClientRect();
+            laneHover = { canvas: read.canvas, clientX: rect.left + next.x / read.ratioX, clientY: rect.top + next.y / read.ratioY };
+            scheduleRender();
+            return true;
+        }
+        if (spectrogramHover && spectrogramHover.canvas === plot) {
+            if (delta === 0) return true;
+            const { canvas, clientX, clientY } = spectrogramHover;
+            const trackIndex = trackIndexFromElement(canvas);
+            const result = trackIndex === null ? undefined : state.results[trackIndex];
+            const spec = result && trackIndex !== null ? shownSpectrogram(result, trackIndex, channelIndexAttribute(canvas) ?? 0)?.spec : undefined;
+            const rect = canvas.getBoundingClientRect();
+            if (trackIndex === null || !result || !spec || !(spec.timeBins > 0) || rect.width <= 0) return false;
+            const view = waveformView.timeRange();
+            const placement = trackTimelinePlacement(trackRuntimeAt(trackIndex).offsetSeconds, result.durationSeconds, trackStore.globalSpan());
+            const norm = view.start + (clientX - rect.left) / rect.width * (view.end - view.start);
+            const local = placement.trackDurRatio > 0 ? (norm - placement.offsetNorm) / placement.trackDurRatio : NaN;
+            // The next column as the raster drew it: a zoomed detail's columns cover only its window of the file.
+            const nextLocal = spectrogramNeighbourNorm(spec, local, delta, result.durationSeconds);
+            if (nextLocal === null) return false;
+            const next = placement.offsetNorm + nextLocal * placement.trackDurRatio;
+            const x = rect.left + (next - view.start) / Math.max(1e-12, view.end - view.start) * rect.width;
+            if (x < rect.left || x > rect.left + rect.width) return false;
+            showSpectrogramReadout(canvas, x, clientY);
+            scheduleRender();
+            return true;
+        }
+        return false;
+    }
     function hideLaneHover(): void {
+        laneRead = null;
         laneHover = null;
         spectrogramHover = null;
         hidePlotReadout(document.getElementById(PLOT_READOUT_ID));
@@ -2364,10 +2401,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const ratioX = rect.width > 0 ? W / rect.width : 1, ratioY = rect.height > 0 ? H / rect.height : 1;
         const hit = laneHoverPoint(points, (laneHover.clientX - rect.left) * ratioX, (laneHover.clientY - rect.top) * ratioY, ratioX);
         if (!hit) {
+            laneRead = null;
             drawHoverLineOnCanvas(ctx, W, H);
             hidePlotReadout(document.getElementById(PLOT_READOUT_ID));
             return;
         }
+        laneRead = { canvas: laneHover.canvas, points, hit, ratioX, ratioY };
         ctx.save();
         ctx.scale(ratioX, ratioY);
         paintHoverMarks(ctx, { left: 0, top: 0, width: W / ratioX, height: H / ratioY }, hit.x / ratioX, hit.y / ratioY, color);
@@ -2663,7 +2702,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         });
         // In the steps mode the lanes answer the shared plot gestures (trackStageMode.ts), not the time axis's.
         const timeAxis = <A extends unknown[]>(handler: (...args: A) => void) => (...args: A): void => { if (contentType !== 'stage') handler(...args); };
-        attachTrackPointerListeners(tracksWrapper, document, {
+        attachTrackPointerListeners(tracksWrapper, document, keyRouterFor(window), {
+            step: (plot, delta) => contentType !== 'stage' && stepLaneReadout(plot, delta),
             resetZoom: timeAxis(resetZoom),
             openAxisRange: (axis, clientX, clientY) => contentType !== 'stage' && openTrackAxisRange(axis, clientX, clientY),
             hover: timeAxis(handleCanvasMouseMove),
@@ -2773,11 +2813,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         attachGlobalKeyboardListeners(keyRouterFor(window), document, {
             helpOverlay: () => document.getElementById('help-overlay'),
-            spectrumHasMouse: () => spectrumHover.hasMouse,
-            stepSpectrum(delta) {
-                moveSpectrumHoverByBin(delta);
-                scheduleSpectrumRefresh('hover');
-            },
             runShortcut: handleToolbarAction,
             togglePlayback(target, active) {
                 const trackId = target === 'focused-track'
@@ -2798,18 +2833,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         });
         // カーソル時刻のパワースペクトルのホバーとキーボード
         (function attachSpectrumCursorEvents() {
-            const spectrumCursor = createSpectrumCursorHandlers({
-                hover: spectrumHover,
-                activeElement: () => document.activeElement,
-                refresh: () => scheduleSpectrumRefresh('hover'),
-            });
             const overlayCanvas = canvasById(document, 'spectrum-overlay-canvas');
             if (overlayCanvas) {
-                // ドラッグ中はホバー不要
-                attachSpectrumCursorListeners(overlayCanvas, spectrumCursor, OVERLAY_SPECTRUM_PAD, () => specBox !== null);
-                // The plot component's gestures (plotInteraction.ts, R9, R13): a box dragged zooms both axes, Ctrl+wheel
-                // zooms and Shift+wheel or a swipe pans the frequency axis, a double-click resets, or on an axis opens
-                // its range. Across: the frequency axis as a whole; up: the levels on screen (the dB axis follows the data).
+                // The plot component's gestures (plotInteraction.ts, R7, R9, R13): the pointer's marks and readout, ← / → to
+                // step it, a box dragged zooms both axes, Ctrl+wheel zooms and Shift+wheel or a swipe pans the frequency axis,
+                // a double-click resets, or on an axis opens its range. Across: the frequency axis as a whole; up: the
+                // levels on screen (the dB axis follows the data).
                 const canvasPoint = (clientX: number, clientY: number): { x: number; y: number } =>
                     clientToCanvasPixels(clientX, clientY, overlayCanvas.getBoundingClientRect(), overlayCanvas.width, overlayCanvas.height);
                 const pointOn = (clientX: number, clientY: number): PlotPoint => {
@@ -2817,7 +2846,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     const point = overlayPlotPoint(at.x, at.y, overlayCanvas.width, overlayCanvas.height);
                     return { fx: point?.freqNorm ?? 0, fy: point?.dbNorm ?? 0 };
                 };
-                const spanOf = (from: PlotPoint, to: PlotPoint): SpectrumBoxSpan => ({ anchor: { freqNorm: from.fx, dbNorm: from.fy }, current: { freqNorm: to.fx, dbNorm: to.fy } });
+                const zoomBox = document.createElement('div');
+                zoomBox.className = 'compare-zoom-box';
+                zoomBox.hidden = true;
+                document.body.append(zoomBox);
                 attachPlotInteraction(overlayCanvas.parentElement ?? overlayCanvas, document, '#spectrum-overlay-canvas', {
                     locate(target, clientX, clientY) {
                         if (target !== overlayCanvas || !spectrumView.hasData()) return null;
@@ -2833,17 +2865,30 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                         spectrumView.applyBoxZoom(spectrumZoomFromWindow(next, spectrumView.paintedDb()));
                         scheduleSpectrumRefresh('immediate');
                     },
-                    // The pointer's readout and marks are the cursor spectrum's own (spectrumCursorHandlers.ts).
-                    hover() { /* followed by attachSpectrumCursorListeners */ },
-                    clearHover() { /* followed by attachSpectrumCursorListeners */ },
-                    showBox(_plot, from, to) { specBox = spanOf(from, to); scheduleSpectrumRefresh('hover'); },
-                    hideBox() { specBox = null; scheduleSpectrumRefresh('hover'); },
+                    hover(event, hit) {
+                        if (hit) hintFooter.show(hit.axis === 'y' ? STR.hintSpectrumDbAxis : hit.axis === 'x' ? STR.hintSpectrumFreqAxis : STR.hintSpectrumPlot);
+                        else hintFooter.clear();
+                        spectrumPointer = hit && !hit.axis ? { clientX: event.clientX, clientY: event.clientY } : null;
+                        if (spectrumPointer) spectrumFollowHz = null;
+                        showSpectrumMarks();
+                        scheduleSpectrumRefresh('hover');
+                    },
+                    clearHover() {
+                        spectrumPointer = null;
+                        showSpectrumMarks();
+                        scheduleSpectrumRefresh('hover');
+                    },
+                    stepFrom: (_plot, delta) => (spectrumShown() ? spectrumMarks.stepFrom(overlayCanvas, spectrumDrawn, delta) : null),
+                    showBox(_plot, from, to) {
+                        const frame = spectrumDrawn?.frame;
+                        if (!frame) return;
+                        const rect = overlayCanvas.getBoundingClientRect();
+                        const [x0, x1] = [Math.min(from.fx, to.fx), Math.max(from.fx, to.fx)], [y0, y1] = [Math.min(from.fy, to.fy), Math.max(from.fy, to.fy)];
+                        Object.assign(zoomBox.style, { left: `${rect.left + frame.left + x0 * frame.width}px`, top: `${rect.top + frame.top + (1 - y1) * frame.height}px`, width: `${(x1 - x0) * frame.width}px`, height: `${(y1 - y0) * frame.height}px` });
+                        zoomBox.hidden = false;
+                    },
+                    hideBox() { zoomBox.hidden = true; },
                     openAxisRange(hit, clientX, clientY) { openSpectrumRangePopup(hit.axis === 'y' ? 'db' : 'freq', clientX, clientY); return true; },
-                });
-                attachOverlaySpectrumHints(overlayCanvas, hintFooter, {
-                    'db-axis': STR.hintSpectrumDbAxis,
-                    'freq-axis': STR.hintSpectrumFreqAxis,
-                    plot: STR.hintSpectrumPlot,
                 });
                 attachCanvasFocusHint(overlayCanvas, hintFooter, STR.hintSpectrumPlot);
             }
@@ -3960,25 +4005,32 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         });
         return collectSpectrumSeries(tracks, norm, spectrumSeriesSource);
     }
-    function moveSpectrumHoverByBin(deltaIdx: number) {
-        const fromPointer = !spectrumHover.stepped;
-        spectrumHover.stepped = true;
-        if (spectrumHover.norm === null) {
-            spectrumHover.norm = 0.5;
-        }
-        const slices = spectrumSeriesAt(viewState.cursor).series;
-        if (slices.length === 0) {
+    /** Whether the cursor spectrum is on screen to be read: drawn, and not hidden for levels it cannot overlay. */
+    function spectrumShown(): boolean {
+        const canvas = canvasById(document, 'spectrum-overlay-canvas');
+        return !!canvas && !!spectrumDrawn && contentType !== 'stage' && canvas.getAttribute('data-calibration-hidden') !== 'true';
+    }
+    /**
+     * The cursor spectrum's marks and readout (R7): at the pointer (or an arrow key's step), read as every plot reads
+     * its point; else a line at the pair plot's frequency; else none. Shown again on every paint under a still pointer.
+     */
+    function showSpectrumMarks(): void {
+        const canvas = canvasById(document, 'spectrum-overlay-canvas');
+        const slot = document.getElementById('spectrum-freq-readout');
+        overlayReadHz = null;
+        if (!canvas || !spectrumShown()) { spectrumMarks.hide(); return; }
+        if (spectrumPointer) {
+            spectrumMarks.show(canvas, spectrumDrawn, spectrumPointer.clientX, spectrumPointer.clientY, slot);
+            const read = spectrumMarks.reading();
+            overlayReadHz = read && read.index !== undefined && read.index >= 0 ? read.layer.view.xs?.[read.index] ?? null : null;
             return;
         }
-        const range = spectrumSeriesRange(slices);
-        const vis = spectrumVisibleWindow(range.maxFrequencyHz, range.minDb, range.maxDb, spectrumView.state(), range.logMinFrequencyHz);
-        const overlayC = canvasById(document, 'spectrum-overlay-canvas');
-        const nextNorm = steppedOverlaySpectrumHoverNorm(slices, spectrumHover.norm, spectrumHover.yFrac, overlayC, vis, deltaIdx, fromPointer, overlayLevelAxes(slices, spectrumView.state()));
-        if (nextNorm === null) {
-            return;
+        const x = spectrumFollowHz !== null && spectrumDrawn ? spectrumDrawn.xAt(spectrumFollowHz) : null;
+        if (x !== null && spectrumDrawn && x >= spectrumDrawn.frame.left && x <= spectrumDrawn.frame.left + spectrumDrawn.frame.width) {
+            spectrumMarks.line(canvas, spectrumDrawn, canvas.getBoundingClientRect().left + x);
+            hidePlotReadout(slot);
         }
-        spectrumHover.norm = nextNorm;
-        spectrumHover.target = 'overlay';
+        else spectrumMarks.hide();
     }
 
     function renderOverlaySpectrum() {
@@ -4013,7 +4065,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (slices.length === 0) {
             // Empty, the plot component says why in its middle, as every plot does (R13).
             paintOverlay(canvas, { layers: [] }, { min: 0, max: 1 }, { x: '', y: '' }, { size: { width: W, height: H }, empty: STR.spectrumNoData });
-            overlaySpectrumMarks(canvas, W, H);
+            spectrumDrawn = null;
+            showSpectrumMarks();
             // No line is drawn: none is named.
             renderSpectrumAxisLegend(document.getElementById('spectrum-axis-legend'), []);
             overlaySpectrumPainted = false;
@@ -4025,13 +4078,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const calibrated = series.every(s => channelsForResult(state.results[s.index])[s.channelIndex]?.measurement?.calibrationStatus === 'calibrated');
             return (calibrated ? STR.axisLevelCal : STR.axisLevelUncal).replace('{label}', reference);
         };
-        const paint = paintOverlaySpectrum(canvas, W, H, slices, spectrumView.state(), spectrumHover, specBox, STR.axisFrequency, levelTitle);
-        overlayReadHz = paint.hoverFrequencyHz ?? null;
+        const paint = paintOverlaySpectrum(canvas, W, H, slices, spectrumView.state(), STR.axisFrequency, levelTitle);
+        spectrumDrawn = paint.plot;
         spectrumView.recordPaint(paint);
         renderSpectrumAxisLegend(document.getElementById('spectrum-axis-legend'), paint.levelAxes);
-        if (paint.readout) {
-            setSpectrumReadout(document.getElementById('spectrum-freq-readout'), paint.readout.text, paint.readout.color);
-        }
+        showSpectrumMarks();
         if (!paint.painted) {
             return;
         }
@@ -4042,6 +4093,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (contentType !== 'stage') {
             renderOverlaySpectrum();
         }
+        else spectrumMarks.hide();
         pairPanel.render();
         emitSpectrumZoom();
         const el = document.getElementById('spectrum-cursor-time');

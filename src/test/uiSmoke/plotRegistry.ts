@@ -11,7 +11,7 @@ export const PLOTS_PENDING: ReadonlyArray<{ selector: string; why: string }> = [
 ];
 
 /** Layers laid over a plot (its hover marks, a cursor): not plots of their own. */
-export const PLOT_LAYERS: readonly string[] = ['.plot-hover-layer', '.track-spectrogram-overlay', '.track-waveform-overlay', '.spectrum-overlay-marks'];
+export const PLOT_LAYERS: readonly string[] = ['.plot-hover-layer', '.track-spectrogram-overlay', '.track-waveform-overlay'];
 
 /**
  * Plots drawn into by more than the plot component (lines added over its picture by their own code), waiting to

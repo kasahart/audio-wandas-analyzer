@@ -1,13 +1,13 @@
 /**
  * The one window-level key listener. Each part of the UI that takes keys adds a context to it; a key goes to
- * the contexts front to back (the help over a popover over a focused resize edge over the step bar over the
- * entry table over the comparison over the lanes) and stops at the first one that takes it.
+ * the contexts front to back (the help over a popover over a focused resize edge over the plot under the pointer
+ * over the step bar over the entry table over the comparison over the lanes) and stops at the first one that takes it.
  * A component's own element-level listeners (a role chip, a field, the step bar's chips) still see a key no
  * context took.
  */
-export type KeyLayer = 'help' | 'popover' | 'widget' | 'step-bar' | 'entry' | 'stage' | 'lanes';
+export type KeyLayer = 'help' | 'popover' | 'widget' | 'plot' | 'step-bar' | 'entry' | 'stage' | 'lanes';
 
-const LAYER_ORDER: readonly KeyLayer[] = ['help', 'popover', 'widget', 'step-bar', 'entry', 'stage', 'lanes'];
+const LAYER_ORDER: readonly KeyLayer[] = ['help', 'popover', 'widget', 'plot', 'step-bar', 'entry', 'stage', 'lanes'];
 
 export interface KeyContext {
     readonly layer: KeyLayer;

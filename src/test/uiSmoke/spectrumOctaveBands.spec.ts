@@ -43,8 +43,9 @@ test('the docked spectrum switches to 1/3 octave bands on a log axis and back to
         const requests = await sliceRequests(page);
         return requests.length > 0 && requests[requests.length - 1].bandsPerOctave === undefined;
     }).toBe(true);
+    // The middle of the 0–4 kHz axis falls between two bins, 21 Hz apart: either one beside 2 kHz.
     await hoverOverlayAt(page, 0.5);
-    await expect(page.locator('#spectrum-freq-readout')).toContainText(/ 2(\.0\d{0,2})? kHz \//);
+    await expect(page.locator('#spectrum-freq-readout')).toContainText(/ (1\.99|2(\.0\d{0,2})?) kHz \//);
 });
 
 test('the cursor spectrum names its level axis as Compare does, uncalibrated, and its lines in a legend', async ({ page }) => {

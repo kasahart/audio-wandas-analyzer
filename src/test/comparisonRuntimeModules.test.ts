@@ -7,7 +7,6 @@ import {
     trackTimeFromGlobalNorm,
 } from '../webview/runtime/playback';
 import { parseBoundedInteger, positionPopover } from '../webview/runtime/settingsPopover';
-import { spectrumBinAtFrequency } from '../webview/runtime/spectrumRuntime';
 import { PersistedStateStore, sanitizePersistedState } from '../webview/runtime/stateStore';
 import {
     amplitudeNormToCanvasY,
@@ -31,22 +30,6 @@ test('waveform interaction keeps normalized zoom and amplitude transforms bounde
     const y = amplitudeNormToCanvasY(0.25, 100, -0.5, 0.5);
     assert.equal(canvasYToAmplitudeNorm(y, 100, -0.5, 0.5), 0.25);
     assert.equal(canvasYToAmplitudeNorm(0, 0, -1, 1), 0);
-});
-
-test('spectrum interaction snaps to a visible source bin', () => {
-    const snap = spectrumBinAtFrequency(
-        { values: [-80, -40, -20], frequencyBins: 3, maxFrequencyHz: 2000, minDb: -100, maxDb: 0 },
-        900,
-        10,
-        100,
-        5,
-        50,
-        0,
-        2000,
-        -100,
-        0,
-    );
-    assert.deepEqual(snap, { binIdx: 1, freqHz: 1000, x: 60, dbVal: -40, y: 25 });
 });
 
 test('settings helpers clamp input and keep popovers inside the viewport', () => {

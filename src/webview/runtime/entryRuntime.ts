@@ -257,7 +257,6 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             deps.announce(strings.dsDistPicked.replace('{n}', shownRows.length.toLocaleString()));
         },
         dot(key) { if (shownRows.some(row => row.key === key)) focusRow(key, true); else focusFile(fileOfKey(key)); },
-        cancelled: () => sidePlots.schedule(),
     });
     const stepBar = createStepBar({
         document, strings, mode: 'entry', onChange: recipe => setRecipe(recipe),

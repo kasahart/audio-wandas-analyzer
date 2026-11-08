@@ -7,11 +7,13 @@ import { entry100Results, openEntry, type ScannedFile } from './entryHelpers';
 
 /**
  * R13: every plot is the one plot component, so every plot answers the same gestures the same way. This test opens
- * the screens with plots, collects each canvas the component drew (`data-plot`) and gives it the same checks.
+ * the screens with plots, collects each canvas the component drew (`data-plot`) and gives it the same checks:
+ * the readout above it under the pointer, ← / → stepping that readout one point at a time, Ctrl+wheel zoom and
+ * double-click reset, an axis's range, both axes named.
  * A plot that does not pass one yet is listed in KNOWN_GAPS with the deviation of the unified plot spec it waits
  * for; a gap that is fixed fails here until it is taken off, so the list only shrinks.
  */
-type Check = 'readout' | 'zoom' | 'reset' | 'axis range' | 'axes';
+type Check = 'readout' | 'step' | 'zoom' | 'reset' | 'axis range' | 'axes';
 const KNOWN_GAPS: Record<string, readonly Check[]> = {};
 
 const FULL = '0.000 1.000 0.000 1.000';
@@ -91,6 +93,17 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
         try { const stack = document.elementsFromPoint(x, y); return stack.includes(layer) && stack[0] !== layer; } finally { layer.style.pointerEvents = ''; }
     }), middle);
     if (above && !buried && Math.abs((await plot.boundingBox())!.y - box.y) < 0.5) passed.add('readout');
+    // ← / → under the still pointer step the readout one point at a time (R7): → reads another point, ← another
+    // again, and → once more the one the first → read; the readout stays in its row above the plot.
+    const read = async (): Promise<string> => (await readouts(rowTop)).filter(Boolean).join(' | ');
+    const steps: string[] = [];
+    for (const key of ['ArrowRight', 'ArrowLeft', 'ArrowRight']) {
+        await page.keyboard.press(key);
+        await page.waitForTimeout(80);
+        steps.push(await read());
+    }
+    const hovered = await read();
+    if (above && steps.every(Boolean) && steps[0] !== after.filter(Boolean).join(' | ') && steps[1] !== steps[0] && steps[2] === steps[0] && hovered === steps[2]) passed.add('step');
     // Ctrl+wheel zooms; a double-click resets.
     await page.keyboard.down('Control');
     await page.mouse.wheel(0, -240);
@@ -117,12 +130,12 @@ async function expectContract(page: Page, name: string, plot: Locator): Promise<
     await expect(plot).toHaveAttribute('data-plot', '');
     const passed = await contract(page, plot);
     const gaps = KNOWN_GAPS[name] ?? [];
-    const checks: Check[] = ['readout', 'zoom', 'reset', 'axis range', 'axes'];
+    const checks: Check[] = ['readout', 'step', 'zoom', 'reset', 'axis range', 'axes'];
     expect.soft(checks.filter(check => !passed.has(check) && !gaps.includes(check)), `${name}: fails the plot contract (R13)`).toEqual([]);
     expect.soft(gaps.filter(check => passed.has(check)), `${name}: now passes; take it off KNOWN_GAPS`).toEqual([]);
 }
 
-test('every plot the comparison shows answers the same gestures: readout above it, Ctrl+wheel zoom, double-click reset, axis range, both axes named (R13)', async ({ page }) => {
+test('every plot the comparison shows answers the same gestures: readout above it, ← / → step it, Ctrl+wheel zoom, double-click reset, axis range, both axes named (R13)', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     await page.setViewportSize({ width: 1280, height: 900 });
     await openComparison(page, scanned!);

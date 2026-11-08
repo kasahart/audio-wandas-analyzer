@@ -478,6 +478,10 @@ export class PairSpectrumPanel {
                     this.showMarks();
                     this.host.onHoverFrequency(null);
                 },
+                stepFrom: (plot, delta) => {
+                    const drawn = this.result ? this.drawn.get(laneOf(plot)) : undefined;
+                    return drawn ? this.marks?.get(laneOf(plot))?.stepFrom(plot, drawn.plot ?? null, delta) ?? null : null;
+                },
                 showBox: (plot, from, to) => {
                     const box = this.zoomBox();
                     const rect = plot.getBoundingClientRect(), frame = this.drawn.get(laneOf(plot))?.plot?.frame;

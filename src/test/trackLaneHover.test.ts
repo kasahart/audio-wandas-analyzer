@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { laneHoverPoint, laneReadoutText, spectrogramCellAt, spectrogramReadoutText, type LanePoint } from '../webview/runtime/trackLaneHover';
+import { laneHoverPoint, laneReadoutText, spectrogramCellAt, spectrogramNeighbourNorm, spectrogramReadoutText, type LanePoint } from '../webview/runtime/trackLaneHover';
 
 /** A lane's points: a flat line at y = 50 with a narrow peak to y = 5 at x = 100. */
 const lane: LanePoint[] = Array.from({ length: 201 }, (_, x) => ({ x, y: x === 100 ? 5 : 50, value: x === 100 ? 0.9 : 0, t: x / 200 }));
@@ -36,4 +36,19 @@ test('the pointer on a spectrogram lane reads the cell under it: its frequency b
     assert.equal(spectrogramCellAt(spec, -0.1, 1000), null);
     assert.equal(spectrogramCellAt(spec, 1.2, 1000), null);
     assert.equal(spectrogramReadoutText('', 0.25, 0.01, { frequencyHz: 2000, level: -22 }, 'dB'), '0.25 s / 2 kHz / −22.0 dB');
+});
+
+test('an arrow key on a zoomed spectrogram detail reads the next column at its own centre, not one spread over the file (R7)', () => {
+    // A detail of 4.0–4.4 s of a 10 s file: five columns 0.1 s apart.
+    const spec = { timeBins: 5, timeCentersSec: [4.0, 4.1, 4.2, 4.3, 4.4] };
+    const close = (actual: number | null, expected: number): void => { assert.ok(actual !== null && Math.abs(actual - expected) < 1e-9, `${actual} ≠ ${expected}`); };
+    close(spectrogramNeighbourNorm(spec, 0.41, 1, 10), 0.42);
+    close(spectrogramNeighbourNorm(spec, 0.42, 1, 10), 0.43);
+    close(spectrogramNeighbourNorm(spec, 0.42, -1, 10), 0.41);
+    // Past the detail's last column there is nothing further that way; before its first, the first is read.
+    assert.equal(spectrogramNeighbourNorm(spec, 0.44, 1, 10), null);
+    close(spectrogramNeighbourNorm(spec, 0.2, 1, 10), 0.40);
+    assert.equal(spectrogramNeighbourNorm(spec, 0.2, -1, 10), null);
+    // Without frame centres the columns split the file evenly.
+    close(spectrogramNeighbourNorm({ timeBins: 4 }, 0.3, 1, 10), 0.625);
 });
