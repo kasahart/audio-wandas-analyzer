@@ -18,7 +18,7 @@ import { paintWaveformLayer, waveformRange, type SignalPointSink } from '../plot
 import { packRgb, paletteColour, rasterizeHeatmap, unpackRgb } from '../plot/heatmapRaster';
 import { drawValueAxis, fittedAxisTitle, readoutText, type AxisTick, type Palette } from '../../shared/gui-core/index';
 import { niceRange, niceTicks } from '../../shared/utils/ticks';
-import { amountText, frequencyText, levelText, secondsText, signedText, withMinus } from '../plot/plotText';
+import { amountText, barkText, frequencyText, lagText, levelText, quefrencyText, secondsText, signedText, withMinus } from '../plot/plotText';
 
 /** Canvas x the level axis's turned title is centred on, in the gutter left of its tick labels. */
 const AXIS_TITLE_X = 10;
@@ -78,7 +78,7 @@ export function eventLayers(layer: StageLayer): StageLayer[] {
         // One left out is drawn faint, and stays to be clicked back.
         const out = !!layer.excluded?.includes(event.id);
         // Where in the recording it was cut (its trigger): the plot's time is from the trigger.
-        const at = Number.isFinite(event.time) ? ` @ ${event.time.toFixed(2)} s` : '';
+        const at = Number.isFinite(event.time) ? ` @ ${secondsText(event.time)}` : '';
         return { ...rest, view: { ...view, values: event.values }, width: Math.min(layer.width ?? 1.5, 1.2), alpha: out ? 0.25 : 0.85, label: `${layer.label ? `${layer.label} ` : ''}#${event.id + 1}${at}`, ...(source !== undefined ? { event: { id: event.id, source, out } } : {}) };
     });
 }
@@ -214,15 +214,8 @@ function metricName(strings: StageStrings, unit: string | undefined): string {
 
 const hz = frequencyText;
 const signed = signedText;
-const quefrency = (seconds: number): string => `${(seconds * 1000).toFixed(seconds < 0.01 ? 2 : 1)} ms`;
-/**
- * A signed lag: the output channel later than the input when positive. To 10 µs at any lag (a sample at 96 kHz,
- * since a delay is read sample by sample), and no sign on none.
- */
-const lag = (seconds: number): string => {
-    const ms = (Math.abs(seconds) * 1000).toFixed(2);
-    return `${Number(ms) === 0 ? '' : seconds > 0 ? '+' : '−'}${ms} ms`;
-};
+const quefrency = quefrencyText;
+const lag = lagText;
 
 /** Where along its axis a point of the picture is, for the readout and the headline. */
 function atText(view: StageView, index: number, row?: number): string {
@@ -240,7 +233,7 @@ function spacingAt(values: readonly number[] | undefined, index: number): number
 function atValue(view: StageView, x: number, y?: number, xStep?: number, yStep?: number): string {
     const along = view.x === 'time' ? secondsText(x) : view.x === 'quefrency' ? quefrency(x) : view.x === 'lag' ? lag(x) : hz(x, xStep);
     if (y === undefined) return along;
-    return `${along} · ${view.yAxis === 'bark' ? `${y.toFixed(1)} Bark` : view.yAxis === 'quefrency' ? quefrency(y) : hz(y, yStep)}`;
+    return `${along} · ${view.yAxis === 'bark' ? barkText(y) : view.yAxis === 'quefrency' ? quefrency(y) : hz(y, yStep)}`;
 }
 
 /** The Δ pane's headline: where the difference is largest, or why there is none. */
@@ -1314,7 +1307,7 @@ function paintRegion(context: CanvasRenderingContext2D, region: NonNullable<Stag
         context.setLineDash([4, 3]);
         for (const [x, value] of [[a, region.start], [b, region.end]] as const) {
             context.beginPath(); context.moveTo(x + 0.5, plot.top); context.lineTo(x + 0.5, plot.top + plot.height); context.stroke();
-            context.fillText(`${value.toFixed(2)} s`, x + 3, plot.top + plot.height - 4);
+            context.fillText(secondsText(value), x + 3, plot.top + plot.height - 4);
         }
     } else if (region.mark === 'tag') {
         const width = context.measureText(region.label).width + 12;

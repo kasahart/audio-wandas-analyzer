@@ -8,7 +8,7 @@
 import type { UiStrings } from '../../shared/i18n/strings';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { titledHintAttr as hintAttr } from './hintFooter';
-import { withMinus } from '../plot/plotText';
+import { amountText, frequencyText, withMinus } from '../plot/plotText';
 import { summarizeAudioCandidates } from '../../shared/dataset/asdData';
 import { groupOf, middleEllipsis, valueOf, type ColumnId, type DatasetFilter, type DatasetRow, type GroupId, type Results, type Unmatched, type ValueId } from '../../shared/dataset/datasetTable';
 
@@ -218,6 +218,22 @@ export function formatValue(value: ValueId, number: number | null): string {
     if (number === null) return '—';
     const text = value === 'peak' ? String(Math.round(number)) : value === 'crest' ? number.toFixed(2) : value.startsWith('csv:') ? String(+number.toPrecision(6)) : number.toFixed(1);
     return withMinus(text);
+}
+
+/**
+ * A value as a plot reads it out (R7, plotText.ts), not as the table's column writes it: a peak frequency in Hz or
+ * kHz ("3.15 kHz"), a level to 0.1 dB (its unit is in the value's name), any other value to three significant figures.
+ * `step`, the spacing of what it is read among (the distribution's bins), adds the digits that spacing needs, so two
+ * neighbouring bins never read the same (bins 1 apart at 3000: "3001–3002", not "3000–3000").
+ */
+export function plotValueText(value: ValueId, number: number, step?: number): string {
+    const decimals = step !== undefined && step > 0 && Number.isFinite(step) ? Math.max(0, Math.ceil(-Math.log10(step) - 1e-9)) : undefined;
+    if (value === 'peak') return frequencyText(number, step);
+    if (value === 'leq' || value.startsWith('band:')) return withMinus(number.toFixed(Math.max(1, decimals ?? 0)));
+    // Three significant figures resolve 10^(e − 2) at 10^e: a finer step needs its own decimals.
+    const resolution = number === 0 ? 0 : 10 ** (Math.floor(Math.log10(Math.abs(number))) - 2);
+    if (decimals !== undefined && step !== undefined && step < resolution) return withMinus(number.toFixed(decimals));
+    return amountText(number);
 }
 
 /** How many of a name's last characters stay in sight however narrow its column: the run number and the extension. */

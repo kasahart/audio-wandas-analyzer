@@ -18,6 +18,7 @@ import { compareGroupNames, groupLabels } from '../../shared/dataset/distributio
 import { createDistributionPane } from './entryDistributionPane';
 import { createFilterPopover } from './entryFilterPopover';
 import { createHeldPlot } from './entryHeldPlot';
+import { signedNumberText } from '../plot/plotText';
 import { createSidePlots } from './entrySidePlots';
 import { channelOfRow, createEntryBase } from './entryBase';
 import { HostRequests } from './hostRequests';
@@ -41,7 +42,7 @@ import {
     type ColumnId, type CsvMatch, type DatasetCsv, type DatasetFilter, type DatasetRow, type GroupId, type ValueId,
 } from '../../shared/dataset/datasetTable';
 import {
-    closesEntryDialog, filterChipText, rowWindow, tableLines, type DerivedItem, datasetColsHtml, datasetHeadHtml, datasetRowsHtml, entryScreenHtml, filterChipsHtml, formatValue,
+    closesEntryDialog, filterChipText, rowWindow, tableLines, type DerivedItem, datasetColsHtml, datasetHeadHtml, datasetRowsHtml, entryScreenHtml, filterChipsHtml, formatValue, plotValueText,
     baseOptionsHtml, batchPopHtml, groupOptionsHtml, memoPopHtml, slotMenuHtml, unmatchedRowsHtml, valueOptionsHtml,
     type DatasetScreenView, type EntryStrings,
 } from './entryTableHtml';
@@ -688,7 +689,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             }
             const label = [item.region === 'all' ? '└ Δ' : `└ Δ ${item.region} s`, ...(item.base.label ? [item.base.label] : [])].join(' · ');
             return {
-                key: derivedKey(item), label, value: delta === null ? '—' : `Δ ${delta >= 0 ? '+' : '−'}${Math.abs(delta).toFixed(1)}`, stale: !!item.stale,
+                key: derivedKey(item), label, value: delta === null ? '—' : `Δ ${signedNumberText(delta)}`, stale: !!item.stale,
                 title: label, parentPath: item.parentPath, region: item.region, baseLabel: item.base.label ?? '',
             };
         });
@@ -859,7 +860,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     function paintDistribution(): void {
         distPane.paint({
             pool: distributionPool(), value: chosen.value, group: chosen.group, results, range: valueRange(), usable, slots, rowOf, baseGroup: entryBase.groupName(),
-            valueLabel: valueLabel(chosen.value), format: number => formatColumn(chosen.value, number), rowName: key => rowName(key),
+            valueLabel: valueLabel(chosen.value), format: (number, step) => plotValueText(chosen.value, number, step), rowName: key => rowName(key),
         });
     }
     /** The files shown as tracks now (a hidden track is not). */

@@ -13,6 +13,7 @@ import { baseName } from '../../shared/analysis/entryMetadata';
 import { median } from '../../shared/dataset/distribution';
 import { powerMeanDb, powerMeanOrNull } from '../../shared/utils/levels';
 import { axisValueAt } from './stagePanes';
+import { signedNumberText, withMinus } from '../plot/plotText';
 
 type ScanOk = ScanResult & { ok: true };
 
@@ -336,8 +337,8 @@ export function deltaViews(comparison: Pick<CompareModel, 'bins' | 'diffDb' | 'f
     return { picture, view: high > low ? binsView(comparison.bins, 'diff', [low, high]) ?? picture : picture };
 }
 
-const signed = (value: number): string => `${value >= 0 ? '+' : '−'}${Math.abs(value).toFixed(1)}`;
-const level = (value: number): string => `${value < 0 ? '−' : ''}${Math.abs(value).toFixed(1)}`;
+const signed = (value: number): string => signedNumberText(value);
+const level = (value: number): string => withMinus(value.toFixed(1));
 
 /** "3.15 kHz +23.7 · 25 Hz +13.9 · 4 kHz +3.9 · Leq +1.4 dB" */
 export function diffHeadline(comparison: CompareModel, strings?: CompareStrings): string {
