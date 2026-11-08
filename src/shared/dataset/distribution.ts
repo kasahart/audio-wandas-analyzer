@@ -3,6 +3,7 @@
  * belongs to the recording, so each recording counts once per group; a value computed from the sound is per
  * channel. Rows without the value (not computed yet) are counted, not drawn. Pure, so it is unit-tested.
  */
+import { niceRange } from '../utils/ticks';
 import { groupOf, isComputed, valueOf, type DatasetRow, type GroupId, type Results, type ValueId } from './datasetTable';
 
 /** Bins across the whole x range: the same for every group, so their bars line up. */
@@ -69,7 +70,8 @@ export function distribution(rows: readonly DatasetRow[], value: ValueId, group:
     let low = all.length ? Infinity : 0, high = all.length ? -Infinity : 1;
     for (const number of all) { if (number < low) low = number; if (number > high) high = number; }
     const pad = high > low ? (high - low) * 0.04 : Math.max(Math.abs(low) * 0.05, 0.5);
-    low -= pad; high += pad;
+    // Widened to round ends, as every automatic range is (R9): −42.7…−18.3 dB reads −44…−16.
+    ({ low, high } = niceRange(low - pad, high + pad));
     return {
         groups: [...groups.entries()].sort(([a], [b]) => compareGroupNames(a, b)).map(([name, members]) => ({ name, members })),
         low, high, missing, unit: perRecording ? 'recording' : 'ch',
