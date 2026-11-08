@@ -14,7 +14,7 @@ from analysis_engine import AnalysisEngine
 from analysis_service import AnalysisService
 from command_dispatch import dispatch, validate_request
 from protocol_schema import DEFINITIONS, first_violation
-from stage_combine import STORE, StageData, _Store, combine, difference_line, draw, stage_data
+from stage_combine import STORE, StageData, _Store, combine, difference_line, draw, level_bins, stage_data
 from stage_view import stage_view
 
 RATE = 16000
@@ -167,6 +167,59 @@ def test_time_signals_in_other_units_or_calibrations_have_no_sample_difference(s
     assert base is not None and compare is not None
     assert combine([base], compare) == {"ok": True, "noDelta": "unit"}
     assert combine([base, compare], None) == {"ok": True, "noDelta": "unit"}
+
+
+def _level(bins: dict, low: float = -np.inf, high: float = np.inf) -> float:
+    edges, power, count = np.asarray(bins["edges"]), np.asarray(bins["power"]), np.asarray(bins["count"])
+    middle = (edges[:-1] + edges[1:]) / 2
+    inside = (middle >= low) & (middle <= high) & (count > 0)
+    return float(10 * np.log10(np.sum(power[inside] * count[inside]) / np.sum(count[inside])))
+
+
+def test_a_signals_level_bins_are_its_samples_mean_square_whole_and_zoomed(signal: wd.ChannelFrame) -> None:
+    # R6 orders overlaid lines by every sample's power, never the drawn envelope: whole, zoomed in to a few samples,
+    # and for a DC signal (whose envelope's max − min is zero).
+    view = dict(stage_view(signal))
+    samples = np.asarray(signal.data, dtype=float)
+    assert _level(view["levelBins"]) == pytest.approx(10 * np.log10(np.mean(samples**2)), abs=0.01)
+    zoomed = dict(stage_view(signal, None, {"x": [0.5, 0.5 + 3 / RATE], "points": 2000}))
+    inside = samples[int(0.5 * RATE) : int(0.5 * RATE) + 4]
+    assert sum(zoomed["levelBins"]["count"]) == inside.size
+    assert _level(zoomed["levelBins"]) == pytest.approx(10 * np.log10(np.mean(inside**2)), abs=0.01)
+    dc = wd.from_numpy(np.full((1, RATE), 0.25), sampling_rate=RATE)
+    assert _level(dict(stage_view(dc))["levelBins"]) == pytest.approx(10 * np.log10(0.0625), abs=0.01)
+
+
+def test_a_spectrums_level_bins_are_every_bins_power_not_the_drawn_points(signal: wd.ChannelFrame) -> None:
+    spectrum = signal.welch(n_fft=4096)
+    view = dict(stage_view(spectrum))
+    data = stage_data(spectrum, view)
+    assert data is not None
+    inside = (data.xs >= 20) & (data.xs <= RATE / 2)
+    full = 10 * np.log10(np.mean(10 ** (data.values[inside] / 10)))
+    assert _level(view["levelBins"]) == pytest.approx(full, abs=0.01)
+    assert len(view["xs"]) < int(inside.sum())  # the line is thinned, its level is not
+
+
+@pytest.mark.parametrize("name", ["series", "spectrum", "fft", "bands"])
+def test_every_compared_level_line_carries_level_bins_whole_zoomed_and_as_a_median(
+    signal: wd.ChannelFrame, name: str
+) -> None:
+    frame, _ = _frames(signal)[name]
+    view = dict(stage_view(frame))
+    assert first_violation(DEFINITIONS["StageView"], view) is None
+    data = stage_data(frame, view)
+    assert data is not None
+    if view.get("quantity") not in ("level", "gain") and data.mode != "signal":
+        assert "levelBins" not in view
+        return
+    assert "levelBins" in view, name
+    xs = view["xs"]
+    zoom = {"x": [xs[len(xs) // 4], xs[len(xs) // 2]], "points": 400}
+    assert "levelBins" in dict(stage_view(frame, None, zoom)), name
+    median = combine([data, data], None)["base"]
+    assert "levelBins" in median and first_violation(DEFINITIONS["StageView"], median) is None, name
+    assert level_bins(data) is not None
 
 
 @pytest.mark.parametrize("samples", [16, 2048, 2049])

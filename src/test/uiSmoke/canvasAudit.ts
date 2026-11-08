@@ -14,7 +14,8 @@
  *
  * And (R6): a plot on screen that drew a louder compared line over a quieter one fails it, whichever plot it is. The
  * plot component writes the levels of the lines it compared, in the order it drew them (`data-plot-order`); they
- * never rise, so the quietest line is on top on every plot.
+ * never rise, so the quietest line is on top on every plot, and each is measured from the values before thinning
+ * (`levelBins`), never from the drawn points ('?').
  */
 import { test as base } from '@playwright/test';
 import { DRAWN_OUTSIDE_PENDING, PLOT_LAYERS, PLOTS_PENDING, SVG_CHARTS_PENDING } from './plotRegistry';
@@ -214,6 +215,8 @@ function installCanvasAudit({ settle, others, drawnOutside, svgCharts, svgMin }:
     const misordered: string[] = [];
     window.__orderAudit = misordered;
     const rises = (order: string): boolean => order.split(';').some(axis => {
+        // A compared level ordered with no levels from the values before thinning ('?', drawnLevelsText) fails too.
+        if (axis.split(',').includes('?')) return true;
         const levels = axis.split(',').map(level => (level === '-inf' ? -Infinity : Number(level)));
         return levels.some((level, index) => index > 0 && level > levels[index - 1]);
     });

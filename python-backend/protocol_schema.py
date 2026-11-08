@@ -612,6 +612,16 @@ DEFINITIONS: dict[str, Schema] = {
             },
             # The key the step's full-resolution values are kept under, for a median or a difference (stage-combine).
             "data": {"type": "string"},
+            # A compared line's power in stretches of its axis, from every value before thinning (R6's order).
+            "levelBins": {
+                "type": "object",
+                "required": ["edges", "power", "count"],
+                "properties": {
+                    "edges": _NUMBERS,
+                    "power": _NUMBERS,
+                    "count": {"type": "array", "items": {"type": "integer", "minimum": 0}},
+                },
+            },
             # A trigger's segments: each event's signal (channels averaged) over the time from its trigger, drawn as
             # its own line; ``values`` are their mean.
             "events": {
