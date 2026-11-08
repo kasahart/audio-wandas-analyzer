@@ -183,6 +183,15 @@ test('the entry\'s overview strip answers the same gestures as every plot (R13)'
     await expectContract(page, 'entry overview', plot);
 });
 
+test('the entry\'s distribution answers the same gestures as every plot: each group\'s row, on the value axis below them (R13)', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await openEntry(page, scanned!, { language: 'en' });
+    const plot = page.locator('[data-dist-canvas]').first();
+    await expect.poll(() => plot.getAttribute('data-plot-axes')).not.toBe(null);
+    await expectContract(page, 'entry distribution', plot);
+});
+
 test('the cursor spectrum answers the same gestures as every plot (R13)', async ({ page }) => {
     await page.setViewportSize({ width: 1200, height: 900 });
     await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });

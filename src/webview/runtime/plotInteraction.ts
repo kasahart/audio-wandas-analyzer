@@ -24,11 +24,16 @@ export const FULL_PLOT_WINDOW: PlotWindow = { x: { start: 0, end: 1 }, y: { star
 
 const within = (range: NormalizedRange, fraction: number): number => range.start + fraction * (range.end - range.start);
 
-/** A box drawn on the screen part of a plot, as the window it zooms to; null when it is too thin on either axis. */
-export function windowFromBox(window: PlotWindow, a: PlotPoint, b: PlotPoint): PlotWindow | null {
+/**
+ * A box drawn on the screen part of a plot, as the window it zooms to; null when it is too thin on an axis it zooms.
+ * A plot that zooms only its horizontal axis (`horizontalOnly`) keeps its vertical window, so a level drag zooms it.
+ */
+export function windowFromBox(window: PlotWindow, a: PlotPoint, b: PlotPoint, horizontalOnly = false): PlotWindow | null {
     const [x0, x1] = [Math.min(a.fx, b.fx), Math.max(a.fx, b.fx)];
     const [y0, y1] = [Math.min(a.fy, b.fy), Math.max(a.fy, b.fy)];
-    if (x1 - x0 <= MIN_SELECTION_SPAN * 10 || y1 - y0 <= MIN_SELECTION_SPAN * 10) return null;
+    if (x1 - x0 <= MIN_SELECTION_SPAN * 10) return null;
+    if (horizontalOnly) return { x: { start: within(window.x, x0), end: within(window.x, x1) }, y: window.y };
+    if (y1 - y0 <= MIN_SELECTION_SPAN * 10) return null;
     return { x: { start: within(window.x, x0), end: within(window.x, x1) }, y: { start: within(window.y, y0), end: within(window.y, y1) } };
 }
 
@@ -84,6 +89,8 @@ export interface PlotInteractionDeps {
     hideBox(): void;
     /** Double-click on an axis: open its range; false when it has none, so the zoom is reset instead. */
     openAxisRange(hit: PlotHit, clientX: number, clientY: number): boolean;
+    /** A box zooms only the horizontal axis (the vertical one stays whole, e.g. counts). */
+    horizontalOnly?: boolean;
 }
 
 export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 'addEventListener'>, plotSelector: string, deps: PlotInteractionDeps): void {
@@ -137,7 +144,7 @@ export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 
             if (!done?.isDrag) return;
             draggedAt = event.timeStamp;
             deps.hideBox();
-            const next = windowFromBox(deps.window(done.plot), done.from, done.to);
+            const next = windowFromBox(deps.window(done.plot), done.from, done.to, deps.horizontalOnly);
             if (next) setWindow(done.plot, next);
         },
         zoomWheel(event) {

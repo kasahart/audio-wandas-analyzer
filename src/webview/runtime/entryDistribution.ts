@@ -1,21 +1,23 @@
 /**
- * Markup for the entry screen's distribution: one row per group, a histogram of the chosen value (a dot per
- * recording when a group has few), a rug tick per member, the slotted rows as ticks in their role colours and
- * the base as a dashed median. The x axis sits in its own strip, so many groups scroll and the axis stays.
- * Bars are neutral; only the slots carry colour. Pure markup and scale math: entryDistributionPane.ts handles the drag that picks a range.
+ * The entry screen's distribution as pictures for the plot component (R13): one row per group on the value's axis, a
+ * histogram of the chosen value (a dot per recording when a group has few), a rug tick per member, the slotted rows
+ * as ticks in their role colours and the base as a dashed median. The rows are stacked on one value axis, drawn below
+ * them on its own strip, so many groups scroll and the axis stays. Bars are neutral; only the slots carry colour.
+ * Pure layers and scale math: entryDistributionPane.ts lays them out and handles the gestures.
  */
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import type { UiStrings } from '../../shared/i18n/strings';
 import { binCounts, DISTRIBUTION_BINS, DOTS_BELOW, median, type Distribution } from '../../shared/dataset/distribution';
-import { niceTicks } from '../../shared/utils/ticks';
+import type { StageView } from '../../shared/protocol/backendProtocol';
+import type { PaneRange } from './comparePanes';
+import type { StageLayer } from './stagePanes';
 
 /** The group's name and count on the left, a little room on the right, the axis strip below. */
-export const DIST_MARGINS = { left: 92, right: 12, axis: 38 };
+export const DIST_MARGINS = { left: 92, right: 12, axis: 20 };
 /** On the right the groups share the height between these; folded above the table they are low. */
 export const DIST_ROW_MIN = 52, DIST_ROW_MAX = 120, DIST_STRIP_ROW = 30;
-
-/** Role colours, as the slot chips have them (CSS custom properties of the entry screen). */
-const SLOT_COLORS = ['var(--entry-base)', 'var(--entry-compare)', 'var(--entry-slot-2)', 'var(--entry-slot-3)'];
+/** Each row's plot sits this far below its top and ends this far above its bottom. */
+export const DIST_ROW_PAD = { top: 4, bottom: 2 };
 
 export interface DistributionPicture {
     width: number;
@@ -36,9 +38,30 @@ export interface DistributionPicture {
     name(key: string): string;
 }
 
-export interface DistributionScale { low: number; high: number; width: number; height: number; x: (value: number) => number; at: (x: number) => number }
+/** The colours the rows are drawn in (resolved from the entry screen's CSS): neutral bars, the slots' role colours. */
+export interface DistributionColours {
+    bar: string;
+    barIn: string;
+    slots: readonly string[];
+}
 
-const num = (value: number): string => value.toFixed(1);
+/** One group's row: its names beside the plot, and the plot's pictures on the value axis and its count range. */
+export interface DistributionRow {
+    group: string;
+    label: string;
+    title: string;
+    count: string;
+    max: string;
+    layers: StageLayer[];
+    range: PaneRange;
+    /** The slots ticked on it, and whether the base's median is drawn on it. */
+    slots: number[];
+    base: boolean;
+    /** Its dots (a group of few): each recording, its value and how high it is stacked (in counts). */
+    dots: Array<{ key: string; value: number; level: number }>;
+}
+
+export interface DistributionScale { low: number; high: number; width: number; height: number; x: (value: number) => number; at: (x: number) => number }
 
 /**
  * What a drag over the plot from `x0` to `x` picks: the values between (clipped to the axis), or the bin under a
@@ -67,81 +90,87 @@ export function distributionLegendHtml(slots: readonly (string | null)[], baseGr
     ].filter(Boolean).map(item => `<span class="entry-dist-key">${item}</span>`).join('');
 }
 
-export function distributionScale(dist: Distribution, width: number, height: number): DistributionScale {
+/** The value axis across the rows' plots: `window` (fractions of the whole axis) stretched over them. */
+export function distributionScale(dist: Pick<Distribution, 'low' | 'high'>, width: number, height: number, window: { start: number; end: number } = { start: 0, end: 1 }): DistributionScale {
     const { left, right } = DIST_MARGINS;
     const span = Math.max(1, width - left - right);
+    const low = dist.low + window.start * (dist.high - dist.low), high = dist.low + window.end * (dist.high - dist.low);
     return {
         low: dist.low, high: dist.high, width, height,
-        x: value => left + (value - dist.low) / (dist.high - dist.low) * span,
-        at: x => dist.low + (x - left) / span * (dist.high - dist.low),
+        x: value => left + (value - low) / (high - low) * span,
+        at: x => low + (x - left) / span * (high - low),
     };
 }
 
-/** The groups' rows (an SVG of the plot) and the axis strip (another SVG), with the scale both were drawn on. */
-export function distributionSvg(dist: Distribution, picture: DistributionPicture, strings: UiStrings): { plot: string; axis: string; scale: DistributionScale } {
-    const { width, rowHeight, strip, range } = picture;
-    const { left, right } = DIST_MARGINS;
-    const height = dist.groups.length * rowHeight + 6;
-    const scale = distributionScale(dist, width, height);
-    const { x } = scale;
+/** The whole value axis as a picture's axes: what every row's pictures are placed on (linear, low to high). */
+export function distributionAxisView(dist: Pick<Distribution, 'low' | 'high'>): StageView {
+    return { frame: 'Distribution', kind: 'line', xScale: 'linear', xs: [dist.low, dist.high], values: [null, null] };
+}
+
+const line = (xs: number[], values: (number | null)[], kind: StageView['kind'] = 'line'): StageView => ({ frame: 'Distribution', kind, xScale: 'linear', xs, values });
+
+/** Each group's row as pictures on the value axis: the histogram or dots, the rug, the slots' ticks and the base. */
+export function distributionRows(dist: Distribution, picture: DistributionPicture, colours: DistributionColours, strings: UiStrings): DistributionRow[] {
     const binWidth = (dist.high - dist.low) / DISTRIBUTION_BINS;
-    let svg = `<svg class="entry-dist-plot" data-entry-dist-plot width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${escapeHtml(strings.dsDistLabel)}">`;
-    if (range) svg += `<rect data-dist-range x="${num(x(range.low))}" y="0" width="${num(Math.max(1, x(range.high) - x(range.low)))}" height="${height}" fill="currentColor" fill-opacity="0.07"/>`;
-    dist.groups.forEach((group, index) => {
-        const top = index * rowHeight + 4, base = top + rowHeight - 6;
+    const centres = Array.from({ length: DISTRIBUTION_BINS }, (_, bin) => dist.low + (bin + 0.5) * binWidth);
+    const unit = picture.unitLabel;
+    return dist.groups.map(group => {
         const label = `${picture.groupPrefix}${picture.labels.get(group.name) ?? group.name}` || strings.dsFilterBlank;
-        svg += `<g data-dist-group="${escapeHtml(group.name)}">`;
-        svg += `<text x="4" y="${top + 16}" class="entry-dist-name">${escapeHtml(label.length > 11 ? `${label.slice(0, 10)}…` : label)}<title>${escapeHtml(group.name || strings.dsFilterBlank)}</title></text>`;
-        if (!strip) svg += `<text x="4" y="${top + 31}" class="entry-dist-count">${group.members.length} ${escapeHtml(picture.unitLabel)}</text>`;
-        svg += `<line x1="${left}" x2="${width - right}" y1="${base}" y2="${base}" class="entry-dist-floor"/>`;
-        if (group.members.length < DOTS_BELOW) {
-            // Too few for a histogram: one dot per member, stacked upward where they would cover each other
-            // (two channels of one recording often land on the same value), so each can be pointed at.
+        const members = [...group.members].sort((a, b) => a.value - b.value);
+        const memberText = (index: number): string[] => [picture.name(members[index].key), picture.format(members[index].value)];
+        const layers: StageLayer[] = [];
+        const dots: DistributionRow['dots'] = [];
+        let top = 1, max = '';
+        if (members.length < DOTS_BELOW) {
+            // Too few for a histogram: a dot per member, stacked upward where they would cover each other (two
+            // channels of one recording often land on the same value), so each can be pointed at.
             const levels: number[] = [];
-            for (const member of [...group.members].sort((a, b) => a.value - b.value)) {
-                const cx = x(member.value);
-                let level = levels.findIndex(last => cx - last >= 8);
+            const spacing = (dist.high - dist.low) / 60;
+            for (const member of members) {
+                let level = levels.findIndex(last => member.value - last >= spacing);
                 if (level < 0) level = levels.length;
-                levels[level] = cx;
-                const cy = Math.max(top + 4, base - 6 - 8 * level);
-                svg += `<circle data-dist-dot data-key="${escapeHtml(member.key)}" cx="${num(cx)}" cy="${cy}" r="3.5" class="${member.inRange && range ? 'is-in' : ''}"><title>${escapeHtml(`${picture.name(member.key)} ${picture.format(member.value)}`)}</title></circle>`;
+                levels[level] = member.value;
+                dots.push({ key: member.key, value: member.value, level });
+            }
+            top = Math.max(3, levels.length);
+            // Out of a picked range (or with none picked) in the bars' colour; in it, lighter.
+            const all = members.map((_, index) => index);
+            const parts: Array<[number[], string]> = picture.range
+                ? [[all.filter(index => !members[index].inRange), colours.bar], [all.filter(index => members[index].inRange), colours.barIn]]
+                : [[all, colours.bar]];
+            for (const [these, color] of parts) {
+                if (!these.length) continue;
+                layers.push({ view: line(these.map(index => members[index].value), these.map(index => dots[index].level + 0.5)), color, width: 3.5, marks: 'dots', label, readout: at => memberText(these[at]) });
             }
         } else {
-            const { counts, inRange, max } = binCounts(group.members, dist.low, dist.high);
-            counts.forEach((count, bin) => {
-                if (!count) return;
-                // A bin of a few still shows: at least 2 px.
-                const barHeight = Math.max(2, count / max * (rowHeight - 12));
-                const x0 = x(dist.low + bin * binWidth), x1 = x(dist.low + (bin + 1) * binWidth);
-                const from = picture.format(dist.low + bin * binWidth), to = picture.format(dist.low + (bin + 1) * binWidth);
-                svg += `<rect data-bin="${bin}" x="${num(x0)}" y="${num(base - barHeight)}" width="${num(Math.max(1, x1 - x0 - 1))}" height="${num(barHeight)}" class="${range && inRange[bin] ? 'is-in' : ''}"><title>${escapeHtml(`${label} · ${from}–${to} · ${count} ${picture.unitLabel}`)}</title></rect>`;
-            });
-            // The rug: a tick per member, so a few far from the rest show even where their bar is 2 px.
-            // Thinned to one tick per half pixel: 30,000 members draw what can be seen, not 30,000 segments.
-            const ticks = [...new Set(group.members.map(member => Math.round(x(member.value) * 2) / 2))];
-            svg += `<path class="entry-dist-rug" d="${ticks.map(tick => `M${tick} ${base + 1}v5`).join('')}"/>`;
-            if (!strip) svg += `<text x="4" y="${top + 43}" class="entry-dist-max">${escapeHtml(strings.dsDistMax.replace('{n}', String(max)))}</text>`;
+            const { counts, inRange, max: most } = binCounts(group.members, dist.low, dist.high);
+            top = most * 1.08;
+            if (!picture.strip) max = strings.dsDistMax.replace('{n}', String(most));
+            const binText = (bin: number, count: number): string[] => [`${picture.format(dist.low + bin * binWidth)}–${picture.format(dist.low + (bin + 1) * binWidth)}`, `${count} ${unit}`];
+            layers.push({ view: line(centres, counts.map(count => count || null), 'bar'), color: colours.bar, filled: true, fill: 1, label, readout: bin => binText(bin, counts[bin]) });
+            if (picture.range) layers.push({ view: line(centres, inRange.map(count => count || null), 'bar'), color: colours.barIn, filled: true, fill: 1, label, readout: bin => binText(bin, inRange[bin]) });
+            // The rug: a tick per member, so a few far from the rest show even where their bar is thin.
+            layers.push({ view: line(members.map(member => member.value), members.map(() => 0)), color: colours.barIn, alpha: 0.55, width: 1, marks: 'rug', label, readout: memberText });
         }
+        const range = { min: 0, max: top };
         // The slots: the rows in 1–3 (and 0) as ticks in their colours; the base as the group's median when 0 is empty.
+        const slots: number[] = [];
         for (const slot of picture.slots) {
             if (slot.group !== group.name) continue;
-            svg += `<line data-dist-slot="${slot.slot}" x1="${num(x(slot.value))}" x2="${num(x(slot.value))}" y1="${top + 2}" y2="${base}" stroke="${SLOT_COLORS[slot.slot]}" stroke-width="2"><title>${escapeHtml(picture.name(slot.key))}</title></line>`;
+            slots.push(slot.slot);
+            layers.push({ view: line([slot.value, slot.value], [0, top]), color: colours.slots[slot.slot] ?? colours.bar, width: 2, label: picture.name(slot.key), readout: () => [picture.format(slot.value)] });
         }
+        let base = false;
         if (picture.baseGroup === group.name) {
             const middle = median(group.members.map(member => member.value));
-            if (middle !== null) svg += `<line data-dist-base x1="${num(x(middle))}" x2="${num(x(middle))}" y1="${top + 2}" y2="${base}" stroke="${SLOT_COLORS[0]}" stroke-width="2" stroke-dasharray="3 2"/>`;
+            if (middle !== null) {
+                base = true;
+                layers.push({ view: line([middle, middle], [0, top]), color: colours.slots[0] ?? colours.bar, width: 2, dash: [3, 2], label: strings.dsLegendBaseMedian.replace('{group}', label), readout: () => [picture.format(middle)] });
+            }
         }
-        svg += '</g>';
+        return {
+            group: group.name, label: label.length > 11 ? `${label.slice(0, 10)}…` : label, title: group.name || strings.dsFilterBlank,
+            count: picture.strip ? '' : `${group.members.length} ${unit}`, max, layers, range, slots, base, dots,
+        };
     });
-    svg += `<rect data-dist-brush x="0" y="0" width="0" height="${height}" class="entry-dist-brush" visibility="hidden"/></svg>`;
-    // The axis: the quantity and its unit below the numbers; on the left, what a bar's height counts.
-    let axis = `<svg class="entry-dist-axis-svg" width="${width}" height="${DIST_MARGINS.axis}" viewBox="0 0 ${width} ${DIST_MARGINS.axis}" aria-hidden="true">`;
-    axis += `<line x1="${left}" x2="${width - right}" y1="2" y2="2" class="entry-dist-axis-line"/>`;
-    for (const tick of niceTicks(dist.low, dist.high, Math.max(2, Math.floor((width - left - right) / 70)))) {
-        axis += `<line x1="${num(x(tick))}" x2="${num(x(tick))}" y1="2" y2="6" class="entry-dist-axis-line"/><text x="${num(x(tick))}" y="17" text-anchor="middle" class="entry-dist-tick">${escapeHtml(String(+tick.toPrecision(6)))}</text>`;
-    }
-    axis += `<text data-dist-axis-label x="${(left + width - right) / 2}" y="32" text-anchor="middle" class="entry-dist-quantity">${escapeHtml(picture.axisLabel)}</text>`;
-    if (!strip) axis += `<text x="4" y="32" class="entry-dist-count">${escapeHtml(strings.dsDistCountAxis.replace('{unit}', picture.unitLabel))}</text>`;
-    axis += '</svg>';
-    return { plot: svg, axis, scale };
 }

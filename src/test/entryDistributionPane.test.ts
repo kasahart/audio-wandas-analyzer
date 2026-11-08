@@ -11,7 +11,7 @@ import { entryScreenHtml } from '../webview/runtime/entryTableHtml';
 const strings = getStrings('en');
 
 test('a drag picks the values between its ends, clipped to the axis; a press that stays put picks its bin', () => {
-    const scale = distributionScale({ groups: [], low: 0, high: 100, missing: 0, unit: 'recording' }, 92 + 12 + 200, 100);
+    const scale = distributionScale({ low: 0, high: 100 }, 92 + 12 + 200, 100);
     const range = pickedRange(scale, scale.x(60), scale.x(20), true);
     assert.ok(range);
     assert.ok(Math.abs(range.low - 20) < 1e-9 && Math.abs(range.high - 60) < 1e-9);
@@ -75,30 +75,42 @@ test('the pane draws the groups, folds above the table beside the tracks and spr
     assert.equal(screen.querySelector<HTMLElement>('[data-entry-dist-empty]')?.hidden, false);
 });
 
-test('a drag on the plot picks a range, a press on a dot goes to its row, a cancelled drag says so', () => {
+test('Alt+drag on a row picks a range; a plain drag is the plot\'s box zoom, not a pick; a cancelled pick says so', () => {
     const { dom, screen, pane, calls, inputs } = setup();
     pane.place(true);
     pane.paint(inputs);
     const groups = screen.querySelector<HTMLElement>('[data-entry-dist-groups]');
-    const plot = groups?.querySelector('[data-entry-dist-plot]');
-    assert.ok(groups && plot);
-    const fire = (target: Element, type: string, clientX: number): void => { target.dispatchEvent(new dom.window.MouseEvent(type, { bubbles: true, button: 0, clientX })); };
-    fire(plot, 'pointerdown', 120);
-    fire(plot, 'pointermove', 300);
-    assert.equal(groups.querySelector('[data-dist-brush]')?.getAttribute('visibility'), 'visible');
-    fire(plot, 'pointerup', 300);
+    const canvas = groups?.querySelector('[data-dist-canvas]');
+    assert.ok(groups && canvas);
+    const fire = (target: Element, type: string, clientX: number, altKey = false): void => { target.dispatchEvent(new dom.window.MouseEvent(type, { bubbles: true, button: 0, clientX, altKey })); };
+    fire(canvas, 'pointerdown', 120, true);
+    fire(canvas, 'pointermove', 300, true);
+    assert.equal(groups.querySelector<HTMLElement>('[data-dist-brush]')?.hidden, false);
+    fire(canvas, 'pointerup', 300, true);
     assert.equal(calls.length, 1);
     const [kind, range] = calls[0] as [string, { low: number; high: number }];
     assert.equal(kind, 'pick');
     assert.ok(range.low < range.high);
-    const dot = groups.querySelector('[data-dist-dot]');
-    assert.ok(dot, 'a group of few draws a dot per recording');
-    fire(dot, 'pointerdown', 200);
-    fire(dot, 'pointerup', 201);
-    assert.deepEqual(calls[1], ['dot', dot.getAttribute('data-key')]);
-    fire(plot, 'pointerdown', 120);
+    fire(canvas, 'pointerdown', 120);
+    fire(canvas, 'pointermove', 300);
+    fire(canvas, 'pointerup', 300);
+    assert.equal(calls.length, 1, 'a plain drag picks nothing');
+    fire(canvas, 'pointerdown', 120, true);
     groups.dispatchEvent(new dom.window.Event('pointercancel'));
-    assert.deepEqual(calls[2], ['cancelled', null]);
-    fire(plot, 'pointerup', 300);
-    assert.equal(calls.length, 3, 'a cancelled drag picks nothing');
+    assert.deepEqual(calls[1], ['cancelled', null]);
+    fire(canvas, 'pointerup', 300, true);
+    assert.equal(calls.length, 2, 'a cancelled drag picks nothing');
+});
+
+test('each group is a row of the plot component: its dots, its slots and the base on it', () => {
+    const { screen, pane, inputs } = setup();
+    pane.place(true);
+    pane.paint(inputs);
+    const rows = [...screen.querySelectorAll<HTMLElement>('[data-dist-group]')];
+    assert.deepEqual(rows.map(row => row.dataset.distGroup), ['900', '1500']);
+    // A group of few draws a dot per recording; slot 1 (b) is ticked on 900, whose median is the base.
+    assert.deepEqual(rows[0].querySelector<HTMLElement>('[data-dist-canvas]')?.dataset.dots?.split('\n').map(line => line.split('\t')[0]), ['/d/a.wav', '/d/b.wav']);
+    assert.equal(rows[0].dataset.distSlots, '1');
+    assert.ok(rows[0].hasAttribute('data-dist-base'));
+    assert.equal(rows[1].dataset.distSlots, '');
 });
