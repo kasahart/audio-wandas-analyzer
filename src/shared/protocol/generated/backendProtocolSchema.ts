@@ -1542,6 +1542,13 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 },
                 "diff": {
                     "$ref": "#/$defs/StageView"
+                },
+                "noDelta": {
+                    "type": "string",
+                    "enum": [
+                        "rate",
+                        "unit"
+                    ]
                 }
             },
             "additionalProperties": false
@@ -2246,6 +2253,7 @@ export interface StageCombineResult {
     missing?: string[];
     base?: StageView;
     diff?: StageView;
+    noDelta?: "rate" | "unit";
 }
 
 export interface ScanInput {

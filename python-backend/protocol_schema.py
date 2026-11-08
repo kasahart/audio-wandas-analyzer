@@ -652,6 +652,9 @@ DEFINITIONS: dict[str, Schema] = {
             "missing": {"type": "array", "items": {"type": "string"}},
             "base": {"$ref": "#/$defs/StageView"},
             "diff": {"$ref": "#/$defs/StageView"},
+            # Why there is no ``diff`` when the reason is not the axes: time signals at other sample rates, or in
+            # another unit or against another reference.
+            "noDelta": {"type": "string", "enum": ["rate", "unit"]},
         },
     },
     "ScanInput": {
