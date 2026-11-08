@@ -377,6 +377,9 @@ test('the table shows where a recording goes, keeps its exports reachable by key
     await page.locator('[data-entry-table]').focus();
     await page.keyboard.press('Enter');
     await expect(page.locator('[data-entry-rows] tr.entry-row').first().locator('[data-action="entry-row-slotmenu"]')).toHaveClass(/is-flash/);
+    // The rows drawn again while it is lit (any change of size does that) keep its light.
+    await page.locator('.entry-table-wrap').dispatchEvent('scroll');
+    await expect(page.locator('[data-entry-rows] tr.entry-row').first().locator('[data-action="entry-row-slotmenu"]')).toHaveClass(/is-flash/, { timeout: 300 });
 
     // The maximized table's 書き出し opens from the keyboard; Esc closes the menu before it shrinks the table.
     await page.locator('#entry-screen [data-action="entry-maximize"]').click();
