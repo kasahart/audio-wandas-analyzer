@@ -28,13 +28,30 @@ test('footer calls are no-ops without the footer element', () => {
 test('hovering an element inside a hinted element shows its hint and leaving clears it', () => {
     const { dom, doc, footer, footerEl } = setup();
     attachHoverHints(doc, footer);
-    doc.getElementById('label')!.dispatchEvent(new dom.window.MouseEvent('mouseover', { bubbles: true }));
+    doc.getElementById('label')!.dispatchEvent(new dom.window.MouseEvent('mouseover', { bubbles: true, clientX: 5, clientY: 5 }));
     assert.equal(footerEl.textContent, 'Export PNG');
-    doc.querySelector('.track-canvas')!.dispatchEvent(new dom.window.MouseEvent('mouseover', { bubbles: true }));
+    doc.querySelector('.track-canvas')!.dispatchEvent(new dom.window.MouseEvent('mouseover', { bubbles: true, clientX: 40, clientY: 5 }));
     assert.equal(footerEl.textContent, '');
     footer.show('x');
     doc.body.dispatchEvent(new dom.window.MouseEvent('mouseout', { bubbles: true, relatedTarget: null }));
     assert.equal(footerEl.textContent, '');
+});
+
+test('a page drawn again under a pointer at rest keeps the message written since: only a pointer that moved shows a hint', () => {
+    const { dom, doc, footer, footerEl } = setup();
+    attachHoverHints(doc, footer);
+    const over = (target: Element, x: number): boolean => target.dispatchEvent(new dom.window.MouseEvent('mouseover', { bubbles: true, clientX: x, clientY: 5 }));
+    over(doc.getElementById('label')!, 5);
+    doc.getElementById('btn')!.dispatchEvent(new dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 5, clientY: 5 }));
+    assert.equal(footerEl.textContent, 'Export PNG');
+    // A click draws the button again; a refused value then writes its reason.
+    footer.show('Choose two different channels');
+    // The browser says the pointer is over the new button, at the place it already was: the reason stays.
+    over(doc.getElementById('label')!, 5);
+    assert.equal(footerEl.textContent, 'Choose two different channels');
+    // Moved, the pointer shows the hint of what it is over again.
+    over(doc.getElementById('label')!, 6);
+    assert.equal(footerEl.textContent, 'Export PNG');
 });
 
 test('attachCanvasFocusHint shows the key hint in the footer on focus and clears it on blur', () => {
