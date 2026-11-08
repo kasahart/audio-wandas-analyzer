@@ -1,10 +1,11 @@
 /**
- * The pointer gestures of the track lanes, for any other plot: the comparison's panes use them so a plot answers
- * the same hand the same way everywhere. Hover shows the cursor line and readout; a press dragged past the
- * lanes' threshold draws a box and zooms into it (both axes); Ctrl+wheel zooms the horizontal axis around
+ * The pointer gestures of every plot (the track lanes, the comparison's panes, the entry screen's plots), so a plot
+ * answers the same hand the same way everywhere. Hover shows the cursor line and readout; a press dragged past the
+ * lanes' threshold draws a box and zooms into it (both axes), Alt+drag picks a stretch of the horizontal axis and
+ * Shift+drag moves what the plot shows along it, where the plot has those; Ctrl+wheel zooms the horizontal axis around
  * the pointer and Shift+wheel pans it, by the lanes' steps, and a sideways swipe pans it with the fingers; a double-click resets the zoom, or on an axis
  * opens its range; ← / → step the readout to the next point, read as the pointer on it would read it (R7).
- * Built on the lanes' own listeners (attachTrackPointerListeners) and zoom arithmetic.
+ * Built on the low-level listeners of trackPointerEvents.ts, which nothing else attaches (src/test/plotGestures.test.ts).
  */
 import { keyRouterFor } from './keyRouter';
 import type { PlotPlace } from './plotHoverLayer';
@@ -91,20 +92,47 @@ export interface PlotInteractionDeps {
     /** The box being dragged (null: none). */
     showBox(plot: HTMLElement, from: PlotPoint, to: PlotPoint): void;
     hideBox(): void;
-    /** Double-click on an axis: open its range; false when it has none, so the zoom is reset instead. */
-    openAxisRange(hit: PlotHit, clientX: number, clientY: number): boolean;
+    /** Double-click on an axis (`element`: the one double-clicked): open its range; false when it has none, so the zoom is reset instead. */
+    openAxisRange(hit: PlotHit, clientX: number, clientY: number, element: Element): boolean;
     /**
      * Where an arrow key reads on `plot`: the point `delta` along from the one it reads (0: that one), as its hover
      * layer gives it (PlotHoverLayer.stepFrom); null when the plot reads nothing, so the key goes on.
      */
     stepFrom(plot: HTMLElement, delta: -1 | 0 | 1, arrived?: (at: PlotPlace) => void): PlotPlace | null;
     /**
-     * Alt+drag picks a stretch of the horizontal axis instead of zooming into a box (the distribution's value range;
-     * the lanes' loop is the same gesture). `end` is told whether the press moved past the drag threshold.
+     * Alt+drag picks a stretch of the horizontal axis instead of zooming into a box (the distribution's value range,
+     * the lanes' loop). `end` is told whether the press moved past the drag threshold.
      */
-    altDrag?: { start(hit: PlotHit, event: MouseEvent): void; move(event: MouseEvent): void; end(event: MouseEvent, dragged: boolean): void };
+    altDrag?: PlotDrag;
+    /** Shift+drag moves what the plot shows along its horizontal axis (the lanes' track time shift); Alt is taken first. */
+    shiftDrag?: PlotDrag;
+    /** A press that stayed put with neither Alt nor Shift held, at its release (Alt and Shift tell their drag's `end`). */
+    tap?(plot: HTMLElement, event: MouseEvent): void;
+    /** Any press on a plot, before it is known whether it drags (a lane takes the keyboard focus). */
+    pressed?(hit: PlotHit, event: MouseEvent): void;
     /** A box zooms only the horizontal axis (the vertical one stays whole, e.g. counts). */
     horizontalOnly?: boolean;
+    /**
+     * The plot zooms into the box drawn itself, for axes that are not a linear part of a window (the lanes' amplitude,
+     * a spectrogram's band in Hz); without it the box's window (windowFromBox) is set.
+     */
+    zoomToBox?(plot: HTMLElement, from: PlotPoint, to: PlotPoint, release: MouseEvent): void;
+    /**
+     * Where a Ctrl+wheel zoom or a pan acts, where that is not just `locate`: the lanes' time runs on under their
+     * headers, and a colour bar on a plot is no time to zoom around.
+     */
+    wheelAt?(target: EventTarget | null, clientX: number, clientY: number, gesture: 'zoom' | 'pan'): PlotHit | null;
+    /** Axes drawn on canvases of their own beside the plots: a double-click on one opens its range (`hit.axis` set). */
+    axes?: { selector: string; locate(axis: HTMLElement, clientX: number, clientY: number): PlotHit | null };
+    /** A plot with the keyboard focus keeps ← / → for itself (a focused lane moves its time cursor). */
+    focusKeepsArrows?: boolean;
+}
+
+/** A drag of the plot's own under a modifier key, in place of the box zoom. */
+export interface PlotDrag {
+    start(hit: PlotHit, event: MouseEvent): void;
+    move(event: MouseEvent): void;
+    end(event: MouseEvent, dragged: boolean): void;
 }
 
 /** What a hover is given of the pointer: a mouse event, or an arrow key's step at the point it reads. */
@@ -118,7 +146,7 @@ export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 
         if (event.timeStamp - draggedAt < 300) { event.stopPropagation(); event.preventDefault(); }
         draggedAt = -Infinity;
     }, true);
-    let press: { plot: HTMLElement; from: PlotPoint; clientX: number; clientY: number; isDrag: boolean; to: PlotPoint; alt: boolean } | null = null;
+    let press: { plot: HTMLElement; from: PlotPoint; clientX: number; clientY: number; isDrag: boolean; to: PlotPoint; drag: PlotDrag | null } | null = null;
     let lastDouble: PlotHit | null = null;
     // The window these gestures last set is named on the plot they were made on, so one test reads every plot's
     // gestures the same way (R13). Other ways to the window (keys, an axis's range, a pane sharing it) do not write it.
@@ -127,6 +155,8 @@ export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 
         const now = deps.window(plot);
         plot.dataset.plotWindow = [now.x.start, now.x.end, now.y.start, now.y.end].map(value => value.toFixed(3)).join(' ');
     };
+    const wheelAt = (event: WheelEvent, gesture: 'zoom' | 'pan'): PlotHit | null =>
+        deps.wheelAt ? deps.wheelAt(event.target, event.clientX, event.clientY, gesture) : deps.locate(event.target, event.clientX, event.clientY);
     const view = surface.ownerDocument.defaultView;
     attachTrackPointerListeners(surface, doc, view ? keyRouterFor(view) : { add: () => () => undefined }, {
         step(plot, delta) {
@@ -142,8 +172,9 @@ export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 
             if (plot) setWindow(plot, null);
         },
         openAxisRange(element, clientX, clientY) {
-            lastDouble = deps.locate(element, clientX, clientY);
-            return !!lastDouble?.axis && deps.openAxisRange(lastDouble, clientX, clientY);
+            const axes = deps.axes;
+            lastDouble = axes && element.matches(axes.selector) ? axes.locate(element as HTMLElement, clientX, clientY) : deps.locate(element, clientX, clientY);
+            return !!lastDouble?.axis && deps.openAxisRange(lastDouble, clientX, clientY, element);
         },
         hover(event) {
             if (press?.isDrag) return;
@@ -154,37 +185,44 @@ export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 
             if (event.button !== 0) return;
             const hit = deps.locate(event.target, event.clientX, event.clientY);
             if (!hit || hit.axis) return;
-            // The same hand everywhere: a drag zooms into its box, Alt+drag picks a stretch of the horizontal axis.
-            const alt = event.altKey && !!deps.altDrag;
-            press = { plot: hit.plot, from: hit.point, to: hit.point, clientX: event.clientX, clientY: event.clientY, isDrag: false, alt };
-            if (alt) deps.altDrag?.start(hit, event);
+            // The same hand everywhere: a drag zooms into its box, Alt+drag picks a stretch of the horizontal axis,
+            // Shift+drag moves what the plot shows along it.
+            const drag = (event.altKey ? deps.altDrag : undefined) ?? (event.shiftKey ? deps.shiftDrag : undefined) ?? null;
+            press = { plot: hit.plot, from: hit.point, to: hit.point, clientX: event.clientX, clientY: event.clientY, isDrag: false, drag };
+            deps.pressed?.(hit, event);
+            drag?.start(hit, event);
             event.preventDefault();
         },
         drag(event) {
             if (!press) return;
             if (!press.isDrag && exceedsDragThreshold(event.clientX - press.clientX, event.clientY - press.clientY)) press.isDrag = true;
             if (!press.isDrag) return;
-            if (press.alt) { deps.altDrag?.move(event); return; }
+            if (press.drag) { press.drag.move(event); return; }
             press.to = deps.pointOn(press.plot, event.clientX, event.clientY);
             deps.showBox(press.plot, press.from, press.to);
         },
         release(event) {
             const done = press;
             press = null;
-            if (done?.alt) deps.altDrag?.end(event, done.isDrag);
-            if (!done?.isDrag) return;
+            if (!done) return;
+            done.drag?.end(event, done.isDrag);
+            if (!done.isDrag) {
+                if (!done.drag) deps.tap?.(done.plot, event);
+                return;
+            }
             draggedAt = event.timeStamp;
-            if (done.alt) return;
+            if (done.drag) return;
             deps.hideBox();
+            if (deps.zoomToBox) { deps.zoomToBox(done.plot, done.from, done.to, event); return; }
             const next = windowFromBox(deps.window(done.plot), done.from, done.to, deps.horizontalOnly);
             if (next) setWindow(done.plot, next);
         },
         zoomWheel(event) {
-            const hit = deps.locate(event.target, event.clientX, event.clientY);
+            const hit = wheelAt(event, 'zoom');
             if (hit) setWindow(hit.plot, wheelZoomWindow(deps.window(hit.plot), hit.point, event.deltaY));
         },
         panWheel(event, swipe) {
-            const hit = deps.locate(event.target, event.clientX, event.clientY);
+            const hit = wheelAt(event, 'pan');
             if (!hit) return;
             if (!swipe) {
                 setWindow(hit.plot, wheelPanWindow(deps.window(hit.plot), wheelStepDirection(event) * PAN_STEP_RATIO));
@@ -195,5 +233,5 @@ export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 
             const perPixel = deps.pointOn(hit.plot, middle + 1, event.clientY).fx - deps.pointOn(hit.plot, middle, event.clientY).fx;
             if (perPixel > 0) setWindow(hit.plot, wheelPanWindow(deps.window(hit.plot), wheelPanPixels(event, 1 / perPixel) * perPixel));
         },
-    }, { plot: plotSelector });
+    }, { plot: plotSelector, ...(deps.axes ? { axis: deps.axes.selector } : {}), ...(deps.focusKeepsArrows ? { focusKeepsArrows: true } : {}) });
 }

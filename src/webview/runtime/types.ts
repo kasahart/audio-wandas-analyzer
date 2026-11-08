@@ -186,22 +186,16 @@ export interface RectZoomSelection {
     frequency?: boolean;
 }
 
+/** A press on a lane: where it started, and the drag of its own it became under Alt or Shift (null: none, a box zoom or a click). */
 export interface WaveformDragState {
     trackId: TrackId;
     /** The pressed canvas: the lane's waveform or its spectrogram, whose time spans differ in width. */
     canvasId: string;
     startClientX: number;
-    startClientY: number;
     startOffset: number;
     canvasWidth: number;
-    canvasHeight: number;
-    isDrag: boolean;
-    isShift: boolean;
     startNorm: number;
-    startAmpNorm: number;
-    dragType: 'offset' | 'rectZoom' | 'loop' | 'gripStart' | 'gripEnd';
-    /** Pressed on a spectrogram lane: a box there spans frequencies. */
-    spectrogram?: boolean;
+    dragType: 'offset' | 'loop' | 'gripStart' | 'gripEnd' | null;
 }
 
 export interface WaveformCoverage {

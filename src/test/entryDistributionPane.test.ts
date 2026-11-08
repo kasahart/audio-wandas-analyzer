@@ -111,3 +111,13 @@ test('each group is a row of the plot component: its dots, its slots and the bas
     assert.ok(rows[0].hasAttribute('data-dist-base'));
     assert.equal(rows[1].dataset.distSlots, '');
 });
+
+test('a double-click on the value axis strip opens its range through the plot component, as on every plot\'s axis', () => {
+    const { dom, screen, pane, inputs } = setup();
+    pane.place(true);
+    pane.paint(inputs);
+    const axis = screen.querySelector<HTMLElement>('[data-entry-dist-axis-canvas]');
+    assert.ok(axis);
+    axis.dispatchEvent(new dom.window.MouseEvent('dblclick', { bubbles: true, clientX: 40, clientY: 5 }));
+    assert.equal(dom.window.document.getElementById('entry-dist-range-popover')?.style.display, 'block');
+});

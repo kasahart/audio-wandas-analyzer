@@ -1665,7 +1665,7 @@ test('renderScript: mouseup click commits cursor and re-draws spectrum', async (
 
     const canvas = env.dom.window.document.getElementById('track-canvas-0');
     assert.ok(canvas);
-    // mousedown + mouseup (no movement) -> click branch in handleDocMouseUp
+    // mousedown + mouseup (no movement) -> a click: the cursor moves (endLaneDrag)
     canvas.dispatchEvent(new env.dom.window.MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 10, clientY: 5 }));
     env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mouseup', { bubbles: true, button: 0, clientX: 10, clientY: 5 }));
 
@@ -3165,6 +3165,46 @@ test('renderScript: レーンのドラッグはループではなくラバーバ
     assert.ok(zoomBtn, 'zoom-to-selection ボタンが存在すること');
     assert.equal(zoomBtn.disabled, true, 'rect-zoom ドラッグではループ選択を作らないこと');
 
+    env.dom.window.close();
+});
+
+test('renderScript: on a lane Shift+drag shifts the track\'s time, Alt+drag on the loop\'s edge moves that edge, and neither zooms', async () => {
+    const env = setupEnv();
+    const { document } = env.dom.window;
+    const canvas = document.getElementById('track-canvas-0') as HTMLCanvasElement | null;
+    assert.ok(canvas);
+    canvas.width = 400;
+    canvas.height = 100;
+    canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 400, bottom: 100, width: 400, height: 100, x: 0, y: 0, toJSON: () => ({}) });
+    const mouse = (target: EventTarget, type: string, clientX: number, init: MouseEventInit = {}): void => {
+        target.dispatchEvent(new env.dom.window.MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX, clientY: 50, ...init }));
+    };
+    const snapshot = async (actionId: string): Promise<any> => {
+        env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: { type: 'comparison-panel-test-action', actions: [], actionId } }));
+        await nextAnimationFrame(env.dom);
+        return (env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any).renderedUi;
+    };
+    const before = (await snapshot('before-shift')).tracks[0].offsetSeconds;
+    mouse(canvas, 'mousedown', 100, { shiftKey: true });
+    mouse(document, 'mousemove', 200, { shiftKey: true });
+    mouse(document, 'mouseup', 200, { shiftKey: true });
+    const shifted = await snapshot('after-shift');
+    assert.ok(shifted.tracks[0].offsetSeconds > before, 'a Shift+drag to the right shifts the track later');
+    assert.deepEqual([shifted.zoomStart, shifted.zoomEnd, shifted.rectZoomSelection], [0, 1, null], 'a Shift+drag zooms nothing');
+
+    mouse(canvas, 'mousedown', 100, { altKey: true });
+    mouse(document, 'mousemove', 300, { altKey: true });
+    mouse(document, 'mouseup', 300, { altKey: true });
+    const zoomButton = document.querySelector<HTMLButtonElement>('[data-action="zoom-to-selection"]');
+    assert.equal(zoomButton?.disabled, false, 'an Alt+drag sets the loop');
+    const loopText = document.getElementById('loop-time-display')?.textContent;
+    // Alt+drag from the loop's right edge moves only that edge.
+    mouse(canvas, 'mousedown', 300, { altKey: true });
+    mouse(document, 'mousemove', 360, { altKey: true });
+    mouse(document, 'mouseup', 360, { altKey: true });
+    const moved = await snapshot('after-grip');
+    assert.notEqual(document.getElementById('loop-time-display')?.textContent, loopText, 'the loop\'s edge moved');
+    assert.deepEqual([moved.zoomStart, moved.zoomEnd], [0, 1], 'an Alt+drag zooms nothing');
     env.dom.window.close();
 });
 
