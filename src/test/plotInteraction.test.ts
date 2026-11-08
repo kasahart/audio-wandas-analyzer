@@ -68,9 +68,12 @@ test('a plain drag zooms into its box, Alt+drag and Shift+drag are the plot\'s o
 });
 
 test('a plot without a Shift drag zooms into the box Shift+drag draws', () => {
-    const { drag, calls } = surface();
-    drag('a', 20, 60, { clientY: 10 });
-    assert.deepEqual(calls.slice(0, 1), ['box:a']);
+    const { element, doc, mouse, calls } = surface();
+    mouse(element('a'), 'mousedown', 20, { shiftKey: true, clientY: 80 });
+    mouse(doc, 'mousemove', 60, { shiftKey: true, clientY: 20 });
+    mouse(doc, 'mouseup', 60, { shiftKey: true, clientY: 20 });
+    assert.equal(calls[0], 'box:a');
+    assert.ok(calls.includes('window:a:0.200-0.600'), calls.join(', '));
 });
 
 test('every press is told the plot first; one that stays put is a tap, told nowhere else, and Alt or Shift tells its drag', () => {
