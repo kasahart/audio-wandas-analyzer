@@ -31,7 +31,6 @@ import { colorOf, overlayLayers, overlayLegendItems, paintBaseGate, paintNoPictu
 export type { StageTrack } from './trackStagePainter';
 import { isEventsView, stageAxes } from './stagePanes';
 import { clearTriggerLanes, paintTriggerLanes, type TriggerSettings } from './triggerLanes';
-import { FULL_PLOT_WINDOW } from './plotInteraction';
 import { zoomNormalizedRange, ZOOM_IN_FACTOR } from './waveformInteraction';
 import { keyRouterFor } from './keyRouter';
 import { COMPARE_KEYS, keyAction } from './shortcuts';
@@ -300,9 +299,15 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
                 const slot = Number(event.key);
                 pressing = { slot, at: deps.window.performance.now(), timer: deps.window.setTimeout(() => { state.held = slot; deps.rerender(); }, TAP_MS) };
             } else if (action === 'zoom-in' || action === 'zoom-out' || action === 'zoom-reset') {
-                // About the horizontal axis's middle, as on the lanes (a double-click resets too).
+                // About the horizontal axis's middle, as on the lanes (a double-click resets too): the plot under the
+                // pointer's window (the lanes under a trigger have their own), else the shared one. A reset is every plot's.
                 event.preventDefault();
-                state.window = { ...state.window, x: action === 'zoom-reset' ? FULL_PLOT_WINDOW.x : zoomNormalizedRange(state.window.x, action === 'zoom-out' ? 1 / ZOOM_IN_FACTOR : ZOOM_IN_FACTOR) };
+                if (action === 'zoom-reset') Object.assign(state, WHOLE_ZOOM);
+                else {
+                    const zoom = (range: { start: number; end: number }) => zoomNormalizedRange(range, action === 'zoom-out' ? 1 / ZOOM_IN_FACTOR : ZOOM_IN_FACTOR);
+                    if (stageGestures?.zoomHovered(zoom)) return true;
+                    state.window = { ...state.window, x: zoom(state.window.x) };
+                }
                 detail.moved();
                 deps.rerender();
             } else if (action === 'toggle-base') {

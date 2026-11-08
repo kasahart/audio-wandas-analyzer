@@ -222,6 +222,15 @@ test('the lanes under a trigger zoom on their own (the recording\'s time, not th
     await boxZoom(page, page.locator('[data-stage-canvas="overlay"]'));
     await expect(root).not.toHaveAttribute('data-x-window', '0.000-1.000');
     await expect(root).toHaveAttribute('data-lanes-window', lanes!);
+    // The keys zoom the plot under the pointer in its own window, and 0 resets every plot's.
+    await page.keyboard.press('0');
+    await expect(root).toHaveAttribute('data-lanes-window', '0.000-1.000 0.000-1.000');
+    await expect(root).toHaveAttribute('data-x-window', '0.000-1.000');
+    const laneBox = (await page.locator('.track-canvas[data-plot]').first().boundingBox())!;
+    await page.mouse.move(laneBox.x + laneBox.width * 0.6, laneBox.y + laneBox.height / 2);
+    await page.keyboard.press('+');
+    await expect(root).toHaveAttribute('data-lanes-window', '0.150-0.850 0.000-1.000');
+    await expect(root).toHaveAttribute('data-x-window', '0.000-1.000');
 });
 
 test('the entry\'s held plot answers the same gestures as every plot (R13)', async ({ page }) => {
