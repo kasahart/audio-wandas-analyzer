@@ -58,7 +58,7 @@ interface ComparisonPanelRenderedUi {
     displayOrder: string[];
     specFreqStart: number;
     specFreqEnd: number;
-    waveformMode: 'loop' | 'rect-zoom';
+    spectrogramFrequencyView: { lowHz: number; highHz: number } | null;
     lastAnnounce: string;
     amplitudeZoomMinNorm: number;
     amplitudeZoomMaxNorm: number;

@@ -253,10 +253,13 @@ const server = http.createServer((req,res) => {
         await page.evaluate(() => { window.__testInbound = []; });
         await page.mouse.click(box.x + box.width * .437, box.y + box.height * .5);
         await page.waitForFunction(() => window.__testInbound.some(message => message.type === 'spectrum-slice-result' && Math.abs(message.cursorNorm - .437) < .01));
+        // Alt+drag sets the loop (a plain drag is the box zoom).
         await page.mouse.move(box.x + box.width * .21, box.y + box.height * .5);
+        await page.keyboard.down('Alt');
         await page.mouse.down();
         await page.mouse.move(box.x + box.width * .63, box.y + box.height * .5, { steps: 4 });
         await page.mouse.up();
+        await page.keyboard.up('Alt');
         await page.locator('#tb-export-menu > summary').click();
         const [download] = await Promise.all([
             page.waitForEvent('download', {timeout:15000}),

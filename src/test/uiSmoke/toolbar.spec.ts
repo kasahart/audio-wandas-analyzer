@@ -543,15 +543,11 @@ test('a lane shows the waveform over its spectrogram on one time axis, split by 
     const clicked = await page.locator('#cursor-display').textContent();
     await page.keyboard.press('Shift+ArrowRight');
     await expect(page.locator('#cursor-display')).not.toHaveText(clicked ?? '');
-    // Box zoom is the waveform's: over the spectrogram the hint names the loop drag that will run.
-    await page.locator('#tb-more-menu > summary').click();
-    await page.locator('#toolbar [data-action="wave-mode-rect-zoom"]').click();
+    // A drag zooms into its box on both lanes, as on every plot: the hint says so over each (R13).
     await page.mouse.move(before.wave.x + before.wave.width / 3, before.wave.y + before.wave.height / 2);
-    const waveHint = await page.locator('#hint-footer').textContent();
+    await expect(page.locator('#hint-footer')).toContainText(getStrings('en').hintRectZoomDrag);
     await page.mouse.move(before.spec.x + before.wave.width / 3, before.spec.y + before.spec.height / 2);
-    await expect(page.locator('#hint-footer')).not.toHaveText(waveHint ?? '');
-    await page.locator('#tb-more-menu > summary').click();
-    await page.locator('#toolbar [data-action="wave-mode-rect-zoom"]').click();
+    await expect(page.locator('#hint-footer')).toContainText(getStrings('en').hintRectZoomDrag);
 
     const split = page.locator('.track-split').first();
     const handle = (await split.boundingBox())!;
@@ -620,8 +616,6 @@ test('the cursor readout is labelled and follows a loop drag to where it was rel
 
 test('after a box zoom the cursor readout is the time under the pointer in the zoomed view', async ({ page }) => {
     await loadUi(page);
-    await page.locator('#tb-more-menu > summary').click();
-    await page.locator('#toolbar [data-action="wave-mode-rect-zoom"]').click();
     const wave = (await page.locator('#track-canvas-0').boundingBox())!;
     const y = wave.y + wave.height / 2;
     const readout = page.locator('#cursor-display');

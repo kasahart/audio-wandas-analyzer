@@ -76,7 +76,6 @@ export const GUI_TRIGGERABILITY_WEBVIEW_ACTION_IDS = [
     'toggle-selection-sidebar',
     'toggle-spectrum-panel',
     'toggle-spectrum-maximize',
-    'wave-mode-rect-zoom',
     'zoom-to-selection',
     'toggle-follow-cursor',
     'open-recipe',
@@ -173,9 +172,8 @@ export const GUI_TRIGGERABILITY_SCOPED_SHORTCUTS = [
     'L',
     'Wheel',
     'Ctrl+Wheel',
-    'Drag (spectrum)',
-    'Drag (zoom mode)',
     'Drag',
+    'Alt+Drag',
     'Shift+Drag',
     'Double-click (resize edge)',
     'Arrows (resize edge)',
@@ -353,7 +351,7 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
         id: 'spectrogram-zoom',
         label: 'Zoom the spectrogram frequency range',
         entryPoints: ['results-toolbar', 'canvas-gesture'],
-        triggers: ['spec-zoom-out', 'spec-zoom-in', 'spec-zoom-reset', 'Drag (spectrum)'],
+        triggers: ['spec-zoom-out', 'spec-zoom-in', 'spec-zoom-reset', 'Drag'],
         regressionLayers: ['node:test', 'ui-smoke'],
     },
     {
@@ -396,13 +394,6 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
         label: 'Link the amplitude, colour and frequency scales of all displayed tracks',
         entryPoints: ['results-toolbar'],
         triggers: ['link-scales'],
-        regressionLayers: ['node:test', 'ui-smoke'],
-    },
-    {
-        id: 'waveform-mode',
-        label: 'Switch waveform interaction mode',
-        entryPoints: ['results-toolbar'],
-        triggers: ['wave-mode-rect-zoom'],
         regressionLayers: ['node:test', 'ui-smoke'],
     },
     {
@@ -498,9 +489,9 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
     },
     {
         id: 'waveform-canvas-gestures',
-        label: 'Create, resize, clear, and reuse loop regions from the waveform canvas',
+        label: 'Box zoom with a drag on every lane; create, resize, clear, and reuse loop regions with Alt+drag',
         entryPoints: ['canvas-gesture', 'keyboard'],
-        triggers: ['Drag', 'Drag (zoom mode)', 'Shift+Drag', 'L'],
+        triggers: ['Drag', 'Alt+Drag', 'Shift+Drag', 'L'],
         regressionLayers: ['node:test', 'ui-smoke'],
     },
     {
