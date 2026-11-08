@@ -347,3 +347,19 @@ test('every ui-smoke test fails on a draw into a plot made outside the plot comp
     // Taken away, with the audit's record cleared, so this test itself passes the audit.
     await page.evaluate(() => { document.querySelector('.hand-drawn')?.remove(); window.__drawnAudit?.splice(0); });
 });
+
+test('every ui-smoke test fails on a plot on screen that drew a louder compared line over a quieter one (R6)', async ({ page }) => {
+    await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
+    // A plot whose lines were drawn −40 dB first, then −20 dB over it: the louder one hides the quieter.
+    await page.evaluate(() => {
+        const plot = document.createElement('canvas');
+        plot.className = 'loud-on-top';
+        plot.setAttribute('data-plot', '');
+        plot.setAttribute('data-plot-order', '-40.00,-20.00');
+        Object.assign(plot.style, { position: 'fixed', left: '0', top: '0', width: '120px', height: '60px' });
+        document.body.append(plot);
+    });
+    await expect.poll(() => page.evaluate(() => window.__orderAudit ?? [])).toContain('canvas.loud-on-top drew levels -40.00,-20.00');
+    // Taken away, with the audit's record cleared, so this test itself passes the audit.
+    await page.evaluate(() => { document.querySelector('.loud-on-top')?.remove(); window.__orderAudit?.splice(0); });
+});
