@@ -10,6 +10,9 @@ import { buildCompareModel } from '../webview/runtime/comparePanes';
 import { buildEntryModel } from '../webview/runtime/entryTable';
 import { FULL_PLOT_WINDOW } from '../webview/runtime/plotInteraction';
 import { stepChipLabel } from '../webview/runtime/stepBar';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import type { RecipeDocument } from '../shared/recipe/recipeSelection';
 
 const strings = getStrings('en');
 
@@ -41,7 +44,7 @@ const scanned = (): ScanResult => ({
 
 const step = (patch: Partial<RecipeStep>): RecipeStep => ({ id: 'node-1', operation: 'wandas.frame.highpass_filter', name: 'highpass_filter', params: {}, editable: [], input: 'ChannelFrame', output: 'ChannelFrame', ...patch });
 
-function setup(results = new Map<string, ScanResult>()) {
+function setup(results = new Map<string, ScanResult>(), options: { recipe?: RecipeDocument; channelOf?: (path: string) => number | null } = {}) {
     const dom = new JSDOM('<!doctype html><body><div id="hint-footer"></div><div data-entry-held hidden><span data-entry-held-title></span><canvas data-entry-held-canvas></canvas></div></body>');
     const { document } = dom.window;
     const held = document.querySelector<HTMLElement>('[data-entry-held]');
@@ -66,7 +69,8 @@ function setup(results = new Map<string, ScanResult>()) {
         scanRecipe: () => undefined,
         focusedFile: () => state.focused, slotFiles: () => state.slots,
         colorOf: filePath => { colored.push(filePath); return `colour of ${filePath}`; },
-        recipe: () => null, runRecipe: () => undefined, limits: () => ({}), spectral: () => true,
+        channelOf: options.channelOf ?? (() => null),
+        recipe: () => options.recipe ?? null, runRecipe: () => undefined, limits: () => ({}), spectral: () => true,
         tapped: slot => calls.push(['tapped', slot]),
     };
     const plot = createHeldPlot(deps);
@@ -167,6 +171,32 @@ test('a held step draws its row in the colour the row is drawn in elsewhere (its
     plot.holdStep(step({}));
     plot.paint();
     assert.deepEqual([...new Set(colored)], ['/d/b.wav'], 'the focused row\'s colour');
+});
+
+test('a held step draws the channel its row is compared as, not every channel averaged (R11)', () => {
+    const recipe = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8')) as RecipeDocument;
+    const results = new Map<string, ScanResult>([['/d/a.wav', scanned()]]);
+    const channels: string[] = [];
+    const { plot, state, calls } = setup(results, { recipe, channelOf: file => { channels.push(file); return 2; } });
+    state.focused = '/d/a.wav';
+    const welch = step({ id: 'node-2', operation: 'wandas.audio.welch', name: 'welch', input: 'ChannelFrame', output: 'SpectralFrame' });
+    plot.holdStep(welch);
+    plot.paint();
+    assert.deepEqual(channels, ['/d/a.wav'], 'the held row\'s file');
+    const asked = calls.flatMap(([kind, message]) => (kind === 'post' ? [message as { recipe?: RecipeDocument }] : []));
+    assert.ok(asked.length, 'the step\'s picture is asked for');
+    for (const message of asked) {
+        const head = (message.recipe as unknown as { nodes: Array<{ id: string; operation: string; params: { entries: Array<[string, unknown]> } }> }).nodes[0];
+        assert.equal(head.operation, 'wandas.frame.get_channel');
+        assert.deepEqual(head.params.entries, [['channel_idx', 1]], 'channel 2, from 0');
+    }
+    // A one-channel row (no channel to pick) draws the Recipe as it is.
+    const single = setup(results, { recipe, channelOf: () => null });
+    single.state.focused = '/d/a.wav';
+    single.plot.holdStep(welch);
+    single.plot.paint();
+    const plain = single.calls.flatMap(([kind, message]) => (kind === 'post' ? [message as { recipe?: RecipeDocument }] : []));
+    assert.ok(plain.every(message => !(message.recipe as unknown as { nodes: Array<{ id: string }> }).nodes.some(node => node.id === 'node-channel')));
 });
 
 test('narrowed takes a window\'s vertical part of a level range', () => {
