@@ -70,9 +70,24 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
     const passed = new Set<Check>();
     const box = (await plot.boundingBox())!;
     const middle = { x: box.x + box.width * 0.6, y: box.y + box.height * 0.45 };
-    // Both axes are named.
+    // Both axes are named, on screen: each name the plot gives (data-plot-axes) is written on the plot or the canvas
+    // beside it that holds its value axis, whole or, where it does not fit, as its unit (fittedAxisTitle); or, written
+    // once for plots that share it (the lanes' time axis, the distribution rows' count), elsewhere on screen.
     const axes = (await plot.getAttribute('data-plot-axes')) ?? '';
-    if (axes.split('|').length === 2 && axes.split('|').every(name => name.trim())) passed.add('axes');
+    const names = axes.split('|');
+    const written = await plot.evaluate((canvas, names) => {
+        type Texted = HTMLCanvasElement & { __plotTexts?: string[] };
+        const fits = (texts: readonly string[], name: string): boolean => {
+            const unit = /\[([^\]]+)\]\s*$/u.exec(name)?.[1];
+            return texts.some(text => text === name || (!!unit && text === unit));
+        };
+        const axisId = canvas.getAttribute('data-plot-axis');
+        const own = [...((canvas as Texted).__plotTexts ?? []), ...((axisId ? (document.getElementById(axisId) as Texted | null)?.__plotTexts : undefined) ?? [])];
+        const shown = Array.from(document.querySelectorAll<Texted>('canvas')).filter(other => other.checkVisibility()).flatMap(other => other.__plotTexts ?? []);
+        const pageText = (name: string): boolean => Array.from(document.querySelectorAll<HTMLElement>('body *')).some(element => element.children.length === 0 && element.checkVisibility() && element.textContent?.trim() === name);
+        return names.map(name => !!name.trim() && (fits(own, name) || fits(shown, name) || pageText(name)));
+    }, names);
+    if (names.length === 2 && written.every(Boolean)) passed.add('axes');
     // A hover shows its readout in the row just above the plot, and the plot does not move: a readout there shows
     // text it did not show before the pointer came (not one left from an earlier hover).
     const readouts = (top: number): Promise<string[]> => page.evaluate(top => Array.from(document.querySelectorAll<HTMLElement>('[id*="readout"], [class*="readout"]'))
@@ -124,9 +139,30 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
     const axisId = await plot.getAttribute('data-plot-axis');
     const axisBox = axisId ? await page.locator(`[id="${axisId}"]`).boundingBox() : null;
     await page.mouse.dblclick(axisBox ? axisBox.x + axisBox.width / 2 : box.x + 8, axisBox ? axisBox.y + axisBox.height / 2 : middle.y);
+    // The range is applied, not only offered: bounds narrowed to the middle half of the ones it shows are typed in and
+    // applied, and the plot shows another part (its picture changes; the window attribute is only the gestures'), then
+    // Auto gives the whole back (the picture changes again).
     const popover = page.locator('[id$="range-popover"]:visible');
-    if (await popover.count()) passed.add('axis range');
-    await page.keyboard.press('Escape');
+    if (await popover.count()) {
+        const min = popover.locator('input[id$="-min"]'), max = popover.locator('input[id$="-max"]');
+        const low = Number(await min.inputValue()), high = Number(await max.inputValue());
+        const pictureBefore = await picture();
+        if (Number.isFinite(low) && Number.isFinite(high) && high > low) {
+            await min.fill(String(low + (high - low) / 4));
+            await max.fill(String(high - (high - low) / 4));
+            await popover.locator('button[id$="-apply"]').click();
+            await page.waitForTimeout(80);
+            const narrowed = await picture();
+            const applied = !(await popover.count()) && narrowed !== pictureBefore;
+            await page.mouse.dblclick(axisBox ? axisBox.x + axisBox.width / 2 : box.x + 8, axisBox ? axisBox.y + axisBox.height / 2 : middle.y);
+            const again = page.locator('[id$="range-popover"]:visible');
+            if (await again.count()) await again.locator('button[id$="-auto"]').click();
+            await page.waitForTimeout(80);
+            if (applied && await picture() !== narrowed) passed.add('axis range');
+        }
+    }
+    // Escape only for a popover still open: with none, it is the screen's own (it would leave the comparison).
+    if (await page.locator('[id$="range-popover"]:visible').count()) await page.keyboard.press('Escape');
     await page.mouse.move(1, 1);
     return passed;
 }
@@ -467,6 +503,40 @@ test('every ui-smoke test fails on a picture copied into a plot from another can
     expect(await page.evaluate(() => window.__drawnAudit ?? [])).toContain('#spectrum-overlay-canvas: drawImage');
     // The audit's record cleared, so this test itself passes the audit.
     await page.evaluate(() => { window.__drawnAudit?.splice(0); });
+});
+
+test('every ui-smoke test fails on a plot drawn into before it was marked, or off the page, and on a plot exported so (R13)', async ({ page }) => {
+    await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
+    await page.evaluate(() => {
+        // Drawn by other code, then marked a plot and shown: what it drew is still on it.
+        const early = document.createElement('canvas');
+        early.className = 'drawn-before-marked';
+        early.getContext('2d')!.fillRect(0, 0, 4, 4);
+        early.setAttribute('data-plot', '');
+        Object.assign(early.style, { position: 'fixed', left: '0', top: '0', width: '120px', height: '60px' });
+        document.body.append(early);
+        // Marked a plot, drawn into while off the page, then exported.
+        const off = document.createElement('canvas');
+        off.className = 'drawn-off-page';
+        off.setAttribute('data-plot', '');
+        off.getContext('2d')!.strokeRect(0, 0, 4, 4);
+        off.toDataURL();
+        // A report's picture: only its white paper laid under it from outside the component, which is not a draw into the plot.
+        const paper = document.createElement('canvas');
+        paper.className = 'paper-only';
+        paper.setAttribute('data-plot', '');
+        const context = paper.getContext('2d')!;
+        context.globalCompositeOperation = 'destination-over';
+        context.fillRect(0, 0, paper.width, paper.height);
+        paper.toDataURL();
+    });
+    await expect.poll(() => page.evaluate(() => window.__drawnAudit ?? [])).toEqual(expect.arrayContaining([
+        expect.stringMatching(/^canvas\.drawn-before-marked: fillRect \(drawn before/u),
+        expect.stringMatching(/^canvas\.drawn-off-page: strokeRect \(exported\)$/u),
+    ]));
+    expect((await page.evaluate(() => window.__drawnAudit ?? [])).filter(name => name.includes('paper-only'))).toEqual([]);
+    // Taken away, with the audit's record cleared, so this test itself passes the audit.
+    await page.evaluate(() => { document.querySelector('.drawn-before-marked')?.remove(); window.__drawnAudit?.splice(0); });
 });
 
 test('every ui-smoke test fails on a plot on screen that drew a louder compared line over a quieter one (R6)', async ({ page }) => {
