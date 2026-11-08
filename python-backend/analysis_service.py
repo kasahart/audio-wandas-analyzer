@@ -31,6 +31,7 @@ from backend_errors import InputError
 from decimator import WaveformEnvelope
 
 if TYPE_CHECKING:
+    from full_read import StagePoints, StageRead
     from stage_view import StageDetail
 
 
@@ -42,6 +43,8 @@ class TrackDetailResult(TypedDict):
     channels: list[ChannelSummary]
     calibrationSignature: str
     analysisRevision: int
+    #: With a read: the lane's real STFT cells around the pointer (full_read.read_cells), and no channels.
+    points: NotRequired[StagePoints]
 
 
 class SpectrumSliceResult(TypedDict):
@@ -130,6 +133,8 @@ class WaveformRangeResult(TypedDict):
     channels: list[WaveformEnvelope]
     calibrationSignature: str
     analysisRevision: int
+    #: With a read: the lane's samples the pointer reads (full_read.read_line, x the file's 0..1), and no channels.
+    points: NotRequired[StagePoints]
 
 
 class WavLoopExportResult(TypedDict):
@@ -250,6 +255,7 @@ class AnalysisService:
         analysis_revision: object = 0,
         time_window: tuple[float, float] | None = None,
         frequency_band: tuple[float, float] | None = None,
+        read: StageRead | None = None,
     ) -> TrackDetailResult:
         cached, analysis_frame, resolved = self.engine.get_analysis(file_path, calibration_profile)
         n_fft, hop_length, window = resolve_stft_params(analysis_frame.n_samples, stft_options)
@@ -266,6 +272,21 @@ class AnalysisService:
                 window,
                 calibration_profile,
             )
+        identity = {
+            "trackIndex": track_index,
+            "analysisId": _optional_text(analysis_id),
+            "settingsSignature": _optional_text(settings_signature),
+            "filePath": str(file_path),
+        }
+        if read is not None:
+            # The cells the lane reads, from the STFT it is drawn from before any cell is averaged for the screen.
+            return {
+                **identity,  # type: ignore[typeddict-item]
+                "channels": [],
+                "points": _spectrogram_cells(spectrogram, centers, read),
+                "calibrationSignature": resolved.signature,
+                "analysisRevision": _analysis_revision(analysis_revision),
+            }
         result = analyze_from_frame(
             analysis_frame,
             cached.path,
@@ -481,9 +502,20 @@ class AnalysisService:
         point_count: int = 2000,
         calibration_profile: object = None,
         analysis_revision: object = 0,
+        read: StageRead | None = None,
     ) -> WaveformRangeResult:
         cached, analysis_frame, resolved = self.engine.get_analysis(file_path, calibration_profile)
         sample_count = analysis_frame.n_samples
+        if read is not None:
+            # The samples the lane reads, never its envelope: x is the file's 0..1, as the envelope's times are.
+            return {
+                "startNorm": start_norm,
+                "endNorm": end_norm,
+                "channels": [],
+                "points": _sample_points(analysis_frame, read),
+                "calibrationSignature": resolved.signature,
+                "analysisRevision": _analysis_revision(analysis_revision),
+            }
         start_idx, end_idx = sample_range(start_norm, end_norm, sample_count)
 
         channels: list[WaveformEnvelope] = []
@@ -730,3 +762,39 @@ __all__ = [
     "WaveformRangeResult",
     "WavLoopExportResult",
 ]
+
+
+def _sample_points(frame: wd.ChannelFrame, read: StageRead) -> StagePoints:
+    """A lane's samples for ``read`` (full_read.read_line), its x the file's 0..1 (sample / (samples - 1))."""
+    from full_read import read_line, uniform_axis
+
+    count = int(frame.n_samples)
+    channels = int(frame.n_channels)
+    channel = max(0, min(channels - 1, int(read.get("channel", 0))))
+
+    def values(first: int, after: int) -> np.ndarray:
+        if after <= first:
+            return np.empty(0)
+        return channels_first(frame[:, first:after].data, channels, after - first)[channel]
+
+    return read_line(uniform_axis(count, 0.0, 1.0 / max(1, count - 1)), values, read)
+
+
+def _spectrogram_cells(spectrogram: wd.SpectrogramFrame, centers: np.ndarray | None, read: StageRead) -> StagePoints:
+    """A lane's real STFT cells around ``read``'s time (s from the file's start) and frequency (Hz): the frames
+    and bins before any is averaged into a cell for the screen (full_read.read_cells)."""
+    from analyzer import spectrogram_frame_centers
+    from full_read import read_cells
+
+    times = centers if centers is not None else spectrogram_frame_centers(spectrogram)
+    if times is None:
+        times = np.arange(spectrogram.n_frames) * spectrogram.hop_length / float(spectrogram.sampling_rate)
+    freqs = np.asarray(spectrogram.freqs, dtype=np.float64)
+    channel = max(0, min(int(spectrogram.n_channels) - 1, int(read.get("channel", 0))))
+
+    def cells(rows: slice, columns: slice) -> np.ndarray:
+        db = np.asarray(spectrogram[:, :, columns].dB, dtype=np.float64)
+        db = db[np.newaxis] if db.ndim == 2 else db
+        return db[channel][rows]
+
+    return read_cells(np.asarray(times, dtype=np.float64), freqs, cells, read)

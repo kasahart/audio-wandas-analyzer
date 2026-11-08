@@ -13,6 +13,7 @@ import { emptyStageText, isEventsView, paintOverlay, paintStage, stageAxes, stag
 import type { PlotWindow } from './plotInteraction';
 import { noDeltaNote } from './combineSource';
 import type { StagePlots } from './trackStageModel';
+import type { FullRead } from './fullRead';
 
 /** A track as the mode draws it: its lane's canvas, and the lane's own axis canvas (cleared: the painter draws the axes on the lane). */
 export interface StageTrack {
@@ -111,6 +112,8 @@ export interface StageFrame {
     shown: (path: string) => StageView | null | undefined;
     /** The first picture in, whose axes the plots use. */
     picture: StageView | null;
+    /** Where a picture's numbers are read (R7): its full data, or the median's and the difference's; undefined without any. */
+    fullOf?: (view: StageView | null | undefined) => FullRead | undefined;
     coarsePlots: StagePlots<StageTrack>;
     window: PlotWindow;
     /** The Δ pane's own vertical zoom (its horizontal one is the window's). */
@@ -183,7 +186,7 @@ export function paintStageLanes(frame: StageFrame): number {
         const empty = missing ? '' : emptyStageText(strings, coarse(track.filePath) ?? picture);
         const axes = stageAxes(strings, coarse(track.filePath) ?? picture, track.input);
         // A lane holds one picture, drawn as it is (1/3-octave levels as steps, without a fill).
-        const lanePlot = paintOverlay(track.canvas, { layers: view ? [{ view, color: colorOf(frame.role, track.filePath, track.color), width: widthOf(frame.role, track.filePath, 2), label: frame.named(track.filePath, frame.role(track.filePath)).label, ...eventsOf(frame, track.filePath, view) }] : [] }, heat ? range : narrowed(range, window.y), axes,
+        const lanePlot = paintOverlay(track.canvas, { layers: view ? [{ view, color: colorOf(frame.role, track.filePath, track.color), width: widthOf(frame.role, track.filePath, 2), label: frame.named(track.filePath, frame.role(track.filePath)).label, ...eventsOf(frame, track.filePath, view), ...fullOf(frame, view) }] : [] }, heat ? range : narrowed(range, window.y), axes,
             { empty, window: { x: window.x, ...(heat ? { y: window.y } : {}) }, axisView: coarse(track.filePath) ?? picture, ...(regionMark ? { region: regionMark } : {}), ...((missing || track.filePath === progressLane) && pending ? { pending } : {}) });
         frame.drawnOn.set(track.canvas, { picture: coarse(track.filePath) ?? picture, range, axes, plot: lanePlot });
         if (view) drawn++;
@@ -193,6 +196,12 @@ export function paintStageLanes(frame: StageFrame): number {
     const referenceTrack = referencePath ? frame.allTracks.find(track => track.filePath === referencePath) : undefined;
     if (referencePath && referenceTrack?.canvas) paintStage(referenceTrack.canvas, null, { min: 0, max: 1 }, referenceTrack.color, { x: '', y: '' }, { empty: strings.stageBaseLane.replace('{file}', frame.named(referencePath, 0).label) });
     return drawn;
+}
+
+/** Where a picture's numbers are read (R7): its full data, as the mode gives it. */
+function fullOf(frame: Pick<StageFrame, 'fullOf'>, view: StageView): Pick<StageLayer, 'full'> {
+    const full = frame.fullOf?.(view);
+    return full ? { full } : {};
 }
 
 /** A recording's events as a line each can be left out of: whose they are, and those left out. */
@@ -205,7 +214,7 @@ function eventsOf(frame: Pick<StageFrame, 'excluded'>, path: string, view: Stage
  * draws them by level, the quietest on top (R6, paintOverlay). Each carries its legend name (the base's `baseLabel`), for the
  * readout of the line under the pointer.
  */
-export function overlayLayers(frame: Pick<StageFrame, 'comparePath' | 'role' | 'named' | 'excluded'>, plots: StagePlots<StageTrack>, baseLabel?: string, basePath?: string): StageLayer[] {
+export function overlayLayers(frame: Pick<StageFrame, 'comparePath' | 'role' | 'named' | 'excluded' | 'fullOf'>, plots: StagePlots<StageTrack>, baseLabel?: string, basePath?: string): StageLayer[] {
     const roleColor = (path: string, fallback: string): string => colorOf(frame.role, path, fallback);
     const nameOf = (path: string): string => frame.named(path, frame.role(path)).label;
     const { comparePath } = frame;
@@ -217,7 +226,7 @@ export function overlayLayers(frame: Pick<StageFrame, 'comparePath' | 'role' | '
         ...(plots.base && !plots.baseMembers.length ? [{ view: plots.base, color: ROLE_COLORS[0], width: 2, ...(baseLabel !== undefined ? { label: baseLabel } : {}), ...(basePath !== undefined ? eventsOf(frame, basePath, plots.base) : {}) }] : []),
         ...plots.others.filter(item => frame.role(item.track.filePath) !== undefined).flatMap(item => (item.view ? [{ view: item.view, color: roleColor(item.track.filePath, item.track.color), width: 1.8, label: nameOf(item.track.filePath), ...eventsOf(frame, item.track.filePath, item.view) }] : [])),
         ...(plots.compare && comparePath ? [{ view: plots.compare, color: roleColor(comparePath, ROLE_COLORS[1]), width: 2.2, label: nameOf(comparePath), ...eventsOf(frame, comparePath, plots.compare) }] : []),
-    ];
+    ].map(layer => ({ ...layer, ...fullOf(frame, layer.view) }));
 }
 
 /** The overlaid plot's legend: the base (with how a group's curve is made), the compared file, the other tracks. */
@@ -280,6 +289,6 @@ export function paintStageOverlay(dom: StageDom, frame: StageFrame, plots: Stage
     const diffCanvas = dom.query<HTMLCanvasElement>('[data-stage-canvas="diff"]');
     const diffRange = stageDiffRange(coarsePlots.diff);
     const diffPlot = paintStage(diffCanvas, plots.diff, narrowed(diffRange, frame.diffY), DIFF_COLOR, diffAxes,
-        { diff: true, empty: waiting ? '' : noDeltaNote(frame, strings), window: { x: window.x }, axisView: coarsePlots.diff, ...(pending ? { pending } : {}) });
+        { diff: true, empty: waiting ? '' : noDeltaNote(frame, strings), window: { x: window.x }, axisView: coarsePlots.diff, ...(pending ? { pending } : {}) }, frame.fullOf?.(plots.diff));
     frame.drawnOn.set(diffCanvas, { picture: coarsePlots.diff, range: diffRange, axes: diffAxes, plot: diffPlot });
 }

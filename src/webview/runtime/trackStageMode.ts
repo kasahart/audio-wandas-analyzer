@@ -23,6 +23,8 @@ import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { createStepBar, invalidReason, stepChipLabel, stepLimits, INPUT_STAGE } from './stepBar';
 import { createStageSource, type StageSpec } from './stageSource';
 import { createCombineSource, NOTHING_COMBINED, type Combined } from './combineSource';
+import { createStageReader } from './stageReader';
+import type { FullRead } from './fullRead';
 import { chosenStage, combineRequest, comparedPath as comparedPathOf, eachBaseTitle, enterStageState, holdStageSpec, initialStageState, liveRegion as liveRegionOf, openStageState, pictureSummary, plotsOf, regionStageSpec, stageSpec, WHOLE_ZOOM } from './trackStageModel';
 import { createDetailPlanner, onOneRange } from './stageDetail';
 import { attachStageGestures, type StageGestures } from './trackStageGestures';
@@ -162,6 +164,9 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
     const liveRegion = (): EntryRegion | null => liveRegionOf(deps.recipe()?.recipe, state.regionSet);
     const source = createStageSource('track-stage', message => deps.post(message), () => deps.rerender());
     const combine = createCombineSource('track-combine', message => deps.post(message), () => deps.rerender());
+    // Every number read off the plots comes from the pictures' full data the backend keeps (R7), not their lines.
+    // A read of values the backend let go: their pictures are scanned again, then read anew.
+    const reader = createStageReader('read-stage', message => deps.post(message), keys => { source.forgetData(keys); deps.rerender(); });
     // The report's files with every Welch bin, asked for on 報告に only (a stored result keeps the 192 points alone).
     const reportSource = createStageSource('report-scan', message => deps.post(message), () => writeReport());
     /** 報告に pressed: the report waits for its files' bins (with Δ shown or not, as when it was pressed). */
@@ -679,11 +684,21 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         const shownCombined = fineCombined ?? (fineDetail ? lastFine.get(combineIdentity) : undefined) ?? coarseCombined;
         const combining = !waiting && asked != null && coarseCombined === undefined;
         const coarsePlots = plotsOf(coarse, tracks, comparePath, basePaths, coarseCombined);
+        // Where each picture's numbers are read (R7): a recording's own full data, or the median and the difference
+        // taken again from the recordings' full data around the pointer.
+        const medians = new Set([coarseCombined?.base, fineCombined?.base, shownCombined?.base].filter(Boolean));
+        const diffs = new Set([coarseCombined?.diff, fineCombined?.diff, shownCombined?.diff].filter(Boolean));
+        const fullOf = (view: StageView | null | undefined): FullRead | undefined => {
+            // Read with the compared recording, which the median was aligned with (stage_combine.read_points).
+            if (view && asked && medians.has(view)) return reader.combined(asked.base, asked.compare ?? null, 'base');
+            if (view && asked?.compare && diffs.has(view)) return reader.combined(asked.base, asked.compare, 'diff');
+            return reader.of(view);
+        };
         shownCompare = { path: comparePath, view: comparePath && !waiting ? coarse(comparePath) : undefined };
         // The events left out of each recording's, on the trigger's picture (and a step after it that keeps them).
         const excluded = (path: string): readonly number[] => (viewTrigger ? excludedOf(recipe.recipe, eventsKey(viewTrigger, path, channelFor(path))) : []);
         channelOf = channelFor;
-        const frame: StageFrame = { strings, tracks, allTracks, referencePath, comparePath, coarse, shown, picture, coarsePlots, window: state.window, diffY: state.diffY, regionMark, pending, waiting: waiting || combining, role, named, drawnOn, baseEach: each, excluded, ...(coarseCombined?.tooLarge ? { tooLarge: true } : {}), ...(coarseCombined?.noDelta ? { noDelta: coarseCombined.noDelta } : {}) };
+        const frame: StageFrame = { strings, tracks, allTracks, referencePath, comparePath, coarse, shown, picture, coarsePlots, fullOf, window: state.window, diffY: state.diffY, regionMark, pending, waiting: waiting || combining, role, named, drawnOn, baseEach: each, excluded, ...(coarseCombined?.tooLarge ? { tooLarge: true } : {}), ...(coarseCombined?.noDelta ? { noDelta: coarseCombined.noDelta } : {}) };
         const bypassed = steps.filter(step => step.bypassed).map(step => stepChipLabel(step, strings, state.regionSet));
         query<HTMLElement>('[data-stage-headline]').textContent = stageModeHeadline(frame, bypassed, region);
         if (!overlay) {
@@ -721,7 +736,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             marks = { trigger, events };
             lanesMarked = true;
             const lanesDrawn = paintTriggerLanes({
-                strings, tracks, trigger, excluded, drawnOn, window: state.lanesWindow, events,
+                strings, tracks, trigger, excluded, drawnOn, window: state.lanesWindow, events, fullOf: view => reader.of(view),
                 signal: path => { const wanted = signalSpec(path); return wanted ? source.view(wanted, path) : undefined; },
                 detail: path => (laneDetail.get(path) ?? []).map(wanted => source.view(wanted, path)).find(view => !!view),
                 color: path => colorOf(role, path, tracks.find(track => track.filePath === path)?.color ?? ownColor(0)),
@@ -769,7 +784,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             paintNow();
             if (!lanesMarked) { clearTriggerLanes(document); root.dataset.lanesMarked = ''; marks = null; }
         },
-        handle: message => source.handle(message) || combine.handle(message) || reportSource.handle(message),
+        handle: message => source.handle(message) || combine.handle(message) || reader.handle(message) || reportSource.handle(message),
         snapshot() {
             const view = shownCompare.view;
             return {

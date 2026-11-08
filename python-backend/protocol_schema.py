@@ -261,6 +261,9 @@ DEFINITIONS: dict[str, Schema] = {
             # resolution up to the row limit (R3); absent for every frequency.
             "lowHz": _NUMBER,
             "highHz": _NUMBER,
+            # Only the lane's real cells around this place (StageRead: x the time in s, y the frequency in Hz,
+            # channel), from the STFT it is drawn from, before any cell is averaged for the screen.
+            "read": {"$ref": "#/$defs/StageRead"},
         },
     },
     "TrackDetailResult": {
@@ -274,6 +277,7 @@ DEFINITIONS: dict[str, Schema] = {
             "channels": {"type": "array", "items": {"$ref": "#/$defs/ChannelSummary"}},
             "calibrationSignature": {"type": "string"},
             "analysisRevision": {"$ref": "#/$defs/ResultAnalysisRevision"},
+            "points": {"$ref": "#/$defs/StagePoints"},
         },
     },
     "RangePayload": {
@@ -286,6 +290,8 @@ DEFINITIONS: dict[str, Schema] = {
             "points": {"type": "integer", "minimum": 1, "maximum": MAX_WAVEFORM_POINTS},
             "calibrationProfile": {"$ref": "#/$defs/CalibrationProfile"},
             "analysisRevision": {"$ref": "#/$defs/AnalysisRevision"},
+            # Only the samples the lane reads (StageRead, x the file's 0..1, channel), never its envelope.
+            "read": {"$ref": "#/$defs/StageRead"},
         },
     },
     "SpectrumSlicePayload": {
@@ -315,6 +321,7 @@ DEFINITIONS: dict[str, Schema] = {
             "channels": {"type": "array", "items": {"$ref": "#/$defs/WaveformEnvelope"}},
             "calibrationSignature": {"type": "string"},
             "analysisRevision": {"$ref": "#/$defs/ResultAnalysisRevision"},
+            "points": {"$ref": "#/$defs/StagePoints"},
         },
     },
     "SpectrumSliceChannel": {
@@ -557,6 +564,42 @@ DEFINITIONS: dict[str, Schema] = {
             "points": {"type": "integer", "minimum": 2, "maximum": MAX_WAVEFORM_POINTS},
         },
     },
+    # What a plot reads under its pointer or steps to with an arrow key (full_read.py): its window [x0, x1] (or
+    # [x]) in the axis's own units, an image's row place ``y`` (and ``rows`` either side of it), points past each
+    # end (``beyond``) and, for a window too dense to send whole, ``columns`` pixel columns across it (log-spaced on
+    # a ``log`` axis) and the level ``near`` the pointer. ``event`` names a trigger's event, ``of`` a combined
+    # picture, ``channel`` a lane's.
+    "StageRead": {
+        "type": "object",
+        "required": ["x"],
+        "properties": {
+            "x": {"type": "array", "items": _NUMBER},
+            "y": {"type": "array", "items": _NUMBER},
+            "beyond": {"type": "integer", "minimum": 0, "maximum": 4096},
+            "rows": {"type": "integer", "minimum": 0, "maximum": 64},
+            "near": _NUMBER,
+            "columns": {"type": "integer", "minimum": 1, "maximum": 512},
+            "log": {"type": "boolean"},
+            "event": {"type": "integer", "minimum": 0},
+            "of": {"type": "string", "enum": ["base", "diff"]},
+            "channel": {"type": "integer", "minimum": 0},
+        },
+    },
+    # Real points of the full-resolution data a plot reads (full_read.py): a line's ``values`` over ``xs``, an
+    # image's ``matrix`` rows over ``ys``. ``complete``: every point from ``start`` to ``end`` (null: the data's end).
+    "StagePoints": {
+        "type": "object",
+        "required": ["xs", "start", "end", "complete"],
+        "properties": {
+            "xs": _NUMBERS,
+            "values": _NULLABLE_NUMBERS,
+            "ys": _NUMBERS,
+            "matrix": {"type": "array", "items": _NULLABLE_NUMBERS},
+            "start": {"anyOf": [_NUMBER, _NULL]},
+            "end": {"anyOf": [_NUMBER, _NULL]},
+            "complete": {"type": "boolean"},
+        },
+    },
     # One step's Frame as the comparison draws it (stage_view.py). Line and bar give ``values`` over
     # ``xs``; a heatmap gives ``matrix`` rows over ``ys``, columns over ``xs``; "none" is a Frame not drawn.
     "StageView": {
@@ -650,6 +693,8 @@ DEFINITIONS: dict[str, Schema] = {
             "base": {"type": "array", "items": {"type": "string"}},
             "compare": {"anyOf": [{"type": "string"}, _NULL]},
             "detail": {"anyOf": [{"$ref": "#/$defs/StageDetail"}, _NULL]},
+            # Only the points a plot reads of the picture (StageRead), not a picture.
+            "read": {"$ref": "#/$defs/StageRead"},
         },
     },
     # ``ok: false`` names the keys no longer kept (``missing``): their scans are asked for again. On other axes
@@ -665,6 +710,7 @@ DEFINITIONS: dict[str, Schema] = {
             # Why there is no ``diff`` when the reason is not the axes: time signals at other sample rates, or in
             # another unit or against another reference.
             "noDelta": {"type": "string", "enum": ["rate", "unit"]},
+            "points": {"$ref": "#/$defs/StagePoints"},
         },
     },
     "ScanInput": {

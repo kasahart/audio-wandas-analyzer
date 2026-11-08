@@ -219,3 +219,45 @@ test('a narrow tone in real recordings is drawn at its full level on the thinned
     }, { timeout: 30_000, message: 'thinned, the Δ keeps the narrow difference at its full height' }).toBe(true);
     expect(await stop(), 'the backend answered every request').toEqual([]);
 });
+
+test('a hover and the arrow keys on the thinned whole spectrum read its real bins from the backend, one bin per key, each at its exact value (R7)', async ({ page }) => {
+    test.skip(!ready(), `no Python backend with wandas for the narrow fixture: ${fixtureError}`);
+    test.setTimeout(180_000);
+    const stop = await openComparison(page);
+    const overlay = page.locator('[data-stage-canvas="overlay"]');
+    const loudAt = await highest(overlay);
+    const box = (await overlay.boundingBox())!;
+    const before = await postedCount(page);
+    await page.mouse.move(box.x + loudAt[0], box.y + loudAt[1]);
+    // The number is the full data's (asked for around the pointer), not the line drawn there.
+    await expect(overlay).toHaveAttribute('data-plot-read', 'full', { timeout: 30_000 });
+    const read = async (): Promise<[number, number]> => [Number(await overlay.getAttribute('data-plot-read-at')), Number(await overlay.getAttribute('data-plot-read-value'))];
+    const visited: Array<[number, number]> = [await read()];
+    expect(Math.abs(visited[0][0] - 3000), 'the loud tone is read').toBeLessThan(10);
+    // ← / → step one real bin at a time, though several share each pixel of the thinned line.
+    for (const key of [...Array<string>(12).fill('ArrowRight'), ...Array<string>(4).fill('ArrowLeft')]) {
+        const from = visited[visited.length - 1][0];
+        await page.keyboard.press(key);
+        await expect.poll(async () => (await read())[0], { timeout: 15_000 }).not.toBe(from);
+        const next = await read();
+        expect(Math.abs(Math.abs(next[0] - from) - BIN_HZ), `${key} from ${from} Hz to ${next[0]} Hz`).toBeLessThan(1e-6);
+        expect(Math.sign(next[0] - from)).toBe(key === 'ArrowRight' ? 1 : -1);
+        visited.push(next);
+    }
+    // Each value read is the backend's own bin there, asked for again here over the whole stretch stepped through.
+    const asked = await page.evaluate(from => (window as unknown as { __uiSmokePostedMessages: Array<{ type: string; base?: string[]; read?: { of?: string; x: number[] } }> }).__uiSmokePostedMessages.slice(from)
+        .filter(message => message.type === 'compare-combine' && message.read), before);
+    expect(asked.length, 'the readout asked the backend for its points').toBeGreaterThan(0);
+    // Each line under the pointer asks for its window once; the line read asks once more for the steps ahead.
+    expect(asked.length, 'a request for the window and the steps ahead, not one per key').toBeLessThanOrEqual(4);
+    const stepped = asked.find(message => message.read?.x.length === 1) ?? asked[0];
+    const xs = visited.map(([at]) => at);
+    const whole = await backend!.request({ cmd: 'stage-combine', base: stepped.base, read: { x: [Math.min(...xs), Math.max(...xs)], beyond: 0, of: stepped.read?.of ?? 'base' } }) as { points?: { xs: number[]; values: Array<number | null> } };
+    const points = whole.points!;
+    for (const [at, value] of visited) {
+        const index = points.xs.findIndex(x => Math.abs(x - at) < 1e-6);
+        expect(index, `bin at ${at} Hz`).toBeGreaterThanOrEqual(0);
+        expect(value).toBe(points.values[index]);
+    }
+    expect(await stop(), 'the backend answered every request').toEqual([]);
+});

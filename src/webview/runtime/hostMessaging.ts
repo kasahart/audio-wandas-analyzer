@@ -5,7 +5,7 @@ import type {
 } from '../../shared/analysis/analysisTypes';
 import type { PairSpectrumPublication } from '../../shared/session/comparisonSessionController';
 import { isEntryConditionTable, type ComparePublication, type EntryProbePublication, type EntryPublication } from '../../shared/analysis/entryScan';
-import { parseBackendResult } from '../../shared/protocol/backendProtocol';
+import { parseBackendResult, type StagePoints } from '../../shared/protocol/backendProtocol';
 import type { RangeWaveform, RuntimeWindow, WebviewHostApi } from './types';
 
 export type HostOutboundMessage = PanelMessage
@@ -27,8 +27,10 @@ export type HostInboundMessage =
         startNorm: number;
         endNorm: number;
         channels: RangeWaveform[];
+        /** A readout's read: the samples it reads (R7). */
+        points?: StagePoints;
     }
-    | (LazyResponseIdentity & { type: 'track-detail-result'; channels: ChannelSummary[]; channelIndex?: number; startNorm?: number; endNorm?: number })
+    | (LazyResponseIdentity & { type: 'track-detail-result'; channels: ChannelSummary[]; channelIndex?: number; startNorm?: number; endNorm?: number; points?: StagePoints })
     | (LazyResponseIdentity & { type: 'track-detail-error'; error: string; channelIndex?: number; startNorm?: number; endNorm?: number })
     | (LazyResponseIdentity & {
         type: 'spectrum-slice-result';

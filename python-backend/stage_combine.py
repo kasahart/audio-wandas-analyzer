@@ -39,6 +39,7 @@ from wandas.frames.segments import ChannelFrameSegments
 import analysis_spec as spec
 import stage_view as sv
 from decimator import bucket_edges
+from full_read import StagePoints, StageRead, read_cells, read_line, sorted_axis, uniform_axis
 from stage_view import StageDetail, StageLevelBins, StageView
 
 #: How much of the Frames' values the backend keeps for the comparison's medians and differences. The least
@@ -90,13 +91,17 @@ class StageData:
     rate: float = 0.0
     #: A signal's reference (its waveform's), for the difference's waveform.
     ref: float = 1.0
+    #: A trigger's events: each event's own line (event × sample) and its id, which the plot reads under the pointer.
+    rows: np.ndarray | None = None
+    event_ids: tuple[int, ...] = ()
     #: The recording's channel unit and reference, whatever the Frame (a level's dB are re that reference): values
     #: are combined only between recordings calibrated alike.
     calibration: tuple[str, float] = ("", 1.0)
 
     @property
     def nbytes(self) -> int:
-        return int(self.xs.nbytes + self.values.nbytes + (self.ys.nbytes if self.ys is not None else 0))
+        extra = (self.ys.nbytes if self.ys is not None else 0) + (self.rows.nbytes if self.rows is not None else 0)
+        return int(self.xs.nbytes + self.values.nbytes + extra)
 
 
 class CombineResult(TypedDict):
@@ -108,6 +113,8 @@ class CombineResult(TypedDict):
     diff: NotRequired[StageView]
     #: Why there is no ``diff`` when it is not the axes: time signals at other sample rates have no sample Δ.
     noDelta: NotRequired[Literal["rate", "unit"]]
+    #: With a read: the full-resolution points the plot reads under its pointer or steps to (full_read.py).
+    points: NotRequired[StagePoints]
 
 
 class _Store:
@@ -214,7 +221,8 @@ def _stage_data(frame: object, view: StageView, signal_s: float | None) -> Stage
         if not len(frame):
             return None
         rows, times = sv._event_rows(frame)
-        return StageData("events", template, times, np.mean(rows, axis=0))
+        ids = tuple(int(event_id) for event_id in frame.event_ids)
+        return StageData("events", template, times, np.mean(rows, axis=0), rows=rows, event_ids=ids)
     if isinstance(frame, ChannelFrame):
         data = sv._rows(frame.data, frame.n_channels)
         times = _f64(frame.source_time).reshape(frame.n_channels, -1)[0]
@@ -676,13 +684,94 @@ def combine(base: list[StageData], compare: StageData | None, detail: StageDetai
     return result
 
 
-def combine_keys(base: list[str], compare: str | None, detail: StageDetail | None = None) -> CombineResult:
-    """``combine`` of the kept StageData by key; the keys no longer kept are named instead."""
+def _shown(data: StageData, values: np.ndarray, diff: bool) -> np.ndarray:
+    """Full-resolution values as the plot's picture writes them (rounded as ``draw`` rounds them), never thinned."""
+    values = _f64(values)
+    if diff:
+        return _rounded(values, data.view.get("quantity"), True)
+    if data.mode == "coherence":
+        return np.round(values, 4)
+    if data.mode in ("cepstrum", "cepstrogram"):
+        return np.round(values, sv.CEPSTRUM_DECIMALS)
+    if data.mode == "correlation":
+        return np.round(values, sv.CORRELATION_DECIMALS)
+    if data.mode == "spectrogram":
+        return np.round(sv.rounded_db(values), 1)
+    return values
+
+
+def read_points(base: list[StageData], compare: StageData | None, read: StageRead) -> StagePoints | None:
+    """The full-resolution points a plot reads (full_read.py) of a recording's own picture, the base's median
+    (``of: "base"``) or the difference (``of: "diff"``): taken at full resolution over the read's window only, never
+    from the thinned picture. None where the picture has none (other axes, no such event)."""
+    diff = read.get("of") == "diff"
+    if not base or (diff and compare is None):
+        return None
+    # Aligned with the compared recording whenever there is one, as ``combine`` aligns the picture: a median read
+    # never reaches past the extent its picture was drawn over.
+    items = [*base, *([compare] if compare is not None else [])]
+    aligned = items if len(items) == 1 else _aligned(items)
+    if aligned is None:
+        return None
+    group, other = aligned[: len(base)], (aligned[-1] if diff else None)
+    first = group[0]
+
+    def combined(part: Any) -> np.ndarray:
+        """``part`` of each recording (a slice of its values), as the picture combines them: the base's median, or
+        compare − that median as ``combine`` takes it."""
+        parts = [part(item) for item in group]
+        if len(parts) == 1:
+            middle = parts[0]
+        else:
+            cast = (lambda values: np.asarray(values, dtype=np.float32)) if first.mode == "signal" else _f64
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", RuntimeWarning)
+                middle = np.median(np.stack([cast(values) for values in parts]), axis=0)
+        if other is None:
+            return middle
+        if first.mode == "signal":
+            return np.subtract(part(other), middle, dtype=np.float32)
+        return _f64(part(other)) - middle
+
+    if first.mode in ("spectrogram", "roughness", "cepstrogram"):
+        ys = first.ys if first.ys is not None else np.empty(0)
+        return read_cells(
+            first.xs,
+            ys,
+            lambda rows, columns: _shown(first, combined(lambda item: item.values[rows, columns]), diff),
+            read,
+        )
+    if first.mode == "events" and "event" in read:
+        # One event's own line: a recording's, as the plot draws each event of it.
+        if len(group) != 1 or diff or first.rows is None or int(read["event"]) not in first.event_ids:
+            return None
+        row = first.rows[first.event_ids.index(int(read["event"]))]
+        return read_line(sorted_axis(first.xs), lambda a, b: _shown(first, row[a:b], False), read)
+    if first.mode == "signal":
+        count = min(item.values.size for item in aligned)
+        axis = uniform_axis(count, first.start, 1.0 / first.rate if first.rate > 0 else 0.0)
+    else:
+        axis = sorted_axis(first.xs)
+    return read_line(axis, lambda a, b: _shown(first, combined(lambda item: item.values[a:b]), diff), read)
+
+
+def combine_keys(
+    base: list[str], compare: str | None, detail: StageDetail | None = None, read: StageRead | None = None
+) -> CombineResult:
+    """``combine`` of the kept StageData by key; the keys no longer kept are named instead. With ``read``, only the
+    points that read asks for (read_points)."""
     keys = [*base, *([compare] if compare is not None else [])]
     found = {key: STORE.get(key) for key in keys}
     missing = [key for key, data in found.items() if data is None]
     if missing:
         return {"ok": False, "missing": missing}
+    if read is not None:
+        points = read_points(
+            [found[key] for key in base],  # type: ignore[misc]
+            found[compare] if compare is not None else None,
+            read,
+        )
+        return {"ok": True, **({"points": points} if points is not None else {})}  # type: ignore[typeddict-item]
     return combine(
         [found[key] for key in base],  # type: ignore[misc]
         found[compare] if compare is not None else None,

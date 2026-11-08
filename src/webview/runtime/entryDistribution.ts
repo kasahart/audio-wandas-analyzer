@@ -171,7 +171,8 @@ export function distributionRows(dist: Distribution, picture: DistributionPictur
         }
         return {
             group: group.name, label: label.length > 11 ? `${label.slice(0, 10)}…` : label, title: group.name || strings.dsFilterBlank,
-            count: picture.strip ? '' : `${group.members.length} ${unit}`, max, layers, range, slots, base, dots,
+            // Every bin, dot, tick and member is drawn as it is: nothing is thinned, so the drawn points are read (R7).
+            count: picture.strip ? '' : `${group.members.length} ${unit}`, max, layers: layers.map(layer => ({ ...layer, full: 'drawn' as const })), range, slots, base, dots,
         };
     });
 }

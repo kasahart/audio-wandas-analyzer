@@ -230,7 +230,10 @@ export class ComparisonSessionController {
         let context: CalibrationRequestContext | undefined;
         // A zoomed lane's spectrogram window is asked beside the whole file's: neither cancels the other.
         const windowed = request.type === 'request-track-detail' && (request.startNorm !== undefined || request.lowHz !== undefined) ? '\u0000window' : '';
-        const slot = `${request.type}\u0000${request.trackIndex}\u0000${request.filePath}${windowed}`;
+        // A plot readout's read (R7) has a slot of its own: it neither cancels the lane's picture nor is cancelled by it,
+        // nor by another read (each source has one read on its way at a time, and waits for its answer).
+        const reading = request.read ? `\u0000read\u0000${request.requestId}` : '';
+        const slot = `${request.type}\u0000${request.trackIndex}\u0000${request.filePath}${windowed}${reading}`;
         const cancellation = new RequestCancellation();
         this.lazyInFlight.get(slot)?.cancel();
         this.lazyInFlight.set(slot, cancellation);
@@ -247,6 +250,12 @@ export class ComparisonSessionController {
             const reason = this.reasonOf(error);
             this.ports.lazyFailed?.(request, reason);
             if (request.type !== 'request-waveform-range') { const pending = this.ports.publish(lazyAnalysisError(request, reason)); if (thenable(pending)) await pending; }
+            else if (request.read) {
+                // A read waits for its answer: one that failed is answered with no points (the readout shows none).
+                const pending = this.ports.publish({ type: 'waveform-range-result', requestId: request.requestId, trackIndex: request.trackIndex,
+                    startNorm: request.startNorm, endNorm: request.endNorm, channels: [] });
+                if (thenable(pending)) await pending;
+            }
         } finally {
             if (this.lazyInFlight.get(slot) === cancellation) this.lazyInFlight.delete(slot);
         }

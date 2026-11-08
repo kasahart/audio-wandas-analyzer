@@ -20,6 +20,8 @@ import { axisFractionOf, axisValueAt, paintOverlay, stageAxes, stageDiffRange, s
 import { createDetailPlanner } from './stageDetail';
 import { createCombineSource, noDeltaNote, type Combined } from './combineSource';
 import { createStageSource, type StageSpec } from './stageSource';
+import { createStageReader } from './stageReader';
+import { localLine, type FullRead } from './fullRead';
 import { recipeWithout, stepChipLabel, stepLimits } from './stepBar';
 import { withChannel } from '../../shared/recipe/channelSelection';
 
@@ -118,6 +120,9 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
     const binsAskedFor = new Map<string, string>();
     // Without the step − with it, taken by the backend from the Frames' full resolution (combineSource.ts).
     const combine = createCombineSource('held-combine', message => deps.post(message), () => deps.scheduleSide());
+    // Every number read off the held plot comes from the full data, never its thinned line (R7).
+    // A read of values the backend let go: their pictures are scanned again, then read anew.
+    const reader = createStageReader('read-held', message => deps.post(message), keys => { source.forgetData(keys); deps.scheduleSide(); });
     /** The last zoomed difference of each held step, drawn until the next zoom's is in. */
     const lastFine = new Map<string, Combined>();
     const detail = createDetailPlanner(window.performance, window, () => deps.scheduleSide());
@@ -146,8 +151,8 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
         return end && without ? { with: holdSpec(withRow, end), without: holdSpec(picks && ch ? withChannel(without, ch, true) : without, end) } : null;
     }
     /** The held plot's picture and what it was drawn on, for its readout and an axis's range. */
-    function paintView(view: StageView | null, picture: StageView | null, range: PaneRange, axes: StageAxes, zoom: PlotWindow, options: { diff?: boolean; color: string; empty?: string }): void {
-        const drawn = paintOverlay(canvas, { layers: view ? [{ view, color: options.color, width: 2}] : [] }, narrowed(range, zoom), axes,
+    function paintView(view: StageView | null, picture: StageView | null, range: PaneRange, axes: StageAxes, zoom: PlotWindow, options: { diff?: boolean; color: string; empty?: string; full?: FullRead }): void {
+        const drawn = paintOverlay(canvas, { layers: view ? [{ view, color: options.color, width: 2, ...(options.full ? { full: options.full } : {}) }] : [] }, narrowed(range, zoom), axes,
             { diff: options.diff, empty: options.empty ?? '', window: { x: zoom.x }, axisView: picture });
         hold.plot = picture ? { margins: STAGE_MARGINS, x: f => axisValueAt(picture, f), ofX: number => axisFractionOf(picture, number), range, xLabel: axes.x, yLabel: axes.y, drawn: view ? drawn : null } : null;
     }
@@ -177,7 +182,7 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
         };
         if (!specs.without) {
             const fine = fineOf(specs.with).map(spec => source.view(spec, path)).find(view => !!view);
-            paintView(fine ?? coarse, coarse, stageRange([coarse]), stageAxes(strings, coarse, input), zoom, { color: deps.colorOf(path) });
+            paintView(fine ?? coarse, coarse, stageRange([coarse]), stageAxes(strings, coarse, input), zoom, { color: deps.colorOf(path), full: reader.of(coarse) });
             return;
         }
         // Without the step − with it, at full resolution: what the step takes away (negative where it cuts), the
@@ -205,14 +210,17 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
         if (zoomed) lastFine.set(identity, zoomed);
         const delta = whole.diff;
         const shown = (zoomed ?? (fineDetail ? lastFine.get(identity) : undefined))?.diff ?? delta;
-        paintView(shown, delta, stageDiffRange(delta), stageAxes(strings, delta, input, true), zoom, { diff: true, color: DIFF_COLOR, empty: noDeltaNote(whole, strings) });
+        paintView(shown, delta, stageDiffRange(delta), stageAxes(strings, delta, input, true), zoom, { diff: true, color: DIFF_COLOR, empty: noDeltaNote(whole, strings), ...(asked ? { full: reader.combined(asked.base, asked.compare, 'diff') } : {}) });
     }
     /** The held row's Δ spectrum (from the table's own scan), zoomed as its window says. */
     function paintDelta(comparison: CompareModel, key: string, input: LevelInput | undefined): void {
         const zoom = deps.keepWindow('held', `delta|${key}`);
         // From every bin, zoomed or not (R1, R3): the table's per-band Δ only where the scans gave no bins.
         const { picture, view } = deltaViews(comparison, zoom.x);
-        paintView(view, picture, stageDiffRange(picture), stageAxes(strings, picture, input, true), zoom, { diff: true, color: DIFF_COLOR, empty: strings.stageNoDelta });
+        // Read from every bin of the Δ (R7); without the bins, the table's per-band Δ is drawn whole.
+        const bins = comparison.bins?.diff;
+        const full: FullRead = bins?.length && comparison.bins ? localLine(bins.map((_, bin) => bin * (comparison.bins?.hz ?? 0)), bins) : 'drawn';
+        paintView(view, picture, stageDiffRange(picture), stageAxes(strings, picture, input, true), zoom, { diff: true, color: DIFF_COLOR, empty: strings.stageNoDelta, full });
     }
 
     /**
@@ -299,6 +307,6 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
                 else paintView(null, null, { min: 0, max: 1 }, stageAxes(strings, null, undefined, true), deps.keepWindow('held', `delta|slot|${hold.slot}`), { diff: true, color: DIFF_COLOR, empty: strings.stageNoDelta });
             }
         },
-        handle: message => source.handle(message) || bins.handle(message) || combine.handle(message),
+        handle: message => source.handle(message) || bins.handle(message) || combine.handle(message) || reader.handle(message),
     };
 }

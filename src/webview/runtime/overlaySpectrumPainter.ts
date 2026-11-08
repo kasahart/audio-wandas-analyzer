@@ -2,6 +2,7 @@ import { binFrequencyHz } from '../draw/canvasDrawers';
 import { levelBinsOf, paintOverlay, type StageLayer, type StagePlot } from './stagePanes';
 import type { StageView } from '../../shared/protocol/backendProtocol';
 import { minMaxLine } from './comparePanes';
+import { localLine } from './fullRead';
 import {
     OVERLAY_SPECTRUM_PAD,
     overlayLevelAxes,
@@ -45,6 +46,9 @@ export function spectrumLayer(series: SpectrumSeries, cutoffHz: number, visible?
         xs.push(hz);
         values.push(slice.values[index]);
     }
+    // Every number read off it is a bin of the slice (R7): the bins kept here, before any thinning, or for a slice cut
+    // for display the slice read again at every bin (series.full).
+    const full = series.full ?? (bands ? 'drawn' : slice.frequenciesHz ? undefined : localLine(xs, values));
     // Ordered among the overlaid slices by every bin's power before thinning (R6), over the axis drawn.
     // Over the frequencies on screen when known (the whole slice is in hand: measured again at every zoom), on the axis
     // drawn: a linear one keeps the 0 Hz bin, a log one starts at the first bin above it.
@@ -71,7 +75,8 @@ export function spectrumLayer(series: SpectrumSeries, cutoffHz: number, visible?
         color: series.color,
         width: bands ? 2 : 1.4,
         label: series.label,
-        readout: index => spectrumReadoutValues(level, xs[index], values[index]),
+        readout: (_index, point) => spectrumReadoutValues(level, point.x, point.value, point.step),
+        ...(full ? { full } : {}),
     };
 }
 

@@ -1,8 +1,9 @@
+import { mappedSource, type FullSource } from './fullRead';
 import type { SpectrogramData, WaveformEnvelope } from '../../shared/analysis/analysisTypes';
 import { viridis, type AxisTick } from '../../shared/gui-core/index';
 import { spectrogramTimeBinEdges } from '../spectrum/spectrogramTimeBins';
 import { spectrogramRowSpan } from '../spectrum/spectrogramZoom';
-import { paintOverlay, paintSideAxis, type ColourBarBox, type StageLayer, type StageOverlay } from './stagePanes';
+import { paintOverlay, paintSideAxis, type ColourBarBox, type StageLayer, type StagePlot, type StageOverlay } from './stagePanes';
 import type { NormalizedRange } from './waveformInteraction';
 import type { StageView } from '../../shared/protocol/backendProtocol';
 
@@ -47,15 +48,17 @@ export interface LaneWaveformOverlay {
  * in seconds. Finer data over part of the view (`detail`) is drawn over its own stretch, the overview only around it,
  * so the lines on screen keep their detail until the next range lands.
  */
-export function laneWaveformOverlay(src: WaveformPaintSource | null, place: LanePlacement, color: string, unit: string): LaneWaveformOverlay {
+export function laneWaveformOverlay(src: WaveformPaintSource | null, place: LanePlacement, color: string, unit: string, full?: FullSource): LaneWaveformOverlay {
     const toSec = (fileNorm: number): number => place.startSec + (place.offsetNorm + fileNorm * place.trackDurRatio) * place.spanSec;
     const axisLow = place.startSec, axisHigh = place.startSec + place.spanSec;
     const axisView: StageView = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', xs: [axisLow, axisHigh], values: [0, 0] };
     const fileStart = toSec(0), fileSpan = toSec(1) - fileStart || 1;
     const fileNormOf = (seconds: number): number => (seconds - fileStart) / fileSpan;
     if (!src) return { overlay: { layers: [] }, axisView, fileNormOf };
+    // Every number read off the lane is a sample of the file (R7): its full data over the file's 0..1, on the lanes' axis.
+    const samples = full ? mappedSource(full, fileNormOf, toSec) : undefined;
     const layerOf = (part: WaveformPaintSource, span?: readonly [number, number]): StageLayer =>
-        ({ view: { ...axisView, waveform: laneWaveform(part, place, unit) }, color, ...(span ? { span } : {}) });
+        ({ view: { ...axisView, waveform: laneWaveform(part, place, unit) }, color, ...(span ? { span } : {}), ...(samples ? { full: samples } : {}) });
     const detail = src.detail;
     if (!detail) return { overlay: { layers: [layerOf(src)] }, axisView, fileNormOf };
     const from = toSec(detail.dataStart), to = toSec(detail.dataEnd);
@@ -102,6 +105,9 @@ export interface SpectrogramRasterCacheEntry {
     colourBar: ColourBarBox;
     /** Its frequency axis' ticks, to draw the side axis again while the picture is kept. */
     ticks: AxisTick[];
+    /** The full data its picture read through (R7), and the plot it drew, which the pointer reads. */
+    full?: FullSource;
+    plot?: StagePlot | null;
 }
 
 /** What a spectrogram lane shows: the time on screen (fractions of the lanes' axis), its frequency band and colour range. */
@@ -160,11 +166,12 @@ export function paintTrackSpectrogram(
     cached: SpectrogramRasterCacheEntry | undefined,
     titles: LaneSpectrogramTitles,
     look: string,
+    full?: FullSource,
 ): SpectrogramRasterCacheEntry {
     const key = [canvas.width, canvas.height, view.window.start, view.window.end, place.startSec, place.spanSec, place.offsetNorm, place.trackDurRatio,
         view.dbLo, view.dbHi, view.maxFrequencyHz, view.minFrequencyHz, view.durationSec, titles.colour, titles.frequency, look].join(':');
     const colors = sideAxisColors(canvas);
-    if (cached && cached.source === spec && cached.key === key) {
+    if (cached && cached.source === spec && cached.key === key && cached.full === full) {
         if (axisCanvas) paintSideAxis(axisCanvas, cached.ticks, titles.frequency, colors);
         return cached;
     }
@@ -175,10 +182,12 @@ export function paintTrackSpectrogram(
     const low = rows.lowHz, rowSpan = rows.highHz - rows.lowHz || view.maxFrequencyHz || 1;
     // Clipped to the recording: its first and last cells reach half a frame past it, where the lane shows no file.
     const span: [number, number] = [place.startSec + place.offsetNorm * place.spanSec, place.startSec + (place.offsetNorm + place.trackDurRatio) * place.spanSec];
-    const plot = paintOverlay(canvas, { layers: [{ view: picture, color: '', span }] }, { min: view.dbLo, max: view.dbHi },
+    // Every number read off the lane is a real STFT cell (R7): its full data in seconds from the file's start.
+    const cells = full ? mappedSource(full, seconds => seconds - span[0], seconds => seconds + span[0]) : undefined;
+    const plot = paintOverlay(canvas, { layers: [{ view: picture, color: '', span, ...(cells ? { full: cells } : {}) }] }, { min: view.dbLo, max: view.dbHi },
         { x: titles.time, y: titles.frequency, colour: titles.colour },
         { axisCanvas, axisView, heatmapPalette: viridis, window: { x: view.window, y: { start: (Math.max(0, view.minFrequencyHz) - low) / rowSpan, end: (view.maxFrequencyHz - low) / rowSpan } } });
-    return { source: spec, key, colourBar: plot?.colourBar ?? { x: 0, y: 0, width: 0, height: 0 }, ticks: plot?.levelTicks ?? [] };
+    return { source: spec, key, full, plot, colourBar: plot?.colourBar ?? { x: 0, y: 0, width: 0, height: 0 }, ticks: plot?.levelTicks ?? [] };
 }
 
 function sideAxisColors(canvas: HTMLCanvasElement): { muted: string; text: string } {

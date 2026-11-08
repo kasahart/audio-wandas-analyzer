@@ -1,3 +1,4 @@
+import type { StageRead } from '../protocol/backendProtocol';
 /** Mirrors `wandas.supported_formats()` of the pinned wandas; test_typescript_extension_list_matches_wandas in python-backend/test_browser_service.py keeps them equal. */
 export const SUPPORTED_AUDIO_FILE_EXTENSIONS = new Set(['.wav', '.flac', '.ogg', '.oga', '.opus', '.mp3', '.aiff', '.aif', '.au', '.snd', '.caf', '.rf64', '.w64', '.csv']);
 /** The same extensions without the leading dot, as VS Code open-dialog filters expect. */
@@ -73,6 +74,15 @@ export interface WaveformRangeRequest {
     startNorm: number;
     endNorm: number;
     points: number;
+    /** A plot's readout (R7): only the samples it reads (full_read.py), never an envelope. */
+    read?: StageRead;
+}
+
+/** A plot readout's read (StageRead): a window or place of finite numbers. */
+export function isStageReadLike(value: unknown): value is StageRead {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+    const x = (value as Record<string, unknown>)['x'];
+    return Array.isArray(x) && x.length >= 1 && x.length <= 2 && x.every(item => typeof item === 'number' && Number.isFinite(item));
 }
 
 export function isRequestWaveformRangeMessage(message: unknown): message is WaveformRangeRequest {
@@ -87,7 +97,8 @@ export function isRequestWaveformRangeMessage(message: unknown): message is Wave
         typeof m['filePath'] === 'string' && m['filePath'].length > 0 &&
         typeof m['startNorm'] === 'number' &&
         typeof m['endNorm'] === 'number' &&
-        typeof m['points'] === 'number'
+        typeof m['points'] === 'number' &&
+        (m['read'] === undefined || isStageReadLike(m['read']))
     );
 }
 
@@ -104,6 +115,8 @@ export interface TrackDetailRequest {
     /** A lane zoomed up its frequency axis: its spectrogram from the FFT bins in this band, in Hz (R3). Absent for every frequency. */
     lowHz?: number;
     highHz?: number;
+    /** A plot's readout (R7): only the real cells it reads (full_read.py), never the lane's averaged ones. */
+    read?: StageRead;
 }
 
 export function isRequestTrackDetailMessage(message: unknown): message is TrackDetailRequest {
@@ -121,7 +134,8 @@ export function isRequestTrackDetailMessage(message: unknown): message is TrackD
         (m['startNorm'] === undefined && m['endNorm'] === undefined
             || typeof m['startNorm'] === 'number' && typeof m['endNorm'] === 'number' && m['startNorm'] < m['endNorm']) &&
         (m['lowHz'] === undefined && m['highHz'] === undefined
-            || typeof m['lowHz'] === 'number' && typeof m['highHz'] === 'number' && m['lowHz'] >= 0 && m['lowHz'] < m['highHz'])
+            || typeof m['lowHz'] === 'number' && typeof m['highHz'] === 'number' && m['lowHz'] >= 0 && m['lowHz'] < m['highHz']) &&
+        (m['read'] === undefined || isStageReadLike(m['read']))
     );
 }
 
@@ -137,6 +151,8 @@ export interface SpectrumSliceRequest {
     bandsPerOctave?: SpectrumBandsPerOctave;
     /** Every FFT bin (the CSV export) instead of a row cut for display. */
     fullResolution?: true;
+    /** For a plot's readout (R7): every bin of a slice drawn cut for display; it neither cancels nor is cancelled by the cursor's own. */
+    read?: true;
 }
 
 export type SpectrumBandsPerOctave = 1 | 3;
@@ -155,7 +171,8 @@ export function isRequestSpectrumSliceMessage(message: unknown): message is Spec
         typeof m['filePath'] === 'string' && m['filePath'].length > 0 &&
         typeof m['cursorNorm'] === 'number' &&
         (m['bandsPerOctave'] === undefined || m['bandsPerOctave'] === 1 || m['bandsPerOctave'] === 3) &&
-        (m['fullResolution'] === undefined || m['fullResolution'] === true)
+        (m['fullResolution'] === undefined || m['fullResolution'] === true) &&
+        (m['read'] === undefined || m['read'] === true)
     );
 }
 

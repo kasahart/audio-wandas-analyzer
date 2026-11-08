@@ -21,6 +21,8 @@ export interface StageSource {
     result(spec: StageSpec, filePath: string): ScanResult | undefined;
     /** Drops a file's picture for `spec`, so it is asked for again (its kept values are gone from the backend). */
     forget(spec: StageSpec, filePath: string): void;
+    /** Drops every picture whose values the backend kept under one of `keys` and has let go (`missing`). */
+    forgetData(keys: readonly string[]): void;
     /** Takes the host's answers to this source's requests; false for anything else. */
     handle(message: { type: string }): boolean;
 }
@@ -56,6 +58,11 @@ export function createStageSource(prefix: string, post: (message: CompareScanMes
         },
         result: (spec, filePath) => cache.get(spec.key)?.get(filePath),
         forget(spec, filePath) { cache.get(spec.key)?.delete(filePath); },
+        forgetData(keys) {
+            for (const results of cache.values()) {
+                for (const [path, result] of results) if (result.ok && result.stage?.data && keys.includes(result.stage.data)) results.delete(path);
+            }
+        },
         view(spec, filePath) {
             const result = cache.get(spec.key)?.get(filePath);
             return result === undefined ? undefined : result.ok ? result.stage ?? null : null;

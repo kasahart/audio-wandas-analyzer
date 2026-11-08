@@ -303,7 +303,8 @@ function paintOverlayFigure(canvas: HTMLCanvasElement, comparison: CompareModel,
     paintOverlay(canvas, {
         layers: [...(base ? [{ view: base, color: ROLE_COLORS[0], width: 2 }] : []), ...(compare ? [{ view: compare, color, width: 2 }] : [])],
     }, stageRange([base, compare]), { x: axes.x, y: axes.y }, {
-        size,
+        // A figure on paper: no pointer reads it, so it reads no number (R7).
+        size, readout: false,
         labels: {
             title,
             legend: [
@@ -329,7 +330,7 @@ function paintDeltaFigure(canvas: HTMLCanvasElement, comparison: CompareModel, t
     const { view, range, binned } = deltaFigure(comparison);
     const axes = paneAxes(strings, input.results.get(comparison.compare?.filePaths[0] ?? '')?.input).delta;
     paintOverlay(canvas, { layers: view ? [{ view, color: DIFF_COLOR, width: 1.5 }] : [] }, range, { x: axes.x, y: axes.y }, {
-        size, diff: true,
+        size, diff: true, readout: false,
         labels: { title, legend: [...(binned ? [{ color: DIFF_COLOR, text: curve }] : []), { color: DIFF_COLOR, text: strings.reportStepsLegend }] },
         bandSteps: { deltas: comparison.bandDeltas, headline: comparison.topBands.map(item => item.band), color: DIFF_COLOR, legend: axes.legend },
     });

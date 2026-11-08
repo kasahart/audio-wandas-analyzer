@@ -4,6 +4,7 @@ import {
     buildSelectionPreviewHtml,
 } from '../../tools/comparisonPreview';
 import { getStrings } from '../../shared/i18n/strings';
+import { UI_SMOKE_READS } from './fullReadStandIn';
 
 function buildVsCodeApiStub(nonce: string): string {
     return `<script nonce="${nonce}">
@@ -44,7 +45,17 @@ window.addEventListener('message', function(event) {
     if (bins) stage.levelBins = bins;
     window.__uiSmokeStageData[key] = stage;
 }, true);
+${UI_SMOKE_READS}
 function uiSmokeCombine(message) {
+    const combined = uiSmokeCombined(message);
+    if (!message.read || !combined.ok) return combined;
+    // A readout's read (R7): the points of the picture it reads, around the place asked for.
+    const read = message.read;
+    const view = read.of === 'diff' ? combined.diff : message.base.length > 1 ? combined.base : window.__uiSmokeStageData[message.base[0]];
+    const points = uiSmokeReadPoints(view, read);
+    return points ? { ok: true, points: points } : { ok: true };
+}
+function uiSmokeCombined(message) {
     const views = message.base.map(function(key) { return window.__uiSmokeStageData[key]; });
     const compare = message.compare ? window.__uiSmokeStageData[message.compare] : null;
     if (views.some(function(view) { return !view; }) || (message.compare && !compare)) {
@@ -80,6 +91,8 @@ window.acquireVsCodeApi = function() {
     return {
         postMessage(message) {
             window.__uiSmokePostedMessages.push(message);
+            const read = uiSmokeReadAnswer(message);
+            if (read) { window.setTimeout(function() { window.postMessage(read, '*'); }, 0); return; }
             if (message && message.type === 'compare-combine' && !window.__uiSmokeHoldCombine) {
                 const answer = uiSmokeCombine(message);
                 window.setTimeout(function() { window.postMessage({ type: 'compare-combine-result', requestId: message.requestId, result: answer }, '*'); }, 0);
@@ -117,6 +130,7 @@ function buildExtensionHostApiStub(nonce: string, responseDelayMs: number): stri
 window.__uiSmokePostedMessages = [];
 window.__uiSmokeState = {};
 window.__AWA_TEST_HOOKS__ = true;
+${UI_SMOKE_READS}
 window.__uiSmokeHostMetrics = {
     requests: [],
     responses: [],
@@ -241,6 +255,13 @@ window.acquireVsCodeApi = function() {
     return {
         postMessage(message) {
             window.__uiSmokePostedMessages.push(message);
+            const read = uiSmokeReadAnswer(message);
+            if (read) { window.setTimeout(function() { window.postMessage(read, '*'); }, ${responseDelayMs}); return; }
+            // A readout's read of a slice at every bin (R7) is answered beside the cursor spectrum's own requests.
+            if (message && message.type === 'request-spectrum-slice' && message.read) {
+                window.setTimeout(function() { window.postMessage(uiSmokeSpectrumResponse(message), '*'); }, ${responseDelayMs});
+                return;
+            }
             if (message && message.type === 'request-pair-spectrum') {
                 window.setTimeout(function() { window.postMessage(uiSmokePairResponse(message), '*'); }, ${responseDelayMs});
                 return;

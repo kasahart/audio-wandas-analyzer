@@ -182,7 +182,7 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
         });
         // The value axis below them, drawn by the same component: its numbers and name; what a bar's height counts beside it.
         axisCanvas.style.width = `${width}px`;
-        paintOverlay(axisCanvas, { layers: [{ view: axisView, color: '' }] }, { min: 0, max: 1 }, { x: axisLabel, y: strings.dsDistCountAxis.replace('{unit}', unit) },
+        paintOverlay(axisCanvas, { layers: [{ view: axisView, color: '', full: 'drawn' }] }, { min: 0, max: 1 }, { x: axisLabel, y: strings.dsDistCountAxis.replace('{unit}', unit) },
             { window: zoom, margins: { left: DIST_MARGINS.left, right: DIST_MARGINS.right, top: 0, bottom: 19 }, yAxisLabels: false });
         countAxis.textContent = strip ? '' : strings.dsDistCountAxis.replace('{unit}', unit);
         if (strip && scrollToSlot) {
@@ -254,7 +254,7 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
             document.getElementById('hint-footer')?.replaceChildren(`${strings.dsDistDrag} · ${strings.compareHintPlot}`);
         },
         clearHover() { marks.hide(); },
-        stepFrom: (plot, delta) => marks.stepFrom(plot, plots.get(plot) ?? null, delta),
+        stepFrom: (plot, delta, arrived) => marks.stepFrom(plot, plots.get(plot) ?? null, delta, arrived),
         showBox(plot, from, to) {
             const rect = plot.getBoundingClientRect(), outer = screen.getBoundingClientRect();
             const [x0, x1] = [Math.min(from.fx, to.fx), Math.max(from.fx, to.fx)];

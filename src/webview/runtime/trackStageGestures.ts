@@ -82,13 +82,25 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
         const rect = plot.getBoundingClientRect();
         return { left: rect.left + STAGE_MARGINS.left, top: rect.top + STAGE_MARGINS.top, width: Math.max(1, rect.width - STAGE_MARGINS.left - STAGE_MARGINS.right), height: Math.max(1, rect.height - STAGE_MARGINS.top - STAGE_MARGINS.bottom) };
     };
-    /** The trigger's event whose line is under the pointer (within a few pixels), if any. */
-    const eventAt = (plot: HTMLElement, clientX: number, clientY: number): { id: number; source: string; out: boolean } | null => {
+    /**
+     * The trigger's event whose line is under the pointer (within a few pixels), if any. Read from the events' full
+     * data (R7): none while it is fetched (`ready` is called once it is in).
+     */
+    const eventAt = (plot: HTMLElement, clientX: number, clientY: number, ready?: () => void): { id: number; source: string; out: boolean } | null => {
         const drawn = drawnOn.get(plot);
         if (!drawn?.plot || !plot.isConnected) return null;
         const rect = plot.getBoundingClientRect();
-        const hit = stageHover(drawn.plot, clientX - rect.left, clientY - rect.top);
-        return hit?.layer.event && Math.abs(hit.y - (clientY - rect.top)) <= EVENT_PICK_PX ? hit.layer.event : null;
+        const hit = stageHover(drawn.plot, clientX - rect.left, clientY - rect.top, ready);
+        return hit && !hit.pending && hit.layer.event && Math.abs(hit.y - (clientY - rect.top)) <= EVENT_PICK_PX ? hit.layer.event : null;
+    };
+    /** On an event's line the pointer says it can be clicked; said again once the line's full data is in. */
+    const hintAt = (plot: HTMLElement, clientX: number, clientY: number, late = false): void => {
+        const again = (): void => { if (hovered && hovered.plot === plot && hovered.clientX === clientX && hovered.clientY === clientY) hintAt(plot, clientX, clientY, true); };
+        const line = deps.toggleEvent ? eventAt(plot, clientX, clientY, again) : null;
+        // Once the data is in, only a line found says so: a message written meanwhile (a key's) is not covered by the plot's hint.
+        if (late && !line) return;
+        plot.style.cursor = line ? 'pointer' : '';
+        deps.hint(line ? (line.out ? strings.stageEventClickIn : strings.stageEventClickOut) : strings.compareHintPlot);
     };
     /** Where the pointer is over a plot, so its marks follow a plot drawn anew under a still pointer. */
     let hovered: { plot: HTMLElement; clientX: number; clientY: number } | null = null;
@@ -115,17 +127,14 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
             if (!hit && (event.target as Element | null)?.closest?.('.track-canvas, [data-stage-canvas]')) return;
             const drawn = hit ? drawnOn.get(hit.plot) : undefined;
             if (!hit || hit.axis || !drawn) { hovered = null; hideHover(); if (hit) deps.hint(strings.compareHintAxis); return; }
-            const line = deps.toggleEvent ? eventAt(hit.plot, event.clientX, event.clientY) : null;
-            // On an event's line the pointer says it can be clicked.
-            hit.plot.style.cursor = line ? 'pointer' : '';
-            deps.hint(line ? (line.out ? strings.stageEventClickIn : strings.stageEventClickOut) : strings.compareHintPlot);
             hovered = { plot: hit.plot, clientX: event.clientX, clientY: event.clientY };
+            hintAt(hit.plot, event.clientX, event.clientY);
             showHover();
         },
         clearHover() { hovered = null; hideHover(); },
-        stepFrom(plot, delta) {
+        stepFrom(plot, delta, arrived) {
             const drawn = drawnOn.get(plot)?.plot;
-            return state.on && drawn && deps.painted() ? marks.stepFrom(plot, drawn, delta) : null;
+            return state.on && drawn && deps.painted() ? marks.stepFrom(plot, drawn, delta, arrived) : null;
         },
         showBox(plot, from, to) {
             const rect = plotBox(plot);

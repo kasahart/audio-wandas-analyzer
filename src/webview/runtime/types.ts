@@ -1,3 +1,4 @@
+import type { FullSource } from './fullRead';
 import type { UiStrings } from '../../shared/i18n/strings';
 import type {
     AnalysisResultWithError,
@@ -230,6 +231,8 @@ export interface SpectrumSeries {
     index: number;
     channelIndex: number;
     label: string;
+    /** A slice cut for display: where its every bin is read (R7, laneReads.slice). */
+    full?: FullSource;
 }
 
 export interface WaveformDrawOptions {

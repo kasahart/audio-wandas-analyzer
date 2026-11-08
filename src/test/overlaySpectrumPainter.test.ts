@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { frequencyFraction, type CanvasDrawCtx } from '../webview/draw/canvasDrawers';
 import { paintOverlaySpectrum, renderSpectrumAxisLegend, spectrumLayer, SECONDARY_AXIS_DASH, SECONDARY_AXIS_MARK } from '../webview/runtime/overlaySpectrumPainter';
-import { stageHover, stageNeighbour, type StagePlot } from '../webview/runtime/stagePanes';
+import { stageHover, stageStep, type StagePlot } from '../webview/runtime/stagePanes';
 import { SpectrumView } from '../webview/runtime/spectrumView';
 import { OVERLAY_SPECTRUM_PAD, overlayLevelAxes, spectrumReadoutText, type SpectrumViewState } from '../webview/runtime/spectrumRuntime';
 import type { SpectrumSeries } from '../webview/runtime/types';
@@ -75,10 +75,36 @@ test('an arrow key reads the next bin the cursor spectrum drew, from the one the
     let read = stageHover(plot, plot.xAt(binHz(tone)), plot.yAt(0));
     assert.equal(read?.text, spectrumReadoutText('A', slice, binHz(tone), 0));
     for (const [delta, bin] of [[1, tone + 1], [1, tone + 2], [-1, tone + 1], [-1, tone], [-1, tone - 1]] as const) {
-        const next = read ? stageNeighbour(plot, read, delta) : null;
-        assert.ok(next);
-        read = stageHover(plot, next.x, next.y);
+        read = read ? stageStep(plot, read, delta) ?? null : null;
         assert.equal(read?.text, spectrumReadoutText('A', slice, binHz(bin), values[bin]), `${delta} to bin ${bin}`);
+    }
+});
+
+test('a slice too dense to draw whole is read at its real bins: a bin thinned out of the line, and every bin by the arrow keys (R7)', () => {
+    const bins = 8193;
+    const values = Array.from({ length: bins }, (_, bin) => -50 + 20 * Math.sin(bin * 1.37) * Math.cos(bin * 0.11));
+    const slice = { values, frequencyBins: bins, maxFrequencyHz: 24000, minDb: -100, maxDb: 0, unit: 'dB' };
+    const binHz = (bin: number) => bin * 24000 / (bins - 1);
+    const { ctx } = recordingCtx();
+    const plot = plotOf(paintOverlaySpectrum(canvasOf(ctx), 356, 200, [{ ...series[0], slice }], fullView));
+    const drawn = new Set(plot.lines[0].view.xs);
+    assert.ok(drawn.size < bins / 4, 'the line is thinned to be drawn');
+    // A bin the line does not draw, under the pointer: its own frequency and level are read.
+    let bin = 4000;
+    while (drawn.has(binHz(bin))) bin++;
+    let read = stageHover(plot, plot.xAt(binHz(bin)), plot.yAt(values[bin]));
+    assert.equal(read?.full, true);
+    assert.equal(read?.at, binHz(bin));
+    assert.equal(read?.value, values[bin]);
+    assert.equal(read?.text, spectrumReadoutText('A', slice, binHz(bin), values[bin]));
+    // ← / → visit every bin in turn, however many share a pixel.
+    for (const delta of [1, -1] as const) {
+        for (let step = 1; step <= 40; step++) {
+            read = read ? stageStep(plot, read, delta) ?? null : null;
+            bin += delta;
+            assert.equal(read?.at, binHz(bin), `step ${step} (${delta})`);
+            assert.equal(read?.value, values[bin]);
+        }
     }
 });
 
