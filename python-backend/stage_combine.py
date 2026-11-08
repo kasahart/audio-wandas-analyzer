@@ -721,7 +721,6 @@ def difference_peak(data: StageData, values: np.ndarray, detail: StageDetail | N
         if data.rate > 0:
             signal_peak["xStep"] = 1 / data.rate
         return signal_peak
-    shown = _shown(data, values, True)
     if data.mode in ("spectrogram", "roughness", "cepstrogram"):
         ys = data.ys if data.ys is not None else np.empty(0)
         columns = np.ones(data.xs.size, dtype=bool) if bounds is None else sv._inside(data.xs, bounds)
@@ -739,13 +738,27 @@ def difference_peak(data: StageData, values: np.ndarray, detail: StageDetail | N
             rows = sv._inside(ys, rows_bounds) if rows_bounds is not None else np.ones(ys.size, dtype=bool)
             if data.mode == "cepstrogram":
                 rows &= ys > 0
-        plane = np.where(rows[:, np.newaxis] & columns[np.newaxis, :], np.abs(shown), np.nan)
-        if not np.any(np.isfinite(plane)):
+        # Only the part on screen is copied (rounded as drawn), never the whole plane.
+        row_at, column_at = np.flatnonzero(rows), np.flatnonzero(columns)
+        if not row_at.size or not column_at.size:
             return None
-        row, column = np.unravel_index(int(np.nanargmax(plane)), plane.shape)
-        peak: StagePeak = {"x": float(data.xs[column]), "y": float(ys[row]), "value": float(shown[row, column])}
+        # Searched a block of columns at a time: never a copy of the whole part on screen, let alone the plane.
+        plane = np.asarray(values)
+        best, row, column = -1.0, -1, -1
+        for start in range(0, column_at.size, 256):
+            block = np.abs(plane[np.ix_(row_at, column_at[start : start + 256])], dtype=np.float64)
+            np.nan_to_num(block, copy=False, nan=-1.0, posinf=-1.0, neginf=-1.0)
+            at = int(np.argmax(block))
+            if block.flat[at] > best:
+                best = float(block.flat[at])
+                row, column = int(row_at[at // block.shape[1]]), int(column_at[start + at % block.shape[1]])
+        if best < 0:
+            return None
+        value = float(_shown(data, np.asarray(values)[row : row + 1, column : column + 1], True)[0, 0])
+        peak: StagePeak = {"x": float(data.xs[column]), "y": float(ys[row]), "value": value}
         x_step, y_step = _step_at(data.xs, int(column)), _step_at(ys, int(row))
     else:
+        shown = _shown(data, values, True)
         xs = data.xs
         keep = np.ones(xs.size, dtype=bool) if bounds is None else sv._inside(xs, bounds)
         if data.mode in ("spectrum", "coherence"):

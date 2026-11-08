@@ -484,3 +484,30 @@ def test_a_time_signals_headline_is_its_largest_sample_difference_at_that_sample
 
 def _f64(values: object) -> np.ndarray:
     return np.asarray(values, dtype=np.float64)
+
+
+def test_an_images_headline_copies_only_the_part_on_screen() -> None:
+    """A long spectrogram's Δ headline, whole or zoomed, takes no more than one copy of the part on screen beyond
+    the difference itself: never the whole plane again and again."""
+    rows, columns = 513, 8000
+    view = {"frame": "SpectrogramFrame", "kind": "heatmap", "x": "time", "xScale": "linear", "quantity": "level"}
+    rng = np.random.default_rng(3)
+    plane = rng.standard_normal((rows, columns))
+    data = StageData(
+        "spectrogram",
+        view,  # type: ignore[arg-type]
+        np.arange(columns) * 0.01,
+        plane,
+        np.linspace(0, 8000, rows),
+        np.ones(columns, dtype=bool),
+        nyquist=8000.0,
+    )
+    plane[200, 4321] = 99.0
+    for detail in (None, {"x": [40.0, 42.0], "points": 400}):
+        tracemalloc.start()
+        peak = difference_peak(data, plane, detail)  # type: ignore[arg-type]
+        used = tracemalloc.get_traced_memory()[1]
+        tracemalloc.stop()
+        assert peak is not None
+        assert used < plane.nbytes * 0.1, f"{used / plane.nbytes:.2f} planes"
+    assert difference_peak(data, plane)["x"] == pytest.approx(43.21)  # type: ignore[index]
