@@ -14,7 +14,6 @@ import wandas as wd
 
 from analysis_engine import AnalysisEngine, CachedAnalysis
 from analyzer import (
-    SPECTROGRAM_FREQUENCY_BIN_LIMIT,
     AnalysisResult,
     ChannelSummary,
     StftOptions,
@@ -397,7 +396,9 @@ class AnalysisService:
         x = self._pair_source(reference)
         sources = [self._pair_source(response) for response in responses]
         n_fft, hop_length, window = pair_stft_params(x.frame.n_samples, stft_options)
-        bins = _display_bins(n_fft // 2 + 1)
+        # Every bin, at its own frequency: a narrow resonance, notch or coherence dip stays; the plot thins the
+        # line to each pixel column's lowest and highest bin when it draws it, and a zoom shows every bin (R1-R3).
+        bins = np.arange(n_fft // 2 + 1)
         replies: list[PairSpectrumResponse] = []
         for y in sources:
             key = (
@@ -635,12 +636,6 @@ def pair_stft_params(sample_count: int, stft_options: Mapping[str, object] | Non
     n_fft, hop_length, window = resolve_stft_params(sample_count, stft_options)
     # Auto mode picks its hop for the spectrogram's time bins; Welch averaging wants the usual half overlap.
     return (n_fft, n_fft // 2, window) if stft_options is None else (n_fft, hop_length, window)
-
-
-def _display_bins(bin_count: int) -> np.ndarray:
-    # Pick representative bins instead of averaging so wrapped phase never averages across ±π.
-    count = min(bin_count, SPECTROGRAM_FREQUENCY_BIN_LIMIT)
-    return np.round(np.linspace(0, bin_count - 1, count)).astype(int)
 
 
 def _finite_values(row: np.ndarray) -> list[float | None]:
