@@ -31,6 +31,8 @@ export interface TriggerLanesFrame {
     tracks: readonly StageTrack[];
     /** A recording as the trigger takes it, and its events (the trigger's picture). */
     signal: (path: string) => StageView | null | undefined;
+    /** The part of it on screen at full resolution once zoomed and in (R3); the whole signal until then. */
+    detail?: (path: string) => StageView | null | undefined;
     events: (path: string) => NonNullable<StageView['events']> | undefined;
     excluded: (path: string) => readonly number[];
     color: (path: string) => string;
@@ -67,7 +69,11 @@ export function paintTriggerLanes(frame: TriggerLanesFrame): number {
             spans: events.filter(event => !out.has(event.id)).map(event => ({ start: event.time - trigger.pre, end: event.time - trigger.pre + trigger.duration })),
             level: { value: trigger.threshold, label: strings.stageThreshold.replace('{value}', String(trigger.threshold)).replace('{unit}', view.unit ?? '').trim() },
         } : undefined;
-        const plot = paintOverlay(canvas, { layers: view ? [{ view, color: frame.color(track.filePath), width: 1.5 }] : [] }, range, axes, { window: { x: frame.window.x }, ...(view ? { axisView: view, guides } : {}) });
+        // The lanes' own zoom (their time is the recording's): the vertical part narrows the level range.
+        const { x, y } = frame.window;
+        const narrowed: PaneRange = { min: range.min + y.start * (range.max - range.min), max: range.min + y.end * (range.max - range.min) };
+        const drawnView = (view && frame.detail?.(track.filePath)) || view;
+        const plot = paintOverlay(canvas, { layers: drawnView ? [{ view: drawnView, color: frame.color(track.filePath), width: 1.5 }] : [] }, narrowed, axes, { window: { x }, ...(view ? { axisView: view, guides } : {}) });
         frame.drawnOn.set(canvas, { picture: view, range, axes, plot });
         const marks = marksOf(canvas);
         if (!view || !plot || !marks) { if (marks) { marks.innerHTML = ''; delete marks.dataset.html; } return; }

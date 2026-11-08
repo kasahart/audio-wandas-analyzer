@@ -105,11 +105,11 @@ test('a picture is summed up by its points with a level and their median', () =>
 
 test('opening the mode keeps the step shown last, the region and the base groups allowed, and forgets the rest', () => {
     const state = initialStageState();
-    Object.assign(state, { stage: 'x', compared: 3, held: 2, groupBase: true, heldStep: hpf, window: { x: { start: 0.2, end: 0.4 }, y: { start: 0, end: 1 } }, overlaid: false, pendingRegion: { start: 0, end: 1 }, regionSet: { start: 1, end: 2 }, showDiff: true });
+    Object.assign(state, { stage: 'x', compared: 3, held: 2, groupBase: true, heldStep: hpf, window: { x: { start: 0.2, end: 0.4 }, y: { start: 0, end: 1 } }, diffY: { start: 0.3, end: 0.6 }, lanesWindow: { x: { start: 0.1, end: 0.2 }, y: { start: 0.4, end: 0.5 } }, overlaid: false, pendingRegion: { start: 0, end: 1 }, regionSet: { start: 1, end: 2 }, showDiff: true });
     state.baseAllowed.add('k');
     openStageState(state, welch.id);
     assert.deepEqual({ ...state, baseAllowed: [...state.baseAllowed] }, {
-        on: false, stage: welch.id, opened: true, overlaid: true, showDiff: true, window: FULL_PLOT_WINDOW, compared: 1, held: null, groupBase: false,
+        on: false, stage: welch.id, opened: true, overlaid: true, showDiff: true, window: FULL_PLOT_WINDOW, diffY: FULL_PLOT_WINDOW.y, lanesWindow: FULL_PLOT_WINDOW, compared: 1, held: null, groupBase: false,
         regionSet: { start: 1, end: 2 }, pendingRegion: null, heldStep: null, baseAllowed: ['k'], gateKey: null,
     });
     openStageState(state, undefined);

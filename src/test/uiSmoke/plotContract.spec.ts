@@ -160,6 +160,70 @@ test('a trigger\'s events plot and the lanes under it answer the same gestures a
     await expectContract(page, 'trigger lane', page.locator('.track-canvas[data-plot]').first());
 });
 
+/** A box dragged over the middle of the plot, from 30 % to 70 % across and up: a zoom into it. */
+async function boxZoom(page: Page, plot: Locator): Promise<void> {
+    const box = (await plot.boundingBox())!;
+    await page.mouse.move(box.x + box.width * 0.4, box.y + box.height * 0.3);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.5, { steps: 4 });
+    await page.mouse.move(box.x + box.width * 0.75, box.y + box.height * 0.7, { steps: 4 });
+    await page.mouse.up();
+    await page.mouse.move(1, 1);
+}
+
+test('the Δ pane zooms its own level axis, sharing only the frequency axis with the overlay above it', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await openComparison(page, scanned!);
+    await page.locator('[data-action="stage-diff"]').click();
+    const root = page.locator('.track-stage');
+    const diff = page.locator('[data-stage-canvas="diff"]');
+    await expect(diff).toBeVisible();
+    await boxZoom(page, diff);
+    await expect(root).not.toHaveAttribute('data-diff-y-window', '0.000-1.000');
+    await expect(root).not.toHaveAttribute('data-x-window', '0.000-1.000');
+    // The overlay keeps its own level axis whole.
+    await expect(root).toHaveAttribute('data-y-window', '0.000-1.000');
+    // And a box on the overlay leaves the Δ's level axis where it was.
+    const diffY = await root.getAttribute('data-diff-y-window');
+    await boxZoom(page, page.locator('[data-stage-canvas="overlay"]'));
+    await expect(root).not.toHaveAttribute('data-y-window', '0.000-1.000');
+    await expect(root).toHaveAttribute('data-diff-y-window', diffY!);
+});
+
+test('the lanes under a trigger zoom on their own (the recording\'s time, not the trigger\'s) and draw the signal at full resolution once zoomed', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    await page.setViewportSize({ width: 1280, height: 1100 });
+    await openComparison(page, scanned!);
+    const bar = page.locator('.track-stage-bar');
+    await bar.locator('.step-chip', { hasText: getStrings('en').stepAverage }).locator('[data-action="step-delete"]').click();
+    await bar.locator('[data-action="step-add"]').click();
+    await bar.locator('[data-step-menu-filter]').fill('trigger');
+    await bar.locator('.step-menu-item[data-op="wandas.audio.trigger"]').click();
+    await expect.poll(async () => (await stageScans(page)).at(-1)?.recipe?.nodes.at(-1)?.operation.split('.').pop()).toBe('trigger');
+    const event = (id: number, peak: number): Record<string, unknown> => ({ id, time: 0.3 + id * 0.5, values: [0, peak, -peak / 2, 0] });
+    await answer(page, scanned!, { frame: 'ChannelFrameSegments', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', unit: 'FS', xs: [-0.01, 0, 0.05, 0.19], events: [event(0, 0.5), event(1, 0.4)] });
+    await expect.poll(async () => (await stageScans(page)).at(-1)?.stage).toBe('node-1');
+    const signal = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', unit: 'FS', xs: [0, 0.75, 1.5], values: [-0.5, 0.5, -0.5],
+        waveform: { min: [-0.5, -0.4, -0.3], max: [0.5, 0.4, 0.3], minT: [0.2, 0.7, 1.1], maxT: [0.3, 0.8, 1.2], absolutePeak: 0.5, unit: 'FS', ref: 1 } };
+    await answer(page, scanned!, signal);
+    const root = page.locator('.track-stage');
+    await expect.poll(async () => Number(await root.getAttribute('data-lanes-marked'))).toBeGreaterThan(0);
+    const asked = (await stageScans(page)).length;
+    await boxZoom(page, page.locator('.track-canvas[data-plot]').first());
+    await expect(root).not.toHaveAttribute('data-lanes-window', '0.000-1.000 0.000-1.000');
+    // The events plot above keeps its own window.
+    await expect(root).toHaveAttribute('data-x-window', '0.000-1.000');
+    await expect(root).toHaveAttribute('data-y-window', '0.000-1.000');
+    // Once the zoom settles, the signal's step is asked for again over the part on screen.
+    await expect.poll(async () => (await stageScans(page)).slice(asked).some(message => message.stage === 'node-1' && !!(message as { detail?: unknown }).detail)).toBe(true);
+    // A box on the events plot leaves the lanes' zoom where it was.
+    const lanes = await root.getAttribute('data-lanes-window');
+    await boxZoom(page, page.locator('[data-stage-canvas="overlay"]'));
+    await expect(root).not.toHaveAttribute('data-x-window', '0.000-1.000');
+    await expect(root).toHaveAttribute('data-lanes-window', lanes!);
+});
+
 test('the entry\'s held plot answers the same gestures as every plot (R13)', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     await page.setViewportSize({ width: 1280, height: 900 });

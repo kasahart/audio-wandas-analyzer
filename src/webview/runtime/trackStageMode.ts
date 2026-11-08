@@ -23,7 +23,7 @@ import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { createStepBar, invalidReason, stepChipLabel, stepLimits, INPUT_STAGE } from './stepBar';
 import { createStageSource, type StageSpec } from './stageSource';
 import { createCombineSource, NOTHING_COMBINED, type Combined } from './combineSource';
-import { chosenStage, combineRequest, comparedPath as comparedPathOf, eachBaseTitle, enterStageState, holdStageSpec, initialStageState, liveRegion as liveRegionOf, openStageState, pictureSummary, plotsOf, regionStageSpec, stageSpec } from './trackStageModel';
+import { chosenStage, combineRequest, comparedPath as comparedPathOf, eachBaseTitle, enterStageState, holdStageSpec, initialStageState, liveRegion as liveRegionOf, openStageState, pictureSummary, plotsOf, regionStageSpec, stageSpec, WHOLE_ZOOM } from './trackStageModel';
 import { createDetailPlanner, onOneRange } from './stageDetail';
 import { attachStageGestures, type StageGestures } from './trackStageGestures';
 import { colorOf, overlayLayers, overlayLegendItems, paintBaseGate, paintNoPicture, paintNoStage, paintStageControls, paintStageLanes, paintStageOverlay, stageDom, stageModeHeadline, writeStageLegend, type Drawn, type StageFrame, type StageTrack } from './trackStagePainter';
@@ -174,14 +174,14 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         document, strings, mode: 'compare',
         onChange: recipe => deps.recipeChanged(recipe),
         notify: text => deps.notify?.(text),
-        onStepSelect: step => { state.stage = step.id; state.window = FULL_PLOT_WINDOW; deps.rerender(); },
+        onStepSelect: step => { state.stage = step.id; Object.assign(state, WHOLE_ZOOM); deps.rerender(); },
         // A step added or moved is shown at once: its result is what the user wants to see next.
-        onStepShown: id => { state.stage = id; state.window = FULL_PLOT_WINDOW; deps.rerender(); },
+        onStepShown: id => { state.stage = id; Object.assign(state, WHOLE_ZOOM); deps.rerender(); },
         // Holding a step shows the picture on screen without it (the step before it, when it is the one on screen).
         canHold: step => !!holdSpec(step),
         onStepHold: step => { state.heldStep = step; deps.rerender(); },
-        onRegionSet: next => { state.regionSet = next; state.window = FULL_PLOT_WINDOW; deps.rerender(); },
-        onInputSelect: () => { state.stage = INPUT_STAGE; state.window = FULL_PLOT_WINDOW; deps.rerender(); },
+        onRegionSet: next => { state.regionSet = next; Object.assign(state, WHOLE_ZOOM); deps.rerender(); },
+        onInputSelect: () => { state.stage = INPUT_STAGE; Object.assign(state, WHOLE_ZOOM); deps.rerender(); },
         presets: true,
     });
     stepBar.element.classList.add('track-stage-bar');
@@ -590,11 +590,21 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             if (!run || !dropsKey(drops)) return own;
             return { key: `${own.key}|drop|${dropsKey(drops)}`, message: { ...own.message, recipe: withDroppedEvents(run, drops) } };
         };
+        // Zoomed, each lane under the trigger draws its signal's detail over the part on screen (R3): the one the
+        // zoom asked for once in, else one already in that covers it, else the whole signal.
+        const laneDetail = new Map<string, StageSpec[]>();
         if (marked && !waiting) {
             const asked = new Map<string, { wanted: StageSpec; paths: string[] }>();
+            const laneWidth = tracks.find(track => track.canvas)?.canvas?.clientWidth || 600;
             for (const path of ownOf(files)) {
                 const wanted = signalSpec(path);
-                if (wanted) asked.set(wanted.key, { wanted, paths: [...(asked.get(wanted.key)?.paths ?? []), path] });
+                if (!wanted) continue;
+                asked.set(wanted.key, { wanted, paths: [...(asked.get(wanted.key)?.paths ?? []), path] });
+                const whole = source.view(wanted, path);
+                if (!whole || whole.kind !== 'line') continue;
+                const finer = detail.spec(wanted, whole, state.lanesWindow.x, null, laneWidth);
+                laneDetail.set(path, [finer, ...detail.drawn(wanted, whole, state.lanesWindow.x)].filter((item): item is StageSpec => !!item));
+                if (finer) asked.set(finer.key, { wanted: finer, paths: [...(asked.get(finer.key)?.paths ?? []), path] });
             }
             for (const { wanted, paths } of asked.values()) want(wanted, paths);
         }
@@ -634,7 +644,12 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         // A trigger's events over the tracks: the plot keeps its height above them rather than spill over them.
         root.dataset.marked = String(marked);
         // The zoom, for tests: "start–end" of the horizontal axis.
-        root.dataset.xWindow = `${state.window.x.start.toFixed(3)}-${state.window.x.end.toFixed(3)}`;
+        const span = (range: { start: number; end: number }): string => `${range.start.toFixed(3)}-${range.end.toFixed(3)}`;
+        root.dataset.xWindow = span(state.window.x);
+        // Each plot's own vertical zoom, and the lanes' own zoom under a trigger, for tests.
+        root.dataset.yWindow = span(state.window.y);
+        root.dataset.diffYWindow = span(state.diffY);
+        root.dataset.lanesWindow = `${span(state.lanesWindow.x)} ${span(state.lanesWindow.y)}`;
         painted = true;
         paintBaseGate(dom, strings, { gated, count: allBase.length, ms: cost.ms });
         // A base group's median and the compared file's difference, taken by the backend from the Frames' full
@@ -661,7 +676,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         // The events left out of each recording's, on the trigger's picture (and a step after it that keeps them).
         const excluded = (path: string): readonly number[] => (viewTrigger ? excludedOf(recipe.recipe, eventsKey(viewTrigger, path, channelFor(path))) : []);
         channelOf = channelFor;
-        const frame: StageFrame = { strings, tracks, allTracks, referencePath, comparePath, coarse, shown, picture, coarsePlots, window: state.window, regionMark, pending, waiting: waiting || combining, role, named, drawnOn, baseEach: each, excluded, ...(coarseCombined?.tooLarge ? { tooLarge: true } : {}) };
+        const frame: StageFrame = { strings, tracks, allTracks, referencePath, comparePath, coarse, shown, picture, coarsePlots, window: state.window, diffY: state.diffY, regionMark, pending, waiting: waiting || combining, role, named, drawnOn, baseEach: each, excluded, ...(coarseCombined?.tooLarge ? { tooLarge: true } : {}) };
         const bypassed = steps.filter(step => step.bypassed).map(step => stepChipLabel(step, strings, state.regionSet));
         query<HTMLElement>('[data-stage-headline]').textContent = stageModeHeadline(frame, bypassed, region);
         if (!overlay) {
@@ -699,8 +714,9 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             marks = { trigger, events };
             lanesMarked = true;
             const lanesDrawn = paintTriggerLanes({
-                strings, tracks, trigger, excluded, drawnOn, window: state.window, events,
+                strings, tracks, trigger, excluded, drawnOn, window: state.lanesWindow, events,
                 signal: path => { const wanted = signalSpec(path); return wanted ? source.view(wanted, path) : undefined; },
+                detail: path => (laneDetail.get(path) ?? []).map(wanted => source.view(wanted, path)).find(view => !!view),
                 color: path => colorOf(role, path, tracks.find(track => track.filePath === path)?.color ?? ownColor(0)),
                 axes: view => stageAxes(strings, view, tracks.find(track => track.input)?.input),
             });
@@ -762,7 +778,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             };
         },
         attach(surface) {
-            stageGestures = attachStageGestures(surface, root, document, { strings, state, drawnOn, painted: () => painted, moved: () => detail.moved(), rerender: () => deps.rerender(), hint: text => deps.hint(text), toggleEvent });
+            stageGestures = attachStageGestures(surface, root, document, { strings, state, drawnOn, painted: () => painted, moved: () => detail.moved(), rerender: () => deps.rerender(), hint: text => deps.hint(text), lanesApart: () => lanesMarked, toggleEvent });
         },
     };
 }

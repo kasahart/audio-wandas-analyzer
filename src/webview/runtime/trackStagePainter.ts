@@ -112,6 +112,8 @@ export interface StageFrame {
     picture: StageView | null;
     coarsePlots: StagePlots<StageTrack>;
     window: PlotWindow;
+    /** The Δ pane's own vertical zoom (its horizontal one is the window's). */
+    diffY: { start: number; end: number };
     regionMark?: RegionMark;
     pending?: Pending;
     waiting: boolean;
@@ -272,7 +274,8 @@ export function paintStageOverlay(dom: StageDom, frame: StageFrame, plots: Stage
     dom.query<HTMLElement>('[data-stage-diff-headline]').textContent = waiting ? '' : stageHeadline(plots.diff, strings);
     const diffAxes = stageAxes(strings, coarsePlots.diff, tracks[0]?.input, true);
     const diffCanvas = dom.query<HTMLCanvasElement>('[data-stage-canvas="diff"]');
-    const diffPlot = paintStage(diffCanvas, plots.diff, stageDiffRange(coarsePlots.diff), DIFF_COLOR, stageAxes(strings, coarsePlots.diff, tracks[0]?.input, true),
+    const diffRange = stageDiffRange(coarsePlots.diff);
+    const diffPlot = paintStage(diffCanvas, plots.diff, narrowed(diffRange, frame.diffY), DIFF_COLOR, diffAxes,
         { diff: true, empty: waiting ? '' : frame.tooLarge ? strings.stageTooLarge : strings.stageNoDelta, window: { x: window.x }, axisView: coarsePlots.diff, ...(pending ? { pending } : {}) });
-    frame.drawnOn.set(diffCanvas, { picture: coarsePlots.diff, range: stageDiffRange(coarsePlots.diff), axes: diffAxes, plot: diffPlot });
+    frame.drawnOn.set(diffCanvas, { picture: coarsePlots.diff, range: diffRange, axes: diffAxes, plot: diffPlot });
 }
