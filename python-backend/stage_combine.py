@@ -707,7 +707,9 @@ def read_points(base: list[StageData], compare: StageData | None, read: StageRea
     diff = read.get("of") == "diff"
     if not base or (diff and compare is None):
         return None
-    items = [*base, *([compare] if diff and compare is not None else [])]
+    # Aligned with the compared recording whenever there is one, as ``combine`` aligns the picture: a median read
+    # never reaches past the extent its picture was drawn over.
+    items = [*base, *([compare] if compare is not None else [])]
     aligned = items if len(items) == 1 else _aligned(items)
     if aligned is None:
         return None

@@ -162,3 +162,13 @@ def test_a_lane_reads_its_files_own_samples_and_stft_cells(tmp_path: Path) -> No
     # Each cell is one frame and one bin of the STFT the lane is drawn from: a column of the full dB.
     for column in range(matrix.shape[1]):
         assert any(np.allclose(matrix[:, column], db[rows, frame], atol=1e-6) for frame in range(db.shape[1]))
+
+
+def test_a_medians_read_stops_where_its_picture_was_aligned_with_the_compared_one(signal: wd.ChannelFrame) -> None:
+    data = stage_data(signal, dict(stage_view(signal)))
+    assert data is not None
+    half = data.values.size // 2
+    shorter = replace(data, values=data.values[:half])
+    points = read_points([data, data], shorter, {"x": [0.75 * data.values.size / RATE], "beyond": 2, "of": "base"})
+    assert points is not None
+    assert max(points["xs"]) < half / RATE

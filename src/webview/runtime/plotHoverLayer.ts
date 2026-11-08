@@ -149,7 +149,9 @@ export function createPlotHoverLayer(document: Document, className = '', parent:
                 const token = ++stepping;
                 // The next points were not in: the step is taken once they are, where the read was shown.
                 const ready = (): void => {
-                    if (token !== stepping || last?.read !== from.read || layer.hidden) return;
+                    // Still on the point stepped from (a redraw there makes a new read of the same point; a move or a hide does not).
+                    const still = last && last.plot === plot && last.read.layer === from.read.layer && last.read.at === from.read.at && last.read.row === from.read.row && last.read.index === from.read.index;
+                    if (token !== stepping || !still || layer.hidden) return;
                     const next = stageStep(from.on, from.read, delta, ready);
                     const shown = asked;
                     if (!next || !shown) return;

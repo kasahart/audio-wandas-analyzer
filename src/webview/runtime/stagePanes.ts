@@ -1397,25 +1397,35 @@ export function stageStep(plot: StagePlot, read: StageRead, delta: -1 | 1, ready
     }
     const source = fullSourceOf(read.layer);
     if (source && read.full && read.at !== undefined) {
-        const got = source.line?.({ x0: read.at, x1: read.at, beyond: STEP_AHEAD }, ready);
-        if (got === undefined) return undefined;
-        if (!got) return null;
-        // The first full point past the one read, in the key's direction, that has a value to read.
-        const from = read.at;
-        let index = -1;
-        if (delta > 0) index = got.xs.findIndex(x => x > from);
-        else for (let back = got.xs.length - 1; back >= 0 && index < 0; back--) if (got.xs[back] < from) index = back;
-        for (; index >= 0 && index < got.xs.length; index += delta) {
-            const point = fullPoint(plot, read.layer, got, index);
-            if (!point) {
-                // Past the level axis of a clipped signal there is nothing on screen to read.
-                if (read.layer.view.waveform && got.values?.[index] !== null) return null;
-                continue;
+        // The first full point past the one read, in the key's direction, that has a value to read: past a window of
+        // silent points the next window is asked for, until a point, the plot's side or the data's end.
+        let from = read.at;
+        for (let hop = 0; hop < 64; hop++) {
+            const got = source.line?.({ x0: from, x1: from, beyond: STEP_AHEAD }, ready);
+            if (got === undefined) return undefined;
+            if (!got) return null;
+            const at = from;
+            let index = -1;
+            if (delta > 0) index = got.xs.findIndex(x => x > at);
+            else for (let back = got.xs.length - 1; back >= 0 && index < 0; back--) if (got.xs[back] < at) index = back;
+            for (; index >= 0 && index < got.xs.length; index += delta) {
+                const point = fullPoint(plot, read.layer, got, index);
+                if (!point) {
+                    // Past the level axis of a clipped signal there is nothing on screen to read.
+                    if (read.layer.view.waveform && got.values?.[index] !== null) return null;
+                    continue;
+                }
+                // Past the plot's side there is nothing further to read; a value above or below the level axis is read at
+                // the plot's edge, where yAt holds it, as the pointer reads it there.
+                if (point.x < plot.frame.left || point.x > plot.frame.left + plot.frame.width) return null;
+                return lineRead(plot, read.layer, point);
             }
-            // Past the plot's side there is nothing further to read; a value above or below the level axis is read at
-            // the plot's edge, where yAt holds it, as the pointer reads it there.
-            if (point.x < plot.frame.left || point.x > plot.frame.left + plot.frame.width) return null;
-            return lineRead(plot, read.layer, point);
+            const more = delta > 0 ? got.end !== null : got.start !== null;
+            const far = delta > 0 ? got.xs[got.xs.length - 1] : got.xs[0];
+            if (!more || far === undefined || far === from) return null;
+            const x = plot.xAt(far);
+            if (x < plot.frame.left || x > plot.frame.left + plot.frame.width) return null;
+            from = far;
         }
         return null;
     }

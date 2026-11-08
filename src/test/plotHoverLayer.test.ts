@@ -112,6 +112,8 @@ test('a step that waits for its points is taken, once they are in, through the o
     const owner: Array<{ clientX: number; clientY: number }> = [];
     const at = layer.stepFrom(plot, drawn, 1, place => { owner.push(place); layer.show(plot, drawn, place.clientX, place.clientY, slot); });
     assert.deepEqual(at, { clientX: 80, clientY: 75 }, 'meanwhile, the point read');
+    // A redraw at the point read meanwhile (a repaint) does not drop the step.
+    layer.show(plot, drawn, 80, 75, slot);
     held = false;
     (later as (() => void) | null)?.();
     assert.deepEqual(owner, [{ clientX: 90, clientY: 65 }], 'the owner is told where the step went');

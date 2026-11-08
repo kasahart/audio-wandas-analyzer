@@ -250,3 +250,20 @@ test('a cursor spectrum read at its real bins writes its frequency to the digits
     assert.equal(spectrumReadoutValues(slice, 1000, -10)[0], spectrumReadoutValues(slice, 1000.48828125, -10)[0], 'the drawn points\' spacing cannot tell them apart');
     assert.notEqual(spectrumReadoutValues(slice, 1000, -10, 0.48828125)[0], spectrumReadoutValues(slice, 1000.48828125, -10, 0.48828125)[0]);
 });
+
+test('an arrow key crosses silent points past one fetched window to the next point with a value (R7)', () => {
+    // 1000 bins, readable at 0 and 600, silent (−300 dB) between: more than one step's window apart.
+    const xs = Array.from({ length: 1000 }, (_, bin) => bin);
+    const values = xs.map(bin => (bin === 0 || bin === 600 ? -20 : -300));
+    const source = localLine(xs, values);
+    const view: StageView = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', quantity: 'level', unit: 'dB', xs: [0, 999], values: [-20, -300] };
+    const plot: StagePlot = {
+        frame: { left: 0, top: 0, width: 1000, height: 100 }, xAt: value => value, xOf: x => x, yAt: value => -value, levelOf: y => -y,
+        ratioStep: 1.12, diff: false, lines: [{ view, color: 'blue', full: source }],
+    };
+    const first = stageHover(plot, 0, 20);
+    assert.equal(first?.at, 0);
+    const next = first ? stageStep(plot, first, 1) : null;
+    assert.equal(next?.at, 600);
+    assert.equal(next ? stageStep(plot, next, 1) : 'none', null, 'nothing past the last value');
+});

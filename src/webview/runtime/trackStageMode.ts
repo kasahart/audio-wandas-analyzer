@@ -689,7 +689,8 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         const medians = new Set([coarseCombined?.base, fineCombined?.base, shownCombined?.base].filter(Boolean));
         const diffs = new Set([coarseCombined?.diff, fineCombined?.diff, shownCombined?.diff].filter(Boolean));
         const fullOf = (view: StageView | null | undefined): FullRead | undefined => {
-            if (view && asked && medians.has(view)) return reader.combined(asked.base, null, 'base');
+            // Read with the compared recording, which the median was aligned with (stage_combine.read_points).
+            if (view && asked && medians.has(view)) return reader.combined(asked.base, asked.compare ?? null, 'base');
             if (view && asked?.compare && diffs.has(view)) return reader.combined(asked.base, asked.compare, 'diff');
             return reader.of(view);
         };

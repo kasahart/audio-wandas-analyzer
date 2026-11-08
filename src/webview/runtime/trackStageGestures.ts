@@ -94,9 +94,11 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
         return hit && !hit.pending && hit.layer.event && Math.abs(hit.y - (clientY - rect.top)) <= EVENT_PICK_PX ? hit.layer.event : null;
     };
     /** On an event's line the pointer says it can be clicked; said again once the line's full data is in. */
-    const hintAt = (plot: HTMLElement, clientX: number, clientY: number): void => {
-        const again = (): void => { if (hovered && hovered.plot === plot && hovered.clientX === clientX && hovered.clientY === clientY) hintAt(plot, clientX, clientY); };
+    const hintAt = (plot: HTMLElement, clientX: number, clientY: number, late = false): void => {
+        const again = (): void => { if (hovered && hovered.plot === plot && hovered.clientX === clientX && hovered.clientY === clientY) hintAt(plot, clientX, clientY, true); };
         const line = deps.toggleEvent ? eventAt(plot, clientX, clientY, again) : null;
+        // Once the data is in, only a line found says so: a message written meanwhile (a key's) is not covered by the plot's hint.
+        if (late && !line) return;
         plot.style.cursor = line ? 'pointer' : '';
         deps.hint(line ? (line.out ? strings.stageEventClickIn : strings.stageEventClickOut) : strings.compareHintPlot);
     };
