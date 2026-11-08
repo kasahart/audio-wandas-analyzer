@@ -474,3 +474,21 @@ export function buildUiSmokeEntryHtml(filePaths: string[], language = 'en'): str
     });
     return finalizeUiSmokeHtml(language === 'en' ? html : replaceAppStrings(html, language));
 }
+
+/** Two takes of the preview file, the second at half the sample rate (its spectrogram's top half as high), on auto display ranges. */
+export function buildUiSmokeTwoRatesHtml(): string {
+    return finalizeUiSmokeHtml(replaceAppState(buildResultsPreviewHtml(), (state) => {
+        const first = state.results[0];
+        const half = JSON.parse(JSON.stringify(first)) as PreviewResult;
+        half.filePath = '/preview/half-rate.wav';
+        half.fileName = 'half-rate.wav';
+        half['sampleRateHz'] = Number(first['sampleRateHz']) / 2;
+        half.channels.forEach((channel) => {
+            const spectrogram = channel['spectrogram'] as { maxFrequencyHz: number } | undefined;
+            if (spectrogram) spectrogram.maxFrequencyHz /= 2;
+        });
+        state.results = [first, half];
+        const settings = state['spectrogramSettings'] as { display: Record<string, number | null> };
+        settings.display = { dbMin: null, dbMax: null, maxFrequencyHz: null };
+    }));
+}

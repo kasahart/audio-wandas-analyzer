@@ -26,8 +26,7 @@ export function toolbarHtml(spec: ToolbarSpec, strings: UiStrings): string {
         + '<div class="tb-menu-sep tb-entry-only"></div>'
         + '<button class="tb-btn tb-entry-only" data-action="entry-export-csv"' + hintAttr(strings.dsExportTable) + '>' + escapeHtml(strings.dsExportTable) + '</button>'
         + '<button class="tb-btn tb-entry-only" data-action="entry-export-notes"' + hintAttr(strings.hintExportNotes) + '>' + escapeHtml(strings.dsExportNotes) + '</button>';
-    const moreMenu = '<button class="tb-btn" id="btn-wave-mode-rect-zoom" data-action="wave-mode-rect-zoom"' + hintAttr(strings.hintRectZoom) + ' aria-pressed="false">' + escapeHtml(strings.waveModeLabelRectZoom) + '</button>'
-        + '<button class="tb-btn" id="btn-zoom-to-selection" data-action="zoom-to-selection"' + hintAttr(strings.btnZoomToSelectionTitle) + ' disabled>' + escapeHtml(strings.btnZoomToSelection) + '</button>'
+    const moreMenu = '<button class="tb-btn" id="btn-zoom-to-selection" data-action="zoom-to-selection"' + hintAttr(strings.btnZoomToSelectionTitle) + ' disabled>' + escapeHtml(strings.btnZoomToSelection) + '</button>'
         + '<button class="tb-btn" data-action="toggle-follow-cursor"' + hintAttr(strings.btnFollowCursorTitle) + '>' + escapeHtml(strings.btnFollowCursor) + '</button>';
     return '<span class="tb-label">' + escapeHtml(strings.toolbarTrackLabel) + '</span>'
         + '<button class="tb-btn' + (spec.contentType === 'waveform' ? ' is-active' : '') + '" data-action="content-waveform"' + hintAttr(strings.hintContentWaveform) + '>' + escapeHtml(strings.btnWaveform) + '</button>'

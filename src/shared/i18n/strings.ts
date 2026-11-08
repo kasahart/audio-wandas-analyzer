@@ -690,16 +690,13 @@ export interface UiStrings {
     rangeAxisX: string;
     rangeAxisY: string;
     rangeAxisColor: string;
-    helpRowSpectrumDrag: string;
     helpRowWaveRectZoom: string;
-    waveModeLabelRectZoom: string;
     hintContentWaveform: string;
     hintTrackSplit: string;
     trackSplitLabel: string;
     hintZoomOut: string;
     hintZoomIn: string;
     hintZoomReset: string;
-    hintRectZoom: string;
     hintMenuExport: string;
     hintOpenRecipe: string;
     hintSaveRecipe: string;
@@ -892,9 +889,9 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         offsetEditAriaLabel: 'Track offset in milliseconds',
         analysisFailed: 'Analysis failed: ',
         cursorHelpKeys: '← →: move cursor   Shift+←→: 100 ms step   Space: play/pause',
-        tooltipLoopResize: 'Drag to resize loop region',
+        tooltipLoopResize: 'Alt+Drag to resize loop region',
         tooltipLoopClear: 'Click to clear loop',
-        tooltipLoopOrShift: 'Drag: set loop region / Shift+Drag: shift track in time',
+        tooltipLoopOrShift: 'Alt+Drag: set loop region / Shift+Drag: shift track in time',
         canvasOutOfRange: 'Cursor is outside this track',
         spectrumNoData: 'No track has data at the cursor position',
         spectrumAnalysisWindow: 'window',
@@ -916,7 +913,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpRowArrow: 'move cursor  (Shift: fast)',
         helpRowWheel: 'scroll tracks  (Shift, or a sideways swipe: scroll in time)',
         helpRowCtrlWheel: 'zoom in time',
-        helpRowDrag: 'create / resize loop',
+        helpRowDrag: 'create / resize loop (lanes)',
         helpRowShiftDrag: 'adjust track offset',
         helpRowDoubleClickEdge: 'collapse the file list; collapse or expand the spectrum',
         helpRowQuestion: 'toggle this help',
@@ -1476,16 +1473,13 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         rangeAxisX: 'X axis',
         rangeAxisY: 'Y axis',
         rangeAxisColor: 'Color',
-        helpRowSpectrumDrag: 'drag zoom (spectrum)',
-        helpRowWaveRectZoom: 'drag zoom (waveform zoom mode)',
-        waveModeLabelRectZoom: 'Rect Zoom',
+        helpRowWaveRectZoom: 'box zoom (every plot)',
         hintContentWaveform: 'Show each track as its waveform over its spectrogram (⚙ for STFT settings); from Compare, Esc comes back here',
         hintTrackSplit: 'Drag to share the track between waveform and spectrogram (all tracks)',
         trackSplitLabel: 'Waveform / spectrogram split',
         hintZoomOut: 'Zoom out in time (key: −)',
         hintZoomIn: 'Zoom in in time (key: +)',
-        hintZoomReset: 'Show the whole time range (key: 0, or double-click a waveform)',
-        hintRectZoom: 'Box zoom mode: drag on a waveform to zoom into that box',
+        hintZoomReset: 'Show the whole time range (key: 0, or double-click a lane)',
         hintMenuExport: 'Everything that is written out: the tracks (PNG, CSV, WAV, report), the comparison folder, the Recipe for many files, the table and its memos',
         hintOpenRecipe: 'Put a wandas .recipe.json in the step bar and run it on the compared recordings',
         hintSaveRecipe: 'Save the bottom panel analysis over whole files, with its current settings, as a recipe',
@@ -1516,7 +1510,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintOpenFolder: 'Open another folder of audio files',
         hintWheelGestures: 'Wheel: scroll tracks / Ctrl+Wheel: zoom / Shift+Wheel, swipe sideways: scroll in time',
         hintDoubleClickResetZoom: 'Double-click: reset zoom',
-        hintRectZoomDrag: 'Drag: zoom into the box',
+        hintRectZoomDrag: 'Drag: zoom into the box / Alt+Drag: loop region / Shift+Drag: shift track in time',
         hintSpectrumPlot: 'Drag: zoom into the box / Double-click: reset zoom / ← →: step through frequency bins',
         hintSpectrumDbAxis: 'Double-click: set the dB range',
         hintSpectrumFreqAxis: 'Double-click: set the frequency range',
@@ -1676,9 +1670,9 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         offsetEditAriaLabel: 'トラックオフセット（ミリ秒）',
         analysisFailed: '解析失敗: ',
         cursorHelpKeys: '← →: カーソル移動　Shift+←→: 100ms移動　Space: 再生/停止',
-        tooltipLoopResize: 'ドラッグでループ区間をリサイズ',
+        tooltipLoopResize: 'Alt+ドラッグでループ区間をリサイズ',
         tooltipLoopClear: 'クリックでループ解除',
-        tooltipLoopOrShift: 'ドラッグ: ループ区間を設定 / Shift+ドラッグ: トラックの時間をずらす',
+        tooltipLoopOrShift: 'Alt+ドラッグ: ループ区間を設定 / Shift+ドラッグ: トラックの時間をずらす',
         canvasOutOfRange: 'カーソルがこのトラックの外です',
         spectrumNoData: 'カーソル位置にデータがあるトラックがありません',
         spectrumAnalysisWindow: '解析窓',
@@ -1700,7 +1694,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpRowArrow: 'カーソル移動 (Shift: 高速)',
         helpRowWheel: 'トラックをスクロール (Shift か横スワイプ: 時間方向にスクロール)',
         helpRowCtrlWheel: '時間方向にズーム',
-        helpRowDrag: 'ループ作成 / リサイズ',
+        helpRowDrag: 'ループ作成 / リサイズ（レーン）',
         helpRowShiftDrag: 'トラックのオフセット調整',
         helpRowDoubleClickEdge: 'ファイル一覧を畳む、スペクトルを畳む/戻す',
         helpRowQuestion: 'このヘルプを開閉',
@@ -2260,16 +2254,13 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         rangeAxisX: 'X 軸',
         rangeAxisY: 'Y 軸',
         rangeAxisColor: 'カラー',
-        helpRowSpectrumDrag: '矩形ズーム (スペクトル)',
-        helpRowWaveRectZoom: '矩形ズーム (波形ズームモード時)',
-        waveModeLabelRectZoom: '矩形ズーム',
+        helpRowWaveRectZoom: '矩形ズーム（すべてのグラフ）',
         hintContentWaveform: 'トラックごとに波形とその下のスペクトログラムを表示（⚙ で STFT 設定）。比較解析からは Esc でも戻る',
         hintTrackSplit: 'ドラッグで波形とスペクトログラムの高さの配分を変更（全トラック共通）',
         trackSplitLabel: '波形とスペクトログラムの境目',
         hintZoomOut: '時間方向にズームアウト（キー: −）',
         hintZoomIn: '時間方向にズームイン（キー: +）',
-        hintZoomReset: '全体を表示（キー: 0、または波形をダブルクリック）',
-        hintRectZoom: '矩形ズームモード: 波形上をドラッグした範囲にズーム',
+        hintZoomReset: '全体を表示（キー: 0、またはレーンをダブルクリック）',
         hintMenuExport: '書き出しはすべてここ：トラック（PNG・CSV・WAV・レポート）、比較フォルダ、レシピのまとめ、表とメモ',
         hintOpenRecipe: '手元の wandas .recipe.json を手順バーに読み込み、比較中の録音に適用する',
         hintSaveRecipe: '下のパネルの解析を、今の設定でファイル全体を計算するレシピとして保存',
@@ -2300,7 +2291,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintOpenFolder: '別の音声フォルダを開く',
         hintWheelGestures: 'ホイール: トラックをスクロール / Ctrl+ホイール: ズーム / Shift+ホイール・横スワイプ: 時間方向にスクロール',
         hintDoubleClickResetZoom: 'ダブルクリック: ズームをリセット',
-        hintRectZoomDrag: 'ドラッグ: 囲んだ範囲にズーム',
+        hintRectZoomDrag: 'ドラッグ: 囲んだ範囲にズーム / Alt+ドラッグ: ループ区間 / Shift+ドラッグ: トラックの時間をずらす',
         hintSpectrumPlot: 'ドラッグ: 囲んだ範囲にズーム / ダブルクリック: ズームをリセット / ← →: 周波数ビンを移動',
         hintSpectrumDbAxis: 'ダブルクリック: dB 範囲を設定',
         hintSpectrumFreqAxis: 'ダブルクリック: 周波数範囲を設定',

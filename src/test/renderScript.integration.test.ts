@@ -2895,8 +2895,8 @@ test('renderScript: L キーはループがある場合に zoom-to-selection を
     const canvas = env.dom.window.document.getElementById('track-canvas-0') as HTMLCanvasElement | null;
     assert.ok(canvas, 'track-canvas-0 が存在すること');
 
-    // ループ区間をドラッグで作成（MouseEvent で loopRegion を設定する）
-    canvas.dispatchEvent(new env.dom.window.MouseEvent('mousedown', { bubbles: true, clientX: 50, clientY: 5, buttons: 1 }));
+    // ループ区間を Alt+ドラッグで作成（ドラッグだけなら矩形ズーム）
+    canvas.dispatchEvent(new env.dom.window.MouseEvent('mousedown', { bubbles: true, clientX: 50, clientY: 5, buttons: 1, altKey: true }));
     env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 200, clientY: 5, buttons: 1 }));
     env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mouseup', { bubbles: true, clientX: 200, clientY: 5 }));
 
@@ -3154,28 +3154,16 @@ test('高さリサイズハンドルのドラッグがトラックとパワー�
 });
 
 
-test('波形モードボタンが生成される', () => {
+test('ズームのモード切り替えボタンはない: どのレーンでもドラッグは矩形ズーム', () => {
     const { dom } = setupEnv();
-    const rectZoomBtn = dom.window.document.querySelector('[data-action="wave-mode-rect-zoom"]');
-    assert.ok(rectZoomBtn, 'wave-mode-rect-zoom ボタンが存在すること');
-    assert.strictEqual(
-        dom.window.document.querySelector('[data-action="wave-mode-loop"]'),
-        null,
-        'wave-mode-loop ボタンは存在しないこと',
-    );
+    assert.strictEqual(dom.window.document.querySelector('[data-action="wave-mode-rect-zoom"]'), null);
+    assert.strictEqual(dom.window.document.querySelector('[data-action="wave-mode-loop"]'), null);
 });
 
-test('renderScript: rect-zoom ドラッグはループではなくラバーバンドから時間・振幅ズームを適用すること', async () => {
+test('renderScript: レーンのドラッグはループではなくラバーバンドから時間・振幅ズームを適用すること', async () => {
     const env = setupEnv();
     const canvas = env.dom.window.document.getElementById('track-canvas-0') as HTMLCanvasElement | null;
     assert.ok(canvas, 'track-canvas-0 が存在すること');
-
-    env.dom.window.dispatchEvent(
-        new env.dom.window.MessageEvent('message', {
-            data: { type: 'comparison-panel-test-action', actions: ['wave-mode-rect-zoom'], actionId: 'rect-mode-on' },
-        }),
-    );
-    await nextAnimationFrame(env.dom);
 
     canvas.width = 400;
     canvas.height = 100;
@@ -3219,44 +3207,6 @@ test('renderScript: rect-zoom ドラッグはループではなくラバーバ�
     env.dom.window.close();
 });
 
-test('wave-mode-rect-zoom ボタンがトグル動作すること', async () => {
-    const env = setupEnv();
-    const btn = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="wave-mode-rect-zoom"]');
-    assert.ok(btn, 'wave-mode-rect-zoom ボタンが存在すること');
-
-    // 初期状態: aria-pressed=false, waveformMode=loop
-    assert.strictEqual(btn.getAttribute('aria-pressed'), 'false', '初期状態の aria-pressed は false であること');
-    assert.strictEqual(btn.classList.contains('is-active'), false, '初期状態では active 表示ではないこと');
-
-    // 1 回目クリック → rect-zoom に切り替わること
-    env.dom.window.dispatchEvent(
-        new env.dom.window.MessageEvent('message', {
-            data: { type: 'comparison-panel-test-action', actions: ['wave-mode-rect-zoom'], actionId: 'toggle-on' },
-        }),
-    );
-    await nextAnimationFrame(env.dom);
-
-    const snap1 = env.postedMessages.filter((m: any) => m.type === 'comparison-panel-test-snapshot').at(-1) as any;
-    assert.strictEqual(snap1?.renderedUi?.waveformMode, 'rect-zoom', '1 回目クリック後に waveformMode が rect-zoom になること');
-    assert.strictEqual(btn.getAttribute('aria-pressed'), 'true',  '1 回目クリック後に aria-pressed が true になること');
-    assert.strictEqual(btn.classList.contains('is-active'), true, '1 回目クリック後に active 表示になること');
-
-    // 2 回目クリック → loop に戻ること
-    env.dom.window.dispatchEvent(
-        new env.dom.window.MessageEvent('message', {
-            data: { type: 'comparison-panel-test-action', actions: ['wave-mode-rect-zoom'], actionId: 'toggle-off' },
-        }),
-    );
-    await nextAnimationFrame(env.dom);
-
-    const snap2 = env.postedMessages.filter((m: any) => m.type === 'comparison-panel-test-snapshot').at(-1) as any;
-    assert.strictEqual(snap2?.renderedUi?.waveformMode, 'loop',     '2 回目クリック後に waveformMode が loop に戻ること');
-    assert.strictEqual(btn.getAttribute('aria-pressed'), 'false', '2 回目クリック後に aria-pressed が false に戻ること');
-    assert.strictEqual(btn.classList.contains('is-active'), false, '2 回目クリック後に active 表示が解除されること');
-
-    env.dom.window.close();
-});
-
 test('初期スペクトルズーム状態が全域である', async () => {
     const { dom, postedMessages } = setupEnv();
     await nextAnimationFrame(dom);
@@ -3264,7 +3214,6 @@ test('初期スペクトルズーム状態が全域である', async () => {
     assert.ok(snapMsg, 'スナップショットメッセージが送信されること');
     assert.strictEqual(snapMsg.renderedUi.specFreqStart, 0,      'specFreqStart の初期値が 0 であること');
     assert.strictEqual(snapMsg.renderedUi.specFreqEnd,   1,      'specFreqEnd の初期値が 1 であること');
-    assert.strictEqual(snapMsg.renderedUi.waveformMode,  'loop', 'waveformMode の初期値が loop であること');
 });
 
 test('renderScript: 波形キャンバスの dblclick でズームがリセットされる', async () => {

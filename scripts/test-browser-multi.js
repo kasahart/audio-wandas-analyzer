@@ -78,8 +78,9 @@ module.exports = async function auditMulti({ browser, origin, root, nativeResult
         assert.match(await page.locator('#offset-val-0').innerText(),/0\.010/);
         await page.waitForFunction(()=>{const c=document.querySelector('#track-canvas-0');return c?.width>0&&Math.abs(c.width-c.getBoundingClientRect().width)<1.1;});
         const box = await page.locator('#track-canvas-0').boundingBox();assert.ok(box);
-        await page.mouse.move(box.x+box.width*.21,box.y+box.height*.5);await page.mouse.down();
-        await page.mouse.move(box.x+box.width*.63,box.y+box.height*.5,{steps:5});await page.mouse.up();
+        // Alt+drag sets the loop (a plain drag is the box zoom).
+        await page.mouse.move(box.x+box.width*.21,box.y+box.height*.5);await page.keyboard.down('Alt');await page.mouse.down();
+        await page.mouse.move(box.x+box.width*.63,box.y+box.height*.5,{steps:5});await page.mouse.up();await page.keyboard.up('Alt');
         await page.locator('#tb-export-menu > summary').click();
         const [download] = await Promise.all([page.waitForEvent('download'),page.locator('[data-action="export-wav"]').click()]);
         assert.equal(download.suggestedFilename(),'selected-regions.zip');
