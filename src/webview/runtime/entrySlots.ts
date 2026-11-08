@@ -3,6 +3,7 @@
  * a group's median), slots 1–3 the rows compared. A file's role is read compared slots first, then the base.
  */
 import { fileOfKey, rowKey } from '../../shared/dataset/datasetTable';
+import { ownColor, ROLE_COLORS } from '../../shared/gui/roleColors';
 
 export type Slots = (string | null)[];
 
@@ -29,6 +30,15 @@ export const slotsOfFile = (slots: readonly (string | null)[], filePath: string)
 /** The slot that gives `filePath` its role (compared slots first, then the base), if any. */
 export function roleSlot(slots: readonly (string | null)[], filePath: string): number | undefined {
     return ROLE_ORDER.find(slot => { const key = slots[slot]; return !!key && fileOfKey(key) === filePath; });
+}
+
+/**
+ * The colour a recording is drawn in beside the table, as the comparison draws it (R5): its role's, else its track's
+ * own colour, else (a file not shown as a track) the first own colour.
+ */
+export function recordingColor(slots: readonly (string | null)[], filePath: string, trackColor: string | undefined): string {
+    const role = roleSlot(slots, filePath);
+    return (role !== undefined ? ROLE_COLORS[role] : undefined) ?? trackColor ?? ownColor(0);
 }
 
 /** The row key in the slot that gives `filePath` its role. */

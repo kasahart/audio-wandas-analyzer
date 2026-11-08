@@ -1376,6 +1376,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         playing() {
             return playingPath();
         },
+        recordingColor(filePath) {
+            // As its track is drawn: its role's colour, else its own (undefined for a file not shown as a track).
+            const trackId = trackStore.activeIds().find(id => trackStore.require(id).result.filePath === filePath);
+            const index = trackId ? trackStore.protocolIndexForId(trackId) : null;
+            return index !== null ? trackColor(index) : undefined;
+        },
         setHidden(filePath, hidden) {
             const record = trackRecordForPath(filePath);
             if (!record) return;
