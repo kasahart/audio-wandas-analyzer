@@ -433,9 +433,8 @@ def _channel_view(frame: ChannelFrame) -> StageView:
             series["measure"] = measure
         return series
     # The sound itself, as wandas gives it, however few samples it has: drawn as its waveform and compared sample by
-    # sample (a difference is
-    # compare − base, a ChannelFrame subtraction). The comparison makes no level of it: a level is a wandas step's
-    # (sound_level, rms_trend), whose window the recipe records.
+    # sample (a difference is compare − base, a ChannelFrame subtraction). The comparison makes no level of it: a
+    # level is a wandas step's (sound_level, rms_trend), whose window the recipe records.
     xs, values = _envelope(times, np.mean(data, axis=0), LEVEL_SERIES_MIN_SAMPLES)
     view: StageView = {
         "frame": type(frame).__name__,
