@@ -188,6 +188,8 @@ export interface RectZoomSelection {
     endNorm: number;
     startAmpNorm: number;
     endAmpNorm: number;
+    /** A box on a spectrogram lane: its ends up the axis are fractions of the frequency band shown, not amplitudes. */
+    frequency?: boolean;
 }
 
 export interface WaveformDragState {
@@ -204,6 +206,8 @@ export interface WaveformDragState {
     startNorm: number;
     startAmpNorm: number;
     dragType: 'offset' | 'rectZoom' | 'loop' | 'gripStart' | 'gripEnd';
+    /** Pressed on a spectrogram lane: a box there spans frequencies. */
+    spectrogram?: boolean;
 }
 
 export interface WaveformCoverage {

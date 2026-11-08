@@ -478,8 +478,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         setHeight,
         onActiveChange: active => document.body.classList.toggle('is-height-resizing', active),
     });
-    // ── 波形モード ────────────────────────────────────────
-    let waveformMode: 'loop' | 'rect-zoom' = 'loop';
+    // ── Lane gestures: a drag zooms into its box on every lane, as on every plot (R13); Alt+drag sets the loop ──
+    /** The spectrogram lanes' frequency zoom, as fractions of the band their display settings show (null: all of it). */
+    let spectrogramFrequencyView: { start: number; end: number } | null = null;
     let rectZoomSelection: RectZoomSelection | null = null;
     let dragState: WaveformDragState | null = null;
     function setLoopRegion(region: LoopRegion | null): void {
@@ -1292,7 +1293,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     const app = requiredElementById(document, 'app');
     app.innerHTML = buildLayout();
     syncPythonEnvironmentButton();
-    syncWaveformModeButton();
     syncSpecGearVisibility();
     attachEvents();
     // The help lists the keys of the view on show first: the entry table, the comparison (the track view's steps mode), or the lanes.
@@ -1649,7 +1649,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             specFreqEnd: spectrumView.freqEnd,
             trackHeight: layout.trackHeight,
             spectrumOverlayHeight: layout.spectrumOverlayHeight,
-            waveformMode: waveformMode,
+            spectrogramFrequencyView: spectrogramFrequencyView ? { ...spectrogramFrequencyView } : null,
             lastAnnounce: (function () {
                 const el = document.getElementById('a11y-announce');
                 return el ? (el.textContent || '') : '';
@@ -1676,7 +1676,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             specFreqEnd: spectrumView.freqEnd,
             trackHeight: layout.trackHeight,
             spectrumOverlayHeight: layout.spectrumOverlayHeight,
-            waveformMode: waveformMode,
             lastAnnounce: e instanceof Error ? e.message : String(e),
             tracks: [],
         };
@@ -2022,7 +2021,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 const overlayCtx = overlayCanvas ? overlayCanvas.getContext('2d') : null;
                 if (overlayCanvas && overlayCtx) {
                     overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-                    drawSpectrogramOverlayLines(overlayCtx, overlayCanvas.width, overlayCanvas.height);
+                    drawSpectrogramOverlayLines(overlayCtx, overlayCanvas.width, overlayCanvas.height, i);
                 }
             });
         });
@@ -2165,7 +2164,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const shown = shownSpectrogram(result, trackIndex, channelIndex);
         const spec = shown ? shown.spec : whole;
         const { offsetNorm: trackStart, trackDurRatio } = trackTimelinePlacement(offsetSeconds, result.durationSeconds, trackStore.globalSpan());
-        const { dbLo, dbHi, maxFrequencyHz: maxFreq, minFrequencyHz: minFreq } = spectrogramDisplayBounds(whole, spectrogramSettings.display, spectrogramAutoBounds(whole));
+        const { dbLo, dbHi, maxFrequencyHz: maxFreq, minFrequencyHz: minFreq } = shownSpectrogramBounds(whole);
         const record = trackRecordAtIndex(trackIndex);
         if (!record) {
             return;
@@ -2192,14 +2191,18 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         if (spectrogramHover && spectrogramHover.canvas === canvas) showSpectrogramReadout(canvas, spectrogramHover.clientX, spectrogramHover.clientY);
         if (overlayCtx) {
-            drawSpectrogramOverlayLines(overlayCtx, W, H);
+            drawSpectrogramOverlayLines(overlayCtx, W, H, trackIndex);
         }
     }
     /** The loop region, cursor and hover over a spectrogram: on their own canvas, so the raster under them stays as painted. */
-    function drawSpectrogramOverlayLines(ctx: CanvasRenderingContext2D, plotW: number, H: number) {
+    function drawSpectrogramOverlayLines(ctx: CanvasRenderingContext2D, plotW: number, H: number, trackIndex: number) {
         drawLoopRegionOnCanvas(ctx, plotW, H);
         drawCursorOnCanvas(ctx, plotW, H);
         drawHoverLineOnCanvas(ctx, plotW, H);
+        // The box being dragged on this track's spectrogram, its frequencies up the band shown.
+        if (rectZoomSelection?.frequency && rectZoomSelection.trackId === trackIdAtIndex(trackIndex)) {
+            drawRectZoomSelection(ctx, rectZoomSelection, waveformView.timeRange(), { start: 0, end: 1, explicit: true }, plotW, H);
+        }
     }
 
     type CanvasHitTarget = Pick<Element, 'getBoundingClientRect'> & { width: number; classList?: DOMTokenList };
@@ -2363,7 +2366,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const norm = view.start + Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)) * (view.end - view.start);
         // The other lanes' time line follows the time read, as a waveform lane's point sets it.
         if (viewState.hover === null || Math.abs(viewState.hover - norm) > 1e-9) viewState.setHover(norm);
-        const bounds = spectrogramDisplayBounds(whole, spectrogramSettings.display, spectrogramAutoBounds(whole));
+        const bounds = shownSpectrogramBounds(whole);
         const up = Math.max(0, Math.min(1, 1 - (clientY - rect.top) / rect.height));
         const placement = trackTimelinePlacement(trackRuntimeAt(trackIndex).offsetSeconds, result.durationSeconds, trackStore.globalSpan());
         const local = placement.trackDurRatio > 0 ? (norm - placement.offsetNorm) / placement.trackDurRatio : NaN;
@@ -2387,7 +2390,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
     }
     function drawRectZoomSelectionOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number, trackIndex: number) {
-        if (rectZoomSelection && rectZoomSelection.trackId === trackIdAtIndex(trackIndex)) {
+        if (rectZoomSelection && !rectZoomSelection.frequency && rectZoomSelection.trackId === trackIdAtIndex(trackIndex)) {
             drawRectZoomSelection(ctx, rectZoomSelection, waveformView.timeRange(), waveformView.amplitudeViewport(), W, H);
         }
     }
@@ -3102,10 +3105,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             'spectrum-octave-3': () => setSpectrumBands(3),
             'toggle-spectrum-panel': () => setSpectrumCollapsed(!layout.spectrumCollapsed),
             'toggle-spectrum-maximize': () => setSpectrumMaximized(!layout.spectrumMaximized),
-            'wave-mode-rect-zoom': () => {
-                waveformMode = waveformMode === 'rect-zoom' ? 'loop' : 'rect-zoom';
-                syncWaveformModeButton();
-            },
             'toggle-follow-cursor': toggleFollowCursor,
             'link-scales': toggleLinkedScales,
             'zoom-to-selection': zoomToSelection,
@@ -3187,15 +3186,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (btn) {
             btn.disabled = !viewState.loop;
         }
-    }
-    function syncWaveformModeButton() {
-        const btn = document.getElementById('btn-wave-mode-rect-zoom');
-        if (!btn) {
-            return;
-        }
-        const active = waveformMode === 'rect-zoom';
-        btn.setAttribute('aria-pressed', active ? 'true' : 'false');
-        btn.classList.toggle('is-active', active);
     }
     function renderEveryLane() {
         drawEveryLane = true;
@@ -3468,6 +3458,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function resetZoom() {
         disableFollowCursor();
         waveformView.reset();
+        spectrogramFrequencyView = null;
         rectZoomSelection = null;
         scheduleRender();
     }
@@ -3709,19 +3700,25 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (canvas.classList.contains('track-spec-canvas')) { hideLaneHover(); showSpectrogramReadout(canvas, e.clientX, e.clientY); }
         else laneHover = { canvas, clientX: e.clientX, clientY: e.clientY };
         // Same precedence as handleCanvasMouseDown so the hint names the drag that will run.
-        const rectZoom = rectZoomOn(canvas);
-        const gripType = rectZoom ? null : loopGripAt(viewState.loop, norm, waveformView.span());
+        const gripType = e.altKey ? loopGripAt(viewState.loop, norm, waveformView.span()) : null;
         const action = gripType ? STR.tooltipLoopResize
-            : e.shiftKey ? STR.tooltipLoopOrShift
-            : rectZoom ? STR.hintRectZoomDrag
-            : viewState.loop && norm >= viewState.loop.start && norm <= viewState.loop.end ? STR.tooltipLoopClear
-            : STR.tooltipLoopOrShift;
+            : e.shiftKey || e.altKey ? STR.tooltipLoopOrShift
+            : viewState.loop && norm >= viewState.loop.start && norm <= viewState.loop.end ? STR.tooltipLoopClear + ' / ' + STR.hintRectZoomDrag
+            : STR.hintRectZoomDrag;
         hintFooter.show(action + ' / ' + STR.hintDoubleClickResetZoom + ' / ' + STR.hintWheelGestures);
         renderWithHoverAt(norm);
     }
-    /** Box zoom picks an amplitude range, which only the waveform has: on the spectrogram a drag stays a loop. */
-    function rectZoomOn(canvas: HTMLCanvasElement): boolean {
-        return waveformMode === 'rect-zoom' && !canvas.classList.contains('track-spec-canvas');
+    /** Where a point of a spectrogram lane is up its frequency axis: 0 at the bottom to 1 at the top of the band shown. */
+    function spectrogramUpAt(canvas: HTMLCanvasElement, clientY: number): number {
+        const rect = canvas.getBoundingClientRect();
+        return Math.max(0, Math.min(1, 1 - (clientY - rect.top) / Math.max(1, rect.height)));
+    }
+    /** The frequency band a spectrogram lane shows: its display settings' band, narrowed by the box zoom's frequency view. */
+    function shownSpectrogramBounds(whole: SpectrogramData) {
+        const bounds = spectrogramDisplayBounds(whole, spectrogramSettings.display, spectrogramAutoBounds(whole));
+        if (!spectrogramFrequencyView) return bounds;
+        const span = bounds.maxFrequencyHz - bounds.minFrequencyHz;
+        return { ...bounds, minFrequencyHz: bounds.minFrequencyHz + spectrogramFrequencyView.start * span, maxFrequencyHz: bounds.minFrequencyHz + spectrogramFrequencyView.end * span };
     }
     function handleCanvasMouseDown(e: MouseEvent): void {
         const canvas = canvasTarget(e, 'track-canvas');
@@ -3744,9 +3741,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }
             const y = e.clientY - rect.top;
             const norm = hit.norm;
-            const ampNorm = waveformView.canvasYToAmplitude(y, canvas.height);
-            const rectZoom = rectZoomOn(canvas);
-            const gripType = rectZoom ? null : loopGripAt(viewState.loop, norm, waveformView.span());
+            const spectrogram = canvas.classList.contains('track-spec-canvas');
+            // A box on a spectrogram spans frequencies (0–1 up the band shown); on a waveform, amplitudes.
+            const ampNorm = spectrogram ? spectrogramUpAt(canvas, e.clientY) : waveformView.canvasYToAmplitude(y, canvas.height);
+            // Alt+drag sets the loop (or moves its edge), Shift+drag shifts the track, a drag zooms into its box.
+            const gripType = e.altKey ? loopGripAt(viewState.loop, norm, waveformView.span()) : null;
             dragState = {
                 trackId: trackId,
                 canvasId: canvas.id,
@@ -3759,9 +3758,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 isShift: e.shiftKey,
                 startNorm: norm,
                 startAmpNorm: ampNorm,
-                dragType: gripType || (e.shiftKey ? 'offset' : (rectZoom ? 'rectZoom' : 'loop')),
+                dragType: gripType || (e.shiftKey ? 'offset' : e.altKey ? 'loop' : 'rectZoom'),
+                spectrogram,
             };
-            if (dragState.dragType === 'rectZoom') setLoopRegion(null);
             canvas.focus();
         }
     }
@@ -3801,7 +3800,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                         startNorm: dragState.startNorm,
                         endNorm: norm,
                         startAmpNorm: dragState.startAmpNorm,
-                        endAmpNorm: waveformView.canvasYToAmplitude(y, dragState.canvasHeight),
+                        endAmpNorm: dragState.spectrogram ? spectrogramUpAt(canvasEl, e.clientY) : waveformView.canvasYToAmplitude(y, dragState.canvasHeight),
+                        ...(dragState.spectrogram ? { frequency: true } : {}),
                     };
                     emitWaveformZoom();
                 }
@@ -3816,7 +3816,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function handleDocMouseUp(e: MouseEvent): void {
         const hadDrag = !!dragState;
-        const wasRectZoom = dragState !== null && dragState.isDrag && dragState.dragType === 'rectZoom' && waveformMode === 'rect-zoom';
+        const wasRectZoom = dragState !== null && dragState.isDrag && dragState.dragType === 'rectZoom';
         if (dragState && !dragState.isDrag) {
             // クリック（ドラッグなし）: カーソル移動 + ループ区間解除
             const canvas = trackStore.protocolIndexForId(dragState.trackId) === null ? null : canvasById(document, dragState.canvasId);
@@ -3833,11 +3833,18 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (completedRectZoom) {
             const target = rectZoomTarget(completedRectZoom);
             rectZoomSelection = null;
-            if (target) {
+            if (target && completedRectZoom.frequency) {
+                // The spectrogram's box: its time, and its frequencies within the band shown (the lanes share both).
+                disableFollowCursor();
+                waveformView.setTimeRange({ start: target.zoomStart, end: target.zoomEnd });
+                const view = spectrogramFrequencyView ?? { start: 0, end: 1 }, span = view.end - view.start;
+                spectrogramFrequencyView = { start: view.start + target.amplitudeMin * span, end: view.start + target.amplitudeMax * span };
+            }
+            else if (target) {
                 disableFollowCursor();
                 waveformView.applyRectZoom(target);
             }
-            setLoopRegion(null);
+            // The loop stays: zooming into it is how a loop is looked at closely.
             emitWaveformZoom();
             followPointerAfterDrag(e);
             scheduleRender();

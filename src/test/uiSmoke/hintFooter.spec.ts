@@ -22,7 +22,7 @@ test('hints show in the footer instead of tooltips beside the pointer', async ({
     const box = await canvas.boundingBox();
     if (!box) throw new Error('track canvas has no layout box');
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await expect(footer).toHaveText(STR.tooltipLoopOrShift + ' / ' + STR.hintDoubleClickResetZoom + ' / ' + STR.hintWheelGestures);
+    await expect(footer).toHaveText(STR.hintRectZoomDrag + ' / ' + STR.hintDoubleClickResetZoom + ' / ' + STR.hintWheelGestures);
 
     const footerBox = await footer.boundingBox();
     const viewport = page.viewportSize();
