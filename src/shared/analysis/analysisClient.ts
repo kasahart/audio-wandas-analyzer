@@ -1,7 +1,7 @@
 import type { StftOptions } from './analysisTypes';
 import type {
     AnalyzePayload, BackendCommand, BuildRecipePayload, BuildRecipeResult, BackendPayload, ScanPayload, ScanResult, StageCombinePayload, StageCombineResult, BackendResult,
-    CalibrationRequestContext, PairSpectrumResult, RangeResult, SpectrumSlicePayload, SpectrumSliceResult,
+    CalibrationRequestContext, PairSpectrumResult, RangeResult, SpectrumSlicePayload, SpectrumSliceResult, StageRead,
     TrackDetailPayload, TrackDetailResult, ExportWavLoopResult,
 } from '../protocol/backendProtocol';
 import type { PairSourceRef, PairSpectrumRequest, SpectrumSliceRequest, TrackDetailRequest, WaveformRangeRequest } from '../utils/audioTarget';
@@ -79,10 +79,11 @@ export abstract class AnalysisClient {
         requestId?: string,
         calibration: CalibrationRequestContext = {},
         cancellation?: AnalysisCancellationSignal,
+        read?: StageRead,
     ): Promise<RangeResult> {
         return this.request(
             'range',
-            { filePath, startNorm, endNorm, points, ...this.calibrationPayload(this.requestContext(filePath, calibration)) },
+            { filePath, startNorm, endNorm, points, ...(read ? { read } : {}), ...this.calibrationPayload(this.requestContext(filePath, calibration)) },
             requestId,
             cancellation,
         );
@@ -104,6 +105,7 @@ export abstract class AnalysisClient {
                 ...(payload.stftOptions ? { stftOptions: payload.stftOptions } : {}),
                 ...(payload.startNorm !== undefined && payload.endNorm !== undefined ? { startNorm: payload.startNorm, endNorm: payload.endNorm } : {}),
                 ...(payload.lowHz !== undefined && payload.highHz !== undefined ? { lowHz: payload.lowHz, highHz: payload.highHz } : {}),
+                ...(payload.read ? { read: payload.read } : {}),
                 ...this.calibrationPayload(this.requestContext(filePath, payload)),
             },
             requestId,
@@ -214,9 +216,9 @@ export async function executeLazyAnalysis(
     cancellation?: AnalysisCancellationSignal,
 ) {
     if (message.type === 'request-waveform-range') {
-        const result = await backend.requestRange(message.filePath, message.startNorm, message.endNorm, message.points, message.requestId, context, cancellation);
+        const result = await backend.requestRange(message.filePath, message.startNorm, message.endNorm, message.points, message.requestId, context, cancellation, message.read);
         return { type: 'waveform-range-result' as const, analysisRevision: result.analysisRevision, requestId: message.requestId,
-            trackIndex: message.trackIndex, startNorm: message.startNorm, endNorm: message.endNorm, channels: result.channels };
+            trackIndex: message.trackIndex, startNorm: message.startNorm, endNorm: message.endNorm, channels: result.channels, ...(result.points ? { points: result.points } : {}) };
     }
     const payload = { trackIndex: message.trackIndex, analysisId: message.analysisId,
         settingsSignature: message.settingsSignature, ...context };
@@ -224,8 +226,9 @@ export async function executeLazyAnalysis(
         ? { startNorm: message.startNorm, endNorm: message.endNorm } : undefined;
     const band = message.type === 'request-track-detail' && message.lowHz !== undefined && message.highHz !== undefined
         ? { lowHz: message.lowHz, highHz: message.highHz } : undefined;
+    const read = message.type === 'request-track-detail' && message.read ? { read: message.read } : undefined;
     const result = message.type === 'request-track-detail'
-        ? await backend.requestTrackDetail(message.filePath, { ...payload, ...window, ...band }, message.requestId, cancellation)
+        ? await backend.requestTrackDetail(message.filePath, { ...payload, ...window, ...band, ...read }, message.requestId, cancellation)
         : await backend.requestSpectrumSlice(message.filePath,
             { ...payload, cursorNorm: message.cursorNorm, ...(message.bandsPerOctave ? { bandsPerOctave: message.bandsPerOctave } : {}),
                 ...(message.fullResolution ? { fullResolution: true } : {}) }, message.requestId, cancellation);
@@ -239,7 +242,7 @@ export async function executeLazyAnalysis(
             ...(result.frequenciesHz ? { frequenciesHz: result.frequenciesHz } : {}),
             ...(message.type === 'request-spectrum-slice' ? { cursorNorm: message.cursorNorm } : {}) };
     }
-    return { ...identity, analysisRevision: result.analysisRevision, type: 'track-detail-result' as const, channels: result.channels, ...window };
+    return { ...identity, analysisRevision: result.analysisRevision, type: 'track-detail-result' as const, channels: result.channels, ...window, ...(result.points ? { points: result.points } : {}) };
 }
 
 export function lazyAnalysisError(message: TrackDetailRequest | SpectrumSliceRequest, reason: string) {

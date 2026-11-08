@@ -8,6 +8,7 @@ import type { StageView } from '../../shared/protocol/backendProtocol';
 import { BAND_CENTERS_HZ, type EntryRow } from './entryTable';
 import { FULL_PLOT_WINDOW, type PlotMargins, type PlotWindow } from './plotInteraction';
 import { paintOverlay, type StagePlot } from './stagePanes';
+import type { FullSource } from './fullRead';
 
 /** The strip's margins: its row axis at the left, the frequency axis below, the colour bar inside the plot's top right. */
 export const OVERVIEW_MARGINS: PlotMargins = { left: 30, top: 2, right: 4, bottom: 16 };
@@ -76,6 +77,37 @@ export function overviewPicture(
 
 const fileName = (filePath: string): string => filePath.split(/[\\/]/).at(-1) ?? filePath;
 
+/**
+ * The strip's every cell, one per table row and band, which the pointer reads (R7): a picture row holding several
+ * table rows (their loudest) is only drawn; the readout names the one table row under the pointer and its level.
+ */
+export function overviewCells(rows: ReadonlyArray<OverviewRow>, bands: ReadonlyMap<string, (number | null)[]>): FullSource {
+    return {
+        cells(query) {
+            const n = rows.length;
+            if (!n) return null;
+            // Row i sits at −(i + 0.5): the one nearest the place, and two either side.
+            const row = Math.max(0, Math.min(n - 1, Math.round(-query.y - 0.5)));
+            const near = (value: number): number => {
+                let best = 0;
+                for (let band = 1; band < BAND_CENTERS_HZ.length; band++) if (Math.abs(BAND_CENTERS_HZ[band] - value) < Math.abs(BAND_CENTERS_HZ[best] - value)) best = band;
+                return best;
+            };
+            const column = near(query.x);
+            const c0 = Math.max(0, column - query.beyond), c1 = Math.min(BAND_CENTERS_HZ.length, column + query.beyond + 1);
+            // Up the axis: the lowest table row (the largest index) first.
+            const indices: number[] = [];
+            for (let index = Math.min(n - 1, row + 2); index >= Math.max(0, row - 2); index--) indices.push(index);
+            return {
+                xs: BAND_CENTERS_HZ.slice(c0, c1), ys: indices.map(index => -(index + 0.5)),
+                matrix: indices.map(index => { const levels = bands.get(rows[index].key ?? rows[index].filePath); return BAND_CENTERS_HZ.slice(c0, c1).map((_, band) => levels?.[c0 + band] ?? null); }),
+                rowNames: indices.map(index => rowName(rows[index])),
+                start: c0 > 0 ? BAND_CENTERS_HZ[c0] : null, end: c1 < BAND_CENTERS_HZ.length ? BAND_CENTERS_HZ[c1 - 1] : null, complete: true,
+            };
+        },
+    };
+}
+
 export interface OverviewPaint {
     /** Where the cells are, for the pointer; null when no row has a level. */
     drawn: StagePlot | null;
@@ -114,7 +146,7 @@ export function paintOverview(
     if (bandsVersion !== undefined && cached && cached.key === key && cached.rows === rows) drawn = cached.drawn;
     else {
         const picture = overviewPicture(rows, bands, window, Math.ceil(plotHeight));
-        drawn = paintOverlay(canvas, { layers: picture ? [{ view: picture.view, color: '', rowName: (row, column) => picture.names[row]?.[column] ?? '' }] : [] }, picture?.range ?? { min: 0, max: 1 },
+        drawn = paintOverlay(canvas, { layers: picture ? [{ view: picture.view, color: '', rowName: (row, column) => picture.names[row]?.[column] ?? '', full: overviewCells(rows, bands) }] : [] }, picture?.range ?? { min: 0, max: 1 },
             { x: strings.axisBand, y: strings.axisEntryRows, colour }, {
                 margins: OVERVIEW_MARGINS,
                 window: { x: window.x, y: window.y }, axisView: picture?.whole ?? null,

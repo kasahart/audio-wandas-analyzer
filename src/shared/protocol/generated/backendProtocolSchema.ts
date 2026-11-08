@@ -448,6 +448,9 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 },
                 "highHz": {
                     "type": "number"
+                },
+                "read": {
+                    "$ref": "#/$defs/StageRead"
                 }
             },
             "additionalProperties": false
@@ -485,6 +488,9 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 },
                 "analysisRevision": {
                     "$ref": "#/$defs/ResultAnalysisRevision"
+                },
+                "points": {
+                    "$ref": "#/$defs/StagePoints"
                 }
             },
             "additionalProperties": false
@@ -517,6 +523,9 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 },
                 "analysisRevision": {
                     "$ref": "#/$defs/AnalysisRevision"
+                },
+                "read": {
+                    "$ref": "#/$defs/StageRead"
                 }
             },
             "additionalProperties": false
@@ -593,6 +602,9 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 },
                 "analysisRevision": {
                     "$ref": "#/$defs/ResultAnalysisRevision"
+                },
+                "points": {
+                    "$ref": "#/$defs/StagePoints"
                 }
             },
             "additionalProperties": false
@@ -1227,6 +1239,134 @@ export const BACKEND_PROTOCOL_SCHEMA = {
             },
             "additionalProperties": false
         },
+        "StageRead": {
+            "type": "object",
+            "required": [
+                "x"
+            ],
+            "properties": {
+                "x": {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    }
+                },
+                "y": {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    }
+                },
+                "beyond": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 4096
+                },
+                "near": {
+                    "type": "number"
+                },
+                "columns": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 512
+                },
+                "log": {
+                    "type": "boolean"
+                },
+                "event": {
+                    "type": "integer",
+                    "minimum": 0
+                },
+                "of": {
+                    "type": "string",
+                    "enum": [
+                        "base",
+                        "diff"
+                    ]
+                },
+                "channel": {
+                    "type": "integer",
+                    "minimum": 0
+                }
+            },
+            "additionalProperties": false
+        },
+        "StagePoints": {
+            "type": "object",
+            "required": [
+                "xs",
+                "start",
+                "end",
+                "complete"
+            ],
+            "properties": {
+                "xs": {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    }
+                },
+                "values": {
+                    "type": "array",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    }
+                },
+                "ys": {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    }
+                },
+                "matrix": {
+                    "type": "array",
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        }
+                    }
+                },
+                "start": {
+                    "anyOf": [
+                        {
+                            "type": "number"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "end": {
+                    "anyOf": [
+                        {
+                            "type": "number"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "complete": {
+                    "type": "boolean"
+                }
+            },
+            "additionalProperties": false
+        },
         "StageView": {
             "type": "object",
             "required": [
@@ -1518,6 +1658,9 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                             "type": "null"
                         }
                     ]
+                },
+                "read": {
+                    "$ref": "#/$defs/StageRead"
                 }
             },
             "additionalProperties": false
@@ -1549,6 +1692,9 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                         "rate",
                         "unit"
                     ]
+                },
+                "points": {
+                    "$ref": "#/$defs/StagePoints"
                 }
             },
             "additionalProperties": false
@@ -2009,6 +2155,7 @@ export interface TrackDetailPayload {
     endNorm?: number;
     lowHz?: number;
     highHz?: number;
+    read?: StageRead;
 }
 
 export interface TrackDetailResult {
@@ -2019,6 +2166,7 @@ export interface TrackDetailResult {
     channels: ChannelSummary[];
     calibrationSignature?: string;
     analysisRevision?: number;
+    points?: StagePoints;
 }
 
 export interface RangePayload {
@@ -2028,6 +2176,7 @@ export interface RangePayload {
     points: number;
     calibrationProfile?: CalibrationProfile;
     analysisRevision?: number;
+    read?: StageRead;
 }
 
 export interface SpectrumSlicePayload {
@@ -2049,6 +2198,7 @@ export interface RangeResult {
     channels: WaveformEnvelope[];
     calibrationSignature?: string;
     analysisRevision?: number;
+    points?: StagePoints;
 }
 
 export interface SpectrumSliceChannel {
@@ -2204,6 +2354,28 @@ export interface StageDetail {
     points: number;
 }
 
+export interface StageRead {
+    x: number[];
+    y?: number[];
+    beyond?: number;
+    near?: number;
+    columns?: number;
+    log?: boolean;
+    event?: number;
+    of?: "base" | "diff";
+    channel?: number;
+}
+
+export interface StagePoints {
+    xs: number[];
+    values?: (number | null)[];
+    ys?: number[];
+    matrix?: ((number | null)[])[];
+    start: number | null;
+    end: number | null;
+    complete: boolean;
+}
+
 export interface StageView {
     frame: string;
     kind: "line" | "bar" | "heatmap" | "none";
@@ -2246,6 +2418,7 @@ export interface StageCombinePayload {
     base: string[];
     compare?: string | null;
     detail?: StageDetail | null;
+    read?: StageRead;
 }
 
 export interface StageCombineResult {
@@ -2254,6 +2427,7 @@ export interface StageCombineResult {
     base?: StageView;
     diff?: StageView;
     noDelta?: "rate" | "unit";
+    points?: StagePoints;
 }
 
 export interface ScanInput {

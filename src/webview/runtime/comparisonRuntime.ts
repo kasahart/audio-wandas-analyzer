@@ -2,7 +2,10 @@ import { channelLabel, channelsForResult, formatClockTime } from '../../shared/u
 import { niceRange } from '../../shared/utils/ticks';
 import { linkedSpectrogramBounds, spectrogramDisplayBounds, spectrogramFailureText } from './spectrogramRaster';
 import { laneWaveformOverlay, onColourBar, paintTrackSpectrogram, type SpectrogramRasterCacheEntry } from './trackCanvasPainter';
-import { laneHoverPoint, laneReadoutText, spectrogramCellAt, spectrogramNeighbourNorm, spectrogramReadoutText, type LanePoint } from './trackLaneHover';
+import { laneReadoutText, spectrogramReadoutText } from './trackLaneHover';
+import { createLaneReads, type LaneTrack } from './laneReads';
+import type { FullSource } from './fullRead';
+import { stageHover, stageStep, type StageRead } from './stagePanes';
 import { hidePlotReadout, paintHoverMarks, PLOT_READOUT_ID, showPlotReadout } from './plotHover';
 import { trackTimelinePlacement, waveformCoverageFromExtent } from './waveformCoverage';
 import { envelopePeak } from '../waveform/envelopePeak';
@@ -43,7 +46,7 @@ import { contentBoxWidth, readThenWrite, syncCanvasSize } from './canvasSizing';
 import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpecAxisCanvasId, trackSpecCanvasId, trackSpectrogramOverlayCanvasId, trackWaveformOverlayCanvasId } from './trackCanvasIds';
 import { channelLaneHtml, trackRowHtml } from './trackLaneHtml';
 import { attachPlotInteraction, FULL_PLOT_WINDOW, type PlotPoint } from './plotInteraction';
-import { createPlotHoverLayer, type PlotPlace } from './plotHoverLayer';
+import { createPlotHoverLayer, notePlotRead, type PlotPlace } from './plotHoverLayer';
 import { attachCanvasFocusHint, attachHoverHints, createHintFooter, createTaskStatus, setHint } from './hintFooter';
 import { attachTrackLaneActions } from './trackLaneActions';
 import { attachGlobalKeyboardListeners } from './globalKeyboardEvents';
@@ -453,6 +456,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     /** The cursor spectrum's pointer marks and readout, as every plot's (plotHoverLayer.ts, R7). */
     const spectrumMarks = createPlotHoverLayer(document, 'spectrum-cursor');
+    /** The lanes' and the cursor spectrum's full data, which their numbers are read from (R7): never what they draw. */
+    const laneReads = createLaneReads(message => messaging.post(message));
     /** Where the pointer (or an arrow key's step) is over the cursor spectrum, while it is. */
     let spectrumPointer: PlotPlace | null = null;
     /** The pair plot's frequency the cursor spectrum's line follows while the pointer is on a pair plot. */
@@ -956,6 +961,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     const RANGE_RETRY_MS = 2000;
     /** When the range each lane draws was asked for, so an older answer arriving late does not replace a newer one. */
     const rangeLandedAskedAt = new Map<TrackId, number>();
+    // The full data the lanes' readouts read (R7): each read's answer, on its own requests.
+    messaging.onMessage(function (msg) {
+        if (msg && laneReads.handle(msg)) testBridge.publishAfterFrame();
+    });
     // Receive high-res range data from Extension Host
     messaging.onMessage(function (msg) {
         if (!msg || msg.type !== 'waveform-range-result') {
@@ -2067,8 +2076,18 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             : undefined;
         return { waveform: fullWaveform, dataStart: 0, dataEnd: 1, amplitudeScale: amplitudeScale, ...(detail ? { detail } : {}) };
     }
-    /** The points the lane under the pointer drew in its last paint, which its cursor-only frames read again. */
-    let hoveredLanePoints: { canvas: HTMLCanvasElement; points: LanePoint[] } | null = null;
+    /** A track as its lanes' reads name it (R7): its index on the protocol, its file and the analysis drawn. */
+    function laneTrack(trackIndex: number): LaneTrack | null {
+        const result = state.results[trackIndex];
+        return result ? { trackIndex, filePath: result.filePath, analysisId, settingsSignature: currentSettingsSignature() } : null;
+    }
+    function laneTrackFull(trackIndex: number, read: (track: LaneTrack) => FullSource): FullSource | undefined {
+        const track = laneTrack(trackIndex);
+        return track ? read(track) : undefined;
+    }
+    /** What each lane's plot component drew last (CSS pixels), which the pointer reads through (R7). */
+    const lanePlots = new WeakMap<HTMLCanvasElement, StagePlot>();
+    const spectrogramPlots = new WeakMap<HTMLCanvasElement, StagePlot>();
     function drawTrackWaveform(canvas: HTMLCanvasElement, result: ComparisonTrackState, trackIndex: number, channelIndex: number, offsetSeconds: number, color: string, options: WaveformDrawOptions = {}): void {
         const ctx = canvas.getContext('2d');
         if (!ctx) {
@@ -2080,25 +2099,23 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const record = trackRecordAtIndex(trackIndex);
         const placement = trackTimelinePlacement(offsetSeconds, result.durationSeconds, trackStore.globalSpan());
         const amplitudeZoomed = waveformView.isAmplitudeZoomed();
-        // Only the lane under the pointer reads its points: the others draw without keeping them.
-        const points: LanePoint[] | undefined = laneHover && laneHover.canvas === canvas ? [] : undefined;
         const axis = laneAmplitudeAxis(result, channelIndex);
         const unit = channelsForResult(result)[channelIndex]?.unit?.trim() ?? '';
         // Drawn by the plot component (R13), as every plot of lines: its gridlines, the signal by the shared waveform
         // layer, and its value axis on the canvas beside it.
-        const lane = laneWaveformOverlay(src, { ...trackStore.globalSpan(), ...placement }, color, unit);
+        const lane = laneWaveformOverlay(src, { ...trackStore.globalSpan(), ...placement }, color, unit, laneTrackFull(trackIndex, track => laneReads.waveform(track, channelIndex)));
         const ratio = W / (canvas.clientWidth || W);
         let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-        paintOverlay(canvas, lane.overlay, axis.range, { x: STR.axisTime, y: axis.title }, {
+        const lanePlot = paintOverlay(canvas, lane.overlay, axis.range, { x: STR.axisTime, y: axis.title }, {
             axisCanvas: options.drawAxis === false ? null : canvasById(document, trackAxisCanvasId(trackIndex, channelIndex)),
             axisView: lane.axisView,
             window: { x: { start: waveformView.start, end: waveformView.end } },
-            onSignalPoint: (x, y, value, time, seen) => {
+            onSignalPoint: (x, y, _value, _time, seen) => {
                 minX = Math.min(minX, x); maxX = Math.max(maxX, x);
                 if (seen) { minY = Math.min(minY, y); maxY = Math.max(maxY, y); }
-                if (points && seen) points.push({ x: x * ratio, y: y * ratio, value, t: lane.fileNormOf(time) });
             },
         });
+        if (lanePlot) lanePlots.set(canvas, lanePlot); else lanePlots.delete(canvas);
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         markLanePlot(canvas, { x: STR.axisTime, y: axis.title }, trackAxisCanvasId(trackIndex, channelIndex), {
             x: { start: waveformView.start, end: waveformView.end },
@@ -2112,16 +2129,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (record) {
             record.waveformCoverage = coverage;
         }
-        if (points) hoveredLanePoints = { canvas, points };
-        else if (hoveredLanePoints?.canvas === canvas) hoveredLanePoints = null;
-        drawWaveformMarks(canvas, result, trackIndex, channelIndex, color, points ?? null, placement);
+        drawWaveformMarks(canvas, result, trackIndex, channelIndex, color, !!laneHover && laneHover.canvas === canvas);
     }
     /**
      * What follows the cursor, the loop and the pointer over a waveform lane, on the layer laid over it (R13: the lane's
      * plot holds only what paintOverlay drew), so a playback frame redraws these lines alone and never the waveform.
-     * `points`: what the lane under the pointer drew, which it reads (R7); the other lanes follow its time.
+     * `hovered`: the lane under the pointer reads its full data there (R7); the other lanes follow its time.
      */
-    function drawWaveformMarks(canvas: HTMLCanvasElement, result: ComparisonTrackState, trackIndex: number, channelIndex: number, color: string, points: readonly LanePoint[] | null, placement: { offsetNorm: number; trackDurRatio: number }): void {
+    function drawWaveformMarks(canvas: HTMLCanvasElement, result: ComparisonTrackState, trackIndex: number, channelIndex: number, color: string, hovered: boolean): void {
         const layer = canvasById(document, trackWaveformOverlayCanvasId(trackIndex, channelIndex));
         const ctx = layer?.getContext('2d');
         if (!layer || !ctx) return;
@@ -2131,7 +2146,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const W = layer.width, H = layer.height;
         ctx.clearRect(0, 0, W, H);
         drawWaveformCursorLayers(ctx, W, H, trackIndex, channelIndex);
-        if (points) drawLaneHover(ctx, W, H, points, result, channelIndex, color, placement);
+        if (hovered) drawLaneHover(ctx, W, H, result, channelIndex, color);
         else drawHoverLineOnCanvas(ctx, W, H);
         drawRectZoomSelectionOnCanvas(ctx, W, H, trackIndex);
     }
@@ -2144,13 +2159,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     /** A cursor-only frame on one waveform lane: only the layer over it is drawn again, the waveform stays as painted. */
     function redrawWaveformCursor(canvas: HTMLCanvasElement, result: ComparisonTrackState, trackIndex: number, channelIndex: number, color: string) {
         const hovered = !!laneHover && laneHover.canvas === canvas;
-        // The lane under the pointer reads the points it last drew; without them it is traced again.
-        const points = hovered && hoveredLanePoints?.canvas === canvas ? hoveredLanePoints.points : null;
-        if (hovered && !points) {
+        // The lane under the pointer reads through the plot it last drew; without one it is drawn again.
+        if (hovered && !lanePlots.has(canvas)) {
             drawTrackWaveform(canvas, result, trackIndex, channelIndex, trackRuntimeAt(trackIndex).offsetSeconds, color, { drawAxis: false });
             return;
         }
-        drawWaveformMarks(canvas, result, trackIndex, channelIndex, color, points, trackTimelinePlacement(trackRuntimeAt(trackIndex).offsetSeconds, result.durationSeconds, trackStore.globalSpan()));
+        drawWaveformMarks(canvas, result, trackIndex, channelIndex, color, hovered);
     }
     function drawSpectrogram(canvas: HTMLCanvasElement, result: ComparisonTrackState, trackIndex: number, channelIndex: number, offsetSeconds: number) {
         const ctx = canvas.getContext('2d');
@@ -2199,8 +2213,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const painted = paintTrackSpectrogram(canvas, axisCanvas, spec, { ...trackStore.globalSpan(), offsetNorm: trackStart, trackDurRatio }, {
             window: { start: waveformView.start, end: waveformView.end }, dbLo, dbHi, maxFrequencyHz: maxFreq, minFrequencyHz: minFreq,
             durationSec: result.durationSeconds,
-        }, spectrogramRasterCache.get(cacheId), { colour: title, frequency: STR.axisFrequency, time: STR.axisTime }, [text, theme.bgColor, theme.lineColor].join(':'));
+        }, spectrogramRasterCache.get(cacheId), { colour: title, frequency: STR.axisFrequency, time: STR.axisTime }, [text, theme.bgColor, theme.lineColor].join(':'),
+        laneTrackFull(trackIndex, track => laneReads.spectrogram(track, channelIndex, shown?.window ?? null)));
         spectrogramRasterCache.set(cacheId, painted);
+        if (painted.plot) spectrogramPlots.set(canvas, painted.plot); else spectrogramPlots.delete(canvas);
         // paintOverlay leaves its scale on the context: the lines over the lane are drawn in the canvas's own pixels.
         ctx.setTransform(1, 0, 0, 1, 0, 0);
         // The band shown as fractions of the whole axis (0 Hz to Nyquist), whichever rows are drawn: a zoomed band's
@@ -2342,90 +2358,103 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     let spectrogramHover: { canvas: HTMLCanvasElement; clientX: number; clientY: number } | null = null;
     // A scroll under a still pointer moves the lane from under it: the point read goes with it.
     document.addEventListener('scroll', () => { if (laneHover || spectrogramHover) { hideLaneHover(); scheduleRender(); } }, true);
-    /** The points a waveform lane drew and the one its readout last read, for an arrow key to step from (R7). */
-    let laneRead: { canvas: HTMLCanvasElement; points: readonly LanePoint[]; hit: LanePoint; ratioX: number; ratioY: number } | null = null;
+    /** The point a lane's readout last read and the plot it read it on, for an arrow key to step from (R7). */
+    let laneRead: { canvas: HTMLCanvasElement; plot: StagePlot; read: StageRead } | null = null;
     /**
-     * ← / → over a lane (R7): a waveform lane reads the next point it drew, a spectrogram lane the next time bin's cell
-     * at the same height, as the pointer there would; the other lanes' time line follows. False with nothing read.
+     * The point an arrow key stepped to on a lane, with the pointer place it was shown at: the lane reads that point
+     * there, not whichever point shares its pixel, until the pointer moves (R7).
+     */
+    let laneStepped: { canvas: HTMLCanvasElement; clientX: number; clientY: number; read: StageRead } | null = null;
+    /** The stepped point on the lane's plot as now drawn (a repaint may have moved it), if the pointer is still there. */
+    function steppedRead(canvas: HTMLCanvasElement, plot: StagePlot, clientX: number, clientY: number): StageRead | null {
+        const step = laneStepped;
+        if (!step || step.canvas !== canvas || step.clientX !== clientX || step.clientY !== clientY) return null;
+        const { read } = step;
+        if (read.at === undefined) return read;
+        if (read.image) return plot.image && read.row !== undefined ? { ...read, x: plot.image.placeOf(read.at, read.row).x } : read;
+        return read.value === undefined ? read : { ...read, x: plot.xAt(read.at), y: plot.yAt(read.value) };
+    }
+    /**
+     * ← / → over a lane (R7): the next full-resolution point of the lane's data (a waveform's next sample, a
+     * spectrogram's next STFT frame at the same bin), however many share a pixel; the other lanes' time line follows.
+     * False with nothing read.
      */
     function stepLaneReadout(plot: Element, delta: -1 | 0 | 1): boolean {
-        if (laneHover && laneHover.canvas === plot) {
-            if (delta === 0) return true;
-            const read = laneRead;
-            if (!read || read.canvas !== plot) return false;
-            const sorted = [...read.points].sort((a, b) => a.x - b.x || a.y - b.y);
-            const from = sorted.indexOf(read.hit);
-            let next: LanePoint | undefined;
-            for (let index = from + delta; from >= 0 && index >= 0 && index < sorted.length; index += delta) {
-                if (sorted[index].x !== read.hit.x || sorted[index].y !== read.hit.y) { next = sorted[index]; break; }
-            }
-            if (!next) return false;
-            const rect = read.canvas.getBoundingClientRect();
-            laneHover = { canvas: read.canvas, clientX: rect.left + next.x / read.ratioX, clientY: rect.top + next.y / read.ratioY };
+        const hovered = (laneHover && laneHover.canvas === plot) || (spectrogramHover && spectrogramHover.canvas === plot);
+        if (!hovered) return false;
+        if (delta === 0) return true;
+        const from = laneRead;
+        if (!from || from.canvas !== plot || from.read.pending) return false;
+        const spectrogram = !!spectrogramHover && spectrogramHover.canvas === plot;
+        const carry = (next: StageRead): void => {
+            const rect = from.canvas.getBoundingClientRect();
+            const clientX = rect.left + next.x;
+            const clientY = spectrogram && spectrogramHover ? spectrogramHover.clientY : rect.top + next.y;
+            laneStepped = { canvas: from.canvas, clientX, clientY, read: next };
+            if (spectrogram) showSpectrogramReadout(from.canvas, clientX, clientY);
+            else laneHover = { canvas: from.canvas, clientX, clientY };
             scheduleRender();
-            return true;
-        }
-        if (spectrogramHover && spectrogramHover.canvas === plot) {
-            if (delta === 0) return true;
-            const { canvas, clientX, clientY } = spectrogramHover;
-            const trackIndex = trackIndexFromElement(canvas);
-            const result = trackIndex === null ? undefined : state.results[trackIndex];
-            const spec = result && trackIndex !== null ? shownSpectrogram(result, trackIndex, channelIndexAttribute(canvas) ?? 0)?.spec : undefined;
-            const rect = canvas.getBoundingClientRect();
-            if (trackIndex === null || !result || !spec || !(spec.timeBins > 0) || rect.width <= 0) return false;
-            const view = waveformView.timeRange();
-            const placement = trackTimelinePlacement(trackRuntimeAt(trackIndex).offsetSeconds, result.durationSeconds, trackStore.globalSpan());
-            const norm = view.start + (clientX - rect.left) / rect.width * (view.end - view.start);
-            const local = placement.trackDurRatio > 0 ? (norm - placement.offsetNorm) / placement.trackDurRatio : NaN;
-            // The next column as the raster drew it: a zoomed detail's columns cover only its window of the file.
-            const nextLocal = spectrogramNeighbourNorm(spec, local, delta, result.durationSeconds);
-            if (nextLocal === null) return false;
-            const next = placement.offsetNorm + nextLocal * placement.trackDurRatio;
-            const x = rect.left + (next - view.start) / Math.max(1e-12, view.end - view.start) * rect.width;
-            if (x < rect.left || x > rect.left + rect.width) return false;
-            showSpectrogramReadout(canvas, x, clientY);
-            scheduleRender();
-            return true;
-        }
-        return false;
+        };
+        // The next points were not in: the step is taken once they are, if the lane still reads where it did.
+        const ready = (): void => {
+            if (laneRead?.read !== from.read) return;
+            const next = stageStep(from.plot, from.read, delta, ready);
+            if (next) carry(next);
+        };
+        const next = stageStep(from.plot, from.read, delta, ready);
+        if (next === undefined) return true;
+        if (!next) return false;
+        carry(next);
+        return true;
     }
     function hideLaneHover(): void {
         laneRead = null;
+        laneStepped = null;
         laneHover = null;
         spectrogramHover = null;
         hidePlotReadout(document.getElementById(PLOT_READOUT_ID));
     }
-    function drawLaneHover(ctx: CanvasRenderingContext2D, W: number, H: number, points: readonly LanePoint[], result: ComparisonTrackState, channelIndex: number, color: string, placement: { offsetNorm: number; trackDurRatio: number }): void {
+    function drawLaneHover(ctx: CanvasRenderingContext2D, W: number, H: number, result: ComparisonTrackState, channelIndex: number, color: string): void {
         if (!laneHover) return;
-        const rect = laneHover.canvas.getBoundingClientRect();
+        const { canvas, clientX, clientY } = laneHover;
+        const rect = canvas.getBoundingClientRect();
         const ratioX = rect.width > 0 ? W / rect.width : 1, ratioY = rect.height > 0 ? H / rect.height : 1;
-        const hit = laneHoverPoint(points, (laneHover.clientX - rect.left) * ratioX, (laneHover.clientY - rect.top) * ratioY, ratioX);
-        if (!hit) {
-            laneRead = null;
-            drawHoverLineOnCanvas(ctx, W, H);
-            hidePlotReadout(document.getElementById(PLOT_READOUT_ID));
+        const plot = lanePlots.get(canvas);
+        const slot = document.getElementById(PLOT_READOUT_ID);
+        const x = clientX - rect.left, y = clientY - rect.top;
+        // Read from the lane's samples (R7); while those around the pointer are fetched, the lane paints again once in.
+        const read = plot ? steppedRead(canvas, plot, clientX, clientY) ?? stageHover(plot, x, y, scheduleRender) : null;
+        notePlotRead(canvas, read);
+        laneRead = plot && read ? { canvas, plot, read } : null;
+        if (!read || read.pending || read.at === undefined || read.value === undefined) {
+            if (read?.pending) {
+                // No number until the samples are in: the cursor at the pointer, the readout empty.
+                ctx.save();
+                ctx.scale(ratioX, ratioY);
+                paintHoverMarks(ctx, { left: 0, top: 0, width: W / ratioX, height: H / ratioY }, x, null, '');
+                ctx.restore();
+            } else drawHoverLineOnCanvas(ctx, W, H);
+            hidePlotReadout(slot);
             return;
         }
-        laneRead = { canvas: laneHover.canvas, points, hit, ratioX, ratioY };
         ctx.save();
         ctx.scale(ratioX, ratioY);
-        paintHoverMarks(ctx, { left: 0, top: 0, width: W / ratioX, height: H / ratioY }, hit.x / ratioX, hit.y / ratioY, color);
+        paintHoverMarks(ctx, { left: 0, top: 0, width: W / ratioX, height: H / ratioY }, read.x, read.y, color);
         ctx.restore();
         const range = waveformView.timeRange();
         const span = trackStore.globalSpan();
         const secondsPerPixel = rect.width > 0 ? (range.end - range.start) * span.spanSec / rect.width : 0.01;
         // On the lanes' time axis, as the ruler and the cursor show it (a shifted track's offset included).
-        const readNorm = placement.offsetNorm + hit.t * placement.trackDurRatio;
-        const seconds = span.startSec + readNorm * span.spanSec;
+        const readNorm = span.spanSec > 0 ? (read.at - span.startSec) / span.spanSec : 0;
         // The other lanes and the time shown follow the point read, not the pointer beside it (as the spectra do).
         if (viewState.hover === null || Math.abs(viewState.hover - readNorm) > 1e-9) viewState.setHover(readNorm);
         const unit = channelsForResult(result)[channelIndex]?.unit?.trim() || null;
-        showPlotReadout(document.getElementById(PLOT_READOUT_ID), spectrumReadoutTrackLabel(result, channelIndex), laneReadoutText('', seconds, secondsPerPixel, hit.value, unit), color);
+        showPlotReadout(slot, spectrumReadoutTrackLabel(result, channelIndex), laneReadoutText('', read.at, secondsPerPixel, read.value, unit), color);
     }
     /**
-     * The pointer over a spectrogram lane reads the cell under it in the toolbar, as a waveform lane reads its point
-     * (R7). Read again on every paint of the lane, so a view panned or a range changed under a still pointer reads
-     * what is under it now.
+     * The pointer over a spectrogram lane reads the real STFT cell under it in the toolbar (R7): one frame and one bin
+     * of the full data the picture was drawn from, never a cell averaged for the screen. Read again on every paint of
+     * the lane, so a view panned or a range changed under a still pointer reads what is under it now.
      */
     function showSpectrogramReadout(canvas: HTMLCanvasElement, clientX: number, clientY: number): void {
         spectrogramHover = { canvas, clientX, clientY };
@@ -2433,24 +2462,24 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const trackIndex = trackIndexFromElement(canvas);
         const result = trackIndex === null ? undefined : state.results[trackIndex];
         const channelIndex = channelIndexAttribute(canvas) ?? 0;
-        const whole = result ? channelsForResult(result)[channelIndex]?.spectrogram : undefined;
-        // The cell read is the one drawn: the zoom window's while it is on screen.
         const spec = result && trackIndex !== null ? shownSpectrogram(result, trackIndex, channelIndex)?.spec : undefined;
+        const plot = spectrogramPlots.get(canvas);
         const rect = canvas.getBoundingClientRect();
-        if (trackIndex === null || !result || !spec || !whole || rect.height <= 0 || rect.width <= 0) { hidePlotReadout(slot); return; }
+        if (trackIndex === null || !result || !spec || !plot || rect.height <= 0 || rect.width <= 0) { laneRead = null; notePlotRead(canvas, null); hidePlotReadout(slot); return; }
         const view = waveformView.timeRange();
-        const norm = view.start + Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)) * (view.end - view.start);
-        // The other lanes' time line follows the time read, as a waveform lane's point sets it.
-        if (viewState.hover === null || Math.abs(viewState.hover - norm) > 1e-9) viewState.setHover(norm);
-        const bounds = shownSpectrogramBounds(whole);
-        const up = Math.max(0, Math.min(1, 1 - (clientY - rect.top) / rect.height));
-        const placement = trackTimelinePlacement(trackRuntimeAt(trackIndex).offsetSeconds, result.durationSeconds, trackStore.globalSpan());
-        const local = placement.trackDurRatio > 0 ? (norm - placement.offsetNorm) / placement.trackDurRatio : NaN;
-        const cell = spectrogramCellAt(spec, local, bounds.minFrequencyHz + up * (bounds.maxFrequencyHz - bounds.minFrequencyHz), result.durationSeconds);
-        if (!cell) { hidePlotReadout(slot); return; }
         const span = trackStore.globalSpan();
+        const again = (): void => { if (spectrogramHover?.canvas === canvas) showSpectrogramReadout(canvas, spectrogramHover.clientX, spectrogramHover.clientY); };
+        const read = steppedRead(canvas, plot, clientX, clientY) ?? stageHover(plot, clientX - rect.left, clientY - rect.top, again);
+        notePlotRead(canvas, read);
+        laneRead = read ? { canvas, plot, read } : null;
+        // The other lanes' time line follows the pointer's time, as before the cell under it is read.
+        const norm = view.start + Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)) * (view.end - view.start);
+        if (viewState.hover === null || Math.abs(viewState.hover - norm) > 1e-9) viewState.setHover(norm);
+        if (!read || read.pending) { hidePlotReadout(slot); return; }
+        const label = spectrumReadoutTrackLabel(result, channelIndex);
+        if (!read.full || read.at === undefined || read.row === undefined || read.value === undefined) { showPlotReadout(slot, label, read.values, trackColor(trackIndex)); return; }
         const secondsPerPixel = (view.end - view.start) * span.spanSec / rect.width;
-        showPlotReadout(slot, spectrumReadoutTrackLabel(result, channelIndex), spectrogramReadoutText('', span.startSec + norm * span.spanSec, secondsPerPixel, cell, spec.unit ?? 'dB'), trackColor(trackIndex));
+        showPlotReadout(slot, label, spectrogramReadoutText('', read.at, secondsPerPixel, { frequencyHz: read.row, level: read.value, ...(read.rowStep !== undefined ? { stepHz: read.rowStep } : {}) }, spec.unit ?? 'dB'), trackColor(trackIndex));
     }
     function drawHoverLineOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number) {
         if (viewState.hover !== null) {
@@ -4022,7 +4051,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (spectrumPointer) {
             spectrumMarks.show(canvas, spectrumDrawn, spectrumPointer.clientX, spectrumPointer.clientY, slot);
             const read = spectrumMarks.reading();
-            overlayReadHz = read && read.index !== undefined && read.index >= 0 ? read.layer.view.xs?.[read.index] ?? null : null;
+            overlayReadHz = read?.full && read.at !== undefined ? read.at
+                : read && read.index !== undefined && read.index >= 0 ? read.layer.view.xs?.[read.index] ?? null : null;
             return;
         }
         const x = spectrumFollowHz !== null && spectrumDrawn ? spectrumDrawn.xAt(spectrumFollowHz) : null;
@@ -4078,7 +4108,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const calibrated = series.every(s => channelsForResult(state.results[s.index])[s.channelIndex]?.measurement?.calibrationStatus === 'calibrated');
             return (calibrated ? STR.axisLevelCal : STR.axisLevelUncal).replace('{label}', reference);
         };
-        const paint = paintOverlaySpectrum(canvas, W, H, slices, spectrumView.state(), STR.axisFrequency, levelTitle);
+        // A slice cut for display is read at every bin (R7): the same slice asked for again at full resolution.
+        const read = slices.map(series => {
+            const track = series.slice.frequenciesHz && !series.slice.bandCentersHz && series.slice.cursorNorm !== undefined ? laneTrack(series.index) : null;
+            return track && series.slice.cursorNorm !== undefined ? { ...series, full: laneReads.slice(track, series.slice.cursorNorm, series.channelIndex) } : series;
+        });
+        const paint = paintOverlaySpectrum(canvas, W, H, read, spectrumView.state(), STR.axisFrequency, levelTitle);
         spectrumDrawn = paint.plot;
         spectrumView.recordPaint(paint);
         renderSpectrumAxisLegend(document.getElementById('spectrum-axis-legend'), paint.levelAxes);
@@ -4261,6 +4296,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         spectrumRequests.abandonActive();
         const update = trackStore.applyAnalysisUpdate(results);
         analysisId = createAnalysisId();
+        laneReads.clear();
         state.results = update.results;
         if (playback.trackId && !trackStore.get(playback.trackId)?.active) {
             playback.clear();

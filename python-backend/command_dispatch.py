@@ -105,6 +105,7 @@ def handle_track_detail(service: AnalysisService, command: Command) -> Mapping[s
         frequency_band=(
             (float(command["lowHz"]), float(command["highHz"])) if "lowHz" in command and "highHz" in command else None
         ),
+        read=command.get("read"),
     )
 
 
@@ -143,6 +144,7 @@ def handle_range(service: AnalysisService, command: Command) -> Mapping[str, obj
         point_count=int(command["points"]),
         calibration_profile=_calibration_profile(command),
         analysis_revision=_analysis_revision(command),
+        read=command.get("read"),
     )
 
 
@@ -190,6 +192,7 @@ def handle_stage_combine(_service: AnalysisService, command: Command) -> Mapping
         [str(key) for key in command["base"]],
         str(compare) if compare is not None else None,
         command.get("detail"),
+        command.get("read"),
     )
 
 

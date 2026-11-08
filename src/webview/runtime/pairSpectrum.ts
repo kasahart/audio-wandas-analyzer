@@ -163,6 +163,8 @@ export function pairLanes(input: PairPaintInput, visible: FrequencyScale, string
             view: { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity, unit, xs, values: [...values(curve.response)] },
             color: curve.color,
             label: curve.label,
+            // Every bin is drawn: what the line draws is all it holds (R7).
+            full: 'drawn' as const,
             ...(curve.dashed ? { dash: [4, 2] } : {}),
         }));
     return [

@@ -19,7 +19,8 @@ test('a zoomed spectrogram lane asks for its window again and draws it from that
         const answer = () => {
             const posted = (window as unknown as { __uiSmokePostedMessages: Posted }).__uiSmokePostedMessages;
             posted.forEach((request) => {
-                if (request.type !== 'request-track-detail' || answered.has(request.requestId)) return;
+                // A readout's read (R7) is the page's stand-in's to answer, from the spectrogram the lane holds.
+                if (request.type !== 'request-track-detail' || request.read || answered.has(request.requestId)) return;
                 answered.add(request.requestId);
                 const start = typeof request.startNorm === 'number' ? request.startNorm : 0;
                 const end = typeof request.endNorm === 'number' ? request.endNorm : 1;
@@ -44,7 +45,7 @@ test('a zoomed spectrogram lane asks for its window again and draws it from that
     const lane = page.locator('#track-spec-canvas-0');
     await expect(lane).toHaveAttribute('data-spectrogram-window', '0 1');
     const windowRequests = () => page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Posted }).__uiSmokePostedMessages
-        .filter((message) => message.type === 'request-track-detail' && typeof message.startNorm === 'number')
+        .filter((message) => message.type === 'request-track-detail' && !message.read && typeof message.startNorm === 'number')
         .map((message) => [message.startNorm as number, message.endNorm as number]));
     // Not zoomed, the whole file's columns serve: nothing more is asked.
     expect(await windowRequests()).toEqual([]);
@@ -88,6 +89,7 @@ test('a spectrogram lane boxed to a narrow band asks for that band\'s own bins a
     // band's own bins (those in it and one beside each end, 3.9 Hz apart) when one is asked for. Every row is
     // −80 dB but the bin at 1 kHz, which only a band's rows hold on its own.
     await page.evaluate(({ hop, duration }) => {
+        (window as unknown as { __uiSmokeTestAnswersReads: boolean }).__uiSmokeTestAnswersReads = true;
         const answered = new Set<unknown>();
         const binHz = 4000 / 1024;
         window.setInterval(() => {
@@ -95,16 +97,32 @@ test('a spectrogram lane boxed to a narrow band asks for that band\'s own bins a
             posted.forEach((request) => {
                 if (request.type !== 'request-track-detail' || answered.has(request.requestId)) return;
                 answered.add(request.requestId);
+                const count = 20;
+                const times = Array.from({ length: count }, (_, k) => (k + 0.5) * duration / count);
+                const read = request.read as { x: number[]; y?: number[]; beyond?: number } | undefined;
+                if (read) {
+                    // A readout's read (R7): the STFT's real cells around the place, from all 1025 bins.
+                    const nearest = (axis: number[], value: number): number => axis.reduce((best, at, index) => (Math.abs(at - value) < Math.abs(axis[best] - value) ? index : best), 0);
+                    const bins = Array.from({ length: 1025 }, (_, bin) => bin * binHz);
+                    const column = nearest(times, read.x[0]), row = nearest(bins, read.y?.[0] ?? 0), beyond = read.beyond ?? 1;
+                    const c0 = Math.max(0, column - beyond), c1 = Math.min(count, column + beyond + 1), r0 = Math.max(0, row - 2), r1 = Math.min(1025, row + 3);
+                    const ys = bins.slice(r0, r1), xs = times.slice(c0, c1);
+                    window.postMessage({
+                        type: 'track-detail-result', requestId: request.requestId, analysisId: request.analysisId,
+                        settingsSignature: request.settingsSignature, trackIndex: request.trackIndex, filePath: request.filePath, channels: [],
+                        points: { xs, ys, matrix: ys.map(hz => xs.map(() => (Math.abs(hz - 1000) < binHz / 2 ? -20 : -80))), start: c0 > 0 ? xs[0] : null, end: c1 < count ? xs[xs.length - 1] : null, complete: true },
+                    }, '*');
+                    return;
+                }
                 const banded = typeof request.lowHz === 'number' && typeof request.highHz === 'number';
                 const first = banded ? Math.max(0, Math.ceil((request.lowHz as number) / binHz) - 1) : 0;
                 const last = banded ? Math.min(1024, Math.floor((request.highHz as number) / binHz) + 1) : 1024;
                 const rows = banded ? last - first + 1 : 24;
                 const hzOf = (row: number): number => (first + row * (last - first) / (rows - 1)) * binHz;
-                const count = 20;
                 const spectrogram = {
                     values: Array.from({ length: count }, () => Array.from({ length: rows }, (_, row) => (banded && Math.abs(hzOf(row) - 1000) < binHz / 2 ? -20 : -80))),
                     timeBins: count, frequencyBins: rows, windowSize: 2048, hopSize: hop, maxFrequencyHz: 4000, minDb: -100, maxDb: 0,
-                    timeCentersSec: Array.from({ length: count }, (_, k) => (k + 0.5) * duration / count),
+                    timeCentersSec: times,
                     ...(banded ? { bandLowHz: first * binHz, bandHighHz: last * binHz } : {}),
                 };
                 window.postMessage({

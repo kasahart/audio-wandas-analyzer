@@ -19,6 +19,7 @@ import { packRgb, paletteColour, rasterizeHeatmap, unpackRgb } from '../plot/hea
 import { drawValueAxis, fittedAxisTitle, readoutText, type AxisTick, type Palette } from '../../shared/gui-core/index';
 import { niceRange, niceTicks } from '../../shared/utils/ticks';
 import { amountText, barkText, frequencyText, lagText, levelText, quefrencyText, secondsText, signedText, withMinus } from '../plot/plotText';
+import { cellIndex, STEP_AHEAD, type FullPoints, type FullRead, type FullSource } from './fullRead';
 
 /** Canvas x the level axis's turned title is centred on, in the gutter left of its tick labels. */
 const AXIS_TITLE_X = 10;
@@ -79,7 +80,9 @@ export function eventLayers(layer: StageLayer): StageLayer[] {
         const out = !!layer.excluded?.includes(event.id);
         // Where in the recording it was cut (its trigger): the plot's time is from the trigger.
         const at = Number.isFinite(event.time) ? ` @ ${secondsText(event.time)}` : '';
-        return { ...rest, view: { ...view, values: event.values }, width: Math.min(layer.width ?? 1.5, 1.2), alpha: out ? 0.25 : 0.85, label: `${layer.label ? `${layer.label} ` : ''}#${event.id + 1}${at}`, ...(source !== undefined ? { event: { id: event.id, source, out } } : {}) };
+        // Each event's line reads its own full data (R7), not the recording's.
+        const full: FullRead | undefined = layer.full && layer.full !== 'drawn' ? layer.full.event?.(event.id) : layer.full;
+        return { ...rest, view: { ...view, values: event.values }, width: Math.min(layer.width ?? 1.5, 1.2), alpha: out ? 0.25 : 0.85, label: `${layer.label ? `${layer.label} ` : ''}#${event.id + 1}${at}`, ...(source !== undefined ? { event: { id: event.id, source, out } } : {}), ...(full ? { full } : {}) };
     });
 }
 
@@ -473,8 +476,14 @@ export interface StageLayer {
     excluded?: readonly number[];
     /** One event of `source` (eventLayers'), and whether it is left out. */
     event?: { id: number; source: string; out: boolean };
-    /** What the readout says of the point at `index` (a histogram's bin and its count, a dot's recording), in place of where and how much. */
-    readout?: (index: number) => string[];
+    /** What the readout says of the point at `index` of the drawn line (−1 for a point of the full data, at `point.x`), in place of where and how much (a histogram's bin and its count, a dot's recording, a spectrum's level in its unit). */
+    readout?: (index: number, point: { x: number; value: number }) => string[];
+    /**
+     * Where every number read of this picture comes from (R7, fullRead.ts): 'drawn' when what it draws is every
+     * point, else the source of its full-resolution data. Every line and image a plot draws says which (bars are whole
+     * bands): the plot marks one that does not (`data-plot-full`), and every ui-smoke test fails it.
+     */
+    full?: FullRead;
     /** Drawn as marks, not a line: a dot at each point (`width` its radius), or a rug tick up from the floor at each point's x. */
     marks?: 'dots' | 'rug';
     /** The stretch of the horizontal axis (its values) this picture is drawn over, clipped there: finer data over part of the view. */
@@ -491,6 +500,12 @@ export interface StagePlot {
     frame: { left: number; top: number; width: number; height: number };
     xAt: (value: number) => number;
     yAt: (value: number) => number;
+    /** The horizontal axis's value at a canvas x, and whether the axis is logarithmic; the level at a canvas y. */
+    xOf?: (x: number) => number;
+    xLog?: boolean;
+    levelOf?: (y: number) => number;
+    /** A figure no pointer reads (a report's): nothing is read on it. */
+    noReadout?: boolean;
     /** A band's half width as a ratio of its centre, for steps. */
     ratioStep: number;
     /** On a linear axis, a bar's half width in the axis's values (a histogram's bins): bars are then that wide each side. */
@@ -510,7 +525,14 @@ export interface StagePlot {
     /** The lines read on the right-hand level axis (`StagePaintOptions.secondary`), placed by its range. */
     secondary?: StagePlot;
     /** A heatmap drawn: its picture, and the cell (column, row of its matrix; −1 off the picture) at a point of the canvas. */
-    image?: { layer: StageLayer; cellAt(x: number, y: number): { column: number; row: number } };
+    image?: {
+        layer: StageLayer;
+        cellAt(x: number, y: number): { column: number; row: number };
+        /** The axes' values at a canvas point (null off the picture), and back; whether the rows' axis is logarithmic. */
+        valueAt(x: number, y: number): { x: number; y: number } | null;
+        placeOf(x: number, y: number): { x: number; y: number };
+        rowLog: boolean;
+    };
     /** Where a heatmap's colour bar was painted (CSS pixels on the canvas). */
     colourBar?: ColourBarBox;
     /** The value axis' ticks as drawn (a heatmap's rows, a line's levels): a lane kept as painted draws its side axis again from them. */
@@ -590,6 +612,8 @@ export interface StagePaintOptions {
     heatmapPalette?: Palette;
     /** Each point of a signal's line (CSS pixels on the canvas, its value and time, whether seen), for a pointer that reads them. */
     onSignalPoint?: SignalPointSink;
+    /** false for a figure no pointer reads (a report's): its pictures need no full data, and nothing is read on it. */
+    readout?: false;
 }
 
 /**
@@ -619,9 +643,9 @@ export function wrapLines(text: string, maxWidth: number, measure: (part: string
     return lines.length ? lines : [''];
 }
 
-/** One picture on its own: the base, the compared file or their difference. */
-export function paintStage(canvas: HTMLCanvasElement, view: StageView | null, range: PaneRange, color: string, axes: StageAxes, options: StagePaintOptions = {}): StagePlot | null {
-    return paintOverlay(canvas, { layers: view ? [{ view, color, filled: true }] : [] }, range, axes, options);
+/** One picture on its own: the base, the compared file or their difference; `full`, where its numbers are read (R7). */
+export function paintStage(canvas: HTMLCanvasElement, view: StageView | null, range: PaneRange, color: string, axes: StageAxes, options: StagePaintOptions = {}, full?: FullRead): StagePlot | null {
+    return paintOverlay(canvas, { layers: view ? [{ view, color, filled: true, ...(full ? { full } : {}) }] : [] }, range, axes, options);
 }
 
 /**
@@ -659,6 +683,7 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
         canvas.dataset.plot = '';
         canvas.dataset.plotAxes = overlay.layers.length ? `${axes.x}|${axes.y}` : '';
         canvas.dataset.plotOrder = '';
+        canvas.dataset.plotFull = '';
     }
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
     context.clearRect(0, 0, width, height);
@@ -734,7 +759,15 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
     };
 
     let levelTicks: AxisTick[] = [];
-    const plot: StagePlot = { frame: { left, top, width: plotWidth, height: plotHeight }, xAt, yAt, lineYAt: looseAt(range), ratioStep: 1.12, lines: [], diff: !!options.diff };
+    const levelOf = (axis: PaneRange) => (y: number): number => axis.min + (1 - (y - top) / plotHeight) * (axis.max - axis.min);
+    const plot: StagePlot = { frame: { left, top, width: plotWidth, height: plotHeight }, xAt, yAt, xOf: x => xAxis.at((x - left) / plotWidth), xLog: xAxis.log, levelOf: levelOf(range),
+        lineYAt: looseAt(range), ratioStep: 1.12, lines: [], diff: !!options.diff, ...(options.readout === false ? { noReadout: true } : {}) };
+    // Every picture drawn says where its numbers are read (R7): a plot drawing one that does not is marked, and every
+    // ui-smoke test fails it (canvasAudit.ts). A figure no pointer reads needs none.
+    if (canvas.dataset) {
+        const undeclared = [...layers, ...(options.secondary?.layers ?? [])].filter(layer => !declaresFullRead(layer));
+        canvas.dataset.plotFull = options.readout === false ? 'none' : undeclared.length ? `missing: ${undeclared.map(layer => layer.label || layer.view.frame).join(', ')}` : 'declared';
+    }
     if (heatmap && yAxis && view.matrix) {
         const image = context.createImageData(Math.round(plotWidth * ratio), Math.round(plotHeight * ratio));
         const extentAbs = Math.max(Math.abs(range.min), Math.abs(range.max), 1e-9);
@@ -783,6 +816,12 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
         const imageLayer = layers.find(layer => layer.view === view) ?? layers[0];
         plot.image = {
             layer: imageLayer,
+            rowLog: yAxis.log,
+            valueAt: (x, y) => {
+                const fx = (x - left) / plotWidth, fy = (y - top) / plotHeight;
+                return fx < 0 || fx > 1 || fy < 0 || fy > 1 ? null : { x: xAxis.at(fx), y: yAxis.at(1 - fy) };
+            },
+            placeOf: (x, y) => ({ x: xAt(x), y: top + (1 - yAxis.fraction(y)) * plotHeight }),
             cellAt: (x, y) => {
                 const fx = (x - left) / plotWidth, fy = (y - top) / plotHeight;
                 if (fx < 0 || fx > 1 || fy < 0 || fy > 1) return { column: -1, row: -1 };
@@ -874,7 +913,7 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
             context.restore();
         }
         if (options.secondary) {
-            const secondPlot: StagePlot = { ...plot, yAt: levelAt(options.secondary.range), lineYAt: looseAt(options.secondary.range), lines: [] };
+            const secondPlot: StagePlot = { ...plot, yAt: levelAt(options.secondary.range), levelOf: levelOf(options.secondary.range), lineYAt: looseAt(options.secondary.range), lines: [] };
             plot.secondary = secondPlot;
             for (const layer of secondaryOrder) {
                 if (layer.view.kind !== 'line' && layer.view.kind !== 'bar') continue;
@@ -1199,7 +1238,7 @@ export interface StageRead {
     name: string;
     values: string;
     image?: boolean;
-    /** The point read: its index in the line's values (−1 for a signal's envelope point or an image's cell), and a signal's time. */
+    /** The point read: its index in the drawn line's values (−1 for a point of the full data, a signal's envelope point or an image's cell), and a signal's time. */
     index?: number;
     time?: number;
     /**
@@ -1208,28 +1247,230 @@ export interface StageRead {
      * radius. So the hits of two parts of a plot (its two level axes) are ordered as the hits of one are.
      */
     away?: number;
+    /** Read from the layer's full data (fullRead.ts), not from what it draws: where it is on its axes and its value. */
+    full?: boolean;
+    at?: number;
+    row?: number;
+    value?: number;
+    /** An image cell's row spacing (a spectrogram's bin width), so neighbouring rows read apart. */
+    rowStep?: number;
+    /** The full data around the pointer is still being fetched: the marks are shown, no number until it is in. */
+    pending?: boolean;
 }
 
-export function stageHover(plot: StagePlot, x: number, y: number): StageRead | null {
-    if (plot.image) return imageHover(plot, plot.image, x, y);
-    type Point = { index: number; time?: number; x: number; y: number; value: number };
-    // The point nearest the pointer within a few pixels, so a narrow peak beside it is read at its top (R7).
-    const hit = nearestPoint<StageLayer, Point>(plot.lines,
-        layer => (layer.view.waveform ? signalPointsNear(plot, layer.view.waveform, x, HOVER_PICK_RADIUS_PX) : linePointsNear(plot, layer, x, HOVER_PICK_RADIUS_PX)),
-        layer => (layer.view.waveform ? signalPointAt(plot, layer.view.waveform, x, y) : linePointAt(plot, layer, x)), x, y, HOVER_PICK_RADIUS_PX);
-    if (!hit) return null;
-    const view = hit.s.view;
+/** A point a plot reads: where it is drawn, its value, where it is along its axis and its index in the drawn line. */
+type ReadPoint = { index: number; time?: number; x: number; y: number; value: number; at: number; step?: number; full?: boolean };
+
+/** The source of a layer's full data, or null when what it draws is every point ('drawn', or bars, which are whole). */
+function fullSourceOf(layer: StageLayer): FullSource | null {
+    return layer.full && layer.full !== 'drawn' && layer.view.kind !== 'bar' ? layer.full : null;
+}
+
+/** Whether a layer drawn on a plot says where its full data is read (R7): every line and image does; bars are whole. */
+export function declaresFullRead(layer: StageLayer): boolean {
+    return !!layer.full || layer.view.kind === 'bar' || layer.view.kind === 'none';
+}
+
+/** A point of the full data on the plot: null where it has no value, or is silent, or is clipped off the level axis. */
+function fullPoint(plot: StagePlot, layer: StageLayer, points: FullPoints, index: number): ReadPoint | null {
+    const value = points.values?.[index];
+    const at = points.xs[index];
+    if (value === null || value === undefined || at === undefined || silent(layer.view, value)) return null;
+    const shown = layer.view.waveform ? plot.signal?.range : undefined;
+    if (shown && (value < shown.min || value > shown.max)) return null;
+    const gaps = [at - points.xs[index - 1], points.xs[index + 1] - at].map(Math.abs).filter(gap => Number.isFinite(gap) && gap > 0);
+    return { index: -1, at, x: plot.xAt(at), y: plot.yAt(value), value, full: true, ...(layer.view.waveform ? { time: at } : {}), ...(gaps.length ? { step: Math.min(...gaps) } : {}) };
+}
+
+/**
+ * A line's full-resolution points (R7) near the pointer at (`x`, `y`): those within `radius` and on the plot, and
+ * the one nearest across to it (with none that near: zoomed past single points). undefined while they are fetched.
+ */
+function fullLineNear(plot: StagePlot, layer: StageLayer, source: FullSource, x: number, y: number, radius: number, ready: () => void): { near: ReadPoint[]; at: ReadPoint | null } | undefined {
+    if (!source.line || layer.view.kind === 'bar' || !plot.xOf) return { near: [], at: null };
+    const got = source.line({ x0: plot.xOf(x - radius), x1: plot.xOf(x + radius), beyond: 1, near: plot.levelOf?.(y), columns: 2 * radius + 1, log: !!plot.xLog }, ready);
+    if (got === undefined) return undefined;
+    if (!got?.xs.length) return { near: [], at: null };
+    const near: ReadPoint[] = [];
+    let at: ReadPoint | null = null;
+    for (let index = 0; index < got.xs.length; index++) {
+        const point = fullPoint(plot, layer, got, index);
+        if (!point) continue;
+        if (Math.abs(point.x - x) <= radius && onPlot(plot, point.x, (plot.lineYAt ?? plot.yAt)(point.value))) near.push(point);
+        if (!at || Math.abs(point.x - x) < Math.abs(at.x - x)) at = point;
+    }
+    // Past the line's ends the pointer is over no point of it.
+    const first = plot.xAt(got.xs[0]), last = plot.xAt(got.xs[got.xs.length - 1]);
+    if ((got.start === null && x < first - 0.5) || (got.end === null && x > last + 0.5)) at = null;
+    // A point off the plot (zoomed between two points) keeps its cursor at the plot's edge.
+    if (at) at = { ...at, x: Math.max(plot.frame.left, Math.min(plot.frame.left + plot.frame.width, at.x)) };
+    return { near, at };
+}
+
+/** The readout of `point` of `layer`, as every plot writes it (R7). */
+function lineRead(plot: StagePlot, layer: StageLayer, point: ReadPoint, away?: number): StageRead {
+    const view = layer.view;
+    const full = { at: point.at, value: point.value, ...(point.full ? { full: true } : {}) };
     if (view.waveform) {
         // A signal reads its amplitude in its unit, to 3 figures, where its point is.
-        const value = hit.point.value, unit = view.waveform.unit || plot.signal?.unit;
-        const amount = amountText(value, unit);
-        return { ...readoutOf(hit.s, hit.point, hit.s.label ?? '', [timeText(plot, hit.point.time ?? 0), amount]), index: -1, time: hit.point.time, away: hit.away };
+        const unit = view.waveform.unit || plot.signal?.unit;
+        return { ...readoutOf(layer, point, layer.label ?? '', [timeText(plot, point.time ?? point.at), amountText(point.value, unit)]), index: -1, time: point.time ?? point.at, away, ...full };
     }
-    if (hit.s.readout) return { ...readoutOf(hit.s, hit.point, hit.s.label ?? '', hit.s.readout(hit.point.index)), index: hit.point.index, away: hit.away };
-    const amount = plot.diff ? signed(hit.point.value, isDb(view))
+    if (layer.readout) return { ...readoutOf(layer, point, layer.label ?? '', layer.readout(point.index, { x: point.at, value: point.value })), index: point.index, away, ...full };
+    const amount = plot.diff ? signed(point.value, isDb(view))
         // Levels to 0.1 dB, as the spectrum overlay reads them; other quantities (a coherence) to 3 figures.
-        : isDb(view) ? levelText(hit.point.value) : amountText(hit.point.value, view.unit);
-    return { ...readoutOf(hit.s, hit.point, hit.s.label || (plot.diff ? 'Δ' : ''), [atText(view, hit.point.index), amount]), index: hit.point.index, away: hit.away };
+        : isDb(view) ? levelText(point.value) : amountText(point.value, view.unit);
+    const where = point.full ? atValue(view, point.at, undefined, point.step) : atText(view, point.index);
+    return { ...readoutOf(layer, point, layer.label || (plot.diff ? 'Δ' : ''), [where, amount]), index: point.index, away, ...full };
+}
+
+/** What a read waiting for its layer's full data shows: the marks at the pointer, no number (R7). */
+function pendingRead(layer: StageLayer, x: number, y: number, image = false): StageRead {
+    return { layer, x, y, text: '', name: '', values: '', pending: true, ...(image ? { image: true } : {}) };
+}
+
+/**
+ * The point the pointer at (`x`, `y`) reads (R7): of every line, the point nearest it within a few pixels, so a
+ * narrow peak beside it is read at its top; else the line nearest in height at the pointer's column. A line with
+ * a full-data source is read from its full-resolution points, never from what it draws: a point thinned out of the
+ * line is read when it is the nearest. While any line's points near the pointer are fetched, the read is pending
+ * (`ready` is called once they are in).
+ */
+export function stageHover(plot: StagePlot, x: number, y: number, ready: () => void = () => undefined): StageRead | null {
+    if (plot.noReadout) return null;
+    if (plot.image) return imageHover(plot, plot.image, x, y, ready);
+    const fulls = new Map<StageLayer, { near: ReadPoint[]; at: ReadPoint | null }>();
+    for (const layer of plot.lines) {
+        const source = fullSourceOf(layer);
+        if (!source) continue;
+        const got = fullLineNear(plot, layer, source, x, y, HOVER_PICK_RADIUS_PX, ready);
+        if (got === undefined) return pendingRead(layer, x, y);
+        fulls.set(layer, got);
+    }
+    // The point nearest the pointer within a few pixels, so a narrow peak beside it is read at its top (R7).
+    const hit = nearestPoint<StageLayer, ReadPoint>(plot.lines,
+        layer => fulls.get(layer)?.near ?? (layer.view.waveform ? drawnPoints(signalPointsNear(plot, layer.view.waveform, x, HOVER_PICK_RADIUS_PX)) : drawnPoints(linePointsNear(plot, layer, x, HOVER_PICK_RADIUS_PX), layer)),
+        layer => {
+            const full = fulls.get(layer);
+            if (full) return full.at;
+            const point = layer.view.waveform ? signalPointAt(plot, layer.view.waveform, x, y) : linePointAt(plot, layer, x);
+            return point ? drawnPoints([point], layer)[0] : null;
+        }, x, y, HOVER_PICK_RADIUS_PX);
+    return hit ? lineRead(plot, hit.s, hit.point, hit.away) : null;
+}
+
+/** Points read from what a layer draws, placed on its axis (a signal's by their time). */
+function drawnPoints(points: ReadonlyArray<{ index: number; time?: number; x: number; y: number; value: number }>, layer?: StageLayer): ReadPoint[] {
+    return points.map(point => ({ ...point, at: point.time ?? layer?.view.xs?.[point.index] ?? 0 }));
+}
+
+/**
+ * What an arrow key reads `delta` along from `read` (R7), as the pointer on it would: of a line with full data, its
+ * next full-resolution point (bin, sample, frame), however many share a pixel, at every zoom; of a line drawn whole,
+ * its next value (a bar, a dot); of an image, the next column on the same row. Null past the end or off the plot;
+ * undefined while the next points are fetched (`ready` is called once they are in).
+ */
+export function stageStep(plot: StagePlot, read: StageRead, delta: -1 | 1, ready: () => void = () => undefined): StageRead | null | undefined {
+    if (read.pending) return null;
+    if (read.image) {
+        const source = fullSourceOf(read.layer);
+        if (plot.image && source?.cells && read.full && read.at !== undefined && read.row !== undefined) return imageStep(plot, plot.image, source, read, delta, ready);
+        const next = stageNeighbour(plot, read, delta);
+        return next && plot.image ? imageHover(plot, plot.image, next.x, next.y, ready) : null;
+    }
+    const source = fullSourceOf(read.layer);
+    if (source && read.full && read.at !== undefined) {
+        const got = source.line?.({ x0: read.at, x1: read.at, beyond: STEP_AHEAD }, ready);
+        if (got === undefined) return undefined;
+        if (!got) return null;
+        // The first full point past the one read, in the key's direction, that has a value to read.
+        const from = read.at;
+        let index = -1;
+        if (delta > 0) index = got.xs.findIndex(x => x > from);
+        else for (let back = got.xs.length - 1; back >= 0 && index < 0; back--) if (got.xs[back] < from) index = back;
+        for (; index >= 0 && index < got.xs.length; index += delta) {
+            const point = fullPoint(plot, read.layer, got, index);
+            if (!point) {
+                // Past the level axis of a clipped signal there is nothing on screen to read.
+                if (read.layer.view.waveform && got.values?.[index] !== null) return null;
+                continue;
+            }
+            // Past the plot's side there is nothing further to read; a value above or below the level axis is read at
+            // the plot's edge, where yAt holds it, as the pointer reads it there.
+            if (point.x < plot.frame.left || point.x > plot.frame.left + plot.frame.width) return null;
+            return lineRead(plot, read.layer, point);
+        }
+        return null;
+    }
+    const next = stageNeighbour(plot, read, delta);
+    if (!next) return null;
+    if (read.index !== undefined && read.index >= 0 && !read.layer.view.waveform) {
+        const values = read.layer.view.values ?? [];
+        // The next drawn value of the same line (stageNeighbour skipped the ones without a value).
+        for (let index = read.index + delta; index >= 0 && index < values.length; index += delta) {
+            const value = values[index];
+            if (value === null || value === undefined || silent(read.layer.view, value)) continue;
+            return lineRead(plot, read.layer, { index, x: next.x, y: next.y, value, at: read.layer.view.xs?.[index] ?? 0 });
+        }
+        return null;
+    }
+    return stageHover(plot, next.x, next.y, ready);
+}
+
+/** The readout of an image's real cell (R7): its name (a row's thing, or the picture's), where it is and its value. */
+function cellRead(plot: StagePlot, layer: StageLayer, got: FullPoints, column: number, row: number, x: number, y: number): StageRead | null {
+    const view = layer.view;
+    const value = got.matrix?.[row]?.[column];
+    const at = got.xs[column], place = got.ys?.[row];
+    if (value === null || value === undefined || at === undefined || place === undefined) return null;
+    const amount = plot.diff ? signed(value, isDb(view)) : isDb(view) ? levelText(value) : amountText(value);
+    const where = layer.rowName ? atValue(view, at) : atValue(view, at, place, spacingAt(got.xs, column), spacingAt(got.ys, row));
+    const name = got.rowNames?.[row] ?? layer.label ?? (plot.diff ? 'Δ' : '');
+    const rowStep = spacingAt(got.ys, row);
+    return { ...readoutOf(layer, { x, y }, name, [where, amount]), image: true, index: -1, full: true, at, row: place, value, ...(rowStep !== undefined ? { rowStep } : {}) };
+}
+
+/**
+ * A heatmap's hover (R7): the cell under the pointer, read as its name (the row's, for rows that are things), where it
+ * is and its value in the colour's unit. With full data it is the real cell there (one time frame, one frequency
+ * bin), never a cell averaged for the screen. An image has no line to mark: the cursor alone, at the pointer.
+ */
+function imageHover(plot: StagePlot, image: NonNullable<StagePlot['image']>, x: number, y: number, ready: () => void): StageRead | null {
+    const { layer } = image, view = layer.view;
+    const source = fullSourceOf(layer);
+    if (source?.cells) {
+        const place = image.valueAt(x, y);
+        if (!place) return null;
+        const got = source.cells({ x: place.x, y: place.y, beyond: 1 }, ready);
+        if (got === undefined) return pendingRead(layer, x, y, true);
+        if (!got?.xs.length || !got.ys?.length) return null;
+        const column = cellIndex(got.xs, place.x, false, { low: got.start === null, high: got.end === null });
+        const row = cellIndex(got.ys, place.y, image.rowLog, { low: true, high: true });
+        return column < 0 || row < 0 ? null : cellRead(plot, layer, got, column, row, x, y);
+    }
+    const { column, row } = image.cellAt(x, y);
+    const value = column < 0 || row < 0 ? null : view.matrix?.[row]?.[column] ?? null;
+    if (value === null) return null;
+    const amount = plot.diff ? signed(value, isDb(view))
+        : isDb(view) ? levelText(value) : amountText(value);
+    const at = layer.rowName ? atValue(view, view.xs?.[column] ?? 0) : atText(view, column, row);
+    return { ...readoutOf(layer, { x, y }, layer.rowName?.(row, column) ?? layer.label ?? (plot.diff ? 'Δ' : ''), [at, amount]), image: true };
+}
+
+/** An arrow key on an image with full data: the next real column (time frame) on the row read. */
+function imageStep(plot: StagePlot, image: NonNullable<StagePlot['image']>, source: FullSource, read: StageRead, delta: -1 | 1, ready: () => void): StageRead | null | undefined {
+    const at = read.at as number, place = read.row as number;
+    const got = source.cells?.({ x: at, y: place, beyond: STEP_AHEAD }, ready);
+    if (got === undefined) return undefined;
+    if (!got?.xs.length || !got.ys?.length) return null;
+    let from = 0;
+    for (let index = 1; index < got.xs.length; index++) if (Math.abs(got.xs[index] - at) < Math.abs(got.xs[from] - at)) from = index;
+    const row = cellIndex(got.ys, place, image.rowLog, { low: false, high: false });
+    const column = from + delta;
+    if (column < 0 || column >= got.xs.length) return null;
+    const x = image.placeOf(got.xs[column], place).x;
+    if (x < plot.frame.left || x > plot.frame.left + plot.frame.width) return null;
+    return cellRead(plot, read.layer, got, column, row, x, read.y);
 }
 
 /**
@@ -1288,21 +1529,6 @@ export function stageNeighbour(plot: StagePlot, read: StageRead, delta: -1 | 1):
         return { x, y: plot.yAt(value) };
     }
     return null;
-}
-
-/**
- * A heatmap's hover (R7): the cell under the pointer, read as its name (the row's, for rows that are things), where it
- * is and its value in the colour's unit. An image has no line to mark: the cursor alone, at the pointer.
- */
-function imageHover(plot: StagePlot, image: NonNullable<StagePlot['image']>, x: number, y: number): StageRead | null {
-    const { column, row } = image.cellAt(x, y);
-    const { layer } = image, view = layer.view;
-    const value = column < 0 || row < 0 ? null : view.matrix?.[row]?.[column] ?? null;
-    if (value === null) return null;
-    const amount = plot.diff ? signed(value, isDb(view))
-        : isDb(view) ? levelText(value) : amountText(value);
-    const at = layer.rowName ? atValue(view, view.xs?.[column] ?? 0) : atText(view, column, row);
-    return { ...readoutOf(layer, { x, y }, layer.rowName?.(row, column) ?? layer.label ?? (plot.diff ? 'Δ' : ''), [at, amount]), image: true };
 }
 
 /** A hover's readout: the line's name (cut short first where there is no room) and where and what it reads. */

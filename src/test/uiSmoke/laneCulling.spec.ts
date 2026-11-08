@@ -216,7 +216,8 @@ test('the PNG export keeps waiting for the zoom detail on its way across redraws
         await page.locator('#toolbar [data-action="zoom-in"]').click({ force: true });
     }
     const rangeRequests = () => page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Array<Record<string, unknown>> }).__uiSmokePostedMessages
-        .filter((message) => message.type === 'request-waveform-range' && Number(message.endNorm) - Number(message.startNorm) < 1));
+        // A readout's read of the samples under the pointer (R7) is not the lane's picture.
+        .filter((message) => message.type === 'request-waveform-range' && !message.read && Number(message.endNorm) - Number(message.startNorm) < 1));
     await expect.poll(async () => (await rangeRequests()).length).toBeGreaterThan(0);
     const downloads = () => page.evaluate(() => (window as unknown as { __uiSmokeDownloads: Array<{ download: string }> }).__uiSmokeDownloads.map((d) => d.download));
     await page.evaluate(() => document.querySelector<HTMLElement>('#toolbar [data-action="export-png"]')?.click());
@@ -313,7 +314,7 @@ test('a zoom-detail range the host never answers is asked again by a later redra
         await page.locator('#toolbar [data-action="zoom-in"]').click({ force: true });
     }
     const rangeRequests = () => page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Array<Record<string, unknown>> }).__uiSmokePostedMessages
-        .filter((message) => message.type === 'request-waveform-range').length);
+        .filter((message) => message.type === 'request-waveform-range' && !message.read).length);
     await expect.poll(rangeRequests).toBeGreaterThan(0);
     await page.waitForTimeout(300);
     const asked = await rangeRequests();

@@ -146,7 +146,8 @@ function isCompareCombineMessage(value: unknown): value is CompareCombineMessage
     const key = (item: unknown): boolean => typeof item === 'string' && item.length > 0;
     return typeof message['requestId'] === 'string' && Array.isArray(message['base']) && message['base'].length > 0 && message['base'].every(key)
         && (message['compare'] === undefined || message['compare'] === null || key(message['compare']))
-        && (message['detail'] === undefined || message['detail'] === null || (typeof message['detail'] === 'object' && !Array.isArray(message['detail'])));
+        && (message['detail'] === undefined || message['detail'] === null || (typeof message['detail'] === 'object' && !Array.isArray(message['detail'])))
+        && (message['read'] === undefined || (typeof message['read'] === 'object' && message['read'] !== null && !Array.isArray(message['read'])));
 }
 
 const SAFE_NAME = /^(?!\.{1,2}$)[^\\/:*?"<>|\u0000-\u001f]+$/u;

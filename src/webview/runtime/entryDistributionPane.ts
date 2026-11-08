@@ -182,7 +182,7 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
         });
         // The value axis below them, drawn by the same component: its numbers and name; what a bar's height counts beside it.
         axisCanvas.style.width = `${width}px`;
-        paintOverlay(axisCanvas, { layers: [{ view: axisView, color: '' }] }, { min: 0, max: 1 }, { x: axisLabel, y: strings.dsDistCountAxis.replace('{unit}', unit) },
+        paintOverlay(axisCanvas, { layers: [{ view: axisView, color: '', full: 'drawn' }] }, { min: 0, max: 1 }, { x: axisLabel, y: strings.dsDistCountAxis.replace('{unit}', unit) },
             { window: zoom, margins: { left: DIST_MARGINS.left, right: DIST_MARGINS.right, top: 0, bottom: 19 }, yAxisLabels: false });
         countAxis.textContent = strip ? '' : strings.dsDistCountAxis.replace('{unit}', unit);
         if (strip && scrollToSlot) {
