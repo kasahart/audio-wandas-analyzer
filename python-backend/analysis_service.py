@@ -398,8 +398,8 @@ class AnalysisService:
         x = self._pair_source(reference)
         sources = [self._pair_source(response) for response in responses]
         n_fft, hop_length, window = pair_stft_params(x.frame.n_samples, stft_options)
-        # Every bin, at its own frequency: a narrow resonance, notch or coherence dip stays; the plot thins the
-        # line to each pixel column's lowest and highest bin when it draws it, and a zoom shows every bin (R1-R3).
+        # Every bin, at its own frequency: a narrow resonance, notch or coherence dip stays; the plot joins every
+        # bin it is given, so a zoom shows every bin in its range (R1-R3).
         bins = np.arange(n_fft // 2 + 1)
         replies: list[PairSpectrumResponse] = []
         for y in sources:

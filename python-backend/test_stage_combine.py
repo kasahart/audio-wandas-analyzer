@@ -198,3 +198,39 @@ def test_levels_at_different_rates_are_compared_at_the_same_times(signal: wd.Cha
     diff = np.asarray(result["diff"]["values"], dtype=float)
     assert diff.size > 100
     assert np.nanmedian(diff) == pytest.approx(20 * np.log10(2), abs=0.05)
+
+
+@pytest.mark.parametrize("name", ["coherence", "correlation", "cepstrum", "series", "events"])
+def test_every_line_keeps_a_one_point_dip_and_peak_when_drawn(signal: wd.ChannelFrame, name: str) -> None:
+    """R2: a line with more points than the screen keeps each bucket's lowest and highest value, at its own x (a
+    trigger's events, which share one x list, at their bucket's ends): a one-bin coherence dip, a one-lag
+    correlation peak or a one-sample hit of either sign is never averaged away, interpolated past or dropped for
+    the other sign's extreme."""
+    frames = _frames(signal)
+    frames["events"] = (signal.segment([0.5], duration=0.5), None)
+    frames["series"] = (signal.rms_trend(frame_length=64, hop_length=8), None)
+    frame, signal_s = frames[name]
+    data = stage_data(frame, dict(stage_view(frame, signal_s)), signal_s)
+    assert data is not None
+    values = data.values.copy()
+    inside = np.flatnonzero((data.xs >= 20) & (data.xs <= data.nyquist)) if name == "coherence" else None
+    span = inside if inside is not None else np.arange(1, values.size)
+    # Side by side, so in one bucket.
+    low_at = int(span[span.size // 3])
+    high_at = low_at + 1
+    floor, top = np.nanmin(values) - 1.0, np.nanmax(values) + 1.0
+    if name == "coherence":
+        floor, top = 0.0, float(np.nanmax(values))
+    values[low_at] = floor
+    if name != "coherence":
+        values[high_at] = top
+    drawn = draw(replace(data, values=values))
+    xs, line = np.asarray(drawn["xs"], dtype=float), np.asarray(drawn["values"], dtype=float)
+    assert xs.size < values.size
+    assert np.nanmin(line) == pytest.approx(floor, abs=1e-3)
+    if name != "coherence":
+        assert np.nanmax(line) == pytest.approx(top, abs=1e-3)
+    if name != "events":
+        assert xs[int(np.nanargmin(line))] == pytest.approx(data.xs[low_at])
+        if name != "coherence":
+            assert xs[int(np.nanargmax(line))] == pytest.approx(data.xs[high_at])

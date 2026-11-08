@@ -62,7 +62,7 @@ CEPSTRUM_DECIMALS = 5
 LAG_POINTS = 9601
 # Normalized cross-correlation coefficients lie in [-1, 1].
 CORRELATION_DECIMALS = 4
-#: Points per event of a trigger's segments: each block's sample of largest magnitude, so a hit keeps its peak.
+#: Points per event of a trigger's segments: each bucket's lowest and highest sample, so a hit keeps both its peaks.
 EVENT_POINTS = 400
 
 #: The Frames drawn as a line, bars or an image of their own values.
@@ -441,8 +441,9 @@ def _event_rows(segments: ChannelFrameSegments) -> tuple[np.ndarray, np.ndarray]
 
 
 def _events_view(segments: ChannelFrameSegments, rows: np.ndarray, times: np.ndarray, points: int) -> StageView:
-    peaks, edges = _block_peaks(rows, points)
-    centres = (edges[:-1] + edges[1:] - 1) // 2
+    # Every event's line and their mean by one rule: each bucket's lowest and highest value, at shared xs.
+    xs, lines = _shared_envelope(times, np.vstack([np.mean(rows, axis=0), rows]), points)
+    mean, lines = lines[0], lines[1:]
     return {
         "frame": type(segments).__name__,
         "kind": "line",
@@ -450,12 +451,12 @@ def _events_view(segments: ChannelFrameSegments, rows: np.ndarray, times: np.nda
         "xScale": "linear",
         "quantity": "value",
         "unit": segments[0].channels[0].unit or "",
-        "xs": _axis(times[centres]),
-        "values": _json(np.mean(peaks, axis=0)),
+        "xs": _axis(xs),
+        "values": _json(mean),
         # Each event's trigger in the file's own time (trigger_times count from the region the events were cut from).
         "events": [
             {"id": int(event_id), "time": float(item.source_time_offset[0]) + float(segments.pre), "values": _json(row)}
-            for event_id, item, row in zip(segments.event_ids, segments, peaks, strict=True)
+            for event_id, item, row in zip(segments.event_ids, segments, lines, strict=True)
         ],
     }
 
@@ -524,9 +525,9 @@ def _spectral_view(frame: Any) -> StageView:
             return {"frame": type(frame).__name__, "kind": "none"}
         values, pair = values[row : row + 1], _pair_of(frame, row)
     if quantity == "coherence":
-        edges = np.geomspace(spec.SPECTRUM_MIN_HZ, nyquist, spec.SPECTRUM_POINTS + 1)
-        centres = np.sqrt(edges[:-1] * edges[1:])
-        line = np.round(np.interp(centres, freqs, values[0]), 4)
+        # As a spectrum's line: each bucket's lowest and highest bin at its own frequency, so a dip stays.
+        centres, line = spectrum_line(freqs, values[0], [spec.SPECTRUM_MIN_HZ, nyquist], SPECTRUM_LINE_BUCKETS)
+        line = np.round(line, 4)
     else:
         centres, line = spectrum_line(
             freqs, rounded_db(_power_mean(rounded_db(values))), [spec.SPECTRUM_MIN_HZ, nyquist], SPECTRUM_LINE_BUCKETS
@@ -649,18 +650,6 @@ def _signed_peaks(values: np.ndarray, count: int) -> tuple[np.ndarray, np.ndarra
     return peaks, edges[:-1]
 
 
-def _peak_points(values: np.ndarray, count: int) -> tuple[np.ndarray, np.ndarray]:
-    """`values` (1-D) in at most `count` blocks, each the value of largest magnitude, at its block's centre index.
-
-    Every lag is kept when they fit, so a peak is at its own lag. Over more, the blocks' centres are the same for
-    every view of as many lags: the median and the difference pair values by index, so they meet at one lag.
-    """
-    if values.size <= count:
-        return values, np.arange(values.size)
-    peaks, edges = _block_peaks(values, count)
-    return peaks, (edges[:-1] + edges[1:] - 1) // 2
-
-
 def _cepstrum_envelope(quefrencies: np.ndarray, coefficients: np.ndarray, points: int) -> tuple[np.ndarray, np.ndarray]:
     """A cepstrum's line: the zero-quefrency coefficient as it is (the first point, which the ranges leave out),
     then the rest's minimum and maximum per bucket (_envelope)."""
@@ -698,14 +687,14 @@ def _correlation_view(frame: CrossCorrelationFrame) -> StageView:
     if drawn is None or frame.n_lags < 2:
         return {"frame": type(frame).__name__, "kind": "none"}
     row, coefficients = drawn
-    values, picked = _peak_points(coefficients, LAG_POINTS)
+    lags, values = _envelope(np.asarray(frame.lags, dtype=np.float64), coefficients, LAG_POINTS)
     return {
         "frame": type(frame).__name__,
         "kind": "line",
         "x": "lag",
         "xScale": "linear",
         "quantity": "correlation",
-        "xs": _axis(np.asarray(frame.lags, dtype=np.float64)[picked]),
+        "xs": _axis(lags),
         "values": _json(np.round(values, CORRELATION_DECIMALS)),
         "pair": _pair_of(frame, row),
     }
@@ -733,25 +722,29 @@ def _cepstrogram_view(frame: CepstrogramFrame, signal_s: float | None = None) ->
 
 
 def _envelope(xs: np.ndarray, values: np.ndarray, points: int) -> tuple[np.ndarray, np.ndarray]:
-    """At most `points` points, as the track lanes decimate: per bucket its minimum and its maximum.
+    """A line over time, quefrency or lag in at most `points` points: per bucket its lowest and highest value, each
+    at its own x (min_max_line on a linear axis, whose buckets are ``decimator.bucket_starts``'s, as the lanes'
+    waveforms). Fewer values than points are all kept; non-finite values are left out."""
+    if xs.size <= points:
+        return xs, values
+    return min_max_line(xs, values, max(1, points // 2), False)
 
-    Fewer values than points are all kept. A bucket's two points sit at its first and last x, so every
-    file's buckets fall at the same places and a group's pictures still have a median point by point.
 
-    The buckets are ``decimator.bucket_starts``'s, as the lanes' waveforms. Unlike ``decimated_waveform`` (where
-    a NaN wins its bucket and the points sit at the extremes' own samples), a comparison needs fixed point
-    positions and ignores non-finite values.
-    """
+def _shared_envelope(xs: np.ndarray, rows: np.ndarray, points: int) -> tuple[np.ndarray, np.ndarray]:
+    """Lines that share one x list (a trigger's events): per bucket each row's lowest and highest value, at the
+    bucket's first and last x, so every row has a value at every x. Non-finite values are ignored."""
     n = xs.size
     if n <= points:
-        return xs, values
+        return xs, rows
     starts = bucket_starts(n, max(1, points // 2))
     ends = np.append(starts[1:], n) - 1
-    masked = np.where(np.isfinite(values), values, np.nan)
+    masked = np.where(np.isfinite(rows), rows, np.nan)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)
-        low, high = np.fmin.reduceat(masked, starts), np.fmax.reduceat(masked, starts)
-    return np.stack([xs[starts], xs[ends]], axis=1).reshape(-1), np.stack([low, high], axis=1).reshape(-1)
+        low, high = np.fmin.reduceat(masked, starts, axis=-1), np.fmax.reduceat(masked, starts, axis=-1)
+    return np.stack([xs[starts], xs[ends]], axis=1).reshape(-1), np.stack([low, high], axis=-1).reshape(
+        *rows.shape[:-1], -1
+    )
 
 
 def _inside(axis: np.ndarray, bounds: list[float]) -> np.ndarray:
@@ -795,12 +788,9 @@ def _detail_view(frame: object, coarse: StageView, detail: StageDetail) -> Stage
         if _pairwise(frame):
             row = _cross_pair(frame)
             rows = rows[row : row + 1] if row is not None else rows
-        if coarse.get("quantity") == "coherence":
-            keep = _inside(freqs, bounds) & (freqs > 0)
-            xs, values = _envelope(freqs[keep], rows[0][keep], points)
-        else:
-            # As the whole picture: each two pixels' lowest and highest bin.
-            xs, values = spectrum_line(freqs, rounded_db(_power_mean(rounded_db(rows))), bounds, points // 2)
+        # As the whole picture: each two pixels' lowest and highest bin.
+        drawn = rows[0] if coarse.get("quantity") == "coherence" else rounded_db(_power_mean(rounded_db(rows)))
+        xs, values = spectrum_line(freqs, drawn, bounds, points // 2)
         view.update(
             {
                 "xs": _axis(xs),
@@ -837,8 +827,8 @@ def _detail_view(frame: object, coarse: StageView, detail: StageDetail) -> Stage
         keep = _inside(lags, bounds)
         drawn = _correlation_rows(frame)
         if drawn is not None and keep.any():
-            values, picked = _peak_points(drawn[1][keep], points)
-            view.update({"xs": _axis(lags[keep][picked]), "values": _json(np.round(values, CORRELATION_DECIMALS))})
+            xs, values = _envelope(lags[keep], drawn[1][keep], points)
+            view.update({"xs": _axis(xs), "values": _json(np.round(values, CORRELATION_DECIMALS))})
             return view
         return coarse
     if isinstance(frame, CepstralFrame):
