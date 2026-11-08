@@ -50,13 +50,27 @@ export class RealBackend {
                 else waiter.resolve(message);
             }
         });
-        this.child.stderr!.resume();
+        // A backend that dies (wandas missing at import, a crash) fails every request waiting on it, with why.
+        let stderr = '';
+        this.child.stderr!.setEncoding('utf8');
+        this.child.stderr!.on('data', (chunk: string) => { stderr = (stderr + chunk).slice(-4000); });
+        const failAll = (why: string): void => {
+            this.dead = `${why}${stderr.trim() ? `: ${stderr.trim().slice(-2000)}` : ''}`;
+            for (const waiter of this.waiting.values()) waiter.reject(new Error(this.dead));
+            this.waiting.clear();
+        };
+        this.child.on('exit', (code, signal) => failAll(`the backend exited (${signal ?? `code ${code}`})`));
+        this.child.on('error', error => failAll(`the backend could not run: ${error.message}`));
     }
+
+    /** Why the backend is gone, once it is. */
+    private dead = '';
 
     /** One command (`cmd` and its fields) and the backend's answer, without its requestId. */
     request(command: Record<string, unknown>): Promise<Record<string, unknown>> {
         const requestId = `test-${++this.count}`;
         return new Promise((resolve, reject) => {
+            if (this.dead) { reject(new Error(this.dead)); return; }
             this.waiting.set(requestId, { resolve: ({ requestId: _id, ...result }) => resolve(result), reject });
             this.child.stdin!.write(`${JSON.stringify({ ...command, requestId })}\n`);
         });

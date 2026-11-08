@@ -48,20 +48,24 @@ test('every display rule is numbered in order and names at least one test', () =
  */
 function namedTest(file: string, text: string, name: string): { body: string; declared: string } | null {
     if (file.endsWith('.py')) {
-        const at = new RegExp(`^def ${escape(name)}\\(`, 'm').exec(text);
+        // A def at any indent (a method of a test class), async or not; its body is the lines indented deeper than it.
+        const at = new RegExp(`^([ \\t]*)(?:async\\s+)?def ${escape(name)}\\(`, 'm').exec(text);
         if (!at) return null;
+        const indent = at[1].length;
         const rest = text.slice(at.index);
-        // A signature over several lines closes at the margin too (`) -> None:`).
-        const end = /\n(?=[^\s)])/.exec(rest.slice(1));
+        // A signature over several lines closes at the def's own indent (`) -> None:`).
+        const end = new RegExp(`\\n(?=[ \\t]{0,${indent}}[^\\s)])`).exec(rest.slice(1));
         const before = text.slice(0, at.index).split('\n').slice(-4).join('\n');
         return { body: end ? rest.slice(0, end.index + 1) : rest, declared: before };
     }
     const plain = text.replace(/\\'/g, "'");
-    const at = new RegExp(`\\btest((?:\\.\\w+)?)\\(\\s*(['"\`])${escape(name)}\\2`).exec(plain);
+    const at = new RegExp(`^([ \\t]*)test((?:\\.\\w+)?)\\(\\s*(['"\`])${escape(name)}\\3`, 'm').exec(plain)
+        ?? new RegExp(`()\\btest((?:\\.\\w+)?)\\(\\s*(['"\`])${escape(name)}\\3`).exec(plain);
     if (!at) return null;
     const rest = plain.slice(at.index);
-    const end = rest.search(/\n\}\)/);
-    return { body: end < 0 ? rest : rest.slice(0, end), declared: at[1] };
+    // The test's call closes with `})` at the indent of its title's line (a test inside a describe is indented).
+    const end = rest.search(new RegExp(`\\n${at[1]}\\}\\)`));
+    return { body: end < 0 ? rest : rest.slice(0, end), declared: at[2] };
 }
 
 test('every test a display rule names exists under that name', () => {
@@ -99,6 +103,15 @@ test('every test a display rule names runs and asserts something', () => {
             assert.match(body.slice(body.indexOf('\n')), asserts, `${where} asserts nothing`);
         }
     }
+});
+
+test('a named test\'s body ends where its own call or def does, at any indent, so a later test\'s assertion is not its', () => {
+    const ts = ["describe('group', () => {", "    test('empty', () => {", '        const x = 1;', '    });', "    test('checks', () => {", '        assert.equal(1, 1);', '    });', '});'].join('\n');
+    assert.doesNotMatch(namedTest('a.test.ts', ts, 'empty')!.body, /assert/);
+    assert.match(namedTest('a.test.ts', ts, 'checks')!.body, /assert\.equal/);
+    const py = ['class TestGroup:', '    async def test_empty(', '        self,', '    ) -> None:', '        x = 1', '', '    def test_checks(self) -> None:', '        assert 1 == 1', ''].join('\n');
+    assert.doesNotMatch(namedTest('test_a.py', py, 'test_empty')!.body, /assert/);
+    assert.match(namedTest('test_a.py', py, 'test_checks')!.body, /assert 1 == 1/);
 });
 
 test('the rules still marked 未 are exactly the pending list', () => {

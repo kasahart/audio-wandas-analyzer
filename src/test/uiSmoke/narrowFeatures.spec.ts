@@ -12,8 +12,9 @@ import { bridgeComparison, RealBackend, runFixture } from './realBackend';
  * component drew on each plot (its strokes, recorded by canvasAudit.ts), not the plot's attributes:
  *
  * - the whole spectrum is thinned to the screen, yet the narrow tone is drawn at its full level (R2);
- * - zoomed onto it, the plot draws the tone at the same level and nothing of the louder tone outside the window (R3);
- * - the Δ under it does the same with the difference.
+ * - zoomed onto it, the plot asks for the window's own bins and draws every one of them, a bin apart, the tone at the
+ *   same level and the louder tone outside the window not on the plot (R3);
+ * - the Δ under it does the same with the difference, taken again over the window's bins.
  */
 const repoRoot = path.resolve(__dirname, '..', '..', '..');
 let files: ScannedFile[] | undefined;
@@ -30,9 +31,15 @@ test.beforeAll(async () => {
     recipe = JSON.parse(readFileSync(path.join(repoRoot, 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8')) as Record<string, unknown>;
     const welch = (recipe.nodes as Array<{ operation: string; params: { entries: Array<[string, unknown]> } }>).find(node => node.operation === 'wandas.audio.welch')!;
     welch.params.entries = welch.params.entries.map(([name, value]) => [name, name === 'n_fft' ? 8192 : value]);
-    backend = new RealBackend();
-    files = [];
-    for (const filePath of written.out.trim().split('\n')) files.push({ filePath, result: await backend.request({ cmd: 'scan', filePath, recipe }) });
+    // A backend that cannot start (no wandas) skips the test with why, as a missing Python does, unless it is required.
+    try {
+        backend = new RealBackend();
+        const scanned: ScannedFile[] = [];
+        for (const filePath of written.out.trim().split('\n')) scanned.push({ filePath, result: await backend.request({ cmd: 'scan', filePath, recipe }) });
+        files = scanned;
+    } catch (error) {
+        fixtureError = error instanceof Error ? error.message : String(error);
+    }
 });
 test.afterAll(() => {
     backend?.close();
@@ -99,6 +106,46 @@ async function readAt(page: Page, plot: Locator, [x, y]: Point): Promise<{ hz: n
     return { hz: Number(where![1]) * (where![2] ? 1000 : 1), db: Number(level![1].replace('−', '-')), text };
 }
 
+/** The bin spacing of the fixture's spectrum: 16 kHz over an 8192-point FFT. */
+const BIN_HZ = 16000 / 8192;
+
+/**
+ * What the longest line drawn on `plot` holds across its frame, read in Hz: its points placed on the log frequency
+ * axis by the two the pointer reads at its ends, then how many there are, how far apart, and the ends' frequencies.
+ */
+async function binsDrawn(page: Page, plot: Locator): Promise<{ count: number; low: number; high: number; gaps: number[] }> {
+    const strokes = await lines(plot);
+    const longest = strokes.reduce((best, stroke) => (stroke.points.length > best.points.length ? stroke : best));
+    const points = [...longest.points].sort((a, b) => a[0] - b[0]);
+    const first = points[0], last = points[points.length - 1];
+    const low = (await readAt(page, plot, first)).hz, high = (await readAt(page, plot, last)).hz;
+    const hz = ([x]: Point): number => low * (high / low) ** ((x - first[0]) / (last[0] - first[0]));
+    const gaps = points.slice(1).map((point, index) => hz(point) - hz(points[index]));
+    return { count: points.length, low, high, gaps };
+}
+
+/**
+ * Every bin of the window is drawn on `plot` (R3): its longest line's points are about as many as the bins between
+ * its ends, a bin apart, and more than twice what the whole spectrum held there (`overviewIn`). (The detail asked for
+ * reaches a little past the window, for a pan; the frame's clip keeps it off the plot.)
+ */
+async function expectEveryBin(page: Page, plot: Locator, overviewIn: (low: number, high: number) => number): Promise<void> {
+    const { count, low, high, gaps } = await binsDrawn(page, plot);
+    const bins = (high - low) / BIN_HZ + 1;
+    expect(Math.abs(count - bins) / bins, `${count} points drawn for the ${Math.round(bins)} bins of ${low}–${high} Hz`).toBeLessThan(0.02);
+    const sorted = [...gaps].sort((a, b) => a - b);
+    expect(Math.abs(sorted[Math.floor(sorted.length / 2)] - BIN_HZ) / BIN_HZ, 'points a bin apart').toBeLessThan(0.03);
+    expect(sorted[sorted.length - 1], 'no bin left out').toBeLessThan(1.5 * BIN_HZ);
+    expect(count, 'more points than the thinned whole spectrum holds in the window').toBeGreaterThan(2 * overviewIn(low, high));
+}
+
+/** The `compare-scan` and `compare-combine` messages posted from the `from`-th on that ask for a detail. */
+async function detailsAsked(page: Page, from: number): Promise<string[]> {
+    return page.evaluate(from => (window as unknown as { __uiSmokePostedMessages: Array<{ type: string; detail?: unknown }> }).__uiSmokePostedMessages.slice(from)
+        .filter(message => (message.type === 'compare-scan' || message.type === 'compare-combine') && message.detail).map(message => message.type), from);
+}
+const postedCount = (page: Page): Promise<number> => page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: unknown[] }).__uiSmokePostedMessages.length);
+
 /** Ctrl+wheel at (x, y) on `plot`, `notches` times: a zoom about that point. */
 async function zoomInto(page: Page, plot: Locator, [x, y]: Point, notches: number): Promise<void> {
     const box = (await plot.boundingBox())!;
@@ -109,8 +156,8 @@ async function zoomInto(page: Page, plot: Locator, [x, y]: Point, notches: numbe
     await page.mouse.move(1, 1);
 }
 
-test('a narrow tone in real recordings is drawn at its full level on the thinned whole spectrum and when zoomed onto it, and nothing outside the window is drawn (R2, R3)', async ({ page }) => {
-    test.skip(!ready(), 'no Python backend with wandas for the narrow fixture');
+test('a narrow tone in real recordings is drawn at its full level on the thinned whole spectrum, and zoomed onto it the window is drawn again from every one of its own bins (R2, R3)', async ({ page }) => {
+    test.skip(!ready(), `no Python backend with wandas for the narrow fixture: ${fixtureError}`);
     test.setTimeout(180_000);
     const stop = await openComparison(page);
     const overlay = page.locator('[data-stage-canvas="overlay"]');
@@ -127,8 +174,15 @@ test('a narrow tone in real recordings is drawn at its full level on the thinned
     const narrow = await readAt(page, overlay, narrowAt);
     expect(Math.abs(narrow.hz - 1500), narrow.text).toBeLessThan(10);
     expect(loud.db - narrow.db, 'the narrow tone keeps its level when thinned: 34 dB under the loud one').toBeLessThan(36);
-    // Zoomed onto the narrow tone: once the backend's bins for the window are drawn, the tone is the highest point
-    // drawn, at the level it had on the whole spectrum, and the louder tone outside the window is drawn nowhere.
+    const overviewStrokes = await lines(overlay);
+    // The whole spectrum's points placed on the frequency axis by the two tones read on it (a log axis), to count
+    // how many of them a window holds.
+    const perOctave = (loudAt[0] - narrowAt[0]) / Math.log2(loud.hz / narrow.hz);
+    const overviewHz = ([x]: Point): number => narrow.hz * 2 ** ((x - narrowAt[0]) / perOctave);
+    const overviewIn = (low: number, high: number): number => Math.max(...overviewStrokes.map(stroke => stroke.points.filter(point => overviewHz(point) >= low && overviewHz(point) <= high).length));
+    // Zoomed onto the narrow tone: the plot asks the backend for the window's own bins (a detail), then draws every bin
+    // in it, a bin apart, many more points than the whole spectrum held there (R3), not the thinned line stretched.
+    const beforeZoom = await postedCount(page);
     await zoomInto(page, overlay, narrowAt, 6);
     const root = page.locator('.track-stage');
     await expect(root).not.toHaveAttribute('data-x-window', '0.000-1.000');
@@ -140,6 +194,8 @@ test('a narrow tone in real recordings is drawn at its full level on the thinned
         const read = await readAt(page, overlay, top);
         return Math.abs(read.hz - 1500) < 5 && Math.abs(read.db - narrow.db) <= 0.15;
     }, { timeout: 30_000, message: 'zoomed, the highest point drawn is the narrow tone at the level the whole spectrum drew it' }).toBe(true);
+    await expect.poll(() => detailsAsked(page, beforeZoom), { timeout: 30_000, message: 'the zoom asks for the window\'s own bins' }).toContain('compare-scan');
+    await expect(() => expectEveryBin(page, overlay, overviewIn)).toPass({ timeout: 30_000 });
     // Δ under it, on the same frequency window: its highest point is the narrow tone's difference, the only one.
     await page.locator('[data-action="stage-diff"]').click();
     const diff = page.locator('[data-stage-canvas="diff"]');
@@ -151,6 +207,9 @@ test('a narrow tone in real recordings is drawn at its full level on the thinned
         zoomedDelta = read.db;
         return Math.abs(read.hz - 1500) < 5 && read.db > 20;
     }, { timeout: 30_000, message: 'zoomed, the Δ\'s highest point is the narrow tone' }).toBe(true);
+    // The Δ too: its difference taken over the window's own bins (a combine with the detail), every bin drawn.
+    await expect.poll(() => detailsAsked(page, beforeZoom), { timeout: 30_000, message: 'the zoomed Δ asks for the difference of the window\'s own bins' }).toContain('compare-combine');
+    await expect(() => expectEveryBin(page, diff, overviewIn)).toPass({ timeout: 30_000 });
     // Back to the whole spectrum: the Δ is thinned, and the narrow difference keeps its height.
     await page.keyboard.press('0');
     await expect(root).toHaveAttribute('data-x-window', '0.000-1.000');
