@@ -40,6 +40,17 @@ export interface DistributionInputs {
     rowName: (key: string) => string;
 }
 
+/**
+ * A CSV column's value axis: its name and the unit its header gives ("temp [°C]", "temp (°C)"), or that the unit is not
+ * known (R4: every axis names its unit).
+ */
+export function csvAxisName(column: string, strings: Pick<UiStrings, 'dsDistCsvAxis' | 'axisUnitUnknown'>): string {
+    const given = /^(.*\S)\s*(?:\[([^\]]+)\]|\(([^)]+)\))$/su.exec(column.trim());
+    const unit = given ? (given[2] ?? given[3]).trim() : '';
+    const name = given && unit ? given[1] : column;
+    return strings.dsDistCsvAxis.replace('{col}', () => name).replace('{unit}', () => unit || strings.axisUnitUnknown);
+}
+
 export interface DistributionPaneDeps {
     screen: HTMLElement;
     strings: UiStrings;
@@ -154,7 +165,7 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
             const number = row && keys.has(row.key) && usable(row) ? valueOf(row, value, results) : null;
             return row && number !== null ? [{ slot, key: row.key, group: groupOf(row, group), value: number }] : [];
         });
-        const axisLabel = value.startsWith('csv:') ? strings.dsDistCsvAxis.replace('{col}', value.slice(4)) : inputs.valueLabel;
+        const axisLabel = value.startsWith('csv:') ? csvAxisName(value.slice(4), strings) : inputs.valueLabel;
         rows = distributionRows(dist, {
             width, rowHeight, strip, range, slots: slotted, baseGroup, labels, groupPrefix: prefix, unitLabel: unit, axisLabel,
             format: inputs.format, name: inputs.rowName,

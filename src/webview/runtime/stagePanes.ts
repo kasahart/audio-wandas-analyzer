@@ -16,7 +16,8 @@ import { plotPointIn, type PlotMargins } from './plotInteraction';
 import { HOVER_PICK_RADIUS_PX, nearestPoint } from './plotHover';
 import { paintWaveformLayer, waveformRange, type SignalPointSink } from '../plot/waveformLayer';
 import { packRgb, paletteColour, rasterizeHeatmap, unpackRgb } from '../plot/heatmapRaster';
-import { drawValueAxis, fittedAxisTitle, readoutText, type AxisTick, type Palette } from '../../shared/gui-core/index';
+import { drawValueAxis, readoutText, type AxisTick, type Palette } from '../../shared/gui-core/index';
+import { axisName, axisNameParts, fitAxisTitle, fontPixels, scaledFont } from '../plot/axisTitle';
 import { niceRange, niceTicks } from '../../shared/utils/ticks';
 import { amountText, barkText, frequencyText, lagText, levelText, quefrencyText, secondsText, signedText, withMinus } from '../plot/plotText';
 import { cellIndex, STEP_AHEAD, type FullPoints, type FullRead, type FullSource } from './fullRead';
@@ -24,7 +25,7 @@ import { cellIndex, STEP_AHEAD, type FullPoints, type FullRead, type FullSource 
 /** Canvas x the level axis's turned title is centred on, in the gutter left of its tick labels. */
 const AXIS_TITLE_X = 10;
 
-export type StageStrings = Pick<UiStrings, 'axisFrequency' | 'axisTime' | 'axisTriggerTime' | 'axisBand' | 'axisBark' | 'axisQuefrency' | 'axisCepstrum' | 'axisLag' | 'axisCorrelation' | 'axisLevel' | 'axisLevelUncal' | 'axisLevelCal' | 'axisDelta' | 'dsValue' | 'axisGain' | 'axisCoherence' | 'legendHeadline' | 'legendLeak' | 'legendLine' | 'stageNoDelta' | 'stageEventCounts' | 'stageNoEvents' | 'stageMaxDelta' | 'stepNotDrawable' | 'waveRangeAxisAmplitude' | 'stagePairBase' | 'axisLoudness' | 'axisSharpness' | 'axisRoughness' | 'axisLevelOf' | 'axisRms' | 'axisRmsTimeWeighted' | 'axisPower' | 'axisUncalibrated'>;
+export type StageStrings = Pick<UiStrings, 'axisFrequency' | 'axisTime' | 'axisTriggerTime' | 'axisBand' | 'axisBark' | 'axisQuefrency' | 'axisCepstrum' | 'axisLag' | 'axisCorrelation' | 'axisLevel' | 'axisLevelUncal' | 'axisLevelCal' | 'axisDelta' | 'dsValue' | 'axisGain' | 'axisCoherence' | 'legendHeadline' | 'legendLeak' | 'legendLine' | 'stageNoDelta' | 'stageEventCounts' | 'stageNoEvents' | 'stageMaxDelta' | 'stepNotDrawable' | 'waveRangeAxisAmplitude' | 'stagePairBase' | 'axisLoudness' | 'axisSharpness' | 'axisRoughness' | 'axisLevelOf' | 'axisRms' | 'axisRmsTimeWeighted' | 'axisPower' | 'axisUncalibrated' | 'axisUnitUnknown'>;
 
 const DB_QUANTITIES = ['level', 'gain'];
 const isDb = (view: StageView | null): boolean => DB_QUANTITIES.includes(view?.quantity ?? '');
@@ -167,10 +168,9 @@ export function stageAxes(strings: StageStrings, view: StageView | null, input: 
     const x = isEventsView(view) ? strings.axisTriggerTime : view?.x === 'time' ? strings.axisTime : view?.x === 'band' ? strings.axisBand : view?.x === 'quefrency' ? strings.axisQuefrency : view?.x === 'lag' ? strings.axisLag : strings.axisFrequency;
     if (view?.kind === 'heatmap') {
         const y = view.yAxis === 'bark' ? strings.axisBark : view.yAxis === 'quefrency' ? strings.axisQuefrency : strings.axisFrequency;
-        const unit = view.unit ? ` [${view.unit}]` : '';
         const colour = view.quantity === 'level' ? paneAxes(strings, input).level.y
             : view.quantity === 'cepstrum' ? strings.axisCepstrum
-                : `${metricName(strings, view.unit)}${unit}`;
+                : metricAxisName(strings, view.unit);
         return { x, y, colour: diff ? (isDb(view) ? strings.axisDelta : `Δ ${colour}`) : colour };
     }
     if (diff && (!view || isDb(view))) return { x, y: strings.axisDelta };
@@ -183,16 +183,18 @@ export function stageAxes(strings: StageStrings, view: StageView | null, input: 
     if (isEventsView(view)) return { x, y: linear(view?.unit) };
     // rms_trend's series is its own values (a metric's series), in the signal's unit.
     if (view?.measure && view.quantity === 'value') return { x, y: diff ? `Δ ${linear(view.unit)}` : linear(view.unit) };
-    const unit = view?.unit ? ` [${view.unit}]` : '';
     const y = view?.quantity === 'level' ? paneAxes(strings, input).level.y
         : view?.quantity === 'gain' ? strings.axisGain
             : view?.quantity === 'coherence' ? strings.axisCoherence
                 : view?.quantity === 'cepstrum' ? strings.axisCepstrum
                     : view?.quantity === 'correlation' ? strings.axisCorrelation
-                    : `${metricName(strings, view?.unit)}${unit}`;
-    // A cross-channel Frame names its pair: which channel over which reference, or the recording over the base slot's.
+                    : metricAxisName(strings, view?.unit);
+    // A cross-channel Frame names its pair, after its quantity and before its unit: which channel over which
+    // reference, or the recording over the base slot's.
     const pair = view?.pair?.base ? ` · ${strings.stagePairBase}` : view?.pair ? ` · ch${view.pair.output} / ch${view.pair.input}` : '';
-    return { x, y: diff ? `Δ ${y}${pair}` : `${y}${pair}` };
+    const parts = axisNameParts(y);
+    const named = parts ? axisName(`${parts.quantity}${pair}`, parts.unit) : `${y}${pair}`;
+    return { x, y: diff ? `Δ ${named}` : named };
 }
 
 /**
@@ -204,6 +206,11 @@ export function amplitudeAxisTitle(strings: Pick<StageStrings, 'axisRms' | 'axis
     const name = measure === 'rms' ? strings.axisRms : measure === 'timeWeightedRms' ? strings.axisRmsTimeWeighted : measure === 'power' ? strings.axisPower : strings.waveRangeAxisAmplitude;
     const base = unit || uncalibratedUnits(!input || input.fullScale).linear;
     return `${name}${input?.calibrationStatus === 'calibrated' ? '' : strings.axisUncalibrated} [${measure === 'power' ? `${base}²` : base}]`;
+}
+
+/** A metric's axis name: what it measures and its unit, or that its unit is not known. */
+function metricAxisName(strings: StageStrings, unit: string | undefined): string {
+    return axisName(metricName(strings, unit), unit || strings.axisUnitUnknown);
 }
 
 /** What a metric over time measures, named by its unit (stage_view.METRIC_SERIES_UNITS); a value otherwise. */
@@ -947,8 +954,9 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
     }
     // The frequency or time axis: ticks along the bottom, its name at the right end; a tick label the name would
     // overlap is left out (its gridline stays).
-    const xTitle = fittedAxisTitle(axes.x, plotWidth / 2, title => context.measureText(title).width);
-    const xTitleLeft = left + plotWidth - context.measureText(xTitle).width;
+    const xFitted = fitAxisTitle(axes.x, plotWidth / 2, title => context.measureText(title).width);
+    const xTitle = xFitted.lines.join(' ');
+    const xTitleLeft = left + plotWidth - context.measureText(xTitle).width * xFitted.scale;
     context.fillStyle = muted;
     context.strokeStyle = line;
     context.lineWidth = 1;
@@ -961,14 +969,18 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
     if (options.guides) paintGuides(context, options.guides, { left, top, width: plotWidth, height: plotHeight }, xAt, yAt, text);
     if (options.bandSteps?.legend) paintBandLegend(context, options.bandSteps.legend, options.bandSteps.color, left + plotWidth - 6, top, muted);
     context.fillStyle = text;
-    if (xLabels) context.fillText(xTitle, xTitleLeft, height - 3);
+    if (xLabels) {
+        context.font = scaledFont(PLOT_TEXT_FONT, xFitted.scale);
+        context.fillText(xTitle, xTitleLeft, height - 3);
+        context.font = PLOT_TEXT_FONT;
+    }
     // The level axis: its ticks in the muted colour, and what it measures up the left edge in the text colour.
     const frame = { left, top, width: plotWidth, height: plotHeight };
     plot.levelTicks = levelTicks;
     if (options.axisCanvas) paintSideAxis(options.axisCanvas, levelTicks, axes.y, { muted, text });
     else if (!lane && options.yAxisLabels !== false) {
         drawValueAxis(context, frame, levelTicks, '', { color: muted, font: context.font, titleX: AXIS_TITLE_X });
-        drawValueAxis(context, frame, [], axes.y, { color: text, font: context.font, titleX: AXIS_TITLE_X });
+        paintValueTitle(context, frame, axes.y, text, AXIS_TITLE_X);
     }
     if (options.secondary && !heatmap) paintRightAxis(context, frame, levelTicks.map(tick => tick.fraction), options.secondary.range, options.secondary.title, width, { muted, line, text });
     // Under the region's corner tag when there is one.
@@ -988,7 +1000,29 @@ export function paintSideAxis(canvas: HTMLCanvasElement, ticks: readonly AxisTic
     context.clearRect(0, 0, canvas.width, canvas.height);
     const frame = { left: canvas.width, top: 0, width: 0, height: canvas.height };
     drawValueAxis(context, frame, ticks, '', { color: colors.muted, font: PLOT_TEXT_FONT, titleX: AXIS_TITLE_X });
-    drawValueAxis(context, frame, [], title, { color: colors.text, font: PLOT_TEXT_FONT, titleX: AXIS_TITLE_X });
+    context.font = PLOT_TEXT_FONT;
+    paintValueTitle(context, frame, title, colors.text, AXIS_TITLE_X);
+}
+
+/**
+ * A value axis's name up the gutter at canvas x `x`, in `color`, fitted to the frame's height: smaller, on two lines
+ * or with its quantity shortened, but always its quantity and its unit (R4).
+ */
+function paintValueTitle(context: CanvasRenderingContext2D, frame: { top: number; height: number }, title: string, color: string, x: number): void {
+    if (!title) return;
+    const font = context.font;
+    const fitted = fitAxisTitle(title, frame.height, part => context.measureText(part).width, { lines: 2 });
+    context.save();
+    context.fillStyle = color;
+    context.font = scaledFont(font, fitted.scale);
+    context.translate(x, frame.top + frame.height / 2);
+    context.rotate(-Math.PI / 2);
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    // Two lines side by side across the gutter, read as one: the quantity on the left, then the unit.
+    const step = fontPixels(font) * fitted.scale * 1.1;
+    fitted.lines.forEach((line, index) => context.fillText(line, 0, (index - (fitted.lines.length - 1) / 2) * step));
+    context.restore();
 }
 
 /** Where a heatmap's colour bar starts: the plot's top right, or under the region's corner tag (top + 4 to + 21). */
@@ -1006,9 +1040,10 @@ export function paintColourBar(context: CanvasRenderingContext2D, at: { left: nu
     const lowWidth = context.measureText(lowText).width;
     const highWidth = context.measureText(highText).width;
     const scale = pad + lowWidth + gap + strip + gap + highWidth + pad;
-    // In a narrow plot the name shrinks to its unit ("[dBFS]"), then is left out: the bar stays inside the plot.
+    // In a narrow plot the name shortens its quantity and keeps its unit ("Amp… [dBFS]"), then is left out: the bar
+    // stays inside the plot.
     const room = at.right - at.left - scale - gap * 2;
-    const fitted = fullTitle ? fittedAxisTitle(fullTitle, room, part => context.measureText(part).width) : '';
+    const fitted = fullTitle ? fitAxisTitle(fullTitle, room, part => context.measureText(part).width, { minScale: 1 }).lines.join(' ') : '';
     const title = fitted && context.measureText(fitted).width <= room ? fitted : '';
     const parts = [context.measureText(title).width, lowWidth];
     const width = scale + (title ? parts[0] + gap * 2 : 0);
@@ -1056,13 +1091,8 @@ function paintRightAxis(context: CanvasRenderingContext2D, frame: { left: number
         context.textBaseline = fraction >= 1 ? 'top' : fraction <= 0 ? 'bottom' : 'middle';
         context.fillText(levelTick(value, span), x + 2, frame.top + (1 - fraction) * frame.height);
     }
-    context.fillStyle = colors.text;
-    context.translate(width - AXIS_TITLE_X, frame.top + frame.height / 2);
-    context.rotate(-Math.PI / 2);
-    context.textAlign = 'center';
-    context.textBaseline = 'middle';
-    context.fillText(fittedAxisTitle(title, frame.height, part => context.measureText(part).width), 0, 0);
     context.restore();
+    paintValueTitle(context, frame, title, colors.text, width - AXIS_TITLE_X);
 }
 
 /** Where a bar centred on `x` starts and ends on the canvas: a ratio each side on a log axis, a step on a linear one. */

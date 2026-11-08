@@ -231,7 +231,8 @@ test('a CSV value counts recordings once; slot 1 keeps its tick when another val
     // 98 recordings with a row, each once though it has two channels.
     await expect.poll(async () => (await dist(page))?.unit).toBe('recording');
     await expect(page.locator('[data-entry-dist-count]')).toHaveText(`98 ${STR.dsUnitRecording}`);
-    await expect.poll(() => axisName(page)).toBe(STR.dsDistCsvAxis.replace('{col}', 'temp_c'));
+    // The CSV header gives no unit: the axis says it is not known (R4).
+    await expect.poll(() => axisName(page)).toBe(STR.dsDistCsvAxis.replace('{col}', 'temp_c').replace('{unit}', STR.axisUnitUnknown));
     await page.locator('[data-entry-table]').focus();
     await page.keyboard.press('1');
     await expect(page.locator('[data-dist-slots~="1"]')).toHaveCount(1);

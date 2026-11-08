@@ -21,6 +21,9 @@
  *
  * And (R7): a plot on screen that draws a layer without saying where its full data is read (`data-plot-full`
  * "missing: …", fullRead.ts) fails it: its readout would read the points thinned to be drawn.
+ *
+ * And (R4): a plot on screen with an axis whose name (`data-plot-axes`) gives no quantity and unit in closing brackets
+ * ("Phase [°]", "Coherence γ² [–]", "temp_c (CSV column) [unit unknown]") fails it, whichever plot it is.
  */
 import { test as base } from '@playwright/test';
 import { DRAWN_OUTSIDE_PENDING, PLOT_LAYERS, PLOTS_PENDING, SVG_CHARTS_PENDING } from './plotRegistry';
@@ -42,7 +45,7 @@ const AUDIT = {
 const SVG_CHART_MIN = { width: 64, height: 40 };
 
 declare global {
-    interface Window { __canvasAudit?: string[]; __readoutAudit?: string[]; __plotAudit?: string[]; __drawnAudit?: string[]; __svgAudit?: string[]; __orderAudit?: string[]; __fullAudit?: string[]; __plotPainting?: number }
+    interface Window { __canvasAudit?: string[]; __readoutAudit?: string[]; __plotAudit?: string[]; __drawnAudit?: string[]; __svgAudit?: string[]; __orderAudit?: string[]; __fullAudit?: string[]; __unitAudit?: string[]; __plotPainting?: number }
 }
 
 /** Runs in the page: samples the canvases on screen and records each one that stayed at another size. */
@@ -271,6 +274,10 @@ function installCanvasAudit({ settle, others, drawnOutside, svgCharts, svgMin }:
     // Each plot on screen that draws a layer with no full data declared for its readout (R7).
     const undeclared: string[] = [];
     window.__fullAudit = undeclared;
+    // Each plot on screen with an axis named without its quantity and unit (R4).
+    const unitless: string[] = [];
+    window.__unitAudit = unitless;
+    const named = (name: string): boolean => /^.*\S\s*\[[^\]]*[^\]\s][^\]]*\]$/su.test(name.trim());
     const rises = (order: string): boolean => order.split(';').some(axis => {
         // A compared level ordered with no levels from the values before thinning ('?', drawnLevelsText) fails too.
         if (axis.split(',').includes('?')) return true;
@@ -286,6 +293,12 @@ function installCanvasAudit({ settle, others, drawnOutside, svgCharts, svgMin }:
                 if (!reported.has(name)) { reported.add(name); misordered.push(`${canvasName(canvas)} drew levels ${order}`); }
             }
             if (shownBox(canvas)) reportUnseen(canvas, 'drawn before it was a plot, or off the page');
+            const axes = canvas.getAttribute('data-plot-axes');
+            const bare = axes && canvas.hasAttribute('data-plot') && shownBox(canvas) ? axes.split('|').filter(name => !named(name)) : [];
+            if (bare.length) {
+                const name = `units ${canvasName(canvas)}: ${bare.join(' | ')}`;
+                if (!reported.has(name)) { reported.add(name); unitless.push(`${canvasName(canvas)} names ${bare.map(text => `"${text}"`).join(', ')}`); }
+            }
             const full = canvas.getAttribute('data-plot-full');
             if (full?.startsWith('missing') && canvas.hasAttribute('data-plot') && shownBox(canvas)) {
                 const name = `full ${canvasName(canvas)}: ${full}`;
@@ -337,6 +350,8 @@ export const test = base.extend<{ canvasAudit: void }>({
         base.expect.soft(misorderedFound, 'plots that drew a louder compared line over a quieter one (R6: paintOverlay draws the quietest last, on top)').toEqual([]);
         const undeclaredFound = await page.evaluate(() => window.__fullAudit ?? []);
         base.expect.soft(undeclaredFound, 'plots that draw a layer without its full data declared (R7: give the layer `full`, fullRead.ts)').toEqual([]);
+        const unitlessFound = await page.evaluate(() => window.__unitAudit ?? []);
+        base.expect.soft(unitlessFound, 'plots with an axis named without its quantity and unit (R4: "Quantity [unit]", "[–]" when dimensionless)').toEqual([]);
         const svgFound = await page.evaluate(() => window.__svgAudit ?? []);
         base.expect.soft(svgFound, 'charts drawn as SVG (R13: draw them with paintOverlay, or list them in plotRegistry.ts while they wait)').toEqual([]);
     }, { auto: true }],
