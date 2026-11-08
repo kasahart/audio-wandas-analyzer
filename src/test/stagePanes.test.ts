@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
+import { readdirSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import test from 'node:test';
-import { axisFractionOf, axisValueAt, byLevel, emptyStageText, eventLayers, stageAxes, paintColourBar, colourBarTop, stageEventCounts, stageDiffRange, stageHeadline, stageRange, stageHover, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
+import { axisFractionOf, axisValueAt, byLevel, emptyStageText, eventLayers, paintOverlay, stageAxes, paintColourBar, colourBarTop, stageEventCounts, stageDiffRange, stageHeadline, stageRange, stageHover, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
 import type { StageView } from '../shared/protocol/backendProtocol';
 
 const line = (values: number[], quantity: StageView['quantity'] = 'level'): StageView => ({ frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity, xs: [100, 1000, 10000], values });
@@ -162,6 +164,63 @@ test('overlaid lines are drawn loudest first, the quietest last on top, by their
     // Lines not in dB keep their place, after the levels.
     const coherence = layer('green', [0.9, 0.9, 0.9], 'coherence');
     assert.deepEqual(byLevel([coherence, quiet, loud], line([0, 0, 0])).map(item => item.color), ['yellow', 'grey', 'green']);
+});
+
+/** A canvas whose context records the colour of each line stroked, in the order stroked. */
+function strokingCanvas(): { canvas: HTMLCanvasElement; strokes: string[] } {
+    const strokes: string[] = [];
+    let strokeStyle = '';
+    const context = new Proxy({}, {
+        get: (_target, key) => (key === 'measureText' ? (text: string) => ({ width: text.length * 6 })
+            : key === 'stroke' ? () => { strokes.push(strokeStyle); } : key === 'strokeStyle' ? strokeStyle : () => undefined),
+        set: (_target, key, value) => { if (key === 'strokeStyle') strokeStyle = String(value); return true; },
+    });
+    const canvas = { width: 0, height: 0, clientWidth: 600, clientHeight: 200, ownerDocument: {}, dataset: {} as DOMStringMap, getContext: () => context } as unknown as HTMLCanvasElement;
+    return { canvas, strokes };
+}
+
+test('every plot draws its overlaid lines loudest first and the quietest last on top, whatever order the caller gives them (R6)', () => {
+    const layer = (color: string, values: number[]) => ({ view: line(values), color, width: 2 });
+    const { canvas, strokes } = strokingCanvas();
+    // Given the quiet one first, as the report gives its base before the compared file: the plot puts it on top.
+    paintOverlay(canvas, { layers: [layer('quiet', [-60, -60, -60]), layer('loud', [-20, -20, -20]), layer('base', [-40, -40, -40])] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dB]' });
+    assert.deepEqual(strokes.filter(color => ['loud', 'base', 'quiet'].includes(color)), ['loud', 'base', 'quiet'], 'the quietest line is stroked last');
+    assert.equal(canvas.dataset.plotOrder, '-20.00,-40.00,-60.00', 'the levels it drew, in order, for the audit of every plot');
+    // Given loud first, the same order: the caller's order does not decide it, and the colours stay the caller's.
+    strokes.length = 0;
+    paintOverlay(canvas, { layers: [layer('loud', [-20, -20, -20]), layer('quiet', [-60, -60, -60]), layer('base', [-40, -40, -40])] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dB]' });
+    assert.deepEqual(strokes.filter(color => ['loud', 'base', 'quiet'].includes(color)), ['loud', 'base', 'quiet']);
+    // Lines on the right-hand level axis are ordered among themselves the same way.
+    strokes.length = 0;
+    paintOverlay(canvas, { layers: [layer('loud', [-20, -20, -20])] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dB]' },
+        { secondary: { layers: [layer('second-quiet', [-70, -70, -70]), layer('second-loud', [-30, -30, -30])], range: { min: -80, max: 0 }, title: 'Level [dB re 1]' } });
+    assert.deepEqual(strokes.filter(color => color.startsWith('second')), ['second-loud', 'second-quiet']);
+});
+
+test('a picture that is not a compared line keeps the place its caller gave it among the overlay (R6)', () => {
+    const { canvas, strokes } = strokingCanvas();
+    // A median tick (a line without a level) first, then a quiet and a loud line: the tick stays first, the lines swap.
+    const tick = { view: { ...line([0, 1, 0]), quantity: undefined }, color: 'tick' };
+    const quiet = { view: line([-60, -60, -60]), color: 'quiet' }, loud = { view: line([-20, -20, -20]), color: 'loud' };
+    paintOverlay(canvas, { layers: [quiet, loud, tick] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dB]' });
+    assert.deepEqual(strokes.filter(color => ['tick', 'quiet', 'loud'].includes(color)), ['loud', 'quiet', 'tick']);
+    // A lane's finer data over part of its view is a part of one picture, not a line compared: drawn as given.
+    strokes.length = 0;
+    const part = (color: string, values: number[], span: [number, number]) => ({ view: line(values), color, span });
+    paintOverlay(canvas, { layers: [part('around', [-60, -60, -60], [100, 300]), part('detail', [-20, -20, -20], [300, 10000])] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dB]' });
+    assert.deepEqual(strokes.filter(color => ['around', 'detail'].includes(color)), ['around', 'detail']);
+});
+
+test('no chart orders its own overlaid lines: the order is the plot component\'s alone (R6)', () => {
+    // Every chart draws through paintOverlay (R13, canvasAudit.ts), which orders the lines; a caller ordering them
+    // too would be a second rule that drifts from it.
+    const root = path.resolve(__dirname, '..', '..', 'src', 'webview');
+    const files = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap(entry => (entry.isDirectory() ? files(path.join(dir, entry.name)) : entry.name.endsWith('.ts') ? [path.join(dir, entry.name)] : []));
+    const ordering = files(root).filter(file => path.basename(file) !== 'stagePanes.ts' && /\b(byLevel|overlayOrder)\s*\(/u.test(readFileSync(file, 'utf8')));
+    assert.deepEqual(ordering.map(file => path.relative(root, file)), []);
+    // And the component draws every overlay in that order: paintOverlay's lines come from overlayOrder.
+    const plot = readFileSync(path.join(root, 'runtime', 'stagePanes.ts'), 'utf8');
+    assert.match(plot, /const order = overlayOrder\(overlay\.layers,/u);
 });
 
 test('waveforms are ordered by their envelope on the shared amplitude axis, whatever their level reference', () => {

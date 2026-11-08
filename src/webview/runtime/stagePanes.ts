@@ -309,8 +309,16 @@ export function axisValueAt(view: Pick<StageView, 'xs' | 'xScale' | 'xLimits'>, 
  * rest; the colours and the legend are not changed.
  */
 export function byLevel(layers: StageLayer[], axisView: Pick<StageView, 'xs' | 'xScale' | 'xLimits'> | undefined, window: NormalizedRange = FULL_WINDOW): StageLayer[] {
+    const level = levelOnScreen(axisView, window);
+    return layers.map((layer, index) => ({ layer, index, level: level(layer) }))
+        .sort((a, b) => (b.level === a.level ? a.index - b.index : b.level - a.level))
+        .map(item => item.layer);
+}
+
+/** A line's level as byLevel orders it, over the part of the axis on screen (−Infinity: not a level, or nothing shown). */
+function levelOnScreen(axisView: Pick<StageView, 'xs' | 'xScale' | 'xLimits'> | undefined, window: NormalizedRange): (layer: StageLayer) => number {
     const scale = axisView?.xs?.length ? axisScale(axisView) : null;
-    const level = (layer: StageLayer): number => {
+    return (layer: StageLayer): number => {
         const { view } = layer;
         const shown = (x: number | null | undefined): boolean => {
             if (x === null || x === undefined) return false;
@@ -339,9 +347,39 @@ export function byLevel(layers: StageLayer[], axisView: Pick<StageView, 'xs' | '
         });
         return count && power > 0 ? 10 * Math.log10(power / count) : -Infinity;
     };
-    return layers.map((layer, index) => ({ layer, index, level: level(layer) }))
-        .sort((a, b) => (b.level === a.level ? a.index - b.index : b.level - a.level))
-        .map(item => item.layer);
+}
+
+/**
+ * Whether a picture is a line compared with the others on its plot, and so takes part in the overlay's order (R6):
+ * a line or steps, not marks (dots, a rug), filled bars, a heatmap, or a part of one picture drawn over its own
+ * stretch (`span`: a lane's finer data over part of the view).
+ */
+const comparedLine = (layer: StageLayer): boolean =>
+    (layer.view.kind === 'line' || layer.view.kind === 'bar') && !layer.marks && !layer.filled && !layer.span;
+
+/**
+ * The order a plot draws its pictures in (R6), decided here for every plot: the lines compared by byLevel, the
+ * quietest last on top, in the places the lines held among the caller's pictures; every other picture keeps its own
+ * place. Whatever order a caller gives its lines in, the plot draws the quietest on top, in the caller's colours.
+ */
+export function overlayOrder(layers: readonly StageLayer[], axisView: Pick<StageView, 'xs' | 'xScale' | 'xLimits'> | undefined, window: NormalizedRange = FULL_WINDOW): StageLayer[] {
+    const places = layers.flatMap((layer, index) => (comparedLine(layer) ? [index] : []));
+    if (places.length < 2) return [...layers];
+    const ordered = byLevel(places.map(index => layers[index]), axisView, window);
+    const drawn = [...layers];
+    places.forEach((place, index) => { drawn[place] = ordered[index]; });
+    return drawn;
+}
+
+/**
+ * The levels of a plot's compared lines in the order they were drawn, as the plot writes them on its canvas
+ * (`data-plot-order`) for the ui-smoke audit (canvasAudit.ts) to check on every plot shown: never rising (R6).
+ */
+export function drawnLevelsText(drawn: readonly StageLayer[], axisView: Pick<StageView, 'xs' | 'xScale' | 'xLimits'> | undefined, window: NormalizedRange = FULL_WINDOW): string {
+    const lines = drawn.filter(comparedLine);
+    if (lines.length < 2) return '';
+    const level = levelOnScreen(axisView, window);
+    return lines.map(layer => { const value = level(layer); return Number.isFinite(value) ? value.toFixed(2) : '-inf'; }).join(',');
 }
 /** The same for a heatmap's rows (frequency, Bark or quefrency). */
 export function rowFractionOf(view: StageView, value: number): number { return rowScale(view).fraction(value); }
@@ -626,6 +664,7 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
     if (canvas.dataset) {
         canvas.dataset.plot = '';
         canvas.dataset.plotAxes = overlay.layers.length ? `${axes.x}|${axes.y}` : '';
+        canvas.dataset.plotOrder = '';
     }
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
     context.clearRect(0, 0, width, height);
@@ -653,8 +692,9 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
         }
     }
     context.font = PLOT_TEXT_FONT;
-    const layers = overlay.layers.flatMap(eventLayers);
-    const view = layers.find(layer => layer.view.kind !== 'none' && layer.view.xs?.length)?.view;
+    // Each picture with a trigger's events drawn as one line each; the axes are the first picture's as the caller gave them.
+    const events = new Map(overlay.layers.map(layer => [layer, eventLayers(layer)]));
+    const view = overlay.layers.flatMap(layer => events.get(layer) ?? []).find(layer => layer.view.kind !== 'none' && layer.view.xs?.length)?.view;
     // Neutral: blue and the other colours are the roles'.
     const pendingColors = { muted, line, fill: text, back: style?.getPropertyValue('--track-bg').trim() || '#0b0d10' };
     if (!view) {
@@ -676,6 +716,15 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
     }
     const xWindow = options.window?.x ?? FULL_WINDOW;
     const whole = options.axisView ?? view;
+    // Drawn in the plot's own order (R6): the quietest compared line last, on top, on every plot.
+    const order = overlayOrder(overlay.layers, whole, xWindow);
+    const layers = order.flatMap(layer => events.get(layer) ?? []);
+    // Each line drawn, as the caller's picture (a trigger's events are their recording's), in the order drawn.
+    const pictureOf = new Map(order.flatMap(layer => (events.get(layer) ?? []).map(drawn => [drawn, layer] as const)));
+    const drawnPictures: StageLayer[] = [];
+    const secondDrawn: StageLayer[] = [];
+    const drew = (layer: StageLayer): void => { const picture = pictureOf.get(layer) ?? layer; if (drawnPictures[drawnPictures.length - 1] !== picture) drawnPictures.push(picture); };
+    const secondaryOrder = options.secondary ? overlayOrder(options.secondary.layers, whole, xWindow) : [];
     const xAxis = windowed(axisScale(whole), xWindow);
     // Zoomed, the pictures run past the plot's edges: they are clipped to it.
     const xAt = (value: number): number => left + xAxis.fraction(value) * plotWidth;
@@ -809,9 +858,11 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
                         { span: layer.span, onPoint: options.onSignalPoint });
                 }
                 plot.lines.push(layer);
+                drew(layer);
                 continue;
             }
             plot.lines.push(layer);
+            drew(layer);
             context.save();
             context.fillStyle = layer.color;
             context.globalAlpha = layer.alpha ?? 1;
@@ -829,15 +880,20 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
             context.restore();
         }
         if (options.secondary) {
-            const second: StagePlot = { ...plot, yAt: levelAt(options.secondary.range), lineYAt: looseAt(options.secondary.range), lines: [] };
-            plot.secondary = second;
-            for (const layer of options.secondary.layers) {
+            const secondPlot: StagePlot = { ...plot, yAt: levelAt(options.secondary.range), lineYAt: looseAt(options.secondary.range), lines: [] };
+            plot.secondary = secondPlot;
+            for (const layer of secondaryOrder) {
                 if (layer.view.kind !== 'line' && layer.view.kind !== 'bar') continue;
-                second.lines.push(layer);
-                strokeStageLine(context, second, layer, layer.width ?? (layer.view.kind !== 'bar' ? 1.5 : 2));
+                secondPlot.lines.push(layer);
+                secondDrawn.push(layer);
+                strokeStageLine(context, secondPlot, layer, layer.width ?? (layer.view.kind !== 'bar' ? 1.5 : 2));
             }
         }
         context.restore();
+    }
+    // What was drawn in which order, for the audit of every plot (R6): a trigger's events are their recording's line.
+    if (canvas.dataset) {
+        canvas.dataset.plotOrder = [drawnLevelsText(drawnPictures, whole, xWindow), drawnLevelsText(secondDrawn, whole, xWindow)].filter(Boolean).join(';');
     }
     // The frequency or time axis: ticks along the bottom, its name at the right end; a tick label the name would
     // overlap is left out (its gridline stays).
