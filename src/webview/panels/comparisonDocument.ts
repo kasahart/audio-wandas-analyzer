@@ -806,6 +806,10 @@ export function renderComparisonStyles(): string {
         .pair-ref-btn.is-active .pair-ref-badge { display: inline; }
         .spectrum-height-resizer { left: 0; right: 0; top: -3px; height: 6px; }
         #spectrum-overlay-canvas { display: block; width: 100%; height: 140px; cursor: crosshair; }
+        /* The pointer's marks and a dragged box, over the plot (overlaySpectrumPainter). */
+        .spectrum-overlay-marks { position: absolute; pointer-events: none; }
+        /* A plot hidden for incompatible levels hides its marks too. */
+        #spectrum-overlay-canvas[data-calibration-hidden="true"] ~ .spectrum-overlay-marks { visibility: hidden; }
         #spectrum-section-header .panel-toggle:first-of-type { margin-left: auto; }
         /* Maximized: the tracks keep a strip for moving the cursor and the plot takes the rest; flex-basis 0 lets the runtime size the canvas from the wrap. */
         .spectrum-maximized > #tracks-wrapper { flex: 0 1 auto; max-height: 30%; }

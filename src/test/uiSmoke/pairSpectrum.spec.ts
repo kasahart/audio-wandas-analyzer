@@ -47,7 +47,8 @@ test('a reference lane splits the spectrum section into the power spectrum and t
     if (!box) throw new Error('pair canvas has no layout box');
     expect(box.height).toBeGreaterThan(40);
     const pixels = (id: string) => page.evaluate(selector => (document.querySelector(selector) as HTMLCanvasElement).toDataURL(), id);
-    const powerBefore = await pixels('#spectrum-overlay-canvas');
+    // The cursor line goes on the layer of marks over the power spectrum (R13: the plot holds only its lines).
+    const powerBefore = await pixels('.spectrum-overlay-marks');
     const cursors = page.locator('.pair-cursor:not([hidden])');
     // Hovering a plot reads only the line nearest the pointer, in that plot's unit, without asking the host again;
     // the other two plots draw the cursor line at its frequency.
@@ -56,7 +57,11 @@ test('a reference lane splits the spectrum section into the power spectrum and t
     await expect(page.locator('#pair-spectrum-readout')).toHaveText(/ k?Hz \/ −?\d+(\.\d)?°$/u);
     await expect(cursors).toHaveCount(3);
     // The power spectrum follows the pair plot's cursor frequency with a vertical line, and the other way round.
-    await expect.poll(() => pixels('#spectrum-overlay-canvas')).not.toBe(powerBefore);
+    await expect.poll(() => pixels('.spectrum-overlay-marks')).not.toBe(powerBefore);
+    // The layer lies exactly over the plot, at the plot's pixel size, so a mark is drawn where its point is.
+    const [plotBox, marksBox] = await Promise.all([page.locator('#spectrum-overlay-canvas').boundingBox(), page.locator('.spectrum-overlay-marks').boundingBox()]);
+    expect(marksBox).toEqual(plotBox);
+    expect(await page.evaluate(() => { const [plot, marks] = ['#spectrum-overlay-canvas', '.spectrum-overlay-marks'].map(s => document.querySelector(s) as HTMLCanvasElement); return [marks.width - plot.width, marks.height - plot.height]; })).toEqual([0, 0]);
     await expect(page.locator('#spectrum-freq-readout')).toHaveText('');
     await page.mouse.move(box.x + box.width / 2, box.y + box.height * 2 + 120);
     await expect(page.locator('#pair-spectrum-readout')).toBeHidden();
