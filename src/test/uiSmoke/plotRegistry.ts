@@ -11,7 +11,7 @@ export const PLOTS_PENDING: ReadonlyArray<{ selector: string; why: string }> = [
 ];
 
 /** Layers laid over a plot (its hover marks, a cursor): not plots of their own. */
-export const PLOT_LAYERS: readonly string[] = ['.plot-hover-layer', '.track-spectrogram-overlay'];
+export const PLOT_LAYERS: readonly string[] = ['.plot-hover-layer', '.track-spectrogram-overlay', '.spectrum-overlay-marks'];
 
 /**
  * Plots drawn into by more than the plot component (lines added over its picture by their own code), waiting to
@@ -19,7 +19,6 @@ export const PLOT_LAYERS: readonly string[] = ['.plot-hover-layer', '.track-spec
  */
 export const DRAWN_OUTSIDE_PENDING: ReadonlyArray<{ selector: string; why: string }> = [
     { selector: '.track-canvas:not(.track-spec-canvas)', why: 'a waveform lane: its cursor, hover point, loop, analysis-window band and box-zoom rubber band are drawn into it after its plot (comparisonRuntime drawWaveformCursorLayers and friends); to move to a marks layer over it, as the spectrogram lanes have' },
-    { selector: '#spectrum-overlay-canvas', why: 'the cursor spectrum: its hover marks and box-zoom rubber band are drawn into it after its plot (overlaySpectrumPainter); to move to the plot hover layer every other plot uses' },
 ];
 
 /** Charts drawn as SVG, waiting for their move to the plot component. The list only shrinks. */

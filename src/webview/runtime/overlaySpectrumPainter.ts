@@ -136,8 +136,9 @@ export function paintOverlaySpectrum(
         axisView: frequencyAxis(empty ? { ...vis, frequencyMax: vis.frequencyMin + 1 } : vis),
         ...(secondary ? { secondary: { layers: layersOf(secondary.series, secondary.visible, SECONDARY_AXIS_DASH), range: { min: secondary.visible.dbMin, max: secondary.visible.dbMax }, title: secondary.title } } : {}),
     });
-    const ctx = canvas.getContext('2d');
-    if (empty || !ctx) {
+    // The pointer's marks and a dragged box go on the layer over the plot: the plot holds only what paintOverlay drew (R13).
+    const ctx = overlaySpectrumMarks(canvas, W, H);
+    if (empty) {
         return result;
     }
     const frameFor = (visible: typeof vis) => spectrumPlotFrame(W, H, pad, visible);
@@ -156,7 +157,7 @@ export function paintOverlaySpectrum(
             : full;
         const hitLayer = hit ? layerOf.get(hit.s) : undefined;
         const hitPlot: StagePlot | null | undefined = hit && hit.axisIndex > 0 ? plot?.secondary : plot;
-        paintHoverMarks(
+        if (ctx) paintHoverMarks(
             ctx,
             guide,
             hit ? hit.snap.x : frame.padLeft + hover.norm * frame.plotWidth,
@@ -166,7 +167,7 @@ export function paintOverlaySpectrum(
             hitLayer && hitPlot ? (context, width) => strokeStageLine(context as CanvasRenderingContext2D, hitPlot, hitLayer, width) : undefined,
         );
     }
-    if (box !== null) {
+    if (box !== null && ctx) {
         drawSpectrumSelectionBox(ctx, frame, box.anchor, box.current);
     }
     result.painted = true;
@@ -174,6 +175,30 @@ export function paintOverlaySpectrum(
     // The frequency the cursor is drawn at, for the pair plot to follow: the point read, else the pointer's.
     result.hoverFrequencyHz = nearest ? (nearest as SpectrumSnapHit<SpectrumSeries>).snap.freqHz : null;
     return result;
+}
+
+const MARKS_CLASS = 'spectrum-overlay-marks';
+
+/**
+ * The layer laid over the cursor spectrum for its pointer's marks and a box being dragged, cleared, at the plot's size
+ * in pixels and its place and size on screen; made once beside the plot. Null with no place for it.
+ */
+export function overlaySpectrumMarks(canvas: HTMLCanvasElement, W: number, H: number): CanvasRenderingContext2D | null {
+    const wrap = canvas.parentElement;
+    if (!wrap) return null;
+    let marks = wrap.querySelector<HTMLCanvasElement>(`:scope > canvas.${MARKS_CLASS}`);
+    if (!marks) {
+        marks = canvas.ownerDocument.createElement('canvas');
+        marks.className = MARKS_CLASS;
+        marks.setAttribute('aria-hidden', 'true');
+        wrap.append(marks);
+    }
+    Object.assign(marks.style, { left: `${canvas.offsetLeft}px`, top: `${canvas.offsetTop}px`, width: `${canvas.clientWidth}px`, height: `${canvas.clientHeight}px` });
+    if (marks.width !== W) marks.width = W;
+    if (marks.height !== H) marks.height = H;
+    const context = marks.getContext('2d');
+    context?.clearRect(0, 0, W, H);
+    return context;
 }
 
 /** The dash (px) of a line read on the right-hand level axis, and of its swatches in the legend. */

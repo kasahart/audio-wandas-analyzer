@@ -22,9 +22,12 @@ function recordingCtx(): { ctx: CanvasDrawCtx; calls: string[] } {
     return { ctx, calls };
 }
 
-/** A canvas drawn on through `ctx`, at ratio 1 with no style (as paintOverlay is given a fixed size). */
-function canvasOf(ctx: CanvasDrawCtx): HTMLCanvasElement {
-    return { width: 0, height: 0, clientWidth: 0, clientHeight: 0, ownerDocument: { defaultView: null }, getContext: () => ctx } as unknown as HTMLCanvasElement;
+/** A canvas drawn on through `ctx`, at ratio 1 with no style (as paintOverlay is given a fixed size); its marks layer
+ *  beside it draws through `marks` (the same context unless given). */
+function canvasOf(ctx: CanvasDrawCtx, marks: CanvasDrawCtx = ctx): HTMLCanvasElement {
+    const layer = { width: 0, height: 0, style: {}, getContext: () => marks };
+    const parentElement = { querySelector: () => layer };
+    return { width: 0, height: 0, clientWidth: 0, clientHeight: 0, offsetLeft: 0, offsetTop: 0, parentElement, ownerDocument: { defaultView: null }, getContext: () => ctx } as unknown as HTMLCanvasElement;
 }
 
 const series: SpectrumSeries[] = [{
@@ -161,6 +164,18 @@ test('paintOverlaySpectrum: a second reference widens the right margin, names it
     assert.ok(readout?.text.startsWith('B') && readout.text.endsWith(' dB re 1 V'), readout?.text);
     paintOverlaySpectrum(canvasOf(ctx), 400, 200, series, fullView, noHover, null);
     assert.equal(OVERLAY_SPECTRUM_PAD.right, 8, 'one reference gives the margin back');
+});
+
+test('the pointer\'s marks and a dragged box are drawn on the layer over the cursor spectrum, never on the plot (R13)', () => {
+    const plot = recordingCtx();
+    const marks = recordingCtx();
+    const box = { anchor: { freqNorm: 0.2, dbNorm: 0.2 }, current: { freqNorm: 0.6, dbNorm: 0.7 } };
+    paintOverlaySpectrum(canvasOf(plot.ctx, marks.ctx), 400, 200, series, fullView, { norm: 0.3, yFrac: 0.5, target: 'overlay' }, box);
+    const plotAlone = recordingCtx();
+    paintOverlaySpectrum(canvasOf(plotAlone.ctx, recordingCtx().ctx), 400, 200, series, fullView, noHover, null);
+    // The plot gets the same calls with or without a hover and a box: those go on the layer.
+    assert.deepEqual(plot.calls, plotAlone.calls);
+    assert.ok(marks.calls[0] === 'clearRect' && marks.calls.includes('strokeRect') && marks.calls.includes('setLineDash'), JSON.stringify(marks.calls));
 });
 
 test('paintOverlaySpectrum: a line read on the right-hand axis is dashed, so lines of one colour are told apart', () => {
