@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
+import { spectrumLayer } from '../webview/runtime/overlaySpectrumPainter';
 import { axisFractionOf, axisValueAt, byLevel, levelBinsOf, emptyStageText, eventLayers, paintOverlay, stageAxes, paintColourBar, colourBarTop, stageEventCounts, stageDiffRange, stageHeadline, stageRange, stageHover, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
 import type { StageView } from '../shared/protocol/backendProtocol';
 
@@ -265,6 +266,26 @@ test('the order comes from every value before thinning, never from the points dr
     const early = { color: 'early', view: { ...dc.view, levelBins: { edges: [0, 0.5, 1], power: [0.5, 0], count: [2, 2] } } };
     assert.deepEqual(byLevel([late, early], dc.view, { start: 0, end: 0.5 }).map(item => item.color), ['early', 'late']);
     assert.deepEqual(byLevel([early, late], dc.view, { start: 0.5, end: 1 }).map(item => item.color), ['late', 'early']);
+});
+
+test('a zoom narrower than one of a line\'s stretches still orders it by the stretch it is in (R6)', () => {
+    // Two lines measured over 0–24 kHz in 256 stretches (94 Hz each), zoomed to 10 000–10 010 Hz: inside one stretch.
+    const xs = Array.from({ length: 2049 }, (_, i) => i * 24000 / 2048);
+    const flat = (level: number): StageView => ({ frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'level', xs, values: xs.map(() => level),
+        levelBins: levelBinsOf(xs, xs.map(() => level), [0, 24000], false) });
+    const quiet = { view: flat(-60), color: 'quiet' }, loud = { view: flat(-20), color: 'loud' };
+    const axis: StageView = { frame: 'spectrum', kind: 'line', xs: [0, 24000], xLimits: [0, 24000], xScale: 'linear' };
+    const window = { start: 10000 / 24000, end: 10010 / 24000 };
+    assert.deepEqual(byLevel([quiet, loud], axis, window).map(item => item.color), ['loud', 'quiet']);
+});
+
+test('a cursor spectrum on a linear axis counts its 0 Hz bin in its level (R6)', () => {
+    // [0, −100, −100] dB is louder over every bin (−4.8 dB) than [−100, −20, −20] (−21.8 dB): it goes under.
+    const slice = (values: number[]) => ({ slice: { values, frequencyBins: 3, maxFrequencyHz: 1000, minDb: -100, maxDb: 0 }, color: String(values[0]), index: 0, channelIndex: 0, label: '' });
+    const visible = { frequencyMin: 0, frequencyMax: 1000, buckets: 400, logFrequency: false };
+    const dc = spectrumLayer(slice([0, -100, -100]), 1000, visible), tone = spectrumLayer(slice([-100, -20, -20]), 1000, visible);
+    const axis: StageView = { frame: 'spectrum', kind: 'line', xs: [0, 1000], xLimits: [0, 1000], xScale: 'linear' };
+    assert.deepEqual(byLevel([tone, dc], axis).map(item => item.color), ['0', '-100']);
 });
 
 test('a level drawn with no levels from its values before thinning is written as unmeasured, for the audit to fail (R6)', () => {

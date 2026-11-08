@@ -33,7 +33,7 @@ export const SECONDARY_AXIS_MARK = '▶';
  * A slice as the comparison draws a level spectrum (stage_view): a line over its bins, or octave bands as steps;
  * FFT bins past the slice's top frequency (a cut for display) are left out.
  */
-export function spectrumLayer(series: SpectrumSeries, cutoffHz: number, visible?: { frequencyMin: number; frequencyMax: number; buckets: number }, levelUnit?: string): StageLayer {
+export function spectrumLayer(series: SpectrumSeries, cutoffHz: number, visible?: { frequencyMin: number; frequencyMax: number; buckets: number; logFrequency?: boolean }, levelUnit?: string): StageLayer {
     const { slice } = series;
     const bands = !!slice.bandCentersHz?.length;
     let xs: number[] = [], values: number[] = [];
@@ -46,8 +46,13 @@ export function spectrumLayer(series: SpectrumSeries, cutoffHz: number, visible?
         values.push(slice.values[index]);
     }
     // Ordered among the overlaid slices by every bin's power before thinning (R6), over the axis drawn.
+    // Over the frequencies on screen when known (the whole slice is in hand: measured again at every zoom), on the axis
+    // drawn: a linear one keeps the 0 Hz bin, a log one starts at the first bin above it.
     const firstPositive = xs.find(hz => hz > 0);
-    if (firstPositive !== undefined) levelBins = levelBinsOf(xs, values, [firstPositive, xs[xs.length - 1]], true);
+    const log = bands || (visible ? !!visible.logFrequency : true);
+    const span: [number, number] | null = visible ? [log ? Math.max(visible.frequencyMin, firstPositive ?? visible.frequencyMin) : visible.frequencyMin, visible.frequencyMax]
+        : xs.length ? [log ? firstPositive ?? xs[0] : xs[0], xs[xs.length - 1]] : null;
+    if (span && span[1] > span[0]) levelBins = levelBinsOf(xs, values, span, log);
     // A slice at full resolution (asked for while zoomed in, R3) is thinned here, only to be drawn, by the rule every
     // spectrum is thinned by (R2: each bucket's lowest and highest bin), between the frequencies on screen and a bin
     // past each, so the line reaches the plot's edges.
@@ -100,7 +105,7 @@ export function paintOverlaySpectrum(
     const two = axes.length > 1;
     // A line read on the right-hand axis is dashed, as its swatch in the legend: lines of one colour (grey, without a role) are told apart.
     const layersOf = (series: readonly SpectrumSeries[], visible: SpectrumVisibleWindow, reference: string, dash?: readonly number[]): StageLayer[] => (visible.dbMax - visible.dbMin > 0 && !empty ? series : [])
-        .map(s => ({ ...spectrumLayer(s, maxFrequencyHz, { frequencyMin: visible.frequencyMin, frequencyMax: visible.frequencyMax, buckets: lineBuckets }, two ? reference : undefined), ...(dash ? { dash } : {}) }));
+        .map(s => ({ ...spectrumLayer(s, maxFrequencyHz, { frequencyMin: visible.frequencyMin, frequencyMax: visible.frequencyMax, buckets: lineBuckets, logFrequency: visible.logFrequency }, two ? reference : undefined), ...(dash ? { dash } : {}) }));
     const [primary, secondary] = axes;
     // About two pixels a bucket across the plot, as every line is thinned (R2).
     const lineBuckets = Math.max(64, Math.round((W - pad.left - pad.right) / 2));

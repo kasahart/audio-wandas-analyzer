@@ -320,12 +320,15 @@ function levelOnScreen(axisView: Pick<StageView, 'xs' | 'xScale' | 'xLimits'> | 
         for (let index = 0; index < bins.count.length; index++) {
             const n = bins.count[index] ?? 0;
             if (!n) continue;
-            // A stretch is on screen when its middle is (on the axis's own scale: log for a spectrum).
-            const low = bins.edges[index], high = bins.edges[index + 1];
-            const middle = scale ? (scale.fraction(low) + scale.fraction(high)) / 2 : 0.5;
-            if (middle < window.start || middle > window.end) continue;
-            power += (bins.power[index] ?? 0) * n;
-            count += n;
+            // A stretch counts by how much of it is on screen (on the axis's own scale: log for a spectrum), so a zoom
+            // narrower than a stretch still reads the stretch it is in.
+            const low = scale ? scale.fraction(bins.edges[index]) : 0, high = scale ? scale.fraction(bins.edges[index + 1]) : 1;
+            const [from, to] = low <= high ? [low, high] : [high, low];
+            const shown = to > from ? (Math.min(to, window.end) - Math.max(from, window.start)) / (to - from)
+                : from >= window.start && from <= window.end ? 1 : 0;
+            if (shown <= 0) continue;
+            power += (bins.power[index] ?? 0) * n * shown;
+            count += n * shown;
         }
         return count && power > 0 ? 10 * Math.log10(power / count) : -Infinity;
     };

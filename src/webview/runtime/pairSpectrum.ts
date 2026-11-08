@@ -163,7 +163,8 @@ export function pairLanes(input: PairPaintInput, visible: FrequencyScale, string
             view: {
                 frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity, unit, xs, values: [...values(curve.response)],
                 // A gain is ordered among the responses by every bin's power (R6); a phase or γ² is not a level.
-                ...(quantity === 'gain' && xs.length ? { levelBins: levelBinsOf(xs, values(curve.response), [xs[0], xs[xs.length - 1]], false) } : {}),
+                // Over the frequencies on screen: every bin is in hand, so it is measured again at every zoom.
+                ...(quantity === 'gain' && xs.length ? { levelBins: levelBinsOf(xs, values(curve.response), visible.frequencyMax > visible.frequencyMin ? [visible.frequencyMin, visible.frequencyMax] : [xs[0], xs[xs.length - 1]], false) } : {}),
             },
             color: curve.color,
             label: curve.label,
