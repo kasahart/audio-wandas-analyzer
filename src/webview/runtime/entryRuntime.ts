@@ -567,10 +567,10 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     }
     /** The view the rows on screen were drawn from: scrolling and resizing draw more of it instead of building it again. */
     let rowsView: DatasetScreenView | null = null;
-    /** Only the rows on screen are drawn (rowWindow): the rest are spacers. */
     /** The 0–3 button lit to show where a recording goes, and when (performance.now()); FLASH_MS is the .is-flash animation's length. */
     let flash: { key: string; at: number } | null = null;
     const FLASH_MS = 900;
+    /** Only the rows on screen are drawn (rowWindow): the rest are spacers. */
     function renderRows(view = rowsView ?? datasetView()): void {
         rowsView = view;
         if (chosen.mode === 'unmatched') { body.innerHTML = unmatchedRowsHtml(unmatchedItems(), unreadable(), text); return; }
