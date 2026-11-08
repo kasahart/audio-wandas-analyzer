@@ -36,7 +36,7 @@ test('the docked spectrum switches to 1/3 octave bands on a log axis and back to
     await hoverOverlayAt(page, 0.5);
     await expect(page.locator('#spectrum-freq-readout')).toContainText(/ 630 Hz \//);
     await hoverOverlayAt(page, 0.99);
-    await expect(page.locator('#spectrum-freq-readout')).toContainText(/ 20000 Hz \//);
+    await expect(page.locator('#spectrum-freq-readout')).toContainText(/ 20 kHz \//);
 
     await page.locator('[data-action="spectrum-fft"]').click();
     await expect.poll(async () => {
@@ -44,7 +44,7 @@ test('the docked spectrum switches to 1/3 octave bands on a log axis and back to
         return requests.length > 0 && requests[requests.length - 1].bandsPerOctave === undefined;
     }).toBe(true);
     await hoverOverlayAt(page, 0.5);
-    await expect(page.locator('#spectrum-freq-readout')).toContainText(/ 20\d\d(\.\d)? Hz \//);
+    await expect(page.locator('#spectrum-freq-readout')).toContainText(/ 2(\.0\d{0,2})? kHz \//);
 });
 
 test('the cursor spectrum names its level axis as Compare does, uncalibrated, and its lines in a legend', async ({ page }) => {

@@ -178,6 +178,28 @@ function collectCanvasDrawingFindings(filePaths) {
     return out;
 }
 
+// A minus sign is written by plotText.ts alone (R7), so every number reads the same and none keeps a hyphen.
+const MINUS_FILE = 'src/webview/plot/plotText.ts';
+const handMadeMinusRegex = /\.replace\(\s*\/\^?-\/[gu]*\s*,\s*['"`]\u2212['"`]/u;
+/** @param {string[]} filePaths */
+function collectMinusFindings(filePaths) {
+    /** @type {Array<{filePath:string,line:number,description:string,excerpt:string}>} */
+    const out = [];
+    for (const filePath of filePaths) {
+        if (path.relative(repoRoot, filePath).split(path.sep).join('/') === MINUS_FILE) continue;
+        const source = withoutComments(fs.readFileSync(filePath, 'utf8'));
+        const match = handMadeMinusRegex.exec(source);
+        if (!match) continue;
+        out.push({
+            filePath,
+            line: lineNumberAt(source, match.index),
+            description: `Write a number's minus sign with withMinus (or another formatter) from ${MINUS_FILE}, not by hand.`,
+            excerpt: excerptAt(source, match.index),
+        });
+    }
+    return out;
+}
+
 const findings = [];
 
 for (const filePath of listSourceFiles(webviewRoot)) {
@@ -185,6 +207,7 @@ for (const filePath of listSourceFiles(webviewRoot)) {
     findings.push(...collectInlineVisibilityFindings(source, filePath));
     findings.push(...collectDialogEscapeFindings(source, filePath));
 }
+findings.push(...collectMinusFindings([...listSourceFiles(webviewRoot), ...listSourceFiles(path.join(repoRoot, 'src', 'shared'))]));
 findings.push(...collectCanvasDrawingFindings([...listSourceFiles(webviewRoot), ...listSourceFiles(path.join(repoRoot, 'src', 'shared'))]));
 
 if (findings.length > 0) {

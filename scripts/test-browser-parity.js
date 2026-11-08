@@ -444,8 +444,10 @@ const server = http.createServer((req,res) => {
             // The readout lands on the peak bin whether the bins are denser than the plot's pixels or not.
             await page.waitForFunction(expected=>{
                 const text=document.getElementById('spectrum-freq-readout')?.textContent || '';
-                const match=text.match(/(\d+(?:\.\d+)?) Hz \/ (-?\d+(?:\.\d+)?)/);
-                return match && Math.abs(Number(match[1])-expected.hz)<.11 && Math.abs(Number(match[2])-expected.db)<.11;
+                // As every plot writes it (plotText.ts): Hz or kHz, and a true minus sign (−).
+                const match=text.match(/(\d+(?:\.\d+)?) (k?)Hz \/ ([−-]?\d+(?:\.\d+)?)/);
+                const hz=match ? Number(match[1])*(match[2] ? 1000 : 1) : NaN, db=match ? Number(match[3].replace('−','-')) : NaN;
+                return !!match && Math.abs(hz-expected.hz)<.11 && Math.abs(db-expected.db)<.11;
             },{hz:peakHz,db:peakDb});
             const stftId = (await firstCanvas()).replace('track-canvas-', 'track-spec-canvas-') + (channel ? '-1' : '');
             const band = await page.locator(stftId).evaluate(canvas=>{

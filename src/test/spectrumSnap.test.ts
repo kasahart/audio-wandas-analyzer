@@ -41,8 +41,8 @@ test('nearestSpectrumSnap returns null when no series has a value at the hover b
 
 test('spectrum readout texts include the label, frequency and level with its unit', () => {
     const s = { ...slice([-12.34]), unit: 'dB SPL' };
-    assert.equal(spectrumReadoutText('a.wav / ch1', s, 1500, -12.34), 'a.wav / ch1 / 1500 Hz / -12.3 dB SPL');
-    assert.equal(spectrumReadoutText('a.wav', slice([0]), 250, -3), 'a.wav / 250 Hz / -3.0 dB');
+    assert.equal(spectrumReadoutText('a.wav / ch1', s, 1500, -12.34), 'a.wav / ch1 / 1.5 kHz / −12.3 dB SPL');
+    assert.equal(spectrumReadoutText('a.wav', slice([0]), 250, -3), 'a.wav / 250 Hz / −3.0 dB');
 });
 
 test('setSpectrumReadout: 要素のテキストと色を書き換え、要素が無ければ何もしない', () => {
@@ -62,5 +62,5 @@ test('spectrumBinAtHover on a log band axis snaps to the band nearest in log dis
     assert.equal(snap?.binIdx, 1);
     assert.equal(snap?.freqHz, 250);
     assert.ok(Math.abs((snap?.x ?? 0) - 100 * Math.log10(25) / 3) < 1e-9);
-    assert.equal(spectrumReadoutText('a.wav', bands, snap.freqHz, snap.dbVal!), 'a.wav / 250 Hz / -20.0 dB');
+    assert.equal(spectrumReadoutText('a.wav', bands, snap.freqHz, snap.dbVal!), 'a.wav / 250 Hz / −20.0 dB');
 });

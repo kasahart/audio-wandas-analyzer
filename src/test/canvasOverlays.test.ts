@@ -9,7 +9,6 @@ import {
     drawAnalysisWindowBand,
     drawDashedTimeLine,
     drawRectZoomSelection,
-    formatReadoutHz,
     waveformCursorLineStyle,
 } from '../webview/runtime/canvasOverlays';
 
@@ -38,11 +37,6 @@ test('canvasTimeHit maps pointer X inside the time axis to the zoomed norm', () 
 test('clampedCanvasNorm clamps to the visible axis and the file range', () => {
     assert.equal(clampedCanvasNorm(0, -50, 100, { start: 0.5, end: 1 }), 0.5);
     assert.equal(clampedCanvasNorm(0, 500, 100, { start: 0.5, end: 1 }), 1);
-});
-
-test('formatReadoutHz rounds near-integers and keeps one decimal otherwise', () => {
-    assert.equal(formatReadoutHz(1000.02), '1000 Hz');
-    assert.equal(formatReadoutHz(12.34), '12.3 Hz');
 });
 
 test('drawDashedTimeLine draws only when the time is inside the view', () => {

@@ -28,12 +28,12 @@ test('a track lane\'s readout names the recording, its time to the digits a pixe
 test('the pointer on a spectrogram lane reads the cell under it: its frequency bin and level, with the time, in the toolbar (R7)', () => {
     // 4 time bins × 5 frequency bins up to 4000 Hz (1000 Hz apart); each cell's level names its place.
     const spec = { timeBins: 4, frequencyBins: 5, maxFrequencyHz: 4000, values: [0, 1, 2, 3].map(t => [0, 1, 2, 3, 4].map(f => -(10 * t + f) || 0)) };
-    assert.deepEqual(spectrogramCellAt(spec, 0.6, 2400), { frequencyHz: 2000, level: -22 });
-    assert.deepEqual(spectrogramCellAt(spec, 0, 0), { frequencyHz: 0, level: 0 });
+    assert.deepEqual(spectrogramCellAt(spec, 0.6, 2400), { frequencyHz: 2000, level: -22, stepHz: 1000 });
+    assert.deepEqual(spectrogramCellAt(spec, 0, 0), { frequencyHz: 0, level: 0, stepHz: 1000 });
     // The last bin's cell holds the file's end; above the data and off the file, nothing.
-    assert.deepEqual(spectrogramCellAt(spec, 1, 4000), { frequencyHz: 4000, level: -34 });
+    assert.deepEqual(spectrogramCellAt(spec, 1, 4000), { frequencyHz: 4000, level: -34, stepHz: 1000 });
     assert.equal(spectrogramCellAt(spec, 0.5, 4600), null);
     assert.equal(spectrogramCellAt(spec, -0.1, 1000), null);
     assert.equal(spectrogramCellAt(spec, 1.2, 1000), null);
-    assert.equal(spectrogramReadoutText('', 0.25, 0.01, { frequencyHz: 2000, level: -22 }, 'dB'), '0.25 s / 2000 Hz / −22.0 dB');
+    assert.equal(spectrogramReadoutText('', 0.25, 0.01, { frequencyHz: 2000, level: -22 }, 'dB'), '0.25 s / 2 kHz / −22.0 dB');
 });

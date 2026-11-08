@@ -49,12 +49,6 @@ export function clampedCanvasNorm(rectLeft: number, clientX: number, timeWidth: 
     return Math.max(0, Math.min(1, view.start + (x / timeWidth) * (view.end - view.start)));
 }
 
-export function formatReadoutHz(hz: number): string {
-    const rounded = Math.round(hz);
-    const value = Math.abs(hz - rounded) < 0.05 ? String(rounded) : hz.toFixed(1);
-    return value + ' Hz';
-}
-
 export function drawDashedTimeLine(
     ctx: CanvasRenderingContext2D,
     norm: number,
