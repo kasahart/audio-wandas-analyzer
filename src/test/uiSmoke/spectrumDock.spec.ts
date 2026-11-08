@@ -110,9 +110,26 @@ test('the cursor spectrum zoomed in asks for its slices at full resolution, so t
     await expect.poll(async () => (await asked()).length).toBeGreaterThan(0);
     expect((await asked()).every(full => !full)).toBe(true);
     const box = (await plot.boundingBox())!;
-    await page.mouse.move(box.x + box.width * 0.4, box.y + box.height * 0.5);
+    const pointer = { x: box.x + box.width * 0.4, y: box.y + box.height * 0.5 };
+    await page.mouse.move(pointer.x, pointer.y);
+    // The frequency under the pointer, as the readout writes it: a line one bin wide is put there in the answers at full
+    // resolution (buildHtml's __uiSmokeSpikeHz), which the 192 points drawn so far do not have.
+    await expect(page.locator('#spectrum-freq-readout')).toContainText(/Hz/u);
+    const read = /([\d.]+) (k?)Hz/u.exec(await page.locator('#spectrum-freq-readout').innerText())!;
+    const hz = Number(read[1]) * (read[2] ? 1000 : 1);
+    await page.evaluate(hz => { (window as unknown as { __uiSmokeSpikeHz: number }).__uiSmokeSpikeHz = hz; }, hz);
+    /** The highest point (smallest y, CSS px) the drawn spectrum lines reach within 4 px of the pointer: the longest strokes. */
+    const peakNearPointer = (): Promise<number> => plot.evaluate((canvas, x) => {
+        const drawn = (canvas as HTMLCanvasElement & { __plotDrawn?: { strokes: Array<{ points: Array<[number, number]> }> } }).__plotDrawn;
+        const longest = Math.max(0, ...(drawn?.strokes ?? []).map(stroke => stroke.points.length));
+        const lines = (drawn?.strokes ?? []).filter(stroke => stroke.points.length >= longest / 2);
+        return Math.min(Infinity, ...lines.flatMap(stroke => stroke.points.filter(([px]) => Math.abs(px - x) <= 4).map(([, py]) => py)));
+    }, pointer.x - box.x);
+    const before = await peakNearPointer();
     await page.keyboard.down('Control');
     await page.mouse.wheel(0, -480);
     await page.keyboard.up('Control');
     await expect.poll(async () => (await asked()).at(-1)).toBe(true);
+    // Drawn again from every bin: the line one bin wide is on the plot, far above what the 192 points reached there.
+    await expect.poll(peakNearPointer).toBeLessThan(before - 20);
 });

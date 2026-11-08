@@ -10,7 +10,9 @@
  *
  * And (R13): a canvas on screen not drawn by the plot component fails it, unless plotRegistry.ts lists it; so does a
  * plot (a canvas the component marked) drawn into by anything but the component, which is what drew it, not its
- * mark; and a chart drawn as SVG or as boxes of the page instead of on a plot.
+ * mark: whenever it was drawn into (before the component marked it, or while off the page, unless the component
+ * painted all of it over since), and when it is exported too; and a chart drawn as SVG or as boxes of the page
+ * instead of on a plot.
  *
  * And (R6): a plot on screen that drew a louder compared line over a quieter one fails it, whichever plot it is. The
  * plot component writes the levels of the lines it compared, in the order it drew them (`data-plot-order`); they
@@ -53,17 +55,64 @@ function installCanvasAudit({ settle, others, drawnOutside, svgCharts, svgMin }:
     const drawn: string[] = [];
     window.__drawnAudit = drawn;
     const drawnSeen = new Set<string>();
+    const reportDrawn = (name: string): void => { if (!drawnSeen.has(name)) { drawnSeen.add(name); drawn.push(name); } };
+    // Draws made outside the component into a canvas not yet marked as a plot, or off the page: kept until the component
+    // paints the whole of it over (a full clear), and reported if it is a plot on screen or a plot exported meanwhile.
+    const unseen = new WeakMap<HTMLCanvasElement, Set<string>>();
     const proto = CanvasRenderingContext2D.prototype as unknown as Record<string, (...args: unknown[]) => unknown>;
     for (const method of ['fill', 'stroke', 'fillRect', 'strokeRect', 'fillText', 'strokeText', 'putImageData', 'drawImage']) {
         const original = proto[method];
         proto[method] = function (this: CanvasRenderingContext2D, ...args: unknown[]) {
             const canvas = this.canvas;
-            // A plot on the page (an export's picture made off the page, with its white paper under it, is not one).
-            if (canvas instanceof HTMLCanvasElement && canvas.isConnected && canvas.hasAttribute('data-plot') && !(window.__plotPainting ?? 0)
-                && !(drawnOutside && canvas.matches(drawnOutside))) {
+            // The white paper a report lays under its plot (pngOf: behind what is drawn) is not a draw into the plot.
+            const paper = method === 'fillRect' && this.globalCompositeOperation === 'destination-over';
+            if (canvas instanceof HTMLCanvasElement && !(window.__plotPainting ?? 0) && !paper && !(drawnOutside && canvas.matches(drawnOutside))) {
                 const name = `${canvasName(canvas)}: ${method}`;
-                if (!drawnSeen.has(name)) { drawnSeen.add(name); drawn.push(name); }
+                if (canvas.isConnected && canvas.hasAttribute('data-plot')) reportDrawn(name);
+                else {
+                    const kept = unseen.get(canvas) ?? new Set<string>();
+                    kept.add(name);
+                    unseen.set(canvas, kept);
+                }
             }
+            return original.apply(this, args);
+        };
+    }
+    // The words each canvas shows (fillText), whoever drew them, since the whole of it was last cleared: what a test
+    // reads to see an axis's name on screen, not only in the plot's attributes.
+    type Texted = HTMLCanvasElement & { __plotTexts?: string[] };
+    const fillText = proto.fillText;
+    proto.fillText = function (this: CanvasRenderingContext2D, ...args: unknown[]) {
+        const canvas = this.canvas as Texted;
+        if (canvas instanceof HTMLCanvasElement && typeof args[0] === 'string') {
+            canvas.__plotTexts ??= [];
+            canvas.__plotTexts.push(args[0]);
+            if (canvas.__plotTexts.length > 400) canvas.__plotTexts.shift();
+        }
+        return fillText.apply(this, args);
+    };
+    const clearRect = proto.clearRect;
+    proto.clearRect = function (this: CanvasRenderingContext2D, ...args: unknown[]) {
+        const canvas = this.canvas as Texted;
+        const [x, y, width, height] = args as number[];
+        // In the bitmap's own pixels, through the context's transform.
+        const at = this.getTransform();
+        const corner = at.transformPoint({ x, y }), far = at.transformPoint({ x: x + width, y: y + height });
+        if (canvas instanceof HTMLCanvasElement && corner.x <= 0 && corner.y <= 0 && far.x >= canvas.width - 1 && far.y >= canvas.height - 1) canvas.__plotTexts = [];
+        return clearRect.apply(this, args);
+    };
+    /** A plot with draws from outside the component still on it (made before it was marked, or off the page): reported. */
+    const reportUnseen = (canvas: HTMLCanvasElement, where: string): void => {
+        const kept = unseen.get(canvas);
+        if (!kept?.size || !canvas.hasAttribute('data-plot')) return;
+        for (const name of kept) reportDrawn(`${name} (${where})`);
+    };
+    // A plot's picture exported (a report's figure) is checked as one on screen is.
+    const canvasProto = HTMLCanvasElement.prototype as unknown as Record<string, (...args: unknown[]) => unknown>;
+    for (const method of ['toDataURL', 'toBlob']) {
+        const original = canvasProto[method];
+        canvasProto[method] = function (this: HTMLCanvasElement, ...args: unknown[]) {
+            reportUnseen(this, 'exported');
             return original.apply(this, args);
         };
     }
@@ -89,7 +138,9 @@ function installCanvasAudit({ settle, others, drawnOutside, svgCharts, svgMin }:
         clearRect(context, kept, [x, y, width, height]) {
             const [left, top] = cssPoint(context, x, y), [right, bottom] = cssPoint(context, x + width, y + height);
             const { canvas } = context;
-            if (left <= 0 && top <= 0 && right >= canvas.clientWidth - 1 && bottom >= canvas.clientHeight - 1) { kept.strokes = []; kept.path = []; kept.clip = [null]; }
+            // A canvas off the page has no CSS size: its bitmap's is the whole of it.
+            const wide = canvas.clientWidth || canvas.width, high = canvas.clientHeight || canvas.height;
+            if (left <= 0 && top <= 0 && right >= wide - 1 && bottom >= high - 1) { kept.strokes = []; kept.path = []; kept.clip = [null]; unseen.delete(canvas); }
         },
         beginPath(_context, kept) { kept.path = []; kept.rect = null; },
         moveTo(context, kept, [x, y]) { kept.path.push([NaN, NaN], cssPoint(context, x, y)); },
@@ -234,6 +285,7 @@ function installCanvasAudit({ settle, others, drawnOutside, svgCharts, svgMin }:
                 const name = `order ${canvasName(canvas)}: ${order}`;
                 if (!reported.has(name)) { reported.add(name); misordered.push(`${canvasName(canvas)} drew levels ${order}`); }
             }
+            if (shownBox(canvas)) reportUnseen(canvas, 'drawn before it was a plot, or off the page');
             const full = canvas.getAttribute('data-plot-full');
             if (full?.startsWith('missing') && canvas.hasAttribute('data-plot') && shownBox(canvas)) {
                 const name = `full ${canvasName(canvas)}: ${full}`;
