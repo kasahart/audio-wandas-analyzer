@@ -103,7 +103,7 @@ TS/JS の役割分担は `src/**/*.ts` が編集対象のソース、`dist/**/*.
 | `src/webview/panels/ComparisonPanel.ts` | Multi-track comparison Webview shell and CSP-safe bootstrap data |
 | `src/webview/runtime/comparisonEntry.ts` | Strict TypeScript entry for the modular Comparison Webview runtime |
 | `src/shared/analysis/analysisTypes.ts` | Shared `AnalysisResult` / `DirectoryTreeNode` contracts |
-| `src/webview/waveform/waveformRenderer.ts` | Pure TS waveform rendering pipeline (3 layers, no Canvas dependency). `scripts/build-webview.js` packages it as `dist/webview/comparisonWaveform.js` for the Webview. |
+| `src/webview/waveform/waveformRenderer.ts` | Pure TS waveform rendering pipeline (3 layers, no Canvas dependency). `src/webview/plot/waveformLayer.ts` imports it, so it ships inside `dist/webview/comparisonRuntime.js`. |
 | `src/webview/waveform/rangeRequestPolicy.ts` | `isCacheSufficient` / `computeReqBounds` |
 | `python-backend/analyzer.py` | `analyze_from_frame()` — display payload from calibrated wandas frames |
 | `python-backend/decimator.py` | `decimated_waveform()` — bucket-level argmin/argmax |
@@ -113,7 +113,7 @@ TS/JS の役割分担は `src/**/*.ts` が編集対象のソース、`dist/**/*.
 
 ### Waveform rendering pipeline
 
-`waveformRenderer.ts` is the **single source of truth**. `scripts/build-webview.js` bundles tsc's output with esbuild (IIFE format) and emits `dist/webview/comparisonWaveform.js`, which the Webview loads via `<script src>`. Three pure layers:
+`waveformRenderer.ts` is the **single source of truth**. `src/webview/plot/waveformLayer.ts` imports its layers, so they ship inside the runtime bundle `dist/webview/comparisonRuntime.js`. (`dist/webview/comparisonWaveform.js` only exposes the loop-region painter `paintLoopRegion`.) Three pure layers:
 
 1. **CoordTransform** (`makeCoordTransform`) — file-normalized time `tNorm ∈ [0,1]` → canvas x, using `offsetNorm` and `trackDurRatio`.
 2. **Decimation** (`computeViewRange` + `decimateBuckets`) — choose bucket range and apply argmin/argmax.

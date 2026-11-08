@@ -22,7 +22,7 @@ import { createWebviewEnv, evalScript } from './helpers/webviewTestEnv';
 import { OWN_COLORS } from '../shared/gui/roleColors';
 
 // scripts/build-webview.js が tsc 後に生成。__dirname は dist/test なので 1 階層上が dist/。
-const WAVEFORM_PIPELINE_JS = readFileSync(
+const LOOP_REGION_JS = readFileSync(
     join(__dirname, '..', 'webview', 'comparisonWaveform.js'),
     'utf8',
 );
@@ -206,7 +206,7 @@ function setupEnvWithState(stateJson: string, initialVsCodeState: unknown = null
         initialVsCodeState,
     );
     // comparisonWaveform.js を先に eval して window.paintLoopRegion を登録する
-    evalScript(dom, WAVEFORM_PIPELINE_JS);
+    evalScript(dom, LOOP_REGION_JS);
     evalScript(dom, script);
     return { dom, postedMessages, vscodeStates, offscreenInstances, domCanvasContexts };
 }
@@ -1601,7 +1601,7 @@ const MISMATCHED_DELTA_F_SPECTRUM_STATE = JSON.stringify({
 function setupSpectrumEnv() {
     const script = getRenderScript();
     const env = createWebviewEnv(SPECTRUM_APP_STATE);
-    evalScript(env.dom, WAVEFORM_PIPELINE_JS);
+    evalScript(env.dom, LOOP_REGION_JS);
     evalScript(env.dom, script);
     return env;
 }
@@ -1610,7 +1610,7 @@ function setupSpectrumEnv() {
 function setupMismatchedDeltaFSpectrumEnv() {
     const script = getRenderScript();
     const env = createWebviewEnv(MISMATCHED_DELTA_F_SPECTRUM_STATE);
-    evalScript(env.dom, WAVEFORM_PIPELINE_JS);
+    evalScript(env.dom, LOOP_REGION_JS);
     evalScript(env.dom, script);
     return env;
 }
@@ -1618,7 +1618,7 @@ function setupMismatchedDeltaFSpectrumEnv() {
 function setupHighFrequencyReadoutEnv() {
     const script = getRenderScript();
     const env = createWebviewEnv(HIGH_FREQUENCY_READOUT_STATE);
-    evalScript(env.dom, WAVEFORM_PIPELINE_JS);
+    evalScript(env.dom, LOOP_REGION_JS);
     evalScript(env.dom, script);
     return env;
 }
@@ -1630,7 +1630,7 @@ function setupSpectrumEnvWithClock(clock: { now: number }) {
         configurable: true,
         value: () => clock.now,
     });
-    evalScript(env.dom, WAVEFORM_PIPELINE_JS);
+    evalScript(env.dom, LOOP_REGION_JS);
     evalScript(env.dom, script);
     return env;
 }

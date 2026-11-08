@@ -243,7 +243,7 @@ flowchart LR
 
 - 単一ファイル、ディレクトリ選択、複数ファイル比較のすべてで `ComparisonPanel` に統一されている
 - 比較件数に応じてタイトルとレイアウト密度だけが変わり、基本的な描画パイプラインは共通である
-- 波形描画の定義元は `src/webview/waveform/waveformRenderer.ts`。ビルドで生成した `dist/webview/comparisonWaveform.js` を Webview が読み込む
+- 波形描画の定義元は `src/webview/waveform/waveformRenderer.ts`。`src/webview/plot/waveformLayer.ts` がこれを import するので、runtime バンドル `dist/webview/comparisonRuntime.js` に入る
 
 ### 7.1 入口の表（entry table）
 
@@ -488,7 +488,7 @@ python-backend/
   analyzer.py               frame から表示用結果を生成
   decimator.py              バケット argmin/argmax 波形エンベロープ生成
 dist/webview/               compile による生成物
-  comparisonWaveform.js     waveformRenderer.ts の Webview バンドル
+  comparisonWaveform.js     ループ領域の描画（paintLoopRegion）だけを出すバンドル
   comparisonRuntime.js      比較ビューの runtime バンドル
   chartSpecRuntime.js       Recipe ChartSpec renderer のバンドル
 media/
