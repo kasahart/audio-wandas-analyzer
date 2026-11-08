@@ -294,10 +294,11 @@ function pngOf(document: Document, paint: (canvas: HTMLCanvasElement) => void): 
 /** One slot's base and compare on one set of axes, as the comparison's overlay: solid lines, no fills. */
 function paintOverlayFigure(canvas: HTMLCanvasElement, comparison: CompareModel, slot: number, title: string, strings: ReportStrings, input: ReportInput, size: { width: number; height: number }): void {
     const axes = paneAxes(strings, input.results.get(comparison.compare?.filePaths[0] ?? '')?.input).level;
-    // Every bin, decimated only to be drawn, as the comparison draws a spectrum; the 192 points where a scan gave no bins.
+    // Every bin, decimated only to be drawn, as the comparison draws a spectrum. Where a scan gave no bins, the
+    // 1/3-octave levels (each the scan's own, from every bin; a group's median band by band): never the 192 points.
     const { bins } = comparison;
-    const base = bins ? binsView(bins, 'base') : sideView(comparison.base, comparison.frequencies);
-    const compare = bins ? binsView(bins, 'compare') : sideView(comparison.compare, comparison.frequencies);
+    const base = bins?.base ? binsView(bins, 'base') : sideView(comparison.base, comparison.frequencies, true);
+    const compare = bins?.compare ? binsView(bins, 'compare') : sideView(comparison.compare, comparison.frequencies, true);
     const color = ROLE_COLORS[slot] ?? ROLE_COLORS[1];
     paintOverlay(canvas, {
         layers: [...(base ? [{ view: base, color: ROLE_COLORS[0], width: 2 }] : []), ...(compare ? [{ view: compare, color, width: 2 }] : [])],
@@ -315,8 +316,9 @@ function paintOverlayFigure(canvas: HTMLCanvasElement, comparison: CompareModel,
 
 /** A Δ figure: compare − base per point, the 1/3-octave Δ as steps under it, titled and with its legend. */
 function paintDeltaFigure(canvas: HTMLCanvasElement, comparison: CompareModel, title: string, curve: string, strings: ReportStrings, input: ReportInput, size: { width: number; height: number }): void {
-    // compare − base bin by bin, then decimated to be drawn (each bucket's lowest and highest Δ).
-    const view = deltaViews(comparison).picture;
+    // compare − base bin by bin, then decimated to be drawn (each bucket's lowest and highest Δ). Without the bins,
+    // only the band steps (the 1/3-octave Δ) are drawn.
+    const view = comparison.bins?.diff ? deltaViews(comparison).picture : null;
     const axes = paneAxes(strings, input.results.get(comparison.compare?.filePaths[0] ?? '')?.input).delta;
     // The range covers the band steps too, so a band's step is never cut off.
     const range = stageDiffRange(view && { ...view, values: [...(view.values ?? []), ...comparison.bandDeltas] });

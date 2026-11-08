@@ -188,6 +188,7 @@ test('a held slot asks once for every bin of its file and its base, then draws i
     assert.deepEqual(asked[0].filePaths, ['/d/a.wav', '/d/b.wav', '/d/c.wav'], 'the slotted file and its base');
     assert.ok(held.classList.contains('is-pending'));
     assert.equal(title.textContent, `1 · a.wav · ${strings.comparePending}`);
+    assert.equal(plot.picture()?.drawn ?? null, null, 'nothing of the table\'s 192 points is drawn while the bins come (R1, R2)');
     plot.paint();
     assert.equal(calls.filter(([kind]) => kind === 'post').length, 1, 'asked once while it is being scanned');
     // The host's answers: the compared file louder in one bin only.

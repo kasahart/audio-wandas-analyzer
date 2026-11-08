@@ -288,7 +288,7 @@ test('the table\'s results take the bins of a scan of the same spectrum only', (
 test('the held Δ zoomed in is drawn again from every bin between its ends, not the whole Δ decimated and stretched (R1, R3)', () => {
     // 8192 bins of 1 Hz, each Δ its own: the whole view keeps only a bucket's lowest and highest.
     const diff = Array.from({ length: 8192 }, (_, bin) => Math.sin(bin * 1.7) * 10);
-    const comparison = { bins: { hz: 1, nyquist: 8191, base: null, compare: null, diff }, diffDb: null, frequencies: [] };
+    const comparison = { bins: { hz: 1, nyquist: 8191, base: null, compare: null, diff }, bandDeltas: [], frequencies: [] };
     const whole = deltaViews(comparison);
     assert.equal(whole.view, whole.picture);
     // Zoomed to the window from 1 kHz up: in it, every bin while there are no more than the buckets.
@@ -303,9 +303,16 @@ test('the held Δ zoomed in is drawn again from every bin between its ends, not 
     // beyond each end is kept, for the plot to clip.
     const between = deltaViews(comparison, { start: fraction(100.3), end: fraction(100.7) });
     assert.deepEqual(between.view?.xs, [100, 101]);
-    // Without bins, the scans' Δ as it is.
-    const banded = deltaViews({ bins: null, diffDb: [1, 2], frequencies: [100, 200] }, { start: 0.2, end: 0.4 });
+    // Without bins, the 1/3-octave bands' Δ (each band from every bin), never a Δ of the scans' 192 points.
+    const frequencies = Array.from({ length: 192 }, (_, i) => 20 * (8000 / 20) ** ((i + 0.5) / 192));
+    const bandDeltas = BAND_CENTERS_HZ.map((_, band) => (band === 3 ? 4.5 : 0));
+    const banded = deltaViews({ bins: null, bandDeltas, frequencies }, { start: 0.2, end: 0.4 });
     assert.equal(banded.view, banded.picture);
+    assert.equal(banded.picture?.kind, 'bar');
+    assert.deepEqual(banded.picture?.xs, BAND_CENTERS_HZ.slice(0, banded.picture?.xs?.length));
+    assert.equal(banded.picture?.values?.[3], 4.5);
+    // Nothing to draw without bins or bands.
+    assert.equal(deltaViews({ bins: null, bandDeltas: [], frequencies }).picture, null);
 });
 
 /** A 2D context that records each call by name, with its arguments. */
