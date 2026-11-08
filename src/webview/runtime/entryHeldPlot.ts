@@ -12,7 +12,7 @@ import type { ScanResult, StageView } from '../../shared/protocol/backendProtoco
 import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { recipeKey, recipeNodes, recipeSteps, slotReferenced, timeSignalStep, TIME_SLICE, type RecipeStep } from '../../shared/recipe/recipeSteps';
 import { baseName } from '../../shared/analysis/entryMetadata';
-import { DIFF_COLOR, ROLE_COLORS } from '../../shared/gui/roleColors';
+import { DIFF_COLOR } from '../../shared/gui/roleColors';
 import { buildCompareModel, deltaViews, type CompareModel, type LevelInput, type PaneRange } from './comparePanes';
 import type { EntryModel } from './entryTable';
 import type { PlotMargins, PlotWindow } from './plotInteraction';
@@ -56,6 +56,8 @@ export interface HeldPlotDeps {
     results: ReadonlyMap<string, ScanResult>;
     focusedFile(): string | null;
     slotFiles(): (string | null)[];
+    /** The colour a file is drawn in: its role's, else its own (R5). */
+    colorOf(filePath: string): string;
     /** The table's Recipe (its edited one, else the host's), and the one its scans run (undefined: the host's own). */
     recipe(): RecipeDocument | null;
     runRecipe(): RecipeDocument | undefined;
@@ -141,7 +143,7 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
         const coarseWithout = specs?.without ? source.view(specs.without, path) ?? null : null;
         if (!specs || waiting || !coarse || (specs.without && !coarseWithout)) {
             if (waiting) { held.classList.add('is-pending'); title.textContent += ` · ${strings.comparePending}`; }
-            paintView(null, null, { min: 0, max: 1 }, stageAxes(strings, null, input), zoom, { color: ROLE_COLORS[1], empty: waiting ? '' : strings.stepNotDrawable.replace('{frame}', coarse?.frame ?? '') });
+            paintView(null, null, { min: 0, max: 1 }, stageAxes(strings, null, input), zoom, { color: deps.colorOf(path), empty: waiting ? '' : strings.stepNotDrawable.replace('{frame}', coarse?.frame ?? '') });
             return;
         }
         // Zoomed, from the Frame's full resolution once it is in (the coarse picture until then).
@@ -154,7 +156,7 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
         };
         if (!specs.without) {
             const fine = fineOf(specs.with).map(spec => source.view(spec, path)).find(view => !!view);
-            paintView(fine ?? coarse, coarse, stageRange([coarse]), stageAxes(strings, coarse, input), zoom, { color: ROLE_COLORS[1] });
+            paintView(fine ?? coarse, coarse, stageRange([coarse]), stageAxes(strings, coarse, input), zoom, { color: deps.colorOf(path) });
             return;
         }
         // Without the step − with it, at full resolution: what the step takes away (negative where it cuts), the

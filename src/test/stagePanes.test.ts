@@ -63,13 +63,13 @@ const cepstrum = (values: number[]): StageView => ({ frame: 'CepstralFrame', kin
 test('a cepstrum is drawn on a quefrency axis, symmetric about zero without its zero-quefrency coefficient', () => {
     const view = cepstrum([-8.5, 0.01, -0.02, 0.005]);
     const range = stageRange([view]);
-    assert.ok(Math.abs(range.max - 0.021) < 1e-9 && range.min === -range.max);
+    assert.ok(Math.abs(range.max - 0.022) < 1e-9 && range.min === -range.max);
     const names = { axisQuefrency: 'Quefrency s', axisCepstrum: 'Real cepstrum', axisDelta: 'Δ dB' } as unknown as StageStrings;
     assert.deepEqual(stageAxes(names, view, undefined), { x: 'Quefrency s', y: 'Real cepstrum' });
     const diff = minus(view, cepstrum([-8.4, 0.03, -0.02, 0.005]));
     assert.deepEqual(stageAxes(names, diff, undefined, true), { x: 'Quefrency s', y: 'Δ Real cepstrum' });
     assert.equal(stageHeadline(diff, strings), '1.00 ms +0.0200');
-    assert.deepEqual(stageDiffRange(diff), { min: -0.021, max: 0.021 });
+    assert.deepEqual(stageDiffRange(diff), { min: -0.022, max: 0.022 });
 });
 
 const correlation = (values: number[]): StageView => ({ frame: 'CrossCorrelationFrame', kind: 'line', x: 'lag', xScale: 'linear', quantity: 'correlation', xs: [-0.002, -0.001, 0, 0.001], values, pair: { output: 2, input: 1 } });
@@ -237,3 +237,10 @@ test('a wide waveform bucket whose earlier point is beside the pointer is read, 
 function pick(hit: ReturnType<typeof stageHover>): { x: number; y: number } | null {
     return hit ? { x: hit.x, y: hit.y } : null;
 }
+
+test('a colour or value range not in dB is widened to round ends, as a dB range is', () => {
+    const view = (values: number[], quantity: StageView['quantity']): StageView => ({ frame: 'SpectralFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity, xs: [0, 1], values: [], matrix: [values] });
+    assert.deepEqual(stageRange([view([3.21, 17.4], 'roughness')]), { min: 2, max: 19 });
+    assert.deepEqual(stageRange([view([0.13, 0.87], 'value')]), { min: 0.05, max: 0.95 });
+    assert.deepEqual(stageDiffRange(view([-0.37, 0.12], 'value')), { min: -0.4, max: 0.4 });
+});

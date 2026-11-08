@@ -33,7 +33,7 @@ import { keyRouterFor } from './keyRouter';
 import { createHeaderProbe, createScanProgress } from './entryScanQueue';
 import { createRedraw, createThrottle } from './entryRedraw';
 import { createSessionSaver, readStoredSession, SESSION_VERSION } from './entrySession';
-import { channelRowKey, comparedKeys, emptySlots, firstFreeCompareSlot, restoredSlots, roleKey, roleSlot, slotFiles as filesOfSlots, slotsForFiles, slotsOfFile, trackChanges, withoutFile, withSlot, type Slots } from './entrySlots';
+import { channelRowKey, comparedKeys, emptySlots, firstFreeCompareSlot, recordingColor as colorOfRecording, restoredSlots, roleKey, roleSlot, slotFiles as filesOfSlots, slotsForFiles, slotsOfFile, trackChanges, withoutFile, withSlot, type Slots } from './entrySlots';
 import { setHint } from './hintFooter';
 import { ENTRY_KEYS, keyAction } from './shortcuts';
 import {
@@ -131,6 +131,8 @@ export interface EntryScreenDeps {
     play?(filePath: string): void;
     /** The file playing in the track view. */
     playing?(): string | null;
+    /** The colour a file's track is drawn in (its role's, else its own); undefined for a file not shown as a track. */
+    recordingColor?(filePath: string): string | undefined;
 }
 
 export interface EntryScreen {
@@ -362,6 +364,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     let rowsDirty = true;
     const focusedFile = (): string | null => (focus.key ? fileOfKey(focus.key) : null);
     const slotFiles = (): (string | null)[] => filesOfSlots(slots);
+    /** The colour a file is drawn in beside the table: its role's, else its track's own, as the comparison draws it (R5). */
+    const recordingColor = (filePath: string): string => colorOfRecording(slots, filePath, deps.recordingColor?.(filePath));
     let byKey = new Map<string, DatasetRow>();
     const rowOf = (key: string | null): DatasetRow | undefined => (key ? byKey.get(key) : undefined);
     /** Results and headers as they arrive: a big table takes longer to draw, so it waits longer. */
@@ -822,7 +826,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     /** The held plot: a slot key or chip held shows its row's Δ, a step chip held what the step does to one row. */
     const heldPlot = createHeldPlot({
         document, window, strings, held, title: heldTitle, canvas: heldCanvas, post: message => deps.post(message), scheduleSide: () => sidePlots.schedule(),
-        keepWindow: (name, key) => sidePlots.keepWindow(name, key), entryModel, results, focusedFile, slotFiles, recipe: () => recipeState.edited ?? recipeState.standard, runRecipe: () => runRecipe(), limits, spectral,
+        keepWindow: (name, key) => sidePlots.keepWindow(name, key), entryModel, results, focusedFile, slotFiles, colorOf: recordingColor, recipe: () => recipeState.edited ?? recipeState.standard, runRecipe: () => runRecipe(), limits, spectral,
         tapped(slot) { if (focus.key && rows.some(row => row.key === focus.key)) setSlot(slot, focus.key); },
     });
     function handleRemeasure(publication: ComparePublication): boolean {

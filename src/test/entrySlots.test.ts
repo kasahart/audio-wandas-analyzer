@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
-    channelRowKey, comparedKeys, emptySlots, firstFreeCompareSlot, restoredSlots, roleKey, roleSlot, slotFiles, slotsForFiles, slotsOfFile, trackChanges, withoutFile, withSlot,
+    channelRowKey, comparedKeys, emptySlots, firstFreeCompareSlot, recordingColor, restoredSlots, roleKey, roleSlot, slotFiles, slotsForFiles, slotsOfFile, trackChanges, withoutFile, withSlot,
 } from '../webview/runtime/entrySlots';
+import { ownColor, ROLE_COLORS } from '../shared/gui/roleColors';
 
 test('a row put in a slot leaves any other; the same row again takes it out', () => {
     assert.deepEqual(emptySlots(), [null, null, null, null]);
@@ -48,4 +49,12 @@ test('a key taken before the file\'s channels were known moves to its ch 1 row o
     assert.equal(channelRowKey('/b.wav', keys), null);
     assert.equal(channelRowKey('/a.wav#ch2', keys), null);
     assert.equal(channelRowKey('/c.wav', keys), null);
+});
+
+test('a recording beside the table is drawn in its role\'s colour, else its track\'s own, else the first own colour (R5)', () => {
+    const slots = [null, '/a.wav', null, '/c.wav'];
+    assert.equal(recordingColor(slots, '/a.wav', '#123456'), ROLE_COLORS[1], 'the role wins over the track colour');
+    assert.equal(recordingColor(slots, '/c.wav', undefined), ROLE_COLORS[3]);
+    assert.equal(recordingColor(slots, '/b.wav', '#123456'), '#123456', 'no role: the track\'s own colour');
+    assert.equal(recordingColor(slots, '/b.wav', undefined), ownColor(0), 'not a track either: an own colour, never a role\'s');
 });

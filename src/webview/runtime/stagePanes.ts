@@ -16,7 +16,7 @@ import { plotPointIn, type PlotMargins } from './plotInteraction';
 import { HOVER_PICK_RADIUS_PX, nearestPoint } from './plotHover';
 import { paintWaveformLayer, waveformRange, type SignalPointSink } from '../plot/waveformLayer';
 import { drawValueAxis, fittedAxisTitle, normalizedColor, readoutText, type AxisTick, type Palette } from '../../shared/gui-core/index';
-import { niceTicks } from '../../shared/utils/ticks';
+import { niceRange, niceTicks } from '../../shared/utils/ticks';
 
 /** Canvas x the level axis's turned title is centred on, in the gutter left of its tick labels. */
 const AXIS_TITLE_X = 10;
@@ -116,7 +116,7 @@ export function stageRange(views: ReadonlyArray<StageView | null>): PaneRange {
     if (quantity === 'correlation') return { min: -1, max: 1 };
     if (quantity === 'cepstrum') {
         // Signed coefficients around zero: symmetric, robust for an image, every peak for a line.
-        const edge = (first?.kind === 'heatmap' ? robustEdge(views) : Math.max(Math.abs(low), Math.abs(high)) * 1.05) || 1;
+        const edge = roundEdge((first?.kind === 'heatmap' ? robustEdge(views) : Math.max(Math.abs(low), Math.abs(high)) * 1.05) || 1);
         return { min: -edge, max: edge };
     }
     if (DB_QUANTITIES.includes(quantity ?? '')) {
@@ -125,15 +125,22 @@ export function stageRange(views: ReadonlyArray<StageView | null>): PaneRange {
         const max = Math.ceil(high / step) * step;
         return { min: max - 4 * step, max };
     }
+    // Any other quantity (a loudness, a roughness, an amplitude): its extent padded, to round ends, as a dB range has.
     const pad = (high - low) * 0.05 || Math.abs(high) * 0.1 || 1;
-    return { min: low - pad, max: high + pad };
+    const { low: min, high: max } = niceRange(low - pad, high + pad);
+    return { min, max };
+}
+
+/** A symmetric range's edge, widened to a round value (±0.021 → ±0.022), as niceRange widens a range's ends. */
+function roundEdge(edge: number): number {
+    return niceRange(-edge, edge).high;
 }
 
 /** ± an edge with whole-number quarters, for a difference in dB; ± the largest difference otherwise. */
 export function stageDiffRange(view: StageView | null): PaneRange {
     const { low, high } = extent([view]);
     if (view && !isDb(view)) {
-        const edge = (Number.isFinite(high) ? Math.max(Math.abs(low), Math.abs(high)) * 1.05 : 0) || 1;
+        const edge = roundEdge((Number.isFinite(high) ? Math.max(Math.abs(low), Math.abs(high)) * 1.05 : 0) || 1);
         return { min: -edge, max: edge };
     }
     let edge = 6;
