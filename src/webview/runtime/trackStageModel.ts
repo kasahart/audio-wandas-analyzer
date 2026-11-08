@@ -11,6 +11,7 @@ import { withChannel } from '../../shared/recipe/channelSelection';
 import { INPUT_STAGE, recipeWithout, unpairedRecipe } from './stepBarModel';
 import type { StageSpec } from './stageSource';
 import { FULL_PLOT_WINDOW, type PlotWindow } from './plotInteraction';
+import type { NormalizedRange } from './waveformInteraction';
 import type { Combined } from './combineSource';
 import { regionLabel } from './entryTable';
 
@@ -26,8 +27,12 @@ export interface TrackStageState {
     opened: boolean;
     overlaid: boolean;
     showDiff: boolean;
-    /** The plots' shared zoom. */
+    /** The plots' shared zoom (the overlay's, the lanes' side by side, and the Δ pane's horizontal part). */
     window: PlotWindow;
+    /** The Δ pane's own vertical zoom: its axis is the difference, not the overlay's level. */
+    diffY: NormalizedRange;
+    /** The lanes' own zoom while they sit under a trigger's events: their time is the recording's, not the trigger's. */
+    lanesWindow: PlotWindow;
     /** The slot compared (1–3), the one held for a moment, and whether the base is the group median though slot 0 is set (0). */
     compared: number;
     held: number | null;
@@ -43,8 +48,11 @@ export interface TrackStageState {
     gateKey: string | null;
 }
 
+/** Every plot of the mode zoomed out to the whole of each axis. */
+export const WHOLE_ZOOM: Pick<TrackStageState, 'window' | 'diffY' | 'lanesWindow'> = { window: FULL_PLOT_WINDOW, diffY: FULL_PLOT_WINDOW.y, lanesWindow: FULL_PLOT_WINDOW };
+
 export function initialStageState(): TrackStageState {
-    return { on: false, stage: null, opened: false, overlaid: true, showDiff: false, window: FULL_PLOT_WINDOW, compared: 1, held: null, groupBase: false, regionSet: null, pendingRegion: null, heldStep: null, baseAllowed: new Set(), gateKey: null };
+    return { on: false, stage: null, opened: false, overlaid: true, showDiff: false, ...WHOLE_ZOOM, compared: 1, held: null, groupBase: false, regionSet: null, pendingRegion: null, heldStep: null, baseAllowed: new Set(), gateKey: null };
 }
 
 /**
@@ -52,7 +60,7 @@ export function initialStageState(): TrackStageState {
  * before any analysis is chosen), else on the step shown last. The rest of what it showed before is forgotten.
  */
 export function openStageState(state: TrackStageState, stage: string | undefined): void {
-    Object.assign(state, { stage: stage ?? (state.opened ? state.stage : INPUT_STAGE), opened: true, compared: 1, held: null, groupBase: false, heldStep: null, window: FULL_PLOT_WINDOW, overlaid: true, pendingRegion: null });
+    Object.assign(state, { stage: stage ?? (state.opened ? state.stage : INPUT_STAGE), opened: true, compared: 1, held: null, groupBase: false, heldStep: null, ...WHOLE_ZOOM, overlaid: true, pendingRegion: null });
 }
 
 /** The mode shown (from the tracks, which keep what it showed): the first time, on the input. */

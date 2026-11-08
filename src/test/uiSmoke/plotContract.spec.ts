@@ -160,6 +160,107 @@ test('a trigger\'s events plot and the lanes under it answer the same gestures a
     await expectContract(page, 'trigger lane', page.locator('.track-canvas[data-plot]').first());
 });
 
+/** A box dragged over the middle of the plot, from 30 % to 70 % across and up: a zoom into it. */
+async function boxZoom(page: Page, plot: Locator): Promise<void> {
+    const box = (await plot.boundingBox())!;
+    await page.mouse.move(box.x + box.width * 0.4, box.y + box.height * 0.3);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.5, { steps: 4 });
+    await page.mouse.move(box.x + box.width * 0.75, box.y + box.height * 0.7, { steps: 4 });
+    await page.mouse.up();
+    await page.mouse.move(1, 1);
+}
+
+test('the Δ pane zooms its own level axis, sharing only the frequency axis with the overlay above it', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await openComparison(page, scanned!);
+    await page.locator('[data-action="stage-diff"]').click();
+    const root = page.locator('.track-stage');
+    const diff = page.locator('[data-stage-canvas="diff"]');
+    await expect(diff).toBeVisible();
+    await boxZoom(page, diff);
+    await expect(root).not.toHaveAttribute('data-diff-y-window', '0.000-1.000');
+    await expect(root).not.toHaveAttribute('data-x-window', '0.000-1.000');
+    // The overlay keeps its own level axis whole.
+    await expect(root).toHaveAttribute('data-y-window', '0.000-1.000');
+    // And a box on the overlay leaves the Δ's level axis where it was.
+    const diffY = await root.getAttribute('data-diff-y-window');
+    await boxZoom(page, page.locator('[data-stage-canvas="overlay"]'));
+    await expect(root).not.toHaveAttribute('data-y-window', '0.000-1.000');
+    await expect(root).toHaveAttribute('data-diff-y-window', diffY!);
+});
+
+test('the lanes under a trigger zoom on their own (the recording\'s time, not the trigger\'s) and draw the signal at full resolution once zoomed', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    await page.setViewportSize({ width: 1280, height: 1100 });
+    await openComparison(page, scanned!);
+    const bar = page.locator('.track-stage-bar');
+    await bar.locator('.step-chip', { hasText: getStrings('en').stepAverage }).locator('[data-action="step-delete"]').click();
+    await bar.locator('[data-action="step-add"]').click();
+    await bar.locator('[data-step-menu-filter]').fill('trigger');
+    await bar.locator('.step-menu-item[data-op="wandas.audio.trigger"]').click();
+    await expect.poll(async () => (await stageScans(page)).at(-1)?.recipe?.nodes.at(-1)?.operation.split('.').pop()).toBe('trigger');
+    const event = (id: number, peak: number): Record<string, unknown> => ({ id, time: 0.3 + id * 0.5, values: [0, peak, -peak / 2, 0] });
+    await answer(page, scanned!, { frame: 'ChannelFrameSegments', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', unit: 'FS', xs: [-0.01, 0, 0.05, 0.19], events: [event(0, 0.5), event(1, 0.4)] });
+    await expect.poll(async () => (await stageScans(page)).at(-1)?.stage).toBe('node-1');
+    const signal = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', unit: 'FS', xs: [0, 0.75, 1.5], values: [-0.5, 0.5, -0.5],
+        waveform: { min: [-0.5, -0.4, -0.3], max: [0.5, 0.4, 0.3], minT: [0.2, 0.7, 1.1], maxT: [0.3, 0.8, 1.2], absolutePeak: 0.5, unit: 'FS', ref: 1 } };
+    // The second recording twice as long as the first: each lane's window is a part of its own time axis.
+    const request = (await stageScans(page)).at(-1)!;
+    await page.evaluate(({ request, signal, files }) => {
+        request.filePaths.forEach((filePath, index) => {
+            const file = files.find(item => item.filePath === filePath)!;
+            window.postMessage({ type: 'compare-scan-result', requestId: request.requestId, filePath, result: { ...file.result, stage: { ...signal, xs: signal.xs.map(x => x * (index + 1)) } } }, '*');
+        });
+        window.postMessage({ type: 'compare-scan-done', requestId: request.requestId }, '*');
+    }, { request, signal, files: scanned! });
+    const root = page.locator('.track-stage');
+    await expect.poll(async () => Number(await root.getAttribute('data-lanes-marked'))).toBeGreaterThan(0);
+    const asked = (await stageScans(page)).length;
+    await boxZoom(page, page.locator('.track-canvas[data-plot]').first());
+    await expect(root).not.toHaveAttribute('data-lanes-window', '0.000-1.000 0.000-1.000');
+    // The events plot above keeps its own window.
+    await expect(root).toHaveAttribute('data-x-window', '0.000-1.000');
+    await expect(root).toHaveAttribute('data-y-window', '0.000-1.000');
+    // Once the zoom settles, each recording's signal is asked for again over the part on screen of its own length.
+    type Detailed = Posted & { detail?: { x: [number, number] } };
+    // Each detail asked for is answered (the next is asked once one is in), with the part of the signal it covers.
+    const asks = new Map<string, [number, number]>();
+    await expect.poll(async () => {
+        const next = ((await stageScans(page)).slice(asked) as Detailed[]).find(message => message.stage === 'node-1' && message.detail && !asks.has(message.filePaths[0]));
+        if (next?.detail) {
+            asks.set(next.filePaths[0], next.detail.x);
+            await page.evaluate(({ next, signal, files }) => {
+                for (const filePath of next.filePaths) {
+                    const file = files.find(item => item.filePath === filePath)!;
+                    window.postMessage({ type: 'compare-scan-result', requestId: next.requestId, filePath, result: { ...file.result, stage: { ...signal, xs: next.detail!.x } } }, '*');
+                }
+                window.postMessage({ type: 'compare-scan-done', requestId: next.requestId }, '*');
+            }, { next, signal, files: scanned! });
+        }
+        return asks.size;
+    }).toBe(2);
+    const [shorter, longer] = request.filePaths.map(filePath => asks.get(filePath)!);
+    // The same part of each: the longer recording's request is twice the shorter's, not the shorter's seconds again.
+    expect(longer[0]).toBeCloseTo(shorter[0] * 2, 6);
+    expect(longer[1]).toBeCloseTo(shorter[1] * 2, 6);
+    // A box on the events plot leaves the lanes' zoom where it was.
+    const lanes = await root.getAttribute('data-lanes-window');
+    await boxZoom(page, page.locator('[data-stage-canvas="overlay"]'));
+    await expect(root).not.toHaveAttribute('data-x-window', '0.000-1.000');
+    await expect(root).toHaveAttribute('data-lanes-window', lanes!);
+    // The keys zoom the plot under the pointer in its own window, and 0 resets every plot's.
+    await page.keyboard.press('0');
+    await expect(root).toHaveAttribute('data-lanes-window', '0.000-1.000 0.000-1.000');
+    await expect(root).toHaveAttribute('data-x-window', '0.000-1.000');
+    const laneBox = (await page.locator('.track-canvas[data-plot]').first().boundingBox())!;
+    await page.mouse.move(laneBox.x + laneBox.width * 0.6, laneBox.y + laneBox.height / 2);
+    await page.keyboard.press('+');
+    await expect(root).toHaveAttribute('data-lanes-window', '0.150-0.850 0.000-1.000');
+    await expect(root).toHaveAttribute('data-x-window', '0.000-1.000');
+});
+
 test('the entry\'s held plot answers the same gestures as every plot (R13)', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     await page.setViewportSize({ width: 1280, height: 900 });

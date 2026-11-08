@@ -10,7 +10,7 @@ test('attaching the gestures puts the cursor line, zoom box and axis range popov
     const document = dom.window.document;
     const state = initialStageState();
     attachStageGestures(document.querySelector('.lanes') as HTMLElement, document.querySelector('.track-stage') as HTMLElement, document, {
-        strings: getStrings('en'), state, drawnOn: new Map(), painted: () => false, moved: () => undefined, rerender: () => undefined, hint: () => undefined,
+        strings: getStrings('en'), state, drawnOn: new Map(), painted: () => false, moved: () => undefined, rerender: () => undefined, hint: () => undefined, lanesApart: () => false,
     });
     for (const selector of ['.track-stage-cursor', '.track-stage-box']) {
         assert.equal(document.querySelectorAll(selector).length, 1, selector);

@@ -46,7 +46,7 @@ function frameFor(tracks: StageTrack[], views: Record<string, StageView | null |
     const coarse = (path: string) => views[path];
     return {
         strings, tracks, allTracks: tracks, referencePath: null, comparePath: 'one.wav', coarse, shown: coarse, picture: views['one.wav'] ?? null,
-        coarsePlots: plotsOf(coarse, tracks, 'one.wav', ['base.wav'], combined), window: FULL_PLOT_WINDOW, waiting: false, role, named, drawnOn: new Map<Element, Drawn>(), ...extra,
+        coarsePlots: plotsOf(coarse, tracks, 'one.wav', ['base.wav'], combined), window: FULL_PLOT_WINDOW, diffY: FULL_PLOT_WINDOW.y, waiting: false, role, named, drawnOn: new Map<Element, Drawn>(), ...extra,
     };
 }
 

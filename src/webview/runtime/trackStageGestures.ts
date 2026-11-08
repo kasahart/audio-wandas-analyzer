@@ -4,7 +4,7 @@
  */
 import type { UiStrings } from '../../shared/i18n/strings';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
-import { attachPlotInteraction, FULL_PLOT_WINDOW, type PlotHit } from './plotInteraction';
+import { attachPlotInteraction, FULL_PLOT_WINDOW, type PlotHit, type PlotWindow } from './plotInteraction';
 import { axisFractionOf, axisValueAt, rowFractionOf, rowValueAt, STAGE_MARGINS, stageHover, stagePlotPoint } from './stagePanes';
 import { createPlotHoverLayer } from './plotHoverLayer';
 import { installRangePopover, linearAxis, openAxisPart, type AxisMapping } from '../rangePopover';
@@ -22,6 +22,11 @@ export interface StageGestures {
     hovering(): boolean;
     /** Draws the hover marks again on what the plot under the still pointer now shows. */
     redraw(): void;
+    /**
+     * The horizontal axis of the plot under the pointer zoomed by `zoom` (a key's zoom), in that plot's own window
+     * (the lanes under a trigger have theirs); false when the pointer is over none.
+     */
+    zoomHovered(zoom: (range: PlotWindow['x']) => PlotWindow['x']): boolean;
 }
 
 export function attachStageGestures(surface: HTMLElement, root: HTMLElement, document: Document, deps: {
@@ -34,11 +39,27 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
     moved: () => void;
     rerender: () => void;
     hint: (text: string) => void;
+    /** The lanes sit under a trigger's events: over the recording's time, so they zoom on their own. */
+    lanesApart: () => boolean;
     /** A click on a trigger's event line: left out, or put back. */
     /** Takes what the click is on at once, and returns the edit to make once no double-click follows. */
     toggleEvent?: (event: { id: number; source: string; out: boolean }) => (() => void) | undefined;
 }): StageGestures {
     const { strings, state, drawnOn } = deps;
+    // Each plot's zoom: the Δ pane shares the overlay's frequency axis but not its level axis, and the lanes under a
+    // trigger's events are over another time than the events plot. The rest share one window.
+    const zoomOf = (plot: HTMLElement): 'diff' | 'lanes' | 'shared' =>
+        plot.matches('[data-stage-canvas="diff"]') ? 'diff' : plot.matches('.track-canvas') && deps.lanesApart() ? 'lanes' : 'shared';
+    const windowOf = (plot: HTMLElement): PlotWindow => {
+        const zoom = zoomOf(plot);
+        return zoom === 'diff' ? { x: state.window.x, y: state.diffY } : zoom === 'lanes' ? state.lanesWindow : state.window;
+    };
+    const setWindowOf = (plot: HTMLElement, next: PlotWindow): void => {
+        const zoom = zoomOf(plot);
+        if (zoom === 'diff') { state.window = { ...state.window, x: next.x }; state.diffY = next.y; } else if (zoom === 'lanes') state.lanesWindow = next; else state.window = next;
+        deps.moved();
+        deps.rerender();
+    };
     // The pointer's marks (plotHover.ts: the nearest line thicker, the cursor at its point), the box being dragged
     // and an axis's range, for any plot of the mode. The marks are drawn on a canvas laid over the plot, so a hover
     // does not draw the plot again; the readout is in the controls row above the plots, never over a plot (R7).
@@ -87,8 +108,8 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
             return { plot, point: { fx, fy }, axis };
         },
         pointOn(plot, clientX, clientY) { const { fx, fy } = stagePlotPoint(plot, clientX, clientY); return { fx, fy }; },
-        window: () => state.window,
-        setWindow(_plot, next) { state.window = next ?? FULL_PLOT_WINDOW; deps.moved(); deps.rerender(); },
+        window: windowOf,
+        setWindow(plot, next) { setWindowOf(plot, next ?? FULL_PLOT_WINDOW); },
         hover(event, hit) {
             // The lanes' surface holds the overlaid plot too: a miss there is the other plot's to answer.
             if (!hit && (event.target as Element | null)?.closest?.('.track-canvas, [data-stage-canvas]')) return;
@@ -120,8 +141,8 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
                 : heat ? { at: f => rowValueAt(picture, f), of: v => rowFractionOf(picture, v), label: drawn.axes.y }
                     : linearAxis(drawn.range.min, drawn.range.max, drawn.axes.y);
             openAxisPart(rangePopover, {
-                mapping, horizontal: hit.axis === 'x', current: hit.axis === 'x' ? state.window.x : state.window.y, clientX, clientY, invalid: strings.specRangeErrorMinMax,
-                set(part) { state.window = hit.axis === 'x' ? { ...state.window, x: part } : { ...state.window, y: part }; deps.moved(); deps.rerender(); },
+                mapping, horizontal: hit.axis === 'x', current: hit.axis === 'x' ? windowOf(hit.plot).x : windowOf(hit.plot).y, clientX, clientY, invalid: strings.specRangeErrorMinMax,
+                set(part) { const now = windowOf(hit.plot); setWindowOf(hit.plot, hit.axis === 'x' ? { ...now, x: part } : { ...now, y: part }); },
             });
             return true;
         },
@@ -143,5 +164,14 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
     };
     surface.addEventListener('click', clicked('.track-canvas'));
     root.addEventListener('click', clicked('[data-stage-canvas]'));
-    return { hovering: () => hovered !== null, redraw: showHover };
+    return {
+        hovering: () => hovered !== null,
+        redraw: showHover,
+        zoomHovered(zoom) {
+            if (!hovered || !hovered.plot.isConnected) return false;
+            const now = windowOf(hovered.plot);
+            setWindowOf(hovered.plot, { ...now, x: zoom(now.x) });
+            return true;
+        },
+    };
 }
