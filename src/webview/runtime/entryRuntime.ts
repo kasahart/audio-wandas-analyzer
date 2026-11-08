@@ -826,7 +826,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     /** The held plot: a slot key or chip held shows its row's Δ, a step chip held what the step does to one row. */
     const heldPlot = createHeldPlot({
         document, window, strings, held, title: heldTitle, canvas: heldCanvas, post: message => deps.post(message), scheduleSide: () => sidePlots.schedule(),
-        keepWindow: (name, key) => sidePlots.keepWindow(name, key), entryModel, results, focusedFile, slotFiles, colorOf: recordingColor, recipe: () => recipeState.edited ?? recipeState.standard, runRecipe: () => runRecipe(), limits, spectral,
+        keepWindow: (name, key) => sidePlots.keepWindow(name, key), results, focusedFile,
+        comparison: (path, over) => entryBase.comparison(path, false, over), basePaths: path => entryBase.resolve(path).paths, scanRecipe: () => scanRecipe(), slotFiles, colorOf: recordingColor, recipe: () => recipeState.edited ?? recipeState.standard, runRecipe: () => runRecipe(), limits, spectral,
         tapped(slot) { if (focus.key && rows.some(row => row.key === focus.key)) setSlot(slot, focus.key); },
     });
     function handleRemeasure(publication: ComparePublication): boolean {

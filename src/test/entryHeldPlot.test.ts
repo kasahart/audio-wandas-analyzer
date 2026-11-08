@@ -6,6 +6,7 @@ import type { ScanResult } from '../shared/protocol/backendProtocol';
 import type { RecipeStep } from '../shared/recipe/recipeSteps';
 import { TIME_SLICE } from '../shared/recipe/recipeSteps';
 import { createHeldPlot, DELTA_RELEASE_MS, narrowed, TAP_MS, type HeldPlotDeps } from '../webview/runtime/entryHeldPlot';
+import { buildCompareModel } from '../webview/runtime/comparePanes';
 import { buildEntryModel } from '../webview/runtime/entryTable';
 import { FULL_PLOT_WINDOW } from '../webview/runtime/plotInteraction';
 import { stepChipLabel } from '../webview/runtime/stepBar';
@@ -53,19 +54,23 @@ function setup(results = new Map<string, ScanResult>()) {
     const calls: Array<[string, unknown]> = [];
     const state = { focused: null as string | null, slots: [null, null, null, null] as (string | null)[] };
     const colored: string[] = [];
+    const compared: Array<{ path: string; over: ReadonlyMap<string, ScanResult> }> = [];
     const deps: HeldPlotDeps = {
         document, window, strings, held, title, canvas,
         post: message => calls.push(['post', message]),
         scheduleSide: () => calls.push(['side', null]),
         keepWindow: () => FULL_PLOT_WINDOW,
-        entryModel: () => buildEntryModel([...results].map(([filePath, result]) => ({ filePath, result })), null),
-        results, focusedFile: () => state.focused, slotFiles: () => state.slots,
+        results,
+        comparison: (path, over) => { compared.push({ path, over }); return buildCompareModel(buildEntryModel([...over].map(([filePath, result]) => ({ filePath, result })), null), over, path, null, strings, false, undefined, { paths: [...results.keys()].filter(file => file !== path), title: 'base' }); },
+        basePaths: path => [...results.keys()].filter(file => file !== path),
+        scanRecipe: () => undefined,
+        focusedFile: () => state.focused, slotFiles: () => state.slots,
         colorOf: filePath => { colored.push(filePath); return `colour of ${filePath}`; },
         recipe: () => null, runRecipe: () => undefined, limits: () => ({}), spectral: () => true,
         tapped: slot => calls.push(['tapped', slot]),
     };
     const plot = createHeldPlot(deps);
-    return { document, window, held, title, plot, calls, state, colored };
+    return { document, window, held, title, plot, calls, state, colored, compared };
 }
 
 test('a short press on a slot key is a tap; a long one shows the slot until 150 ms after it is let go', () => {
@@ -100,7 +105,7 @@ test('a short press on a slot key is a tap; a long one shows the slot until 150 
 
 test('nothing held hides the plot; a held slot shows its file\'s Δ under its name', () => {
     const results = new Map<string, ScanResult>([['/d/a.wav', scanned()]]);
-    const { window, held, title, plot, state } = setup(results);
+    const { window, held, title, plot, state, calls } = setup(results);
     held.hidden = false;
     plot.paint();
     assert.equal(held.hidden, true);
@@ -111,6 +116,7 @@ test('nothing held hides the plot; a held slot shows its file\'s Δ under its na
     assert.equal(held.hidden, false);
     assert.equal(title.textContent, '1 · a.wav');
     assert.equal(plot.picture(), null, 'a file alone has no base, so no Δ to point at');
+    assert.deepEqual(calls.filter(([kind]) => kind === 'post'), [], 'nor any bins to ask for');
 });
 
 test('a held step needs a scanned row: without one the footer says so; let go, it goes 150 ms later', () => {
@@ -165,4 +171,66 @@ test('a held step draws its row in the colour the row is drawn in elsewhere (its
 
 test('narrowed takes a window\'s vertical part of a level range', () => {
     assert.deepEqual(narrowed({ min: -20, max: 20 }, { x: { start: 0, end: 1 }, y: { start: 0.25, end: 0.75 } }), { min: -10, max: 10 });
+});
+
+test('a held slot asks once for every bin of its file and its base, then draws its Δ from them (R1, R3)', () => {
+    const binnedScan = (level: number): ScanResult => ({ ...scanned(), spectrumBinsDb: [[-40, level, -40, -40]], spectrumBinHz: 4000 });
+    const results = new Map<string, ScanResult>([['/d/a.wav', scanned()], ['/d/b.wav', scanned()], ['/d/c.wav', scanned()]]);
+    const { window, held, title, plot, calls, state, compared } = setup(results);
+    state.slots = [null, '/d/a.wav', null, null];
+    plot.press(1);
+    window.advance(TAP_MS);
+    plot.paint();
+    const asked = calls.filter(([kind]) => kind === 'post').map(([, message]) => message as { type: string; requestId: string; filePaths: string[]; spectrumBins?: boolean });
+    assert.equal(asked.length, 1);
+    assert.equal(asked[0].type, 'compare-scan');
+    assert.equal(asked[0].spectrumBins, true);
+    assert.deepEqual(asked[0].filePaths, ['/d/a.wav', '/d/b.wav', '/d/c.wav'], 'the slotted file and its base');
+    assert.ok(held.classList.contains('is-pending'));
+    assert.equal(title.textContent, `1 · a.wav · ${strings.comparePending}`);
+    plot.paint();
+    assert.equal(calls.filter(([kind]) => kind === 'post').length, 1, 'asked once while it is being scanned');
+    // The host's answers: the compared file louder in one bin only.
+    for (const [filePath, level] of [['/d/a.wav', -28], ['/d/b.wav', -40], ['/d/c.wav', -40]] as const) {
+        assert.equal(plot.handle({ type: 'compare-scan-result', requestId: asked[0].requestId, filePath, result: binnedScan(level) } as { type: string }), true);
+    }
+    plot.handle({ type: 'compare-scan-done', requestId: asked[0].requestId } as { type: string });
+    compared.length = 0;
+    plot.paint();
+    assert.equal(held.classList.contains('is-pending'), false);
+    assert.equal(title.textContent, '1 · a.wav');
+    const comparison = buildCompareModel(buildEntryModel([...compared.at(-1)!.over].map(([filePath, result]) => ({ filePath, result })), null), compared.at(-1)!.over, '/d/a.wav', null, strings, false, undefined, { paths: ['/d/b.wav', '/d/c.wav'], title: 'base' });
+    assert.deepEqual(comparison.bins?.diff, [0, 12, 0, 0], 'every bin, so the one bin that differs is there');
+    assert.equal(calls.filter(([kind]) => kind === 'post').length, 1, 'held again, nothing is asked anew');
+});
+
+test('a file scanned again since its bins were kept is asked for again, once, so a hold does not stay at 192 points', () => {
+    const withLevel = (level: number): ScanResult => ({ ...scanned(), spectrumDb: [[level, -50, -60]] });
+    const results = new Map<string, ScanResult>([['/d/a.wav', scanned()], ['/d/b.wav', scanned()]]);
+    const { window, plot, calls, state } = setup(results);
+    state.slots = [null, '/d/a.wav', null, null];
+    plot.press(1);
+    window.advance(TAP_MS);
+    plot.paint();
+    const posts = () => calls.filter(([kind]) => kind === 'post').map(([, message]) => message as { requestId: string; filePaths: string[] });
+    const answer = (filePath: string, result: ScanResult): void => {
+        const { requestId } = posts().at(-1)!;
+        plot.handle({ type: 'compare-scan-result', requestId, filePath, result: { ...result, spectrumBinsDb: [[-40, -40]], spectrumBinHz: 4000 } } as { type: string });
+        plot.handle({ type: 'compare-scan-done', requestId } as { type: string });
+    };
+    answer('/d/a.wav', scanned());
+    plot.paint();
+    answer('/d/b.wav', scanned());
+    plot.paint();
+    const asked = posts().length;
+    // The recording changed and the table scanned it again: its kept bins are of the old spectrum.
+    results.set('/d/a.wav', withLevel(-30));
+    plot.paint();
+    assert.equal(posts().length, asked + 1);
+    assert.deepEqual(posts().at(-1)!.filePaths, ['/d/a.wav']);
+    // The host's answer still differs from the table's (another scan of it): not asked again and again.
+    answer('/d/a.wav', scanned());
+    plot.paint();
+    plot.paint();
+    assert.equal(posts().length, asked + 1);
 });

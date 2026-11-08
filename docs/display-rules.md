@@ -6,11 +6,14 @@
 
 ## R1 計算は全データ、間引きは描くときだけ
 
-差分、群の中央値、最大差、レポートの Δ は、Frame の全ビン・全サンプルから計算します。間引くのは計算した結果を描くときだけです。
+差分、群の中央値、最大差、レポートの Δ、入口の保持図の Δ は、Frame の全ビン・全サンプルから計算します。間引くのは計算した結果を描くときだけです。
 
 - テスト: `python-backend/test_stage_combine.py` › test_a_narrow_difference_is_taken_bin_by_bin_and_kept_when_drawn
 - テスト: `python-backend/test_stage_combine.py` › test_a_groups_median_is_taken_bin_by_bin_before_it_is_drawn
 - テスト: `python-backend/test_known_answers.py` › test_the_cursor_spectrums_cut_row_and_every_bin_row_read_the_same_peaks
+- 入口でスロットのキーを押し続けて出す保持図の Δ は、押したときに、その録音と基準の録音の全ビンを取り寄せて計算します。届くまでは表の 192 点の Δ を描き、題に「計算中」と出します。
+- テスト: `src/test/entryHeldPlot.test.ts` › a held slot asks once for every bin of its file and its base, then draws its Δ from them (R1, R3)
+- テスト: `src/test/uiSmoke/heldDelta.spec.ts` › a held slot draws its own channel's Δ against its base from every bin the hold asks for (R1, R3, R11)
 
 ## R2 線の間引きは区間ごとの最小と最大
 
@@ -142,6 +145,7 @@
 - テスト: `python-backend/test_scan_service.py` › test_the_input_is_drawn_as_the_channel_the_chain_picks_not_the_channels_mean
 - テスト: `src/test/entryBase.test.ts` › a channel row is compared as its channel; recordings without it are left out and said
 - テスト: `src/test/uiSmoke/trackStage.spec.ts` › a two-channel recording is one lane in the steps view: its second channel is left out, not drawn empty
+- テスト: `src/test/uiSmoke/heldDelta.spec.ts` › a held slot draws its own channel's Δ against its base from every bin the hold asks for (R1, R3, R11)
 
 ## R12 チップの設定は wandas の引数どおり
 

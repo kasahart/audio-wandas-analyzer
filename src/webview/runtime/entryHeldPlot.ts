@@ -1,7 +1,8 @@
 /**
  * The entry table's held plot, beside the distribution: what a held slot key (or slot chip) or a held step chip
- * shows until it is let go. A slot held shows that slot's row's Δ spectrum against its group, from the table's
- * own scan. A step chip held shows what the step does to one row (the focused one, else slot 1): its average
+ * shows until it is let go. A slot held shows that slot's row's Δ spectrum against its base, as the rest of the screen
+ * compares it (the row's channel, the same base: entryBase.ts), of every Welch bin of the file and its base (asked
+ * for when the hold starts; the table's 192 points until they are in). A step chip held shows what the step does to one row (the focused one, else slot 1): its average
  * spectrum, its 1/3-octave levels, or, for a step of the time signal, the spectrum without it − with it. Those
  * pictures come as the steps view's do (stageSource, the Frame's full resolution once zoomed) and are drawn by
  * its painter. Let go, the picture stays 150 ms, so a quick look does not flicker.
@@ -13,8 +14,7 @@ import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { recipeKey, recipeNodes, recipeSteps, slotReferenced, timeSignalStep, TIME_SLICE, type RecipeStep } from '../../shared/recipe/recipeSteps';
 import { baseName } from '../../shared/analysis/entryMetadata';
 import { DIFF_COLOR } from '../../shared/gui/roleColors';
-import { buildCompareModel, deltaViews, type CompareModel, type LevelInput, type PaneRange } from './comparePanes';
-import type { EntryModel } from './entryTable';
+import { deltaViews, withBins, type CompareModel, type LevelInput, type PaneRange } from './comparePanes';
 import type { PlotMargins, PlotWindow } from './plotInteraction';
 import { axisFractionOf, axisValueAt, paintOverlay, stageAxes, stageDiffRange, stageRange, STAGE_MARGINS, type StageAxes, type StagePlot } from './stagePanes';
 import { createDetailPlanner } from './stageDetail';
@@ -52,8 +52,13 @@ export interface HeldPlotDeps {
     scheduleSide(): void;
     /** The plot's zoom, kept while it shows the same thing (`key`), whole again for another. */
     keepWindow(name: string, key: string): PlotWindow;
-    entryModel(): EntryModel;
     results: ReadonlyMap<string, ScanResult>;
+    /** The comparison of `comparePath` with its base over `over`, each file as the channel it is compared as (entryBase.comparison). */
+    comparison(comparePath: string, over: ReadonlyMap<string, ScanResult>): CompareModel;
+    /** The recordings `comparePath` is measured against. */
+    basePaths(comparePath: string): readonly string[];
+    /** The Recipe the table's scans run (undefined: the host's own), which the held Δ's bins are scanned with too. */
+    scanRecipe(): RecipeDocument | undefined;
     focusedFile(): string | null;
     slotFiles(): (string | null)[];
     /** The colour a file is drawn in: its role's, else its own (R5). */
@@ -104,6 +109,10 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
         plot: HeldPicture | null;
     } = { slot: null, step: null, plot: null };
     const source = createStageSource('entry-hold', message => deps.post(message), () => deps.scheduleSide());
+    // Every Welch bin of a held slot's file and its base: the table's own scans carry only the 192 points.
+    const bins = createStageSource('held-bins', message => deps.post(message), () => deps.scheduleSide());
+    /** The table spectrum each file's bins were last asked for with (by spec and file). */
+    const binsAskedFor = new Map<string, string>();
     // Without the step − with it, taken by the backend from the Frames' full resolution (combineSource.ts).
     const combine = createCombineSource('held-combine', message => deps.post(message), () => deps.scheduleSide());
     /** The last zoomed difference of each held step, drawn until the next zoom's is in. */
@@ -194,6 +203,32 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
         paintView(view, picture, stageDiffRange(picture), stageAxes(strings, picture, input, true), zoom, { diff: true, color: DIFF_COLOR, empty: strings.stageNoDelta });
     }
 
+    /**
+     * A held slot's Δ: the comparison the screen makes of its row (the row's channel, its base), of every bin of the
+     * file and its base, scanned as the table's own spectra are (its Recipe, the whole files) when the hold starts;
+     * the table's 192 points until they are in. Without a base to measure against there is nothing to ask for.
+     */
+    function paintSlot(path: string, slot: number): void {
+        const table = deps.comparison(path, deps.results);
+        const run = deps.scanRecipe();
+        const spec: StageSpec = { key: `held-bins|${recipeKey(run)}`, message: { ...(run ? { recipe: run } : {}), spectrumBins: true } };
+        const files = [path, ...deps.basePaths(path)].filter(file => deps.results.get(file)?.ok);
+        // A file scanned again since (changed on disk, the folder opened anew): its kept bins are of the old
+        // spectrum, so they are asked for again, once for each table spectrum (one that never matches is not asked forever).
+        for (const file of files) {
+            const kept = bins.result(spec, file);
+            const scanned = deps.results.get(file);
+            const own = JSON.stringify(scanned?.ok ? scanned.spectrumDb : null);
+            const key = `${spec.key}|${file}`;
+            if (kept?.ok && JSON.stringify(kept.spectrumDb) !== own && binsAskedFor.get(key) !== own) bins.forget(spec, file);
+            if (!kept || bins.result(spec, file) === undefined) binsAskedFor.set(key, own);
+        }
+        const waiting = !!table.diffDb && bins.ensure(spec, files);
+        if (waiting) { held.classList.add('is-pending'); title.textContent += ` · ${strings.comparePending}`; }
+        const binned = new Map(files.flatMap(file => { const result = bins.result(spec, file); return result ? [[file, result] as [string, ScanResult]] : []; }));
+        paintDelta(binned.size ? deps.comparison(path, withBins(deps.results, binned)) : table, `slot|${slot}`, deps.results.get(path)?.input);
+    }
+
     return {
         press(slot: number): void {
             if (hold.pressing) return;
@@ -241,11 +276,11 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
             held.classList.remove('is-pending');
             if (hold.slot !== null) {
                 const path = deps.slotFiles()[hold.slot] ?? deps.focusedFile();
-                const comparison = buildCompareModel(deps.entryModel(), deps.results, path, null, strings);
                 title.textContent = path ? `${hold.slot} · ${baseName(path)}` : '';
-                paintDelta(comparison, `slot|${hold.slot}`, path ? deps.results.get(path)?.input : undefined);
+                if (path) paintSlot(path, hold.slot);
+                else paintView(null, null, { min: 0, max: 1 }, stageAxes(strings, null, undefined, true), deps.keepWindow('held', `delta|slot|${hold.slot}`), { diff: true, color: DIFF_COLOR, empty: strings.stageNoDelta });
             }
         },
-        handle: message => source.handle(message) || combine.handle(message),
+        handle: message => source.handle(message) || bins.handle(message) || combine.handle(message),
     };
 }
