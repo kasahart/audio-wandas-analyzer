@@ -38,9 +38,11 @@ export function secondsText(seconds: number, digits = 2): string {
  * and an exponent outside ("2.50e−7", "1.23e6").
  */
 function significant(value: number): string {
-    const size = Math.abs(value);
-    if (size >= 1000 && size < 1e6) return String(Number(value.toPrecision(3)));
-    return withMinus(value.toPrecision(3));
+    // Decided on the rounded value, so 999.6 (→ 1000) reads as 1000 does.
+    const rounded = Number(value.toPrecision(3));
+    const size = Math.abs(rounded);
+    if (size === 0 || (size >= 0.001 && size < 1e6)) return withMinus(size >= 1000 ? String(rounded) : value.toPrecision(3));
+    return withMinus(rounded.toExponential(2));
 }
 
 /** A value to three significant figures, in its unit where it has one (° with no space). */

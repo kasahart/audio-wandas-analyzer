@@ -54,6 +54,12 @@ test('every value has three significant figures however large: no false tenth an
     assert.equal(amountText(1234), '1230');
     assert.equal(amountText(-98765, 'Pa'), '−98800 Pa');
     assert.equal(amountText(2.5e7), '2.50e7');
+    assert.equal(amountText(999.6), '1000');
+    assert.equal(amountText(-999.7), '−1000');
+    assert.equal(amountText(0.0005), '5.00e−4');
+    assert.equal(amountText(0.0000015), '1.50e−6');
+    assert.equal(amountText(0), '0.00');
+    assert.equal(signedText(999.6, false), '+1000');
     assert.equal(signedText(1234, false), '+1230');
     assert.equal(signedText(-2.5e-7, false), '−2.50e−7');
 });
