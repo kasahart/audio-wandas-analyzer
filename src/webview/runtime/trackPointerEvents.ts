@@ -38,7 +38,8 @@ const TRACK_SELECTORS: PlotSelectors = { plot: '.track-canvas', axis: '.track-ax
  * The analyzer's pointer gestures on its plots, as the track lanes define them: hover, press–drag–release
  * (followed on the document), Ctrl+wheel to zoom, Shift+wheel or a sideways swipe on a plot to pan, double-click
  * to reset (or, on an axis, to set its range), and ← / → to step the readout of the plot under the pointer one
- * point at a time (R7). The comparison's panes use the same listeners through plotInteraction.ts.
+ * point at a time (R7). plotInteraction.ts attaches every plot, the lanes too, through these listeners, and
+ * nothing else attaches them (src/test/plotGestures.test.ts).
  */
 export function attachTrackPointerListeners(tracksWrapper: PointerSurface, doc: Pick<Document, 'addEventListener'>, keys: Pick<KeyRouter, 'add'>, handlers: TrackPointerHandlers, selectors: PlotSelectors = TRACK_SELECTORS): void {
     tracksWrapper.addEventListener('dblclick', function (e) {

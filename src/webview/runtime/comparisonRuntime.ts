@@ -19,7 +19,7 @@ import { isCacheSufficient, isOverviewSufficient, isRangeCacheDrawable, parseRan
 import { extractSpectrumAtCursor as extractCursorSpectrum } from '../spectrum/cursorSpectrum';
 import { spectrogramBandServes, spectrogramWindowServes, spectrogramZoomBand, spectrogramZoomWindow, type SpectrogramBand, type SpectrogramBandSource, type SpectrogramWindow, type SpectrogramZoomSource } from '../spectrum/spectrogramZoom';
 import { buildSpectrumCsv, wavLoopRegions } from './runtimeExports';
-import { audioById, buttonById, buttonMatching, canvasById, canvasesMatching, canvasTarget, eventTarget, requiredElementById } from './domAdapter';
+import { audioById, buttonById, buttonMatching, canvasById, canvasesMatching, eventTarget, requiredElementById } from './domAdapter';
 import { HostMessenger } from './hostMessaging';
 import {
     createTrackTimeMapping,
@@ -45,14 +45,13 @@ import { buildTrackSnapshot } from './comparisonSnapshot';
 import { contentBoxWidth, readThenWrite, syncCanvasSize } from './canvasSizing';
 import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpecAxisCanvasId, trackSpecCanvasId, trackSpectrogramOverlayCanvasId, trackWaveformOverlayCanvasId } from './trackCanvasIds';
 import { channelLaneHtml, trackRowHtml } from './trackLaneHtml';
-import { attachPlotInteraction, FULL_PLOT_WINDOW, type PlotPoint } from './plotInteraction';
+import { attachPlotInteraction, FULL_PLOT_WINDOW, type PlotHit, type PlotPoint, type PlotPointer, type PlotWindow } from './plotInteraction';
 import { createPlotHoverLayer, notePlotRead, type PlotPlace } from './plotHoverLayer';
 import { attachCanvasFocusHint, attachHoverHints, createHintFooter, createTaskStatus, setHint } from './hintFooter';
 import { attachTrackLaneActions } from './trackLaneActions';
 import { attachGlobalKeyboardListeners } from './globalKeyboardEvents';
 import { keyRouterFor } from './keyRouter';
 import { attachSeparatorKeys } from './separatorKeys';
-import { attachTrackPointerListeners } from './trackPointerEvents';
 import { buildPythonButtonText, buildPythonTooltip, isPythonEnvError } from './pythonEnvironmentLabels';
 import { laneAmplitudeRange, laneAmplitudeTicks, laneTimeTicks, markLanePlot } from './laneAxes';
 import { createPlaybackDisplay } from './playbackDisplay';
@@ -103,15 +102,10 @@ import { createTrackStageMode, type StageTrack, type TrackStageMode } from './tr
 import { attachRoleChips, roleChipHtml, roleChipText, type RoleChipRole } from './roleChip';
 import { triggerAnchorDownload as downloadEntryCsv } from './exportDownloads';
 import {
-    exceedsDragThreshold,
     loopGripAt,
     loopRegionClockText,
     loopRegionForDrag,
-    normAtPlotX,
     rectZoomTarget,
-    wheelPanPixels,
-    wheelStepDirection,
-    wheelZoomFactor,
     ZOOM_IN_FACTOR,
 } from './waveformInteraction';
 import type { ChannelSummary, SpectrogramData, SpectrogramDisplaySettings, } from '../../shared/analysis/analysisTypes';
@@ -481,7 +475,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
      */
     let spectrogramFrequencyView: { lowHz: number; highHz: number } | null = null;
     let rectZoomSelection: RectZoomSelection | null = null;
-    let dragState: WaveformDragState | null = null;
+    let lanePress: WaveformDragState | null = null;
     function setLoopRegion(region: LoopRegion | null): void {
         viewState.setLoop(region);
     }
@@ -2374,39 +2368,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (read.image) return plot.image && read.row !== undefined ? { ...read, x: plot.image.placeOf(read.at, read.row).x } : read;
         return read.value === undefined ? read : { ...read, x: plot.xAt(read.at), y: plot.yAt(read.value) };
     }
-    /**
-     * ← / → over a lane (R7): the next full-resolution point of the lane's data (a waveform's next sample, a
-     * spectrogram's next STFT frame at the same bin), however many share a pixel; the other lanes' time line follows.
-     * False with nothing read.
-     */
-    function stepLaneReadout(plot: Element, delta: -1 | 0 | 1): boolean {
-        const hovered = (laneHover && laneHover.canvas === plot) || (spectrogramHover && spectrogramHover.canvas === plot);
-        if (!hovered) return false;
-        if (delta === 0) return true;
-        const from = laneRead;
-        if (!from || from.canvas !== plot || from.read.pending) return false;
-        const spectrogram = !!spectrogramHover && spectrogramHover.canvas === plot;
-        const carry = (next: StageRead): void => {
-            const rect = from.canvas.getBoundingClientRect();
-            const clientX = rect.left + next.x;
-            const clientY = spectrogram && spectrogramHover ? spectrogramHover.clientY : rect.top + next.y;
-            laneStepped = { canvas: from.canvas, clientX, clientY, read: next };
-            if (spectrogram) showSpectrogramReadout(from.canvas, clientX, clientY);
-            else laneHover = { canvas: from.canvas, clientX, clientY };
-            scheduleRender();
-        };
-        // The next points were not in: the step is taken once they are, if the lane still reads where it did.
-        const ready = (): void => {
-            if (laneRead?.read !== from.read) return;
-            const next = stageStep(from.plot, from.read, delta, ready);
-            if (next) carry(next);
-        };
-        const next = stageStep(from.plot, from.read, delta, ready);
-        if (next === undefined) return true;
-        if (!next) return false;
-        carry(next);
-        return true;
-    }
     function hideLaneHover(): void {
         laneRead = null;
         laneStepped = null;
@@ -2729,19 +2690,45 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 setTrackOffset(idx, offsetMs === null ? trackRuntimeAt(idx).offsetSeconds : offsetMs / 1000);
             },
         });
-        // In the steps mode the lanes answer the shared plot gestures (trackStageMode.ts), not the time axis's.
-        const timeAxis = <A extends unknown[]>(handler: (...args: A) => void) => (...args: A): void => { if (contentType !== 'stage') handler(...args); };
-        attachTrackPointerListeners(tracksWrapper, document, keyRouterFor(window), {
-            step: (plot, delta) => contentType !== 'stage' && stepLaneReadout(plot, delta),
-            resetZoom: timeAxis(resetZoom),
-            openAxisRange: (axis, clientX, clientY) => contentType !== 'stage' && openTrackAxisRange(axis, clientX, clientY),
-            hover: timeAxis(handleCanvasMouseMove),
-            clearHover: timeAxis(clearHover),
-            press: timeAxis(handleCanvasMouseDown),
-            drag: timeAxis(handleDocMouseMove),
-            release: timeAxis(handleDocMouseUp),
-            zoomWheel: timeAxis(handleZoomWheel),
-            panWheel: timeAxis(handlePanWheel),
+        // The lanes answer the shared plot gestures on their one time window: zooming one lane zooms them all. In the
+        // steps mode they answer the mode's (trackStageGestures.ts) instead.
+        attachPlotInteraction(tracksWrapper, document, '.track-canvas', {
+            locate: laneHit,
+            pointOn(plot, clientX, clientY) {
+                const canvas = plot.isConnected ? plot : canvasById(document, plot.id);
+                return lanePoint((canvas ?? plot) as HTMLCanvasElement, clientX, clientY);
+            },
+            window: laneWindow,
+            setWindow: (_plot, next) => setLaneWindow(next),
+            wheelAt: laneWheelAt,
+            hover: hoverLane,
+            clearHover() { if (contentType !== 'stage') clearHover(); },
+            stepFrom: stepLaneFrom,
+            pressed: pressLane,
+            showBox: showLaneBox,
+            hideBox() { rectZoomSelection = null; },
+            zoomToBox: zoomLanesToBox,
+            tap: (_plot, e) => endLaneDrag(e, false),
+            altDrag: {
+                start() { if (lanePress) lanePress.dragType = loopGripAt(viewState.loop, lanePress.startNorm, waveformView.span()) ?? 'loop'; },
+                move: moveLaneDrag,
+                end: endLaneDrag,
+            },
+            shiftDrag: {
+                start() { if (lanePress) lanePress.dragType = 'offset'; },
+                move: moveLaneDrag,
+                end: endLaneDrag,
+            },
+            openAxisRange: (_hit, clientX, clientY, element) => openTrackAxisRange(element, clientX, clientY),
+            axes: {
+                selector: '.track-axis-canvas',
+                locate(axis, clientX, clientY) {
+                    if (contentType === 'stage') return null;
+                    const lane = laneOfAxis(axis);
+                    return { plot: lane ?? axis, point: lane ? lanePoint(lane, clientX, clientY) : { fx: 0, fy: 0.5 }, axis: 'y' };
+                },
+            },
+            focusKeepsArrows: true,
         });
         // The split between a lane's waveform and spectrogram: one share for every lane, kept across sessions.
         let splitDrag: { startY: number; startShare: number } | null = null;
@@ -3740,70 +3727,87 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         });
         return true;
     }
-    function handleZoomWheel(e: WheelEvent): void {
-        disableFollowCursor();
-        const scaleFactor = wheelZoomFactor(e.deltaY);
+    // ── The lanes outside the steps mode answer the shared plot gestures (plotInteraction.ts) on their one time window ──
+    /** A lane's point: across its time (0–1 of the view) and up it, a waveform in its bitmap's rows (as its amplitudes are mapped), a spectrogram on screen. */
+    function lanePoint(canvas: HTMLCanvasElement, clientX: number, clientY: number): PlotPoint {
+        const rect = canvas.getBoundingClientRect();
+        const height = canvas.classList.contains('track-spec-canvas') ? rect.height : canvas.height;
+        return {
+            fx: Math.max(0, Math.min(1, (clientX - rect.left) / Math.max(1, canvas.width))),
+            fy: Math.max(0, Math.min(1, 1 - (clientY - rect.top) / Math.max(1, height))),
+        };
+    }
+    function laneNorm(point: PlotPoint): number {
         const view = waveformView.timeRange();
-        const wrapper = document.getElementById('tracks-wrapper');
-        let pivotNorm = (view.start + view.end) / 2; // fallback: current center
-        const target = eventTarget(e);
-        const wheelCanvas = target && typeof target.closest === 'function'
-            ? target.closest<HTMLCanvasElement>('.track-canvas')
-            : null;
-        if (wheelCanvas) {
-            const hit = trackCanvasTimeHit(wheelCanvas, e.clientX, e.clientY);
-            if (!hit) {
-                return;
-            }
-            pivotNorm = hit.norm;
-        }
-        else if (wrapper) {
-            const rect = wrapper.getBoundingClientRect();
-            pivotNorm = normAtPlotX(view, e.clientX - rect.left - TRACK_HEADER_W, rect.width - TRACK_HEADER_W) ?? pivotNorm;
-        }
-        waveformView.zoomAround(pivotNorm, scaleFactor);
-        scheduleRender();
+        return view.start + point.fx * (view.end - view.start);
     }
-    function handlePanWheel(e: WheelEvent, swipe: boolean): void {
+    /** Up a lane: a waveform's amplitude, or a spectrogram's place up the band shown (0 at its bottom, 1 at its top). */
+    function laneUp(canvas: HTMLCanvasElement, point: PlotPoint): number {
+        return canvas.classList.contains('track-spec-canvas') ? point.fy : waveformView.canvasYToAmplitude((1 - point.fy) * canvas.height, canvas.height);
+    }
+    /** The frequency band a spectrogram lane shows: its display settings' band, or the box zoom's band (the same Hz on every lane). */
+    function shownSpectrogramBounds(whole: SpectrogramData) {
+        const bounds = spectrogramDisplayBounds(whole, spectrogramSettings.display, spectrogramAutoBounds(whole));
+        return spectrogramFrequencyView ? { ...bounds, minFrequencyHz: spectrogramFrequencyView.lowHz, maxFrequencyHz: spectrogramFrequencyView.highHz } : bounds;
+    }
+    /** The lane under the pointer, while the lanes are not the steps mode's; a spectrogram's colour bar is its level axis. */
+    function laneHit(target: EventTarget | null, clientX: number, clientY: number): PlotHit | null {
+        const element = target as HTMLElement | null;
+        const canvas = contentType !== 'stage' && element && typeof element.closest === 'function' ? element.closest<HTMLCanvasElement>('.track-canvas') : null;
+        const trackIndex = canvas ? trackIndexFromElement(canvas) : null;
+        if (!canvas || trackIndex === null || !trackIdAtIndex(trackIndex)) return null;
+        return { plot: canvas, point: lanePoint(canvas, clientX, clientY), axis: onSpectrogramColourBar(canvas, clientX, clientY) ? 'y' : null };
+    }
+    /** The lane an axis canvas beside it belongs to: its waveform's amplitude axis, or its spectrogram's frequency axis. */
+    function laneOfAxis(axis: HTMLElement): HTMLCanvasElement | null {
+        const trackIndex = trackIndexFromElement(axis);
+        if (trackIndex === null) return null;
+        const channelIndex = channelIndexAttribute(axis) ?? 0;
+        return canvasById(document, axis.classList.contains('track-spec-axis') ? trackSpecCanvasId(trackIndex, channelIndex) : trackCanvasId(trackIndex, channelIndex));
+    }
+    /** The lanes' one window: their shared time across, and up each lane what it last drew. */
+    function laneWindow(canvas: HTMLElement): PlotWindow {
+        const [, , start, end] = (canvas.dataset.plotWindow ?? '').split(' ').map(Number);
+        return { x: waveformView.timeRange(), y: Number.isFinite(start) && Number.isFinite(end) ? { start, end } : FULL_PLOT_WINDOW.y };
+    }
+    function setLaneWindow(next: PlotWindow | null): void {
+        if (!next) {
+            resetZoom();
+            return;
+        }
         disableFollowCursor();
-        if (!swipe) {
-            const direction = wheelStepDirection(e);
-            if (direction !== 0) {
-                waveformView.pan(direction);
-                scheduleRender();
-            }
-            return;
-        }
-        // Over a lane the plot's own width, so the waveform follows the fingers; elsewhere the lanes' width.
-        const target = eventTarget(e);
-        const canvas = target && typeof target.closest === 'function' ? target.closest<HTMLCanvasElement>('.track-canvas') : null;
-        const wrapper = document.getElementById('tracks-wrapper');
-        const width = canvas
-            ? canvas.width
-            : (wrapper ? wrapper.getBoundingClientRect().width - TRACK_HEADER_W : 0);
-        if (width <= 0) {
-            return;
-        }
-        waveformView.panBy(wheelPanPixels(e, width) / width);
+        waveformView.setTimeRange(next.x);
         scheduleRender();
     }
-    function handleCanvasMouseMove(e: MouseEvent): void {
-        if (dragState && dragState.isDrag) {
-            hintFooter.clear();
-            if (laneHover || spectrogramHover) { hideLaneHover(); scheduleRender(); }
-            return;
-        }
-        const canvas = canvasTarget(e, 'track-canvas');
+    /**
+     * Where a wheel zooms or pans the lanes' time: the lane under it, or beside the lanes (their headers and axes) the
+     * time at the pointer's place across them, the middle off it. A spectrogram's colour bar is no time to zoom around.
+     */
+    function laneWheelAt(target: EventTarget | null, clientX: number, clientY: number, gesture: 'zoom' | 'pan'): PlotHit | null {
+        if (contentType === 'stage') return null;
+        const hit = laneHit(target, clientX, clientY);
+        if (hit) return gesture === 'zoom' && hit.axis ? null : hit;
+        const wrapper = document.getElementById('tracks-wrapper');
+        const lane = wrapper?.querySelector<HTMLElement>('.track-canvas');
+        if (!wrapper || !lane) return null;
+        const rect = wrapper.getBoundingClientRect();
+        const plotX = clientX - rect.left - TRACK_HEADER_W, width = rect.width - TRACK_HEADER_W;
+        return { plot: lane, point: { fx: width > 0 && plotX >= 0 && plotX <= width ? plotX / width : 0.5, fy: 0.5 }, axis: null };
+    }
+    function hoverLane(e: PlotPointer & Partial<Pick<MouseEvent, 'altKey' | 'shiftKey'>>): void {
+        if (contentType === 'stage') return;
+        const target = e.target as HTMLElement | null;
+        const canvas = target && target.classList && target.classList.contains('track-canvas') ? target as HTMLCanvasElement : null;
         if (!canvas) {
             // Off the lanes but still among the tracks (an axis, a header, the split): the lane's readout goes.
             if (laneHover || spectrogramHover) { hideLaneHover(); scheduleRender(); }
             return;
         }
-        if (dragState) {
+        if (lanePress) {
             return;
         }
         const hit = trackCanvasTimeHit(canvas, e.clientX, e.clientY);
-        const onColorbar = contentType === 'waveform' && onSpectrogramColourBar(canvas, e.clientX, e.clientY);
+        const onColorbar = onSpectrogramColourBar(canvas, e.clientX, e.clientY);
         canvas.style.cursor = onColorbar ? 'pointer' : '';
         if (!hit) {
             clearHover();
@@ -3814,7 +3818,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const norm = hit.norm;
         if (canvas.classList.contains('track-spec-canvas')) { hideLaneHover(); showSpectrogramReadout(canvas, e.clientX, e.clientY); }
         else laneHover = { canvas, clientX: e.clientX, clientY: e.clientY };
-        // Same precedence as handleCanvasMouseDown so the hint names the drag that will run.
+        // The hint names the drag that will run: Alt on a loop's edge moves it, Alt sets the loop, Shift shifts the track.
         const gripType = e.altKey ? loopGripAt(viewState.loop, norm, waveformView.span()) : null;
         const action = gripType ? STR.tooltipLoopResize
             : e.shiftKey || e.altKey ? STR.tooltipLoopOrShift
@@ -3823,154 +3827,152 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         hintFooter.show(action + ' / ' + STR.hintDoubleClickResetZoom + ' / ' + STR.hintWheelGestures);
         renderWithHoverAt(norm);
     }
-    /** Where a point of a spectrogram lane is up its frequency axis: 0 at the bottom to 1 at the top of the band shown. */
-    function spectrogramUpAt(canvas: HTMLCanvasElement, clientY: number): number {
-        const rect = canvas.getBoundingClientRect();
-        return Math.max(0, Math.min(1, 1 - (clientY - rect.top) / Math.max(1, rect.height)));
+    /** Where a press on a lane started, for the drag it becomes (or the click it stays). */
+    function pressLane(hit: PlotHit, e: MouseEvent): void {
+        const canvas = hit.plot as HTMLCanvasElement;
+        const trackIndex = trackIndexFromElement(canvas);
+        const trackId = trackIndex === null ? null : trackIdAtIndex(trackIndex);
+        if (trackIndex === null || !trackId) return;
+        lanePress = {
+            trackId,
+            canvasId: canvas.id,
+            startClientX: e.clientX,
+            startOffset: trackRuntimeAt(trackIndex).offsetSeconds,
+            canvasWidth: canvas.width,
+            startNorm: laneNorm(hit.point),
+            dragType: null,
+        };
+        canvas.focus();
     }
-    /** The frequency band a spectrogram lane shows: its display settings' band, or the box zoom's band (the same Hz on every lane). */
-    function shownSpectrogramBounds(whole: SpectrogramData) {
-        const bounds = spectrogramDisplayBounds(whole, spectrogramSettings.display, spectrogramAutoBounds(whole));
-        return spectrogramFrequencyView ? { ...bounds, minFrequencyHz: spectrogramFrequencyView.lowHz, maxFrequencyHz: spectrogramFrequencyView.highHz } : bounds;
-    }
-    function handleCanvasMouseDown(e: MouseEvent): void {
-        const canvas = canvasTarget(e, 'track-canvas');
-        if (!canvas) {
-            return;
-        }
-        const idx = trackIndexFromElement(canvas);
-        if (idx === null) {
-            return;
-        }
-        const trackId = trackIdAtIndex(idx);
-        if (!trackId) {
-            return;
-        }
-        if (e.button === 0) {
-            const rect = canvas.getBoundingClientRect();
-            const hit = trackCanvasTimeHit(canvas, e.clientX, e.clientY);
-            if (!hit) {
-                return;
-            }
-            const y = e.clientY - rect.top;
-            const norm = hit.norm;
-            const spectrogram = canvas.classList.contains('track-spec-canvas');
-            // A box on a spectrogram spans frequencies (0–1 up the band shown); on a waveform, amplitudes.
-            const ampNorm = spectrogram ? spectrogramUpAt(canvas, e.clientY) : waveformView.canvasYToAmplitude(y, canvas.height);
-            // Alt+drag sets the loop (or moves its edge), Shift+drag shifts the track, a drag zooms into its box.
-            const gripType = e.altKey ? loopGripAt(viewState.loop, norm, waveformView.span()) : null;
-            dragState = {
-                trackId: trackId,
-                canvasId: canvas.id,
-                startClientX: e.clientX,
-                startClientY: e.clientY,
-                startOffset: trackRuntimeAt(idx).offsetSeconds,
-                canvasWidth: hit.timeWidth,
-                canvasHeight: canvas.height,
-                isDrag: false,
-                isShift: e.shiftKey,
-                startNorm: norm,
-                startAmpNorm: ampNorm,
-                dragType: gripType || (e.shiftKey ? 'offset' : e.altKey ? 'loop' : 'rectZoom'),
-                spectrogram,
-            };
-            canvas.focus();
-        }
-    }
-    function handleDocMouseMove(e: MouseEvent): void {
-        if (!dragState) {
-            return;
-        }
-        const dragTrackIndex = trackStore.protocolIndexForId(dragState.trackId);
-        if (dragTrackIndex === null) {
-            dragState = null;
-            return;
-        }
-        const dx = e.clientX - dragState.startClientX;
-        const dy = e.clientY - dragState.startClientY;
-        if (exceedsDragThreshold(dx, dy)) {
-            dragState.isDrag = true;
-        }
-        if (!dragState.isDrag) {
-            return;
-        }
+    /** A drag under way on the lanes: the time no longer follows playback, and the pointer's readout and hint go. */
+    function laneDragging(): void {
         disableFollowCursor();
         hintFooter.clear();
-        if (dragState.dragType === 'offset') {
+        if (laneHover || spectrogramHover) hideLaneHover();
+    }
+    /** The pressed lane's track, or null (the drag ends) when it has been removed meanwhile. */
+    function pressedTrackIndex(): number | null {
+        const index = lanePress ? trackStore.protocolIndexForId(lanePress.trackId) : null;
+        if (index === null) lanePress = null;
+        return index;
+    }
+    function laneBox(press: WaveformDragState, canvas: HTMLCanvasElement, from: PlotPoint, to: PlotPoint): RectZoomSelection {
+        const frequency = canvas.classList.contains('track-spec-canvas');
+        return {
+            trackId: press.trackId,
+            startNorm: press.startNorm,
+            endNorm: laneNorm(to),
+            startAmpNorm: laneUp(canvas, from),
+            endAmpNorm: laneUp(canvas, to),
+            ...(frequency ? { frequency: true } : {}),
+        };
+    }
+    function showLaneBox(plot: HTMLElement, from: PlotPoint, to: PlotPoint): void {
+        const press = lanePress;
+        if (!press || pressedTrackIndex() === null) return;
+        laneDragging();
+        rectZoomSelection = laneBox(press, plot as HTMLCanvasElement, from, to);
+        emitWaveformZoom();
+        updateCursorDisplay(rectZoomSelection.endNorm);
+        scheduleRender();
+    }
+    function zoomLanesToBox(plot: HTMLElement, from: PlotPoint, to: PlotPoint, e: MouseEvent): void {
+        const press = lanePress;
+        lanePress = null;
+        if (!press || trackStore.protocolIndexForId(press.trackId) === null) return;
+        const selection = laneBox(press, plot as HTMLCanvasElement, from, to);
+        const target = rectZoomTarget(selection);
+        if (target && selection.frequency) {
+            // The spectrogram's box: its time, and its frequencies in Hz on the lane it was drawn on (the lanes share both).
+            disableFollowCursor();
+            waveformView.setTimeRange({ start: target.zoomStart, end: target.zoomEnd });
+            const pressed = state.results[trackIndexForId(selection.trackId)];
+            const whole = pressed ? channelsForResult(pressed)[0]?.spectrogram : undefined;
+            if (whole) {
+                const shown = shownSpectrogramBounds(whole), span = shown.maxFrequencyHz - shown.minFrequencyHz;
+                spectrogramFrequencyView = { lowHz: shown.minFrequencyHz + target.amplitudeMin * span, highHz: shown.minFrequencyHz + target.amplitudeMax * span };
+            }
+        }
+        else if (target) {
+            disableFollowCursor();
+            waveformView.applyRectZoom(target);
+        }
+        // The loop stays: zooming into it is how a loop is looked at closely.
+        emitWaveformZoom();
+        followPointerAfterDrag(e);
+        scheduleRender();
+    }
+    /** Alt+drag sets the loop, or on its edge moves that edge; Shift+drag shifts the pressed track's time. */
+    function moveLaneDrag(e: MouseEvent): void {
+        const press = lanePress;
+        const trackIndex = pressedTrackIndex();
+        if (!press?.dragType || trackIndex === null) return;
+        laneDragging();
+        if (press.dragType === 'offset') {
             const gs = trackStore.globalSpan();
-            const secsPerPx = waveformView.span() * gs.spanSec / dragState.canvasWidth;
-            // The spectra follow once the drag ends (handleDocMouseUp).
-            setTrackOffset(dragTrackIndex, dragState.startOffset + dx * secsPerPx, false);
+            const secsPerPx = waveformView.span() * gs.spanSec / press.canvasWidth;
+            // The spectra follow once the drag ends (endLaneDrag).
+            setTrackOffset(trackIndex, press.startOffset + (e.clientX - press.startClientX) * secsPerPx, false);
         }
         else {
-            const canvasEl = canvasById(document, dragState.canvasId);
-            if (canvasEl) {
-                const norm = clampedTrackCanvasNorm(canvasEl, e.clientX, dragState.canvasWidth);
-                if (dragState.dragType === 'rectZoom') {
-                    const y = e.clientY - canvasEl.getBoundingClientRect().top;
-                    rectZoomSelection = {
-                        trackId: dragState.trackId,
-                        startNorm: dragState.startNorm,
-                        endNorm: norm,
-                        startAmpNorm: dragState.startAmpNorm,
-                        endAmpNorm: dragState.spectrogram ? spectrogramUpAt(canvasEl, e.clientY) : waveformView.canvasYToAmplitude(y, dragState.canvasHeight),
-                        ...(dragState.spectrogram ? { frequency: true } : {}),
-                    };
-                    emitWaveformZoom();
-                }
-                else {
-                    const region = loopRegionForDrag(dragState.dragType, dragState.startNorm, viewState.loop, norm);
-                    if (region) setLoopRegion(region);
-                }
+            const canvas = canvasById(document, press.canvasId);
+            if (canvas) {
+                const norm = clampedTrackCanvasNorm(canvas, e.clientX, press.canvasWidth);
+                const region = loopRegionForDrag(press.dragType, press.startNorm, viewState.loop, norm);
+                if (region) setLoopRegion(region);
                 updateCursorDisplay(norm);
             }
         }
         scheduleRender();
     }
-    function handleDocMouseUp(e: MouseEvent): void {
-        const hadDrag = !!dragState;
-        const wasRectZoom = dragState !== null && dragState.isDrag && dragState.dragType === 'rectZoom';
-        if (dragState && !dragState.isDrag) {
-            // クリック（ドラッグなし）: カーソル移動 + ループ区間解除
-            const canvas = trackStore.protocolIndexForId(dragState.trackId) === null ? null : canvasById(document, dragState.canvasId);
-            if (canvas) {
-                const hit = trackCanvasTimeHit(canvas, e.clientX, e.clientY);
-                if (hit) {
-                    moveCursor(hit.norm);
-                    setLoopRegion(null);
-                }
+    /** A press let go after its drag, or where it was (a click: the cursor goes there and the loop is cleared). */
+    function endLaneDrag(e: MouseEvent, dragged: boolean): void {
+        const press = lanePress;
+        lanePress = null;
+        if (!press) return;
+        if (!dragged) {
+            const canvas = trackStore.protocolIndexForId(press.trackId) === null ? null : canvasById(document, press.canvasId);
+            const hit = canvas ? trackCanvasTimeHit(canvas, e.clientX, e.clientY) : null;
+            if (hit) {
+                moveCursor(hit.norm);
+                setLoopRegion(null);
             }
         }
-        const completedRectZoom = wasRectZoom && rectZoomSelection ? Object.assign({}, rectZoomSelection) : null;
-        dragState = null;
-        if (completedRectZoom) {
-            const target = rectZoomTarget(completedRectZoom);
-            rectZoomSelection = null;
-            if (target && completedRectZoom.frequency) {
-                // The spectrogram's box: its time, and its frequencies in Hz on the lane it was drawn on (the lanes share both).
-                disableFollowCursor();
-                waveformView.setTimeRange({ start: target.zoomStart, end: target.zoomEnd });
-                const pressed = state.results[trackIndexForId(completedRectZoom.trackId)];
-                const whole = pressed ? channelsForResult(pressed)[0]?.spectrogram : undefined;
-                if (whole) {
-                    const shown = shownSpectrogramBounds(whole), span = shown.maxFrequencyHz - shown.minFrequencyHz;
-                    spectrogramFrequencyView = { lowHz: shown.minFrequencyHz + target.amplitudeMin * span, highHz: shown.minFrequencyHz + target.amplitudeMax * span };
-                }
-            }
-            else if (target) {
-                disableFollowCursor();
-                waveformView.applyRectZoom(target);
-            }
-            // The loop stays: zooming into it is how a loop is looked at closely.
-            emitWaveformZoom();
-            followPointerAfterDrag(e);
-            scheduleRender();
-            return;
-        }
-        if (hadDrag) {
-            scheduleSpectrumRefresh('immediate');
-            followPointerAfterDrag(e);
-        }
+        scheduleSpectrumRefresh('immediate');
+        followPointerAfterDrag(e);
+    }
+    /**
+     * ← / → over a lane (R7): the next full-resolution point of the lane's data (a waveform's next sample, a
+     * spectrogram's next STFT frame at the same bin), however many share a pixel, at the place the lane shows it; the
+     * other lanes' time line follows. Null with nothing read.
+     */
+    function stepLaneFrom(plot: HTMLElement, delta: -1 | 0 | 1, arrived?: (at: PlotPlace) => void): PlotPlace | null {
+        const hovered = contentType === 'stage' ? null : laneHover?.canvas === plot ? laneHover : spectrogramHover?.canvas === plot ? spectrogramHover : null;
+        if (!hovered) return null;
+        const here = { clientX: hovered.clientX, clientY: hovered.clientY };
+        if (delta === 0) return here;
+        const from = laneRead;
+        if (!from || from.canvas !== plot || from.read.pending) return null;
+        const spectrogram = spectrogramHover?.canvas === plot;
+        const placeOf = (next: StageRead): PlotPlace => {
+            const rect = from.canvas.getBoundingClientRect();
+            const clientX = rect.left + next.x;
+            const clientY = spectrogram && spectrogramHover ? spectrogramHover.clientY : rect.top + next.y;
+            laneStepped = { canvas: from.canvas, clientX, clientY, read: next };
+            return { clientX, clientY };
+        };
+        // The next points were not in: the step is taken once they are, if the lane still reads the point it did (a
+        // repaint reads that point anew).
+        const still = (): boolean => !!laneRead && laneRead.canvas === from.canvas && laneRead.read.layer === from.read.layer
+            && laneRead.read.at === from.read.at && laneRead.read.row === from.read.row && laneRead.read.index === from.read.index;
+        const ready = (): void => {
+            if (!still()) return;
+            const next = stageStep(from.plot, from.read, delta, ready);
+            if (next && arrived) arrived(placeOf(next));
+        };
+        const next = stageStep(from.plot, from.read, delta, ready);
+        if (next === undefined) return here;
+        return next ? placeOf(next) : null;
     }
     /** The readout follows the pointer again from where the drag ended, in the view it leaves (a box zoom's zoomed one), or shows the cursor off the lanes. */
     function followPointerAfterDrag(e: MouseEvent): void {

@@ -221,7 +221,6 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
             if (range) deps.pick(range);
         }, CLICK_WAIT_MS);
     });
-    groups.addEventListener('dblclick', () => { if (pendingClick !== null) { clearTimeout(pendingClick); pendingClick = null; } });
 
     // The plot component's gestures on every row (R13): the value axis' window is shared, the counts stay whole.
     const zoomBox = document.createElement('div');
@@ -242,7 +241,11 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
             return { fx, fy };
         },
         window: () => zoomWindow,
-        setWindow: (_plot, next) => setWindow(next),
+        setWindow(_plot, next) {
+            // A double-click (the whole value axis again) takes back the bin its first click was to pick.
+            if (!next && pendingClick !== null) { clearTimeout(pendingClick); pendingClick = null; }
+            setWindow(next);
+        },
         hover(event, hit) {
             const plot = hit ? plots.get(hit.plot) : undefined;
             if (!hit || !plot) { marks.hide(); return; }
@@ -263,7 +266,24 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
             zoomBox.hidden = false;
         },
         hideBox() { zoomBox.hidden = true; },
-        openAxisRange: () => false,
+        // A double-click on the value axis strip below the rows types its range.
+        axes: {
+            selector: '[data-entry-dist-axis-canvas]',
+            locate(axis, clientX, clientY) {
+                if (!drawn) return null;
+                const { fx, fy } = plotPointIn(axis, { left: DIST_MARGINS.left, right: DIST_MARGINS.right, top: 0, bottom: 0 }, clientX, clientY);
+                return { plot: axis, point: { fx, fy }, axis: 'x' };
+            },
+        },
+        openAxisRange(hit, clientX, clientY) {
+            if (hit.plot !== axisCanvas || !drawn) return false;
+            const whole = drawn;
+            openAxisPart(rangePopover, {
+                mapping: linearAxis(whole.low, whole.high, last?.valueLabel ?? ''), horizontal: true, current: zoomWindow.x, clientX, clientY, invalid: strings.specRangeErrorMinMax,
+                set(part) { setWindow({ x: part, y: FULL_PLOT_WINDOW.y }); },
+            });
+            return true;
+        },
         // Alt+drag picks a range of the value, across every row's shared axis; Alt+click, the bin under it.
         altDrag: {
             start(_hit, event) {
@@ -290,15 +310,5 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
         },
         horizontalOnly: true,
     });
-    // A double-click on the value axis strip types its range.
-    axisCanvas.addEventListener('dblclick', event => {
-        if (!drawn) return;
-        const whole = drawn;
-        openAxisPart(rangePopover, {
-            mapping: linearAxis(whole.low, whole.high, last?.valueLabel ?? ''), horizontal: true, current: zoomWindow.x, clientX: event.clientX, clientY: event.clientY, invalid: strings.specRangeErrorMinMax,
-            set(part) { setWindow({ x: part, y: FULL_PLOT_WINDOW.y }); },
-        });
-    });
-
     return { place, paint, last: () => drawn };
 }
