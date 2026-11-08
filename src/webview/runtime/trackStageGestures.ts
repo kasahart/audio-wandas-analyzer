@@ -123,6 +123,10 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
             showHover();
         },
         clearHover() { hovered = null; hideHover(); },
+        stepFrom(plot, delta) {
+            const drawn = drawnOn.get(plot)?.plot;
+            return state.on && drawn && deps.painted() ? marks.stepFrom(plot, drawn, delta) : null;
+        },
         showBox(plot, from, to) {
             const rect = plotBox(plot);
             const [x0, x1] = [Math.min(from.fx, to.fx), Math.max(from.fx, to.fx)], [y0, y1] = [Math.min(from.fy, to.fy), Math.max(from.fy, to.fy)];

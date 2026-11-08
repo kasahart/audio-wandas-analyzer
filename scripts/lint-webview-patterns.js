@@ -128,7 +128,6 @@ function collectDialogEscapeFindings(source, filePath) {
 // draws must be taken off the list.
 const CANVAS_DRAWING_FILES = [
     'src/shared/gui-core/index.ts',
-    'src/webview/draw/canvasDrawers.ts',
     'src/webview/plot/waveformLayer.ts',
     'src/webview/runtime/canvasOverlays.ts',
     'src/webview/runtime/compareReport.ts',

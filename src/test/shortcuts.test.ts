@@ -30,27 +30,15 @@ test('arrowCursorStep moves one pixel of the zoomed view, or 0.1 s with Shift', 
     assert.equal(arrowCursorStep(true, 0, 0, 1, 500), 0.001);
 });
 
-const idle: KeydownContext = { spectrumActive: false, helpOpen: false, textEntryFocused: false, trackCanvasFocused: false };
+const idle: KeydownContext = { helpOpen: false, textEntryFocused: false, trackCanvasFocused: false };
 const key = (k: string, code: string, mods: Partial<{ ctrlKey: boolean; metaKey: boolean; altKey: boolean }> = {}) =>
     ({ key: k, code, ctrlKey: false, metaKey: false, altKey: false, ...mods });
 
 test('keydownIntent ignores keys pressed with Ctrl, Meta or Alt', () => {
-    const ctx = { ...idle, spectrumActive: true, trackCanvasFocused: true };
+    const ctx = { ...idle, trackCanvasFocused: true };
     assert.equal(keydownIntent(key('ArrowLeft', 'ArrowLeft', { ctrlKey: true }), ctx), null);
     assert.equal(keydownIntent(key('+', 'Equal', { metaKey: true }), ctx), null);
     assert.equal(keydownIntent(key(' ', 'Space', { altKey: true }), ctx), null);
-});
-
-test('keydownIntent steps the spectrum cursor before anything else, even with help open', () => {
-    const ctx = { ...idle, spectrumActive: true, helpOpen: true, trackCanvasFocused: true };
-    assert.deepEqual(keydownIntent(key('ArrowLeft', 'ArrowLeft'), ctx), { kind: 'spectrum-step', delta: -1 });
-    assert.deepEqual(keydownIntent(key('ArrowRight', 'ArrowRight'), ctx), { kind: 'spectrum-step', delta: 1 });
-});
-
-test('keydownIntent lets non-arrow keys fall through to shortcuts while the spectrum cursor is active', () => {
-    const ctx = { ...idle, spectrumActive: true };
-    assert.deepEqual(keydownIntent(key('+', 'Equal'), ctx), { kind: 'shortcut', action: 'zoom-in' });
-    assert.deepEqual(keydownIntent(key(' ', 'Space'), ctx), { kind: 'toggle-playback', target: 'current' });
 });
 
 test('keydownIntent disables shortcuts, playback and cursor keys while help is open', () => {
@@ -82,16 +70,10 @@ function focused(id: string, tagName: string, classes: string[] = []) {
     return { id, tagName, classList: { contains: (token: string) => classes.includes(token) } };
 }
 
-test('keydownContextFor derives the keyboard context from the focused element', () => {
-    assert.deepEqual(keydownContextFor(focused('t0', 'CANVAS', ['track-canvas']), { hidden: true }, false), {
-        spectrumActive: false, helpOpen: false, textEntryFocused: false, trackCanvasFocused: true,
+test('keydownContextFor derives the keyboard context from the focused element and the help', () => {
+    assert.deepEqual(keydownContextFor(focused('t0', 'CANVAS', ['track-canvas']), { hidden: true }), {
+        helpOpen: false, textEntryFocused: false, trackCanvasFocused: true,
     });
-    assert.equal(keydownContextFor(focused('spectrum-overlay-canvas', 'CANVAS'), null, false).spectrumActive, true);
-    assert.equal(keydownContextFor(focused('q', 'input'), null, false).textEntryFocused, true);
-});
-
-test('keydownContextFor treats a hovered spectrum and a visible help overlay as active without focus', () => {
-    assert.deepEqual(keydownContextFor(null, { hidden: false }, true), {
-        spectrumActive: true, helpOpen: true, textEntryFocused: false, trackCanvasFocused: false,
-    });
+    assert.equal(keydownContextFor(focused('q', 'input'), null).textEntryFocused, true);
+    assert.equal(keydownContextFor(null, { hidden: false }).helpOpen, true);
 });

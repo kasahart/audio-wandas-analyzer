@@ -42,7 +42,7 @@ function setup() {
     // Shown, as open() does.
     screen.hidden = false;
     const calls: Array<[string, unknown]> = [];
-    const pane = createDistributionPane({ screen, strings, pick: range => calls.push(['pick', range]), dot: key => calls.push(['dot', key]), cancelled: () => calls.push(['cancelled', null]) });
+    const pane = createDistributionPane({ screen, strings, pick: range => calls.push(['pick', range]), dot: key => calls.push(['dot', key]) });
     const attributes = new Map([['/d/a.wav', { rpm: '900', score: '0.2' }], ['/d/b.wav', { rpm: '900', score: '0.4' }], ['/d/c.wav', { rpm: '1500', score: '0.9' }]]);
     const rows: DatasetRow[] = datasetRows([...attributes.keys()], '/d', attributes, new Map());
     const byKey = new Map(rows.map(row => [row.key, row]));
@@ -75,31 +75,28 @@ test('the pane draws the groups, folds above the table beside the tracks and spr
     assert.equal(screen.querySelector<HTMLElement>('[data-entry-dist-empty]')?.hidden, false);
 });
 
-test('Alt+drag on a row picks a range; a plain drag is the plot\'s box zoom, not a pick; a cancelled pick says so', () => {
+test('Alt+drag on a row picks a range, as Alt+drag is on every plot (plotInteraction.ts); a plain drag is the plot\'s box zoom, not a pick', () => {
     const { dom, screen, pane, calls, inputs } = setup();
     pane.place(true);
     pane.paint(inputs);
     const groups = screen.querySelector<HTMLElement>('[data-entry-dist-groups]');
     const canvas = groups?.querySelector('[data-dist-canvas]');
     assert.ok(groups && canvas);
-    const fire = (target: Element, type: string, clientX: number, altKey = false): void => { target.dispatchEvent(new dom.window.MouseEvent(type, { bubbles: true, button: 0, clientX, altKey })); };
-    fire(canvas, 'pointerdown', 120, true);
-    fire(canvas, 'pointermove', 300, true);
+    const { document } = dom.window;
+    const fire = (target: EventTarget, type: string, clientX: number, altKey = false): void => { target.dispatchEvent(new dom.window.MouseEvent(type, { bubbles: true, button: 0, clientX, altKey })); };
+    fire(canvas, 'mousedown', 120, true);
+    fire(document, 'mousemove', 300, true);
     assert.equal(groups.querySelector<HTMLElement>('[data-dist-brush]')?.hidden, false);
-    fire(canvas, 'pointerup', 300, true);
+    fire(document, 'mouseup', 300, true);
+    assert.equal(groups.querySelector<HTMLElement>('[data-dist-brush]')?.hidden, true);
     assert.equal(calls.length, 1);
     const [kind, range] = calls[0] as [string, { low: number; high: number }];
     assert.equal(kind, 'pick');
     assert.ok(range.low < range.high);
-    fire(canvas, 'pointerdown', 120);
-    fire(canvas, 'pointermove', 300);
-    fire(canvas, 'pointerup', 300);
+    fire(canvas, 'mousedown', 120);
+    fire(document, 'mousemove', 300);
+    fire(document, 'mouseup', 300);
     assert.equal(calls.length, 1, 'a plain drag picks nothing');
-    fire(canvas, 'pointerdown', 120, true);
-    groups.dispatchEvent(new dom.window.Event('pointercancel'));
-    assert.deepEqual(calls[1], ['cancelled', null]);
-    fire(canvas, 'pointerup', 300, true);
-    assert.equal(calls.length, 2, 'a cancelled drag picks nothing');
 });
 
 test('each group is a row of the plot component: its dots, its slots and the base on it', () => {

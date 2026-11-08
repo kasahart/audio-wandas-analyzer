@@ -1,34 +1,16 @@
-import { binFrequencyHz, drawSpectrumSelectionBox } from '../draw/canvasDrawers';
-import { HOVER_PICK_RADIUS_PX, paintHoverMarks } from './plotHover';
-import type { SpectrumHoverTarget } from './spectrumHover';
-import { paintOverlay, strokeStageLine, type StageLayer, type StagePlot } from './stagePanes';
+import { binFrequencyHz } from '../draw/canvasDrawers';
+import { paintOverlay, type StageLayer, type StagePlot } from './stagePanes';
 import { minMaxLine } from './comparePanes';
 import {
-    nearestOverlaySnap,
     OVERLAY_SPECTRUM_PAD,
     overlayLevelAxes,
     setOverlaySecondaryLevelAxis,
-    spectrumPlotFrame,
-    spectrumReadoutText,
+    spectrumReadoutValues,
     spectrumSeriesRange,
-    type SpectrumSnapHit,
     type SpectrumViewState,
     type SpectrumVisibleWindow,
 } from './spectrumRuntime';
-import type { DragPoint, SpectrumSeries } from './types';
-
-/** A box being dragged on the cursor spectrum, from where the press was to where the pointer is (0–1 of the plot). */
-export interface SpectrumBoxSpan {
-    anchor: DragPoint;
-    current: DragPoint;
-}
-
-export interface OverlaySpectrumHover {
-    norm: number | null;
-    yFrac: number | null;
-    target: SpectrumHoverTarget | null;
-    stepped?: boolean;
-}
+import type { SpectrumSeries } from './types';
 
 export interface OverlaySpectrumPaint {
     maxFrequencyHz: number;
@@ -37,10 +19,8 @@ export interface OverlaySpectrumPaint {
     dbMax: number;
     /** False when the visible frequency window is empty and only the axes were drawn. */
     painted: boolean;
-    /** null leaves the readout as is: nothing was drawn to read. */
-    readout: { text: string; color: string } | null;
-    /** The frequency of the point the cursor reads; null when no line is read. */
-    hoverFrequencyHz?: number | null;
+    /** Where the plot component put the lines, for the pointer's marks and readout (plotHoverLayer.ts); null when none are drawn. */
+    plot: StagePlot | null;
     /** Each level axis with the colours of the lines read on it, left first; one entry when the references agree. */
     levelAxes: Array<{ title: string; reference: string; colors: string[]; lines: Array<{ color: string; label: string }> }>;
 }
@@ -48,20 +28,11 @@ export interface OverlaySpectrumPaint {
 /** Marks the right-hand axis in the legend. */
 export const SECONDARY_AXIS_MARK = '▶';
 
-function overlayReadout(hover: OverlaySpectrumHover, nearest: (SpectrumSnapHit<SpectrumSeries> & { axisIndex: number }) | null, axisTitles: string[]): OverlaySpectrumPaint['readout'] {
-    if (!nearest || hover.norm === null || hover.target !== 'overlay') {
-        return { text: '', color: '' };
-    }
-    // With two level axes, "dB" alone could be either: the value names its reference ("-17.0 dB re 1 m/s^2").
-    const level = axisTitles.length > 1 ? { unit: axisTitles[nearest.axisIndex] } : nearest.s.slice;
-    return { text: spectrumReadoutText(nearest.s.label, { ...nearest.s.slice, ...level }, nearest.snap.freqHz, nearest.dbVal), color: nearest.s.color };
-}
-
 /**
  * A slice as the comparison draws a level spectrum (stage_view): a line over its bins, or octave bands as steps;
  * FFT bins past the slice's top frequency (a cut for display) are left out.
  */
-export function spectrumLayer(series: SpectrumSeries, cutoffHz: number, visible?: { frequencyMin: number; frequencyMax: number; buckets: number }): StageLayer {
+export function spectrumLayer(series: SpectrumSeries, cutoffHz: number, visible?: { frequencyMin: number; frequencyMax: number; buckets: number }, levelUnit?: string): StageLayer {
     const { slice } = series;
     const bands = !!slice.bandCentersHz?.length;
     let xs: number[] = [], values: number[] = [];
@@ -82,11 +53,15 @@ export function spectrumLayer(series: SpectrumSeries, cutoffHz: number, visible?
         xs = [...xs.slice(0, dc), ...line.xs];
         values = [...values.slice(0, dc), ...line.values];
     }
+    // Read as the cursor spectrum reads a point (R7): its frequency to the digits its bins need, its level in the
+    // slice's unit, or with two level axes in the reference of the axis it is read on.
+    const level = levelUnit ? { ...slice, unit: levelUnit } : slice;
     return {
         view: { frame: 'spectrum', kind: bands ? 'bar' : 'line', x: 'frequency', xScale: bands ? 'log' : 'linear', quantity: 'level', xs, values },
         color: series.color,
         width: bands ? 2 : 1.4,
         label: series.label,
+        readout: index => spectrumReadoutValues(level, xs[index], values[index]),
     };
 }
 
@@ -102,8 +77,6 @@ export function paintOverlaySpectrum(
     H: number,
     slices: SpectrumSeries[],
     view: SpectrumViewState,
-    hover: OverlaySpectrumHover,
-    box: SpectrumBoxSpan | null,
     frequencyTitle = '',
     /** Names a level axis from its reference and the lines read on it (the UI's words, calibrated or not); the slice's own label otherwise. */
     levelTitle?: (reference: string, series: readonly SpectrumSeries[]) => string,
@@ -117,88 +90,22 @@ export function paintOverlaySpectrum(
         title: axis.title, reference: axis.reference, colors: [...new Set(axis.series.map(s => s.color))],
         lines: axis.series.filter((s, i, all) => all.findIndex(o => o.label === s.label && o.color === s.color) === i).map(s => ({ color: s.color, label: s.label })),
     }));
-    const result: OverlaySpectrumPaint = { maxFrequencyHz, logMinFrequencyHz, dbMin: vis.dbMin, dbMax: vis.dbMax, painted: false, readout: null, levelAxes };
     const empty = vis.frequencyMax - vis.frequencyMin <= 0;
-    // Each series' layer, so the hover draws the line it read thicker on the same axes.
-    const layerOf = new Map<SpectrumSeries, StageLayer>();
+    // With two level axes, "dB" alone could be either: a point read names its axis' reference ("−17.0 dB re 1 m/s^2").
+    const two = axes.length > 1;
     // A line read on the right-hand axis is dashed, as its swatch in the legend: lines of one colour (grey, without a role) are told apart.
-    const layersOf = (series: readonly SpectrumSeries[], visible: SpectrumVisibleWindow, dash?: readonly number[]): StageLayer[] => (visible.dbMax - visible.dbMin > 0 && !empty ? series : []).map(s => {
-        const layer = { ...spectrumLayer(s, maxFrequencyHz, { frequencyMin: visible.frequencyMin, frequencyMax: visible.frequencyMax, buckets: lineBuckets }), ...(dash ? { dash } : {}) };
-        layerOf.set(s, layer);
-        return layer;
-    });
+    const layersOf = (series: readonly SpectrumSeries[], visible: SpectrumVisibleWindow, reference: string, dash?: readonly number[]): StageLayer[] => (visible.dbMax - visible.dbMin > 0 && !empty ? series : [])
+        .map(s => ({ ...spectrumLayer(s, maxFrequencyHz, { frequencyMin: visible.frequencyMin, frequencyMax: visible.frequencyMax, buckets: lineBuckets }, two ? reference : undefined), ...(dash ? { dash } : {}) }));
     const [primary, secondary] = axes;
     // About two pixels a bucket across the plot, as every line is thinned (R2).
     const lineBuckets = Math.max(64, Math.round((W - pad.left - pad.right) / 2));
-    const plot = paintOverlay(canvas, { layers: layersOf(primary.series, vis) }, { min: vis.dbMin, max: vis.dbMax }, { x: frequencyTitle, y: primary.title }, {
+    const plot = paintOverlay(canvas, { layers: layersOf(primary.series, vis, primary.reference) }, { min: vis.dbMin, max: vis.dbMax }, { x: frequencyTitle, y: primary.title }, {
         size: { width: W, height: H },
         margins: { ...pad },
         axisView: frequencyAxis(empty ? { ...vis, frequencyMax: vis.frequencyMin + 1 } : vis),
-        ...(secondary ? { secondary: { layers: layersOf(secondary.series, secondary.visible, SECONDARY_AXIS_DASH), range: { min: secondary.visible.dbMin, max: secondary.visible.dbMax }, title: secondary.title } } : {}),
+        ...(secondary ? { secondary: { layers: layersOf(secondary.series, secondary.visible, secondary.reference, SECONDARY_AXIS_DASH), range: { min: secondary.visible.dbMin, max: secondary.visible.dbMax }, title: secondary.title } } : {}),
     });
-    // The pointer's marks and a dragged box go on the layer over the plot: the plot holds only what paintOverlay drew (R13).
-    const ctx = overlaySpectrumMarks(canvas, W, H);
-    if (empty) {
-        return result;
-    }
-    const frameFor = (visible: typeof vis) => spectrumPlotFrame(W, H, pad, visible);
-    const frame = frameFor(vis);
-    let nearest: (SpectrumSnapHit<SpectrumSeries> & { axisIndex: number; frame: typeof frame }) | null = null;
-    if (hover.norm !== null && hover.target === 'overlay') {
-        // With no pointer height (the cursor follows the pair plot) no line is nearest, so only the frequency line shows.
-        // A pointer reads the point nearest it within a few pixels (R7); an arrow key's step reads the bin stepped to.
-        const radius = hover.stepped ? 0 : HOVER_PICK_RADIUS_PX * (W / (canvas.clientWidth || W));
-        nearest = hover.yFrac !== null ? nearestOverlaySnap(axes, frameFor, hover.norm, hover.yFrac * H, !hover.stepped, radius) : null;
-        const hit = nearest;
-        const full = { left: frame.padLeft, top: frame.padTop, width: frame.plotWidth, height: frame.plotHeight };
-        // With two level axes the level guide runs only to the axis the line is read on, so it is not read on the other.
-        const guide = hit && axes.length > 1
-            ? (hit.axisIndex === 0 ? { ...full, width: hit.snap.x - full.left } : { ...full, left: hit.snap.x, width: full.left + full.width - hit.snap.x })
-            : full;
-        const hitLayer = hit ? layerOf.get(hit.s) : undefined;
-        const hitPlot: StagePlot | null | undefined = hit && hit.axisIndex > 0 ? plot?.secondary : plot;
-        if (ctx) paintHoverMarks(
-            ctx,
-            guide,
-            hit ? hit.snap.x : frame.padLeft + hover.norm * frame.plotWidth,
-            // A level past the axis is drawn along its edge: the level guide is drawn there too, not in the margin.
-            hit ? Math.max(full.top, Math.min(full.top + full.height, hit.snapY)) : null,
-            hit ? hit.s.color : '',
-            hitLayer && hitPlot ? (context, width) => strokeStageLine(context as CanvasRenderingContext2D, hitPlot, hitLayer, width) : undefined,
-        );
-    }
-    if (box !== null && ctx) {
-        drawSpectrumSelectionBox(ctx, frame, box.anchor, box.current);
-    }
-    result.painted = true;
-    result.readout = overlayReadout(hover, nearest, axes.map(axis => axis.reference));
-    // The frequency the cursor is drawn at, for the pair plot to follow: the point read, else the pointer's.
-    result.hoverFrequencyHz = nearest ? (nearest as SpectrumSnapHit<SpectrumSeries>).snap.freqHz : null;
-    return result;
-}
-
-const MARKS_CLASS = 'spectrum-overlay-marks';
-
-/**
- * The layer laid over the cursor spectrum for its pointer's marks and a box being dragged, cleared, at the plot's size
- * in pixels and its place and size on screen; made once beside the plot. Null with no place for it.
- */
-export function overlaySpectrumMarks(canvas: HTMLCanvasElement, W: number, H: number): CanvasRenderingContext2D | null {
-    const wrap = canvas.parentElement;
-    if (!wrap) return null;
-    let marks = wrap.querySelector<HTMLCanvasElement>(`:scope > canvas.${MARKS_CLASS}`);
-    if (!marks) {
-        marks = canvas.ownerDocument.createElement('canvas');
-        marks.className = MARKS_CLASS;
-        marks.setAttribute('aria-hidden', 'true');
-        wrap.append(marks);
-    }
-    Object.assign(marks.style, { left: `${canvas.offsetLeft}px`, top: `${canvas.offsetTop}px`, width: `${canvas.clientWidth}px`, height: `${canvas.clientHeight}px` });
-    if (marks.width !== W) marks.width = W;
-    if (marks.height !== H) marks.height = H;
-    const context = marks.getContext('2d');
-    context?.clearRect(0, 0, W, H);
-    return context;
+    return { maxFrequencyHz, logMinFrequencyHz, dbMin: vis.dbMin, dbMax: vis.dbMax, painted: !empty, plot: empty ? null : plot, levelAxes };
 }
 
 /** The dash (px) of a line read on the right-hand level axis, and of its swatches in the legend. */

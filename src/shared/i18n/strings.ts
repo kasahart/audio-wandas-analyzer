@@ -117,6 +117,7 @@ export interface UiStrings {
     helpRowShiftDrag: string;
     helpRowDoubleClickEdge: string;
     helpRowQuestion: string;
+    helpRowPlotStep: string;
     helpRowEsc: string;
     entryColFile: string;
     entryColCondition: string;
@@ -917,6 +918,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpRowShiftDrag: 'adjust track offset',
         helpRowDoubleClickEdge: 'collapse the file list; collapse or expand the spectrum',
         helpRowQuestion: 'toggle this help',
+        helpRowPlotStep: 'step the readout of the plot under the pointer one point at a time',
         helpRowEsc: 'close popover / help, restore a maximized spectrum',
         entryColFile: 'File',
         entryColCondition: 'Cond. {n}',
@@ -1698,6 +1700,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpRowShiftDrag: 'トラックのオフセット調整',
         helpRowDoubleClickEdge: 'ファイル一覧を畳む、スペクトルを畳む/戻す',
         helpRowQuestion: 'このヘルプを開閉',
+        helpRowPlotStep: 'マウスの下のグラフの読み値を 1 点ずつ動かす',
         helpRowEsc: 'ポップオーバー / ヘルプを閉じる、最大化を戻す',
         entryColFile: 'ファイル',
         entryColCondition: '条件 {n}',

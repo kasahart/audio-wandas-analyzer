@@ -1126,9 +1126,12 @@ function linePointAt(plot: StagePlot, layer: StageLayer, x: number): { index: nu
     }
     // A band is the one whose step the pointer is over (its centre may be off the plot, zoomed into part of it).
     const inBand = (index: number): boolean => { const [x0, x1] = barEdges(plot, xs[index]); return x >= x0 && x <= x1; };
+    // Between two bands' centres the pointer is over one of them, or, in the sliver between nominal bands (630 and
+    // 800 Hz are not quite a third of an octave apart), the nearer one.
+    const between = (): boolean => high > low && x > plot.xAt(xs[low]) && x < plot.xAt(xs[high]);
     // Past a line's ends, or beside the bands, the pointer is over no point of it.
-    if (layer.view.kind === 'bar' ? !inBand(low) && !inBand(high) : x < plot.xAt(xs[0]) || x > plot.xAt(xs[xs.length - 1])) return null;
-    const index = layer.view.kind === 'bar' ? (inBand(high) ? high : low)
+    if (layer.view.kind === 'bar' ? !inBand(low) && !inBand(high) && !between() : x < plot.xAt(xs[0]) || x > plot.xAt(xs[xs.length - 1])) return null;
+    const index = layer.view.kind === 'bar' ? (inBand(high) ? high : inBand(low) ? low : x - barEdges(plot, xs[low])[1] < barEdges(plot, xs[high])[0] - x ? low : high)
         : Math.abs(plot.xAt(xs[high]) - x) < Math.abs(plot.xAt(xs[low]) - x) ? high : low;
     const value = values[index];
     if (value === null || value === undefined || silent(layer.view, value)) return null;
@@ -1194,7 +1197,20 @@ function signalPointsNear(plot: StagePlot, waveform: NonNullable<StageView['wave
  * The line of a pane nearest the pointer at (`x`, `y`) on its canvas, as the spectrum overlay picks it
  * (plotHover.ts): that line, its point and the readout (its name, where, its value).
  */
-export function stageHover(plot: StagePlot, x: number, y: number): { layer: StageLayer; x: number; y: number; text: string; name: string; values: string; image?: boolean } | null {
+export interface StageRead {
+    layer: StageLayer;
+    x: number;
+    y: number;
+    text: string;
+    name: string;
+    values: string;
+    image?: boolean;
+    /** The point read: its index in the line's values (−1 for a signal's envelope point or an image's cell), and a signal's time. */
+    index?: number;
+    time?: number;
+}
+
+export function stageHover(plot: StagePlot, x: number, y: number): StageRead | null {
     if (plot.image) return imageHover(plot, plot.image, x, y);
     type Point = { index: number; time?: number; x: number; y: number; value: number };
     // The point nearest the pointer within a few pixels, so a narrow peak beside it is read at its top (R7).
@@ -1207,20 +1223,76 @@ export function stageHover(plot: StagePlot, x: number, y: number): { layer: Stag
         // A signal reads its amplitude in its unit, to 3 figures, where its point is.
         const value = hit.point.value, unit = view.waveform.unit || plot.signal?.unit;
         const amount = amountText(value, unit);
-        return readoutOf(hit.s, hit.point, hit.s.label ?? '', [timeText(plot, hit.point.time ?? 0), amount]);
+        return { ...readoutOf(hit.s, hit.point, hit.s.label ?? '', [timeText(plot, hit.point.time ?? 0), amount]), index: -1, time: hit.point.time };
     }
-    if (hit.s.readout) return readoutOf(hit.s, hit.point, hit.s.label ?? '', hit.s.readout(hit.point.index));
+    if (hit.s.readout) return { ...readoutOf(hit.s, hit.point, hit.s.label ?? '', hit.s.readout(hit.point.index)), index: hit.point.index };
     const amount = plot.diff ? signed(hit.point.value, isDb(view))
         // Levels to 0.1 dB, as the spectrum overlay reads them; other quantities (a coherence) to 3 figures.
         : isDb(view) ? levelText(hit.point.value) : amountText(hit.point.value, view.unit);
-    return readoutOf(hit.s, hit.point, hit.s.label || (plot.diff ? 'Δ' : ''), [atText(view, hit.point.index), amount]);
+    return { ...readoutOf(hit.s, hit.point, hit.s.label || (plot.diff ? 'Δ' : ''), [atText(view, hit.point.index), amount]), index: hit.point.index };
+}
+
+/**
+ * Where the point `delta` points along from the one `read` reads is drawn (canvas CSS pixels), so an arrow key reads
+ * it as the pointer would (R7): the next value of the same line (a bar, a dot), the next point of a signal's envelope
+ * by time, the next column of an image on the same row. Null past the line's end or off the plot.
+ */
+export function stageNeighbour(plot: StagePlot, read: StageRead, delta: -1 | 1): { x: number; y: number } | null {
+    if (read.image && plot.image) {
+        const image = plot.image, { left, width } = plot.frame;
+        const cellAt = (x: number, y: number) => image.cellAt(x, y);
+        const from = cellAt(read.x, read.y).column;
+        // Columns may be narrower than a pixel: walked in tenths of one to the next column, then to its far edge.
+        let x = read.x, start: number | null = null;
+        for (let step = 0; step < width * 10 + 10; step++) {
+            x += delta * 0.1;
+            if (x < left || x > left + width) break;
+            const column = cellAt(x, read.y).column;
+            if (start === null && column !== from && column >= 0) start = x;
+            else if (start !== null && column !== cellAt(start, read.y).column) return { x: (start + x - delta * 0.1) / 2, y: read.y };
+        }
+        return start === null ? null : { x: (start + x - delta * 0.1) / 2, y: read.y };
+    }
+    const view = read.layer.view;
+    if (view.waveform) {
+        const { min, max, minT, maxT } = view.waveform;
+        const points: Array<{ time: number; value: number }> = [];
+        for (let index = 0; index < Math.min(min.length, max.length, minT.length, maxT.length); index++) {
+            const middle = ((minT[index] ?? maxT[index] ?? 0) + (maxT[index] ?? minT[index] ?? 0)) / 2;
+            points.push({ time: minT[index] ?? middle, value: min[index] ?? 0 }, { time: maxT[index] ?? middle, value: max[index] ?? 0 });
+        }
+        points.sort((a, b) => a.time - b.time);
+        const at = (point: { time: number; value: number }): { x: number; y: number } => ({ x: plot.xAt(point.time), y: plot.yAt(point.value) });
+        let from = -1;
+        for (let index = 0; index < points.length; index++) {
+            const p = at(points[index]);
+            if (from < 0 || Math.hypot(p.x - read.x, p.y - read.y) < Math.hypot(at(points[from]).x - read.x, at(points[from]).y - read.y)) from = index;
+        }
+        const shown = plot.signal?.range;
+        for (let index = from + delta; from >= 0 && index >= 0 && index < points.length; index += delta) {
+            const p = at(points[index]);
+            if (Math.abs(p.x - read.x) < 1e-9 && Math.abs(p.y - read.y) < 1e-9) continue;
+            if (!onPlot(plot, p.x, p.y) || (shown && (points[index].value < shown.min || points[index].value > shown.max))) return null;
+            return p;
+        }
+        return null;
+    }
+    const xs = view.xs ?? [], values = view.values ?? [];
+    for (let index = (read.index ?? -1) + delta; read.index !== undefined && read.index >= 0 && index >= 0 && index < xs.length; index += delta) {
+        const value = values[index];
+        if (value === null || value === undefined || silent(view, value)) continue;
+        const x = plot.xAt(xs[index]);
+        if (!onPlot(plot, x, (plot.lineYAt ?? plot.yAt)(value))) return null;
+        return { x, y: plot.yAt(value) };
+    }
+    return null;
 }
 
 /**
  * A heatmap's hover (R7): the cell under the pointer, read as its name (the row's, for rows that are things), where it
  * is and its value in the colour's unit. An image has no line to mark: the cursor alone, at the pointer.
  */
-function imageHover(plot: StagePlot, image: NonNullable<StagePlot['image']>, x: number, y: number): ReturnType<typeof stageHover> {
+function imageHover(plot: StagePlot, image: NonNullable<StagePlot['image']>, x: number, y: number): StageRead | null {
     const { column, row } = image.cellAt(x, y);
     const { layer } = image, view = layer.view;
     const value = column < 0 || row < 0 ? null : view.matrix?.[row]?.[column] ?? null;

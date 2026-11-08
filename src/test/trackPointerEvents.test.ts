@@ -1,14 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
+import { keyRouterFor } from '../webview/runtime/keyRouter';
 import { attachTrackPointerListeners } from '../webview/runtime/trackPointerEvents';
 
-function setup(axisOpens = false) {
-    const { window } = new JSDOM('<!doctype html><body><div id="tracks"><canvas class="track-canvas"></canvas><canvas class="track-axis-canvas"></canvas><span class="label"></span></div></body>');
+function setup(axisOpens = false, steps = true) {
+    const { window } = new JSDOM('<!doctype html><body><div id="tracks"><canvas class="track-canvas" tabindex="0"></canvas><canvas class="track-axis-canvas"></canvas><span class="label"></span></div><input id="field"></body>');
     const doc = window.document;
     const wrapper = doc.getElementById('tracks') as HTMLElement;
     const calls: string[] = [];
-    attachTrackPointerListeners(wrapper, doc, {
+    attachTrackPointerListeners(wrapper, doc, keyRouterFor(window), {
+        step: (plot, delta) => { calls.push(`step:${plot.className}:${delta}`); return steps; },
         resetZoom: () => { calls.push('reset'); },
         openAxisRange: () => { calls.push('axis'); return axisOpens; },
         hover: () => { calls.push('hover'); },
@@ -92,4 +94,36 @@ test('attachTrackPointerListeners keeps a swipe on the direction it started with
     assert.equal(wheel('.track-canvas', 500, { deltaX: 9, deltaY: 10 }), false);
     assert.equal(wheel('.track-canvas', 516, { deltaX: 10, deltaY: 9 }), false);
     assert.deepEqual(calls, ['swipe', 'swipe']);
+});
+
+test('← / → step the readout of the plot under the pointer, or of a focused one, and go on when it reads nothing (R7)', () => {
+    const { window, doc, calls, at } = setup();
+    const key = (code: string, init: KeyboardEventInit = {}, target: EventTarget = doc.body) => {
+        const event = new window.KeyboardEvent('keydown', { code, key: code, bubbles: true, cancelable: true, ...init });
+        target.dispatchEvent(event);
+        return event.defaultPrevented;
+    };
+    // Off every plot the arrows are not the plots'.
+    assert.equal(key('ArrowRight'), false);
+    at('.track-canvas').dispatchEvent(new window.MouseEvent('mousemove', { bubbles: true }));
+    assert.equal(key('ArrowRight'), true);
+    assert.equal(key('ArrowLeft'), true);
+    // With a modifier, in a field, or another key: left to whoever takes them.
+    assert.equal(key('ArrowRight', { shiftKey: true }), false);
+    assert.equal(key('ArrowRight', { ctrlKey: true }), false);
+    assert.equal(key('ArrowRight', {}, at('#field')), false);
+    assert.equal(key('ArrowUp'), false);
+    at('#tracks').dispatchEvent(new window.MouseEvent('mouseleave'));
+    // Given the focus from the keyboard with the pointer elsewhere, a plot reads where it starts; the arrows step it.
+    at('.track-canvas').focus();
+    assert.equal(key('ArrowRight', {}, at('.track-canvas')), true);
+    assert.deepEqual(calls.filter(call => call.startsWith('step')), ['step:track-canvas:1', 'step:track-canvas:-1', 'step:track-canvas:0', 'step:track-canvas:1']);
+});
+
+test('an arrow over a plot that reads nothing goes on to the keys behind it', () => {
+    const { window, doc, at } = setup(false, false);
+    at('.track-canvas').dispatchEvent(new window.MouseEvent('mousemove', { bubbles: true }));
+    const event = new window.KeyboardEvent('keydown', { code: 'ArrowRight', key: 'ArrowRight', bubbles: true, cancelable: true });
+    doc.body.dispatchEvent(event);
+    assert.equal(event.defaultPrevented, false);
 });

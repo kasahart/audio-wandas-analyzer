@@ -47,8 +47,6 @@ export interface DistributionPaneDeps {
     pick(range: { low: number; high: number }): void;
     /** A dot pressed: that row. */
     dot(key: string): void;
-    /** A drag given up. */
-    cancelled(): void;
 }
 
 export interface DistributionPane {
@@ -96,8 +94,8 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
     let zoomWindow: PlotWindow = FULL_PLOT_WINDOW;
     let windowKey = '';
     let last: DistributionInputs | null = null;
-    /** An Alt+drag picking a range: where it started (in the plot's own pixels) and whether it moved. */
-    let pick: { x0: number; left: number; moved: boolean } | null = null;
+    /** An Alt+drag picking a range: where it started, in the rows' own pixels. */
+    let pick: { x0: number; left: number } | null = null;
     let pendingClick: ReturnType<typeof setTimeout> | null = null;
 
     function place(maximized: boolean): void {
@@ -206,35 +204,6 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
     }
     const canvasOf = (target: EventTarget | null): HTMLElement | null => (target as HTMLElement | null)?.closest?.<HTMLElement>('[data-dist-canvas]') ?? null;
 
-    // Alt+drag picks a range of the value: it runs before the plot's own press, which then sees no plot.
-    groups.addEventListener('pointerdown', event => {
-        const canvas = canvasOf(event.target);
-        if (!canvas || !scale || event.button !== 0 || !event.altKey) return;
-        const plot = groups.querySelector<HTMLElement>('[data-entry-dist-plot]');
-        const bounds = (plot ?? canvas).getBoundingClientRect();
-        pick = { x0: event.clientX - bounds.left, left: bounds.left, moved: false };
-        (canvas as HTMLElement & { setPointerCapture?(id: number): void }).setPointerCapture?.(event.pointerId);
-        event.preventDefault();
-    });
-    groups.addEventListener('pointermove', event => {
-        if (!pick) return;
-        const x = event.clientX - pick.left;
-        if (Math.abs(x - pick.x0) >= 4) pick.moved = true;
-        const brush = groups.querySelector<HTMLElement>('[data-dist-brush]');
-        if (!brush) return;
-        Object.assign(brush.style, { left: `${Math.min(x, pick.x0)}px`, width: `${Math.abs(x - pick.x0)}px` });
-        brush.hidden = !pick.moved;
-    });
-    groups.addEventListener('pointerup', event => {
-        const ended = pick, on = scale;
-        pick = null;
-        const brush = groups.querySelector<HTMLElement>('[data-dist-brush]');
-        if (brush) brush.hidden = true;
-        if (!ended || !on) return;
-        const range = pickedRange(on, ended.x0, event.clientX - ended.left, ended.moved);
-        if (range) deps.pick(range);
-    });
-    groups.addEventListener('pointercancel', () => { pick = null; deps.cancelled(); });
     // A press that stayed put (no box drawn): on a dot, its row; elsewhere, the bin under it once no double-click follows.
     groups.addEventListener('click', event => {
         const canvas = canvasOf(event.target);
@@ -264,7 +233,7 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
     attachPlotInteraction(box, document, '[data-dist-canvas]', {
         locate(target, clientX, clientY) {
             const plot = canvasOf(target);
-            if (!plot || pick || plot.closest('[hidden]')) return null;
+            if (!plot || plot.closest('[hidden]')) return null;
             const { fx, fy } = plotPointIn(plot, ROW_MARGINS, clientX, clientY);
             return { plot, point: { fx, fy }, axis: null };
         },
@@ -285,6 +254,7 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
             document.getElementById('hint-footer')?.replaceChildren(`${strings.dsDistDrag} · ${strings.compareHintPlot}`);
         },
         clearHover() { marks.hide(); },
+        stepFrom: (plot, delta) => marks.stepFrom(plot, plots.get(plot) ?? null, delta),
         showBox(plot, from, to) {
             const rect = plot.getBoundingClientRect(), outer = screen.getBoundingClientRect();
             const [x0, x1] = [Math.min(from.fx, to.fx), Math.max(from.fx, to.fx)];
@@ -294,6 +264,30 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
         },
         hideBox() { zoomBox.hidden = true; },
         openAxisRange: () => false,
+        // Alt+drag picks a range of the value, across every row's shared axis; Alt+click, the bin under it.
+        altDrag: {
+            start(_hit, event) {
+                const plot = groups.querySelector<HTMLElement>('[data-entry-dist-plot]');
+                const bounds = (plot ?? (event.target as HTMLElement)).getBoundingClientRect();
+                pick = { x0: event.clientX - bounds.left, left: bounds.left };
+            },
+            move(event) {
+                const brush = groups.querySelector<HTMLElement>('[data-dist-brush]');
+                if (!pick || !brush) return;
+                const x = event.clientX - pick.left;
+                Object.assign(brush.style, { left: `${Math.min(x, pick.x0)}px`, width: `${Math.abs(x - pick.x0)}px` });
+                brush.hidden = false;
+            },
+            end(event, dragged) {
+                const ended = pick, on = scale;
+                pick = null;
+                const brush = groups.querySelector<HTMLElement>('[data-dist-brush]');
+                if (brush) brush.hidden = true;
+                if (!ended || !on) return;
+                const range = pickedRange(on, ended.x0, event.clientX - ended.left, dragged);
+                if (range) deps.pick(range);
+            },
+        },
         horizontalOnly: true,
     });
     // A double-click on the value axis strip types its range.

@@ -179,6 +179,7 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
                 document.getElementById('hint-footer')?.replaceChildren(own ? `${own} · ${gestures}` : gestures);
             },
             clearHover() { pointer = null; marks.hide(); /* the panel's own hints stay */ },
+            stepFrom(plot, delta) { return marks.stepFrom(plot, plot === heldCanvas ? deps.heldPicture()?.drawn ?? null : overviewDrawn, delta); },
             showBox(plot, from, to) {
                 const box = plot.getBoundingClientRect(), outer = side.getBoundingClientRect(), margins = marginsOf(plot);
                 const width = box.width - margins.left - margins.right, height = box.height - margins.top - margins.bottom;

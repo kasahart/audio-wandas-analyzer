@@ -3,8 +3,6 @@ import { keydownContextFor, keydownIntent, type FocusedElementLike, type GlobalS
 
 export interface GlobalKeyboardHandlers<A extends FocusedElementLike> {
     helpOverlay(): { hidden: boolean } | null;
-    spectrumHasMouse(): boolean;
-    stepSpectrum(delta: -1 | 1): void;
     runShortcut(action: GlobalShortcutAction): void;
     togglePlayback(target: 'focused-track' | 'current', active: A | null): void;
     stepCursor(direction: -1 | 1, shiftKey: boolean, active: A | null): void;
@@ -24,15 +22,12 @@ export function attachGlobalKeyboardListeners<A extends FocusedElementLike>(rout
             return false;
         }
         const active = doc.activeElement;
-        const intent = keydownIntent(e, keydownContextFor(active, handlers.helpOverlay(), handlers.spectrumHasMouse()));
+        const intent = keydownIntent(e, keydownContextFor(active, handlers.helpOverlay()));
         if (!intent) {
             return false;
         }
         e.preventDefault();
-        if (intent.kind === 'spectrum-step') {
-            handlers.stepSpectrum(intent.delta);
-        }
-        else if (intent.kind === 'shortcut') {
+        if (intent.kind === 'shortcut') {
             handlers.runShortcut(intent.action);
         }
         else if (intent.kind === 'toggle-playback') {

@@ -1994,15 +1994,22 @@ test('axes: カーソル時刻のスペクトルに Hz と dB のラベルが描
 });
 
 
+/** The cursor spectrum laid out `width` px wide, its box on screen its own size (as in a browser), drawn again at it. */
+async function sizeOverlay(env: ReturnType<typeof setupEnv>, width: number): Promise<HTMLCanvasElement> {
+    const doc = env.dom.window.document;
+    Object.defineProperty(doc.getElementById('spectrum-overlay-wrap'), 'clientWidth', { configurable: true, value: width });
+    const canvas = doc.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement;
+    canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: canvas.width, bottom: canvas.height, width: canvas.width, height: canvas.height } as DOMRect);
+    env.dom.window.dispatchEvent(new env.dom.window.Event('resize'));
+    for (let frame = 0; frame < 3; frame++) await nextAnimationFrame(env.dom);
+    return canvas;
+}
+
 test('spectrum cursor: overlay readout formats focused frequency as every plot does (R7)', async () => {
     const env = setupHighFrequencyReadoutEnv();
     await nextAnimationFrame(env.dom);
 
-    const canvas = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
-    assert.ok(canvas, 'spectrum-overlay-canvas が存在すること');
-    Object.defineProperty(canvas, 'width', { configurable: true, writable: true, value: 200 });
-    Object.defineProperty(canvas, 'height', { configurable: true, writable: true, value: 140 });
-    canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
+    const canvas = await sizeOverlay(env, 200);
 
     canvas.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 88, clientY: 30 }));
     await nextAnimationFrame(env.dom);
@@ -2019,11 +2026,7 @@ test('spectrum cursor: overlay readout identifies the hovered file and channel',
     const env = setupMultichannelEnv();
     await nextAnimationFrame(env.dom);
 
-    const canvas = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
-    assert.ok(canvas, 'spectrum-overlay-canvas が存在すること');
-    Object.defineProperty(canvas, 'width', { configurable: true, writable: true, value: 200 });
-    Object.defineProperty(canvas, 'height', { configurable: true, writable: true, value: 140 });
-    canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
+    const canvas = await sizeOverlay(env, 200);
 
     canvas.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 192, clientY: 12 }));
     await nextAnimationFrame(env.dom);
@@ -2043,7 +2046,7 @@ test('spectrum cursor: overlay keyboard focus updates the header readout', async
     const canvas = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
     assert.ok(canvas, 'spectrum-overlay-canvas が存在すること');
     canvas.focus();
-    env.dom.window.document.dispatchEvent(new env.dom.window.KeyboardEvent('keydown', { bubbles: true, code: 'ArrowRight' }));
+    canvas.dispatchEvent(new env.dom.window.KeyboardEvent('keydown', { bubbles: true, code: 'ArrowRight' }));
     await nextAnimationFrame(env.dom);
 
     const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
@@ -2057,25 +2060,20 @@ test('spectrum cursor: narrow canvas hover clears stale spectrum target', async 
     const env = setupMismatchedDeltaFSpectrumEnv();
     await nextAnimationFrame(env.dom);
 
-    const overlayCanvas = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
-    assert.ok(overlayCanvas, 'spectrum-overlay-canvas が存在すること');
-    Object.defineProperty(overlayCanvas, 'width', { configurable: true, writable: true, value: 200 });
-    Object.defineProperty(overlayCanvas, 'height', { configurable: true, writable: true, value: 140 });
-    overlayCanvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
+    const overlayCanvas = await sizeOverlay(env, 200);
 
     overlayCanvas.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 88, clientY: 30 }));
     await nextAnimationFrame(env.dom);
 
     const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
-    assert.notEqual(readout!.textContent || '', '', '事前条件としてhoverのreadoutが表示されること');
+    assert.equal(readout!.hidden, false, '事前条件としてhoverのreadoutが表示されること');
+    assert.notEqual(readout!.textContent || '', '');
 
-    Object.defineProperty(overlayCanvas, 'width', { configurable: true, writable: true, value: 20 });
-    overlayCanvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 20, bottom: 140, width: 20, height: 140 } as DOMRect);
-
+    await sizeOverlay(env, 20);
     overlayCanvas.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 10, clientY: 30 }));
     await nextAnimationFrame(env.dom);
 
-    assert.equal(readout!.textContent || '', '',
+    assert.equal(readout!.hidden, true,
         'plot幅がないcanvasでは前のスペクトルhover対象を持ち越さないこと');
     env.dom.window.close();
 });
@@ -2084,11 +2082,7 @@ test('spectrum cursor: overlay snaps to the nearest visible series bin when delt
     const env = setupMismatchedDeltaFSpectrumEnv();
     await nextAnimationFrame(env.dom);
 
-    const canvas = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
-    assert.ok(canvas, 'spectrum-overlay-canvas が存在すること');
-    Object.defineProperty(canvas, 'width', { configurable: true, writable: true, value: 200 });
-    Object.defineProperty(canvas, 'height', { configurable: true, writable: true, value: 140 });
-    canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
+    const canvas = await sizeOverlay(env, 200);
 
     canvas.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 73, clientY: 52 }));
     await nextAnimationFrame(env.dom);
@@ -2105,11 +2099,7 @@ test('spectrum cursor: overlay remains snapped after frequency zoom changes the 
     const env = setupMismatchedDeltaFSpectrumEnv();
     await nextAnimationFrame(env.dom);
 
-    const canvas = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
-    assert.ok(canvas, 'spectrum-overlay-canvas が存在すること');
-    Object.defineProperty(canvas, 'width', { configurable: true, writable: true, value: 200 });
-    Object.defineProperty(canvas, 'height', { configurable: true, writable: true, value: 140 });
-    canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 200, bottom: 140, width: 200, height: 140 } as DOMRect);
+    const canvas = await sizeOverlay(env, 200);
 
     canvas.dispatchEvent(new env.dom.window.MouseEvent('dblclick', { bubbles: true, clientX: 100, clientY: 135 }));
     const minI = env.dom.window.document.getElementById('spec-range-min') as HTMLInputElement;

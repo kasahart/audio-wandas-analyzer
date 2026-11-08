@@ -168,6 +168,7 @@ export const GUI_TRIGGERABILITY_SCOPED_SHORTCUTS = [
     'Compare / Overlay',
     'Show Δ',
     '← / →',
+    '← / → (over a plot)',
     'F',
     'L',
     'Wheel',
@@ -492,6 +493,13 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
         label: 'Box zoom with a drag on every lane; create, resize, clear, and reuse loop regions with Alt+drag',
         entryPoints: ['canvas-gesture', 'keyboard'],
         triggers: ['Drag', 'Alt+Drag', 'Shift+Drag', 'L'],
+        regressionLayers: ['node:test', 'ui-smoke'],
+    },
+    {
+        id: 'plot-readout-step',
+        label: 'Step the readout of the plot under the pointer (or the focused cursor spectrum) to the next or previous point with ← / →, on every plot',
+        entryPoints: ['canvas-gesture', 'keyboard'],
+        triggers: ['← / → (over a plot)'],
         regressionLayers: ['node:test', 'ui-smoke'],
     },
     {

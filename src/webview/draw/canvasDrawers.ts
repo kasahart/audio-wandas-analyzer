@@ -176,24 +176,3 @@ export interface SpectrumPlotFrame {
     dbMax: number;
 }
 
-export function drawSpectrumSelectionBox(
-    ctx: CanvasDrawCtx,
-    frame: SpectrumPlotFrame,
-    anchor: { freqNorm: number; dbNorm: number },
-    current: { freqNorm: number; dbNorm: number },
-): void {
-    const ax = frame.padLeft + anchor.freqNorm * frame.plotWidth;
-    const ay = frame.padTop + (1 - anchor.dbNorm) * frame.plotHeight;
-    const bx = frame.padLeft + current.freqNorm * frame.plotWidth;
-    const by = frame.padTop + (1 - current.dbNorm) * frame.plotHeight;
-    const rx = Math.min(ax, bx), ry = Math.min(ay, by);
-    const rw = Math.abs(bx - ax), rh = Math.abs(by - ay);
-    ctx.save();
-    ctx.strokeStyle = 'rgba(100,180,255,0.9)';
-    ctx.fillStyle = 'rgba(100,180,255,0.15)';
-    ctx.lineWidth = 1;
-    ctx.setLineDash([4, 3]);
-    ctx.fillRect(rx, ry, rw, rh);
-    ctx.strokeRect(rx, ry, rw, rh);
-    ctx.restore();
-}
