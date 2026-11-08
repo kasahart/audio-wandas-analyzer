@@ -203,3 +203,34 @@ test('a held slot asks once for every bin of its file and its base, then draws i
     assert.deepEqual(comparison.bins?.diff, [0, 12, 0, 0], 'every bin, so the one bin that differs is there');
     assert.equal(calls.filter(([kind]) => kind === 'post').length, 1, 'held again, nothing is asked anew');
 });
+
+test('a file scanned again since its bins were kept is asked for again, once, so a hold does not stay at 192 points', () => {
+    const withLevel = (level: number): ScanResult => ({ ...scanned(), spectrumDb: [[level, -50, -60]] });
+    const results = new Map<string, ScanResult>([['/d/a.wav', scanned()], ['/d/b.wav', scanned()]]);
+    const { window, plot, calls, state } = setup(results);
+    state.slots = [null, '/d/a.wav', null, null];
+    plot.press(1);
+    window.advance(TAP_MS);
+    plot.paint();
+    const posts = () => calls.filter(([kind]) => kind === 'post').map(([, message]) => message as { requestId: string; filePaths: string[] });
+    const answer = (filePath: string, result: ScanResult): void => {
+        const { requestId } = posts().at(-1)!;
+        plot.handle({ type: 'compare-scan-result', requestId, filePath, result: { ...result, spectrumBinsDb: [[-40, -40]], spectrumBinHz: 4000 } } as { type: string });
+        plot.handle({ type: 'compare-scan-done', requestId } as { type: string });
+    };
+    answer('/d/a.wav', scanned());
+    plot.paint();
+    answer('/d/b.wav', scanned());
+    plot.paint();
+    const asked = posts().length;
+    // The recording changed and the table scanned it again: its kept bins are of the old spectrum.
+    results.set('/d/a.wav', withLevel(-30));
+    plot.paint();
+    assert.equal(posts().length, asked + 1);
+    assert.deepEqual(posts().at(-1)!.filePaths, ['/d/a.wav']);
+    // The host's answer still differs from the table's (another scan of it): not asked again and again.
+    answer('/d/a.wav', scanned());
+    plot.paint();
+    plot.paint();
+    assert.equal(posts().length, asked + 1);
+});

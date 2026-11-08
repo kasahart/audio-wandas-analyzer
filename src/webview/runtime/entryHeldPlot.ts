@@ -111,6 +111,8 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
     const source = createStageSource('entry-hold', message => deps.post(message), () => deps.scheduleSide());
     // Every Welch bin of a held slot's file and its base: the table's own scans carry only the 192 points.
     const bins = createStageSource('held-bins', message => deps.post(message), () => deps.scheduleSide());
+    /** The table spectrum each file's bins were last asked for with (by spec and file). */
+    const binsAskedFor = new Map<string, string>();
     // Without the step − with it, taken by the backend from the Frames' full resolution (combineSource.ts).
     const combine = createCombineSource('held-combine', message => deps.post(message), () => deps.scheduleSide());
     /** The last zoomed difference of each held step, drawn until the next zoom's is in. */
@@ -211,6 +213,16 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
         const run = deps.scanRecipe();
         const spec: StageSpec = { key: `held-bins|${recipeKey(run)}`, message: { ...(run ? { recipe: run } : {}), spectrumBins: true } };
         const files = [path, ...deps.basePaths(path)].filter(file => deps.results.get(file)?.ok);
+        // A file scanned again since (changed on disk, the folder opened anew): its kept bins are of the old
+        // spectrum, so they are asked for again, once for each table spectrum (one that never matches is not asked forever).
+        for (const file of files) {
+            const kept = bins.result(spec, file);
+            const scanned = deps.results.get(file);
+            const own = JSON.stringify(scanned?.ok ? scanned.spectrumDb : null);
+            const key = `${spec.key}|${file}`;
+            if (kept?.ok && JSON.stringify(kept.spectrumDb) !== own && binsAskedFor.get(key) !== own) bins.forget(spec, file);
+            if (!kept || bins.result(spec, file) === undefined) binsAskedFor.set(key, own);
+        }
         const waiting = !!table.diffDb && bins.ensure(spec, files);
         if (waiting) { held.classList.add('is-pending'); title.textContent += ` · ${strings.comparePending}`; }
         const binned = new Map(files.flatMap(file => { const result = bins.result(spec, file); return result ? [[file, result] as [string, ScanResult]] : []; }));
