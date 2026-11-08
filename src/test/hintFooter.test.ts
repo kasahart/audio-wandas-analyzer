@@ -54,6 +54,20 @@ test('a page drawn again under a pointer at rest keeps the message written since
     assert.equal(footerEl.textContent, 'Export PNG');
 });
 
+test('a scroll under a pointer at rest still moves the hint to what is under the pointer now', () => {
+    const { dom, doc, footer, footerEl } = setup();
+    attachHoverHints(doc, footer);
+    const over = (target: Element): boolean => target.dispatchEvent(new dom.window.MouseEvent('mouseover', { bubbles: true, clientX: 100, clientY: 200 }));
+    over(doc.getElementById('label')!);
+    doc.getElementById('btn')!.dispatchEvent(new dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 100, clientY: 200 }));
+    assert.equal(footerEl.textContent, 'Export PNG');
+    // Scrolled: the canvas (no hint) is now under the same point, and nothing else was written: the hint goes.
+    over(doc.querySelector('.track-canvas')!);
+    assert.equal(footerEl.textContent, '');
+    over(doc.getElementById('label')!);
+    assert.equal(footerEl.textContent, 'Export PNG');
+});
+
 test('attachCanvasFocusHint shows the key hint in the footer on focus and clears it on blur', () => {
     const { dom, doc, footer, footerEl } = setup();
     const canvas = doc.querySelector('.track-canvas') as HTMLElement;
