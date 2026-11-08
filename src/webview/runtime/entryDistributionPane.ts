@@ -294,6 +294,7 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
         },
         hideBox() { zoomBox.hidden = true; },
         openAxisRange: () => false,
+        horizontalOnly: true,
     });
     // A double-click on the value axis strip types its range.
     axisCanvas.addEventListener('dblclick', event => {

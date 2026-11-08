@@ -27,9 +27,9 @@ const base = (filePath: string): string => path.basename(filePath);
 /** Alt+drags across the distribution from one value to another, as a user marks a range (a plain drag zooms). */
 async function dragRange(page: Page, low: number, high: number): Promise<void> {
     const { low: min, high: max } = await dist(page);
-    const box = (await page.locator('[data-entry-dist-plot]').boundingBox())!;
-    // The plot's x axis: 92 px of group names on the left, 12 on the right.
-    const x = (value: number): number => box.x + 92 + (value - min) / (max - min) * (box.width - 104);
+    // The value axis across a row's canvas, where its bars are drawn (not an assumed margin).
+    const box = (await page.locator('[data-dist-canvas]').first().boundingBox())!;
+    const x = (value: number): number => box.x + (value - min) / (max - min) * box.width;
     await page.keyboard.down('Alt');
     await page.mouse.move(x(low), box.y + 20);
     await page.mouse.down();
@@ -167,6 +167,23 @@ test('a group of two recordings is drawn as dots, and a dot goes to its row; a c
     const range = (await dist(page)).range!;
     const { low, high } = await dist(page);
     expect(range.high - range.low).toBeCloseTo((high - low) / 48, 5);
+    // The bin picked is the one the dot is drawn in: its value, read where the canvas drew it.
+    const value = low + off.x / at.width * (high - low);
+    expect(value).toBeGreaterThanOrEqual(range.low - (high - low) * 1e-3);
+    expect(value).toBeLessThanOrEqual(range.high + (high - low) * 1e-3);
+    // Each row's canvas spans the value axis strip's plot: drawing, the axis and picking share one origin.
+    const plot = (await page.locator('[data-entry-dist-plot]').boundingBox())!;
+    expect(at.x - plot.x).toBeCloseTo(92, 0);
+    expect(plot.x + plot.width - (at.x + at.width)).toBeCloseTo(12, 0);
+    // A plain drag along the row, without moving up or down, is the box zoom of the value axis (its counts stay whole).
+    await page.keyboard.press('Escape');
+    const row = page.locator('[data-dist-group="900"] [data-dist-canvas]');
+    const rowBox = (await row.boundingBox())!;
+    await page.mouse.move(rowBox.x + rowBox.width * 0.3, rowBox.y + rowBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(rowBox.x + rowBox.width * 0.6, rowBox.y + rowBox.height / 2, { steps: 5 });
+    await page.mouse.up();
+    await expect.poll(async () => ((await row.getAttribute('data-plot-window')) ?? '').split(' ').map(Number)).toEqual([0.3, 0.6, 0, 1].map(v => expect.closeTo(v, 1)));
     expect((await snapshot(page)).visible).toBeGreaterThan(0);
 });
 

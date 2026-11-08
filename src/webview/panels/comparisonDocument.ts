@@ -2,6 +2,7 @@ import { escapeHtml, serializeForScript } from '../../shared/utils/webviewEscapi
 import { getStrings, pickLocale } from '../../shared/i18n/strings';
 import type { ComparisonState } from '../runtime/types';
 import { createNonce } from './nonce';
+import { DIST_MARGINS } from '../runtime/entryDistribution';
 import { DIFF_COLOR, FLAG_COLOR, LIGHT_DIFF_COLOR, LIGHT_ROLE_COLORS, LIGHT_THEME_BODY_SELECTORS, ROLE_COLORS } from '../../shared/gui/roleColors';
 
 export interface ComparisonAssets {
@@ -258,7 +259,7 @@ export function renderComparisonStyles(): string {
         .entry-dist-count-axis { position: absolute; left: 4px; top: 20px; color: var(--muted); font-size: 11px; }
         .entry-dist-plot { position: relative; user-select: none; touch-action: none; }
         .entry-dist-row { position: relative; display: flex; }
-        .entry-dist-label { width: 88px; padding: 2px 0 0 4px; display: flex; flex-direction: column; overflow: hidden; }
+        .entry-dist-label { flex: none; width: ${DIST_MARGINS.left}px; padding: 2px 0 0 4px; display: flex; flex-direction: column; overflow: hidden; }
         .entry-dist-canvas { display: block; margin-top: 4px; cursor: crosshair; }
         .entry-dist-name { color: var(--text); font-size: 12px; white-space: nowrap; }
         .entry-dist-count { color: var(--muted); font-size: 11px; font-family: var(--font-mono); }
