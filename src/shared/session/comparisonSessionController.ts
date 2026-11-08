@@ -229,7 +229,7 @@ export class ComparisonSessionController {
     private async lazy(request: LazyAnalysisRequest, scope: SessionScope): Promise<void> {
         let context: CalibrationRequestContext | undefined;
         // A zoomed lane's spectrogram window is asked beside the whole file's: neither cancels the other.
-        const windowed = request.type === 'request-track-detail' && request.startNorm !== undefined ? '\u0000window' : '';
+        const windowed = request.type === 'request-track-detail' && (request.startNorm !== undefined || request.lowHz !== undefined) ? '\u0000window' : '';
         const slot = `${request.type}\u0000${request.trackIndex}\u0000${request.filePath}${windowed}`;
         const cancellation = new RequestCancellation();
         this.lazyInFlight.get(slot)?.cancel();

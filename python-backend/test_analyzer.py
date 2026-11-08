@@ -69,7 +69,8 @@ def test_service_analyze_defaults(tmp_path: Path, service: AnalysisService) -> N
     assert set(result) == _typed_dict_keys(AnalysisResult)
     assert set(ch) == _typed_dict_keys(ChannelSummary)
     assert set(ch["measurement"]) == _typed_dict_keys(MeasurementMetadata)
-    assert set(spec) == _typed_dict_keys(SpectrogramPayload)
+    # The band keys come only with a band zoom (test_a_band_zoomed_track_detail_draws_the_band_from_its_own_fft_bins).
+    assert set(spec) == _typed_dict_keys(SpectrogramPayload) - {"bandLowHz", "bandHighHz"}
     assert result["units"]["spectrumLevel"] == {
         "unit": "dBFS",
         "axisLabel": "Spectrum amplitude level [dBFS]",
@@ -519,6 +520,45 @@ def test_zoomed_track_detail_draws_the_window_from_every_frame_in_it(tmp_path: P
     assert centers[0] <= 12.0 <= centers[1] and centers[-2] <= 13.5 <= centers[-1]
     assert np.all(np.diff(centers) == pytest.approx(hop_sec))
     assert len(centers) == pytest.approx(1.5 / hop_sec, abs=3)
+
+
+def test_a_band_zoomed_track_detail_draws_the_band_from_its_own_fft_bins(
+    tmp_path: Path, service: AnalysisService
+) -> None:
+    # R3 up the frequency axis: two tones 31 Hz apart share one of the whole range's 192 rows (about 42 Hz each at
+    # 16 kHz) and read as one; the band asked for gets its own FFT bins (7.8 Hz apart), so they are two.
+    rate, seconds = 16000, 2.0
+    t = np.arange(int(rate * seconds)) / rate
+    tones = (1000.0, 1031.25)
+    wav = tmp_path / "two-tones.wav"
+    signal = 0.3 * np.sin(2 * np.pi * tones[0] * t) + 0.3 * np.sin(2 * np.pi * tones[1] * t)
+    sf.write(wav, signal.astype(np.float32), rate)
+    options = {"n_fft": 2048, "overlap_percent": 50, "window": "hann"}
+    whole = service.track_detail(wav, stft_options=options)["channels"][0]["spectrogram"]
+    band = service.track_detail(wav, stft_options=options, frequency_band=(900.0, 1100.0))["channels"][0]["spectrogram"]
+    bin_hz = rate / 2048
+
+    def peaks(spec: dict, low: float, high: float) -> list[float]:
+        values = np.asarray(spec["values"], dtype=float).mean(axis=0)
+        rows = np.linspace(low, high, spec["frequencyBins"])
+        inside = (rows >= 900) & (rows <= 1100)
+        level, hz = values[inside], rows[inside]
+        return [
+            hz[k]
+            for k in range(1, len(level) - 1)
+            if level[k] > level[k - 1] and level[k] >= level[k + 1] and level[k] > level.max() - 6
+        ]
+
+    assert "bandLowHz" not in whole and whole["frequencyBins"] == 192
+    assert len(peaks(whole, 0.0, whole["maxFrequencyHz"])) <= 1
+    # The band's bins: those inside it and one beside each end, at their own frequencies.
+    assert band["bandLowHz"] == pytest.approx((np.ceil(900 / bin_hz) - 1) * bin_hz)
+    assert band["bandHighHz"] == pytest.approx((np.floor(1100 / bin_hz) + 1) * bin_hz)
+    assert band["frequencyBins"] == round((band["bandHighHz"] - band["bandLowHz"]) / bin_hz) + 1
+    assert band["maxFrequencyHz"] == whole["maxFrequencyHz"] and band["timeBins"] == whole["timeBins"]
+    found = peaks(band, band["bandLowHz"], band["bandHighHz"])
+    assert len(found) == 2
+    assert np.allclose(sorted(found), tones, atol=bin_hz)
 
 
 def test_a_zoom_window_costs_its_own_frames_and_samples_not_the_whole_files(

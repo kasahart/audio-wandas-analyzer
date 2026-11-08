@@ -167,6 +167,10 @@ DEFINITIONS: dict[str, Schema] = {
             "referenceUnit": {"type": "string"},
             "levelReferenceLabel": {"type": "string"},
             "timeCentersSec": _NUMBERS,
+            # A zoomed band's rows run from bandLowHz (its first FFT bin kept) to bandHighHz;
+            # absent: 0 to maxFrequencyHz.
+            "bandLowHz": _NUMBER,
+            "bandHighHz": _NUMBER,
         },
     },
     "ChannelSummary": {
@@ -253,6 +257,10 @@ DEFINITIONS: dict[str, Schema] = {
             # resolution up to the display limits (R3); absent for the whole file.
             "startNorm": _NUMBER,
             "endNorm": _NUMBER,
+            # A lane zoomed up its frequency axis: its spectrogram from the FFT bins in this band (Hz), at full
+            # resolution up to the row limit (R3); absent for every frequency.
+            "lowHz": _NUMBER,
+            "highHz": _NUMBER,
         },
     },
     "TrackDetailResult": {

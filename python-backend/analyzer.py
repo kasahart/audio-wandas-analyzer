@@ -76,6 +76,9 @@ class SpectrogramPayload(LevelScaleMetadata):
     # Seconds from the file start to each time bin's centre: its STFT window centre,
     # or the mean centre of the frames merged into it.
     timeCentersSec: NotRequired[list[float]]
+    # A zoomed band's rows run from the first FFT bin kept to the last (Hz); absent: 0 to maxFrequencyHz.
+    bandLowHz: NotRequired[float]
+    bandHighHz: NotRequired[float]
 
 
 class ChannelSummary(TypedDict):
@@ -301,6 +304,18 @@ def spectrogram_window_frames(frame_centers_sec: np.ndarray, duration_sec: float
     return slice(first, last)
 
 
+def spectrogram_band_bins(bin_count: int, bin_hz: float, band: tuple[float, float]) -> slice:
+    """The FFT bins a lane zoomed to ``band`` (Hz) draws: those inside it, one more beside each end so the picture
+    reaches the band's edges, and at least two (their frequencies place the rows)."""
+    low, high = sorted((float(band[0]), float(band[1])))
+    first = max(0, int(math.ceil(low / bin_hz - 1e-9)) - 1)
+    last = min(bin_count, int(math.floor(high / bin_hz + 1e-9)) + 2)
+    if last - first < 2:
+        last = min(bin_count, max(last, first + 2))
+        first = max(0, min(first, last - 2))
+    return slice(first, last)
+
+
 def zoom_window_spectrogram(
     frame: wd.ChannelFrame, n_fft: int, window: str, time_window: tuple[float, float]
 ) -> tuple[wd.SpectrogramFrame, np.ndarray, int]:
@@ -334,6 +349,7 @@ def _build_spectrogram(
     time_bin_limit: int = SPECTROGRAM_TIME_BIN_LIMIT,
     frequency_bin_limit: int = SPECTROGRAM_FREQUENCY_BIN_LIMIT,
     frame_centers_sec: np.ndarray | None = None,
+    band_hz: tuple[float, float] | None = None,
 ) -> SpectrogramPayload:
     if spectrogram_db.size == 0:
         return {
@@ -372,6 +388,8 @@ def _build_spectrogram(
     if frame_centers_sec is not None and len(frame_centers_sec) == spectrogram_db.shape[0]:
         centers = np.asarray(frame_centers_sec, dtype=np.float64)
         payload["timeCentersSec"] = _resample_time_centers(centers, time_bin_limit).tolist()
+    if band_hz is not None:
+        payload["bandLowHz"], payload["bandHighHz"] = float(band_hz[0]), float(band_hz[1])
     return payload
 
 
@@ -436,6 +454,7 @@ def analyze_from_frame(
     spectrogram_window: tuple[float, float] | None = None,
     spectrogram_centers_sec: np.ndarray | None = None,
     spectrogram_hop_size: int | None = None,
+    spectrogram_band: tuple[float, float] | None = None,
 ) -> AnalysisResult:
     """Build the AnalysisResult JSON payload from a ChannelFrame.
 
@@ -443,7 +462,9 @@ def analyze_from_frame(
     each end, so a zoomed lane is drawn from every frame on screen (R3) rather than the whole file's averaged down.
     The STFT is cut before its dB conversion and each channel's envelope and peak are built from the window's samples,
     so the answer costs the window, not the file. ``spectrogram_centers_sec`` and ``spectrogram_hop_size`` describe a
-    ``spectrogram_frame`` computed from part of the file (``zoom_window_spectrogram``).
+    ``spectrogram_frame`` computed from part of the file (``zoom_window_spectrogram``). ``spectrogram_band`` (Hz) keeps
+    only the FFT bins in it, and one beside each end, so a lane zoomed up its frequency axis gets that band's own bins
+    (up to the row limit) instead of the whole range's averaged rows stretched (R3).
     """
     target = Path(file_path)
     t_frame = time.perf_counter()
@@ -466,6 +487,7 @@ def analyze_from_frame(
         hop_size = spectrogram_hop_size
     stft_db: np.ndarray | None = None
     frame_centers: np.ndarray | None = None
+    band_hz: tuple[float, float] | None = None
     # A zoom window's samples: its envelope is built from them only (the lane reads only its spectrogram).
     window_samples: tuple[int, int] = (0, sample_count)
     if include_spectrogram:
@@ -491,6 +513,11 @@ def analyze_from_frame(
             stft_db = stft_db[np.newaxis, :, :]
         elif stft_db.ndim != 3:
             raise ValueError(f"Expected 2D or 3D spectrogram data, got shape {stft_db.shape}")
+        if spectrogram_band is not None:
+            bin_hz = sample_rate_hz / 2 / max(1, stft_db.shape[1] - 1)
+            band_bins = spectrogram_band_bins(stft_db.shape[1], bin_hz, spectrogram_band)
+            stft_db = stft_db[:, band_bins, :]
+            band_hz = (band_bins.start * bin_hz, (band_bins.stop - 1) * bin_hz)
 
     t_channels = time.perf_counter()
     channels: list[ChannelSummary] = []
@@ -514,6 +541,7 @@ def analyze_from_frame(
                 hop_size,
                 level_scale_metadata(references[index], "STFT amplitude level"),
                 frame_centers_sec=frame_centers,
+                band_hz=band_hz,
             )
         channels.append(
             {

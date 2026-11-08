@@ -4,7 +4,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { spectrogramWindowServes, spectrogramZoomWindow } from '../webview/spectrum/spectrogramZoom';
+import { spectrogramBandServes, spectrogramRowSpan, spectrogramWindowServes, spectrogramZoomBand, spectrogramZoomWindow, type SpectrogramBandSource } from '../webview/spectrum/spectrogramZoom';
 
 // A 30 s file at 16 kHz with a 64-sample hop: 7500 frames, averaged down to 720 columns.
 const long = { columns: 720, frames: 7500 };
@@ -57,4 +57,29 @@ test('with the automatic settings, where a window gets its own hop, the lane ask
     assert.ok(spectrogramWindowServes(auto, window, view, 1600));
     // The same file with set settings whose frames are exactly its columns has nothing finer to bring.
     assert.equal(spectrogramZoomWindow({ columns: 720, frames: 720 }, view, 1600), null);
+});
+
+test('up the frequency axis: the whole range\'s rows serve a wide band; a narrow one asks for its own bins, a little wider than shown (R3)', () => {
+    // 192 rows over 0–8 kHz from 1025 FFT bins (n_fft 2048): about 42 Hz a row, 7.8 Hz a bin; a 200 px lane.
+    const source: SpectrogramBandSource = { rows: 192, bins: 1025, nyquistHz: 8000 };
+    assert.equal(spectrogramZoomBand(source, { lowHz: 0, highHz: 8000 }, 200), null, 'all of it: 192 rows for 100 wanted');
+    assert.equal(spectrogramBandServes(source, null, { lowHz: 0, highHz: 4000 }, 200), true, 'half: 96 rows, about the 100 wanted');
+    // 900–1100 Hz: 4.8 rows of the whole range, 25.6 bins, 100 px of rows wanted.
+    assert.equal(spectrogramBandServes(source, null, { lowHz: 900, highHz: 1100 }, 200), false);
+    const band = spectrogramZoomBand(source, { lowHz: 900, highHz: 1100 }, 200);
+    assert.ok(band);
+    assert.ok(band.lowHz <= 900 && band.highHz >= 1100, 'covers what is shown');
+    assert.ok(band.highHz - band.lowHz <= 400 + 1e-9, 'no wider than twice the band shown');
+    assert.equal(spectrogramBandServes(source, band, { lowHz: 900, highHz: 1100 }, 200), true, 'its rows serve it');
+    assert.equal(spectrogramBandServes(source, band, { lowHz: 700, highHz: 900 }, 200), false, 'panned out of it, it no longer covers');
+    // Near the ends the band stays inside 0 Hz to Nyquist.
+    const bottom = spectrogramZoomBand(source, { lowHz: 0, highHz: 100 }, 200);
+    assert.ok(bottom && bottom.lowHz === 0 && bottom.highHz >= 100);
+    const top = spectrogramZoomBand(source, { lowHz: 7900, highHz: 8000 }, 200);
+    assert.ok(top && top.highHz === 8000 && top.lowHz <= 7900);
+});
+
+test('a spectrogram\'s rows run across its band when it has one, else from 0 Hz to Nyquist', () => {
+    assert.deepEqual(spectrogramRowSpan({ maxFrequencyHz: 8000 }), { lowHz: 0, highHz: 8000 });
+    assert.deepEqual(spectrogramRowSpan({ maxFrequencyHz: 8000, bandLowHz: 890.625, bandHighHz: 1109.375 }), { lowHz: 890.625, highHz: 1109.375 });
 });
