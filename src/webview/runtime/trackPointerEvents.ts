@@ -25,12 +25,14 @@ type PointerSurface = Pick<HTMLElement, 'addEventListener' | 'contains'>;
 export interface PlotSelectors {
     plot: string;
     axis?: string;
+    /** A plot with the keyboard focus keeps ← / → for itself, pointer over it or not: a focused lane moves its time cursor. */
+    focusKeepsArrows?: boolean;
 }
 
 /** Wheel events further apart than this start a new swipe. */
 const SWIPE_PAUSE_MS = 150;
 
-const TRACK_SELECTORS: PlotSelectors = { plot: '.track-canvas', axis: '.track-axis-canvas' };
+const TRACK_SELECTORS: PlotSelectors = { plot: '.track-canvas', axis: '.track-axis-canvas', focusKeepsArrows: true };
 
 /**
  * The analyzer's pointer gestures on its plots, as the track lanes define them: hover, press–drag–release
@@ -67,7 +69,7 @@ export function attachTrackPointerListeners(tracksWrapper: PointerSurface, doc: 
     tracksWrapper.addEventListener('mouseleave', function () { over = null; handlers.clearHover(); });
     // A plot given the focus from the keyboard reads where it starts, so the arrows have a point to step from;
     // let go of the focus with the pointer elsewhere, its readout goes.
-    tracksWrapper.addEventListener('focusin', function (e) { const plot = plotOf(e.target); if (plot && !over) handlers.step(plot, 0); });
+    tracksWrapper.addEventListener('focusin', function (e) { const plot = plotOf(e.target); if (plot && !over && !selectors.focusKeepsArrows) handlers.step(plot, 0); });
     tracksWrapper.addEventListener('focusout', function (e) { const plot = plotOf(e.target); if (plot && plot !== over) handlers.clearHover(); });
     keys.add({
         layer: 'plot',
@@ -75,7 +77,8 @@ export function attachTrackPointerListeners(tracksWrapper: PointerSurface, doc: 
             const delta = e.code === 'ArrowLeft' ? -1 : e.code === 'ArrowRight' ? 1 : 0;
             if (!delta || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || isTextEntryTarget(e.target)) return false;
             const plot = over && over.isConnected ? over : plotOf(e.target);
-            if (!plot || !handlers.step(plot, delta)) return false;
+            // A key goes to the focused element: a lane with the focus moves its cursor, as its arrows always have.
+            if (!plot || (selectors.focusKeepsArrows && plot === e.target) || !handlers.step(plot, delta)) return false;
             e.preventDefault();
             return true;
         },

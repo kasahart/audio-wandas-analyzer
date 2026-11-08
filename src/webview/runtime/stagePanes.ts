@@ -1208,6 +1208,12 @@ export interface StageRead {
     /** The point read: its index in the line's values (−1 for a signal's envelope point or an image's cell), and a signal's time. */
     index?: number;
     time?: number;
+    /**
+     * How far the point read is from the pointer, as nearestPoint orders it: a point within the pick radius by its
+     * distance, any other (a line read at the pointer's column, its point perhaps held at the plot's edge) past the
+     * radius. So the hits of two parts of a plot (its two level axes) are ordered as the hits of one are.
+     */
+    away?: number;
 }
 
 export function stageHover(plot: StagePlot, x: number, y: number): StageRead | null {
@@ -1223,13 +1229,13 @@ export function stageHover(plot: StagePlot, x: number, y: number): StageRead | n
         // A signal reads its amplitude in its unit, to 3 figures, where its point is.
         const value = hit.point.value, unit = view.waveform.unit || plot.signal?.unit;
         const amount = amountText(value, unit);
-        return { ...readoutOf(hit.s, hit.point, hit.s.label ?? '', [timeText(plot, hit.point.time ?? 0), amount]), index: -1, time: hit.point.time };
+        return { ...readoutOf(hit.s, hit.point, hit.s.label ?? '', [timeText(plot, hit.point.time ?? 0), amount]), index: -1, time: hit.point.time, away: hit.away };
     }
-    if (hit.s.readout) return { ...readoutOf(hit.s, hit.point, hit.s.label ?? '', hit.s.readout(hit.point.index)), index: hit.point.index };
+    if (hit.s.readout) return { ...readoutOf(hit.s, hit.point, hit.s.label ?? '', hit.s.readout(hit.point.index)), index: hit.point.index, away: hit.away };
     const amount = plot.diff ? signed(hit.point.value, isDb(view))
         // Levels to 0.1 dB, as the spectrum overlay reads them; other quantities (a coherence) to 3 figures.
         : isDb(view) ? levelText(hit.point.value) : amountText(hit.point.value, view.unit);
-    return { ...readoutOf(hit.s, hit.point, hit.s.label || (plot.diff ? 'Δ' : ''), [atText(view, hit.point.index), amount]), index: hit.point.index };
+    return { ...readoutOf(hit.s, hit.point, hit.s.label || (plot.diff ? 'Δ' : ''), [atText(view, hit.point.index), amount]), index: hit.point.index, away: hit.away };
 }
 
 /**

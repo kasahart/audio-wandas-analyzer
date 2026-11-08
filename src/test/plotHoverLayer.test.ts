@@ -63,3 +63,16 @@ test('with two level axes a point is read on either, and the level guide runs on
     assert.equal(layer.reading()?.layer.label, 'left');
     assert.ok(has([50, 100, 100, 100]) && !has([50, 100, 150, 100]), 'from the left-hand axis to the point');
 });
+
+test('with two level axes a line a level zoom clips off the plot is not read over a point on it within the pick radius', () => {
+    const { plot, slot, layer } = setup();
+    const drawn = plotWith([line('shown', '#00f', [8, 8, 8, 8, 8, 8, 8, 8, 8, 8])], [line('clipped', '#ff0', [0, 0, 0, 0, 0, 0, 0, 0, 0, 0])]);
+    // The right-hand axis is zoomed so its line is far above the plot: drawn off it, its point held at the top edge (y 10).
+    const secondary = drawn.secondary!;
+    secondary.lineYAt = secondary.yAt;
+    secondary.yAt = (v: number) => Math.max(10, Math.min(110, 110 - (v + 100) * 10));
+    // The pointer 5 px under the top edge, 15 px over the shown line (at y 30): that line's point is read.
+    layer.show(plot, drawn, 100, 15, slot);
+    assert.equal(layer.reading()?.layer.label, 'shown');
+    assert.match(slot!.textContent ?? '', /^shown \/ /u);
+});

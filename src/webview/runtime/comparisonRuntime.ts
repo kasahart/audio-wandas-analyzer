@@ -2,7 +2,7 @@ import { channelLabel, channelsForResult, formatClockTime } from '../../shared/u
 import { niceRange } from '../../shared/utils/ticks';
 import { linkedSpectrogramBounds, spectrogramDisplayBounds, spectrogramFailureText } from './spectrogramRaster';
 import { laneWaveformOverlay, onColourBar, paintTrackSpectrogram, type SpectrogramRasterCacheEntry } from './trackCanvasPainter';
-import { laneHoverPoint, laneReadoutText, spectrogramCellAt, spectrogramReadoutText, type LanePoint } from './trackLaneHover';
+import { laneHoverPoint, laneReadoutText, spectrogramCellAt, spectrogramNeighbourNorm, spectrogramReadoutText, type LanePoint } from './trackLaneHover';
 import { hidePlotReadout, paintHoverMarks, PLOT_READOUT_ID, showPlotReadout } from './plotHover';
 import { trackTimelinePlacement, waveformCoverageFromExtent } from './waveformCoverage';
 import { envelopePeak } from '../waveform/envelopePeak';
@@ -2377,9 +2377,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const placement = trackTimelinePlacement(trackRuntimeAt(trackIndex).offsetSeconds, result.durationSeconds, trackStore.globalSpan());
             const norm = view.start + (clientX - rect.left) / rect.width * (view.end - view.start);
             const local = placement.trackDurRatio > 0 ? (norm - placement.offsetNorm) / placement.trackDurRatio : NaN;
-            const bin = Math.min(spec.timeBins - 1, Math.max(0, Math.floor(local * spec.timeBins))) + delta;
-            if (!(bin >= 0 && bin < spec.timeBins)) return false;
-            const next = placement.offsetNorm + (bin + 0.5) / spec.timeBins * placement.trackDurRatio;
+            // The next column as the raster drew it: a zoomed detail's columns cover only its window of the file.
+            const nextLocal = spectrogramNeighbourNorm(spec, local, delta, result.durationSeconds);
+            if (nextLocal === null) return false;
+            const next = placement.offsetNorm + nextLocal * placement.trackDurRatio;
             const x = rect.left + (next - view.start) / Math.max(1e-12, view.end - view.start) * rect.width;
             if (x < rect.left || x > rect.left + rect.width) return false;
             showSpectrogramReadout(canvas, x, clientY);

@@ -56,11 +56,15 @@ export function createPlotHoverLayer(document: Document, className = '', parent:
         const frame = drawn?.frame ?? { left: STAGE_MARGINS.left, top: STAGE_MARGINS.top, width: Math.max(1, rect.width - STAGE_MARGINS.left - STAGE_MARGINS.right), height: Math.max(1, rect.height - STAGE_MARGINS.top - STAGE_MARGINS.bottom) };
         return { context, rect, frame };
     };
-    /** The point (`x`, `y`) reads: of the plot's lines, or of those on its right-hand level axis, whichever point is nearer. */
+    /**
+     * The point (`x`, `y`) reads: of the plot's lines, or of those on its right-hand level axis, whichever is nearer as
+     * one plot's lines are ordered (stageHover's `away`): a point within the pick radius before any line read only at
+     * the pointer's column, whose point a level zoom may hold at the plot's edge.
+     */
     const readAt = (drawn: StagePlot, x: number, y: number): { on: StagePlot; read: StageRead } | null => {
         const own = stageHover(drawn, x, y);
         const second = drawn.secondary?.lines.length ? stageHover(drawn.secondary, x, y) : null;
-        const away = (read: StageRead): number => Math.hypot(read.x - x, read.y - y);
+        const away = (read: StageRead): number => read.away ?? Math.hypot(read.x - x, read.y - y);
         if (second && (!own || away(second) < away(own))) return { on: drawn.secondary as StagePlot, read: second };
         return own ? { on: drawn, read: own } : null;
     };

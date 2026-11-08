@@ -2,10 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 import { keyRouterFor } from '../webview/runtime/keyRouter';
-import { attachTrackPointerListeners } from '../webview/runtime/trackPointerEvents';
+import { attachTrackPointerListeners, type PlotSelectors } from '../webview/runtime/trackPointerEvents';
 
-function setup(axisOpens = false, steps = true) {
-    const { window } = new JSDOM('<!doctype html><body><div id="tracks"><canvas class="track-canvas" tabindex="0"></canvas><canvas class="track-axis-canvas"></canvas><span class="label"></span></div><input id="field"></body>');
+/** `selectors`: the lanes' own when left out (a focused lane keeps its arrows); a pane's (plotInteraction.ts) otherwise. */
+function setup(axisOpens = false, steps = true, selectors?: PlotSelectors) {
+    const { window } = new JSDOM('<!doctype html><body><div id="tracks"><canvas class="track-canvas" tabindex="0"></canvas><canvas class="track-axis-canvas"></canvas><span class="label"></span><canvas class="track-canvas" id="lane2" tabindex="0"></canvas></div><input id="field"></body>');
     const doc = window.document;
     const wrapper = doc.getElementById('tracks') as HTMLElement;
     const calls: string[] = [];
@@ -20,7 +21,7 @@ function setup(axisOpens = false, steps = true) {
         release: () => { calls.push('release'); },
         zoomWheel: () => { calls.push('zoom'); },
         panWheel: (_e, swipe) => { calls.push(swipe ? 'swipe' : 'pan'); },
-    });
+    }, selectors);
     const at = (selector: string) => doc.querySelector(selector) as HTMLElement;
     return { window, doc, wrapper, calls, at };
 }
@@ -96,13 +97,16 @@ test('attachTrackPointerListeners keeps a swipe on the direction it started with
     assert.deepEqual(calls, ['swipe', 'swipe']);
 });
 
+const keyIn = (window: JSDOM['window'], doc: Document) => (code: string, init: KeyboardEventInit = {}, target: EventTarget = doc.body): boolean => {
+    const event = new window.KeyboardEvent('keydown', { code, key: code, bubbles: true, cancelable: true, ...init });
+    target.dispatchEvent(event);
+    return event.defaultPrevented;
+};
+
 test('← / → step the readout of the plot under the pointer, or of a focused one, and go on when it reads nothing (R7)', () => {
-    const { window, doc, calls, at } = setup();
-    const key = (code: string, init: KeyboardEventInit = {}, target: EventTarget = doc.body) => {
-        const event = new window.KeyboardEvent('keydown', { code, key: code, bubbles: true, cancelable: true, ...init });
-        target.dispatchEvent(event);
-        return event.defaultPrevented;
-    };
+    // A pane's plot (plotInteraction.ts): focused, it takes the arrows too.
+    const { window, doc, calls, at } = setup(false, true, { plot: '.track-canvas', axis: '.track-axis-canvas' });
+    const key = keyIn(window, doc);
     // Off every plot the arrows are not the plots'.
     assert.equal(key('ArrowRight'), false);
     at('.track-canvas').dispatchEvent(new window.MouseEvent('mousemove', { bubbles: true }));
@@ -126,4 +130,23 @@ test('an arrow over a plot that reads nothing goes on to the keys behind it', ()
     const event = new window.KeyboardEvent('keydown', { code: 'ArrowRight', key: 'ArrowRight', bubbles: true, cancelable: true });
     doc.body.dispatchEvent(event);
     assert.equal(event.defaultPrevented, false);
+});
+
+test('a lane with the keyboard focus keeps ← / → for its time cursor, even with the pointer on it; the pointer on another lane steps that one\'s readout (R7)', () => {
+    const { window, doc, calls, at } = setup();
+    const key = keyIn(window, doc);
+    const lane = at('.track-canvas'), other = at('#lane2');
+    // Clicked to place the cursor, the pointer left where it is: focus and pointer on the same lane.
+    lane.focus();
+    lane.dispatchEvent(new window.MouseEvent('mousemove', { bubbles: true }));
+    assert.equal(key('ArrowRight', {}, lane), false, 'goes on to the lanes\' cursor');
+    assert.equal(key('ArrowLeft', {}, lane), false);
+    // The pointer on another lane: that lane's readout steps, the focused one's cursor stays.
+    other.dispatchEvent(new window.MouseEvent('mousemove', { bubbles: true }));
+    assert.equal(key('ArrowRight', {}, lane), true);
+    // The focus let go: the lane under the pointer steps.
+    lane.blur();
+    lane.dispatchEvent(new window.MouseEvent('mousemove', { bubbles: true }));
+    assert.equal(key('ArrowRight'), true);
+    assert.deepEqual(calls.filter(call => call.startsWith('step')), ['step:track-canvas:1', 'step:track-canvas:1']);
 });

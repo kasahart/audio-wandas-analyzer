@@ -78,6 +78,23 @@ export function spectrogramCellAt(spec: Pick<SpectrogramData, 'values' | 'timeBi
     return level === undefined || !Number.isFinite(level) ? null : { frequencyHz: lowHz + bin * stepHz, level, stepHz };
 }
 
+/**
+ * Where an arrow key reads next on a spectrogram lane (R7): the centre of the time bin `delta` along from the one
+ * holding `localNorm` (the file's 0..1), as a track-local norm; null past the first or last bin. The bins are placed
+ * as the raster places them (spectrogramTimeBinEdges): a zoomed detail's columns cover only its window of the file,
+ * at their own frame centres.
+ */
+export function spectrogramNeighbourNorm(spec: Pick<SpectrogramData, 'timeBins' | 'timeCentersSec'>, localNorm: number, delta: -1 | 1, durationSec?: number): number | null {
+    if (!(spec.timeBins > 0) || !Number.isFinite(localNorm)) return null;
+    const edges = spectrogramTimeBinEdges(spec, durationSec);
+    const from = edges ? spectrogramTimeBinAt(edges, localNorm) : Math.min(spec.timeBins - 1, Math.max(0, Math.floor(localNorm * spec.timeBins)));
+    // Off a detail's window the first key reads its nearest column, not the one past it.
+    const outside = edges ? (localNorm < edges[0] && delta > 0) || (localNorm >= edges[spec.timeBins] && delta < 0) : false;
+    const bin = outside ? from : from + delta;
+    if (!(bin >= 0 && bin < spec.timeBins)) return null;
+    return edges && durationSec ? (spec.timeCentersSec as number[])[bin] / durationSec : (bin + 0.5) / spec.timeBins;
+}
+
 /** "name / 1.234 s / 1 kHz / −40.0 dB": the time as the waveform lanes read it, the cell's bin and level. */
 export function spectrogramReadoutText(label: string, seconds: number, secondsPerPixel: number, cell: SpectrogramCell, unit: string): string {
     const [time] = laneReadoutText('', seconds, secondsPerPixel, 0, null).split(' / ');
