@@ -60,7 +60,7 @@ import { syncPanelToggle, syncSpectrumMaximize } from './panelCollapse';
 import { SpectrumHover } from './spectrumHover';
 import { SpectrumView } from './spectrumView';
 import { WaveformView } from './waveformView';
-import { OVERLAY_LEVEL_AXES, paintOverlaySpectrum, renderSpectrumAxisLegend } from './overlaySpectrumPainter';
+import { OVERLAY_LEVEL_AXES, overlaySpectrumMarks, paintOverlaySpectrum, renderSpectrumAxisLegend } from './overlaySpectrumPainter';
 import { amplitudeAxisTitle, paintOverlay, PLOT_TEXT_FONT } from './stagePanes';
 import { referenceButtonHtml } from './pairSpectrum';
 import { PAIR_SPLIT_MAX, PAIR_SPLIT_MIN, PairSpectrumPanel } from './pairSpectrumPanel';
@@ -3975,6 +3975,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (slices.length === 0) {
             // Empty, the plot component says why in its middle, as every plot does (R13).
             paintOverlay(canvas, { layers: [] }, { min: 0, max: 1 }, { x: '', y: '' }, { size: { width: W, height: H }, empty: STR.spectrumNoData });
+            overlaySpectrumMarks(canvas, W, H);
             // No line is drawn: none is named.
             renderSpectrumAxisLegend(document.getElementById('spectrum-axis-legend'), []);
             overlaySpectrumPainted = false;

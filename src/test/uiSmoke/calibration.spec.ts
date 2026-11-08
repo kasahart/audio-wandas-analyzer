@@ -59,6 +59,8 @@ test('three level references disable only the shared spectrum overlay', async ({
     await expect(warning).toContainText('more than two level references');
     await expect(page.locator('#spectrum-overlay-canvas')).toHaveCSS('visibility', 'hidden');
     await expect(page.locator('#spectrum-overlay-canvas')).toHaveAttribute('data-calibration-hidden', 'true');
+    // Its marks go with it: no cursor is drawn over a plot that is not shown.
+    await expect(page.locator('.spectrum-overlay-marks')).toHaveCSS('visibility', 'hidden');
 
     const exportedCanvasIds = await page.evaluate(async () => {
         const prototype = CanvasRenderingContext2D.prototype as unknown as {
