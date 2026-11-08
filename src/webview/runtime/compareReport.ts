@@ -12,7 +12,7 @@ import { withBaseInput, withChannel } from '../../shared/recipe/channelSelection
 import { binsView, buildCompareModel, deltaViews, diffHeadline, levelsHeadline, paneAxes, sideView, type CompareModel, type CompareStrings } from './comparePanes';
 import { paintOverlay, stageDiffRange, stageRange } from './stagePanes';
 import type { EntryRegion } from '../../shared/analysis/entryScan';
-import type { ScanResult } from '../../shared/protocol/backendProtocol';
+import type { ScanResult, StageView } from '../../shared/protocol/backendProtocol';
 import { baseName } from '../../shared/analysis/entryMetadata';
 import { powerMeanDb, powerMeanOrNull } from '../../shared/utils/levels';
 import { DIFF_COLOR, ROLE_COLORS } from '../../shared/gui/roleColors';
@@ -314,17 +314,23 @@ function paintOverlayFigure(canvas: HTMLCanvasElement, comparison: CompareModel,
     });
 }
 
+/**
+ * What a Δ figure draws (R1): compare − base bin by bin, decimated only to be drawn, or, without the bins, the
+ * 1/3-octave Δ (the held plot's own picture). The range covers the band steps too, so a step is never cut off.
+ */
+export function deltaFigure(comparison: Pick<CompareModel, 'bins' | 'bandDeltas' | 'frequencies'>): { view: StageView | null; range: { min: number; max: number }; binned: boolean } {
+    const view = deltaViews(comparison).picture;
+    const range = stageDiffRange(view && { ...view, values: [...(view.values ?? []), ...comparison.bandDeltas] });
+    return { view, range, binned: !!comparison.bins?.diff };
+}
+
 /** A Δ figure: compare − base per point, the 1/3-octave Δ as steps under it, titled and with its legend. */
 function paintDeltaFigure(canvas: HTMLCanvasElement, comparison: CompareModel, title: string, curve: string, strings: ReportStrings, input: ReportInput, size: { width: number; height: number }): void {
-    // compare − base bin by bin, then decimated to be drawn (each bucket's lowest and highest Δ). Without the bins,
-    // only the band steps (the 1/3-octave Δ) are drawn.
-    const view = comparison.bins?.diff ? deltaViews(comparison).picture : null;
+    const { view, range, binned } = deltaFigure(comparison);
     const axes = paneAxes(strings, input.results.get(comparison.compare?.filePaths[0] ?? '')?.input).delta;
-    // The range covers the band steps too, so a band's step is never cut off.
-    const range = stageDiffRange(view && { ...view, values: [...(view.values ?? []), ...comparison.bandDeltas] });
     paintOverlay(canvas, { layers: view ? [{ view, color: DIFF_COLOR, width: 1.5 }] : [] }, range, { x: axes.x, y: axes.y }, {
         size, diff: true,
-        labels: { title, legend: [{ color: DIFF_COLOR, text: curve }, { color: DIFF_COLOR, text: strings.reportStepsLegend }] },
+        labels: { title, legend: [...(binned ? [{ color: DIFF_COLOR, text: curve }] : []), { color: DIFF_COLOR, text: strings.reportStepsLegend }] },
         bandSteps: { deltas: comparison.bandDeltas, headline: comparison.topBands.map(item => item.band), color: DIFF_COLOR, legend: axes.legend },
     });
 }
