@@ -860,7 +860,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     function paintDistribution(): void {
         distPane.paint({
             pool: distributionPool(), value: chosen.value, group: chosen.group, results, range: valueRange(), usable, slots, rowOf, baseGroup: entryBase.groupName(),
-            valueLabel: valueLabel(chosen.value), format: number => plotValueText(chosen.value, number), rowName: key => rowName(key),
+            valueLabel: valueLabel(chosen.value), format: (number, step) => plotValueText(chosen.value, number, step), rowName: key => rowName(key),
         });
     }
     /** The files shown as tracks now (a hidden track is not). */

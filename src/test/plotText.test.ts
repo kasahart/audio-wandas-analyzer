@@ -1,4 +1,8 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 import type { StageView } from '../shared/protocol/backendProtocol';
 import { amountText, barkText, frequencyText, lagText, levelText, quefrencyText, secondsText, signedNumberText, signedText, withMinus } from '../webview/plot/plotText';
@@ -110,4 +114,30 @@ test('the distribution reads a value as a plot does, not as the table column wri
     assert.equal(plotValueText('band:1000', 61), '61.0');
     assert.equal(plotValueText('crest', 4.567), '4.57');
     assert.equal(plotValueText('csv:score', 1234.5), '1230');
+});
+
+test('neighbouring distribution bins never read the same: the bins\' width adds the digits it needs (R7)', () => {
+    const width = 1;
+    const edges = [3000, 3001, 3002, 3003].map(edge => plotValueText('csv:rpm', edge, width));
+    assert.deepEqual(edges, ['3000', '3001', '3002', '3003']);
+    assert.equal(plotValueText('csv:score', 0.1234, 0.001), '0.123');
+    assert.equal(plotValueText('csv:score', 12.3456, 0.01), '12.35');
+    assert.equal(plotValueText('leq', 61.234, 0.05), '61.23');
+    assert.equal(plotValueText('peak', 3150.4, 0.5), '3.1504 kHz');
+    // Bins wider than three figures resolve: the value's own three figures.
+    assert.equal(plotValueText('csv:rpm', 3001, 100), '3000');
+});
+
+test('the lint stops a minus sign picked by hand, as a lone string or a replaced hyphen (R7)', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'minus-'));
+    const file = path.join(dir, 'sample.ts');
+    writeFileSync(file, [
+        "const signed = (v: number): string => `${v >= 0 ? '+' : '−'}${Math.abs(v)}`;",
+        "const level = (v: number): string => `${v < 0 ? \"−\" : ''}${Math.abs(v)}`;",
+        "const fixed = (v: number): string => String(v).replace(/^-/, '−');",
+        "const fine = (v: number): string => `${v} − ${v}`;",
+    ].join('\n'));
+    const run = spawnSync(process.execPath, [path.join(__dirname, '..', '..', 'scripts', 'lint-webview-patterns.js'), '--minus-hits', file], { encoding: 'utf8' });
+    rmSync(dir, { recursive: true, force: true });
+    assert.deepEqual(run.stdout.trim().split('\n').map(line => line.split(':').pop()), ['1', '2', '3']);
 });

@@ -36,7 +36,7 @@ export interface DistributionInputs {
     /** The group whose median is the base (slot 0 empty, a grouping chosen), or null. */
     baseGroup: string | null;
     valueLabel: string;
-    format: (value: number) => string;
+    format: (value: number, step?: number) => string;
     rowName: (key: string) => string;
 }
 
