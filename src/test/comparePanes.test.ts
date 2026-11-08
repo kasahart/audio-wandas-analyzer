@@ -231,9 +231,10 @@ test('the median and Δ are taken bin by bin from every bin, and only drawing de
     assert.equal(Math.max(...(drawn.values as number[])), 40);
     assert.equal(drawn.xs![(drawn.values as number[]).indexOf(40)], 3000);
     assert.deepEqual(drawn.xLimits, [20, 8000]);
-    // Zoomed: every bin on screen, still at its own frequency.
+    // Zoomed: every bin on screen, still at its own frequency, and the one beyond each end for the line to the edge.
     const zoomed = binsView(bins, 'diff', [2900, 3100], 300)!;
-    assert.equal(zoomed.xs!.length, 101);
+    assert.equal(zoomed.xs!.length, 103);
+    assert.deepEqual([zoomed.xs![0], zoomed.xs!.at(-1)], [2898, 3102]);
     assert.equal(zoomed.detail, true);
 });
 
@@ -296,6 +297,10 @@ test('the held Δ zoomed in is drawn again from every bin between its ends, not 
     const inside = (view: typeof whole.view): number => (view?.xs ?? []).filter(x => x >= from + 1 && x <= to - 1).length;
     assert.ok(inside(zoomed.view) >= 98, `zoomed: ${inside(zoomed.view)} bins`);
     assert.ok(inside(whole.picture) < inside(zoomed.view) / 2, `whole: ${inside(whole.picture)} bins`);
+    // Zoomed between two bins (100.3 to 100.7 Hz of 1 Hz bins), the line between them still crosses the range: the bin
+    // beyond each end is kept, for the plot to clip.
+    const between = deltaViews(comparison, { start: fraction(100.3), end: fraction(100.7) });
+    assert.deepEqual(between.view?.xs, [100, 101]);
     // Without bins, the scans' Δ as it is.
     const banded = deltaViews({ bins: null, diffDb: [1, 2], frequencies: [100, 200] }, { start: 0.2, end: 0.4 });
     assert.equal(banded.view, banded.picture);
