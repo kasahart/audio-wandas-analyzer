@@ -542,3 +542,22 @@ def test_a_zoom_window_costs_its_own_frames_and_samples_not_the_whole_files(
     assert converted and max(converted) < 400  # the window's ~377 frames, not the file's 7500
     waveform = zoomed["waveform"]
     assert min(waveform["minT"]) >= 0.4 - 1e-6 and max(waveform["maxT"]) <= 0.45 + 1e-6
+
+
+def test_with_automatic_settings_a_zoom_window_gets_its_own_hop_and_its_columns(
+    tmp_path: Path, service: AnalysisService
+) -> None:
+    # The automatic hop spreads the whole file's ~720 frames over the file, so cutting them gives a 5 % window ~36
+    # columns. The window instead gets an STFT of its own, with the file's window size and a hop for its length.
+    wav = tmp_path / "long.wav"
+    _write_sine_wav(wav, seconds=30.0)
+    whole = service.track_detail(wav)["channels"][0]["spectrogram"]
+    zoomed = service.track_detail(wav, time_window=(0.4, 0.45))["channels"][0]["spectrogram"]
+    assert whole["timeBins"] == 720
+    assert zoomed["timeBins"] == 720 and zoomed["hopSize"] < whole["hopSize"] / 10
+    assert zoomed["windowSize"] == whole["windowSize"] and zoomed["frequencyBins"] == whole["frequencyBins"]
+    centers = np.asarray(zoomed["timeCentersSec"])
+    assert centers[0] <= 12.0 + 0.01 and centers[-1] >= 13.5 - 0.01
+    assert centers[0] >= 12.0 - 0.05 and centers[-1] <= 13.5 + 0.05
+    # The tone's level is the whole file's: the window's STFT is the same transform, not a rescaled one.
+    assert zoomed["maxDb"] == pytest.approx(whole["maxDb"], abs=0.05)

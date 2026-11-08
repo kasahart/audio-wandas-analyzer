@@ -10,6 +10,7 @@ from typing import NotRequired, TypedDict
 import numpy as np
 import wandas as wd
 
+from analysis_engine import compute_spectrogram
 from backend_errors import InputError
 from calibration_profile import (
     CalibrationSource,
@@ -300,6 +301,30 @@ def spectrogram_window_frames(frame_centers_sec: np.ndarray, duration_sec: float
     return slice(first, last)
 
 
+def zoom_window_spectrogram(
+    frame: wd.ChannelFrame, n_fft: int, window: str, time_window: tuple[float, float]
+) -> tuple[wd.SpectrogramFrame, np.ndarray, int]:
+    """An STFT of a zoom window's samples alone, for the automatic settings (R3).
+
+    The whole file's automatic hop spreads its frames over the file, so cutting them gives no more columns than the
+    whole file had. A window instead gets its own hop, chosen for its length as the file's is for the file, with the
+    file's window size so the frequency bins stay the same. The samples taken reach past the window by a window and a
+    hop on each side, so the frames kept (in the window, and one beside each end) never see the cut's padding.
+    Returns the STFT, its frame centres in seconds from the file start, and its hop.
+    """
+    sample_count = int(frame.n_samples)
+    start = max(0, int(math.floor(min(time_window) * sample_count)))
+    end = min(sample_count, int(math.ceil(max(time_window) * sample_count)))
+    hop = max(1, int(np.ceil(max(1, end - start - n_fft) / max(1, SPECTROGRAM_TIME_BIN_LIMIT - 1))))
+    margin = n_fft + hop
+    first, last = max(0, start - margin), min(sample_count, end + margin)
+    spectrogram = compute_spectrogram(frame[:, first:last], n_fft, hop, window)
+    centers = spectrogram_frame_centers(spectrogram)
+    if centers is None:
+        raise ValueError("The zoom window's STFT has no frame times")
+    return spectrogram, centers + first / float(frame.sampling_rate), hop
+
+
 def _build_spectrogram(
     spectrogram_db: np.ndarray,
     sample_rate_hz: float,
@@ -409,13 +434,16 @@ def analyze_from_frame(
     include_spectrogram: bool = False,
     raw_peaks: Sequence[float] | None = None,
     spectrogram_window: tuple[float, float] | None = None,
+    spectrogram_centers_sec: np.ndarray | None = None,
+    spectrogram_hop_size: int | None = None,
 ) -> AnalysisResult:
     """Build the AnalysisResult JSON payload from a ChannelFrame.
 
     ``spectrogram_window`` (fractions of the file) keeps only the STFT frames whose centres lie in it, and one beside
     each end, so a zoomed lane is drawn from every frame on screen (R3) rather than the whole file's averaged down.
     The STFT is cut before its dB conversion and each channel's envelope and peak are built from the window's samples,
-    so the answer costs the window, not the file.
+    so the answer costs the window, not the file. ``spectrogram_centers_sec`` and ``spectrogram_hop_size`` describe a
+    ``spectrogram_frame`` computed from part of the file (``zoom_window_spectrogram``).
     """
     target = Path(file_path)
     t_frame = time.perf_counter()
@@ -434,6 +462,8 @@ def analyze_from_frame(
     perf_log("read_frame", t_frame, channels=channel_count, samples=sample_count, sr=sample_rate_hz)
 
     window_size, hop_size, window_name = resolve_stft_params(sample_count, stft_options)
+    if spectrogram_hop_size is not None:
+        hop_size = spectrogram_hop_size
     stft_db: np.ndarray | None = None
     frame_centers: np.ndarray | None = None
     # A zoom window's samples: its envelope is built from them only (the lane reads only its spectrogram).
@@ -441,7 +471,11 @@ def analyze_from_frame(
     if include_spectrogram:
         if spectrogram_frame is None:
             raise ValueError("spectrogram_frame is required when include_spectrogram is true")
-        frame_centers = spectrogram_frame_centers(spectrogram_frame)
+        frame_centers = (
+            spectrogram_centers_sec
+            if spectrogram_centers_sec is not None
+            else spectrogram_frame_centers(spectrogram_frame)
+        )
         source = spectrogram_frame
         if spectrogram_window is not None and frame_centers is not None:
             # Cut before the dB conversion: a window costs its own frames, not the whole file's.
