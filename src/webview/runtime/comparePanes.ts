@@ -304,13 +304,16 @@ export function minMaxLine(xs: readonly number[], values: readonly number[], buc
 }
 
 /**
- * One of the comparison's full-resolution spectra (`CompareModel.bins`) as drawn: between `bounds` Hz (20 Hz to
- * Nyquist for the whole view) in `buckets` buckets of their lowest and highest bin. Decimated only to be drawn.
+ * One of the comparison's full-resolution spectra (`CompareModel.bins`) as drawn: between `bounds` Hz and a bin beyond
+ * each (20 Hz to Nyquist for the whole view) in `buckets` buckets of their lowest and highest bin. Decimated only to be drawn.
  */
 export function binsView(bins: NonNullable<CompareModel['bins']>, which: 'base' | 'compare' | 'diff', bounds?: readonly [number, number], buckets = SPECTRUM_LINE_BUCKETS): StageView | null {
     const values = bins[which];
     if (!values?.length) return null;
-    const span: [number, number] = bounds ? [bounds[0], bounds[1]] : [SPECTRUM_MIN_HZ, bins.nyquist];
+    // A zoomed range keeps the bin beyond each end, so the line still crosses a range between two bins (the plot clips it).
+    const span: [number, number] = bounds
+        ? [Math.max(bins.hz, Math.min(bounds[0], bounds[1]) - bins.hz), Math.max(bounds[0], bounds[1]) + bins.hz]
+        : [SPECTRUM_MIN_HZ, bins.nyquist];
     const xs = values.map((_, bin) => bin * bins.hz);
     const line = minMaxLine(xs, values, buckets, span);
     return {
