@@ -92,3 +92,12 @@ test('niceRange: 幅がないか有限でない範囲はそのまま返す', () 
     assert.deepEqual(niceRange(-Infinity, 0), { low: -Infinity, high: 0 });
     assert.deepEqual(niceRange(-120, -120 + 1e-12), { low: -120, high: -120 + 1e-12 });
 });
+
+test('the distribution\'s value axis opens at round ends, as every automatic range does (R9)', () => {
+    const results = new Map([['/d/a.wav', ok([-42.7, -31.2])], ['/d/b.wav', ok([-18.3])]]);
+    const rows = datasetRows(['/d/a.wav', '/d/b.wav'], '/d', new Map(), results, new Map());
+    const leq = distribution(rows, 'leq', 'none', results, null);
+    // −42.7…−18.3 padded by 4% each side, then widened to round values.
+    assert.deepEqual({ low: leq.low, high: leq.high }, { low: -44, high: -16 });
+    assert.ok(leq.low < -42.7 && leq.high > -18.3, 'the extremes stay off the edge');
+});
