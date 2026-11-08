@@ -758,7 +758,6 @@ def difference_peak(data: StageData, values: np.ndarray, detail: StageDetail | N
         peak: StagePeak = {"x": float(data.xs[column]), "y": float(ys[row]), "value": value}
         x_step, y_step = _step_at(data.xs, int(column)), _step_at(ys, int(row))
     else:
-        shown = _shown(data, values, True)
         xs = data.xs
         keep = np.ones(xs.size, dtype=bool) if bounds is None else sv._inside(xs, bounds)
         if data.mode in ("spectrum", "coherence"):
@@ -767,11 +766,14 @@ def difference_peak(data: StageData, values: np.ndarray, detail: StageDetail | N
                 keep &= (xs >= spec.SPECTRUM_MIN_HZ) & (xs <= data.nyquist)
         if data.view.get("quantity") == "cepstrum":
             keep &= xs > 0
-        line = np.where(keep, np.abs(shown), np.nan)
-        if not np.any(np.isfinite(line)):
+        # Found among the unrounded values (two that round alike still differ), rounded as drawn only once found.
+        at = np.flatnonzero(keep)
+        line = np.abs(_f64(np.asarray(values)[at]))
+        line[~np.isfinite(line)] = -1.0
+        if not line.size or float(line.max()) < 0:
             return None
-        index = int(np.nanargmax(line))
-        peak = {"x": float(xs[index]), "value": float(shown[index])}
+        index = int(at[int(np.argmax(line))])
+        peak = {"x": float(xs[index]), "value": float(_shown(data, np.asarray(values)[index : index + 1], True)[0])}
         x_step, y_step = _step_at(xs, index), None
     if x_step is not None:
         peak["xStep"] = x_step

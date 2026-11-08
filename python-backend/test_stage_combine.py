@@ -468,6 +468,26 @@ def test_the_headline_leaves_out_padding_columns_the_zero_quefrency_and_whatever
     assert difference_peak(cdata, line)["x"] == pytest.approx(cdata.xs[5])
 
 
+def test_the_headline_is_found_before_rounding(signal: wd.ChannelFrame) -> None:
+    """Two differences that round to the same drawn digits still name the larger one; only its value is rounded."""
+    frames = _frames(signal)
+    for name in ("series", "spectrum", "spectrogram"):
+        frame, source = frames[name]
+        data = stage_data(frame, dict(stage_view(frame, *([source] if source is not None else []))), source)
+        assert data is not None
+        values = np.zeros_like(_f64(data.values))
+        if values.ndim == 1:
+            values[20], values[30] = 7.0001, 7.0004
+            want = {"x": data.xs[30]}
+        else:
+            row = int(np.argmin(np.abs(data.ys - 1000)))
+            values[row, 5], values[row, 8] = 7.0001, 7.0004
+            want = {"x": data.xs[8]}
+        peak = difference_peak(data, values)
+        assert peak is not None and peak["x"] == pytest.approx(want["x"]), name
+        assert peak["value"] == pytest.approx(7.0, abs=0.01), name
+
+
 def test_a_time_signals_headline_is_its_largest_sample_difference_at_that_samples_time(
     signal: wd.ChannelFrame,
 ) -> None:
