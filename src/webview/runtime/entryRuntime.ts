@@ -827,6 +827,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     const heldPlot = createHeldPlot({
         document, window, strings, held, title: heldTitle, canvas: heldCanvas, post: message => deps.post(message), scheduleSide: () => sidePlots.schedule(),
         keepWindow: (name, key) => sidePlots.keepWindow(name, key), results, focusedFile,
+        // The focused row's channel when it is that file's row, else the row the file is compared as (entryBase).
+        channelOf: path => (focus.key && fileOfKey(focus.key) === path ? channelOfRow(rowOf(focus.key)) : entryBase.stageChannel(path, null)),
         comparison: (path, over) => entryBase.comparison(path, false, over), basePaths: path => entryBase.resolve(path).paths, scanRecipe: () => scanRecipe(), slotFiles, colorOf: recordingColor, recipe: () => recipeState.edited ?? recipeState.standard, runRecipe: () => runRecipe(), limits, spectral,
         tapped(slot) { if (focus.key && rows.some(row => row.key === focus.key)) setSlot(slot, focus.key); },
     });
