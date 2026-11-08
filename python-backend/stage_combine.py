@@ -90,6 +90,9 @@ class StageData:
     rate: float = 0.0
     #: A signal's reference (its waveform's), for the difference's waveform.
     ref: float = 1.0
+    #: The recording's channel unit and reference, whatever the Frame (a level's dB are re that reference): values
+    #: are combined only between recordings calibrated alike.
+    calibration: tuple[str, float] = ("", 1.0)
 
     @property
     def nbytes(self) -> int:
@@ -174,8 +177,24 @@ def _column_whole(frame: Any, columns: int, signal_s: float | None) -> np.ndarra
     return (centres >= half - 1e-9) & (centres <= signal_s - half + 1e-9)
 
 
+def _calibration(frame: object) -> tuple[str, float]:
+    """The channel unit and reference ``frame``'s values are in (a trigger's events: their first event's)."""
+    if isinstance(frame, ChannelFrameSegments):
+        frame = frame[0] if len(frame) else None
+    channels = getattr(frame, "channels", None)
+    if not channels:
+        return ("", 1.0)
+    first = channels[0]
+    return (str(getattr(first, "unit", "") or ""), float(getattr(first, "ref", 1.0) or 1.0))
+
+
 def stage_data(frame: object, view: StageView, signal_s: float | None = None) -> StageData | None:
     """The full-resolution values behind ``view`` (stage_view of ``frame``); None for a Frame not drawn."""
+    item = _stage_data(frame, view, signal_s)
+    return None if item is None else replace(item, calibration=_calibration(frame))
+
+
+def _stage_data(frame: object, view: StageView, signal_s: float | None) -> StageData | None:
     if view.get("kind") == "none":
         return None
     template = _template(view)
@@ -568,14 +587,18 @@ def _aligned(items: list[StageData]) -> list[StageData] | None:
     same = ("kind", "x", "quantity", "yAxis")
     if any(item.mode != first.mode or any(item.view.get(key) != first.view.get(key) for key in same) for item in items):
         return None
+    # Values are subtracted (and a median taken) only in one unit, whatever the Frame: a calibrated recording against
+    # an uncalibrated one has no difference (_no_delta_reason).
+    if any(item.calibration != first.calibration or item.view.get("unit") != first.view.get("unit") for item in items):
+        return None
     if first.ys is not None and any(item.ys is None or not np.array_equal(item.ys, first.ys) for item in items):
         return None
     if first.mode == "signal":
         # Sample by sample: the same rate and start, over the samples they all have.
         if any(item.rate != first.rate or abs(item.start - first.start) > 0.5 / first.rate for item in items):
             return None
-        # Samples are subtracted as they are: only in one unit against one reference (calibrated alike).
-        if any(item.view.get("unit") != first.view.get("unit") or item.ref != first.ref for item in items):
+        # Samples are subtracted as they are: only against one reference too (calibrated alike).
+        if any(item.ref != first.ref for item in items):
             return None
         count = min(item.values.size for item in items)
         return [replace(item, values=item.values[:count]) for item in items]
@@ -611,14 +634,15 @@ def _whole_of(items: list[StageData]) -> np.ndarray | None:
 
 
 def _no_delta_reason(items: list[StageData]) -> Literal["rate", "unit"] | None:
-    """Why time signals on the same axes have no sample difference: another sample rate, or another unit or
-    reference (a calibrated recording against an uncalibrated one). None for any other reason (other axes)."""
-    if not all(item.mode == "signal" for item in items):
-        return None
+    """Why recordings have no difference: time signals at another sample rate, or values of any Frame in another
+    unit or reference (a calibrated recording against an uncalibrated one). None for any other reason (other axes)."""
     first = items[0]
-    if any(item.rate != first.rate for item in items):
+    if any(item.mode != first.mode for item in items):
+        return None
+    signal = first.mode == "signal"
+    if signal and any(item.rate != first.rate for item in items):
         return "rate"
-    if any(item.view.get("unit") != first.view.get("unit") or item.ref != first.ref for item in items):
+    if any(item.calibration != first.calibration or item.view.get("unit") != first.view.get("unit") for item in items):
         return "unit"
     return None
 

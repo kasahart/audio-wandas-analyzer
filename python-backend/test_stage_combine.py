@@ -222,6 +222,42 @@ def test_every_compared_level_line_carries_level_bins_whole_zoomed_and_as_a_medi
     assert level_bins(data) is not None
 
 
+@pytest.mark.parametrize("samples", [16, 2048, 2049])
+def test_a_short_time_signal_is_a_signal_whatever_its_length(signal: wd.ChannelFrame, samples: int) -> None:
+    # A signal is told from a metric by the operation that made it, never by how many samples it has: a short
+    # recording is drawn as its waveform, checked for its unit like any other, and compared with a long one.
+    short = wd.from_numpy(signal.data[np.newaxis, :samples], sampling_rate=RATE)
+    view = dict(stage_view(short))
+    assert "waveform" in view and len(view["waveform"]["min"]) == min(samples, 1200)
+    item = stage_data(short, view)
+    assert item is not None and item.mode == "signal"
+    calibrated = wd.from_numpy(signal.data[np.newaxis, :samples], sampling_rate=RATE, ch_units="Pa")
+    other = stage_data(calibrated, dict(stage_view(calibrated)))
+    assert other is not None
+    assert combine([item], other) == {"ok": True, "noDelta": "unit"}
+    long = stage_data(signal, dict(stage_view(signal)))
+    assert long is not None
+    diff = combine([item], long)["diff"]
+    expected = np.asarray(signal.data[:samples], dtype=float) - np.asarray(signal.data[:samples], dtype=float)
+    assert max(diff["waveform"]["max"]) == pytest.approx(expected.max(), abs=1e-6)
+
+
+def test_values_in_other_units_have_no_difference_whatever_the_frame(signal: wd.ChannelFrame) -> None:
+    # The unit check is the combine's, not one Frame type's: a metric or spectrum in Pa against one uncalibrated
+    # has no Δ and no median either, and says why.
+    calibrated = wd.from_numpy(signal.data[np.newaxis], sampling_rate=RATE, ch_units="Pa")
+    for name, (frame, _) in _frames(signal).items():
+        if name in ("coherence", "correlation"):
+            continue  # a pair's quantity has no unit of its own
+        other = _frames(calibrated)[name][0]
+        first, second = stage_data(other, dict(stage_view(other))), stage_data(frame, dict(stage_view(frame)))
+        assert first is not None and second is not None
+        assert combine([first], second) == {"ok": True, "noDelta": "unit"}, name
+        assert combine([first, second], None) == {"ok": True, "noDelta": "unit"}, name
+        # Calibrated alike, they have their Δ.
+        assert "diff" in combine([first], stage_data(other, dict(stage_view(other)))), name
+
+
 def test_a_small_signal_difference_keeps_its_significant_figures() -> None:
     # A difference of 1e-7 Pa is drawn as it is (six significant figures), never rounded to zero by decimals.
     view = {"frame": "ChannelFrame", "kind": "line", "x": "time", "xScale": "linear", "quantity": "value", "unit": "Pa"}
