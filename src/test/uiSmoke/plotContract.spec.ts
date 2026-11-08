@@ -104,16 +104,21 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
     }
     const hovered = await read();
     if (above && steps.every(Boolean) && steps[0] !== after.filter(Boolean).join(' | ') && steps[1] !== steps[0] && steps[2] === steps[0] && hovered === steps[2]) passed.add('step');
-    // Ctrl+wheel zooms; a double-click resets.
+    // Ctrl+wheel zooms; a double-click resets. Each is seen in what the plot shows, not only in its attributes: its
+    // picture is drawn again and differs from the one before (reset need not be the very first picture: a plot may
+    // have taken finer data while zoomed).
+    const picture = (): Promise<string> => plot.evaluate(canvas => (canvas as HTMLCanvasElement).toDataURL());
+    const whole = await picture();
     await page.keyboard.down('Control');
     await page.mouse.wheel(0, -240);
     await page.keyboard.up('Control');
     await page.waitForTimeout(80);
     const zoomed = await plot.getAttribute('data-plot-window');
-    if (zoomed && zoomed !== FULL) passed.add('zoom');
+    const zoomedPicture = await picture();
+    if (zoomed && zoomed !== FULL && zoomedPicture !== whole) passed.add('zoom');
     await page.mouse.dblclick(middle.x, middle.y);
     await page.waitForTimeout(80);
-    if (zoomed && (await plot.getAttribute('data-plot-window')) === FULL) passed.add('reset');
+    if (zoomed && (await plot.getAttribute('data-plot-window')) === FULL && await picture() !== zoomedPicture) passed.add('reset');
     // A double-click on the level axis opens its range: the plot's own left margin, or the canvas beside it that
     // holds its value axis (data-plot-axis).
     const axisId = await plot.getAttribute('data-plot-axis');
@@ -126,8 +131,72 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
     return passed;
 }
 
+/**
+ * Every plot on screen in a scenario gets the contract, not only the ones a test names: each [data-plot] canvas seen
+ * while the scenario runs is recorded by its name (as the audit names a canvas: its id, else its class and data
+ * attributes), and the scenario fails on one it saw and did not check. A plot left out is in UNCHECKED with why;
+ * one listed there and checked fails too, so the list only shrinks.
+ */
+const UNCHECKED: Record<string, string> = {
+    '#entry-dist-axis-canvas': 'the distribution rows\' shared value axis (their data-plot-axis): no lines of its own, its range is opened from each row\'s check',
+};
+const seenPlots = new Set<string>();
+const checkedPlots = new Set<string>();
+test.beforeEach(() => { seenPlots.clear(); checkedPlots.clear(); });
+/**
+ * A plot's name, as the audit names a canvas: its id, else its class and the data attributes that say which plot it
+ * is. Lanes of one kind (track-canvas-0, track-canvas-1-2) share a name: one of them checked checks that kind.
+ */
+function plotName(canvas: Element): string {
+    if (canvas.id) return `#${canvas.id.replace(/(?:-\d+)+$/u, '-N')}`;
+    const which = ['data-stage-canvas', 'data-pair-lane'];
+    const shown = Array.from(canvas.attributes).filter(a => a.name === 'class' || (a.name.startsWith('data-') && !a.name.startsWith('data-plot') && !['data-dots', 'data-track-index', 'data-channel-index', 'data-file-path'].includes(a.name)));
+    return `canvas${shown.map(a => (a.name === 'class' ? `.${a.value.trim().split(/\s+/).join('.')}` : which.includes(a.name) ? `[${a.name}="${a.value}"]` : `[${a.name}]`)).join('')}`;
+}
+/**
+ * Whether a plot can be seen with something on it: shown, the topmost thing at its middle (not under a screen laid
+ * over it), and drawn (its axes named; a plot with nothing to draw yet says so in their place, "Loading…").
+ */
+function onScreen(canvas: Element): boolean {
+    const element = canvas as HTMLElement;
+    if (!element.dataset.plotAxes || !element.checkVisibility({ visibilityProperty: true }) || element.clientWidth <= 1 || element.clientHeight <= 1) return false;
+    const box = element.getBoundingClientRect();
+    const x = box.left + box.width / 2, y = box.top + box.height / 2;
+    if (x < 0 || y < 0 || x > window.innerWidth || y > window.innerHeight) return false;
+    const top = document.elementsFromPoint(x, y).find(item => !item.classList.contains('plot-hover-layer'));
+    return top === element;
+}
+async function seePlots(page: Page): Promise<void> {
+    for (const canvas of await page.locator('canvas[data-plot]').all()) {
+        if (await canvas.evaluate(onScreen)) seenPlots.add(await canvas.evaluate(plotName));
+    }
+}
+/** The contract on every plot on screen now that no check has had yet: each kind once, until none is left. */
+async function expectEveryPlot(page: Page): Promise<void> {
+    for (let round = 0; round < 12; round++) {
+        let next: Locator | null = null, name = '';
+        for (const canvas of await page.locator('canvas[data-plot]').all()) {
+            const shown = await canvas.evaluate(onScreen);
+            const own = await canvas.evaluate(plotName);
+            if (shown && !checkedPlots.has(own) && !UNCHECKED[own]) { next = canvas; name = own; break; }
+        }
+        if (!next) return;
+        await expectContract(page, name, next);
+    }
+}
+
+test.afterEach(async ({ page }) => {
+    if (!checkedPlots.size || page.isClosed()) return;
+    await seePlots(page);
+    const unchecked = [...seenPlots].filter(name => !checkedPlots.has(name));
+    expect.soft(unchecked.filter(name => !UNCHECKED[name]), 'plots on screen the contract did not check (R13: give them expectContract, or list them in UNCHECKED with why)').toEqual([]);
+    expect.soft(Object.keys(UNCHECKED).filter(name => checkedPlots.has(name)), 'now checked: take them off UNCHECKED').toEqual([]);
+});
+
 async function expectContract(page: Page, name: string, plot: Locator): Promise<void> {
     await expect(plot).toHaveAttribute('data-plot', '');
+    await seePlots(page);
+    checkedPlots.add(await plot.evaluate(plotName));
     const passed = await contract(page, plot);
     const gaps = KNOWN_GAPS[name] ?? [];
     const checks: Check[] = ['readout', 'step', 'zoom', 'reset', 'axis range', 'axes'];
@@ -140,16 +209,19 @@ test('every plot the comparison shows answers the same gestures: readout above i
     await page.setViewportSize({ width: 1280, height: 900 });
     await openComparison(page, scanned!);
     await expectContract(page, 'comparison overlay', page.locator('[data-stage-canvas="overlay"]'));
+    await expectEveryPlot(page);
     // Δ under it, then one lane per track.
     await page.locator('[data-action="stage-diff"]').click();
     await expect(page.locator('[data-stage-diff]')).toBeVisible();
     await expectContract(page, 'comparison Δ', page.locator('[data-stage-canvas="diff"]'));
+    await expectEveryPlot(page);
     await page.locator('[data-action="stage-diff"]').click();
     await page.locator('[data-action="stage-layout"]').click();
     await expect(page.locator('.track-stage')).toHaveAttribute('data-layout', 'lanes');
     const lane = page.locator('.track-canvas[data-plot]').first();
     await expect(lane).toBeVisible();
     await expectContract(page, 'comparison lane', lane);
+    await expectEveryPlot(page);
 });
 
 test('a trigger\'s events plot and the lanes under it answer the same gestures as every plot (R13)', async ({ page }) => {
@@ -171,6 +243,7 @@ test('a trigger\'s events plot and the lanes under it answer the same gestures a
     await expect.poll(async () => Number(await page.locator('.track-stage').getAttribute('data-lanes-marked'))).toBeGreaterThan(0);
     await expectContract(page, 'trigger events', page.locator('[data-stage-canvas="overlay"]'));
     await expectContract(page, 'trigger lane', page.locator('.track-canvas[data-plot]').first());
+    await expectEveryPlot(page);
 });
 
 /** A box dragged over the middle of the plot, from 30 % to 70 % across and up: a zoom into it. */
@@ -286,6 +359,7 @@ test('the entry\'s held plot answers the same gestures as every plot (R13)', asy
     await expect.poll(() => plot.getAttribute('data-plot-axes')).not.toBe('');
     await expectContract(page, 'entry held', plot);
     await page.keyboard.up('1');
+    await expectEveryPlot(page);
 });
 
 test('the entry\'s overview strip answers the same gestures as every plot (R13)', async ({ page }) => {
@@ -295,6 +369,7 @@ test('the entry\'s overview strip answers the same gestures as every plot (R13)'
     const plot = page.locator('[data-entry-overview]');
     await expect.poll(() => plot.getAttribute('data-plot-axes')).not.toBe('');
     await expectContract(page, 'entry overview', plot);
+    await expectEveryPlot(page);
 });
 
 test('the entry\'s distribution answers the same gestures as every plot: each group\'s row, on the value axis below them (R13)', async ({ page }) => {
@@ -304,6 +379,7 @@ test('the entry\'s distribution answers the same gestures as every plot: each gr
     const plot = page.locator('[data-dist-canvas]').first();
     await expect.poll(() => plot.getAttribute('data-plot-axes')).not.toBe(null);
     await expectContract(page, 'entry distribution', plot);
+    await expectEveryPlot(page);
 });
 
 test('the cursor spectrum answers the same gestures as every plot (R13)', async ({ page }) => {
@@ -312,6 +388,7 @@ test('the cursor spectrum answers the same gestures as every plot (R13)', async 
     const plot = page.locator('#spectrum-overlay-canvas');
     await expect.poll(() => plot.evaluate(canvas => (canvas as HTMLCanvasElement).dataset.plotAxes ?? '')).not.toBe('');
     await expectContract(page, 'cursor spectrum', plot);
+    await expectEveryPlot(page);
 });
 
 test('the pair view\'s gain, phase and γ² plots answer the same gestures as every plot (R13)', async ({ page }) => {
@@ -324,6 +401,7 @@ test('the pair view\'s gain, phase and γ² plots answer the same gestures as ev
         await expect.poll(() => plot.getAttribute('data-plot-axes')).not.toBe('');
         await expectContract(page, `pair ${lane}`, plot);
     }
+    await expectEveryPlot(page);
 });
 
 test('the track view\'s waveform and spectrogram lanes answer the same gestures as every plot: readout in the toolbar above them (R13)', async ({ page }) => {
@@ -335,6 +413,7 @@ test('the track view\'s waveform and spectrogram lanes answer the same gestures 
         await expect.poll(() => plot.getAttribute('data-plot-axes')).not.toBe(null);
         await expectContract(page, name, plot);
     }
+    await expectEveryPlot(page);
 });
 
 test('every ui-smoke test fails on a plot on screen that the plot component did not draw, unless plotRegistry.ts lists it (R13)', async ({ page }) => {
@@ -359,6 +438,21 @@ test('every ui-smoke test fails on a draw into a plot made outside the plot comp
     expect(await page.evaluate(() => window.__drawnAudit ?? [])).toContain('canvas.hand-drawn: fillRect');
     // Taken away, with the audit's record cleared, so this test itself passes the audit.
     await page.evaluate(() => { document.querySelector('.hand-drawn')?.remove(); window.__drawnAudit?.splice(0); });
+});
+
+test('every ui-smoke test fails on a picture copied into a plot from another canvas by anything but the plot component (R13)', async ({ page }) => {
+    await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
+    const plot = page.locator('#spectrum-overlay-canvas');
+    await expect(plot).toHaveAttribute('data-plot', '');
+    // Another canvas's picture laid onto the drawn plot by code of its own, not by paintOverlay.
+    await page.evaluate(() => {
+        const other = document.createElement('canvas');
+        other.width = 8; other.height = 8;
+        (document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement).getContext('2d')!.drawImage(other, 0, 0);
+    });
+    expect(await page.evaluate(() => window.__drawnAudit ?? [])).toContain('#spectrum-overlay-canvas: drawImage');
+    // The audit's record cleared, so this test itself passes the audit.
+    await page.evaluate(() => { window.__drawnAudit?.splice(0); });
 });
 
 test('every ui-smoke test fails on a plot on screen that drew a louder compared line over a quieter one (R6)', async ({ page }) => {
