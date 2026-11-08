@@ -53,7 +53,7 @@ import { keyRouterFor } from './keyRouter';
 import { attachSeparatorKeys } from './separatorKeys';
 import { attachTrackPointerListeners } from './trackPointerEvents';
 import { buildPythonButtonText, buildPythonTooltip, isPythonEnvError } from './pythonEnvironmentLabels';
-import { laneAmplitudeRange, laneAmplitudeTicks, laneFrequencyTicks, laneTimeTicks, markEmptyLanePlot, markLanePlot, paintLaneAxis } from './laneAxes';
+import { laneAmplitudeRange, laneAmplitudeTicks, laneTimeTicks, markEmptyLanePlot, markLanePlot } from './laneAxes';
 import { createPlaybackDisplay } from './playbackDisplay';
 import { installLayoutResizeHandling } from './layoutResize';
 import { syncPanelToggle, syncSpectrumMaximize } from './panelCollapse';
@@ -155,11 +155,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         persistedWebviewState = persistedStore.snapshot;
     }
     let pythonEnvironmentState = state.pythonEnvironmentState || DEFAULT_PYTHON_ENVIRONMENT_STATE;
-    /** The colours every plot's axes are written in: the ticks muted, the titles in the text colour. */
-    function laneAxisColors() {
-        const style = getComputedStyle(document.body);
-        return { muted: style.getPropertyValue('--muted').trim() || '#888', text: style.getPropertyValue('--text').trim() || '#ddd' };
-    }
     function drawTheme(): DrawTheme {
         const style = getComputedStyle(document.body);
         return {
@@ -2175,11 +2170,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const theme = drawTheme(), text = getComputedStyle(document.body).getPropertyValue('--text').trim() || '#ddd';
         // The colour bar is named as the comparison's heatmaps name their colour: the level, with the channel's reference.
         const title = paneAxes(STR, trackLevelInput([ch], undefined)).level.y;
-        const painted = paintTrackSpectrogram(ctx, W, H, spec, {
-            zoomStart: waveformView.start, zoomEnd: waveformView.end, trackStart, trackDurRatio, dbLo, dbHi, maxFrequencyHz: maxFreq, minFrequencyHz: minFreq,
+        const painted = paintTrackSpectrogram(canvas, axisCanvas, spec, { ...trackStore.globalSpan(), offsetNorm: trackStart, trackDurRatio }, {
+            window: { start: waveformView.start, end: waveformView.end }, dbLo, dbHi, maxFrequencyHz: maxFreq, minFrequencyHz: minFreq,
             durationSec: result.durationSeconds,
-        }, spectrogramRasterCache.get(cacheId), { title, text, back: theme.bgColor, line: theme.lineColor });
+        }, spectrogramRasterCache.get(cacheId), { colour: title, frequency: STR.axisFrequency, time: STR.axisTime }, [text, theme.bgColor, theme.lineColor].join(':'));
         spectrogramRasterCache.set(cacheId, painted);
+        // paintOverlay leaves its scale on the context: the lines over the lane are drawn in the canvas's own pixels.
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
         const specTop = spec.maxFrequencyHz || maxFreq || 1;
         markLanePlot(canvas, { x: STR.axisTime, y: STR.axisFrequency }, trackSpecAxisCanvasId(trackIndex, channelIndex), {
             x: { start: waveformView.start, end: waveformView.end },
@@ -2188,9 +2185,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         // Which time window the picture was drawn from: the whole file, or the zoom window asked again (R3).
         canvas.dataset.spectrogramWindow = shown && shown.window ? `${shown.window.startNorm} ${shown.window.endNorm}` : '0 1';
         canvas.dataset.colourBar = [painted.colourBar.x, painted.colourBar.y, painted.colourBar.width, painted.colourBar.height].map(value => Math.round(value)).join(' ');
-        if (axisCanvas && axisCtx) {
-            paintLaneAxis(axisCtx, axisCanvas.width, axisCanvas.height, laneFrequencyTicks(minFreq > 0 ? minFreq : 0, maxFreq, axisCanvas.height), STR.axisFrequency, laneAxisColors());
-        }
         if (spectrogramHover && spectrogramHover.canvas === canvas) showSpectrogramReadout(canvas, spectrogramHover.clientX, spectrogramHover.clientY);
         if (overlayCtx) {
             drawSpectrogramOverlayLines(overlayCtx, W, H);

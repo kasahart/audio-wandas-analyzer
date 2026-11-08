@@ -15,7 +15,7 @@ import type { NormalizedRange } from './waveformInteraction';
 import { plotPointIn, type PlotMargins } from './plotInteraction';
 import { HOVER_PICK_RADIUS_PX, nearestPoint } from './plotHover';
 import { paintWaveformLayer, waveformRange, type SignalPointSink } from '../plot/waveformLayer';
-import { drawValueAxis, fittedAxisTitle, readoutText, type AxisTick } from '../../shared/gui-core/index';
+import { drawValueAxis, fittedAxisTitle, normalizedColor, readoutText, type AxisTick, type Palette } from '../../shared/gui-core/index';
 import { niceTicks } from '../../shared/utils/ticks';
 
 /** Canvas x the level axis's turned title is centred on, in the gutter left of its tick labels. */
@@ -240,22 +240,31 @@ export function stageHeadline(diff: StageView | null, strings: Pick<StageStrings
 }
 
 /**
- * The index of the axis point nearest `value` (on a log axis, nearest in ratio), or −1 past the ends by more than
- * half the end step: an image drawn on wider axes than it covers leaves the rest empty.
+ * The edges of each cell along an axis, in its own measure (log on a log axis): halfway between neighbouring points,
+ * and half the end step past each end, so a cell holds the values nearest its point.
  */
-function nearestIndex(axis: readonly number[], value: number, log: boolean): number {
+function cellEdges(axis: readonly number[], log: boolean): number[] {
     const n = axis.length;
-    if (!n) return -1;
+    if (!n) return [];
     const at = (index: number): number => (log ? Math.log(Math.max(axis[index], 1e-12)) : axis[index]);
-    const target = log ? Math.log(Math.max(value, 1e-12)) : value;
     const firstStep = n > 1 ? at(1) - at(0) : 1, lastStep = n > 1 ? at(n - 1) - at(n - 2) : 1;
-    if (target < at(0) - firstStep / 2 || target > at(n - 1) + lastStep / 2) return -1;
-    let low = 0, high = n - 1;
-    while (high - low > 1) {
-        const middle = (low + high) >> 1;
-        if (at(middle) <= target) low = middle; else high = middle;
-    }
-    return Math.abs(at(high) - target) < Math.abs(at(low) - target) ? high : low;
+    const edges = [at(0) - firstStep / 2];
+    for (let index = 1; index < n; index++) edges.push((at(index - 1) + at(index)) / 2);
+    edges.push(at(n - 1) + lastStep / 2);
+    return edges;
+}
+
+/** The cells [first, after) that a stretch from `low` to `high` of the axis (its own measure) overlaps; null for none. */
+function cellSpan(edges: readonly number[], low: number, high: number): [number, number] | null {
+    const n = edges.length - 1;
+    if (n < 1 || !(high > low)) return null;
+    // The first cell ending past `low`, and the cells starting before `high`.
+    let lo = 0, hi = n;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (edges[mid + 1] <= low) lo = mid + 1; else hi = mid; }
+    const first = lo;
+    lo = 0; hi = n;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (edges[mid] < high) lo = mid + 1; else hi = mid; }
+    return lo > first ? [first, lo] : null;
 }
 
 type AxisScale = { low: number; high: number; log: boolean; fraction(value: number): number; at(fraction: number): number };
@@ -447,6 +456,10 @@ export interface StagePlot {
     secondary?: StagePlot;
     /** A heatmap drawn: its picture, and the cell (column, row of its matrix; −1 off the picture) at a point of the canvas. */
     image?: { layer: StageLayer; cellAt(x: number, y: number): { column: number; row: number } };
+    /** Where a heatmap's colour bar was painted (CSS pixels on the canvas). */
+    colourBar?: ColourBarBox;
+    /** The value axis' ticks as drawn (a heatmap's rows, a line's levels): a lane kept as painted draws its side axis again from them. */
+    levelTicks?: AxisTick[];
 }
 
 /** Several pictures of one Frame type on one set of axes, as solid lines (or steps) told apart by colour. */
@@ -509,6 +522,8 @@ export interface StagePaintOptions {
      * there), the plot filling its canvas at the canvas's own size, and no time labels (the ruler above has them).
      */
     axisCanvas?: HTMLCanvasElement | null;
+    /** A heatmap's level colours (the track spectrogram lanes' viridis); grey levels when not given. */
+    heatmapPalette?: Palette;
     /** Each point of a signal's line (CSS pixels on the canvas, its value and time, whether seen), for a pointer that reads them. */
     onSignalPoint?: SignalPointSink;
 }
@@ -620,7 +635,8 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
     // Zoomed, the pictures run past the plot's edges: they are clipped to it.
     const xAt = (value: number): number => left + xAxis.fraction(value) * plotWidth;
     const heatmap = view.kind === 'heatmap';
-    const yAxis = heatmap ? windowed(rowScale(whole), options.window?.y) : null;
+    // The rows' axis is the picture's own when the whole axes given (a lane's time axis) have no rows.
+    const yAxis = heatmap ? windowed(rowScale(whole.ys?.length ? whole : view), options.window?.y) : null;
     const levelAt = (axis: PaneRange) => (value: number): number => top + (1 - (Math.max(axis.min, Math.min(axis.max, value)) - axis.min) / (axis.max - axis.min)) * plotHeight;
     const yAt = levelAt(range);
     // Ten spans past either end is far outside the plot: a line's slope where it crosses the edge stays right.
@@ -634,13 +650,17 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
     if (heatmap && yAxis && view.matrix) {
         const image = context.createImageData(Math.round(plotWidth * ratio), Math.round(plotHeight * ratio));
         const extentAbs = Math.max(Math.abs(range.min), Math.abs(range.max), 1e-9);
-        // Which row and column each pixel shows (the nearest; none past the picture's ends), worked out once per
-        // line, not per pixel, from the axes' values: a detail picture covers only part of them.
         const ys = view.ys ?? [], xs = view.xs ?? [];
-        const rowOf = Array.from({ length: image.height }, (_, py) => nearestIndex(ys, yAxis.at(1 - (py + 0.5) / image.height), yAxis.log));
-        const columnOf = Array.from({ length: image.width }, (_, px) => nearestIndex(xs, xAxis.at((px + 0.5) / image.width), false));
+        // A signed picture (a difference, a cepstrum) shows its largest magnitude; levels, their loudest.
+        const signedScale = !!options.diff || view.quantity === 'cepstrum';
+        // The cells each pixel line covers (none past the picture's ends), worked out once per line, not per pixel,
+        // from the axes' values: a detail picture covers only part of them.
+        const rowEdges = cellEdges(ys, yAxis.log), columnEdges = cellEdges(xs, false);
+        const measure = (value: number, log: boolean): number => (log ? Math.log(Math.max(value, 1e-12)) : value);
+        const rowSpans = Array.from({ length: image.height }, (_, py) => cellSpan(rowEdges,
+            measure(yAxis.at(1 - (py + 1) / image.height), yAxis.log), measure(yAxis.at(1 - py / image.height), yAxis.log)));
+        const columnSpans = Array.from({ length: image.width }, (_, px) => cellSpan(columnEdges, xAxis.at(px / image.width), xAxis.at((px + 1) / image.width)));
         const pixels = new Uint32Array(image.data.buffer);
-        // One colour per cell (ABGR as the canvas stores it), looked up for every pixel of that cell.
         // A cell's colour as [r, g, b]; `dim` for a difference where both levels are far below the loudest.
         const rgbOf = (cell: number, dim = false): [number, number, number] => {
             if (options.diff) {
@@ -654,18 +674,67 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
                 const fade = Math.round(255 * (1 - Math.abs(amount)));
                 return amount >= 0 ? [255, fade, fade] : [fade, fade, 255];
             }
-            const level = Math.round(Math.max(0, Math.min(1, (cell - range.min) / (range.max - range.min || 1))) * 255);
+            const fraction = Math.max(0, Math.min(1, (cell - range.min) / (range.max - range.min || 1)));
+            if (options.heatmapPalette) return normalizedColor(fraction, options.heatmapPalette);
+            const level = Math.round(fraction * 255);
             return [level, level, level];
         };
-        const colours = view.matrix.map((cells, row) => cells.map((cell, column) => {
-            if (cell === null || cell === undefined) return 0;
-            const [r, g, b] = rgbOf(cell, !!options.loud && !options.loud[row]?.[column]);
-            return (255 << 24 | b << 16 | g << 8 | r) >>> 0;
-        }));
+        const matrix = view.matrix;
+        const key = (cell: number): number => (signedScale ? Math.abs(cell) : cell);
+        // Each pixel shows the strongest of the cells it covers (R2: a peak is never thinned away), found per matrix
+        // row across the pixel columns first, then down the rows each pixel line covers.
+        const columnPeaks = new Map<number, Int32Array>();
+        const peaksOfRow = (row: number): Int32Array => {
+            let peaks = columnPeaks.get(row);
+            if (peaks) return peaks;
+            peaks = new Int32Array(image.width).fill(-1);
+            const cells = matrix[row] ?? [];
+            for (let px = 0; px < image.width; px++) {
+                const span = columnSpans[px];
+                if (!span) continue;
+                let best = -1, bestKey = -Infinity;
+                for (let column = span[0]; column < span[1]; column++) {
+                    const cell = cells[column];
+                    if (cell === null || cell === undefined) continue;
+                    if (best < 0 || key(cell) > bestKey) { best = column; bestKey = key(cell); }
+                }
+                peaks[px] = best;
+            }
+            columnPeaks.set(row, peaks);
+            return peaks;
+        };
+        // One colour per cell (ABGR as the canvas stores it), worked out once for the cells drawn.
+        const colours = new Map<number, number>();
+        const colourOf = (row: number, column: number): number => {
+            const id = row * (xs.length + 1) + column;
+            let colour = colours.get(id);
+            if (colour === undefined) {
+                const [r, g, b] = rgbOf(matrix[row][column] as number, !!options.loud && !options.loud[row]?.[column]);
+                colour = (255 << 24 | b << 16 | g << 8 | r) >>> 0;
+                colours.set(id, colour);
+            }
+            return colour;
+        };
+        // The cell a pixel shows (row and column of the matrix), or row −1 for none.
+        const shownCell = (px: number, py: number): { row: number; column: number } => {
+            const span = rowSpans[py];
+            let row = -1, column = -1, bestKey = -Infinity;
+            if (!span || px < 0 || px >= image.width) return { row, column };
+            for (let candidate = span[0]; candidate < span[1]; candidate++) {
+                const at = peaksOfRow(candidate)[px];
+                if (at < 0) continue;
+                const cellKey = key(matrix[candidate][at] as number);
+                if (row < 0 || cellKey > bestKey) { row = candidate; column = at; bestKey = cellKey; }
+            }
+            return { row, column };
+        };
         for (let py = 0; py < image.height; py++) {
-            const cells = rowOf[py] < 0 ? [] : colours[rowOf[py]] ?? [];
+            if (!rowSpans[py]) continue;
             const offset = py * image.width;
-            for (let px = 0; px < image.width; px++) pixels[offset + px] = columnOf[px] < 0 ? 0 : cells[columnOf[px]] ?? 0;
+            for (let px = 0; px < image.width; px++) {
+                const cell = shownCell(px, py);
+                if (cell.row >= 0) pixels[offset + px] = colourOf(cell.row, cell.column);
+            }
         }
         context.putImageData(image, Math.round(left * ratio), Math.round(top * ratio));
         const imageLayer = layers.find(layer => layer.view === view) ?? layers[0];
@@ -674,18 +743,19 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
             cellAt: (x, y) => {
                 const fx = (x - left) / plotWidth, fy = (y - top) / plotHeight;
                 if (fx < 0 || fx > 1 || fy < 0 || fy > 1) return { column: -1, row: -1 };
-                return { column: nearestIndex(xs, xAxis.at(fx), false), row: nearestIndex(ys, yAxis.at(1 - fy), yAxis.log) };
+                // The cell drawn under the point: the strongest of those its pixel covers.
+                const cell = shownCell(Math.min(image.width - 1, Math.floor(fx * image.width)), Math.min(image.height - 1, Math.floor(fy * image.height)));
+                return cell.row < 0 ? { column: -1, row: -1 } : cell;
             },
         };
         // A linear row axis (Bark, quefrency, the entry strip's rows) gets as many ticks as the plot is tall for.
         levelTicks = rowAxisTicks(yAxis.low, yAxis.high, yAxis.log, plotHeight, options.yTickText).map(tick => ({ text: tick.text, fraction: yAxis.fraction(tick.value) }));
         // The colour bar, top right inside the plot: what the colour measures, and its ends.
-        const signedScale = !!options.diff || view.quantity === 'cepstrum';
         const edge = Math.max(Math.abs(range.min), Math.abs(range.max));
         const low = signedScale ? -edge : range.min, high = signedScale ? edge : range.max;
         const endText = (value: number): string => levelText(value, high - low);
         // Under the region's corner tag when there is one, as the pending note is.
-        paintColourBar(context, { left: left + 4, right: left + plotWidth - 4, top: colourBarTop(top, options.region?.mark === 'tag') }, axes.colour ?? '', endText(low), endText(high), fraction => {
+        plot.colourBar = paintColourBar(context, { left: left + 4, right: left + plotWidth - 4, top: colourBarTop(top, options.region?.mark === 'tag') }, axes.colour ?? '', endText(low), endText(high), fraction => {
             const [r, g, b] = rgbOf(low + fraction * (high - low));
             return `rgb(${r}, ${g}, ${b})`;
         }, { text, back: pendingColors.back, line });
@@ -777,6 +847,7 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
     if (xLabels) context.fillText(xTitle, xTitleLeft, height - 3);
     // The level axis: its ticks in the muted colour, and what it measures up the left edge in the text colour.
     const frame = { left, top, width: plotWidth, height: plotHeight };
+    plot.levelTicks = levelTicks;
     if (options.axisCanvas) paintSideAxis(options.axisCanvas, levelTicks, axes.y, { muted, text });
     else if (!lane) {
         drawValueAxis(context, frame, levelTicks, '', { color: muted, font: context.font, titleX: AXIS_TITLE_X });

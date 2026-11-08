@@ -1,7 +1,8 @@
 import type { SpectrogramData, WaveformEnvelope } from '../../shared/analysis/analysisTypes';
-import { dbToRgb } from '../draw/canvasDrawers';
-import { paintSpectrogramRaster, type SpectrogramRasterView } from './spectrogramRaster';
-import { paintColourBar, type ColourBarBox, type StageLayer, type StageOverlay } from './stagePanes';
+import { viridis, type AxisTick } from '../../shared/gui-core/index';
+import { spectrogramTimeBinEdges } from '../spectrum/spectrogramTimeBins';
+import { paintOverlay, paintSideAxis, type ColourBarBox, type StageLayer, type StageOverlay } from './stagePanes';
+import type { NormalizedRange } from './waveformInteraction';
 import type { StageView } from '../../shared/protocol/backendProtocol';
 
 export function hexToRgba(hex: string, alpha: number): string {
@@ -80,45 +81,85 @@ export interface SpectrogramRasterCacheEntry {
     key: string;
     /** Where its colour bar is on the canvas. */
     colourBar: ColourBarBox;
+    /** Its frequency axis' ticks, to draw the side axis again while the picture is kept. */
+    ticks: AxisTick[];
 }
 
-/** The colour bar's look: its text in the axes' colour on the lane's background, framed as the axes are. */
-export interface SpectrogramColourBarStyle {
-    /** What the colour measures, with its unit and reference, as the comparison's heatmaps name it. */
-    title: string;
-    text: string;
-    back: string;
-    line: string;
+/** What a spectrogram lane shows: the time on screen (fractions of the lanes' axis), its frequency band and colour range. */
+export interface LaneSpectrogramView {
+    window: NormalizedRange;
+    minFrequencyHz: number;
+    maxFrequencyHz: number;
+    dbLo: number;
+    dbHi: number;
+    /** The track's duration: with the frame centres it places each cell on its STFT window. */
+    durationSec: number;
+}
+
+/** The names on a spectrogram lane: what the colour measures (as the comparison's heatmaps name it), its frequency axis, and the time axis. */
+export interface LaneSpectrogramTitles {
+    colour: string;
+    frequency: string;
+    time: string;
+}
+
+const laneMatrices = new WeakMap<SpectrogramData, number[][]>();
+
+/**
+ * A track's spectrogram as a heatmap picture on the lanes' time axis (R13): its frames' centres in seconds there, its
+ * bins in Hz up a linear axis (the lanes' frequency axis is linear), its levels as rows of frequency.
+ */
+export function laneSpectrogramView(spec: SpectrogramData, place: LanePlacement, durationSec: number): StageView {
+    const toSec = (fileNorm: number): number => place.startSec + (place.offsetNorm + fileNorm * place.trackDurRatio) * place.spanSec;
+    const count = spec.timeBins, bins = spec.frequencyBins;
+    const edges = spectrogramTimeBinEdges(spec, durationSec);
+    const centres = spec.timeCentersSec;
+    const xs = Array.from({ length: count }, (_, k) => toSec(edges && centres ? centres[k] / durationSec : (k + 0.5) / Math.max(1, count)));
+    const ys = Array.from({ length: bins }, (_, bin) => (bins > 1 ? bin / (bins - 1) : 0) * spec.maxFrequencyHz);
+    let matrix = laneMatrices.get(spec);
+    if (!matrix) {
+        matrix = Array.from({ length: bins }, (_, bin) => Array.from({ length: count }, (_, k) => spec.values[k]?.[bin] ?? Number.NEGATIVE_INFINITY));
+        laneMatrices.set(spec, matrix);
+    }
+    // No yAxis: the rows are frequencies, but up a linear axis (a frequency yAxis is a log one).
+    return { frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity: 'level', unit: spec.unit ?? 'dB', xs, ys, matrix };
 }
 
 /**
- * Repaints the raster and its colour bar only when the spectrogram, its view or the look changed; otherwise the canvas
- * keeps the previous pixels. The raster takes the whole width, as every lane's time axis does, and the colour bar is
- * the one every coloured picture draws (paintColourBar), in the plot's top right (R13).
+ * Paints a track's spectrogram lane with the plot component every picture is drawn by (paintOverlay, R13): its cells
+ * placed on the lanes' time axis, each pixel the loudest of the cells it covers (R2), in the lanes' viridis colours,
+ * its colour bar in the plot's top right and its frequency axis on its own canvas beside it. Only when the
+ * spectrogram, its view or the look changed; otherwise the canvas keeps the previous pixels and the axis is drawn again.
  */
 export function paintTrackSpectrogram(
-    ctx: CanvasRenderingContext2D,
-    W: number,
-    H: number,
+    canvas: HTMLCanvasElement,
+    axisCanvas: HTMLCanvasElement | null,
     spec: SpectrogramData,
-    view: SpectrogramRasterView,
+    place: LanePlacement,
+    view: LaneSpectrogramView,
     cached: SpectrogramRasterCacheEntry | undefined,
-    style: SpectrogramColourBarStyle,
+    titles: LaneSpectrogramTitles,
+    look: string,
 ): SpectrogramRasterCacheEntry {
-    const key = [W, H, view.zoomStart, view.zoomEnd, view.trackStart, view.trackDurRatio, view.dbLo, view.dbHi, view.maxFrequencyHz, view.minFrequencyHz, view.durationSec, style.title, style.text, style.back, style.line].join(':');
+    const key = [canvas.width, canvas.height, view.window.start, view.window.end, place.startSec, place.spanSec, place.offsetNorm, place.trackDurRatio,
+        view.dbLo, view.dbHi, view.maxFrequencyHz, view.minFrequencyHz, view.durationSec, titles.colour, titles.frequency, look].join(':');
+    const colors = sideAxisColors(canvas);
     if (cached && cached.source === spec && cached.key === key) {
+        if (axisCanvas) paintSideAxis(axisCanvas, cached.ticks, titles.frequency, colors);
         return cached;
     }
-    ctx.clearRect(0, 0, W, H);
-    const imageData = ctx.createImageData(W, H);
-    paintSpectrogramRaster(spec, W, H, view, imageData.data);
-    ctx.putImageData(imageData, 0, 0);
-    ctx.font = '10px sans-serif';
-    const colourBar = paintColourBar(ctx, { left: 4, right: W - 4, top: 3 }, style.title, view.dbLo.toFixed(0), view.dbHi.toFixed(0), fraction => {
-        const [r, g, b] = dbToRgb(fraction);
-        return `rgb(${r}, ${g}, ${b})`;
-    }, style);
-    return { source: spec, key, colourBar };
+    const picture = laneSpectrogramView(spec, place, view.durationSec);
+    const axisView: StageView = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', xs: [place.startSec, place.startSec + place.spanSec], values: [0, 0] };
+    const top = spec.maxFrequencyHz || view.maxFrequencyHz || 1;
+    const plot = paintOverlay(canvas, { layers: [{ view: picture, color: '' }] }, { min: view.dbLo, max: view.dbHi },
+        { x: titles.time, y: titles.frequency, colour: titles.colour },
+        { axisCanvas, axisView, heatmapPalette: viridis, window: { x: view.window, y: { start: Math.max(0, view.minFrequencyHz) / top, end: view.maxFrequencyHz / top } } });
+    return { source: spec, key, colourBar: plot?.colourBar ?? { x: 0, y: 0, width: 0, height: 0 }, ticks: plot?.levelTicks ?? [] };
+}
+
+function sideAxisColors(canvas: HTMLCanvasElement): { muted: string; text: string } {
+    const style = canvas.ownerDocument.defaultView?.getComputedStyle(canvas);
+    return { muted: style?.getPropertyValue('--muted').trim() || '#888', text: style?.getPropertyValue('--text').trim() || '#ddd' };
 }
 
 /** Whether (x, y), in the canvas's own pixels, is on the colour bar last painted there. */
