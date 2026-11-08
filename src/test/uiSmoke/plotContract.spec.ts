@@ -356,6 +356,20 @@ test('the entry\'s held plot answers the same gestures as every plot (R13)', asy
     await page.keyboard.down('1');
     const plot = page.locator('[data-entry-held-canvas]');
     await expect(plot).toBeVisible();
+    // The Δ is drawn only once every bin is in (R1, R2): the host answers the hold's request for them, each file's
+    // own spectrum standing in as its bins.
+    const binsAsked = async (): Promise<Posted | undefined> => (await page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Posted[] }).__uiSmokePostedMessages))
+        .find(message => message.type === 'compare-scan' && message.requestId.startsWith('held-bins'));
+    await expect.poll(binsAsked).toBeTruthy();
+    const request = (await binsAsked())!;
+    await page.evaluate(({ request, files }) => {
+        for (const file of files.filter(item => (request as unknown as { filePaths: string[] }).filePaths.includes(item.filePath))) {
+            const result = file.result as { spectrumDb: number[][]; input: { fs: number } };
+            const bins = { ...result, spectrumBinsDb: result.spectrumDb, spectrumBinHz: result.input.fs / 2 / Math.max(1, (result.spectrumDb[0]?.length ?? 1) - 1) };
+            window.postMessage({ type: 'compare-scan-result', requestId: request.requestId, filePath: file.filePath, result: bins }, '*');
+        }
+        window.postMessage({ type: 'compare-scan-done', requestId: request.requestId }, '*');
+    }, { request, files: scanned! });
     await expect.poll(() => plot.getAttribute('data-plot-axes')).not.toBe('');
     await expectContract(page, 'entry held', plot);
     await page.keyboard.up('1');

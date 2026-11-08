@@ -17,12 +17,32 @@ window.__AWA_TEST_HOOKS__ = true;
 // The backend's stage-combine for the pictures a test answers with: each picture is taken as the step's full
 // resolution, named by a key as the backend names the values it keeps, and combined point by point.
 window.__uiSmokeStageData = {};
+// The backend's levelBins (stage_combine.level_bins) for a picture a test answers with, its values taken as every
+// value: a level's power mean of 10^(dB/10), a waveform's mean square, in stretches of its axis (R6's order).
+function uiSmokeLevelBins(view) {
+    const xs = view.xs || [];
+    const db = view.quantity === 'level' || view.quantity === 'gain';
+    if ((view.kind !== 'line' && view.kind !== 'bar') || (!db && !view.waveform) || !xs.length) return null;
+    const powers = view.waveform
+        ? view.waveform.max.map(function(high, i) { const low = view.waveform.min[i] || 0; return ((high || 0) * (high || 0) + low * low) / 2; })
+        : (view.values || []).map(function(value) { return value === null ? null : value <= -250 ? 0 : Math.pow(10, value / 10); });
+    const at = view.waveform
+        ? view.waveform.max.map(function(_, i) { return ((view.waveform.minT[i] || 0) + (view.waveform.maxT[i] || 0)) / 2; })
+        : xs;
+    const low = Math.min.apply(null, at), high = Math.max.apply(null, at);
+    const edges = [low, high > low ? high : low + 1];
+    let power = 0, count = 0;
+    powers.forEach(function(value) { if (value !== null && isFinite(value)) { power += value; count += 1; } });
+    return { edges: edges, power: [count ? power / count : 0], count: [count] };
+}
 window.addEventListener('message', function(event) {
     const data = event.data;
     const stage = data && data.type === 'compare-scan-result' && data.result && data.result.stage;
     if (!stage || stage.kind === 'none' || stage.data) return;
     const key = 'k:' + data.filePath + ':' + Object.keys(window.__uiSmokeStageData).length;
     stage.data = key;
+    const bins = stage.levelBins || uiSmokeLevelBins(stage);
+    if (bins) stage.levelBins = bins;
     window.__uiSmokeStageData[key] = stage;
 }, true);
 ${UI_SMOKE_READS}
@@ -50,11 +70,14 @@ function uiSmokeCombined(message) {
         const mid = Math.floor(sorted.length / 2);
         return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
     };
-    const strip = function(view) { const out = Object.assign({}, view); delete out.waveform; delete out.events; delete out.data; return out; };
+    const strip = function(view) { const out = Object.assign({}, view); delete out.waveform; delete out.events; delete out.data; delete out.levelBins; return out; };
     const base = first.matrix
         ? Object.assign(strip(first), { matrix: first.matrix.map(function(row, r) { return row.map(function(_, c) { return median(views.map(function(view) { return view.matrix[r][c]; })); }); }) })
         : Object.assign(strip(first), { values: (first.values || []).map(function(_, i) { return median(views.map(function(view) { return view.values[i]; })); }) });
     const result = { ok: true };
+    delete base.levelBins;
+    const baseBins = uiSmokeLevelBins(base);
+    if (baseBins) base.levelBins = baseBins;
     if (views.length > 1) result.base = base;
     if (!compare || /Segments$/.test(first.frame)) return result;
     const minus = function(a, b) { return a === null || b === null ? null : Math.round((a - b) * 100) / 100; };

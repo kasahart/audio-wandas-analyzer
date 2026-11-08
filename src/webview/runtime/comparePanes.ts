@@ -12,7 +12,7 @@ import { BAND_CENTERS_HZ, bandLabel, HEADLINE_WITHIN_DB, quantile, roundedDelta,
 import { baseName } from '../../shared/analysis/entryMetadata';
 import { median } from '../../shared/dataset/distribution';
 import { powerMeanDb, powerMeanOrNull } from '../../shared/utils/levels';
-import { axisValueAt } from './stagePanes';
+import { axisValueAt, levelBinsOf } from './stagePanes';
 import { signedNumberText, withMinus } from '../plot/plotText';
 
 type ScanOk = ScanResult & { ok: true };
@@ -320,6 +320,8 @@ export function binsView(bins: NonNullable<CompareModel['bins']>, which: 'base' 
     return {
         frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity: 'level',
         xs: line.xs, xLimits: [SPECTRUM_MIN_HZ, bins.nyquist], values: line.values,
+        // Ordered among overlaid lines by every bin's power, not the drawn ones (R6); a Δ is not ordered.
+        ...(which !== 'diff' ? { levelBins: levelBinsOf(xs, values, span, true) } : {}),
         ...(bounds ? { detail: true } : {}),
     };
 }
@@ -328,10 +330,16 @@ export function binsView(bins: NonNullable<CompareModel['bins']>, which: 'base' 
  * The comparison's Δ spectrum to draw (R1, R3): from the full-resolution bins when the scans gave them, decimated
  * only to be drawn, and with the x window `zoom` (fractions of the whole Δ's axis) narrower than the whole, drawn
  * again from the bins between its ends, so zooming in shows every bin there. `picture` is the whole Δ, for the axis.
- * Without the bins, the scans' per-band Δ.
+ * Without the bins, the 1/3-octave bands' Δ (each band's level is the scan's own, from every bin), never a Δ of the
+ * scans' 192-point spectra: a Δ is taken only of full-resolution values (R1, R2).
  */
-export function deltaViews(comparison: Pick<CompareModel, 'bins' | 'diffDb' | 'frequencies'>, zoom?: { start: number; end: number }): { picture: StageView | null; view: StageView | null } {
-    const picture = comparison.bins ? binsView(comparison.bins, 'diff') : comparison.diffDb ? sideView({ spectrumDb: comparison.diffDb, bands: [] }, comparison.frequencies) : null;
+export function deltaViews(comparison: Pick<CompareModel, 'bins' | 'bandDeltas' | 'frequencies'>, zoom?: { start: number; end: number }): { picture: StageView | null; view: StageView | null } {
+    const bandsDelta = (): StageView | null => {
+        const count = bandCount(comparison.frequencies);
+        const values = comparison.bandDeltas.slice(0, count);
+        return values.some(value => value !== null) ? { frame: 'NOctFrame', kind: 'bar', x: 'band', xScale: 'log', quantity: 'level', xs: BAND_CENTERS_HZ.slice(0, count), values } : null;
+    };
+    const picture = comparison.bins?.diff ? binsView(comparison.bins, 'diff') : bandsDelta();
     if (!picture || !comparison.bins || !zoom || (zoom.start <= 0 && zoom.end >= 1)) return { picture, view: picture };
     const low = axisValueAt(picture, Math.max(0, zoom.start)), high = axisValueAt(picture, Math.min(1, zoom.end));
     return { picture, view: high > low ? binsView(comparison.bins, 'diff', [low, high]) ?? picture : picture };
@@ -374,10 +382,14 @@ export function sideView(side: Pick<CompareSide, 'spectrumDb' | 'bands'> | null 
     if (bands) {
         // Only the bands up to Nyquist: the rest are empty for every file.
         const count = bandCount(frequencies);
-        return { frame: 'NOctFrame', kind: 'bar', x: 'band', xScale: 'log', quantity: 'level', xs: BAND_CENTERS_HZ.slice(0, count), values: side.bands.slice(0, count) };
+        const xs = BAND_CENTERS_HZ.slice(0, count), values = side.bands.slice(0, count);
+        return { frame: 'NOctFrame', kind: 'bar', x: 'band', xScale: 'log', quantity: 'level', xs, values, levelBins: levelBinsOf(xs, values, [xs[0] ?? 1, xs[xs.length - 1] ?? 1], true) };
     }
     if (!frequencies.length || side.spectrumDb.length !== frequencies.length) return null;
-    return { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity: 'level', xs: frequencies, values: side.spectrumDb.map(value => Math.round(value * 100) / 100) };
+    return {
+        frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity: 'level', xs: frequencies, values: side.spectrumDb.map(value => Math.round(value * 100) / 100),
+        levelBins: levelBinsOf(frequencies, side.spectrumDb, [frequencies[0], frequencies[frequencies.length - 1]], true),
+    };
 }
 
 /** How many 1/3-octave bands lie below the spectra's top edge (Nyquist). */

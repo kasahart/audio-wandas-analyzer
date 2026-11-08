@@ -14,7 +14,10 @@ const layerOf = (values: number[], overrides: Partial<SpectrumSlice> = {}, cutof
 
 test('a cursor spectrum slice becomes a level line over its bins\' frequencies', () => {
     const layer = layerOf([0, -50, -100]);
-    assert.deepEqual(layer.view, { frame: 'spectrum', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'level', xs: [0, 500, 1000], values: [0, -50, -100] });
+    const { levelBins, ...view } = layer.view;
+    assert.deepEqual(view, { frame: 'spectrum', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'level', xs: [0, 500, 1000], values: [0, -50, -100] });
+    // Ordered among the overlaid slices by every bin's power before it is thinned (R6): the bins above DC.
+    assert.equal(levelBins?.count.reduce((sum, n) => sum + n, 0), 2);
     assert.equal(layer.label, 'A');
 });
 

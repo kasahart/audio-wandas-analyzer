@@ -4,7 +4,7 @@ import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import type { StageView } from '../../shared/protocol/backendProtocol';
 import type { FrequencyScale } from '../draw/canvasDrawers';
 import { hintAttr } from './hintFooter';
-import type { StageLayer } from './stagePanes';
+import { levelBinsOf, type StageLayer } from './stagePanes';
 import type { TrackId } from './types';
 
 export type PairSpectrumResultMessage = Extract<PairSpectrumPublication, { type: 'pair-spectrum-result' }>;
@@ -160,7 +160,12 @@ export function pairLanes(input: PairPaintInput, visible: FrequencyScale, string
     const shown = xs.flatMap((hz, bin) => (hz >= visible.frequencyMin && hz <= visible.frequencyMax ? [bin] : []));
     const lines = (values: (response: PairSpectrumResponse) => readonly (number | null)[], quantity: StageView['quantity'], unit: string): StageLayer[] =>
         drawn.map(curve => ({
-            view: { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity, unit, xs, values: [...values(curve.response)] },
+            view: {
+                frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity, unit, xs, values: [...values(curve.response)],
+                // A gain is ordered among the responses by every bin's power (R6); a phase or γ² is not a level.
+                // Over the frequencies on screen: every bin is in hand, so it is measured again at every zoom.
+                ...(quantity === 'gain' && xs.length ? { levelBins: levelBinsOf(xs, values(curve.response), visible.frequencyMax > visible.frequencyMin ? [visible.frequencyMin, visible.frequencyMax] : [xs[0], xs[xs.length - 1]], false) } : {}),
+            },
             color: curve.color,
             label: curve.label,
             // Every bin is drawn: what the line draws is all it holds (R7).
