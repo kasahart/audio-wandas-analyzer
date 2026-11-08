@@ -505,6 +505,11 @@ export interface StagePaintOptions {
      */
     region?: { start: number; end: number; mark: 'range' | 'tag'; label: string };
     /**
+     * Guides over the plot, in its axes' values: stretches of the horizontal axis shaded (a trigger's events, where
+     * each was cut) and a level drawn dashed across it, named at its right end (the level a trigger fires at).
+     */
+    guides?: { spans?: ReadonlyArray<{ start: number; end: number }>; level?: { value: number; label: string } };
+    /**
      * A Δ figure's 1/3-octave Δ per band as steps under the curve: the headline's bands filled, a peak's
      * same-signed neighbours (its leak through the band filters) outlined, the rest faint; `legend` names them.
      */
@@ -579,6 +584,18 @@ export function paintStage(canvas: HTMLCanvasElement, view: StageView | null, ra
  * are, for the pointer (null when nothing is drawn).
  */
 export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, range: PaneRange, axes: StageAxes, options: StagePaintOptions = {}): StagePlot | null {
+    // While it draws, the page says so: the ui-smoke audit (canvasAudit.ts) fails a plot drawn into by anything else
+    // (R13: what drew a canvas, not only its mark, is what makes it the plot component's).
+    const scope = globalThis as { __plotPainting?: number };
+    scope.__plotPainting = (scope.__plotPainting ?? 0) + 1;
+    try {
+        return paintPlot(canvas, overlay, range, axes, options);
+    } finally {
+        scope.__plotPainting -= 1;
+    }
+}
+
+function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: PaneRange, axes: StageAxes, options: StagePaintOptions): StagePlot | null {
     const lane = options.axisCanvas !== undefined;
     // A lane keeps the size its layout gave its canvas; any other plot is sized to its box at the screen's ratio.
     const ratio = options.size ? 1 : lane ? canvas.width / (canvas.clientWidth || canvas.width || 1) : canvas.ownerDocument.defaultView?.devicePixelRatio ?? 1;
@@ -633,7 +650,8 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
             // Across the whole pane (no axes are drawn), wrapped to its width: a narrow screen keeps every word.
             context.fillStyle = muted;
             context.textAlign = 'center';
-            const lines = wrapLines(options.empty, Math.max(40, width - 16), part => context.measureText(part).width);
+            // Its own lines kept (a failure's summary, then the backend's text), each wrapped.
+            const lines = options.empty.split('\n').flatMap(line => wrapLines(line, Math.max(40, width - 16), part => context.measureText(part).width));
             const step = 13;
             const first = top + plotHeight / 2 - ((lines.length - 1) * step) / 2;
             lines.forEach((part, index) => context.fillText(part, width / 2, first + index * step));
@@ -871,6 +889,7 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
         if (xLabels && x - 6 + context.measureText(label).width < xTitleLeft - 4) context.fillText(label, x - 6, height - 3);
     }
     if (options.region) paintRegion(context, options.region, view, { left, top, width: plotWidth, height: plotHeight }, xAt, { muted, text });
+    if (options.guides) paintGuides(context, options.guides, { left, top, width: plotWidth, height: plotHeight }, xAt, yAt, text);
     if (options.bandSteps?.legend) paintBandLegend(context, options.bandSteps.legend, options.bandSteps.color, left + plotWidth - 6, top, muted);
     context.fillStyle = text;
     if (xLabels) context.fillText(xTitle, xTitleLeft, height - 3);
@@ -1288,6 +1307,29 @@ function paintRegion(context: CanvasRenderingContext2D, region: NonNullable<Stag
         context.strokeRect(x + 0.5, y + 0.5, width - 1, 16);
         context.fillStyle = colors.text;
         context.fillText(region.label, x + 6, y + 12);
+    }
+    context.restore();
+}
+
+function paintGuides(context: CanvasRenderingContext2D, guides: NonNullable<StagePaintOptions['guides']>, plot: { left: number; top: number; width: number; height: number }, xAt: (value: number) => number, yAt: (value: number) => number, text: string): void {
+    context.save();
+    context.beginPath(); context.rect(plot.left, plot.top, plot.width, plot.height); context.clip();
+    context.fillStyle = text;
+    context.globalAlpha = 0.08;
+    for (const span of guides.spans ?? []) {
+        const x0 = xAt(span.start), x1 = xAt(span.end);
+        context.fillRect(x0, plot.top, Math.max(1, x1 - x0), plot.height);
+    }
+    if (guides.level) {
+        context.globalAlpha = 0.9;
+        context.strokeStyle = text;
+        context.setLineDash([5, 3]);
+        context.lineWidth = 1;
+        const y = yAt(guides.level.value);
+        context.beginPath(); context.moveTo(plot.left, y); context.lineTo(plot.left + plot.width, y); context.stroke();
+        context.setLineDash([]);
+        context.font = '10px sans-serif';
+        context.fillText(guides.level.label, plot.left + plot.width - context.measureText(guides.level.label).width - 4, Math.max(plot.top + 10, y - 3));
     }
     context.restore();
 }
