@@ -22,7 +22,7 @@ import { createWebviewEnv, evalScript } from './helpers/webviewTestEnv';
 import { OWN_COLORS } from '../shared/gui/roleColors';
 
 // scripts/build-webview.js が tsc 後に生成。__dirname は dist/test なので 1 階層上が dist/。
-const WAVEFORM_PIPELINE_JS = readFileSync(
+const LOOP_REGION_JS = readFileSync(
     join(__dirname, '..', 'webview', 'comparisonWaveform.js'),
     'utf8',
 );
@@ -206,7 +206,7 @@ function setupEnvWithState(stateJson: string, initialVsCodeState: unknown = null
         initialVsCodeState,
     );
     // comparisonWaveform.js を先に eval して window.paintLoopRegion を登録する
-    evalScript(dom, WAVEFORM_PIPELINE_JS);
+    evalScript(dom, LOOP_REGION_JS);
     evalScript(dom, script);
     return { dom, postedMessages, vscodeStates, offscreenInstances, domCanvasContexts };
 }
@@ -1601,7 +1601,7 @@ const MISMATCHED_DELTA_F_SPECTRUM_STATE = JSON.stringify({
 function setupSpectrumEnv() {
     const script = getRenderScript();
     const env = createWebviewEnv(SPECTRUM_APP_STATE);
-    evalScript(env.dom, WAVEFORM_PIPELINE_JS);
+    evalScript(env.dom, LOOP_REGION_JS);
     evalScript(env.dom, script);
     return env;
 }
@@ -1610,7 +1610,7 @@ function setupSpectrumEnv() {
 function setupMismatchedDeltaFSpectrumEnv() {
     const script = getRenderScript();
     const env = createWebviewEnv(MISMATCHED_DELTA_F_SPECTRUM_STATE);
-    evalScript(env.dom, WAVEFORM_PIPELINE_JS);
+    evalScript(env.dom, LOOP_REGION_JS);
     evalScript(env.dom, script);
     return env;
 }
@@ -1618,7 +1618,7 @@ function setupMismatchedDeltaFSpectrumEnv() {
 function setupHighFrequencyReadoutEnv() {
     const script = getRenderScript();
     const env = createWebviewEnv(HIGH_FREQUENCY_READOUT_STATE);
-    evalScript(env.dom, WAVEFORM_PIPELINE_JS);
+    evalScript(env.dom, LOOP_REGION_JS);
     evalScript(env.dom, script);
     return env;
 }
@@ -1630,7 +1630,7 @@ function setupSpectrumEnvWithClock(clock: { now: number }) {
         configurable: true,
         value: () => clock.now,
     });
-    evalScript(env.dom, WAVEFORM_PIPELINE_JS);
+    evalScript(env.dom, LOOP_REGION_JS);
     evalScript(env.dom, script);
     return env;
 }
@@ -1994,7 +1994,7 @@ test('axes: カーソル時刻のスペクトルに Hz と dB のラベルが描
 });
 
 
-test('spectrum cursor: overlay readout formats focused frequency in Hz', async () => {
+test('spectrum cursor: overlay readout formats focused frequency as every plot does (R7)', async () => {
     const env = setupHighFrequencyReadoutEnv();
     await nextAnimationFrame(env.dom);
 
@@ -2009,9 +2009,8 @@ test('spectrum cursor: overlay readout formats focused frequency in Hz', async (
 
     const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
     assert.ok(readout, 'spectrum-freq-readout が存在すること');
-    assert.match(readout.textContent || '', /^high\.wav \/ Channel 1 \(L\) \/ 1200 Hz \/ -60\.0 dB$/,
-        'overlay のカーソル読み値も file/channel 付きで Hz 固定表示すること');
-    assert.doesNotMatch(readout.textContent || '', /kHz/);
+    assert.match(readout.textContent || '', /^high\.wav \/ Channel 1 \(L\) \/ 1\.2 kHz \/ −60\.0 dB$/,
+        'overlay のカーソル読み値も file/channel 付きで、ほかのグラフと同じ書き方 (1 kHz 以上は kHz) で表示すること');
     env.dom.window.close();
 });
 
@@ -2031,7 +2030,7 @@ test('spectrum cursor: overlay readout identifies the hovered file and channel',
 
     const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
     assert.ok(readout, 'spectrum-freq-readout が存在すること');
-    assert.equal(readout.textContent, 'stereo.wav / Channel 2 / 2 (Right) / 22050 Hz / -3.0 dB',
+    assert.equal(readout.textContent, 'stereo.wav / Channel 2 / 2 (Right) / 22.05 kHz / −3.0 dB',
         'overlay hover readout は最寄り系列の fileName と channelLabel を含むこと');
     env.dom.window.close();
 });
@@ -2048,7 +2047,7 @@ test('spectrum cursor: overlay keyboard focus updates the header readout', async
     await nextAnimationFrame(env.dom);
 
     const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
-    assert.match(readout!.textContent || '', /^high\.wav \/ Channel 1 \(L\) \/ 1200 Hz \/ -60\.0 dB$/,
+    assert.match(readout!.textContent || '', /^high\.wav \/ Channel 1 \(L\) \/ 1\.2 kHz \/ −60\.0 dB$/,
         'overlay もマウス hover なしの focus と矢印キーでヘッダー readout が更新されること');
     env.dom.window.close();
 });
@@ -2096,7 +2095,7 @@ test('spectrum cursor: overlay snaps to the nearest visible series bin when delt
 
     const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
     assert.ok(readout, 'spectrum-freq-readout が存在すること');
-    assert.match(readout.textContent || '', /^fine\.wav \/ Channel 1 \(L\) \/ 180 Hz \/ -35\.0 dB$/,
+    assert.match(readout.textContent || '', /^fine\.wav \/ Channel 1 \(L\) \/ 180 Hz \/ −35\.0 dB$/,
         'fine track ΔF=180 Hz の最寄りbinへ吸着すること');
     env.dom.window.close();
 });
@@ -2125,7 +2124,7 @@ test('spectrum cursor: overlay remains snapped after frequency zoom changes the 
 
     const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
     assert.ok(readout, 'spectrum-freq-readout が存在すること');
-    assert.match(readout.textContent || '', /^fine\.wav \/ Channel 1 \(L\) \/ 180 Hz \/ -35\.0 dB$/,
+    assert.match(readout.textContent || '', /^fine\.wav \/ Channel 1 \(L\) \/ 180 Hz \/ −35\.0 dB$/,
         '周波数ズーム後もfine trackの実binへ吸着すること');
     env.dom.window.close();
 });

@@ -17,6 +17,7 @@ import { HOVER_PICK_RADIUS_PX, nearestPoint } from './plotHover';
 import { paintWaveformLayer, waveformRange, type SignalPointSink } from '../plot/waveformLayer';
 import { drawValueAxis, fittedAxisTitle, normalizedColor, readoutText, type AxisTick, type Palette } from '../../shared/gui-core/index';
 import { niceRange, niceTicks } from '../../shared/utils/ticks';
+import { amountText, frequencyText, levelText, secondsText, signedText, withMinus } from '../plot/plotText';
 
 /** Canvas x the level axis's turned title is centred on, in the gutter left of its tick labels. */
 const AXIS_TITLE_X = 10;
@@ -209,9 +210,8 @@ function metricName(strings: StageStrings, unit: string | undefined): string {
     return strings.dsValue;
 }
 
-const hz = (value: number): string => (value >= 1000 ? `${(value / 1000).toFixed(value >= 10000 ? 1 : 2)} kHz` : `${Math.round(value)} Hz`);
-/** A signed difference: dB to a tenth with its unit, other values to three significant digits. */
-const signed = (value: number, db = true): string => `${value >= 0 ? '+' : '−'}${db ? `${Math.abs(value).toFixed(1)} dB` : Math.abs(value).toPrecision(3)}`;
+const hz = frequencyText;
+const signed = signedText;
 const quefrency = (seconds: number): string => `${(seconds * 1000).toFixed(seconds < 0.01 ? 2 : 1)} ms`;
 /**
  * A signed lag: the output channel later than the input when positive. To 10 µs at any lag (a sample at 96 kHz,
@@ -224,14 +224,21 @@ const lag = (seconds: number): string => {
 
 /** Where along its axis a point of the picture is, for the readout and the headline. */
 function atText(view: StageView, index: number, row?: number): string {
-    return atValue(view, view.xs?.[index] ?? 0, row === undefined ? undefined : view.ys?.[row] ?? 0);
+    return atValue(view, view.xs?.[index] ?? 0, row === undefined ? undefined : view.ys?.[row] ?? 0, spacingAt(view.xs, index), row === undefined ? undefined : spacingAt(view.ys, row));
 }
 
-/** A point of `view`'s axes in their units: "1.00 kHz", "1.00 s · 100 Hz". */
-function atValue(view: StageView, x: number, y?: number): string {
-    const along = view.x === 'time' ? `${x.toFixed(2)} s` : view.x === 'quefrency' ? quefrency(x) : view.x === 'lag' ? lag(x) : hz(x);
+/** The gap from a point to its nearer neighbour, so a readout writes the digits that tell the two apart (R7). */
+function spacingAt(values: readonly number[] | undefined, index: number): number | undefined {
+    if (!values) return undefined;
+    const gaps = [values[index] - values[index - 1], values[index + 1] - values[index]].map(Math.abs).filter(gap => Number.isFinite(gap) && gap > 0);
+    return gaps.length ? Math.min(...gaps) : undefined;
+}
+
+/** A point of `view`'s axes in their units: "1 kHz", "1.00 s · 100 Hz". */
+function atValue(view: StageView, x: number, y?: number, xStep?: number, yStep?: number): string {
+    const along = view.x === 'time' ? secondsText(x) : view.x === 'quefrency' ? quefrency(x) : view.x === 'lag' ? lag(x) : hz(x, xStep);
     if (y === undefined) return along;
-    return `${along} · ${view.yAxis === 'bark' ? `${y.toFixed(1)} Bark` : view.yAxis === 'quefrency' ? quefrency(y) : hz(y)}`;
+    return `${along} · ${view.yAxis === 'bark' ? `${y.toFixed(1)} Bark` : view.yAxis === 'quefrency' ? quefrency(y) : hz(y, yStep)}`;
 }
 
 /** The Δ pane's headline: where the difference is largest, or why there is none. */
@@ -390,7 +397,7 @@ export function valueTickTexts(values: readonly number[]): (value: number) => st
     const whole = (x: number): boolean => Math.abs(x - Math.round(x)) <= 1e-6 * Math.max(1, Math.abs(x));
     let decimals = step > 0 && Number.isFinite(step) ? Math.max(0, Math.floor(-Math.log10(step))) : 0;
     while (decimals < 20 && step > 0 && !whole(step * 10 ** decimals)) decimals++;
-    const minus = (text: string): string => text.replace(/^-/, '−').replace('e-', 'e−').replace('e+', 'e');
+    const minus = withMinus;
     if (decimals > 5) return value => (value === 0 ? '0' : minus((+value.toPrecision(6)).toExponential()));
     return value => minus(decimals ? value.toFixed(decimals) : String(Math.round(value)));
 }
@@ -412,7 +419,7 @@ export function alongAxisTicks(low: number, high: number, log = false): Array<{ 
 
 const tickText = (value: number, log: boolean): string => (log ? (value >= 1000 ? `${Number((value / 1000).toPrecision(3))}k` : String(Number(value.toPrecision(3)))) : String(value));
 /** A value on the level axis with as many decimals as its span needs (cepstral coefficients need four or five). */
-const levelText = (value: number, span: number): string => (span >= 8 ? String(Math.round(value)) : value.toFixed(Math.max(1, Math.min(6, Math.ceil(-Math.log10(span / 8)))))).replace(/^-/, '−');
+const levelTick = (value: number, span: number): string => withMinus(span >= 8 ? String(Math.round(value)) : value.toFixed(Math.max(1, Math.min(6, Math.ceil(-Math.log10(span / 8))))));
 
 /** One picture drawn on a pane: its colour and, over others, its line weight. */
 export interface StageLayer {
@@ -796,7 +803,7 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
         // The colour bar, top right inside the plot: what the colour measures, and its ends.
         const edge = Math.max(Math.abs(range.min), Math.abs(range.max));
         const low = signedScale ? -edge : range.min, high = signedScale ? edge : range.max;
-        const endText = (value: number): string => levelText(value, high - low);
+        const endText = (value: number): string => levelTick(value, high - low);
         // Under the region's corner tag when there is one, as the pending note is.
         plot.colourBar = paintColourBar(context, { left: left + 4, right: left + plotWidth - 4, top: colourBarTop(top, options.region?.mark === 'tag') }, axes.colour ?? '', endText(low), endText(high), fraction => {
             const [r, g, b] = rgbOf(low + fraction * (high - low));
@@ -992,7 +999,7 @@ function paintRightAxis(context: CanvasRenderingContext2D, frame: { left: number
     for (const fraction of span > 0 ? fractions : []) {
         const value = range.min + fraction * span;
         context.textBaseline = fraction >= 1 ? 'top' : fraction <= 0 ? 'bottom' : 'middle';
-        context.fillText(levelText(value, span), x + 2, frame.top + (1 - fraction) * frame.height);
+        context.fillText(levelTick(value, span), x + 2, frame.top + (1 - fraction) * frame.height);
     }
     context.fillStyle = colors.text;
     context.translate(width - AXIS_TITLE_X, frame.top + frame.height / 2);
@@ -1100,7 +1107,7 @@ function signalPointAt(plot: StagePlot, waveform: NonNullable<StageView['wavefor
 function timeText(plot: StagePlot, seconds: number): string {
     const perPixel = Math.abs(plot.xAt(1) - plot.xAt(0)) > 0 ? 1 / Math.abs(plot.xAt(1) - plot.xAt(0)) : 0.01;
     const digits = Math.max(2, Math.min(6, Math.ceil(-Math.log10(Math.max(perPixel, 1e-6)))));
-    return `${seconds.toFixed(digits).replace(/^-/, '−')} s`;
+    return secondsText(seconds, digits);
 }
 
 /** A line's point nearest across to `x` (canvas CSS pixels): its index and where it is drawn; null where it has no value. */
@@ -1194,15 +1201,13 @@ export function stageHover(plot: StagePlot, x: number, y: number): { layer: Stag
     if (view.waveform) {
         // A signal reads its amplitude in its unit, to 3 figures, where its point is.
         const value = hit.point.value, unit = view.waveform.unit || plot.signal?.unit;
-        const amount = `${(Math.abs(value) >= 10 ? value.toFixed(1) : value.toPrecision(3)).replace(/^-/, '−')}${unit ? ` ${unit}` : ''}`;
+        const amount = amountText(value, unit);
         return readoutOf(hit.s, hit.point, hit.s.label ?? '', [timeText(plot, hit.point.time ?? 0), amount]);
     }
     if (hit.s.readout) return readoutOf(hit.s, hit.point, hit.s.label ?? '', hit.s.readout(hit.point.index));
     const amount = plot.diff ? signed(hit.point.value, isDb(view))
         // Levels to 0.1 dB, as the spectrum overlay reads them; other quantities (a coherence) to 3 figures.
-        : (isDb(view) ? `${hit.point.value.toFixed(1)} dB` : Math.abs(hit.point.value) >= 10 ? hit.point.value.toFixed(1) : hit.point.value.toPrecision(3)).replace(/^-/, '−')
-            // In its unit where it has one (a phase in degrees).
-            + (isDb(view) || !view.unit ? '' : view.unit === '°' ? '°' : ` ${view.unit}`);
+        : isDb(view) ? levelText(hit.point.value) : amountText(hit.point.value, view.unit);
     return readoutOf(hit.s, hit.point, hit.s.label || (plot.diff ? 'Δ' : ''), [atText(view, hit.point.index), amount]);
 }
 
@@ -1216,7 +1221,7 @@ function imageHover(plot: StagePlot, image: NonNullable<StagePlot['image']>, x: 
     const value = column < 0 || row < 0 ? null : view.matrix?.[row]?.[column] ?? null;
     if (value === null) return null;
     const amount = plot.diff ? signed(value, isDb(view))
-        : (isDb(view) ? `${value.toFixed(1)} dB` : Math.abs(value) >= 10 ? value.toFixed(1) : value.toPrecision(3)).replace(/^-/, '−');
+        : isDb(view) ? levelText(value) : amountText(value);
     const at = layer.rowName ? atValue(view, view.xs?.[column] ?? 0) : atText(view, column, row);
     return { ...readoutOf(layer, { x, y }, layer.rowName?.(row, column) ?? layer.label ?? (plot.diff ? 'Δ' : ''), [at, amount]), image: true };
 }

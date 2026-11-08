@@ -24,7 +24,7 @@ test('the pointer on a track\'s waveform reads the point nearest it as every plo
     const specBox = await spectrogram.boundingBox();
     if (!specBox) throw new Error('spectrogram lane has no layout box');
     await page.mouse.move(specBox.x + specBox.width / 2, specBox.y + specBox.height / 2);
-    await expect(readout).toHaveText(/^.+ \/ −?\d+\.\d+ s \/ [\d.]+ Hz \/ −?[\d.]+ /);
+    await expect(readout).toHaveText(/^.+ \/ −?\d+\.\d+ s \/ [\d.]+ k?Hz \/ −?[\d.]+ /);
     await expect(page.locator('#toolbar #plot-readout:not([hidden])')).toHaveCount(1);
     // Zoomed in, then panned under the still pointer: the readout reads the cell under it now, not the one it read.
     await page.keyboard.down('Control');
