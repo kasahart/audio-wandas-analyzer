@@ -330,10 +330,16 @@ export function binsView(bins: NonNullable<CompareModel['bins']>, which: 'base' 
  * The comparison's Δ spectrum to draw (R1, R3): from the full-resolution bins when the scans gave them, decimated
  * only to be drawn, and with the x window `zoom` (fractions of the whole Δ's axis) narrower than the whole, drawn
  * again from the bins between its ends, so zooming in shows every bin there. `picture` is the whole Δ, for the axis.
- * Without the bins, the scans' per-band Δ.
+ * Without the bins, the 1/3-octave bands' Δ (each band's level is the scan's own, from every bin), never a Δ of the
+ * scans' 192-point spectra: a Δ is taken only of full-resolution values (R1, R2).
  */
-export function deltaViews(comparison: Pick<CompareModel, 'bins' | 'diffDb' | 'frequencies'>, zoom?: { start: number; end: number }): { picture: StageView | null; view: StageView | null } {
-    const picture = comparison.bins ? binsView(comparison.bins, 'diff') : comparison.diffDb ? sideView({ spectrumDb: comparison.diffDb, bands: [] }, comparison.frequencies) : null;
+export function deltaViews(comparison: Pick<CompareModel, 'bins' | 'bandDeltas' | 'frequencies'>, zoom?: { start: number; end: number }): { picture: StageView | null; view: StageView | null } {
+    const bandsDelta = (): StageView | null => {
+        const count = bandCount(comparison.frequencies);
+        const values = comparison.bandDeltas.slice(0, count);
+        return values.some(value => value !== null) ? { frame: 'NOctFrame', kind: 'bar', x: 'band', xScale: 'log', quantity: 'level', xs: BAND_CENTERS_HZ.slice(0, count), values } : null;
+    };
+    const picture = comparison.bins?.diff ? binsView(comparison.bins, 'diff') : bandsDelta();
     if (!picture || !comparison.bins || !zoom || (zoom.start <= 0 && zoom.end >= 1)) return { picture, view: picture };
     const low = axisValueAt(picture, Math.max(0, zoom.start)), high = axisValueAt(picture, Math.min(1, zoom.end));
     return { picture, view: high > low ? binsView(comparison.bins, 'diff', [low, high]) ?? picture : picture };
