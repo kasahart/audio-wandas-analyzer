@@ -47,3 +47,14 @@ test('a window at the file edge is shifted inside the file, not cut short', () =
     assert.equal(window.startNorm, 0);
     assert.ok(Math.abs(window.endNorm - 0.04) < 1e-12);
 });
+
+test('with the automatic settings, where a window gets its own hop, the lane asks for a window as soon as the file\'s columns are too few', () => {
+    // 30 s at 16 kHz: the whole file's ~720 frames are its 720 columns, but a window can bring a frame per sample.
+    const auto = { columns: 720, frames: 30 * 16000 };
+    const view = { startNorm: 0.4, endNorm: 0.45 };
+    const window = spectrogramZoomWindow(auto, view, 1600);
+    assert.ok(window);
+    assert.ok(spectrogramWindowServes(auto, window, view, 1600));
+    // The same file with set settings whose frames are exactly its columns has nothing finer to bring.
+    assert.equal(spectrogramZoomWindow({ columns: 720, frames: 720 }, view, 1600), null);
+});

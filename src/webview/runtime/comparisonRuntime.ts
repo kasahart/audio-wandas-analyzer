@@ -692,13 +692,18 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             filePath: result.filePath,
         });
     }
-    /** What a lane's zoom is measured against: the whole file's spectrogram columns and the STFT frames they average. */
+    /**
+     * What a lane's zoom is measured against: the whole file's spectrogram columns, and the frames a window can bring.
+     * With set STFT settings those are the file's frames at their hop. With the automatic ones the host gives a window
+     * a hop of its own, chosen for its length, so a window can bring a frame per sample.
+     */
     function spectrogramZoomSource(result: ComparisonTrackState): SpectrogramZoomSource | null {
         const spec = channelsForResult(result)[0]?.spectrogram;
         if (!spec || !(spec.hopSize > 0) || !(result.durationSeconds > 0) || !(result.sampleRateHz > 0)) {
             return null;
         }
-        return { columns: spec.timeBins, frames: result.durationSeconds * result.sampleRateHz / spec.hopSize };
+        const samples = result.durationSeconds * result.sampleRateHz;
+        return { columns: spec.timeBins, frames: spectrogramSettings.settings.auto ? samples : samples / spec.hopSize };
     }
     function laneFileWindow(result: ComparisonTrackState, trackIndex: number): SpectrogramWindow {
         const fileView = computeTrackFileView(result, trackIndex);

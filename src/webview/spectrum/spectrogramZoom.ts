@@ -14,7 +14,10 @@ export interface SpectrogramWindow {
 export interface SpectrogramZoomSource {
     /** Columns of the whole file's spectrogram: the host's column limit when its frames were averaged down. */
     columns: number;
-    /** STFT frames in the whole file (duration × sample rate / hop). */
+    /**
+     * Frames a window of the whole file can bring: the file's STFT frames (duration × sample rate / hop) with set
+     * settings, or its samples with the automatic ones, where the host gives each window a hop of its own.
+     */
     frames: number;
 }
 
