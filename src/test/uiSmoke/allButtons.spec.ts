@@ -1,5 +1,5 @@
 import { expect, test, type Page } from './canvasAudit';
-import { buildUiSmokeHtml, buildUiSmokeSelectionHtml } from './buildHtml';
+import { buildUiSmokeTwoRatesHtml, buildUiSmokeHtml, buildUiSmokeSelectionHtml } from './buildHtml';
 import { getStrings } from '../../shared/i18n/strings';
 
 type PostedMessage = {
@@ -215,6 +215,40 @@ test('a drag on a spectrogram lane zooms into its time and frequencies; a double
     expect(high).toBeLessThan(0.9);
     await canvas.dblclick();
     await expect(canvas).toHaveAttribute('data-plot-window', /^0\.000 1\.000 0\.000 1\.000$/);
+});
+
+test('a spectrogram box zoom shows the same frequencies in Hz on lanes of different sample rates, and the axis popover starts from and replaces it (R13)', async ({ page }) => {
+    await page.setContent(buildUiSmokeTwoRatesHtml(), { waitUntil: 'domcontentloaded' });
+    const lanes = [page.locator('#track-spec-canvas-0'), page.locator('#track-spec-canvas-1')];
+    await expect(lanes[1]).toHaveAttribute('data-plot-window', /.+/);
+    const tops = await page.evaluate(() => (window as unknown as { __APP_STATE__: { results: Array<{ channels: Array<{ spectrogram: { maxFrequencyHz: number } }> }> } }).__APP_STATE__.results
+        .map(result => result.channels[0].spectrogram.maxFrequencyHz));
+    expect(tops[1]).toBeCloseTo(tops[0] / 2);
+    // The band each lane shows, in Hz: its plot window's y part is a fraction of its own spectrogram's top.
+    const shownHz = async (index: number): Promise<[number, number]> => {
+        const [, , low, high] = ((await lanes[index].getAttribute('data-plot-window')) ?? '').split(' ').map(Number);
+        return [low * tops[index], high * tops[index]];
+    };
+    // Box from 10 % to 40 % up the full-rate lane: within the half-rate lane's band too.
+    const box = (await lanes[0].boundingBox())!;
+    await page.mouse.move(box.x + box.width * 0.25, box.y + box.height * 0.9);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.75, box.y + box.height * 0.6, { steps: 4 });
+    await page.mouse.up();
+    await expect.poll(async () => (await shownHz(0))[1]).toBeLessThan(tops[0] * 0.5);
+    const [low0, high0] = await shownHz(0);
+    const [low1, high1] = await shownHz(1);
+    expect(Math.abs(low1 - low0)).toBeLessThan(tops[0] * 0.002);
+    expect(Math.abs(high1 - high0)).toBeLessThan(tops[0] * 0.002);
+    // The frequency axis' popover starts from the band shown, and what is typed there is what is shown.
+    await page.locator('.track-spec-axis').first().dblclick();
+    await expect(page.locator('#waveform-range-popover')).toBeVisible();
+    expect(Math.abs(Number(await page.locator('#wave-range-max').inputValue()) - high0)).toBeLessThan(tops[0] * 0.002);
+    const typed = [Math.round(tops[0] * 0.05), Math.round(tops[0] * 0.2)];
+    await page.locator('#wave-range-min').fill(String(typed[0]));
+    await page.locator('#wave-range-max').fill(String(typed[1]));
+    await page.locator('#wave-range-apply').click();
+    await expect.poll(async () => (await shownHz(0)).map(Math.round)).toEqual(typed);
 });
 
 test('Alt+drag on a lane sets the loop region; a plain drag does not', async ({ page }) => {

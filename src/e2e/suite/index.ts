@@ -227,7 +227,6 @@ export async function run(): Promise<void> {
                     'zoom-in',
                     'zoom-reset',
                     'link-scales',
-                    'wave-mode-rect-zoom',
                     'zoom-to-selection',
                     'toggle-follow-cursor',
                     // Track and spectrum heights are set by dragging their edges; there is no spec-copy button.

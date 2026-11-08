@@ -479,8 +479,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         onActiveChange: active => document.body.classList.toggle('is-height-resizing', active),
     });
     // ── Lane gestures: a drag zooms into its box on every lane, as on every plot (R13); Alt+drag sets the loop ──
-    /** The spectrogram lanes' frequency zoom, as fractions of the band their display settings show (null: all of it). */
-    let spectrogramFrequencyView: { start: number; end: number } | null = null;
+    /**
+     * The spectrogram lanes' frequency zoom, in Hz (null: the band the display settings show). Held in Hz, not as a
+     * fraction of a lane's band, so lanes of different sample rates (different Nyquist tops) show the same frequencies.
+     */
+    let spectrogramFrequencyView: { lowHz: number; highHz: number } | null = null;
     let rectZoomSelection: RectZoomSelection | null = null;
     let dragState: WaveformDragState | null = null;
     function setLoopRegion(region: LoopRegion | null): void {
@@ -3550,7 +3553,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return false;
         }
         const display = spectrogramSettings.display;
-        const bounds = spectrogramDisplayBounds(spec, display, spectrogramAutoBounds(spec));
+        // What the lane shows (a box zoom's band included), so the popover starts from what is on screen.
+        const bounds = shownSpectrogramBounds(spec);
+        const zoomed = spectrogramFrequencyView !== null;
         const field = (value: number) => String(Number(value.toPrecision(4)));
         // An edge left as shown keeps its setting (auto, or a top clamped to this lane's Nyquist), so the clicked lane's
         // own range is not set on every lane.
@@ -3583,9 +3588,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 if (max !== null && max <= (bottom ?? 0)) {
                     return STR.specRangeErrorMinMax;
                 }
-                setSpectrogramDisplay({ ...display, minFrequencyHz: bottom, maxFrequencyHz: typed(max, bounds.maxFrequencyHz, display.maxFrequencyHz) });
+                spectrogramFrequencyView = null;
+                setSpectrogramDisplay({ ...display, minFrequencyHz: bottom, maxFrequencyHz: zoomed ? max : typed(max, bounds.maxFrequencyHz, display.maxFrequencyHz) });
             },
             auto() {
+                spectrogramFrequencyView = null;
                 setSpectrogramDisplay({ ...display, minFrequencyHz: null, maxFrequencyHz: null });
             },
         });
@@ -3713,12 +3720,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const rect = canvas.getBoundingClientRect();
         return Math.max(0, Math.min(1, 1 - (clientY - rect.top) / Math.max(1, rect.height)));
     }
-    /** The frequency band a spectrogram lane shows: its display settings' band, narrowed by the box zoom's frequency view. */
+    /** The frequency band a spectrogram lane shows: its display settings' band, or the box zoom's band (the same Hz on every lane). */
     function shownSpectrogramBounds(whole: SpectrogramData) {
         const bounds = spectrogramDisplayBounds(whole, spectrogramSettings.display, spectrogramAutoBounds(whole));
-        if (!spectrogramFrequencyView) return bounds;
-        const span = bounds.maxFrequencyHz - bounds.minFrequencyHz;
-        return { ...bounds, minFrequencyHz: bounds.minFrequencyHz + spectrogramFrequencyView.start * span, maxFrequencyHz: bounds.minFrequencyHz + spectrogramFrequencyView.end * span };
+        return spectrogramFrequencyView ? { ...bounds, minFrequencyHz: spectrogramFrequencyView.lowHz, maxFrequencyHz: spectrogramFrequencyView.highHz } : bounds;
     }
     function handleCanvasMouseDown(e: MouseEvent): void {
         const canvas = canvasTarget(e, 'track-canvas');
@@ -3834,11 +3839,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const target = rectZoomTarget(completedRectZoom);
             rectZoomSelection = null;
             if (target && completedRectZoom.frequency) {
-                // The spectrogram's box: its time, and its frequencies within the band shown (the lanes share both).
+                // The spectrogram's box: its time, and its frequencies in Hz on the lane it was drawn on (the lanes share both).
                 disableFollowCursor();
                 waveformView.setTimeRange({ start: target.zoomStart, end: target.zoomEnd });
-                const view = spectrogramFrequencyView ?? { start: 0, end: 1 }, span = view.end - view.start;
-                spectrogramFrequencyView = { start: view.start + target.amplitudeMin * span, end: view.start + target.amplitudeMax * span };
+                const pressed = state.results[trackIndexForId(completedRectZoom.trackId)];
+                const whole = pressed ? channelsForResult(pressed)[0]?.spectrogram : undefined;
+                if (whole) {
+                    const shown = shownSpectrogramBounds(whole), span = shown.maxFrequencyHz - shown.minFrequencyHz;
+                    spectrogramFrequencyView = { lowHz: shown.minFrequencyHz + target.amplitudeMin * span, highHz: shown.minFrequencyHz + target.amplitudeMax * span };
+                }
             }
             else if (target) {
                 disableFollowCursor();
@@ -4077,6 +4086,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
     }
     function setSpectrogramDisplay(display: SpectrogramDisplaySettings): void {
+        const before = spectrogramSettings.display;
+        // A frequency range set (here, the axis' popover or ⚙) replaces the box zoom's band; a level range keeps it.
+        if (display.minFrequencyHz !== before.minFrequencyHz || display.maxFrequencyHz !== before.maxFrequencyHz) spectrogramFrequencyView = null;
         spectrogramSettings.setDisplay(display);
         messaging.post({ type: 'update-spectrogram-settings', settings: spectrogramSettings.settings });
         // Touching the settings is the user's way to try a failed spectrogram again.
