@@ -123,17 +123,38 @@ def test_a_groups_median_is_taken_bin_by_bin_before_it_is_drawn(signal: wd.Chann
     assert "diff" not in result
 
 
-def test_levels_over_time_are_compared_block_by_block(signal: wd.ChannelFrame) -> None:
+def test_a_time_signals_difference_is_compare_minus_base_sample_by_sample(signal: wd.ChannelFrame) -> None:
+    """The sound's Δ is the ChannelFrame subtraction compare − base, from every sample, and is only thinned to be
+    drawn (R1, R2): drawn as a waveform, as the recordings are, whole and zoomed."""
     louder = wd.from_numpy(signal.data[np.newaxis] * 2, sampling_rate=RATE)
     base, compare = (stage_data(frame, dict(stage_view(frame))) for frame in (signal, louder))
     assert base is not None and compare is not None
+    expected = np.asarray((louder - signal).data, dtype=float)
     result = combine([base], compare)
-    assert len(result["diff"]["values"]) == len(stage_view(signal)["values"])
-    assert np.asarray(result["diff"]["values"], dtype=float) == pytest.approx(20 * np.log10(2), abs=0.02)
-    # Of different lengths: the part both have.
+    diff = result["diff"]
+    assert diff["quantity"] == "value" and first_violation(DEFINITIONS["StageView"], diff) is None
+    assert max(diff["waveform"]["max"]) == pytest.approx(expected.max(), abs=1e-5)
+    assert min(diff["waveform"]["min"]) == pytest.approx(expected.min(), abs=1e-5)
+    assert max(diff["values"]) == pytest.approx(expected.max(), abs=1e-5)
+    # Zoomed into 10 ms: every sample of the difference there.
+    zoomed = combine([base], compare, {"x": [0.5, 0.51], "points": 2000})["diff"]
+    inside = expected[int(0.5 * RATE) : int(0.51 * RATE) + 1]
+    assert zoomed["detail"] is True and len(zoomed["waveform"]["min"]) == inside.size
+    assert zoomed["waveform"]["min"] == pytest.approx(inside, abs=1e-5)
+    # A group's base is its median sample by sample; of different lengths, the samples both have.
     shorter = stage_data(signal.trim(0, 1.0), dict(stage_view(signal.trim(0, 1.0))))
     assert shorter is not None
-    assert combine([base, shorter], None)["base"]["xs"][-1] <= 1.0
+    grouped = combine([base, shorter], compare)
+    assert grouped["diff"]["waveform"]["maxT"][-1] <= 1.0
+
+
+def test_a_time_signal_at_another_rate_has_no_sample_difference(signal: wd.ChannelFrame) -> None:
+    # Samples at other times are not one another's: no Δ (the comparison says why), never a resampled guess.
+    base = stage_data(signal, dict(stage_view(signal)))
+    other = wd.from_numpy(signal.data[np.newaxis] * 2, sampling_rate=RATE).resampling(target_sr=22050)
+    compare = stage_data(other, dict(stage_view(other)))
+    assert base is not None and compare is not None
+    assert combine([base], compare) == {"ok": True, "noDelta": "rate"}
 
 
 def test_pictures_on_other_axes_have_no_median_or_difference(signal: wd.ChannelFrame) -> None:
@@ -187,17 +208,6 @@ def test_a_scans_step_keeps_its_values_for_the_combine_command(tmp_path: Path) -
     assert diff[int(np.argmin(np.abs(xs - 1000)))] == pytest.approx(20 * np.log10(4 / np.sqrt(2)), abs=0.1)
     STORE.clear()
     assert _combine(service, base=keys[:2], compare=keys[2]) == {"ok": False, "missing": keys}
-
-
-def test_levels_at_different_rates_are_compared_at_the_same_times(signal: wd.ChannelFrame) -> None:
-    base = stage_data(signal, dict(stage_view(signal)))
-    louder = wd.from_numpy(signal.data[np.newaxis] * 2, sampling_rate=RATE).resampling(target_sr=22050)
-    compare = stage_data(louder, dict(stage_view(louder)))
-    assert base is not None and compare is not None
-    result = combine([base], compare)
-    diff = np.asarray(result["diff"]["values"], dtype=float)
-    assert diff.size > 100
-    assert np.nanmedian(diff) == pytest.approx(20 * np.log10(2), abs=0.05)
 
 
 @pytest.mark.parametrize("name", ["coherence", "correlation", "cepstrum", "series", "events"])

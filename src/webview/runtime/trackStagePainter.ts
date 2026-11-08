@@ -11,6 +11,7 @@ import { DIFF_COLOR, ROLE_COLORS } from '../../shared/gui/roleColors';
 import type { LegendItem, LevelInput, PaneRange } from './comparePanes';
 import { emptyStageText, isEventsView, paintOverlay, paintStage, stageAxes, stageDiffRange, stageEventCounts, stageHeadline, stageRange, type StageAxes, type StageLayer, type StagePlot } from './stagePanes';
 import type { PlotWindow } from './plotInteraction';
+import { noDeltaNote } from './combineSource';
 import type { StagePlots } from './trackStageModel';
 
 /** A track as the mode draws it: its lane's canvas, and the lane's own axis canvas (cleared: the painter draws the axes on the lane). */
@@ -130,6 +131,8 @@ export interface StageFrame {
     excluded?: (path: string) => readonly number[];
     /** The backend could not keep every recording's values to take the median and the difference from. */
     tooLarge?: boolean;
+    /** Why there is no difference when it is not the axes (combineSource's ``noDelta``). */
+    noDelta?: 'rate';
 }
 
 /**
@@ -277,6 +280,6 @@ export function paintStageOverlay(dom: StageDom, frame: StageFrame, plots: Stage
     const diffCanvas = dom.query<HTMLCanvasElement>('[data-stage-canvas="diff"]');
     const diffRange = stageDiffRange(coarsePlots.diff);
     const diffPlot = paintStage(diffCanvas, plots.diff, narrowed(diffRange, frame.diffY), DIFF_COLOR, diffAxes,
-        { diff: true, empty: waiting ? '' : frame.tooLarge ? strings.stageTooLarge : strings.stageNoDelta, window: { x: window.x }, axisView: coarsePlots.diff, ...(pending ? { pending } : {}) });
+        { diff: true, empty: waiting ? '' : noDeltaNote(frame, strings), window: { x: window.x }, axisView: coarsePlots.diff, ...(pending ? { pending } : {}) });
     frame.drawnOn.set(diffCanvas, { picture: coarsePlots.diff, range: diffRange, axes: diffAxes, plot: diffPlot });
 }

@@ -683,7 +683,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         // The events left out of each recording's, on the trigger's picture (and a step after it that keeps them).
         const excluded = (path: string): readonly number[] => (viewTrigger ? excludedOf(recipe.recipe, eventsKey(viewTrigger, path, channelFor(path))) : []);
         channelOf = channelFor;
-        const frame: StageFrame = { strings, tracks, allTracks, referencePath, comparePath, coarse, shown, picture, coarsePlots, window: state.window, diffY: state.diffY, regionMark, pending, waiting: waiting || combining, role, named, drawnOn, baseEach: each, excluded, ...(coarseCombined?.tooLarge ? { tooLarge: true } : {}) };
+        const frame: StageFrame = { strings, tracks, allTracks, referencePath, comparePath, coarse, shown, picture, coarsePlots, window: state.window, diffY: state.diffY, regionMark, pending, waiting: waiting || combining, role, named, drawnOn, baseEach: each, excluded, ...(coarseCombined?.tooLarge ? { tooLarge: true } : {}), ...(coarseCombined?.noDelta ? { noDelta: coarseCombined.noDelta } : {}) };
         const bypassed = steps.filter(step => step.bypassed).map(step => stepChipLabel(step, strings, state.regionSet));
         query<HTMLElement>('[data-stage-headline]').textContent = stageModeHeadline(frame, bypassed, region);
         if (!overlay) {

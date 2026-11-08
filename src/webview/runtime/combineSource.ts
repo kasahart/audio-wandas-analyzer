@@ -16,6 +16,13 @@ export interface Combined {
     diff: StageView | null;
     /** The backend could not keep every recording's values at once. */
     tooLarge?: boolean;
+    /** Why there is no difference when it is not the axes: time signals at other sample rates. */
+    noDelta?: 'rate';
+}
+
+/** What the Δ plot says when it has no line: too much data, other sample rates, or other axes. */
+export function noDeltaNote(combined: Pick<Combined, 'tooLarge' | 'noDelta'> | undefined, strings: { stageNoDelta: string; stageTooLarge: string; stageNoDeltaRate: string }): string {
+    return combined?.tooLarge ? strings.stageTooLarge : combined?.noDelta === 'rate' ? strings.stageNoDeltaRate : strings.stageNoDelta;
 }
 
 export const NOTHING_COMBINED: Combined = { base: null, diff: null };
@@ -76,7 +83,7 @@ export function createCombineSource(prefix: string, post: (message: CompareCombi
             const { result } = publication;
             if (result.ok) {
                 retried.delete(request.identity);
-                keep(request.key, { base: result.base ?? null, diff: result.diff ?? null });
+                keep(request.key, { base: result.base ?? null, diff: result.diff ?? null, ...(result.noDelta ? { noDelta: result.noDelta } : {}) });
             } else if (!retried.has(request.identity)) {
                 retried.add(request.identity);
                 request.forget(result.missing ?? []);

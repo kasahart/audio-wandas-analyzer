@@ -6,7 +6,14 @@ import wandas as wd
 
 import analysis_spec as spec
 from protocol_schema import DEFINITIONS, first_violation
-from stage_view import LAG_POINTS, QUEFRENCY_POINTS, SPECTRUM_LINE_BUCKETS, TIME_POINTS, spectrum_line, stage_view
+from stage_view import (
+    LAG_POINTS,
+    LEVEL_SERIES_MIN_SAMPLES,
+    QUEFRENCY_POINTS,
+    SPECTRUM_LINE_BUCKETS,
+    spectrum_line,
+    stage_view,
+)
 
 RATE = 16000
 
@@ -24,11 +31,13 @@ def _checked(frame: object) -> dict:
     return dict(view)
 
 
-def test_a_time_signal_is_its_level_over_time(signal: wd.ChannelFrame) -> None:
+def test_a_time_signal_is_its_own_values_never_a_level_the_comparison_makes(signal: wd.ChannelFrame) -> None:
+    # The sound as wandas gives it: its samples' extremes per bucket, in its unit. A level is a wandas step's
+    # (sound_level, rms_trend), whose window the recipe records, never one the comparison picks.
     view = _checked(signal)
-    assert (view["kind"], view["x"], view["quantity"], len(view["xs"])) == ("line", "time", "level", TIME_POINTS)
-    # A 0.5 sine is 3 dB below its peak: −9 dB re 1.
-    assert np.median(view["values"]) == pytest.approx(20 * np.log10(0.5 / np.sqrt(2)), abs=0.2)
+    assert (view["kind"], view["x"], view["quantity"]) == ("line", "time", "value")
+    assert len(view["xs"]) <= LEVEL_SERIES_MIN_SAMPLES
+    assert max(view["values"]) == pytest.approx(0.5, abs=0.15) and min(view["values"]) == pytest.approx(-0.5, abs=0.15)
     # A region keeps the file's seconds.
     region = _checked(signal.trim(0.5, 1.0))
     assert region["xs"][0] >= 0.5 and region["xs"][-1] <= 1.0
@@ -243,8 +252,8 @@ def test_a_time_signal_carries_its_own_waveform_as_the_lanes_decimate_it(signal:
     expected = decimated_waveform(samples, 1200, 0, samples.size)
     assert waveform["min"] == pytest.approx(expected["min"]) and waveform["max"] == pytest.approx(expected["max"])
     assert waveform["minT"][0] >= 0 and waveform["maxT"][-1] <= 2.0
-    # The level over time stays for the headline and Δ.
-    assert view["quantity"] == "level" and len(view["values"]) == TIME_POINTS
+    # Its values are the samples themselves, not a level of them.
+    assert view["quantity"] == "value"
     # Zoomed into 10 ms: every sample there (160 at 16 kHz), not buckets.
     detail = stage_view(signal, None, {"x": [0.5, 0.51], "points": 2000})
     assert len(detail["waveform"]["min"]) == 161 and detail["waveform"]["min"] == detail["waveform"]["max"]

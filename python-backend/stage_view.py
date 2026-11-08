@@ -35,7 +35,7 @@ from wandas.frames.segments import ChannelFrameSegments
 import analysis_spec as spec
 from decimator import bucket_edges, bucket_starts
 
-# A time signal longer than this is drawn as its level over time; a shorter one is a metric's values.
+# A time signal longer than this is drawn as its waveform (its own samples); a shorter one is a metric's values.
 LEVEL_SERIES_MIN_SAMPLES = 2048
 #: Operations whose ChannelFrame is a metric over time, drawn as its own values however long it is, and
 #: the unit of those values: wandas keeps the input channel's unit on them (rms_trend's is right: its own).
@@ -109,7 +109,7 @@ class StageView(TypedDict):
     #: What a time signal's values are when a step made them from the sound (SIGNAL_MEASURES), for its axis's name.
     measure: NotRequired[Literal["rms", "timeWeightedRms", "power"]]
     #: A time signal's own waveform, as the track lanes draw it: per bucket its minimum and maximum, each at the
-    #: time it occurred (s into the file). ``values`` keep the level over time the headline and Δ are read from.
+    #: time it occurred (s into the file). ``values`` keep the samples' min/max line; the Δ is taken sample by sample.
     waveform: NotRequired[StageWaveform]
     #: A trigger's segments: every event's signal (channels averaged) over the time from its trigger, each drawn
     #: as its own line. ``values`` are their mean, which a group's median and the readout use.
@@ -296,22 +296,20 @@ def _waveform(
     frame: ChannelFrame, keep: np.ndarray | None = None, points: int = WAVEFORM_OVERVIEW_POINTS
 ) -> StageWaveform:
     """The signal itself (channels averaged) as the lanes draw it, by the lanes' own decimation (decimator.py)."""
-    from decimator import decimated_waveform
-
     samples = np.mean(_rows(frame.data, frame.n_channels), axis=0)
     times = np.asarray(frame.source_time, dtype=np.float64).reshape(frame.n_channels, -1)[0]
     if keep is not None:
         samples, times = samples[keep], times[keep]
+    return samples_waveform(samples, times, frame.channels[0].unit or "", float(frame.channels[0].ref), points)
+
+
+def samples_waveform(samples: np.ndarray, times: np.ndarray, unit: str, ref: float, points: int) -> StageWaveform:
+    """Samples at ``times`` (s) as the lanes draw a waveform: per bucket its minimum and maximum, each at the time
+    it occurred (decimator.decimated_waveform)."""
+    from decimator import decimated_waveform
+
     if samples.size == 0:
-        return {
-            "min": [],
-            "max": [],
-            "minT": [],
-            "maxT": [],
-            "absolutePeak": 0.0,
-            "unit": frame.channels[0].unit or "",
-            "ref": float(frame.channels[0].ref),
-        }
+        return {"min": [], "max": [], "minT": [], "maxT": [], "absolutePeak": 0.0, "unit": unit, "ref": ref}
     envelope = decimated_waveform(samples, min(points, samples.size), 0, samples.size)
     span = times[-1] - times[0] if samples.size > 1 else 0.0
     at = lambda norms: _json(times[0] + np.asarray(norms, dtype=np.float64) * span)  # noqa: E731
@@ -321,8 +319,8 @@ def _waveform(
         "minT": at(envelope["minT"]),
         "maxT": at(envelope["maxT"]),
         "absolutePeak": float(envelope["absolutePeak"]),
-        "unit": frame.channels[0].unit or "",
-        "ref": float(frame.channels[0].ref),
+        "unit": unit,
+        "ref": ref,
     }
 
 
@@ -410,21 +408,19 @@ def _channel_view(frame: ChannelFrame) -> StageView:
         if measure:
             series["measure"] = measure
         return series
-    edges = bucket_edges(data.shape[1], TIME_POINTS)
-    refs = np.array([channel.ref for channel in frame.channels], dtype=np.float64)[:, np.newaxis]
-    power = np.stack(
-        [np.mean(data[:, start:end] ** 2, axis=1) for start, end in zip(edges[:-1], edges[1:], strict=True)], axis=1
-    )
-    with np.errstate(divide="ignore"):
-        levels = 10.0 * np.log10(power / refs**2)
+    # The sound itself, as wandas gives it: drawn as its waveform and compared sample by sample (a difference is
+    # compare − base, a ChannelFrame subtraction). The comparison makes no level of it: a level is a wandas step's
+    # (sound_level, rms_trend), whose window the recipe records.
+    xs, values = _envelope(times, np.mean(data, axis=0), LEVEL_SERIES_MIN_SAMPLES)
     view: StageView = {
         "frame": type(frame).__name__,
         "kind": "line",
         "x": "time",
         "xScale": "linear",
-        "quantity": "level",
-        "xs": _axis(times[(edges[:-1] + edges[1:] - 1) // 2]),
-        "values": _json(rounded_db(_power_mean(levels))),
+        "quantity": "value",
+        "unit": frame.channels[0].unit or "",
+        "xs": _axis(xs),
+        "values": _json(values),
         "waveform": _waveform(frame),
     }
     if measure:
@@ -802,25 +798,15 @@ def _detail_view(frame: object, coarse: StageView, detail: StageDetail) -> Stage
         data = _rows(frame.data, frame.n_channels)
         times = np.asarray(frame.source_time, dtype=np.float64).reshape(frame.n_channels, -1)[0]
         keep = _inside(times, bounds)
-        if coarse.get("quantity") != "level":
+        # As the whole picture's (_channel_view): dB levels power-averaged over channels, other values averaged.
+        if _in_db(frame):
+            xs, values = _envelope(times[keep], _power_mean(data[:, keep]), points)
+            values = rounded_db(values)
+        else:
             xs, values = _envelope(times[keep], np.mean(data[:, keep], axis=0), points)
-            view.update({"xs": _axis(xs), "values": _json(values)})
-            return view
-        part = data[:, keep]
-        view["waveform"] = _waveform(frame, keep, points)
-        if part.shape[1] == 0:
-            view.update({"xs": [], "values": []})
-            return view
-        edges = bucket_edges(part.shape[1], points)
-        refs = np.array([channel.ref for channel in frame.channels], dtype=np.float64)[:, np.newaxis]
-        # Each non-empty bucket's mean power at once (a prefetched range has tens of thousands of buckets).
-        filled = edges[1:] > edges[:-1]
-        starts, ends = edges[:-1][filled], edges[1:][filled]
-        power = np.add.reduceat(part**2, starts, axis=1) / (ends - starts)
-        centres = (starts + ends - 1) // 2
-        with np.errstate(divide="ignore"):
-            levels = 10.0 * np.log10(power / refs**2)
-        view.update({"xs": _axis(times[keep][centres]), "values": _json(rounded_db(_power_mean(levels)))})
+        view.update({"xs": _axis(xs), "values": _json(values)})
+        if "waveform" in coarse:
+            view["waveform"] = _waveform(frame, keep, points)
         return view
     if isinstance(frame, CrossCorrelationFrame):
         lags = np.asarray(frame.lags, dtype=np.float64)

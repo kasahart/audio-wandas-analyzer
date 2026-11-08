@@ -6,9 +6,9 @@ coefficient, channels combined as each picture combines them), and only the resu
 scan with a step keeps that step's values here (``StageData``, under the key its picture carries as ``data``);
 ``combine`` takes the keys of a base's recordings and of the recording compared.
 
-A time signal's level over time is the exception: a level is measured over a block of samples, so the median
-and the difference of levels are taken of each recording's block levels, each block measured from all its
-samples (the blocks are the drawn ones: whole-file blocks, or one per point of a zoomed range).
+A time signal is compared as its own samples: the comparison makes no level of it. Its difference is compare −
+base sample by sample (a ChannelFrame subtraction; for a group, minus the sample-wise median) over the common
+length, and recordings at different sample rates have no difference. A level comes only from a wandas step.
 """
 
 from __future__ import annotations
@@ -52,7 +52,7 @@ VALUE_DIFF_DECIMALS = 6
 
 Mode = Literal[
     "series",
-    "level",
+    "signal",
     "events",
     "spectrum",
     "coherence",
@@ -70,8 +70,9 @@ DB_QUANTITIES = ("level", "gain")
 class StageData:
     """One recording's step at full resolution, channels combined as its picture combines them.
 
-    ``values`` is a line over ``xs`` or an image (rows over ``ys``, columns over ``xs``). For ``level`` it is the
-    signal's power per sample (channels' power relative to their references, averaged), at ``start + n / rate``.
+    ``values`` is a line over ``xs`` or an image (rows over ``ys``, columns over ``xs``). For ``signal`` (the sound
+    itself) it is every sample, channels averaged, at ``start + n / rate``, kept as float32 with no ``xs`` (half an
+    hour at 48 kHz fits the budget).
     """
 
     mode: Mode
@@ -85,6 +86,8 @@ class StageData:
     nyquist: float = 0.0
     start: float = 0.0
     rate: float = 0.0
+    #: A signal's reference (its waveform's), for the difference's waveform.
+    ref: float = 1.0
 
     @property
     def nbytes(self) -> int:
@@ -98,6 +101,8 @@ class CombineResult(TypedDict):
     #: The base group's median (a base of one recording is its own picture, which the comparison has).
     base: NotRequired[StageView]
     diff: NotRequired[StageView]
+    #: Why there is no ``diff`` when it is not the axes: time signals at other sample rates have no sample Δ.
+    noDelta: NotRequired[Literal["rate"]]
 
 
 class _Store:
@@ -195,12 +200,16 @@ def stage_data(frame: object, view: StageView, signal_s: float | None = None) ->
         if sv._in_db(frame):
             # Already dB levels: compared as the levels they are, channels power-averaged as the picture averages them.
             return StageData("series", template, times, sv._power_mean(data))
-        if view.get("quantity") != "level":
+        if "waveform" not in view:
             return StageData("series", template, times, np.mean(data, axis=0))
-        refs = _f64([channel.ref for channel in frame.channels])[:, np.newaxis]
-        power = np.mean(data**2 / refs**2, axis=0).astype(np.float32)
+        # The sound itself: a difference is compare − base sample by sample (a ChannelFrame subtraction), never a
+        # level the comparison would make of it.
         start = float(times[0]) if times.size else 0.0
-        return StageData("level", template, np.empty(0), power, start=start, rate=float(frame.sampling_rate))
+        samples = np.mean(data, axis=0).astype(np.float32)
+        ref = float(frame.channels[0].ref)
+        return StageData(
+            "signal", template, np.empty(0), samples, start=start, rate=float(frame.sampling_rate), ref=ref
+        )
     if isinstance(frame, (SpectralFrame, CoherenceFrame, CrossSpectralFrame, TransferFunctionFrame)):
         quantity, rows = sv._spectral_rows(frame)
         if sv._pairwise(frame):
@@ -291,6 +300,8 @@ def _line(data: StageData, detail: StageDetail | None, diff: bool) -> tuple[np.n
     """A line's xs and values as drawn: a median as the recordings' own pictures are, a difference by
     difference_line."""
     bounds, points = _bounds(detail)
+    if data.mode == "signal":
+        data = _series_of(data)
     mode = data.mode
     if mode == "bands":
         return data.xs, data.values
@@ -332,6 +343,12 @@ def _line(data: StageData, detail: StageDetail | None, diff: bool) -> tuple[np.n
         line = sv._shared_envelope(xs, values[np.newaxis], points or sv.EVENT_POINTS)
         return line[0], line[1][0]
     raise ValueError(f"not a line: {mode}")
+
+
+def _series_of(data: StageData) -> StageData:
+    """A signal's samples as a line over their times (float64), for a moment: the store keeps them without."""
+    times = data.start + np.arange(data.values.size) / data.rate
+    return replace(data, mode="series", xs=times, values=_f64(data.values))
 
 
 def _line_buckets(mode: Mode, points: int) -> int:
@@ -422,12 +439,19 @@ def draw(data: StageData, detail: StageDetail | None = None, *, diff: bool = Fal
     median (``diff`` false) is drawn as a recording's own picture is; a difference by its own reduction."""
     if data.mode in ("spectrogram", "roughness", "cepstrogram"):
         view = _image(data, detail, diff)
-    elif data.mode == "level":
-        raise ValueError("a level over time is drawn from its blocks (_level_blocks)")
     else:
         xs, values = _line(data, detail, diff)
         view = dict(data.view)  # type: ignore[assignment]
         view.update({"xs": sv._axis(xs), "values": sv._json(_rounded(_f64(values), data.view.get("quantity"), diff))})
+        if data.mode == "signal":
+            # Drawn as the recordings are: a waveform, by the lanes' own decimation, over the range on screen.
+            line = _series_of(data)
+            bounds, points = _bounds(detail)
+            keep = sv._inside(line.xs, bounds) if bounds is not None else np.ones(line.xs.size, dtype=bool)
+            unit = str(data.view.get("unit") or "")
+            view["waveform"] = sv.samples_waveform(
+                line.values[keep], line.xs[keep], unit, data.ref, points or sv.WAVEFORM_OVERVIEW_POINTS
+            )
     if detail is not None:
         view["detail"] = True
     return view  # type: ignore[return-value]
@@ -445,11 +469,12 @@ def _aligned(items: list[StageData]) -> list[StageData] | None:
         return None
     if first.ys is not None and any(item.ys is None or not np.array_equal(item.ys, first.ys) for item in items):
         return None
-    if first.mode == "level":
-        # Blocks are placed in time (_level_edges): recordings at other rates compare too, from one start.
-        if any(abs(item.start - first.start) > 1.0 / min(item.rate, first.rate) for item in items):
+    if first.mode == "signal":
+        # Sample by sample: the same rate and start, over the samples they all have.
+        if any(item.rate != first.rate or abs(item.start - first.start) > 0.5 / first.rate for item in items):
             return None
-        return items
+        count = min(item.values.size for item in items)
+        return [replace(item, values=item.values[:count]) for item in items]
     timed = first.view.get("x") == "time"
     n = min(item.xs.size for item in items)
     if not timed and any(item.xs.size != n for item in items):
@@ -479,77 +504,19 @@ def _whole_of(items: list[StageData]) -> np.ndarray | None:
     return np.logical_and.reduce(wholes) if wholes else None
 
 
-def _end(data: StageData) -> float:
-    return data.start + data.values.size / data.rate
-
-
-def _level_edges(items: list[StageData], detail: StageDetail | None) -> np.ndarray:
-    """The level's blocks as drawn, in seconds: over the time every recording has, as many as the whole picture
-    has (stage_view TIME_POINTS), or one per point of a zoomed range. Each recording measures them from its own
-    samples, so recordings at different rates are compared at the same times."""
-    start, end = max(item.start for item in items), min(_end(item) for item in items)
-    if detail is not None:
-        bounds, points = _bounds(detail)
-        start, end, count = max(start, min(bounds or [start])), min(end, max(bounds or [end])), points
-    else:
-        count = sv.TIME_POINTS
-    samples = min(int((end - start) * item.rate) for item in items) if end > start else 0
-    if samples <= 0:
-        return np.empty(0)
-    return np.linspace(start, end, min(count, samples) + 1)
-
-
-def _block_levels(data: StageData, edges: np.ndarray) -> np.ndarray:
-    """The level of each block between ``edges`` (s), from every sample of ``data`` in it."""
-    if edges.size < 2:
-        return np.empty(0)
-    index = np.clip(np.floor((edges - data.start) * data.rate + 1e-6).astype(int), 0, data.values.size)
-    starts, ends = index[:-1], index[1:]
-    filled = ends > starts
-    levels = np.full(starts.size, np.nan)
-    if filled.any():
-        # Each block's sum on its own (start, end) pair: reduceat over interleaved edges, the odd sums dropped.
-        padded = np.append(_f64(data.values), 0.0)
-        pairs = np.stack([starts[filled], ends[filled]], axis=1).reshape(-1)
-        sums = np.add.reduceat(padded, pairs)[::2]
-        with np.errstate(divide="ignore"):
-            levels[filled] = sv.rounded_db(10.0 * np.log10(sums / (ends[filled] - starts[filled])))
-    return levels
-
-
-def _combine_levels(base: list[StageData], compare: StageData | None, detail: StageDetail | None) -> CombineResult:
-    edges = _level_edges([*base, *([compare] if compare is not None else [])], detail)
-    times = (edges[:-1] + edges[1:]) / 2 if edges.size else np.empty(0)
-    median = _median([replace(item, values=_block_levels(item, edges)) for item in base])
-    result: CombineResult = {"ok": True}
-
-    def line(values: np.ndarray, diff: bool) -> StageView:
-        view: StageView = dict(base[0].view)  # type: ignore[assignment]
-        view.update({"xs": sv._axis(times), "values": sv._json(_rounded(values, "level", diff))})
-        if detail is not None:
-            view["detail"] = True
-        return view
-
-    if len(base) > 1:
-        result["base"] = line(median, False)
-    if compare is not None:
-        levels = _block_levels(compare, edges)
-        result["diff"] = line(levels - median, True)
-    return result
-
-
 def combine(base: list[StageData], compare: StageData | None, detail: StageDetail | None = None) -> CombineResult:
     """The base's median (of two or more recordings) and ``compare`` − base, at full resolution, then drawn; on
     other axes, neither (the comparison says there is no difference)."""
     if not base:
         return {"ok": True}
-    aligned = _aligned([*base, *([compare] if compare is not None else [])])
+    items = [*base, *([compare] if compare is not None else [])]
+    aligned = _aligned(items)
     if aligned is None:
+        if all(item.mode == "signal" for item in items) and any(item.rate != items[0].rate for item in items):
+            return {"ok": True, "noDelta": "rate"}
         return {"ok": True}
     base, compare = aligned[: len(base)], (aligned[-1] if compare is not None else None)
     first = base[0]
-    if first.mode == "level":
-        return _combine_levels(base, compare, detail)
     median = _median(base) if len(base) > 1 else _f64(first.values)
     result: CombineResult = {"ok": True}
     if len(base) > 1:

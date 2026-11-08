@@ -174,7 +174,8 @@ export function stageAxes(strings: StageStrings, view: StageView | null, input: 
     // A time signal is drawn as itself: its amplitude, in its unit (full scale, or raw input units without one), and
     // says it is uncalibrated as the level axis does. After rms_trend, sound_level or power it names that measure.
     const linear = (unit: string | undefined): string => amplitudeAxisTitle(strings, unit, input, view?.measure);
-    if (view?.waveform) return { x, y: linear(view.waveform.unit) };
+    // Its Δ is compare − base sample by sample (a ChannelFrame subtraction), in the same unit.
+    if (view?.waveform) return { x, y: diff ? `Δ ${linear(view.waveform.unit)}` : linear(view.waveform.unit) };
     // A trigger's events are their signals: amplitude in the signal's unit, as a waveform's.
     if (isEventsView(view)) return { x, y: linear(view?.unit) };
     // rms_trend's series is its own values (a metric's series), in the signal's unit.

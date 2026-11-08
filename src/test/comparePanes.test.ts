@@ -152,6 +152,8 @@ test('the level axis is named by wandas\' level reference, and says uncalibrated
     assert.equal(stageAxes(STR, view('FS'), { unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true }).y, 'Amplitude, uncalibrated [FS]');
     assert.equal(stageAxes(STR, view(''), RAW).y, 'Amplitude, uncalibrated [input unit]');
     assert.equal(stageAxes(STR, view('Pa'), SPL).y, 'Amplitude [Pa]');
+    // Its Δ is compare − base sample by sample (a ChannelFrame subtraction), in the same unit: never a level the comparison makes.
+    assert.equal(stageAxes(STR, view('Pa'), SPL, true).y, 'Δ Amplitude [Pa]');
     // After rms_trend, sound_level or power the axis names that measure; power is in the unit squared.
     assert.equal(stageAxes(STR, { ...view('Pa'), measure: 'timeWeightedRms' }, SPL).y, 'Time-weighted RMS [Pa]');
     assert.equal(stageAxes(STR, { ...view(''), measure: 'power' }, FS).y, 'Power, uncalibrated [FS²]');
