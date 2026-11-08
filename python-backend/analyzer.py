@@ -18,7 +18,7 @@ from calibration_profile import (
     ResolvedCalibrationProfile,
     ResolvedChannelCalibration,
 )
-from decimator import WaveformEnvelope, decimated_waveform
+from decimator import WaveformEnvelope, bucket_starts, decimated_waveform
 from perf import perf_log
 from stage_view import min_max_rows, power_mean_db, rows_bucket_count
 
@@ -255,8 +255,8 @@ def _cursor_buckets(bin_count: int, channel_count: int) -> int:
 
 
 def _time_bin_boundaries(frame_count: int, target_bin_count: int) -> np.ndarray:
-    # Spread the larger groups evenly; np.array_split front-loads them, which drifts display bins off their frame times.
-    return (np.arange(1, target_bin_count) * frame_count) // target_bin_count
+    # The one bucket rule of every time axis (decimator.bucket_starts), as the waveforms and compare's images.
+    return bucket_starts(frame_count, target_bin_count)[1:]
 
 
 def _resample_time_bins(spectrogram: np.ndarray, target_bin_count: int) -> np.ndarray:
