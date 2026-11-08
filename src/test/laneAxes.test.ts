@@ -4,9 +4,9 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { laneAmplitudeRange, laneAmplitudeTicks, laneFrequencyTicks, laneTimeTicks, paintLaneAxis } from '../webview/runtime/laneAxes';
+import { laneAmplitudeRange, laneAmplitudeTicks, laneTimeTicks } from '../webview/runtime/laneAxes';
 import { makeCoordTransform } from '../webview/waveform/waveformRenderer';
-import { valueAxisTicks, alongAxisTicks, amplitudeAxisTitle, rowAxisTicks } from '../webview/runtime/stagePanes';
+import { valueAxisTicks, alongAxisTicks, amplitudeAxisTitle, paintSideAxis } from '../webview/runtime/stagePanes';
 import { getStrings } from '../shared/i18n/strings';
 
 const H = 120;
@@ -34,11 +34,8 @@ test('a waveform lane\'s amplitude ticks sit where the waveform draws their valu
 test('the lanes take the ticks and their text from the rules every plot uses', () => {
     const range = laneAmplitudeRange(0.5);
     assert.deepEqual(laneAmplitudeTicks(range), valueAxisTicks(range));
-    assert.deepEqual(laneFrequencyTicks(0, 4000, 170), rowAxisTicks(0, 4000, false, 170).map(({ text, fraction }) => ({ text, fraction })));
-    assert.ok(laneFrequencyTicks(0, 4000, 170).length <= 7, 'as many as the lane is tall for');
     assert.deepEqual(laneTimeTicks(1.5, 9.5, 800).map(tick => tick.text), alongAxisTicks(1.5, 9.5).map(tick => tick.text));
     for (const tick of laneTimeTicks(1.5, 9.5, 800)) assert.ok(Math.abs(tick.x - (Number(tick.text) - 1.5) / 8 * 800) < 1e-9);
-    for (const tick of laneFrequencyTicks(500, 4000, 170)) assert.ok(tick.fraction >= 0 && tick.fraction <= 1);
 });
 
 test('a lane axis names its quantity, unit and calibration as Compare\'s waveform axis does', () => {
@@ -49,13 +46,13 @@ test('a lane axis names its quantity, unit and calibration as Compare\'s wavefor
         save() {}, restore() {}, translate() {}, rotate() {}, beginPath() {}, moveTo() {}, lineTo() {}, stroke() {}, setLineDash() {},
         fillText(text: string) { texts.push({ text, color: context.fillStyle }); },
         measureText(text: string) { return { width: text.length * 3 }; },
-        clearRect() { cleared++; },
+        clearRect() { cleared++; }, setTransform() {},
     };
     const strings = getStrings('en');
     const title = amplitudeAxisTitle(strings, undefined, undefined);
     assert.match(title, /\[.+\]$/, 'a unit in brackets');
     const ticks = laneAmplitudeTicks(laneAmplitudeRange(1));
-    paintLaneAxis(context, 64, H, ticks, title, { muted: 'grey', text: 'white' });
+    paintSideAxis({ width: 64, height: H, getContext: () => context } as unknown as HTMLCanvasElement, ticks, title, { muted: 'grey', text: 'white' });
     assert.equal(cleared, 1);
     assert.deepEqual(texts.filter(item => item.color === 'grey').map(item => item.text), ticks.map(tick => tick.text));
     assert.deepEqual(texts.filter(item => item.color === 'white').map(item => item.text), [title]);

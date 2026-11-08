@@ -1,10 +1,10 @@
 import { channelLabel, channelsForResult, formatClockTime } from '../../shared/utils/format';
 import { niceRange } from '../../shared/utils/ticks';
 import { linkedSpectrogramBounds, spectrogramDisplayBounds, spectrogramFailureText } from './spectrogramRaster';
-import { onColourBar, PaintedLayerCache, paintTrackSpectrogram, paintTrackWaveform, type SpectrogramRasterCacheEntry } from './trackCanvasPainter';
+import { laneWaveformOverlay, onColourBar, PaintedLayerCache, paintTrackSpectrogram, type SpectrogramRasterCacheEntry } from './trackCanvasPainter';
 import { laneHoverPoint, laneReadoutText, spectrogramCellAt, spectrogramReadoutText, type LanePoint } from './trackLaneHover';
 import { hidePlotReadout, paintHoverMarks, PLOT_READOUT_ID, showPlotReadout } from './plotHover';
-import { trackTimelinePlacement } from './waveformCoverage';
+import { trackTimelinePlacement, waveformCoverageFromExtent } from './waveformCoverage';
 import { envelopePeak } from '../waveform/envelopePeak';
 import { fileOfKey } from '../../shared/dataset/datasetTable';
 import { attachOffsetEditing } from './offsetInlineEditor';
@@ -53,7 +53,7 @@ import { keyRouterFor } from './keyRouter';
 import { attachSeparatorKeys } from './separatorKeys';
 import { attachTrackPointerListeners } from './trackPointerEvents';
 import { buildPythonButtonText, buildPythonTooltip, isPythonEnvError } from './pythonEnvironmentLabels';
-import { laneAmplitudeRange, laneAmplitudeTicks, laneFrequencyTicks, laneTimeTicks, markEmptyLanePlot, markLanePlot, paintLaneAxis } from './laneAxes';
+import { laneAmplitudeRange, laneAmplitudeTicks, laneTimeTicks, markEmptyLanePlot, markLanePlot } from './laneAxes';
 import { createPlaybackDisplay } from './playbackDisplay';
 import { installLayoutResizeHandling } from './layoutResize';
 import { syncPanelToggle, syncSpectrumMaximize } from './panelCollapse';
@@ -155,11 +155,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         persistedWebviewState = persistedStore.snapshot;
     }
     let pythonEnvironmentState = state.pythonEnvironmentState || DEFAULT_PYTHON_ENVIRONMENT_STATE;
-    /** The colours every plot's axes are written in: the ticks muted, the titles in the text colour. */
-    function laneAxisColors() {
-        const style = getComputedStyle(document.body);
-        return { muted: style.getPropertyValue('--muted').trim() || '#888', text: style.getPropertyValue('--text').trim() || '#ddd' };
-    }
     function drawTheme(): DrawTheme {
         const style = getComputedStyle(document.body);
         return {
@@ -2072,24 +2067,32 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         // Only the lane under the pointer reads its points: the others draw without keeping them.
         const points: LanePoint[] | undefined = laneHover && laneHover.canvas === canvas ? [] : undefined;
         const axis = laneAmplitudeAxis(result, channelIndex);
-        const seconds = laneVisibleSeconds();
+        const unit = channelsForResult(result)[channelIndex]?.unit?.trim() ?? '';
+        // Drawn by the plot component (R13), as every plot of lines: its gridlines, the signal by the shared waveform
+        // layer, and its value axis on the canvas beside it.
+        const lane = laneWaveformOverlay(src, { ...trackStore.globalSpan(), ...placement }, color, unit);
+        const ratio = W / (canvas.clientWidth || W);
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        paintOverlay(canvas, lane.overlay, axis.range, { x: STR.axisTime, y: axis.title }, {
+            axisCanvas: options.drawAxis === false ? null : canvasById(document, trackAxisCanvasId(trackIndex, channelIndex)),
+            axisView: lane.axisView,
+            window: { x: { start: waveformView.start, end: waveformView.end } },
+            onSignalPoint: (x, y, value, time, seen) => {
+                minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+                if (seen) { minY = Math.min(minY, y); maxY = Math.max(maxY, y); }
+                if (points && seen) points.push({ x: x * ratio, y: y * ratio, value, t: lane.fileNormOf(time) });
+            },
+        });
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
         markLanePlot(canvas, { x: STR.axisTime, y: axis.title }, trackAxisCanvasId(trackIndex, channelIndex), {
             x: { start: waveformView.start, end: waveformView.end },
             y: amplitudeZoomed ? waveformView.amplitudeWindow() : { start: 0, end: 1 },
         });
-        const grid = {
-            ys: axis.ticks.map(tick => (1 - tick.fraction) * H),
-            xs: laneTimeTicks(seconds.start, seconds.end, W).map(tick => tick.x),
-            color: drawTheme().lineColor,
-        };
-        const coverage = paintTrackWaveform(ctx, W, H, color, src, {
-            zoomStart: waveformView.start,
-            zoomEnd: waveformView.end,
-            offsetNorm: placement.offsetNorm,
-            trackDurRatio: placement.trackDurRatio,
-            amplitudeMinNorm: amplitudeZoomed ? waveformView.amplitudeMin : undefined,
-            amplitudeMaxNorm: amplitudeZoomed ? waveformView.amplitudeMax : undefined,
-        }, window.renderWaveformPipeline, points, grid);
+        const coverage = minX <= maxX ? waveformCoverageFromExtent({ minX: minX * ratio, maxX: maxX * ratio }, W) : null;
+        // What the lane drew from, and how tall its line is on screen (CSS px): the whole file's overview, a fetched
+        // range, or that range over the overview around it.
+        canvas.dataset.waveformSource = !src ? 'none' : src.detail ? 'layered' : src.dataStart === 0 && src.dataEnd === 1 ? 'overview' : 'range';
+        canvas.dataset.waveformHeight = minY <= maxY ? String(Math.round(maxY - minY)) : '0';
         if (record) {
             record.waveformCoverage = coverage;
         }
@@ -2103,13 +2106,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (points) drawLaneHover(ctx, W, H, points, result, channelIndex, color, placement);
         else drawHoverLineOnCanvas(ctx, W, H);
         drawRectZoomSelectionOnCanvas(ctx, W, H, trackIndex);
-        const axisCanvas = options.drawAxis === false ? null : canvasById(document, trackAxisCanvasId(trackIndex, channelIndex));
-        if (axisCanvas) {
-            const axisCtx = axisCanvas.getContext('2d');
-            if (axisCtx) {
-                paintLaneAxis(axisCtx, AXIS_W, H, axis.ticks, axis.title, laneAxisColors());
-            }
-        }
     }
     /** What a waveform lane draws over its plot that moves with the cursor or the loop (not the hover's readout). */
     function drawWaveformCursorLayers(ctx: CanvasRenderingContext2D, W: number, H: number, trackIndex: number, channelIndex: number) {
@@ -2176,11 +2172,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const theme = drawTheme(), text = getComputedStyle(document.body).getPropertyValue('--text').trim() || '#ddd';
         // The colour bar is named as the comparison's heatmaps name their colour: the level, with the channel's reference.
         const title = paneAxes(STR, trackLevelInput([ch], undefined)).level.y;
-        const painted = paintTrackSpectrogram(ctx, W, H, spec, {
-            zoomStart: waveformView.start, zoomEnd: waveformView.end, trackStart, trackDurRatio, dbLo, dbHi, maxFrequencyHz: maxFreq, minFrequencyHz: minFreq,
+        const painted = paintTrackSpectrogram(canvas, axisCanvas, spec, { ...trackStore.globalSpan(), offsetNorm: trackStart, trackDurRatio }, {
+            window: { start: waveformView.start, end: waveformView.end }, dbLo, dbHi, maxFrequencyHz: maxFreq, minFrequencyHz: minFreq,
             durationSec: result.durationSeconds,
-        }, spectrogramRasterCache.get(cacheId), { title, text, back: theme.bgColor, line: theme.lineColor });
+        }, spectrogramRasterCache.get(cacheId), { colour: title, frequency: STR.axisFrequency, time: STR.axisTime }, [text, theme.bgColor, theme.lineColor].join(':'));
         spectrogramRasterCache.set(cacheId, painted);
+        // paintOverlay leaves its scale on the context: the lines over the lane are drawn in the canvas's own pixels.
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
         const specTop = spec.maxFrequencyHz || maxFreq || 1;
         markLanePlot(canvas, { x: STR.axisTime, y: STR.axisFrequency }, trackSpecAxisCanvasId(trackIndex, channelIndex), {
             x: { start: waveformView.start, end: waveformView.end },
@@ -2189,9 +2187,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         // Which time window the picture was drawn from: the whole file, or the zoom window asked again (R3).
         canvas.dataset.spectrogramWindow = shown && shown.window ? `${shown.window.startNorm} ${shown.window.endNorm}` : '0 1';
         canvas.dataset.colourBar = [painted.colourBar.x, painted.colourBar.y, painted.colourBar.width, painted.colourBar.height].map(value => Math.round(value)).join(' ');
-        if (axisCanvas && axisCtx) {
-            paintLaneAxis(axisCtx, axisCanvas.width, axisCanvas.height, laneFrequencyTicks(minFreq > 0 ? minFreq : 0, maxFreq, axisCanvas.height), STR.axisFrequency, laneAxisColors());
-        }
         if (spectrogramHover && spectrogramHover.canvas === canvas) showSpectrogramReadout(canvas, spectrogramHover.clientX, spectrogramHover.clientY);
         if (overlayCtx) {
             drawSpectrogramOverlayLines(overlayCtx, W, H, trackIndex);
