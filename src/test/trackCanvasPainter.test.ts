@@ -139,3 +139,15 @@ test('a spectrogram lane paints only where its recording is: its end cells stop 
     const painted = Array.from({ length: 400 }, (_, x) => x).filter(x => pixel(x, 0).some(channel => channel > 0));
     assert.deepEqual([painted[0], painted.at(-1)], [100, 299]);
 });
+
+test('a lane\'s waveform points are placed once per envelope and place, and placed again when the track moves', () => {
+    const envelope = { min: [-0.5, -0.2], max: [0.5, 0.2], minT: [0.1, 0.6], maxT: [0.2, 0.7], samples: [], absolutePeak: 0.5 } as WaveformEnvelope;
+    const source = { waveform: envelope, dataStart: 0, dataEnd: 1, amplitudeScale: 0.8 };
+    const first = laneWaveformOverlay(source, place, '#00ff00', 'Pa').overlay.layers[0].view.waveform!;
+    // Painted again (a zoom, a pan, a hover): the same arrays, not new ones over every point.
+    assert.equal(laneWaveformOverlay(source, place, '#00ff00', 'Pa').overlay.layers[0].view.waveform, first);
+    const moved = laneWaveformOverlay(source, { ...place, offsetNorm: 0.5 }, '#00ff00', 'Pa').overlay.layers[0].view.waveform!;
+    assert.notEqual(moved, first);
+    assert.deepEqual(moved.minT.map(t => +t!.toFixed(6)), [12.2, 13.2]);
+    assert.deepEqual(laneWaveformOverlay(source, place, '#00ff00', 'V').overlay.layers[0].view.waveform!.unit, 'V');
+});

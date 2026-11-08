@@ -15,7 +15,8 @@ import type { NormalizedRange } from './waveformInteraction';
 import { plotPointIn, type PlotMargins } from './plotInteraction';
 import { HOVER_PICK_RADIUS_PX, nearestPoint } from './plotHover';
 import { paintWaveformLayer, waveformRange, type SignalPointSink } from '../plot/waveformLayer';
-import { drawValueAxis, fittedAxisTitle, normalizedColor, readoutText, type AxisTick, type Palette } from '../../shared/gui-core/index';
+import { packRgb, paletteColour, rasterizeHeatmap, unpackRgb } from '../plot/heatmapRaster';
+import { drawValueAxis, fittedAxisTitle, readoutText, type AxisTick, type Palette } from '../../shared/gui-core/index';
 import { niceRange, niceTicks } from '../../shared/utils/ticks';
 import { amountText, frequencyText, levelText, secondsText, signedText, withMinus } from '../plot/plotText';
 
@@ -711,81 +712,30 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
             return high > low ? cellSpan(columnEdges, low, high) : null;
         });
         const pixels = new Uint32Array(image.data.buffer);
-        // A cell's colour as [r, g, b]; `dim` for a difference where both levels are far below the loudest.
-        const rgbOf = (cell: number, dim = false): [number, number, number] => {
+        // A cell's colour, packed as the canvas stores it; `dim` for a difference where both levels are far below the loudest.
+        const colourOfCell = (cell: number, dim = false): number => {
             if (options.diff) {
                 // A difference where both levels are far below the loudest is dimmed: it is not what is heard.
                 const amount = Math.min(1, Math.abs(cell) / extentAbs) * (dim ? 0.2 : 1);
-                return (cell >= 0 ? [63, 185, 80] : [150, 150, 150]).map(channel => Math.round(channel * amount)) as [number, number, number];
+                return cell >= 0 ? packRgb(Math.round(63 * amount), Math.round(185 * amount), Math.round(80 * amount)) : packRgb(Math.round(150 * amount), Math.round(150 * amount), Math.round(150 * amount));
             }
             if (view.quantity === 'cepstrum') {
                 // Signed coefficients as wandas draws them (RdBu_r): blue below zero, white at zero, red above.
                 const amount = Math.max(-1, Math.min(1, cell / extentAbs));
                 const fade = Math.round(255 * (1 - Math.abs(amount)));
-                return amount >= 0 ? [255, fade, fade] : [fade, fade, 255];
+                return amount >= 0 ? packRgb(255, fade, fade) : packRgb(fade, fade, 255);
             }
             const fraction = Math.max(0, Math.min(1, (cell - range.min) / (range.max - range.min || 1)));
-            if (options.heatmapPalette) return normalizedColor(fraction, options.heatmapPalette);
+            if (options.heatmapPalette) return paletteColour(fraction, options.heatmapPalette);
             const level = Math.round(fraction * 255);
-            return [level, level, level];
+            return packRgb(level, level, level);
         };
         const matrix = view.matrix;
-        const key = (cell: number): number => (signedScale ? Math.abs(cell) : cell);
-        // Each pixel shows the strongest of the cells it covers (R2: a peak is never thinned away), found per matrix
-        // row across the pixel columns first, then down the rows each pixel line covers.
-        const columnPeaks = new Map<number, Int32Array>();
-        const peaksOfRow = (row: number): Int32Array => {
-            let peaks = columnPeaks.get(row);
-            if (peaks) return peaks;
-            peaks = new Int32Array(image.width).fill(-1);
-            const cells = matrix[row] ?? [];
-            for (let px = 0; px < image.width; px++) {
-                const span = columnSpans[px];
-                if (!span) continue;
-                let best = -1, bestKey = -Infinity;
-                for (let column = span[0]; column < span[1]; column++) {
-                    const cell = cells[column];
-                    if (cell === null || cell === undefined) continue;
-                    if (best < 0 || key(cell) > bestKey) { best = column; bestKey = key(cell); }
-                }
-                peaks[px] = best;
-            }
-            columnPeaks.set(row, peaks);
-            return peaks;
-        };
-        // One colour per cell (ABGR as the canvas stores it), worked out once for the cells drawn.
-        const colours = new Map<number, number>();
-        const colourOf = (row: number, column: number): number => {
-            const id = row * (xs.length + 1) + column;
-            let colour = colours.get(id);
-            if (colour === undefined) {
-                const [r, g, b] = rgbOf(matrix[row][column] as number, !!options.loud && !options.loud[row]?.[column]);
-                colour = (255 << 24 | b << 16 | g << 8 | r) >>> 0;
-                colours.set(id, colour);
-            }
-            return colour;
-        };
-        // The cell a pixel shows (row and column of the matrix), or row −1 for none.
-        const shownCell = (px: number, py: number): { row: number; column: number } => {
-            const span = rowSpans[py];
-            let row = -1, column = -1, bestKey = -Infinity;
-            if (!span || px < 0 || px >= image.width) return { row, column };
-            for (let candidate = span[0]; candidate < span[1]; candidate++) {
-                const at = peaksOfRow(candidate)[px];
-                if (at < 0) continue;
-                const cellKey = key(matrix[candidate][at] as number);
-                if (row < 0 || cellKey > bestKey) { row = candidate; column = at; bestKey = cellKey; }
-            }
-            return { row, column };
-        };
-        for (let py = 0; py < image.height; py++) {
-            if (!rowSpans[py]) continue;
-            const offset = py * image.width;
-            for (let px = 0; px < image.width; px++) {
-                const cell = shownCell(px, py);
-                if (cell.row >= 0) pixels[offset + px] = colourOf(cell.row, cell.column);
-            }
-        }
+        const loud = options.loud;
+        const raster = rasterizeHeatmap({
+            matrix, width: image.width, height: image.height, rowSpans, columnSpans, signed: signedScale,
+            colour: (cell, row, column) => colourOfCell(cell, !!loud && !loud[row]?.[column]),
+        }, pixels);
         context.putImageData(image, Math.round(left * ratio), Math.round(top * ratio));
         const imageLayer = layers.find(layer => layer.view === view) ?? layers[0];
         plot.image = {
@@ -794,8 +744,7 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
                 const fx = (x - left) / plotWidth, fy = (y - top) / plotHeight;
                 if (fx < 0 || fx > 1 || fy < 0 || fy > 1) return { column: -1, row: -1 };
                 // The cell drawn under the point: the strongest of those its pixel covers.
-                const cell = shownCell(Math.min(image.width - 1, Math.floor(fx * image.width)), Math.min(image.height - 1, Math.floor(fy * image.height)));
-                return cell.row < 0 ? { column: -1, row: -1 } : cell;
+                return raster.cellAt(Math.min(image.width - 1, Math.floor(fx * image.width)), Math.min(image.height - 1, Math.floor(fy * image.height)));
             },
         };
         // A linear row axis (Bark, quefrency, the entry strip's rows) gets as many ticks as the plot is tall for.
@@ -806,7 +755,7 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
         const endText = (value: number): string => levelTick(value, high - low);
         // Under the region's corner tag when there is one, as the pending note is.
         plot.colourBar = paintColourBar(context, { left: left + 4, right: left + plotWidth - 4, top: colourBarTop(top, options.region?.mark === 'tag') }, axes.colour ?? '', endText(low), endText(high), fraction => {
-            const [r, g, b] = rgbOf(low + fraction * (high - low));
+            const [r, g, b] = unpackRgb(colourOfCell(low + fraction * (high - low)));
             return `rgb(${r}, ${g}, ${b})`;
         }, { text, back: pendingColors.back, line });
     } else {

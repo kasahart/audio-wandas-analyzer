@@ -54,18 +54,8 @@ export function laneWaveformOverlay(src: WaveformPaintSource | null, place: Lane
     const fileStart = toSec(0), fileSpan = toSec(1) - fileStart || 1;
     const fileNormOf = (seconds: number): number => (seconds - fileStart) / fileSpan;
     if (!src) return { overlay: { layers: [] }, axisView, fileNormOf };
-    const layerOf = (part: WaveformPaintSource, span?: readonly [number, number]): StageLayer => {
-        const envelope = part.waveform;
-        const count = Math.max(envelope.min?.length ?? 0, envelope.max?.length ?? 0, envelope.samples?.length ?? 0);
-        const range = part.dataEnd - part.dataStart;
-        // A bucket without its times sits at its place across the part's stretch, as the lanes always placed it.
-        const times = (given: readonly number[] | undefined): number[] => Array.from({ length: count }, (_, index) => toSec(given?.[index] ?? part.dataStart + index / Math.max(1, count) * range));
-        const values = (given: readonly number[] | undefined): number[] => Array.from({ length: count }, (_, index) => given?.[index] ?? envelope.samples?.[index] ?? 0);
-        // The axis is in the channel's unit: the amplitude scale the lane's range was made from is the peak's.
-        const waveform = { min: values(envelope.min), max: values(envelope.max), minT: times(envelope.minT), maxT: times(envelope.maxT),
-            absolutePeak: part.amplitudeScale ?? envelope.absolutePeak, unit, ref: 1 };
-        return { view: { ...axisView, waveform }, color, ...(span ? { span } : {}) };
-    };
+    const layerOf = (part: WaveformPaintSource, span?: readonly [number, number]): StageLayer =>
+        ({ view: { ...axisView, waveform: laneWaveform(part, place, unit) }, color, ...(span ? { span } : {}) });
     const detail = src.detail;
     if (!detail) return { overlay: { layers: [layerOf(src)] }, axisView, fileNormOf };
     const from = toSec(detail.dataStart), to = toSec(detail.dataEnd);
@@ -75,6 +65,34 @@ export function laneWaveformOverlay(src: WaveformPaintSource | null, place: Lane
         axisView,
         fileNormOf,
     };
+}
+
+type LaneWaveform = NonNullable<StageView['waveform']>;
+
+/** Each envelope's points placed on the lanes' axis, kept while the envelope and its place are the same. */
+const laneWaveforms = new WeakMap<WaveformEnvelope, { key: string; waveform: LaneWaveform }>();
+
+/**
+ * A part's envelope as the plot component reads it: its times in seconds on the lanes' axis and its values. A lane is
+ * painted again on every zoom, pan, resize and hover over thousands of points, so the arrays are made once per
+ * envelope and place, not on each paint.
+ */
+function laneWaveform(part: WaveformPaintSource, place: LanePlacement, unit: string): LaneWaveform {
+    const envelope = part.waveform;
+    const key = [part.dataStart, part.dataEnd, part.amplitudeScale, unit, place.startSec, place.spanSec, place.offsetNorm, place.trackDurRatio].join(':');
+    const kept = laneWaveforms.get(envelope);
+    if (kept && kept.key === key) return kept.waveform;
+    const toSec = (fileNorm: number): number => place.startSec + (place.offsetNorm + fileNorm * place.trackDurRatio) * place.spanSec;
+    const count = Math.max(envelope.min?.length ?? 0, envelope.max?.length ?? 0, envelope.samples?.length ?? 0);
+    const range = part.dataEnd - part.dataStart;
+    // A bucket without its times sits at its place across the part's stretch, as the lanes always placed it.
+    const times = (given: readonly number[] | undefined): number[] => Array.from({ length: count }, (_, index) => toSec(given?.[index] ?? part.dataStart + index / Math.max(1, count) * range));
+    const values = (given: readonly number[] | undefined): number[] => Array.from({ length: count }, (_, index) => given?.[index] ?? envelope.samples?.[index] ?? 0);
+    // The axis is in the channel's unit: the amplitude scale the lane's range was made from is the peak's.
+    const waveform: LaneWaveform = { min: values(envelope.min), max: values(envelope.max), minT: times(envelope.minT), maxT: times(envelope.maxT),
+        absolutePeak: part.amplitudeScale ?? envelope.absolutePeak, unit, ref: 1 };
+    laneWaveforms.set(envelope, { key, waveform });
+    return waveform;
 }
 
 export interface SpectrogramRasterCacheEntry {

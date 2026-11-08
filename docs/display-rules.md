@@ -31,7 +31,8 @@
 - テスト: `python-backend/test_decimator.py` › test_every_time_decimation_shares_the_bucket_rule
 - テスト: `python-backend/test_decimator.py` › test_a_difference_line_on_a_time_axis_buckets_as_the_lines_it_compares
 - テスト: `src/test/waveformRenderer.test.ts` › decimateBuckets: パンしてもバケットの境界は動かない（div の倍数から始まる）
-- ペアの図（伝達関数・位相・コヒーレンス）は全ビンを線で結ぶので、区間ごとの最小と最大はそのまま見えます。
+- ペアの図（伝達関数・位相・コヒーレンス）は、バックエンドが全ビンをそれぞれの周波数で返し、図がそれを区間ごとの最小と最大に間引いて描きます。間を飛ばして拾わないので、狭い共振・ノッチ・コヒーレンスの谷も残り、拡大すると範囲の全ビンが見えます。
+- テスト: `python-backend/test_analysis_service.py` › test_pair_spectrum_keeps_every_bin_at_its_own_frequency_so_a_narrow_notch_stays
 - 未: 入口の概観帯
 
 ## R3 拡大しても同じ規則で、範囲の中を全解像度で作り直す

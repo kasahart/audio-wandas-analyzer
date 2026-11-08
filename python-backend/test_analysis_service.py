@@ -290,6 +290,34 @@ def test_pair_spectrum_recovers_a_known_filter(tmp_path: Path) -> None:
     assert result["nFft"] == 1024 and result["hopLength"] == 512
 
 
+def test_pair_spectrum_keeps_every_bin_at_its_own_frequency_so_a_narrow_notch_stays(tmp_path: Path) -> None:
+    from scipy.signal import iirnotch, lfilter
+
+    rate = 16000
+    # A notch 1/3 of a bin off any 192-point pick and a few bins wide: equally spaced picks of 192 of 513 bins
+    # step over it.
+    notch_hz = 2501.0
+    excitation = np.random.default_rng(3).standard_normal(rate * 8) * 0.1
+    b, a = iirnotch(notch_hz, 60, fs=rate)
+    audio = tmp_path / "notch.wav"
+    _write_pair_wav(audio, [excitation, lfilter(b, a, excitation)], rate)
+
+    result = AnalysisService(AnalysisEngine()).pair_spectrum(
+        _pair_source(audio, 0), [_pair_source(audio, 1)], stft_options=_PAIR_OPTIONS
+    )
+
+    assert result["frequencyBins"] == result["nFft"] // 2 + 1
+    response = result["responses"][0]
+    gain = np.asarray(response["gainDb"], dtype=float)
+    assert len(gain) == result["frequencyBins"]
+    hz = np.linspace(0.0, result["maxFrequencyHz"], result["frequencyBins"])
+    deepest = int(np.nanargmin(gain))
+    assert abs(hz[deepest] - notch_hz) <= rate / result["nFft"]
+    assert gain[deepest] < -15
+    # The coherence dips there too (nothing of the response is left to be coherent with).
+    assert np.asarray(response["coherence"], dtype=float)[deepest] < 0.5
+
+
 @pytest.mark.parametrize("overlap", [50, 75, 87.5])
 def test_pair_spectrum_averages_the_welch_segments_inside_the_range(tmp_path: Path, overlap: float) -> None:
     rate = 8000

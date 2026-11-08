@@ -18,6 +18,23 @@ export interface PlotBox {
     height: number;
 }
 
+/** Each waveform's envelope with its times as fractions of an axis, kept while the waveform and the axis are the same. */
+const envelopes = new WeakMap<StageWaveform, { low: number; span: number; env: WaveformEnv & { minT: number[]; maxT: number[] } }>();
+
+/**
+ * `waveform` with its times as fractions of the axis from `low` over `span`: made once per waveform and axis, not on
+ * every paint (a track lane is painted again on each zoom, pan and hover over thousands of points).
+ */
+function envelopeOn(waveform: StageWaveform, low: number, span: number): WaveformEnv & { minT: number[]; maxT: number[] } {
+    const kept = envelopes.get(waveform);
+    if (kept && kept.low === low && kept.span === span) return kept.env;
+    const norm = (times: ReadonlyArray<number | null>): number[] => times.map(time => ((time ?? low) - low) / span);
+    const value = (values: ReadonlyArray<number | null>): number[] => values.map(item => item ?? 0);
+    const env = { min: value(waveform.min), max: value(waveform.max), minT: norm(waveform.minT), maxT: norm(waveform.maxT), absolutePeak: waveform.absolutePeak };
+    envelopes.set(waveform, { low, span, env });
+    return env;
+}
+
 /**
  * Draws `waveform` inside `plot`: its times (s) placed on the whole axis [axis.low, axis.high] and the part
  * `window` of it across the plot, its values between amplitude.min and amplitude.max (the signal's units).
@@ -39,10 +56,8 @@ export function paintWaveformLayer(
     options: { span?: readonly [number, number]; onPoint?: SignalPointSink } = {},
 ): void {
     const span = axis.high - axis.low || 1;
-    const norm = (times: ReadonlyArray<number | null>): number[] => times.map(time => ((time ?? axis.low) - axis.low) / span);
-    const value = (values: ReadonlyArray<number | null>): number[] => values.map(item => item ?? 0);
-    const minT = norm(waveform.minT), maxT = norm(waveform.maxT);
-    const env: WaveformEnv = { min: value(waveform.min), max: value(waveform.max), minT, maxT, absolutePeak: waveform.absolutePeak };
+    const env = envelopeOn(waveform, axis.low, span);
+    const { minT, maxT } = env;
     // The part of the axis the envelope covers (a zoomed request covers only the view and its margin), as the
     // lanes pass a range request's bounds.
     const dataStart = Math.min(minT[0] ?? 0, maxT[0] ?? 0), dataEnd = Math.max(minT.at(-1) ?? 1, maxT.at(-1) ?? 1);
