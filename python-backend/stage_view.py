@@ -35,7 +35,8 @@ from wandas.frames.segments import ChannelFrameSegments
 import analysis_spec as spec
 from decimator import bucket_edges, bucket_starts
 
-# A time signal longer than this is drawn as its waveform (its own samples); a shorter one is a metric's values.
+#: A metric's or level's points over time before any zoom (each bucket's lowest and highest value). A time signal is
+#: told from a metric by the operation that made it (metric_operation), never by how many samples it has.
 LEVEL_SERIES_MIN_SAMPLES = 2048
 #: Operations whose ChannelFrame is a metric over time, drawn as its own values however long it is, and
 #: the unit of those values: wandas keeps the input channel's unit on them (rms_trend's is right: its own).
@@ -415,8 +416,8 @@ def _channel_view(frame: ChannelFrame) -> StageView:
             "xs": _axis(xs),
             "values": _json(rounded_db(values)),
         }
-    if metric is not None or data.shape[1] <= LEVEL_SERIES_MIN_SAMPLES:
-        # A metric (loudness at 500 Hz, …) is its own values however long the region: never a level of them.
+    if metric is not None:
+        # A metric (loudness at 500 Hz, …) is its own values however long or short the region: never a level of them.
         xs, values = _envelope(times, np.mean(data, axis=0), LEVEL_SERIES_MIN_SAMPLES)
         series: StageView = {
             "frame": type(frame).__name__,
@@ -431,7 +432,8 @@ def _channel_view(frame: ChannelFrame) -> StageView:
         if measure:
             series["measure"] = measure
         return series
-    # The sound itself, as wandas gives it: drawn as its waveform and compared sample by sample (a difference is
+    # The sound itself, as wandas gives it, however few samples it has: drawn as its waveform and compared sample by
+    # sample (a difference is
     # compare − base, a ChannelFrame subtraction). The comparison makes no level of it: a level is a wandas step's
     # (sound_level, rms_trend), whose window the recipe records.
     xs, values = _envelope(times, np.mean(data, axis=0), LEVEL_SERIES_MIN_SAMPLES)
