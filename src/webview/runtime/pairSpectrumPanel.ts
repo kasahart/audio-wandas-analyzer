@@ -478,9 +478,9 @@ export class PairSpectrumPanel {
                     this.showMarks();
                     this.host.onHoverFrequency(null);
                 },
-                stepFrom: (plot, delta) => {
+                stepFrom: (plot, delta, arrived) => {
                     const drawn = this.result ? this.drawn.get(laneOf(plot)) : undefined;
-                    return drawn ? this.marks?.get(laneOf(plot))?.stepFrom(plot, drawn.plot ?? null, delta) ?? null : null;
+                    return drawn ? this.marks?.get(laneOf(plot))?.stepFrom(plot, drawn.plot ?? null, delta, arrived) ?? null : null;
                 },
                 showBox: (plot, from, to) => {
                     const box = this.zoomBox();

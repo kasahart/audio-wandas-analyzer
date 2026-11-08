@@ -68,3 +68,18 @@ test('a Δ that cannot be taken says why: too much data, other sample rates or u
     assert.equal(noDeltaNote({}, strings), 'axes');
     assert.equal(noDeltaNote(undefined, strings), 'axes');
 });
+
+test('a picture whose values the backend let go is dropped wherever it is kept, so it is scanned again', () => {
+    const posted: Array<{ requestId?: string }> = [];
+    const stages = createStageSource('track-stage', message => posted.push(message), () => undefined);
+    const spec = { key: 'spec', message: {} };
+    stages.ensure(spec, ['/a.wav', '/b.wav']);
+    const requestId = posted[0]?.requestId ?? '';
+    const stage = (data: string) => ({ frame: 'SpectralFrame', kind: 'line', x: 'frequency', quantity: 'level', xs: [0], values: [0], data });
+    for (const [filePath, data] of [['/a.wav', 'ka'], ['/b.wav', 'kb']]) {
+        stages.handle({ type: 'compare-scan-result', requestId, filePath, result: { ok: true, stage: stage(data) } } as { type: string });
+    }
+    stages.forgetData(['ka']);
+    assert.equal(stages.view(spec, '/a.wav'), undefined);
+    assert.equal(stages.view(spec, '/b.wav')?.data, 'kb');
+});

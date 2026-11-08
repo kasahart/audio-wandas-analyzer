@@ -17,8 +17,12 @@ export interface StageReader {
     handle(message: { type: string }): boolean;
 }
 
-export function createStageReader(prefix: string, post: (message: CompareCombineMessage) => void): StageReader {
-    const waiting = new Map<string, (points: StagePoints | null) => void>();
+/**
+ * `missing`: the backend no longer keeps the values under these keys (its store is bounded); the caller forgets those
+ * pictures so they are scanned again, and the read is asked for again once they are back.
+ */
+export function createStageReader(prefix: string, post: (message: CompareCombineMessage) => void, missing: (keys: readonly string[]) => void = () => undefined): StageReader {
+    const waiting = new Map<string, (points: StagePoints | null | undefined) => void>();
     const sources = new Map<string, FullSource>();
     let count = 0;
     const source = (base: readonly string[], compare: string | null, of: 'base' | 'diff', event?: number): FullSource => {
@@ -48,7 +52,14 @@ export function createStageReader(prefix: string, post: (message: CompareCombine
             if (!publication.requestId.startsWith(`${prefix}-`)) return false;
             const done = waiting.get(publication.requestId);
             waiting.delete(publication.requestId);
-            done?.(publication.result.ok ? publication.result.points ?? null : null);
+            const { result } = publication;
+            if (!result.ok && result.missing?.length) {
+                // Not an answer: nothing is kept, and the pictures are scanned again.
+                done?.(undefined);
+                missing(result.missing);
+                return true;
+            }
+            done?.(result.ok ? result.points ?? null : null);
             return true;
         },
     };

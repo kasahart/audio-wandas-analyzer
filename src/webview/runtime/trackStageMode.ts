@@ -165,7 +165,8 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
     const source = createStageSource('track-stage', message => deps.post(message), () => deps.rerender());
     const combine = createCombineSource('track-combine', message => deps.post(message), () => deps.rerender());
     // Every number read off the plots comes from the pictures' full data the backend keeps (R7), not their lines.
-    const reader = createStageReader('read-stage', message => deps.post(message));
+    // A read of values the backend let go: their pictures are scanned again, then read anew.
+    const reader = createStageReader('read-stage', message => deps.post(message), keys => { source.forgetData(keys); deps.rerender(); });
     // The report's files with every Welch bin, asked for on 報告に only (a stored result keeps the 192 points alone).
     const reportSource = createStageSource('report-scan', message => deps.post(message), () => writeReport());
     /** 報告に pressed: the report waits for its files' bins (with Δ shown or not, as when it was pressed). */

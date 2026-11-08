@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { fetchedSource, localCells, localLine, STEP_AHEAD, type FullSource } from '../webview/runtime/fullRead';
 import { declaresFullRead, stageHover, stageStep, type StagePlot, type StageRead } from '../webview/runtime/stagePanes';
-import type { StagePoints, StageRead as FullReadRequest, StageView } from '../shared/protocol/backendProtocol';
+import { createStageReader } from '../webview/runtime/stageReader';
+import { spectrumReadoutValues } from '../webview/runtime/spectrumRuntime';
+import type { StageRead as FullReadRequest, StageView } from '../shared/protocol/backendProtocol';
 
 /** A backend held in the test: each read is answered only when `flush` is called, as a reply arrives later. */
 function heldBackend(xs: number[], values: number[]): { source: FullSource; flush(): void; asked: FullReadRequest[] } {
@@ -11,7 +13,7 @@ function heldBackend(xs: number[], values: number[]): { source: FullSource; flus
     const whole = localLine(xs, values);
     const source = fetchedSource((read, done) => {
         asked.push(read);
-        queue.push(() => done(whole.line?.({ x0: Math.min(...read.x), x1: Math.max(...read.x), beyond: read.beyond ?? 1 }, () => undefined) as StagePoints));
+        queue.push(() => done(whole.line?.({ x0: Math.min(...read.x), x1: Math.max(...read.x), beyond: read.beyond ?? 1 }, () => undefined)));
     });
     return { source, asked, flush: () => { while (queue.length) queue.shift()?.(); } };
 }
@@ -93,21 +95,22 @@ test('a window read is asked for once and kept: the pointer moving inside it ask
     assert.equal(backend.asked.length, 1);
 });
 
-test('a window too dense to send whole is read again while the pointer moves inside it, at any level; zoomed in further it is asked anew (R7)', () => {
+test('a window too dense to send whole is read again while the pointer moves along it; at another level it is shown until that level\'s points come; zoomed in further it is asked anew (R7)', () => {
     const asked: FullReadRequest[] = [];
-    // The backend's dense answer: each pixel column's lowest and highest sample (full_read.read_line).
+    // The backend's dense answer: each pixel column's lowest, highest and nearest the level asked (full_read.read_line).
     const source = fetchedSource((read, done) => {
         asked.push(read);
         const [low, high] = read.x, columns = read.columns ?? 1;
         const xs: number[] = [], values: number[] = [];
         for (let column = 0; column < columns; column++) {
             const a = Math.ceil(low + (high - low) * column / columns), b = Math.min(count, Math.ceil(low + (high - low) * (column + 1) / columns));
-            let lo = -1, hi = -1;
+            let lo = -1, hi = -1, near = -1;
             for (let index = Math.max(0, a); index < b; index++) {
                 if (lo < 0 || signal[index] < signal[lo]) lo = index;
                 if (hi < 0 || signal[index] > signal[hi]) hi = index;
+                if (near < 0 || Math.abs(signal[index] - (read.near ?? 0)) < Math.abs(signal[near] - (read.near ?? 0))) near = index;
             }
-            for (const index of [...new Set([lo, hi])].filter(index => index >= 0).sort((p, q) => p - q)) { xs.push(index); values.push(signal[index]); }
+            for (const index of [...new Set([lo, hi, near])].filter(index => index >= 0).sort((p, q) => p - q)) { xs.push(index); values.push(signal[index]); }
         }
         done({ xs, values, start: null, end: null, complete: false });
     });
@@ -121,16 +124,23 @@ test('a window too dense to send whole is read again while the pointer moves ins
     assert.equal(stageHover(lane, 200, 50)?.pending, true);
     assert.equal(asked.length, 1);
     assert.ok(asked[0].columns && asked[0].columns > 41, 'the window is padded, its columns with it');
-    for (const [x, y] of [[200, 50], [201, 50], [203, 20], [190, 80], [215, 50]]) {
-        const read = stageHover(lane, x, y);
-        assert.equal(read?.pending, undefined, `read at once at ${x}, ${y}`);
+    for (const x of [200, 201, 203, 190, 215]) {
+        const read = stageHover(lane, x, 50);
+        assert.equal(read?.pending, undefined, `read at once at ${x}`);
         assert.equal(read?.full, true);
         assert.equal(signal[read?.at as number], read?.value, 'a real sample');
     }
-    assert.equal(asked.length, 1, 'nothing more asked while the pointer moves inside the window');
+    assert.equal(asked.length, 1, 'nothing more asked while the pointer moves along the window');
+    // At another level: what came is read meanwhile (no blank readout), and that level's points are asked for.
+    const meanwhile = stageHover(lane, 203, 20);
+    assert.equal(meanwhile?.pending, undefined);
+    assert.equal(asked.length, 2);
+    assert.equal(asked[1].near, (50 - 20) / 40);
+    assert.equal(stageHover(lane, 203, 20)?.full, true);
+    assert.equal(asked.length, 2, 'that level\'s answer is kept');
     // Zoomed in fourfold: the kept columns are coarser than the screen's, so the window is asked for again.
     assert.equal(stageHover(plot(12.5), 800, 50)?.pending, true);
-    assert.equal(asked.length, 2);
+    assert.equal(asked.length, 3);
 });
 
 test('a spectrogram\'s hover asks the backend once for a block around the pointer: moving across frames and bins reads what came (R7)', () => {
@@ -215,4 +225,28 @@ test('every line and image a plot draws says where its full data is read; bars a
     assert.equal(declaresFullRead({ view: line, color: '', full: 'drawn' }), true);
     assert.equal(declaresFullRead({ view: line, color: '', full: localLine([1, 2], [0, 1]) }), true);
     assert.equal(declaresFullRead({ view: { ...line, kind: 'bar' }, color: '' }), true);
+});
+
+test('a read of values the backend let go is not kept as empty: their pictures are scanned again, and the read is asked again (R7)', () => {
+    const posts: Array<{ requestId: string }> = [];
+    const lost: string[][] = [];
+    const reader = createStageReader('read-test', message => posts.push(message), keys => lost.push([...keys]));
+    const view: StageView = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', quantity: 'level', xs: [0, 1], values: [0, 0], data: 'k1' };
+    const source = reader.of(view) as FullSource;
+    const query = { x0: 0.4, x1: 0.6, beyond: 1 };
+    assert.equal(source.line?.(query, () => undefined), undefined);
+    assert.equal(posts.length, 1);
+    reader.handle({ type: 'compare-combine-result', requestId: posts[0].requestId, result: { ok: false, missing: ['k1'] } } as never);
+    assert.deepEqual(lost, [['k1']]);
+    // Read again once the picture is back: asked anew, not answered with nothing.
+    assert.equal(source.line?.(query, () => undefined), undefined);
+    assert.equal(posts.length, 2);
+    reader.handle({ type: 'compare-combine-result', requestId: posts[1].requestId, result: { ok: true, points: { xs: [0, 1], values: [1, 2], start: null, end: null, complete: true } } } as never);
+    assert.deepEqual(source.line?.(query, () => undefined)?.values, [1, 2]);
+});
+
+test('a cursor spectrum read at its real bins writes its frequency to the digits those bins need, not the drawn points\' (R7)', () => {
+    const slice = { values: [0, 0], frequencyBins: 2, maxFrequencyHz: 4000, minDb: -100, maxDb: 0, frequenciesHz: [0, 1000, 2000] };
+    assert.equal(spectrumReadoutValues(slice, 1000, -10)[0], spectrumReadoutValues(slice, 1000.48828125, -10)[0], 'the drawn points\' spacing cannot tell them apart');
+    assert.notEqual(spectrumReadoutValues(slice, 1000, -10, 0.48828125)[0], spectrumReadoutValues(slice, 1000.48828125, -10, 0.48828125)[0]);
 });

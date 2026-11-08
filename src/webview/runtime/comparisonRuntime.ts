@@ -2907,7 +2907,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                         showSpectrumMarks();
                         scheduleSpectrumRefresh('hover');
                     },
-                    stepFrom: (_plot, delta) => (spectrumShown() ? spectrumMarks.stepFrom(overlayCanvas, spectrumDrawn, delta) : null),
+                    stepFrom: (_plot, delta, arrived) => (spectrumShown() ? spectrumMarks.stepFrom(overlayCanvas, spectrumDrawn, delta, arrived) : null),
                     showBox(_plot, from, to) {
                         const frame = spectrumDrawn?.frame;
                         if (!frame) return;

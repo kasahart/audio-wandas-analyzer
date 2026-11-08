@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
+import { localLine, STEP_AHEAD, type FullSource } from '../webview/runtime/fullRead';
 import { createPlotHoverLayer } from '../webview/runtime/plotHoverLayer';
 import type { StageLayer, StagePlot } from '../webview/runtime/stagePanes';
 
@@ -90,4 +91,29 @@ test('an arrow key steps to a point above or below the level axis as the pointer
     layer.show(plot, drawn, 80, 110, slot);
     assert.equal(layer.reading()?.index, 3);
     assert.deepEqual(layer.stepFrom(plot, drawn, 1), { clientX: 90, clientY: 110 });
+});
+
+test('a step that waits for its points is taken, once they are in, through the owner\'s hover, so the place it keeps is the new one (R7)', () => {
+    const { plot, slot, layer } = setup();
+    const xs = Array.from({ length: 10 }, (_, i) => i), values = xs.map(i => i + 0.5);
+    const whole = localLine(xs, values);
+    let later: (() => void) | null = null;
+    let held = true;
+    // The hover's points are at hand; a step's (STEP_AHEAD) come later.
+    const full: FullSource = {
+        line(query, ready) {
+            if (query.beyond === STEP_AHEAD && held) { later = ready; return undefined; }
+            return whole.line?.({ ...query, beyond: Math.min(query.beyond, 1) }, ready);
+        },
+    };
+    const drawn: StagePlot = { ...plotWith([{ ...line('a', '#f00', values), full }]), xOf: (x: number) => (x - 50) / 10, levelOf: (y: number) => (110 - y) / 10 };
+    layer.show(plot, drawn, 80, 75, slot);
+    assert.equal(layer.reading()?.at, 3);
+    const owner: Array<{ clientX: number; clientY: number }> = [];
+    const at = layer.stepFrom(plot, drawn, 1, place => { owner.push(place); layer.show(plot, drawn, place.clientX, place.clientY, slot); });
+    assert.deepEqual(at, { clientX: 80, clientY: 75 }, 'meanwhile, the point read');
+    held = false;
+    (later as (() => void) | null)?.();
+    assert.deepEqual(owner, [{ clientX: 90, clientY: 65 }], 'the owner is told where the step went');
+    assert.equal(layer.reading()?.at, 4);
 });

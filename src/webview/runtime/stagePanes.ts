@@ -477,7 +477,8 @@ export interface StageLayer {
     /** One event of `source` (eventLayers'), and whether it is left out. */
     event?: { id: number; source: string; out: boolean };
     /** What the readout says of the point at `index` of the drawn line (−1 for a point of the full data, at `point.x`), in place of where and how much (a histogram's bin and its count, a dot's recording, a spectrum's level in its unit). */
-    readout?: (index: number, point: { x: number; value: number }) => string[];
+    /** `step`: for a point of the full data, the spacing of its real neighbours (the digits a place needs, R7). */
+    readout?: (index: number, point: { x: number; value: number; step?: number }) => string[];
     /**
      * Where every number read of this picture comes from (R7, fullRead.ts): 'drawn' when what it draws is every
      * point, else the source of its full-resolution data. Every line and image a plot draws says which (bars are whole
@@ -1316,7 +1317,7 @@ function lineRead(plot: StagePlot, layer: StageLayer, point: ReadPoint, away?: n
         const unit = view.waveform.unit || plot.signal?.unit;
         return { ...readoutOf(layer, point, layer.label ?? '', [timeText(plot, point.time ?? point.at), amountText(point.value, unit)]), index: -1, time: point.time ?? point.at, away, ...full };
     }
-    if (layer.readout) return { ...readoutOf(layer, point, layer.label ?? '', layer.readout(point.index, { x: point.at, value: point.value })), index: point.index, away, ...full };
+    if (layer.readout) return { ...readoutOf(layer, point, layer.label ?? '', layer.readout(point.index, { x: point.at, value: point.value, ...(point.full && point.step !== undefined ? { step: point.step } : {}) })), index: point.index, away, ...full };
     const amount = plot.diff ? signed(point.value, isDb(view))
         // Levels to 0.1 dB, as the spectrum overlay reads them; other quantities (a coherence) to 3 figures.
         : isDb(view) ? levelText(point.value) : amountText(point.value, view.unit);

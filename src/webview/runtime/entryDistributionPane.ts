@@ -254,7 +254,7 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
             document.getElementById('hint-footer')?.replaceChildren(`${strings.dsDistDrag} · ${strings.compareHintPlot}`);
         },
         clearHover() { marks.hide(); },
-        stepFrom: (plot, delta) => marks.stepFrom(plot, plots.get(plot) ?? null, delta),
+        stepFrom: (plot, delta, arrived) => marks.stepFrom(plot, plots.get(plot) ?? null, delta, arrived),
         showBox(plot, from, to) {
             const rect = plot.getBoundingClientRect(), outer = screen.getBoundingClientRect();
             const [x0, x1] = [Math.min(from.fx, to.fx), Math.max(from.fx, to.fx)];

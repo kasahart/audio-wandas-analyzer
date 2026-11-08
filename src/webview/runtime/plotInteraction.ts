@@ -97,7 +97,7 @@ export interface PlotInteractionDeps {
      * Where an arrow key reads on `plot`: the point `delta` along from the one it reads (0: that one), as its hover
      * layer gives it (PlotHoverLayer.stepFrom); null when the plot reads nothing, so the key goes on.
      */
-    stepFrom(plot: HTMLElement, delta: -1 | 0 | 1): PlotPlace | null;
+    stepFrom(plot: HTMLElement, delta: -1 | 0 | 1, arrived?: (at: PlotPlace) => void): PlotPlace | null;
     /**
      * Alt+drag picks a stretch of the horizontal axis instead of zooming into a box (the distribution's value range;
      * the lanes' loop is the same gesture). `end` is told whether the press moved past the drag threshold.
@@ -131,9 +131,10 @@ export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 
     attachTrackPointerListeners(surface, doc, view ? keyRouterFor(view) : { add: () => () => undefined }, {
         step(plot, delta) {
             if (press?.isDrag) return false;
-            const at = deps.stepFrom(plot as HTMLElement, delta);
+            const hoverAt = (at: PlotPlace): void => deps.hover({ ...at, target: plot }, deps.locate(plot, at.clientX, at.clientY));
+            const at = deps.stepFrom(plot as HTMLElement, delta, hoverAt);
             if (!at) return false;
-            deps.hover({ ...at, target: plot }, deps.locate(plot, at.clientX, at.clientY));
+            hoverAt(at);
             return true;
         },
         resetZoom() {

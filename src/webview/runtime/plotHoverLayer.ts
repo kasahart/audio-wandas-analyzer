@@ -31,7 +31,8 @@ export interface PlotHoverLayer {
      * Where an arrow key reads on `plot` (R7): the point `delta` points along from the one last shown there (0: that
      * point again), or, with none read there, the plot's left edge halfway up. Null with nothing further to read.
      */
-    stepFrom(plot: HTMLElement, drawn: StagePlot | null, delta: -1 | 0 | 1): PlotPlace | null;
+    /** `arrived`: where a step waiting for its points is taken once they are in, for the plot's owner to hover there as on any step. */
+    stepFrom(plot: HTMLElement, drawn: StagePlot | null, delta: -1 | 0 | 1, arrived?: (at: PlotPlace) => void): PlotPlace | null;
     /** The point last shown, while the marks are on it. */
     reading(): StageRead | null;
 }
@@ -132,7 +133,7 @@ export function createPlotHoverLayer(document: Document, className = '', parent:
             emptyAll();
         },
         hide() { last = null; asked = null; stepping++; layer.hidden = true; emptyAll(); },
-        stepFrom(plot, drawn, delta) {
+        stepFrom(plot, drawn, delta, arrived) {
             if (!drawn) return null;
             const rect = plot.getBoundingClientRect();
             if (last && last.plot === plot && !layer.hidden) {
@@ -153,7 +154,9 @@ export function createPlotHoverLayer(document: Document, className = '', parent:
                     const shown = asked;
                     if (!next || !shown) return;
                     const at = carry(next);
-                    layerApi.show(plot, shown.drawn, at.clientX, at.clientY, shown.slot);
+                    // Through the owner's hover, as any step is, so its kept place is this one and a redraw keeps it.
+                    if (arrived) arrived(at);
+                    else layerApi.show(plot, shown.drawn, at.clientX, at.clientY, shown.slot);
                 };
                 const next = stageStep(from.on, from.read, delta, ready);
                 if (next === undefined) return carry(from.read);

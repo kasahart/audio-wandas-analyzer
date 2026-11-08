@@ -57,8 +57,9 @@ export function spectrumReadoutText(label: string, slice: SpectrumSlice, freqHz:
 }
 
 /** Where and how loud a spectrum's point reads: its frequency to the digits its bins need, its level in the slice's unit. */
-export function spectrumReadoutValues(slice: SpectrumSlice, freqHz: number, dbVal: number): string[] {
-    return [frequencyText(freqHz, sliceStepHz(slice, freqHz)), levelText(dbVal, dbLevelUnitFor(slice))];
+/** `stepHz`: the spacing of the real bins around a point read at full resolution, in place of the slice's drawn points'. */
+export function spectrumReadoutValues(slice: SpectrumSlice, freqHz: number, dbVal: number, stepHz?: number): string[] {
+    return [frequencyText(freqHz, stepHz ?? sliceStepHz(slice, freqHz)), levelText(dbVal, dbLevelUnitFor(slice))];
 }
 
 /** The spacing of a slice's points around `freqHz` (its drawn points', else its even bins'), for the readout's digits. */

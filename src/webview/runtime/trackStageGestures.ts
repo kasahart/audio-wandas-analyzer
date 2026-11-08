@@ -130,9 +130,9 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
             showHover();
         },
         clearHover() { hovered = null; hideHover(); },
-        stepFrom(plot, delta) {
+        stepFrom(plot, delta, arrived) {
             const drawn = drawnOn.get(plot)?.plot;
-            return state.on && drawn && deps.painted() ? marks.stepFrom(plot, drawn, delta) : null;
+            return state.on && drawn && deps.painted() ? marks.stepFrom(plot, drawn, delta, arrived) : null;
         },
         showBox(plot, from, to) {
             const rect = plotBox(plot);

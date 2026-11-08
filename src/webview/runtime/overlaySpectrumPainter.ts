@@ -65,7 +65,7 @@ export function spectrumLayer(series: SpectrumSeries, cutoffHz: number, visible?
         color: series.color,
         width: bands ? 2 : 1.4,
         label: series.label,
-        readout: (_index, point) => spectrumReadoutValues(level, point.x, point.value),
+        readout: (_index, point) => spectrumReadoutValues(level, point.x, point.value, point.step),
         ...(full ? { full } : {}),
     };
 }

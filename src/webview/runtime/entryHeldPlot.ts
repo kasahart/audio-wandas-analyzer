@@ -121,7 +121,8 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
     // Without the step − with it, taken by the backend from the Frames' full resolution (combineSource.ts).
     const combine = createCombineSource('held-combine', message => deps.post(message), () => deps.scheduleSide());
     // Every number read off the held plot comes from the full data, never its thinned line (R7).
-    const reader = createStageReader('read-held', message => deps.post(message));
+    // A read of values the backend let go: their pictures are scanned again, then read anew.
+    const reader = createStageReader('read-held', message => deps.post(message), keys => { source.forgetData(keys); deps.scheduleSide(); });
     /** The last zoomed difference of each held step, drawn until the next zoom's is in. */
     const lastFine = new Map<string, Combined>();
     const detail = createDetailPlanner(window.performance, window, () => deps.scheduleSide());
