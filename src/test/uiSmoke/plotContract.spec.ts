@@ -206,7 +206,15 @@ test('the lanes under a trigger zoom on their own (the recording\'s time, not th
     await expect.poll(async () => (await stageScans(page)).at(-1)?.stage).toBe('node-1');
     const signal = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', unit: 'FS', xs: [0, 0.75, 1.5], values: [-0.5, 0.5, -0.5],
         waveform: { min: [-0.5, -0.4, -0.3], max: [0.5, 0.4, 0.3], minT: [0.2, 0.7, 1.1], maxT: [0.3, 0.8, 1.2], absolutePeak: 0.5, unit: 'FS', ref: 1 } };
-    await answer(page, scanned!, signal);
+    // The second recording twice as long as the first: each lane's window is a part of its own time axis.
+    const request = (await stageScans(page)).at(-1)!;
+    await page.evaluate(({ request, signal, files }) => {
+        request.filePaths.forEach((filePath, index) => {
+            const file = files.find(item => item.filePath === filePath)!;
+            window.postMessage({ type: 'compare-scan-result', requestId: request.requestId, filePath, result: { ...file.result, stage: { ...signal, xs: signal.xs.map(x => x * (index + 1)) } } }, '*');
+        });
+        window.postMessage({ type: 'compare-scan-done', requestId: request.requestId }, '*');
+    }, { request, signal, files: scanned! });
     const root = page.locator('.track-stage');
     await expect.poll(async () => Number(await root.getAttribute('data-lanes-marked'))).toBeGreaterThan(0);
     const asked = (await stageScans(page)).length;
@@ -215,8 +223,28 @@ test('the lanes under a trigger zoom on their own (the recording\'s time, not th
     // The events plot above keeps its own window.
     await expect(root).toHaveAttribute('data-x-window', '0.000-1.000');
     await expect(root).toHaveAttribute('data-y-window', '0.000-1.000');
-    // Once the zoom settles, the signal's step is asked for again over the part on screen.
-    await expect.poll(async () => (await stageScans(page)).slice(asked).some(message => message.stage === 'node-1' && !!(message as { detail?: unknown }).detail)).toBe(true);
+    // Once the zoom settles, each recording's signal is asked for again over the part on screen of its own length.
+    type Detailed = Posted & { detail?: { x: [number, number] } };
+    // Each detail asked for is answered (the next is asked once one is in), with the part of the signal it covers.
+    const asks = new Map<string, [number, number]>();
+    await expect.poll(async () => {
+        const next = ((await stageScans(page)).slice(asked) as Detailed[]).find(message => message.stage === 'node-1' && message.detail && !asks.has(message.filePaths[0]));
+        if (next?.detail) {
+            asks.set(next.filePaths[0], next.detail.x);
+            await page.evaluate(({ next, signal, files }) => {
+                for (const filePath of next.filePaths) {
+                    const file = files.find(item => item.filePath === filePath)!;
+                    window.postMessage({ type: 'compare-scan-result', requestId: next.requestId, filePath, result: { ...file.result, stage: { ...signal, xs: next.detail!.x } } }, '*');
+                }
+                window.postMessage({ type: 'compare-scan-done', requestId: next.requestId }, '*');
+            }, { next, signal, files: scanned! });
+        }
+        return asks.size;
+    }).toBe(2);
+    const [shorter, longer] = request.filePaths.map(filePath => asks.get(filePath)!);
+    // The same part of each: the longer recording's request is twice the shorter's, not the shorter's seconds again.
+    expect(longer[0]).toBeCloseTo(shorter[0] * 2, 6);
+    expect(longer[1]).toBeCloseTo(shorter[1] * 2, 6);
     // A box on the events plot leaves the lanes' zoom where it was.
     const lanes = await root.getAttribute('data-lanes-window');
     await boxZoom(page, page.locator('[data-stage-canvas="overlay"]'));

@@ -607,8 +607,10 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
                 asked.set(wanted.key, { wanted, paths: [...(asked.get(wanted.key)?.paths ?? []), path] });
                 const whole = source.view(wanted, path);
                 if (!whole || whole.kind !== 'line') continue;
-                const finer = detail.spec(wanted, whole, state.lanesWindow.x, null, laneWidth);
-                laneDetail.set(path, [finer, ...detail.drawn(wanted, whole, state.lanesWindow.x)].filter((item): item is StageSpec => !!item));
+                // Planned per recording: the window is a part of each one's own time axis, and recordings differ in length.
+                const own = { key: `${wanted.key}|${path}`, message: wanted.message };
+                const finer = detail.spec(own, whole, state.lanesWindow.x, null, laneWidth);
+                laneDetail.set(path, [finer, ...detail.drawn(own, whole, state.lanesWindow.x)].filter((item): item is StageSpec => !!item));
                 if (finer) asked.set(finer.key, { wanted: finer, paths: [...(asked.get(finer.key)?.paths ?? []), path] });
             }
             for (const { wanted, paths } of asked.values()) want(wanted, paths);
