@@ -231,9 +231,13 @@ for (const [source, tableInput, stepInput, standalone, axis, badge, other] of [
             window.postMessage({ type: 'compare-scan-done', requestId: request.requestId }, '*');
         }, { request, view, files: standalone ? [lone] : steps });
         await expect(page.locator('.track-stage')).toHaveAttribute('data-pending', /^(|1\/\d+)$/);
-        // A gutter too short for the whole title keeps its unit (fittedAxisTitle).
-        const drawnAxis = (title: string) => async (): Promise<boolean> => (await page.evaluate(() => (window as unknown as { __drawnTexts: string[] }).__drawnTexts))
-            .some(text => text === title || text === /\[([^\]]+)\]$/.exec(title)![1]);
+        // A gutter too short for the whole title keeps its quantity and its unit: on two lines, or the quantity shortened (fitAxisTitle).
+        const drawnAxis = (title: string) => async (): Promise<boolean> => {
+            const texts = await page.evaluate(() => (window as unknown as { __drawnTexts: string[] }).__drawnTexts);
+            const [, quantity, unit] = /^(.*\S)\s*\[([^\]]+)\]$/u.exec(title)!;
+            const ofQuantity = (text: string): boolean => text.startsWith(quantity) || (text.length > 1 && /…( \[[^\]]+\])?$/u.test(text) && quantity.startsWith(text.replace(/…( \[[^\]]+\])?$/u, '')));
+            return texts.includes(title) || texts.some(text => text.endsWith(` [${unit}]`) && ofQuantity(text)) || (texts.includes(`[${unit}]`) && texts.some(ofQuantity));
+        };
         await expect.poll(drawnAxis(axis)).toBe(true);
         expect(await drawnAxis(other)()).toBe(false);
     });

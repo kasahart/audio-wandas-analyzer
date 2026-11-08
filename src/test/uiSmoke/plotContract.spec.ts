@@ -134,17 +134,27 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
     const passed = new Set<Check>();
     const box = (await plot.boundingBox())!;
     const middle = { x: box.x + box.width * 0.6, y: box.y + box.height * 0.45 };
-    // Both axes are named, on screen: each name the plot gives (data-plot-axes) is written on the plot or the canvas
-    // beside it that holds its value axis, whole or, where it does not fit, as its unit (fittedAxisTitle); or, written
+    // Both axes are named, on screen: each name the plot gives (data-plot-axes) names its quantity and its unit and is
+    // written on the plot or the canvas beside it that holds its value axis with both: whole or, where it does not fit
+    // (axisTitle.ts fitAxisTitle), on two lines or with the quantity shortened to its symbol or first characters, never
+    // the unit alone; or, written
     // once for plots that share it (the lanes' time axis, the distribution rows' count), whole, on a canvas that is no
     // plot, on a plot stacked on the same axis, or as text on the page; never borrowed from another plot.
     const axes = (await plot.getAttribute('data-plot-axes')) ?? '';
     const names = axes.split('|');
     const written = await plot.evaluate((canvas, names) => {
         type Texted = HTMLCanvasElement & { __plotTexts?: string[] };
+        const NAME = /^(.*\S)\s*\[([^\]]+)\]$/su;
         const fits = (texts: readonly string[], name: string): boolean => {
-            const unit = /\[([^\]]+)\]\s*$/u.exec(name)?.[1];
-            return texts.some(text => text === name || (!!unit && text === unit));
+            const parts = NAME.exec(name.trim());
+            if (!parts) return false;
+            const [, quantity, unit] = parts;
+            const words = quantity.split(/\s+/u);
+            // The quantity whole, the symbol it ends in, or its first characters with an ellipsis (shortQuantities).
+            const isQuantity = (text: string): boolean => text === quantity || (words.length > 1 && text === words[words.length - 1])
+                || (text.length > 1 && text.endsWith('…') && quantity.startsWith(text.slice(0, -1)));
+            const oneLine = texts.some(text => { const drawn = NAME.exec(text.trim()); return !!drawn && drawn[2] === unit && isQuantity(drawn[1]); });
+            return oneLine || (texts.includes(`[${unit}]`) && texts.some(isQuantity));
         };
         const axisId = canvas.getAttribute('data-plot-axis');
         const own = [...((canvas as Texted).__plotTexts ?? []), ...((axisId ? (document.getElementById(axisId) as Texted | null)?.__plotTexts : undefined) ?? [])];
@@ -154,7 +164,7 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
             .filter(other => other !== canvas && other.checkVisibility() && (!other.hasAttribute('data-plot') || (!!stack && stack.contains(other))))
             .flatMap(other => other.__plotTexts ?? []);
         const pageText = (name: string): boolean => Array.from(document.querySelectorAll<HTMLElement>('body *')).some(element => element.children.length === 0 && element.checkVisibility() && element.textContent?.trim() === name);
-        return names.map(name => !!name.trim() && (fits(own, name) || shown.includes(name) || pageText(name)));
+        return names.map(name => NAME.test(name.trim()) && (fits(own, name) || shown.includes(name) || pageText(name)));
     }, names);
     if (names.length === 2 && written.every(Boolean)) passed.add('axes');
     // A hover shows its readout in the row just above the plot, and the plot does not move: a readout there shows
