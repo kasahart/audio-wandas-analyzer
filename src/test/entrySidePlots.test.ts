@@ -3,7 +3,7 @@ import test from 'node:test';
 import { JSDOM } from 'jsdom';
 import { getStrings } from '../shared/i18n/strings';
 import { datasetRows } from '../shared/dataset/datasetTable';
-import { OVERVIEW_MARGINS, overviewPicture } from '../webview/runtime/entryPlots';
+import { OVERVIEW_MARGINS, overviewPicture, paintOverview } from '../webview/runtime/entryPlots';
 import { createSidePlots, type SidePlotsDeps } from '../webview/runtime/entrySidePlots';
 import { sharedLevelLabel } from '../shared/utils/format';
 import { entryScreenHtml } from '../webview/runtime/entryTableHtml';
@@ -35,7 +35,7 @@ function setup() {
     const deps: SidePlotsDeps = {
         document, window: { requestAnimationFrame: fn => { frames.push(() => fn(0)); return frames.length; } }, strings,
         screen, side, body: query('[data-entry-rows]'), tableWrap: query('.entry-table-wrap'), overview, heldCanvas,
-        rows: () => rows, focusedFile: () => null,
+        rows: () => rows, focusedRow: () => null,
         paintDistribution: () => calls.push('distribution'), paintHeld: () => calls.push('held'), heldPicture: () => null,
         pickRow: key => calls.push(`pick ${key}`),
     };
@@ -85,6 +85,58 @@ test('a click on the strip picks the row under it; the gestures add a zoom box a
     click(OVERVIEW_MARGINS.top + 60);
     click(OVERVIEW_MARGINS.top + 140);
     assert.deepEqual(calls, ['pick /d/a.wav', 'pick /d/c.wav'], 'below the rows is no row');
+});
+
+test('a recording of several channels has a strip row per channel: each its own levels, named by its channel', () => {
+    const rows = [
+        { filePath: '/d/a.wav', key: '/d/a.wav#ch1', ch: 1, channels: 2 },
+        { filePath: '/d/a.wav', key: '/d/a.wav#ch2', ch: 2, channels: 2 },
+        { filePath: '/d/b.wav', key: '/d/b.wav', ch: 1, channels: 1 },
+    ];
+    const bands = new Map<string, (number | null)[]>([['/d/a.wav#ch1', [-40, -30]], ['/d/a.wav#ch2', [-20, -50]], ['/d/b.wav', [-35, -35]]]);
+    const picture = overviewPicture(rows, bands, FULL_PLOT_WINDOW, 100);
+    // Bottom first: b, then a's ch2, then a's ch1.
+    assert.deepEqual(picture?.view.matrix?.map(row => row.slice(0, 2)), [[-35, -35], [-20, -50], [-40, -30]]);
+    assert.deepEqual(picture?.names.map(row => row[0]), ['b.wav', 'a.wav ch2', 'a.wav ch1']);
+});
+
+test('the strip marks the focused table row, a channel\'s own row of a recording of several', () => {
+    const dom = new JSDOM('<!doctype html><body><div class="holder"><canvas></canvas><div data-entry-overview-frame></div><div data-entry-overview-focus></div></div></body>');
+    const { document } = dom.window;
+    const canvas = document.querySelector('canvas') as HTMLCanvasElement;
+    Object.defineProperties(canvas, { clientWidth: { value: 300 }, clientHeight: { value: 100 + OVERVIEW_MARGINS.top + OVERVIEW_MARGINS.bottom } });
+    const context = new Proxy({}, {
+        get: (_target, key) => (key === 'measureText' ? () => ({ width: 10 }) : key === 'createImageData' || key === 'getImageData' ? (w: number, h: number) => ({ width: w, height: h, data: new Uint8ClampedArray(Math.max(1, w * h * 4)) })
+            : key.toString().startsWith('create') ? () => ({ addColorStop: () => undefined }) : () => undefined),
+        set: () => true,
+    });
+    canvas.getContext = (() => context) as unknown as HTMLCanvasElement['getContext'];
+    const rows = [
+        { filePath: '/d/a.wav', key: '/d/a.wav#ch1', ch: 1, channels: 2 },
+        { filePath: '/d/a.wav', key: '/d/a.wav#ch2', ch: 2, channels: 2 },
+    ];
+    const bands = new Map<string, (number | null)[]>([['/d/a.wav#ch1', [-40, -30]], ['/d/a.wav#ch2', [-20, -50]]]);
+    const mark = document.querySelector<HTMLElement>('[data-entry-overview-focus]')!;
+    paintOverview(canvas, strings, rows, bands, { first: 0, last: 1 }, '/d/a.wav#ch2');
+    assert.equal(mark.hidden, false);
+    // Two rows over 100 px: ch2's row is the lower half.
+    assert.equal(mark.style.top, `${OVERVIEW_MARGINS.top + 50}px`);
+    paintOverview(canvas, strings, rows, bands, { first: 0, last: 1 }, '/d/a.wav#ch1');
+    assert.equal(mark.style.top, `${OVERVIEW_MARGINS.top}px`);
+});
+
+test('the side plots keep each channel\'s own levels, as the table\'s rows are keyed, and a new result replaces all of them', () => {
+    const { plots } = setup();
+    const input = { id: 'x', fs: 48000, channels: [0, 1], durationS: 1, unit: 'Pa', ref: 2e-5, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated' as const, fullScale: true };
+    plots.noteResult('/d/a.wav', { ok: true, input, thirdOctDb: [[-40, -30], [-20, -50]] });
+    assert.deepEqual(plots.levels('/d/a.wav#ch1'), [-40, -30]);
+    assert.deepEqual(plots.levels('/d/a.wav#ch2'), [-20, -50]);
+    assert.equal(plots.levels('/d/a.wav'), undefined, 'no channel-averaged row: the table has none');
+    plots.noteResult('/d/a.wav', { ok: true, input: { ...input, channels: [0] }, thirdOctDb: [[-10, -10]] });
+    assert.deepEqual(plots.levels('/d/a.wav'), [-10, -10]);
+    assert.equal(plots.levels('/d/a.wav#ch2'), undefined);
+    plots.noteResult('/d/a.wav', { ok: false, reason: 'unreadable' });
+    assert.equal(plots.levels('/d/a.wav'), undefined);
 });
 
 test('the overview colour scale and the dataset table name the recordings\' shared level reference, plain dB once they differ', () => {

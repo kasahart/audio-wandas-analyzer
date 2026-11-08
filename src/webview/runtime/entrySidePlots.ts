@@ -6,9 +6,8 @@
  */
 import type { UiStrings } from '../../shared/i18n/strings';
 import type { ScanResult } from '../../shared/protocol/backendProtocol';
-import type { DatasetRow } from '../../shared/dataset/datasetTable';
+import { rowKey, type DatasetRow } from '../../shared/dataset/datasetTable';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
-import { powerMeanOrNull } from '../../shared/utils/levels';
 import { sharedLevelLabel } from '../../shared/utils/format';
 import { installRangePopover, linearAxis, openAxisPart, type AxisMapping } from '../rangePopover';
 import type { HeldPicture } from './entryHeldPlot';
@@ -32,7 +31,8 @@ export interface SidePlotsDeps {
     heldCanvas: HTMLCanvasElement;
     /** The rows the table shows, in its order. */
     rows(): readonly DatasetRow[];
-    focusedFile(): string | null;
+    /** The focused table row's key (rowKey: a channel's row of a recording of several), for the strip's mark. */
+    focusedRow(): string | null;
     paintDistribution(): void;
     /** The held plot drawn (or hidden), and what it last drew. */
     paintHeld(): void;
@@ -46,7 +46,9 @@ export interface SidePlots {
     window(name: string): PlotWindow;
     /** A plot's zoom while it shows the same thing (`key`); for something else it starts whole again. */
     keepWindow(name: string, key: string): PlotWindow;
-    /** A result arrived: its recording's bands (its channels' power mean) are kept for the strip. */
+    /** A table row's 1/3-octave levels as the strip draws them (its key: rowKey), once its recording is scanned. */
+    levels(key: string): readonly (number | null)[] | undefined;
+    /** A result arrived: its recording's bands (each channel's, a row per channel as the table has) are kept for the strip. */
     noteResult(filePath: string, result: ScanResult): void;
     /** Another folder: no bands kept. */
     clear(): void;
@@ -88,8 +90,13 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
         if (windowKeys.get(name) !== key) { windowKeys.set(name, key); windows.delete(name); }
         return plotWindow(name);
     }
-    /** Each scanned recording's bands and the level reference wandas names its levels by, kept as results arrive so scrolling does not redo them. */
+    /**
+     * Each scanned recording's bands by table row (a channel's own, keyed as its row: rowKey) and the level reference
+     * wandas names its levels by, kept as results arrive so scrolling does not redo them.
+     */
     const levels = new Map<string, (number | null)[]>();
+    /** The rows of `levels` each recording has, so a result that replaces it takes all of them away. */
+    const levelRows = new Map<string, string[]>();
     const levelLabels = new Map<string, string>();
     /** The recordings scanned with a calibration (their levels are not relative to full scale). */
     const calibrated = new Set<string>();
@@ -110,7 +117,7 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
         const rows = deps.rows();
         const rowHeight = (body.querySelector('tr') as HTMLElement | null)?.offsetHeight || 22;
         const first = Math.floor(tableWrap.scrollTop / rowHeight);
-        overviewDrawn = paintOverview(overview, strings, rows, levels, { first, last: first + Math.ceil(tableWrap.clientHeight / rowHeight) - 2 }, deps.focusedFile(), keepWindow('overview', String(rows.length)),
+        overviewDrawn = paintOverview(overview, strings, rows, levels, { first, last: first + Math.ceil(tableWrap.clientHeight / rowHeight) - 2 }, deps.focusedRow(), keepWindow('overview', String(rows.length)),
             { label: levelLabel(), calibrated: levelLabels.size > 0 && calibrated.size === levelLabels.size }, version).drawn;
         // The zoom on each plot, for tests: "x0-x1|y0-y1".
         for (const [name, canvas] of [['overview', overview], ['held', heldCanvas]] as const) {
@@ -209,11 +216,17 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
         window: plotWindow,
         keepWindow,
         levelLabel,
+        levels: key => levels.get(key),
         noteResult(filePath: string, result: ScanResult): void {
             version++;
             const bands = result.thirdOctDb;
-            if (result.ok && bands?.length) levels.set(filePath, bands[0].map((_, bandIndex) => powerMeanOrNull(bands.map(channel => channel[bandIndex]))));
-            else levels.delete(filePath);
+            for (const key of levelRows.get(filePath) ?? []) levels.delete(key);
+            levelRows.delete(filePath);
+            if (result.ok && bands?.length) {
+                // A row per channel, as the table has: each channel's own levels.
+                const keys = bands.map((channel, index) => { const key = rowKey(filePath, index + 1, bands.length); levels.set(key, channel); return key; });
+                levelRows.set(filePath, keys);
+            }
             if (result.ok && result.input) levelLabels.set(filePath, result.input.levelReferenceLabel);
             else levelLabels.delete(filePath);
             if (result.ok && result.input?.calibrationStatus === 'calibrated') calibrated.add(filePath);
@@ -221,6 +234,7 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
         },
         clear(): void {
             levels.clear();
+            levelRows.clear();
             levelLabels.clear();
             calibrated.clear();
             version++;

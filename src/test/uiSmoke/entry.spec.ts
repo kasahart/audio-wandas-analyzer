@@ -582,6 +582,17 @@ test('the overview strip answers the lanes\' gestures, and a press that stays pu
     expect(await page.locator('[data-entry-rows] tr.is-focused').getAttribute('data-file-path')).not.toBe(focusedBefore);
 });
 
+test('the overview strip has a row per channel, as the table does: its readout names the channel of a recording of several', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    await openEntry(page, scanned!);
+    const strip = page.locator('[data-entry-overview]');
+    await expect.poll(() => strip.getAttribute('data-plot-axes')).not.toBe(null);
+    const box = (await strip.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + OVERVIEW_MARGINS.top + 3);
+    const readout = page.locator('.entry-overview-box [data-plot-readout]');
+    await expect(readout).toContainText(/\.wav ch[12]\b/);
+});
+
 test('the step bar names the steps in Japanese, and … lists the table\'s 1/3-octave values among what the app computes', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     const STR = getStrings('ja');
