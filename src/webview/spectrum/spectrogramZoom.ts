@@ -65,3 +65,69 @@ export function spectrogramZoomWindow(source: SpectrogramZoomSource, view: Spect
     const startNorm = Math.max(0, Math.min(1 - span, shown.startNorm - margin));
     return { startNorm, endNorm: Math.min(1, startNorm + span) };
 }
+
+/**
+ * Up the frequency axis, as along time: the whole file's spectrogram comes with at most a fixed number of rows (the
+ * host averages FFT bins down to it), so a lane zoomed to a narrow band shows fewer rows than its pixels can hold.
+ * It then asks for the band it shows, whose own FFT bins come back up to the same row limit.
+ */
+export interface SpectrogramBand {
+    lowHz: number;
+    highHz: number;
+}
+
+export interface SpectrogramBandSource {
+    /** Rows of the whole file's spectrogram: the host's row limit when its bins were averaged down. */
+    rows: number;
+    /** The FFT's bins from 0 Hz to Nyquist (window size / 2 + 1). */
+    bins: number;
+    nyquistHz: number;
+}
+
+const PIXELS_PER_ROW = 2;
+
+function shownBand(source: SpectrogramBandSource, view: SpectrogramBand): SpectrogramBand | null {
+    const lowHz = Math.max(0, view.lowHz), highHz = Math.min(source.nyquistHz, view.highHz);
+    return highHz > lowHz ? { lowHz, highHz } : null;
+}
+
+/** Rows the lane wants across the band shown: one per two pixels, but never more than there are bins or than a band can bring. */
+function wantedRows(source: SpectrogramBandSource, shown: SpectrogramBand, heightPx: number): number {
+    const binsShown = (source.bins - 1) * (shown.highHz - shown.lowHz) / source.nyquistHz;
+    return Math.min(heightPx / PIXELS_PER_ROW, binsShown, source.rows);
+}
+
+/** Rows a spectrogram of `band` (null: every frequency) has across the band shown. */
+function rowsShown(source: SpectrogramBandSource, band: SpectrogramBand | null, shown: SpectrogramBand): number {
+    const whole = band ?? { lowHz: 0, highHz: source.nyquistHz };
+    const span = whole.highHz - whole.lowHz;
+    if (!(span > 0)) return 0;
+    return Math.min(source.rows, (source.bins - 1) * span / source.nyquistHz) * (shown.highHz - shown.lowHz) / span;
+}
+
+/** Whether a spectrogram of `band` (null: every frequency) covers the band shown and has the rows it wants. */
+export function spectrogramBandServes(source: SpectrogramBandSource, band: SpectrogramBand | null, view: SpectrogramBand, heightPx: number): boolean {
+    const shown = shownBand(source, view);
+    if (!shown || !(source.rows > 0) || !(source.bins > 1) || !(source.nyquistHz > 0)) return true;
+    if (band && (band.lowHz > shown.lowHz + 1e-6 || band.highHz < shown.highHz - 1e-6)) return false;
+    return rowsShown(source, band, shown) >= COLUMN_SLACK * wantedRows(source, shown, heightPx);
+}
+
+/**
+ * The band to ask for, or null while the whole range's rows serve it. The band reaches past the one shown (up to half
+ * its span each side) so a short pan up or down stays covered, but no further than keeps the rows it wants.
+ */
+export function spectrogramZoomBand(source: SpectrogramBandSource, view: SpectrogramBand, heightPx: number): SpectrogramBand | null {
+    const shown = shownBand(source, view);
+    if (!shown || spectrogramBandServes(source, null, shown, heightPx)) return null;
+    const viewSpan = shown.highHz - shown.lowHz;
+    const span = Math.min(source.nyquistHz, 2 * viewSpan, source.rows * viewSpan / wantedRows(source, shown, heightPx));
+    const lowHz = Math.max(0, Math.min(source.nyquistHz - span, shown.lowHz - (span - viewSpan) / 2));
+    return { lowHz, highHz: Math.min(source.nyquistHz, lowHz + span) };
+}
+
+/** The frequencies a spectrogram's first and last rows sit at: its band's, else 0 Hz to its Nyquist frequency. */
+export function spectrogramRowSpan(spec: { maxFrequencyHz: number; bandLowHz?: number; bandHighHz?: number }): SpectrogramBand {
+    return spec.bandLowHz !== undefined && spec.bandHighHz !== undefined && spec.bandHighHz > spec.bandLowHz
+        ? { lowHz: spec.bandLowHz, highHz: spec.bandHighHz } : { lowHz: 0, highHz: spec.maxFrequencyHz };
+}

@@ -101,6 +101,9 @@ export interface TrackDetailRequest {
     /** A zoomed lane's time window (fractions of the file): its spectrogram from the frames in it (R3). Absent for the whole file. */
     startNorm?: number;
     endNorm?: number;
+    /** A lane zoomed up its frequency axis: its spectrogram from the FFT bins in this band, in Hz (R3). Absent for every frequency. */
+    lowHz?: number;
+    highHz?: number;
 }
 
 export function isRequestTrackDetailMessage(message: unknown): message is TrackDetailRequest {
@@ -116,7 +119,9 @@ export function isRequestTrackDetailMessage(message: unknown): message is TrackD
         typeof m['trackIndex'] === 'number' &&
         typeof m['filePath'] === 'string' && m['filePath'].length > 0 &&
         (m['startNorm'] === undefined && m['endNorm'] === undefined
-            || typeof m['startNorm'] === 'number' && typeof m['endNorm'] === 'number' && m['startNorm'] < m['endNorm'])
+            || typeof m['startNorm'] === 'number' && typeof m['endNorm'] === 'number' && m['startNorm'] < m['endNorm']) &&
+        (m['lowHz'] === undefined && m['highHz'] === undefined
+            || typeof m['lowHz'] === 'number' && typeof m['highHz'] === 'number' && m['lowHz'] >= 0 && m['lowHz'] < m['highHz'])
     );
 }
 

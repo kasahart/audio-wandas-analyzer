@@ -103,6 +103,7 @@ export abstract class AnalysisClient {
                 settingsSignature: payload.settingsSignature,
                 ...(payload.stftOptions ? { stftOptions: payload.stftOptions } : {}),
                 ...(payload.startNorm !== undefined && payload.endNorm !== undefined ? { startNorm: payload.startNorm, endNorm: payload.endNorm } : {}),
+                ...(payload.lowHz !== undefined && payload.highHz !== undefined ? { lowHz: payload.lowHz, highHz: payload.highHz } : {}),
                 ...this.calibrationPayload(this.requestContext(filePath, payload)),
             },
             requestId,
@@ -221,8 +222,10 @@ export async function executeLazyAnalysis(
         settingsSignature: message.settingsSignature, ...context };
     const window = message.type === 'request-track-detail' && message.startNorm !== undefined && message.endNorm !== undefined
         ? { startNorm: message.startNorm, endNorm: message.endNorm } : undefined;
+    const band = message.type === 'request-track-detail' && message.lowHz !== undefined && message.highHz !== undefined
+        ? { lowHz: message.lowHz, highHz: message.highHz } : undefined;
     const result = message.type === 'request-track-detail'
-        ? await backend.requestTrackDetail(message.filePath, { ...payload, ...window }, message.requestId, cancellation)
+        ? await backend.requestTrackDetail(message.filePath, { ...payload, ...window, ...band }, message.requestId, cancellation)
         : await backend.requestSpectrumSlice(message.filePath,
             { ...payload, cursorNorm: message.cursorNorm, ...(message.bandsPerOctave ? { bandsPerOctave: message.bandsPerOctave } : {}),
                 ...(message.fullResolution ? { fullResolution: true } : {}) }, message.requestId, cancellation);

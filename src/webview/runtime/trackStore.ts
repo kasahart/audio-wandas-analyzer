@@ -9,6 +9,7 @@ import type {
     WaveformRangeCache,
 } from './types';
 import type { SpectrogramData } from '../../shared/analysis/analysisTypes';
+import type { SpectrogramBand } from '../spectrum/spectrogramZoom';
 import { HostRequests } from './hostRequests';
 import { OWN_COLORS } from '../../shared/gui/roleColors';
 
@@ -32,6 +33,8 @@ export interface TrackRecord {
 export interface SpectrogramZoom {
     startNorm: number;
     endNorm: number;
+    /** The frequency band its rows are of (Hz); null: every frequency. */
+    band: SpectrogramBand | null;
     analysisId: string;
     settingsSignature: string;
     /** Per channel, as the whole file's spectrograms are. */
