@@ -170,13 +170,23 @@ function installCanvasAudit({ settle, others, drawnOutside, svgCharts, svgMin }:
     window.requestAnimationFrame(tick);
 }
 
+/** The page with the audit installed by its first script, before any of its own run. */
+export function withAuditFirst(html: string): string {
+    const first = html.search(/<script\b/u);
+    if (first < 0) return html;
+    const nonce = /<script nonce="([^"]+)"/u.exec(html)?.[1];
+    const script = `<script${nonce ? ` nonce="${nonce}"` : ''}>(${installCanvasAudit.toString()})(${JSON.stringify({ ...AUDIT, svgMin: SVG_CHART_MIN })});</script>`;
+    return html.slice(0, first) + script + html.slice(first);
+}
+
 export const test = base.extend<{ canvasAudit: void }>({
     canvasAudit: [async ({ page }, use) => {
         await page.addInitScript(installCanvasAudit, { ...AUDIT, svgMin: SVG_CHART_MIN });
-        // setContent writes the document without a navigation, so the init script does not run for it.
+        // setContent writes the document without a navigation, so the init script does not run for it: the audit goes
+        // in as the document's first script (with the page's nonce), so the first drawing is audited too.
         const setContent = page.setContent.bind(page);
         page.setContent = async (html, options) => {
-            await setContent(html, options);
+            await setContent(withAuditFirst(html), options);
             await page.evaluate(installCanvasAudit, { ...AUDIT, svgMin: SVG_CHART_MIN });
         };
         await use();

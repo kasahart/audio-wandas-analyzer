@@ -236,3 +236,13 @@ test('every ui-smoke test fails on a plot on screen that the plot component did 
     // Taken away, with the audit's record cleared, so this test itself passes the audit.
     await page.evaluate(() => { document.querySelector('.stray-plot')?.remove(); window.__plotAudit?.splice(0); });
 });
+
+test('every ui-smoke test fails on a draw into a plot made outside the plot component, from the page\'s first script on (R13)', async ({ page }) => {
+    // Drawn by the page's own script while it loads: the audit is in before it.
+    const html = buildUiSmokeHtml().replace('</body>', '<canvas class="hand-drawn" data-plot="test"></canvas><script nonce="'
+        + (/<script nonce="([^"]+)"/u.exec(buildUiSmokeHtml())?.[1] ?? '') + '">document.querySelector(".hand-drawn").getContext("2d").fillRect(0, 0, 4, 4);</script></body>');
+    await page.setContent(html, { waitUntil: 'domcontentloaded' });
+    expect(await page.evaluate(() => window.__drawnAudit ?? [])).toContain('canvas.hand-drawn: fillRect');
+    // Taken away, with the audit's record cleared, so this test itself passes the audit.
+    await page.evaluate(() => { document.querySelector('.hand-drawn')?.remove(); window.__drawnAudit?.splice(0); });
+});
