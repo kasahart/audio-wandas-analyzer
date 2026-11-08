@@ -172,9 +172,17 @@ export function createPlotHoverLayer(document: Document, className = '', parent:
     return layerApi;
 }
 
+/**
+ * A plot element with the point it reads kept on it (`__plotRead`): its layer and so the full data it is read from
+ * (StageLayer.full, or the layer's own points), for the test of every plot that one arrow key moves the readout
+ * exactly one full-resolution point (plotContract.spec.ts).
+ */
+export type PlotReadNoted = HTMLElement & { __plotRead?: StageRead | null };
+
 /** Writes on a plot what it reads (R7), for the tests of every plot: where the number is from and the point read. */
 export function notePlotRead(plot: HTMLElement, read: StageRead | null): void {
     if (!plot.dataset) return;
+    (plot as PlotReadNoted).__plotRead = read && !read.pending ? read : null;
     plot.dataset.plotRead = !read ? '' : read.pending ? 'pending' : read.full ? 'full' : 'drawn';
     plot.dataset.plotReadAt = read?.full && read.at !== undefined ? String(read.at) : '';
     plot.dataset.plotReadRow = read?.full && read.row !== undefined ? String(read.row) : '';

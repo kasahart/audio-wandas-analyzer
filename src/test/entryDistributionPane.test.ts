@@ -99,6 +99,26 @@ test('Alt+drag on a row picks a range, as Alt+drag is on every plot (plotInterac
     assert.equal(calls.length, 1, 'a plain drag picks nothing');
 });
 
+test('a click on a row (the plot gestures\' tap: a press that stays put) picks the bin under it once no double-click follows; a double-click picks none', async () => {
+    const { dom, screen, pane, calls, inputs } = setup();
+    pane.place(true);
+    pane.paint(inputs);
+    const canvas = screen.querySelector('[data-entry-dist-groups] [data-dist-canvas]');
+    assert.ok(canvas);
+    const { document } = dom.window;
+    const fire = (target: EventTarget, type: string, detail = 1): void => { target.dispatchEvent(new dom.window.MouseEvent(type, { bubbles: true, button: 0, clientX: 200, detail })); };
+    const wait = (): Promise<void> => new Promise(resolve => { setTimeout(resolve, 400); });
+    fire(canvas, 'mousedown');
+    fire(document, 'mouseup');
+    assert.equal(calls.length, 0, 'it waits out a double-click');
+    await wait();
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0][0], 'pick');
+    for (const detail of [1, 2]) { fire(canvas, 'mousedown', detail); fire(document, 'mouseup', detail); }
+    await wait();
+    assert.equal(calls.length, 1, 'a double-click picks no bin');
+});
+
 test('each group is a row of the plot component: its dots, its slots and the base on it', () => {
     const { screen, pane, inputs } = setup();
     pane.place(true);

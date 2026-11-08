@@ -73,18 +73,31 @@ test('painting waits for the next frame, once however often it is asked; the dis
     assert.deepEqual(calls.slice(2), ['distribution', 'held']);
 });
 
-test('a click on the strip picks the row under it; the gestures add a zoom box and a range popover', () => {
+test('a click on the strip (the plot gestures\' tap: a press that stays put) picks the row under it, a drag none; the gestures add a zoom box and a range popover', () => {
     const { document, side, overview, plots, calls } = setup();
     plots.attach();
     assert.ok(side.querySelector('.entry-zoom-box[hidden]'));
     assert.ok(document.getElementById('entry-range-popover'));
     // Four rows over 100 px of plot, top first.
-    overview.getBoundingClientRect = () => ({ top: 0, left: 0, width: 200, height: 100 + OVERVIEW_MARGINS.top + OVERVIEW_MARGINS.bottom, bottom: 0, right: 0, x: 0, y: 0, toJSON: () => ({}) });
-    const click = (clientY: number): void => { overview.dispatchEvent(new document.defaultView!.MouseEvent('click', { clientY, bubbles: true })); };
+    const height = 100 + OVERVIEW_MARGINS.top + OVERVIEW_MARGINS.bottom;
+    overview.getBoundingClientRect = () => ({ top: 0, left: 0, width: 200, height, bottom: height, right: 200, x: 0, y: 0, toJSON: () => ({}) });
+    const view = document.defaultView!;
+    const fire = (target: EventTarget, type: string, clientY: number, clientX = OVERVIEW_MARGINS.left + 50): void => {
+        target.dispatchEvent(new view.MouseEvent(type, { clientX, clientY, button: 0, bubbles: true }));
+    };
+    const click = (clientY: number): void => { fire(overview, 'mousedown', clientY); fire(document, 'mouseup', clientY); };
     click(OVERVIEW_MARGINS.top + 10);
     click(OVERVIEW_MARGINS.top + 60);
     click(OVERVIEW_MARGINS.top + 140);
     assert.deepEqual(calls, ['pick /d/a.wav', 'pick /d/c.wav'], 'below the rows is no row');
+    // A press dragged into a box zooms instead: no row is picked.
+    fire(overview, 'mousedown', OVERVIEW_MARGINS.top + 10);
+    fire(document, 'mousemove', OVERVIEW_MARGINS.top + 80, OVERVIEW_MARGINS.left + 150);
+    fire(document, 'mouseup', OVERVIEW_MARGINS.top + 80, OVERVIEW_MARGINS.left + 150);
+    assert.deepEqual(calls, ['pick /d/a.wav', 'pick /d/c.wav'], 'a drag picks no row');
+    // A click event alone (no press on the plot) is not the plot's: the strip answers only the shared gestures.
+    overview.dispatchEvent(new view.MouseEvent('click', { clientX: OVERVIEW_MARGINS.left + 50, clientY: OVERVIEW_MARGINS.top + 10, bubbles: true }));
+    assert.deepEqual(calls, ['pick /d/a.wav', 'pick /d/c.wav']);
 });
 
 test('a recording of several channels has a strip row per channel: each its own levels, named by its channel', () => {

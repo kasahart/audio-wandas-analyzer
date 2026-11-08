@@ -204,10 +204,10 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
     }
     const canvasOf = (target: EventTarget | null): HTMLElement | null => (target as HTMLElement | null)?.closest?.<HTMLElement>('[data-dist-canvas]') ?? null;
 
-    // A press that stayed put (no box drawn): on a dot, its row; elsewhere, the bin under it once no double-click follows.
-    groups.addEventListener('click', event => {
-        const canvas = canvasOf(event.target);
-        if (!canvas || !scale || event.altKey) return;
+    // A press that stayed put (no box drawn; the plot gestures' tap): on a dot, its row; elsewhere, the bin under it
+    // once no double-click follows.
+    const tap = (canvas: HTMLElement, event: MouseEvent): void => {
+        if (!scale || event.altKey) return;
         const bounds = canvas.getBoundingClientRect();
         const dot = dotAt(canvas, event.clientX - bounds.left, event.clientY - bounds.top);
         if (dot) { deps.dot(dot); return; }
@@ -220,7 +220,7 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
             const range = on ? pickedRange(on, x, x, false) : null;
             if (range) deps.pick(range);
         }, CLICK_WAIT_MS);
-    });
+    };
 
     // The plot component's gestures on every row (R13): the value axis' window is shared, the counts stay whole.
     const zoomBox = document.createElement('div');
@@ -258,6 +258,7 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
         },
         clearHover() { marks.hide(); },
         stepFrom: (plot, delta, arrived) => marks.stepFrom(plot, plots.get(plot) ?? null, delta, arrived),
+        tap,
         showBox(plot, from, to) {
             const rect = plot.getBoundingClientRect(), outer = screen.getBoundingClientRect();
             const [x0, x1] = [Math.min(from.fx, to.fx), Math.max(from.fx, to.fx)];
