@@ -76,29 +76,38 @@ export function createLaneReads(post: (message: ReadRequest) => void): LaneReads
         },
         slice(track, cursorNorm, channel) {
             const key = JSON.stringify(['slice', track, cursorNorm]);
+            // The slice at every bin, fetched once for every read of it: its points, and its level for the order (R6).
+            const full = (ready: () => void): FullSource | null | undefined => {
+                let entry = slices.get(key);
+                if (!entry) {
+                    const made: { slice?: FullSlice | null; ready: Set<() => void> } = { ready: new Set() };
+                    entry = made;
+                    slices.set(key, made);
+                    if (slices.size > 32) slices.delete(slices.keys().next().value as string);
+                    ask(requestId => ({
+                        type: 'request-spectrum-slice', requestId, analysisId: track.analysisId, settingsSignature: track.settingsSignature,
+                        trackIndex: track.trackIndex, filePath: track.filePath, cursorNorm, fullResolution: true, read: true,
+                    }), answer => {
+                        made.slice = answer?.slice ?? null;
+                        const calls = [...made.ready];
+                        made.ready.clear();
+                        for (const call of calls) call();
+                    });
+                }
+                if (entry.slice === undefined) { entry.ready.add(ready); return undefined; }
+                const values = entry.slice?.values.get(channel);
+                if (!entry.slice || !values?.length) return null;
+                const step = entry.slice.maxHz / Math.max(1, values.length - 1);
+                return localLine(values.map((_, bin) => bin * step), values);
+            };
             return once(JSON.stringify([key, channel]), () => ({
                 line(query, ready) {
-                    let entry = slices.get(key);
-                    if (!entry) {
-                        const made: { slice?: FullSlice | null; ready: Set<() => void> } = { ready: new Set() };
-                        entry = made;
-                        slices.set(key, made);
-                        if (slices.size > 32) slices.delete(slices.keys().next().value as string);
-                        ask(requestId => ({
-                            type: 'request-spectrum-slice', requestId, analysisId: track.analysisId, settingsSignature: track.settingsSignature,
-                            trackIndex: track.trackIndex, filePath: track.filePath, cursorNorm, fullResolution: true, read: true,
-                        }), answer => {
-                            made.slice = answer?.slice ?? null;
-                            const calls = [...made.ready];
-                            made.ready.clear();
-                            for (const call of calls) call();
-                        });
-                    }
-                    if (entry.slice === undefined) { entry.ready.add(ready); return undefined; }
-                    const values = entry.slice?.values.get(channel);
-                    if (!entry.slice || !values?.length) return null;
-                    const step = entry.slice.maxHz / Math.max(1, values.length - 1);
-                    return localLine(values.map((_, bin) => bin * step), values).line?.(query, ready);
+                    const source = full(ready);
+                    return source ? source.line?.(query, ready) : source;
+                },
+                level(query, ready) {
+                    const source = full(ready);
+                    return source ? source.level?.(query, ready) : source;
                 },
             }));
         },

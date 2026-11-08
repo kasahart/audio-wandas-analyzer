@@ -1292,6 +1292,13 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "channel": {
                     "type": "integer",
                     "minimum": 0
+                },
+                "level": {
+                    "type": "string",
+                    "enum": [
+                        "db",
+                        "square"
+                    ]
                 }
             },
             "additionalProperties": false
@@ -1368,6 +1375,23 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 },
                 "complete": {
                     "type": "boolean"
+                },
+                "level": {
+                    "type": "object",
+                    "required": [
+                        "power",
+                        "count"
+                    ],
+                    "properties": {
+                        "power": {
+                            "type": "number"
+                        },
+                        "count": {
+                            "type": "integer",
+                            "minimum": 0
+                        }
+                    },
+                    "additionalProperties": false
                 }
             },
             "additionalProperties": false
@@ -2400,6 +2424,7 @@ export interface StageRead {
     event?: number;
     of?: "base" | "diff";
     channel?: number;
+    level?: "db" | "square";
 }
 
 export interface StagePoints {
@@ -2410,6 +2435,10 @@ export interface StagePoints {
     start: number | null;
     end: number | null;
     complete: boolean;
+    level?: {
+    power: number;
+    count: number;
+};
 }
 
 export interface StageView {

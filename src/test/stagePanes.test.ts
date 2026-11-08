@@ -5,6 +5,7 @@ import test from 'node:test';
 import { spectrumLayer } from '../webview/runtime/overlaySpectrumPainter';
 import { axisFractionOf, axisValueAt, byLevel, levelBinsOf, emptyStageText, eventLayers, paintOverlay, stageAxes, paintColourBar, colourBarTop, stageEventCounts, stageDiffRange, stageHeadline, stageRange, stageHover, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
 import type { StageView } from '../shared/protocol/backendProtocol';
+import { fetchedSource, localLine } from '../webview/runtime/fullRead';
 
 const line = (values: number[], quantity: StageView['quantity'] = 'level'): StageView => ({ frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity, xs: [100, 1000, 10000], values });
 const strings = { stageNoDelta: 'none', stageMaxDelta: '{at} {delta}' };
@@ -286,6 +287,69 @@ test('a cursor spectrum on a linear axis counts its 0 Hz bin in its level (R6)',
     const dc = spectrumLayer(slice([0, -100, -100]), 1000, visible), tone = spectrumLayer(slice([-100, -20, -20]), 1000, visible);
     const axis: StageView = { frame: 'spectrum', kind: 'line', xs: [0, 1000], xLimits: [0, 1000], xScale: 'linear' };
     assert.deepEqual(byLevel([tone, dc], axis).map(item => item.color), ['0', '-100']);
+});
+
+/** The order expected over [x0, x1], worked out here from every value of each line: the mean of 10^(dB/10), loudest first. */
+function expectedOrder(lines: ReadonlyArray<{ color: string; xs: readonly number[]; values: readonly number[] }>, x0: number, x1: number): string[] {
+    const mean = (xs: readonly number[], values: readonly number[]): number => {
+        const inside = values.filter((_, index) => xs[index] >= x0 && xs[index] <= x1);
+        return inside.reduce((sum, value) => sum + 10 ** (value / 10), 0) / inside.length;
+    };
+    return [...lines].sort((a, b) => mean(b.xs, b.values) - mean(a.xs, a.values)).map(item => item.color);
+}
+
+test('zoomed, lines are ordered by every value on screen: a loud peak just off screen, in a stretch the edge cuts, does not count (R6, R2)', async () => {
+    // Two spectra of 2049 bins over 0–24 kHz, held by the backend: each comes thinned to be drawn, with the levelBins
+    // of its every bin (256 stretches of 93.75 Hz), and its full data read through a fetched source.
+    const xs = Array.from({ length: 2049 }, (_, i) => i * 24000 / 2048);
+    // Zoomed to 5–10 kHz. The stretch 9937.5–10031.25 Hz is cut by the right edge; the peak at 10007.8 Hz is in it,
+    // off screen. On screen the peaked line is the quieter (−40 dB against −35 dB): it goes on top.
+    const x0 = 5000, x1 = 10000, peakBin = 854;
+    assert.ok(xs[peakBin] > x1 && xs[peakBin] < 10031.25);
+    const peaked = xs.map((_, i) => (i === peakBin ? 0 : -40)), flat = xs.map(() => -35);
+    const reads: number[][] = [];
+    const backend = (values: readonly number[]) => fetchedSource((read, done) => {
+        reads.push(read.x);
+        // The backend's read_level (full_read.py): the mean power of every value in the window, ends in.
+        setTimeout(() => {
+            const inside = values.filter((_, index) => xs[index] >= read.x[0] && xs[index] <= read.x[1]);
+            done({ xs: [], start: null, end: null, complete: false, level: { power: inside.reduce((sum, value) => sum + 10 ** (value / 10), 0) / inside.length, count: inside.length } });
+        }, 0);
+    });
+    const layer = (color: string, values: number[]) => ({ color, width: 2, full: backend(values),
+        view: { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'level', xs: xs.filter((_, i) => i % 16 === 0), values: values.filter((_, i) => i % 16 === 0),
+            levelBins: levelBinsOf(xs, values, [0, 24000], false) } as StageView });
+    const axis: StageView = { frame: 'spectrum', kind: 'line', xs: [0, 24000], xLimits: [0, 24000], xScale: 'linear' };
+    const expected = expectedOrder([{ color: 'peaked', xs, values: peaked }, { color: 'flat', xs, values: flat }], x0, x1);
+    assert.deepEqual(expected, ['flat', 'peaked']);
+    const { canvas, strokes } = strokingCanvas();
+    paintOverlay(canvas, { layers: [layer('flat', flat), layer('peaked', peaked)] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dB]' },
+        { axisView: axis, window: { x: { start: x0 / 24000, end: x1 / 24000 } } });
+    // Until every value on screen is in, the order is not judged.
+    assert.match(canvas.dataset.plotOrder ?? '', /…/u);
+    strokes.length = 0;
+    await new Promise(resolve => setTimeout(resolve, 10));
+    assert.deepEqual(reads, [[x0, x1], [x0, x1]], 'each line measured once, over the window on screen');
+    // Drawn again as each comes in (one read is on its way at a time): last with both, the quieter on top.
+    assert.deepEqual(strokes.filter(color => color === 'flat' || color === 'peaked').slice(-2), expected, 'drawn again once measured, the quieter on top');
+    assert.equal(canvas.dataset.plotOrder, '-35.00,-40.00');
+    // Over the whole axis every stretch is on screen: its levelBins give the order at once, with nothing fetched.
+    strokes.length = 0;
+    paintOverlay(canvas, { layers: [layer('peaked', peaked), layer('flat', flat)] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dB]' }, { axisView: axis });
+    assert.deepEqual(strokes.filter(color => color === 'flat' || color === 'peaked'), expectedOrder([{ color: 'peaked', xs, values: peaked }, { color: 'flat', xs, values: flat }], 0, 24000));
+    assert.equal(reads.length, 2);
+});
+
+test('a line the webview holds every value of is ordered at once by its values on screen, the stretch cut by the edge too (R6)', () => {
+    const xs = Array.from({ length: 2049 }, (_, i) => i * 24000 / 2048);
+    const x0 = 5000, x1 = 10000;
+    const peaked = xs.map((_, i) => (i === 854 ? 0 : -40)), flat = xs.map(() => -35);
+    const layer = (color: string, values: number[]) => ({ color, full: localLine(xs, values),
+        view: { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'level', xs, values, levelBins: levelBinsOf(xs, values, [0, 24000], false) } as StageView });
+    const axis: StageView = { frame: 'spectrum', kind: 'line', xs: [0, 24000], xLimits: [0, 24000], xScale: 'linear' };
+    const window = { start: x0 / 24000, end: x1 / 24000 };
+    assert.deepEqual(byLevel([layer('peaked', peaked), layer('flat', flat)], axis, window).map(item => item.color),
+        expectedOrder([{ color: 'peaked', xs, values: peaked }, { color: 'flat', xs, values: flat }], x0, x1));
 });
 
 test('a level drawn with no levels from its values before thinning is written as unmeasured, for the audit to fail (R6)', () => {

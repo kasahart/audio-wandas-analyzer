@@ -116,6 +116,31 @@ def test_a_signals_samples_are_read_one_by_one(signal: wd.ChannelFrame) -> None:
     assert points["values"] == pytest.approx(np.asarray(signal.data)[7998:8003].tolist(), abs=1e-6)
 
 
+def test_a_level_read_takes_every_value_inside_its_window_and_none_outside(signal: wd.ChannelFrame) -> None:
+    # The order of overlaid lines (R6) over a zoom: a loud bin just past the window's end is not counted, however
+    # near; every bin inside is, none thinned. Worked out here from the bins themselves.
+    frame = signal.fft()
+    data = stage_data(frame, dict(stage_view(frame)))
+    assert data is not None
+    low, high = int(np.argmin(np.abs(data.xs - 2000))), int(np.argmin(np.abs(data.xs - 4000)))
+    peaked = data.values.copy()
+    peaked[high + 1] = 40.0
+    x = [float(data.xs[low]), float(data.xs[high])]
+    points = read_points([replace(data, values=peaked)], None, {"x": x, "level": "db"})
+    assert points is not None and first_violation(DEFINITIONS["StagePoints"], points) is None
+    inside = np.asarray(data.values[low : high + 1], dtype=np.float64)
+    assert points["level"]["count"] == inside.size
+    assert points["level"]["power"] == pytest.approx(float(np.mean(10.0 ** (inside / 10.0))), rel=1e-9)
+    # A signal's level is its samples' mean square, over every sample of the window.
+    sampled = stage_data(signal, dict(stage_view(signal)))
+    assert sampled is not None
+    points = read_points([sampled], None, {"x": [0.25, 0.75], "level": "square"})
+    assert points is not None
+    samples = np.asarray(signal.data, dtype=np.float64)[4000:12001]
+    assert points["level"]["count"] == samples.size
+    assert points["level"]["power"] == pytest.approx(float(np.mean(samples**2)), rel=1e-5)
+
+
 def _write_sine_wav(path: Path, seconds: float = 0.5) -> np.ndarray:
     time_axis = np.linspace(0, seconds, int(seconds * RATE), endpoint=False)
     samples = (0.5 * np.sin(2 * math.pi * 440 * time_axis) * 32767).astype(np.int16)

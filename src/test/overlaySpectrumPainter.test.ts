@@ -6,6 +6,7 @@ import { stageHover, stageStep, type StagePlot } from '../webview/runtime/stageP
 import { SpectrumView } from '../webview/runtime/spectrumView';
 import { OVERLAY_SPECTRUM_PAD, overlayLevelAxes, spectrumReadoutText, type SpectrumViewState } from '../webview/runtime/spectrumRuntime';
 import type { SpectrumSeries } from '../webview/runtime/types';
+import { createLaneReads } from '../webview/runtime/laneReads';
 
 function recordingCtx(): { ctx: CanvasDrawCtx; calls: string[] } {
     const calls: string[] = [];
@@ -321,4 +322,42 @@ test('a full-resolution slice is thinned only to be drawn: every bin in a narrow
     // A slice the backend already thinned (it names its frequencies) is drawn as it came.
     const thinned = spectrumLayer({ ...series, slice: { ...slice, frequenciesHz: slice.values.map((_, bin) => bin) } }, 8192, { frequencyMin: 0, frequencyMax: 8192, buckets: 300 });
     assert.equal(thinned.view.xs?.length, bins);
+});
+
+test('the cursor spectrum orders a slice cut for display by every bin on screen, not by the points kept to draw it (R6, R2)', async () => {
+    // Two channels' slices of 4097 bins over 0–24 kHz, each cut for display as the backend cuts it (min_max_spectrum:
+    // a point per group of bins, the peak kept). Over every bin the spiky one is the quieter (−46 dB against −45 dB);
+    // over its kept points its −10 dB spike makes it look the louder.
+    const bins = 4097, maxHz = 24000;
+    const binHz = (bin: number): number => bin * maxHz / (bins - 1);
+    const spiky = Array.from({ length: bins }, (_, bin) => (bin === 1000 ? -10 : -60)), steady = Array.from({ length: bins }, () => -45);
+    const kept = Array.from({ length: bins }, (_, bin) => bin).filter(bin => bin % 32 === 0 || bin === 1000);
+    const cut = (values: number[], channelIndex: number, color: string): SpectrumSeries => ({
+        slice: { values: kept.map(bin => values[bin]), frequencyBins: kept.length, frequenciesHz: kept.map(binHz), maxFrequencyHz: maxHz, minDb: -60, maxDb: -10, unit: 'dB', cursorNorm: 0.5, channelIndex },
+        color, index: 0, channelIndex, label: color,
+    });
+    // Every bin is read through the track view's reads: the same slice asked for again at full resolution.
+    const posted: Array<{ requestId: string }> = [];
+    const reads = createLaneReads(message => { posted.push(message); });
+    const track = { trackIndex: 0, filePath: 'a.wav', analysisId: 'a', settingsSignature: 's' };
+    const lines = [cut(spiky, 0, 'spiky'), cut(steady, 1, 'steady')].map(series => ({ ...series, full: reads.slice(track, 0.5, series.channelIndex) }));
+    // The order expected, worked out here from every bin on screen (the linear axis from 0 Hz to the top).
+    const mean = (values: number[]): number => values.reduce((sum, value) => sum + 10 ** (value / 10), 0) / values.length;
+    const expected = [{ color: 'spiky', values: spiky }, { color: 'steady', values: steady }].sort((a, b) => mean(b.values) - mean(a.values)).map(item => item.color);
+    assert.deepEqual(expected, ['steady', 'spiky']);
+    const strokes: string[] = [];
+    let strokeStyle = '';
+    const ctx = new Proxy({}, {
+        get: (_target, key) => (key === 'measureText' ? () => ({ width: 10 }) : key === 'stroke' ? () => { strokes.push(strokeStyle); } : () => undefined),
+        set: (_target, key, value) => { if (key === 'strokeStyle') strokeStyle = String(value); return true; },
+    }) as unknown as CanvasDrawCtx;
+    const canvas = Object.assign(canvasOf(ctx), { dataset: {} });
+    paintOverlaySpectrum(canvas, 400, 200, lines, fullView);
+    assert.match(canvas.dataset.plotOrder ?? '', /…/u, 'not judged until every bin is in');
+    assert.equal(posted.length, 1, 'the slice at every bin asked for once, for both channels');
+    reads.handle({ type: 'spectrum-slice-result', requestId: posted[0].requestId, maxFrequencyHz: maxHz, channels: [{ channelIndex: 0, values: spiky }, { channelIndex: 1, values: steady }] } as { type: string; requestId: string });
+    strokes.length = 0;
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.deepEqual(strokes.filter(color => color === 'spiky' || color === 'steady'), expected, 'drawn again with every bin: the quieter on top');
+    assert.equal(canvas.dataset.plotOrder, `${(10 * Math.log10(mean(steady))).toFixed(2)},${(10 * Math.log10(mean(spiky))).toFixed(2)}`);
 });
