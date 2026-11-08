@@ -132,7 +132,7 @@ export interface StageFrame {
     /** The backend could not keep every recording's values to take the median and the difference from. */
     tooLarge?: boolean;
     /** Why there is no difference when it is not the axes (combineSource's ``noDelta``). */
-    noDelta?: 'rate';
+    noDelta?: 'rate' | 'unit';
 }
 
 /**
@@ -275,7 +275,7 @@ export function paintStageOverlay(dom: StageDom, frame: StageFrame, plots: Stage
     const overlayPlot = paintOverlay(overlay, { layers }, narrowed(range, window.y), axes, { empty, window: { x: window.x }, axisView: picture, ...(regionMark ? { region: regionMark } : {}), ...(pending ? { pending } : {}) });
     frame.drawnOn.set(overlay, { picture, range, axes, plot: overlayPlot });
     if (!withDiff) return;
-    dom.query<HTMLElement>('[data-stage-diff-headline]').textContent = waiting ? '' : stageHeadline(plots.diff, strings);
+    dom.query<HTMLElement>('[data-stage-diff-headline]').textContent = waiting ? '' : plots.diff ? stageHeadline(plots.diff, strings) : noDeltaNote(frame, strings);
     const diffAxes = stageAxes(strings, coarsePlots.diff, tracks[0]?.input, true);
     const diffCanvas = dom.query<HTMLCanvasElement>('[data-stage-canvas="diff"]');
     const diffRange = stageDiffRange(coarsePlots.diff);

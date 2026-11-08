@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import tracemalloc
 from dataclasses import replace
 from pathlib import Path
 
@@ -13,7 +14,7 @@ from analysis_engine import AnalysisEngine
 from analysis_service import AnalysisService
 from command_dispatch import dispatch, validate_request
 from protocol_schema import DEFINITIONS, first_violation
-from stage_combine import STORE, _Store, combine, difference_line, draw, stage_data
+from stage_combine import STORE, StageData, _Store, combine, difference_line, draw, stage_data
 from stage_view import stage_view
 
 RATE = 16000
@@ -155,6 +156,68 @@ def test_a_time_signal_at_another_rate_has_no_sample_difference(signal: wd.Chann
     compare = stage_data(other, dict(stage_view(other)))
     assert base is not None and compare is not None
     assert combine([base], compare) == {"ok": True, "noDelta": "rate"}
+
+
+def test_time_signals_in_other_units_or_calibrations_have_no_sample_difference(signal: wd.ChannelFrame) -> None:
+    # Samples are subtracted as they are, so only in one unit against one reference: Pa against an uncalibrated
+    # recording has no Δ (the comparison says why), and no group median either.
+    calibrated = wd.from_numpy(signal.data[np.newaxis], sampling_rate=RATE, ch_units="Pa")
+    base = stage_data(calibrated, dict(stage_view(calibrated)))
+    compare = stage_data(signal, dict(stage_view(signal)))
+    assert base is not None and compare is not None
+    assert combine([base], compare) == {"ok": True, "noDelta": "unit"}
+    assert combine([base, compare], None) == {"ok": True, "noDelta": "unit"}
+
+
+def test_a_small_signal_difference_keeps_its_significant_figures() -> None:
+    # A difference of 1e-7 Pa is drawn as it is (six significant figures), never rounded to zero by decimals.
+    view = {"frame": "ChannelFrame", "kind": "line", "x": "time", "xScale": "linear", "quantity": "value", "unit": "Pa"}
+    level = np.full(4096, 1e-4, dtype=np.float32)
+    base = StageData("signal", view, np.empty(0), level, start=0.0, rate=48_000.0)  # type: ignore[arg-type]
+    compare = replace(base, values=level + np.float32(1e-7))
+    diff = combine([base], compare)["diff"]
+    assert min(diff["values"]) == pytest.approx(1e-7, rel=1e-2)
+    assert diff["waveform"]["absolutePeak"] == pytest.approx(1e-7, rel=1e-2)
+
+
+def test_a_long_signals_difference_needs_no_array_of_times_or_float64_copy() -> None:
+    # A minute at 48 kHz: the Δ is a float32 subtraction, and drawing it (whole or zoomed) takes each bucket's
+    # extremes by index, so the memory beyond the kept samples stays near the difference's own 4 bytes a sample.
+    count, rate = 48_000 * 60, 48_000.0
+    view = {"frame": "ChannelFrame", "kind": "line", "x": "time", "xScale": "linear", "quantity": "value", "unit": "Pa"}
+    rng = np.random.default_rng(5)
+
+    def recording() -> StageData:
+        samples = rng.standard_normal(count).astype(np.float32)
+        return StageData("signal", view, np.empty(0), samples, start=0.0, rate=rate)  # type: ignore[arg-type]
+
+    base, compare = recording(), recording()
+    for detail in (None, {"x": [10.0, 10.01], "points": 800}):
+        tracemalloc.start()
+        result = combine([base], compare, detail)  # type: ignore[arg-type]
+        peak = tracemalloc.get_traced_memory()[1]
+        tracemalloc.stop()
+        assert peak < 8 * count, f"{peak / count:.1f} bytes a sample"
+        assert result["diff"]["xs"]
+
+
+def test_a_long_lines_extremes_are_each_buckets_first_lowest_and_last_highest() -> None:
+    # The path for a line of finite values on a linear axis (no index arrays as long as the line) keeps what every
+    # line keeps: per bucket of decimator.bucket_starts (as np.array_split) its first lowest and last highest value.
+    from stage_view import min_max_indices
+
+    values = np.round(np.random.default_rng(6).standard_normal(10_007), 1)  # rounded: many ties
+    xs = np.arange(values.size, dtype=np.float64)
+    for buckets in (1, 7, 300, 5003, 6000):
+        expected: set[int] = set()
+        if values.size <= 2 * buckets:
+            expected = set(range(values.size))
+        else:
+            for chunk in np.array_split(np.arange(values.size), buckets):
+                block = values[chunk]
+                expected |= {int(chunk[np.flatnonzero(block == block.min())[0]])}
+                expected |= {int(chunk[np.flatnonzero(block == block.max())[-1]])}
+        assert min_max_indices(xs, values, buckets, False).tolist() == sorted(expected)
 
 
 def test_pictures_on_other_axes_have_no_median_or_difference(signal: wd.ChannelFrame) -> None:

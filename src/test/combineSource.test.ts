@@ -54,15 +54,16 @@ test('the held step\'s pictures leave its combinations to the combination source
     assert.equal(stages.handle({ type: 'compare-combine-result', requestId: 'held-combine-1', result: { ok: true } } as { type: string }), false);
 });
 
-test('a Δ that cannot be taken says why: too much data, other sample rates, or other axes', () => {
+test('a Δ that cannot be taken says why: too much data, other sample rates or units, or other axes', () => {
     const posted: CompareCombineMessage[] = [];
     const source = createCombineSource('r', message => posted.push(message), () => undefined);
     source.get('id', { base: ['ka'], compare: 'kc' }, () => undefined);
     source.handle({ type: 'compare-combine-result', requestId: 'r-1', result: { ok: true, noDelta: 'rate' } } as { type: string });
     const combined = source.get('id', { base: ['ka'], compare: 'kc' }, () => undefined);
     assert.deepEqual(combined, { base: null, diff: null, noDelta: 'rate' });
-    const strings = { stageNoDelta: 'axes', stageTooLarge: 'large', stageNoDeltaRate: 'rate' };
+    const strings = { stageNoDelta: 'axes', stageTooLarge: 'large', stageNoDeltaRate: 'rate', stageNoDeltaUnit: 'unit' };
     assert.equal(noDeltaNote(combined, strings), 'rate');
+    assert.equal(noDeltaNote({ noDelta: 'unit' }, strings), 'unit');
     assert.equal(noDeltaNote({ tooLarge: true }, strings), 'large');
     assert.equal(noDeltaNote({}, strings), 'axes');
     assert.equal(noDeltaNote(undefined, strings), 'axes');

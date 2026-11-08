@@ -48,7 +48,7 @@ from stage_view import StageDetail, StageView
 STAGE_DATA_BUDGET_BYTES = 768 * 1024 * 1024
 #: A difference of dB levels to a hundredth; small linear values (cepstral coefficients, coherence) keep more.
 DB_DIFF_DECIMALS = 2
-VALUE_DIFF_DECIMALS = 6
+VALUE_DIFF_DIGITS = 6
 
 Mode = Literal[
     "series",
@@ -102,7 +102,7 @@ class CombineResult(TypedDict):
     base: NotRequired[StageView]
     diff: NotRequired[StageView]
     #: Why there is no ``diff`` when it is not the axes: time signals at other sample rates have no sample Δ.
-    noDelta: NotRequired[Literal["rate"]]
+    noDelta: NotRequired[Literal["rate", "unit"]]
 
 
 class _Store:
@@ -286,10 +286,20 @@ def _block_times(times: np.ndarray, edges: np.ndarray) -> np.ndarray:
     return np.array([float(np.mean(times[start:end])) for start, end in zip(edges[:-1], edges[1:], strict=True)])
 
 
+def _significant(values: np.ndarray, digits: int) -> np.ndarray:
+    """``values`` to ``digits`` significant figures, so a difference of small values (µPa) is never rounded away."""
+    with np.errstate(divide="ignore", invalid="ignore"):
+        magnitude = np.floor(np.log10(np.abs(values)))
+    scale = 10.0 ** (digits - 1 - np.where(np.isfinite(magnitude), magnitude, 0.0))
+    return np.round(values * scale) / scale
+
+
 def _rounded(values: np.ndarray, quantity: str | None, diff: bool) -> np.ndarray:
     if not diff:
         return values
-    return np.round(values, DB_DIFF_DECIMALS if quantity in DB_QUANTITIES else VALUE_DIFF_DECIMALS)
+    if quantity in DB_QUANTITIES:
+        return np.round(values, DB_DIFF_DECIMALS)
+    return _significant(values, VALUE_DIFF_DIGITS)
 
 
 def _bounds(detail: StageDetail | None) -> tuple[list[float] | None, int]:
@@ -301,7 +311,7 @@ def _line(data: StageData, detail: StageDetail | None, diff: bool) -> tuple[np.n
     difference_line."""
     bounds, points = _bounds(detail)
     if data.mode == "signal":
-        data = _series_of(data)
+        return _signal_line(data, bounds, points, diff)
     mode = data.mode
     if mode == "bands":
         return data.xs, data.values
@@ -345,10 +355,32 @@ def _line(data: StageData, detail: StageDetail | None, diff: bool) -> tuple[np.n
     raise ValueError(f"not a line: {mode}")
 
 
-def _series_of(data: StageData) -> StageData:
-    """A signal's samples as a line over their times (float64), for a moment: the store keeps them without."""
-    times = data.start + np.arange(data.values.size) / data.rate
-    return replace(data, mode="series", xs=times, values=_f64(data.values))
+def _signal_range(data: StageData, bounds: Sequence[float] | None) -> tuple[int, int]:
+    """The samples of a signal inside ``bounds`` (s), as indices: no array of the samples' times is made."""
+    count = data.values.size
+    if bounds is None:
+        return 0, count
+    low, high = min(bounds), max(bounds)
+    first = max(0, int(np.ceil((low - data.start) * data.rate - 1e-9)))
+    last = min(count, int(np.floor((high - data.start) * data.rate + 1e-9)) + 1)
+    return first, max(first, last)
+
+
+def _signal_line(
+    data: StageData, bounds: Sequence[float] | None, points: int, diff: bool
+) -> tuple[np.ndarray, np.ndarray]:
+    """A signal's line as a series over time is drawn (sv._envelope; a difference by difference_line's buckets),
+    taken by index from the float32 samples inside ``bounds``: only the points drawn get a time and float64."""
+    first, last = _signal_range(data, bounds)
+    values = data.values[first:last]
+    if diff:
+        buckets = _line_buckets("series", points)
+    else:
+        drawn = points or sv.LEVEL_SERIES_MIN_SAMPLES
+        buckets = values.size if values.size <= drawn else max(1, drawn // 2)
+    # On a linear axis the buckets are counts of samples (decimator.bucket_starts): no xs are needed.
+    picked = sv.min_max_indices(np.broadcast_to(np.float64(0.0), values.shape), values, buckets, False)
+    return data.start + (first + picked) / data.rate, _f64(values[picked])
 
 
 def _line_buckets(mode: Mode, points: int) -> int:
@@ -445,12 +477,16 @@ def draw(data: StageData, detail: StageDetail | None = None, *, diff: bool = Fal
         view.update({"xs": sv._axis(xs), "values": sv._json(_rounded(_f64(values), data.view.get("quantity"), diff))})
         if data.mode == "signal":
             # Drawn as the recordings are: a waveform, by the lanes' own decimation, over the range on screen.
-            line = _series_of(data)
             bounds, points = _bounds(detail)
-            keep = sv._inside(line.xs, bounds) if bounds is not None else np.ones(line.xs.size, dtype=bool)
+            first, last = _signal_range(data, bounds)
             unit = str(data.view.get("unit") or "")
             view["waveform"] = sv.samples_waveform(
-                line.values[keep], line.xs[keep], unit, data.ref, points or sv.WAVEFORM_OVERVIEW_POINTS
+                data.values[first:last],
+                data.start + first / data.rate,
+                data.start + (last - 1) / data.rate,
+                unit,
+                data.ref,
+                points or sv.WAVEFORM_OVERVIEW_POINTS,
             )
     if detail is not None:
         view["detail"] = True
@@ -473,6 +509,9 @@ def _aligned(items: list[StageData]) -> list[StageData] | None:
         # Sample by sample: the same rate and start, over the samples they all have.
         if any(item.rate != first.rate or abs(item.start - first.start) > 0.5 / first.rate for item in items):
             return None
+        # Samples are subtracted as they are: only in one unit against one reference (calibrated alike).
+        if any(item.view.get("unit") != first.view.get("unit") or item.ref != first.ref for item in items):
+            return None
         count = min(item.values.size for item in items)
         return [replace(item, values=item.values[:count]) for item in items]
     timed = first.view.get("x") == "time"
@@ -493,7 +532,9 @@ def _aligned(items: list[StageData]) -> list[StageData] | None:
 
 def _median(items: list[StageData]) -> np.ndarray:
     """Point by point; a point where any recording has no value has none (NaN)."""
-    stacked = np.stack([_f64(item.values) for item in items])
+    # A signal's samples stay float32 (as kept, half the memory over a long recording); other values float64.
+    cast = (lambda values: np.asarray(values, dtype=np.float32)) if items[0].mode == "signal" else _f64
+    stacked = np.stack([cast(item.values) for item in items])
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)
         return np.median(stacked, axis=0)
@@ -504,6 +545,19 @@ def _whole_of(items: list[StageData]) -> np.ndarray | None:
     return np.logical_and.reduce(wholes) if wholes else None
 
 
+def _no_delta_reason(items: list[StageData]) -> Literal["rate", "unit"] | None:
+    """Why time signals on the same axes have no sample difference: another sample rate, or another unit or
+    reference (a calibrated recording against an uncalibrated one). None for any other reason (other axes)."""
+    if not all(item.mode == "signal" for item in items):
+        return None
+    first = items[0]
+    if any(item.rate != first.rate for item in items):
+        return "rate"
+    if any(item.view.get("unit") != first.view.get("unit") or item.ref != first.ref for item in items):
+        return "unit"
+    return None
+
+
 def combine(base: list[StageData], compare: StageData | None, detail: StageDetail | None = None) -> CombineResult:
     """The base's median (of two or more recordings) and ``compare`` − base, at full resolution, then drawn; on
     other axes, neither (the comparison says there is no difference)."""
@@ -512,19 +566,22 @@ def combine(base: list[StageData], compare: StageData | None, detail: StageDetai
     items = [*base, *([compare] if compare is not None else [])]
     aligned = _aligned(items)
     if aligned is None:
-        if all(item.mode == "signal" for item in items) and any(item.rate != items[0].rate for item in items):
-            return {"ok": True, "noDelta": "rate"}
-        return {"ok": True}
+        reason = _no_delta_reason(items)
+        return {"ok": True, "noDelta": reason} if reason else {"ok": True}
     base, compare = aligned[: len(base)], (aligned[-1] if compare is not None else None)
     first = base[0]
-    median = _median(base) if len(base) > 1 else _f64(first.values)
+    median = _median(base) if len(base) > 1 else (first.values if first.mode == "signal" else _f64(first.values))
     result: CombineResult = {"ok": True}
     if len(base) > 1:
         result["base"] = draw(replace(first, values=median, whole=_whole_of(base)), detail)
     # Two recordings' events are not one another's: they are compared overlaid, with no difference.
     if compare is None or first.mode == "events":
         return result
-    difference = _f64(compare.values) - median
+    difference = (
+        np.subtract(compare.values, median, dtype=np.float32)
+        if first.mode == "signal"
+        else _f64(compare.values) - median
+    )
     whole = _whole_of([*base, compare])
     result["diff"] = draw(replace(first, values=difference, whole=whole), detail, diff=True)
     return result

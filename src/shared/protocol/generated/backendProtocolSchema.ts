@@ -1546,7 +1546,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "noDelta": {
                     "type": "string",
                     "enum": [
-                        "rate"
+                        "rate",
+                        "unit"
                     ]
                 }
             },
@@ -2252,7 +2253,7 @@ export interface StageCombineResult {
     missing?: string[];
     base?: StageView;
     diff?: StageView;
-    noDelta?: "rate";
+    noDelta?: "rate" | "unit";
 }
 
 export interface ScanInput {

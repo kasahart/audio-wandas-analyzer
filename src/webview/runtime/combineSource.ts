@@ -16,13 +16,16 @@ export interface Combined {
     diff: StageView | null;
     /** The backend could not keep every recording's values at once. */
     tooLarge?: boolean;
-    /** Why there is no difference when it is not the axes: time signals at other sample rates. */
-    noDelta?: 'rate';
+    /** Why there is no difference when it is not the axes: time signals at other sample rates, or in another unit. */
+    noDelta?: 'rate' | 'unit';
 }
 
-/** What the Δ plot says when it has no line: too much data, other sample rates, or other axes. */
-export function noDeltaNote(combined: Pick<Combined, 'tooLarge' | 'noDelta'> | undefined, strings: { stageNoDelta: string; stageTooLarge: string; stageNoDeltaRate: string }): string {
-    return combined?.tooLarge ? strings.stageTooLarge : combined?.noDelta === 'rate' ? strings.stageNoDeltaRate : strings.stageNoDelta;
+/** What the Δ plot and its headline say when there is no line: too much data, other sample rates or units, or other axes. */
+export function noDeltaNote(combined: Pick<Combined, 'tooLarge' | 'noDelta'> | undefined, strings: { stageNoDelta: string; stageTooLarge: string; stageNoDeltaRate: string; stageNoDeltaUnit: string }): string {
+    if (combined?.tooLarge) return strings.stageTooLarge;
+    if (combined?.noDelta === 'rate') return strings.stageNoDeltaRate;
+    if (combined?.noDelta === 'unit') return strings.stageNoDeltaUnit;
+    return strings.stageNoDelta;
 }
 
 export const NOTHING_COMBINED: Combined = { base: null, diff: null };

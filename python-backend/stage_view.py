@@ -223,7 +223,12 @@ def min_max_indices(
     x <= 0) are left out; fewer values than two per bucket are all kept. Of equal values, a bucket's lowest is its
     first and its highest its last. ``xs`` ascending; indices into it, ascending."""
     buckets = max(1, buckets)
-    kept = np.flatnonzero(np.isfinite(values) & ((xs > 0) if log else np.ones(xs.size, dtype=bool)))
+    finite = np.isfinite(values)
+    if not log and finite.all():
+        # Every value kept on a linear axis (a long signal): each bucket's extremes from views of the values,
+        # without arrays of indices as long as the line.
+        return _linear_extremes(values, buckets)
+    kept = np.flatnonzero(finite & ((xs > 0) if log else np.ones(xs.size, dtype=bool)))
     if kept.size <= 2 * buckets:
         return kept
     if log:
@@ -240,6 +245,20 @@ def min_max_indices(
     first = np.minimum.reduceat(np.where(kept_values == np.repeat(lowest, sizes), index, kept.size), starts)
     last = np.maximum.reduceat(np.where(kept_values == np.repeat(highest, sizes), index, -1), starts)
     return kept[np.unique(np.concatenate([first, last]))]
+
+
+def _linear_extremes(values: np.ndarray, buckets: int) -> np.ndarray:
+    """min_max_indices of finite values on a linear axis: per bucket (decimator.bucket_edges) the first lowest and
+    the last highest value's index, ascending."""
+    if values.size <= 2 * buckets:
+        return np.arange(values.size)
+    edges = bucket_edges(values.size, buckets)
+    picked = np.empty(2 * buckets, dtype=np.int64)
+    for bucket, (start, end) in enumerate(zip(edges[:-1], edges[1:], strict=True)):
+        block = values[start:end]
+        picked[2 * bucket] = start + int(np.argmin(block))
+        picked[2 * bucket + 1] = end - 1 - int(np.argmax(block[::-1]))
+    return np.unique(picked)
 
 
 def min_max_line(
@@ -300,19 +319,23 @@ def _waveform(
     times = np.asarray(frame.source_time, dtype=np.float64).reshape(frame.n_channels, -1)[0]
     if keep is not None:
         samples, times = samples[keep], times[keep]
-    return samples_waveform(samples, times, frame.channels[0].unit or "", float(frame.channels[0].ref), points)
+    first, last = (float(times[0]), float(times[-1])) if times.size else (0.0, 0.0)
+    return samples_waveform(samples, first, last, frame.channels[0].unit or "", float(frame.channels[0].ref), points)
 
 
-def samples_waveform(samples: np.ndarray, times: np.ndarray, unit: str, ref: float, points: int) -> StageWaveform:
-    """Samples at ``times`` (s) as the lanes draw a waveform: per bucket its minimum and maximum, each at the time
-    it occurred (decimator.decimated_waveform)."""
+def samples_waveform(
+    samples: np.ndarray, first: float, last: float, unit: str, ref: float, points: int
+) -> StageWaveform:
+    """Evenly spaced samples, the first at ``first`` and the last at ``last`` (s), as the lanes draw a waveform:
+    per bucket its minimum and maximum, each at the time it occurred (decimator.decimated_waveform). No array of
+    the samples' times is made."""
     from decimator import decimated_waveform
 
     if samples.size == 0:
         return {"min": [], "max": [], "minT": [], "maxT": [], "absolutePeak": 0.0, "unit": unit, "ref": ref}
     envelope = decimated_waveform(samples, min(points, samples.size), 0, samples.size)
-    span = times[-1] - times[0] if samples.size > 1 else 0.0
-    at = lambda norms: _json(times[0] + np.asarray(norms, dtype=np.float64) * span)  # noqa: E731
+    span = last - first if samples.size > 1 else 0.0
+    at = lambda norms: _json(first + np.asarray(norms, dtype=np.float64) * span)  # noqa: E731
     return {
         "min": _json(np.asarray(envelope["min"])),
         "max": _json(np.asarray(envelope["max"])),
