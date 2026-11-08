@@ -72,7 +72,8 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
     const middle = { x: box.x + box.width * 0.6, y: box.y + box.height * 0.45 };
     // Both axes are named, on screen: each name the plot gives (data-plot-axes) is written on the plot or the canvas
     // beside it that holds its value axis, whole or, where it does not fit, as its unit (fittedAxisTitle); or, written
-    // once for plots that share it (the lanes' time axis, the distribution rows' count), elsewhere on screen.
+    // once for plots that share it (the lanes' time axis, the distribution rows' count), whole, on a canvas that is no
+    // plot, on a plot stacked on the same axis, or as text on the page; never borrowed from another plot.
     const axes = (await plot.getAttribute('data-plot-axes')) ?? '';
     const names = axes.split('|');
     const written = await plot.evaluate((canvas, names) => {
@@ -83,9 +84,13 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
         };
         const axisId = canvas.getAttribute('data-plot-axis');
         const own = [...((canvas as Texted).__plotTexts ?? []), ...((axisId ? (document.getElementById(axisId) as Texted | null)?.__plotTexts : undefined) ?? [])];
-        const shown = Array.from(document.querySelectorAll<Texted>('canvas')).filter(other => other.checkVisibility()).flatMap(other => other.__plotTexts ?? []);
+        // Never another plot's own text: only canvases that are no plot (a shared axis strip) or plots stacked on this one's shared axis.
+        const stack = canvas.closest('[data-plot-stack]');
+        const shown = Array.from(document.querySelectorAll<Texted>('canvas'))
+            .filter(other => other !== canvas && other.checkVisibility() && (!other.hasAttribute('data-plot') || (!!stack && stack.contains(other))))
+            .flatMap(other => other.__plotTexts ?? []);
         const pageText = (name: string): boolean => Array.from(document.querySelectorAll<HTMLElement>('body *')).some(element => element.children.length === 0 && element.checkVisibility() && element.textContent?.trim() === name);
-        return names.map(name => !!name.trim() && (fits(own, name) || fits(shown, name) || pageText(name)));
+        return names.map(name => !!name.trim() && (fits(own, name) || shown.includes(name) || pageText(name)));
     }, names);
     if (names.length === 2 && written.every(Boolean)) passed.add('axes');
     // A hover shows its readout in the row just above the plot, and the plot does not move: a readout there shows
