@@ -614,8 +614,8 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
     // Neutral: blue and the other colours are the roles'.
     const pendingColors = { muted, line, fill: text, back: style?.getPropertyValue('--track-bg').trim() || '#0b0d10' };
     if (!view) {
-        // A lane with nothing to draw yet keeps an empty axis beside it, as its plot is empty.
-        if (options.axisCanvas) paintSideAxis(options.axisCanvas, [], '', { muted, text });
+        // A lane with nothing to draw yet keeps its value axis (ticks and name) beside it, as data-plot-axes names it.
+        if (options.axisCanvas) paintSideAxis(options.axisCanvas, valueAxisTicks(range), axes.y, { muted, text });
         if (options.pending) paintPending(context, options.pending, left + plotWidth / 2, top + plotHeight / 2, 'center', pendingColors);
         else if (options.empty) {
             // Across the whole pane (no axes are drawn), wrapped to its width: a narrow screen keeps every word.
@@ -659,7 +659,13 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
         const measure = (value: number, log: boolean): number => (log ? Math.log(Math.max(value, 1e-12)) : value);
         const rowSpans = Array.from({ length: image.height }, (_, py) => cellSpan(rowEdges,
             measure(yAxis.at(1 - (py + 1) / image.height), yAxis.log), measure(yAxis.at(1 - py / image.height), yAxis.log)));
-        const columnSpans = Array.from({ length: image.width }, (_, px) => cellSpan(columnEdges, xAxis.at(px / image.width), xAxis.at((px + 1) / image.width)));
+        // A picture with a span (a track's spectrogram on the lanes' axis) paints nothing past it, though its end
+        // cells reach half a step beyond their frames' centres.
+        const clip = layers.find(layer => layer.view === view)?.span ?? [-Infinity, Infinity];
+        const columnSpans = Array.from({ length: image.width }, (_, px) => {
+            const low = Math.max(clip[0], xAxis.at(px / image.width)), high = Math.min(clip[1], xAxis.at((px + 1) / image.width));
+            return high > low ? cellSpan(columnEdges, low, high) : null;
+        });
         const pixels = new Uint32Array(image.data.buffer);
         // A cell's colour as [r, g, b]; `dim` for a difference where both levels are far below the loudest.
         const rgbOf = (cell: number, dim = false): [number, number, number] => {

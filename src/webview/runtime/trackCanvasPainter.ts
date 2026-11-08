@@ -151,7 +151,9 @@ export function paintTrackSpectrogram(
     const picture = laneSpectrogramView(spec, place, view.durationSec);
     const axisView: StageView = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', xs: [place.startSec, place.startSec + place.spanSec], values: [0, 0] };
     const top = spec.maxFrequencyHz || view.maxFrequencyHz || 1;
-    const plot = paintOverlay(canvas, { layers: [{ view: picture, color: '' }] }, { min: view.dbLo, max: view.dbHi },
+    // Clipped to the recording: its first and last cells reach half a frame past it, where the lane shows no file.
+    const span: [number, number] = [place.startSec + place.offsetNorm * place.spanSec, place.startSec + (place.offsetNorm + place.trackDurRatio) * place.spanSec];
+    const plot = paintOverlay(canvas, { layers: [{ view: picture, color: '', span }] }, { min: view.dbLo, max: view.dbHi },
         { x: titles.time, y: titles.frequency, colour: titles.colour },
         { axisCanvas, axisView, heatmapPalette: viridis, window: { x: view.window, y: { start: Math.max(0, view.minFrequencyHz) / top, end: view.maxFrequencyHz / top } } });
     return { source: spec, key, colourBar: plot?.colourBar ?? { x: 0, y: 0, width: 0, height: 0 }, ticks: plot?.levelTicks ?? [] };

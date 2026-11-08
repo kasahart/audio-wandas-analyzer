@@ -58,7 +58,13 @@ test('a zoomed spectrogram lane asks for its window again and draws it from that
     await expect.poll(async () => (await windowRequests()).length).toBeGreaterThan(0);
     const view = await lane.getAttribute('data-plot-window');
     const [viewStart, viewEnd] = (view ?? '').split(' ').map(Number);
-    await expect.poll(async () => (await lane.getAttribute('data-spectrogram-window')) ?? '').not.toBe('0 1');
+    // The wheel steps can ask more than once (the asks are throttled): wait until the lane draws the last window asked.
+    await expect.poll(async () => {
+        const asked = await windowRequests();
+        const last = asked[asked.length - 1];
+        const drawn = (await lane.getAttribute('data-spectrogram-window')) ?? '';
+        return Boolean(last) && drawn === `${last[0]} ${last[1]}`;
+    }, { message: 'the lane draws the last window it asked for' }).toBe(true);
     const [drawnStart, drawnEnd] = ((await lane.getAttribute('data-spectrogram-window')) ?? '').split(' ').map(Number);
     expect(drawnStart).toBeLessThanOrEqual(viewStart + 1e-3);
     expect(drawnEnd).toBeGreaterThanOrEqual(viewEnd - 1e-3);

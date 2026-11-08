@@ -130,3 +130,12 @@ test('a spectrogram lane places its frames on the lanes\' time axis, in seconds,
     // Rows of frequency, each across the frames.
     assert.deepEqual(view.matrix, [[-80, -60], [-20, -40]]);
 });
+
+test('a spectrogram lane paints only where its recording is: its end cells stop at the file\'s start and end', () => {
+    // A 2 s file whose frames are centred at 0, 0.5, … 2 s (STFT centre=True), placed 1–3 s on a 4 s axis, 400 px wide.
+    const frames: SpectrogramData = { ...spec, values: Array.from({ length: 5 }, () => [-20, -20]), timeBins: 5, timeCentersSec: [0, 0.5, 1, 1.5, 2] };
+    const { canvas, pixel } = laneCanvas(400, 1);
+    paintTrackSpectrogram(canvas, null, frames, { startSec: 0, spanSec: 4, offsetNorm: 0.25, trackDurRatio: 0.5 }, { ...laneView, durationSec: 2 }, undefined, TITLES, '');
+    const painted = Array.from({ length: 400 }, (_, x) => x).filter(x => pixel(x, 0).some(channel => channel > 0));
+    assert.deepEqual([painted[0], painted.at(-1)], [100, 299]);
+});
