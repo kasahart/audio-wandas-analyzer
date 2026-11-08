@@ -142,8 +142,13 @@ window.__uiSmokeHostMetrics = {
 const uiSmokeSpectrumBins = function(message) {
     return message.fullResolution ? 4097 : 192;
 };
+// A test may set window.__uiSmokeSpikeHz: one bin there stands at −2 dB in an answer at full resolution only, a
+// line a spectrum cut for display (192 points) does not have.
 const uiSmokeSpectrumValues = function(cursorNorm, channelIndex, bins) {
+    const spikeHz = window.__uiSmokeSpikeHz;
+    const spike = bins > 192 && typeof spikeHz === 'number' ? Math.round(spikeHz / 4000 * (bins - 1)) : -1;
     return Array.from({ length: bins }, function(_, index) {
+        if (index === spike) return -2;
         const frequencyNorm = index / (bins - 1);
         const ridge = 0.18 + 0.55 * cursorNorm + channelIndex * 0.04;
         return -100 + Math.max(0, 1 - Math.abs(frequencyNorm - ridge) * 8) * 88;

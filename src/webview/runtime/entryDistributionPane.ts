@@ -184,7 +184,7 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
         axisCanvas.style.width = `${width}px`;
         paintOverlay(axisCanvas, { layers: [{ view: axisView, color: '', full: 'drawn' }] }, { min: 0, max: 1 }, { x: axisLabel, y: strings.dsDistCountAxis.replace('{unit}', unit) },
             { window: zoom, margins: { left: DIST_MARGINS.left, right: DIST_MARGINS.right, top: 0, bottom: 19 }, yAxisLabels: false });
-        countAxis.textContent = strip ? '' : strings.dsDistCountAxis.replace('{unit}', unit);
+        countAxis.textContent = strings.dsDistCountAxis.replace('{unit}', unit);
         if (strip && scrollToSlot) {
             scrollToSlot = false;
             const compared = slotted.find(item => item.slot > 0) ?? slotted[0];
