@@ -134,12 +134,16 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
         const recipe = deps.runRecipe() ?? deps.recipe();
         if (!recipe) return null;
         const paired = slotReferenced(deps.recipe()).length > 0;
-        const ofRow = (chain: RecipeDocument): RecipeDocument => (ch ? withChannel(chain, ch, paired) : chain);
-        if (step.name === 'welch') return { with: holdSpec(ofRow(recipe), step.id) };
+        // The channel is picked (or not) by the whole chain, once, for both pictures: a chain that compares the
+        // recording's channels (an unpaired channel_difference) keeps them all, with or without the step held, so
+        // its Δ is the step's alone and not one channel against all of them.
+        const withRow = ch ? withChannel(recipe, ch, paired) : recipe;
+        const picks = withRow !== recipe;
+        if (step.name === 'welch') return { with: holdSpec(withRow, step.id) };
         const limits = deps.limits();
         const end = recipeSteps(recipe, limits).filter(item => item.invalid === undefined).at(-1)?.id;
         const without = end ? recipeWithout(recipe, step.id, end, limits, slotReferenced(deps.recipe())) : null;
-        return end && without ? { with: holdSpec(ofRow(recipe), end), without: holdSpec(ofRow(without), end) } : null;
+        return end && without ? { with: holdSpec(withRow, end), without: holdSpec(picks && ch ? withChannel(without, ch, true) : without, end) } : null;
     }
     /** The held plot's picture and what it was drawn on, for its readout and an axis's range. */
     function paintView(view: StageView | null, picture: StageView | null, range: PaneRange, axes: StageAxes, zoom: PlotWindow, options: { diff?: boolean; color: string; empty?: string }): void {

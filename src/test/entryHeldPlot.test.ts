@@ -199,6 +199,34 @@ test('a held step draws the channel its row is compared as, not every channel av
     assert.ok(plain.every(message => !(message.recipe as unknown as { nodes: Array<{ id: string }> }).nodes.some(node => node.id === 'node-channel')));
 });
 
+test('a held step of a chain that compares the recording\'s channels picks no channel for either picture', () => {
+    // An unpaired channel_difference needs every channel: with it held, the "with" picture keeps them all, and so does
+    // the "without" one, so the Δ is the step's and not one channel against all of them.
+    const recipe = {
+        schema: 'wandas.recipe', version: 3, inputs: [{ id: 'input-0', name: 'signal', kind: 'frame' }],
+        nodes: [
+            { id: 'node-0', operation: 'wandas.audio.channel_difference', version: 1, inputs: ['input-0'], params: { $type: 'map', entries: [['other_channel', 0]] } },
+            { id: 'node-2', operation: 'wandas.audio.welch', version: 3, inputs: ['node-0'], params: { $type: 'map', entries: [['n_fft', 1024]] } },
+        ],
+        output: 'node-2',
+    } as unknown as RecipeDocument;
+    const results = new Map<string, ScanResult>([['/d/a.wav', scanned()]]);
+    const { plot, state, calls } = setup(results, { recipe, channelOf: () => 2 });
+    state.focused = '/d/a.wav';
+    plot.holdStep(step({ id: 'node-0', operation: 'wandas.audio.channel_difference', name: 'channel_difference' }));
+    plot.paint();
+    // The picture with the step is asked for first; once it is in, the one without it.
+    const posted = () => calls.flatMap(([kind, message]) => (kind === 'post' ? [message as { requestId: string; recipe?: RecipeDocument }] : []));
+    const first = posted()[0];
+    assert.ok(first);
+    plot.handle({ type: 'compare-scan-result', requestId: first.requestId, filePath: '/d/a.wav', result: { ...scanned(), stage: { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity: 'level', xs: [100, 1000], values: [-40, -50], data: 'k1' } } } as { type: string });
+    plot.handle({ type: 'compare-scan-done', requestId: first.requestId } as { type: string });
+    plot.paint();
+    const asked = posted().filter(message => message.recipe);
+    assert.equal(asked.length, 2, 'with and without the step');
+    for (const message of asked) assert.ok(!(message.recipe as unknown as { nodes: Array<{ id: string }> }).nodes.some(node => node.id === 'node-channel'));
+});
+
 test('narrowed takes a window\'s vertical part of a level range', () => {
     assert.deepEqual(narrowed({ min: -20, max: 20 }, { x: { start: 0, end: 1 }, y: { start: 0.25, end: 0.75 } }), { min: -10, max: 10 });
 });
