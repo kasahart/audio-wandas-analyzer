@@ -104,8 +104,9 @@ test('the cursor spectrum zoomed in asks for its slices at full resolution, so t
     await page.setContent(buildExtensionHostPathUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
     const plot = page.locator('#spectrum-overlay-canvas');
     await expect.poll(() => plot.getAttribute('data-plot-axes')).not.toBe('');
-    const asked = (): Promise<boolean[]> => page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Array<{ type: string; fullResolution?: boolean }> }).__uiSmokePostedMessages
-        .filter(message => message.type === 'request-spectrum-slice').map(message => !!message.fullResolution));
+    // The slices drawn; a read of every bin (`read`: the readout's numbers and the lines' order, R7 and R6) is not one.
+    const asked = (): Promise<boolean[]> => page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Array<{ type: string; fullResolution?: boolean; read?: boolean }> }).__uiSmokePostedMessages
+        .filter(message => message.type === 'request-spectrum-slice' && !message.read).map(message => !!message.fullResolution));
     // The whole spectrum: its thinned rows are enough.
     await expect.poll(async () => (await asked()).length).toBeGreaterThan(0);
     expect((await asked()).every(full => !full)).toBe(true);

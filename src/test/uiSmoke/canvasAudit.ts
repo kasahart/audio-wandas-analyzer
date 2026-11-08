@@ -16,8 +16,9 @@
  *
  * And (R6): a plot on screen that drew a louder compared line over a quieter one fails it, whichever plot it is. The
  * plot component writes the levels of the lines it compared, in the order it drew them (`data-plot-order`); they
- * never rise, so the quietest line is on top on every plot, and each is measured from the values before thinning
- * (`levelBins`), never from the drawn points ('?').
+ * never rise, so the quietest line is on top on every plot, and each is measured from every value on screen before
+ * thinning (`levelBins`, or the line's full data), never from the drawn points ('?'); a level still being fetched
+ * ('…') is judged once it is in, and a plot that stays so fails.
  *
  * And (R7): a plot on screen that draws a layer without saying where its full data is read (`data-plot-full`
  * "missing: …", fullRead.ts) fails it: its readout would read the points thinned to be drawn.
@@ -32,8 +33,11 @@ export * from '@playwright/test';
  * so 6 frames and 100 ms (both, for a slow machine's long frames) is a canvas that will not be drawn again.
  */
 const SETTLE = { frames: 6, ms: 100 };
+/** How long a plot on screen may show a level still being fetched for its order (R6) before it fails. */
+const MEASURE_MS = 5000;
 const AUDIT = {
     settle: SETTLE,
+    measureMs: MEASURE_MS,
     others: [...PLOTS_PENDING.map(item => item.selector), ...PLOT_LAYERS].join(', '),
     drawnOutside: DRAWN_OUTSIDE_PENDING.map(item => item.selector).join(', '),
     svgCharts: SVG_CHARTS_PENDING.map(item => item.selector).join(', '),
@@ -46,7 +50,7 @@ declare global {
 }
 
 /** Runs in the page: samples the canvases on screen and records each one that stayed at another size. */
-function installCanvasAudit({ settle, others, drawnOutside, svgCharts, svgMin }: { settle: { frames: number; ms: number }; others: string; drawnOutside: string; svgCharts: string; svgMin: { width: number; height: number } }): void {
+function installCanvasAudit({ settle, measureMs, others, drawnOutside, svgCharts, svgMin }: { settle: { frames: number; ms: number }; measureMs: number; others: string; drawnOutside: string; svgCharts: string; svgMin: { width: number; height: number } }): void {
     if (window.__canvasAudit) return;
     const canvasName = (canvas: HTMLCanvasElement): string => (canvas.id ? `#${canvas.id}` : `canvas${Array.from(canvas.attributes).filter(a => a.name === 'class' || (a.name.startsWith('data-') && !a.name.startsWith('data-plot'))).map(a => (a.name === 'class' ? `.${a.value.trim().split(/\s+/).join('.')}` : `[${a.name}]`)).join('')}`);
     // What drew each plot: a draw into a canvas the plot component marked, made while the component is not drawing,
@@ -274,9 +278,13 @@ function installCanvasAudit({ settle, others, drawnOutside, svgCharts, svgMin }:
     const rises = (order: string): boolean => order.split(';').some(axis => {
         // A compared level ordered with no levels from the values before thinning ('?', drawnLevelsText) fails too.
         if (axis.split(',').includes('?')) return true;
+        // A level still being fetched ('…') is not judged yet: the plot draws itself again once it is in.
+        if (axis.split(',').includes('…')) return false;
         const levels = axis.split(',').map(level => (level === '-inf' ? -Infinity : Number(level)));
         return levels.some((level, index) => index > 0 && level > levels[index - 1]);
     });
+    // Since when each plot on screen has shown a level still being fetched: one that never comes in fails too.
+    const measuringSince = new WeakMap<HTMLCanvasElement, number>();
     const samplePlots = (): void => {
         const now = performance.now();
         for (const canvas of Array.from(document.querySelectorAll('canvas'))) {
@@ -285,6 +293,12 @@ function installCanvasAudit({ settle, others, drawnOutside, svgCharts, svgMin }:
                 const name = `order ${canvasName(canvas)}: ${order}`;
                 if (!reported.has(name)) { reported.add(name); misordered.push(`${canvasName(canvas)} drew levels ${order}`); }
             }
+            if (order?.includes('…') && canvas.hasAttribute('data-plot') && shownBox(canvas)) {
+                const since = measuringSince.get(canvas) ?? now;
+                measuringSince.set(canvas, since);
+                const name = `measuring ${canvasName(canvas)}`;
+                if (now - since > measureMs && !reported.has(name)) { reported.add(name); misordered.push(`${canvasName(canvas)} never measured its levels on screen: ${order}`); }
+            } else measuringSince.delete(canvas);
             if (shownBox(canvas)) reportUnseen(canvas, 'drawn before it was a plot, or off the page');
             const full = canvas.getAttribute('data-plot-full');
             if (full?.startsWith('missing') && canvas.hasAttribute('data-plot') && shownBox(canvas)) {

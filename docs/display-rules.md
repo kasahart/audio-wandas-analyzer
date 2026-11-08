@@ -110,7 +110,7 @@
 
 比較台は dB の差ではなく重ね描きです。実線で、塗りつぶしません。レベルの大きいものから描き、静かなものが最後に上に来ます。
 
-線を重ねるグラフはどれも同じです（比較台、レポートの重ね図、カーソルスペクトル、ペアの図、トリガーのレーンなど）。描く順は呼ぶ側ではなく共通の部品 `paintOverlay`（`src/webview/runtime/stagePanes.ts` の `overlayOrder`）が決めるので、呼ぶ側がどの順で線を渡しても、静かな線が上に来ます。レベルは画面に見えている範囲の値で比べます。比べる値は間引く前の全部の値で、描いた点は使いません（R2）。処理部（または全データを持つ Webview）が、線ごとに軸を 256 の区間に分けて、各区間のパワーと値の数を `levelBins` として付けます。スペクトルは dB 値のパワー平均、波形はサンプルの二乗平均（共通の振幅軸で）です。拡大して 1 サンプルずつになっても、直流の信号でも、正しい大きさになります。dB の線と波形で `levelBins` がないものは、`data-plot-order` に「?」と書き、UI テストを失敗にします。dB でない線（位相、γ²、分布の目盛りの線など）は、レベルのある線の後に、渡された順のまま描きます。比べる線でないもの（点や目盛りのしるし、塗った棒、ヒートマップ、レーンの一部だけを細かく描き直す部分）は、呼ぶ側が置いた位置のままです。右の第 2 のレベル軸の線は、その中で同じ順にします。トリガーのイベントは、その録音の線として一緒に並びます。色は役割の色のままで、順によって変わりません。マウスで強調した線は、この順とは別に、上の層に太く描きます。部品は描いた順の線のレベルを `data-plot-order` に書き、UI テスト全件で、画面に出ているグラフのどれかでレベルが上がる順に描いたら、そのテストを失敗にします（`src/test/uiSmoke/canvasAudit.ts`）。
+線を重ねるグラフはどれも同じです（比較台、レポートの重ね図、カーソルスペクトル、ペアの図、トリガーのレーンなど）。描く順は呼ぶ側ではなく共通の部品 `paintOverlay`（`src/webview/runtime/stagePanes.ts` の `overlayOrder`）が決めるので、呼ぶ側がどの順で線を渡しても、静かな線が上に来ます。レベルは画面に見えている範囲の値で比べます。比べる値は間引く前の全部の値で、描いた点は使いません（R2）。処理部（または全データを持つ Webview）が、線ごとに軸を 256 の区間に分けて、各区間のパワーと値の数を `levelBins` として付けます。スペクトルは dB 値のパワー平均、波形はサンプルの二乗平均（共通の振幅軸で）です。区間が全部画面の中か外にあるときは `levelBins` だけで決まります。画面の端が値のある区間を切るときは、その区間のどの値が見えているかは `levelBins` ではわからないので、その線の全データ（`full`）から、画面に見えている範囲の値だけを全部使ってパワーを出します。Webview が全データを持つ線はその場で、バックエンドが持つ線（比較台の図・中央値、表示用に切ったカーソルスペクトルなど）は読み値と同じ仕組みで取り寄せます（`fullRead.ts` の `level`、バックエンドは `full_read.py` の `read_level`）。表示用に切ったカーソルスペクトルは、描くために残した点で `levelBins` を作らず、全ビンから測ります。届くまでは `data-plot-order` に「…」と書き、届いたら部品が描き直します。5 秒たっても「…」のままのグラフは UI テストを失敗にします。拡大して 1 サンプルずつになっても、直流の信号でも、正しい大きさになります。dB の線と波形で `levelBins` がないものは、`data-plot-order` に「?」と書き、UI テストを失敗にします。dB でない線（位相、γ²、分布の目盛りの線など）は、レベルのある線の後に、渡された順のまま描きます。比べる線でないもの（点や目盛りのしるし、塗った棒、ヒートマップ、レーンの一部だけを細かく描き直す部分）は、呼ぶ側が置いた位置のままです。右の第 2 のレベル軸の線は、その中で同じ順にします。トリガーのイベントは、その録音の線として一緒に並びます。色は役割の色のままで、順によって変わりません。マウスで強調した線は、この順とは別に、上の層に太く描きます。部品は描いた順の線のレベルを `data-plot-order` に書き、UI テスト全件で、画面に出ているグラフのどれかでレベルが上がる順に描いたら、そのテストを失敗にします（`src/test/uiSmoke/canvasAudit.ts`）。
 
 - テスト: `src/test/stagePanes.test.ts` › every plot draws its overlaid lines loudest first and the quietest last on top, whatever order the caller gives them (R6)
 - テスト: `src/test/stagePanes.test.ts` › a picture that is not a compared line keeps the place its caller gave it among the overlay (R6)
@@ -121,6 +121,10 @@
 - テスト: `src/test/stagePanes.test.ts` › waveforms are ordered by their samples' mean square on the shared amplitude axis, whatever their level reference
 - テスト: `src/test/stagePanes.test.ts` › the order comes from every value before thinning, never from the points drawn (R2, R6)
 - テスト: `src/test/stagePanes.test.ts` › a level drawn with no levels from its values before thinning is written as unmeasured, for the audit to fail (R6)
+- テスト: `src/test/stagePanes.test.ts` › zoomed, lines are ordered by every value on screen: a loud peak just off screen, in a stretch the edge cuts, does not count (R6, R2)
+- テスト: `src/test/stagePanes.test.ts` › a line the webview holds every value of is ordered at once by its values on screen, the stretch cut by the edge too (R6)
+- テスト: `src/test/overlaySpectrumPainter.test.ts` › the cursor spectrum orders a slice cut for display by every bin on screen, not by the points kept to draw it (R6, R2)
+- テスト: `python-backend/test_full_read.py` › test_a_level_read_takes_every_value_inside_its_window_and_none_outside
 - テスト: `python-backend/test_stage_combine.py` › test_a_signals_level_bins_are_its_samples_mean_square_whole_and_zoomed
 - テスト: `python-backend/test_stage_combine.py` › test_every_compared_level_line_carries_level_bins_whole_zoomed_and_as_a_median
 

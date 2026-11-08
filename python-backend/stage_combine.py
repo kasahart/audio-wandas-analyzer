@@ -39,7 +39,7 @@ from wandas.frames.segments import ChannelFrameSegments
 import analysis_spec as spec
 import stage_view as sv
 from decimator import bucket_edges
-from full_read import StagePoints, StageRead, read_cells, read_line, sorted_axis, uniform_axis
+from full_read import SILENT_DB, StagePoints, StageRead, read_cells, read_line, sorted_axis, uniform_axis
 from stage_view import StageDetail, StageLevelBins, StageView
 
 #: How much of the Frames' values the backend keeps for the comparison's medians and differences. The least
@@ -65,8 +65,6 @@ Mode = Literal[
     "correlation",
 ]
 DB_QUANTITIES = ("level", "gain")
-#: A level at or below this is silence (the webview's `silent`): no power.
-SILENT_DB = -250.0
 
 
 @dataclass(frozen=True)

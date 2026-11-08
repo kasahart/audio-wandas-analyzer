@@ -568,7 +568,7 @@ DEFINITIONS: dict[str, Schema] = {
     # [x]) in the axis's own units, an image's row place ``y`` (and ``rows`` either side of it), points past each
     # end (``beyond``) and, for a window too dense to send whole, ``columns`` pixel columns across it (log-spaced on
     # a ``log`` axis) and the level ``near`` the pointer. ``event`` names a trigger's event, ``of`` a combined
-    # picture, ``channel`` a lane's.
+    # picture, ``channel`` a lane's. ``level`` asks instead for the power of every value in the window (R6).
     "StageRead": {
         "type": "object",
         "required": ["x"],
@@ -583,6 +583,7 @@ DEFINITIONS: dict[str, Schema] = {
             "event": {"type": "integer", "minimum": 0},
             "of": {"type": "string", "enum": ["base", "diff"]},
             "channel": {"type": "integer", "minimum": 0},
+            "level": {"type": "string", "enum": ["db", "square"]},
         },
     },
     # Real points of the full-resolution data a plot reads (full_read.py): a line's ``values`` over ``xs``, an
@@ -598,6 +599,12 @@ DEFINITIONS: dict[str, Schema] = {
             "start": {"anyOf": [_NUMBER, _NULL]},
             "end": {"anyOf": [_NUMBER, _NULL]},
             "complete": {"type": "boolean"},
+            # A level read's answer: the mean power of the window's ``count`` finite values.
+            "level": {
+                "type": "object",
+                "required": ["power", "count"],
+                "properties": {"power": _NUMBER, "count": {"type": "integer", "minimum": 0}},
+            },
         },
     },
     # One step's Frame as the comparison draws it (stage_view.py). Line and bar give ``values`` over

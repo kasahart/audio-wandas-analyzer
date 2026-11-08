@@ -5,12 +5,23 @@
  * tested against the real backend (narrowFeatures.spec.ts, test_full_read.py).
  *
  * The script defines `uiSmokeReadAnswer(message)`: the answer to a lane's read ('request-waveform-range' or
- * 'request-track-detail' with `read`), or null for anything else or when the test answers them
+ * 'request-track-detail' with `read`, or a line's level read), or null for anything else or when the test answers them
  * (`window.__uiSmokeTestAnswersReads`); and `uiSmokeReadPoints(view, read)` for a picture's.
  */
 export const UI_SMOKE_READS = `
 function uiSmokeReadLine(xs, values, read) {
     var x0 = Math.min.apply(null, read.x), x1 = Math.max.apply(null, read.x);
+    if (read.level) {
+        // A level read (R6's order, full_read.read_level): the mean power of every value in the window.
+        var power = 0, count = 0;
+        xs.forEach(function(x, index) {
+            var value = values[index];
+            if (x < x0 || x > x1 || value === null || value === undefined || !isFinite(value)) return;
+            power += read.level === 'square' ? value * value : value <= -250 ? 0 : Math.pow(10, value / 10);
+            count += 1;
+        });
+        return { xs: [], start: null, end: null, complete: false, level: { power: count ? power / count : 0, count: count } };
+    }
     var beyond = read.beyond === undefined ? 1 : read.beyond;
     var low = 0;
     while (low < xs.length && xs[low] < x0) low++;
