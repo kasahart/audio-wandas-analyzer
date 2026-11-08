@@ -44,7 +44,8 @@ function installCanvasAudit({ settle, others, drawnOutside, svgCharts, svgMin }:
     if (window.__canvasAudit) return;
     const canvasName = (canvas: HTMLCanvasElement): string => (canvas.id ? `#${canvas.id}` : `canvas${Array.from(canvas.attributes).filter(a => a.name === 'class' || (a.name.startsWith('data-') && !a.name.startsWith('data-plot'))).map(a => (a.name === 'class' ? `.${a.value.trim().split(/\s+/).join('.')}` : `[${a.name}]`)).join('')}`);
     // What drew each plot: a draw into a canvas the plot component marked, made while the component is not drawing,
-    // is recorded (copying a kept picture back, drawImage of a canvas, is the component's own picture again).
+    // is recorded. A picture copied in from another canvas (drawImage) is a draw too: only the component, while it
+    // paints (__plotPainting), puts a picture on a plot.
     const drawn: string[] = [];
     window.__drawnAudit = drawn;
     const drawnSeen = new Set<string>();
@@ -55,10 +56,60 @@ function installCanvasAudit({ settle, others, drawnOutside, svgCharts, svgMin }:
             const canvas = this.canvas;
             // A plot on the page (an export's picture made off the page, with its white paper under it, is not one).
             if (canvas instanceof HTMLCanvasElement && canvas.isConnected && canvas.hasAttribute('data-plot') && !(window.__plotPainting ?? 0)
-                && !(method === 'drawImage' && args[0] instanceof HTMLCanvasElement) && !(drawnOutside && canvas.matches(drawnOutside))) {
+                && !(drawnOutside && canvas.matches(drawnOutside))) {
                 const name = `${canvasName(canvas)}: ${method}`;
                 if (!drawnSeen.has(name)) { drawnSeen.add(name); drawn.push(name); }
             }
+            return original.apply(this, args);
+        };
+    }
+    // What the plot component drew on each plot, for a test to read what is on it (not only its attributes): each
+    // stroke's colour and its points, and the rectangle it was clipped to, in the canvas's CSS pixels. A plot's record
+    // starts again each time the component clears the whole of it (each paint).
+    type Stroke = { color: string; points: Array<[number, number]>; clip: [number, number, number, number] | null };
+    type Kept = { path: Array<[number, number]>; rect: [number, number, number, number] | null; clip: Array<[number, number, number, number] | null>; strokes: Stroke[] };
+    const keptOf = (context: CanvasRenderingContext2D): Kept | null => {
+        const canvas = context.canvas as HTMLCanvasElement & { __plotDrawn?: Kept };
+        if (!(window.__plotPainting ?? 0) || !(canvas instanceof HTMLCanvasElement)) return null;
+        canvas.__plotDrawn ??= { path: [], rect: null, clip: [null], strokes: [] };
+        return canvas.__plotDrawn;
+    };
+    /** A point of the path in the canvas's CSS pixels: through the context's transform, then its bitmap's scale. */
+    const cssPoint = (context: CanvasRenderingContext2D, x: number, y: number): [number, number] => {
+        const at = context.getTransform().transformPoint({ x, y });
+        const { canvas } = context;
+        const scale = canvas.clientWidth ? canvas.width / canvas.clientWidth : 1;
+        return [at.x / scale, at.y / scale];
+    };
+    const recorders: Record<string, (context: CanvasRenderingContext2D, kept: Kept, args: number[]) => void> = {
+        clearRect(context, kept, [x, y, width, height]) {
+            const [left, top] = cssPoint(context, x, y), [right, bottom] = cssPoint(context, x + width, y + height);
+            const { canvas } = context;
+            if (left <= 0 && top <= 0 && right >= canvas.clientWidth - 1 && bottom >= canvas.clientHeight - 1) { kept.strokes = []; kept.path = []; kept.clip = [null]; }
+        },
+        beginPath(_context, kept) { kept.path = []; kept.rect = null; },
+        moveTo(context, kept, [x, y]) { kept.path.push([NaN, NaN], cssPoint(context, x, y)); },
+        lineTo(context, kept, [x, y]) { kept.path.push(cssPoint(context, x, y)); },
+        rect(context, kept, [x, y, width, height]) {
+            const [left, top] = cssPoint(context, x, y), [right, bottom] = cssPoint(context, x + width, y + height);
+            kept.rect = [left, top, right - left, bottom - top];
+        },
+        clip(_context, kept) { kept.clip[kept.clip.length - 1] = kept.rect; },
+        save(_context, kept) { kept.clip.push(kept.clip[kept.clip.length - 1] ?? null); },
+        restore(_context, kept) { if (kept.clip.length > 1) kept.clip.pop(); },
+        stroke(context, kept) {
+            // Each run of the path (from a moveTo) a stroke of its own.
+            let run: Array<[number, number]> = [];
+            const close = (): void => { if (run.length > 1) kept.strokes.push({ color: typeof context.strokeStyle === 'string' ? context.strokeStyle : 'pattern', points: run, clip: kept.clip[kept.clip.length - 1] ?? null }); run = []; };
+            for (const point of kept.path) { if (Number.isNaN(point[0])) close(); else run.push(point); }
+            close();
+        },
+    };
+    for (const [method, record] of Object.entries(recorders)) {
+        const original = proto[method];
+        proto[method] = function (this: CanvasRenderingContext2D, ...args: unknown[]) {
+            const kept = keptOf(this);
+            if (kept) record(this, kept, args as number[]);
             return original.apply(this, args);
         };
     }

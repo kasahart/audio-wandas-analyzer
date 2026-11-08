@@ -1282,7 +1282,9 @@ export function stageNeighbour(plot: StagePlot, read: StageRead, delta: -1 | 1):
         const value = values[index];
         if (value === null || value === undefined || silent(view, value)) continue;
         const x = plot.xAt(xs[index]);
-        if (!onPlot(plot, x, (plot.lineYAt ?? plot.yAt)(value))) return null;
+        // Past the plot's side there is nothing further to read; a point above or below the level axis is read at the
+        // plot's edge, where yAt holds it, as the pointer reads it there.
+        if (x < plot.frame.left || x > plot.frame.left + plot.frame.width) return null;
         return { x, y: plot.yAt(value) };
     }
     return null;

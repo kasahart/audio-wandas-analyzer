@@ -76,3 +76,18 @@ test('with two level axes a line a level zoom clips off the plot is not read ove
     assert.equal(layer.reading()?.layer.label, 'shown');
     assert.match(slot!.textContent ?? '', /^shown \/ /u);
 });
+
+test('an arrow key steps to a point above or below the level axis as the pointer reads it there, held at the plot\'s edge (R7)', () => {
+    const { plot, slot, layer } = setup();
+    // Levels 0–10 on the plot; from the fourth point on the line is far below it (a floor at −100).
+    const drawn = plotWith([line('a', '#f00', [5, 5, 5, -100, -100, -100, -100, -100, -100, -100])]);
+    drawn.lineYAt = drawn.yAt;
+    drawn.yAt = (v: number) => Math.max(10, Math.min(110, 110 - v * 10));
+    layer.show(plot, drawn, 70, 60, slot);
+    assert.equal(layer.reading()?.index, 2);
+    // The next point is at the bottom edge, where the pointer would read it.
+    assert.deepEqual(layer.stepFrom(plot, drawn, 1), { clientX: 80, clientY: 110 });
+    layer.show(plot, drawn, 80, 110, slot);
+    assert.equal(layer.reading()?.index, 3);
+    assert.deepEqual(layer.stepFrom(plot, drawn, 1), { clientX: 90, clientY: 110 });
+});
