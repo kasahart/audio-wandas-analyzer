@@ -672,6 +672,12 @@ DEFINITIONS: dict[str, Schema] = {
                     "count": {"type": "array", "items": {"type": "integer", "minimum": 0}},
                 },
             },
+            # A difference's largest magnitude over the part on screen, from every value before thinning (headline).
+            "peak": {
+                "type": "object",
+                "required": ["x", "value"],
+                "properties": {"x": _NUMBER, "y": _NUMBER, "value": _NUMBER, "xStep": _NUMBER, "yStep": _NUMBER},
+            },
             # A trigger's segments: each event's signal (channels averaged) over the time from its trigger, drawn as
             # its own line; ``values`` are their mean.
             "events": {

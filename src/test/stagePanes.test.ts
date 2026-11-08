@@ -18,14 +18,16 @@ function minus(base: StageView, compare: StageView): StageView {
         : { ...compare, values: (compare.values ?? []).map((value, index) => sub(value, base.values?.[index])) };
 }
 
-test('the Δ pane\'s headline names where the difference drawn is largest', () => {
-    const diff = minus(line([-40, -30, -20]), line([-41, -16, -20]));
-    assert.equal(stageHeadline(diff, strings), '1 kHz +14.0 dB');
-    // A linear quantity, without dB.
-    assert.equal(stageHeadline(minus(line([0.1, 0.2, 0.3], 'coherence'), line([0.2, 0.2, 0.2], 'coherence')), strings), '100 Hz +0.100');
+test('the Δ pane\'s headline writes the backend\'s largest difference, found before thinning, never the largest point drawn', () => {
+    // The drawn points say +14 dB at 1 kHz; the full-resolution peak (stage_combine.difference_peak) is elsewhere.
+    const diff: StageView = { ...minus(line([-40, -30, -20]), line([-41, -16, -20])), peak: { x: 1250, value: 17.5, xStep: 1 } };
+    assert.equal(stageHeadline(diff, strings), '1.25 kHz +17.5 dB');
+    assert.equal(stageHeadline({ ...line([0, 0, 0], 'coherence'), peak: { x: 100, value: 0.1 } }, strings), '100 Hz +0.100');
     assert.equal(stageHeadline(null, strings), 'none');
-    const heat: StageView = { frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity: 'level', yAxis: 'frequency', xs: [0.5, 1], ys: [100, 1000], matrix: [[-40, -40], [-30, -30]] };
-    assert.equal(stageHeadline(minus(heat, { ...heat, matrix: [[-40, -45], [-30, -30]] }), strings), '1.00 s · 100 Hz −5.0 dB');
+    // Drawn points but no peak: nothing found at full resolution, so nothing is named from the picture.
+    assert.equal(stageHeadline(minus(line([-40, -30, -20]), line([-41, -16, -20])), strings), 'none');
+    const heat: StageView = { frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity: 'level', yAxis: 'frequency', xs: [0.5, 1], ys: [100, 1000], matrix: [[0, -5], [0, 0]], peak: { x: 1, y: 100, value: -5 } };
+    assert.equal(stageHeadline(heat, strings), '1.00 s · 100 Hz −5.0 dB');
 });
 
 test('levels share a range of four round steps; coherence keeps 0 to 1', () => {
@@ -72,7 +74,7 @@ test('a cepstrum is drawn on a quefrency axis, symmetric about zero without its 
     assert.deepEqual(stageAxes(names, view, undefined), { x: 'Quefrency s', y: 'Real cepstrum' });
     const diff = minus(view, cepstrum([-8.4, 0.03, -0.02, 0.005]));
     assert.deepEqual(stageAxes(names, diff, undefined, true), { x: 'Quefrency s', y: 'Δ Real cepstrum' });
-    assert.equal(stageHeadline(diff, strings), '1.00 ms +0.0200');
+    assert.equal(stageHeadline({ ...diff, peak: { x: 0.001, value: 0.02, xStep: 0.001 } }, strings), '1.00 ms +0.0200');
     assert.deepEqual(stageDiffRange(diff), { min: -0.022, max: 0.022 });
 });
 
@@ -85,21 +87,13 @@ test('a cross-correlation is drawn over a signed lag axis on the fixed [-1, 1] c
     assert.deepEqual(stageAxes(names, view, undefined), { x: 'Lag s', y: 'Correlation coefficient · ch2 / ch1' });
     const diff = minus(view, correlation([0.1, -0.2, 0.3, 0.55]));
     assert.deepEqual(stageAxes(names, diff, undefined, true), { x: 'Lag s', y: 'Δ Correlation coefficient · ch2 / ch1' });
-    assert.equal(stageHeadline(diff, strings), '+1.00 ms −0.400');
+    assert.equal(stageHeadline({ ...diff, peak: { x: 0.001, value: -0.4, xStep: 0.001 } }, strings), '+1.00 ms −0.400');
     // A delay is read to 10 µs at any lag, and none has no sign.
     const long: StageView = { ...view, xs: [-0.0125, 0, 0.0125, 0.02] };
     // Points 50 px apart, so the pointer over each reads that one.
     const plot: StagePlot = { frame: { left: 0, top: 0, width: 200, height: 100 }, xAt: value => (value + 0.0125) * 4000, yAt: value => -value, ratioStep: 1.12, lines: [{ view: long, color: 'blue' }], diff: false };
     assert.match(stageHover(plot, 0, 0)!.text, /^−12\.50 ms/);
     assert.match(stageHover(plot, 50, 0)!.text, /^0\.00 ms/);
-});
-
-test('an STFT column whose window sticks out of the signal is drawn but never heads the Δ pane', () => {
-    const at = { stageNoDelta: 'none', stageMaxDelta: '{at} {delta}' };
-    const heat = (matrix: number[][]): StageView => ({ frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity: 'level', yAxis: 'frequency', xs: [0, 1, 2], ys: [100, 1000], matrix, whole: [true, true, false] });
-    const diff = minus(heat([[-40, -40, -40], [-30, -30, -30]]), heat([[-40, -38, -25], [-30, -30, -30]]));
-    // The last column differs most (+15 dB) but reads padding: the headline names the next largest.
-    assert.equal(stageHeadline(diff, at), '1.00 s · 100 Hz +2.0 dB');
 });
 
 test('a trigger\'s events are each a line of their slot, on one amplitude range, with no difference between recordings', () => {

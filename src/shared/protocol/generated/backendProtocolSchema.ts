@@ -1649,6 +1649,31 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                     },
                     "additionalProperties": false
                 },
+                "peak": {
+                    "type": "object",
+                    "required": [
+                        "x",
+                        "value"
+                    ],
+                    "properties": {
+                        "x": {
+                            "type": "number"
+                        },
+                        "y": {
+                            "type": "number"
+                        },
+                        "value": {
+                            "type": "number"
+                        },
+                        "xStep": {
+                            "type": "number"
+                        },
+                        "yStep": {
+                            "type": "number"
+                        }
+                    },
+                    "additionalProperties": false
+                },
                 "events": {
                     "type": "array",
                     "items": {
@@ -2476,6 +2501,13 @@ export interface StageView {
     edges: number[];
     power: number[];
     count: number[];
+};
+    peak?: {
+    x: number;
+    y?: number;
+    value: number;
+    xStep?: number;
+    yStep?: number;
 };
     events?: {
     id: number;
