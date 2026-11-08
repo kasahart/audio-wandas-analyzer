@@ -14,7 +14,7 @@ import { DEFAULT_PYTHON_ENVIRONMENT_STATE, isResponseToLazyRequest, mergeDetailS
 import type { DrawTheme } from '../draw/canvasDrawers';
 import { isCacheSufficient, isOverviewSufficient, isRangeCacheDrawable, parseRangeRequestKey, planLaneRange, rangeCacheCoversView, rangeHasDetail } from '../waveform/rangeRequestPolicy';
 import { extractSpectrumAtCursor as extractCursorSpectrum } from '../spectrum/cursorSpectrum';
-import { spectrogramBandServes, spectrogramRowSpan, spectrogramWindowServes, spectrogramZoomBand, spectrogramZoomWindow, type SpectrogramBand, type SpectrogramBandSource, type SpectrogramWindow, type SpectrogramZoomSource } from '../spectrum/spectrogramZoom';
+import { spectrogramBandServes, spectrogramWindowServes, spectrogramZoomBand, spectrogramZoomWindow, type SpectrogramBand, type SpectrogramBandSource, type SpectrogramWindow, type SpectrogramZoomSource } from '../spectrum/spectrogramZoom';
 import { buildSpectrumCsv, wavLoopRegions } from './runtimeExports';
 import { audioById, buttonById, buttonMatching, canvasById, canvasesMatching, canvasTarget, eventTarget, requiredElementById } from './domAdapter';
 import { HostMessenger } from './hostMessaging';
@@ -2214,11 +2214,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         spectrogramRasterCache.set(cacheId, painted);
         // paintOverlay leaves its scale on the context: the lines over the lane are drawn in the canvas's own pixels.
         ctx.setTransform(1, 0, 0, 1, 0, 0);
-        // The band shown as fractions of the rows drawn: a zoomed band's rows start above 0 Hz.
-        const rows = spectrogramRowSpan(spec), rowSpan = rows.highHz - rows.lowHz || maxFreq || 1;
+        // The band shown as fractions of the whole axis (0 Hz to Nyquist), whichever rows are drawn: a zoomed band's
+        // rows do not change what the mark says is on screen (R13).
+        const specTop = spec.maxFrequencyHz || maxFreq || 1;
         markLanePlot(canvas, { x: STR.axisTime, y: STR.axisFrequency }, trackSpecAxisCanvasId(trackIndex, channelIndex), {
             x: { start: waveformView.start, end: waveformView.end },
-            y: { start: Math.max(0, (Math.max(0, minFreq) - rows.lowHz) / rowSpan), end: Math.min(1, (maxFreq - rows.lowHz) / rowSpan) },
+            y: { start: Math.max(0, minFreq) / specTop, end: Math.min(1, maxFreq / specTop) },
         });
         // Which band the rows were drawn from: every frequency, or the band asked again (R3).
         canvas.dataset.spectrogramBand = spec.bandLowHz !== undefined && spec.bandHighHz !== undefined ? `${spec.bandLowHz} ${spec.bandHighHz}` : '';

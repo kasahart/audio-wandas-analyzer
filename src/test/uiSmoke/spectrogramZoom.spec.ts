@@ -141,6 +141,11 @@ test('a spectrogram lane boxed to a narrow band asks for that band\'s own bins a
     const [drawnLow, drawnHigh] = ((await lane.getAttribute('data-spectrogram-band')) ?? '').split(' ').map(Number);
     expect(drawnLow).toBeLessThanOrEqual(low);
     expect(drawnHigh).toBeGreaterThanOrEqual(high);
+    // The mark still says the band shown as fractions of the whole axis (0 Hz to Nyquist), not of the band's rows.
+    const [, , yStart, yEnd] = ((await lane.getAttribute('data-plot-window')) ?? '').split(' ').map(Number);
+    expect(yStart * 4000).toBeGreaterThan(drawnLow - 1);
+    expect(yEnd * 4000).toBeLessThan(drawnHigh + 1);
+    expect(yEnd * 4000).toBeGreaterThan(1000);
     // The pointer reads the band's own rows: the 1 kHz bin at −20 dB, at its own frequency.
     const zoomed = (await lane.boundingBox())!;
     const readout = page.locator('#plot-readout');
