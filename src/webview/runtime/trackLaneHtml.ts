@@ -3,7 +3,7 @@ import type { UiStrings } from '../../shared/i18n/strings';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { hintAttr } from './hintFooter';
 import { calibrationBadgeHtml, calibrationButtonHtml, channelMetricSummaryHtml, isClipped } from './calibrationDecorations';
-import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpecAxisCanvasId, trackSpecCanvasId, trackSpecWrapId, trackSpectrogramOverlayCanvasId } from './trackCanvasIds';
+import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpecAxisCanvasId, trackSpecCanvasId, trackSpecWrapId, trackSpectrogramOverlayCanvasId, trackWaveformOverlayCanvasId } from './trackCanvasIds';
 
 /** A lane is a plot from the start (R13): empty, with no axes named, until it is drawn, as an empty pane is. */
 const EMPTY_PLOT = ' data-plot data-plot-axes=""';
@@ -41,6 +41,7 @@ export function channelLaneHtml(spec: ChannelLaneSpec): string {
         + '    <div class="track-canvas-wrap" id="' + trackCanvasWrapId(trackIndex, channelIndex) + '">'
         + '      <canvas class="track-axis-canvas" id="' + trackAxisCanvasId(trackIndex, channelIndex) + '" style="width:' + axisWidth + 'px"' + dataAttrs + hintAttr(spec.axisHint) + '></canvas>'
         + '      <canvas class="track-canvas" id="' + trackCanvasId(trackIndex, channelIndex) + '"' + dataAttrs + EMPTY_PLOT + ' tabindex="0" role="img" aria-label="' + escapeHtml(spec.waveformLabel) + '" style="flex:1"></canvas>'
+        + '      <canvas class="track-waveform-overlay" id="' + trackWaveformOverlayCanvasId(trackIndex, channelIndex) + '"' + dataAttrs + ' aria-hidden="true" style="position:absolute;left:' + axisWidth + 'px;top:0;right:0;bottom:0;pointer-events:none"></canvas>'
         + '    </div>'
         + '    <div class="track-split" data-action="track-split-drag"' + dataAttrs + hintAttr(spec.splitHint) + ' role="separator" tabindex="0" aria-orientation="horizontal" aria-label="' + escapeHtml(spec.splitLabel) + '"></div>'
         + '    <div class="track-spec-wrap" id="' + trackSpecWrapId(trackIndex, channelIndex) + '">'

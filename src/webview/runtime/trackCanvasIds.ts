@@ -29,3 +29,8 @@ export function trackSpecAxisCanvasId(trackIndex: number, channelIndex: number):
 export function trackSpecWrapId(trackIndex: number, channelIndex: number): string {
     return 'track-spec-wrap-' + trackIndex + channelCanvasSuffix(channelIndex);
 }
+
+/** The layer over a waveform lane for the lines that follow the cursor, the loop and the pointer (R13: the lane's plot holds only what paintOverlay drew). */
+export function trackWaveformOverlayCanvasId(trackIndex: number, channelIndex: number): string {
+    return 'track-waveform-overlay-' + trackIndex + channelCanvasSuffix(channelIndex);
+}

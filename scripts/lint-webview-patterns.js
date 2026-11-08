@@ -135,7 +135,6 @@ const CANVAS_DRAWING_FILES = [
     'src/webview/runtime/comparisonRuntime.ts',
     'src/webview/runtime/exportDownloads.ts',
     'src/webview/runtime/stagePanes.ts',
-    'src/webview/runtime/trackCanvasPainter.ts',
     'src/webview/waveform/waveformRenderer.ts',
 ];
 // Path building and every fill/stroke; `.fill(` / `.stroke(` count only with no argument or a Path2D / fill rule, so

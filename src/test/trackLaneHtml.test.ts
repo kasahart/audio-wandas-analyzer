@@ -33,7 +33,8 @@ test('multi-channel lane shows the label header with the metric summary', () => 
     const html = channelLaneHtml({ ...base, channelIndex: 1, channelCount: 2, channelLabel: 'Ch <2>' });
     assert.ok(html.includes('<span class="track-channel-lane-label">Ch &lt;2&gt;</span><span>Peak 80.0 dB</span>'));
     assert.ok(html.includes('id="track-canvas-1-1"'));
-    assert.equal(html.match(/data-track-id="t1" data-channel-index="1"/g)?.length, 7);
+    // The lane, its two axes, its two plots, the layers of lines over each, and the split between them.
+    assert.equal(html.match(/data-track-id="t1" data-channel-index="1"/g)?.length, 8);
 });
 
 test('the waveform and spectrogram canvases are named by file, channel and kind, with no inline outline over the focus ring', () => {

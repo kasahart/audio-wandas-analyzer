@@ -1,7 +1,7 @@
 import { channelLabel, channelsForResult, formatClockTime } from '../../shared/utils/format';
 import { niceRange } from '../../shared/utils/ticks';
 import { linkedSpectrogramBounds, spectrogramDisplayBounds, spectrogramFailureText } from './spectrogramRaster';
-import { laneWaveformOverlay, onColourBar, PaintedLayerCache, paintTrackSpectrogram, type SpectrogramRasterCacheEntry } from './trackCanvasPainter';
+import { laneWaveformOverlay, onColourBar, paintTrackSpectrogram, type SpectrogramRasterCacheEntry } from './trackCanvasPainter';
 import { laneHoverPoint, laneReadoutText, spectrogramCellAt, spectrogramReadoutText, type LanePoint } from './trackLaneHover';
 import { hidePlotReadout, paintHoverMarks, PLOT_READOUT_ID, showPlotReadout } from './plotHover';
 import { trackTimelinePlacement, waveformCoverageFromExtent } from './waveformCoverage';
@@ -40,7 +40,7 @@ import { arrowCursorStep, isTextEntryTag, type GlobalShortcutAction } from './sh
 import { domSnapshotBase, latestSpectrogramSnapshot, shellSnapshot } from './testSnapshot';
 import { buildTrackSnapshot } from './comparisonSnapshot';
 import { contentBoxWidth, readThenWrite, syncCanvasSize } from './canvasSizing';
-import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpecAxisCanvasId, trackSpecCanvasId, trackSpectrogramOverlayCanvasId } from './trackCanvasIds';
+import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpecAxisCanvasId, trackSpecCanvasId, trackSpectrogramOverlayCanvasId, trackWaveformOverlayCanvasId } from './trackCanvasIds';
 import { channelLaneHtml, trackRowHtml } from './trackLaneHtml';
 import { attachPlotInteraction, FULL_PLOT_WINDOW, type PlotPoint } from './plotInteraction';
 import type { SpectrumBoxSpan } from './overlaySpectrumPainter';
@@ -2049,8 +2049,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             : undefined;
         return { waveform: fullWaveform, dataStart: 0, dataEnd: 1, amplitudeScale: amplitudeScale, ...(detail ? { detail } : {}) };
     }
-    /** The waveforms as painted, under the cursor's lines: a playback frame copies them back (renderCursorLayers). */
-    const waveformLayers = new PaintedLayerCache(() => document.createElement('canvas'));
     /** The points the lane under the pointer drew in its last paint, which its cursor-only frames read again. */
     let hoveredLanePoints: { canvas: HTMLCanvasElement; points: LanePoint[] } | null = null;
     function drawTrackWaveform(canvas: HTMLCanvasElement, result: ComparisonTrackState, trackIndex: number, channelIndex: number, offsetSeconds: number, color: string, options: WaveformDrawOptions = {}): void {
@@ -2096,13 +2094,25 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (record) {
             record.waveformCoverage = coverage;
         }
-        // Only playback frames copy it back; otherwise nothing is kept, so lanes not playing cost no second bitmap.
-        if (playback.isRunning()) waveformLayers.keep(canvas);
-        else waveformLayers.forget(canvas);
         if (points) hoveredLanePoints = { canvas, points };
         else if (hoveredLanePoints?.canvas === canvas) hoveredLanePoints = null;
+        drawWaveformMarks(canvas, result, trackIndex, channelIndex, color, points ?? null, placement);
+    }
+    /**
+     * What follows the cursor, the loop and the pointer over a waveform lane, on the layer laid over it (R13: the lane's
+     * plot holds only what paintOverlay drew), so a playback frame redraws these lines alone and never the waveform.
+     * `points`: what the lane under the pointer drew, which it reads (R7); the other lanes follow its time.
+     */
+    function drawWaveformMarks(canvas: HTMLCanvasElement, result: ComparisonTrackState, trackIndex: number, channelIndex: number, color: string, points: readonly LanePoint[] | null, placement: { offsetNorm: number; trackDurRatio: number }): void {
+        const layer = canvasById(document, trackWaveformOverlayCanvasId(trackIndex, channelIndex));
+        const ctx = layer?.getContext('2d');
+        if (!layer || !ctx) return;
+        // The layer is the lane's size, so the lines are drawn in the lane's own pixels.
+        if (layer.width !== canvas.width) layer.width = canvas.width;
+        if (layer.height !== canvas.height) layer.height = canvas.height;
+        const W = layer.width, H = layer.height;
+        ctx.clearRect(0, 0, W, H);
         drawWaveformCursorLayers(ctx, W, H, trackIndex, channelIndex);
-        // The lane under the pointer reads its waveform as every plot of lines does (R7); the others follow its time.
         if (points) drawLaneHover(ctx, W, H, points, result, channelIndex, color, placement);
         else drawHoverLineOnCanvas(ctx, W, H);
         drawRectZoomSelectionOnCanvas(ctx, W, H, trackIndex);
@@ -2113,21 +2123,16 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         drawAnalysisWindowOnCanvas(ctx, W, H, trackIndex, channelIndex);
         drawCursorOnCanvas(ctx, W, H, waveformCursorLineStyle(getComputedStyle(document.body).getPropertyValue('--text').trim()));
     }
-    /** A cursor-only frame on one waveform lane: the plot kept from its last paint, then the lines over it. */
+    /** A cursor-only frame on one waveform lane: only the layer over it is drawn again, the waveform stays as painted. */
     function redrawWaveformCursor(canvas: HTMLCanvasElement, result: ComparisonTrackState, trackIndex: number, channelIndex: number, color: string) {
-        const ctx = canvas.getContext('2d');
         const hovered = !!laneHover && laneHover.canvas === canvas;
-        // The lane under the pointer reads the points it last drew; without them, or with no plot kept, it is traced again.
+        // The lane under the pointer reads the points it last drew; without them it is traced again.
         const points = hovered && hoveredLanePoints?.canvas === canvas ? hoveredLanePoints.points : null;
-        if (!ctx || (hovered && !points) || !waveformLayers.restore(ctx, canvas)) {
+        if (hovered && !points) {
             drawTrackWaveform(canvas, result, trackIndex, channelIndex, trackRuntimeAt(trackIndex).offsetSeconds, color, { drawAxis: false });
             return;
         }
-        const W = canvas.width, H = canvas.height;
-        drawWaveformCursorLayers(ctx, W, H, trackIndex, channelIndex);
-        if (points) drawLaneHover(ctx, W, H, points, result, channelIndex, color, trackTimelinePlacement(trackRuntimeAt(trackIndex).offsetSeconds, result.durationSeconds, trackStore.globalSpan()));
-        else drawHoverLineOnCanvas(ctx, W, H);
-        drawRectZoomSelectionOnCanvas(ctx, W, H, trackIndex);
+        drawWaveformMarks(canvas, result, trackIndex, channelIndex, color, points, trackTimelinePlacement(trackRuntimeAt(trackIndex).offsetSeconds, result.durationSeconds, trackStore.globalSpan()));
     }
     function drawSpectrogram(canvas: HTMLCanvasElement, result: ComparisonTrackState, trackIndex: number, channelIndex: number, offsetSeconds: number) {
         const ctx = canvas.getContext('2d');

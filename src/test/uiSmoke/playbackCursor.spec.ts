@@ -22,7 +22,7 @@ async function bandColumnCount(page: Page, canvasId: string): Promise<number> {
 
 test('playback hides the analysis window band and leaves the cursor at the track end', async ({ page }) => {
     await page.setContent(buildExtensionHostPathUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
-    await expect.poll(() => bandColumnCount(page, 'track-canvas-0')).toBeGreaterThan(3);
+    await expect.poll(() => bandColumnCount(page, 'track-waveform-overlay-0')).toBeGreaterThan(3);
     const ended = page.evaluate(() => new Promise<void>((resolve) => {
         const audio = document.getElementById('track-audio-0') as HTMLAudioElement;
         audio.muted = true;
@@ -38,7 +38,7 @@ test('playback hides the analysis window band and leaves the cursor at the track
 
     await page.locator('[data-action="toggle-playback"][data-track-id="track-1"]').click();
     await expect.poll(() => page.evaluate(() => (document.getElementById('track-audio-0') as HTMLAudioElement).currentTime)).toBeGreaterThan(0.3);
-    expect(await bandColumnCount(page, 'track-canvas-0')).toBeLessThanOrEqual(3);
+    expect(await bandColumnCount(page, 'track-waveform-overlay-0')).toBeLessThanOrEqual(3);
 
     await ended;
     // The demo track is 2 s long.
@@ -46,9 +46,9 @@ test('playback hides the analysis window band and leaves the cursor at the track
     await expect(page.locator('[data-action="toggle-playback"][data-track-id="track-1"]')).toHaveText('▶');
 });
 
-test('a playback frame redraws only the cursor: the waveform is copied back, not traced again, and the axes, spectrogram and ruler stay as drawn', async ({ page }) => {
+test('a playback frame redraws only the layer of lines over the lanes: the waveform, its axes, the spectrogram and the ruler stay as drawn', async ({ page }) => {
     await page.setContent(buildExtensionHostPathUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
-    await expect.poll(() => bandColumnCount(page, 'track-canvas-0')).toBeGreaterThan(3);
+    await expect.poll(() => bandColumnCount(page, 'track-waveform-overlay-0')).toBeGreaterThan(3);
     const painted = () => page.evaluate(() => {
         const canvas = document.getElementById('track-canvas-0') as HTMLCanvasElement;
         const data = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data;
@@ -87,12 +87,11 @@ test('a playback frame redraws only the cursor: the waveform is copied back, not
         w.__counting = false;
         return w.__drawCounts;
     });
-    const lane = counts['track-canvas-0'] ?? {};
-    // The cursor moved over several frames, each copying the kept plot back and drawing one cursor line.
-    expect(lane.clearRect ?? 0).toBeGreaterThan(3);
-    expect(lane.drawImage ?? 0).toBeGreaterThanOrEqual(lane.clearRect ?? 0);
-    // Nothing else on the lane follows the cursor: its axes, the spectrogram raster and the ruler stay as drawn.
-    for (const id of ['track-axis-canvas-0', 'track-spec-axis-canvas-0', 'track-spec-canvas-0', 'ruler-canvas']) {
+    // The cursor moved over several frames, each drawing the layer over the lane again (R13: the plot holds only what
+    // paintOverlay drew).
+    expect(counts['track-waveform-overlay-0']?.clearRect ?? 0).toBeGreaterThan(3);
+    // Nothing else on the lane follows the cursor: the waveform, its axes, the spectrogram raster and the ruler stay as drawn.
+    for (const id of ['track-canvas-0', 'track-axis-canvas-0', 'track-spec-axis-canvas-0', 'track-spec-canvas-0', 'ruler-canvas']) {
         expect(counts[id]?.clearRect ?? 0, id).toBe(0);
     }
     // The waveform is still on screen under the moving cursor.
