@@ -3,8 +3,12 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import ts from 'typescript';
-import { testProblem } from './namedTest';
-import { CHARTS, CONTRACT_DOC, KNOWN_GAPS, NOT_CHART_VALUES, ROWS, VALUE_HELPERS, renderContractDoc } from './plotContracts';
+import { namedTest, testProblem } from './namedTest';
+import { CHARTS, CONTRACTS, GAP_CEILING, KNOWN_GAPS, ROWS } from './plotContracts/index';
+import type { ContractRow } from './plotContracts/model';
+import { CONTRACT_DOC, renderContractDoc } from './plotContracts/render';
+import { NOT_SHOWN, SCHEMA_FIELDS } from './plotContracts/schema';
+import { DRAWN_ACCESSORS, DRAWN_FIELDS, DRAWN_READERS, NOT_CHART_VALUES, PY_DECIMATORS, VALUE_HELPERS } from './plotContracts/values';
 import { PLOTS_PENDING } from './uiSmoke/plotRegistry';
 
 const repoRoot = path.resolve(__dirname, '..', '..');
@@ -230,28 +234,220 @@ test('the detector finds a number written by a primitive, a helper imported unde
     }
 });
 
-test('every gap is in KNOWN_GAPS at its severity, and a row is a gap until a test holds it from full data', () => {
-    const gaps = Object.fromEntries(ROWS.filter(row => row.gap).map(row => [row.id, row.gap?.severity]));
-    // KNOWN_GAPS only shrinks: a gap added or a severity changed has to change it too; a gap taken off has to pass below.
-    assert.deepEqual(gaps, { ...KNOWN_GAPS });
+
+test('every chart\'s file in plotContracts/charts is gathered by index.ts, and holds only its own rows\' gaps', () => {
+    const files = readdirSync(path.join(repoRoot, 'src/test/plotContracts/charts')).filter(name => name.endsWith('.ts')).map(name => name.replace(/\.ts$/, '')).sort();
+    assert.deepEqual(files, CHARTS.map(chart => chart.id).sort(), 'a chart\'s file is named by its chart\'s id, and index.ts lists every one');
+    for (const contract of CONTRACTS) {
+        const own = new Set(contract.rows.map(row => row.id));
+        assert.deepEqual(Object.keys(contract.knownGaps).filter(id => !own.has(id)), [], `${contract.chart.id} lists gaps of rows not its own`);
+    }
+});
+
+// ── What reads drawn points ──
+
+let program: ts.Program | undefined;
+/** The webview and shared code with its types: what a property access is read of. */
+function typed(): ts.Program {
+    if (!program) {
+        const config = ts.getParsedCommandLineOfConfigFile(path.join(repoRoot, 'tsconfig.json'), {}, { ...ts.sys, onUnRecoverableConfigFileDiagnostic: () => undefined });
+        program = ts.createProgram(sourceFiles().map(file => path.join(repoRoot, file)), { ...config?.options, noEmit: true });
+    }
+    return program;
+}
+
+/** Every webview and shared function that reads drawn points: a DRAWN_FIELDS access on its type, or a DRAWN_ACCESSORS call. */
+function drawnReaders(): Map<string, Set<string>> {
+    const checker = typed().getTypeChecker();
+    const accessors = new Set(DRAWN_ACCESSORS);
+    const found = new Map<string, Set<string>>();
+    const add = (where: string, what: string): void => {
+        const reads = found.get(where) ?? new Set<string>();
+        reads.add(what);
+        found.set(where, reads);
+    };
+    for (const file of sourceFiles()) {
+        const source = typed().getSourceFile(path.join(repoRoot, file));
+        if (!source) continue;
+        const local = helpersIn(file, accessors);
+        each(source, node => {
+            if (ts.isPropertyAccessExpression(node)) {
+                const type = checker.getNonNullableType(checker.getTypeAtLocation(node.expression));
+                const name = (type.aliasSymbol ?? type.getSymbol())?.getName();
+                if (name && Object.hasOwn(DRAWN_FIELDS, name) && DRAWN_FIELDS[name].includes(node.name.text)) add(`${file}:${enclosing(node)}`, `${name}.${node.name.text}`);
+            }
+            if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+                const accessor = local.get(node.expression.text);
+                const where = `${file}:${enclosing(node)}`;
+                if (accessor && accessor !== where) add(where, accessor);
+            }
+        });
+    }
+    // A file's own helper that reads drawn points (not exported: no row names it) passes the read to its callers.
+    for (let grown = true; grown;) {
+        grown = false;
+        for (const file of sourceFiles()) {
+            const exported = exportedOf(file);
+            const privateReaders = new Map([...found.keys()].filter(where => where.startsWith(`${file}:`) && !exported.has(where.slice(file.length + 1)) && DRAWN_READERS[where]?.use !== 'draws').map(where => [where.slice(file.length + 1), where]));
+            if (!privateReaders.size) continue;
+            each(parse(file), node => {
+                if (!ts.isCallExpression(node) || !ts.isIdentifier(node.expression)) return;
+                const reader = privateReaders.get(node.expression.text);
+                const where = `${file}:${enclosing(node)}`;
+                if (!reader || reader === where || found.get(where)?.has(reader)) return;
+                add(where, reader);
+                grown = true;
+            });
+        }
+    }
+    return found;
+}
+
+/** The names a file exports (functions and variables). */
+function exportedOf(file: string): Set<string> {
+    const names = new Set<string>();
+    for (const statement of parse(file).statements) {
+        if (!ts.canHaveModifiers(statement) || !ts.getModifiers(statement)?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword)) continue;
+        if (ts.isFunctionDeclaration(statement) && statement.name) names.add(statement.name.text);
+        if (ts.isVariableStatement(statement)) for (const declaration of statement.declarationList.declarations) if (ts.isIdentifier(declaration.name)) names.add(declaration.name.text);
+    }
+    return names;
+}
+
+const PYTHON = 'python-backend';
+/** Every def of the backend's modules (not its tests), with its body. */
+function pythonDefs(): Map<string, string> {
+    const defs = new Map<string, string>();
+    for (const name of readdirSync(path.join(repoRoot, PYTHON)).filter(item => item.endsWith('.py') && !item.startsWith('test_') && item !== 'conftest.py').sort()) {
+        const file = `${PYTHON}/${name}`;
+        const text = read(file);
+        for (const match of text.matchAll(/^[ \t]*(?:async\s+)?def (\w+)\(/gm)) {
+            const body = namedTest(file, text.slice(match.index), match[1])?.body ?? '';
+            if (!defs.has(`${file}:${match[1]}`)) defs.set(`${file}:${match[1]}`, body);
+        }
+    }
+    return defs;
+}
+
+/** The backend's defs that call a decimator (PY_DECIMATORS), with the ones they call. */
+function pythonDrawn(): Map<string, Set<string>> {
+    const found = new Map<string, Set<string>>();
+    const decimators = PY_DECIMATORS.map(entry => ({ entry, name: entry.slice(entry.lastIndexOf(':') + 1) }));
+    for (const [def, body] of pythonDefs()) {
+        const calls = decimators.filter(item => item.entry !== def && new RegExp(`\\b${item.name}\\(`).test(body.slice(body.indexOf('\n'))));
+        if (calls.length) found.set(def, new Set(calls.map(item => item.entry)));
+    }
+    return found;
+}
+
+test('every function that reads drawn points says what it does with them, and a row\'s source agrees with what its functions read', () => {
+    const scanned = drawnReaders();
+    assert.deepEqual(DRAWN_ACCESSORS.filter(accessor => !scanned.has(accessor)), [], 'a drawn accessor reads no drawn field itself');
+    const python = pythonDrawn();
+    assert.deepEqual(PY_DECIMATORS.filter(entry => !exists(entry)), [], 'a decimator the scan looks for does not exist');
+    const named = new Set(ROWS.flatMap(row => row.computedIn));
+    // The backend's defs are classified where a row names them; the webview's wherever they are.
+    const found = new Map([...scanned, ...[...python].filter(([def]) => named.has(def))]);
+    const unclassified = [...found].filter(([where]) => !Object.hasOwn(DRAWN_READERS, where)).map(([where, reads]) => `${where} (${[...reads].sort().join(', ')})`).sort();
+    assert.deepEqual(unclassified, [], 'these read drawn points: add each to DRAWN_READERS with what it does with them');
+    assert.deepEqual(Object.keys(DRAWN_READERS).filter(where => !found.has(where) && !python.has(where)).sort(), [], 'DRAWN_READERS lists a function that reads no drawn points');
     for (const row of ROWS) {
-        const reasons = [
-            ...(row.tests.length === 0 ? ['no test holds it'] : []),
-            ...(row.from === 'thinned' || row.from === 'extremes' ? [`it is computed from thinned points (${row.from})`] : []),
-            ...(row.names && !(row.names.quantity && row.names.unit && row.names.reference !== false) ? ['its axis name lacks its quantity, unit or reference'] : []),
-        ];
-        if (row.gap) {
-            assert.ok(row.gap.why.trim().length > 0, `${row.id}: a gap says no why`);
-            // Every gap is held by one of these, so taking its mark off fails until a test (or full data, or the axis's
-            // whole name) is added.
-            assert.ok(reasons.length > 0, `${row.id}: a gap no rule holds (it has tests, full data and a whole axis name)`);
-            if (row.from === 'thinned') assert.equal(row.gap.severity, 'P1', `${row.id}: a number shown from averaged or cut points is P1`);
+        const values = row.computedIn.filter(where => DRAWN_READERS[where]?.use === 'value' && (scanned.has(where) || python.has(where)));
+        if (row.from === 'extremes' || row.from === 'thinned') {
+            assert.ok(values.length > 0, `${row.id} says it is from ${row.from} points, but names no function the scan finds making a number of drawn points`);
         } else {
-            assert.deepEqual(reasons, [], `${row.id} is not a gap, but`);
+            assert.deepEqual(values, [], `${row.id} says it is from ${row.from}, but names functions that make a number of drawn points`);
         }
     }
 });
 
-test('docs/plot-contracts.md is the table as plotContracts.ts renders it', () => {
-    assert.equal(read(CONTRACT_DOC), renderContractDoc(), 'run: npm run compile && node dist/test/plotContracts.js');
+test('every number the backend\'s protocol sends back is a value of a row, or says why it is not shown', () => {
+    const file = 'src/shared/protocol/generated/backendProtocolSchema.ts';
+    const fields: string[] = [];
+    const members = (prefix: string, list: ts.NodeArray<ts.TypeElement>): void => {
+        for (const member of list) {
+            if (!ts.isPropertySignature(member) || !member.type) continue;
+            const name = `${prefix}.${member.name.getText()}`;
+            const literals: ts.TypeLiteralNode[] = [];
+            each(member.type, node => { if (ts.isTypeLiteralNode(node) && !literals.some(outer => node.pos >= outer.pos && node.end <= outer.end)) literals.push(node); });
+            if (literals.length) literals.forEach(literal => members(name, literal.members));
+            else if (/\bnumber\b/.test(member.type.getText())) fields.push(name);
+        }
+    };
+    for (const statement of parse(file).statements) {
+        // Requests and the backend's own notices carry nothing shown: what it answers does.
+        if (ts.isInterfaceDeclaration(statement) && !NOT_SHOWN.some(pattern => pattern.test(statement.name.text))) members(statement.name.text, statement.members);
+    }
+    const ids = new Set(ROWS.map(row => row.id));
+    assert.deepEqual(fields.filter(field => !Object.hasOwn(SCHEMA_FIELDS, field)).sort(), [], 'these numbers reach the webview: map each to its rows in plotContracts/schema.ts, or say why it is not shown');
+    assert.deepEqual(Object.keys(SCHEMA_FIELDS).filter(field => !fields.includes(field)).sort(), [], 'schema.ts maps a field the protocol does not send');
+    for (const [field, to] of Object.entries(SCHEMA_FIELDS)) {
+        if (typeof to === 'string') assert.ok(to.trim().length > 0, `${field}: says no why`);
+        else assert.deepEqual(to.filter(id => !ids.has(id)), [], `${field} maps to rows that do not exist`);
+    }
+});
+
+// ── Gaps ──
+
+/** A test that tells the full data from the drawn points says so: its title or body speaks of what is thinned or real. */
+const TELLS = new RegExp(['thin', 'decimat', 'drawn', 'averag', 'cut for display', 'not the', 'never the', 'every (?:bin|sample|value|cell|band|frame)', 'real (?:bin|cell|sample)', 'bin by bin', 'sample by sample', 'before (?:it is drawn|thinning|rounding)', 'full', 'own (?:bins|samples|cells|place)', 'one by one', 'narrow', 'not its picture'].map(words => words.replace(/ /g, '[ _]')).join('|'), 'i');
+
+/** Why a row is not yet held, if it is not. */
+function reasons(row: ContractRow): string[] {
+    return [
+        ...(row.tests.length === 0 ? ['no test holds it'] : []),
+        ...(row.from === 'thinned' || row.from === 'extremes' ? [`it is computed from thinned points (${row.from})`] : []),
+        ...(row.from === 'full' && !row.tests.some(item => item.tells) ? ['no test it names tells the full data from the drawn points'] : []),
+        ...(row.breaks ? [`it breaks ${row.breaks.rule}`] : []),
+        ...(row.names && !(row.names.quantity && row.names.unit && row.names.reference !== false) ? ['its axis name lacks its quantity, unit or reference'] : []),
+    ];
+}
+
+test('a test said to tell full data from drawn points is about what is thinned', () => {
+    for (const row of ROWS) {
+        for (const named of row.tests.filter(item => item.tells)) {
+            const found = namedTest(named.file, read(named.file), named.name);
+            assert.ok(found && TELLS.test(`${named.name}\n${found.body}`), `${row.id}: "${named.name}" is said to tell full data from drawn, but says nothing of thinning`);
+        }
+    }
+});
+
+test('every gap is in its chart\'s knownGaps at its severity, and a row is a gap until a test holds it from full data', () => {
+    const gaps = Object.fromEntries(ROWS.filter(row => row.gap).map(row => [row.id, row.gap?.severity]));
+    assert.deepEqual(gaps, { ...KNOWN_GAPS });
+    for (const row of ROWS) {
+        const why = reasons(row);
+        if (row.gap) {
+            assert.ok(row.gap.why.trim().length > 0, `${row.id}: a gap says no why`);
+            // Every gap is held by one of these, so taking its mark off fails until it is closed.
+            assert.ok(why.length > 0, `${row.id}: a gap no rule holds (it has a test that tells full from drawn, full data and a whole axis name)`);
+            if (row.from === 'thinned') assert.equal(row.gap.severity, 'P1', `${row.id}: a number shown from averaged or cut points is P1`);
+        } else {
+            assert.deepEqual(why, [], `${row.id} is not a gap, but`);
+        }
+    }
+});
+
+test('the number of gaps of each severity is GAP_CEILING, which only goes down', () => {
+    for (const severity of ['P1', 'P2', 'P3'] as const) {
+        const count = ROWS.filter(row => row.gap?.severity === severity).length;
+        assert.ok(count <= GAP_CEILING[severity], `${count} ${severity} gaps, more than the ${GAP_CEILING[severity]} allowed: a new gap is a change review should stop`);
+        assert.equal(GAP_CEILING[severity], count, `${severity} gaps are down to ${count}: lower GAP_CEILING.${severity} to it`);
+    }
+});
+
+test('every exception a row takes is one docs/display-rules.md approves, and every rule it breaks says so, in the rule\'s own words', () => {
+    const rules = read('docs/display-rules.md').split(/^(?=## R\d+ )/m);
+    for (const row of ROWS) {
+        for (const cited of [row.exception, row.breaks]) {
+            if (!cited) continue;
+            const rule = rules.find(section => section.startsWith(`## ${cited.rule} `));
+            assert.ok(rule, `${row.id}: no rule ${cited.rule}`);
+            assert.ok(rule.includes(cited.quote), `${row.id}: ${cited.rule} does not say "${cited.quote}"`);
+        }
+    }
+});
+
+test('docs/plot-contracts.md is the table as plotContracts renders it', () => {
+    assert.equal(read(CONTRACT_DOC), renderContractDoc(), 'run: npm run compile && node dist/test/plotContracts/render.js');
 });
