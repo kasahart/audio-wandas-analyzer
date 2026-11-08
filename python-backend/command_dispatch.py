@@ -102,6 +102,9 @@ def handle_track_detail(service: AnalysisService, command: Command) -> Mapping[s
         calibration_profile=_calibration_profile(command),
         analysis_revision=_analysis_revision(command),
         time_window=window,
+        frequency_band=(
+            (float(command["lowHz"]), float(command["highHz"])) if "lowHz" in command and "highHz" in command else None
+        ),
     )
 
 

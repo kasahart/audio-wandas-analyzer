@@ -7,6 +7,7 @@ import { readoutText } from '../../shared/gui-core/index';
 import { HOVER_PICK_RADIUS_PX, nearestPoint } from './plotHover';
 import { amountText, frequencyText, levelText, secondsText } from '../plot/plotText';
 import { spectrogramTimeBinAt, spectrogramTimeBinEdges } from '../spectrum/spectrogramTimeBins';
+import { spectrogramRowSpan } from '../spectrum/spectrogramZoom';
 import type { SpectrogramData } from '../../shared/analysis/analysisTypes';
 
 /** A point of a lane's waveform as drawn: where on the canvas (bitmap pixels), its value and time (the file's 0..1). */
@@ -64,14 +65,17 @@ export interface SpectrogramCell {
  * The cell of a spectrogram under the pointer (R7): the time bin holding `localNorm` (the file's 0..1, as the
  * raster places its cells), the frequency bin nearest `frequencyHz`; null off the file or above the data.
  */
-export function spectrogramCellAt(spec: Pick<SpectrogramData, 'values' | 'timeBins' | 'frequencyBins' | 'maxFrequencyHz' | 'timeCentersSec'>, localNorm: number, frequencyHz: number, durationSec?: number): SpectrogramCell | null {
+export function spectrogramCellAt(spec: Pick<SpectrogramData, 'values' | 'timeBins' | 'frequencyBins' | 'maxFrequencyHz' | 'timeCentersSec' | 'bandLowHz' | 'bandHighHz'>, localNorm: number, frequencyHz: number, durationSec?: number): SpectrogramCell | null {
     if (!(spec.timeBins > 0 && spec.frequencyBins > 0 && spec.maxFrequencyHz > 0) || !(localNorm >= 0 && localNorm <= 1) || !(frequencyHz >= 0)) return null;
     const edges = spectrogramTimeBinEdges(spec, durationSec);
     const time = edges ? spectrogramTimeBinAt(edges, localNorm) : Math.min(spec.timeBins - 1, Math.floor(localNorm * spec.timeBins));
     const intervals = Math.max(spec.frequencyBins - 1, 1);
-    const bin = Math.round(frequencyHz / spec.maxFrequencyHz * intervals);
-    const level = bin < spec.frequencyBins ? spec.values[time]?.[bin] : undefined;
-    return level === undefined || !Number.isFinite(level) ? null : { frequencyHz: bin / intervals * spec.maxFrequencyHz, level, stepHz: spec.maxFrequencyHz / intervals };
+    // A zoomed band's rows run across that band only (spectrogramRowSpan).
+    const { lowHz, highHz } = spectrogramRowSpan(spec);
+    const stepHz = (highHz - lowHz) / intervals;
+    const bin = Math.round((frequencyHz - lowHz) / stepHz);
+    const level = bin >= 0 && bin < spec.frequencyBins ? spec.values[time]?.[bin] : undefined;
+    return level === undefined || !Number.isFinite(level) ? null : { frequencyHz: lowHz + bin * stepHz, level, stepHz };
 }
 
 /** "name / 1.234 s / 1 kHz / −40.0 dB": the time as the waveform lanes read it, the cell's bin and level. */

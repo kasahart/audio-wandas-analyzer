@@ -1,6 +1,7 @@
 import type { SpectrogramData, WaveformEnvelope } from '../../shared/analysis/analysisTypes';
 import { viridis, type AxisTick } from '../../shared/gui-core/index';
 import { spectrogramTimeBinEdges } from '../spectrum/spectrogramTimeBins';
+import { spectrogramRowSpan } from '../spectrum/spectrogramZoom';
 import { paintOverlay, paintSideAxis, type ColourBarBox, type StageLayer, type StageOverlay } from './stagePanes';
 import type { NormalizedRange } from './waveformInteraction';
 import type { StageView } from '../../shared/protocol/backendProtocol';
@@ -115,7 +116,8 @@ export function laneSpectrogramView(spec: SpectrogramData, place: LanePlacement,
     const edges = spectrogramTimeBinEdges(spec, durationSec);
     const centres = spec.timeCentersSec;
     const xs = Array.from({ length: count }, (_, k) => toSec(edges && centres ? centres[k] / durationSec : (k + 0.5) / Math.max(1, count)));
-    const ys = Array.from({ length: bins }, (_, bin) => (bins > 1 ? bin / (bins - 1) : 0) * spec.maxFrequencyHz);
+    const rows = spectrogramRowSpan(spec);
+    const ys = Array.from({ length: bins }, (_, bin) => rows.lowHz + (bins > 1 ? bin / (bins - 1) : 0) * (rows.highHz - rows.lowHz));
     let matrix = laneMatrices.get(spec);
     if (!matrix) {
         matrix = Array.from({ length: bins }, (_, bin) => Array.from({ length: count }, (_, k) => spec.values[k]?.[bin] ?? Number.NEGATIVE_INFINITY));
@@ -150,12 +152,14 @@ export function paintTrackSpectrogram(
     }
     const picture = laneSpectrogramView(spec, place, view.durationSec);
     const axisView: StageView = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', xs: [place.startSec, place.startSec + place.spanSec], values: [0, 0] };
-    const top = spec.maxFrequencyHz || view.maxFrequencyHz || 1;
+    // The band shown, as fractions of the rows' own span (a zoomed band's rows start above 0 Hz).
+    const rows = spectrogramRowSpan(spec);
+    const low = rows.lowHz, rowSpan = rows.highHz - rows.lowHz || view.maxFrequencyHz || 1;
     // Clipped to the recording: its first and last cells reach half a frame past it, where the lane shows no file.
     const span: [number, number] = [place.startSec + place.offsetNorm * place.spanSec, place.startSec + (place.offsetNorm + place.trackDurRatio) * place.spanSec];
     const plot = paintOverlay(canvas, { layers: [{ view: picture, color: '', span }] }, { min: view.dbLo, max: view.dbHi },
         { x: titles.time, y: titles.frequency, colour: titles.colour },
-        { axisCanvas, axisView, heatmapPalette: viridis, window: { x: view.window, y: { start: Math.max(0, view.minFrequencyHz) / top, end: view.maxFrequencyHz / top } } });
+        { axisCanvas, axisView, heatmapPalette: viridis, window: { x: view.window, y: { start: (Math.max(0, view.minFrequencyHz) - low) / rowSpan, end: (view.maxFrequencyHz - low) / rowSpan } } });
     return { source: spec, key, colourBar: plot?.colourBar ?? { x: 0, y: 0, width: 0, height: 0 }, ticks: plot?.levelTicks ?? [] };
 }
 

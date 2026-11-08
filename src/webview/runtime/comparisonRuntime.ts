@@ -14,7 +14,7 @@ import { DEFAULT_PYTHON_ENVIRONMENT_STATE, isResponseToLazyRequest, mergeDetailS
 import type { DrawTheme } from '../draw/canvasDrawers';
 import { isCacheSufficient, isOverviewSufficient, isRangeCacheDrawable, parseRangeRequestKey, planLaneRange, rangeCacheCoversView, rangeHasDetail } from '../waveform/rangeRequestPolicy';
 import { extractSpectrumAtCursor as extractCursorSpectrum } from '../spectrum/cursorSpectrum';
-import { spectrogramWindowServes, spectrogramZoomWindow, type SpectrogramWindow, type SpectrogramZoomSource } from '../spectrum/spectrogramZoom';
+import { spectrogramBandServes, spectrogramRowSpan, spectrogramWindowServes, spectrogramZoomBand, spectrogramZoomWindow, type SpectrogramBand, type SpectrogramBandSource, type SpectrogramWindow, type SpectrogramZoomSource } from '../spectrum/spectrogramZoom';
 import { buildSpectrumCsv, wavLoopRegions } from './runtimeExports';
 import { audioById, buttonById, buttonMatching, canvasById, canvasesMatching, canvasTarget, eventTarget, requiredElementById } from './domAdapter';
 import { HostMessenger } from './hostMessaging';
@@ -704,6 +704,16 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const samples = result.durationSeconds * result.sampleRateHz;
         return { columns: spec.timeBins, frames: spectrogramSettings.settings.auto ? samples : samples / spec.hopSize };
     }
+    /** What a lane's frequency zoom is measured against: the whole file's rows and its FFT's bins up to Nyquist. */
+    function spectrogramBandSourceOf(result: ComparisonTrackState): SpectrogramBandSource | null {
+        const spec = channelsForResult(result)[0]?.spectrogram;
+        return spec && spec.windowSize > 1 && spec.maxFrequencyHz > 0 ? { rows: spec.frequencyBins, bins: Math.floor(spec.windowSize / 2) + 1, nyquistHz: spec.maxFrequencyHz } : null;
+    }
+    /** The band a spectrogram lane shows (Hz), as its frequency axis does. */
+    function shownSpectrogramBand(whole: SpectrogramData): SpectrogramBand {
+        const bounds = shownSpectrogramBounds(whole);
+        return { lowHz: bounds.minFrequencyHz, highHz: bounds.maxFrequencyHz };
+    }
     function laneFileWindow(result: ComparisonTrackState, trackIndex: number): SpectrogramWindow {
         const fileView = computeTrackFileView(result, trackIndex);
         return { startNorm: fileView.fileAtZoomStart, endNorm: fileView.fileAtZoomEnd };
@@ -722,24 +732,33 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         const view = laneFileWindow(result, i);
         const width = canvas.width || 800;
+        const height = canvas.height || 120;
+        // Up the frequency axis too: the band shown, against the whole file's rows (R3).
+        const bandSource = spectrogramBandSourceOf(result);
+        const whole = channelsForResult(result)[0]?.spectrogram;
+        const viewBand = whole ? shownSpectrogramBand(whole) : null;
         const settingsSignature = currentSettingsSignature();
         const zoom = record.spectrogramZoom;
-        if (zoom && zoom.analysisId === analysisId && zoom.settingsSignature === settingsSignature && spectrogramWindowServes(source, zoom, view, width)) {
+        const serves = (window: SpectrogramWindow | null, band: SpectrogramBand | null): boolean =>
+            (window ? spectrogramWindowServes(source, window, view, width) : !spectrogramZoomWindow(source, view, width))
+            && (!bandSource || !viewBand || spectrogramBandServes(bandSource, band, viewBand, height));
+        if (zoom && zoom.analysisId === analysisId && zoom.settingsSignature === settingsSignature && serves(zoom.startNorm === 0 && zoom.endNorm === 1 && zoom.band ? null : zoom, zoom.band)) {
             return;
         }
-        const window = spectrogramZoomWindow(source, view, width);
-        if (!window || Date.now() - (spectrogramZoomFailedAt.get(record.id) ?? -Infinity) < DETAIL_RETRY_MS) {
+        const timeWindow = spectrogramZoomWindow(source, view, width);
+        const band = bandSource && viewBand ? spectrogramZoomBand(bandSource, viewBand, height) : null;
+        if ((!timeWindow && !band) || Date.now() - (spectrogramZoomFailedAt.get(record.id) ?? -Infinity) < DETAIL_RETRY_MS) {
             return;
         }
         const pending = record.requests.pending('specZoom');
         if (pending && pending.meta && pending.meta.settingsSignature === settingsSignature && pending.meta.analysisId === analysisId) {
-            const [startNorm, endNorm] = pending.key.split('|').map(Number);
-            if (spectrogramWindowServes(source, { startNorm, endNorm }, view, width)) {
+            const asked = spectrogramZoomKey(pending.key);
+            if (serves(asked.timed ? asked : null, asked.band)) {
                 return; // the window on its way already serves it
             }
         }
         const requestId = nextRequestId('specZoom', i);
-        record.requests.ask('specZoom', requestId, `${window.startNorm}|${window.endNorm}`,
+        record.requests.ask('specZoom', requestId, [timeWindow ? `${timeWindow.startNorm}|${timeWindow.endNorm}` : '0|1', band ? `${band.lowHz}|${band.highHz}` : ''].join('|'),
             { trackId: record.id, requestId: requestId, analysisId: analysisId, settingsSignature: settingsSignature });
         messaging.post({
             type: 'request-track-detail',
@@ -748,8 +767,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             settingsSignature: settingsSignature,
             trackIndex: i,
             filePath: result.filePath,
-            startNorm: window.startNorm,
-            endNorm: window.endNorm,
+            // The whole file's frames along time when only the band needs its own rows.
+            ...(timeWindow ? { startNorm: timeWindow.startNorm, endNorm: timeWindow.endNorm } : {}),
+            ...(band ? { lowHz: band.lowHz, highHz: band.highHz } : {}),
         });
     }
     /** The spectrogram a lane draws and reads: its zoom window's while that covers the view, else the whole file's. */
@@ -765,7 +785,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         const view = laneFileWindow(result, trackIndex);
         const covers = zoom.startNorm <= Math.max(0, view.startNorm) + 1e-9 && zoom.endNorm >= Math.min(1, view.endNorm) - 1e-9;
-        return covers ? { spec: zoomed, window: { startNorm: zoom.startNorm, endNorm: zoom.endNorm } } : { spec: whole, window: null };
+        // A band's rows serve only while the band shown stays inside it.
+        const band = shownSpectrogramBand(whole);
+        const coversBand = !zoom.band || (zoom.band.lowHz <= Math.max(0, band.lowHz) + 1e-6 && zoom.band.highHz >= Math.min(whole.maxFrequencyHz, band.highHz) - 1e-6);
+        return covers && coversBand ? { spec: zoomed, window: { startNorm: zoom.startNorm, endNorm: zoom.endNorm } } : { spec: whole, window: null };
     }
     function releaseTrackDetail(i: number) {
         const result = state.results[i];
@@ -988,7 +1011,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             if (!isResponseToLazyRequest(asked, trackId, msg)) {
                 return;
             }
-            const [startNorm, endNorm] = zoomRequest.key.split('|').map(Number);
+            const { startNorm, endNorm, band } = spectrogramZoomKey(zoomRequest.key);
             record.requests.settle(msg.requestId);
             if (msg.type === 'track-detail-error') {
                 // The lane keeps the whole file's picture; the window is asked again after the pause.
@@ -998,7 +1021,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }
             spectrogramZoomFailedAt.delete(trackId);
             if (state.results[i] && state.results[i].filePath === msg.filePath && Array.isArray(msg.channels)) {
-                record.spectrogramZoom = { startNorm, endNorm, analysisId: asked.analysisId,
+                record.spectrogramZoom = { startNorm, endNorm, band, analysisId: asked.analysisId,
                     settingsSignature: asked.settingsSignature, spectrograms: msg.channels.map(channel => channel?.spectrogram ?? null) };
                 scheduleRender();
                 testBridge.publishAfterFrame();
@@ -2191,11 +2214,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         spectrogramRasterCache.set(cacheId, painted);
         // paintOverlay leaves its scale on the context: the lines over the lane are drawn in the canvas's own pixels.
         ctx.setTransform(1, 0, 0, 1, 0, 0);
-        const specTop = spec.maxFrequencyHz || maxFreq || 1;
+        // The band shown as fractions of the rows drawn: a zoomed band's rows start above 0 Hz.
+        const rows = spectrogramRowSpan(spec), rowSpan = rows.highHz - rows.lowHz || maxFreq || 1;
         markLanePlot(canvas, { x: STR.axisTime, y: STR.axisFrequency }, trackSpecAxisCanvasId(trackIndex, channelIndex), {
             x: { start: waveformView.start, end: waveformView.end },
-            y: { start: Math.max(0, minFreq) / specTop, end: Math.min(1, maxFreq / specTop) },
+            y: { start: Math.max(0, (Math.max(0, minFreq) - rows.lowHz) / rowSpan), end: Math.min(1, (maxFreq - rows.lowHz) / rowSpan) },
         });
+        // Which band the rows were drawn from: every frequency, or the band asked again (R3).
+        canvas.dataset.spectrogramBand = spec.bandLowHz !== undefined && spec.bandHighHz !== undefined ? `${spec.bandLowHz} ${spec.bandHighHz}` : '';
         // Which time window the picture was drawn from: the whole file, or the zoom window asked again (R3).
         canvas.dataset.spectrogramWindow = shown && shown.window ? `${shown.window.startNorm} ${shown.window.endNorm}` : '0 1';
         canvas.dataset.colourBar = [painted.colourBar.x, painted.colourBar.y, painted.colourBar.width, painted.colourBar.height].map(value => Math.round(value)).join(' ');
@@ -4223,4 +4249,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     syncSpecGearVisibility();
     ensureCalibrationStyles(document);
+}
+
+/** A spectrogram zoom request's key: its time window (0|1: the whole file's frames) and its band ('' for every frequency). */
+function spectrogramZoomKey(key: string): { startNorm: number; endNorm: number; timed: boolean; band: SpectrogramBand | null } {
+    const [start, end, low, high] = key.split('|');
+    const startNorm = Number(start), endNorm = Number(end);
+    return { startNorm, endNorm, timed: !(startNorm === 0 && endNorm === 1), band: low !== undefined && low !== '' && high !== undefined ? { lowHz: Number(low), highHz: Number(high) } : null };
 }
