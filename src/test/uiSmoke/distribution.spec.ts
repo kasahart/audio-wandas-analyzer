@@ -24,20 +24,23 @@ const BAND_3150 = BAND_CENTERS_HZ.findIndex(hz => Math.abs(hz - 3150) < 1);
 const OUTLIERS = ['run018', 'run043', 'run060'];
 const base = (filePath: string): string => path.basename(filePath);
 
-/** Drags across the distribution from one value to another, as a user marks a range. */
+/** Alt+drags across the distribution from one value to another, as a user marks a range (a plain drag zooms). */
 async function dragRange(page: Page, low: number, high: number): Promise<void> {
     const { low: min, high: max } = await dist(page);
-    const plot = page.locator('[data-entry-dist-plot]');
-    const box = (await plot.boundingBox())!;
-    const width = Number(await plot.getAttribute('width'));
+    const box = (await page.locator('[data-entry-dist-plot]').boundingBox())!;
     // The plot's x axis: 92 px of group names on the left, 12 on the right.
-    const x = (value: number): number => box.x + 92 + (value - min) / (max - min) * (width - 104);
+    const x = (value: number): number => box.x + 92 + (value - min) / (max - min) * (box.width - 104);
+    await page.keyboard.down('Alt');
     await page.mouse.move(x(low), box.y + 20);
     await page.mouse.down();
     await page.mouse.move(x(high), box.y + 20, { steps: 5 });
     await page.mouse.up();
+    await page.keyboard.up('Alt');
     await painted(page);
 }
+
+/** The value axis' name, as the plot component drew it on the axis strip. */
+const axisName = async (page: Page): Promise<string> => ((await page.locator('[data-entry-dist-axis-canvas]').getAttribute('data-plot-axes')) ?? '').split('|')[0];
 
 /** The distribution is drawn on the next frame after a change: wait for it. */
 const painted = (page: Page): Promise<unknown> => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
@@ -57,7 +60,7 @@ test('the separated high tail of the 3.15 kHz band, by rpm: dragged, the table k
     // Groups by number (900 before 1500), the recording without a CSV row last; computed values count channels.
     await expect.poll(async () => (await dist(page))?.groups.map(group => group.name)).toEqual(['900', '1200', '1500', '1800', '']);
     await expect.poll(async () => (await dist(page))?.unit).toBe('ch');
-    await expect(page.locator('[data-dist-axis-label]')).toHaveText(STR.dsBand.replace('{band}', bandLabel(BAND_3150)).replace('{label}', 'dBFS'));
+    await expect.poll(() => axisName(page)).toBe(STR.dsBand.replace('{band}', bandLabel(BAND_3150)).replace('{label}', 'dBFS'));
     await expect(page.locator('[data-entry-dist-note]')).toHaveText(STR.dsDistDrag);
     // Nothing marks the high ones: the user sees the tail and drags over it.
     const values = bandValues().sort((a, b) => b - a);
@@ -73,7 +76,7 @@ test('the separated high tail of the 3.15 kHz band, by rpm: dragged, the table k
     // The first of them to slot 1: a tick in slot 1's colour on its group, and the legend says so.
     await page.locator('[data-entry-table]').focus();
     await page.keyboard.press('1');
-    await expect(page.locator('[data-dist-slot="1"]')).toHaveCount(1);
+    await expect(page.locator('[data-dist-slots~="1"]')).toHaveCount(1);
     await expect(page.locator('[data-entry-dist-legend]')).toContainText(STR.dsSlotCompare.replace('{n}', '1'));
     await expect(page.locator('[data-dist-base]')).toHaveCount(1);
     // Compared: the distribution folds above the table, its tick and the range's chip kept; ← goes back to it.
@@ -81,10 +84,10 @@ test('the separated high tail of the 3.15 kHz band, by rpm: dragged, the table k
     await expect(page.locator('.track-stage')).toBeVisible();
     await expect(page.locator('#entry-screen')).toHaveClass(/is-dist-strip/);
     await expect.poll(async () => (await dist(page))?.strip).toBe(true);
-    await expect(page.locator('[data-dist-slot="1"]')).toHaveCount(1);
+    await expect(page.locator('[data-dist-slots~="1"]')).toHaveCount(1);
     // Its two rows in view are the compared row's group, so the tick is seen.
     const groupsBox = (await page.locator('[data-entry-dist-groups]').boundingBox())!;
-    const tick = (await page.locator('[data-dist-slot="1"]').boundingBox())!;
+    const tick = (await page.locator('[data-dist-slots~="1"]').boundingBox())!;
     expect(tick.y).toBeGreaterThanOrEqual(groupsBox.y - 1);
     expect(tick.y + tick.height).toBeLessThanOrEqual(groupsBox.y + groupsBox.height + 1);
     await expect(page.locator('[data-testid="fchip"]')).toHaveCount(1);
@@ -143,22 +146,24 @@ test('a group of two recordings is drawn as dots, and a dot goes to its row; a c
     await openEntry(page, scanned!);
     await pickCsv(page, 'motor.csv', entry100Metadata());
     await page.locator('[data-action="entry-group"]').selectOption('csv:rpm');
-    // 1800 rpm: two recordings of two channels, too few for a histogram.
-    const dots = page.locator('[data-dist-group="1800"] circle[data-dist-dot]');
-    await expect(dots).toHaveCount(4);
-    await expect(page.locator('[data-dist-group="900"] rect[data-bin]').first()).toBeVisible();
-    const key = await dots.nth(2).getAttribute('data-key');
-    await dots.nth(2).click();
-    expect((await snapshot(page)).focused).toBe(key);
-    // A press that stays put on the plot picks the bin under it.
+    // 1800 rpm: two recordings of two channels, too few for a histogram: four dots, where the plot drew them.
+    const dotCanvas = page.locator('[data-dist-group="1800"] [data-dist-canvas]');
+    const dots = async (): Promise<Array<{ key: string; x: number; y: number }>> => ((await dotCanvas.getAttribute('data-dots')) ?? '').split('\n').filter(Boolean)
+        .map(line => { const [key, x, y] = line.split('\t'); return { key, x: Number(x), y: Number(y) }; });
+    await expect.poll(async () => (await dots()).length).toBe(4);
+    await expect(page.locator('[data-dist-group="900"] [data-dist-canvas]')).toBeVisible();
+    const dot = (await dots())[2];
+    const at = (await dotCanvas.boundingBox())!;
+    await page.mouse.click(at.x + dot.x, at.y + dot.y);
+    expect((await snapshot(page)).focused).toBe(dot.key);
+    // A press that stays put on the plot picks the bin under it (once no second click makes it a double-click).
     // The plot is drawn again once the row is focused: its bars are read after that.
-    await expect(page.locator('[data-entry-rows] tr.is-focused')).toHaveAttribute('data-key', key!);
+    await expect(page.locator('[data-entry-rows] tr.is-focused')).toHaveAttribute('data-key', dot.key);
     await painted(page);
-    const bar = page.locator('[data-dist-group="900"] rect[data-bin]').first();
-    await expect(bar).toBeVisible();
-    const plot = (await bar.boundingBox())!;
-    await page.mouse.click(plot.x + plot.width / 2, plot.y + plot.height / 2);
-    await painted(page);
+    // Off the dot, at its value: the bin holding it.
+    const off = (await dots())[0];
+    await page.mouse.click(at.x + off.x, off.y > 14 ? at.y + off.y - 12 : at.y + off.y + 12);
+    await expect.poll(async () => (await dist(page)).range).not.toBeNull();
     const range = (await dist(page)).range!;
     const { low, high } = await dist(page);
     expect(range.high - range.low).toBeCloseTo((high - low) / 48, 5);
@@ -177,7 +182,7 @@ test('the base select picks a group whose median is the base: a dashed line on i
     await expect(base).toHaveValue('auto');
     await base.selectOption('group:1500');
     await expect.poll(async () => (await dist(page))?.base).toBe('1500');
-    await expect(page.locator('[data-dist-group="1500"] [data-dist-base]')).toHaveCount(1);
+    await expect(page.locator('[data-dist-group="1500"][data-dist-base]')).toHaveCount(1);
     await expect(page.locator('[data-entry-dist-legend]')).toContainText(STR.dsLegendBaseMedian.replace('{group}', '1500'));
     await expect(base).toHaveValue('group:1500');
     // Filtered out, the chosen group is still the base and the select still says so.
@@ -207,12 +212,12 @@ test('a CSV value counts recordings once; slot 1 keeps its tick when another val
     // 98 recordings with a row, each once though it has two channels.
     await expect.poll(async () => (await dist(page))?.unit).toBe('recording');
     await expect(page.locator('[data-entry-dist-count]')).toHaveText(`98 ${STR.dsUnitRecording}`);
-    await expect(page.locator('[data-dist-axis-label]')).toHaveText(STR.dsDistCsvAxis.replace('{col}', 'temp_c'));
+    await expect.poll(() => axisName(page)).toBe(STR.dsDistCsvAxis.replace('{col}', 'temp_c'));
     await page.locator('[data-entry-table]').focus();
     await page.keyboard.press('1');
-    await expect(page.locator('[data-dist-slot="1"]')).toHaveCount(1);
+    await expect(page.locator('[data-dist-slots~="1"]')).toHaveCount(1);
     await page.locator('[data-action="entry-value"]').selectOption('csv:load_pct');
-    await expect(page.locator('[data-dist-slot="1"]')).toHaveCount(1);
+    await expect(page.locator('[data-dist-slots~="1"]')).toHaveCount(1);
     // A lot column of 40 long names: the part that differs, and the groups scroll under a fixed axis.
     const readable = scanned!.filter(file => (file.result as { ok?: boolean }).ok);
     const lots = ['audio_file,lot,score', ...readable.map((file, index) => `${base(file.filePath)},LOT-2026-${String(index % 40 + 1).padStart(2, '0')}-東工場-第二組立ライン,${(index % 17) / 17}`)].join('\n');
@@ -224,5 +229,5 @@ test('a CSV value counts recordings once; slot 1 keeps its tick when another val
     await expect(page.locator('[data-entry-dist-count]')).toContainText(STR.dsDistGroups.replace('{n}', '40'));
     const scroll = await page.locator('[data-entry-dist-groups]').evaluate(element => [element.scrollHeight, element.clientHeight]);
     expect(scroll[0]).toBeGreaterThan(scroll[1]);
-    await expect(page.locator('[data-entry-dist-axis] svg')).toBeVisible();
+    await expect(page.locator('[data-entry-dist-axis-canvas]')).toBeVisible();
 });

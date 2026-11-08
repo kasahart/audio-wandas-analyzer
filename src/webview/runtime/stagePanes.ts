@@ -406,6 +406,8 @@ export interface StageLayer {
     alpha?: number;
     /** Bars filled down to the axis (a picture on its own); overlaid bars are drawn as steps. */
     filled?: boolean;
+    /** How opaque the fill of filled bars is (0.3 by default: a band level under its step; 1 for a histogram's bars). */
+    fill?: number;
     /** What the readout calls it while the pointer is on it (the legend's name). */
     label?: string;
     /** A dash pattern (px) for a line told apart by more than its colour: one read on the second level axis. */
@@ -415,6 +417,10 @@ export interface StageLayer {
     excluded?: readonly number[];
     /** One event of `source` (eventLayers'), and whether it is left out. */
     event?: { id: number; source: string; out: boolean };
+    /** What the readout says of the point at `index` (a histogram's bin and its count, a dot's recording), in place of where and how much. */
+    readout?: (index: number) => string[];
+    /** Drawn as marks, not a line: a dot at each point (`width` its radius), or a rug tick up from the floor at each point's x. */
+    marks?: 'dots' | 'rug';
     /** A heatmap whose rows are things, not an axis (the entry strip's recordings): the readout's name for the cell at `row` of `view.ys`, `column` of `view.xs` (a cell may show the loudest of several things). */
     rowName?: (row: number, column: number) => string;
 }
@@ -429,6 +435,8 @@ export interface StagePlot {
     yAt: (value: number) => number;
     /** A band's half width as a ratio of its centre, for steps. */
     ratioStep: number;
+    /** On a linear axis, a bar's half width in the axis's values (a histogram's bins): bars are then that wide each side. */
+    halfStep?: number;
     lines: StageLayer[];
     diff: boolean;
     /**
@@ -493,8 +501,12 @@ export interface StagePaintOptions {
     pending?: { done: number; total: number; label: string };
     /** false for a plot stacked over another on the same horizontal axis: its gridlines only, the one below labels it. */
     xAxisLabels?: boolean;
+    /** false for a plot whose level axis is named beside it (the distribution's rows): no level ticks or name in its margin. */
+    yAxisLabels?: boolean;
     /** The plot's margins in CSS pixels, for a plot whose pointer handling has its own (the comparison's by default). */
     margins?: PlotMargins;
+    /** A stretch of the horizontal axis picked (its values): shaded behind the pictures. */
+    highlight?: { start: number; end: number };
     /** A heatmap's row-axis tick text, for rows counted another way than their values (the entry strip's, down from the top). */
     yTickText?: (value: number) => string;
     /**
@@ -687,10 +699,21 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
         }
         const bars = view.kind === 'bar';
         const barXs = view.xs ?? [];
-        const ratioStep = bars && barXs.length > 1 ? Math.sqrt(barXs[1] / barXs[0]) : 1.12;
+        // Bands on a log axis are a ratio wide; bins on a linear one (a histogram's) a step.
+        const linearBars = bars && view.xScale === 'linear';
+        const ratioStep = bars && !linearBars && barXs.length > 1 ? Math.sqrt(barXs[1] / barXs[0]) : 1.12;
         plot.ratioStep = ratioStep;
+        if (linearBars) plot.halfStep = barXs.length > 1 ? (barXs[1] - barXs[0]) / 2 : 0.5;
         context.save();
         context.beginPath(); context.rect(left, top, plotWidth, plotHeight); context.clip();
+        if (options.highlight) {
+            const a = xAt(options.highlight.start), b = xAt(options.highlight.end);
+            context.save();
+            context.fillStyle = text;
+            context.globalAlpha = 0.07;
+            context.fillRect(Math.min(a, b), top, Math.max(1, Math.abs(b - a)), plotHeight);
+            context.restore();
+        }
         if (options.bandSteps) paintBandSteps(context, options.bandSteps, xAt, yAt);
         const wholeAxis = axisScale(whole);
         // Signals drawn as themselves share an amplitude axis: a picture without a signal (a group's median level) is left out.
@@ -718,10 +741,10 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
             context.globalAlpha = layer.alpha ?? 1;
             if (layer.view.kind === 'bar' && layer.filled) {
                 const floor = options.diff ? yAt(0) : yAt(range.min);
-                context.globalAlpha = 0.3 * (layer.alpha ?? 1);
+                context.globalAlpha = (layer.fill ?? 0.3) * (layer.alpha ?? 1);
                 values.forEach((value, index) => {
                     if (value === null) return;
-                    const x0 = xAt(xs[index] / ratioStep), x1 = xAt(xs[index] * ratioStep);
+                    const [x0, x1] = barEdges(plot, xs[index]);
                     context.fillRect(x0, Math.min(floor, yAt(value)), Math.max(1, x1 - x0 - 1), Math.abs(floor - yAt(value)));
                 });
                 context.globalAlpha = layer.alpha ?? 1;
@@ -758,8 +781,10 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
     if (options.xAxisLabels !== false) context.fillText(xTitle, xTitleLeft, height - 3);
     // The level axis: its ticks in the muted colour, and what it measures up the left edge in the text colour.
     const frame = { left, top, width: plotWidth, height: plotHeight };
-    drawValueAxis(context, frame, levelTicks, '', { color: muted, font: context.font, titleX: AXIS_TITLE_X });
-    drawValueAxis(context, frame, [], axes.y, { color: text, font: context.font, titleX: AXIS_TITLE_X });
+    if (options.yAxisLabels !== false) {
+        drawValueAxis(context, frame, levelTicks, '', { color: muted, font: context.font, titleX: AXIS_TITLE_X });
+        drawValueAxis(context, frame, [], axes.y, { color: text, font: context.font, titleX: AXIS_TITLE_X });
+    }
     if (options.secondary && !heatmap) paintRightAxis(context, frame, levelTicks.map(tick => tick.fraction), options.secondary.range, options.secondary.title, width, { muted, line, text });
     // Under the region's corner tag when there is one.
     // A heatmap's colour bar holds that corner: the note goes under it.
@@ -841,10 +866,15 @@ function paintRightAxis(context: CanvasRenderingContext2D, frame: { left: number
     context.restore();
 }
 
-/** One picture of a pane as its line (or its bands as steps), `width` wide, clipped to the plot. */
+/** Where a bar centred on `x` starts and ends on the canvas: a ratio each side on a log axis, a step on a linear one. */
+export function barEdges(plot: Pick<StagePlot, 'xAt' | 'ratioStep' | 'halfStep'>, x: number): [number, number] {
+    return plot.halfStep !== undefined ? [plot.xAt(x - plot.halfStep), plot.xAt(x + plot.halfStep)] : [plot.xAt(x / plot.ratioStep), plot.xAt(x * plot.ratioStep)];
+}
+
+/** One picture of a pane as its line (or its bands as steps, or its points as marks), `width` wide, clipped to the plot. */
 export function strokeStageLine(context: CanvasRenderingContext2D, plot: StagePlot, layer: StageLayer, width: number): void {
     if (layer.view.waveform) { plot.signal?.paint(context, layer, width); return; }
-    const { xAt, ratioStep, frame } = plot;
+    const { frame, xAt } = plot;
     // Past the level axis a line leaves the plot (clipped), not along its edge.
     const yAt = plot.lineYAt ?? plot.yAt;
     const values = layer.view.values ?? [], xs = layer.view.xs ?? [];
@@ -854,10 +884,23 @@ export function strokeStageLine(context: CanvasRenderingContext2D, plot: StagePl
     context.globalAlpha = layer.alpha ?? 1;
     context.lineWidth = width;
     if (layer.dash) context.setLineDash([...layer.dash]);
-    if (layer.view.kind === 'bar') {
+    if (layer.marks === 'dots') {
+        // Each point a dot of the line's colour (its width the radius), the things a few points stand for.
+        context.fillStyle = layer.color;
         values.forEach((value, index) => {
             if (value === null) return;
-            const x0 = xAt(xs[index] / ratioStep), x1 = xAt(xs[index] * ratioStep);
+            context.beginPath(); context.arc(xAt(xs[index]), yAt(value), width, 0, 2 * Math.PI); context.fill();
+        });
+    } else if (layer.marks === 'rug') {
+        // A short tick up from the plot's floor at each point, one per half pixel: many draw what can be seen.
+        const ticks = new Set(xs.map(x => Math.round(xAt(x) * 2) / 2));
+        context.beginPath();
+        for (const x of ticks) { context.moveTo(x, frame.top + frame.height); context.lineTo(x, frame.top + frame.height - 5); }
+        context.stroke();
+    } else if (layer.view.kind === 'bar') {
+        values.forEach((value, index) => {
+            if (value === null) return;
+            const [x0, x1] = barEdges(plot, xs[index]);
             context.beginPath(); context.moveTo(x0, yAt(value)); context.lineTo(x1 - 1, yAt(value)); context.stroke();
         });
     } else {
@@ -933,7 +976,7 @@ function linePointAt(plot: StagePlot, layer: StageLayer, x: number): { index: nu
         if (plot.xAt(xs[middle]) <= x) low = middle; else high = middle;
     }
     // A band is the one whose step the pointer is over (its centre may be off the plot, zoomed into part of it).
-    const inBand = (index: number): boolean => x >= plot.xAt(xs[index] / plot.ratioStep) && x <= plot.xAt(xs[index] * plot.ratioStep);
+    const inBand = (index: number): boolean => { const [x0, x1] = barEdges(plot, xs[index]); return x >= x0 && x <= x1; };
     // Past a line's ends, or beside the bands, the pointer is over no point of it.
     if (layer.view.kind === 'bar' ? !inBand(low) && !inBand(high) : x < plot.xAt(xs[0]) || x > plot.xAt(xs[xs.length - 1])) return null;
     const index = layer.view.kind === 'bar' ? (inBand(high) ? high : low)
@@ -1017,6 +1060,7 @@ export function stageHover(plot: StagePlot, x: number, y: number): { layer: Stag
         const amount = `${(Math.abs(value) >= 10 ? value.toFixed(1) : value.toPrecision(3)).replace(/^-/, '−')}${unit ? ` ${unit}` : ''}`;
         return readoutOf(hit.s, hit.point, hit.s.label ?? '', [timeText(plot, hit.point.time ?? 0), amount]);
     }
+    if (hit.s.readout) return readoutOf(hit.s, hit.point, hit.s.label ?? '', hit.s.readout(hit.point.index));
     const amount = plot.diff ? signed(hit.point.value, isDb(view))
         // Levels to 0.1 dB, as the spectrum overlay reads them; other quantities (a coherence) to 3 figures.
         : (isDb(view) ? `${hit.point.value.toFixed(1)} dB` : Math.abs(hit.point.value) >= 10 ? hit.point.value.toFixed(1) : hit.point.value.toPrecision(3)).replace(/^-/, '−')

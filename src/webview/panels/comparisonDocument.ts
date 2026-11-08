@@ -249,28 +249,26 @@ export function renderComparisonStyles(): string {
         .entry-dist-swatch.slot-2 { border-left-color: var(--entry-slot-2); }
         .entry-dist-swatch.slot-3 { border-left-color: var(--entry-slot-3); }
         .entry-dist-swatch.is-dashed { border-left-style: dashed; }
-        .entry-dist-note { min-height: 16px; color: var(--muted); font-size: 11px; }
+        .entry-dist-note { display: flex; gap: 8px; align-items: center; min-height: 16px; color: var(--muted); font-size: 11px; }
+        .entry-dist-note > .plot-readout { justify-content: flex-end; }
         .entry-dist-groups { overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; flex: 0 1 auto; }
-        .entry-dist-axis { overflow: hidden; scrollbar-gutter: stable; }
-        .entry-dist svg { display: block; }
-        .entry-dist-plot { cursor: crosshair; user-select: none; touch-action: none; }
-        .entry-dist-plot rect[data-bin], .entry-dist-plot circle { fill: var(--dist-bar); }
-        .entry-dist-plot rect[data-bin].is-in, .entry-dist-plot circle.is-in { fill: var(--dist-bar-in); }
-        .entry-dist-plot circle { cursor: pointer; }
-        .entry-dist-rug { stroke: var(--dist-bar-in); stroke-opacity: 0.55; stroke-width: 1; fill: none; }
-        .entry-dist-floor, .entry-dist-axis-line { stroke: var(--line); }
-        .entry-dist-axis-line { stroke: var(--muted); }
-        .entry-dist-name { fill: var(--text); font-size: 12px; }
-        .entry-dist-count { fill: var(--muted); font-size: 11px; font-family: var(--font-mono); }
-        .entry-dist-max { fill: var(--muted); opacity: 0.75; font-size: 10px; font-family: var(--font-mono); }
-        .entry-dist-tick { fill: var(--muted); font-size: 10px; font-family: var(--font-mono); }
-        .entry-dist-quantity { fill: var(--text); font-size: 11px; }
-        .entry-dist-brush { fill: currentColor; fill-opacity: 0.12; stroke: var(--text); stroke-dasharray: 3 2; }
+        .entry-dist-axis { position: relative; overflow: hidden; scrollbar-gutter: stable; height: 34px; }
+        .entry-dist-axis-canvas { display: block; height: 20px; }
+        .entry-dist-axis-canvas[hidden] { display: none; }
+        .entry-dist-count-axis { position: absolute; left: 4px; top: 20px; color: var(--muted); font-size: 11px; }
+        .entry-dist-plot { position: relative; user-select: none; touch-action: none; }
+        .entry-dist-row { position: relative; display: flex; }
+        .entry-dist-label { width: 88px; padding: 2px 0 0 4px; display: flex; flex-direction: column; overflow: hidden; }
+        .entry-dist-canvas { display: block; margin-top: 4px; cursor: crosshair; }
+        .entry-dist-name { color: var(--text); font-size: 12px; white-space: nowrap; }
+        .entry-dist-count { color: var(--muted); font-size: 11px; font-family: var(--font-mono); }
+        .entry-dist-max { color: var(--muted); opacity: 0.75; font-size: 10px; font-family: var(--font-mono); }
+        .entry-dist-brush { position: absolute; top: 0; bottom: 0; background: rgba(127, 127, 127, 0.12); border: 1px dashed var(--text); pointer-events: none; }
+        .entry-dist-brush[hidden] { display: none; }
         .entry-dist-empty { display: grid; place-items: center; min-height: 120px; color: var(--muted); text-align: center; padding: 8px; }
         .entry-dist-empty[hidden] { display: none; }
         /* While a comparison is open the distribution folds into a low strip above the table, with a way back. */
         .entry-screen.is-dist-strip .entry-dist { flex: none; padding: 4px 10px 2px; border-bottom: 1px solid var(--line); background: var(--panel); }
-        .entry-screen.is-dist-strip .entry-dist-note:empty { display: none; }
         .entry-screen.is-dist-strip .entry-dist-empty { min-height: 0; padding: 2px; }
         /* A held slot's Δ spectrum takes the distribution's frame while it is held, so nothing else moves. */
         .entry-held { position: absolute; inset: 0; z-index: 1; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--entry-delta); border-radius: 4px; padding: 2px 6px; }
