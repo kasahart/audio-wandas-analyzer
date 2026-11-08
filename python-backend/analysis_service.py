@@ -249,6 +249,7 @@ class AnalysisService:
         calibration_profile: object = None,
         analysis_revision: object = 0,
         time_window: tuple[float, float] | None = None,
+        frequency_band: tuple[float, float] | None = None,
     ) -> TrackDetailResult:
         cached, analysis_frame, resolved = self.engine.get_analysis(file_path, calibration_profile)
         n_fft, hop_length, window = resolve_stft_params(analysis_frame.n_samples, stft_options)
@@ -277,6 +278,7 @@ class AnalysisService:
             spectrogram_window=time_window,
             spectrogram_centers_sec=centers,
             spectrogram_hop_size=window_hop,
+            spectrogram_band=frequency_band,
         )
         return {
             "trackIndex": track_index,

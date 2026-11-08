@@ -249,6 +249,12 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                     "items": {
                         "type": "number"
                     }
+                },
+                "bandLowHz": {
+                    "type": "number"
+                },
+                "bandHighHz": {
+                    "type": "number"
                 }
             },
             "additionalProperties": false
@@ -435,6 +441,12 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                     "type": "number"
                 },
                 "endNorm": {
+                    "type": "number"
+                },
+                "lowHz": {
+                    "type": "number"
+                },
+                "highHz": {
                     "type": "number"
                 }
             },
@@ -1937,6 +1949,8 @@ export interface SpectrogramData {
     referenceUnit?: string;
     levelReferenceLabel?: string;
     timeCentersSec?: number[];
+    bandLowHz?: number;
+    bandHighHz?: number;
 }
 
 export interface ChannelSummary {
@@ -1986,6 +2000,8 @@ export interface TrackDetailPayload {
     analysisRevision?: number;
     startNorm?: number;
     endNorm?: number;
+    lowHz?: number;
+    highHz?: number;
 }
 
 export interface TrackDetailResult {
