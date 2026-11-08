@@ -52,6 +52,7 @@ function setup(results = new Map<string, ScanResult>()) {
     const window = fakeWindow();
     const calls: Array<[string, unknown]> = [];
     const state = { focused: null as string | null, slots: [null, null, null, null] as (string | null)[] };
+    const colored: string[] = [];
     const deps: HeldPlotDeps = {
         document, window, strings, held, title, canvas,
         post: message => calls.push(['post', message]),
@@ -59,11 +60,12 @@ function setup(results = new Map<string, ScanResult>()) {
         keepWindow: () => FULL_PLOT_WINDOW,
         entryModel: () => buildEntryModel([...results].map(([filePath, result]) => ({ filePath, result })), null),
         results, focusedFile: () => state.focused, slotFiles: () => state.slots,
+        colorOf: filePath => { colored.push(filePath); return `colour of ${filePath}`; },
         recipe: () => null, runRecipe: () => undefined, limits: () => ({}), spectral: () => true,
         tapped: slot => calls.push(['tapped', slot]),
     };
     const plot = createHeldPlot(deps);
-    return { document, window, held, title, plot, calls, state };
+    return { document, window, held, title, plot, calls, state, colored };
 }
 
 test('a short press on a slot key is a tap; a long one shows the slot until 150 ms after it is let go', () => {
@@ -149,6 +151,16 @@ test('a step without a Recipe to draw from says it cannot be drawn; the region a
     assert.equal(plot.canHold(step({ operation: TIME_SLICE })), false);
     assert.equal(plot.canHold(step({})), false, 'no Recipe: nothing to hold');
     assert.equal(plot.handle({ type: 'entry-scan-result' }), false);
+});
+
+test('a held step draws its row in the colour the row is drawn in elsewhere (its role\'s, else its own), not always slot 1\'s yellow (R5)', () => {
+    const results = new Map<string, ScanResult>([['/d/a.wav', scanned()], ['/d/b.wav', scanned()]]);
+    const { plot, state, colored } = setup(results);
+    state.slots = [null, '/d/a.wav', null, null];
+    state.focused = '/d/b.wav';
+    plot.holdStep(step({}));
+    plot.paint();
+    assert.deepEqual([...new Set(colored)], ['/d/b.wav'], 'the focused row\'s colour');
 });
 
 test('narrowed takes a window\'s vertical part of a level range', () => {
