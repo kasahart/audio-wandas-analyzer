@@ -614,6 +614,12 @@ test('coherence compares two channels of each recording: it comes with its pair 
     await output.dispatchEvent('input');
     await expect(bar.locator('[data-action="step-apply"]')).toBeDisabled();
     await expect(page.locator('#hint-footer')).toHaveText(STR.stepPairSelf);
+    // The ⚙ drawn again under the pointer still resting where it clicked (as the bar is after a click): the browser says
+    // the pointer is over the new one, but it did not move, so the reason stays instead of the ⚙'s hint.
+    const gear = await pair.locator('[data-action="step-settings"]').boundingBox();
+    await pair.locator('[data-action="step-settings"]').evaluate(button => button.replaceWith(button.cloneNode(true)));
+    await page.mouse.move(gear!.x + gear!.width / 2, gear!.y + gear!.height / 2);
+    await expect(page.locator('#hint-footer')).toHaveText(STR.stepPairSelf);
     await output.fill('2');
     await output.dispatchEvent('input');
     await bar.locator('[data-action="step-apply"]').click();

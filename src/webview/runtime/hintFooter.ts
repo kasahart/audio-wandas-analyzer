@@ -51,11 +51,24 @@ export function createHintFooter(doc: Document): HintFooter {
 }
 
 export function attachHoverHints(doc: Document, footer: HintFooter): void {
+    // Where the pointer was last seen, and the hint this handler last put in the footer. A mouseover at that same place
+    // comes from the page changing under a pointer at rest (a bar drawn again after a click, or a scroll): when a message
+    // was written since (a refused value's reason), it stays instead of giving way to the hint of what the pointer rests
+    // on; otherwise the hint follows what is under the pointer now.
+    let at: { x: number; y: number } | null = null;
+    let shown = '';
+    doc.addEventListener('mousemove', function (e) { at = { x: e.clientX, y: e.clientY }; });
     doc.addEventListener('mouseover', function (e) {
+        const still = at !== null && at.x === e.clientX && at.y === e.clientY;
+        at = { x: e.clientX, y: e.clientY };
+        if (still && (doc.getElementById('hint-footer')?.textContent ?? '') !== shown) {
+            return;
+        }
         const node = e.target as Element | null;
         const target = node && typeof node.closest === 'function' ? node.closest<HTMLElement>('[data-hint]') : null;
-        if (target && target.dataset.hint) {
-            footer.show(target.dataset.hint);
+        shown = target?.dataset.hint ?? '';
+        if (shown) {
+            footer.show(shown);
         }
         else {
             footer.clear();
@@ -63,6 +76,8 @@ export function attachHoverHints(doc: Document, footer: HintFooter): void {
     });
     doc.addEventListener('mouseout', function (e) {
         if (!e.relatedTarget) {
+            at = null;
+            shown = '';
             footer.clear();
         }
     });
