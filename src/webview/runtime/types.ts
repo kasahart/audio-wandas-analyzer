@@ -92,13 +92,6 @@ export interface RuntimeWindow extends Omit<Window, 'addEventListener' | 'remove
     __uiSmokeState?: UiSmokeState;
     /** Set by a page the tests open: the runtime then publishes its rendered UI (`comparison-panel-test-snapshot`). */
     __AWA_TEST_HOOKS__?: boolean;
-    renderWaveformPipeline?: (
-        context: CanvasRenderingContext2D,
-        width: number,
-        height: number,
-        waveform: WaveformEnvelope,
-        options: Record<string, unknown>,
-    ) => void;
     paintLoopRegion?: (
         context: CanvasRenderingContext2D,
         width: number,

@@ -205,7 +205,7 @@ function setupEnvWithState(stateJson: string, initialVsCodeState: unknown = null
         stateJson,
         initialVsCodeState,
     );
-    // comparisonWaveform.js を先に eval して window.renderWaveformPipeline を登録する
+    // comparisonWaveform.js を先に eval して window.paintLoopRegion を登録する
     evalScript(dom, WAVEFORM_PIPELINE_JS);
     evalScript(dom, script);
     return { dom, postedMessages, vscodeStates, offscreenInstances, domCanvasContexts };
@@ -615,38 +615,10 @@ test('directory selection mode posts an empty selection when the shown file is t
     assert.deepEqual(message?.filePaths, []);
 });
 
-test('comparisonWaveform.js が window.renderWaveformPipeline を登録する', () => {
+test('comparisonWaveform.js が window.paintLoopRegion を登録する', () => {
     const { dom } = setupEnv();
     const win = dom.window as any;
-    assert.equal(typeof win.renderWaveformPipeline, 'function',
-        'window.renderWaveformPipeline が関数として登録されていること');
-});
-
-test('renderWaveformPipeline が ctx.stroke() を呼び出す', () => {
-    const { dom } = setupEnv();
-    const win = dom.window as any;
-    const calls: string[] = [];
-    const mockCtx = {
-        lineWidth: 1.5,
-        strokeStyle: '',
-        beginPath() { calls.push('beginPath'); },
-        moveTo() { calls.push('moveTo'); },
-        lineTo() { calls.push('lineTo'); },
-        stroke() { calls.push('stroke'); },
-    };
-    const env = {
-        min: [-0.5, -0.3, -0.4],
-        max: [0.8, 0.6, 0.7],
-        minT: [0.1, 0.4, 0.7],
-        maxT: [0.2, 0.5, 0.8],
-        absolutePeak: 0.8,
-    };
-    win.renderWaveformPipeline(mockCtx, 800, 80, env, {
-        zoomStart: 0, zoomEnd: 1, offsetNorm: 0,
-        dataStart: 0, dataEnd: 1, color: '#4ec994',
-    });
-    assert.ok(calls.includes('stroke'), 'stroke() が呼ばれること');
-    assert.ok(calls.includes('beginPath'), 'beginPath() が呼ばれること');
+    assert.equal(typeof win.paintLoopRegion, 'function', 'window.paintLoopRegion が関数として登録されていること');
 });
 
 test('waveform-range-result メッセージを受信しても例外が起きない', () => {
