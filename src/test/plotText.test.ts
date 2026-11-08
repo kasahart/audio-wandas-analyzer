@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { StageView } from '../shared/protocol/backendProtocol';
-import { amountText, frequencyText, levelText, secondsText, signedText, withMinus } from '../webview/plot/plotText';
+import { amountText, barkText, frequencyText, lagText, levelText, quefrencyText, secondsText, signedNumberText, signedText, withMinus } from '../webview/plot/plotText';
+import { formatValue, plotValueText } from '../webview/runtime/entryTableHtml';
 import { spectrumReadoutText } from '../webview/runtime/spectrumRuntime';
 import { stageHover, type StagePlot } from '../webview/runtime/stagePanes';
 import { spectrogramReadoutText } from '../webview/runtime/trackLaneHover';
@@ -42,17 +43,37 @@ test('a level reads to a tenth of a decibel in its unit, a time in seconds, othe
     assert.equal(secondsText(-0.5, 3), '−0.500 s');
     assert.equal(amountText(-0.0123, 'Pa'), '−0.0123 Pa');
     assert.equal(amountText(0.5), '0.500');
-    assert.equal(amountText(123.45, '°'), '123.5°');
+    assert.equal(amountText(123.45, '°'), '123°');
     assert.equal(amountText(2.5e-7), '2.50e−7');
     assert.equal(signedText(3.21), '+3.2 dB');
     assert.equal(signedText(-0.125, false), '−0.125');
+});
+
+test('every value has three significant figures however large: no false tenth and no exponent below a million (R7)', () => {
+    assert.equal(amountText(12.345), '12.3');
+    assert.equal(amountText(1234), '1230');
+    assert.equal(amountText(-98765, 'Pa'), '−98800 Pa');
+    assert.equal(amountText(2.5e7), '2.50e7');
+    assert.equal(signedText(1234, false), '+1230');
+    assert.equal(signedText(-2.5e-7, false), '−2.50e−7');
+});
+
+test('a lag, a quefrency, Bark and a signed number read the same on every plot (R7)', () => {
+    assert.equal(lagText(0.00125), '+1.25 ms');
+    assert.equal(lagText(-0.0005), '−0.50 ms');
+    assert.equal(lagText(0.000001), '0.00 ms');
+    assert.equal(quefrencyText(0.0025), '2.50 ms');
+    assert.equal(quefrencyText(0.0125), '12.5 ms');
+    assert.equal(barkText(12.46), '12.5 Bark');
+    assert.equal(signedNumberText(23.71), '+23.7');
+    assert.equal(signedNumberText(-1.44), '−1.4');
 });
 
 test('a negative number is written with a true minus sign, its exponent too, never a hyphen (R7)', () => {
     assert.equal(withMinus('-3.2'), '−3.2');
     assert.equal(withMinus('1.5e-7'), '1.5e−7');
     assert.equal(withMinus('1.5e+7'), '1.5e7');
-    for (const text of [levelText(-1), secondsText(-1), amountText(-1), amountText(-1e-9), frequencyText(-2000), signedText(-1)]) {
+    for (const text of [levelText(-1), secondsText(-1), amountText(-1), amountText(-1e-9), frequencyText(-2000), signedText(-1), lagText(-0.001), quefrencyText(-0.001), barkText(-1), signedNumberText(-1)]) {
         assert.ok(!text.includes('-'), `${text} has no hyphen`);
     }
 });
@@ -73,4 +94,14 @@ test('the same frequency and level read the same on the comparison, the cursor s
     const fineSlice = { values: [], frequencyBins: 65537, maxFrequencyHz: 48000, minDb: 0, maxDb: 0, unit: 'dB' };
     const readouts = xs.map((hz, i) => [stageHover(fine, i ? 150 : 50, 50)!.text, spectrumReadoutText('a.wav', fineSlice, hz, -42.3), spectrogramReadoutText('a.wav', 1, 0.01, { frequencyHz: hz, level: -42.3, stepHz: step }, 'dB')]);
     for (const [i, expected] of ['1.0027 kHz', '1.0034 kHz'].entries()) for (const text of readouts[i]) assert.ok(text.includes(expected), text);
+});
+
+test('the distribution reads a value as a plot does, not as the table column writes it (R7)', () => {
+    assert.equal(formatValue('peak', 3150), '3150');
+    assert.equal(plotValueText('peak', 3150), '3.15 kHz');
+    assert.equal(plotValueText('peak', 250), '250 Hz');
+    assert.equal(plotValueText('leq', -12.34), '−12.3');
+    assert.equal(plotValueText('band:1000', 61), '61.0');
+    assert.equal(plotValueText('crest', 4.567), '4.57');
+    assert.equal(plotValueText('csv:score', 1234.5), '1230');
 });

@@ -188,9 +188,7 @@ function collectMinusFindings(filePaths) {
     for (const filePath of filePaths) {
         if (path.relative(repoRoot, filePath).split(path.sep).join('/') === MINUS_FILE) continue;
         const source = withoutComments(fs.readFileSync(filePath, 'utf8'));
-        const match = handMadeMinusRegex.exec(source);
-        if (!match) continue;
-        out.push({
+        for (const match of source.matchAll(new RegExp(handMadeMinusRegex, 'gu'))) out.push({
             filePath,
             line: lineNumberAt(source, match.index),
             description: `Write a number's minus sign with withMinus (or another formatter) from ${MINUS_FILE}, not by hand.`,

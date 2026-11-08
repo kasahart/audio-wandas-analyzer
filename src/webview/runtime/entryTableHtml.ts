@@ -8,7 +8,7 @@
 import type { UiStrings } from '../../shared/i18n/strings';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { titledHintAttr as hintAttr } from './hintFooter';
-import { withMinus } from '../plot/plotText';
+import { amountText, frequencyText, withMinus } from '../plot/plotText';
 import { summarizeAudioCandidates } from '../../shared/dataset/asdData';
 import { groupOf, middleEllipsis, valueOf, type ColumnId, type DatasetFilter, type DatasetRow, type GroupId, type Results, type Unmatched, type ValueId } from '../../shared/dataset/datasetTable';
 
@@ -218,6 +218,16 @@ export function formatValue(value: ValueId, number: number | null): string {
     if (number === null) return '—';
     const text = value === 'peak' ? String(Math.round(number)) : value === 'crest' ? number.toFixed(2) : value.startsWith('csv:') ? String(+number.toPrecision(6)) : number.toFixed(1);
     return withMinus(text);
+}
+
+/**
+ * A value as a plot reads it out (R7, plotText.ts), not as the table's column writes it: a peak frequency in Hz or
+ * kHz ("3.15 kHz"), a level to 0.1 dB (its unit is in the value's name), any other value to three significant figures.
+ */
+export function plotValueText(value: ValueId, number: number): string {
+    if (value === 'peak') return frequencyText(number);
+    if (value === 'leq' || value.startsWith('band:')) return withMinus(number.toFixed(1));
+    return amountText(number);
 }
 
 /** How many of a name's last characters stay in sight however narrow its column: the run number and the extension. */
