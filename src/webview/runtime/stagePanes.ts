@@ -14,7 +14,7 @@ import { uncalibratedUnits } from '../../shared/utils/format';
 import type { NormalizedRange } from './waveformInteraction';
 import { plotPointIn, type PlotMargins } from './plotInteraction';
 import { HOVER_PICK_RADIUS_PX, nearestPoint } from './plotHover';
-import { paintWaveformLayer, waveformRange } from '../plot/waveformLayer';
+import { paintWaveformLayer, waveformRange, type SignalPointSink } from '../plot/waveformLayer';
 import { drawValueAxis, fittedAxisTitle, readoutText, type AxisTick } from '../../shared/gui-core/index';
 import { niceTicks } from '../../shared/utils/ticks';
 
@@ -415,6 +415,8 @@ export interface StageLayer {
     excluded?: readonly number[];
     /** One event of `source` (eventLayers'), and whether it is left out. */
     event?: { id: number; source: string; out: boolean };
+    /** The stretch of the horizontal axis (its values) this picture is drawn over, clipped there: finer data over part of the view. */
+    span?: readonly [number, number];
     /** A heatmap whose rows are things, not an axis (the entry strip's recordings): the readout's name for the cell at `row` of `view.ys`, `column` of `view.xs` (a cell may show the loudest of several things). */
     rowName?: (row: number, column: number) => string;
 }
@@ -502,6 +504,13 @@ export interface StagePaintOptions {
      * axis' range and `title` its name. They are drawn after the left axis' lines, as lines (not signals).
      */
     secondary?: { layers: StageLayer[]; range: PaneRange; title: string };
+    /**
+     * A track lane's layout: its value axis on a canvas of its own beside the plot (its ticks and name are drawn
+     * there), the plot filling its canvas at the canvas's own size, and no time labels (the ruler above has them).
+     */
+    axisCanvas?: HTMLCanvasElement | null;
+    /** Each point of a signal's line (CSS pixels on the canvas, its value and time, whether seen), for a pointer that reads them. */
+    onSignalPoint?: SignalPointSink;
 }
 
 /**
@@ -543,10 +552,14 @@ export function paintStage(canvas: HTMLCanvasElement, view: StageView | null, ra
  * are, for the pointer (null when nothing is drawn).
  */
 export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, range: PaneRange, axes: StageAxes, options: StagePaintOptions = {}): StagePlot | null {
-    const ratio = options.size ? 1 : canvas.ownerDocument.defaultView?.devicePixelRatio ?? 1;
-    const width = options.size?.width ?? (canvas.clientWidth || 600), height = options.size?.height ?? (canvas.clientHeight || 120);
-    canvas.width = Math.round(width * ratio);
-    canvas.height = Math.round(height * ratio);
+    const lane = options.axisCanvas !== undefined;
+    // A lane keeps the size its layout gave its canvas; any other plot is sized to its box at the screen's ratio.
+    const ratio = options.size ? 1 : lane ? canvas.width / (canvas.clientWidth || canvas.width || 1) : canvas.ownerDocument.defaultView?.devicePixelRatio ?? 1;
+    const width = options.size?.width ?? (lane ? canvas.width / ratio : canvas.clientWidth || 600), height = options.size?.height ?? (lane ? canvas.height / ratio : canvas.clientHeight || 120);
+    if (!lane) {
+        canvas.width = Math.round(width * ratio);
+        canvas.height = Math.round(height * ratio);
+    }
     const context = canvas.getContext('2d');
     if (!context) return null;
     // Drawn by the one plot component (R13): every ui-smoke test fails a plot on screen without this mark, and the
@@ -561,7 +574,8 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
     const muted = style?.getPropertyValue('--muted').trim() || '#888';
     const line = style?.getPropertyValue('--line').trim() || '#444';
     const text = options.labels ? '#222' : style?.getPropertyValue('--text').trim() || '#ddd';
-    const margins = options.margins;
+    const margins = options.margins ?? (lane ? { left: 0, top: 0, right: 0, bottom: 0 } : undefined);
+    const xLabels = options.xAxisLabels !== false && !lane;
     const left = margins?.left ?? PANE_LEFT, top = margins?.top ?? (options.labels ? 40 : 4), bottom = margins?.bottom ?? 16, right = margins?.right ?? 4;
     const plotWidth = Math.max(1, width - left - right), plotHeight = Math.max(1, height - top - bottom);
     if (options.labels) {
@@ -585,6 +599,8 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
     // Neutral: blue and the other colours are the roles'.
     const pendingColors = { muted, line, fill: text, back: style?.getPropertyValue('--track-bg').trim() || '#0b0d10' };
     if (!view) {
+        // A lane with nothing to draw yet keeps an empty axis beside it, as its plot is empty.
+        if (options.axisCanvas) paintSideAxis(options.axisCanvas, [], '', { muted, text });
         if (options.pending) paintPending(context, options.pending, left + plotWidth / 2, top + plotHeight / 2, 'center', pendingColors);
         else if (options.empty) {
             // Across the whole pane (no axes are drawn), wrapped to its width: a narrow screen keeps every word.
@@ -706,9 +722,12 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
                     // An uncalibrated signal's unit: the axis names it when the axis's own signal is uncalibrated, else full scale.
                     unit: (!layer.view.waveform.unit && /\[([^\]]*)\]$/.exec(axes.y)?.[1]) || uncalibratedUnits(true).linear,
                     range,
-                    paint: (ctx, signal, lineWidth) => { if (signal.view.waveform) paintWaveformLayer(ctx, box, signal.view.waveform, wholeAxis, xWindow, range, signal.color, lineWidth); },
+                    paint: (ctx, signal, lineWidth) => { if (signal.view.waveform) paintWaveformLayer(ctx, box, signal.view.waveform, wholeAxis, xWindow, range, signal.color, lineWidth, { span: signal.span }); },
                 };
-                plot.signal.paint(context, layer, layer.width ?? 1.5);
+                if (layer.view.waveform) {
+                    paintWaveformLayer(context, box, layer.view.waveform, wholeAxis, xWindow, range, layer.color, layer.width ?? 1.5,
+                        { span: layer.span, onPoint: options.onSignalPoint });
+                }
                 plot.lines.push(layer);
                 continue;
             }
@@ -750,21 +769,38 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
     for (const { value, text: label } of alongAxisTicks(xAxis.low, xAxis.high, xAxis.log)) {
         const x = xAt(value);
         if (!heatmap) { context.beginPath(); context.moveTo(x, top); context.lineTo(x, top + plotHeight); context.stroke(); }
-        if (options.xAxisLabels !== false && x - 6 + context.measureText(label).width < xTitleLeft - 4) context.fillText(label, x - 6, height - 3);
+        if (xLabels && x - 6 + context.measureText(label).width < xTitleLeft - 4) context.fillText(label, x - 6, height - 3);
     }
     if (options.region) paintRegion(context, options.region, view, { left, top, width: plotWidth, height: plotHeight }, xAt, { muted, text });
     if (options.bandSteps?.legend) paintBandLegend(context, options.bandSteps.legend, options.bandSteps.color, left + plotWidth - 6, top, muted);
     context.fillStyle = text;
-    if (options.xAxisLabels !== false) context.fillText(xTitle, xTitleLeft, height - 3);
+    if (xLabels) context.fillText(xTitle, xTitleLeft, height - 3);
     // The level axis: its ticks in the muted colour, and what it measures up the left edge in the text colour.
     const frame = { left, top, width: plotWidth, height: plotHeight };
-    drawValueAxis(context, frame, levelTicks, '', { color: muted, font: context.font, titleX: AXIS_TITLE_X });
-    drawValueAxis(context, frame, [], axes.y, { color: text, font: context.font, titleX: AXIS_TITLE_X });
+    if (options.axisCanvas) paintSideAxis(options.axisCanvas, levelTicks, axes.y, { muted, text });
+    else if (!lane) {
+        drawValueAxis(context, frame, levelTicks, '', { color: muted, font: context.font, titleX: AXIS_TITLE_X });
+        drawValueAxis(context, frame, [], axes.y, { color: text, font: context.font, titleX: AXIS_TITLE_X });
+    }
     if (options.secondary && !heatmap) paintRightAxis(context, frame, levelTicks.map(tick => tick.fraction), options.secondary.range, options.secondary.title, width, { muted, line, text });
     // Under the region's corner tag when there is one.
     // A heatmap's colour bar holds that corner: the note goes under it.
     if (options.pending) paintPending(context, options.pending, left + plotWidth - 6, heatmap ? colourBarTop(top, options.region?.mark === 'tag') + 23 : top + (options.region?.mark === 'tag' ? 38 : 12), 'right', pendingColors);
     return plot;
+}
+
+/**
+ * A lane's value axis on its own canvas beside the plot (as tall as the plot): the ticks at its right edge in the
+ * muted colour and the name up its left in the text colour, as every plot writes its value axis.
+ */
+export function paintSideAxis(canvas: HTMLCanvasElement, ticks: readonly AxisTick[], title: string, colors: { muted: string; text: string }): void {
+    const context = canvas.getContext('2d');
+    if (!context) return;
+    context.setTransform(1, 0, 0, 1, 0, 0);
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    const frame = { left: canvas.width, top: 0, width: 0, height: canvas.height };
+    drawValueAxis(context, frame, ticks, '', { color: colors.muted, font: PLOT_TEXT_FONT, titleX: AXIS_TITLE_X });
+    drawValueAxis(context, frame, [], title, { color: colors.text, font: PLOT_TEXT_FONT, titleX: AXIS_TITLE_X });
 }
 
 /** Where a heatmap's colour bar starts: the plot's top right, or under the region's corner tag (top + 4 to + 21). */

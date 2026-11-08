@@ -1,10 +1,8 @@
 import type { SpectrogramData, WaveformEnvelope } from '../../shared/analysis/analysisTypes';
 import { dbToRgb } from '../draw/canvasDrawers';
 import { paintSpectrogramRaster, type SpectrogramRasterView } from './spectrogramRaster';
-import { paintColourBar, type ColourBarBox } from './stagePanes';
-import type { RuntimeWindow, WaveformCoverage } from './types';
-import { traceXExtent, waveformCoverageFromExtent } from './waveformCoverage';
-import type { LanePoint } from './trackLaneHover';
+import { paintColourBar, type ColourBarBox, type StageLayer, type StageOverlay } from './stagePanes';
+import type { StageView } from '../../shared/protocol/backendProtocol';
 
 export function hexToRgba(hex: string, alpha: number): string {
     const r = parseInt(hex.slice(1, 3), 16);
@@ -12,8 +10,6 @@ export function hexToRgba(hex: string, alpha: number): string {
     const b = parseInt(hex.slice(5, 7), 16);
     return 'rgba(' + r + ',' + g + ',' + b + ',' + alpha + ')';
 }
-
-export type WaveformPipeline = NonNullable<RuntimeWindow['renderWaveformPipeline']>;
 
 export interface WaveformPaintSource {
     waveform: WaveformEnvelope;
@@ -27,84 +23,56 @@ export interface WaveformPaintSource {
     detail?: WaveformPaintSource;
 }
 
-export interface WaveformPaintView {
-    zoomStart: number;
-    zoomEnd: number;
+/** Where a track sits on the lanes' time axis: the whole axis in seconds, and the track's place on it (fractions). */
+export interface LanePlacement {
+    startSec: number;
+    spanSec: number;
     offsetNorm: number;
     trackDurRatio: number;
-    amplitudeMinNorm: number | undefined;
-    amplitudeMaxNorm: number | undefined;
 }
 
-export function paintTrackWaveform(
-    ctx: CanvasRenderingContext2D,
-    W: number,
-    H: number,
-    color: string,
-    src: WaveformPaintSource | null,
-    view: WaveformPaintView,
-    pipeline: WaveformPipeline | undefined,
-    /** Filled with the points drawn on the canvas, for the pointer to read (trackLaneHover.ts). */
-    points?: LanePoint[],
-    /** Gridlines at the axes' ticks (canvas pixels), as every line plot has; without them, a line at zero. */
-    grid?: { xs: readonly number[]; ys: readonly number[]; color: string },
-): WaveformCoverage | null {
-    ctx.lineWidth = grid ? 1 : 0.5;
-    ctx.strokeStyle = grid ? grid.color : hexToRgba(color, 0.25);
-    ctx.beginPath();
-    if (grid) {
-        // On the pixel's centre, so a 1 px line is not smeared over two.
-        grid.ys.forEach(y => { const at = Math.round(y) + 0.5; ctx.moveTo(0, at); ctx.lineTo(W, at); });
-        grid.xs.forEach(x => { const at = Math.round(x) + 0.5; ctx.moveTo(at, 0); ctx.lineTo(at, H); });
-    }
-    else {
-        ctx.moveTo(0, H / 2);
-        ctx.lineTo(W, H / 2);
-    }
-    ctx.stroke();
-    if (!src || !pipeline) {
-        return null;
-    }
-    // Each part keeps the points it draws inside its own span (a clip), on the canvas.
-    const collect = (from: number, to: number) => points
-        ? { onPoint: (x: number, y: number, value: number, t: number) => { if (x >= from && x <= to && y >= 0 && y <= H) points.push({ x, y, value, t }); } }
-        : {};
-    const extent = traceXExtent(ctx, function () {
-        ctx.save();
-        try {
-            const detail = src.detail;
-            if (!detail) {
-                pipeline(ctx, W, H, src.waveform, { ...view, dataStart: src.dataStart, dataEnd: src.dataEnd, color, amplitudeScale: src.amplitudeScale, ...collect(0, W) });
-                return;
-            }
-            const span = Math.max(view.zoomEnd - view.zoomStart, 1e-12);
-            const xAt = (fileNorm: number) => (view.offsetNorm + fileNorm * view.trackDurRatio - view.zoomStart) / span * W;
-            // Whole pixels, so the two clips meet without an anti-aliased crack between them.
-            const x0 = Math.max(0, Math.min(W, Math.round(xAt(detail.dataStart))));
-            const x1 = Math.max(x0, Math.min(W, Math.round(xAt(detail.dataEnd))));
-            const clipped = (rects: Array<[number, number]>, part: WaveformPaintSource) => {
-                const own = points ? (x: number, y: number, value: number, t: number) => {
-                    if (y >= 0 && y <= H && rects.some(([from, to]) => to > from && x >= from && x < to)) points.push({ x, y, value, t });
-                } : undefined;
-                ctx.save();
-                try {
-                    ctx.beginPath();
-                    rects.forEach(([from, to]) => { if (to > from) ctx.rect(from, 0, to - from, H); });
-                    ctx.clip();
-                    pipeline(ctx, W, H, part.waveform, { ...view, dataStart: part.dataStart, dataEnd: part.dataEnd, color, amplitudeScale: part.amplitudeScale, ...(own ? { onPoint: own } : {}) });
-                }
-                finally {
-                    ctx.restore();
-                }
-            };
-            clipped([[0, x0], [x1, W]], src);
-            clipped([[x0, x1]], detail);
-        }
-        finally {
-            ctx.restore();
-        }
-    });
-    return waveformCoverageFromExtent(extent, W);
+/** A lane's waveform as the plot component draws it: the pictures in seconds on the lanes' time axis, and that axis. */
+export interface LaneWaveformOverlay {
+    overlay: StageOverlay;
+    /** The whole time axis the lanes share, for paintOverlay's axisView. */
+    axisView: StageView;
+    /** A time on that axis back to the file's 0..1 (where a lane point is in its file). */
+    fileNormOf(seconds: number): number;
+}
+
+/**
+ * The lane's waveform as signal layers for paintOverlay (R13): the envelope's times placed on the lanes' time axis,
+ * in seconds. Finer data over part of the view (`detail`) is drawn over its own stretch, the overview only around it,
+ * so the lines on screen keep their detail until the next range lands.
+ */
+export function laneWaveformOverlay(src: WaveformPaintSource | null, place: LanePlacement, color: string, unit: string): LaneWaveformOverlay {
+    const toSec = (fileNorm: number): number => place.startSec + (place.offsetNorm + fileNorm * place.trackDurRatio) * place.spanSec;
+    const axisLow = place.startSec, axisHigh = place.startSec + place.spanSec;
+    const axisView: StageView = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', xs: [axisLow, axisHigh], values: [0, 0] };
+    const fileStart = toSec(0), fileSpan = toSec(1) - fileStart || 1;
+    const fileNormOf = (seconds: number): number => (seconds - fileStart) / fileSpan;
+    if (!src) return { overlay: { layers: [] }, axisView, fileNormOf };
+    const layerOf = (part: WaveformPaintSource, span?: readonly [number, number]): StageLayer => {
+        const envelope = part.waveform;
+        const count = Math.max(envelope.min?.length ?? 0, envelope.max?.length ?? 0, envelope.samples?.length ?? 0);
+        const range = part.dataEnd - part.dataStart;
+        // A bucket without its times sits at its place across the part's stretch, as the lanes always placed it.
+        const times = (given: readonly number[] | undefined): number[] => Array.from({ length: count }, (_, index) => toSec(given?.[index] ?? part.dataStart + index / Math.max(1, count) * range));
+        const values = (given: readonly number[] | undefined): number[] => Array.from({ length: count }, (_, index) => given?.[index] ?? envelope.samples?.[index] ?? 0);
+        // The axis is in the channel's unit: the amplitude scale the lane's range was made from is the peak's.
+        const waveform = { min: values(envelope.min), max: values(envelope.max), minT: times(envelope.minT), maxT: times(envelope.maxT),
+            absolutePeak: part.amplitudeScale ?? envelope.absolutePeak, unit, ref: 1 };
+        return { view: { ...axisView, waveform }, color, ...(span ? { span } : {}) };
+    };
+    const detail = src.detail;
+    if (!detail) return { overlay: { layers: [layerOf(src)] }, axisView, fileNormOf };
+    const from = toSec(detail.dataStart), to = toSec(detail.dataEnd);
+    const around = axisHigh - axisLow;
+    return {
+        overlay: { layers: [layerOf(src, [axisLow - around, from]), layerOf(src, [to, axisHigh + around]), layerOf(detail, [from, to])] },
+        axisView,
+        fileNormOf,
+    };
 }
 
 export interface SpectrogramRasterCacheEntry {

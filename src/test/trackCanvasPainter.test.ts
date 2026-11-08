@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { SpectrogramData, WaveformEnvelope } from '../shared/analysis/analysisTypes';
-import { hexToRgba, onColourBar, paintTrackSpectrogram, paintTrackWaveform, type WaveformPaintView } from '../webview/runtime/trackCanvasPainter';
+import { hexToRgba, laneWaveformOverlay, onColourBar, paintTrackSpectrogram } from '../webview/runtime/trackCanvasPainter';
 
 function recordingCtx(): { ctx: CanvasRenderingContext2D; calls: string[]; props: Record<string, unknown> } {
     const calls: string[] = [];
@@ -45,50 +45,45 @@ function recordingCtx(): { ctx: CanvasRenderingContext2D; calls: string[]; props
     return { ctx, calls, props };
 }
 
-const view: WaveformPaintView = { zoomStart: 0, zoomEnd: 1, offsetNorm: 0, trackDurRatio: 1, amplitudeMinNorm: undefined, amplitudeMaxNorm: undefined };
-const waveform = { min: [0], max: [0] } as unknown as WaveformEnvelope;
 
 test('hexToRgba converts a #rrggbb color', () => {
     assert.equal(hexToRgba('#ff8000', 0.25), 'rgba(255,128,0,0.25)');
 });
 
-test('paintTrackWaveform draws only the zero line when there is no source or pipeline', () => {
-    const { ctx, calls, props } = recordingCtx();
-    assert.equal(paintTrackWaveform(ctx, 200, 100, '#ff0000', null, view, () => undefined), null);
-    assert.deepEqual(calls, ['beginPath', 'moveTo', 'lineTo', 'stroke']);
-    assert.equal(props.strokeStyle, 'rgba(255,0,0,0.25)');
-    const src = { waveform, dataStart: 0, dataEnd: 1, amplitudeScale: undefined };
-    assert.equal(paintTrackWaveform(recordingCtx().ctx, 200, 100, '#ff0000', src, view, undefined), null);
+const place = { startSec: 10, spanSec: 4, offsetNorm: 0.25, trackDurRatio: 0.5 };
+
+test('a lane with no waveform yet gives the plot component no pictures, on the lanes\' time axis in seconds', () => {
+    const lane = laneWaveformOverlay(null, place, '#ff0000', 'FS');
+    assert.deepEqual(lane.overlay.layers, []);
+    assert.deepEqual(lane.axisView.xs, [10, 14]);
+    // The file runs from 11 s to 13 s on that axis.
+    assert.equal(lane.fileNormOf(11), 0);
+    assert.equal(lane.fileNormOf(13), 1);
 });
 
-test('paintTrackWaveform passes the view and source to the pipeline and reports the drawn coverage', () => {
-    const { ctx } = recordingCtx();
-    let options: Record<string, unknown> = {};
-    const coverage = paintTrackWaveform(ctx, 200, 100, '#00ff00', { waveform, dataStart: 0.2, dataEnd: 0.8, amplitudeScale: 0.5 }, view, (c, _w, _h, _wf, opts) => {
-        options = opts;
-        c.moveTo(40, 10);
-        c.lineTo(120, 20);
-    });
-    assert.deepEqual(coverage, { minX: 40, maxX: 120, canvasWidth: 200, coversLeft: false, coversRight: false });
-    assert.equal(options.dataStart, 0.2);
-    assert.equal(options.dataEnd, 0.8);
-    assert.equal(options.color, '#00ff00');
-    assert.equal(options.amplitudeScale, 0.5);
-    assert.equal(options.zoomEnd, 1);
+test('a lane\'s waveform is one signal layer, its bucket times placed in seconds where the track sits (R13)', () => {
+    const envelope = { min: [-0.5, -0.2], max: [0.5, 0.2], minT: [0.1, 0.6], maxT: [0.2, 0.7], samples: [], absolutePeak: 0.5 } as WaveformEnvelope;
+    const lane = laneWaveformOverlay({ waveform: envelope, dataStart: 0, dataEnd: 1, amplitudeScale: 0.8 }, place, '#00ff00', 'Pa');
+    assert.equal(lane.overlay.layers.length, 1);
+    const [layer] = lane.overlay.layers;
+    assert.equal(layer.color, '#00ff00');
+    assert.equal(layer.span, undefined);
+    const signal = layer.view.waveform!;
+    assert.deepEqual(signal.minT.map(t => +t!.toFixed(6)), [11.2, 12.2]);
+    assert.deepEqual(signal.maxT.map(t => +t!.toFixed(6)), [11.4, 12.4]);
+    assert.deepEqual([signal.min, signal.max, signal.unit, signal.absolutePeak], [[-0.5, -0.2], [0.5, 0.2], 'Pa', 0.8]);
+    // Buckets without times sit across the part's stretch, as the lanes placed them.
+    const untimed = laneWaveformOverlay({ waveform: { min: [0, 0], max: [1, 1], samples: [], absolutePeak: 1 }, dataStart: 0.5, dataEnd: 1, amplitudeScale: undefined }, place, '#00ff00', '');
+    assert.deepEqual(untimed.overlay.layers[0].view.waveform!.minT, [12, 12.5]);
 });
 
-test('paintTrackWaveform draws finer detail over its own span and the overview only around it', () => {
-    const { ctx, calls } = recordingCtx();
-    const rects: number[][] = [];
-    (ctx as unknown as { rect: (...args: number[]) => void }).rect = (...args: number[]) => { rects.push(args); };
-    const drawn: Array<{ dataStart: unknown; rects: number }> = [];
-    const detail = { waveform, dataStart: 0.25, dataEnd: 0.5, amplitudeScale: undefined };
-    paintTrackWaveform(ctx, 200, 100, '#00ff00', { waveform, dataStart: 0, dataEnd: 1, amplitudeScale: undefined, detail }, view, (_c, _w, _h, _wf, opts) => {
-        drawn.push({ dataStart: opts.dataStart, rects: rects.length });
-    });
-    assert.deepEqual(drawn, [{ dataStart: 0, rects: 2 }, { dataStart: 0.25, rects: 3 }]);
-    assert.deepEqual(rects, [[0, 0, 50, 100], [100, 0, 100, 100], [50, 0, 50, 100]]);
-    assert.equal(calls.filter(call => call === 'clip').length, 2);
+test('finer detail over part of the view is drawn over its own stretch, the overview only around it', () => {
+    const envelope = { min: [0], max: [0], samples: [], absolutePeak: 1 } as unknown as WaveformEnvelope;
+    const detail = { waveform: envelope, dataStart: 0.25, dataEnd: 0.5, amplitudeScale: undefined };
+    const lane = laneWaveformOverlay({ waveform: envelope, dataStart: 0, dataEnd: 1, amplitudeScale: undefined, detail }, place, '#00ff00', '');
+    const spans = lane.overlay.layers.map(layer => layer.span);
+    // The detail covers 11.5 s to 12 s; the overview the rest of the axis on either side.
+    assert.deepEqual(spans, [[6, 11.5], [12, 18], [11.5, 12]]);
 });
 
 const spec: SpectrogramData = {

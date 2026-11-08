@@ -8,6 +8,9 @@ import { computeViewRange, decimateBuckets, makeCoordTransform, paintDecimatedPo
 
 export type StageWaveform = NonNullable<StageView['waveform']>;
 
+/** A point of a signal's line: where on the canvas (CSS pixels), its value and time, and whether it is seen. */
+export type SignalPointSink = (x: number, y: number, value: number, time: number, seen: boolean) => void;
+
 export interface PlotBox {
     left: number;
     top: number;
@@ -28,6 +31,12 @@ export function paintWaveformLayer(
     amplitude: { min: number; max: number },
     color: string,
     lineWidth = 1.5,
+    /**
+     * `span`: the stretch of the axis (its values) drawn, clipped there, for finer data over part of the view.
+     * `onPoint`: each point of the line (canvas pixels, its value and time, and whether it is inside the plot and
+     * the stretch drawn, so seen), for a pointer that reads them and for where the line reaches.
+     */
+    options: { span?: readonly [number, number]; onPoint?: SignalPointSink } = {},
 ): void {
     const span = axis.high - axis.low || 1;
     const norm = (times: ReadonlyArray<number | null>): number[] => times.map(time => ((time ?? axis.low) - axis.low) / span);
@@ -42,11 +51,24 @@ export function paintWaveformLayer(
     const points = decimateBuckets(env, range, dataStart, dataEnd);
     // Values in the signal's own units: a peak of 1 and the amplitude range as the viewport.
     const transform = makeCoordTransform(window.start, window.end, 0, plot.width, plot.height, 1, 1, { minNorm: amplitude.min, maxNorm: amplitude.max });
+    // A part's stretch in whole pixels, so two parts side by side meet without an anti-aliased crack between them.
+    const xOf = (value: number): number => plot.left + ((value - axis.low) / span - window.start) / (window.end - window.start || 1) * plot.width;
+    const from = options.span ? Math.max(plot.left, Math.round(xOf(options.span[0]))) : plot.left;
+    const to = options.span ? Math.min(plot.left + plot.width, Math.round(xOf(options.span[1]))) : plot.left + plot.width;
+    if (to <= from) return;
     context.save();
-    context.beginPath(); context.rect(plot.left, plot.top, plot.width, plot.height); context.clip();
+    context.beginPath(); context.rect(from, plot.top, to - from, plot.height); context.clip();
     context.translate(plot.left, plot.top);
     paintDecimatedPoints(context, points, transform, color, lineWidth);
     context.restore();
+    if (options.onPoint) {
+        for (const pair of points) {
+            for (const point of pair) {
+                const x = plot.left + transform.toX(point.tNorm), y = plot.top + transform.toY(point.value);
+                options.onPoint(x, y, point.value, axis.low + point.tNorm * span, x >= from && x < to && y >= plot.top && y <= plot.top + plot.height);
+            }
+        }
+    }
 }
 
 /** ± the largest peak of these waveforms (a little room above it), the amplitude axis they share. */

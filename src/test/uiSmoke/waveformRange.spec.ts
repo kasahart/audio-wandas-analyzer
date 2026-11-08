@@ -45,44 +45,10 @@ test('zoomed waveform keeps the prefetched range while panning and drops to the 
     await loadUi(page);
     await forceOverviewWaveformScale(page, PCM_SCALE);
 
-    await page.evaluate(() => {
-        const win = window as unknown as {
-            renderWaveformPipeline: (...args: unknown[]) => void;
-            __uiSmokeWaveformCalls: Array<{
-                dataStart?: number;
-                dataEnd?: number;
-                ySpan: number;
-            }>;
-        };
-        const original = win.renderWaveformPipeline;
-        win.__uiSmokeWaveformCalls = [];
-        win.renderWaveformPipeline = (...args: unknown[]) => {
-            const ctx = args[0] as CanvasRenderingContext2D;
-            const params = args[4] as { dataStart?: number; dataEnd?: number };
-            const originalMoveTo = ctx.moveTo.bind(ctx);
-            const originalLineTo = ctx.lineTo.bind(ctx);
-            const yValues: number[] = [];
-            ctx.moveTo = (x: number, y: number) => {
-                if (Number.isFinite(y)) { yValues.push(y); }
-                return originalMoveTo(x, y);
-            };
-            ctx.lineTo = (x: number, y: number) => {
-                if (Number.isFinite(y)) { yValues.push(y); }
-                return originalLineTo(x, y);
-            };
-            try {
-                original(...args);
-            } finally {
-                ctx.moveTo = originalMoveTo;
-                ctx.lineTo = originalLineTo;
-            }
-            win.__uiSmokeWaveformCalls.push({
-                dataStart: params.dataStart,
-                dataEnd: params.dataEnd,
-                ySpan: yValues.length > 0 ? Math.max(...yValues) - Math.min(...yValues) : 0,
-            });
-        };
-    });
+    // The lane says what it drew from (the overview, a fetched range, or that range over the overview around it)
+    // and how tall its line is on screen.
+    const lane = page.locator('#track-canvas-0');
+    const drawnFrom = async () => (await lane.getAttribute('data-waveform-source')) ?? 'none';
 
     const toolbar = page.locator('#toolbar');
     for (let i = 0; i < 9; i += 1) { // deep enough that the prefetched range is narrower than the file
@@ -131,33 +97,10 @@ test('zoomed waveform keeps the prefetched range while panning and drops to the 
         }, '*');
     }, { rangeRequest: request, rangeWaveform: waveform });
 
-    await expect.poll(async () => page.evaluate(() => {
-        const win = window as unknown as {
-            __uiSmokeWaveformCalls: Array<{ dataStart?: number; dataEnd?: number; ySpan: number }>;
-        };
-        for (let i = win.__uiSmokeWaveformCalls.length - 1; i >= 0; i -= 1) {
-            const call = win.__uiSmokeWaveformCalls[i];
-            if (call.dataStart !== 0 || call.dataEnd !== 1) {
-                return call.ySpan;
-            }
-        }
-        return 0;
-    })).toBeGreaterThan(20);
+    // The fetched range is drawn at the overview's scale: its line fills the lane as the overview's did.
+    await expect.poll(drawnFrom).toBe('range');
+    expect(Number(await lane.getAttribute('data-waveform-height'))).toBeGreaterThan(20);
 
-    await page.evaluate(() => {
-        const win = window as unknown as {
-            __uiSmokeWaveformCalls: Array<{ dataStart?: number; dataEnd?: number; ySpan: number }>;
-        };
-        win.__uiSmokeWaveformCalls = [];
-    });
-    const lastDrawn = () => page.evaluate(() => {
-        const win = window as unknown as {
-            __uiSmokeWaveformCalls: Array<{ dataStart?: number; dataEnd?: number; ySpan: number }>;
-        };
-        const last = win.__uiSmokeWaveformCalls.at(-1);
-        if (!last) { return 'none'; }
-        return last.dataStart === 0 && last.dataEnd === 1 ? 'overview' : 'range';
-    });
     const panScreens = async (steps: number) => {
         for (let i = 0; i < steps; i += 1) {
             await page.locator('#tracks-wrapper').dispatchEvent('wheel', {
@@ -170,21 +113,14 @@ test('zoomed waveform keeps the prefetched range while panning and drops to the 
     };
     // Shift+wheel pans 10 % of the view: the range already holds two screens either side, so the lines stay fine (#502).
     await panScreens(1);
-    await expect.poll(lastDrawn).toBe('range');
+    await expect.poll(drawnFrom).toBe('range');
     // Past the fetched range the overview fills the rest of the view while the part still fetched keeps its detail,
     // and only once the view has left that range entirely is the overview all there is (until the next range lands).
-    const lastFrame = () => page.evaluate(() => {
-        const calls = (window as unknown as { __uiSmokeWaveformCalls: Array<{ dataStart?: number; dataEnd?: number }> }).__uiSmokeWaveformCalls;
-        const whole = (call: { dataStart?: number; dataEnd?: number } | undefined) => !!call && call.dataStart === 0 && call.dataEnd === 1;
-        const [under, over] = calls.slice(-2);
-        if (whole(under) && over && !whole(over)) return 'layered';
-        return whole(over) ? 'overview' : 'range';
-    });
     const seen: string[] = [];
     for (let step = 0; step < 200 && !seen.includes('overview'); step += 1) {
         await panScreens(1);
         await nextFrame(page);
-        const frame = await lastFrame();
+        const frame = await drawnFrom();
         if (seen.at(-1) !== frame) seen.push(frame);
     }
     expect(seen).toEqual(['range', 'layered', 'overview']);
