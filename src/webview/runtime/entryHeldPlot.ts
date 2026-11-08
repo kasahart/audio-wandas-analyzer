@@ -218,7 +218,7 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
     /**
      * A held slot's Δ: the comparison the screen makes of its row (the row's channel, its base), of every bin of the
      * file and its base, scanned as the table's own spectra are (its Recipe, the whole files) when the hold starts;
-     * the table's 192 points until they are in. Without a base to measure against there is nothing to ask for.
+     * nothing until they are in (never the table's 192 points). Without a base to measure against there is nothing to ask for.
      */
     function paintSlot(path: string, slot: number): void {
         const table = deps.comparison(path, deps.results);
@@ -236,7 +236,13 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
             if (!kept || bins.result(spec, file) === undefined) binsAskedFor.set(key, own);
         }
         const waiting = !!table.diffDb && bins.ensure(spec, files);
-        if (waiting) { held.classList.add('is-pending'); title.textContent += ` · ${strings.comparePending}`; }
+        if (waiting) {
+            // Nothing of the table's 192 points is drawn meanwhile: the Δ is taken only of every bin (R1, R2).
+            held.classList.add('is-pending');
+            title.textContent += ` · ${strings.comparePending}`;
+            paintView(null, null, { min: 0, max: 1 }, stageAxes(strings, null, deps.results.get(path)?.input), deps.keepWindow('held', `delta|slot|${slot}`), { color: DIFF_COLOR, empty: '' });
+            return;
+        }
         const binned = new Map(files.flatMap(file => { const result = bins.result(spec, file); return result ? [[file, result] as [string, ScanResult]] : []; }));
         paintDelta(binned.size ? deps.comparison(path, withBins(deps.results, binned)) : table, `slot|${slot}`, deps.results.get(path)?.input);
     }
