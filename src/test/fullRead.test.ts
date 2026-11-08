@@ -93,6 +93,84 @@ test('a window read is asked for once and kept: the pointer moving inside it ask
     assert.equal(backend.asked.length, 1);
 });
 
+test('a window too dense to send whole is read again while the pointer moves inside it, at any level; zoomed in further it is asked anew (R7)', () => {
+    const asked: FullReadRequest[] = [];
+    // The backend's dense answer: each pixel column's lowest and highest sample (full_read.read_line).
+    const source = fetchedSource((read, done) => {
+        asked.push(read);
+        const [low, high] = read.x, columns = read.columns ?? 1;
+        const xs: number[] = [], values: number[] = [];
+        for (let column = 0; column < columns; column++) {
+            const a = Math.ceil(low + (high - low) * column / columns), b = Math.min(count, Math.ceil(low + (high - low) * (column + 1) / columns));
+            let lo = -1, hi = -1;
+            for (let index = Math.max(0, a); index < b; index++) {
+                if (lo < 0 || signal[index] < signal[lo]) lo = index;
+                if (hi < 0 || signal[index] > signal[hi]) hi = index;
+            }
+            for (const index of [...new Set([lo, hi])].filter(index => index >= 0).sort((p, q) => p - q)) { xs.push(index); values.push(signal[index]); }
+        }
+        done({ xs, values, start: null, end: null, complete: false });
+    });
+    // 50 samples a pixel: a hover window of 41 columns holds 2050 samples, padded to 8200, more than the backend sends whole.
+    const plot = (perPixel: number): StagePlot => ({
+        frame: { left: 0, top: 0, width: 400, height: 100 }, xAt: value => value / perPixel, xOf: x => x * perPixel,
+        yAt: value => 50 - value * 40, levelOf: y => (50 - y) / 40, ratioStep: 1.12, diff: false,
+        lines: [{ view: envelope(), color: 'blue', full: source }],
+    });
+    const lane = plot(50);
+    assert.equal(stageHover(lane, 200, 50)?.pending, true);
+    assert.equal(asked.length, 1);
+    assert.ok(asked[0].columns && asked[0].columns > 41, 'the window is padded, its columns with it');
+    for (const [x, y] of [[200, 50], [201, 50], [203, 20], [190, 80], [215, 50]]) {
+        const read = stageHover(lane, x, y);
+        assert.equal(read?.pending, undefined, `read at once at ${x}, ${y}`);
+        assert.equal(read?.full, true);
+        assert.equal(signal[read?.at as number], read?.value, 'a real sample');
+    }
+    assert.equal(asked.length, 1, 'nothing more asked while the pointer moves inside the window');
+    // Zoomed in fourfold: the kept columns are coarser than the screen's, so the window is asked for again.
+    assert.equal(stageHover(plot(12.5), 800, 50)?.pending, true);
+    assert.equal(asked.length, 2);
+});
+
+test('a spectrogram\'s hover asks the backend once for a block around the pointer: moving across frames and bins reads what came (R7)', () => {
+    const columns = 400, ys = Array.from({ length: 64 }, (_, row) => 100 + row * 10);
+    const xs = Array.from({ length: columns }, (_, index) => index * 0.01);
+    const raw = ys.map((_, row) => xs.map((_, column) => -60 + 30 * Math.sin(column * 0.9 + row)));
+    const asked: FullReadRequest[] = [];
+    const nearest = (axis: number[], value: number): number => axis.reduce((best, at, index) => (Math.abs(at - value) < Math.abs(axis[best] - value) ? index : best), 0);
+    // full_read.read_cells: the cell nearest the place, `beyond` columns and `rows` rows (two unless asked) either side.
+    const source = fetchedSource((read, done) => {
+        asked.push(read);
+        const column = nearest(xs, read.x[0]), row = nearest(ys, read.y?.[0] ?? 0);
+        const beyond = read.beyond ?? 1, either = read.rows ?? 2;
+        const c0 = Math.max(0, column - beyond), c1 = Math.min(xs.length, column + beyond + 1);
+        const r0 = Math.max(0, row - either), r1 = Math.min(ys.length, row + either + 1);
+        done({ xs: xs.slice(c0, c1), ys: ys.slice(r0, r1), matrix: raw.slice(r0, r1).map(line => line.slice(c0, c1)), start: c0 > 0 ? xs[c0] : null, end: c1 < xs.length ? xs[c1 - 1] : null, complete: true });
+    });
+    const view: StageView = { frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity: 'level', unit: 'dB', xs, ys, matrix: raw };
+    const width = 400, height = 640;
+    const plot: StagePlot = {
+        frame: { left: 0, top: 0, width, height }, xAt: value => value / (columns * 0.01) * width, yAt: () => 0, ratioStep: 1.12, diff: false, lines: [],
+        image: {
+            layer: { view, color: '', full: source },
+            cellAt: () => ({ column: -1, row: -1 }),
+            valueAt: (x, y) => ({ x: x / width * columns * 0.01, y: 100 + (1 - y / height) * 630 }),
+            placeOf: (x, y) => ({ x: x / (columns * 0.01) * width, y: (1 - (y - 100) / 630) * height }),
+            rowLog: false,
+        },
+    };
+    const at = (column: number, row: number): [number, number] => { const place = plot.image?.placeOf(xs[column], ys[row]); return [place?.x ?? 0, place?.y ?? 0]; };
+    assert.equal(stageHover(plot, ...at(200, 30))?.pending, true);
+    for (const [column, row] of [[200, 30], [201, 30], [202, 31], [210, 28], [190, 40], [229, 20]]) {
+        const read = stageHover(plot, ...at(column, row));
+        assert.equal(read?.pending, undefined, `read at once at frame ${column}, bin ${row}`);
+        assert.equal(read?.value, raw[row][column]);
+    }
+    assert.equal(asked.length, 1, 'one request for the block');
+    assert.equal(asked[0].rows, 16);
+});
+
 test('a spectrogram is read at its real cells, never the cells averaged to draw it, and stepped a frame at a time (R7)', () => {
     const columns = 400, ys = [100, 200, 300, 400];
     const xs = Array.from({ length: columns }, (_, index) => index * 0.01);

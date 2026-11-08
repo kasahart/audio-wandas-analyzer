@@ -1262,6 +1262,11 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                     "minimum": 0,
                     "maximum": 4096
                 },
+                "rows": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 64
+                },
                 "near": {
                     "type": "number"
                 },
@@ -2358,6 +2363,7 @@ export interface StageRead {
     x: number[];
     y?: number[];
     beyond?: number;
+    rows?: number;
     near?: number;
     columns?: number;
     log?: boolean;

@@ -178,6 +178,8 @@ test('a group of two recordings is drawn as dots, and a dot goes to its row; a c
     // A plain drag along the row, without moving up or down, is the box zoom of the value axis (its counts stay whole).
     await page.keyboard.press('Escape');
     const row = page.locator('[data-dist-group="900"] [data-dist-canvas]');
+    // Escape redraws the rows: the box is read once the row is back.
+    await expect(row).toBeVisible();
     const rowBox = (await row.boundingBox())!;
     await page.mouse.move(rowBox.x + rowBox.width * 0.3, rowBox.y + rowBox.height / 2);
     await page.mouse.down();

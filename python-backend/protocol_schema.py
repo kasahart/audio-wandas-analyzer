@@ -565,9 +565,10 @@ DEFINITIONS: dict[str, Schema] = {
         },
     },
     # What a plot reads under its pointer or steps to with an arrow key (full_read.py): its window [x0, x1] (or
-    # [x]) in the axis's own units, an image's row place ``y``, points past each end (``beyond``) and, for a window
-    # too dense to send whole, ``columns`` pixel columns across it (log-spaced on a ``log`` axis) and the level
-    # ``near`` the pointer. ``event`` names a trigger's event, ``of`` a combined picture, ``channel`` a lane's.
+    # [x]) in the axis's own units, an image's row place ``y`` (and ``rows`` either side of it), points past each
+    # end (``beyond``) and, for a window too dense to send whole, ``columns`` pixel columns across it (log-spaced on
+    # a ``log`` axis) and the level ``near`` the pointer. ``event`` names a trigger's event, ``of`` a combined
+    # picture, ``channel`` a lane's.
     "StageRead": {
         "type": "object",
         "required": ["x"],
@@ -575,6 +576,7 @@ DEFINITIONS: dict[str, Schema] = {
             "x": {"type": "array", "items": _NUMBER},
             "y": {"type": "array", "items": _NUMBER},
             "beyond": {"type": "integer", "minimum": 0, "maximum": 4096},
+            "rows": {"type": "integer", "minimum": 0, "maximum": 64},
             "near": _NUMBER,
             "columns": {"type": "integer", "minimum": 1, "maximum": 512},
             "log": {"type": "boolean"},

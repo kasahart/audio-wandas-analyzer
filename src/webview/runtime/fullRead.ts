@@ -108,24 +108,38 @@ const PAD = 1.5;
 /** How much of what was fetched a source keeps. */
 const KEPT = 24;
 
+/** How many columns either side, and rows above and below, an image's hover asks the backend for, so a pointer moving over it reads what came. */
+const HOVER_CELLS = { beyond: 32, rows: 16 };
+
+/** Whether `read` is a dense line window that holds [x0, x1] at least as finely as `columns` across it asks (R7). */
+function holdsDense(read: StageRead, x0: number, x1: number, columns: number, log: boolean): boolean {
+    if (!read.columns || read.x.length !== 2 || !!read.log !== log) return false;
+    const [low, high] = read.x;
+    if (x0 < low || x1 > high) return false;
+    const measure = (at: number): number => (log ? Math.log(at) : at);
+    const kept = (measure(high) - measure(low)) / read.columns;
+    const asked = (measure(x1) - measure(x0)) / Math.max(1, columns);
+    return kept <= asked * 1.01;
+}
+
 /**
  * A layer's full data held by the backend: `fetch` asks it for `read` (full_read.py) and answers with its points
  * (null: none). Each window is asked for once and kept; one request is on its way at a time, and the latest one
  * asked for meanwhile goes next, so a moving pointer never queues a request per pixel.
  */
 export function fetchedSource(fetch: (read: StageRead, done: (points: StagePoints | null) => void) => void, extra: Omit<StageRead, 'x' | 'y' | 'beyond' | 'near' | 'columns' | 'log'> = {}): FullSource {
-    const kept: Array<{ key: string; points: FullPoints | null }> = [];
+    const kept: Array<{ key: string; read: StageRead; points: FullPoints | null }> = [];
     let busy: string | null = null;
     let next: { key: string; read: StageRead } | null = null;
     const waiting = new Set<() => void>();
-    const keep = (key: string, points: FullPoints | null): void => {
-        kept.push({ key, points });
+    const keep = (key: string, read: StageRead, points: FullPoints | null): void => {
+        kept.push({ key, read, points });
         if (kept.length > KEPT) kept.shift();
     };
     const ask = (key: string, read: StageRead): void => {
         busy = key;
         fetch(read, points => {
-            keep(key, points);
+            keep(key, read, points);
             busy = null;
             const queued = next;
             next = null;
@@ -135,11 +149,11 @@ export function fetchedSource(fetch: (read: StageRead, done: (points: StagePoint
             for (const call of calls) call();
         });
     };
-    const answer = (key: string, read: StageRead, ready: () => void, found: (points: FullPoints) => boolean): FullAnswer => {
+    const answer = (key: string, read: StageRead, ready: () => void, found: (points: FullPoints, asked: StageRead) => boolean): FullAnswer => {
         for (let index = kept.length - 1; index >= 0; index--) {
             const item = kept[index];
             if (item.key === key) return item.points;
-            if (item.points && found(item.points)) return item.points;
+            if (item.points && found(item.points, item.read)) return item.points;
         }
         waiting.add(ready);
         if (busy === key) return undefined;
@@ -158,13 +172,26 @@ export function fetchedSource(fetch: (read: StageRead, done: (points: StagePoint
             const read: StageRead = { ...extra, x: x0 === x1 ? [x0] : [low, high], beyond: query.beyond,
                 ...(query.near !== undefined && Number.isFinite(query.near) ? { near: query.near } : {}),
                 ...(columns ? { columns } : {}), ...(query.log ? { log: true } : {}) };
-            return answer(JSON.stringify(read), read, ready, points => covers(points, x0, x1, query.beyond));
+            // A window too dense to send whole comes as each pixel column's lowest, highest and nearest point: it is
+            // read again wherever it holds the pointer's window as finely as the screen draws it (the level under the
+            // pointer only picked one of a column's points, and the readout takes the one nearest across).
+            return answer(JSON.stringify(read), read, ready, (points, asked) => covers(points, x0, x1, query.beyond)
+                || (!points.complete && query.columns !== undefined && holdsDense(asked, x0, x1, query.columns, log)));
         },
         cells(query, ready) {
-            const read: StageRead = { ...extra, x: [query.x], y: [query.y], beyond: query.beyond };
+            // A hover asks for a block of cells around the pointer (HOVER_CELLS), so moving to the next frame or bin
+            // reads what came; a step asks for its own columns ahead, with the rows either side of the one read.
+            const hover = query.beyond < HOVER_CELLS.beyond;
+            const read: StageRead = { ...extra, x: [query.x], y: [query.y], beyond: hover ? HOVER_CELLS.beyond : query.beyond, ...(hover ? { rows: HOVER_CELLS.rows } : {}) };
             return answer(JSON.stringify(read), read, ready, points => {
-                const ys = points.ys ?? [];
-                return covers(points, query.x, query.x, query.beyond) && ys.length > 2 && query.y >= ys[1] && query.y <= ys[ys.length - 2];
+                const xs = points.xs, ys = points.ys ?? [];
+                if (!points.complete || xs.length < 1 || ys.length < 3 || query.y < ys[1] || query.y > ys[ys.length - 2]) return false;
+                // The column nearest the pointer, with `beyond` (at least one, for the cell's edges) past it each side;
+                // a data end counts as reached.
+                let column = 0;
+                for (let index = 1; index < xs.length; index++) if (Math.abs(xs[index] - query.x) < Math.abs(xs[column] - query.x)) column = index;
+                const need = Math.max(1, query.beyond);
+                return (points.start === null || column >= need) && (points.end === null || column + need <= xs.length - 1);
             });
         },
     };

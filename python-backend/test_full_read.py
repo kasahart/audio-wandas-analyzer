@@ -71,6 +71,10 @@ def test_an_images_cells_are_its_own_around_the_place_read() -> None:
     assert points["ys"] == pytest.approx(ys[0:5].tolist())
     assert np.asarray(points["matrix"]) == pytest.approx(matrix[0:5, 18:23])
     assert first_violation(DEFINITIONS["StagePoints"], points) is None
+    # A hover asks for more rows either side, so a pointer moving across bins reads what came.
+    wider = read_cells(xs, ys, lambda rows, columns: matrix[rows, columns], {"x": [0.2], "y": [310.0], "rows": 4})
+    assert wider["ys"] == pytest.approx(ys.tolist())
+    assert first_violation(DEFINITIONS["StageRead"], {"x": [0.2], "y": [310.0], "rows": 4}) is None
 
 
 @pytest.fixture(scope="module")

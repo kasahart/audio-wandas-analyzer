@@ -22,6 +22,8 @@ READ_POINT_LIMIT = 4096
 READ_BEYOND_LIMIT = 4096
 #: At most this many pixel columns across a dense window.
 READ_COLUMN_LIMIT = 512
+#: At most this many rows either side of an image's row read.
+READ_ROW_LIMIT = 64
 
 
 class StageRead(TypedDict):
@@ -32,6 +34,8 @@ class StageRead(TypedDict):
     x: list[float]
     y: NotRequired[list[float]]
     beyond: NotRequired[int]
+    #: An image's rows either side of the one at ``y`` (two unless asked).
+    rows: NotRequired[int]
     near: NotRequired[float]
     columns: NotRequired[int]
     log: NotRequired[bool]
@@ -82,7 +86,7 @@ def uniform_axis(count: int, start: float, step: float) -> tuple[int, XAt, Index
     return count, lambda index: start + np.asarray(index, dtype=np.float64) * step, index_of
 
 
-def _limited(read: StageRead, key: Literal["beyond", "columns"], default: int, limit: int) -> int:
+def _limited(read: StageRead, key: Literal["beyond", "columns", "rows"], default: int, limit: int) -> int:
     return max(0, min(limit, int(read.get(key, default))))
 
 
@@ -142,8 +146,9 @@ def read_cells(
     xs: np.ndarray, ys: np.ndarray, cells_in: Callable[[slice, slice], np.ndarray], read: StageRead
 ) -> StagePoints:
     """An image's real cells around ``read``'s place: the column nearest ``x[0]`` and ``beyond`` columns past it on
-    each side, the row nearest ``y[0]`` and two past it on each side (the plot picks the cell whose edges hold the
-    pointer). ``cells_in(rows, columns)`` gives the values, rows over ``ys``, columns over ``xs``."""
+    each side, the row nearest ``y[0]`` and ``rows`` (two unless asked) past it on each side (the plot picks the
+    cell whose edges hold the pointer). ``cells_in(rows, columns)`` gives the values, rows over ``ys``, columns
+    over ``xs``."""
     times, rows_axis = np.asarray(xs, dtype=np.float64), np.asarray(ys, dtype=np.float64)
     if not times.size or not rows_axis.size:
         return {"xs": [], "ys": [], "matrix": [], "start": None, "end": None, "complete": True}
@@ -156,7 +161,8 @@ def read_cells(
     column = nearest(times, float(read["x"][0]))
     row = nearest(rows_axis, float(read.get("y", [rows_axis[0]])[0]))
     columns = slice(max(0, column - beyond), min(times.size, column + beyond + 1))
-    rows = slice(max(0, row - 2), min(rows_axis.size, row + 3))
+    either = _limited(read, "rows", 2, READ_ROW_LIMIT)
+    rows = slice(max(0, row - either), min(rows_axis.size, row + either + 1))
     matrix = np.asarray(cells_in(rows, columns), dtype=np.float64)
     return {
         "xs": [float(value) for value in times[columns].tolist()],
