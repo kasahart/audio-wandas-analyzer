@@ -32,7 +32,7 @@ test('results pane renders the spectrum section controls', () => {
     for (const action of ['spec-zoom-out', 'spec-zoom-in', 'spec-zoom-reset', 'spectrum-settings', 'spectrum-height-drag']) {
         assert.ok(html.includes('data-action="' + action + '"'), action);
     }
-    assert.ok(html.includes('<canvas id="spectrum-overlay-canvas" tabindex="0"'));
+    assert.ok(html.includes('<canvas id="spectrum-overlay-canvas" data-plot-names="spectrum-axis-legend" tabindex="0"'));
 });
 
 test('results pane marks the selected spectrum kind as pressed', () => {

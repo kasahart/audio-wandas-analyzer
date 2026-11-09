@@ -1,8 +1,5 @@
-import type { SpectrogramData, SpectrogramDisplaySettings, SpectrogramSettings } from '../../shared/analysis/analysisTypes';
-import { formatDbLevel, formatHz, frequencyAxisTicks } from '../draw/canvasDrawers';
-import { spectrogramDisplayBounds } from './spectrogramRaster';
-import { spectrumSeriesRange, spectrumVisibleWindow, type SpectrumViewState } from './spectrumRuntime';
-import type { SpectrumSlice, WaveformCoverage } from './types';
+import type { SpectrogramData, SpectrogramSettings } from '../../shared/analysis/analysisTypes';
+import type { WaveformCoverage } from './types';
 
 export interface LatestSpectrogramSnapshot {
     windowSize: number | null;
@@ -67,45 +64,6 @@ export function shellSnapshot(doc: Document, audioContextState: string | null) {
             };
         }),
     };
-}
-
-export function spectrumAxisLabelTexts(
-    dbMin: number,
-    dbMax: number,
-    freqMin: number,
-    freqMax: number,
-    source: { unit?: string } | null,
-    logFrequency = false,
-): string[] {
-    return [
-        formatDbLevel(dbMax, source),
-        formatDbLevel((dbMax + dbMin) / 2, source),
-        formatDbLevel(dbMin, source),
-        ...frequencyAxisTicks({ frequencyMin: freqMin, frequencyMax: freqMax, logFrequency }).map(tick => tick.text),
-    ];
-}
-
-export function overlaySpectrumAxisLabels(slices: readonly SpectrumSlice[], view: SpectrumViewState): string[] {
-    const range = spectrumSeriesRange(slices.map(slice => ({ slice })));
-    if (slices.length === 0 || !isFinite(range.minDb)) {
-        return [];
-    }
-    const vis = spectrumVisibleWindow(range.maxFrequencyHz, range.minDb, range.maxDb, view, range.logMinFrequencyHz);
-    return spectrumAxisLabelTexts(vis.dbMin, vis.dbMax, vis.frequencyMin, vis.frequencyMax, slices[0], vis.logFrequency);
-}
-
-export function spectrogramAxisLabelTexts(
-    spec: SpectrogramData | null | undefined,
-    display: SpectrogramDisplaySettings,
-    fallbackMaxFrequencyHz: number,
-): string[] {
-    const { dbLo, dbHi, maxFrequencyHz: maxF, minFrequencyHz: minF } = spectrogramDisplayBounds(
-        spec ?? { minDb: -120, maxDb: 0, maxFrequencyHz: fallbackMaxFrequencyHz },
-        display,
-    );
-    return maxF > 0
-        ? [minF > 0 ? formatHz(minF) : '0 Hz', formatHz((minF + maxF) / 2), formatHz(maxF), formatDbLevel(dbLo, spec ?? null), formatDbLevel(dbHi, spec ?? null), 'Freq']
-        : [];
 }
 
 export function latestSpectrogramSnapshot(

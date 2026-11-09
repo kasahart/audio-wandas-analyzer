@@ -39,6 +39,8 @@ function source(tracks: SnapshotTrack[], peeked: number[]): TrackSnapshotSource 
         spectrogramDisplay: { dbMin: null, dbMax: null, maxFrequencyHz: null },
         peekSlice(item) { peeked.push(item.trackIndex); return item.trackIndex === 0 ? SLICE : null; },
         waveformAxisLabels: item => ['wave ' + item.trackIndex],
+        spectrumTexts: () => ['−20', 'drawn'],
+        spectrogramTexts: item => ['lane ' + item.trackIndex],
     };
 }
 
@@ -49,7 +51,9 @@ test('the track snapshot reads only the spectra shown tracks already have', () =
     assert.equal(snapshot.visibleSpectrumTrackCount, 1);
     assert.deepEqual(snapshot.tracks.map(item => item.spectrumSlicePresent), [true, false, false]);
     assert.deepEqual(snapshot.axisLabels.waveformPerTrack, [['wave 0'], ['wave 1'], ['wave 2']]);
-    assert.equal(snapshot.axisLabels.spectrogramPerTrack.length, 3);
+    // The texts the plots drew, as they drew them: never made again from the data (A27, C6).
+    assert.deepEqual(snapshot.axisLabels.spectrogramPerTrack, [['lane 0'], ['lane 1'], ['lane 2']]);
+    assert.deepEqual(snapshot.axisLabels.spectrumOverlay, ['−20', 'drawn']);
 });
 
 test('each track says which part of its file the zoom shows', () => {

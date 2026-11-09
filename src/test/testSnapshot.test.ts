@@ -5,13 +5,9 @@ import type { SpectrogramData } from '../shared/analysis/analysisTypes';
 import {
     domSnapshotBase,
     latestSpectrogramSnapshot,
-    overlaySpectrumAxisLabels,
-    spectrogramAxisLabelTexts,
-    spectrumAxisLabelTexts,
     visibleFileRange,
     waveformCoverageSnapshot,
 } from '../webview/runtime/testSnapshot';
-import type { SpectrumSlice } from '../webview/runtime/types';
 
 function spectrogram(overrides: Partial<SpectrogramData> = {}): SpectrogramData {
     return {
@@ -35,31 +31,6 @@ test('domSnapshotBase counts the rendered toolbar, rows, audio elements and canv
         hasRulerCanvas: true,
         spectrumOverlayPresent: false,
     });
-});
-
-test('spectrumAxisLabelTexts lists dB ticks top-down then frequency ticks with the source unit', () => {
-    assert.deepEqual(spectrumAxisLabelTexts(-80, 0, 0, 2000, null), ['0 dB', '-40 dB', '-80 dB', '0 Hz', '1.0 kHz', '2.0 kHz']);
-    assert.deepEqual(spectrumAxisLabelTexts(20, 100, 0, 500, { unit: 'dB SPL' }).slice(0, 3), ['100 dB SPL', '60 dB SPL', '20 dB SPL']);
-});
-
-test('spectrogramAxisLabelTexts applies display overrides and caps the max frequency', () => {
-    const spec = spectrogram();
-    assert.deepEqual(
-        spectrogramAxisLabelTexts(spec, { dbMin: null, dbMax: null, maxFrequencyHz: null }, 0),
-        ['0 Hz', '12 kHz', '24 kHz', '-90 dB', '-10 dB', 'Freq'],
-    );
-    assert.deepEqual(
-        spectrogramAxisLabelTexts(spec, { dbMin: -60, dbMax: 0, maxFrequencyHz: 8000 }, 0),
-        ['0 Hz', '4.0 kHz', '8.0 kHz', '-60 dB', '0 dB', 'Freq'],
-    );
-});
-
-test('spectrogramAxisLabelTexts falls back to the sample-rate limit without spectrogram data', () => {
-    assert.deepEqual(
-        spectrogramAxisLabelTexts(null, { dbMin: null, dbMax: null, maxFrequencyHz: null }, 4000),
-        ['0 Hz', '2.0 kHz', '4.0 kHz', '-100 dB', '0 dB', 'Freq'],
-    );
-    assert.deepEqual(spectrogramAxisLabelTexts(null, { dbMin: null, dbMax: null, maxFrequencyHz: null }, 0), []);
 });
 
 test('latestSpectrogramSnapshot prefers STFT settings and reports applied display limits', () => {
@@ -98,16 +69,4 @@ test('waveformCoverageSnapshot: coverage がなければ false と null を返�
     });
 });
 
-const fullSpectrumView = { freqStart: 0, freqEnd: 1, dbMin: null, dbMax: null };
 
-function slice(overrides: Partial<SpectrumSlice> = {}): SpectrumSlice {
-    return { values: [-60, -20], frequencyBins: 2, maxFrequencyHz: 1000, minDb: -60, maxDb: -20, ...overrides };
-}
-
-test('overlaySpectrumAxisLabels spans every slice and is empty without data', () => {
-    assert.deepEqual(overlaySpectrumAxisLabels([], fullSpectrumView), []);
-    const a = slice();
-    const b = slice({ maxFrequencyHz: 4000, minDb: -90, maxDb: -10 });
-    const view = { ...fullSpectrumView, dbMin: -90, dbMax: -10 };
-    assert.deepEqual(overlaySpectrumAxisLabels([a, b], view), spectrumAxisLabelTexts(-90, -10, 0, 4000, a));
-});

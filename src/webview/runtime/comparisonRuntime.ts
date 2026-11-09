@@ -1660,6 +1660,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             spectrogramDisplay: spectrogramSettings.display,
             peekSlice: track => peekSpectrumAtCursor(track.result, track.trackIndex, track.offsetSeconds, spectrumCursorNorm),
             waveformAxisLabels: track => waveformAxisLabelsForResult(track.result, track.trackIndex),
+            spectrumTexts: () => [...(spectrumDrawn?.drawnTexts ?? [])],
+            spectrogramTexts: track => {
+                const canvas = document.getElementById(trackSpecCanvasId(track.trackIndex, 0));
+                const plot = canvas instanceof HTMLCanvasElement ? spectrogramPlots.get(canvas) : undefined;
+                return [...(plot?.drawnTexts ?? [])];
+            },
         });
         let latestSpectrogram;
         try {
