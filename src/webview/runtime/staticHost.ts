@@ -343,7 +343,9 @@ export function createStaticHost(deps: StaticHostDeps): WebviewHostApi {
             announce(strings.reportSaved + folder + '.zip');
         },
         entry: {
-            identity: async path => folderKeys.identity(path),
+            // The file's content: a recording copied over with the same size and time is another file (V1).
+            identity: async path => folderKeys.contentIdentity(path),
+            spec: () => exclusive(() => analysisClient.scanSpec()),
             scan: (path, region, recipe, stage, detail, reference, spectrumBins) => scanEntryFile(path, region, recipe, stage, detail, reference, spectrumBins),
             // In turn with the scans: the values they kept are in the Worker that ran them.
             combine: payload => exclusive(() => analysisClient.stageCombine(payload)),

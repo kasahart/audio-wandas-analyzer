@@ -4,6 +4,7 @@ import type {
     CalibrationRequestContext, PairSpectrumResult, RangeResult, SpectrumSlicePayload, SpectrumSliceResult, StageRead,
     TrackDetailPayload, TrackDetailResult, ExportWavLoopResult,
 } from '../protocol/backendProtocol';
+import { scanSpecOf } from '../protocol/backendProtocol';
 import type { PairSourceRef, PairSpectrumRequest, SpectrumSliceRequest, TrackDetailRequest, WaveformRangeRequest } from '../utils/audioTarget';
 
 export type AnalyzeOptions = Omit<AnalyzePayload, 'filePath'>;
@@ -199,6 +200,11 @@ export abstract class AnalysisClient {
         // The recording a step is measured against is calibrated as its own.
         const reference = payload.reference ? { ...payload.reference, ...(this.calibrationFor(payload.reference.filePath) ? { calibration: this.calibrationFor(payload.reference.filePath) } : {}) } : undefined;
         return this.request('scan', { ...payload, ...(calibration ? { calibration } : {}), ...(reference ? { reference } : {}) });
+    }
+
+    /** What decides a scan's numbers besides its file, calibration and Recipe (the analysis spec and wandas' versions). */
+    async scanSpec(): Promise<string> {
+        return scanSpecOf(await this.request('scan-spec', {}));
     }
 
     /** A base group's median and a recording's difference from it, from the values its scans kept (stage_combine.py). */

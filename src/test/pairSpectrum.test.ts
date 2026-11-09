@@ -296,6 +296,33 @@ function resultFor(requestId: string, overrides: Partial<PairSpectrumResultMessa
     return { type: 'pair-spectrum-result', requestId, ...rest, ...overrides };
 }
 
+test('a pair answer is of its sources\' calibration too: a track calibrated anew is asked again, its old answer not drawn', () => {
+    mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+        const fixture = panelFixture();
+        const calibrated = (signature: string) => fixture.setChannels([
+            { trackId: 't1' as TrackId, filePath: '/a.wav', sourceVersion: 'v1', calibrationSignature: signature, channelIndex: 0, offsetSeconds: 0, label: 'a.wav', color: '#0f0' },
+            { trackId: 't2' as TrackId, filePath: '/b.wav', sourceVersion: 'v1', channelIndex: 0, offsetSeconds: 0.5, label: 'b.wav', color: '#f00' },
+        ]);
+        calibrated('cal-1');
+        fixture.panel.toggleReference('t1' as TrackId, 0);
+        mock.timers.tick(0);
+        fixture.panel.handleMessage(resultFor('pair-1'));
+        assert.equal(fixture.panel.curves().length, 1);
+        // The same request to the host (file versions, offsets, range, settings), another calibration of a.wav.
+        calibrated('cal-2');
+        fixture.panel.render();
+        assert.equal(fixture.panel.curves().length, 0, 'the answer of the old calibration is not drawn');
+        fixture.panel.sync();
+        mock.timers.tick(PAIR_REQUEST_DELAY_MS);
+        assert.equal(fixture.posted.length, 2, 'asked again');
+        fixture.panel.handleMessage(resultFor('pair-2'));
+        assert.equal(fixture.panel.curves().length, 1);
+    } finally {
+        mock.timers.reset();
+    }
+});
+
 test('the pair panel requests once per change of sources or range, never for a repeat', () => {
     mock.timers.enable({ apis: ['setTimeout'] });
     try {

@@ -1,4 +1,4 @@
-import { parseBackendResult, type ScanResult, type StageCombinePayload, type StageCombineResult, type StageDetail } from '../protocol/backendProtocol';
+import { parseBackendResult, scanSpecOf, type ScanResult, type StageCombinePayload, type StageCombineResult, type StageDetail } from '../protocol/backendProtocol';
 import { isMetadataCandidate } from './entryMetadata';
 import { recipeKey } from '../recipe/recipeSteps';
 import { AUDIO_HEAD_BYTES, channelsFromHeader, type ChannelProbe } from './audioHeader';
@@ -156,8 +156,10 @@ const RECIPES_PER_FILE = 4;
 const INDEX_WRITE_EVERY = 10;
 
 interface ScanIndexEntry {
-    /** The host's identity for the file when it was scanned: path, size and mtime, or a content hash. */
+    /** The host's identity for the file when it was scanned: path, size, mtime, ctime and inode, or a content hash. */
     identity: string;
+    /** What computed it besides the file, calibration and Recipe (the analysis spec and wandas' versions, scanSpecOf). */
+    spec: string;
     /** The calibration the scan used, so a changed profile scans again. */
     calibration: string;
     /** The Recipe the result was scanned with (recipeKey). */
@@ -170,6 +172,8 @@ type ScanIndex = Record<string, ScanIndexEntry[]>;
 export interface EntryScanPorts {
     /** A string that changes whenever the file's content may have; undefined never reuses a stored result. */
     identity(filePath: string): Promise<string | undefined>;
+    /** The backend's analysis spec and wandas versions now (scanSpecOf's form); undefined never reuses a stored result. */
+    spec?(): Promise<string | undefined>;
     calibration?(filePath: string): string;
     scan(filePath: string, region?: EntryRegion, recipe?: RecipeDocument, stage?: string, detail?: StageDetail, reference?: ScanReference, spectrumBins?: boolean): Promise<ScanResult>;
     /** A median and a difference of steps the backend's scans kept (stage-combine). */
@@ -214,7 +218,8 @@ async function readIndex(ports: EntryScanPorts, rootPath: string): Promise<ScanI
     const index: ScanIndex = {};
     for (const [filePath, entries] of Object.entries(stored)) {
         if (!Array.isArray(entries)) continue;
-        const valid = entries.filter((entry): entry is ScanIndexEntry => isRecord(entry) && typeof entry['identity'] === 'string' && typeof entry['calibration'] === 'string'
+        // An entry stored before it named its spec is of no spec known: never reused.
+        const valid = entries.filter((entry): entry is ScanIndexEntry => isRecord(entry) && typeof entry['identity'] === 'string' && typeof entry['calibration'] === 'string' && typeof entry['spec'] === 'string'
             && isScanResult(entry['result']) && entry['result'].ok);
         if (valid.length) index[filePath] = valid;
     }
@@ -258,6 +263,9 @@ export async function runEntryScan(
     let standard: RecipeDocument | undefined;
     try { standard = await ports.recipe?.(); } catch { /* The step bar then shows no chips; scans still use the host's Recipe. */ }
     const used = recipeKey(message.recipe ?? standard);
+    // The analysis spec and wandas the backend computes with now: a result stored under others is not of them.
+    let spec: string | undefined;
+    try { spec = await ports.spec?.(); } catch { spec = undefined; }
     // At open (stored results only) the folder's session comes back with them: what the user chose, the CSV picked.
     const stored = message.cachedOnly ? await readSession(ports, message.rootPath ?? '') : {};
     await publish({ type: 'entry-conditions', requestId, table: null, ...(standard ? { recipe: standard } : {}), ...stored });
@@ -278,8 +286,8 @@ export async function runEntryScan(
                 const identity = await ports.identity(filePath);
                 const calibration = ports.calibration?.(filePath) ?? '';
                 // The file as it is now (its size and time, or its content), its calibration and this Recipe: else it is not computed.
-                const previous = (index[filePath] ?? []).find(entry => entry.identity === identity && entry.calibration === calibration && entry.recipe === used);
-                if (identity !== undefined && previous) {
+                const previous = (index[filePath] ?? []).find(entry => entry.identity === identity && entry.calibration === calibration && entry.recipe === used && entry.spec === spec);
+                if (identity !== undefined && spec !== undefined && previous) {
                     result = previous.result;
                 } else if (message.cachedOnly) {
                     continue;
@@ -288,7 +296,8 @@ export async function runEntryScan(
                     result = await ports.scan(filePath, undefined, message.recipe);
                     if (result.ok && identity !== undefined) {
                         const others = (kept[filePath] ?? []).filter(entry => entry.recipe !== used && entry.identity === identity);
-                        kept[filePath] = [{ identity, calibration, recipe: used, result }, ...others].slice(0, RECIPES_PER_FILE);
+                        // Kept under the spec the result names it was computed with (not the one asked: a backend restarted meanwhile).
+                        kept[filePath] = [{ identity, calibration, recipe: used, spec: scanSpecOf(result), result }, ...others].slice(0, RECIPES_PER_FILE);
                         if (++unsaved >= INDEX_WRITE_EVERY) await save();
                     }
                 }

@@ -78,6 +78,19 @@ test('a batch reports its failures grouped by reason, else the last file and the
     ].join(' | '));
 });
 
+test('a picked file is kept under its content: one of the same name, size and time but other bytes is another (V1)', async () => {
+    const picked = (bytes: number[]): File => new File([new Uint8Array(bytes)], 'a.wav', { lastModified: 1000 });
+    const folder = new Map<string, File>([['/sources/rec/a.wav', picked([1, 2, 3, 4])]]);
+    const keys = createFolderKeys(folder);
+    const first = await keys.contentIdentity('/sources/rec/a.wav');
+    assert.match(first ?? '', /^a\.wav\|4\|[0-9a-f]{64}$/);
+    assert.equal(await keys.contentIdentity('/sources/rec/a.wav'), first, 'the same content: the same');
+    folder.set('/sources/rec/a.wav', picked([4, 3, 2, 1]));
+    assert.equal(keys.identity('/sources/rec/a.wav'), 'a.wav|4|1000', 'name, size and time alone say nothing changed');
+    assert.notEqual(await keys.contentIdentity('/sources/rec/a.wav'), first, 'its content does');
+    assert.equal(await keys.contentIdentity('/sources/gone.wav'), undefined);
+});
+
 test('folder keys are tagged by the folder listing, so another folder of the same name keeps its own', async () => {
     const folder = new Map<string, File>([['/sources/rec/a.wav', file('a.wav')]]);
     const keys = createFolderKeys(folder);

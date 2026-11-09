@@ -13,6 +13,7 @@ export const SCHEMA_FIELDS: Readonly<Record<string, readonly string[] | string>>
     'WaveformEnvelope.max': ['track-waveform.readout'],
     'WaveformEnvelope.minT': ['track-waveform.readout'],
     'WaveformEnvelope.maxT': ['track-waveform.readout'],
+    'ScanSpecResult.specVersion': 'the analysis spec version the scans are made under, part of the saved scan index\'s key; not shown',
     'WaveformEnvelope.samples': 'how many samples the envelope was cut from, to place its buckets; not shown',
     'WaveformEnvelope.absolutePeak': ['track-waveform.range'],
     'DbScaleMetadata.referenceValue': ['compare-overlay.axis', 'colour-bar.axis'],
