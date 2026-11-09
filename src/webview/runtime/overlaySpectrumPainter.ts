@@ -30,11 +30,11 @@ export interface OverlaySpectrumPaint {
 /**
  * Where a stand-in's numbers are read (types.ts SpectrumStandIn): nowhere. While the slice is on its way its read is
  * pending (R7: the cursor's marks, no number) and it is measured for the overlay's order once the slice comes; past
- * the track's end there is nothing to read or measure.
+ * the track's end there is no point to read, and silence has no power (the quietest, drawn last on top, R6).
  */
 const STAND_IN_READ: Record<NonNullable<SpectrumSeries['slice']['standIn']>, FullSource> = {
     pending: { line: () => undefined, level: () => undefined },
-    silence: { line: () => null, level: () => null },
+    silence: { line: () => null, level: () => ({ power: 0, count: 0 }) },
 };
 
 /** Marks the right-hand axis in the legend. */

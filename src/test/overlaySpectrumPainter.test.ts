@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { frequencyFraction, type CanvasDrawCtx } from '../webview/draw/canvasDrawers';
 import { paintOverlaySpectrum, renderSpectrumAxisLegend, spectrumLayer, SECONDARY_AXIS_DASH, SECONDARY_AXIS_MARK } from '../webview/runtime/overlaySpectrumPainter';
-import { stageHover, stageStep, type StagePlot } from '../webview/runtime/stagePanes';
+import { screenLevels, stageHover, stageStep, type StagePlot } from '../webview/runtime/stagePanes';
 import { SpectrumView } from '../webview/runtime/spectrumView';
 import { OVERLAY_SPECTRUM_PAD, overlayLevelAxes, spectrumReadoutText, type SpectrumViewState } from '../webview/runtime/spectrumRuntime';
 import type { SpectrumSeries, SpectrumSlice } from '../webview/runtime/types';
@@ -394,6 +394,8 @@ test('until the backend\'s slice comes, the cursor spectrum draws the lane\'s av
     const both = plotOf(paintOverlaySpectrum(canvasOf(ctx), 400, 200, [{ ...series[0], slice: silence }, { ...series[0], color: '#0000ff', label: 'B', slice: real }], fullView));
     const floor = both.lines.find(line => line.color === '#ff0000');
     assert.ok(floor, 'the floor is drawn');
+    // Silence has no power: the quietest, measured (not ordered by its drawn floor, nor left unmeasured).
+    assert.deepEqual(screenLevels([floor], floor.view).get(floor), { level: -Infinity, state: 'exact' });
     const onFloor = stageHover(both, both.xAt(2000 / 3), both.yAt(silence.values[2]));
     assert.notEqual(onFloor?.layer.color, '#ff0000', 'the floor past the end is never read as a level');
     assert.ok(!onFloor || onFloor.text === spectrumReadoutText('B', real, 2000 / 3, -50));
