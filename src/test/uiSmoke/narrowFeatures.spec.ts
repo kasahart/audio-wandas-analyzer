@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { expect, test, type Locator, type Page } from './canvasAudit';
-import { openEntry, type ScannedFile } from './entryHelpers';
+import { backendRequired, openEntry, type ScannedFile } from './entryHelpers';
 import { bridgeComparison, RealBackend, runFixture } from './realBackend';
 
 /**
@@ -47,7 +47,7 @@ test.afterAll(() => {
 });
 
 const ready = (): boolean => {
-    if (!files && process.env.AWA_REQUIRE_BACKEND === '1') throw new Error(`AWA_REQUIRE_BACKEND=1 but the narrow fixture could not be analysed: ${fixtureError}`);
+    if (!files && backendRequired()) throw new Error(`the Python backend is required here (AWA_REQUIRE_BACKEND, or the repo's .venv) but the narrow fixture could not be analysed: ${fixtureError}`);
     return !!files;
 };
 

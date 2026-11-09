@@ -1036,6 +1036,9 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
     const levelOf = (axis: PaneRange) => (y: number): number => axis.min + (1 - (y - top) / plotHeight) * (axis.max - axis.min);
     const plot: StagePlot = { frame: { left, top, width: plotWidth, height: plotHeight }, xAt, yAt, xOf: x => xAxis.at((x - left) / plotWidth), xLog: xAxis.log, levelOf: levelOf(range),
         lineYAt: looseAt(range), ratioStep: 1.12, lines: [], diff: !!options.diff, ...(options.readout === false ? { noReadout: true } : {}), ...levelUnitOf(heatmap ? axes.colour : axes.y) };
+    // Where its data is drawn on the canvas (CSS pixels: left, top, width, height), so a gesture test can tell what a
+    // drag or a wheel at a pixel should show from the pixel alone, not from the plot's own answer (C6).
+    if (canvas.dataset) canvas.dataset.plotFrame = [left, top, plotWidth, plotHeight].map(String).join(' ');
     // Every picture drawn says where its numbers are read (R7): a plot drawing one that does not is marked, and every
     // ui-smoke test fails it (canvasAudit.ts). A figure no pointer reads needs none.
     if (canvas.dataset) {
