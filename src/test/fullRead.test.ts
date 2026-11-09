@@ -364,6 +364,13 @@ test('an arrow key crosses a silence of any length in one read the backend answe
     const asking = asked.length;
     assert.equal(step(last, 1), null);
     assert.equal(asked.length, asking, 'the end, once known, is not asked again');
+    // The empty answer at the end answers that seek only: the line is still read where it has values, nearest the
+    // pointer, never nothing (A41, R7).
+    const after = read(0.005, 20);
+    assert.equal(after?.at, 10, 'read again at its start after the end was found');
+    assert.equal(after?.full, true);
+    const again = read(999.5, 20);
+    assert.ok(again && again.at !== undefined && again.at >= 1_999_000, `read near its end: ${again?.at}`);
 });
 
 test('a source read on another axis gets the pointer\'s place and the screen\'s scale on its own axis, so a dense window there is read nearest the pointer (R7)', () => {

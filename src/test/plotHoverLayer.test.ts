@@ -121,3 +121,24 @@ test('a step that waits for its points is taken, once they are in, through the o
     assert.deepEqual(owner, [{ clientX: 90, clientY: 65 }], 'the owner is told where the step went');
     assert.equal(layer.reading()?.at, 4);
 });
+
+test('an arrow key pressed while the readout waits for its points reads them once they are in: the readout is never left empty (A42, R7)', () => {
+    const { plot, slot, layer } = setup();
+    const xs = Array.from({ length: 10 }, (_, i) => i), values = xs.map(i => i + 0.5);
+    const whole = localLine(xs, values);
+    const waiting: Array<() => void> = [];
+    let held = true;
+    // Every read waits until the points come in.
+    const full: FullSource = { held: 'fetched', line(query, ready) { if (held) { waiting.push(ready); return undefined; } return whole.line?.(query, ready); } };
+    const drawn: StagePlot = { ...plotWith([{ ...line('a', '#f00', values), full }]), xOf: (x: number) => (x - 50) / 10, levelOf: (y: number) => (110 - y) / 10 };
+    layer.show(plot, drawn, 80, 75, slot);
+    assert.equal(layer.reading(), null, 'pending: no number yet');
+    // The key while pending: its place is the point waited for, and the owner shows there, as any step.
+    const at = layer.stepFrom(plot, drawn, 1);
+    assert.ok(at);
+    layer.show(plot, drawn, at.clientX, at.clientY, slot);
+    held = false;
+    for (const ready of waiting.splice(0)) ready();
+    assert.equal(layer.reading()?.at, 3, 'read once the points are in');
+    assert.ok(slot?.textContent?.includes('3.5'), `the readout shows it: ${slot?.textContent}`);
+});

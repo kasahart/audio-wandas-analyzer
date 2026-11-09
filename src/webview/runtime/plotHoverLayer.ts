@@ -94,7 +94,9 @@ export function createPlotHoverLayer(document: Document, className = '', parent:
             asked = now;
             // The full data around the pointer came in: read again, if the pointer is still where it was.
             const again = (): void => { if (asked === now && !layer.hidden) layerApi.show(plot, drawn, clientX, clientY, slot); };
-            const step = stepped && stepped.plot === plot && stepped.clientX === clientX && stepped.clientY === clientY ? stepped.found : null;
+            // A step carries its point; one taken while the read still waited (pending) carries none, and is read anew here,
+            // so the read waits for its points with `again` and is shown once they are in (A42, R7).
+            const step = stepped && stepped.plot === plot && stepped.clientX === clientX && stepped.clientY === clientY && !stepped.found.read.pending ? stepped.found : null;
             stepped = null;
             const found = step ?? (drawn ? readAt(drawn, x, y, again) : null);
             const hit = found?.read ?? null;

@@ -194,7 +194,9 @@ export function localCells(xs: readonly number[], ys: readonly number[], matrix:
 
 /** Whether a complete answer holds every point of [x0, x1] and `beyond` past each end it asked for (one is enough). */
 function covers(points: FullPoints, x0: number, x1: number, beyond: number): boolean {
-    if (!points.complete) return false;
+    // An answer with no points (a seek past the last value: nothing there to read) says nothing of any other window;
+    // taken as covering every one (both ends null), it would keep the line from being read anywhere again (A41, R7).
+    if (!points.complete || !points.xs.length) return false;
     const left = points.start === null || (beyond > 0 ? points.start < x0 : points.start <= x0);
     const right = points.end === null || (beyond > 0 ? points.end > x1 : points.end >= x1);
     return left && right;
