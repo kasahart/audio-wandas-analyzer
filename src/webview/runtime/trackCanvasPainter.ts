@@ -148,7 +148,7 @@ export function laneSpectrogramView(spec: SpectrogramData, place: LanePlacement,
         laneMatrices.set(spec, matrix);
     }
     // No yAxis: the rows are frequencies, but up a linear axis (a frequency yAxis is a log one).
-    return { frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity: 'level', unit: spec.unit ?? 'dB', xs, ys, matrix };
+    return { frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity: 'level', unit: spec.levelReferenceLabel ?? spec.unit ?? 'dBFS', xs, ys, matrix };
 }
 
 /**

@@ -139,9 +139,11 @@ export interface SpectrumSlice {
     windowStartNorm?: number;
     windowEndNorm?: number;
     window?: string;
-    /** Set when a typed spectrogram dB range replaced minDb/maxDb: the slice's own rounded range. */
+    /** The slice's own range (the backend's extremes), kept when a typed spectrogram dB range replaced minDb/maxDb. */
     autoMinDb?: number;
     autoMaxDb?: number;
+    /** The ends of minDb/maxDb typed in the spectrogram settings: kept exactly; the other ends follow the dB line rule (spectrumLevelRange). */
+    typedDb?: { min?: number; max?: number };
     /** Drawn in place of a slice the backend has not given (cursorSpectrum.ts): no number is read of it (R7). */
     standIn?: SpectrumStandIn;
 }

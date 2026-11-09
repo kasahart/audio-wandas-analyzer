@@ -11,7 +11,7 @@ export const reportDelta: ChartContract = {
         {
             id: 'report-delta.headline', value: 'headline', what: '図の題（見出しの帯の Δ と Leq の Δ）',
             computedIn: ['src/webview/runtime/comparePanes.ts:diffHeadline', 'src/webview/runtime/comparePanes.ts:buildCompareModel', 'src/webview/runtime/compareReport.ts:reportFiles'],
-            from: 'whole', trace: '帯の Δ = round(比較, 0.1) − round(基準, 0.1)、スキャンの全データの帯から。（描くために間引いた形はない）',
+            from: 'whole', trace: '帯の Δ = 比較 − 基準、スキャンの全データの帯の丸める前の値どうしで引き（levelDelta）、書くときだけ 0.1 dB に丸める（R1）。（描くために間引いた形はない）',
             tests: [
                 t('src/test/comparePanes.test.ts', 'a tone that leaks into the neighbouring bands heads the list alone: only peaks of |Δ| across bands count'),
                 t('src/test/comparePanes.test.ts', 'against one base file, a band within the chance spread of its condition is not headline material'),

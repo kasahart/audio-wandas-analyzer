@@ -19,7 +19,7 @@ import type { PlotMargins, PlotWindow } from './plotInteraction';
 import { axisFractionOf, axisValueAt, paintOverlay, stageAxes, stageDiffRange, stageRange, STAGE_MARGINS, type StageAxes, type StagePlot } from './stagePanes';
 import { createDetailPlanner } from './stageDetail';
 import { createCombineSource, noDeltaNote, TOO_LARGE_COMBINED, type Combined } from './combineSource';
-import { createStageSource, type StageSpec } from './stageSource';
+import { createStageSource, stageBasis, type StageSpec } from './stageSource';
 import { createStageReader } from './stageReader';
 import { localLine, NO_FULL_DATA, wholeBars, type FullRead } from './fullRead';
 import { recipeWithout, stepChipLabel, stepLimits } from './stepBar';
@@ -113,9 +113,11 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
         stepRelease?: number;
         plot: HeldPicture | null;
     } = { slot: null, step: null, plot: null };
-    const source = createStageSource('entry-hold', message => deps.post(message), () => deps.scheduleSide());
+    // A file's pictures are of its version and calibration as the table scanned it: a change asks them again.
+    const basis = stageBasis(path => deps.results.get(path));
+    const source = createStageSource('entry-hold', message => deps.post(message), () => deps.scheduleSide(), basis);
     // Every Welch bin of a held slot's file and its base: the table's own scans carry only the 192 points.
-    const bins = createStageSource('held-bins', message => deps.post(message), () => deps.scheduleSide());
+    const bins = createStageSource('held-bins', message => deps.post(message), () => deps.scheduleSide(), basis);
     /** The table spectrum each file's bins were last asked for with (by spec and file). */
     const binsAskedFor = new Map<string, string>();
     // Without the step − with it, taken by the backend from the Frames' full resolution (combineSource.ts).

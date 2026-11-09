@@ -122,11 +122,11 @@ export function paintOverlaySpectrum(
         lines: axis.series.filter((s, i, all) => all.findIndex(o => o.label === s.label && o.color === s.color) === i).map(s => ({ color: s.color, label: s.label })),
     }));
     const empty = vis.frequencyMax - vis.frequencyMin <= 0;
-    // With two level axes, "dB" alone could be either: a point read names its axis' reference ("−17.0 dB re 1 m/s^2").
-    const two = axes.length > 1;
+    // A point read names its axis' reference ("−17.0 dB re 1 m/s^2"), with one level axis as with two: an absolute level
+    // is never written as bare "dB" (R7, as the axis and the colour bar name it).
     // A line read on the right-hand axis is dashed, as its swatch in the legend: lines of one colour (grey, without a role) are told apart.
     const layersOf = (series: readonly SpectrumSeries[], visible: SpectrumVisibleWindow, reference: string, dash?: readonly number[]): StageLayer[] => (visible.dbMax - visible.dbMin > 0 && !empty ? series : [])
-        .map(s => ({ ...spectrumLayer(s, maxFrequencyHz, { frequencyMin: visible.frequencyMin, frequencyMax: visible.frequencyMax, buckets: lineBuckets, logFrequency: visible.logFrequency }, two ? reference : undefined), ...(dash ? { dash } : {}) }));
+        .map(s => ({ ...spectrumLayer(s, maxFrequencyHz, { frequencyMin: visible.frequencyMin, frequencyMax: visible.frequencyMax, buckets: lineBuckets, logFrequency: visible.logFrequency }, reference || undefined), ...(dash ? { dash } : {}) }));
     const [primary, secondary] = axes;
     // About two pixels a bucket across the plot, as every line is thinned (R2).
     const lineBuckets = Math.max(64, Math.round((W - pad.left - pad.right) / 2));

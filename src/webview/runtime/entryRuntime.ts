@@ -425,10 +425,10 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const csv = attached.csv;
         const own = (csv?.attributes ?? []).filter(column => csv?.numeric[column]).map(column => ({ id: `csv:${column}` as ValueId, label: column, computed: false, ready: true }));
         const computed: Array<{ id: ValueId; label: string }> = [
-            { id: 'leq', label: strings.dsLeq.replace('{label}', sidePlots.levelLabel()) },
+            { id: 'leq', label: sidePlots.levelName(strings.dsLeq) },
             ...(spectral() ? [{ id: 'peak' as ValueId, label: strings.dsPeak }] : []),
             { id: 'crest', label: strings.dsCrest },
-            ...(spectral() ? BAND_CENTERS_HZ.map((_, band) => ({ id: `band:${band}` as ValueId, label: strings.dsBand.replace('{band}', bandLabel(band)).replace('{label}', sidePlots.levelLabel()) })) : []),
+            ...(spectral() ? BAND_CENTERS_HZ.map((_, band) => ({ id: `band:${band}` as ValueId, label: sidePlots.levelName(strings.dsBand.replace('{band}', bandLabel(band))) })) : []),
         ];
         return [...own, ...computed.map(item => ({ ...item, computed: true, ready: false }))];
     }
@@ -797,7 +797,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
      */
     function remeasured(row: DerivedRow, results: ReadonlyMap<string, ScanResult>): DerivedRow | null {
         const result = results.get(row.parentPath);
-        const base = baseOf(results, row.base.paths ?? []);
+        const base = baseOf(results, row.base.paths ?? [], result);
         if (!result?.ok || !base) return null;
         return { ...row, result, base: { ...row.base, ...base }, recipeKey: recipeKey(scanRecipe()), stale: false };
     }

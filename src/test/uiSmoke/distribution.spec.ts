@@ -60,7 +60,7 @@ test('the separated high tail of the 3.15 kHz band, by rpm: dragged, the table k
     // Groups by number (900 before 1500), the recording without a CSV row last; computed values count channels.
     await expect.poll(async () => (await dist(page))?.groups.map(group => group.name)).toEqual(['900', '1200', '1500', '1800', '']);
     await expect.poll(async () => (await dist(page))?.unit).toBe('ch');
-    await expect.poll(() => axisName(page)).toBe(STR.dsBand.replace('{band}', bandLabel(BAND_3150)).replace('{label}', 'dBFS'));
+    await expect.poll(() => axisName(page)).toBe(STR.dsBand.replace('{band}', bandLabel(BAND_3150)).replace('{uncal}', STR.axisUncalibrated).replace('{label}', 'dBFS'));
     await expect(page.locator('[data-entry-dist-note]')).toHaveText(STR.dsDistDrag);
     // Nothing marks the high ones: the user sees the tail and drags over it.
     const values = bandValues().sort((a, b) => b - a);
@@ -115,7 +115,7 @@ test('a value not computed yet says so and offers 計算 in its header; computed
     const STR = getStrings('ja');
     await openEntry(page, scanned!, { language: 'ja', answered: 0 });
     // No CSV: Leq is the value, the whole folder one group; nothing is computed by itself.
-    await expect(page.locator('[data-entry-dist-empty]')).toHaveText(STR.dsDistNotComputed.replace('{value}', STR.dsLeq.replace('{label}', 'dBFS')));
+    await expect(page.locator('[data-entry-dist-empty]')).toHaveText(STR.dsDistNotComputed.replace('{value}', STR.dsLeq.replace('{uncal}', STR.axisUncalibrated).replace('{label}', 'dBFS')));
     const compute = page.locator('[data-entry-dist] [data-action="entry-compute"]');
     await expect(compute).toHaveText(new RegExp(`^${STR.dsCompute.replace('{n}', '100').replace(' · 約 {time}', '')}`));
     await compute.click();

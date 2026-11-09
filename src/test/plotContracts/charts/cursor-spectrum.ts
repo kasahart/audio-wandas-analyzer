@@ -48,9 +48,10 @@ export const cursorSpectrum: ChartContract = {
         },
         {
             id: 'cursor-spectrum.range', value: 'range', what: 'レベルの軸の自動の範囲（左右の軸）',
-            computedIn: ['src/webview/runtime/spectrumRuntime.ts:spectrumSeriesRange', 'src/webview/runtime/spectrumRuntime.ts:overlayLevelAxes', `${RT}:applySpectrumDisplaySettings`, 'python-backend/analysis_service.py:spectrum_slice'],
-            from: 'full', trace: 'slice.minDb / maxDb はバックエンドが行を表示用に切る（min_max_spectrum）前の全ビンの最小と最大。スライスが届くまでの代わりの列は表示用スペクトログラムの minDb / maxDb（全 STFT のマスの端）。niceRange で丸める。',
+            computedIn: ['src/webview/runtime/spectrumRuntime.ts:spectrumSeriesRange', 'src/webview/runtime/spectrumRuntime.ts:spectrumLevelRange', `${SP}:stageRange`, 'src/webview/runtime/spectrumRuntime.ts:overlayLevelAxes', `${RT}:applySpectrumDisplaySettings`, 'python-backend/analysis_service.py:spectrum_slice'],
+            from: 'full', trace: 'slice.minDb / maxDb はバックエンドが行を表示用に切る（min_max_spectrum）前の全ビンの最小と最大。スライスが届くまでの代わりの列は表示用スペクトログラムの minDb / maxDb（全 STFT のマスの端）。全部の線の端を比較台の dB の線と同じ規則（stageRange: 5/10/20/25 dB 刻み、幅は 100 dB まで）で丸める。入力した端はそのまま。',
             tests: [
+                t('src/test/spectrumPath.test.ts', 'the cursor spectrum\'s level axis follows the dB line rule: round steps, at most 100 dB, a silent line squashes nothing (R9)'),
                 tt('python-backend/test_analysis_service.py', 'test_cursor_spectrum_level_range_is_every_bins_not_the_row_cut_for_display'),
                 t('src/test/renderScript.integration.test.ts', 'renderScript: lazy spectrum slices apply display range settings'),
             ],

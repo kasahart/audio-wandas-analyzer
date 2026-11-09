@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createCombineSource, noDeltaNote } from '../webview/runtime/combineSource';
-import { createStageSource } from '../webview/runtime/stageSource';
+import { createCombineSource, FAILED_HOLD_MS, noDeltaNote } from '../webview/runtime/combineSource';
+import { createStageSource, stageBasis } from '../webview/runtime/stageSource';
 import { runCompareCombine, type CompareCombineMessage } from '../shared/analysis/entryScan';
 import { getStrings } from '../shared/i18n/strings';
 import { parsePanelMessage } from '../shared/protocol/panelMessages';
-import type { StageView } from '../shared/protocol/backendProtocol';
+import type { ScanResult, StageView } from '../shared/protocol/backendProtocol';
 
 const diff: StageView = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity: 'level', xs: [100, 1000], values: [0, 20] };
 
@@ -71,9 +71,10 @@ test('a Δ that cannot be taken says why: too much data, other sample rates or u
     assert.equal(noDeltaNote({ failed: true }, strings), 'failed');
 });
 
-test('a combination the backend failed is kept as a failure and says so, never as one with nothing to compare', async () => {
+test('a combination the backend failed is kept as a failure and says so, never as one with nothing to compare, then asked again', async () => {
     const posted: CompareCombineMessage[] = [];
-    const source = createCombineSource('f', message => posted.push(message), () => undefined);
+    let clock = 0;
+    const source = createCombineSource('f', message => posted.push(message), () => undefined, () => clock);
     const forgotten: string[][] = [];
     source.get('id', { base: ['ka'], compare: 'kc' }, keys => { forgotten.push([...keys]); });
     // What the host answers when stage-combine throws.
@@ -86,6 +87,13 @@ test('a combination the backend failed is kept as a failure and says so, never a
     assert.deepEqual(combined, { base: null, diff: null, failed: true });
     assert.deepEqual(forgotten, [], 'nothing to scan again: no picture is missing');
     assert.equal(noDeltaNote(combined, getStrings('ja')), getStrings('ja').stageCombineFailed);
+    // A failure stands a while (no request per draw), then the next draw asks again: a passing failure does not stay.
+    clock = FAILED_HOLD_MS - 1;
+    assert.deepEqual(source.get('id', { base: ['ka'], compare: 'kc' }, () => undefined), combined);
+    assert.equal(posted.length, 1);
+    clock = FAILED_HOLD_MS;
+    assert.equal(source.get('id', { base: ['ka'], compare: 'kc' }, () => undefined), undefined);
+    assert.equal(posted.length, 2);
 });
 
 test('a picture whose values the backend let go is dropped wherever it is kept, so it is scanned again', () => {
@@ -101,4 +109,48 @@ test('a picture whose values the backend let go is dropped wherever it is kept, 
     stages.forgetData(['ka']);
     assert.equal(stages.view(spec, '/a.wav'), undefined);
     assert.equal(stages.view(spec, '/b.wav')?.data, 'kb');
+});
+
+test('a file\'s pictures are of its version and calibration: a new basis draws none of the old and asks again', () => {
+    const posted: Array<{ requestId?: string; filePaths?: string[] }> = [];
+    const basis = new Map([['/a.wav', 'v1'], ['/b.wav', 'v1']]);
+    const stages = createStageSource('track-stage', message => posted.push(message), () => undefined, path => basis.get(path) ?? '');
+    const spec = { key: 'spec', message: {} };
+    const stage = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', quantity: 'level', xs: [0], values: [0], data: 'k' };
+    const answer = (requestId: string, filePath: string): void => {
+        stages.handle({ type: 'compare-scan-result', requestId, filePath, result: { ok: true, stage } } as { type: string });
+    };
+    assert.equal(stages.ensure(spec, ['/a.wav', '/b.wav']), true);
+    answer(posted[0].requestId ?? '', '/a.wav');
+    answer(posted[0].requestId ?? '', '/b.wav');
+    stages.handle({ type: 'compare-scan-done', requestId: posted[0].requestId } as { type: string });
+    assert.ok(stages.view(spec, '/a.wav'));
+    assert.equal(stages.ensure(spec, ['/a.wav', '/b.wav']), false, 'all in under their bases');
+    // The calibration of a.wav changes (or the file on disk): its picture is of the old one.
+    basis.set('/a.wav', 'v2');
+    assert.equal(stages.view(spec, '/a.wav'), undefined, 'not drawn');
+    assert.equal(stages.result(spec, '/a.wav'), undefined, 'not read');
+    assert.ok(stages.view(spec, '/b.wav'), 'the other file keeps its picture');
+    assert.equal(stages.ensure(spec, ['/a.wav', '/b.wav']), true);
+    assert.deepEqual(posted[1].filePaths, ['/a.wav'], 'only a.wav asked again');
+    // An answer asked under v2 that lands after a change to v3 is of v2: not drawn either.
+    basis.set('/a.wav', 'v3');
+    answer(posted[1].requestId ?? '', '/a.wav');
+    assert.equal(stages.view(spec, '/a.wav'), undefined);
+    basis.set('/a.wav', 'v2');
+    assert.ok(stages.view(spec, '/a.wav'), 'kept under the basis it was asked for');
+});
+
+test('stageBasis follows the screen\'s scan (version, calibration) and the track\'s calibration, and keeps the last scan while one runs', () => {
+    const scans = new Map<string, ScanResult>([['/a.wav', { ok: true, conditionId: 'c1' }]]);
+    const analyses = new Map<string, { calibrationSignature?: string; analysisRevision?: number }>([['/a.wav', { calibrationSignature: 's', analysisRevision: 1 }]]);
+    const basisOf = stageBasis(path => scans.get(path), path => analyses.get(path));
+    const first = basisOf('/a.wav');
+    scans.delete('/a.wav');
+    assert.equal(basisOf('/a.wav'), first, 'a rescan in progress asks nothing again');
+    scans.set('/a.wav', { ok: true, conditionId: 'c2' });
+    assert.notEqual(basisOf('/a.wav'), first, 'another version or calibration of the file');
+    const second = basisOf('/a.wav');
+    analyses.set('/a.wav', { calibrationSignature: 's2', analysisRevision: 2 });
+    assert.notEqual(basisOf('/a.wav'), second, 'the track calibrated anew');
 });

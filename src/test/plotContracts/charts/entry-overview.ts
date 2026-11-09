@@ -47,9 +47,9 @@ export const entryOverview: ChartContract = {
         {
             id: 'entry-overview.axis', value: 'axis', what: '帯・行・色の名前',
             computedIn: ['src/webview/runtime/entryPlots.ts:paintOverview'],
-            from: 'words', trace: '帯域中心 [Hz]、行（表の順）、色はレベルと共有の基準。',
+            from: 'words', trace: '帯域中心 [Hz]、行（表の順）、色はレベルと録音に最も多い基準（素の dB にしない。未校正なら未校正と書く）。その基準の録音の帯だけを塗る（commonLevelLabel、entrySidePlots の reference）。',
             tests: [
-                t('src/test/entrySidePlots.test.ts', 'the overview colour scale and the dataset table name the recordings\' shared level reference, plain dB once they differ'),
+                t('src/test/entrySidePlots.test.ts', 'the overview colour scale and the dataset table name the recordings\' most common level reference, never plain dB, and say uncalibrated (R4)'),
             ],
             names: { quantity: true, unit: true, reference: true },
         },
