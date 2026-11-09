@@ -105,14 +105,12 @@ function extent(views: ReadonlyArray<StageView | null>): { low: number; high: nu
 
 /**
  * The 99th percentile of the coefficients' magnitudes, as wandas' cepstrogram plot sets its colour range: of every
- * full-resolution coefficient (`valueRange.robust`), the largest of the pictures'; of the points drawn only for a
- * picture without it.
+ * full-resolution coefficient (`valueRange.robust`, which the backend sends with every cepstrogram), the largest of
+ * the pictures'. Never of the cells drawn, which are block averages (A28, R1): with none sent there is no edge (0).
  */
 function robustEdge(views: ReadonlyArray<StageView | null>): number {
     const full = views.map(view => view?.valueRange?.robust).filter((edge): edge is number => edge !== undefined && Number.isFinite(edge));
-    if (full.length && full.length === views.filter(Boolean).length) return Math.max(...full);
-    const magnitudes = views.flatMap(view => (view ? points(view) : [])).filter((value): value is number => value !== null && Number.isFinite(value)).map(Math.abs).sort((a, b) => a - b);
-    return magnitudes.length ? magnitudes[Math.min(magnitudes.length - 1, Math.floor(0.99 * (magnitudes.length - 1)))] : 0;
+    return full.length ? Math.max(...full) : 0;
 }
 
 /** One range for the base and compare panes, so their pictures compare at a glance. */
@@ -1212,7 +1210,8 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
     // overlap is left out (its gridline stays).
     const xFitted = fitAxisTitle(axes.x, plotWidth / 2, title => context.measureText(title).width);
     const xTitle = xFitted.lines.join(' ');
-    const xTitleLeft = left + plotWidth - context.measureText(xTitle).width * xFitted.scale;
+    // At the right end; never left of the plot, into the value axis's side, where it does not fit even fitted (A28).
+    const xTitleLeft = Math.max(left, left + plotWidth - context.measureText(xTitle).width * xFitted.scale);
     context.fillStyle = muted;
     context.strokeStyle = line;
     context.lineWidth = 1;

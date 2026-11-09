@@ -758,3 +758,16 @@ test('a plot notes every text it draws, as it draws it, for a test to read: neve
     const again = paintOverlay(canvas, { layers: [{ view, color: 'a', full: held(view) }] }, { min: -60, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dBFS]' });
     assert.ok(again?.drawnTexts?.includes('−60') && !again.drawnTexts.includes('−80'), JSON.stringify(again?.drawnTexts));
 });
+
+test('a horizontal axis name too long for a narrow plot, even fitted, starts at the plot and never runs into the value axis\'s side (A28)', () => {
+    const name = 'Frequency from a very long named trigger, uncalibrated [Hz]';
+    for (const width of [600, 160, 90, 75, 66]) {
+        const { canvas, texts } = textCanvas(width, 120);
+        const view = measured(line([-20, -40, -60]));
+        const plot = paintOverlay(canvas, { layers: [{ view, color: 'a', full: held(view) }] }, { min: -80, max: 0 }, { x: name, y: 'Level [dBFS]' });
+        assert.ok(plot);
+        const drawn = texts.filter(item => !item.turned && (item.text === name || name.startsWith(item.text.replace(/…$/u, '')) || item.text.endsWith('[Hz]')));
+        assert.ok(drawn.length > 0, `${width}: the name is drawn: ${JSON.stringify(texts.map(item => item.text))}`);
+        for (const item of drawn) assert.ok(item.x >= plot.frame.left - 0.5, `${width}: "${item.text}" at ${item.x}, the plot starts at ${plot.frame.left}`);
+    }
+});
