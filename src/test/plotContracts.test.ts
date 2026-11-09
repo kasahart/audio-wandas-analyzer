@@ -8,7 +8,7 @@ import { CHARTS, CONTRACTS, GAP_CEILING, KNOWN_GAPS, ROWS } from './plotContract
 import type { ContractRow } from './plotContracts/model';
 import { CONTRACT_DOC, renderContractDoc } from './plotContracts/render';
 import { NOT_SHOWN, SCHEMA_FIELDS } from './plotContracts/schema';
-import { DRAWN_ACCESSORS, DRAWN_FIELDS, DRAWN_READERS, NOT_CHART_VALUES, PY_DECIMATORS, VALUE_HELPERS } from './plotContracts/values';
+import { DRAWN_ACCESSORS, DRAWN_FIELDS, DRAWN_READERS, NOT_CHART_VALUES, PY_DECIMATORS, VALUE_HELPERS, type DrawnReader } from './plotContracts/values';
 import { PLOTS_PENDING } from './uiSmoke/plotRegistry';
 
 const repoRoot = path.resolve(__dirname, '..', '..');
@@ -471,6 +471,92 @@ test('a test said to tell full data from drawn points is about what is thinned',
             assert.ok(found && TELLS.test(`${named.name}\n${found.body}`), `${row.id}: "${named.name}" is said to tell full data from drawn, but says nothing of thinning`);
         }
     }
+});
+
+/** What each function of a file calls or names (a command table's entry), by the function it is in. */
+const graphs = new Map<string, Map<string, Set<string>>>();
+function callGraph(file: string): Map<string, Set<string>> {
+    let graph = graphs.get(file);
+    if (graph) return graph;
+    const own = functionsOf(file);
+    const found = new Map<string, Set<string>>();
+    each(parse(file), node => {
+        if (!ts.isIdentifier(node) || !own.has(node.text)) return;
+        // A declaration's own name, or a property of something else, is not a use of the file's function.
+        if ((node.parent as { name?: ts.Node }).name === node) return;
+        const from = enclosing(node);
+        const to = found.get(from) ?? new Set<string>();
+        to.add(node.text);
+        found.set(from, to);
+    });
+    graph = found;
+    graphs.set(file, graph);
+    return graph;
+}
+
+/** The functions of a file that reach `name` (it among them): what a test can call to give it data. */
+function reachersOf(file: string, name: string): Set<string> {
+    const graph = callGraph(file);
+    const reach = new Set([name]);
+    for (let grown = true; grown;) {
+        grown = false;
+        for (const [from, to] of graph) if (!reach.has(from) && [...to].some(callee => reach.has(callee))) { reach.add(from); grown = true; }
+    }
+    return reach;
+}
+
+const escapeRe = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * Why a 'whole' reader's classification is not proven: each names a test (its proof) that runs, asserts, tells the
+ * full data from the drawn points (TELLS), and reaches the reader: it imports the reader's module and calls an
+ * exported function of it that calls the reader, or sends the command (`via`) the reader's file maps to one.
+ * Without it, the table alone would say a decimated array never reaches a reader that makes a number of it.
+ */
+function wholeProofProblems(readers: Readonly<Record<string, DrawnReader>>): string[] {
+    const problems: string[] = [];
+    for (const [where, entry] of Object.entries(readers)) {
+        if (entry.use !== 'whole') continue;
+        const proof = entry.proof;
+        if (!proof) { problems.push(`${where}: 'whole' names no test showing it is given full data`); continue; }
+        if (!existsSync(path.join(repoRoot, proof.file))) { problems.push(`${where}: no file ${proof.file}`); continue; }
+        if (SELF_REFERENTIAL.includes(proof.file)) { problems.push(`${where}: "${proof.name}" checks the plot against its own answer`); continue; }
+        const problem = testProblem(proof.file, read(proof.file), proof.name);
+        if (problem) { problems.push(`${where}: ${problem}`); continue; }
+        const body = namedTest(proof.file, read(proof.file), proof.name)?.body ?? '';
+        if (!TELLS.test(`${proof.name}\n${body}`)) problems.push(`${where}: "${proof.name}" does not tell the full data from the drawn points`);
+        const at = where.lastIndexOf(':');
+        const file = where.slice(0, at), name = where.slice(at + 1);
+        const reach = reachersOf(file, name);
+        const exported = exportedOf(file);
+        const module = path.basename(file, '.ts');
+        const imports = new RegExp(`from ['"][^'"]*/${escapeRe(module)}['"]`).test(read(proof.file));
+        const called = imports && [...reach].some(caller => exported.has(caller) && new RegExp(`\\b${escapeRe(caller)}\\(`).test(body));
+        const mapped = proof.via ? new RegExp(`['"]${escapeRe(proof.via)}['"]\\s*:\\s*(\\w+)\\b`).exec(read(file))?.[1] : undefined;
+        const commanded = !!proof.via && body.includes(proof.via) && !!mapped && reach.has(mapped);
+        if (!called && !commanded) problems.push(`${where}: "${proof.name}" never reaches it`);
+    }
+    return problems;
+}
+
+test('every reader classified \'whole\' names a test that gives it full data where the drawn points differ, and reaches it', () => {
+    assert.deepEqual(wholeProofProblems(DRAWN_READERS), []);
+});
+
+test('the whole-reader check fails on a misclassified reader: one that makes a number of drawn points called \'whole\'', () => {
+    const summary = 'src/webview/runtime/trackStageModel.ts:pictureSummary';
+    assert.equal(DRAWN_READERS[summary]?.use, 'draws', 'the injection starts from a reader the table calls draws');
+    const range = DRAWN_READERS[`src/webview/runtime/stagePanes.ts:stageRange`];
+    const inject = (entry: DrawnReader): string[] => wholeProofProblems({ ...DRAWN_READERS, [summary]: entry });
+    // pictureSummary takes a count and median of the drawn points: called 'whole' with no proof, or with another
+    // reader's proof (a test that never reaches it), or with a test that says nothing of thinning, it is caught.
+    assert.match(inject({ use: 'whole', why: 'x' }).join('\n'), /pictureSummary: 'whole' names no test/u);
+    assert.match(inject({ use: 'whole', why: 'x', proof: range?.proof }).join('\n'), /pictureSummary: .* never reaches it/u);
+    assert.match(inject({ use: 'whole', why: 'x', proof: { file: 'src/test/trackStageModel.test.ts', name: 'no such test' } }).join('\n'), /is not a test/u);
+    assert.match(inject({ use: 'whole', why: 'x', proof: { file: 'src/test/uiSmoke/plotContract.spec.ts', name: 'x' } }).join('\n'), /its own answer/u);
+    // A command named that the reader's file does not map to it is no proof either.
+    const csv = DRAWN_READERS['src/webview/runtime/comparisonRuntime.ts:writeCsvWhenDetailed'];
+    assert.match(wholeProofProblems({ ...DRAWN_READERS, 'src/webview/runtime/comparisonRuntime.ts:writeCsvWhenDetailed': { ...csv, proof: { ...csv.proof!, via: 'export-png' } } }).join('\n'), /writeCsvWhenDetailed: .* never reaches it/u);
 });
 
 test('every gap is in its chart\'s knownGaps at its severity, and a row is a gap until a test holds it from full data', () => {

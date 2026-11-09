@@ -3,7 +3,7 @@
  * primitives), and the functions that read drawn (thinned) arrays (DRAWN_FIELDS, DRAWN_ACCESSORS, PY_DECIMATORS),
  * each classified in DRAWN_READERS so a row's `from` is checked against what its functions read.
  */
-import { SP } from './model';
+import { SP, type TestRef } from './model';
 
 /**
  * The functions that only turn a number into text, or compute a range, an order or a statistic for the functions that
@@ -102,24 +102,37 @@ export type DrawnUse =
  * Every function the scan finds reading drawn points (and every backend def that calls a decimator), with
  * what it does with them. A row from full data may name no 'value' reader; a row from thinned points must name one.
  */
-export const DRAWN_READERS: Readonly<Record<string, { use: DrawnUse; why: string }>> = {
+/**
+ * A reader's classification. A 'whole' one names its proof: a test that gives it (or a function of its file that
+ * calls it, or the command its file maps to it: `via`) data whose drawn points differ from the full data and checks
+ * the number is the full data's. The table alone would not tell a decimated array reaching it.
+ */
+export interface DrawnReader {
+    use: DrawnUse;
+    why: string;
+    proof?: TestRef & { via?: string };
+}
+
+const RANGES = { file: 'src/test/stagePanes.test.ts', name: 'every range is set from the full data\'s lowest and highest value (valueRange), never the points drawn or the cells averaged to draw an image (R1, R9)' };
+
+export const DRAWN_READERS: Readonly<Record<string, DrawnReader>> = {
     [`${SP}:emptyStageText`]: { use: 'draws', why: 'whether a picture has events, for its empty note' },
     [`${SP}:eventLayers`]: { use: 'draws', why: 'a layer per event drawn; its readout reads the event\'s full samples' },
-    [`${SP}:extent`]: { use: 'whole', why: 'the lowest and highest value: the full data\'s valueRange; the drawn points only of a picture the webview holds whole (a band table, a level line)' },
+    [`${SP}:extent`]: { use: 'whole', why: 'the lowest and highest value: the full data\'s valueRange; the drawn points only of a picture the webview holds whole (a band table, a level line)', proof: RANGES },
     [`${SP}:fullPoint`]: { use: 'draws', why: 'whether the layer is a signal drawn as itself, to place a full point on its range' },
     ['src/webview/runtime/figureModel.ts:pictureSet']: { use: 'draws', why: 'whether a stage picture has anything drawn, to leave an empty one out of the base set with why' },
-    ['src/webview/runtime/fullRead.ts:wholeBars']: { use: 'whole', why: 'a band table\'s bars, which the backend sends whole (every band), held as their InlineFullSource' },
+    ['src/webview/runtime/fullRead.ts:wholeBars']: { use: 'whole', why: 'a band table\'s bars, which the backend sends whole (every band), held as their InlineFullSource', proof: { file: 'src/test/fullRead.test.ts', name: 'every layer a plot draws is given its full data, held or fetched: one given none is marked and reads no number, bars too (R7)' } },
     [`${SP}:isEventsView`]: { use: 'draws', why: 'whether a picture is a trigger\'s events' },
     [`${SP}:lineRead`]: { use: 'draws', why: 'whether the layer is a signal drawn as itself' },
     [`${SP}:paint`]: { use: 'draws', why: 'draws a signal\'s envelope' },
     [`${SP}:paintPlot`]: { use: 'draws', why: 'draws the pictures' },
-    [`${SP}:points`]: { use: 'whole', why: 'every drawn value of a picture, for the range of one without valueRange (which the webview holds whole)' },
-    [`${SP}:screenLevels`]: { use: 'whole', why: 'a line\'s level on screen from its values only where the webview holds every value; else levelBins or its full read (R6)' },
+    [`${SP}:points`]: { use: 'whole', why: 'every drawn value of a picture, for the range of one without valueRange (which the webview holds whole)', proof: RANGES },
+    [`${SP}:screenLevels`]: { use: 'whole', why: 'a line\'s level on screen from its values only where the webview holds every value; else levelBins or its full read (R6)', proof: { file: 'src/test/stagePanes.test.ts', name: 'a line the webview holds every value of is ordered at once by its values on screen, the stretch cut by the edge too (R6)' } },
     [`${SP}:stageAxes`]: { use: 'draws', why: 'whether a picture is a signal, for the amplitude axis\'s name' },
-    [`${SP}:stageDiffRange`]: { use: 'whole', why: 'the Δ\'s auto range from extent: the full Δ\'s valueRange' },
-    [`${SP}:stageEventCounts`]: { use: 'whole', why: 'counts a picture\'s events, every one of which it carries' },
+    [`${SP}:stageDiffRange`]: { use: 'whole', why: 'the Δ\'s auto range from extent: the full Δ\'s valueRange', proof: RANGES },
+    [`${SP}:stageEventCounts`]: { use: 'whole', why: 'counts a picture\'s events, every one of which it carries', proof: { file: 'src/test/stagePanes.test.ts', name: 'a trigger\'s events are each a line of their slot, on one amplitude range, with no difference between recordings' } },
     [`${SP}:stageHeadline`]: { use: 'draws', why: 'whether the Δ is an image, to write the backend\'s peak with a y' },
-    [`${SP}:stageRange`]: { use: 'whole', why: 'an auto range from extent: the full data\'s valueRange (a signal\'s from its absolute peak)' },
+    [`${SP}:stageRange`]: { use: 'whole', why: 'an auto range from extent: the full data\'s valueRange (a signal\'s from its absolute peak)', proof: RANGES },
     [`${SP}:strokeStageLine`]: { use: 'draws', why: 'draws a line' },
     ['python-backend/analyzer.py:build_waveform_envelope']: { use: 'draws', why: "thins the lanes' samples to draw them (decimated_waveform); the readout reads the full samples (track-waveform)" },
     ['python-backend/analyzer.py:min_max_spectrum']: { use: 'draws', why: "cuts a spectrum row to its drawn buckets (min_max_rows); its range is every bin's, taken before" },
@@ -149,11 +162,11 @@ export const DRAWN_READERS: Readonly<Record<string, { use: DrawnUse; why: string
     ['python-backend/stage_view.py:_spectrogram_view']: { use: 'draws', why: 'power-averages the cells per time block to draw them; the colour range is every full cell\'s (valueRange, compare-overlay.range-image)' },
     ['src/shared/protocol/backendProtocol.ts:hasAlignedEnvelopeArrays']: { use: 'draws', why: 'checks an answer\'s envelope arrays line up; shows nothing' },
     ['src/shared/protocol/backendProtocol.ts:hasSpectrogramShape']: { use: 'draws', why: 'checks an answer\'s spectrogram shape; shows nothing' },
-    ['src/webview/runtime/compareReport.ts:deltaFigure']: { use: 'whole', why: 'the report Δ figure\'s range: every bin\'s Δ (binsView\'s valueRange) and every band\'s (report-delta.range)' },
-    ['src/webview/runtime/comparisonRuntime.ts:exportCsv']: { use: 'whole', why: 'starts writeCsvWhenDetailed' },
-    ['src/webview/runtime/comparisonRuntime.ts:writeCsvWhenDetailed']: { use: 'whole', why: 'writes a slice only when it holds every bin, else waits or leaves it out (spectrum-csv.export)' },
-    ['src/webview/runtime/overlaySpectrumPainter.ts:spectrumLayer']: { use: 'whole', why: 'reads a slice\'s values as every bin when it has no frequenciesHz, and a cut one from laneReads; a stand-in (the lane spectrogram\'s column meanwhile, the floor past the end) is drawn and never read or measured (cursor-spectrum.pending)' },
-    ['src/webview/runtime/runtimeExports.ts:buildSpectrumCsv']: { use: 'whole', why: 'writes a slice that holds every bin (spectrum-csv.export)' },
+    ['src/webview/runtime/compareReport.ts:deltaFigure']: { use: 'whole', why: 'the report Δ figure\'s range: every bin\'s Δ (binsView\'s valueRange) and every band\'s (report-delta.range)', proof: { file: 'src/test/comparePanes.test.ts', name: 'the report\'s Δ figure without bins draws the 1/3-octave Δ, its range holding every band (R1)' } },
+    ['src/webview/runtime/comparisonRuntime.ts:exportCsv']: { use: 'whole', why: 'starts writeCsvWhenDetailed', proof: { file: 'src/test/renderScript.integration.test.ts', name: 'renderScript: export-csv replaces a cursor spectrum cut for display with every FFT bin', via: 'export-csv' } },
+    ['src/webview/runtime/comparisonRuntime.ts:writeCsvWhenDetailed']: { use: 'whole', why: 'writes a slice only when it holds every bin, else waits or leaves it out (spectrum-csv.export)', proof: { file: 'src/test/renderScript.integration.test.ts', name: 'renderScript: export-csv replaces a cursor spectrum cut for display with every FFT bin', via: 'export-csv' } },
+    ['src/webview/runtime/overlaySpectrumPainter.ts:spectrumLayer']: { use: 'whole', why: 'reads a slice\'s values as every bin when it has no frequenciesHz, and a cut one from laneReads; a stand-in (the lane spectrogram\'s column meanwhile, the floor past the end) is drawn and never read or measured (cursor-spectrum.pending)', proof: { file: 'src/test/overlaySpectrumPainter.test.ts', name: 'the cursor spectrum orders a slice cut for display by every bin on screen, not by the points kept to draw it (R6, R2)' } },
+    ['src/webview/runtime/runtimeExports.ts:buildSpectrumCsv']: { use: 'whole', why: 'writes a slice that holds every bin (spectrum-csv.export)', proof: { file: 'src/test/runtimeExports.test.ts', name: 'spectrum CSV writes every FFT bin of a whole row at fs / n_fft spacing' } },
     ['src/webview/runtime/trackCanvasPainter.ts:laneSpectrogramView']: { use: 'draws', why: 'the lane\'s picture of its display spectrogram' },
     ['src/webview/runtime/trackCanvasPainter.ts:laneWaveform']: { use: 'draws', why: 'the lane\'s picture of its envelope' },
     ['src/webview/runtime/trackStageMode.ts:events']: { use: 'draws', why: 'the events drawn, for the exclusion marks' },
