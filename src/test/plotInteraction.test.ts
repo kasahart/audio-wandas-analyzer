@@ -129,3 +129,42 @@ test('a plot that keeps the arrows for itself while focused does not step its re
         assert.deepEqual(steps, keeps ? [] : ['a', 'a']);
     }
 });
+
+test('+ / − zoom the horizontal axis of the plot under the pointer around its middle and 0 shows it whole; the window it set is named on the plot (R13)', () => {
+    const { window, element, mouse, calls } = surface();
+    const key = (name: string): boolean => {
+        const event = new window.KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: name });
+        window.document.body.dispatchEvent(event);
+        return event.defaultPrevented;
+    };
+    // Off every plot the key is not the plots'.
+    assert.equal(key('+'), false);
+    // The pointer near the plot's left edge: the zoom is still about the middle, not the pointer.
+    mouse(element('b'), 'mousemove', 5);
+    assert.equal(key('+'), true);
+    assert.equal(element('b').dataset.plotWindow, '0.150 0.850 0.000 1.000');
+    assert.equal(key('-'), true);
+    assert.equal(key('0'), true);
+    assert.deepEqual(calls, ['window:b:0.150-0.850', 'window:b:0.000-1.000', 'window:b:whole']);
+    assert.equal(element('b').dataset.plotWindow, '0.000 1.000 0.000 1.000');
+});
+
+test('a zoom key over a plot that shows nothing (locate finds none) goes on to the view\'s keys', () => {
+    const { window, element, mouse, calls } = surface({ locate: () => null });
+    mouse(element('a'), 'mousemove', 50);
+    const event = new window.KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: '+' });
+    window.document.body.dispatchEvent(event);
+    assert.equal(event.defaultPrevented, false);
+    assert.deepEqual(calls, []);
+});
+
+test('Ctrl+wheel over an axis zooms the horizontal axis around its middle; over the plot, around the pointer (R13)', () => {
+    let axis: 'x' | 'y' | null = 'y';
+    const { wheel, calls, element } = surface({ wheelAt: (_target, clientX) => ({ plot: element('a'), point: { fx: clientX / 100, fy: 0.5 }, axis }) });
+    wheel('a', { ctrlKey: true, deltaY: -100, clientX: 10 });
+    axis = 'x';
+    wheel('a', { ctrlKey: true, deltaY: 100, clientX: 10 });
+    axis = null;
+    wheel('a', { ctrlKey: true, deltaY: -100, clientX: 0 });
+    assert.deepEqual(calls, ['window:a:0.075-0.925', 'window:a:0.011-0.989', 'window:a:0.011-0.842']);
+});

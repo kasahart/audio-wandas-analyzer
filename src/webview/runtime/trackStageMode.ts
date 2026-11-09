@@ -304,15 +304,11 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
                 const slot = Number(event.key);
                 pressing = { slot, at: deps.window.performance.now(), timer: deps.window.setTimeout(() => { state.held = slot; deps.rerender(); }, TAP_MS) };
             } else if (action === 'zoom-in' || action === 'zoom-out' || action === 'zoom-reset') {
-                // About the horizontal axis's middle, as on the lanes (a double-click resets too): the plot under the
-                // pointer's window (the lanes under a trigger have their own), else the shared one. A reset is every plot's.
+                // With the pointer on no plot (over one, the shared plot gestures zoom that plot, plotInteraction.ts): the
+                // shared window, about the horizontal axis's middle as on the lanes. A reset is every plot's.
                 event.preventDefault();
                 if (action === 'zoom-reset') Object.assign(state, WHOLE_ZOOM);
-                else {
-                    const zoom = (range: { start: number; end: number }) => zoomNormalizedRange(range, action === 'zoom-out' ? 1 / ZOOM_IN_FACTOR : ZOOM_IN_FACTOR);
-                    if (stageGestures?.zoomHovered(zoom)) return true;
-                    state.window = { ...state.window, x: zoom(state.window.x) };
-                }
+                else state.window = { ...state.window, x: zoomNormalizedRange(state.window.x, action === 'zoom-out' ? 1 / ZOOM_IN_FACTOR : ZOOM_IN_FACTOR) };
                 detail.moved();
                 deps.rerender();
             } else if (action === 'toggle-base') {

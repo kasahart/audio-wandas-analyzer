@@ -4,14 +4,15 @@
  * lanes' threshold draws a box and zooms into it (both axes; a vertical axis defined to show all of its range, a
  * count axis, keeps it whole: VerticalAxis), Alt+drag picks a stretch of the horizontal axis and
  * Shift+drag moves what the plot shows along it, where the plot has those; Ctrl+wheel zooms the horizontal axis around
- * the pointer and Shift+wheel pans it, by the lanes' steps, and a sideways swipe pans it with the fingers; a double-click resets the zoom, or on an axis
- * opens its range; ← / → step the readout to the next point, read as the pointer on it would read it (R7).
+ * the pointer (over an axis, around its middle) and Shift+wheel pans it, by the lanes' steps, and a sideways swipe pans it with the fingers; a double-click resets the zoom, or on an axis
+ * opens its range; ← / → step the readout to the next point, read as the pointer on it would read it (R7); + / − zoom
+ * the horizontal axis of the plot under the pointer around its middle and 0 shows the whole of it.
  * Built on the low-level listeners of trackPointerEvents.ts, which nothing else attaches (src/test/plotGestures.test.ts).
  */
 import { keyRouterFor } from './keyRouter';
 import type { PlotPlace } from './plotHoverLayer';
 import { attachTrackPointerListeners } from './trackPointerEvents';
-import { exceedsDragThreshold, MIN_SELECTION_SPAN, PAN_STEP_RATIO, panNormalizedRangeBy, wheelPanPixels, wheelStepDirection, wheelZoomFactor, zoomRangeAroundPivot, type NormalizedRange } from './waveformInteraction';
+import { exceedsDragThreshold, MIN_SELECTION_SPAN, PAN_STEP_RATIO, ZOOM_IN_FACTOR, panNormalizedRangeBy, wheelPanPixels, wheelStepDirection, wheelZoomFactor, zoomRangeAroundPivot, type NormalizedRange } from './waveformInteraction';
 
 /** A point on a plot: across (0 at the left) and up (0 at the bottom) the part on screen. */
 export interface PlotPoint {
@@ -63,6 +64,14 @@ export function windowFromBox(window: PlotWindow, a: PlotPoint, b: PlotPoint, ve
 /** Ctrl+wheel at `point`: the horizontal axis zoomed around the pointer, by the lanes' wheel step. */
 export function wheelZoomWindow(window: PlotWindow, point: PlotPoint, deltaY: number): PlotWindow {
     return { ...window, x: zoomRangeAroundPivot(window.x, within(window.x, point.fx), wheelZoomFactor(deltaY)) };
+}
+
+/**
+ * The horizontal axis zoomed by `factor` about the middle of what is on screen: + / − over a plot, and Ctrl+wheel over
+ * an axis (no point on the plot to zoom around), the same on every plot.
+ */
+export function centredZoomWindow(window: PlotWindow, factor: number): PlotWindow {
+    return { ...window, x: zoomRangeAroundPivot(window.x, within(window.x, 0.5), factor) };
 }
 
 /** Shift+wheel or a sideways swipe: the horizontal axis panned by `fraction` of the visible span (positive: later). */
@@ -138,7 +147,7 @@ export interface PlotInteractionDeps {
     zoomToBox?(plot: HTMLElement, from: PlotPoint, to: PlotPoint, release: MouseEvent): void;
     /**
      * Where a Ctrl+wheel zoom or a pan acts, where that is not just `locate`: the lanes' time runs on under their
-     * headers, and a colour bar on a plot is no time to zoom around.
+     * headers and beside them on their axes' canvases (a hit with `axis` set zooms about the middle).
      */
     wheelAt?(target: EventTarget | null, clientX: number, clientY: number, gesture: 'zoom' | 'pan'): PlotHit | null;
     /** Axes drawn on canvases of their own beside the plots: a double-click on one opens its range (`hit.axis` set). */
@@ -168,7 +177,7 @@ export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 
     let press: { plot: HTMLElement; from: PlotPoint; clientX: number; clientY: number; isDrag: boolean; to: PlotPoint; drag: PlotDrag | null } | null = null;
     let lastDouble: PlotHit | null = null;
     // The window these gestures last set is named on the plot they were made on, so one test reads every plot's
-    // gestures the same way (R13). Other ways to the window (keys, an axis's range, a pane sharing it) do not write it.
+    // gestures the same way (R13). Other ways to the window (an axis's range, a pane sharing it) do not write it.
     const vertical = deps.verticalAxis ?? 'zoom';
     const setWindow = (plot: HTMLElement, next: PlotWindow | null): void => {
         deps.setWindow(plot, next);
@@ -184,6 +193,14 @@ export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 
             const at = deps.stepFrom(plot as HTMLElement, delta, hoverAt);
             if (!at) return false;
             hoverAt(at);
+            return true;
+        },
+        zoomKey(plot, action) {
+            if (press?.isDrag) return false;
+            const box = plot.getBoundingClientRect();
+            const hit = deps.locate(plot, box.left + box.width / 2, box.top + box.height / 2);
+            if (!hit) return false;
+            setWindow(hit.plot, action === 'reset' ? null : centredZoomWindow(deps.window(hit.plot), action === 'in' ? ZOOM_IN_FACTOR : 1 / ZOOM_IN_FACTOR));
             return true;
         },
         resetZoom() {
@@ -240,7 +257,8 @@ export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 
         },
         zoomWheel(event) {
             const hit = wheelAt(event, 'zoom');
-            if (hit) setWindow(hit.plot, wheelZoomWindow(deps.window(hit.plot), hit.point, event.deltaY));
+            // Over an axis there is no point on the plot to zoom around: its middle, on every plot.
+            if (hit) setWindow(hit.plot, hit.axis ? centredZoomWindow(deps.window(hit.plot), wheelZoomFactor(event.deltaY)) : wheelZoomWindow(deps.window(hit.plot), hit.point, event.deltaY));
         },
         panWheel(event, swipe) {
             const hit = wheelAt(event, 'pan');

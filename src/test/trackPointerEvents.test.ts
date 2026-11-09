@@ -5,7 +5,7 @@ import { keyRouterFor } from '../webview/runtime/keyRouter';
 import { attachTrackPointerListeners, type PlotSelectors } from '../webview/runtime/trackPointerEvents';
 
 /** `selectors`: the lanes' own when left out (a focused lane keeps its arrows); a pane's (plotInteraction.ts) otherwise. */
-function setup(axisOpens = false, steps = true, selectors?: PlotSelectors) {
+function setup(axisOpens = false, steps = true, selectors?: PlotSelectors, zooms = true) {
     const { window } = new JSDOM('<!doctype html><body><div id="tracks"><canvas class="track-canvas" tabindex="0"></canvas><canvas class="track-axis-canvas"></canvas><span class="label"></span><canvas class="track-canvas" id="lane2" tabindex="0"></canvas></div><input id="field"></body>');
     const doc = window.document;
     const wrapper = doc.getElementById('tracks') as HTMLElement;
@@ -21,6 +21,7 @@ function setup(axisOpens = false, steps = true, selectors?: PlotSelectors) {
         release: () => { calls.push('release'); },
         zoomWheel: () => { calls.push('zoom'); },
         panWheel: (_e, swipe) => { calls.push(swipe ? 'swipe' : 'pan'); },
+        zoomKey: (plot, action) => { calls.push(`zoomKey:${plot.id || plot.className}:${action}`); return zooms; },
     }, selectors);
     const at = (selector: string) => doc.querySelector(selector) as HTMLElement;
     return { window, doc, wrapper, calls, at };
@@ -149,4 +150,39 @@ test('a lane with the keyboard focus keeps ← / → for its time cursor, even w
     lane.dispatchEvent(new window.MouseEvent('mousemove', { bubbles: true }));
     assert.equal(key('ArrowRight'), true);
     assert.deepEqual(calls.filter(call => call.startsWith('step')), ['step:track-canvas:1', 'step:track-canvas:1']);
+});
+
+test('+ / − / 0 zoom the plot under the pointer, a lane too, and go on to the view\'s own keys off every plot or on one showing nothing', () => {
+    const { window, doc, calls, at } = setup();
+    const key = (name: string, init: KeyboardEventInit = {}, target: EventTarget = doc.body): boolean => {
+        const event = new window.KeyboardEvent('keydown', { key: name, bubbles: true, cancelable: true, ...init });
+        target.dispatchEvent(event);
+        return event.defaultPrevented;
+    };
+    // Off every plot, and on a plot only focused: the view's keys (the lanes' shared zoom, the comparison's) take them.
+    assert.equal(key('+'), false);
+    at('.track-canvas').focus();
+    assert.equal(key('+', {}, at('.track-canvas')), false);
+    at('#lane2').dispatchEvent(new window.MouseEvent('mousemove', { bubbles: true }));
+    assert.equal(key('+'), true);
+    assert.equal(key('=', {}), true);
+    assert.equal(key('-'), true);
+    assert.equal(key('_', { shiftKey: true }), true);
+    assert.equal(key('0'), true);
+    // With Ctrl, in a field, or another key: left alone.
+    assert.equal(key('+', { ctrlKey: true }), false);
+    assert.equal(key('0', {}, at('#field')), false);
+    assert.equal(key('9'), false);
+    assert.deepEqual(calls.filter(call => call.startsWith('zoomKey')), ['zoomKey:lane2:in', 'zoomKey:lane2:in', 'zoomKey:lane2:out', 'zoomKey:lane2:out', 'zoomKey:lane2:reset']);
+    // The pointer gone, the key goes on.
+    at('#tracks').dispatchEvent(new window.MouseEvent('mouseleave'));
+    assert.equal(key('+'), false);
+});
+
+test('a zoom key over a plot that shows nothing goes on to the keys behind it', () => {
+    const { window, doc, at } = setup(false, true, undefined, false);
+    at('.track-canvas').dispatchEvent(new window.MouseEvent('mousemove', { bubbles: true }));
+    const event = new window.KeyboardEvent('keydown', { key: '+', bubbles: true, cancelable: true });
+    doc.body.dispatchEvent(event);
+    assert.equal(event.defaultPrevented, false);
 });

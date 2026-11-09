@@ -3792,19 +3792,22 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         scheduleRender();
     }
     /**
-     * Where a wheel zooms or pans the lanes' time: the lane under it, or beside the lanes (their headers and axes) the
-     * time at the pointer's place across them, the middle off it. A spectrogram's colour bar is no time to zoom around.
+     * Where a wheel zooms or pans the lanes' time: the lane under it, or beside the lanes (their headers) the time at
+     * the pointer's place across them, the middle off it. Over an axis (a lane's axis canvas, the time ruler, a
+     * spectrogram's colour bar) the hit says so, and a zoom is about the middle, as on every plot.
      */
-    function laneWheelAt(target: EventTarget | null, clientX: number, clientY: number, gesture: 'zoom' | 'pan'): PlotHit | null {
+    function laneWheelAt(target: EventTarget | null, clientX: number, clientY: number, _gesture: 'zoom' | 'pan'): PlotHit | null {
         if (contentType === 'stage') return null;
         const hit = laneHit(target, clientX, clientY);
-        if (hit) return gesture === 'zoom' && hit.axis ? null : hit;
+        if (hit) return hit;
         const wrapper = document.getElementById('tracks-wrapper');
         const lane = wrapper?.querySelector<HTMLElement>('.track-canvas');
         if (!wrapper || !lane) return null;
+        const element = target as Partial<Element> | null;
+        const axis = typeof element?.closest !== 'function' ? null : element.closest('#ruler-canvas') ? 'x' : element.closest('.track-axis-canvas') ? 'y' : null;
         const rect = wrapper.getBoundingClientRect();
         const plotX = clientX - rect.left - TRACK_HEADER_W, width = rect.width - TRACK_HEADER_W;
-        return { plot: lane, point: { fx: width > 0 && plotX >= 0 && plotX <= width ? plotX / width : 0.5, fy: 0.5 }, axis: null };
+        return { plot: lane, point: { fx: width > 0 && plotX >= 0 && plotX <= width ? plotX / width : 0.5, fy: 0.5 }, axis };
     }
     function hoverLane(e: PlotPointer & Partial<Pick<MouseEvent, 'altKey' | 'shiftKey'>>): void {
         if (contentType === 'stage') return;

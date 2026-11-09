@@ -18,6 +18,12 @@ export interface KeyRow<A extends string = string> {
 
 const ZOOM_BINDINGS = { '+': 'zoom-in', '=': 'zoom-in', '-': 'zoom-out', '_': 'zoom-out', '0': 'zoom-reset' } as const;
 
+/** What + / − / 0 (ZOOM_BINDINGS) do to the plot under the pointer, which every plot answers (plotInteraction.ts); null for another key. */
+export function zoomKeyAction(key: string): 'in' | 'out' | 'reset' | null {
+    const action = Object.prototype.hasOwnProperty.call(ZOOM_BINDINGS, key) ? ZOOM_BINDINGS[key as keyof typeof ZOOM_BINDINGS] : null;
+    return action === 'zoom-in' ? 'in' : action === 'zoom-out' ? 'out' : action === 'zoom-reset' ? 'reset' : null;
+}
+
 export const GENERAL_KEYS: readonly KeyRow[] = [
     { shortcut: '? / F1', labelKey: 'helpRowQuestion' },
     { shortcut: 'Esc', labelKey: 'helpRowEsc' },

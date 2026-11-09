@@ -1,4 +1,5 @@
 import { isTextEntryTarget, type KeyRouter } from './keyRouter';
+import { zoomKeyAction } from './shortcuts';
 
 export interface TrackPointerHandlers {
     resetZoom(): void;
@@ -17,6 +18,8 @@ export interface TrackPointerHandlers {
      * with the pointer elsewhere: it reads where it starts). False when the plot reads nothing, so the key goes on.
      */
     step(plot: Element, delta: -1 | 0 | 1): boolean;
+    /** + / − / 0 over a plot: its horizontal axis zoomed in or out around its middle, or shown whole. False when the plot shows nothing, so the key goes on. */
+    zoomKey(plot: Element, action: 'in' | 'out' | 'reset'): boolean;
 }
 
 type PointerSurface = Pick<HTMLElement, 'addEventListener' | 'contains'>;
@@ -37,8 +40,8 @@ const TRACK_SELECTORS: PlotSelectors = { plot: '.track-canvas', axis: '.track-ax
 /**
  * The analyzer's pointer gestures on its plots, as the track lanes define them: hover, press–drag–release
  * (followed on the document), Ctrl+wheel to zoom, Shift+wheel or a sideways swipe on a plot to pan, double-click
- * to reset (or, on an axis, to set its range), and ← / → to step the readout of the plot under the pointer one
- * point at a time (R7). plotInteraction.ts attaches every plot, the lanes too, through these listeners, and
+ * to reset (or, on an axis, to set its range), ← / → to step the readout of the plot under the pointer one
+ * point at a time (R7), and + / − / 0 to zoom that plot's horizontal axis around its middle or show it whole. plotInteraction.ts attaches every plot, the lanes too, through these listeners, and
  * nothing else attaches them (src/test/plotGestures.test.ts).
  */
 export function attachTrackPointerListeners(tracksWrapper: PointerSurface, doc: Pick<Document, 'addEventListener'>, keys: Pick<KeyRouter, 'add'>, handlers: TrackPointerHandlers, selectors: PlotSelectors = TRACK_SELECTORS): void {
@@ -75,6 +78,13 @@ export function attachTrackPointerListeners(tracksWrapper: PointerSurface, doc: 
     keys.add({
         layer: 'plot',
         keydown(e) {
+            // + / − / 0 zoom the plot under the pointer (not one only focused: the view's own keys take those).
+            const zoom = zoomKeyAction(e.key);
+            if (zoom) {
+                if (e.ctrlKey || e.metaKey || e.altKey || isTextEntryTarget(e.target) || !over || !over.isConnected || !handlers.zoomKey(over, zoom)) return false;
+                e.preventDefault();
+                return true;
+            }
             const delta = e.code === 'ArrowLeft' ? -1 : e.code === 'ArrowRight' ? 1 : 0;
             if (!delta || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || isTextEntryTarget(e.target)) return false;
             const plot = over && over.isConnected ? over : plotOf(e.target);

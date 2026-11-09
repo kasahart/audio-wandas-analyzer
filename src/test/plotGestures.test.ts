@@ -5,7 +5,7 @@ import test from 'node:test';
 
 /**
  * R7, R13: every plot answers the pointer and the keys from one place, the shared plot gestures: the listeners in
- * trackPointerEvents.ts, which plotInteraction.ts builds every plot's hover, ← / → step, box zoom, Alt+ and
+ * trackPointerEvents.ts, which plotInteraction.ts builds every plot's hover, ← / → step, + / − / 0 zoom, box zoom, Alt+ and
  * Shift+drag, wheel, double-click and click (a press that stayed put: the `tap` option) on. No other webview module
  * listens for pointer, click or key events of its own for a plot, and none attaches those listeners but
  * plotInteraction.ts: a plot that needs another gesture gets an option there, for every plot.

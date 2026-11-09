@@ -9,11 +9,12 @@ import { entry100Results, openEntry, type ScannedFile } from './entryHelpers';
  * R13: every plot is the one plot component, so every plot answers the same gestures the same way. This test opens
  * the screens with plots, collects each canvas the component drew (`data-plot`) and gives it the same checks:
  * the readout above it under the pointer, ← / → stepping that readout one point at a time, Ctrl+wheel zoom and
- * double-click reset, an axis's range, both axes named.
+ * double-click reset, + / − / 0 over it zooming its horizontal axis about the middle and showing it whole, Ctrl+wheel
+ * over its value axis zooming about the middle too, a box zoom, each axis's range, both axes named.
  * A plot that does not pass one yet is listed in KNOWN_GAPS with the deviation of the unified plot spec it waits
  * for; a gap that is fixed fails here until it is taken off, so the list only shrinks.
  */
-type Check = 'readout' | 'step' | 'zoom' | 'reset' | 'box zoom' | 'axis range' | 'x range' | 'axes';
+type Check = 'readout' | 'step' | 'zoom' | 'reset' | 'zoom keys' | 'axis wheel' | 'box zoom' | 'axis range' | 'x range' | 'axes';
 const KNOWN_GAPS: Record<string, readonly Check[]> = {};
 
 const FULL = '0.000 1.000 0.000 1.000';
@@ -224,6 +225,37 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
     await page.mouse.dblclick(middle.x, middle.y);
     await page.waitForTimeout(80);
     if (zoomed && (await plot.getAttribute('data-plot-window')) === FULL && await picture() !== zoomedPicture) passed.add('reset');
+    // + / − / 0 with the pointer over the plot (its keys, the same on every plot): + zooms its horizontal axis about the
+    // middle of what it shows, wherever the pointer is on it, − zooms back out and 0 shows the whole; each is drawn.
+    const windowOf = async (): Promise<number[]> => ((await plot.getAttribute('data-plot-window')) ?? '').split(' ').map(Number);
+    const centred = (window: number[], wider: number): boolean => window.length === 4 && window.every(Number.isFinite)
+        && window[0] > 0.001 && window[1] < 0.999 && window[1] - window[0] < wider && Math.abs(window[0] + window[1] - 1) < 0.01;
+    await page.mouse.move(box.x + box.width * 0.8, middle.y);
+    const keyWhole = await picture();
+    await page.keyboard.press('=');
+    await page.waitForTimeout(80);
+    const keyed = await windowOf(), keyedPicture = await picture();
+    await page.keyboard.press('-');
+    await page.waitForTimeout(80);
+    const keyedOut = await windowOf();
+    await page.keyboard.press('=');
+    await page.keyboard.press('0');
+    await page.waitForTimeout(80);
+    if (centred(keyed, 0.75) && keyedPicture !== keyWhole && keyedOut[1] - keyedOut[0] > keyed[1] - keyed[0] + 0.1
+        && (await plot.getAttribute('data-plot-window')) === FULL && await picture() !== keyedPicture) passed.add('zoom keys');
+    // Ctrl+wheel over the value axis (the plot's left margin, or the canvas beside it that holds it): no point on the
+    // plot to zoom around, so the horizontal axis zooms about its middle, as on every plot.
+    const valueAxisId = await plot.getAttribute('data-plot-axis');
+    const valueAxisBox = valueAxisId ? await page.locator(`[id="${valueAxisId}"]`).boundingBox() : null;
+    await page.mouse.move(valueAxisBox ? valueAxisBox.x + valueAxisBox.width / 2 : box.x + 8, valueAxisBox ? valueAxisBox.y + valueAxisBox.height / 2 : middle.y);
+    const beforeWheel = await picture();
+    await page.keyboard.down('Control');
+    await page.mouse.wheel(0, -240);
+    await page.keyboard.up('Control');
+    await page.waitForTimeout(80);
+    if (centred(await windowOf(), 0.99) && await picture() !== beforeWheel) passed.add('axis wheel');
+    await page.mouse.dblclick(middle.x, middle.y);
+    await page.waitForTimeout(80);
     // A plain drag zooms into its box (R13): the window narrows on the horizontal axis and on the vertical one, but
     // for a vertical axis defined to show every count always (data-plot-y-axis "all-counts", plotInteraction.ts
     // VerticalAxis), which stays whole and must be the plot's count axis. A double-click gives the whole back.
@@ -356,7 +388,7 @@ async function expectContract(page: Page, name: string, plot: Locator): Promise<
     checkedPlots.add(await plot.evaluate(plotName));
     const passed = await contract(page, plot);
     const gaps = KNOWN_GAPS[name] ?? [];
-    const checks: Check[] = ['readout', 'step', 'zoom', 'reset', 'box zoom', 'axis range', 'x range', 'axes'];
+    const checks: Check[] = ['readout', 'step', 'zoom', 'reset', 'zoom keys', 'axis wheel', 'box zoom', 'axis range', 'x range', 'axes'];
     expect.soft(checks.filter(check => !passed.has(check) && !gaps.includes(check)), `${name}: fails the plot contract (R13)`).toEqual([]);
     expect.soft(gaps.filter(check => passed.has(check)), `${name}: now passes; take it off KNOWN_GAPS`).toEqual([]);
 }

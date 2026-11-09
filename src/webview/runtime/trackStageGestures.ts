@@ -22,11 +22,6 @@ export interface StageGestures {
     hovering(): boolean;
     /** Draws the hover marks again on what the plot under the still pointer now shows. */
     redraw(): void;
-    /**
-     * The horizontal axis of the plot under the pointer zoomed by `zoom` (a key's zoom), in that plot's own window
-     * (the lanes under a trigger have theirs); false when the pointer is over none.
-     */
-    zoomHovered(zoom: (range: PlotWindow['x']) => PlotWindow['x']): boolean;
 }
 
 export function attachStageGestures(surface: HTMLElement, root: HTMLElement, document: Document, deps: {
@@ -190,11 +185,5 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
     return {
         hovering: () => hovered !== null,
         redraw: showHover,
-        zoomHovered(zoom) {
-            if (!hovered || !hovered.plot.isConnected) return false;
-            const now = windowOf(hovered.plot);
-            setWindowOf(hovered.plot, { ...now, x: zoom(now.x) });
-            return true;
-        },
     };
 }
