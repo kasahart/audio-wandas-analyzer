@@ -22,6 +22,11 @@ export const channelOfRow = (row: DatasetRow | undefined): number | null => (row
 export interface EntryBaseOf {
     /** The recordings its median is of: its figure set's (figureModel.figureUsed), never one pending, stale, failed or of another reference. */
     paths: string[];
+    /**
+     * The recordings the base asks for and draws with its channel: its members of the compared one's reference, those
+     * still pending, stale or failed too (a scan or a step picture comes of them). Never what is counted: `paths` is.
+     */
+    members: string[];
     title: string;
     definition: BaseDefinition;
     channel: number | null;
@@ -99,14 +104,16 @@ export function createEntryBase(deps: EntryBaseDeps): EntryBase {
      * identity and spectrum axis (`comparePath` null: the first measured one's). The one set every base group, its
      * heading, n, files, median and Δ are of.
      */
-    function groupSet(comparePath: string | null, name: string, channel: number | null, over?: ReadonlyMap<string, ScanResult>): { set: FigureSet<ScanResult & { ok: true }>; fewerChannels: number } {
+    function groupSet(comparePath: string | null, name: string, channel: number | null, over?: ReadonlyMap<string, ScanResult>): { set: FigureSet<ScanResult & { ok: true }>; fewerChannels: number; asked: string[] } {
         const group = deps.group();
         // The other compared recordings (slots 1–3) are compared themselves: not part of anyone's base.
         const compared = new Set(comparedKeys(deps.slots()).map(fileOfKey));
         const members = baseGroupMembers(deps.pool().filter(row => row.filePath === comparePath || !compared.has(row.filePath)), comparePath ?? '', group, name, channel);
         const like = comparePath ? answerOf(comparePath, over) : undefined;
         const set = figureUsed(members.paths.filter(path => path !== comparePath).map(path => answerOf(path, over)), scanFigureOf(like?.state === 'ready' ? like.value : undefined));
-        return { set, fewerChannels: members.fewerChannels };
+        // What is asked for and drawn: every member but those of another reference or axis, in the table's order.
+        const other = new Set(set.excluded.filter(item => item.reason === 'other-reference' || item.reason === 'other-axis').map(item => item.path));
+        return { set, fewerChannels: members.fewerChannels, asked: members.paths.filter(path => path !== comparePath && !other.has(path)) };
     }
     /** "median of 3 · 1 failed left out · 1 still computing · …": the count every base title and its definition say. */
     function medianText(set: Pick<FigureSet<unknown>, 'n' | 'excluded'>): string {
@@ -129,18 +136,18 @@ export function createEntryBase(deps: EntryBaseDeps): EntryBase {
             const set = figureUsed([answerOf(path, over)], { level: null });
             const title = `${strings.entryBase} · ${deps.rowName(single)}`;
             return {
-                paths: [path], title, channel: ch, set, titleWith: () => ({ title, n: 1 }),
+                paths: [path], members: [path], title, channel: ch, set, titleWith: () => ({ title, n: 1 }),
                 definition: { kind: 'file', file: deps.rowName(single), count: 1, channel: ch, filters: narrowedBy, fewerChannels: 0 },
             };
         }
         const name = group === 'none' ? '' : deps.baseGroup() ?? (compareRow ? groupOf(compareRow, group) : '');
-        const { set, fewerChannels } = groupSet(comparePath, name, channel, over);
+        const { set, fewerChannels, asked } = groupSet(comparePath, name, channel, over);
         const where = group === 'none' ? strings.dsDistAll : `${deps.groupLabel(group)} ${name || '—'}`;
         const titleOf = (of: Pick<FigureSet<unknown>, 'n' | 'excluded'>): string => `${strings.entryBaseGroup} ${where} · ${medianText(of)}${channel ? ` · ${strings.dsCh}${channel}` : ''}`
             + (fewerChannels ? strings.dsBaseFewer.replace('{n}', String(fewerChannels)).replace('{ch}', String(channel)) : '') + within;
         const otherUnits = excludedFor(set, 'other-reference', 'other-axis'), failed = excludedFor(set, 'failed', 'empty', 'missing'), pending = excludedFor(set, 'pending'), stale = excludedFor(set, 'stale');
         return {
-            paths: set.paths, title: titleOf(set), channel, set,
+            paths: set.paths, members: asked, title: titleOf(set), channel, set,
             titleWith(more) {
                 const gone = new Set(more.map(item => item.path));
                 const of = { n: set.paths.filter(path => !gone.has(path)).length, excluded: [...set.excluded, ...more.filter(item => set.paths.includes(item.path))] };
@@ -185,7 +192,7 @@ export function createEntryBase(deps: EntryBaseDeps): EntryBase {
         stageChannel(path: string, comparePath: string | null, byGroup = false): number | null {
             if (comparePath && path !== comparePath) {
                 const base = resolve(comparePath, byGroup);
-                if (base.paths.includes(path)) return base.channel;
+                if (base.members.includes(path)) return base.channel;
             }
             // A recording without a role is drawn as the row its legend names (the table's first of that file).
             return channelOfRow(slotRowOf(path) ?? deps.rows().find(row => row.filePath === path));

@@ -739,7 +739,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         root.dataset.base = state.groupBase || !deps.slots()[0] ? 'group' : 'file';
         // The heading's n is the step figure's set's: the base's recordings left out here (failed, empty) are said so.
         const leftOut = waitingBase ? [] : stageSet.excluded;
-        const baseTitle = (path: string): string => { const title = deps.baseTitle(path, state.groupBase, leftOut) + baseWord; return each ? eachBaseTitle(title, stageSet.n, strings) : title; };
+        const baseTitle = (path: string): string => { const title = deps.baseTitle(path, state.groupBase, leftOut) + baseWord; return each ? eachBaseTitle(title, strings) : title; };
         const aggregate = each ? strings.stageBaseEach : strings.stageBaseAggregate;
         query<HTMLElement>('[data-stage-base-aggregate]').textContent = aggregate;
         const baseLabel = comparePath ? baseTitle(comparePath) : basePaths.length === 1 ? namedHere(basePaths[0], role(basePaths[0])).label : undefined;

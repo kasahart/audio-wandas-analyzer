@@ -833,7 +833,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         keepWindow: (name, key) => sidePlots.keepWindow(name, key), results, focusedFile,
         // The focused row's channel when it is that file's row, else the row the file is compared as (entryBase).
         channelOf: path => (focus.key && fileOfKey(focus.key) === path ? channelOfRow(rowOf(focus.key)) : entryBase.stageChannel(path, null)),
-        comparison: (path, over) => entryBase.comparison(path, false, over), basePaths: path => entryBase.resolve(path).paths, scanRecipe: () => scanRecipe(), slotFiles, colorOf: recordingColor, recipe: () => recipeState.edited ?? recipeState.standard, runRecipe: () => runRecipe(), limits, spectral,
+        comparison: (path, over) => entryBase.comparison(path, false, over), basePaths: path => entryBase.resolve(path).members, scanRecipe: () => scanRecipe(), slotFiles, colorOf: recordingColor, recipe: () => recipeState.edited ?? recipeState.standard, runRecipe: () => runRecipe(), limits, spectral,
         tapped(slot) { if (focus.key && rows.some(row => row.key === focus.key)) setSlot(slot, focus.key); },
     });
     function handleRemeasure(publication: ComparePublication): boolean {
@@ -1522,7 +1522,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             // The file the slot held before keeps its track: only the roles change.
             setSlot(slot, key, false);
         },
-        basePaths: (comparePath, byGroup = false) => entryBase.resolve(comparePath, byGroup).paths,
+        basePaths: (comparePath, byGroup = false) => entryBase.resolve(comparePath, byGroup).members,
         baseTitle: (comparePath, byGroup = false, over, more) => entryBase.resolve(comparePath, byGroup, undefined, over).titleWith(more ?? []).title,
         baseDefinition: (comparePath, byGroup = false, over) => entryBase.resolve(comparePath, byGroup, undefined, over).definition,
         stageChannel: (path, comparePath, byGroup = false) => entryBase.stageChannel(path, comparePath, byGroup),
