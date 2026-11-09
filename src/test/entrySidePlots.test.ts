@@ -203,7 +203,9 @@ test('the strip is a heatmap of the table: a row per table row counted down from
     assert.ok(whole);
     // Bottom first, as the axis runs: the last table row at the bottom, each at minus its centre's place.
     assert.deepEqual(whole.view.ys, [-3.5, -2.5, -1.5, -0.5]);
-    assert.deepEqual(whole.names.map(row => row[0]), ['d.wav', 'c.wav', 'b.wav', 'a.wav']);
+    // A cell names only the rows whose levels it used: c (not scanned yet) names nothing, nor does b where it has no level.
+    assert.deepEqual(whole.names.map(row => row[0]), ['d.wav', '', 'b.wav', 'a.wav']);
+    assert.equal(whole.names[2][1], '', 'b has no level in the second band');
     assert.deepEqual(whole.view.matrix?.[3].slice(0, 2), [-40.4, -30]);
     assert.ok(whole.view.matrix?.[1].every(value => value === null), 'a row not scanned yet has no cells');
     assert.deepEqual(whole.whole.ys, [-4, 0], 'the whole table\'s axis, for a zoomed strip');
@@ -214,6 +216,8 @@ test('the strip is a heatmap of the table: a row per table row counted down from
     assert.deepEqual(binned?.view.matrix?.map(row => row.slice(0, 2)), [[-60, -10.2], [-20, -30]]);
     // The readout names the recording each value is from: b's −20 dB and a's −30 dB share a line.
     assert.deepEqual(binned?.names.map(row => row.slice(0, 2)), [['d.wav', 'd.wav'], ['b.wav', 'a.wav']]);
+    // A bucket's band no row has a level in names no row (not the bucket's first one).
+    assert.deepEqual(binned?.names.map(row => row[2]), ['', '']);
     // A quiet row among loud ones is drawn, not left out for its bucket's loudest (R2): four lines, two buckets of four.
     const many = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map(name => ({ filePath: `/d/${name}.wav` }));
     const levels = new Map<string, (number | null)[]>([-10, -50, -12, -14, -20, -21, -90, -22].map((value, index) => [many[index].filePath, [value]]));

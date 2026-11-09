@@ -46,7 +46,7 @@ export function overviewPicture(
     const cellsTotal = binned ? buckets * 2 : count;
     const shown: (number | null)[][] = Array.from({ length: cellsTotal }, () => new Array<number | null>(bandCount).fill(null));
     // Per cell and band, the file whose level it shows, so the readout names the recording its value is from; a cell
-    // with no level names its bucket's first row.
+    // with no level names no row (a cell names only the rows whose levels it used).
     const names: string[][] = Array.from({ length: cellsTotal }, () => new Array<string>(bandCount).fill(''));
     // Per bucket and band, its quietest and loudest level, with the table row each is from.
     type Extreme = { value: number; index: number } | null;
@@ -58,10 +58,6 @@ export function overviewPicture(
         const levels = bands.get(rows[index].key ?? rows[index].filePath);
         const inWindow = index >= firstRow && index < lastRow;
         const bucket = inWindow ? (binned ? Math.min(buckets - 1, Math.floor((index - firstRow) * buckets / count)) : index - firstRow) : -1;
-        if (bucket >= 0) {
-            const cells = binned ? [bucket * 2, bucket * 2 + 1] : [bucket];
-            for (const cell of cells) if (!names[cell][0]) names[cell].fill(rowName(rows[index]));
-        }
         if (!levels) continue;
         for (let band = 0; band < Math.min(bandCount, levels.length); band++) {
             const value = levels[band];
