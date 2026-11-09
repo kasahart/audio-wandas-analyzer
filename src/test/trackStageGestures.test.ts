@@ -119,3 +119,51 @@ test('a click on a trigger\'s event line while its full data is on its way is de
     await wait(400);
     assert.deepEqual(toggled, ['take 2', 'edit 2'], 'the double-click took the first press\'s place');
 });
+
+test('a click on an event line waiting for its data is decided on the plot it was clicked on: a zoom by the wheel meanwhile does not move it onto another line or none (R7)', async () => {
+    const dom = new JSDOM('<!doctype html><body><div class="lanes"></div><div class="track-stage"><canvas data-stage-canvas="overlay"></canvas></div></body>');
+    const { document } = dom.window;
+    const root = document.querySelector('.track-stage') as HTMLElement;
+    const canvas = root.querySelector('canvas') as HTMLCanvasElement;
+    const frame = { left: STAGE_MARGINS.left, top: STAGE_MARGINS.top, width: 200, height: 100 };
+    const width = frame.left + frame.width + STAGE_MARGINS.right, height = frame.top + frame.height + STAGE_MARGINS.bottom;
+    canvas.getBoundingClientRect = () => ({ left: 0, top: 0, width, height, right: width, bottom: height, x: 0, y: 0, toJSON: () => ({}) });
+    const samples = localLine([0, 0.5, 1], [0.5, 0.5, 0.5]);
+    const replies: Array<() => void> = [];
+    const full = fetchedSource((read, done) => { replies.push(() => done(samples.line?.({ x0: read.x[0], x1: read.x[read.x.length - 1], beyond: read.beyond ?? 1 }, () => undefined))); });
+    const event = { id: 2, source: '/d/a.wav', out: false };
+    const plotOf = (level: number) => ({
+        frame, xAt: (value: number) => frame.left + value * frame.width, yAt: (value: number) => frame.top + (1 - (value - level + 0.5)) * frame.height,
+        xOf: (x: number) => (x - frame.left) / frame.width, ratioStep: 1, diff: false,
+        lines: [{ view: { kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs: [0, 0.5, 1], values: [0.5, 0.5, 0.5] }, color: '#000', event, full }],
+    } as unknown as StagePlot);
+    const state = initialStageState();
+    state.on = true;
+    const toggled: string[] = [];
+    const drawnOn = new Map([[canvas, { picture: null, range: R({ min: 0, max: 1 }), axes: N({ x: 't', y: 'v' }), plot: plotOf(0.5) }]]);
+    attachStageGestures(document.querySelector('.lanes') as HTMLElement, root, document, {
+        strings: getStrings('en'), state, drawnOn, painted: () => true, moved: () => undefined, rerender: () => undefined, hint: () => undefined, lanesApart: () => false,
+        toggleEvent: line => { toggled.push(`take ${line.id}`); return () => toggled.push(`edit ${line.id}`); },
+    });
+    const at = { clientX: frame.left + 100, clientY: frame.top + 50 };
+    canvas.dispatchEvent(new dom.window.MouseEvent('mousedown', { ...at, button: 0, bubbles: true, detail: 1 }));
+    document.dispatchEvent(new dom.window.MouseEvent('mouseup', { ...at, button: 0, bubbles: true, detail: 1 }));
+    // Drawn again before the data comes: the line now far from that pixel.
+    drawnOn.set(canvas, { ...drawnOn.get(canvas)!, plot: plotOf(0.1) });
+    while (replies.length) replies.shift()?.();
+    assert.deepEqual(toggled, ['take 2'], 'the line clicked on is the one decided');
+});
+
+test('the steps\' gestures place the pointer on the plot as it was drawn: with a second level axis on the right its margin is the drawn one, and over that axis is an axis (R13)', async () => {
+    const { stagePlotPoint } = await import('../webview/runtime/stagePanes');
+    const canvas = { getBoundingClientRect: () => ({ left: 0, top: 0, width: 600, height: 200, right: 600, bottom: 200, x: 0, y: 0, toJSON: () => ({}) }) };
+    // A plot with two level axes: 52 px each side (paintOverlay's secondary margin).
+    const drawn = { frame: { left: 52, top: 4, width: 496, height: 180 }, secondary: { lines: [] } } as unknown as StagePlot;
+    const right = stagePlotPoint(canvas, 548, 100, drawn);
+    assert.equal(right.fx, 1, 'the right end of the drawn frame is the plot\'s right end');
+    assert.equal(right.axis, null);
+    const over = stagePlotPoint(canvas, 570, 100, drawn);
+    assert.equal(over.axis, 'y', 'over the right-hand axis');
+    assert.equal(over.right, true);
+    assert.ok(Math.abs(stagePlotPoint(canvas, 300, 100, drawn).fx - 248 / 496) < 1e-9, 'the middle is read on the drawn width');
+});

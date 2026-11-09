@@ -122,25 +122,51 @@ test('a step that waits for its points is taken, once they are in, through the o
     assert.equal(layer.reading()?.at, 4);
 });
 
-test('an arrow key pressed while the readout waits for its points reads them once they are in: the readout is never left empty (A42, R7)', () => {
+test('an arrow key pressed while the readout waits for its points is taken once they are in: the point it steps to, never lost and never an empty readout; two keys, two points (A42, R7)', () => {
+    for (const keys of [1, 2] as const) {
+        const { plot, slot, layer } = setup();
+        const xs = Array.from({ length: 10 }, (_, i) => i), values = xs.map(i => i + 0.5);
+        const whole = localLine(xs, values);
+        const waiting: Array<() => void> = [];
+        let held = true;
+        // Every read waits until the points come in.
+        const full: FullSource = { held: 'fetched', line(query, ready) { if (held) { waiting.push(ready); return undefined; } return whole.line?.(query, ready); } };
+        const drawn: StagePlot = { ...plotWith([{ ...line('a', '#f00', values), full }]), xOf: (x: number) => (x - 50) / 10, levelOf: (y: number) => (110 - y) / 10 };
+        layer.show(plot, drawn, 80, 75, slot);
+        assert.equal(layer.reading(), null, 'pending: no number yet');
+        // The keys while pending: the place stays the pointer's, and the owner shows there, as any step.
+        const owner: Array<{ clientX: number; clientY: number }> = [];
+        const arrived = (place: { clientX: number; clientY: number }): void => { owner.push(place); layer.show(plot, drawn, place.clientX, place.clientY, slot); };
+        for (let key = 0; key < keys; key++) {
+            const at = layer.stepFrom(plot, drawn, 1, arrived);
+            assert.deepEqual(at, { clientX: 80, clientY: 75 }, 'meanwhile, the pointer\'s place');
+            if (at) layer.show(plot, drawn, at.clientX, at.clientY, slot);
+        }
+        assert.equal(layer.reading(), null, 'still no number');
+        held = false;
+        for (const ready of waiting.splice(0)) ready();
+        // The point under the pointer is 3: the keys step from it once it is read.
+        assert.equal(layer.reading()?.at, 3 + keys, `${keys} key(s): the point stepped to once the points are in`);
+        assert.ok(slot?.textContent?.includes(`${3 + keys}.5`), `the readout shows it: ${slot?.textContent}`);
+        assert.equal(owner.length, 1, 'the owner is told where the steps went');
+    }
+});
+
+test('keys pressed while the readout waits are dropped when the pointer moves on before the points are in (R7)', () => {
     const { plot, slot, layer } = setup();
     const xs = Array.from({ length: 10 }, (_, i) => i), values = xs.map(i => i + 0.5);
     const whole = localLine(xs, values);
     const waiting: Array<() => void> = [];
     let held = true;
-    // Every read waits until the points come in.
     const full: FullSource = { held: 'fetched', line(query, ready) { if (held) { waiting.push(ready); return undefined; } return whole.line?.(query, ready); } };
     const drawn: StagePlot = { ...plotWith([{ ...line('a', '#f00', values), full }]), xOf: (x: number) => (x - 50) / 10, levelOf: (y: number) => (110 - y) / 10 };
     layer.show(plot, drawn, 80, 75, slot);
-    assert.equal(layer.reading(), null, 'pending: no number yet');
-    // The key while pending: its place is the point waited for, and the owner shows there, as any step.
-    const at = layer.stepFrom(plot, drawn, 1);
-    assert.ok(at);
-    layer.show(plot, drawn, at.clientX, at.clientY, slot);
+    layer.stepFrom(plot, drawn, 1);
+    layer.show(plot, drawn, 60, 75, slot);
     held = false;
     for (const ready of waiting.splice(0)) ready();
-    assert.equal(layer.reading()?.at, 3, 'read once the points are in');
-    assert.ok(slot?.textContent?.includes('3.5'), `the readout shows it: ${slot?.textContent}`);
+    // (60, 75) reads the point at 2 (14 px away, nearer than the one at 1 below it): no key taken from it.
+    assert.equal(layer.reading()?.at, 2, 'the point under the pointer where it went');
 });
 
 test('a point stepped to above the level axis stays read when the plot is drawn again there, never the neighbour on the plot (A46, R7)', () => {

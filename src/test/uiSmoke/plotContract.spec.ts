@@ -133,7 +133,8 @@ async function nextPoint(plot: Locator): Promise<number | null> {
             const column = xs.findIndex(x => x === at);
             return column >= 0 && column + 1 < xs.length ? xs[column + 1] : null;
         }
-        const got = source.line ? await ask(ready => source.line!({ x0: at, x1: at, beyond: 8 }, ready)) : null;
+        // Far enough past it to hold the next value however many empty bins (a histogram's) come first.
+        const got = source.line ? await ask(ready => source.line!({ x0: at, x1: at, beyond: 512 }, ready)) : null;
         if (!got) return null;
         const readable = (value: number | null | undefined): boolean => value !== null && value !== undefined && Number.isFinite(value) && !(value <= -250 && layer.view.quantity !== 'value');
         const index = got.xs.findIndex((x, i) => x > at && readable(got.values?.[i]));
@@ -270,17 +271,69 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
     const windowOf = async (): Promise<number[]> => ((await plot.getAttribute('data-plot-window')) ?? '').split(' ').map(Number);
     const centred = (window: number[], wider: number): boolean => window.length === 4 && window.every(Number.isFinite)
         && window[0] > 0.001 && window[1] < 0.999 && window[1] - window[0] < wider && Math.abs(window[0] + window[1] - 1) < 0.01;
-    await page.mouse.move(box.x + box.width * 0.8, middle.y);
+    // Near the right of the plot's frame (data-plot-frame): + zooms about the middle and takes that place off the window.
+    const keyFrame = await frameOf();
     const keyWhole = await picture();
-    const readWhole = await pointRead(plot);
+    // The first place there that reads a point (a line may end before the plot's right edge).
+    let readWhole: PointRead | null = null;
+    // A read waiting for its full data is given the time to come (no number meanwhile, R7).
+    const settled = async (): Promise<void> => {
+        for (let tries = 0; tries < 50 && await plot.getAttribute('data-plot-read') === 'pending'; tries++) await page.waitForTimeout(100);
+    };
+    for (const across of [0.95, 0.9, 0.86, 0.8, 0.75, 0.7, 0.65, 0.6, 0.55]) {
+        await page.mouse.move(keyFrame.length === 4 && keyFrame.every(Number.isFinite) ? box.x + keyFrame[0] + keyFrame[2] * across : box.x + box.width * 0.8, middle.y);
+        await page.waitForTimeout(80);
+        await settled();
+        readWhole = await plot.evaluate(canvas => !!(canvas as NotedPlot).__plotRead) ? await pointRead(plot) : null;
+        if (readWhole) break;
+    }
+    // The double-click above may have given the plot the focus; a focused lane keeps ← / → for its time cursor (R7,
+    // tested in trackPointerEvents.test.ts), so the keys here are the readout's under the pointer alone.
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    // A point stepped to before the zoom, right of the middle: + zooms about the middle, and takes it off the window.
+    await page.keyboard.press('ArrowRight');
+    const steppedWhole = readWhole && await pointRead(plot, readWhole);
     await page.keyboard.press('=');
     await page.waitForTimeout(80);
     const keyed = await windowOf(), keyedPicture = await picture();
-    // Drawn again by a key under the pointer that has not moved (the plot perhaps made anew): it reads the point under
-    // the pointer on the new drawing, and → steps from it, with no move of the mouse first (A26).
-    const zoomedRead = readWhole && await pointRead(plot, readWhole);
+    // Drawn again by a key under the pointer that has not moved: the point stepped to, off the window now, is let go
+    // and never read off the plot; the plot reads the point under the pointer on the new drawing (A26, R7).
+    const zoomedRead = steppedWhole && await pointRead(plot, steppedWhole);
+    const readOnPlot = (): Promise<boolean> => plot.evaluate(canvas => {
+        const read = (canvas as HTMLElement & { __plotRead?: { x: number } | null }).__plotRead;
+        const frame = (canvas.getAttribute('data-plot-frame') ?? '').split(' ').map(Number);
+        return !!read && frame.length === 4 && read.x >= frame[0] - 0.5 && read.x <= frame[0] + frame[2] + 0.5;
+    });
+    // (A point that → could not leave, the line's last, is no step to let go: the pointer reads as it does anywhere.)
+    const letGo = !!zoomedRead && (zoomedRead.at !== steppedWhole?.at || steppedWhole?.at === readWhole?.at) && await readOnPlot();
+    // → steps exactly one full-resolution point on the zoomed plot, from a point in its middle (no point skipped).
+    await page.mouse.move(box.x + box.width * 0.5, middle.y);
+    const movedTo = zoomedRead && await pointRead(plot, zoomedRead);
+    // Marked as the line the step is checked on.
+    const zoomedHere = movedTo && await pointRead(plot);
+    const zoomedNext = zoomedHere ? await nextPoint(plot) : null;
     await page.keyboard.press('ArrowRight');
-    const steppedZoomed = !!zoomedRead && !!(await pointRead(plot, zoomedRead));
+    const zoomedStep = zoomedHere && await pointRead(plot, zoomedHere);
+    const near = (a: number | undefined, b: number | null): boolean => a !== undefined && b !== null && Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a), Math.abs(b));
+    // Where that next point is off the zoomed window (sparse points, an events plot), → reads nothing past the plot's
+    // side and the readout stays: the next point is then read nowhere inside the frame, wherever the pointer is.
+    const seenInside = async (at: number | null): Promise<boolean> => {
+        const frame = await frameOf();
+        if (at === null || frame.length !== 4 || !frame.every(Number.isFinite)) return false;
+        for (let column = 0; column < 20; column++) {
+            await page.mouse.move(box.x + frame[0] + frame[2] * (column + 0.5) / 20, middle.y);
+            await page.waitForTimeout(20);
+            await settled();
+            const inside = await plot.evaluate((canvas, { at, frame }) => {
+                const read = (canvas as HTMLElement & { __plotRead?: { x: number; at?: number } | null }).__plotRead;
+                return !!read && read.at === at && read.x > frame[0] + 0.5 && read.x < frame[0] + frame[2] - 0.5;
+            }, { at, frame });
+            if (inside) return true;
+        }
+        return false;
+    };
+    const steppedZoomed = letGo && !!zoomedStep && zoomedStep.sameLayer && await readOnPlot()
+        && (near(zoomedStep.at, zoomedNext) || (zoomedStep.at === zoomedHere?.at && !await seenInside(zoomedNext)));
     await page.keyboard.press('-');
     await page.waitForTimeout(80);
     const keyedOut = await windowOf();
@@ -338,6 +391,17 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
     await page.mouse.move(box.x + box.width * 0.7, box.y + box.height * 0.6, { steps: 4 });
     await page.mouse.up();
     await page.waitForTimeout(80);
+    // Let go, the readout is the pointer's where it was let go, on the zoomed plot, never the press's place (R7): the
+    // same point a fresh hover there reads.
+    const rawRead = (): Promise<string> => plot.evaluate(canvas => { const read = (canvas as NotedPlot).__plotRead; return read ? `${read.at}|${read.row}` : ''; });
+    const release = { x: box.x + box.width * 0.7, y: box.y + box.height * 0.6 };
+    await page.waitForTimeout(150);
+    const atRelease = await rawRead();
+    await page.mouse.move(release.x - 3, release.y);
+    await page.mouse.move(release.x, release.y);
+    await page.waitForTimeout(150);
+    const hoveredThere = await rawRead();
+    const readsRelease = atRelease === hoveredThere;
     const boxed = ((await plot.getAttribute('data-plot-window')) ?? '').split(' ').map(Number);
     const vertical = await plot.getAttribute('data-plot-y-axis');
     if (boxed.length === 4 && boxed.every(Number.isFinite) && (vertical === 'zoom' || vertical === 'all-counts')) {
@@ -351,7 +415,7 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
         // distribution names its count axis in either language (a word like 周波数 holds 数 and is no count).
         const counts = COUNT_QUANTITIES.includes(/^(.*\S)\s*\[/su.exec((names[1] ?? '').trim())?.[1] ?? '');
         const up = vertical === 'all-counts' ? counts && y0 === 0 && y1 === 1 : !counts && y0 > 0.001 && y1 < 0.999 && y1 > y0;
-        if (across && up && await picture() !== beforeBox) passed.add('box zoom');
+        if (across && up && readsRelease && await picture() !== beforeBox) passed.add('box zoom');
     }
     await page.mouse.dblclick(middle.x, middle.y);
     await page.waitForTimeout(80);
@@ -476,7 +540,7 @@ test.afterEach(async ({ page }) => {
 
 async function expectContract(page: Page, name: string, plot: Locator): Promise<void> {
     // Each plot's gestures take their own time (the backend answers each read): a test of several plots has it for each.
-    test.info().setTimeout(test.info().timeout + 20_000);
+    test.info().setTimeout(test.info().timeout + 30_000);
     await expect(plot).toHaveAttribute('data-plot', '');
     await seePlots(page);
     checkedPlots.add(await plot.evaluate(plotName));

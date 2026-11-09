@@ -32,7 +32,8 @@ export interface StageTrack {
  * uses, its level range before the vertical zoom, its axes' names, the pictures read under the pointer, and
  * where its lines are (the line nearest the pointer is picked from them).
  */
-export type Drawn = { picture: StageView | null; range: FigureRange; axes: FigureNames; plot?: StagePlot | null };
+/** `second`: the right-hand level axis of a plot with two (byReference), its whole range and its name, for its range popover. */
+export type Drawn = { picture: StageView | null; range: FigureRange; axes: FigureNames; plot?: StagePlot | null; second?: { range: FigureRange; title: string } };
 
 /** The mode's own elements: its root (controls, overlaid plot, legend, diff) and the step bar in it. */
 export interface StageDom {
@@ -295,7 +296,7 @@ export function writeStageLegend(legend: HTMLElement, html: string, written: str
  * axisInputOf its lines' inputs. An image keeps one axis; a trigger's events are split as any line (A43).
  */
 export function byReference(frame: Pick<StageFrame, 'strings' | 'picture' | 'allTracks' | 'tracks' | 'role'> & Partial<Pick<StageFrame, 'window'>>, layers: readonly StageLayer[]): {
-    mainLayers: StageLayer[]; secondary?: { layers: StageLayer[]; range: FigureRange; title: FigureTitle }; mainInput: StageTrack['input']; mainNames: FigureNames; tooMany: boolean;
+    mainLayers: StageLayer[]; secondary?: { layers: StageLayer[]; range: FigureRange; title: FigureTitle }; secondWhole?: FigureRange; mainInput: StageTrack['input']; mainNames: FigureNames; tooMany: boolean;
 } {
     const { strings, picture, tracks } = frame;
     const inputOf = (layer: StageLayer): StageTrack['input'] => frame.allTracks.find(track => track.filePath === layer.recording)?.input ?? tracks[0]?.input;
@@ -312,7 +313,7 @@ export function byReference(frame: Pick<StageFrame, 'strings' | 'picture' | 'all
     if (!second) return { mainLayers: main.lines, mainInput: main.input, mainNames: main.names, tooMany: false };
     // A vertical zoom narrows the right-hand axis by the same part of it as the left (A45, R13), as the cursor spectrum's.
     return {
-        mainLayers: main.lines, mainInput: main.input, mainNames: main.names, tooMany: false,
+        mainLayers: main.lines, mainInput: main.input, mainNames: main.names, tooMany: false, secondWhole: second.range,
         secondary: { layers: second.lines.map(layer => ({ ...layer, dash: SECONDARY_AXIS_DASH })), range: frame.window ? narrowedRange(second.range, frame.window.y) : second.range, title: titleOf(second.names) },
     };
 }
@@ -321,7 +322,7 @@ export function byReference(frame: Pick<StageFrame, 'strings' | 'picture' | 'all
 export function paintStageOverlay(dom: StageDom, frame: StageFrame, plots: StagePlots<StageTrack>, layers: StageLayer[], showDiff: boolean): void {
     const { strings, tracks, picture, coarsePlots, window, regionMark, pending, waiting, comparePath, referencePath } = frame;
     const range = dataRange([coarsePlots.base, ...coarsePlots.baseMembers.map(item => item.view), coarsePlots.compare, ...coarsePlots.others.map(item => item.view)]);
-    const { mainLayers, secondary, mainNames: axes, tooMany } = byReference(frame, layers);
+    const { mainLayers, secondary, secondWhole, mainNames: axes, tooMany } = byReference(frame, layers);
     const empty = tooMany ? strings.stageTooManyReferences : waiting ? '' : emptyStageText(strings, picture);
     // The difference shown or hidden first: it takes part of the overlay's height, which the overlay is measured at.
     const diffBox = dom.query<HTMLElement>('[data-stage-diff]');
@@ -331,7 +332,7 @@ export function paintStageOverlay(dom: StageDom, frame: StageFrame, plots: Stage
     const overlay = dom.query<HTMLCanvasElement>('[data-stage-canvas="overlay"]');
     const mainRange = secondary ? dataRange(mainLayers.map(layer => layer.view)) : range;
     const overlayPlot = paintOverlay(overlay, { layers: mainLayers }, narrowedRange(mainRange, window.y), axes, { empty, window: { x: window.x }, axisView: picture, ...(secondary ? { secondary } : {}), ...(regionMark ? { region: regionMark } : {}), ...(pending ? { pending } : {}) });
-    frame.drawnOn.set(overlay, { picture, range: mainRange, axes, plot: overlayPlot });
+    frame.drawnOn.set(overlay, { picture, range: mainRange, axes, plot: overlayPlot, ...(secondary && secondWhole ? { second: { range: secondWhole, title: secondary.title } } : {}) });
     if (!withDiff) return;
     // Zoomed, the largest difference on screen, once this window's own difference is in (C4).
     const zoomed = window.x.start > 0 || window.x.end < 1 || (plots.diff?.kind === 'heatmap' && (window.y.start > 0 || window.y.end < 1));

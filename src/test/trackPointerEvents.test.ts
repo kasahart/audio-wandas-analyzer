@@ -104,7 +104,7 @@ const keyIn = (window: JSDOM['window'], doc: Document) => (code: string, init: K
     return event.defaultPrevented;
 };
 
-test('← / → step the readout of the plot under the pointer, or of a focused one, and go on when it reads nothing (R7)', () => {
+test('← / → step the readout of the plot under the pointer, or of a focused one; off every plot they go on (R7)', () => {
     // A pane's plot (plotInteraction.ts): focused, it takes the arrows too.
     const { window, doc, calls, at } = setup(false, true, { plot: '.track-canvas', axis: '.track-axis-canvas' });
     const key = keyIn(window, doc);
@@ -125,12 +125,39 @@ test('← / → step the readout of the plot under the pointer, or of a focused 
     assert.deepEqual(calls.filter(call => call.startsWith('step')), ['step:track-canvas:1', 'step:track-canvas:-1', 'step:track-canvas:0', 'step:track-canvas:1']);
 });
 
-test('an arrow over a plot that reads nothing goes on to the keys behind it', () => {
+test('an arrow over a plot that cannot step (nothing read, an end, the edge of the window) is the plot\'s all the same: it never goes on to another surface\'s cursor (R7)', () => {
     const { window, doc, at } = setup(false, false);
+    const behind: string[] = [];
+    // The lanes' own cursor keys, behind the plots' (globalKeyboardEvents: the 'lanes' layer).
+    keyRouterFor(window).add({ layer: 'lanes', keydown(e) { behind.push(e.code); return true; } });
     at('.track-canvas').dispatchEvent(new window.MouseEvent('mousemove', { bubbles: true }));
     const event = new window.KeyboardEvent('keydown', { code: 'ArrowRight', key: 'ArrowRight', bubbles: true, cancelable: true });
     doc.body.dispatchEvent(event);
-    assert.equal(event.defaultPrevented, false);
+    assert.equal(event.defaultPrevented, true);
+    // A focused lane, the pointer on another lane that cannot step: the focused lane's cursor stays.
+    const lane = at('.track-canvas'), other = at('#lane2');
+    lane.focus();
+    other.dispatchEvent(new window.MouseEvent('mousemove', { bubbles: true }));
+    const again = new window.KeyboardEvent('keydown', { code: 'ArrowLeft', key: 'ArrowLeft', bubbles: true, cancelable: true });
+    lane.dispatchEvent(again);
+    assert.equal(again.defaultPrevented, true);
+    assert.deepEqual(behind, [], 'no key reached the cursor behind the plots');
+});
+
+test('the focus leaving a plot takes away only a readout the focus gave: the pointer on another plot of the surface keeps its readout (R7)', () => {
+    const { window, calls, at } = setup(false, true, { plot: '.track-canvas', axis: '.track-axis-canvas' });
+    const focused = at('.track-canvas'), pointed = at('#lane2');
+    focused.focus();
+    pointed.dispatchEvent(new window.MouseEvent('mousemove', { bubbles: true }));
+    calls.length = 0;
+    focused.blur();
+    assert.deepEqual(calls.filter(call => call === 'clear'), [], 'the pointer\'s readout stays');
+    // With the pointer off the surface, the readout the focus gave goes with it.
+    at('#tracks').dispatchEvent(new window.MouseEvent('mouseleave'));
+    focused.focus();
+    calls.length = 0;
+    focused.blur();
+    assert.deepEqual(calls.filter(call => call === 'clear'), ['clear']);
 });
 
 test('a lane with the keyboard focus keeps ← / → for its time cursor, even with the pointer on it; the pointer on another lane steps that one\'s readout (R7)', () => {
@@ -211,4 +238,25 @@ test('a plot of another surface with only the focus never takes ← / → from t
     calls.length = 0;
     spec.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'ArrowRight', key: 'ArrowRight', bubbles: true }));
     assert.deepEqual(calls, ['spectrum:spec:1']);
+});
+
+test('an arrow over a plot these gestures do not answer now (another mode\'s gestures on the same surface do) goes on to them (R7)', () => {
+    const { window } = new JSDOM('<!doctype html><body><div id="lanes"><canvas class="track-canvas" id="lane"></canvas></div></body>');
+    const doc = window.document;
+    const calls: string[] = [];
+    const handlers = (name: string, answers: boolean | null) => ({
+        step: (plot: Element) => { calls.push(`${name}:${plot.id}`); return answers; },
+        resetZoom: () => undefined, openAxisRange: () => false, hover: () => undefined, clearHover: () => undefined,
+        press: () => undefined, drag: () => undefined, release: () => undefined, zoomWheel: () => undefined, panWheel: () => undefined, zoomKey: () => false,
+    });
+    const keys = keyRouterFor(window);
+    const surface = doc.getElementById('lanes') as HTMLElement;
+    // The lanes' gestures, then the steps' view's on the same surface (tried first), which is off.
+    attachTrackPointerListeners(surface, doc, keys, handlers('lanes', false), { plot: '.track-canvas' });
+    attachTrackPointerListeners(surface, doc, keys, handlers('steps', null), { plot: '.track-canvas' });
+    (doc.getElementById('lane') as HTMLElement).dispatchEvent(new window.MouseEvent('mousemove', { bubbles: true }));
+    const event = new window.KeyboardEvent('keydown', { code: 'ArrowRight', key: 'ArrowRight', bubbles: true, cancelable: true });
+    doc.body.dispatchEvent(event);
+    assert.deepEqual(calls, ['steps:lane', 'lanes:lane'], 'the lanes answer it');
+    assert.equal(event.defaultPrevented, true, 'and keep it, stepped or not');
 });

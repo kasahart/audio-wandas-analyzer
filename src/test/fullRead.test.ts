@@ -408,3 +408,52 @@ test('a failed full read is held a while, then asked again: a passing failure do
     assert.equal(asked.length, 2, 'asked again once the hold has passed');
     assert.deepEqual(source.line?.(query, () => undefined)?.values, [10, 20, 30]);
 });
+
+test('a seek on plain values (a signal, a metric over time) reads −250 and below as values, one point at a time, and → and ← agree; a level crosses its floor in one (R7)', () => {
+    const xs = [0, 1, 2, 3, 4, 5, 6, 7];
+    const values = [1, 2, -300, -300, -300, -300, 10, 11];
+    const source = localLine(xs, values);
+    const seek = (x: number, seek: -1 | 1, plain: boolean): number => {
+        const got = source.line?.({ x0: x, x1: x, beyond: 0, seek, ...(plain ? { plain: true } : {}) }, () => undefined);
+        const past = (got?.xs ?? []).filter((at, index) => (seek > 0 ? at > x : at < x) && (plain || (got?.values?.[index] ?? -Infinity) > -250));
+        return seek > 0 ? Math.min(...past) : Math.max(...past);
+    };
+    assert.deepEqual([1, 2, 3, 4, 5].map(x => seek(x, 1, true)), [2, 3, 4, 5, 6]);
+    assert.deepEqual([6, 5, 4, 3, 2].map(x => seek(x, -1, true)), [5, 4, 3, 2, 1]);
+    assert.equal(seek(1, 1, false), 6);
+    assert.equal(seek(6, -1, false), 1);
+    // Through the plot: a waveform's samples are plain, its steps read −300 as a sample.
+    const view: StageView = { frame: 'ChannelFrame', kind: 'line', x: 'time', quantity: 'value', unit: 'Pa', xs: [0, 7], values: [1, 11] };
+    const plot: StagePlot = {
+        frame: { left: 0, top: 0, width: 700, height: 100 }, xAt: value => value * 100, xOf: x => x / 100, yAt: value => 50 - value / 10, levelOf: y => (50 - y) * 10,
+        ratioStep: 1.12, diff: false, lines: [{ view, color: 'blue', full: source }],
+    };
+    let read = stageHover(plot, 100, 50 - 0.2);
+    assert.equal(read?.at, 1);
+    const seen: number[] = [];
+    for (let key = 0; key < 5 && read; key++) { read = stageStep(plot, read, 1) ?? null; if (read?.at !== undefined) seen.push(read.at); }
+    assert.deepEqual(seen, [2, 3, 4, 5, 6]);
+});
+
+test('a read the backend failed is no line read: the readout reads nothing, never the line beside it, and is read again once the failure\'s pause is over (R7, C2)', async () => {
+    let clock = 0;
+    const source = fetchedSource((_read, done) => { done(null); }, {}, () => clock);
+    const view: StageView = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', quantity: 'level', unit: 'dB', xs: [0, 9], values: [-20, -20] };
+    const beside = localLine([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], [-21, -21, -21, -21, -21, -21, -21, -21, -21, -21]);
+    const plot: StagePlot = {
+        frame: { left: 0, top: 0, width: 900, height: 100 }, xAt: value => value * 100, xOf: x => x / 100, yAt: value => -value, levelOf: y => -y,
+        ratioStep: 1.12, diff: false, lines: [{ view, color: 'blue', label: 'base', full: source }, { view, color: 'red', label: 'other', full: beside }],
+    };
+    let woken = 0;
+    assert.equal(stageHover(plot, 300, 20)?.pending, true, 'asked');
+    // Read again near the end of the failure's pause: the wake comes when it is over.
+    clock = FAILED_HOLD_MS - 10;
+    const read = stageHover(plot, 300, 20, () => { woken++; });
+    assert.equal(read?.failed, true, 'failed: no number');
+    assert.equal(read?.values, '');
+    assert.notEqual(read?.layer.label, 'other', 'never the line beside it');
+    assert.equal(woken, 0, 'not before the pause is over');
+    clock = FAILED_HOLD_MS + 1;
+    await new Promise(resolve => { setTimeout(resolve, 60); });
+    assert.equal(woken, 1, 'told once its pause is over, to read again');
+});
