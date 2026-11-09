@@ -19,6 +19,16 @@ export const compareDelta: ChartContract = {
             ],
         },
         {
+            id: 'compare-delta.identity', value: 'identity', what: 'Δ と中央値を出す録音の組（レベルの同一性）',
+            computedIn: ['src/webview/runtime/comparePanes.ts:levelIdentityOf', 'src/webview/runtime/comparePanes.ts:levelIdentity', 'python-backend/level_identity.py:level_identity', 'python-backend/stage_combine.py:_calibration'],
+            from: 'whole', trace: '単位・基準値・レベル基準の名前の 3 つ。webview とバックエンドが同じ表（levelIdentityCases.json）に同じ答えを返す。',
+            tests: [
+                t('src/test/levelIdentity.test.ts', 'levels compare only in one unit, reference and its label, whatever their calibration status: the webview answers the table the backend answers (R1, R4, A34)'),
+                t('python-backend/test_level_identity.py', 'test_levels_compare_in_one_unit_reference_and_label_whatever_their_calibration_status'),
+            ],
+            exception: { rule: 'R1', quote: '校正状態は含めません（ゲイン補正した FS の録音と補正していない FS の録音はどちらも dBFS なので比べます）。それでも各線は、読み値と凡例に自分の校正状態を書きます。' },
+        },
+        {
             id: 'compare-delta.readout', value: 'readout', what: 'Δ の読み値',
             computedIn: [`${SP}:lineRead`, `${SP}:cellRead`, 'src/webview/runtime/stageReader.ts:createStageReader', 'python-backend/full_read.py:read_line'],
             from: 'full', trace: 'Δ の層の full は stageReader.combined(base, compare, \'diff\')。バックエンドが全データの Δ からマウスのまわりを返す。',
@@ -71,7 +81,7 @@ export const compareDelta: ChartContract = {
         },
         {
             id: 'compare-delta.ticks', value: 'ticks', what: 'Δ の軸の目盛り',
-            computedIn: [`${SP}:paintPlot`, `${SP}:valueAxisTicks`, `${SP}:valueTickTexts`, `${SP}:alongAxisTicks`, `${SP}:rowAxisTicks`, `${SP}:tickTexts`, `${SP}:levelTick`, `${SP}:paintRightAxis`],
+            computedIn: [`${SP}:paintPlot`, `${SP}:valueAxisTicks`, `${SP}:valueTickTexts`, `${SP}:alongAxisTicks`, `${SP}:rowAxisTicks`, `${SP}:tickTexts`, `${SP}:colourEndText`, `${SP}:paintRightAxis`],
             from: 'axis', trace: '範囲から部品が決める。',
             tests: [
                 t('src/test/stagePanes.test.ts', 'levels share a range of four round steps; coherence keeps 0 to 1'),

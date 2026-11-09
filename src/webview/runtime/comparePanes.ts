@@ -118,12 +118,22 @@ function fileSide(result: ScanOk): Omit<CompareSide, 'title' | 'filePaths'> {
 }
 
 /**
- * What a scan's levels are in: its unit, level reference and calibration. Levels are subtracted, and a median taken,
- * only between scans of one such identity (stage_combine._no_delta_reason); null for a scan that read no file.
+ * What levels are in (display-rules R1, R4): the unit, the reference value and the level reference's label, the one
+ * definition the backend keeps too (python-backend/level_identity.py; both held to
+ * src/test/fixtures/levelIdentityCases.json). Calibration status is not part of it: a gain-corrected file in FS and a
+ * raw one are both in dBFS and compare; each line still says its own status where it is read.
+ */
+export function levelIdentityOf(input: Pick<LevelInput, 'unit' | 'ref' | 'levelReferenceLabel'>): string {
+    return JSON.stringify([input.unit ?? '', Number(input.ref ?? 1), input.levelReferenceLabel ?? '']);
+}
+
+/**
+ * What a scan's levels are in (levelIdentityOf). Levels are subtracted, and a median taken, only between scans of one
+ * such identity (stage_combine._no_delta_reason); null for a scan that read no file.
  */
 export function levelIdentity(result: ScanResult | undefined): string | null {
     const input = result?.ok ? result.input : undefined;
-    return input ? JSON.stringify([input.unit, input.ref, input.calibrationStatus]) : null;
+    return input ? levelIdentityOf(input) : null;
 }
 
 /**

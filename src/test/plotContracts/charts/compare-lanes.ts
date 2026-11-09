@@ -31,10 +31,11 @@ export const compareLanes: ChartContract = {
         },
         {
             id: 'compare-lanes.range', value: 'range', what: 'レーンが共有する値の軸の範囲（線）',
-            computedIn: [`${SP}:stageRange`, 'src/webview/runtime/trackStagePainter.ts:paintStageLanes', 'python-backend/stage_combine.py:value_range'],
-            from: 'full', trace: '各レーンの絵がバックエンドの付けた全データの valueRange を持ち、全レーンのその端から 1 つの範囲を決める。',
+            computedIn: [`${SP}:stageRange`, 'src/webview/runtime/trackStagePainter.ts:paintStageLanes', 'src/webview/runtime/trackStagePainter.ts:rangeOf', 'python-backend/stage_combine.py:value_range'],
+            from: 'full', trace: '各レーンの絵がバックエンドの付けた全データの valueRange を持ち、同じレベルの同一性（R1）のレーンのその端から 1 つの範囲を決める（rangeOf）。',
             tests: [
                 tt('src/test/stagePanes.test.ts', 'every range is set from the full data\'s lowest and highest value (valueRange), never the points drawn or the cells averaged to draw an image (R1, R9)'),
+                t('src/test/trackStagePainter.test.ts', 'side by side, lanes share a range only with the lanes in their own reference: a dB SPL lane is never on a dBFS lane\'s scale (A32, C1)'),
                 tt('python-backend/test_stage_view.py', 'test_every_pictures_value_range_is_its_full_datas_not_the_points_or_cells_drawn'),
             ],
         },
@@ -50,7 +51,7 @@ export const compareLanes: ChartContract = {
         },
         {
             id: 'compare-lanes.ticks', value: 'ticks', what: '各レーンの目盛り',
-            computedIn: [`${SP}:paintPlot`, `${SP}:valueAxisTicks`, `${SP}:valueTickTexts`, `${SP}:alongAxisTicks`, `${SP}:rowAxisTicks`, `${SP}:tickTexts`, `${SP}:levelTick`, `${SP}:paintRightAxis`],
+            computedIn: [`${SP}:paintPlot`, `${SP}:valueAxisTicks`, `${SP}:valueTickTexts`, `${SP}:alongAxisTicks`, `${SP}:rowAxisTicks`, `${SP}:tickTexts`, `${SP}:colourEndText`, `${SP}:paintRightAxis`],
             from: 'axis', trace: '範囲から部品が決める。',
             tests: [
                 t('src/test/stagePanes.test.ts', 'levels share a range of four round steps; coherence keeps 0 to 1'),

@@ -297,3 +297,23 @@ test('overlaid, each line is on the axis of its own recording\'s reference: one 
     // Three references: not overlaid on one plot, as the cursor spectrum does not.
     assert.deepEqual(draw({ 'base.wav': fs, 'one.wav': spl, 'two.wav': volt }, ['base.wav', 'one.wav', 'two.wav']), []);
 });
+
+test('side by side, lanes share a range only with the lanes in their own reference: a dB SPL lane is never on a dBFS lane\'s scale (A32, C1)', () => {
+    const { lane } = page();
+    const fs = { unit: '', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true } as const;
+    const spl = { unit: 'Pa', ref: 2e-5, levelReferenceLabel: 'dB SPL re 20 µPa', calibrationStatus: 'calibrated', fullScale: false } as const;
+    const views = { 'base.wav': line([-20, -30]), 'one.wav': line([74, 64]), 'two.wav': line([-26, -34]) };
+    const ranges = (inputs: Record<string, StageTrack['input']>): Record<string, { min: number; max: number } | undefined> => {
+        const tracks = ['base.wav', 'one.wav', 'two.wav'].map(path => ({ ...lane(path), input: inputs[path] }));
+        const frame = frameFor(tracks, views);
+        paintStageLanes(frame);
+        return Object.fromEntries(tracks.map(track => [track.filePath, frame.drawnOn.get(track.canvas as Element)?.range]));
+    };
+    const mixed = ranges({ 'base.wav': fs, 'one.wav': spl, 'two.wav': fs });
+    assert.deepEqual(mixed['base.wav'], mixed['two.wav'], 'two dBFS lanes share one range');
+    assert.notDeepEqual(mixed['one.wav'], mixed['base.wav'], 'the dB SPL lane has its own');
+    assert.ok(mixed['one.wav']!.min > 0 && mixed['base.wav']!.max <= 0, JSON.stringify(mixed));
+    // One reference: one range for all.
+    const one = ranges({ 'base.wav': spl, 'one.wav': spl, 'two.wav': spl });
+    assert.deepEqual(one['base.wav'], one['one.wav']);
+});

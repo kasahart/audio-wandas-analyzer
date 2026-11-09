@@ -46,6 +46,7 @@ import analysis_spec as spec
 from analyzer import has_full_scale
 from backend_errors import InputError
 from calibration_profile import CalibrationStatus, resolve_calibration_profile
+from level_identity import level_identity
 from stage_combine import STORE, stage_data
 from stage_view import StageDetail, StageView, band_levels, floored_db, stage_view
 
@@ -588,7 +589,7 @@ def scan_cached(
     calibrated = resolved.apply(source)
     picked = calibrated if selected == list(range(source.n_channels)) else calibrated.get_channel(selected)
     references = {
-        (channel.unit, float(channel.ref), channel.level_reference.label, has_full_scale(source, index))
+        (*level_identity(channel.unit, channel.ref, channel.level_reference.label), has_full_scale(source, index))
         for index, channel in zip(selected, picked.channels, strict=True)
     }
     if len(references) != 1:

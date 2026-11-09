@@ -40,6 +40,7 @@ import analysis_spec as spec
 import stage_view as sv
 from decimator import bucket_edges
 from full_read import SILENT_DB, StagePoints, StageRead, read_cells, read_line, sorted_axis, uniform_axis
+from level_identity import LevelIdentity, level_identity
 from stage_view import StageDetail, StageLevelBins, StagePeak, StageValueRange, StageView
 
 #: How much of the Frames' values the backend keeps for the comparison's medians and differences. The least
@@ -94,7 +95,7 @@ class StageData:
     event_ids: tuple[int, ...] = ()
     #: The recording's channel unit and reference, whatever the Frame (a level's dB are re that reference): values
     #: are combined only between recordings calibrated alike.
-    calibration: tuple[str, float] = ("", 1.0)
+    calibration: LevelIdentity = ("", 1.0, "")
 
     @property
     def nbytes(self) -> int:
@@ -182,15 +183,19 @@ def _column_whole(frame: Any, columns: int, signal_s: float | None) -> np.ndarra
     return (centres >= half - 1e-9) & (centres <= signal_s - half + 1e-9)
 
 
-def _calibration(frame: object) -> tuple[str, float]:
-    """The channel unit and reference ``frame``'s values are in (a trigger's events: their first event's)."""
+def _calibration(frame: object) -> LevelIdentity:
+    """What ``frame``'s values are in (level_identity: unit, reference, its label; a trigger's events: their first
+    event's)."""
     if isinstance(frame, ChannelFrameSegments):
         frame = frame[0] if len(frame) else None
     channels = getattr(frame, "channels", None)
     if not channels:
-        return ("", 1.0)
+        return level_identity("", 1.0, "")
     first = channels[0]
-    return (str(getattr(first, "unit", "") or ""), float(getattr(first, "ref", 1.0) or 1.0))
+    reference = getattr(first, "level_reference", None)
+    return level_identity(
+        getattr(first, "unit", ""), getattr(first, "ref", 1.0) or 1.0, getattr(reference, "label", "")
+    )
 
 
 def stage_data(frame: object, view: StageView, signal_s: float | None = None) -> StageData | None:

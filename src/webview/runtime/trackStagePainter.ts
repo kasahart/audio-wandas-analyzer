@@ -8,7 +8,7 @@ import type { StageView } from '../../shared/protocol/backendProtocol';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { baseName } from '../../shared/analysis/entryMetadata';
 import { DIFF_COLOR, ROLE_COLORS } from '../../shared/gui/roleColors';
-import type { LegendItem, LevelInput, PaneRange } from './comparePanes';
+import { levelIdentityOf, type LegendItem, type LevelInput, type PaneRange } from './comparePanes';
 import { clearSideAxis, emptyStageText, isEventsView, paintOverlay, paintStage, stageAxes, stageDiffRange, stageEventCounts, stageHeadline, stageRange, type StageAxes, type StageLayer, type StagePlot } from './stagePanes';
 import type { PlotWindow } from './plotInteraction';
 import { noDeltaNote } from './combineSource';
@@ -171,10 +171,23 @@ export function stageModeHeadline(frame: Pick<StageFrame, 'strings' | 'waiting' 
 export const colorOf = (role: StageFrame['role'], path: string, fallback: string): string => ROLE_COLORS[role(path) ?? -1] ?? fallback;
 const widthOf = (role: StageFrame['role'], path: string, width: number): number => (role(path) === undefined ? 1.2 : width);
 
-/** Side by side: every track's lane, on one range so the tracks compare at a glance; how many lanes drew a picture. */
+/** What a lane's levels are in (comparePanes.levelIdentityOf). */
+const referenceOf = (track: StageTrack): string => (track.input ? levelIdentityOf(track.input) : '');
+
+/**
+ * Side by side: every track's lane, on one range with the lanes in its reference so they compare at a glance, and a
+ * lane in another reference on its own (A32, C1: a level in dBFS is never laid on a dB SPL scale); how many lanes drew
+ * a picture.
+ */
 export function paintStageLanes(frame: StageFrame): number {
     const { strings, tracks, coarse, shown, picture, window, regionMark, pending } = frame;
-    const range = stageRange(tracks.map(track => coarse(track.filePath) ?? null));
+    const ranges = new Map<string, PaneRange>();
+    const rangeOf = (track: StageTrack): PaneRange => {
+        const key = referenceOf(track);
+        let found = ranges.get(key);
+        if (!found) ranges.set(key, found = stageRange(tracks.filter(other => referenceOf(other) === key).map(other => coarse(other.filePath) ?? null)));
+        return found;
+    };
     const heat = picture?.kind === 'heatmap';
     let drawn = 0;
     // Every lane in while the base group is still computed: the first lane says so, in its corner.
@@ -191,6 +204,7 @@ export function paintStageLanes(frame: StageFrame): number {
         const empty = missing ? '' : emptyStageText(strings, coarse(track.filePath) ?? picture);
         const axes = stageAxes(strings, coarse(track.filePath) ?? picture, track.input);
         // A lane holds one picture, drawn as it is (1/3-octave levels as steps, without a fill).
+        const range = rangeOf(track);
         const lanePlot = paintOverlay(track.canvas, { layers: view ? [{ view, color: colorOf(frame.role, track.filePath, track.color), width: widthOf(frame.role, track.filePath, 2), label: frame.named(track.filePath, frame.role(track.filePath)).label, ...eventsOf(frame, track.filePath, view), ...fullOf(frame, view) }] : [] }, heat ? range : narrowed(range, window.y), axes,
             { empty, window: { x: window.x, ...(heat ? { y: window.y } : {}) }, axisView: coarse(track.filePath) ?? picture, ...(regionMark ? { region: regionMark } : {}), ...((missing || track.filePath === progressLane) && pending ? { pending } : {}) });
         frame.drawnOn.set(track.canvas, { picture: coarse(track.filePath) ?? picture, range, axes, plot: lanePlot });
