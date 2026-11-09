@@ -99,6 +99,9 @@ window.acquireVsCodeApi = function() {
             window.__uiSmokePostedMessages.push(message);
             const read = uiSmokeReadAnswer(message);
             if (read) { window.setTimeout(function() { window.postMessage(read, '*'); }, 0); return; }
+            // The cursor spectrum's slice, as the backend answers it: until it is in, the spectrogram column drawn is not read (R7).
+            const slice = uiSmokeSliceAnswer(message);
+            if (slice) { window.setTimeout(function() { window.postMessage(slice, '*'); }, 0); return; }
             if (message && message.type === 'compare-combine' && !window.__uiSmokeHoldCombine) {
                 const answer = uiSmokeCombine(message);
                 window.setTimeout(function() { window.postMessage({ type: 'compare-combine-result', requestId: message.requestId, result: answer }, '*'); }, 0);

@@ -1,4 +1,4 @@
-import { t, type ChartContract } from '../model';
+import { t, tt, type ChartContract } from '../model';
 
 /** 解析レポート（Markdown） */
 export const analysisReport: ChartContract = {
@@ -13,13 +13,11 @@ export const analysisReport: ChartContract = {
             computedIn: ['src/shared/report/analysisReport.ts:buildMarkdownReport', 'src/shared/report/analysisReport.ts:formatReportDb', 'src/shared/report/analysisReport.ts:reportLevel'],
             from: 'full', trace: 'バックエンドの全サンプルのピークとレベル、ファイルの長さ。',
             tests: [
+                tt('src/test/analysisReport.test.ts', 'the markdown report writes every sample\'s peak and level and the file\'s own length, never the envelope thinned to draw it'),
                 t('src/test/analysisReport.test.ts', 'markdown report is a pure function of tracks, loop region and time'),
                 t('src/test/renderScript.integration.test.ts', 'renderScript: multichannel report lists peak metrics for every channel'),
             ],
-            gap: { severity: 'P2', why: '全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。' },
         },
     ],
-    knownGaps: {
-        'analysis-report.export': 'P2',
-    },
+    knownGaps: {},
 };

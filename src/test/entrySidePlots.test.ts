@@ -8,6 +8,8 @@ import { createSidePlots, type SidePlotsDeps } from '../webview/runtime/entrySid
 import { sharedLevelLabel } from '../shared/utils/format';
 import { entryScreenHtml } from '../webview/runtime/entryTableHtml';
 import { FULL_PLOT_WINDOW } from '../webview/runtime/plotInteraction';
+import { BAND_CENTERS_HZ } from '../webview/runtime/entryTable';
+import { stageHover, stageStep } from '../webview/runtime/stagePanes';
 
 const strings = getStrings('en');
 
@@ -195,4 +197,51 @@ test('the strip is a heatmap of the table: a row per table row counted down from
     assert.deepEqual(top?.view.ys, [-1.5, -0.5]);
     assert.deepEqual(top?.range, { min: -60, max: -10 });
     assert.equal(overviewPicture(rows, new Map(), FULL_PLOT_WINDOW, 100), null, 'no levels, nothing to draw');
+});
+
+test('the strip\'s colour range holds every table row\'s level, not only the loudest drawn per line, and opens at round ends (R9)', () => {
+    // 300 rows on 10 lines: each line draws the loudest of its 30 rows, so a quiet row's level is never drawn.
+    const rows = Array.from({ length: 300 }, (_, index) => ({ filePath: `/d/${index}.wav` }));
+    const bands = new Map<string, (number | null)[]>(rows.map((row, index) => [row.filePath, [-50 + (index % 7), -40 + (index % 5)]]));
+    bands.set('/d/151.wav', [-97.3, -40]);
+    bands.set('/d/20.wav', [-50, -3.4]);
+    const picture = overviewPicture(rows, bands, FULL_PLOT_WINDOW, 10);
+    assert.ok(picture);
+    const drawn = (picture.view.matrix ?? []).flat().filter((value): value is number => value !== null);
+    assert.ok(Math.min(...drawn) > -60, 'the quiet row is not drawn: a range from the drawn cells would miss it');
+    assert.deepEqual(picture.range, { min: -100, max: 0 });
+    // Zoomed to rows that hold neither end, the colours still span every row.
+    const zoomed = overviewPicture(rows, bands, { x: FULL_PLOT_WINDOW.x, y: { start: 0, end: 0.1 } }, 10);
+    assert.deepEqual(zoomed?.range, { min: -100, max: 0 });
+});
+
+test('the strip is read at the table row under the pointer, never the loudest row its line draws, and ← / → step that row\'s bands (R7)', () => {
+    const { document, overview } = setup();
+    // A context that draws nothing but answers what the plot component asks of it.
+    const image = (width: number, height: number) => ({ width, height, data: new Uint8ClampedArray(Math.max(1, width * height * 4)) });
+    // Whatever else it is asked for (a gradient, a path) is an object that takes any call.
+    const anything: object = new Proxy(() => undefined, { get: (_target, prop) => (prop === 'then' ? undefined : () => anything), set: () => true });
+    overview.getContext = (() => new Proxy({}, {
+        get: (_target, prop) => (prop === 'measureText' ? () => ({ width: 10 }) : prop === 'createImageData' || prop === 'getImageData' ? (...size: number[]) => image(size.at(-2) ?? 1, size.at(-1) ?? 1) : () => anything),
+        set: () => true,
+    })) as unknown as HTMLCanvasElement['getContext'];
+    // 400 rows on a strip about 90 pixels high: each picture line draws the loudest of four or five rows.
+    const rows = Array.from({ length: 400 }, (_, index) => ({ filePath: `/d/r${index}.wav` }));
+    const bands = new Map<string, (number | null)[]>(rows.map((row, index) => [row.filePath, BAND_CENTERS_HZ.map((_, band) => (index === 201 ? -80 - band : -20 - (index % 3) - band))]));
+    const plot = paintOverview(overview, strings, rows, bands, { first: 0, last: 399 }, null).drawn;
+    assert.ok(plot);
+    const view = plot.image?.layer.view ?? plot.lines[0]?.view;
+    assert.ok((view?.matrix?.length ?? 0) < rows.length, 'the rows are thinned to be drawn');
+    assert.ok(!(view?.matrix ?? []).some(line => line.includes(-80)), 'row 201 is quieter than its line\'s loudest, so it is not drawn');
+    // The pointer on row 201's place, at band 0.
+    const heat = plot.image;
+    assert.ok(heat, 'a heatmap');
+    const at = heat.placeOf(BAND_CENTERS_HZ[0], -(201 + 0.5));
+    const read = stageHover(plot, at.x, at.y);
+    assert.equal(read?.value, -80);
+    assert.match(read?.text ?? '', /r201\.wav/);
+    const next = read ? stageStep(plot, read, 1) : null;
+    assert.equal(next?.value, -81, '→ is the same row\'s next band');
+    assert.match(next?.text ?? '', /r201\.wav/);
+    void document;
 });

@@ -234,6 +234,35 @@ def test_spectrogram_time_reduction_averages_linear_power() -> None:
     )
 
 
+def test_spectrogram_colour_range_is_every_full_cells_not_the_cells_averaged_to_draw() -> None:
+    # A long STFT the lane draws averaged in time and frequency: one short loud cell and one narrow deep cell are
+    # averaged away in the drawn cells, but they are the full STFT's ends and the colour bar's.
+    rng = np.random.default_rng(7)
+    full = rng.uniform(-62.0, -58.0, size=(6000, 2049))
+    full[3001, 700] = -3.5
+    full[1200, 1500] = -97.25
+    spec = _build_spectrogram(full, sample_rate_hz=48_000, window_size=4096, hop_size=1024, scale=_SCALE)
+
+    drawn = np.asarray(spec["values"])
+    assert drawn.shape[0] < full.shape[0] and drawn.shape[1] < full.shape[1]
+    # The drawn cells lost both ends, so a range from them would not be the full data's.
+    assert drawn.max() < -20.0 and drawn.min() > -70.0
+    assert spec["maxDb"] == -3.5
+    assert spec["minDb"] == -97.25
+
+
+def test_spectrogram_colour_range_counts_digital_silence_as_its_own_level() -> None:
+    full = np.full((3000, 1025), -50.0)
+    full[:500] = -240.0  # wandas' dB of an all-zero frame
+    full[600, 3] = -np.inf
+    spec = _build_spectrogram(full, sample_rate_hz=48_000, window_size=2048, hop_size=512, scale=_SCALE)
+
+    # The drawn cells floor their averages at -120 dB; the range is every finite cell's, silence included.
+    assert spec["minDb"] == pytest.approx(-240.0)
+    assert spec["maxDb"] == pytest.approx(-50.0)
+    assert min(min(row) for row in spec["values"]) >= spec["minDb"]
+
+
 def test_spectrogram_frequency_reduction_averages_linear_power() -> None:
     spec = _build_spectrogram(
         np.array([[-60.0, 0.0], [-20.0, -40.0]], dtype=np.float64),
@@ -601,3 +630,24 @@ def test_with_automatic_settings_a_zoom_window_gets_its_own_hop_and_its_columns(
     assert centers[0] >= 12.0 - 0.05 and centers[-1] <= 13.5 + 0.05
     # The tone's level is the whole file's: the window's STFT is the same transform, not a rescaled one.
     assert zoomed["maxDb"] == pytest.approx(whole["maxDb"], abs=0.05)
+
+
+def test_channel_peak_is_every_samples_largest_magnitude_not_the_envelope_drawn(
+    tmp_path: Path, service: AnalysisService
+) -> None:
+    # Ten seconds of a quiet tone and one negative sample far below it: the envelope drawn thins the samples to a few
+    # thousand points; the header's peak and its level are every sample's.
+    rate = 48_000
+    times = np.arange(10 * rate) / rate
+    samples = 0.25 * np.sin(2 * np.pi * 97 * times)
+    samples[312_345] = -0.8125
+    audio = tmp_path / "spike.wav"
+    sf.write(audio, samples, rate, subtype="FLOAT")
+
+    channel = service.analyze(audio)["channels"][0]
+
+    read = sf.read(audio, dtype="float64")[0]
+    assert len(channel["waveform"]["max"]) < len(read) / 10
+    assert channel["peakAbsolute"] == pytest.approx(float(np.max(np.abs(read))))
+    assert channel["peakAbsolute"] == pytest.approx(0.8125)
+    assert channel["peakLevelDb"] == pytest.approx(20 * math.log10(0.8125), abs=1e-6)

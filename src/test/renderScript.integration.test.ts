@@ -2005,11 +2005,41 @@ async function sizeOverlay(env: ReturnType<typeof setupEnv>, width: number): Pro
     return canvas;
 }
 
+/**
+ * Answers every cursor-spectrum slice the webview asked for as the backend does, with each channel's every-bin row:
+ * here the state's spectrogram column at the cursor, so the cursor spectrum reads a slice of its own, not the column
+ * it draws while the slice is on its way (which it never reads, R7).
+ */
+async function answerSpectrumSlices(env: ReturnType<typeof setupEnv>, stateJson: string): Promise<void> {
+    const state = JSON.parse(stateJson);
+    const answered = new Set<string>();
+    for (let round = 0; round < 4; round++) {
+        const open = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice' && !msg.fullResolution && !answered.has(msg.requestId)) as any[];
+        if (!open.length) break;
+        for (const request of open) {
+            answered.add(request.requestId);
+            const result = state.results[request.trackIndex];
+            const channels = (result?.channels ?? []).map((channel: any, channelIndex: number) => {
+                const spec = channel.spectrogram;
+                const at = Math.max(0, Math.min(spec.timeBins - 1, Math.floor(request.cursorNorm * spec.timeBins)));
+                return { channelIndex, values: spec.values[at], minDb: spec.minDb, maxDb: spec.maxDb, unit: spec.unit };
+            });
+            const first = result.channels[0].spectrogram;
+            env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+                type: 'spectrum-slice-result', requestId: request.requestId, analysisId: request.analysisId, settingsSignature: request.settingsSignature,
+                trackIndex: request.trackIndex, filePath: request.filePath, channels, frequencyBins: first.frequencyBins, maxFrequencyHz: first.maxFrequencyHz,
+            } }));
+        }
+        await nextAnimationFrame(env.dom);
+    }
+}
+
 test('spectrum cursor: overlay readout formats focused frequency as every plot does (R7)', async () => {
     const env = setupHighFrequencyReadoutEnv();
     await nextAnimationFrame(env.dom);
 
     const canvas = await sizeOverlay(env, 200);
+    await answerSpectrumSlices(env, HIGH_FREQUENCY_READOUT_STATE);
 
     canvas.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 88, clientY: 30 }));
     await nextAnimationFrame(env.dom);
@@ -2027,6 +2057,7 @@ test('spectrum cursor: overlay readout identifies the hovered file and channel',
     await nextAnimationFrame(env.dom);
 
     const canvas = await sizeOverlay(env, 200);
+    await answerSpectrumSlices(env, MULTICHANNEL_APP_STATE);
 
     canvas.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 192, clientY: 12 }));
     await nextAnimationFrame(env.dom);
@@ -2042,6 +2073,7 @@ test('spectrum cursor: overlay readout identifies the hovered file and channel',
 test('spectrum cursor: overlay keyboard focus updates the header readout', async () => {
     const env = setupHighFrequencyReadoutEnv();
     await nextAnimationFrame(env.dom);
+    await answerSpectrumSlices(env, HIGH_FREQUENCY_READOUT_STATE);
 
     const canvas = env.dom.window.document.getElementById('spectrum-overlay-canvas') as HTMLCanvasElement | null;
     assert.ok(canvas, 'spectrum-overlay-canvas が存在すること');
@@ -2061,6 +2093,7 @@ test('spectrum cursor: narrow canvas hover clears stale spectrum target', async 
     await nextAnimationFrame(env.dom);
 
     const overlayCanvas = await sizeOverlay(env, 200);
+    await answerSpectrumSlices(env, MISMATCHED_DELTA_F_SPECTRUM_STATE);
 
     overlayCanvas.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 88, clientY: 30 }));
     await nextAnimationFrame(env.dom);
@@ -2083,6 +2116,7 @@ test('spectrum cursor: overlay snaps to the nearest visible series bin when delt
     await nextAnimationFrame(env.dom);
 
     const canvas = await sizeOverlay(env, 200);
+    await answerSpectrumSlices(env, MISMATCHED_DELTA_F_SPECTRUM_STATE);
 
     canvas.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 73, clientY: 52 }));
     await nextAnimationFrame(env.dom);
@@ -2100,6 +2134,7 @@ test('spectrum cursor: overlay remains snapped after frequency zoom changes the 
     await nextAnimationFrame(env.dom);
 
     const canvas = await sizeOverlay(env, 200);
+    await answerSpectrumSlices(env, MISMATCHED_DELTA_F_SPECTRUM_STATE);
 
     canvas.dispatchEvent(new env.dom.window.MouseEvent('dblclick', { bubbles: true, clientX: 100, clientY: 135 }));
     const minI = env.dom.window.document.getElementById('spec-range-min') as HTMLInputElement;

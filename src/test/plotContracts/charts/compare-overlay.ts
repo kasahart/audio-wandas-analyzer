@@ -62,8 +62,9 @@ export const compareOverlay: ChartContract = {
             id: 'compare-overlay.readout-events', value: 'readout', what: 'トリガーのイベントごとの線の読み値（#n @ 時刻）',
             computedIn: [`${SP}:eventLayers`, 'src/webview/runtime/stageReader.ts:createStageReader'],
             from: 'full', trace: 'eventLayers がイベントごとに layer.full.event(id) を付け、stageReader が read に event を入れて頼む。バックエンドはそのイベントの全サンプルを返す。',
-            tests: [],
-            gap: { severity: 'P2', why: 'イベントの線の読み値と ← / → がそのイベントの全サンプルから来ることを確かめるテストがない（ジェスチャのテストは数字の出どころを見ない）。' },
+            tests: [
+                tt('src/test/stageEventReads.test.ts', 'a trigger\'s event lines are each read at that event\'s every sample, never the points thinned to draw it, and ← / → step its samples (R7)'),
+            ],
         },
         {
             id: 'compare-overlay.step', value: 'step', what: '← / → で進む先（次のビン・サンプル・フレーム）',
@@ -194,7 +195,6 @@ export const compareOverlay: ChartContract = {
     ],
     knownGaps: {
         'compare-overlay.pending': 'P2',
-        'compare-overlay.readout-events': 'P2',
         'compare-overlay.range': 'P2',
         'compare-overlay.range-image': 'P1',
         'compare-overlay.axis-metric': 'P2',

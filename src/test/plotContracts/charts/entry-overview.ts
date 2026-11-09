@@ -1,4 +1,4 @@
-import { SP, t, type ChartContract } from '../model';
+import { SP, t, tt, type ChartContract } from '../model';
 
 /** 入口の概観帯 */
 export const entryOverview: ChartContract = {
@@ -13,26 +13,27 @@ export const entryOverview: ChartContract = {
             computedIn: ['src/webview/runtime/entryPlots.ts:overviewCells', `${SP}:cellRead`],
             from: 'full', trace: '描く絵は行が多いと画素の行ごとに一番大きい帯のレベルにするが、読み値は表の本当の行（overviewCells）を読む。',
             tests: [
+                tt('src/test/entrySidePlots.test.ts', 'the strip is read at the table row under the pointer, never the loudest row its line draws, and ← / → step that row\'s bands (R7)'),
                 t('src/test/uiSmoke/entry.spec.ts', 'the overview strip has a row per channel, as the table does: its readout names the channel of a recording of several'),
                 t('src/test/uiSmoke/plotContract.spec.ts', 'the entry\'s overview strip answers the same gestures as every plot (R13)'),
             ],
-            gap: { severity: 'P2', why: '全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。' },
         },
         {
             id: 'entry-overview.step', value: 'step', what: '概観帯の ← / →（次の帯）',
             computedIn: [`${SP}:imageStep`],
             from: 'full', trace: '表の本当の行の次の帯。',
             tests: [
+                tt('src/test/entrySidePlots.test.ts', 'the strip is read at the table row under the pointer, never the loudest row its line draws, and ← / → step that row\'s bands (R7)'),
                 t('src/test/uiSmoke/plotContract.spec.ts', 'the entry\'s overview strip answers the same gestures as every plot (R13)'),
             ],
-            gap: { severity: 'P2', why: '全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。' },
         },
         {
             id: 'entry-overview.range', value: 'range', what: '色の範囲（カラーバーの両端）',
             computedIn: ['src/webview/runtime/entryPlots.ts:overviewPicture'],
-            from: 'full', trace: '表のすべての行のすべての帯のレベルの最小と最大を 1 dB に切り下げ・切り上げる（niceRange ではない）。',
-            tests: [],
-            gap: { severity: 'P2', why: '範囲を確かめるテストがない。端の丸めも R9 の切りのよい値（niceRange）ではない。' },
+            from: 'full', trace: '表のすべての行のすべての帯のレベル（線ごとに一番大きいものだけを描くが、描かない行も）の最小と最大を niceRange で切りのよい値に広げる（R9）。',
+            tests: [
+                tt('src/test/entrySidePlots.test.ts', 'the strip\'s colour range holds every table row\'s level, not only the loudest drawn per line, and opens at round ends (R9)'),
+            ],
         },
         {
             id: 'entry-overview.ticks', value: 'ticks', what: '帯と行の目盛り',
@@ -52,9 +53,5 @@ export const entryOverview: ChartContract = {
             names: { quantity: true, unit: true, reference: true },
         },
     ],
-    knownGaps: {
-        'entry-overview.readout': 'P2',
-        'entry-overview.step': 'P2',
-        'entry-overview.range': 'P2',
-    },
+    knownGaps: {},
 };

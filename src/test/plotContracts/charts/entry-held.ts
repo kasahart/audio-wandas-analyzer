@@ -20,11 +20,11 @@ export const entryHeld: ChartContract = {
         {
             id: 'entry-held.step', value: 'step', what: '保持図の ← / →',
             computedIn: [`${SP}:stageStep`],
-            from: 'full', trace: '読み値と同じ全データの次の点。',
+            from: 'full', trace: '読み値と同じ全データの次の点。スロットの Δ は全ビンの次のビン。',
             tests: [
+                tt('src/test/entryHeldPlot.test.ts', '← / → on a held slot\'s Δ step to the next of every bin, not the next point drawn of the Δ thinned to the plot\'s width (R7)'),
                 t('src/test/uiSmoke/plotContract.spec.ts', 'the entry\'s held plot answers the same gestures as every plot (R13)'),
             ],
-            gap: { severity: 'P2', why: '全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。' },
         },
         {
             id: 'entry-held.delta', value: 'delta', what: 'スロットの Δ（全ビン）と手順の有無の Δ',
@@ -84,7 +84,6 @@ export const entryHeld: ChartContract = {
         },
     ],
     knownGaps: {
-        'entry-held.step': 'P2',
         'entry-held.range': 'P2',
     },
 };

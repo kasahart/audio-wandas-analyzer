@@ -9,6 +9,7 @@ import { createHeldPlot, DELTA_RELEASE_MS, narrowed, TAP_MS, type HeldPlotDeps }
 import { buildCompareModel } from '../webview/runtime/comparePanes';
 import { buildEntryModel } from '../webview/runtime/entryTable';
 import { FULL_PLOT_WINDOW } from '../webview/runtime/plotInteraction';
+import { stageHover, stageStep } from '../webview/runtime/stagePanes';
 import { stepChipLabel } from '../webview/runtime/stepBar';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -318,4 +319,49 @@ test('a file scanned again since its bins were kept is asked for again, once, so
     plot.paint();
     plot.paint();
     assert.equal(posts().length, asked + 1);
+});
+
+test('← / → on a held slot\'s Δ step to the next of every bin, not the next point drawn of the Δ thinned to the plot\'s width (R7)', () => {
+    // 4000 bins, each a different Δ (the bin's number modulo 7), on a plot a few hundred pixels wide.
+    const BINS = 4000, HZ = 6;
+    const deltaAt = (bin: number): number => bin % 7;
+    const binned = (louder: boolean): ScanResult => ({ ...scanned(), spectrumBinsDb: [Array.from({ length: BINS }, (_, bin) => -40 + (louder ? deltaAt(bin) : 0))], spectrumBinHz: HZ });
+    const results = new Map<string, ScanResult>([['/d/a.wav', scanned()], ['/d/b.wav', scanned()]]);
+    const { document, window, plot, calls, state } = setup(results);
+    const canvas = document.querySelector<HTMLCanvasElement>('[data-entry-held-canvas]')!;
+    Object.defineProperties(canvas, { clientWidth: { value: 400 }, clientHeight: { value: 200 } });
+    // A context that draws nothing but answers what the plot component asks of it.
+    const anything: object = new Proxy(() => undefined, { get: (_target, prop) => (prop === 'then' ? undefined : () => anything), set: () => true });
+    canvas.getContext = (() => new Proxy({}, {
+        get: (_target, prop) => (prop === 'measureText' ? () => ({ width: 10 }) : prop === 'createImageData' || prop === 'getImageData' ? (...size: number[]) => ({ width: size.at(-2) ?? 1, height: size.at(-1) ?? 1, data: new Uint8ClampedArray(Math.max(1, (size.at(-2) ?? 1) * (size.at(-1) ?? 1) * 4)) }) : () => anything),
+        set: () => true,
+    })) as unknown as HTMLCanvasElement['getContext'];
+    state.slots = [null, '/d/a.wav', null, null];
+    plot.press(1);
+    window.advance(TAP_MS);
+    plot.paint();
+    const asked = calls.filter(([kind]) => kind === 'post').map(([, message]) => message as { requestId: string })[0];
+    plot.handle({ type: 'compare-scan-result', requestId: asked.requestId, filePath: '/d/a.wav', result: binned(true) } as { type: string });
+    plot.handle({ type: 'compare-scan-result', requestId: asked.requestId, filePath: '/d/b.wav', result: binned(false) } as { type: string });
+    plot.handle({ type: 'compare-scan-done', requestId: asked.requestId } as { type: string });
+    plot.paint();
+    const drawn = plot.picture()?.drawn;
+    assert.ok(drawn, 'the Δ is drawn');
+    const line = drawn.lines[0];
+    const points = line?.view.values?.length ?? 0;
+    assert.ok(points > 0 && points < BINS / 4, `the Δ is thinned to be drawn (${points} points of ${BINS} bins)`);
+    // The pointer in the middle of the plot: the bin read there, then → and ← one bin at a time.
+    const read = stageHover(drawn, drawn.frame.left + drawn.frame.width / 2, drawn.frame.top + drawn.frame.height / 2);
+    assert.ok(read?.full, 'read from every bin');
+    assert.ok(read.at !== undefined);
+    const bin = Math.round(read.at / HZ);
+    assert.equal(read.value, deltaAt(bin));
+    let at = read;
+    for (const [delta, expected] of [[1, bin + 1], [1, bin + 2], [1, bin + 3], [-1, bin + 2], [-1, bin + 1]] as const) {
+        const next = stageStep(drawn, at, delta);
+        assert.ok(next, `a step to bin ${expected}`);
+        assert.equal(Math.round((next.at ?? NaN) / HZ), expected, 'one bin on, not the next point drawn');
+        assert.equal(next.value, deltaAt(expected), 'the value of that bin');
+        at = next;
+    }
 });

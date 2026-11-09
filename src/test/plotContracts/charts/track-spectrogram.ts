@@ -28,11 +28,12 @@ export const trackSpectrogram: ChartContract = {
         {
             id: 'track-spectrogram.range', value: 'range', what: '色の自動の範囲（カラーバーの両端の数）',
             computedIn: ['src/webview/runtime/spectrogramRaster.ts:spectrogramDisplayBounds', 'python-backend/analyzer.py:_build_spectrogram'],
-            from: 'thinned', trace: 'spec.minDb / maxDb は _build_spectrogram が時間と周波数をパワー平均して表示用に縮めたマス（_resample_time_bins、resample_frequency_bins）の最小と最大。niceRange で丸めてカラーバーの両端に出す。',
+            from: 'full', trace: 'spec.minDb / maxDb は _build_spectrogram が表示用に平均する前の全 STFT のマスの最小と最大（-inf のマスだけ除く。無音の -240 dB も数える）。niceRange で丸めてカラーバーの両端に出す。',
             tests: [
+                tt('python-backend/test_analyzer.py', 'test_spectrogram_colour_range_is_every_full_cells_not_the_cells_averaged_to_draw'),
+                t('python-backend/test_analyzer.py', 'test_spectrogram_colour_range_counts_digital_silence_as_its_own_level'),
                 t('src/test/uiSmoke/colourRangeRounding.spec.ts', 'the auto colour scale opens with round dB ends, and typed ends are kept as typed'),
             ],
-            gap: { severity: 'P1', why: 'カラーバーの両端の数が、表示用に平均したマスから来る。テストは丸めだけを見ていて、全 STFT の最小・最大と比べていない。' },
         },
         {
             id: 'track-spectrogram.ticks', value: 'ticks', what: '周波数の目盛り',
@@ -54,7 +55,5 @@ export const trackSpectrogram: ChartContract = {
             names: { quantity: true, unit: true, reference: true },
         },
     ],
-    knownGaps: {
-        'track-spectrogram.range': 'P1',
-    },
+    knownGaps: {},
 };
