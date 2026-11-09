@@ -253,7 +253,7 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
     const zoomed = await plot.getAttribute('data-plot-window');
     const zoomedPicture = await picture();
     const [w0, w1] = (zoomed ?? '').split(' ').map(Number);
-    const aboutPointer = wheelFrom === FULL && !!wheelFraction && w1 - w0 < 0.99 && Math.abs(w0 + wheelFraction.x * (w1 - w0) - wheelFraction.x) < 0.01;
+    const aboutPointer = (wheelFrom ?? FULL) === FULL && !!wheelFraction && w1 - w0 < 0.99 && Math.abs(w0 + wheelFraction.x * (w1 - w0) - wheelFraction.x) < 0.01;
     if (zoomed && zoomed !== FULL && aboutPointer && zoomedPicture !== whole) passed.add('zoom');
     await page.mouse.dblclick(middle.x, middle.y);
     await page.waitForTimeout(80);
@@ -313,13 +313,15 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
     const vertical = await plot.getAttribute('data-plot-y-axis');
     if (boxed.length === 4 && boxed.every(Number.isFinite) && (vertical === 'zoom' || vertical === 'all-counts')) {
         const [x0, x1, y0, y1] = boxed;
-        // It shows what the box enclosed, on each axis it zooms (clamped to the whole where the box ran past an edge).
+        // It shows what the box enclosed along the horizontal axis (clamped to the whole where the box ran past an
+        // edge). The vertical window is a part of a whole range that may itself refit to the frequencies on screen
+        // (the pair view's gain, R9), so its fractions are not the pixels' and only its narrowing is checked.
         const near = (value: number, expected: number | undefined): boolean => expected !== undefined && Math.abs(value - Math.min(1, Math.max(0, expected))) < 0.02;
-        const across = boxFrom === FULL && x0 > 0.001 && x1 < 0.999 && x1 > x0 && near(x0, corner0?.x) && near(x1, corner1?.x);
+        const across = (boxFrom ?? FULL) === FULL && x0 > 0.001 && x1 < 0.999 && x1 > x0 && near(x0, corner0?.x) && near(x1, corner1?.x);
         // A count axis is one that shows every count (display-rules R13), and only a count axis may: named as the
         // distribution names its count axis in either language (a word like 周波数 holds 数 and is no count).
         const counts = COUNT_QUANTITIES.includes(/^(.*\S)\s*\[/su.exec((names[1] ?? '').trim())?.[1] ?? '');
-        const up = vertical === 'all-counts' ? counts && y0 === 0 && y1 === 1 : !counts && y0 > 0.001 && y1 < 0.999 && y1 > y0 && near(y0, corner1?.y) && near(y1, corner0?.y);
+        const up = vertical === 'all-counts' ? counts && y0 === 0 && y1 === 1 : !counts && y0 > 0.001 && y1 < 0.999 && y1 > y0;
         if (across && up && await picture() !== beforeBox) passed.add('box zoom');
     }
     await page.mouse.dblclick(middle.x, middle.y);
