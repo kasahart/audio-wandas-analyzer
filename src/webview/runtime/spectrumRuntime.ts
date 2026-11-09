@@ -135,6 +135,20 @@ export function spectrumLevelReference(slice: SpectrumSlice): string {
     return bracket ? bracket[1] : dbLevelUnitFor(slice);
 }
 
+/**
+ * The series with each uncalibrated one's label saying so where it shares a level axis (spectrumLevelReference) with
+ * a calibrated one (R1, R4, A49): that axis is named calibrated, so the line says it is not, in its legend and its
+ * readout (both read the label). Elsewhere the axis's own name says it, and no label repeats it.
+ */
+export function withCalibrationWords<S extends { slice: SpectrumSlice; label: string }>(series: readonly S[], calibrated: (series: S) => boolean, word: string): S[] {
+    const statuses = new Map<string, Set<boolean>>();
+    for (const s of series) {
+        const key = spectrumLevelReference(s.slice);
+        statuses.set(key, (statuses.get(key) ?? new Set()).add(calibrated(s)));
+    }
+    return series.map(s => (!calibrated(s) && (statuses.get(spectrumLevelReference(s.slice))?.size ?? 0) > 1 ? { ...s, label: `${s.label}${word}` } : s));
+}
+
 export interface OverlayLevelAxis<S> {
     series: S[];
     /** The axis' title: the first series' level axis label, or its reference when it has none. */

@@ -1218,7 +1218,8 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
             const { levelUnit: _main, ...shared } = plot;
             const secondPlot: StagePlot = { ...shared, yAt: levelAt(options.secondary.range), levelOf: levelOf(options.secondary.range), lineYAt: looseAt(options.secondary.range), lines: [], ...levelUnitOf(options.secondary.title) };
             plot.secondary = secondPlot;
-            for (const layer of secondaryOrder) {
+            // A trigger's events on the right-hand axis are drawn one line each, as on the left (A43).
+            for (const layer of secondaryOrder.flatMap(eventLayers)) {
                 if (layer.view.kind !== 'line' && layer.view.kind !== 'bar') continue;
                 secondPlot.lines.push(layer);
                 secondDrawn.push(layer);

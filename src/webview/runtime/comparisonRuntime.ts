@@ -79,6 +79,7 @@ import {
     overlaySpectrumRegionAt,
     spectrumZoomFromWindow,
     spectrumSlicesFromResult,
+    withCalibrationWords,
 } from './spectrumRuntime';
 import { normalizeRuntimeState, PersistedStateStore } from './stateStore';
 import { ComparisonTestBridge } from './testBridge';
@@ -4157,13 +4158,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         spectrumView.followLevelReference(overlayLevelAxes(slices, spectrumView.state())[0].reference);
-        // A level axis is named as Compare names it: amplitude, uncalibrated unless every line read on it is calibrated.
-        const levelTitle = (reference: string, series: readonly SpectrumSeries[]): string => {
-            const calibrated = series.every(s => channelsForResult(state.results[s.index])[s.channelIndex]?.measurement?.calibrationStatus === 'calibrated');
-            return (calibrated ? STR.axisLevelCal : STR.axisLevelUncal).replace('{label}', reference);
-        };
+        // A level axis says uncalibrated only when every line read on it is (R4, as the comparison's overlay); on one
+        // that mixes them, each uncalibrated line says so in its legend and readout (withCalibrationWords, A49).
+        const calibratedSeries = (s: SpectrumSeries): boolean => channelsForResult(state.results[s.index])[s.channelIndex]?.measurement?.calibrationStatus === 'calibrated';
+        const levelTitle = (reference: string, series: readonly SpectrumSeries[]): string =>
+            (series.some(calibratedSeries) ? STR.axisLevelCal : STR.axisLevelUncal).replace('{label}', reference);
         // A slice cut for display is read at every bin (R7): the same slice asked for again at full resolution.
-        const read = slices.map(series => {
+        const read = withCalibrationWords(slices, calibratedSeries, STR.axisUncalibrated).map(series => {
             const track = series.slice.frequenciesHz && !series.slice.bandCentersHz && series.slice.cursorNorm !== undefined ? laneTrack(series.index) : null;
             return track && series.slice.cursorNorm !== undefined ? { ...series, full: laneReads.slice(track, series.slice.cursorNorm, series.channelIndex) } : series;
         });

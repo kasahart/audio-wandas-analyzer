@@ -322,16 +322,17 @@ export function axisInputOf(inputs: readonly StageTrack['input'][]): StageTrack[
  * The overlay's lines by the level identity of their own recordings (R1, levelIdentityOf: unit, reference value,
  * level reference name; C1, as the cursor spectrum's): all on one axis when they share one; with two, the base's on
  * the left and the other's on the right, its lines dashed; with more, none overlaid (`tooMany`). An axis is named by
- * axisInputOf its lines' inputs. An image or a trigger's events keep one axis.
+ * axisInputOf its lines' inputs. An image keeps one axis; a trigger's events are split as any line (A43).
  */
-export function byReference(frame: Pick<StageFrame, 'strings' | 'picture' | 'allTracks' | 'tracks' | 'role'>, layers: readonly StageLayer[]): {
+export function byReference(frame: Pick<StageFrame, 'strings' | 'picture' | 'allTracks' | 'tracks' | 'role'> & Partial<Pick<StageFrame, 'window'>>, layers: readonly StageLayer[]): {
     mainLayers: StageLayer[]; secondary?: { layers: StageLayer[]; range: PaneRange; title: string }; mainInput: StageTrack['input']; tooMany: boolean;
 } {
     const { strings, picture, tracks } = frame;
     const inputOf = (layer: StageLayer): StageTrack['input'] => frame.allTracks.find(track => track.filePath === layer.recording)?.input ?? tracks[0]?.input;
     const keyOf = (layer: StageLayer): string => { const input = inputOf(layer); return input ? levelIdentityOf(input) : ''; };
     const inputFor = (members: readonly StageLayer[]): StageTrack['input'] => axisInputOf(members.map(inputOf)) ?? tracks[0]?.input;
-    const one = isEventsView(picture) || picture?.kind === 'heatmap';
+    // An image has one colour bar; a trigger's events are their recordings' lines, split by identity as any line (A43).
+    const one = picture?.kind === 'heatmap';
     const keys = [...new Set(layers.map(keyOf))];
     if (one || keys.length < 2) return { mainLayers: [...layers], mainInput: layers.length ? inputFor(layers) : tracks[0]?.input, tooMany: false };
     if (keys.length > 2) return { mainLayers: [], mainInput: tracks[0]?.input, tooMany: true };
@@ -339,7 +340,9 @@ export function byReference(frame: Pick<StageFrame, 'strings' | 'picture' | 'all
     const main = base ? keyOf(base) : keys[0];
     const mainLayers = layers.filter(layer => keyOf(layer) === main);
     const second = layers.filter(layer => keyOf(layer) !== main).map(layer => ({ ...layer, dash: SECONDARY_AXIS_DASH }));
-    return { mainLayers, mainInput: inputFor(mainLayers), tooMany: false, secondary: { layers: second, range: stageRange(second.map(layer => layer.view)), title: stageAxes(strings, picture, inputFor(second)).y } };
+    // A vertical zoom narrows the right-hand axis by the same part of it as the left (A45, R13), as the cursor spectrum's.
+    const whole = stageRange(second.map(layer => layer.view));
+    return { mainLayers, mainInput: inputFor(mainLayers), tooMany: false, secondary: { layers: second, range: frame.window ? narrowed(whole, frame.window.y) : whole, title: stageAxes(strings, picture, inputFor(second)).y } };
 }
 
 /** Overlaid: the base, the other tracks and the compared one on one plot, then their difference under it on request. */

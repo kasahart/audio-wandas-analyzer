@@ -118,6 +118,10 @@
 - テスト: `src/test/comparePanes.test.ts` › the level axis is named by wandas' level reference, and says uncalibrated from the calibration status, not the unit
 - 1 つの軸に載る線は、R1 のレベルの同一性（単位・基準値・レベル基準の名前）が同じ録音のものだけです。並べた表示のレーンも、範囲を共有するのは同じ基準のレーンどうしだけです。重ねた線を軸に分けるのはこの同一性で、軸の名前の文字ではありません（`trackStagePainter.ts` の `byReference`）。同一性が 3 つ以上なら重ねません。1 本の軸に校正状態の違う線が載るとき、軸の名前は量・単位・基準で書き、未校正はその軸の線がすべて未校正のときだけ書きます。未校正の線は、凡例と読み値に自分で「未校正」と書きます（`calibrationWords`）。
 - テスト: `src/test/trackStagePainter.test.ts` › overlaid, lines share an axis by their level identity, not their axis name: a gain-corrected FS file and a raw one are one axis, and only the raw one says uncalibrated (R1, R4)
+- トリガーのイベントの重ね図も同じで、イベントは録音の線として同一性で軸に分けます。トリガーの下のレーンも、範囲を共有するのは同じ同一性のレーンどうしだけです（`triggerLanes.ts`）。右の 2 本目の軸は、縦の拡大で左の軸と同じ割合だけ狭めます。カーソルスペクトルも、軸は線がすべて未校正のときだけ未校正と書き、校正状態が混ざる軸では未校正の線が凡例と読み値に自分で書きます（`spectrumRuntime.ts` の `withCalibrationWords`）。
+- テスト: `src/test/trackStagePainter.test.ts` › overlaid, a trigger's events are split by level identity as any line, and a vertical zoom narrows the right-hand axis as the left (A43, A45, R13)
+- テスト: `src/test/triggerLanes.test.ts` › trigger lanes of another level identity never share a range: a lane in Pa is not on a full-scale lane's scale (A43, R1, R4)
+- テスト: `src/test/overlaySpectrumPainter.test.ts` › on one level axis mixing calibration statuses, each uncalibrated line says so in its legend and readout; on its own the axis says it (A49, R1, R4)
 - テスト: `src/test/trackStagePainter.test.ts` › side by side, lanes share a range only with the lanes in their own reference: a dB SPL lane is never on a dBFS lane's scale (A32, C1)
 - テスト: `src/test/stagePanes.test.ts` › a metric or level over time names what it measures on its value axis, never a bare value or an amplitude in dB (R4)
 - テスト: `src/test/stagePanes.test.ts` › a heatmap names what its colour measures, with its unit and reference, for its colour bar

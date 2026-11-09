@@ -29,10 +29,11 @@ export const triggerLanes: ChartContract = {
         },
         {
             id: 'trigger-lanes.range', value: 'range', what: 'レーンの振幅の範囲（しきい値を含む）',
-            computedIn: ['src/webview/runtime/triggerLanes.ts:paintTriggerLanes', 'src/webview/plot/waveformLayer.ts:waveformRange'],
-            from: 'full', trace: '時間信号は absolutePeak（全サンプルの絶対値の最大）の ±1.05 倍に、しきい値が入るよう広げ、端を切りのよい値に広げる（niceRange、R9）。',
+            computedIn: ['src/webview/runtime/triggerLanes.ts:paintTriggerLanes', 'src/webview/runtime/triggerLanes.ts:rangeOf', 'src/webview/plot/waveformLayer.ts:waveformRange', 'src/webview/runtime/comparePanes.ts:levelIdentityOf'],
+            from: 'full', trace: '同じレベルの同一性（levelIdentityOf）のレーンどうしで、時間信号は absolutePeak（全サンプルの絶対値の最大）の ±1.05 倍に、しきい値が入るよう広げ、端を切りのよい値に広げる（niceRange、R9）。別の同一性のレーンは範囲を共有しない。',
             tests: [
-                tt('src/test/triggerLanes.test.ts', 'the trigger lanes share a range holding every sample\'s peak of every recording and the trigger\'s level, not the envelope drawn (R1)'),
+                t('src/test/triggerLanes.test.ts', 'trigger lanes of another level identity never share a range: a lane in Pa is not on a full-scale lane\'s scale (A43, R1, R4)'),
+                tt('src/test/triggerLanes.test.ts', 'the trigger lanes of one level identity share a range holding every sample\'s peak of each recording and the trigger\'s level, not the envelope drawn (R1)'),
             ],
         },
         {

@@ -331,6 +331,26 @@ test('overlaid, lines share an axis by their level identity, not their axis name
     assert.ok(three.result.secondary?.title.endsWith('[dB SPL re 20 µPa]'), three.result.secondary?.title);
 });
 
+test('overlaid, a trigger\'s events are split by level identity as any line, and a vertical zoom narrows the right-hand axis as the left (A43, A45, R13)', () => {
+    const { lane } = page();
+    const fs = { unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true } as const;
+    const pa = { unit: 'Pa', ref: 2e-5, levelReferenceLabel: 'dB SPL re 20 µPa', calibrationStatus: 'calibrated', fullScale: false } as const;
+    const events = (scale: number): StageView => ({ frame: 'ChannelFrameSegments', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs: [0, 1], values: [0, scale],
+        events: [{ id: 0, time: 0.5, xs: [0, 1], values: [-scale, scale] }] } as unknown as StageView);
+    const views = { 'base.wav': events(0.5), 'one.wav': events(2) };
+    const tracks = ['base.wav', 'one.wav'].map(path => ({ ...lane(path), input: path === 'base.wav' ? fs : pa }));
+    const frame = frameFor(tracks, views);
+    const plots = plotsOf(frame.shown, tracks, 'one.wav', ['base.wav'], combined);
+    const whole = byReference(frame, overlayLayers(frame, plots, undefined, 'base.wav'));
+    assert.equal(whole.tooMany, false);
+    assert.ok(whole.secondary, 'the Pa recording\'s events on an axis of their own');
+    assert.equal(whole.mainLayers.length, 1);
+    const zoomed = byReference({ ...frame, window: { x: { start: 0, end: 1 }, y: { start: 0.25, end: 0.75 } } }, overlayLayers(frame, plots, undefined, 'base.wav'));
+    const [a, b] = [whole.secondary!.range, zoomed.secondary!.range];
+    assert.equal(b.min, a.min + 0.25 * (a.max - a.min));
+    assert.equal(b.max, a.min + 0.75 * (a.max - a.min));
+});
+
 test('side by side, lanes share a range only with the lanes in their own reference: a dB SPL lane is never on a dBFS lane\'s scale (A32, C1)', () => {
     const { lane } = page();
     const fs = { unit: '', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true } as const;

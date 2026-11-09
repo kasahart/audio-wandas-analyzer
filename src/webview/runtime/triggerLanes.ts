@@ -8,7 +8,7 @@ import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { niceRange } from '../../shared/utils/ticks';
 import { clearSideAxis, paintOverlay, stageRange, type StageAxes } from './stagePanes';
 import { withMinus } from '../plot/plotText';
-import type { PaneRange } from './comparePanes';
+import { levelIdentityOf, type PaneRange } from './comparePanes';
 import type { Drawn, StageTrack } from './trackStagePainter';
 import type { PlotWindow } from './plotInteraction';
 import { NO_FULL_DATA, type FullRead } from './fullRead';
@@ -57,14 +57,26 @@ const MARK_GAP_PX = 44;
 export function paintTriggerLanes(frame: TriggerLanesFrame): number {
     const { strings, trigger } = frame;
     const views = frame.tracks.map(track => frame.signal(track.filePath) ?? null);
-    // The level stays in sight above or below every signal (a waveform's range leaves other views out).
-    const base = stageRange([...views, levelView(trigger.threshold)]);
-    const margin = Math.abs(trigger.threshold) * 0.05;
-    // Widened again to round ends once the level is in (R9): the waveform's range alone is round already.
-    const held = niceRange(Math.min(base.min, trigger.threshold - margin), Math.max(base.max, trigger.threshold + margin));
-    const range: PaneRange = { ...base, min: held.low, max: held.high };
+    // Lanes share a range only with the lanes of their own level identity (R1, R4, A43: levelIdentityOf), as the
+    // compare lanes do: a lane in Pa is never on a full-scale lane's scale.
+    const identityOf = (track: StageTrack): string => (track.input ? levelIdentityOf(track.input) : '');
+    const ranges = new Map<string, PaneRange>();
+    const rangeOf = (track: StageTrack): PaneRange => {
+        const key = identityOf(track);
+        const known = ranges.get(key);
+        if (known) return known;
+        // The level stays in sight above or below every signal (a waveform's range leaves other views out).
+        const base = stageRange([...views.filter((_, index) => identityOf(frame.tracks[index]) === key), levelView(trigger.threshold)]);
+        const margin = Math.abs(trigger.threshold) * 0.05;
+        // Widened again to round ends once the level is in (R9): the waveform's range alone is round already.
+        const held = niceRange(Math.min(base.min, trigger.threshold - margin), Math.max(base.max, trigger.threshold + margin));
+        const range: PaneRange = { ...base, min: held.low, max: held.high };
+        ranges.set(key, range);
+        return range;
+    };
     let drawn = 0;
     frame.tracks.forEach((track, index) => {
+        const range = rangeOf(track);
         // The lane draws its level axis itself: the canvas beside it is left empty, by the plot component.
         if (track.axis) clearSideAxis(track.axis);
         const canvas = track.canvas;

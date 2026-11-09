@@ -3,7 +3,7 @@ import test from 'node:test';
 import type { StageView } from '../shared/protocol/backendProtocol';
 import { localLine } from '../webview/runtime/fullRead';
 import { stageHover, stageStep } from '../webview/runtime/stagePanes';
-import type { Drawn } from '../webview/runtime/trackStagePainter';
+import type { Drawn, StageTrack } from '../webview/runtime/trackStagePainter';
 import { paintTriggerLanes, type TriggerLanesFrame } from '../webview/runtime/triggerLanes';
 
 /** A canvas the plot component draws on through a context that draws nothing. */
@@ -34,12 +34,12 @@ function recording(amplitude: number, spike: number): { samples: number[]; times
     return { samples, times, view };
 }
 
-function lanes(threshold: number, recordings: Record<string, ReturnType<typeof recording>>): { drawn: Map<Element, Drawn>; canvases: Record<string, HTMLCanvasElement> } {
+function lanes(threshold: number, recordings: Record<string, ReturnType<typeof recording>>, inputs: Record<string, StageTrack['input']> = {}): { drawn: Map<Element, Drawn>; canvases: Record<string, HTMLCanvasElement> } {
     const canvases = Object.fromEntries(Object.keys(recordings).map(path => [path, laneCanvas()]));
     const drawn = new Map<Element, Drawn>();
     const frame: TriggerLanesFrame = {
         strings: { stageThreshold: 'Level {value} {unit}', stageEventPlay: 'Play {n}', stageEventOutButton: 'Leave out {n}', stageEventInButton: 'Put back {n}', stageEventsUsed: '{used}/{total}' },
-        tracks: Object.keys(recordings).map(filePath => ({ filePath, color: '#00f', canvas: canvases[filePath], axis: null })),
+        tracks: Object.keys(recordings).map(filePath => ({ filePath, color: '#00f', canvas: canvases[filePath], axis: null, input: inputs[filePath] })),
         signal: path => recordings[path]?.view,
         events: () => [{ id: 0, time: 0.5 }] as NonNullable<StageView['events']>,
         excluded: () => [],
@@ -58,12 +58,12 @@ function lanes(threshold: number, recordings: Record<string, ReturnType<typeof r
     return { drawn, canvases };
 }
 
-test('the trigger lanes share a range holding every sample\'s peak of every recording and the trigger\'s level, not the envelope drawn (R1)', () => {
+test('the trigger lanes of one level identity share a range holding every sample\'s peak of each recording and the trigger\'s level, not the envelope drawn (R1)', () => {
     const loud = recording(0.2, -0.93), quiet = recording(0.05, 0.1);
     const { drawn, canvases } = lanes(0.4, { '/a.wav': loud, '/b.wav': quiet });
     const range = drawn.get(canvases['/a.wav'])?.range;
     assert.ok(range);
-    assert.deepEqual(drawn.get(canvases['/b.wav'])?.range, range, 'one range for every lane');
+    assert.deepEqual(drawn.get(canvases['/b.wav'])?.range, range, 'one range for the lanes of one identity');
     // The loud one's one-sample spike (−0.93 FS) is its peak: the range holds it whole, both ways round 0.
     assert.ok(range.min <= -0.93 && range.max >= 0.93, `${range.min}..${range.max}`);
     assert.ok(range.max < 1.2, 'no wider than the peak and a margin');
@@ -76,6 +76,18 @@ test('the trigger lanes share a range holding every sample\'s peak of every reco
         for (const end of [value.min, value.max]) assert.equal(Number(end.toPrecision(2)), end, `level ${threshold}: ${value.min}..${value.max} at round ends`);
         assert.ok(value.max >= threshold);
     }
+});
+
+test('trigger lanes of another level identity never share a range: a lane in Pa is not on a full-scale lane\'s scale (A43, R1, R4)', () => {
+    const fs = { unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true } as const;
+    const pa = { unit: 'Pa', ref: 2e-5, levelReferenceLabel: 'dB SPL re 20 µPa', calibrationStatus: 'calibrated', fullScale: false } as const;
+    const loud = recording(0.2, -0.93), quiet = recording(0.05, 0.1), other = recording(0.05, 0.1);
+    const { drawn, canvases } = lanes(0.04, { '/a.wav': loud, '/b.wav': quiet, '/c.wav': other }, { '/a.wav': fs, '/b.wav': pa, '/c.wav': { ...fs, calibrationStatus: 'calibrated' } });
+    const a = drawn.get(canvases['/a.wav'])?.range, b = drawn.get(canvases['/b.wav'])?.range, c = drawn.get(canvases['/c.wav'])?.range;
+    assert.ok(a && b && c);
+    assert.notDeepEqual(b, a, 'Pa has its own range');
+    assert.ok(b.max < 0.5, `the quiet Pa lane is not widened to the loud FS one's spike: ${b.min}..${b.max}`);
+    assert.deepEqual(c, a, 'a gain-corrected FS lane is of the same identity as a raw one (R1): one range');
 });
 
 test('a trigger lane is read at every sample: the pointer reads a sample between the envelope\'s points, and ← / → go one sample at a time (R7)', () => {

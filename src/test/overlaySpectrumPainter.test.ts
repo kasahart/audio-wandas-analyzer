@@ -4,7 +4,7 @@ import { frequencyFraction, type CanvasDrawCtx } from '../webview/draw/canvasDra
 import { paintOverlaySpectrum, renderSpectrumAxisLegend, spectrumLayer, SECONDARY_AXIS_DASH, SECONDARY_AXIS_MARK } from '../webview/runtime/overlaySpectrumPainter';
 import { screenLevels, stageHover, stageStep, type StagePlot } from '../webview/runtime/stagePanes';
 import { SpectrumView } from '../webview/runtime/spectrumView';
-import { OVERLAY_SPECTRUM_PAD, overlayLevelAxes, spectrumReadoutText, type SpectrumViewState } from '../webview/runtime/spectrumRuntime';
+import { OVERLAY_SPECTRUM_PAD, overlayLevelAxes, spectrumReadoutText, withCalibrationWords, type SpectrumViewState } from '../webview/runtime/spectrumRuntime';
 import type { SpectrumSeries, SpectrumSlice } from '../webview/runtime/types';
 import { extractSpectrumAtCursor } from '../webview/spectrum/cursorSpectrum';
 import { createLaneReads } from '../webview/runtime/laneReads';
@@ -420,4 +420,20 @@ test('until the backend\'s slice comes, the cursor spectrum draws the lane\'s av
     assert.ok(bandSilence);
     const bandsPlot = plotOf(paintOverlaySpectrum(canvasOf(ctx), 400, 200, [{ ...series[0], slice: bandSilence }], fullView));
     assert.equal(stageHover(bandsPlot, bandsPlot.xAt(500), bandsPlot.yAt(-90))?.text ?? '', '');
+});
+
+test('on one level axis mixing calibration statuses, each uncalibrated line says so in its legend and readout; on its own the axis says it (A49, R1, R4)', () => {
+    const FS = 'Spectrum amplitude level [dBFS]';
+    const corrected = levelSeries('a.wav', '#0000ff', FS, [-20, -30, -40, -50], -50, -20);
+    const raw = levelSeries('b.wav', '#ffff00', FS, [-25, -35, -45, -55], -55, -25);
+    const calibrated = (s: SpectrumSeries): boolean => s === corrected;
+    const said = withCalibrationWords([corrected, raw], calibrated, ' 未校正');
+    assert.deepEqual(said.map(s => s.label), ['a.wav', 'b.wav 未校正']);
+    // The legend and the readout both name a line by its label.
+    const layer = spectrumLayer(said[1], 1000);
+    assert.equal(layer.label, 'b.wav 未校正');
+    // All uncalibrated: the axis says it, and no line repeats it.
+    assert.deepEqual(withCalibrationWords([raw, { ...raw, label: 'c.wav' }], () => false, ' 未校正').map(s => s.label), ['b.wav', 'c.wav']);
+    // Another reference is another axis: its lines are not mixed with these.
+    assert.deepEqual(withCalibrationWords([raw, levelSeries('d.wav', '#0f0', SPL, [80, 70, 60, 50], 50, 80)], s => s.label === 'd.wav', ' 未校正').map(s => s.label), ['b.wav', 'd.wav']);
 });
