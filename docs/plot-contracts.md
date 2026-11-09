@@ -32,7 +32,7 @@
 | カーソルスペクトルの CSV 書き出し (`spectrum-csv`) | `webview/runtime/runtimeExports.ts:buildSpectrumCsv` | 1 | 0 |
 | ペアの図（利得・位相・γ²） (`pair-view`) | `webview/runtime/pairSpectrumPanel.ts:render` | 9 | 0 |
 | カラーバー（比較台の熱図、スペクトログラムのレーン、入口の概観帯） (`colour-bar`) | `webview/runtime/stagePanes.ts:paintColourBar` | 2 | 0 |
-| 入口の保持図（スロットの Δ、手順の有無の Δ、平均スペクトル） (`entry-held`) | `webview/runtime/entryHeldPlot.ts:paintView` | 8 | 2 |
+| 入口の保持図（スロットの Δ、手順の有無の Δ、平均スペクトル） (`entry-held`) | `webview/runtime/entryHeldPlot.ts:paintView` | 8 | 1 |
 | 入口の概観帯 (`entry-overview`) | `webview/runtime/entryPlots.ts:paintOverview` | 5 | 0 |
 | 入口の分布図（群ごとの行と下の値の軸） (`entry-distribution`) | `webview/runtime/entryDistributionPane.ts:paint` | 8 | 0 |
 | 入口の表（値の列、Δ、見出しの数、D の差、表の CSV） (`entry-table`) | `webview/runtime/entryTableHtml.ts:datasetRowsHtml`<br>`webview/runtime/entryTable.ts:entryCsv` | 6 | 0 |
@@ -190,7 +190,7 @@
 | 値 | 何の数か | 計算する場所 | 出どころ | テスト | 穴 |
 | --- | --- | --- | --- | --- | --- |
 | 読み値 | 保持図の読み値 | `webview/runtime/stagePanes.ts:lineRead`<br>`webview/runtime/entryHeldPlot.ts:paintStep`<br>`webview/runtime/entryHeldPlot.ts:paintDelta` | 全データ：手順の絵は reader.of、手順の有無の Δ は reader.combined、スロットの Δ は全ビンの Δ を localLine で読む。全ビンがないときの帯の Δ は棒（全帯）。 | ◆ `uiSmoke/heldDelta.spec.ts` › a held slot draws its own channel's Δ against its base from every bin the hold asks for (R1, R3, R11)<br>`uiSmoke/plotContract.spec.ts` › the entry's held plot answers the same gestures as every plot (R13) |  |
-| ← / → | 保持図の ← / → | `webview/runtime/stagePanes.ts:stageStep` | 全データ：読み値と同じ全データの次の点。 | `uiSmoke/plotContract.spec.ts` › the entry's held plot answers the same gestures as every plot (R13) | **P2** 全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。 |
+| ← / → | 保持図の ← / → | `webview/runtime/stagePanes.ts:stageStep` | 全データ：読み値と同じ全データの次の点。スロットの Δ は全ビンの次のビン。 | ◆ `entryHeldPlot.test.ts` › ← / → on a held slot's Δ step to the next of every bin, not the next point drawn of the Δ thinned to the plot's width (R7)<br>`uiSmoke/plotContract.spec.ts` › the entry's held plot answers the same gestures as every plot (R13) |  |
 | Δ | スロットの Δ（全ビン）と手順の有無の Δ | `webview/runtime/comparePanes.ts:binsOf`<br>`webview/runtime/comparePanes.ts:fileSide`<br>`webview/runtime/comparePanes.ts:deltaViews`<br>`webview/runtime/combineSource.ts:createCombineSource` | 全データ：スロットは押したときに録音と基準の全ビンを取り寄せ、ビンごとに引く（0.01 dB に丸める）。手順の有無はバックエンドが全データで引く。 | ◆ `entryHeldPlot.test.ts` › a held slot asks once for every bin of its file and its base, then draws its Δ from them (R1, R3)<br>◆ `comparePanes.test.ts` › the held Δ zoomed in is drawn again from every bin between its ends, not the whole Δ decimated and stretched (R1, R3)<br>◆ `comparePanes.test.ts` › the median and Δ are taken bin by bin from every bin, and only drawing decimates them |  |
 | Δ | 全ビンが取れないときの帯の Δ（棒） | `webview/runtime/comparePanes.ts:deltaViews`<br>`webview/runtime/comparePanes.ts:binsOf` | 描く点が全部（間引かない）：スキャンがビンを返さない録音（サンプリング周波数や n_fft が違う）は、全ビンから求めた 1/3 オクターブ帯の Δ を棒で描く。帯は間引かない。 | `comparePanes.test.ts` › files whose bins differ (another sample rate or n_fft) have no bins to compare<br>`comparePanes.test.ts` › the report's Δ figure without bins draws the 1/3-octave Δ, its range holding every band (R1) | 例外（R1）：全ビンが取れない録音（スキャンがビンを返さないとき）は、1/3 オクターブ帯の Δ を棒で描きます。<br> |
 | どのデータか | 取り寄せた全ビンが表の行と同じスペクトルか（つき合わせ） | `webview/runtime/comparePanes.ts:withBins`<br>`webview/runtime/entryHeldPlot.ts:paintSlot` | 描く点が全部（間引かない）：取り寄せた全ビンのスキャンは、表のスキャンと 192 点のスペクトル（spectrumDb）が JSON で同じときだけ使う。ファイルがスキャンし直されて 192 点が変われば、全ビンを頼み直す（1 つの表のスペクトルに 1 回）。192 点が同じで全ビンが違う 2 つのスキャンは区別しない。 | `entryHeldPlot.test.ts` › a file scanned again since its bins were kept is asked for again, once, so a hold does not stay at 192 points |  |
@@ -272,14 +272,13 @@
 - `compare-delta.range-image`：カラーバーの両端の数を、描くために平均した Δ のマスから求めている。
 - `compare-lanes.range-image`：カラーバーの両端の数を、描くために平均したマスから求めている。
 
-### P2（9、上限 9）
+### P2（8、上限 8）
 
 - `compare-overlay.pending`：R7 は届くまで読み値を空にするが、密な窓を別の高さで読むときは前の高さの点を読む。その間の読み値は今のマウスに一番近い点とは限らない。
 - `compare-overlay.range`：範囲の端を間引いた線から求めている。間引きが端を残すので同じ値のはずだが、範囲が全データの端と一致することを確かめるテストがない。
 - `compare-overlay.axis-metric`：量の名前がない：sone・acum・asper・dB 以外の指標は「値 [単位]」で、何の値かを書かない（単位がなければ「値 [単位不明]」）。
 - `compare-delta.range`：範囲を間引いた Δ から求めている。全データの Δ の端と一致することを確かめるテストがない。
 - `compare-lanes.range`：範囲を間引いた線から求めている。全データの端と一致することを確かめるテストがない。
-- `entry-held.step`：全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。
 - `entry-held.range`：範囲を間引いた点から求めている。全データの端と一致することを確かめるテストがない。
 - `report-overlay.range`：範囲を間引いた線から求めている。全ビンの端と一致することを確かめるテストがない。
 - `report-delta.range`：全ビンがあるときの範囲を間引いた線から求めている。テストは帯だけの場合しか見ていない。
