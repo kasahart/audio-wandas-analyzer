@@ -757,12 +757,7 @@ def test_range_round_trip(server: _ServerHandle, tmp_path: Path) -> None:
 
 
 def test_error_codes_match_the_shared_protocol_fixture() -> None:
-    codes = {
-        backend_errors.INPUT_ERROR,
-        backend_errors.STALE_CALIBRATION,
-        backend_errors.STALE_SOURCE,
-        backend_errors.INTERNAL_ERROR,
-    }
+    codes = {backend_errors.INPUT_ERROR, backend_errors.STALE_CALIBRATION, backend_errors.INTERNAL_ERROR}
     assert codes == set(PROTOCOL_FIXTURES["errorCodes"])
     assert codes == set(DEFINITIONS["BackendErrorPayload"]["properties"]["code"]["enum"])
 

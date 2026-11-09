@@ -260,3 +260,55 @@ test('an arrow over a plot these gestures do not answer now (another mode\'s ges
     assert.deepEqual(calls, ['steps:lane', 'lanes:lane'], 'the lanes answer it');
     assert.equal(event.defaultPrevented, true, 'and keep it, stepped or not');
 });
+
+test('on a surface inside another (the steps\' plots inside the lanes\' wrapper), a lane given the focus with the pointer on the inner plot neither reads where it starts nor, let go, takes the inner plot\'s readout away (A47, R7)', () => {
+    const { window } = new JSDOM('<!doctype html><body><div id="wrapper"><canvas class="track-canvas" id="lane" tabindex="0"></canvas><div id="root"><canvas data-stage-canvas id="overlay"></canvas></div></div><button id="after">after</button></body>');
+    const doc = window.document;
+    const calls: string[] = [];
+    const handlers = (name: string) => ({
+        step: (plot: Element, delta: -1 | 0 | 1) => { calls.push(`${name}:step:${plot.id}:${delta}`); return true; },
+        resetZoom: () => undefined, openAxisRange: () => false,
+        hover: (e: MouseEvent) => { calls.push(`${name}:hover:${(e.target as Element).id}`); },
+        clearHover: () => { calls.push(`${name}:clear`); },
+        press: () => undefined, drag: () => undefined, release: () => undefined, zoomWheel: () => undefined, panWheel: () => undefined, zoomKey: () => false,
+    });
+    const keys = keyRouterFor(window);
+    const wrapper = doc.getElementById('wrapper') as HTMLElement, root = doc.getElementById('root') as HTMLElement;
+    // As the steps' view attaches them: the lanes' surface (the wrapper), then its plots inside it, one readout for both.
+    attachTrackPointerListeners(wrapper, doc, keys, handlers('outer'), { plot: '.track-canvas' });
+    attachTrackPointerListeners(root, doc, keys, handlers('inner'), { plot: '[data-stage-canvas]' });
+    (doc.getElementById('overlay') as HTMLElement).dispatchEvent(new window.MouseEvent('mousemove', { bubbles: true, clientX: 5, clientY: 5 }));
+    calls.length = 0;
+    const lane = doc.getElementById('lane') as HTMLElement;
+    lane.focus();
+    assert.deepEqual(calls.filter(call => call.includes(':step:')), [], 'the focus gives no readout over the pointer\'s');
+    (doc.getElementById('after') as HTMLElement).focus();
+    assert.deepEqual(calls.filter(call => call.endsWith(':clear')), [], 'nor does its leaving take the pointer\'s away');
+    // An arrow steps the plot under the pointer, the inner one.
+    calls.length = 0;
+    doc.body.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'ArrowRight', key: 'ArrowRight', bubbles: true, cancelable: true }));
+    assert.deepEqual(calls, ['inner:step:overlay:1']);
+});
+
+test('a scroll under a still pointer reads the plot now under it, through the same hover a pointer moved there gives, and the arrows step that one (R7)', () => {
+    const { window } = new JSDOM('<!doctype html><body><div id="tracks"><canvas class="track-canvas" id="lane1"></canvas><canvas class="track-canvas" id="lane2"></canvas></div></body>');
+    const doc = window.document;
+    const calls: string[] = [];
+    attachTrackPointerListeners(doc.getElementById('tracks') as HTMLElement, doc, keyRouterFor(window), {
+        step: (plot, delta) => { calls.push(`step:${plot.id}:${delta}`); return true; },
+        resetZoom: () => undefined, openAxisRange: () => false,
+        hover: e => { calls.push(`hover:${(e.target as Element).id}:${e.clientX},${e.clientY}`); },
+        clearHover: () => { calls.push('clear'); },
+        press: () => undefined, drag: () => undefined, release: () => undefined, zoomWheel: () => undefined, panWheel: () => undefined, zoomKey: () => false,
+    }, { plot: '.track-canvas' });
+    const second = doc.getElementById('lane2') as HTMLElement;
+    (doc.getElementById('lane1') as HTMLElement).dispatchEvent(new window.MouseEvent('mousemove', { bubbles: true, clientX: 30, clientY: 40 }));
+    // The lanes scroll: the second lane is under the pointer now.
+    (doc as unknown as { elementFromPoint: (x: number, y: number) => Element | null }).elementFromPoint = (x, y) => (x === 30 && y === 40 ? second : null);
+    calls.length = 0;
+    doc.getElementById('tracks')?.dispatchEvent(new window.Event('scroll'));
+    assert.deepEqual(calls, ['hover:lane2:30,40'], 'read again at the pointer, never only taken away');
+    calls.length = 0;
+    doc.body.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'ArrowRight', key: 'ArrowRight', bubbles: true, cancelable: true }));
+    assert.deepEqual(calls, ['step:lane2:1'], 'the arrows step the plot now under the pointer');
+});

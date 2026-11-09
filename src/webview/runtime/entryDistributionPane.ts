@@ -191,7 +191,7 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
         const plotHeight = Math.max(1, rowHeight - DIST_ROW_PAD.top - DIST_ROW_PAD.bottom);
         groups.innerHTML = `<div class="entry-dist-plot" data-entry-dist-plot style="width:${width}px">${rows.map(row => `<div class="entry-dist-row" data-dist-group="${escapeHtml(row.group)}" data-dist-slots="${row.slots.join(' ')}"${row.base ? ' data-dist-base' : ''} style="height:${rowHeight}px">`
             + `<div class="entry-dist-label"><span class="entry-dist-name" title="${escapeHtml(row.title)}">${escapeHtml(row.label)}</span>${row.count ? `<span class="entry-dist-count">${escapeHtml(row.count)}</span>` : ''}${row.max ? `<span class="entry-dist-max">${escapeHtml(row.max)}</span>` : ''}</div>`
-            + `<canvas class="entry-dist-canvas" data-dist-canvas data-plot-axis="entry-dist-axis-canvas" data-plot-x-axis="entry-dist-axis-canvas" data-plot-names="entry-dist-count-axis" style="width:${plotWidth}px;height:${plotHeight}px"></canvas></div>`).join('')}<div class="entry-dist-brush" data-dist-brush hidden></div></div>`;
+            + `<canvas class="entry-dist-canvas" data-dist-canvas data-plot-key="dist:${escapeHtml(row.group)}" data-plot-axis="entry-dist-axis-canvas" data-plot-x-axis="entry-dist-axis-canvas" data-plot-names="entry-dist-count-axis" style="width:${plotWidth}px;height:${plotHeight}px"></canvas></div>`).join('')}<div class="entry-dist-brush" data-dist-brush hidden></div></div>`;
         const axisView = distributionAxisView(dist);
         const zoom = { x: zoomWindow.x };
         groups.querySelectorAll<HTMLCanvasElement>('[data-dist-canvas]').forEach((canvas, index) => {

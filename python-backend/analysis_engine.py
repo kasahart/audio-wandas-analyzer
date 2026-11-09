@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import threading
@@ -14,7 +13,7 @@ import numpy as np
 import soundfile as sf
 import wandas as wd
 
-from backend_errors import AnalysisSettingsError, StaleSourceError, UnreadableFileError
+from backend_errors import AnalysisSettingsError, UnreadableFileError
 from calibration_profile import ResolvedCalibrationProfile, finite_source_channel_peaks, resolve_calibration_profile
 
 StftKey = tuple[str, int, int, str]
@@ -54,12 +53,6 @@ class CachedAnalysis:
     spectrogram_nbytes: dict[StftKey, int] = field(default_factory=dict)
     spectrum_slices: OrderedDict[SpectrumSliceKey, tuple[np.ndarray, float]] = field(default_factory=OrderedDict)
     pair_spectra: OrderedDict[PairSpectrumKey, object] = field(default_factory=OrderedDict)
-
-    @property
-    def version(self) -> str:
-        """The version of the file this read is of (sourceVersion): every answer of the file names it, and a
-        request naming another is refused (StaleSourceError) instead of answered from the file as it is now."""
-        return hashlib.sha256(self.input_id.encode()).hexdigest()[:16]
 
     @property
     def nbytes(self) -> int:
@@ -150,12 +143,8 @@ class AnalysisEngine:
         self,
         file_path: str | Path,
         calibration_profile: object = None,
-        source_version: object = None,
     ) -> tuple[CachedAnalysis, wd.ChannelFrame, ResolvedCalibrationProfile]:
         cached = self.get_file(file_path)
-        if source_version is not None and source_version != cached.version:
-            # The track asking was drawn from another version of the file (rewritten since it was analysed).
-            raise StaleSourceError(f"{cached.path.name} changed on disk since it was analysed; analyse it again")
         resolved = resolve_calibration_profile(
             calibration_profile,
             cached.frame,

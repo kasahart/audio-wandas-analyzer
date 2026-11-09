@@ -8,7 +8,6 @@ from __future__ import annotations
 
 INPUT_ERROR = "input-error"
 STALE_CALIBRATION = "stale-calibration"
-STALE_SOURCE = "stale-source"
 INTERNAL_ERROR = "internal-error"
 
 ANALYSIS_SETTINGS = "analysis-settings"
@@ -51,13 +50,6 @@ class StaleCalibrationError(InputError):
     """The stored calibration profile no longer fits the audio (channel layout or safe range)."""
 
     code = STALE_CALIBRATION
-
-
-class StaleSourceError(InputError):
-    """The file changed on disk since the track a request is of was analysed: its answer would be of another
-    version than the picture it is drawn over, so the request is refused until the file is analysed again."""
-
-    code = STALE_SOURCE
 
 
 class AnalysisSettingsError(InputError):

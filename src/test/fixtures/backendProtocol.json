@@ -1084,7 +1084,6 @@
   "errorCodes": [
     "input-error",
     "stale-calibration",
-    "stale-source",
     "internal-error"
   ],
   "errorKinds": [

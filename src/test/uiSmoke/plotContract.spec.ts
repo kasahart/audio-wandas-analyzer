@@ -334,13 +334,22 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
     };
     const steppedZoomed = letGo && !!zoomedStep && zoomedStep.sameLayer && await readOnPlot()
         && (near(zoomedStep.at, zoomedNext) || (zoomedStep.at === zoomedHere?.at && !await seenInside(zoomedNext)));
+    // − zooms back out about the middle: the point stepped to stays on the plot, so it stays the one read, on the
+    // plot drawn anew (R7), whether the plot keeps its canvas or makes it anew on every repaint (the distribution).
+    const stepTaken = !!zoomedStep && near(zoomedStep.at, zoomedNext);
     await page.keyboard.press('-');
     await page.waitForTimeout(80);
+    let keptOut = !stepTaken;
+    for (let tries = 0; tries < 20 && !keptOut; tries++) {
+        await settled();
+        keptOut = near(await plot.evaluate(canvas => (canvas as NotedPlot).__plotRead?.at), zoomedStep?.at ?? null);
+        if (!keptOut) await page.waitForTimeout(100);
+    }
     const keyedOut = await windowOf();
     await page.keyboard.press('=');
     await page.keyboard.press('0');
     await page.waitForTimeout(80);
-    if (centred(keyed, 0.75) && steppedZoomed && keyedPicture !== keyWhole && keyedOut[1] - keyedOut[0] > keyed[1] - keyed[0] + 0.1
+    if (centred(keyed, 0.75) && steppedZoomed && keptOut && keyedPicture !== keyWhole && keyedOut[1] - keyedOut[0] > keyed[1] - keyed[0] + 0.1
         && (await plot.getAttribute('data-plot-window')) === FULL && await picture() !== keyedPicture) passed.add('zoom keys');
     // Ctrl+wheel over the value axis (the plot's left margin, or the canvas beside it that holds it): no point on the
     // plot to zoom around, so the horizontal axis zooms about its middle, as on every plot.

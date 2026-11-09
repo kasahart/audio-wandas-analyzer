@@ -13,7 +13,7 @@ import { fileOfKey } from '../../shared/dataset/datasetTable';
 import { attachOffsetEditing } from './offsetInlineEditor';
 import { dispatchTestMouseEvent, fillSpectrogramDisplayForm, fillSpectrogramSettingsForm, heightDragFromPayload, loopRegionFromPayload, setTestInputValue, testActionTrackId } from './testActionForms';
 import { nextRequestId } from './hostRequests';
-import { DEFAULT_PYTHON_ENVIRONMENT_STATE, isOfShownVersion, isResponseToLazyRequest, mergeDetailSpectrograms, pythonEnvironmentStateFromMessage } from './lazyResponses';
+import { DEFAULT_PYTHON_ENVIRONMENT_STATE, isResponseToLazyRequest, mergeDetailSpectrograms, pythonEnvironmentStateFromMessage } from './lazyResponses';
 import type { DrawTheme } from '../draw/canvasDrawers';
 import { isCacheSufficient, isOverviewSufficient, isRangeCacheDrawable, parseRangeRequestKey, planLaneRange, rangeCacheCoversView, rangeHasDetail } from '../waveform/rangeRequestPolicy';
 import { extractSpectrumAtCursor as extractCursorSpectrum, sliceIsAtCursor } from '../spectrum/cursorSpectrum';
@@ -60,9 +60,9 @@ import { syncPanelToggle, syncSpectrumMaximize } from './panelCollapse';
 import { SpectrumView } from './spectrumView';
 import { WaveformView } from './waveformView';
 import { OVERLAY_LEVEL_AXES, paintOverlaySpectrum, renderSpectrumAxisLegend } from './overlaySpectrumPainter';
-import { amplitudeAxisTitle, clearSideAxis, paintOverlay, paintTimeAxis, type StagePlot } from './stagePanes';
+import { amplitudeAxisTitle, clearSideAxis, paintOverlay, paintTimeAxis, type StagePlot, type StageRead } from './stagePanes';
 import { referenceButtonHtml } from './pairSpectrum';
-import { PAIR_SPLIT_MAX, PAIR_SPLIT_MIN, PairSpectrumPanel } from './pairSpectrumPanel';
+import { noteCursorHz, PAIR_SPLIT_MAX, PAIR_SPLIT_MIN, PairSpectrumPanel } from './pairSpectrumPanel';
 import { collectSpectrumSeries, type CollectedSpectrumSeries, type SpectrumSeriesSource } from './spectrumSeriesCollector';
 import { toolbarHtml } from './toolbarHtml';
 import { attachExclusiveMenus, attachHeightResizeListeners, attachToolbarActions } from './toolbarEvents';
@@ -311,7 +311,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 settingsSignature: request.settingsSignature,
                 trackIndex: request.trackIndex,
                 filePath: request.filePath,
-                sourceVersion: trackStore.require(request.trackId).result.sourceVersion,
                 cursorNorm: request.cursorNorm,
                 ...(request.bandsPerOctave ? { bandsPerOctave: request.bandsPerOctave } : {}),
                 ...(request.fullResolution ? { fullResolution: true as const } : {}),
@@ -503,15 +502,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function trackIdAtIndex(index: number): TrackId | null {
         return trackStore.idAtProtocolIndex(index);
     }
-    /** The track a lane's lazy answer is of: none for an index no track has, or an answer of another file version. */
-    function trackIdAtProtocolBoundary(index: number, answer: { type: string; sourceVersion?: string }): TrackId | null {
+    function trackIdAtProtocolBoundary(index: number, messageType: string): TrackId | null {
         const trackId = trackIdAtIndex(index);
         if (!trackId) {
-            console.warn('Rejected ' + answer.type + ' with invalid trackIndex ' + index);
-            return null;
+            console.warn('Rejected ' + messageType + ' with invalid trackIndex ' + index);
         }
-        const record = trackStore.get(trackId);
-        return record && isOfShownVersion(record.result, answer) ? trackId : null;
+        return trackId;
     }
     function trackRecordAtIndex(index: number) {
         const trackId = trackIdAtIndex(index);
@@ -554,7 +550,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     return {
                         trackId,
                         filePath: record.result.filePath,
-                        sourceVersion: record.result.sourceVersion,
                         channelIndex,
                         offsetSeconds: record.runtime.offsetSeconds,
                         label: spectrumReadoutTrackLabel(record.result, channelIndex),
@@ -694,7 +689,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             settingsSignature: settingsSignature,
             trackIndex: i,
             filePath: result.filePath,
-            sourceVersion: result.sourceVersion,
         });
     }
     /**
@@ -773,7 +767,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             settingsSignature: settingsSignature,
             trackIndex: i,
             filePath: result.filePath,
-            sourceVersion: result.sourceVersion,
             // The whole file's frames along time when only the band needs its own rows.
             ...(timeWindow ? { startNorm: timeWindow.startNorm, endNorm: timeWindow.endNorm } : {}),
             ...(band ? { lowHz: band.lowHz, highHz: band.highHz } : {}),
@@ -989,7 +982,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const i = msg.trackIndex;
-        const trackId = trackIdAtProtocolBoundary(i, msg);
+        const trackId = trackIdAtProtocolBoundary(i, msg.type);
         const record = trackId ? trackStore.get(trackId) : undefined;
         if (!trackId || !record) {
             return;
@@ -1014,7 +1007,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const i = msg.trackIndex;
-        const trackId = trackIdAtProtocolBoundary(i, msg);
+        const trackId = trackIdAtProtocolBoundary(i, msg.type);
         const record = trackId ? trackStore.get(trackId) : undefined;
         if (!trackId || !record) {
             return;
@@ -1069,7 +1062,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const i = msg.trackIndex;
-        const trackId = trackIdAtProtocolBoundary(i, msg);
+        const trackId = trackIdAtProtocolBoundary(i, msg.type);
         const record = trackId ? trackStore.get(trackId) : undefined;
         if (!trackId || !record) {
             spectrumRequests.pump();
@@ -1312,7 +1305,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 requestId: requestId,
                 trackIndex: i,
                 filePath: result.filePath,
-                sourceVersion: result.sourceVersion,
                 startNorm: reqStart,
                 endNorm: reqEnd,
                 points: pts,
@@ -2107,8 +2099,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     /** A track as its lanes' reads name it (R7): its index on the protocol, its file and the analysis drawn. */
     function laneTrack(trackIndex: number): LaneTrack | null {
         const result = state.results[trackIndex];
-        return result ? { trackIndex, filePath: result.filePath, sourceVersion: result.sourceVersion, calibrationSignature: result.calibrationSignature,
-            analysisId, settingsSignature: currentSettingsSignature() } : null;
+        return result ? { trackIndex, filePath: result.filePath, analysisId, settingsSignature: currentSettingsSignature() } : null;
     }
     function laneTrackFull(trackIndex: number, read: (track: LaneTrack) => FullSource): FullSource | undefined {
         const track = laneTrack(trackIndex);
@@ -2380,8 +2371,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     let laneHover: { canvas: HTMLCanvasElement; clientX: number; clientY: number } | null = null;
     /** The pointer over a spectrogram lane (client pixels), whose lane reads the cell under it on every paint (R7). */
     let spectrogramHover: { canvas: HTMLCanvasElement; clientX: number; clientY: number } | null = null;
-    // A scroll under a still pointer moves the lane from under it: the point read goes with it.
-    document.addEventListener('scroll', () => { if (laneHover || spectrogramHover) { hideLaneHover(); scheduleRender(); } }, true);
+    // A scroll under a still pointer reads the lane, or the place, now under it: the shared gestures hover there again
+    // (trackPointerEvents.ts), as a pointer moved there would (R7).
     /**
      * The lanes' readout (R7): the one state machine every plot reads through (plotHoverLayer.ts), so a lane reads,
      * steps, waits for its samples, takes a key pressed meanwhile once they are in, and reads a point stepped to again
@@ -2434,9 +2425,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (trackIndex === null || !result || !spec || !plot || rect.height <= 0 || rect.width <= 0) { laneMarks.hide(); notePlotRead(canvas, null); hidePlotReadout(slot); return; }
         const view = waveformView.timeRange();
         const span = trackStore.globalSpan();
-        // The other lanes' time line follows the pointer's time, as before the cell under it is read.
+        // The pointer's time, until a cell is read under it.
         const norm = view.start + Math.max(0, Math.min(1, (clientX - rect.left) / rect.width)) * (view.end - view.start);
-        if (viewState.hover === null || Math.abs(viewState.hover - norm) > 1e-9) viewState.setHover(norm);
         const label = spectrumReadoutTrackLabel(result, channelIndex);
         // The level in the reference its colour bar names (dB re 1 V, dB SPL re 20 µPa, dBFS), never bare dB (R7).
         const levelUnit = trackLevelInput([channelsForResult(result)[channelIndex]], undefined).levelReferenceLabel;
@@ -2446,6 +2436,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 if (!read.full || read.at === undefined || read.row === undefined || read.value === undefined) return null;
                 const secondsPerPixel = (view.end - view.start) * span.spanSec / rect.width;
                 return { name: label, values: spectrogramReadoutText('', read.at, secondsPerPixel, { frequencyHz: read.row, level: read.value, ...(read.rowStep !== undefined ? { stepHz: read.rowStep } : {}) }, levelUnit, read.step), color: trackColor(trackIndex) };
+            },
+            read(read) {
+                // The other lanes' time line and the time shown follow the cell read (its frame's time), from the
+                // readout's own state (R7): a cell stepped to and read again on a lane drawn anew keeps its time, never
+                // the time now under the place it was read at; with none read yet, the pointer's.
+                const readNorm = read?.full && read.at !== undefined && span.spanSec > 0 ? (read.at - span.startSec) / span.spanSec : norm;
+                if (viewState.hover === null || Math.abs(viewState.hover - readNorm) > 1e-9) viewState.setHover(readNorm);
             },
         });
     }
@@ -4069,20 +4066,32 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const canvas = canvasById(document, 'spectrum-overlay-canvas');
         const slot = document.getElementById('spectrum-freq-readout');
         overlayReadHz = null;
-        if (!canvas || !spectrumShown()) { spectrumMarks.hide(); return; }
+        if (!canvas || !spectrumShown()) { spectrumMarks.hide(); if (canvas) noteCursorHz(canvas, null); return; }
         if (spectrumPointer) {
-            spectrumMarks.show(canvas, spectrumDrawn, spectrumPointer.clientX, spectrumPointer.clientY, slot);
-            const read = spectrumMarks.reading();
-            overlayReadHz = read?.full && read.at !== undefined ? read.at
-                : read && read.index !== undefined && read.index >= 0 ? read.layer.view.xs?.[read.index] ?? null : null;
+            const pointer = spectrumPointer;
+            let showing = true;
+            // The frequency the pair plot follows: the point read, from the readout's own state (R7), on this show and
+            // again when its slice comes in under a still pointer, never the pointer's column beside it.
+            const follow = (read: StageRead | null): void => {
+                if (spectrumPointer !== pointer) return;
+                const hz = read && !read.pending && !read.failed ? read.full && read.at !== undefined ? read.at
+                    : read.index !== undefined && read.index >= 0 ? read.layer.view.xs?.[read.index] ?? null : null : null;
+                const changed = hz !== overlayReadHz;
+                overlayReadHz = hz;
+                noteCursorHz(canvas, hz);
+                if (!showing && changed) pairPanel.followHost();
+            };
+            spectrumMarks.show(canvas, spectrumDrawn, pointer.clientX, pointer.clientY, slot, { read: follow });
+            showing = false;
             return;
         }
         const x = spectrumFollowHz !== null && spectrumDrawn ? spectrumDrawn.xAt(spectrumFollowHz) : null;
         if (x !== null && spectrumDrawn && x >= spectrumDrawn.frame.left && x <= spectrumDrawn.frame.left + spectrumDrawn.frame.width) {
             spectrumMarks.line(canvas, spectrumDrawn, canvas.getBoundingClientRect().left + x);
+            noteCursorHz(canvas, spectrumFollowHz);
             hidePlotReadout(slot);
         }
-        else spectrumMarks.hide();
+        else { spectrumMarks.hide(); noteCursorHz(canvas, null); }
     }
 
     function renderOverlaySpectrum() {

@@ -18,7 +18,7 @@ test('all analysis paths carry the same settings/calibration context; range carr
     const client = new RecordingClient();
     const context = { stftOptions: { nFft: 256, overlapPercent: 75, window: 'hann' as const },
         calibrationProfile: identityCalibrationProfile([{ channelIndex: 0, label: 'left' }]), analysisRevision: 7 };
-    const identity = { filePath: 'source', sourceVersion: 'v1', trackIndex: 3, requestId: 'ui', analysisId: 'analysis', settingsSignature: 'settings' };
+    const identity = { filePath: 'source', trackIndex: 3, requestId: 'ui', analysisId: 'analysis', settingsSignature: 'settings' };
     await client.analyze('source', context);
     const detail = await executeLazyAnalysis(client, { ...identity, type: 'request-track-detail' }, context);
     assert.equal(detail.type, 'track-detail-result');
@@ -34,7 +34,6 @@ test('all analysis paths carry the same settings/calibration context; range carr
         assert.deepEqual(payload.calibrationProfile, context.calibrationProfile);
         assert.equal(payload.analysisRevision, 7);
         assert.equal(payload.filePath, 'source');
-        if (call.command !== 'analyze') assert.equal(payload.sourceVersion, 'v1', `${call.command} names the version of the file its track shows`);
         assert.deepEqual(payload.stftOptions, call.command === 'range' ? undefined : context.stftOptions);
     }
     assert.equal(lazyAnalysisError({ ...identity, type: 'request-spectrum-slice', cursorNorm: 0.5 }, 'failed').type, 'spectrum-slice-error');
@@ -158,7 +157,7 @@ test('an octave-band slice request reaches the backend and its bands reach the W
                 bandsPerOctave: 3, bandCentersHz: [500, 630], windowStartNorm: 0.4, windowEndNorm: 0.6, window: 'boxcar' } as unknown as BackendResult<K>;
         }
     }();
-    const request = { type: 'request-spectrum-slice' as const, filePath: 'source', sourceVersion: undefined, trackIndex: 0, requestId: 'r',
+    const request = { type: 'request-spectrum-slice' as const, filePath: 'source', trackIndex: 0, requestId: 'r',
         analysisId: 'a', settingsSignature: 's', cursorNorm: 0.5, bandsPerOctave: 3 as const };
     const slice = await executeLazyAnalysis(client, request, {});
     assert.equal((client.payloads[0] as { bandsPerOctave?: number }).bandsPerOctave, 3);

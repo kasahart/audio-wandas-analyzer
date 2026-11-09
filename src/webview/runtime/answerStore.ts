@@ -35,14 +35,13 @@ export interface AnswerKey {
  * - `fileVersion` and `calibration` given apart;
  * - `basis`: one string the screen names both by (stageSource.stageBasis: the scan's condition and the track's calibration);
  * - `by`: the ask itself names them: the backend's data keys (each a hash of the file version, Recipe, region, channels,
- *   calibration and step), the full request as sent (a pair request names each file's sourceVersion), or the source
- *   the answer is kept in (itself kept under its track's file version and calibration). A track's analysis is no
- *   version: the file can be rewritten under it, so a lane's answers name the track's sourceVersion instead.
+ *   calibration and step), the track's analysis (its id and settings signature, renewed on a new version or
+ *   calibration), the full request as sent, or the source the answer is kept in (made per data key or analysis).
  */
 export type AnswerVersion =
     | { fileVersion: string; calibration: string }
     | { basis: string }
-    | { by: 'data-keys' | 'request' | 'source' };
+    | { by: 'data-keys' | 'analysis' | 'request' | 'source' };
 
 /** What an answer is of. Every part a source knows goes in; a part it does not know is left out, never guessed. */
 export interface AnswerKeyParts {

@@ -112,7 +112,6 @@ class AnalysisResult(TypedDict):
     channels: list[ChannelSummary]
     units: NotRequired[AnalysisUnits]
     analysisRevision: NotRequired[int]
-    sourceVersion: NotRequired[str]
 
 
 def sample_range(start_norm: float, end_norm: float, sample_count: int) -> tuple[int, int]:

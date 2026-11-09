@@ -114,15 +114,15 @@ test('the pair view is three plots on one frequency axis, each named with its qu
 test('pair requests and results pass their validators', () => {
     const request: PairSpectrumRequest = {
         type: 'request-pair-spectrum', requestId: 'r', analysisId: 'a', settingsSignature: 's',
-        reference: { filePath: '/a.wav', sourceVersion: undefined, channelIndex: 0, offsetSeconds: 0 },
-        responses: [{ filePath: '/b.wav', sourceVersion: undefined, channelIndex: 1, offsetSeconds: 0.25 }],
+        reference: { filePath: '/a.wav', channelIndex: 0, offsetSeconds: 0 },
+        responses: [{ filePath: '/b.wav', channelIndex: 1, offsetSeconds: 0.25 }],
         startSeconds: 1, endSeconds: 3,
     };
     assert.equal(isRequestPairSpectrumMessage(request), true);
     assert.equal(parsePanelMessage(request)?.type, 'request-pair-spectrum');
     assert.equal(isRequestPairSpectrumMessage({ ...request, startSeconds: Number.NaN }), false);
     assert.equal(isRequestPairSpectrumMessage({ ...request, reference: { filePath: '', channelIndex: 0, offsetSeconds: 0 } }), false);
-    assert.equal(isRequestPairSpectrumMessage({ ...request, responses: [{ filePath: '/b.wav', sourceVersion: undefined, channelIndex: -1, offsetSeconds: 0 }] }), false);
+    assert.equal(isRequestPairSpectrumMessage({ ...request, responses: [{ filePath: '/b.wav', channelIndex: -1, offsetSeconds: 0 }] }), false);
 
     const result = { type: 'pair-spectrum-result', requestId: 'r', analysisId: 'a', settingsSignature: 's', filePath: '/a.wav', channelIndex: 0,
         frequencyBins: 3, maxFrequencyHz: 1000, nFft: 4, hopLength: 1, window: 'hann', computeMs: 1, responses: [response()] };
@@ -163,8 +163,8 @@ function controllerWith(
 
 const pairRequest: PairSpectrumRequest = {
     type: 'request-pair-spectrum', requestId: 'r1', analysisId: 'a', settingsSignature: 's',
-    reference: { filePath: '/a.wav', sourceVersion: undefined, channelIndex: 0, offsetSeconds: 0 },
-    responses: [{ filePath: '/b.wav', sourceVersion: undefined, channelIndex: 0, offsetSeconds: 0.5 }],
+    reference: { filePath: '/a.wav', channelIndex: 0, offsetSeconds: 0 },
+    responses: [{ filePath: '/b.wav', channelIndex: 0, offsetSeconds: 0.5 }],
 };
 
 test('the session controller publishes a pair result with the stft options and the request id', async () => {
@@ -194,7 +194,7 @@ test('the session controller drops a pair result once any source was reanalyzed'
 test('the session controller ignores a pair request for a source the host no longer displays', async () => {
     const { controller, published, calls } = controllerWith(async () => pairResult(), () => true,
         filePath => filePath === '/gone.wav' ? undefined : { analysisRevision: 2 });
-    await controller.handle({ ...pairRequest, responses: [{ filePath: '/gone.wav', sourceVersion: undefined, channelIndex: 0, offsetSeconds: 0 }] });
+    await controller.handle({ ...pairRequest, responses: [{ filePath: '/gone.wav', channelIndex: 0, offsetSeconds: 0 }] });
     assert.equal(calls.length, 0);
     assert.equal(published.length, 0);
 });
@@ -239,8 +239,8 @@ function panelFixture() {
     const references: Array<unknown> = [];
     const hoverFrequencies: Array<number | null> = [];
     let channels: PairChannelSource[] = [
-        { trackId: 't1' as TrackId, filePath: '/a.wav', sourceVersion: undefined, channelIndex: 0, offsetSeconds: 0, label: 'a.wav', color: '#0f0' },
-        { trackId: 't2' as TrackId, filePath: '/b.wav', sourceVersion: undefined, channelIndex: 0, offsetSeconds: 0.5, label: 'b.wav', color: '#f00' },
+        { trackId: 't1' as TrackId, filePath: '/a.wav', channelIndex: 0, offsetSeconds: 0, label: 'a.wav', color: '#0f0' },
+        { trackId: 't2' as TrackId, filePath: '/b.wav', channelIndex: 0, offsetSeconds: 0.5, label: 'b.wav', color: '#f00' },
     ];
     let range: { startSeconds: number; endSeconds: number } | null = null;
     let visible: { frequencyMin: number; frequencyMax: number } | null = null;
@@ -303,8 +303,8 @@ test('the pair panel requests once per change of sources or range, never for a r
         fixture.panel.toggleReference('t1' as TrackId, 0);
         mock.timers.tick(0);
         assert.equal(fixture.posted.length, 1);
-        assert.deepEqual(fixture.posted[0].reference, { filePath: '/a.wav', sourceVersion: undefined, channelIndex: 0, offsetSeconds: 0 });
-        assert.deepEqual(fixture.posted[0].responses, [{ filePath: '/b.wav', sourceVersion: undefined, channelIndex: 0, offsetSeconds: 0.5 }]);
+        assert.deepEqual(fixture.posted[0].reference, { filePath: '/a.wav', channelIndex: 0, offsetSeconds: 0 });
+        assert.deepEqual(fixture.posted[0].responses, [{ filePath: '/b.wav', channelIndex: 0, offsetSeconds: 0.5 }]);
         assert.equal('startSeconds' in fixture.posted[0], false);
         assert.ok(fixture.doc.getElementById('spectrum-section')?.classList.contains('has-pair'));
         assert.equal(fixture.doc.getElementById('pair-spectrum-message')?.textContent, en.pairWaiting);
@@ -353,8 +353,8 @@ test('the pair panel waits for a dragged offset to rest before it requests', () 
         assert.equal(fixture.posted.length, 1);
         for (let step = 1; step <= 10; step++) {
             fixture.setChannels([
-                { trackId: 't1' as TrackId, filePath: '/a.wav', sourceVersion: undefined, channelIndex: 0, offsetSeconds: 0, label: 'a.wav', color: '#0f0' },
-                { trackId: 't2' as TrackId, filePath: '/b.wav', sourceVersion: undefined, channelIndex: 0, offsetSeconds: 0.5 + step * 0.01, label: 'b.wav', color: '#f00' },
+                { trackId: 't1' as TrackId, filePath: '/a.wav', channelIndex: 0, offsetSeconds: 0, label: 'a.wav', color: '#0f0' },
+                { trackId: 't2' as TrackId, filePath: '/b.wav', channelIndex: 0, offsetSeconds: 0.5 + step * 0.01, label: 'b.wav', color: '#f00' },
             ]);
             fixture.panel.sync();
             mock.timers.tick(PAIR_REQUEST_DELAY_MS - 50);
@@ -379,8 +379,8 @@ test('an answer computed for another time offset is never drawn under the shifte
         assert.equal(fixture.panel.curves().length, 1);
         // The response track is shifted by 0.5 s: the same file and channel, another pairing in time.
         fixture.setChannels([
-            { trackId: 't1' as TrackId, filePath: '/a.wav', sourceVersion: undefined, channelIndex: 0, offsetSeconds: 0, label: 'a.wav', color: '#0f0' },
-            { trackId: 't2' as TrackId, filePath: '/b.wav', sourceVersion: undefined, channelIndex: 0, offsetSeconds: 1, label: 'b.wav', color: '#f00' },
+            { trackId: 't1' as TrackId, filePath: '/a.wav', channelIndex: 0, offsetSeconds: 0, label: 'a.wav', color: '#0f0' },
+            { trackId: 't2' as TrackId, filePath: '/b.wav', channelIndex: 0, offsetSeconds: 1, label: 'b.wav', color: '#f00' },
         ]);
         fixture.panel.render();
         assert.equal(fixture.panel.curves().length, 0, 'the 0.5 s answer is not the 1 s pairing');
@@ -404,7 +404,7 @@ test('the pair panel clears the reference with its lane and reports failures', (
         fixture.panel.handleMessage({ type: 'pair-spectrum-error', requestId: 'pair-1', analysisId: 'a', settingsSignature: 's', error: 'boom' });
         assert.equal(fixture.doc.getElementById('pair-spectrum-message')?.textContent, en.pairFailed.replace('{error}', 'boom'));
 
-        fixture.setChannels([{ trackId: 't1' as TrackId, filePath: '/a.wav', sourceVersion: undefined, channelIndex: 0, offsetSeconds: 0, label: 'a.wav', color: '#0f0' }]);
+        fixture.setChannels([{ trackId: 't1' as TrackId, filePath: '/a.wav', channelIndex: 0, offsetSeconds: 0, label: 'a.wav', color: '#0f0' }]);
         fixture.panel.sync();
         mock.timers.tick(PAIR_REQUEST_DELAY_MS);
         assert.equal(fixture.posted.length, 1);
@@ -651,7 +651,7 @@ test('a newer lazy request for the same track cancels the older one in flight, a
     } as unknown as ComparisonSessionPorts;
     const controller = new ComparisonSessionController(ports);
     const range = (requestId: string, trackIndex: number) => ({
-        type: 'request-waveform-range' as const, requestId, trackIndex, filePath: '/a.wav', sourceVersion: undefined, startNorm: 0, endNorm: 1, points: 4,
+        type: 'request-waveform-range' as const, requestId, trackIndex, filePath: '/a.wav', startNorm: 0, endNorm: 1, points: 4,
     });
 
     const old = controller.handle(range('old', 0));
