@@ -129,7 +129,9 @@ export type EntryPublication =
         /** The folder's stored session and CSV, at open. */
         session?: Record<string, unknown>; csv?: { name: string; text: string } }
     | { type: 'entry-scan-result'; requestId: string; filePath: string; result: ScanResult }
-    | { type: 'entry-scan-done'; requestId: string };
+    | { type: 'entry-scan-done'; requestId: string }
+    /** A file's calibration changed (its canonical path): what was scanned of it is of the old calibration. */
+    | { type: 'entry-calibration-changed'; filePath: string };
 
 /** Storage keys; a new layout gets a new suffix and the old key is simply never read again. */
 export const ENTRY_SCAN_INDEX_KEY = 'awa.scanIndex.v2';

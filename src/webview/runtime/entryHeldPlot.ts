@@ -58,6 +58,8 @@ export interface HeldPlotDeps {
     /** The plot's zoom, kept while it shows the same thing (`key`), whole again for another. */
     keepWindow(name: string, key: string): PlotWindow;
     results: ReadonlyMap<string, ScanResult>;
+    /** How many times a file's calibration changed while the folder is open: its pictures are asked again after one. */
+    calibrationEpoch?(path: string): number;
     /** The comparison of `comparePath` with its base over `over`, each file as the channel it is compared as (entryBase.comparison). */
     comparison(comparePath: string, over: ReadonlyMap<string, ScanResult>): CompareModel;
     /** The recordings `comparePath` is measured against. */
@@ -116,7 +118,7 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
         plot: HeldPicture | null;
     } = { slot: null, step: null, plot: null };
     // A file's pictures are of its version and calibration as the table scanned it: a change asks them again.
-    const basis = stageBasis(path => deps.results.get(path));
+    const basis = stageBasis(path => deps.results.get(path), undefined, path => deps.calibrationEpoch?.(path) ?? 0);
     const source = createStageSource('entry-hold', message => deps.post(message), () => deps.scheduleSide(), basis);
     // Every Welch bin of a held slot's file and its base: the table's own scans carry only the 192 points.
     const bins = createStageSource('held-bins', message => deps.post(message), () => deps.scheduleSide(), basis);

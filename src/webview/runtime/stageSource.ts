@@ -41,6 +41,7 @@ const CACHED_SPECS = 48;
 export function stageBasis(
     scanOf: (filePath: string) => ScanResult | undefined,
     analysisOf: (filePath: string) => { calibrationSignature?: string; analysisRevision?: number } | null | undefined = () => undefined,
+    calibrationEpoch: (filePath: string) => number = () => 0,
 ): (filePath: string) => string {
     const known = createLatestAnswers<string>();
     return filePath => {
@@ -49,7 +50,8 @@ export function stageBasis(
         const condition = scan?.ok ? scan.conditionId ?? scan.input?.id ?? '' : scan ? `failed|${scan.reason ?? ''}` : known.get(filePath) ?? '';
         if (scan?.ok) known.set(filePath, condition);
         const analysis = analysisOf(filePath);
-        return JSON.stringify([condition, analysis?.calibrationSignature ?? '', analysis?.analysisRevision ?? null]);
+        // The file's calibration changed since its scan (the host said so, a track or not): its pictures are of the old one.
+        return JSON.stringify([condition, analysis?.calibrationSignature ?? '', analysis?.analysisRevision ?? null, calibrationEpoch(filePath)]);
     };
 }
 

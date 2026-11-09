@@ -97,3 +97,12 @@ test('a step measured against the base slot\'s recording is of that recording\'s
     assert.equal(stages.view(spec, '/x.wav'), undefined, 'the reference calibrated anew: not this picture');
     assert.equal(stages.ensure(spec, ['/x.wav']), true, 'asked again');
 });
+
+test('a file calibrated anew while the folder is open is another basis, track or not', () => {
+    const scans = new Map<string, ScanResult>([['/b.wav', { ok: true, conditionId: 'c1' }]]);
+    let epoch = 0;
+    const basisOf = stageBasis(path => scans.get(path), undefined, () => epoch);
+    const first = basisOf('/b.wav');
+    epoch = 1;
+    assert.notEqual(basisOf('/b.wav'), first, 'the old pictures are not the file\'s');
+});

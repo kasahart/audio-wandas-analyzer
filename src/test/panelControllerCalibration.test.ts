@@ -345,11 +345,13 @@ test('a calibration change refreshes every lane that shows the file, under each 
         const refreshCalls: string[][] = [];
         let displayed: AnalysisResultWithError[] = [];
         let updates = 0;
+        const notices: string[] = [];
         const panel: PanelHandle = {
             webview: {
                 onDidReceiveMessage: () => ({ dispose: () => undefined }),
                 postMessage: async (message) => {
                     if ((message as { type?: unknown }).type === 'analysis-update') { updates += 1; }
+                    if ((message as { type?: unknown }).type === 'entry-calibration-changed') { notices.push((message as { filePath: string }).filePath); }
                     return true;
                 },
             },
@@ -421,6 +423,8 @@ test('a calibration change refreshes every lane that shows the file, under each 
         }
 
         assert.deepEqual(refreshCalls, [[linkPath], [targetPath]]);
+        // The entry table hears of it too, track or not: its scans of the file are of the old calibration.
+        assert.deepEqual(notices, [calibrationFileKey(targetPath)]);
         assert.deepEqual(displayed.map((entry) => [entry.filePath, entry.analysisRevision]), [[linkPath, 1], [targetPath, 1]]);
         controller.dispose();
     } finally {

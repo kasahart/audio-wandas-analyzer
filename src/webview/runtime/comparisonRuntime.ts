@@ -1504,7 +1504,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         },
         sampleRate: () => state.results.find(result => !result.error)?.sampleRateHz,
         // A file's pictures are of its version (the table's scan) and calibration (the track's analysis): a change asks them again.
-        basis: stageBasis(path => entryScreen.compareData().results.get(path), path => state.results.find(result => result.filePath === path && !result.error)),
+        basis: stageBasis(path => entryScreen.compareData().results.get(path), path => state.results.find(result => result.filePath === path && !result.error), path => entryScreen.compareData().calibrationEpoch?.(path) ?? 0),
         // What a trigger sees: the compared slots' channels (a channel row, its own) of the shown tracks, over the region.
         peak: region => {
             const shown = trackStore.displayOrder.map(trackId => trackStore.require(trackId)).filter(record => !record.runtime.hidden && !record.result.error);
