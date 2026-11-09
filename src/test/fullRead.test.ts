@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { fetchedSource, localCells, localLine, NO_FULL_DATA, STEP_AHEAD, wholeBars, type FullSource } from '../webview/runtime/fullRead';
+import { fetchedSource, localCells, localLine, mappedSource, NO_FULL_DATA, STEP_AHEAD, wholeBars, type FullSource, type LineQuery } from '../webview/runtime/fullRead';
 import { declaresFullRead, stageHover, stageStep, type StagePlot, type StageRead } from '../webview/runtime/stagePanes';
 import { HOVER_PICK_RADIUS_PX } from '../webview/runtime/plotHover';
 import { createStageReader } from '../webview/runtime/stageReader';
@@ -364,4 +364,19 @@ test('an arrow key crosses a silence of any length in one read the backend answe
     const asking = asked.length;
     assert.equal(step(last, 1), null);
     assert.equal(asked.length, asking, 'the end, once known, is not asked again');
+});
+
+test('a source read on another axis gets the pointer\'s place and the screen\'s scale on its own axis, so a dense window there is read nearest the pointer (R7)', () => {
+    // A file's 0..1 drawn over 10..30 s of the lanes' axis: 20 s to the file's whole.
+    const asked: LineQuery[] = [];
+    const file: FullSource = { held: 'fetched', line: query => { asked.push(query); return { xs: [], values: [], complete: true, start: null, end: null }; } };
+    const toNorm = (seconds: number): number => (seconds - 10) / 20, toSec = (norm: number): number => 10 + norm * 20;
+    mappedSource(file, toNorm, toSec).line?.({ x0: 12, x1: 18, at: 15, pixels: [40, 3], beyond: 1 }, () => undefined);
+    assert.equal(asked.length, 1);
+    const [query] = asked;
+    assert.ok(Math.abs(query.x0 - 0.1) < 1e-12 && Math.abs(query.x1 - 0.4) < 1e-12);
+    assert.ok(Math.abs((query.at ?? NaN) - 0.25) < 1e-12, 'the pointer at 15 s is at a quarter of the file');
+    // 40 px a second is 800 px per file's whole; the value axis is not mapped.
+    assert.ok(Math.abs((query.pixels?.[0] ?? NaN) - 800) < 1e-9);
+    assert.equal(query.pixels?.[1], 3);
 });

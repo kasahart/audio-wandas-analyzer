@@ -6,7 +6,7 @@ import { held } from './helpers/heldSource';
 import { spectrumLayer } from '../webview/runtime/overlaySpectrumPainter';
 import { axisNameParts, fontPixels } from '../webview/plot/axisTitle';
 import { heatmapDbRange, niceRange } from '../shared/utils/ticks';
-import { axisFractionOf, axisValueAt, byLevel, levelBinsOf, emptyStageText, eventLayers, paintOverlay, stageAxes, paintColourBar, colourBarTop, stageEventCounts, stageDiffRange, stageHeadline, stageRange, stageHover, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
+import { axisFractionOf, axisValueAt, byLevel, levelBinsOf, emptyStageText, eventLayers, paintOverlay, stageAxes, paintColourBar, colourBarTop, stageEventCounts, stageDiffRange, stageHeadline, stageRange, stageHover, stageStep, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
 import type { StageView } from '../shared/protocol/backendProtocol';
 import { fetchedSource, localLine, NO_FULL_DATA } from '../webview/runtime/fullRead';
 
@@ -36,6 +36,17 @@ test('the Δ pane\'s headline writes the backend\'s largest difference, found be
 test('levels share a range of four round steps; coherence keeps 0 to 1', () => {
     assert.deepEqual(stageRange([line([-43, -12, -30])]), { min: -50, max: -10 });
     assert.deepEqual(stageRange([line([0.2, 0.5, 0.9], 'coherence')]), { min: 0, max: 1 });
+});
+
+test('a dB line\'s automatic range holds every value of its full data down to 100 dB under its loudest, on round steps (R9)', () => {
+    // −49.5 to −9.5 dB: 40 dB wide, but four 10 dB steps from 0 would cut −49.5 off; 20 dB steps hold it.
+    assert.deepEqual(stageRange([{ ...line([-30, -20]), valueRange: { min: -49.5, max: -9.5 } }]), { min: -80, max: 0 });
+    for (const [min, max] of [[-49.5, -9.5], [-41, -1], [-109.5, -9.5], [-61, -2], [-12.3, -12.1], [-300, -20]]) {
+        const range = stageRange([{ ...line([min, max]), valueRange: { min, max } }]);
+        assert.ok(range.max >= max && range.min <= Math.max(min, max - 100), `${min}…${max} dB drawn on ${range.min}…${range.max}`);
+        // Never wider than it needs: its bottom is at most a step under 100 dB below the loudest.
+        assert.ok(range.min >= max - 100 - 25, `${min}…${max} dB drawn on ${range.min}…${range.max}`);
+    }
 });
 
 test('every range is set from the full data\'s lowest and highest value (valueRange), never the points drawn or the cells averaged to draw an image (R1, R9)', () => {
@@ -527,6 +538,29 @@ test('a signal is read at its sample nearest the pointer within a few pixels, ne
     assert.deepEqual(pick(stageHover(plot, 53, 15)), { x: 52, y: 15 });
     // Given no full data, a signal reads nothing, not the envelope's point under the pointer.
     assert.equal(stageHover({ ...plot, lines: [{ view: wave, color: 'blue', full: NO_FULL_DATA }] }, 50, 5), null);
+});
+
+test('zoomed in on a signal\'s level axis, the arrow keys still step one sample at a time: a sample past the axis is read at its edge, never a stop (R7)', () => {
+    const wave: StageView = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'amplitude', xs: [], values: [],
+        waveform: { min: [-0.5], max: [0.5], minT: [30], maxT: [10] } } as unknown as StageView;
+    const samples = localLine([0, 10, 20, 30, 40], [0, 0.5, 0.05, -0.5, 0.02]);
+    // The level axis zoomed to ±0.1: the samples at 10 and 30 s are above and below it.
+    const range = { min: -0.1, max: 0.1 };
+    const plot: StagePlot = { frame: { left: 0, top: 0, width: 200, height: 100 }, xAt: value => value * 4, xOf: x => x / 4, yAt: value => Math.min(100, Math.max(0, 50 - value * 500)), ratioStep: 1.12,
+        lines: [{ view: wave, color: 'blue', full: samples }], diff: false, signal: { unit: 'FS', range, paint: () => undefined } };
+    let read = stageHover(plot, 0, 50);
+    assert.ok(read && read.at === 0);
+    const visited: Array<[number | undefined, number]> = [];
+    for (let key = 0; key < 4; key++) {
+        const next = stageStep(plot, read, 1);
+        assert.ok(next, `the key after ${read.at} s steps on`);
+        visited.push([next.at, next.y]);
+        read = next;
+    }
+    // Every sample in turn; those past the axis at its top and bottom edge.
+    assert.deepEqual(visited, [[10, 0], [20, 25], [30, 100], [40, 40]]);
+    // And back again, the same samples.
+    assert.equal(stageStep(plot, read, -1)?.at, 30);
 });
 
 function pick(hit: ReturnType<typeof stageHover>): { x: number; y: number } | null {
