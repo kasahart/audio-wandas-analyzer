@@ -188,6 +188,9 @@ class StageDetail(TypedDict):
     x: list[float]
     y: NotRequired[list[float]]
     points: int
+    #: The window on screen itself (the request's x and y reach past it): the Δ headline's peak is found only in it.
+    peakX: NotRequired[list[float]]
+    peakY: NotRequired[list[float]]
 
 
 #: A detail image's rows at most (the screen's height is about this).

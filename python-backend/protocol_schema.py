@@ -562,6 +562,8 @@ DEFINITIONS: dict[str, Schema] = {
             "x": {"type": "array", "items": _NUMBER},
             "y": {"type": "array", "items": _NUMBER},
             "points": {"type": "integer", "minimum": 2, "maximum": MAX_WAVEFORM_POINTS},
+            "peakX": {"type": "array", "items": _NUMBER},
+            "peakY": {"type": "array", "items": _NUMBER},
         },
     },
     # What a plot reads under its pointer or steps to with an arrow key (full_read.py): its window [x0, x1] (or

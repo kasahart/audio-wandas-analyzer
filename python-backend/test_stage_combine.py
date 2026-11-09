@@ -685,3 +685,22 @@ def test_a_median_and_a_difference_carry_their_full_datas_value_range(signal: wd
     shown = median[drawn]
     expected = {"min": float(shown[shown > -250].min()), "max": float(shown.max())}
     assert grouped["base"]["valueRange"] == pytest.approx(expected)
+
+
+def test_zoomed_the_headlines_peak_is_looked_for_in_the_window_on_screen_alone_not_its_margin() -> None:
+    # A detail reaches past the screen (2–4 s on screen, 0–8 s asked): the Δ of 0.5 at 7 s is in the margin, the
+    # largest on screen is 0.03 at 3 s. The headline names that one (A21, C4), from every sample.
+    rate = 1000.0
+    view = {"frame": "ChannelFrame", "kind": "line", "x": "time", "xScale": "linear", "quantity": "value", "unit": "Pa"}
+    base_samples = np.zeros(10_000, dtype=np.float32)
+    compare_samples = base_samples.copy()
+    compare_samples[3000], compare_samples[7000] = -0.03, 0.5
+    base = StageData("signal", view, np.empty(0), base_samples, start=0.0, rate=rate)  # type: ignore[arg-type]
+    compare = StageData("signal", view, np.empty(0), compare_samples, start=0.0, rate=rate)  # type: ignore[arg-type]
+    margin = combine([base], compare, {"x": [0.0, 8.0], "points": 400})  # type: ignore[arg-type]
+    assert margin["diff"]["peak"]["x"] == pytest.approx(7.0)
+    shown = combine([base], compare, {"x": [0.0, 8.0], "points": 400, "peakX": [2.0, 4.0]})  # type: ignore[arg-type]
+    assert shown["diff"]["peak"]["x"] == pytest.approx(3.0)
+    assert shown["diff"]["peak"]["value"] == pytest.approx(-0.03)
+    # The line drawn is still the whole detail's.
+    assert shown["diff"]["xs"] == margin["diff"]["xs"]

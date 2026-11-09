@@ -33,19 +33,11 @@ test('the Δ pane\'s headline writes the backend\'s largest difference, found be
     assert.equal(stageHeadline(heat, strings), '1.00 s · 100 Hz −5.0 dB');
 });
 
-test('zoomed, the Δ pane\'s headline names the largest difference on screen, never one off it nor one of an earlier window (A21, C4)', () => {
-    // A detail around a window of 2–4 s: its peak (0.5 at 7 s) is in the margin, off screen.
-    const diff: StageView = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', unit: 'FS', xs: [0.5, 2.5, 3, 3.5, 7], values: [0.02, 0.01, -0.03, 0.02, 0.5], peak: { x: 7, value: 0.5, xStep: 1 / 16000 } };
-    const onScreen = stageHeadline(diff, strings, { low: 2, high: 4 });
-    assert.match(onScreen, /^3\.0000\d* s −0\.0300$/u, onScreen);
-    // On screen, the backend's own peak, found before thinning.
-    assert.match(stageHeadline(diff, strings, { low: 6, high: 8 }), /^7\.0000\d* s \+0\.500$/u);
-    // The window's own difference not in yet: no point named, rather than the last window's or the whole's.
-    assert.equal(stageHeadline(diff, strings, null), '');
-    // An image's cells are averaged: only the backend's peak, when it is on screen.
-    const heat: StageView = { frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity: 'level', yAxis: 'frequency', xs: [0.5, 1], ys: [100, 1000], matrix: [[0, -5], [0, 0]], peak: { x: 1, y: 100, value: -5 } };
-    assert.equal(stageHeadline(heat, strings, { low: 0, high: 0.75 }), '');
-    assert.equal(stageHeadline(heat, strings, { low: 0.75, high: 1.2 }), '1.00 s · 100 Hz −5.0 dB');
+test('zoomed, the Δ pane\'s headline names no point until the backend has looked for it in this window (A21, C4)', () => {
+    const diff: StageView = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', unit: 'FS', xs: [0.5, 3, 7], values: [0.02, -0.03, 0.5], peak: { x: 7, value: 0.5, xStep: 1 } };
+    // A margin's or an earlier window's peak is never named: nothing until the window's own is in.
+    assert.equal(stageHeadline(diff, strings, false), '');
+    assert.match(stageHeadline(diff, strings, true), /\+0\.500$/u);
 });
 
 test('levels share a range of four round steps; coherence keeps 0 to 1', () => {

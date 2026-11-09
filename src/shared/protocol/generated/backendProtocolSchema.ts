@@ -1235,6 +1235,18 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                     "type": "integer",
                     "minimum": 2,
                     "maximum": 32768
+                },
+                "peakX": {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    }
+                },
+                "peakY": {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    }
                 }
             },
             "additionalProperties": false
@@ -2481,6 +2493,8 @@ export interface StageDetail {
     x: number[];
     y?: number[];
     points: number;
+    peakX?: number[];
+    peakY?: number[];
 }
 
 export interface StageRead {

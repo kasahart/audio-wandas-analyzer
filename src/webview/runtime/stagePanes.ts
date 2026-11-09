@@ -302,37 +302,14 @@ function atValue(view: StageView, x: number, y?: number, xStep?: number, yStep?:
  * and value are the backend's (`peak`, stage_combine.difference_peak), found among every value before thinning (R2):
  * never the largest of the points drawn.
  */
-export function stageHeadline(diff: StageView | null, strings: Pick<StageStrings, 'stageNoDelta' | 'stageMaxDelta'>, shown?: { low: number; high: number } | null): string {
-    // Zoomed, the largest difference on screen (C4): never a point off it, nor one of an earlier window's.
-    // Null: the window's own difference is not in yet, so no point is named.
-    if (shown === null) return '';
-    const peak = diff && shown ? peakOnScreen(diff, shown) : diff?.peak;
-    if (diff && shown && !peak) return '';
+export function stageHeadline(diff: StageView | null, strings: Pick<StageStrings, 'stageNoDelta' | 'stageMaxDelta'>, ofWindow = true): string {
+    // Zoomed, the backend's peak is of the window on screen (stage_combine._on_screen) once that window's difference
+    // is in; until then no point is named (C4), never one off screen or of an earlier window.
+    if (!ofWindow) return '';
+    const peak = diff?.peak;
     if (!diff || !peak) return strings.stageNoDelta;
     const at = atValue(diff, peak.x, diff.matrix ? peak.y ?? 0 : undefined, peak.xStep, peak.yStep);
     return strings.stageMaxDelta.replace('{at}', at).replace('{delta}', signed(peak.value, isDb(diff)));
-}
-
-/**
- * The largest difference between `low` and `high` along the horizontal axis: the backend's peak when it is there;
- * else, for a line, read off the points the backend drew for this window, which keep each bucket's highest and lowest value at its own place (stage_view
- * _envelope, difference_line), so the largest on screen is among them; an image's is the backend's peak when it is on
- * screen (the image's cells are averaged). Null when none is.
- */
-function peakOnScreen(diff: StageView, shown: { low: number; high: number }): StageView['peak'] | null {
-    const inside = (x: number): boolean => x >= Math.min(shown.low, shown.high) - 1e-12 && x <= Math.max(shown.low, shown.high) + 1e-12;
-    // The backend's peak over the window's detail (a range around the screen) is the largest on screen when it is on it.
-    if (diff.peak && inside(diff.peak.x)) return diff.peak;
-    if (diff.matrix) return null;
-    const xs = diff.xs ?? [], values = diff.values ?? [];
-    let best = -1;
-    for (let index = 0; index < xs.length; index++) {
-        const value = values[index];
-        if (value === null || value === undefined || !Number.isFinite(value) || !inside(xs[index])) continue;
-        if (best < 0 || Math.abs(value) > Math.abs(values[best] as number)) best = index;
-    }
-    if (best < 0) return null;
-    return { x: xs[best], value: values[best] as number, ...(diff.peak?.xStep !== undefined ? { xStep: diff.peak.xStep } : {}) };
 }
 
 /**

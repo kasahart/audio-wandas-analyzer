@@ -41,11 +41,13 @@ export const compareDelta: ChartContract = {
         {
             id: 'compare-delta.headline', value: 'headline', what: 'Δ の見出し（差が最大の位置と値）',
             computedIn: [`${SP}:stageHeadline`, `${SP}:atValue`, 'python-backend/stage_combine.py:difference_peak'],
-            from: 'full', trace: 'バックエンドが画面に見えている部分の全データの Δ から |Δ| が最大の位置と値を探し（difference_peak、STFT の詰め物の列とケフレンシー 0 は除く）、Δ の peak として送る。webview は書くだけ。',
+            from: 'full', trace: 'バックエンドが画面に見えている部分の全データの Δ から |Δ| が最大の位置と値を探し（difference_peak、STFT の詰め物の列とケフレンシー 0 は除く）、Δ の peak として送る。拡大中は、ズームが落ち着いてから webview が画面の窓そのもの（peakX、熱図は peakY も）を送り、詳細の周りの余白ではなくその窓だけで探す（_on_screen）。その窓の Δ が届くまで、見出しは位置を書かない。',
             tests: [
                 tt('src/test/stagePanes.test.ts', 'the Δ pane\'s headline writes the backend\'s largest difference, found before thinning, never the largest point drawn'),
                 tt('python-backend/test_stage_combine.py', 'test_the_headlines_largest_difference_is_found_among_every_value_at_its_own_place'),
                 tt('python-backend/test_stage_combine.py', 'test_the_headline_is_found_before_rounding'),
+                tt('python-backend/test_stage_combine.py', 'test_zoomed_the_headlines_peak_is_looked_for_in_the_window_on_screen_alone_not_its_margin'),
+                t('src/test/stagePanes.test.ts', 'zoomed, the Δ pane\'s headline names no point until the backend has looked for it in this window (A21, C4)'),
                 t('python-backend/test_stage_combine.py', 'test_the_headline_leaves_out_padding_columns_the_zero_quefrency_and_whatever_is_off_screen'),
             ],
         },

@@ -22,6 +22,8 @@ const PAN_SPAN_TOLERANCE = 0.01;
 export interface DetailPlanner {
     /** The zoom just moved: its detail waits until it settles. */
     moved(): void;
+    /** Whether the zoom has stopped moving (else `later` is called once it has): the Δ headline's window is asked then. */
+    settled(): boolean;
     /**
      * The detail spec for `coarse` zoomed to `x` (and, for an image, `y`) on a plot `width` px wide; null when
      * the whole picture is on screen or the zoom is still settling (then `later` is called once it has).
@@ -93,6 +95,7 @@ export function createDetailPlanner(clock: { now(): number }, timers: Pick<Windo
     }
     return {
         moved() { movedAt = clock.now(); },
+        settled() { return !settling(); },
         spec(base, coarse, x, y, width) {
             const rows = coarse.kind === 'heatmap' ? y : null;
             if (whole(x) && (!rows || whole(rows))) return null;

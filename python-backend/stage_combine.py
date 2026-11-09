@@ -753,7 +753,7 @@ def combine(base: list[StageData], compare: StageData | None, detail: StageDetai
     whole = _whole_of([*base, compare])
     drawn = replace(first, values=difference, whole=whole)
     result["diff"] = draw(drawn, detail, diff=True)
-    peak = difference_peak(drawn, difference, detail)
+    peak = difference_peak(drawn, difference, _on_screen(detail))
     if peak is not None:
         result["diff"]["peak"] = peak
     return result
@@ -764,6 +764,17 @@ def _step_at(axis: np.ndarray, index: int) -> float | None:
     gaps = [abs(float(axis[i + 1] - axis[i])) for i in (index - 1, index) if 0 <= i < axis.size - 1]
     gaps = [gap for gap in gaps if gap > 0 and np.isfinite(gap)]
     return min(gaps) if gaps else None
+
+
+def _on_screen(detail: StageDetail | None) -> StageDetail | None:
+    """The window on screen of ``detail`` (its peakX / peakY), where the Δ headline's peak is looked for: never the
+    margin the detail reaches past it (C4). The detail itself without them."""
+    if not detail or "peakX" not in detail:
+        return detail
+    window: StageDetail = {"x": list(detail["peakX"]), "points": detail["points"]}
+    if "peakY" in detail:
+        window["y"] = list(detail["peakY"])
+    return window
 
 
 def difference_peak(data: StageData, values: np.ndarray, detail: StageDetail | None = None) -> StagePeak | None:

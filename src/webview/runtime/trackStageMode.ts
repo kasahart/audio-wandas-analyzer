@@ -31,7 +31,7 @@ import { attachStageGestures, type StageGestures } from './trackStageGestures';
 import { colorOf, overlayLayers, overlayLegendItems, paintBaseGate, paintNoPicture, paintNoStage, paintStageControls, paintStageLanes, paintStageOverlay, stageDom, stageModeHeadline, writeStageLegend, type Drawn, type StageFrame, type StageTrack } from './trackStagePainter';
 
 export type { StageTrack } from './trackStagePainter';
-import { isEventsView, stageAxes } from './stagePanes';
+import { axisValueAt, isEventsView, rowValueAt, stageAxes } from './stagePanes';
 import { clearTriggerLanes, paintTriggerLanes, type TriggerSettings } from './triggerLanes';
 import { zoomNormalizedRange, ZOOM_IN_FACTOR } from './waveformInteraction';
 import { keyRouterFor } from './keyRouter';
@@ -676,7 +676,13 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         const asked = ask === 'tooLarge' ? null : ask;
         const coarseCombined = ask === 'tooLarge' ? TOO_LARGE_COMBINED : asked === null ? NOTHING_COMBINED : asked ? combine.get(combineIdentity, asked, forget) : undefined;
         const fineDetail = fineSpecs.get(groupOf(comparePath ?? basePaths[0] ?? ''))?.message.detail;
-        const fineCombined = asked && fineDetail ? combine.get(`${combineIdentity}|${JSON.stringify(fineDetail)}`, { ...asked, detail: fineDetail }, forget) : undefined;
+        // Once the zoom settles, the window on screen itself: the Δ headline's peak is looked for in it alone (C4).
+        const peakWindow = fineDetail && picture && detail.settled() ? {
+            peakX: [axisValueAt(picture, state.window.x.start), axisValueAt(picture, state.window.x.end)],
+            ...(picture.kind === 'heatmap' ? { peakY: [rowValueAt(picture, state.window.y.start), rowValueAt(picture, state.window.y.end)] } : {}),
+        } : undefined;
+        const fineAsk = fineDetail ? { ...fineDetail, ...peakWindow } : undefined;
+        const fineCombined = asked && fineAsk ? combine.get(`${combineIdentity}|${JSON.stringify(fineAsk)}`, { ...asked, detail: fineAsk }, forget) : undefined;
         if (fineCombined) lastFine.set(combineIdentity, fineCombined);
         const shownCombined = fineCombined ?? (fineDetail ? lastFine.get(combineIdentity) : undefined) ?? coarseCombined;
         const combining = !waiting && asked != null && coarseCombined === undefined;
@@ -695,7 +701,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         // The events left out of each recording's, on the trigger's picture (and a step after it that keeps them).
         const excluded = (path: string): readonly number[] => (viewTrigger ? excludedOf(recipe.recipe, eventsKey(viewTrigger, path, channelFor(path))) : []);
         channelOf = channelFor;
-        const frame: StageFrame = { strings, tracks, allTracks, referencePath, comparePath, coarse, shown, picture, coarsePlots, fullOf, window: state.window, diffY: state.diffY, diffOfWindow: !!fineCombined, regionMark, pending, waiting: waiting || combining, role, named, drawnOn, baseEach: each, excluded, ...(coarseCombined?.tooLarge ? { tooLarge: true } : {}), ...(coarseCombined?.noDelta ? { noDelta: coarseCombined.noDelta } : {}), ...(coarseCombined?.failed ? { failed: true } : {}) };
+        const frame: StageFrame = { strings, tracks, allTracks, referencePath, comparePath, coarse, shown, picture, coarsePlots, fullOf, window: state.window, diffY: state.diffY, diffOfWindow: !!fineCombined && !!peakWindow, regionMark, pending, waiting: waiting || combining, role, named, drawnOn, baseEach: each, excluded, ...(coarseCombined?.tooLarge ? { tooLarge: true } : {}), ...(coarseCombined?.noDelta ? { noDelta: coarseCombined.noDelta } : {}), ...(coarseCombined?.failed ? { failed: true } : {}) };
         const bypassed = steps.filter(step => step.bypassed).map(step => stepChipLabel(step, strings, state.regionSet));
         query<HTMLElement>('[data-stage-headline]').textContent = stageModeHeadline(frame, bypassed, region);
         if (!overlay) {
