@@ -111,7 +111,7 @@ test('a window read is asked for once and kept: the pointer moving inside it ask
     assert.equal(backend.asked.length, 1);
 });
 
-test('a window too dense to send whole is read again while the pointer moves along it; at another level it is shown until that level\'s points come; zoomed in further it is asked anew (R7)', () => {
+test('a window too dense to send whole is read again while the pointer moves along it; at another level its readout is empty until that level\'s points come; zoomed in further it is asked anew (R7)', () => {
     const asked: FullReadRequest[] = [];
     // The backend's dense answer: each pixel column's lowest, highest and nearest the level asked (full_read.read_line).
     const source = fetchedSource((read, done) => {
@@ -147,9 +147,11 @@ test('a window too dense to send whole is read again while the pointer moves alo
         assert.equal(signal[read?.at as number], read?.value, 'a real sample');
     }
     assert.equal(asked.length, 1, 'nothing more asked while the pointer moves along the window');
-    // At another level: what came is read meanwhile (no blank readout), and that level's points are asked for.
-    const meanwhile = stageHover(lane, 203, 20);
-    assert.equal(meanwhile?.pending, undefined);
+    // At another level the points that came are another level's nearest: the readout is empty (marks only) until
+    // that level's own come, never a number read from the points that came for the first.
+    const waiting = stageHover(lane, 203, 20);
+    assert.equal(waiting?.pending, true);
+    assert.equal(waiting?.text, '');
     assert.equal(asked.length, 2);
     assert.equal(asked[1].near, (50 - 20) / 40);
     assert.equal(stageHover(lane, 203, 20)?.full, true);

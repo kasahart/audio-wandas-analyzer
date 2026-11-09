@@ -247,9 +247,10 @@ test('no chart orders its own overlaid lines: the order is the plot component\'s
     const files = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap(entry => (entry.isDirectory() ? files(path.join(dir, entry.name)) : entry.name.endsWith('.ts') ? [path.join(dir, entry.name)] : []));
     const ordering = files(root).filter(file => path.basename(file) !== 'stagePanes.ts' && /\b(byLevel|overlayOrder)\s*\(/u.test(readFileSync(file, 'utf8')));
     assert.deepEqual(ordering.map(file => path.relative(root, file)), []);
-    // And the component draws every overlay in that order: paintOverlay's lines come from overlayOrder.
+    // And the component draws every overlay in that order: paintOverlay's lines come from overlayOrder, kept as last
+    // judged while a level is on its way (settledOrder).
     const plot = readFileSync(path.join(root, 'runtime', 'stagePanes.ts'), 'utf8');
-    assert.match(plot, /const order = overlayOrder\(overlay\.layers,/u);
+    assert.match(plot, /const order = settledOrder\(canvas, 'main', overlay\.layers, overlayOrder\(overlay\.layers,/u);
 });
 
 test('waveforms are ordered by their samples\' mean square on the shared amplitude axis, whatever their level reference', () => {
@@ -318,6 +319,56 @@ function expectedOrder(lines: ReadonlyArray<{ color: string; xs: readonly number
     };
     return [...lines].sort((a, b) => mean(b.xs, b.values) - mean(a.xs, a.values)).map(item => item.color);
 }
+
+test('while a line\'s level on screen is on its way, the plot keeps the order it last judged on every value: never one guessed from part of it (R6)', async () => {
+    const xs = Array.from({ length: 2049 }, (_, i) => i * 24000 / 2048);
+    const x0 = 5000, x1 = 10000, peakBin = 854;
+    const peaked = xs.map((_, i) => (i === peakBin ? 0 : -40)), flat = xs.map(() => -35);
+    // The backend's answers are held until let go, as a slow reply.
+    const held: Array<() => void> = [];
+    const backend = (values: readonly number[]) => fetchedSource((read, done) => {
+        held.push(() => {
+            const inside = values.filter((_, index) => xs[index] >= read.x[0] && xs[index] <= read.x[1]);
+            done({ xs: [], start: null, end: null, complete: false, level: { power: inside.reduce((sum, value) => sum + 10 ** (value / 10), 0) / inside.length, count: inside.length } });
+        });
+    });
+    const sources = { flat: backend(flat), peaked: backend(peaked) };
+    const layer = (color: 'flat' | 'peaked', values: number[]) => ({ color, width: 2, full: sources[color],
+        view: { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'level', xs: xs.filter((_, i) => i % 16 === 0), values: values.filter((_, i) => i % 16 === 0),
+            levelBins: levelBinsOf(xs, values, [0, 24000], false) } as StageView });
+    const axis: StageView = { frame: 'spectrum', kind: 'line', xs: [0, 24000], xLimits: [0, 24000], xScale: 'linear' };
+    const lines = (strokes: string[]) => strokes.filter(color => color === 'flat' || color === 'peaked');
+    const zoomed = { axisView: axis, window: { x: { start: x0 / 24000, end: x1 / 24000 } } };
+    // Before anything is judged, the caller's order: not one guessed from the stretches on screen.
+    const fresh = strokingCanvas();
+    paintOverlay(fresh.canvas, { layers: [layer('peaked', peaked), layer('flat', flat)] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dB]' }, zoomed);
+    assert.deepEqual(lines(fresh.strokes), ['peaked', 'flat']);
+    assert.match(fresh.canvas.dataset.plotOrder ?? '', /…/u);
+    // Over the whole axis every stretch is on screen: judged at once, the peaked line the louder (under).
+    const { canvas, strokes } = strokingCanvas();
+    paintOverlay(canvas, { layers: [layer('flat', flat), layer('peaked', peaked)] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dB]' }, { axisView: axis });
+    assert.deepEqual(lines(strokes), expectedOrder([{ color: 'peaked', xs, values: peaked }, { color: 'flat', xs, values: flat }], 0, 24000));
+    assert.deepEqual(lines(strokes), ['peaked', 'flat']);
+    // Zoomed, the levels on screen are asked for: until both are in, the plot keeps that order, given in either order.
+    for (const given of [['flat', 'peaked'], ['peaked', 'flat']] as const) {
+        strokes.length = 0;
+        paintOverlay(canvas, { layers: given.map(color => layer(color, color === 'flat' ? flat : peaked)) }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dB]' }, zoomed);
+        assert.deepEqual(lines(strokes), ['peaked', 'flat'], `kept while measured, given ${given.join(', ')}`);
+        assert.match(canvas.dataset.plotOrder ?? '', /…/u);
+    }
+    // One level in, the other still on its way: still kept.
+    strokes.length = 0;
+    held.shift()?.();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.deepEqual(lines(strokes).slice(-2), ['peaked', 'flat']);
+    assert.match(canvas.dataset.plotOrder ?? '', /…/u);
+    // Both in: judged on every value on screen, the quieter peaked line on top, and drawn so.
+    while (held.length) held.shift()?.();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    assert.deepEqual(lines(strokes).slice(-2), expectedOrder([{ color: 'peaked', xs, values: peaked }, { color: 'flat', xs, values: flat }], x0, x1));
+    assert.deepEqual(lines(strokes).slice(-2), ['flat', 'peaked']);
+    assert.equal(canvas.dataset.plotOrder, '-35.00,-40.00');
+});
 
 test('zoomed, lines are ordered by every value on screen: a loud peak just off screen, in a stretch the edge cuts, does not count (R6, R2)', async () => {
     // Two spectra of 2049 bins over 0–24 kHz, held by the backend: each comes thinned to be drawn, with the levelBins

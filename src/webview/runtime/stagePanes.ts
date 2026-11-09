@@ -429,6 +429,35 @@ export function overlayOrder(layers: readonly StageLayer[], axisView: Pick<Stage
     return drawn;
 }
 
+/** Who a compared line is across redraws (a redraw makes new layers): its colour, name and recording, or event. */
+function lineKey(layer: StageLayer): string {
+    return [layer.color, layer.label ?? '', layer.source ?? '', layer.event?.id ?? ''].join('\u0000');
+}
+
+/** Each plot's last order judged on every value on screen, by axis, as lineKey's. */
+const settledOrders = new WeakMap<object, { main?: string[]; secondary?: string[] }>();
+
+/**
+ * The order a plot draws in (R6) while a line's level is still being fetched: never one guessed from part of it. The
+ * order last judged on every value (its lines in those places, a line it did not hold after them, in the caller's
+ * order), else the caller's own until the levels are in; once every level is in, `exact`, and that is kept.
+ */
+function settledOrder(canvas: object, axis: 'main' | 'secondary', layers: readonly StageLayer[], exact: StageLayer[], levels: ReadonlyMap<StageLayer, ScreenLevel>): StageLayer[] {
+    const kept = settledOrders.get(canvas) ?? {};
+    if (![...levels.values()].some(level => level.state === 'pending')) {
+        settledOrders.set(canvas, { ...kept, [axis]: exact.filter(comparedLine).map(lineKey) });
+        return exact;
+    }
+    const previous = kept[axis] ?? [];
+    const places = layers.flatMap((layer, index) => (comparedLine(layer) ? [index] : []));
+    const rank = (layer: StageLayer): number => { const at = previous.indexOf(lineKey(layer)); return at < 0 ? previous.length : at; };
+    const ordered = places.map(index => layers[index]).map((layer, index) => ({ layer, index, rank: rank(layer) }))
+        .sort((a, b) => a.rank - b.rank || a.index - b.index).map(item => item.layer);
+    const drawn = [...layers];
+    places.forEach((place, index) => { drawn[place] = ordered[index]; });
+    return drawn;
+}
+
 /**
  * The levels of a plot's compared lines in the order they were drawn, as the plot writes them on its canvas
  * (`data-plot-order`) for the ui-smoke audit (canvasAudit.ts) to check on every plot shown: never rising (R6).
@@ -880,7 +909,7 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
     // screen; a level still being fetched draws the plot again once it is in (`ready`).
     const levelContext = { ready };
     const levels = screenLevels(overlay.layers.filter(comparedLine), whole, xWindow, levelContext);
-    const order = overlayOrder(overlay.layers, whole, xWindow, levels);
+    const order = settledOrder(canvas, 'main', overlay.layers, overlayOrder(overlay.layers, whole, xWindow, levels), levels);
     const layers = order.flatMap(layer => events.get(layer) ?? []);
     // Each line drawn, as the caller's picture (a trigger's events are their recording's), in the order drawn.
     const pictureOf = new Map(order.flatMap(layer => (events.get(layer) ?? []).map(drawn => [drawn, layer] as const)));
@@ -888,7 +917,7 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
     const secondDrawn: StageLayer[] = [];
     const drew = (layer: StageLayer): void => { const picture = pictureOf.get(layer) ?? layer; if (drawnPictures[drawnPictures.length - 1] !== picture) drawnPictures.push(picture); };
     const secondLevels = options.secondary ? screenLevels(options.secondary.layers.filter(comparedLine), whole, xWindow, levelContext) : undefined;
-    const secondaryOrder = options.secondary ? overlayOrder(options.secondary.layers, whole, xWindow, secondLevels) : [];
+    const secondaryOrder = options.secondary && secondLevels ? settledOrder(canvas, 'secondary', options.secondary.layers, overlayOrder(options.secondary.layers, whole, xWindow, secondLevels), secondLevels) : [];
     const xAxis = windowed(axisScale(whole), xWindow);
     // Zoomed, the pictures run past the plot's edges: they are clipped to it.
     const xAt = (value: number): number => left + xAxis.fraction(value) * plotWidth;

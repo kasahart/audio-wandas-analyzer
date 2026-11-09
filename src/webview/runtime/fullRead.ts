@@ -230,15 +230,15 @@ export function fetchedSource(fetch: (read: StageRead, done: (points: StagePoint
             for (const call of calls) call();
         });
     };
-    /** `found`: 'whole' when kept points answer the read, 'meanwhile' when they do until the read's own come in. */
-    const answer = (key: string, read: StageRead, ready: () => void, found: (points: FullPoints, asked: StageRead) => 'whole' | 'meanwhile' | false): FullAnswer => {
-        let meanwhile: FullPoints | undefined;
+    /**
+     * `found`: whether kept points answer the read exactly. Nothing else is shown in its place: until its own points
+     * come the read is undefined (pending), and the plot shows its marks and no number (R7).
+     */
+    const answer = (key: string, read: StageRead, ready: () => void, found: (points: FullPoints, asked: StageRead) => boolean): FullAnswer => {
         for (let index = kept.length - 1; index >= 0; index--) {
             const item = kept[index];
             if (item.key === key) return item.points;
-            const fit = item.points ? found(item.points, item.read) : false;
-            if (fit === 'whole') return item.points;
-            if (fit && !meanwhile && item.points) meanwhile = item.points;
+            if (item.points && found(item.points, item.read)) return item.points;
         }
         waiting.add(ready);
         if (busy !== key) {
@@ -246,7 +246,7 @@ export function fetchedSource(fetch: (read: StageRead, done: (points: StagePoint
             else if (read.level) nextLevel = { key, read };
             else next = { key, read };
         }
-        return meanwhile;
+        return undefined;
     };
     const source: FetchedFullSource = {
         held: 'fetched',
@@ -262,10 +262,9 @@ export function fetchedSource(fetch: (read: StageRead, done: (points: StagePoint
                 ...(columns ? { columns } : {}), ...(query.log ? { log: true } : {}) };
             // A window too dense to send whole comes as each pixel column's lowest, highest and the point nearest the
             // level under the pointer: it is read again wherever it holds the pointer's window as finely as the screen
-            // draws it. At another level its nearest points are another's, so it is shown only until that level's come.
-            return answer(JSON.stringify(read), read, ready, (points, asked) => (covers(points, x0, x1, query.beyond) ? 'whole'
-                : !points.complete && query.columns !== undefined && holdsDense(asked, x0, x1, query.columns, log)
-                    ? (asked.near === read.near ? 'whole' : 'meanwhile') : false));
+            // draws it, at that level. At another level its nearest points are another's: the read waits for its own.
+            return answer(JSON.stringify(read), read, ready, (points, asked) => covers(points, x0, x1, query.beyond)
+                || (!points.complete && query.columns !== undefined && holdsDense(asked, x0, x1, query.columns, log) && asked.near === read.near));
         },
         level(query, ready) {
             // Every value of the window, measured where the data is (full_read.read_level): never the drawn points.
@@ -280,13 +279,13 @@ export function fetchedSource(fetch: (read: StageRead, done: (points: StagePoint
             const read: StageRead = { ...extra, x: [query.x], y: [query.y], beyond: hover ? HOVER_CELLS.beyond : query.beyond, ...(hover ? { rows: HOVER_CELLS.rows } : {}) };
             return answer(JSON.stringify(read), read, ready, points => {
                 const xs = points.xs, ys = points.ys ?? [];
-                if (!points.complete || xs.length < 1 || ys.length < 3 || query.y < ys[1] || query.y > ys[ys.length - 2]) return false as const;
+                if (!points.complete || xs.length < 1 || ys.length < 3 || query.y < ys[1] || query.y > ys[ys.length - 2]) return false;
                 // The column nearest the pointer, with `beyond` (at least one, for the cell's edges) past it each side;
                 // a data end counts as reached.
                 let column = 0;
                 for (let index = 1; index < xs.length; index++) if (Math.abs(xs[index] - query.x) < Math.abs(xs[column] - query.x)) column = index;
                 const need = Math.max(1, query.beyond);
-                return (points.start === null || column >= need) && (points.end === null || column + need <= xs.length - 1) ? 'whole' as const : false as const;
+                return (points.start === null || column >= need) && (points.end === null || column + need <= xs.length - 1);
             });
         },
     };

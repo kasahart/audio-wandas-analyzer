@@ -36,18 +36,17 @@ export const compareOverlay: ChartContract = {
             from: 'full', trace: '窓の点が多すぎると、バックエンドは画素の列ごとに最小・最大とマウスの高さに一番近い点（3 つ、どれも本当の点）を返し、部品はその中から縦横の距離で一番近い点を読む。列の幅は 1 画素なので、横の距離の差は 1 画素より小さい。',
             tests: [
                 tt('python-backend/test_full_read.py', 'test_a_dense_window_gives_each_pixel_columns_real_extremes_and_the_point_nearest_the_pointer'),
-                tt('src/test/fullRead.test.ts', 'a window too dense to send whole is read again while the pointer moves along it; at another level it is shown until that level\'s points come; zoomed in further it is asked anew (R7)'),
+                tt('src/test/fullRead.test.ts', 'a window too dense to send whole is read again while the pointer moves along it; at another level its readout is empty until that level\'s points come; zoomed in further it is asked anew (R7)'),
             ],
         },
         {
             id: 'compare-overlay.pending', value: 'pending', what: '取り寄せた点が届くまでの読み値',
-            computedIn: ['src/webview/runtime/fullRead.ts:fetchedSource', `${SP}:stageHover`],
-            from: 'full', trace: '何も届いていなければカーソルだけを出し読み値は空（pendingRead）。密な窓を別の高さで読むときは、前の高さで届いた点（本当の点だが、今の高さに一番近い点とは限らない）を、その高さの点が届くまで読む（meanwhile）。',
+            computedIn: ['src/webview/runtime/fullRead.ts:fetchedSource', `${SP}:stageHover`, 'src/webview/runtime/trackStageGestures.ts:attachStageGestures'],
+            from: 'full', trace: '何も届いていなければカーソルだけを出し読み値は空（pendingRead）。密な窓を別の高さで読むときも、前の高さで届いた点は読まず、その高さの点が届くまで空（fetchedSource の answer は自分の点か、同じ高さで同じ細かさの窓だけを答える）。届く前のトリガーのイベントのクリックは、届いてから決める（trackStageGestures の tap）。',
             tests: [
-                tt('src/test/fullRead.test.ts', 'a window too dense to send whole is read again while the pointer moves along it; at another level it is shown until that level\'s points come; zoomed in further it is asked anew (R7)'),
+                tt('src/test/fullRead.test.ts', 'a window too dense to send whole is read again while the pointer moves along it; at another level its readout is empty until that level\'s points come; zoomed in further it is asked anew (R7)'),
+                t('src/test/trackStageGestures.test.ts', 'a click on a trigger\'s event line while its full data is on its way is decided once it is in, never dropped; a double-click meanwhile still takes it back (R7)'),
             ],
-            breaks: { rule: 'R7', quote: '届くまでは、カーソルだけを出し、読み値は空にします。' },
-            gap: { severity: 'P2', why: 'R7 は届くまで読み値を空にするが、密な窓を別の高さで読むときは前の高さの点を読む。その間の読み値は今のマウスに一番近い点とは限らない。' },
         },
         {
             id: 'compare-overlay.readout-bands', value: 'readout', what: '1/3 オクターブ帯（棒）の読み値',
@@ -103,9 +102,10 @@ export const compareOverlay: ChartContract = {
         },
         {
             id: 'compare-overlay.order-pending', value: 'pending', what: '取り寄せたレベルが届くまでの重ねる順（data-plot-order の「…」）',
-            computedIn: [`${SP}:screenLevels`, `${SP}:drawnLevelsText`, `${SP}:paintOverlay`],
-            from: 'full', trace: '端で切れた区間のレベルを取り寄せている間は levelBins の見えている割合で仮に並べ、data-plot-order に「…」と書く。届いたら部品が描き直す。UI テストは 5 秒たっても「…」のグラフを失敗にする。',
+            computedIn: [`${SP}:screenLevels`, `${SP}:settledOrder`, `${SP}:drawnLevelsText`, `${SP}:paintOverlay`],
+            from: 'full', trace: '端で切れた区間のレベルを取り寄せている間は、一部から推し量った順では描かない。そのグラフで最後に全部の値で決めた順を保ち（settledOrder、まだなければ渡された順）、data-plot-order に「…」と書く。全部届いたら部品が描き直す。UI テストは 5 秒たっても「…」のグラフを失敗にする。',
             tests: [
+                tt('src/test/stagePanes.test.ts', 'while a line\'s level on screen is on its way, the plot keeps the order it last judged on every value: never one guessed from part of it (R6)'),
                 tt('src/test/stagePanes.test.ts', 'zoomed, lines are ordered by every value on screen: a loud peak just off screen, in a stretch the edge cuts, does not count (R6, R2)'),
             ],
         },
@@ -199,7 +199,6 @@ export const compareOverlay: ChartContract = {
         },
     ],
     knownGaps: {
-        'compare-overlay.pending': 'P2',
         'compare-overlay.axis-metric': 'P2',
     },
 };

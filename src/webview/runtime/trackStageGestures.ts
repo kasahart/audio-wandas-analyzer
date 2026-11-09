@@ -84,19 +84,20 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
     };
     /**
      * The trigger's event whose line is under the pointer (within a few pixels), if any. Read from the events' full
-     * data (R7): none while it is fetched (`ready` is called once it is in).
+     * data (R7): undefined while it is fetched (`ready` is called once it is in).
      */
-    const eventAt = (plot: HTMLElement, clientX: number, clientY: number, ready?: () => void): { id: number; source: string; out: boolean } | null => {
+    const eventAt = (plot: HTMLElement, clientX: number, clientY: number, ready?: () => void): { id: number; source: string; out: boolean } | null | undefined => {
         const drawn = drawnOn.get(plot);
         if (!drawn?.plot || !plot.isConnected) return null;
         const rect = plot.getBoundingClientRect();
         const hit = stageHover(drawn.plot, clientX - rect.left, clientY - rect.top, ready);
-        return hit && !hit.pending && hit.layer.event && Math.abs(hit.y - (clientY - rect.top)) <= EVENT_PICK_PX ? hit.layer.event : null;
+        if (hit?.pending) return undefined;
+        return hit && hit.layer.event && Math.abs(hit.y - (clientY - rect.top)) <= EVENT_PICK_PX ? hit.layer.event : null;
     };
     /** On an event's line the pointer says it can be clicked; said again once the line's full data is in. */
     const hintAt = (plot: HTMLElement, clientX: number, clientY: number, late = false): void => {
         const again = (): void => { if (hovered && hovered.plot === plot && hovered.clientX === clientX && hovered.clientY === clientY) hintAt(plot, clientX, clientY, true); };
-        const line = deps.toggleEvent ? eventAt(plot, clientX, clientY, again) : null;
+        const line = deps.toggleEvent ? eventAt(plot, clientX, clientY, again) ?? null : null;
         // Once the data is in, only a line found says so: a message written meanwhile (a key's) is not covered by the plot's hint.
         if (late && !line) return;
         plot.style.cursor = line ? 'pointer' : '';
@@ -114,15 +115,26 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
     document.addEventListener('scroll', () => { if (hovered) { hovered = null; hideHover(); } }, true);
     // A click on an event's line (the plot gestures' tap: a press that stayed put, a drag zooms instead) leaves it out
     // or puts it back. It waits out a double-click (which resets the zoom): the second press takes the first one back.
+    // A click while the lines' full data is on its way is decided once it is in (R7), never dropped; a later press
+    // (the double-click's second, or another click) takes its place.
     let pending: number | undefined;
+    let taps = 0;
     const view = document.defaultView;
     const tap = (plot: HTMLElement, event: MouseEvent): void => {
-        if (!state.on || !deps.toggleEvent || !view) return;
+        const toggle = deps.toggleEvent;
+        if (!state.on || !toggle || !view) return;
         if (pending !== undefined) { view.clearTimeout(pending); pending = undefined; }
+        const mine = ++taps;
         if (event.detail > 1) return;
-        const line = eventAt(plot, event.clientX, event.clientY);
-        const edit = line ? deps.toggleEvent(line) : undefined;
-        if (edit) pending = view.setTimeout(() => { pending = undefined; edit(); }, DOUBLE_CLICK_MS);
+        const { clientX, clientY } = event;
+        const decide = (): void => {
+            if (mine !== taps || !state.on) return;
+            const line = eventAt(plot, clientX, clientY, decide);
+            if (line === undefined) return;
+            const edit = line ? toggle(line) : undefined;
+            if (edit) pending = view.setTimeout(() => { pending = undefined; edit(); }, DOUBLE_CLICK_MS);
+        };
+        decide();
     };
     const gestures = (selector: string, container: HTMLElement): void => attachPlotInteraction(container, document, selector, {
         locate(target, clientX, clientY): PlotHit | null {
