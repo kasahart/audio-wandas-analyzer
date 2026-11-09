@@ -7,6 +7,7 @@ import type { StageView } from '../../shared/protocol/backendProtocol';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { niceRange } from '../../shared/utils/ticks';
 import { clearSideAxis, paintOverlay, stageRange, type StageAxes } from './stagePanes';
+import { withMinus } from '../plot/plotText';
 import type { PaneRange } from './comparePanes';
 import type { Drawn, StageTrack } from './trackStagePainter';
 import type { PlotWindow } from './plotInteraction';
@@ -75,7 +76,7 @@ export function paintTriggerLanes(frame: TriggerLanesFrame): number {
         // fires at, named with its value and unit: guides the plot component draws over the signal.
         const guides = view ? {
             spans: events.filter(event => !out.has(event.id)).map(event => ({ start: event.time - trigger.pre, end: event.time - trigger.pre + trigger.duration })),
-            level: { value: trigger.threshold, label: strings.stageThreshold.replace('{value}', String(trigger.threshold)).replace('{unit}', view.unit ?? '').trim() },
+            level: { value: trigger.threshold, label: strings.stageThreshold.replace('{value}', withMinus(String(trigger.threshold))).replace('{unit}', view.unit ?? '').trim() },
         } : undefined;
         // The lanes' own zoom (their time is the recording's): the vertical part narrows the level range.
         const { x, y } = frame.window;

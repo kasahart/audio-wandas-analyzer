@@ -45,6 +45,7 @@ export const NOT_CHART_VALUES: Readonly<Record<string, string>> = {
     'src/shared/recipe/channelSelection.ts:withBaseInput': 'a Recipe\'s region end, kept to the microsecond: a setting, not a value shown',
     'src/webview/plot/axisTitle.ts:scaledFont': 'a CSS font size in pixels, not a value',
     'src/webview/runtime/stagePanes.ts:paintValueTitle': 'the axis name\'s font size (scaledFont), not a value',
+    'src/webview/runtime/stagePanes.ts:paintValueTicks': 'the tick numbers\' font size (scaledFont) to keep clear of the axis name; the numbers are valueTickTexts\'',
     'src/webview/rangePopover.ts:shownNumber': 'the axis range field\'s starting text, which the user edits',
     'src/webview/rangePopover.ts:openAxisPart': 'the axis range field\'s starting text (shownNumber), which the user edits',
     'src/webview/runtime/compareReport.ts:reportRecipe': 'the region a report\'s Recipe is cut to, kept to the microsecond: a setting',

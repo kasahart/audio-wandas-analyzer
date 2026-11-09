@@ -39,7 +39,7 @@ test('報告.csv has one row per slot in the agreed columns: dB to one decimal, 
     assert.ok(csv.startsWith('﻿'));
     const [header, row, ...rest] = csv.slice(1).trimEnd().split('\r\n');
     assert.equal(rest.length, 0);
-    assert.equal(header, `ファイル,Δ最大帯域 Hz,Δ最大帯域 dB,条件 1,条件 2,開始 s,終了 s,Leq dB(A) 未校正,基準 Leq,Δ Leq dB(A),${header.split(',').filter(name => /^Δ [\d.]+ k?Hz dB$/.test(name)).join(',')},基準群 n,基準群ファイル,解析仕様版,手順,ch,メモ,基準の定義`);
+    assert.equal(header, `ファイル,Δ最大帯域 Hz,Δ最大帯域 dB,条件 1,条件 2,開始 s,終了 s,Leq dB(A) 未校正,基準 Leq dB(A) 未校正,Δ Leq dB(A),${header.split(',').filter(name => /^Δ [\d.]+ k?Hz dB$/.test(name)).join(',')},基準群 n,基準群ファイル,解析仕様版,手順,ch,メモ,基準の定義`);
     assert.ok(header.includes(',Δ 3.15 kHz dB,'));
     const cells = row.split(',');
     // Where the file differs most comes first.

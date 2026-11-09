@@ -28,7 +28,18 @@ export interface PairCurve {
 
 export type PairStrings = Pick<UiStrings,
     | 'pairReferenceHint' | 'pairReferenceClearHint' | 'pairReferenceBadge' | 'pairAverages' | 'pairFewAveragesHint'
-    | 'pairResampledHint' | 'pairNoOverlapHint' | 'pairTooShortHint' | 'pairOtherUnitHint' | 'pairPhaseLabel' | 'pairCoherenceLabel' | 'axisFrequency'>;
+    | 'pairResampledHint' | 'pairNoOverlapHint' | 'pairTooShortHint' | 'pairOtherUnitHint' | 'pairPhaseLabel' | 'pairCoherenceLabel' | 'axisFrequency'
+    | 'axisGain' | 'axisTransferLevel'>;
+
+/**
+ * The gain plot's axis name, in the UI's language (R4): a gain in plain dB where the two channels share a unit, else
+ * the transfer level in dB re the units' ratio, as the backend measured it (its levelReferenceLabel, else the unit of
+ * its own English name).
+ */
+export function gainAxisName(response: Pick<PairSpectrumResponse, 'axisLabel'> & { levelReferenceLabel?: string | null } | undefined, strings: Pick<UiStrings, 'axisGain' | 'axisTransferLevel'>): string {
+    const unit = response?.levelReferenceLabel ?? /\[([^\]]+)\]\s*$/u.exec(response?.axisLabel ?? '')?.[1] ?? 'dB';
+    return unit === 'dB' ? strings.axisGain : strings.axisTransferLevel.replace('{unit}', unit);
+}
 
 /** Below this many averages the γ² estimate is biased high enough to mislead. */
 export const PAIR_FEW_AVERAGES = 8;
@@ -177,7 +188,7 @@ export function pairLanes(input: PairPaintInput, visible: FrequencyScale, string
             ...(curve.dashed ? { dash: [4, 2] } : {}),
         }));
     return [
-        { key: 'gain', axes: { x: strings.axisFrequency, y: drawn[0]?.response.axisLabel ?? 'Gain [dB]' }, range: gainRange(drawn, shown), layers: lines(response => response.gainDb, 'gain', 'dB') },
+        { key: 'gain', axes: { x: strings.axisFrequency, y: gainAxisName(drawn[0]?.response, strings) }, range: gainRange(drawn, shown), layers: lines(response => response.gainDb, 'gain', 'dB') },
         { key: 'phase', axes: { x: strings.axisFrequency, y: strings.pairPhaseLabel }, range: { min: -180, max: 180 }, layers: lines(response => response.phaseRad.map(value => (value === null ? null : value * DEGREES)), 'value', '°') },
         { key: 'coherence', axes: { x: strings.axisFrequency, y: strings.pairCoherenceLabel }, range: { min: 0, max: 1 }, layers: lines(response => response.coherence, 'coherence', 'γ²') },
     ];

@@ -421,6 +421,8 @@ export interface UiStrings {
     stepOpenCompare: string;
     axisLevel: string;
     axisGain: string;
+    /** A transfer function's level where its two channels' units differ: `{unit}` is dB re their ratio. */
+    axisTransferLevel: string;
     axisCoherence: string;
     axisLoudness: string;
     /** A time signal's value axis after rms_trend, sound_level or power (StageView.measure). */
@@ -955,7 +957,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         reportCompare: 'compare',
         reportDiff: 'delta',
         reportCsv: 'report',
-        reportBaseLeq: 'Base Leq',
+        reportBaseLeq: 'Base Leq dB(A)',
         reportBandDelta: 'Δ {band} dB',
         reportRegion: 'Region s',
         reportSummary: 'summary',
@@ -1223,6 +1225,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepOpenCompare: 'Put files in slots 1–3 to compare them at this step.',
         axisLevel: 'Level [dB]',
         axisGain: 'Gain [dB]',
+        axisTransferLevel: 'Transfer level [{unit}]',
         axisCoherence: 'Coherence γ² [–]',
         axisLoudness: 'Loudness',
         axisRms: 'RMS',
@@ -1742,7 +1745,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         reportCompare: '比較',
         reportDiff: '差',
         reportCsv: '報告',
-        reportBaseLeq: '基準 Leq',
+        reportBaseLeq: '基準 Leq dB(A)',
         reportBandDelta: 'Δ {band} dB',
         reportRegion: '区間 s',
         reportSummary: '要約',
@@ -2010,6 +2013,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepOpenCompare: '行の 1–3 を押すと、この手順の結果を比べられます',
         axisLevel: 'レベル [dB]',
         axisGain: '利得 [dB]',
+        axisTransferLevel: '伝達レベル [{unit}]',
         axisCoherence: 'コヒーレンス γ² [–]',
         axisLoudness: 'ラウドネス',
         axisRms: '実効値',

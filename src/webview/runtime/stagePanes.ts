@@ -16,7 +16,7 @@ import { plotPointIn, type PlotMargins } from './plotInteraction';
 import { HOVER_PICK_RADIUS_PX, nearestPoint } from './plotHover';
 import { paintWaveformLayer, waveformRange, type SignalPointSink } from '../plot/waveformLayer';
 import { packRgb, paletteColour, rasterizeHeatmap, unpackRgb } from '../plot/heatmapRaster';
-import { drawValueAxis, readoutText, type AxisTick, type Palette } from '../../shared/gui-core/index';
+import { readoutText, type AxisTick, type Palette } from '../../shared/gui-core/index';
 import { axisName, axisNameParts, fitAxisTitle, fontPixels, scaledFont } from '../plot/axisTitle';
 import { HEATMAP_DB_SPAN, heatmapDbRange, niceRange, niceTicks } from '../../shared/utils/ticks';
 import { amountText, barkText, frequencyText, lagText, levelText, quefrencyText, secondsText, signedText, withMinus } from '../plot/plotText';
@@ -282,9 +282,15 @@ function spacingAt(values: readonly number[] | undefined, index: number): number
     return gaps.length ? Math.min(...gaps) : undefined;
 }
 
+/**
+ * The decimals a time needs so that points `step` s apart never read the same (R7, as a frequency's do): at least
+ * 10 ms, to the nanosecond at most (a hop of 256 at 48 kHz, 5.3 ms apart: "1.008 s", "1.013 s").
+ */
+const timeDigits = (step?: number): number => (step !== undefined && step > 0 && Number.isFinite(step) ? Math.max(2, Math.min(9, Math.ceil(-Math.log10(step) - 1e-9))) : 2);
+
 /** A point of `view`'s axes in their units: "1 kHz", "1.00 s · 100 Hz". */
 function atValue(view: StageView, x: number, y?: number, xStep?: number, yStep?: number): string {
-    const along = view.x === 'time' ? secondsText(x) : view.x === 'quefrency' ? quefrency(x) : view.x === 'lag' ? lag(x) : hz(x, xStep);
+    const along = view.x === 'time' ? secondsText(x, timeDigits(xStep)) : view.x === 'quefrency' ? quefrency(x) : view.x === 'lag' ? lag(x) : hz(x, xStep);
     if (y === undefined) return along;
     return `${along} · ${view.yAxis === 'bark' ? barkText(y) : view.yAxis === 'quefrency' ? quefrency(y) : hz(y, yStep)}`;
 }
@@ -552,7 +558,7 @@ export const TICK_LABEL_PX = 10;
 const TICK_LABEL_GAP_PX = 2;
 
 /**
- * Where a value axis's tick label is drawn up an axis `height` px tall, from its top: as drawValueAxis sets it, the
+ * Where a value axis's tick label is drawn up an axis `height` px tall, from its top: as paintValueTicks sets it, the
  * top tick hangs below the top edge, the bottom one stands on the bottom edge, the others are centred on their place.
  */
 export function tickLabelSpan(fraction: number, height: number): { top: number; bottom: number } {
@@ -632,7 +638,8 @@ export function alongAxisTicks(low: number, high: number, log = false): Array<{ 
     return ticks(low, high, log).map(value => ({ value, text: tickText(value, log) }));
 }
 
-const tickText = (value: number, log: boolean): string => (log ? (value >= 1000 ? `${Number((value / 1000).toPrecision(3))}k` : String(Number(value.toPrecision(3)))) : String(value));
+// A negative tick (a lag, the time from a trigger) with a true minus, as every number a plot writes (plotText.ts).
+const tickText = (value: number, log: boolean): string => withMinus(log ? (value >= 1000 ? `${Number((value / 1000).toPrecision(3))}k` : String(Number(value.toPrecision(3)))) : String(value));
 /** A value on the level axis with as many decimals as its span needs (cepstral coefficients need four or five). */
 const levelTick = (value: number, span: number): string => withMinus(span >= 8 ? String(Math.round(value)) : value.toFixed(Math.max(1, Math.min(6, Math.ceil(-Math.log10(span / 8))))));
 
@@ -1155,10 +1162,13 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
     context.fillStyle = muted;
     context.strokeStyle = line;
     context.lineWidth = 1;
+    // A label that would touch the one before it is left out too (a log axis in a narrow plot), its gridline kept.
+    let labelsEnd = -Infinity;
     for (const { value, text: label } of alongAxisTicks(xAxis.low, xAxis.high, xAxis.log)) {
         const x = xAt(value);
         if (!heatmap) { context.beginPath(); context.moveTo(x, top); context.lineTo(x, top + plotHeight); context.stroke(); }
-        if (xLabels && x - 6 + context.measureText(label).width < xTitleLeft - 4) context.fillText(label, x - 6, height - 3);
+        const end = x - 6 + context.measureText(label).width;
+        if (xLabels && end < xTitleLeft - 4 && x - 6 >= labelsEnd + X_LABEL_GAP_PX) { context.fillText(label, x - 6, height - 3); labelsEnd = end; }
     }
     if (options.region) paintRegion(context, options.region, view, { left, top, width: plotWidth, height: plotHeight }, xAt, { muted, text });
     if (options.guides) paintGuides(context, options.guides, { left, top, width: plotWidth, height: plotHeight }, xAt, yAt, text);
@@ -1176,8 +1186,8 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
     plot.levelTicks = levelTicks;
     if (options.axisCanvas) paintSideAxis(options.axisCanvas, levelTicks, axes.y, { muted, text });
     else if (!lane && options.yAxisLabels !== false) {
-        drawValueAxis(context, frame, levelTicks, '', { color: muted, font: context.font, titleX: AXIS_TITLE_X });
-        paintValueTitle(context, frame, axes.y, text, AXIS_TITLE_X);
+        const titleRight = paintValueTitle(context, frame, axes.y, text, AXIS_TITLE_X);
+        paintValueTicks(context, frame, levelTicks, muted, titleRight);
     }
     // The right-hand axis has its own round ticks, each written where its own value is (never the left axis's places
     // labelled with the right range's values there, rounded to a number that is not where it is drawn).
@@ -1199,9 +1209,9 @@ export function paintSideAxis(canvas: HTMLCanvasElement, ticks: readonly AxisTic
         context.setTransform(1, 0, 0, 1, 0, 0);
         context.clearRect(0, 0, canvas.width, canvas.height);
         const frame = { left: canvas.width, top: 0, width: 0, height: canvas.height };
-        drawValueAxis(context, frame, spacedTicks(ticks, canvas.height), '', { color: colors.muted, font: PLOT_TEXT_FONT, titleX: AXIS_TITLE_X });
         context.font = PLOT_TEXT_FONT;
-        paintValueTitle(context, frame, title, colors.text, AXIS_TITLE_X);
+        const titleRight = paintValueTitle(context, frame, title, colors.text, AXIS_TITLE_X);
+        paintValueTicks(context, frame, spacedTicks(ticks, canvas.height), colors.muted, titleRight);
     });
 }
 
@@ -1238,11 +1248,14 @@ export function paintTimeAxis(canvas: HTMLCanvasElement, ticks: ReadonlyArray<{ 
         context.strokeStyle = colors.line;
         context.lineWidth = 1;
         context.beginPath();
+        // A number that would touch the one before it is left out too, as on every plot's horizontal axis.
+        let labelsEnd = -Infinity;
         for (const tick of ticks) {
             const x = Math.round(tick.x) + 0.5;
             context.moveTo(x, height - 4);
             context.lineTo(x, height);
-            if (tick.x + 2 + context.measureText(tick.text).width < titleLeft - 4) context.fillText(tick.text, tick.x + 2, height - 6);
+            const end = tick.x + 2 + context.measureText(tick.text).width;
+            if (end < titleLeft - 4 && tick.x + 2 >= labelsEnd + X_LABEL_GAP_PX) { context.fillText(tick.text, tick.x + 2, height - 6); labelsEnd = end; }
         }
         context.stroke();
         context.fillStyle = colors.text;
@@ -1270,8 +1283,8 @@ function paintingAxis(canvas: HTMLCanvasElement, paint: () => void): void {
  * A value axis's name up the gutter at canvas x `x`, in `color`, fitted to the frame's height: smaller, on two lines
  * or with its quantity shortened, but always its quantity and its unit (R4).
  */
-function paintValueTitle(context: CanvasRenderingContext2D, frame: { top: number; height: number }, title: string, color: string, x: number): void {
-    if (!title) return;
+function paintValueTitle(context: CanvasRenderingContext2D, frame: { top: number; height: number }, title: string, color: string, x: number): number {
+    if (!title) return 0;
     const font = context.font;
     const fitted = fitAxisTitle(title, frame.height, part => context.measureText(part).width, { lines: 2 });
     context.save();
@@ -1284,6 +1297,33 @@ function paintValueTitle(context: CanvasRenderingContext2D, frame: { top: number
     // Two lines side by side across the gutter, read as one: the quantity on the left, then the unit.
     const step = fontPixels(font) * fitted.scale * 1.1;
     fitted.lines.forEach((line, index) => context.fillText(line, 0, (index - (fitted.lines.length - 1) / 2) * step));
+    context.restore();
+    // Its right edge: the last line's centre and half a line (turned, a line's height runs across the gutter).
+    return x + ((fitted.lines.length - 1) / 2) * step + (fontPixels(font) * fitted.scale) / 2;
+}
+
+/** The least a value axis's numbers are shrunk to keep clear of its name; past it they are written at this size. */
+const MIN_TICK_SCALE = 0.6;
+/** The least room between two numbers along the horizontal axis. */
+const X_LABEL_GAP_PX = 4;
+
+/**
+ * A value axis's numbers, right-aligned against the frame's left edge (the top one hangs below the top, the bottom
+ * one stands on the bottom): smaller, all of them, where the widest would reach left of `clearOf` into the axis's
+ * name, so a number never covers the name (R4).
+ */
+function paintValueTicks(context: CanvasRenderingContext2D, frame: { left: number; top: number; height: number }, ticks: readonly AxisTick[], color: string, clearOf: number): void {
+    context.save();
+    context.fillStyle = color;
+    const font = context.font;
+    const room = frame.left - 2 - clearOf - 1;
+    const widest = ticks.reduce((most, tick) => Math.max(most, context.measureText(tick.text).width), 0);
+    context.font = scaledFont(font, widest > room && widest > 0 ? Math.max(MIN_TICK_SCALE, room / widest) : 1);
+    context.textAlign = 'right';
+    for (const tick of ticks) {
+        context.textBaseline = tick.fraction >= 1 ? 'top' : tick.fraction <= 0 ? 'bottom' : 'middle';
+        context.fillText(tick.text, frame.left - 2, frame.top + (1 - tick.fraction) * frame.height);
+    }
     context.restore();
 }
 

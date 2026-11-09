@@ -6,7 +6,7 @@ import { held } from './helpers/heldSource';
 import { spectrumLayer } from '../webview/runtime/overlaySpectrumPainter';
 import { axisNameParts, fontPixels } from '../webview/plot/axisTitle';
 import { heatmapDbRange, niceRange } from '../shared/utils/ticks';
-import { axisFractionOf, axisValueAt, byLevel, levelBinsOf, emptyStageText, eventLayers, paintOverlay, stageAxes, paintColourBar, colourBarTop, stageEventCounts, stageDiffRange, stageHeadline, stageRange, stageHover, stageStep, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
+import { alongAxisTicks, axisFractionOf, axisValueAt, byLevel, levelBinsOf, emptyStageText, eventLayers, paintOverlay, stageAxes, paintColourBar, colourBarTop, stageEventCounts, stageDiffRange, stageHeadline, stageRange, stageHover, stageStep, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
 import type { StageView } from '../shared/protocol/backendProtocol';
 import { fetchedSource, localCells, localLine, NO_FULL_DATA } from '../webview/runtime/fullRead';
 
@@ -663,4 +663,65 @@ test('the right-hand level axis writes its own round ticks, each at the place of
         assert.ok(Math.abs(at - tick.y) < 0.5, `${tick.text} is written at ${tick.y}, its value is at ${at}`);
         assert.ok(Math.abs(value % 10) === 0, `${tick.text} is a round value`);
     }
+});
+
+/** A context that records each text drawn with its place, alignment and font, measuring 6 px a character at 10 px. */
+function textCanvas(width: number, height: number): { canvas: HTMLCanvasElement; texts: Array<{ text: string; x: number; y: number; font: string; align: string; turned: boolean }> } {
+    const texts: Array<{ text: string; x: number; y: number; font: string; align: string; turned: boolean }> = [];
+    const state = { font: '10px sans-serif', textAlign: 'left', turned: false };
+    const saved: Array<typeof state> = [];
+    const context = new Proxy({}, {
+        get: (_target, key) => key === 'measureText' ? (text: string) => ({ width: text.length * 6 * fontPixels(state.font) / 10 })
+            : key === 'fillText' ? (text: string, x: number, y: number) => { texts.push({ text, x, y, font: state.font, align: state.textAlign, turned: state.turned }); }
+            : key === 'save' ? () => { saved.push({ ...state }); } : key === 'restore' ? () => { Object.assign(state, saved.pop() ?? state); }
+            : key === 'rotate' ? () => { state.turned = true; }
+            : key === 'font' || key === 'textAlign' ? state[key] : key === 'createImageData' || key === 'getImageData' ? (w: number, h: number) => ({ width: w, height: h, data: new Uint8ClampedArray(Math.max(1, w * h * 4)) })
+            : key.toString().startsWith('create') ? () => ({ addColorStop: () => undefined }) : () => undefined,
+        set: (_target, key, value) => { if (key === 'font' || key === 'textAlign') state[key] = String(value); return true; },
+    });
+    const canvas = { width: 0, height: 0, clientWidth: width, clientHeight: height, ownerDocument: {}, dataset: {} as DOMStringMap, getContext: () => context } as unknown as HTMLCanvasElement;
+    return { canvas, texts };
+}
+
+test('every number along a horizontal axis writes a negative with a true minus (a lag, the time from a trigger), as the value axis does (R4)', () => {
+    const texts = alongAxisTicks(-0.1, 0.1).map(tick => tick.text);
+    assert.ok(texts.some(text => text.startsWith('−')), texts.join(' '));
+    assert.ok(texts.every(text => !text.includes('-')), texts.join(' '));
+});
+
+test('no two numbers along a horizontal axis touch, a log frequency axis on a narrow plot too: one that would is left out (R4)', () => {
+    for (const width of [120, 160, 220, 600]) {
+        const { canvas, texts } = textCanvas(width, 200);
+        const view: StageView = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity: 'level', xs: [20, 1000, 24000], values: [-20, -30, -40] };
+        paintOverlay(canvas, { layers: [{ view, color: 'a', full: held(view) }] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dB]' });
+        const along = texts.filter(item => item.y === 200 - 3 && /^[\d.]+k?$/u.test(item.text)).sort((a, b) => a.x - b.x);
+        assert.ok(along.length >= (width >= 600 ? 4 : 1), `${width}: numbers are written`);
+        along.slice(1).forEach((item, index) => assert.ok(item.x >= along[index].x + along[index].text.length * 6, `${width}: "${along[index].text}" and "${item.text}" touch`));
+    }
+});
+
+test('a value axis\'s numbers never cover its name in the gutter: a long one is written smaller to keep clear of it (R4)', () => {
+    const { canvas, texts } = textCanvas(400, 400);
+    const view: StageView = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', unit: 'Pa', xs: [0, 1, 2], values: [-0.001, 0.0005, 0.001] };
+    paintOverlay(canvas, { layers: [{ view, color: 'a', full: held(view) }] }, { min: -0.0012, max: 0.0012 }, { x: 'Time [s]', y: 'Sound pressure, uncalibrated [Pa]' });
+    const name = texts.filter(item => item.turned);
+    const numbers = texts.filter(item => !item.turned && item.align === 'right' && /^−?\d/u.test(item.text));
+    assert.ok(name.length >= 1 && numbers.length >= 2, JSON.stringify(texts));
+    assert.ok(numbers.some(item => item.text.length >= 6), `a long number is drawn: ${numbers.map(item => item.text).join(' ')}`);
+    // The name's two lines are turned along the gutter, side by side, centred 10 px in: its right edge is half a line past the last.
+    const lines = name.length, linePx = 10 * Number(/^([\d.]+)px/u.exec(name[0].font)?.[1] ?? 10) / 10;
+    const nameRight = 10 + ((lines - 1) / 2) * linePx * 1.1 + linePx / 2;
+    for (const item of numbers) {
+        const left = item.x - item.text.length * 6 * fontPixels(item.font) / 10;
+        assert.ok(left >= nameRight, `"${item.text}" starts at ${left.toFixed(1)} px, the name ends at ${nameRight.toFixed(1)} px`);
+    }
+});
+
+test('a time is written to the digits that tell it from the next point: frames 5.3 ms apart never read the same (R7)', () => {
+    const heat = (x: number, xStep?: number): StageView => ({ frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity: 'level', yAxis: 'frequency', xs: [1, 2], ys: [100, 1000], matrix: [[0, -5], [0, 0]], peak: { x, y: 100, value: -5, ...(xStep ? { xStep } : {}) } });
+    const at = (x: number, xStep?: number) => stageHeadline(heat(x, xStep), strings).split(' · ')[0];
+    assert.notEqual(at(1.0080, 256 / 48000), at(1.0133, 256 / 48000));
+    assert.equal(at(1.0080, 256 / 48000), '1.008 s');
+    assert.equal(at(1.25), '1.25 s', 'without a spacing, to 10 ms');
+    assert.equal(at(0.5, 1 / 48000), '0.50000 s', 'sample by sample at 48 kHz');
 });

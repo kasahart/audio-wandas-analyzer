@@ -12,7 +12,7 @@ import type { InlineFullSource } from './fullRead';
 import { heatmapDbRange } from '../../shared/utils/ticks';
 
 /** The strip's margins: its row axis at the left, the frequency axis below, the colour bar inside the plot's top right. */
-export const OVERVIEW_MARGINS: PlotMargins = { left: 30, top: 2, right: 4, bottom: 16 };
+export const OVERVIEW_MARGINS: PlotMargins = { left: 44, top: 2, right: 4, bottom: 16 };
 
 /** A table row as the strip reads it: its recording, and the channel it is (`key`, rowKey) when it is one of several. */
 export type OverviewRow = Pick<EntryRow, 'filePath'> & { key?: string; ch?: number; channels?: number };

@@ -76,7 +76,15 @@ test('a response calibrated to another unit is listed but not drawn on the share
     assert.equal(pairHeader(curves, en)?.fewAverages, false);
     const lanes = pairLanes({ frequencyBins: 3, maxFrequencyHz: 1000, curves }, { frequencyMin: 0, frequencyMax: 1000 }, en);
     assert.deepEqual(lanes.map(lane => lane.layers.map(layer => layer.label)), [['p.wav'], ['p.wav'], ['p.wav']]);
-    assert.equal(lanes[0].axes.y, 'Gain [dB re 1 Pa/(m/s²)]');
+    assert.equal(lanes[0].axes.y, 'Transfer level [dB re 1 Pa/(m/s²)]');
+});
+
+test('the gain plot names its axis in the UI\'s language, never the backend\'s English: a gain in dB, else the transfer level re the units\' ratio (R4)', () => {
+    const plain = pairLanes({ frequencyBins: 3, maxFrequencyHz: 1000, curves: [curve()] }, { frequencyMin: 0, frequencyMax: 1000 }, ja);
+    assert.equal(plain[0].axes.y, '利得 [dB]');
+    const ratio = pairLanes({ frequencyBins: 3, maxFrequencyHz: 1000, curves: [curve({ axisLabel: 'Transfer level [dB re 1 Pa/(m/s²)]', levelReferenceLabel: 'dB re 1 Pa/(m/s²)' })] }, { frequencyMin: 0, frequencyMax: 1000 }, ja);
+    assert.equal(ratio[0].axes.y, '伝達レベル [dB re 1 Pa/(m/s²)]');
+    assert.doesNotMatch(ratio[0].axes.y, /Transfer|Gain/u);
 });
 
 test('the pair view is three plots on one frequency axis, each named with its quantity and unit, drawing ok responses only', () => {

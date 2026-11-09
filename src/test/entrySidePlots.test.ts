@@ -10,6 +10,7 @@ import { entryScreenHtml } from '../webview/runtime/entryTableHtml';
 import { FULL_PLOT_WINDOW } from '../webview/runtime/plotInteraction';
 import { BAND_CENTERS_HZ } from '../webview/runtime/entryTable';
 import { stageHover, stageStep } from '../webview/runtime/stagePanes';
+import { fontPixels } from '../webview/plot/axisTitle';
 
 const strings = getStrings('en');
 
@@ -260,4 +261,35 @@ test('the strip is read at the table row under the pointer, never a row its buck
     assert.equal(next?.value, -22.5, '→ is the same row\'s next band');
     assert.match(next?.text ?? '', /r201\.wav/);
     void document;
+});
+
+test('the strip\'s row numbers stay clear of its axis name, a table of a thousand rows too (R4)', () => {
+    const dom = new JSDOM('<!doctype html><body><div class="holder"><canvas></canvas><div data-entry-overview-frame></div><div data-entry-overview-focus></div></div></body>');
+    const canvas = dom.window.document.querySelector('canvas') as HTMLCanvasElement;
+    Object.defineProperties(canvas, { clientWidth: { value: 300 }, clientHeight: { value: 200 } });
+    const texts: Array<{ text: string; x: number; font: string; align: string; turned: boolean }> = [];
+    const state = { font: '10px sans-serif', textAlign: 'left', turned: false };
+    const saved: Array<typeof state> = [];
+    const context = new Proxy({}, {
+        get: (_target, key) => key === 'measureText' ? (text: string) => ({ width: text.length * 6 * fontPixels(state.font) / 10 })
+            : key === 'fillText' ? (text: string, x: number) => { texts.push({ text, x, font: state.font, align: state.textAlign, turned: state.turned }); }
+            : key === 'save' ? () => { saved.push({ ...state }); } : key === 'restore' ? () => { Object.assign(state, saved.pop() ?? state); }
+            : key === 'rotate' ? () => { state.turned = true; }
+            : key === 'font' || key === 'textAlign' ? state[key] : key === 'createImageData' || key === 'getImageData' ? (w: number, h: number) => ({ width: w, height: h, data: new Uint8ClampedArray(Math.max(1, w * h * 4)) })
+            : key.toString().startsWith('create') ? () => ({ addColorStop: () => undefined }) : () => undefined,
+        set: (_target, key, value) => { if (key === 'font' || key === 'textAlign') state[key] = String(value); return true; },
+    });
+    canvas.getContext = (() => context) as unknown as HTMLCanvasElement['getContext'];
+    const rows = Array.from({ length: 1000 }, (_, index) => ({ filePath: `/d/${index}.wav` }));
+    const bands = new Map<string, (number | null)[]>(rows.map(row => [row.filePath, [-40, -30]]));
+    paintOverview(canvas, strings, rows, bands, { first: 0, last: 10 }, null);
+    const name = texts.filter(item => item.turned);
+    const numbers = texts.filter(item => !item.turned && item.align === 'right' && /^\d+$/u.test(item.text));
+    assert.ok(name.length >= 1 && numbers.some(item => item.text.length >= 3), JSON.stringify(texts));
+    const linePx = fontPixels(name[0].font);
+    const nameRight = 10 + ((name.length - 1) / 2) * linePx * 1.1 + linePx / 2;
+    for (const item of numbers) {
+        const left = item.x - item.text.length * 6 * fontPixels(item.font) / 10;
+        assert.ok(left >= nameRight, `row ${item.text} starts at ${left.toFixed(1)} px, the name ends at ${nameRight.toFixed(1)} px`);
+    }
 });

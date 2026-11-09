@@ -99,8 +99,8 @@ export function reportRecipe(recipe: RecipeDocument, region: EntryRegion | null,
 }
 
 /** "Leq dB(A) 未校正" when the files are uncalibrated (relative to full scale or 1 input unit), so a level is not read as sound pressure. */
-export function leqLabel(model: EntryModel, strings: Pick<UiStrings, 'entryColLeq' | 'entryLeqUncalibrated'>): string {
-    return model.rows.some(row => row.uncalibrated) ? `${strings.entryColLeq} ${strings.entryLeqUncalibrated}` : strings.entryColLeq;
+export function leqLabel(model: EntryModel, strings: Pick<UiStrings, 'entryColLeq' | 'entryLeqUncalibrated'>, name: string = strings.entryColLeq): string {
+    return model.rows.some(row => row.uncalibrated) ? `${name} ${strings.entryLeqUncalibrated}` : name;
 }
 
 /** The band with the largest |Δ| against this comparison's base, as "3150", "14.1". */
@@ -134,7 +134,7 @@ export function reportCsv(input: ReportInput, strings: ReportStrings): string {
     const header = [
         strings.entryColFile, `${strings.entryColPeak} Hz`, `${strings.entryColPeak} dB`,
         ...columns.map((column, index) => column.name || strings.entryColCondition.replace('{n}', String(index + 1))),
-        strings.reportRegionStart, strings.reportRegionEnd, leqLabel(input.model, strings), strings.reportBaseLeq, `Δ ${strings.entryColLeq}`,
+        strings.reportRegionStart, strings.reportRegionEnd, leqLabel(input.model, strings), leqLabel(input.model, strings, strings.reportBaseLeq), `Δ ${strings.entryColLeq}`,
         ...bands.map(band => strings.reportBandDelta.replace('{band}', bandLabel(band))),
         strings.entryCsvGroupSize, strings.reportGroupFiles, strings.reportSpecVersion, strings.reportChain,
         strings.dsCh, ...(input.selection ? [input.selection.value] : []), strings.reportMemo, strings.reportBaseDefinition,

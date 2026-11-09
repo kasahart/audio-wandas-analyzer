@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import path from 'node:path';
 import test from 'node:test';
 import { getStrings, type UiStrings } from '../shared/i18n/strings';
 import type { StageView } from '../shared/protocol/backendProtocol';
@@ -112,4 +114,15 @@ test('a name too long for its axis keeps its quantity and its unit: smaller, on 
     assert.deepEqual(shortQuantities('Coherence γ² · ch2 / ch1').slice(0, 1), ['Coherence γ² · ch2 / ch…'], 'a channel is no symbol');
     // A name without a unit (none should reach a plot) is drawn as given.
     assert.deepEqual(fitAxisTitle('', 10, measure), { lines: [], scale: 1 });
+});
+
+test('no plot names an axis through gui-core\'s drawValueAxis or fittedAxisTitle, which keep only the unit when the name is long: every name is fitted by axisTitle.ts, quantity and unit (R4)', () => {
+    // gui-core is a pinned copy of another repository (src/shared/gui-core/upstream.json): the helpers stay there, unused.
+    const webview = path.resolve(__dirname, '..', '..', 'src', 'webview');
+    const files = (dir: string): string[] => readdirSync(dir).flatMap(name => {
+        const full = path.join(dir, name);
+        return statSync(full).isDirectory() ? files(full) : name.endsWith('.ts') ? [full] : [];
+    });
+    const using = files(webview).filter(file => /\b(?:drawValueAxis|fittedAxisTitle)\b/u.test(readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/gu, '')));
+    assert.deepEqual(using.map(file => path.relative(webview, file)), []);
 });
