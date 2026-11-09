@@ -270,7 +270,7 @@ export function buildEntryModel(
                 const values = others.map(member => member.values[column]).filter((item): item is number => item !== null);
                 const center = median(values);
                 if (value === null || center === null) continue;
-                row.delta[column] = roundedDelta(value, center);
+                row.delta[column] = levelDelta(value, center);
             }
             const own = levels.get(row.filePath);
             if (!own) continue;
@@ -278,7 +278,7 @@ export function buildEntryModel(
             const level = max ? own[max.band] : null;
             if (max && level !== null) {
                 row.values.peak = BAND_CENTERS_HZ[max.band];
-                row.delta.peak = roundedDelta(level, level - max.delta);
+                row.delta.peak = levelDelta(level, level - max.delta);
             }
         }
     }
@@ -286,11 +286,12 @@ export function buildEntryModel(
 }
 
 /**
- * A Δ as every screen and file shows it: both levels to one decimal, then subtracted, so the shown
- * levels add up to the shown Δ and the table, comparison and CSVs agree to the last digit.
+ * A Δ as every screen and file takes it: the full-precision levels subtracted, never levels rounded first (−9.996
+ * against −10.004 is +0.008, which reads 0.0, not the 0.1 of two rounded levels' difference). Only the text a user
+ * reads rounds it, at display (R7).
  */
-export function roundedDelta(value: number, reference: number): number {
-    return Math.round((Math.round(value * 10) - Math.round(reference * 10))) / 10;
+export function levelDelta(value: number, reference: number): number {
+    return value - reference;
 }
 
 /** A file's 1/3-octave levels, channels power-averaged. */
@@ -337,9 +338,9 @@ function withDerived(rows: EntryRow[], derived: readonly DerivedRow[], band: num
                 status: item.stale ? 'mismatch' : item.result.ok ? 'ok' : 'failed', ...(item.stale ? { mismatch: '≠' } : {}),
                 conditions: row.conditions, cells: row.cells, values, groupSize: 0, durationS: row.durationS,
                 delta: {
-                    leq: values.leq === null ? null : roundedDelta(values.leq, item.base.leq),
-                    peak: max ? Math.round(max.delta * 10) / 10 : null,
-                    band: values.band === null || reference === null ? null : roundedDelta(values.band, reference),
+                    leq: values.leq === null ? null : levelDelta(values.leq, item.base.leq),
+                    peak: max ? max.delta : null,
+                    band: values.band === null || reference === null ? null : levelDelta(values.band, reference),
                 },
                 derived: { parent: row.filePath, region: item.region },
             });

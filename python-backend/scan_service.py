@@ -47,7 +47,7 @@ from analyzer import has_full_scale
 from backend_errors import InputError
 from calibration_profile import CalibrationStatus, resolve_calibration_profile
 from stage_combine import STORE, stage_data
-from stage_view import StageDetail, StageView, band_levels, rounded_db, stage_view
+from stage_view import StageDetail, StageView, band_levels, floored_db, stage_view
 
 if TYPE_CHECKING:
     from analysis_engine import AnalysisEngine, CachedAnalysis
@@ -462,7 +462,9 @@ def _node_params(recipe: Mapping[str, object], node_id: str) -> dict[str, object
 def _levels(values: np.ndarray) -> np.ndarray:
     if np.isnan(values).any():
         raise InputError("Analysis produced undefined levels")
-    return rounded_db(values)
+    # Kept far finer than shown (SCAN_DB_DECIMALS): the webview takes channel means, medians and Δ from these, so they
+    # are never rounded to what is shown before; only the text written rounds them (R7).
+    return np.round(floored_db(values), spec.SCAN_DB_DECIMALS)
 
 
 def log_spectrum(levels_db: np.ndarray, freqs: np.ndarray, points: int, nyquist: float) -> np.ndarray:

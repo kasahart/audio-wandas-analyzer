@@ -36,6 +36,9 @@ THIRD_OCTAVE_CENTERS_HZ: tuple[float, ...] = (
 THIRD_OCTAVE_NYQUIST_FRACTION = 0.88
 # Reported decimals: levels in dB, frequencies in whole Hz, crest factor as a ratio.
 DB_DECIMALS = 2
+# A scan's levels, which the webview takes channel means, medians and every Δ from: kept to 1e-4 dB, so each is off
+# by at most 5e-5 dB, a thousandth of the 0.1 dB a level or Δ is shown to (never rounded to what is shown first).
+SCAN_DB_DECIMALS = 4
 CREST_DECIMALS = 3
 # Floor for levels of silent channels, which would otherwise be -inf and not JSON.
 MIN_LEVEL_DB = -300.0

@@ -17,6 +17,38 @@ const STAGE_PANES = 'src/webview/runtime/stagePanes.ts';
 const PLOT_COMPONENT = new Set(['paintOverlay', 'paintStage', 'paintSideAxis']);
 /** Number primitives: a call of one turns a number into the text a user reads. */
 const NUMBER_TEXT = new Set(['toFixed', 'toPrecision', 'toExponential', 'toLocaleString']);
+/** Math's integer roundings: one applied to a value scaled by a power of ten rounds it to decimals, as text does. */
+const MATH_ROUNDING = new Set(['round', 'trunc', 'floor', 'ceil']);
+
+/** A numeric literal that is a power of ten other than 1 (10, 100, 1e6, 0.1). */
+function powerOfTen(node: ts.Node): boolean {
+    if (!ts.isNumericLiteral(node)) return false;
+    const exponent = Math.log10(Number(node.text));
+    return exponent !== 0 && Math.abs(exponent - Math.round(exponent)) < 1e-9;
+}
+
+/** A value multiplied or divided by a power of ten, at its top or inside it (`v * 10`, `(a - b) * 100`). */
+function scaledByTen(node: ts.Node): boolean {
+    let found = false;
+    each(node, inner => {
+        if (ts.isBinaryExpression(inner) && [ts.SyntaxKind.AsteriskToken, ts.SyntaxKind.SlashToken].includes(inner.operatorToken.kind) && (powerOfTen(inner.left) || powerOfTen(inner.right))) found = true;
+    });
+    return found;
+}
+
+/**
+ * A call that rounds a number to decimals by arithmetic: Math.round/trunc/floor/ceil of a value scaled by a power of
+ * ten, or whose result is divided by one (`Math.round(v * 10) / 10`). Rounding of this kind is a number written, as
+ * toFixed is: a value rounded and then computed with (a Δ of rounded levels) is a value the user is given wrong.
+ */
+function decimalRounding(node: ts.CallExpression): string | undefined {
+    const callee = node.expression;
+    if (!ts.isPropertyAccessExpression(callee) || !ts.isIdentifier(callee.expression) || callee.expression.text !== 'Math' || !MATH_ROUNDING.has(callee.name.text)) return undefined;
+    let outer: ts.Node = node;
+    while (ts.isParenthesizedExpression(outer.parent)) outer = outer.parent;
+    const divided = ts.isBinaryExpression(outer.parent) && outer.parent.left === outer && outer.parent.operatorToken.kind === ts.SyntaxKind.SlashToken && powerOfTen(outer.parent.right);
+    return divided || node.arguments.some(scaledByTen) ? `Math.${callee.name.text}` : undefined;
+}
 
 const read = (file: string): string => readFileSync(path.join(repoRoot, file), 'utf8');
 
@@ -127,7 +159,7 @@ function writersIn(file: string, helpers: ReadonlySet<string>, writers: Map<stri
         if (!ts.isCallExpression(node)) return;
         const callee = node.expression;
         const called = ts.isPropertyAccessExpression(callee) && NUMBER_TEXT.has(callee.name.text) ? callee.name.text
-            : ts.isIdentifier(callee) ? local.get(callee.text) : undefined;
+            : decimalRounding(node) ?? (ts.isIdentifier(callee) ? local.get(callee.text) : undefined);
         if (!called) return;
         const writer = `${file}:${enclosing(node)}`;
         if (writer === called) return;
@@ -144,6 +176,10 @@ function writersIn(file: string, helpers: ReadonlySet<string>, writers: Map<stri
 function numberWriters(): Map<string, Set<string>> {
     const helpers = new Set(VALUE_HELPERS);
     const writers = new Map<string, Set<string>>();
+    for (const file of sourceFiles()) writersIn(file, helpers, writers);
+    // A function that rounds to decimals by arithmetic (`round1`) is a helper too: whoever calls it writes a number.
+    for (const [writer, calls] of writers) if ([...calls].some(call => call.startsWith('Math.'))) helpers.add(writer);
+    writers.clear();
     for (const file of sourceFiles()) writersIn(file, helpers, writers);
     return writers;
 }
@@ -210,7 +246,7 @@ test('every function that writes a number in the webview is in the table, a valu
     for (const [entry, why] of Object.entries(NOT_CHART_VALUES)) assert.ok(why.trim().length > 0, `${entry}: says no why`);
 });
 
-test('the detector finds a number written by a primitive, a helper imported under another name, and a local alias of one', () => {
+test('the detector finds a number written by a primitive, a helper imported under another name, a local alias of one, and rounding to decimals by arithmetic', () => {
     const file = 'src/webview/runtime/fake.ts';
     const source = ts.createSourceFile(file, [
         "import { frequencyText as hz } from '../plot/plotText';",
@@ -219,15 +255,23 @@ test('the detector finds a number written by a primitive, a helper imported unde
         'export const b = (value: number): string => hz(value);',
         'export function c(value: number): string { return fmt(value); }',
         'export function d(): string { return "none"; }',
+        'export function e(value: number, reference: number): number { return Math.round(value * 10) - Math.round(reference * 10); }',
+        'const round1 = (value: number): number => Math.round(value * 10) / 10;',
+        'export function f(value: number, reference: number): number { return round1(round1(value) - round1(reference)); }',
+        'export function g(x: number): number { return Math.round(x) + Math.floor(x / 2); }',
     ].join('\n'), ts.ScriptTarget.Latest, true);
     parsed.set(file, source);
     try {
         const writers = new Map<string, Set<string>>();
-        writersIn(file, new Set(VALUE_HELPERS), writers);
+        writersIn(file, new Set([...VALUE_HELPERS, `${file}:round1`]), writers);
         assert.deepEqual(Object.fromEntries([...writers].map(([writer, calls]) => [writer, [...calls]])), {
             [`${file}:a`]: ['toFixed'],
             [`${file}:b`]: ['src/webview/plot/plotText.ts:frequencyText'],
             [`${file}:c`]: ['src/webview/plot/plotText.ts:frequencyText'],
+            // Rounding to decimals by arithmetic writes a number, and so does a helper that does it: a pixel's Math.round does not.
+            [`${file}:e`]: ['Math.round'],
+            [`${file}:round1`]: ['Math.round'],
+            [`${file}:f`]: [`${file}:round1`],
         });
     } finally {
         parsed.delete(file);

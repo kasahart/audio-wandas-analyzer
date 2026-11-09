@@ -8,7 +8,7 @@ import type { UiStrings } from '../../shared/i18n/strings';
 import type { ChannelSummary } from '../../shared/analysis/analysisTypes';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { uncalibratedUnits } from '../../shared/utils/format';
-import { BAND_CENTERS_HZ, bandLabel, HEADLINE_WITHIN_DB, quantile, roundedDelta, type EntryModel } from './entryTable';
+import { BAND_CENTERS_HZ, bandLabel, HEADLINE_WITHIN_DB, quantile, levelDelta, type EntryModel } from './entryTable';
 import { baseName } from '../../shared/analysis/entryMetadata';
 import { median } from '../../shared/dataset/distribution';
 import { powerMeanDb, powerMeanOrNull } from '../../shared/utils/levels';
@@ -62,7 +62,8 @@ export interface CompareModel {
 
 export type CompareStrings = Pick<UiStrings, 'compareLevelsAt' | 'compareDiffShow' | 'compareDiffHide' | 'hintDiffToggle' | 'entryBaseGroup' | 'entryBase' | 'entryCount' | 'compareKeyHold' | 'compareKeyBack' | 'comparePlay' | 'compareDelta' | 'compareNotEntry' | 'comparePending' | 'compareBaseEntryRegion' | 'compareReport' | 'reportSaved' | 'compareSelfBase' | 'compareSingleBase' | 'compareRegionDiffers' | 'hintBaseCard' | 'hintSlotCard' | 'hintRegionMark' | 'hintCompareMark' | 'compareNoSignificant' | 'slotEmpty'>;
 
-const round1 = (value: number): number => Math.round(value * 10) / 10;
+/** A band's |Δ| under this (dB) reads 0.0 at the tenth a level is shown to: no difference to head the list. */
+const SHOWN_ZERO_DB = 0.05;
 
 /** A band's Δ must exceed this (dB), or 3 MAD of the condition's files where there are enough, to head the list. */
 export const MIN_HEADLINE_DB = 1.5;
@@ -97,8 +98,6 @@ function topEdge(frequencies: readonly number[]): number {
     return SPECTRUM_MIN_HZ * (frequencies[n - 1] / SPECTRUM_MIN_HZ) ** (n / (n - 0.5));
 }
 
-const round2 = (value: number): number => Math.round(value * 100) / 100;
-
 /** One spectrum, Leq and band row per file: channels are power-averaged, as in the entry table. */
 function fileSide(result: ScanOk): Omit<CompareSide, 'title' | 'filePaths'> {
     // A scan that succeeded carries its metrics; one without them has no levels to give.
@@ -106,7 +105,7 @@ function fileSide(result: ScanOk): Omit<CompareSide, 'title' | 'filePaths'> {
     const binRows = result.spectrumBinsDb;
     return {
         spectrumDb: (channels[0] ?? []).map((_, point) => powerMeanDb(channels.map(row => row[point]))),
-        ...(binRows?.length ? { bins: (binRows[0] ?? []).map((_, bin) => round2(powerMeanDb(binRows.map(row => row[bin])))) } : {}),
+        ...(binRows?.length ? { bins: (binRows[0] ?? []).map((_, bin) => powerMeanDb(binRows.map(row => row[bin]))) } : {}),
         leq: powerMeanDb(result.leqDbA ?? []),
         bands: BAND_CENTERS_HZ.map((_, band) => {
             return powerMeanOrNull((result.thirdOctDb ?? []).map(row => row[band]));
@@ -221,11 +220,11 @@ export function buildCompareModel(
     const comparable = !blocked && !!baseSide && !!compare && baseSide.spectrumDb.length === compare.spectrumDb.length;
     const diffDb = comparable ? compare.spectrumDb.map((level, index) => level - baseSide.spectrumDb[index]) : null;
     const bins = binsOf(results, comparePath, basePaths, base, compare, comparable, fs / 2);
-    const leq = comparable ? { base: round1(baseSide.leq), compare: round1(compare.leq), delta: round1(round1(compare.leq) - round1(baseSide.leq)) } : null;
+    const leq = comparable ? { base: baseSide.leq, compare: compare.leq, delta: levelDelta(compare.leq, baseSide.leq) } : null;
     const bandDeltas = comparable
         ? compare.bands.map((level, band) => {
             const reference = baseSide.bands[band];
-            return level === null || reference === null ? null : roundedDelta(level, reference);
+            return level === null || reference === null ? null : levelDelta(level, reference);
         })
         : [];
     // A strong tone leaks into the filters of the bands beside it; a band whose neighbour differs more
@@ -238,10 +237,10 @@ export function buildCompareModel(
     const quiet = (band: number): boolean => louder(band) < loudest - headlineWithinDb;
     // Against a group, a band within the group's own spread is noise, not a finding: it is not headline material.
     const withinSpread = (band: number): boolean => !!bandSpread && size(band) <= bandSpread[band];
-    const topBands = bandDeltas.flatMap((delta, band) => (delta === null || round1(size(band)) === 0 || withinSpread(band) || quiet(band) || size(band) < size(band - 1) || size(band) < size(band + 1) ? [] : [{ band, delta: round1(delta) }]))
+    const topBands = bandDeltas.flatMap((delta, band) => (delta === null || size(band) < SHOWN_ZERO_DB || withinSpread(band) || quiet(band) || size(band) < size(band - 1) || size(band) < size(band + 1) ? [] : [{ band, delta }]))
         .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta)).slice(0, 3);
     // A blocked Δ still shows both levels; only the difference is withheld.
-    const levels = blocked && base && compare ? { base: round1(base.leq), compare: round1(compare.leq), delta: Number.NaN } : leq;
+    const levels = blocked && base && compare ? { base: base.leq, compare: compare.leq, delta: Number.NaN } : leq;
     return { base, compare, diffDb, bins, frequencies, leq: levels, topBands, bandDeltas, ...(blocked ? { blocked } : {}), ...(pending ? { pending } : {}) };
 }
 
@@ -259,7 +258,7 @@ function binsOf(results: ReadonlyMap<string, ScanResult>, comparePath: string | 
     if (!hz || spacings.length < files || !(nyquist > SPECTRUM_MIN_HZ) || spacings.some(spacing => Math.abs(spacing - hz) > 1e-9 * hz)) return null;
     const baseBins = base?.bins ?? null, compareBins = compare?.bins ?? null;
     if ((base && !baseBins) || (compare && !compareBins) || (baseBins && compareBins && baseBins.length !== compareBins.length)) return null;
-    const diff = comparable && baseBins && compareBins ? compareBins.map((level, bin) => round2(level - baseBins[bin])) : null;
+    const diff = comparable && baseBins && compareBins ? compareBins.map((level, bin) => level - baseBins[bin]) : null;
     return { hz, nyquist, base: baseBins, compare: compareBins, diff };
 }
 
@@ -417,7 +416,7 @@ export function sideView(side: Pick<CompareSide, 'spectrumDb' | 'bands'> | null 
     }
     if (!frequencies.length || side.spectrumDb.length !== frequencies.length) return null;
     return {
-        frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity: 'level', xs: frequencies, values: side.spectrumDb.map(value => Math.round(value * 100) / 100),
+        frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity: 'level', xs: frequencies, values: side.spectrumDb,
         levelBins: levelBinsOf(frequencies, side.spectrumDb, [frequencies[0], frequencies[frequencies.length - 1]], true),
     };
 }

@@ -44,7 +44,9 @@ test('報告.csv has one row per slot in the agreed columns: dB to one decimal, 
     const cells = row.split(',');
     // Where the file differs most comes first.
     assert.deepEqual(cells.slice(0, 7), ['L1_900rpm_run3.wav', '3150', '20.5', 'L1', '900rpm', '0.50', '1.50']);
-    assert.equal(Math.round((Number(cells[7]) - Number(cells[8])) * 10) / 10, Number(cells[9]));
+    // The Δ is taken from the full levels (−10.06 against the base's −20.02) and rounded only as it is written: 10.0,
+    // never the 9.9 of the two rounded columns (−10.1 − −20.0) subtracted.
+    assert.deepEqual([cells[7], cells[8], cells[9]], ['-10.1', '-20.0', '10.0']);
     assert.equal(cells[header.split(',').indexOf('Δ 3.15 kHz dB')], '20.5');
     const at = (name: string): string => cells[header.split(',').indexOf(name)];
     assert.deepEqual([at('基準群 n'), at('基準群ファイル'), at('解析仕様版')], ['2', 'L1_900rpm_run1.wav;L1_900rpm_run2.wav', '2']);
