@@ -22,9 +22,13 @@ export interface AnswerIdentity {
     conditionId: string;
 }
 
-/** The state of one answer: only a ready one carries a value, and only a ready one is counted or read. */
+/**
+ * The state of one answer: only a ready one is counted or read. A stale one carries the value of an earlier recipe,
+ * file version or calibration: it may still be shown (greyed) but is never counted in an n, a median or a Δ.
+ */
 export type Answer<T> =
     | { state: 'ready'; value: T; identity: AnswerIdentity }
+    | { state: 'stale'; value: T; identity: AnswerIdentity }
     | { state: 'pending' | 'empty' | 'failed' | 'missing'; identity: AnswerIdentity; retryAt?: number };
 
 export function isReady<T>(answer: Answer<T> | undefined): answer is Extract<Answer<T>, { state: 'ready' }> {

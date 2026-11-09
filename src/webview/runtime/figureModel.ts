@@ -287,7 +287,7 @@ export function levelAxes<L>(lines: readonly L[], spec: LevelAxesSpec<L>): { axe
 
 // ── Which files a figure counts ───────────────────────────────────────────────────────────────────────────────────
 
-export type ExclusionReason = 'pending' | 'failed' | 'empty' | 'missing' | 'other-reference';
+export type ExclusionReason = 'pending' | 'stale' | 'failed' | 'empty' | 'missing' | 'other-reference';
 
 /**
  * Which answers a figure's number is of (a median, a Δ, a count n, the CSV's 基準群 n and files): the ready ones of
