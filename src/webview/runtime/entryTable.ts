@@ -11,6 +11,7 @@ import type { EntryConditionTable } from '../../shared/analysis/entryScan';
 import { baseName } from '../../shared/analysis/entryMetadata';
 import { median } from '../../shared/dataset/distribution';
 import { powerMeanOrNull } from '../../shared/utils/levels';
+import { spacingDecimals } from '../plot/plotText';
 
 
 /** A group of fewer files says nothing about which band separates them. */
@@ -414,12 +415,15 @@ export function measuredRegion(region: string | { start: number; end: number } |
     return { start: Math.round(start * 1e6) / 1e6, end: Math.round(end * 1e6) / 1e6 };
 }
 
-/** The region as two cells, start and end in seconds; both empty for the whole file. */
+/**
+ * The region as two cells, start and end in seconds; both empty for the whole file. To 10 ms, finer where the region
+ * is so short its ends would read alike (to a tenth of its length, as secondsSpanText writes it: plotText.ts spacingDecimals).
+ */
 export function regionCells(region: string | { start: number; end: number } | null | undefined): [string, string] {
     if (!region || region === 'all') return ['', ''];
-    if (typeof region !== 'string') return [csvNumber(region.start, 2), csvNumber(region.end, 2)];
-    const [start, end] = region.split('–').map(Number);
-    return [csvNumber(start, 2), csvNumber(end, 2)];
+    const { start, end } = typeof region !== 'string' ? region : (([a, b]) => ({ start: a, end: b }))(region.split('–').map(Number));
+    const digits = spacingDecimals(Math.abs(end - start) / 10, 2, 6);
+    return [csvNumber(start, digits), csvNumber(end, digits)];
 }
 
 /**
