@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { held } from './helpers/heldSource';
+import { getStrings } from '../shared/i18n/strings';
 import type { StageView } from '../shared/protocol/backendProtocol';
 import { amountText, barkText, fieldNumberText, frequencyText, lagText, levelText, quefrencyText, secondsSpanText, secondsText, signedNumberText, signedText, withMinus } from '../webview/plot/plotText';
 import { pairHeader, type PairCurve, type PairStrings } from '../webview/runtime/pairSpectrum';
@@ -72,14 +73,22 @@ test('every value has three significant figures however large: no false tenth an
 });
 
 test('a lag, a quefrency, Bark and a signed number read the same on every plot (R7)', () => {
-    assert.equal(lagText(0.00125), '+1.25 ms');
-    assert.equal(lagText(-0.0005), '−0.50 ms');
-    assert.equal(lagText(0.000001), '0.00 ms');
-    assert.equal(quefrencyText(0.0025), '2.50 ms');
-    assert.equal(quefrencyText(0.0125), '12.5 ms');
+    assert.equal(lagText(0.00125), '+0.00125 s');
+    assert.equal(lagText(-0.0005), '−0.00050 s');
+    assert.equal(lagText(0.000001), '0.00000 s');
+    assert.equal(quefrencyText(0.0025), '0.00250 s');
+    assert.equal(quefrencyText(0.0125), '0.0125 s');
     assert.equal(barkText(12.46), '12.5 Bark');
     assert.equal(signedNumberText(23.71), '+23.7');
     assert.equal(signedNumberText(-1.44), '−1.4');
+});
+
+test('a quefrency and a lag read in the unit their axis is named in: seconds, as the axis says [s] (A36, R4, R7)', () => {
+    const strings = getStrings('ja');
+    for (const [axis, text] of [[strings.axisQuefrency, quefrencyText(0.0025)], [strings.axisLag, lagText(-0.0005)], [getStrings('en').axisQuefrency, quefrencyText(0.0125, 1 / 96000)], [getStrings('en').axisLag, lagText(0.00125, 1 / 96000)]]) {
+        const unit = /\[([^\]]+)\]$/u.exec(axis)?.[1];
+        assert.equal(text.split(' ').at(-1), unit, `"${text}" on an axis named "${axis}"`);
+    }
 });
 
 test('a negative number is written with a true minus sign, its exponent too, never a hyphen (R7)', () => {
@@ -190,8 +199,8 @@ test('every tick and readout takes its digits from the spacing of its neighbours
     assert.ok(typed[1] > typed[0] && Math.abs(typed[0] - low) < (high - low) / 1000 && Math.abs(typed[1] - high) < (high - low) / 1000, typed.join('–'));
     assert.equal(fieldNumberText(-12.3456789, 40), '-12.346');
     // Without a finer spacing, the usual digits.
-    assert.equal(quefrencyText(0.0025), '2.50 ms');
-    assert.equal(lagText(-0.0005), '−0.50 ms');
+    assert.equal(quefrencyText(0.0025), '0.00250 s');
+    assert.equal(lagText(-0.0005), '−0.00050 s');
 });
 
 test('over every axis kind and zoom level, neighbouring ticks and neighbouring points never write the same number (C3)', () => {

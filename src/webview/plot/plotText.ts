@@ -91,22 +91,24 @@ export function amountText(value: number, unit?: string | null): string {
 }
 
 /**
- * A quefrency in milliseconds: to 10 µs under 10 ms, to 0.1 ms from there ("2.50 ms", "12.5 ms"), and to the digits
- * that tell points `stepSeconds` apart where they are closer (a sample at 96 kHz: "12.510 ms", "12.521 ms").
+ * A quefrency in seconds, the unit its axis is named in (R4, R7): to 10 µs under 10 ms, to 0.1 ms from there
+ * ("0.00250 s", "0.0125 s"), and to the digits that tell points `stepSeconds` apart where they are closer (a sample
+ * at 96 kHz: "0.012510 s", "0.012521 s").
  */
 export function quefrencyText(seconds: number, stepSeconds?: number): string {
-    const digits = Math.max(Math.abs(seconds) < 0.01 ? 2 : 1, spacingDecimals(stepSeconds === undefined ? undefined : stepSeconds * 1000));
-    return `${withMinus((seconds * 1000).toFixed(digits))} ms`;
+    const digits = Math.max(Math.abs(seconds) < 0.01 ? 5 : 4, spacingDecimals(stepSeconds));
+    return `${withMinus(seconds.toFixed(digits))} s`;
 }
 
 /**
- * A signed lag in milliseconds: the output later than the input when positive. To 10 µs at any lag (a sample at
- * 96 kHz, since a delay is read sample by sample), and no sign on none ("+1.25 ms", "−0.50 ms", "0.00 ms").
+ * A signed lag in seconds, the unit its axis is named in (R4, R7): the output later than the input when positive.
+ * To 10 µs at any lag (a sample at 96 kHz, since a delay is read sample by sample), and no sign on none
+ * ("+0.00125 s", "−0.00050 s", "0.00000 s").
  */
 export function lagText(seconds: number, stepSeconds?: number): string {
     // Finer than 10 µs apart (a sample past 100 kHz), to the digits that tell neighbouring lags apart.
-    const ms = (Math.abs(seconds) * 1000).toFixed(spacingDecimals(stepSeconds === undefined ? undefined : stepSeconds * 1000, 2));
-    return `${Number(ms) === 0 ? '' : seconds > 0 ? '+' : '−'}${ms} ms`;
+    const text = Math.abs(seconds).toFixed(spacingDecimals(stepSeconds, 5));
+    return `${Number(text) === 0 ? '' : seconds > 0 ? '+' : '−'}${text} s`;
 }
 
 /** A Bark value to a tenth ("12.5 Bark"). */

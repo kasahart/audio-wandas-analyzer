@@ -149,7 +149,7 @@ test('a cepstrum is drawn on a quefrency axis, symmetric about zero without its 
     assert.deepEqual(stageAxes(names, view, undefined), { x: 'Quefrency s', y: 'Real cepstrum' });
     const diff = minus(view, cepstrum([-8.4, 0.03, -0.02, 0.005]));
     assert.deepEqual(stageAxes(names, diff, undefined, true), { x: 'Quefrency s', y: 'Δ Real cepstrum' });
-    assert.equal(stageHeadline({ ...diff, peak: { x: 0.001, value: 0.02, xStep: 0.001 } }, strings), '1.00 ms +0.0200');
+    assert.equal(stageHeadline({ ...diff, peak: { x: 0.001, value: 0.02, xStep: 0.001 } }, strings), '0.00100 s +0.0200');
     assert.deepEqual(stageDiffRange(diff), { min: -0.022, max: 0.022 });
 });
 
@@ -162,13 +162,13 @@ test('a cross-correlation is drawn over a signed lag axis on the fixed [-1, 1] c
     assert.deepEqual(stageAxes(names, view, undefined), { x: 'Lag s', y: 'Correlation coefficient · ch2 / ch1' });
     const diff = minus(view, correlation([0.1, -0.2, 0.3, 0.55]));
     assert.deepEqual(stageAxes(names, diff, undefined, true), { x: 'Lag s', y: 'Δ Correlation coefficient · ch2 / ch1' });
-    assert.equal(stageHeadline({ ...diff, peak: { x: 0.001, value: -0.4, xStep: 0.001 } }, strings), '+1.00 ms −0.400');
+    assert.equal(stageHeadline({ ...diff, peak: { x: 0.001, value: -0.4, xStep: 0.001 } }, strings), '+0.00100 s −0.400');
     // A delay is read to 10 µs at any lag, and none has no sign.
     const long: StageView = { ...view, xs: [-0.0125, 0, 0.0125, 0.02] };
     // Points 50 px apart, so the pointer over each reads that one.
     const plot: StagePlot = { frame: { left: 0, top: 0, width: 200, height: 100 }, xAt: value => (value + 0.0125) * 4000, xOf: x => x / 4000 - 0.0125, yAt: value => -value, ratioStep: 1.12, lines: [{ view: long, color: 'blue', full: held(long) }], diff: false };
-    assert.match(stageHover(plot, 0, 0)!.text, /^−12\.50 ms/);
-    assert.match(stageHover(plot, 50, 0)!.text, /^0\.00 ms/);
+    assert.match(stageHover(plot, 0, 0)!.text, /^−0\.01250 s/);
+    assert.match(stageHover(plot, 50, 0)!.text, /^0\.00000 s/);
 });
 
 test('a trigger\'s events are each a line of their slot, on one amplitude range, with no difference between recordings', () => {
