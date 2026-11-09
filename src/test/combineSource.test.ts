@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createCombineSource, createLastFine, FAILED_HOLD_MS, noDeltaNote, type Combined } from '../webview/runtime/combineSource';
+import { FAILED_RETRY_MS as FAILED_HOLD_MS } from '../webview/runtime/answerStore';
+import { createCombineSource, createLastFine, noDeltaNote, type Combined } from '../webview/runtime/combineSource';
 import { createStageSource, stageBasis } from '../webview/runtime/stageSource';
 import { runCompareCombine, type CompareCombineMessage } from '../shared/analysis/entryScan';
 import { getStrings } from '../shared/i18n/strings';

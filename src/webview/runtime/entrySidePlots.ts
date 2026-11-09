@@ -4,6 +4,7 @@
  * above them. Each keeps its zoom as the lanes do (box zoom, Ctrl+wheel, Shift+wheel, a double click to reset or
  * to type an axis's range); a press that stays put is still a click: a row gone to on the strip.
  */
+import { createLatestAnswers } from './answerStore';
 import type { UiStrings } from '../../shared/i18n/strings';
 import type { ScanResult } from '../../shared/protocol/backendProtocol';
 import { rowKey, type DatasetRow } from '../../shared/dataset/datasetTable';
@@ -102,13 +103,13 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
      * Each scanned recording's bands by table row (a channel's own, keyed as its row: rowKey) and the level reference
      * wandas names its levels by, kept as results arrive so scrolling does not redo them.
      */
-    const levels = new Map<string, (number | null)[]>();
-    /** The rows of `levels` each recording has, so a result that replaces it takes all of them away. */
-    const levelRows = new Map<string, string[]>();
-    /** Each recording's level identity (R1: unit, reference value, level reference name) and the name it is written by. */
-    const levelLabels = new Map<string, { identity: string; label: string }>();
-    /** The recordings scanned with a calibration (their levels are not relative to full scale). */
-    const calibrated = new Set<string>();
+    const levels = createLatestAnswers<(number | null)[]>();
+    /**
+     * Each scanned recording's rows of `levels` (so a result that replaces it takes all of them away), its level identity
+     * (R1: unit, reference value, level reference name) and the name it is written by, and whether it was calibrated.
+     */
+    const scanned = createLatestAnswers<{ rows: string[]; level?: { identity: string; label: string }; calibrated: boolean }>();
+    const levelOf = (filePath: string): { identity: string; label: string } | undefined => scanned.get(filePath)?.level;
     /** Bumped on every change to them, so the strip knows when to draw its cells again. */
     let version = 0;
     let shared: { version: number; identity: string; label: string; calibrated: boolean; levels: Map<string, (number | null)[]> } = { version: -1, identity: '', label: '', calibrated: false, levels: new Map() };
@@ -120,11 +121,12 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
     function reference(): typeof shared {
         if (shared.version === version) return shared;
         // The most common level identity (R1, the one the comparison and the backend use), named by its reference's label.
-        const identity = commonLevelLabel([...levelLabels.values()].map(own => own.identity));
-        const files = [...levelLabels].filter(([, own]) => own.identity === identity).map(([path]) => path);
-        const label = files.length ? levelLabels.get(files[0])?.label ?? 'dBFS' : 'dBFS';
-        const keys = new Set(files.flatMap(path => levelRows.get(path) ?? []));
-        shared = { version, identity, label, calibrated: files.length > 0 && files.every(path => calibrated.has(path)), levels: new Map([...levels].filter(([key]) => keys.has(key))) };
+        const labelled = [...scanned.view].flatMap(([path, own]) => (own.level ? [[path, own.level] as const] : []));
+        const identity = commonLevelLabel(labelled.map(([, own]) => own.identity));
+        const files = labelled.filter(([, own]) => own.identity === identity).map(([path]) => path);
+        const label = files.length ? levelOf(files[0])?.label ?? 'dBFS' : 'dBFS';
+        const keys = new Set(files.flatMap(path => scanned.get(path)?.rows ?? []));
+        shared = { version, identity, label, calibrated: files.length > 0 && files.every(path => !!scanned.get(path)?.calibrated), levels: new Map([...levels.view].filter(([key]) => keys.has(key))) };
         return shared;
     }
     const levelLabel = (): string => reference().label;
@@ -244,28 +246,23 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
         keepWindow,
         levelLabel,
         levelName,
-        onLevelAxis: filePath => levelLabels.get(filePath)?.identity === reference().identity,
+        onLevelAxis: filePath => levelOf(filePath)?.identity === reference().identity,
         levels: key => levels.get(key),
         noteResult(filePath: string, result: ScanResult): void {
             version++;
             const bands = result.thirdOctDb;
-            for (const key of levelRows.get(filePath) ?? []) levels.delete(key);
-            levelRows.delete(filePath);
-            if (result.ok && bands?.length) {
-                // A row per channel, as the table has: each channel's own levels.
-                const keys = bands.map((channel, index) => { const key = rowKey(filePath, index + 1, bands.length); levels.set(key, channel); return key; });
-                levelRows.set(filePath, keys);
-            }
-            if (result.ok && result.input) levelLabels.set(filePath, { identity: levelKeyOf(result.input), label: result.input.levelReferenceLabel });
-            else levelLabels.delete(filePath);
-            if (result.ok && result.input?.calibrationStatus === 'calibrated') calibrated.add(filePath);
-            else calibrated.delete(filePath);
+            for (const key of scanned.get(filePath)?.rows ?? []) levels.delete(key);
+            // A row per channel, as the table has: each channel's own levels.
+            const rows = result.ok && bands?.length ? bands.map((channel, index) => { const key = rowKey(filePath, index + 1, bands.length); levels.set(key, channel); return key; }) : [];
+            scanned.set(filePath, {
+                rows,
+                ...(result.ok && result.input ? { level: { identity: levelKeyOf(result.input), label: result.input.levelReferenceLabel } } : {}),
+                calibrated: !!(result.ok && result.input?.calibrationStatus === 'calibrated'),
+            });
         },
         clear(): void {
             levels.clear();
-            levelRows.clear();
-            levelLabels.clear();
-            calibrated.clear();
+            scanned.clear();
             version++;
         },
         schedule,

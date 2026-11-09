@@ -98,7 +98,7 @@ test('TrackStore clears analysis caches without moving runtime state to another 
     assert.equal(store.protocolIndexForId(aId), 1);
     assert.equal(store.require(aId).runtime.hidden, true);
     assert.equal(store.require(bId).runtime.hidden, false);
-    assert.equal(store.require(bId).spectrumSliceCache.size, 0);
+    assert.equal(store.require(bId).spectrumSliceCache.view.size, 0);
 });
 
 test('TrackStore keeps locally removed paths tombstoned across full result updates', () => {
@@ -203,7 +203,7 @@ test('a new track without an audio source gets an empty one', () => {
 test('TrackStore lets the remaining tracks ask for a failed spectrogram again when one is taken off', () => {
     const store = new TrackStore([result('/a.wav'), result('/b.wav')], runtime);
     const [aId, bId] = store.activeIds();
-    store.require(bId).detailError = { settingsSignature: 's', message: 'STFT exceeds the memory budget', at: 1 };
+    store.require(bId).detailError = { settingsSignature: 's', message: 'STFT exceeds the memory budget' };
 
     store.remove(aId);
 

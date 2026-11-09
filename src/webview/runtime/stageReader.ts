@@ -6,6 +6,7 @@
  */
 import type { CompareCombineMessage, ComparePublication } from '../../shared/analysis/entryScan';
 import type { StagePoints, StageRead, StageView } from '../../shared/protocol/backendProtocol';
+import { answerKey, createAnswerStore } from './answerStore';
 import { fetchedSource, wholeBars, type FullRead, type FullSource } from './fullRead';
 
 export interface StageReader {
@@ -23,13 +24,13 @@ export interface StageReader {
  */
 export function createStageReader(prefix: string, post: (message: CompareCombineMessage) => void, missing: (keys: readonly string[]) => void = () => undefined): StageReader {
     const waiting = new Map<string, (points: StagePoints | null | undefined) => void>();
-    const sources = new Map<string, FullSource>();
+    // Each picture's source with the windows it read, kept while its pictures come and go with the zoom: the least
+    // recently used ones are let go. Its keys are the backend's data keys (each of a file version, Recipe, region,
+    // channels, calibration and step).
+    const sources = createAnswerStore<FullSource>({ capacity: 256 });
     let count = 0;
-    const source = (base: readonly string[], compare: string | null, of: 'base' | 'diff', event?: number): FullSource => {
-        const key = JSON.stringify([base, compare, of, event ?? null]);
-        const known = sources.get(key);
-        if (known) return known;
-        const made: FullSource = {
+    const source = (base: readonly string[], compare: string | null, of: 'base' | 'diff', event?: number): FullSource =>
+        sources.keep(answerKey({ ask: ['combined-read', base, compare, of, event ?? null] }), () => ({
             ...fetchedSource((read: StageRead, done) => {
                 const requestId = `${prefix}-${++count}`;
                 waiting.set(requestId, done);
@@ -37,12 +38,7 @@ export function createStageReader(prefix: string, post: (message: CompareCombine
             }),
             // A trigger's events: each its own line, read by its id.
             ...(event === undefined ? { event: (id: number) => source(base, compare, of, id) } : {}),
-        };
-        sources.set(key, made);
-        // Pictures come and go with the zoom: the sources of the least recently made ones are let go.
-        if (sources.size > 256) sources.delete(sources.keys().next().value as string);
-        return made;
-    };
+        }));
     return {
         // A band table without a key is sent whole: its bars are read from their every value.
         of: view => (view?.data ? source([view.data], null, 'base') : wholeBars(view)),

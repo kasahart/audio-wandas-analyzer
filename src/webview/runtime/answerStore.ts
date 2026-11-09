@@ -229,26 +229,26 @@ export function createAnswerStore<T>(options: AnswerStoreOptions): AnswerStore<T
  * asked under, with what it was asked under (`recipeKey`, `condition`) so a stale one is told apart. `view` is the
  * ready values, for the readers that take a map of them.
  */
-export interface LatestAnswers<T> {
-    readonly view: ReadonlyMap<string, T>;
-    get(subject: string): T | undefined;
-    has(subject: string): boolean;
+export interface LatestAnswers<T, K extends string | number = string> {
+    readonly view: ReadonlyMap<K, T>;
+    get(subject: K): T | undefined;
+    has(subject: K): boolean;
     /** What the subject's answer was asked under (the recipe, the condition), as it was set. */
-    under(subject: string): { recipeKey?: string; condition?: string } | undefined;
-    set(subject: string, value: T, under?: { recipeKey?: string; condition?: string }): void;
+    under(subject: K): { recipeKey?: string; condition?: string } | undefined;
+    set(subject: K, value: T, under?: { recipeKey?: string; condition?: string }): void;
     /** The subject could not be answered, and why (a header that could not be read). */
-    fail(subject: string, reason: string): void;
+    fail(subject: K, reason: string): void;
     /** Why the subject's answer failed, while it has none. */
-    failure(subject: string): string | undefined;
-    readonly failures: ReadonlyMap<string, string>;
-    delete(subject: string): void;
+    failure(subject: K): string | undefined;
+    readonly failures: ReadonlyMap<K, string>;
+    delete(subject: K): void;
     clear(): void;
 }
 
-export function createLatestAnswers<T>(): LatestAnswers<T> {
-    const values = new Map<string, T>();
-    const unders = new Map<string, { recipeKey?: string; condition?: string }>();
-    const failures = new Map<string, string>();
+export function createLatestAnswers<T, K extends string | number = string>(): LatestAnswers<T, K> {
+    const values = new Map<K, T>();
+    const unders = new Map<K, { recipeKey?: string; condition?: string }>();
+    const failures = new Map<K, string>();
     return {
         view: values,
         failures,

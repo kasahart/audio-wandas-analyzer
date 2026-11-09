@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { FAILED_HOLD_MS } from '../webview/runtime/combineSource';
+import { FAILED_RETRY_MS as FAILED_HOLD_MS } from '../webview/runtime/answerStore';
 import { createLaneReads } from '../webview/runtime/laneReads';
 
 test('a cursor slice the host failed to give reads nothing a while, then is asked again (no failure kept for good)', () => {

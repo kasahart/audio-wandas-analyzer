@@ -11,7 +11,7 @@ import path from 'node:path';
 import test from 'node:test';
 import ts from 'typescript';
 import { findHeldCollections, findOwnRetryPolicies, type HeldCollection } from './answerBoundary';
-import { NOT_ANSWERS, RETRY_TO_MOVE } from './answerBoundaryAllowlist';
+import { NOT_ANSWERS } from './answerBoundaryAllowlist';
 
 const repoRoot = path.resolve(__dirname, '..', '..');
 const STORE = new Set(['src/webview/runtime/answerStore.ts', 'src/webview/runtime/answerTypes.ts']);
@@ -48,9 +48,7 @@ test('outside the answer store, every collection that outlives a call is listed 
 
 test('outside the answer store, no code names a failure pause or retry of its own', () => {
     const found = sources().flatMap(({ file, source }) => findOwnRetryPolicies(file, source));
-    const unlisted = found.filter(name => !RETRY_TO_MOVE.includes(name));
-    assert.deepEqual(unlisted, [], 'How long a failure stands and when an unanswered request is asked again are answerStore.ts\' (FAILED_RETRY_MS, UNANSWERED_RETRY_MS, createFailureHold, createRequestClock)');
-    assert.deepEqual(RETRY_TO_MOVE.filter(name => !found.includes(name)), [], 'an entry that matches nothing any more is taken off RETRY_TO_MOVE (the list only shrinks)');
+    assert.deepEqual(found, [], 'How long a failure stands and when an unanswered request is asked again are answerStore.ts\' (FAILED_RETRY_MS, UNANSWERED_RETRY_MS, createFailureHold, createRequestClock)');
 });
 
 test('the boundary check finds a cache of answers added outside the store (mutation)', () => {
