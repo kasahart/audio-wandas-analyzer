@@ -251,13 +251,14 @@ def test_spectrogram_colour_range_is_every_full_cells_not_the_cells_averaged_to_
     assert spec["minDb"] == -97.25
 
 
-def test_spectrogram_colour_range_counts_digital_silence_at_the_drawn_floor() -> None:
+def test_spectrogram_colour_range_counts_digital_silence_as_its_own_level() -> None:
     full = np.full((3000, 1025), -50.0)
     full[:500] = -240.0  # wandas' dB of an all-zero frame
     full[600, 3] = -np.inf
     spec = _build_spectrogram(full, sample_rate_hz=48_000, window_size=2048, hop_size=512, scale=_SCALE)
 
-    assert spec["minDb"] == pytest.approx(-120.0)
+    # The drawn cells floor their averages at -120 dB; the range is every finite cell's, silence included.
+    assert spec["minDb"] == pytest.approx(-240.0)
     assert spec["maxDb"] == pytest.approx(-50.0)
     assert min(min(row) for row in spec["values"]) >= spec["minDb"]
 
