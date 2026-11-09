@@ -192,8 +192,11 @@ export function stageAxes(strings: StageStrings, view: StageView | null, input: 
     if (view?.waveform) return { x, y: diff ? `Δ ${linear(view.waveform.unit)}` : linear(view.waveform.unit) };
     // A trigger's events are their signals: amplitude in the signal's unit, as a waveform's.
     if (isEventsView(view)) return { x, y: linear(view?.unit) };
-    // rms_trend's series is its own values (a metric's series), in the signal's unit.
-    if (view?.measure && view.quantity === 'value') return { x, y: diff ? `Δ ${linear(view.unit)}` : linear(view.unit) };
+    // rms_trend's series is its own values (a metric's series), in the signal's unit; so is a series no step names
+    // (an RMS of a power, a power to another exponent): what it is, the signal's amplitude, never a bare "value".
+    if (view?.quantity === 'value' && (view.measure || (view.x === 'time' && !namedByUnit(view.unit)))) return { x, y: diff ? `Δ ${linear(view.unit)}` : linear(view.unit) };
+    // A level over time (sound_level or rms_trend in dB) names what it is the level of, in the files' reference.
+    if (view?.quantity === 'level' && view.x === 'time') return { x, y: timeLevelTitle(strings, input, view.measure) };
     const y = view?.quantity === 'level' ? paneAxes(strings, input).level.y
         : view?.quantity === 'gain' ? strings.axisGain
             : view?.quantity === 'coherence' ? strings.axisCoherence
@@ -219,6 +222,21 @@ export function amplitudeAxisTitle(strings: Pick<StageStrings, 'axisRms' | 'axis
     return `${name}${input?.calibrationStatus === 'calibrated' ? '' : strings.axisUncalibrated} [${measure === 'power' ? `${base}²` : base}]`;
 }
 
+/** Whether a metric's unit names what it measures (loudness in sone, …, a level in dB). */
+function namedByUnit(unit: string | undefined): boolean {
+    return unit === 'sone' || unit === 'acum' || unit === 'asper' || !!unit?.startsWith('dB');
+}
+
+/**
+ * A level over time's axis: the level of an RMS over a window, of a time-weighted one, or a level, in the files'
+ * reference, saying it is uncalibrated as every level axis does ("Time-weighted RMS, uncalibrated [dBFS]").
+ */
+function timeLevelTitle(strings: StageStrings, input: LevelInput | undefined, measure: StageView['measure']): string {
+    const reference = input ?? { levelReferenceLabel: uncalibratedUnits(true).level, calibrationStatus: 'uncalibrated' };
+    const name = measure === 'rms' ? strings.axisRms : measure === 'timeWeightedRms' ? strings.axisRmsTimeWeighted : strings.axisLevelOf;
+    return `${name}${reference.calibrationStatus === 'calibrated' ? '' : strings.axisUncalibrated} [${reference.levelReferenceLabel}]`;
+}
+
 /** A metric's axis name: what it measures and its unit, or that its unit is not known. */
 function metricAxisName(strings: StageStrings, unit: string | undefined): string {
     return axisName(metricName(strings, unit), unit || strings.axisUnitUnknown);
@@ -230,7 +248,8 @@ function metricName(strings: StageStrings, unit: string | undefined): string {
     if (unit === 'acum') return strings.axisSharpness;
     if (unit === 'asper') return strings.axisRoughness;
     if (unit?.startsWith('dB')) return strings.axisLevelOf;
-    return strings.dsValue;
+    // Any other value a step gives is in the signal's unit: its amplitude (the backend names no other kind).
+    return strings.waveRangeAxisAmplitude;
 }
 
 const hz = frequencyText;

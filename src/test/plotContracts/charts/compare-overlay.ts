@@ -155,15 +155,15 @@ export const compareOverlay: ChartContract = {
             names: { quantity: true, unit: true, reference: true },
         },
         {
-            id: 'compare-overlay.axis-metric', value: 'axis', what: '単位で名前の決まらない指標の値の軸（「値 [unit]」）',
-            computedIn: [`${SP}:stageAxes`, `${SP}:metricName`],
-            from: 'words', trace: 'metricName は sone・acum・asper・dB 以外の単位の指標を「値」と書き、単位を角かっこに書く。単位がなければ「[単位不明]」（R4 が認める書き方）。',
+            id: 'compare-overlay.axis-metric', value: 'axis', what: '指標・手順が作った量・dB の時間変化の値の軸',
+            computedIn: [`${SP}:stageAxes`, `${SP}:metricName`, `${SP}:timeLevelTitle`, `${SP}:amplitudeAxisTitle`, 'python-backend/stage_view.py:signal_measure'],
+            from: 'words', trace: '単位で決まる指標（sone・acum・asper）はその名前、手順の量（view.measure）は実効値・時間重み付き実効値・パワー、ほかは信号の単位の振幅（amplitudeAxisTitle）。dB の時間変化は何のレベルか（timeLevelTitle、measure はバックエンドが dB でも送る）をファイルの基準で書く。「値」とは書かない。',
             tests: [
                 t('src/test/axisNames.test.ts', 'every axis a picture is drawn on names its quantity and unit, whatever it measures, with or without a unit, Δ or not (R4)'),
-                t('src/test/stagePanes.test.ts', 'a metric over time names what it measures on its value axis, from its unit'),
+                t('src/test/stagePanes.test.ts', 'a metric or level over time names what it measures on its value axis, never a bare value or an amplitude in dB (R4)'),
+                tt('python-backend/test_stage_view.py', 'test_a_time_signal_names_the_measure_a_step_made_of_it'),
             ],
-            names: { quantity: false, unit: true },
-            gap: { severity: 'P2', why: '量の名前がない：sone・acum・asper・dB 以外の指標は「値 [単位]」で、何の値かを書かない（単位がなければ「値 [単位不明]」）。' },
+            names: { quantity: true, unit: true },
         },
         {
             id: 'compare-overlay.axis-cepstrum', value: 'axis', what: 'ケプストラムの値の軸（「実ケプストラム」）',
@@ -202,7 +202,5 @@ export const compareOverlay: ChartContract = {
             ],
         },
     ],
-    knownGaps: {
-        'compare-overlay.axis-metric': 'P2',
-    },
+    knownGaps: {},
 };

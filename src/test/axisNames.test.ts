@@ -18,9 +18,14 @@ const FRAGMENTS = new Set<keyof UiStrings>(['axisLoudness', 'axisSharpness', 'ax
 /** Axis names whose key does not say so: the pair view's plots and the values the distribution's value axis takes. */
 const NAMED_ELSEWHERE: Array<keyof UiStrings> = ['pairPhaseLabel', 'pairCoherenceLabel', 'dsLeq', 'dsPeak', 'dsCrest', 'dsBand'];
 
+/** Words that name no quantity: an axis called "Value [Pa]" says only its unit (R4). */
+const NO_QUANTITY = new Set(LOCALES.flatMap(locale => [getStrings(locale).dsValue, 'Value', '値']));
+
 const named = (where: string, name: string | undefined): void => {
     const parts = axisNameParts(name ?? '');
     assert.ok(parts && parts.quantity.trim() && parts.unit.trim(), `${where}: "${name}" names no quantity and unit in closing brackets`);
+    const quantity = parts.quantity.replace(/^Δ\s*/u, '').trim();
+    assert.ok(!NO_QUANTITY.has(quantity), `${where}: "${name}" names no quantity, only that it is a value`);
 };
 
 test('every axis-name string, in every language, names its quantity and its unit (R4)', () => {
@@ -44,7 +49,10 @@ const views = (): StageView[] => {
     const units = [undefined, 'sone', 'acum', 'asper', 'dB re 1 FS', 'Pa'];
     const lines = xs.flatMap(x => quantities.flatMap(quantity => units.map((unit): StageView => ({ frame: 'SpectralFrame', kind: 'line', x, xScale: 'linear', quantity, ...(unit ? { unit } : {}), xs: [1, 2], values: [0, 1] }))));
     const pairs = lines.flatMap((view): StageView[] => [{ ...view, pair: { output: 2, input: 1 } }, { ...view, pair: { output: 1, input: 1, base: true } }]);
-    const measures = (['rms', 'timeWeightedRms', 'power'] as const).map((measure): StageView => ({ frame: 'ChannelFrame', kind: 'line', x: 'time', quantity: 'value', unit: 'Pa', measure, xs: [0, 1], values: [1, 2] }));
+    const measures = (['rms', 'timeWeightedRms', 'power'] as const).flatMap((measure): StageView[] => [
+        { frame: 'ChannelFrame', kind: 'line', x: 'time', quantity: 'value', unit: 'Pa', measure, xs: [0, 1], values: [1, 2] },
+        { frame: 'ChannelFrame', kind: 'line', x: 'time', quantity: 'level', unit: 'dB re 1 input unit', measure, xs: [0, 1], values: [1, 2] },
+    ]);
     const waveforms = ['Pa', ''].map((unit): StageView => ({ frame: 'ChannelFrame', kind: 'line', x: 'time', xs: [0, 1], waveform: { min: [0], max: [1], minT: [0], maxT: [1], absolutePeak: 1, unit, ref: 1 } }));
     const events: StageView = { frame: 'ChannelFrameSegments', kind: 'line', x: 'time', xs: [0, 1], values: [0, 1] };
     const heatmaps = (['level', 'roughness', 'cepstrum', 'value'] as const).flatMap(quantity => (['frequency', 'bark', 'quefrency'] as const).flatMap(yAxis => [undefined, 'asper'].map((unit): StageView => ({ frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', quantity, yAxis, ...(unit ? { unit } : {}), xs: [0, 1], ys: [1, 2], matrix: [[0, 0], [0, 0]] }))));
@@ -65,8 +73,8 @@ test('every axis a picture is drawn on names its quantity and unit, whatever it 
                 }
             }
         }
-        // A value with no unit says the unit is unknown, not nothing.
-        assert.equal(axisNameParts(stageAxes(strings, { frame: 'ChannelFrame', kind: 'line', x: 'time', quantity: 'value', xs: [0, 1], values: [1, 2] }, undefined).y)?.unit, strings.axisUnitUnknown);
+        // A series with no unit is in the files' own unit (full scale), never with no unit at all.
+        assert.equal(axisNameParts(stageAxes(strings, { frame: 'ChannelFrame', kind: 'line', x: 'time', quantity: 'value', xs: [0, 1], values: [1, 2] }, undefined).y)?.unit, 'FS');
         for (const measure of [undefined, 'rms', 'timeWeightedRms', 'power'] as const) {
             for (const input of [undefined, calibrated]) named(`${locale} amplitude ${measure}`, amplitudeAxisTitle(strings, input?.unit, input, measure));
         }
