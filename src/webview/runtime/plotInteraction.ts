@@ -1,7 +1,8 @@
 /**
  * The pointer gestures of every plot (the track lanes, the comparison's panes, the entry screen's plots), so a plot
  * answers the same hand the same way everywhere. Hover shows the cursor line and readout; a press dragged past the
- * lanes' threshold draws a box and zooms into it (both axes), Alt+drag picks a stretch of the horizontal axis and
+ * lanes' threshold draws a box and zooms into it (both axes; a vertical axis defined to show all of its range, a
+ * count axis, keeps it whole: VerticalAxis), Alt+drag picks a stretch of the horizontal axis and
  * Shift+drag moves what the plot shows along it, where the plot has those; Ctrl+wheel zooms the horizontal axis around
  * the pointer and Shift+wheel pans it, by the lanes' steps, and a sideways swipe pans it with the fingers; a double-click resets the zoom, or on an axis
  * opens its range; ← / → step the readout to the next point, read as the pointer on it would read it (R7).
@@ -29,14 +30,32 @@ export const FULL_PLOT_WINDOW: PlotWindow = { x: { start: 0, end: 1 }, y: { star
 const within = (range: NormalizedRange, fraction: number): number => range.start + fraction * (range.end - range.start);
 
 /**
- * A box drawn on the screen part of a plot, as the window it zooms to; null when it is too thin on an axis it zooms.
- * A plot that zooms only its horizontal axis (`horizontalOnly`) keeps its vertical window, so a level drag zooms it.
+ * What a plot's vertical axis is, for the box zoom (R13). 'zoom' (every plot but one): a box zooms it to the box, as it
+ * does the horizontal one. 'all-counts': an axis defined to show every count, always: from 0 past the group's most
+ * counted bin, whatever part of the value axis is on screen (the entry distribution's count per group). A box zooms such a plot's value axis only, so
+ * no count is ever off the plot; it is what the axis is, not a zoom left out. The plot says which on the canvas
+ * (`data-plot-y-axis`), so one test holds every plot to it.
  */
-export function windowFromBox(window: PlotWindow, a: PlotPoint, b: PlotPoint, horizontalOnly = false): PlotWindow | null {
+export type VerticalAxis = 'zoom' | 'all-counts';
+
+/**
+ * Names on the plot the part of each axis on screen ("x.start x.end y.start y.end") and what its vertical axis is, as
+ * the shared gestures do after each one; a plot drawn anew (its canvas made again) names them as it is drawn.
+ */
+export function notePlotWindow(plot: HTMLElement, window: PlotWindow, vertical: VerticalAxis): void {
+    plot.dataset.plotWindow = [window.x.start, window.x.end, window.y.start, window.y.end].map(value => value.toFixed(3)).join(' ');
+    plot.dataset.plotYAxis = vertical;
+}
+
+/**
+ * A box drawn on the screen part of a plot, as the window it zooms to; null when it is too thin on an axis it zooms.
+ * On a plot whose vertical axis shows all counts, the vertical window stays whole, so a level drag zooms it.
+ */
+export function windowFromBox(window: PlotWindow, a: PlotPoint, b: PlotPoint, vertical: VerticalAxis = 'zoom'): PlotWindow | null {
     const [x0, x1] = [Math.min(a.fx, b.fx), Math.max(a.fx, b.fx)];
     const [y0, y1] = [Math.min(a.fy, b.fy), Math.max(a.fy, b.fy)];
     if (x1 - x0 <= MIN_SELECTION_SPAN * 10) return null;
-    if (horizontalOnly) return { x: { start: within(window.x, x0), end: within(window.x, x1) }, y: window.y };
+    if (vertical === 'all-counts') return { x: { start: within(window.x, x0), end: within(window.x, x1) }, y: FULL_PLOT_WINDOW.y };
     if (y1 - y0 <= MIN_SELECTION_SPAN * 10) return null;
     return { x: { start: within(window.x, x0), end: within(window.x, x1) }, y: { start: within(window.y, y0), end: within(window.y, y1) } };
 }
@@ -110,8 +129,8 @@ export interface PlotInteractionDeps {
     tap?(plot: HTMLElement, event: MouseEvent): void;
     /** Any press on a plot, before it is known whether it drags (a lane takes the keyboard focus). */
     pressed?(hit: PlotHit, event: MouseEvent): void;
-    /** A box zooms only the horizontal axis (the vertical one stays whole, e.g. counts). */
-    horizontalOnly?: boolean;
+    /** What the plots' vertical axis is (VerticalAxis); 'zoom' when left out. */
+    verticalAxis?: VerticalAxis;
     /**
      * The plot zooms into the box drawn itself, for axes that are not a linear part of a window (the lanes' amplitude,
      * a spectrogram's band in Hz); without it the box's window (windowFromBox) is set.
@@ -150,10 +169,10 @@ export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 
     let lastDouble: PlotHit | null = null;
     // The window these gestures last set is named on the plot they were made on, so one test reads every plot's
     // gestures the same way (R13). Other ways to the window (keys, an axis's range, a pane sharing it) do not write it.
+    const vertical = deps.verticalAxis ?? 'zoom';
     const setWindow = (plot: HTMLElement, next: PlotWindow | null): void => {
         deps.setWindow(plot, next);
-        const now = deps.window(plot);
-        plot.dataset.plotWindow = [now.x.start, now.x.end, now.y.start, now.y.end].map(value => value.toFixed(3)).join(' ');
+        notePlotWindow(plot, deps.window(plot), vertical);
     };
     const wheelAt = (event: WheelEvent, gesture: 'zoom' | 'pan'): PlotHit | null =>
         deps.wheelAt ? deps.wheelAt(event.target, event.clientX, event.clientY, gesture) : deps.locate(event.target, event.clientX, event.clientY);
@@ -178,7 +197,9 @@ export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 
         },
         hover(event) {
             if (press?.isDrag) return;
-            deps.hover(event, deps.locate(event.target, event.clientX, event.clientY));
+            const hit = deps.locate(event.target, event.clientX, event.clientY);
+            if (hit) hit.plot.dataset.plotYAxis = vertical;
+            deps.hover(event, hit);
         },
         clearHover: () => deps.clearHover(),
         press(event) {
@@ -214,7 +235,7 @@ export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 
             if (done.drag) return;
             deps.hideBox();
             if (deps.zoomToBox) { deps.zoomToBox(done.plot, done.from, done.to, event); return; }
-            const next = windowFromBox(deps.window(done.plot), done.from, done.to, deps.horizontalOnly);
+            const next = windowFromBox(deps.window(done.plot), done.from, done.to, deps.verticalAxis);
             if (next) setWindow(done.plot, next);
         },
         zoomWheel(event) {
