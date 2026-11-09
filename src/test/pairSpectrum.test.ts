@@ -12,7 +12,7 @@ import {
     PAIR_LANES, pairLanes, pairHeader, type PairLaneKey, pairLegendHtml, referenceButtonHtml, syncReferenceButtons,
     type PairCurve, type PairSpectrumResponse, type PairSpectrumResultMessage,
 } from '../webview/runtime/pairSpectrum';
-import { STAGE_MARGINS } from '../webview/runtime/stagePanes';
+import { byLevel, STAGE_MARGINS } from '../webview/runtime/stagePanes';
 import { pairMargins, PAIR_REQUEST_DELAY_MS, PairSpectrumPanel, type PairChannelSource, type PairPanelHost } from '../webview/runtime/pairSpectrumPanel';
 import type { TrackId } from '../webview/runtime/types';
 
@@ -98,7 +98,7 @@ test('the pair view is three plots on one frequency axis, each named with its qu
     assert.deepEqual(lanes[1].range, { min: -180, max: 180 });
     assert.deepEqual(lanes[2].range, { min: 0, max: 1 });
     const gain = lanes[0].range;
-    assert.ok(gain.min < -12 && gain.max > 0);
+    assert.ok(gain.min <= -12 && gain.max >= 0);
     const near = pairLanes({ frequencyBins: 3, maxFrequencyHz: 1000, curves: [curve()] }, { frequencyMin: 0, frequencyMax: 100 }, en)[0].range;
     assert.deepEqual(near, { min: -3, max: 3 });
 });
@@ -562,17 +562,17 @@ test('a boxed level zoom keeps the values boxed when the frequency zoom refits t
         const fixture = shownFixture();
         const mouse = fixture.doc.defaultView!.MouseEvent;
         const lane = fixture.lane('gain');
-        // The gain (0, −6, −12 dB) spans −12.6 to 0.6 dB; the box takes its upper half (−6 to 0.6 dB) up to 600 Hz,
-        // which leaves 0 and −6 dB on screen, so the whole range is refitted to −6.3 to 0.3 dB.
+        // The gain (0, −6, −12 dB) opens at the round ends −12 to 0 dB (R9); the box takes its upper half (−6 to 0 dB) up
+        // to 600 Hz, which leaves 0 and −6 dB on screen, so the whole range is refitted to −6 to 0 dB.
         lane.dispatchEvent(new mouse('mousedown', { bubbles: true, button: 0, clientX: xOfHz(0), clientY: yOf(1) }));
         fixture.doc.dispatchEvent(new mouse('mousemove', { bubbles: true, clientX: xOfHz(600), clientY: yOf(0.5) }));
         fixture.doc.dispatchEvent(new mouse('mouseup', { bubbles: true, clientX: xOfHz(600), clientY: yOf(0.5) }));
         lane.dispatchEvent(new mouse('dblclick', { bubbles: true, clientX: 2, clientY: yOf(0.5) }));
         const request = fixture.levelRequests.at(-1)!;
         const span = request.max - request.min;
-        assert.ok(Math.abs(request.min - -6.3) < 0.01 && Math.abs(request.max - 0.3) < 0.01, JSON.stringify(request));
+        assert.ok(Math.abs(request.min - -6) < 0.01 && Math.abs(request.max - 0) < 0.01, JSON.stringify(request));
         assert.ok(Math.abs(request.min + request.current.start * span - -6) < 0.05, JSON.stringify(request));
-        assert.ok(Math.abs(request.min + request.current.end * span - 0.6) < 0.05, JSON.stringify(request));
+        assert.ok(Math.abs(request.min + request.current.end * span - 0) < 0.05, JSON.stringify(request));
     }
     finally {
         mock.timers.reset();
@@ -625,4 +625,36 @@ test('a newer lazy request for the same track cancels the older one in flight, a
     assert.equal(signals.get('new')?.isCancellationRequested, false);
     assert.deepEqual(failed, [], 'a superseded request is not a failure');
     assert.deepEqual(published.map(message => 'requestId' in message ? message.requestId : ''), ['other-track', 'new']);
+});
+
+test('the pair view\'s gain axis opens at round ends holding every bin on screen, a one-bin notch too, and only those (R9)', () => {
+    // 4097 bins, a smooth gain with a one-bin notch and a one-bin peak; the bins past the zoom are louder still.
+    const bins = 4097;
+    const gainDb = Array.from({ length: bins }, (_, bin) => -3 + 2 * Math.sin(bin / 300));
+    gainDb[1500] = -37.3;
+    gainDb[2600] = 8.4;
+    gainDb[4000] = 40;
+    const visible = { frequencyMin: 0, frequencyMax: 20000 };
+    const gain = pairLanes({ frequencyBins: bins, maxFrequencyHz: 24000, curves: [curve({ gainDb, phaseRad: gainDb.map(() => 0), coherence: gainDb.map(() => 1) })] }, visible, en)[0].range;
+    const shown = gainDb.filter((_, bin) => bin / (bins - 1) * 24000 <= visible.frequencyMax);
+    assert.ok(gain.min <= Math.min(...shown) && gain.max >= Math.max(...shown), `${gain.min}..${gain.max} holds every bin on screen`);
+    assert.ok(gain.max < 40, 'a bin off screen does not stretch it');
+    // Round ends: the ones niceRange gives, as every automatic range (R9).
+    assert.deepEqual(gain, { min: -40, max: 10 });
+});
+
+test('the pair view orders its gains by every bin on screen: the quieter response is drawn last, on top (R6)', () => {
+    // The quieter response by power has one narrow loud bin a drawn-point measure would weigh as much as the rest.
+    const bins = 2049;
+    const loud = Array.from({ length: bins }, () => -6);
+    const quiet = Array.from({ length: bins }, (_, bin) => (bin === 700 ? 20 : -30));
+    const lanes = pairLanes({
+        frequencyBins: bins, maxFrequencyHz: 24000,
+        curves: [curve({ gainDb: quiet, phaseRad: quiet.map(() => 0), coherence: quiet.map(() => 1) }, 'quiet'), curve({ gainDb: loud, phaseRad: loud.map(() => 0), coherence: loud.map(() => 1) }, 'loud')],
+    }, { frequencyMin: 0, frequencyMax: 24000 }, en);
+    const [quietLayer, loudLayer] = lanes[0].layers;
+    const bucketed = (layer: typeof quietLayer) => layer.view.levelBins?.count.reduce((sum, n) => sum + n, 0);
+    assert.equal(bucketed(quietLayer), bins, 'every bin is measured');
+    assert.equal(bucketed(loudLayer), bins);
+    assert.deepEqual(byLevel([quietLayer, loudLayer], lanes[0].layers[0].view).map(layer => layer.label), ['loud', 'quiet']);
 });

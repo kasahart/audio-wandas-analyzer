@@ -30,7 +30,7 @@
 | トラック表示の PNG 書き出し (`track-png`) | `webview/runtime/exportDownloads.ts:composeTrackCanvases` | 1 | 0 |
 | カーソルスペクトル (`cursor-spectrum`) | `webview/runtime/overlaySpectrumPainter.ts:paintOverlaySpectrum`<br>`webview/runtime/comparisonRuntime.ts:renderOverlaySpectrum` | 7 | 0 |
 | カーソルスペクトルの CSV 書き出し (`spectrum-csv`) | `webview/runtime/runtimeExports.ts:buildSpectrumCsv` | 1 | 0 |
-| ペアの図（利得・位相・γ²） (`pair-view`) | `webview/runtime/pairSpectrumPanel.ts:render` | 9 | 2 |
+| ペアの図（利得・位相・γ²） (`pair-view`) | `webview/runtime/pairSpectrumPanel.ts:render` | 9 | 0 |
 | カラーバー（比較台の熱図、スペクトログラムのレーン、入口の概観帯） (`colour-bar`) | `webview/runtime/stagePanes.ts:paintColourBar` | 2 | 0 |
 | 入口の保持図（スロットの Δ、手順の有無の Δ、平均スペクトル） (`entry-held`) | `webview/runtime/entryHeldPlot.ts:paintView` | 8 | 2 |
 | 入口の概観帯 (`entry-overview`) | `webview/runtime/entryPlots.ts:paintOverview` | 5 | 3 |
@@ -170,9 +170,9 @@
 | --- | --- | --- | --- | --- | --- |
 | 読み値 | 利得・位相・γ² の読み値 | `webview/runtime/pairSpectrum.ts:pairLanes`<br>`webview/runtime/stagePanes.ts:lineRead`<br>`analysis_service.py:pair_spectrum` | 描く点が全部（間引かない）：バックエンドが全ビンをそれぞれの周波数で返し、図はその全部をつなぐ（full: 'drawn'）。 | `pairSpectrum.test.ts` › the plot under the pointer reads its nearest line in the row above, in its unit, and the others follow its frequency (R7, R8)<br>`test_analysis_service.py` › test_pair_spectrum_keeps_every_bin_at_its_own_frequency_so_a_narrow_notch_stays | 例外（R7）：描いた点がそのまま全部の点であるもの（棒、帯、ペアの図の全ビン、分布のビン）は 'drawn'<br> |
 | ← / → | ← / → で進む先 | `webview/runtime/stagePanes.ts:stageStep`<br>`webview/runtime/stagePanes.ts:stageNeighbour` | 描く点が全部（間引かない）：描いた次のビン（全ビン）。 | `uiSmoke/plotContract.spec.ts` › the pair view's gain, phase and γ² plots answer the same gestures as every plot (R13) |  |
-| 重ねる順 | 利得の線の重ねる順 | `webview/runtime/pairSpectrum.ts:lines`<br>`webview/runtime/stagePanes.ts:levelBinsOf` | 全データ：利得の levelBins を見えている周波数の全ビンから作る。 | なし | **P2** ペアの利得の levelBins が全ビンから作られ、静かな応答が上に来ることを確かめるテストがない（部品の一般のテストだけ）。 |
+| 重ねる順 | 利得の線の重ねる順 | `webview/runtime/pairSpectrum.ts:lines`<br>`webview/runtime/stagePanes.ts:levelBinsOf` | 全データ：利得の levelBins を見えている周波数の全ビンから作る。 | ◆ `pairSpectrum.test.ts` › the pair view orders its gains by every bin on screen: the quieter response is drawn last, on top (R6) |  |
 | 重ねる順 | 位相と γ² の線の順（渡された順） | `webview/runtime/stagePanes.ts:overlayOrder` | 利用者の値・メタデータ：dB でない線はレベルで並べず、レベルのある線の後に渡された順のまま描く。 | `stagePanes.test.ts` › every plot draws its overlaid lines loudest first and the quietest last on top, whatever order the caller gives them (R6) | 例外（R6）：dB でない線（位相、γ²、分布の目盛りの線など）は、レベルのある線の後に、渡された順のまま描きます。<br> |
-| 自動の範囲 | 利得の軸の自動の範囲 | `webview/runtime/pairSpectrum.ts:gainRange` | 全データ：見えている周波数の全ビンの利得の最小・最大の中心から ±（幅の 1.1 倍の半分、少なくとも 3 dB）。端を切りのよい値に広げない。 | なし | **P2** 範囲を確かめるテストがなく、R9（自動の範囲は切りのよい値）を守っていない。 |
+| 自動の範囲 | 利得の軸の自動の範囲 | `webview/runtime/pairSpectrum.ts:gainRange` | 全データ：見えている周波数の全ビンの利得の最小・最大（幅は少なくとも 6 dB）を niceRange で切りのよい値に広げる（R9）。 | ◆ `pairSpectrum.test.ts` › the pair view's gain axis opens at round ends holding every bin on screen, a one-bin notch too, and only those (R9) |  |
 | 目盛り | 目盛り | `webview/runtime/stagePanes.ts:paintPlot`<br>`webview/runtime/stagePanes.ts:valueAxisTicks`<br>`webview/runtime/stagePanes.ts:valueTickTexts`<br>`webview/runtime/stagePanes.ts:alongAxisTicks`<br>`webview/runtime/stagePanes.ts:rowAxisTicks`<br>`webview/runtime/stagePanes.ts:tickText`<br>`webview/runtime/stagePanes.ts:levelTick`<br>`webview/runtime/stagePanes.ts:paintRightAxis` | 軸の範囲・窓：範囲から部品が決める（位相は ±180°、γ² は 0〜1）。 | `stagePanes.test.ts` › levels share a range of four round steps; coherence keeps 0 to 1<br>`laneAxes.test.ts` › the lanes take the ticks and their text from the rules every plot uses |  |
 | 軸の名前 | 周波数・利得・位相の軸の名前 | `webview/runtime/pairSpectrum.ts:pairLanes` | 文字：利得はバックエンドの axisLabel、位相 [°]、周波数 [Hz]。 | `pairSpectrum.test.ts` › the pair view is three plots on one frequency axis, each named with its quantity and unit, drawing ok responses only |  |
 | 軸の名前 | コヒーレンスの軸の名前（「γ²」） | `webview/runtime/pairSpectrum.ts:pairLanes` | 文字：pairCoherenceLabel は「コヒーレンス γ² [–]」。狭いと記号「γ² [–]」に縮めるが単位は残す（axisTitle.ts）。 | `axisNames.test.ts` › every axis a picture is drawn on names its quantity and unit, whatever it measures, with or without a unit, Δ or not (R4)<br>`pairSpectrum.test.ts` › the pair view is three plots on one frequency axis, each named with its quantity and unit, drawing ok responses only |  |
@@ -272,7 +272,7 @@
 - `compare-delta.range-image`：カラーバーの両端の数を、描くために平均した Δ のマスから求めている。
 - `compare-lanes.range-image`：カラーバーの両端の数を、描くために平均したマスから求めている。
 
-### P2（24、上限 24）
+### P2（22、上限 22）
 
 - `compare-overlay.pending`：R7 は届くまで読み値を空にするが、密な窓を別の高さで読むときは前の高さの点を読む。その間の読み値は今のマウスに一番近い点とは限らない。
 - `compare-overlay.readout-events`：イベントの線の読み値と ← / → がそのイベントの全サンプルから来ることを確かめるテストがない（ジェスチャのテストは数字の出どころを見ない）。
@@ -286,8 +286,6 @@
 - `trigger-lanes.step`：全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。
 - `trigger-lanes.range`：レーンの範囲が全サンプルのピークとしきい値を含むことを確かめるテストがない。
 - `track-header.peak`：全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。
-- `pair-view.order`：ペアの利得の levelBins が全ビンから作られ、静かな応答が上に来ることを確かめるテストがない（部品の一般のテストだけ）。
-- `pair-view.range`：範囲を確かめるテストがなく、R9（自動の範囲は切りのよい値）を守っていない。
 - `entry-held.step`：全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。
 - `entry-held.range`：範囲を間引いた点から求めている。全データの端と一致することを確かめるテストがない。
 - `entry-overview.readout`：全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。

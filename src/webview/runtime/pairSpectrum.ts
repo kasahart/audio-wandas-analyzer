@@ -1,6 +1,7 @@
 import type { UiStrings } from '../../shared/i18n/strings';
 import type { PairSpectrumPublication } from '../../shared/session/comparisonSessionController';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
+import { niceRange } from '../../shared/utils/ticks';
 import type { StageView } from '../../shared/protocol/backendProtocol';
 import type { FrequencyScale } from '../draw/canvasDrawers';
 import { hintAttr } from './hintFooter';
@@ -121,10 +122,12 @@ function gainRange(curves: readonly PairCurve[], bins: readonly number[]): { min
     if (!isFinite(min)) {
         return { min: -20, max: 20 };
     }
-    // A flat response would otherwise collapse the axis; keep at least 6 dB around it.
+    // A flat response would otherwise collapse the axis; keep at least 6 dB around it. The ends are widened to round
+    // values (R9), as every automatic range, so every bin on screen is inside them.
     const center = (min + max) / 2;
-    const half = Math.max(3, (max - min) / 2 * 1.1);
-    return { min: center - half, max: center + half };
+    const half = Math.max(3, (max - min) / 2);
+    const round = niceRange(center - half, center + half);
+    return { min: round.low, max: round.high };
 }
 
 export interface PairPaintInput {
