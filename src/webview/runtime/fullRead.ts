@@ -240,8 +240,11 @@ function seeks(points: FullPoints, x: number, direction: -1 | 1): boolean {
  * asked for meanwhile goes next, so a moving pointer never queues a request per pixel; the latest level asked for
  * meanwhile keeps a place of its own after it, so a moving pointer never starves the line's order (R6).
  */
-export function fetchedSource(fetch: (read: StageRead, done: (points: StagePoints | null | undefined) => void) => void, extra: Omit<StageRead, 'x' | 'y' | 'beyond' | 'near' | 'columns' | 'log' | 'level'> = {}): FetchedFullSource {
-    const kept: Array<{ key: string; read: StageRead; points: FullPoints | null }> = [];
+/** How long a failed answer is kept before the read is asked again (laneReads' slice, combineSource). */
+export const FAILED_HOLD_MS = 5000;
+
+export function fetchedSource(fetch: (read: StageRead, done: (points: StagePoints | null | undefined) => void) => void, extra: Omit<StageRead, 'x' | 'y' | 'beyond' | 'near' | 'columns' | 'log' | 'level'> = {}, now: () => number = () => Date.now()): FetchedFullSource {
+    const kept: Array<{ key: string; read: StageRead; points: FullPoints | null; at: number }> = [];
     let busy: string | null = null;
     // Asked for while one is on its way: the pointer's latest read, and the latest level (of the window on screen
     // now). Each keeps its own place, so the line's order is never dropped for a newer read, nor a read for a level;
@@ -250,7 +253,7 @@ export function fetchedSource(fetch: (read: StageRead, done: (points: StagePoint
     let nextLevel: { key: string; read: StageRead } | null = null;
     const waiting = new Set<() => void>();
     const keep = (key: string, read: StageRead, points: FullPoints | null): void => {
-        kept.push({ key, read, points });
+        kept.push({ key, read, points, at: now() });
         if (kept.length > KEPT) kept.shift();
     };
     const ask = (key: string, read: StageRead): void => {
@@ -279,6 +282,9 @@ export function fetchedSource(fetch: (read: StageRead, done: (points: StagePoint
     const answer = (key: string, read: StageRead, ready: () => void, found: (points: FullPoints, asked: StageRead) => boolean): FullAnswer => {
         for (let index = kept.length - 1; index >= 0; index--) {
             const item = kept[index];
+            // A failed answer (null) holds for FAILED_HOLD_MS, then is asked again: a passing failure does not stay (C2),
+            // as the cursor spectrum's slice and the combined pictures do.
+            if (item.points === null && now() - item.at >= FAILED_HOLD_MS) { kept.splice(index, 1); continue; }
             if (item.key === key) return item.points;
             if (item.points && found(item.points, item.read)) return item.points;
         }

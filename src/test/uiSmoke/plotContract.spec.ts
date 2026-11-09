@@ -251,16 +251,22 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
         && window[0] > 0.001 && window[1] < 0.999 && window[1] - window[0] < wider && Math.abs(window[0] + window[1] - 1) < 0.01;
     await page.mouse.move(box.x + box.width * 0.8, middle.y);
     const keyWhole = await picture();
+    const readWhole = await pointRead(plot);
     await page.keyboard.press('=');
     await page.waitForTimeout(80);
     const keyed = await windowOf(), keyedPicture = await picture();
+    // Drawn again by a key under the pointer that has not moved (the plot perhaps made anew): it reads the point under
+    // the pointer on the new drawing, and → steps from it, with no move of the mouse first (A26).
+    const zoomedRead = readWhole && await pointRead(plot, readWhole);
+    await page.keyboard.press('ArrowRight');
+    const steppedZoomed = !!zoomedRead && !!(await pointRead(plot, zoomedRead));
     await page.keyboard.press('-');
     await page.waitForTimeout(80);
     const keyedOut = await windowOf();
     await page.keyboard.press('=');
     await page.keyboard.press('0');
     await page.waitForTimeout(80);
-    if (centred(keyed, 0.75) && keyedPicture !== keyWhole && keyedOut[1] - keyedOut[0] > keyed[1] - keyed[0] + 0.1
+    if (centred(keyed, 0.75) && steppedZoomed && keyedPicture !== keyWhole && keyedOut[1] - keyedOut[0] > keyed[1] - keyed[0] + 0.1
         && (await plot.getAttribute('data-plot-window')) === FULL && await picture() !== keyedPicture) passed.add('zoom keys');
     // Ctrl+wheel over the value axis (the plot's left margin, or the canvas beside it that holds it): no point on the
     // plot to zoom around, so the horizontal axis zooms about its middle, as on every plot.
@@ -408,6 +414,8 @@ test.afterEach(async ({ page }) => {
 });
 
 async function expectContract(page: Page, name: string, plot: Locator): Promise<void> {
+    // Each plot's gestures take their own time (the backend answers each read): a test of several plots has it for each.
+    test.info().setTimeout(test.info().timeout + 20_000);
     await expect(plot).toHaveAttribute('data-plot', '');
     await seePlots(page);
     checkedPlots.add(await plot.evaluate(plotName));

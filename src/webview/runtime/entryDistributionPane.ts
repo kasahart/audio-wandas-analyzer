@@ -206,9 +206,21 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
             const index = compared ? dist.groups.findIndex(item => item.name === compared.group) : -1;
             if (index >= 0) groups.scrollTop = Math.max(0, index * rowHeight - 4);
         }
+        showMarksAgain();
     }
 
     const repaint = (): void => { if (last) paint(last); };
+    /** Where the pointer reads a row now: a redraw makes the rows anew, and the marks and readout follow it there (A26). */
+    let hovered: { x: number; y: number } | null = null;
+    function showMarksAgain(): void {
+        if (!hovered) return;
+        const doc = groups.ownerDocument;
+        const under = typeof doc.elementFromPoint === 'function' ? doc.elementFromPoint(hovered.x, hovered.y) : null;
+        const canvas = under instanceof HTMLCanvasElement && under.hasAttribute('data-dist-canvas') ? under : null;
+        const plot = canvas ? plots.get(canvas) : undefined;
+        if (!canvas || !plot) { marks.hide(); return; }
+        if (marks.show(canvas, plot, hovered.x, hovered.y, readout) === null) marks.hide();
+    }
     /** The dot under (x, y) on a row's canvas (its own CSS pixels), within its radius and a little. */
     function dotAt(canvas: HTMLElement, x: number, y: number): string | null {
         for (const line of (canvas.dataset.dots ?? '').split('\n')) {
@@ -263,6 +275,7 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
         },
         hover(event, hit) {
             const plot = hit ? plots.get(hit.plot) : undefined;
+            hovered = hit && plot ? { x: event.clientX, y: event.clientY } : null;
             if (!hit || !plot) { marks.hide(); return; }
             // Off any bar, dot or tick the readout says where on the value axis the pointer is.
             if (marks.show(hit.plot, plot, event.clientX, event.clientY, readout) === null && scale && last) {
@@ -271,7 +284,7 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
             }
             document.getElementById('hint-footer')?.replaceChildren(`${strings.dsDistDrag} · ${strings.compareHintPlot}`);
         },
-        clearHover() { marks.hide(); },
+        clearHover() { hovered = null; marks.hide(); },
         stepFrom: (plot, delta, arrived) => marks.stepFrom(plot, plots.get(plot) ?? null, delta, arrived),
         tap,
         showBox(plot, from, to) {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { fetchedSource, localCells, localLine, mappedSource, NO_FULL_DATA, STEP_AHEAD, wholeBars, type FullSource, type LineQuery } from '../webview/runtime/fullRead';
+import { FAILED_HOLD_MS, fetchedSource, localCells, localLine, mappedSource, NO_FULL_DATA, STEP_AHEAD, wholeBars, type FullSource, type LineQuery } from '../webview/runtime/fullRead';
 import { declaresFullRead, stageHover, stageStep, type StagePlot, type StageRead } from '../webview/runtime/stagePanes';
 import { HOVER_PICK_RADIUS_PX } from '../webview/runtime/plotHover';
 import { createStageReader } from '../webview/runtime/stageReader';
@@ -379,4 +379,24 @@ test('a source read on another axis gets the pointer\'s place and the screen\'s 
     // 40 px a second is 800 px per file's whole; the value axis is not mapped.
     assert.ok(Math.abs((query.pixels?.[0] ?? NaN) - 800) < 1e-9);
     assert.equal(query.pixels?.[1], 3);
+});
+
+test('a failed full read is held a while, then asked again: a passing failure does not stay for good (C2)', () => {
+    let clock = 0, fail = true;
+    const asked: FullReadRequest[] = [];
+    const source = fetchedSource((read, done) => {
+        asked.push(read);
+        done(fail ? null : { xs: [1, 2, 3], values: [10, 20, 30], start: 1, end: 3, complete: true });
+    }, {}, () => clock);
+    const query: LineQuery = { x0: 2, x1: 2, beyond: 1 };
+    assert.equal(source.line?.(query, () => undefined), undefined, 'asked: pending');
+    assert.equal(source.line?.(query, () => undefined), null, 'the backend failed: nothing to read');
+    clock = FAILED_HOLD_MS - 1;
+    assert.equal(source.line?.(query, () => undefined), null, 'held: not asked again at once');
+    assert.equal(asked.length, 1);
+    fail = false;
+    clock = FAILED_HOLD_MS;
+    assert.equal(source.line?.(query, () => undefined), undefined, 'the hold has passed: asked again');
+    assert.equal(asked.length, 2, 'asked again once the hold has passed');
+    assert.deepEqual(source.line?.(query, () => undefined)?.values, [10, 20, 30]);
 });

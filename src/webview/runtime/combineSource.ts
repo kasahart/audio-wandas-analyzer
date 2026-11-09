@@ -9,6 +9,7 @@
  */
 import type { CompareCombineMessage, ComparePublication } from '../../shared/analysis/entryScan';
 import type { StageDetail, StageView } from '../../shared/protocol/backendProtocol';
+import { FAILED_HOLD_MS } from './fullRead';
 
 /** What a combination gives: the median (of two or more recordings) and the difference. */
 export interface Combined {
@@ -62,7 +63,7 @@ const CACHED = 64;
  * How long a failed answer stands (ms): until then it is shown as failed rather than asked again on every draw; after
  * it, the next draw asks again, so a passing failure does not stay for good. The track view's reads keep theirs as long.
  */
-export const FAILED_HOLD_MS = 5000;
+export { FAILED_HOLD_MS };
 
 const requestKey = (request: CombineRequest): string => JSON.stringify([request.base, request.compare, request.detail ?? null]);
 

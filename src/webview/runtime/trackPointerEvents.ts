@@ -95,7 +95,10 @@ export function attachTrackPointerListeners(tracksWrapper: PointerSurface, doc: 
             }
             const delta = e.code === 'ArrowLeft' ? -1 : e.code === 'ArrowRight' ? 1 : 0;
             if (!delta || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || isTextEntryTarget(e.target)) return false;
-            const plot = over && over.isConnected ? over : plotOf(e.target);
+            // The plot under the pointer, found again where the one it was over was made anew (a redrawn
+            // distribution row), as + / − / 0 find it: the arrows step the plot the pointer is on (A26).
+            const plot = underPointer() ?? plotOf(e.target);
+            if (plot && plot !== over && pointer) over = plot;
             // A key goes to the focused element: a lane with the focus moves its cursor, as its arrows always have.
             if (!plot || (selectors.focusKeepsArrows && plot === e.target) || !handlers.step(plot, delta)) return false;
             e.preventDefault();
