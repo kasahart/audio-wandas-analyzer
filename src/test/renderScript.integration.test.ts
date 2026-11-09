@@ -20,6 +20,7 @@ import { join } from 'node:path';
 import { getRenderScript, getRenderStyles } from './helpers/comparisonScriptLoader';
 import { createWebviewEnv, evalScript } from './helpers/webviewTestEnv';
 import { OWN_COLORS } from '../shared/gui/roleColors';
+import { PLOT_DOUBLE_CLICK_MS } from '../webview/runtime/plotInteraction';
 
 // scripts/build-webview.js が tsc 後に生成。__dirname は dist/test なので 1 階層上が dist/。
 const LOOP_REGION_JS = readFileSync(
@@ -1139,6 +1140,8 @@ test('renderScript: waveform seek invalidates an in-flight spectrum response', a
     env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mouseup', {
         bubbles: true, button: 0, clientX: 600, clientY: 5,
     }));
+    // The click seeks once no double-click follows (plotInteraction arbitrates every plot's click).
+    await new Promise((resolve) => env.dom.window.setTimeout(resolve, PLOT_DOUBLE_CLICK_MS + 40));
 
     env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
         type: 'spectrum-slice-result',
@@ -1899,6 +1902,7 @@ test('spectrogram hit testing maps pointer positions to the whole lane width and
 
     canvas.dispatchEvent(new env.dom.window.MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 400, clientY: 80 }));
     env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mouseup', { bubbles: true, button: 0, clientX: 400, clientY: 80 }));
+    await new Promise((resolve) => env.dom.window.setTimeout(resolve, PLOT_DOUBLE_CLICK_MS + 40));
     await nextAnimationFrame(env.dom);
     env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', {
         data: { type: 'comparison-panel-test-action', actions: [], actionId: 'spectrogram-hit-plot' },
@@ -1911,6 +1915,7 @@ test('spectrogram hit testing maps pointer positions to the whole lane width and
     const bar = colourBarClientPoint(canvas, 0);
     canvas.dispatchEvent(new env.dom.window.MouseEvent('mousedown', { bubbles: true, button: 0, ...bar }));
     env.dom.window.document.dispatchEvent(new env.dom.window.MouseEvent('mouseup', { bubbles: true, button: 0, ...bar }));
+    await new Promise((resolve) => env.dom.window.setTimeout(resolve, PLOT_DOUBLE_CLICK_MS + 40));
     await nextAnimationFrame(env.dom);
     env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', {
         data: { type: 'comparison-panel-test-action', actions: [], actionId: 'spectrogram-hit-colorbar' },

@@ -20,7 +20,7 @@ export interface TrackPointerHandlers {
      * other surface's cursor (R7). Null when these gestures do not answer the plot now (another mode's gestures on the
      * same surface do: the lanes' and the steps' view share it), so the key goes on to them.
      */
-    step(plot: Element, delta: -1 | 0 | 1): boolean | null;
+    step(plot: Element, delta: -1 | 0 | 1, pointer?: { clientX: number; clientY: number } | null): boolean | null;
     /** + / − / 0 over a plot: its horizontal axis zoomed in or out around its middle, or shown whole. False when the plot shows nothing, so the key goes on. */
     zoomKey(plot: Element, action: 'in' | 'out' | 'reset'): boolean;
 }
@@ -112,7 +112,15 @@ export function attachTrackPointerListeners(tracksWrapper: PointerSurface, doc: 
     doc.addEventListener('scroll', function (e) {
         const at = pointer;
         const under = at && typeof doc.elementFromPoint === 'function' ? doc.elementFromPoint(at.x, at.y) : null;
-        if (!at || !under || !tracksWrapper.contains(under)) return;
+        if (!at || !under) return;
+        // Scrolled off this surface altogether: its readout and marks go, as when the pointer leaves it.
+        if (!tracksWrapper.contains(under)) {
+            if (shared.plot && shared.plot === over) shared.plot = null;
+            over = null;
+            pointer = null;
+            handlers.clearHover();
+            return;
+        }
         over = plotOf(under);
         notePointer(over, e);
         handlers.hover({ clientX: at.x, clientY: at.y, target: under, altKey: false, shiftKey: false, ctrlKey: false, metaKey: false, buttons: 0 } as unknown as MouseEvent);
@@ -157,7 +165,8 @@ export function attachTrackPointerListeners(tracksWrapper: PointerSurface, doc: 
             if (!plot || (selectors.focusKeepsArrows && plot === e.target)) return false;
             // The plot's readout steps; one that cannot (nothing read, an end, the edge of what is on screen) keeps the
             // key all the same: it never moves another surface's cursor, a focused lane's time (R7).
-            if (handlers.step(plot, delta) === null) return false;
+            // Where the pointer really is, with it on that plot: the step is read there, its own place kept apart (R7).
+            if (handlers.step(plot, delta, over === plot && pointer ? { clientX: pointer.x, clientY: pointer.y } : null) === null) return false;
             e.preventDefault();
             return true;
         },

@@ -197,12 +197,33 @@ test('every plot\'s gestures are built on plotInteraction.ts: the shared listene
     assert.deepEqual(plotKeys, ['runtime/trackPointerEvents.ts'], 'only the shared listeners step a plot\'s readout with the keys');
 });
 
-test('every plot that acts on a press that stayed put (plotInteraction\'s tap) leaves the second press of a double click alone: a double click resets the zoom only (R13)', () => {
-    // A receiver's tap(plot, event) { … } method or its tap handler, with the body up to the next method.
+test('every plot that acts on a press that stayed put (plotInteraction\'s tap) leaves the second press of a double click alone: a double click resets the zoom only, one arbitration for all (R13)', () => {
+    // Every tap receiver, in each form it is written: a method `tap(plot, event, …) {`, a property `tap: (…) =>`, or a
+    // handler `const tap = (…) =>`, with the body up to the next member.
+    const pattern = /\btap\s*(?:\(\s*\w+\s*,\s*\w+[^)]*\)\s*\{|:\s*\(\s*\w+[^)]*\)\s*=>|=\s*\(\s*\w+[^,)]*,\s*\w+[^)]*\)[^{]*(?:\{|=>))/gu;
+    const found = (text: string): number => [...text.matchAll(pattern)].length;
+    // The forms are each found (the property form among them), and a plain word is not.
+    assert.equal(found('tap(plot, event) {'), 1);
+    assert.equal(found('tap: (_plot, e) => endLaneDrag(e, false, true),'), 1);
+    assert.equal(found('const tap = (canvas: HTMLElement, event: MouseEvent): void => {'), 1);
+    assert.equal(found('a tap on it'), 0);
     const taps = sources(webview).flatMap(file => {
         const text = read(file);
-        return [...text.matchAll(/\btap\s*(?:\(\s*\w+\s*,\s*(\w+)\s*\)\s*\{|=\s*\(\s*\w+[^,)]*,\s*(\w+)[^)]*\)[^{]*\{)/gu)].map(match => ({ file, body: text.slice(match.index, match.index + 600), event: match[1] ?? match[2] }));
+        return [...text.matchAll(pattern)].map(match => {
+            // Its body: up to the first line indented no further than the tap itself.
+            const lineStart = text.lastIndexOf('\n', match.index) + 1;
+            const indent = /^ */u.exec(text.slice(lineStart))![0].length;
+            const rest = text.slice(match.index);
+            const end = rest.search(new RegExp(`\\n {0,${indent}}\\S`, 'u'));
+            return { file, body: end < 0 ? rest : rest.slice(0, end) };
+        });
     });
-    assert.ok(taps.length >= 2, `the tap receivers are found: ${JSON.stringify(taps.map(item => item.file))}`);
-    for (const { file, body, event } of taps) assert.ok(new RegExp(`\\b${event}\\.detail\\s*>\\s*1`).test(body), `${file}: a tap that does not drop a double click's second press`);
+    const receivers = new Set(taps.map(item => item.file));
+    for (const file of ['runtime/comparisonRuntime.ts', 'runtime/trackStageGestures.ts', 'runtime/entryDistributionPane.ts', 'runtime/entrySidePlots.ts']) assert.ok(receivers.has(file), `${file}'s tap is found`);
+    // The arbitration is plotInteraction's alone: the second press of a double click is no tap, and a tap's action waits
+    // out a double click and is taken back by any later press. No receiver waits a click out with a timer of its own.
+    const shared = read('runtime/plotInteraction.ts');
+    assert.match(shared, /done\.drag \|\| event\.detail > 1\) return;/u, 'the second press of a double click reaches no tap');
+    assert.match(shared, /setTimeout\(\(\) => \{ if \(current\(\)\) action\(\); \}, PLOT_DOUBLE_CLICK_MS\)/u, 'a tap acts once no second press came');
+    for (const { file, body } of taps) assert.doesNotMatch(body, /setTimeout|DOUBLE_CLICK|CLICK_WAIT/u, `${file}: a tap that waits out a double click itself`);
 });

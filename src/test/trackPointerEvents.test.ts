@@ -312,3 +312,26 @@ test('a scroll under a still pointer reads the plot now under it, through the sa
     doc.body.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'ArrowRight', key: 'ArrowRight', bubbles: true, cancelable: true }));
     assert.deepEqual(calls, ['step:lane2:1'], 'the arrows step the plot now under the pointer');
 });
+
+test('a scroll that takes the surface from under a still pointer clears its readout, and the arrows step nothing of it (R7)', () => {
+    const { window } = new JSDOM('<!doctype html><body><div id="tracks"><canvas class="track-canvas" id="lane1"></canvas></div><div id="below"></div></body>');
+    const doc = window.document;
+    const calls: string[] = [];
+    attachTrackPointerListeners(doc.getElementById('tracks') as HTMLElement, doc, keyRouterFor(window), {
+        step: (plot, delta) => { calls.push(`step:${plot.id}:${delta}`); return true; },
+        resetZoom: () => undefined, openAxisRange: () => false,
+        hover: e => { calls.push(`hover:${(e.target as Element).id}`); },
+        clearHover: () => { calls.push('clear'); },
+        press: () => undefined, drag: () => undefined, release: () => undefined, zoomWheel: () => undefined, panWheel: () => undefined, zoomKey: () => false,
+    }, { plot: '.track-canvas' });
+    (doc.getElementById('lane1') as HTMLElement).dispatchEvent(new window.MouseEvent('mousemove', { bubbles: true, clientX: 30, clientY: 40 }));
+    // The page scrolls: what is under the pointer now is off the surface.
+    const below = doc.getElementById('below') as HTMLElement;
+    (doc as unknown as { elementFromPoint: (x: number, y: number) => Element | null }).elementFromPoint = () => below;
+    calls.length = 0;
+    doc.dispatchEvent(new window.Event('scroll'));
+    assert.deepEqual(calls, ['clear'], 'the readout of the plot scrolled away goes');
+    calls.length = 0;
+    doc.body.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'ArrowRight', key: 'ArrowRight', bubbles: true, cancelable: true }));
+    assert.deepEqual(calls.filter(call => call.startsWith('step:')), [], 'no plot of it is under the pointer');
+});

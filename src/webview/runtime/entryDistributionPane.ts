@@ -79,8 +79,6 @@ export interface DistributionPane {
 
 /** A row's plot fills its canvas: its names are beside it, its axis on the strip below. */
 const ROW_MARGINS: PlotMargins = { left: 0, top: 0, right: 0, bottom: 0 };
-/** A press that stays put picks its bin once no second click (a double-click, which resets the zoom) follows. */
-const CLICK_WAIT_MS = 260;
 
 export function createDistributionPane(deps: DistributionPaneDeps): DistributionPane {
     const { screen, strings } = deps;
@@ -116,7 +114,6 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
     let last: DistributionInputs | null = null;
     /** An Alt+drag picking a range: where it started, in the rows' own pixels. */
     let pick: { x0: number; left: number } | null = null;
-    let pendingClick: ReturnType<typeof setTimeout> | null = null;
 
     function place(maximized: boolean): void {
         if (maximized) { if (box.parentElement !== area) area.prepend(box); }
@@ -256,22 +253,17 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
 
     // A press that stayed put (no box drawn; the plot gestures' tap): on a dot, its row; elsewhere, the bin under it
     // once no double-click follows.
-    const tap = (canvas: HTMLElement, event: MouseEvent): void => {
-        if (!scale || event.altKey) return;
-        // A double click's second press resets the zoom only: it picks no dot again, and the bin waiting on it is dropped.
-        if (event.detail > 1) { if (pendingClick !== null) { clearTimeout(pendingClick); pendingClick = null; } return; }
+    // The bin is the one under the pointer on the rows as clicked (a zoom before the click is done draws another
+    // there), and is picked once no double click follows (plotInteraction.ts arbitrates every plot's click).
+    const tap = (canvas: HTMLElement, event: MouseEvent): (() => void) | undefined => {
+        if (!scale || event.altKey) return undefined;
         const bounds = canvas.getBoundingClientRect();
         const dot = dotAt(canvas, event.clientX - bounds.left, event.clientY - bounds.top);
-        if (dot) { deps.dot(dot); return; }
-        if (pendingClick !== null) { clearTimeout(pendingClick); pendingClick = null; return; }
+        if (dot) { deps.dot(dot); return undefined; }
         const plot = groups.querySelector<HTMLElement>('[data-entry-dist-plot]');
         const x = event.clientX - (plot ?? canvas).getBoundingClientRect().left;
-        pendingClick = setTimeout(() => {
-            pendingClick = null;
-            const on = scale;
-            const range = on ? pickedRange(on, x, x, false) : null;
-            if (range) deps.pick(range);
-        }, CLICK_WAIT_MS);
+        const range = pickedRange(scale, x, x, false);
+        return range ? () => deps.pick(range) : undefined;
     };
 
     // The plot component's gestures on every row (R13): the value axis' window is shared, the counts stay whole.
@@ -293,11 +285,7 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
             return { fx, fy };
         },
         window: () => zoomWindow,
-        setWindow(_plot, next) {
-            // A double-click (the whole value axis again) takes back the bin its first click was to pick.
-            if (!next && pendingClick !== null) { clearTimeout(pendingClick); pendingClick = null; }
-            setWindow(next);
-        },
+        setWindow(_plot, next) { setWindow(next); },
         hover(event, hit) {
             const plot = hit ? plots.get(hit.plot) : undefined;
             hovered = hit && plot ? { x: event.clientX, y: event.clientY } : null;

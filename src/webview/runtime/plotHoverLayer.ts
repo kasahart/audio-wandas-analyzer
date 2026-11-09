@@ -79,11 +79,16 @@ export function createPlotHoverLayer(document: Document, className = '', parent:
     parent.append(layer);
     const filled = new Set<HTMLElement>();
     /** The point the marks are on: the plot's element, the part of the plot it is read on (its own, or its right-hand axis') and the read. */
-    let last: { plot: HTMLElement; on: StagePlot; read: StageRead } | null = null;
+    let last: { plot: HTMLElement; drawn: StagePlot | null; on: StagePlot; read: StageRead } | null = null;
     /** What the last show was asked, so a read whose full data comes in later is shown again where it was. */
     let asked: { plot: HTMLElement; drawn: StagePlot | null; clientX: number; clientY: number; slot: HTMLElement | null; words?: PlotReadoutWords } | null = null;
-    /** The point an arrow key stepped to, which the show at its place reads (several points may share a pixel). */
-    let stepped: { plot: HTMLElement; clientX: number; clientY: number; left: number; top: number; drawnOn: StagePlot | null; found: { on: StagePlot; read: StageRead } } | null = null;
+    /**
+     * The point an arrow key stepped to (several points may share a pixel), apart from the pointer: `pointer` is where
+     * the pointer really is (null: a plot given the focus, read at the step's place), `place` where the point is drawn,
+     * `drawnOn` the drawing it was read on and `left` / `top` where the plot was on screen. A show at the pointer reads
+     * that point, read again on every drawing anew; once it is let go, the pointer's place is read, never the step's.
+     */
+    let stepped: { plot: HTMLElement; pointer: PlotPlace | null; place: PlotPlace; left: number; top: number; drawnOn: StagePlot | null; found: { on: StagePlot; read: StageRead } } | null = null;
     /** Keys pressed while the read at the pointer waited for its points: taken once they are in, unless the pointer moved. */
     let queued: { plot: HTMLElement; clientX: number; clientY: number; delta: number; arrived?: (at: PlotPlace) => void } | null = null;
     /** A step waiting for its points: taken once they are in, unless the pointer moved on. */
@@ -126,13 +131,18 @@ export function createPlotHoverLayer(document: Document, className = '', parent:
      * the pointer's place is read instead, never a point off the plot.
      */
     const rebased = (at: { drawnOn: StagePlot | null; found: { on: StagePlot; read: StageRead } }, drawn: StagePlot | null, ready: () => void): { on: StagePlot; read: StageRead } | null => {
-        if (!drawn || at.drawnOn === drawn) return at.found;
+        // Drawn anew with nothing to read on it (a step computing, a lane with no picture): the point is kept and
+        // reads nothing until a drawing with its data is in (R7), never its old value or line.
+        if (!drawn) return { on: at.found.on, read: { ...at.found.read, pending: true } };
+        if (at.drawnOn === drawn) return at.found;
         const onRight = at.drawnOn?.secondary === at.found.on;
         const on = onRight ? drawn.secondary : drawn;
         const read = on ? stageReadAgain(on, at.found.read, ready) : null;
-        // Its points on the new drawing on their way: the step is kept, and read once they are in (no number meanwhile).
+        // Its points on the new drawing on their way, or their read failed: the step is kept, still of the old drawing
+        // (no step is taken from it meanwhile), and read once they are in (no number meanwhile, R7).
         if (on && read === undefined) return { on, read: { ...at.found.read, pending: true } };
-        if (!on || read === null || read === undefined) return null;
+        if (on && read?.failed) return { on, read };
+        if (!on || !read) return null;
         at.drawnOn = drawn;
         at.found = { on, read };
         return at.found;
@@ -140,16 +150,40 @@ export function createPlotHoverLayer(document: Document, className = '', parent:
     /** The place on screen of a point read on `plot`, kept with the point so the show there reads that very point. */
     const carry = (plot: HTMLElement, drawn: StagePlot | null, on: StagePlot, read: StageRead): PlotPlace => {
         const rect = plot.getBoundingClientRect();
-        const at = { clientX: rect.left + read.x, clientY: rect.top + read.y };
-        stepped = { plot, ...at, left: rect.left, top: rect.top, drawnOn: drawn, found: { on, read } };
-        return at;
+        const place = { clientX: rect.left + read.x, clientY: rect.top + read.y };
+        // The pointer stays where it was: the one the last step kept, or the place last shown.
+        const pointer = stepped && samePlot(stepped.plot, plot) ? stepped.pointer : asked && samePlot(asked.plot, plot) ? { clientX: asked.clientX, clientY: asked.clientY } : null;
+        stepped = { plot, pointer, place, left: rect.left, top: rect.top, drawnOn: drawn, found: { on, read } };
+        return place;
     };
+    /** Where the step on `plot` is shown: at the pointer, or at the step's place with no pointer on the plot. */
+    const atStep = (clientX: number, clientY: number): boolean => !!stepped && (
+        (stepped.pointer !== null && stepped.pointer.clientX === clientX && stepped.pointer.clientY === clientY)
+        || (stepped.place.clientX === clientX && stepped.place.clientY === clientY));
     /** A step's place shown: through the owner's hover, as any step is, so its kept place is this one and a redraw keeps it. */
     const deliver = (plot: HTMLElement, at: PlotPlace, arrived?: (at: PlotPlace) => void): void => {
         const shown = asked;
         if (arrived) arrived(at);
-        else if (shown && samePlot(shown.plot, plot)) layerApi.show(plot, shown.drawn, at.clientX, at.clientY, shown.slot, shown.words);
+        else if (shown && samePlot(shown.plot, plot)) layerApi.show(plot, shown.drawn, shown.clientX, shown.clientY, shown.slot, shown.words);
     };
+    /** Shown again as last asked (the pointer still): a read come in, or a step let go. */
+    const showAgain = (): void => {
+        const shown = asked;
+        if (shown && !layer.hidden) layerApi.show(shown.plot, shown.drawn, shown.clientX, shown.clientY, shown.slot, shown.words);
+    };
+    // A scroll that moves the plot from under a still pointer lets the step go: the place now under the pointer is read
+    // (R7). A resize or a redraw keeps it (no scroll): the point stepped to is read on.
+    document.addEventListener('scroll', () => {
+        const step = stepped;
+        if (!step) return;
+        const rect = step.plot.getBoundingClientRect();
+        if (rect.left === step.left && rect.top === step.top) return;
+        stepped = null;
+        queued = null;
+        waitingTake = null;
+        stepping++;
+        showAgain();
+    }, true);
     /**
      * `delta` steps (its sign the way, its size how many) from `from` on `plot`, one full-resolution point each (R7):
      * the place of the point reached, null when not one could be taken (the data's end, the edge of the window). Where
@@ -157,6 +191,7 @@ export function createPlotHoverLayer(document: Document, className = '', parent:
      * marks are still on the point reached.
      */
     const take = (plot: HTMLElement, drawn: StagePlot | null, from: { on: StagePlot; read: StageRead }, delta: number, arrived?: (at: PlotPlace) => void): PlotPlace | null => {
+        // `drawn`: the drawing `from` was read on, so the point reached is kept with it and read again on the next.
         const sign: -1 | 1 = delta < 0 ? -1 : 1;
         const token = ++stepping;
         waitingTake = null;
@@ -168,7 +203,7 @@ export function createPlotHoverLayer(document: Document, className = '', parent:
             if (!wait || wait.token !== token || token !== stepping || !now || !samePlot(now.plot, plot) || !samePoint(now.read, wait.at) || layer.hidden) return;
             waitingTake = null;
             if (!wait.left) return;
-            const place = take(now.plot, asked?.drawn ?? drawn, { on: now.on, read: now.read }, wait.left, arrived);
+            const place = take(now.plot, now.drawn, { on: now.on, read: now.read }, wait.left, arrived);
             if (place) deliver(now.plot, place, arrived);
         };
         while (left > 0) {
@@ -200,24 +235,30 @@ export function createPlotHoverLayer(document: Document, className = '', parent:
             // there reads that very point on the plot drawn anew (stageReadAgain), never the neighbour the pointer
             // would pick at a value held at the edge (A46), and one the new drawing does not show is let go.
             // A plot moved under a still pointer (a scroll) has another point under it: the step is let go.
-            const here = stepped && samePlot(stepped.plot, plot) && stepped.clientX === clientX && stepped.clientY === clientY && stepped.left === rect.left && stepped.top === rect.top ? stepped : null;
+            const kept = stepped && samePlot(stepped.plot, plot) && atStep(clientX, clientY) ? stepped : null;
+            // Moved on screen with no scroll told (a layout shift): another point is under the pointer, let go too.
+            const moved = !!kept && (kept.left !== rect.left || kept.top !== rect.top);
+            const here = kept && !moved ? kept : null;
             if (!here) stepped = null;
             else here.plot = plot;
             if (queued && (!samePlot(queued.plot, plot) || queued.clientX !== clientX || queued.clientY !== clientY)) queued = null;
             const step = here ? rebased(here, drawn, again) : null;
             if (here && !step) stepped = null;
-            const found = step ?? (drawn ? readAt(drawn, x, y, again) : null);
+            // A step the new drawing no longer shows is let go: the true pointer's place is read, never the step's.
+            const gone = kept && (moved || !step) ? kept.pointer : null;
+            const looks = gone ? { x: gone.clientX - rect.left, y: gone.clientY - rect.top } : { x, y };
+            const found = step ?? (drawn ? readAt(drawn, looks.x, looks.y, again) : null);
             const hit = found?.read ?? null;
             // The plot read before, another one: it reads nothing now (its noted point would be another plot's).
             if (noted && noted !== plot) note(noted, null);
             noted = plot;
-            last = found ? { plot, ...found } : null;
+            last = found ? { plot, drawn, ...found } : null;
             note(plot, hit);
             for (const other of filled) if (other !== slot) hidePlotReadout(other);
             filled.clear();
             if (waits(hit)) {
                 // No number until the full data is in (R7): the cursor at the pointer, the readout's row kept empty.
-                paintHoverMarks(context, frame, x, null, '');
+                paintHoverMarks(context, frame, looks.x, null, '');
                 layer.hidden = false;
                 if (slot) { filled.add(slot); showPlotReadout(slot, '', '', ''); }
                 words?.read?.(null);
@@ -229,12 +270,12 @@ export function createPlotHoverLayer(document: Document, className = '', parent:
             const guide = line && drawn?.secondary
                 ? (found?.on === drawn ? { ...frame, width: line.x - frame.left } : { ...frame, left: line.x, width: frame.left + frame.width - line.x })
                 : frame;
-            paintHoverMarks(context, guide, hit ? hit.x : x, line ? line.y : null, line?.layer.color ?? '', line && found ? (ctx, width) => strokeStageLine(ctx as CanvasRenderingContext2D, found.on, line.layer, width) : undefined);
+            paintHoverMarks(context, guide, hit ? hit.x : looks.x, line ? line.y : null, line?.layer.color ?? '', line && found ? (ctx, width) => strokeStageLine(ctx as CanvasRenderingContext2D, found.on, line.layer, width) : undefined);
             layer.hidden = false;
             // Only this plot's row reads the pointer: another plot's readout left from before is emptied.
             if (slot) {
                 filled.add(slot);
-                const text: { name: string; values: string; color?: string } | null = hit ? (words?.of ? words.of(hit) : { name: hit.name, values: hit.values, color: line?.layer.color ?? '' }) : words?.none?.(x, y) ?? null;
+                const text: { name: string; values: string; color?: string } | null = hit ? (words?.of ? words.of(hit) : { name: hit.name, values: hit.values, color: line?.layer.color ?? '' }) : words?.none?.(looks.x, looks.y) ?? null;
                 showPlotReadout(slot, text?.name ?? '', text?.values ?? '', text?.color ?? '');
             }
             words?.read?.(hit);
@@ -242,7 +283,7 @@ export function createPlotHoverLayer(document: Document, className = '', parent:
             const keys = queued;
             if (keys && found && hit) {
                 queued = null;
-                const at = take(plot, drawn, found, keys.delta, keys.arrived);
+                const at = take(plot, step ? here?.drawnOn ?? drawn : drawn, found, keys.delta, keys.arrived);
                 if (at) deliver(plot, at, keys.arrived);
             }
             return hit ? hit.x : null;
@@ -264,21 +305,32 @@ export function createPlotHoverLayer(document: Document, className = '', parent:
             noted = null;
         },
         stepFrom(plot, drawn, delta, arrived) {
+            const shown = !layer.hidden;
+            const shownHere = shown && samePlot(asked?.plot, plot);
+            /** The key waits with the read: taken once its points are in (A42), keys pressed meanwhile adding up. */
+            const queue = (read: StageRead): PlotPlace => {
+                const place = asked ? { clientX: asked.clientX, clientY: asked.clientY } : { clientX: plot.getBoundingClientRect().left + read.x, clientY: plot.getBoundingClientRect().top + read.y };
+                queued = queued && samePlot(queued.plot, plot) && queued.clientX === place.clientX && queued.clientY === place.clientY
+                    ? { ...queued, delta: queued.delta + delta, ...(arrived ? { arrived } : {}) }
+                    : { plot, ...place, delta, ...(arrived ? { arrived } : {}) };
+                return place;
+            };
+            // The read shown waits for its points (on the plot drawn anew too, or an empty drawing), or failed: never a
+            // step from the drawing before it (R7).
+            const lastHere = shown && last && samePlot(last.plot, plot) ? last : null;
+            if (lastHere && waits(lastHere.read)) return queue(lastHere.read);
             if (!drawn) return null;
-            const shownHere = !layer.hidden && samePlot(asked?.plot, plot);
-            // A step carried but not yet shown (an owner that shows on its next frame, the lanes) is stepped on from.
-            const carried = stepped && samePlot(stepped.plot, plot) && !layer.hidden ? { plot, ...stepped.found } : null;
-            const from = carried ?? (last && samePlot(last.plot, plot) && !layer.hidden ? last : null);
+            // The point to step from, on the drawing the owner has now: a step carried but not yet shown (an owner that
+            // shows on its next frame, the lanes), else the point shown; read again first where it was read on another.
+            const base = shown && stepped && samePlot(stepped.plot, plot) ? stepped : lastHere ? { drawnOn: lastHere.drawn, found: { on: lastHere.on, read: lastHere.read } } : null;
+            let from: { on: StagePlot; read: StageRead } | null = base ? base.found : null;
+            if (base && base.drawnOn !== drawn) {
+                const again = rebased(base, drawn, showAgain);
+                if (again && waits(again.read)) return queue(again.read);
+                if (!again && base === stepped) stepped = null;
+                from = again;
+            }
             if (from) {
-                if (waits(from.read)) {
-                    // The read under the pointer waits for its points: the key is taken once they are in (A42), keys
-                    // pressed meanwhile adding up; meanwhile the read stays where it is.
-                    const place = asked ? { clientX: asked.clientX, clientY: asked.clientY } : { clientX: plot.getBoundingClientRect().left + from.read.x, clientY: plot.getBoundingClientRect().top + from.read.y };
-                    queued = queued && samePlot(queued.plot, plot) && queued.clientX === place.clientX && queued.clientY === place.clientY
-                        ? { ...queued, delta: queued.delta + delta, ...(arrived ? { arrived } : {}) }
-                        : { plot, ...place, delta, ...(arrived ? { arrived } : {}) };
-                    return place;
-                }
                 if (delta === 0) return carry(plot, drawn, from.on, from.read);
                 // A step already waiting for its next points from this point: this key adds to it (R7: as many points as keys).
                 const wait = waitingTake;

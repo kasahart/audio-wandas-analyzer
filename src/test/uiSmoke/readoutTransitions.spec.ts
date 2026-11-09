@@ -152,6 +152,47 @@ const steppedThenZoomed = (selector: string): Row['run'] => async page => {
     await expect.poll(async () => Math.abs(await clock(page) - (zoomed.at ?? NaN))).toBeLessThan(0.006);
 };
 
+/**
+ * A gate on the host's answers to the readout's reads (read-lane-…) of the given types: passed, held until let go
+ * (the backend slow), or turned into the host's error (a passing backend failure), as the page's host stand-in posts them.
+ */
+async function gateReads(page: Page): Promise<void> {
+    await page.evaluate(() => {
+        type Gate = { mode: 'pass' | 'hold' | 'fail'; types: string[]; held: unknown[][]; release(): void };
+        const post = window.postMessage.bind(window) as (...args: unknown[]) => void;
+        const gate: Gate = { mode: 'pass', types: [], held: [], release() { gate.mode = 'pass'; for (const args of gate.held.splice(0)) post(...args); } };
+        (window as unknown as { __readGate: Gate }).__readGate = gate;
+        window.postMessage = ((...args: unknown[]) => {
+            const message = args[0] as { type?: string; requestId?: string } | null;
+            const ours = gate.mode !== 'pass' && !!message && String(message.requestId).startsWith('read-lane-') && gate.types.includes(String(message.type));
+            if (ours && gate.mode === 'hold') { gate.held.push(args); return; }
+            post(ours ? { ...message, type: String(message!.type).replace(/-result$/u, '-error'), error: 'test: failed for a while' } : args[0], ...args.slice(1));
+        }) as typeof window.postMessage;
+    });
+}
+const setGate = (page: Page, mode: 'pass' | 'hold' | 'fail', types: string[] = []): Promise<void> => page.evaluate(({ mode, types }) => {
+    const gate = (window as unknown as { __readGate: { mode: string; types: string[]; release(): void } }).__readGate;
+    if (mode === 'pass') gate.release();
+    else { gate.mode = mode; gate.types = types; }
+}, { mode, types });
+const testAction = (page: Page, action: string, payload: Record<string, unknown>): Promise<void> => page.evaluate(({ action, payload }) => {
+    window.dispatchEvent(new MessageEvent('message', { data: { type: 'comparison-panel-test-action', actionId: `t-${action}-${Date.now()}`, actions: [{ action, payload }] } }));
+}, { action, payload });
+const readValue = (plot: Locator): Promise<string> => plot.evaluate(canvas => canvas.getAttribute('data-plot-read-value') ?? '');
+/** The cursor spectrum read at `across`, stepped once with →: the frequency stepped to, read from the full data. */
+async function spectrumStepped(page: Page, across = 0.3): Promise<{ spectrum: Locator; stepped: Noted; pointer: { x: number; y: number }; under: Noted }> {
+    await page.setViewportSize({ width: 1200, height: 900 });
+    await page.setContent(buildExtensionHostPathUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
+    await gateReads(page);
+    const spectrum = page.locator('#spectrum-overlay-canvas');
+    await expect.poll(() => spectrum.getAttribute('data-plot-axes')).not.toBe('');
+    const pointer = await hoverAt(page, spectrum, across, 0.4);
+    const under = await readFull(spectrum);
+    await page.keyboard.press('ArrowRight');
+    await expect.poll(async () => (await noted(spectrum)).at).not.toBe(under.at);
+    return { spectrum, stepped: await readFull(spectrum), pointer, under };
+}
+
 const ROWS: Row[] = [
     {
         chart: 'track waveform lane', event: 'keys pressed while the next points are on their way add up',
@@ -364,6 +405,224 @@ const ROWS: Row[] = [
             expect((await readFull(again)).at, 'the bin stepped to, on the row drawn anew').toBe(stepped.at);
         },
     },
+    {
+        chart: 'cursor spectrum', event: 'a redraw whose re-read is pending: no old value meanwhile, and a key then steps from the new data once in',
+        async run(page) {
+            const { spectrum, stepped } = await spectrumStepped(page);
+            // The time cursor moves (the pointer still): the spectrum is drawn anew, its slice's points on their way.
+            await setGate(page, 'hold', ['spectrum-slice-result']);
+            await testAction(page, 'set-cursor', { cursorNorm: 0.71 });
+            await expect.poll(async () => (await noted(spectrum)).read, { message: 'the point stepped to waits for the new drawing\'s data' }).toBe('pending');
+            await expect(page.locator('#spectrum-freq-readout')).not.toContainText(/\d/u);
+            // A key meanwhile: no step from the old drawing, no number.
+            await page.keyboard.press('ArrowRight');
+            await page.waitForTimeout(250);
+            expect((await noted(spectrum)).read, 'still waiting, never a step from the old data').toBe('pending');
+            await expect(page.locator('#spectrum-freq-readout')).not.toContainText(/\d/u);
+            await setGate(page, 'pass');
+            const after = await readFull(spectrum);
+            const [next] = await pointsAfter(spectrum, stepped.at!, 1);
+            expect(after.at, 'one step from the point stepped to, read again on the new data').toBe(next);
+            expect(await readValue(spectrum), 'a value of the new slice').not.toBe('');
+        },
+    },
+    {
+        chart: 'cursor spectrum', event: 'a re-read on a new drawing failed: the point stepped to is kept, read once the backend answers',
+        async run(page) {
+            const { spectrum, stepped, under } = await spectrumStepped(page);
+            await setGate(page, 'fail', ['spectrum-slice-result']);
+            await testAction(page, 'set-cursor', { cursorNorm: 0.69 });
+            await expect.poll(async () => (await noted(spectrum)).read).toBe('failed');
+            await expect(page.locator('#spectrum-freq-readout')).not.toContainText(/\d/u);
+            await setGate(page, 'pass');
+            const again = await readFull(spectrum, 12_000);
+            expect(again.at, 'the point stepped to').toBe(stepped.at);
+            expect(again.at, 'not the one under the pointer').not.toBe(under.at);
+            await page.evaluate(() => {
+                const audit = window.__orderAudit ?? [];
+                audit.splice(0, audit.length, ...audit.filter(entry => !entry.startsWith('#spectrum-overlay-canvas')));
+            });
+        },
+    },
+    {
+        chart: 'cursor spectrum', event: '+ takes the point stepped to off the window: the true pointer is read, never the step\'s place',
+        async run(page) {
+            const { spectrum, pointer } = await spectrumStepped(page, 0.04);
+            const box = (await spectrum.boundingBox())!;
+            const frame = (await noted(spectrum)).frame;
+            const at = pointer.x - box.x;
+            // Steps on until the point stepped to is well right of the pointer (low on the log axis, where bins are wide).
+            for (let key = 0; key < 400 && ((await noted(spectrum)).x ?? 0) < at + 45; key++) await page.keyboard.press('ArrowRight');
+            const far = await readFull(spectrum);
+            expect((far.x ?? 0) - at, 'stepped well away from the pointer').toBeGreaterThan(45);
+            expect((far.x ?? 0) - frame[0], 'and left of the middle quarter').toBeLessThan(frame[2] * 0.37);
+            // + twice, about the middle: the point stepped to is off the window, the pointer still on the plot.
+            await page.keyboard.press('=');
+            await page.waitForTimeout(150);
+            await page.keyboard.press('=');
+            await expect.poll(() => spectrum.getAttribute('data-plot-window')).not.toMatch(/^0\.000 1\.000/u);
+            await page.waitForTimeout(300);
+            const read = await readFull(spectrum);
+            expect(read.at, 'the point off the window is not read').not.toBe(far.at);
+            expect(Math.abs((read.x ?? NaN) - at), 'read at the true pointer').toBeLessThan(15);
+        },
+    },
+    {
+        chart: 'track waveform lane', event: 'a seek whose read failed keeps the keys queued with it: three keys, three points once the backend answers',
+        async run(page) {
+            await page.setViewportSize({ width: 1200, height: 900 });
+            await page.setContent(buildExtensionHostPathUiSmokeHtml(500), { waitUntil: 'domcontentloaded' });
+            await gateReads(page);
+            const lane = page.locator('.track-canvas:not(.track-spec-canvas)').first();
+            await expect.poll(() => lane.getAttribute('data-plot')).toBe('');
+            await hoverAt(page, lane, 0.3);
+            const from = await readFull(lane);
+            const next = await pointsAfter(lane, from.at!, 3);
+            expect(next.length).toBe(3);
+            await setGate(page, 'fail', ['waveform-range-result']);
+            await page.keyboard.press('ArrowRight');
+            await page.keyboard.press('ArrowRight');
+            await page.keyboard.press('ArrowRight');
+            await page.waitForTimeout(1200);
+            await setGate(page, 'pass');
+            await expect.poll(async () => (await noted(lane)).at, { timeout: 15_000, message: 'three keys, three points' }).toBe(next[2]);
+        },
+    },
+    {
+        chart: 'track waveform lane', event: 'a double click resets the zoom only: the loop and the time cursor stay',
+        async run(page) {
+            await page.setViewportSize({ width: 1200, height: 900 });
+            await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
+            const lane = page.locator('.track-canvas:not(.track-spec-canvas)').first();
+            await expect.poll(() => lane.getAttribute('data-plot')).toBe('');
+            await testAction(page, 'set-loop-region', { start: 0.25, end: 0.75 });
+            await expect(page.locator('#loop-time-display')).toBeVisible();
+            const loop = await page.locator('#loop-time-display').textContent();
+            await hoverAt(page, lane, 0.5);
+            await page.keyboard.press('=');
+            await expect.poll(() => lane.getAttribute('data-plot-window')).not.toBe('0.000 1.000 0.000 1.000');
+            const cursor = (): Promise<number> => page.evaluate(() => {
+                window.dispatchEvent(new MessageEvent('message', { data: { type: 'comparison-panel-test-action', actionId: `cursor-${Date.now()}`, actions: [] } }));
+                const messages = (window as unknown as { __uiSmokePostedMessages: Array<{ type: string; renderedUi?: { cursorNorm?: number } }> }).__uiSmokePostedMessages;
+                return messages.filter(message => message.type === 'comparison-panel-test-snapshot').at(-1)?.renderedUi?.cursorNorm ?? NaN;
+            });
+            const before = await cursor();
+            const box = (await lane.boundingBox())!;
+            await page.mouse.dblclick(box.x + box.width * 0.85, box.y + box.height / 2);
+            await expect.poll(() => lane.getAttribute('data-plot-window')).toBe('0.000 1.000 0.000 1.000');
+            await page.waitForTimeout(500);
+            expect(await cursor(), 'the time cursor stays').toBe(before);
+            await expect(page.locator('#loop-time-display'), 'the loop stays').toHaveText(loop ?? '');
+            // A click alone moves the cursor and clears the loop, once no second press follows.
+            await page.mouse.click(box.x + box.width * 0.85, box.y + box.height / 2);
+            await expect.poll(() => cursor()).not.toBe(before);
+            await expect(page.locator('#loop-time-display')).toBeHidden();
+        },
+    },
+    {
+        chart: 'cursor spectrum', event: 'a box drag carried over the pair plots: no hover on that surface while it drags',
+        async run(page) {
+            await page.setViewportSize({ width: 1200, height: 900 });
+            await page.setContent(buildExtensionHostPathUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
+            await page.locator('[data-action="set-pair-reference"]').first().click();
+            const gain = page.locator('[data-pair-lane="gain"]');
+            await expect.poll(() => gain.getAttribute('data-plot-axes')).not.toBe('');
+            const spectrum = page.locator('#spectrum-overlay-canvas');
+            await expect.poll(() => spectrum.getAttribute('data-plot-axes')).not.toBe('');
+            const from = await hoverAt(page, spectrum, 0.3, 0.4);
+            await page.mouse.down();
+            await page.mouse.move(from.x + 40, from.y + 20, { steps: 4 });
+            const gainBox = (await gain.boundingBox())!;
+            await page.mouse.move(gainBox.x + gainBox.width * 0.5, gainBox.y + gainBox.height * 0.5, { steps: 6 });
+            await page.waitForTimeout(200);
+            expect((await noted(gain)).read, 'the pair plot reads nothing while the drag is under way').not.toBe('full');
+            expect((await noted(gain)).read).not.toBe('pending');
+            await page.mouse.up();
+            await page.mouse.move(gainBox.x + gainBox.width * 0.52, gainBox.y + gainBox.height * 0.5);
+            await readFull(gain);
+        },
+    },
+    {
+        chart: 'steps overlay (a trigger\'s events, over its lanes)', event: 'a scroll that takes the surface from under a still pointer clears its readout', backend: true,
+        async run(page) {
+            await page.setViewportSize({ width: 1280, height: 620 });
+            await openTrigger(page, scanned!, 2);
+            const overlay = page.locator('[data-stage-canvas="overlay"]');
+            await expect.poll(() => overlay.getAttribute('data-plot')).toBe('');
+            const wrapper = page.locator('#tracks-wrapper');
+            const pointer = await hoverAt(page, overlay, 0.5, 0.85);
+            await readFull(overlay);
+            const slot = slotOf(overlay);
+            await expect(slot).toContainText(/\d/u);
+            // Scrolled until the steps' view is off the pointer: a lane (another surface) or the page under it.
+            const surface = page.locator('.track-stage');
+            const off = async (): Promise<boolean> => page.evaluate(({ x, y }) => { const under = document.elementFromPoint(x, y); return !!under && !document.querySelector('.track-stage')?.contains(under); }, pointer);
+            for (let turn = 0; turn < 12 && !await off(); turn++) { await wrapper.evaluate(element => { element.scrollTop += 80; }); await page.waitForTimeout(80); }
+            expect(await off(), 'the steps\' view scrolled from under the pointer').toBe(true);
+            expect(await surface.count()).toBe(1);
+            await expect.poll(async () => (await noted(overlay)).read, { message: 'its point is no longer read' }).not.toBe('full');
+        },
+    },
+    {
+        chart: 'entry distribution', event: 'a click, then + before the double-click wait is over: the bin clicked on is picked', backend: true,
+        async run(page) {
+            await page.setViewportSize({ width: 1280, height: 900 });
+            await openEntry(page, scanned!, { language: 'en' });
+            const row = page.locator('[data-dist-canvas]').first();
+            await expect.poll(() => row.getAttribute('data-plot-axes')).not.toBe(null);
+            const snapshot = (): Promise<{ low: number; high: number; range: { low: number; high: number } | null }> => page.evaluate(() => {
+                window.dispatchEvent(new MessageEvent('message', { data: { type: 'comparison-panel-test-action', actionId: 'entry-snapshot', actions: [] } }));
+                const messages = (window as unknown as { __uiSmokePostedMessages: Array<{ type: string; renderedUi: { entry: { dist: { low: number; high: number; range: { low: number; high: number } | null } } } }> }).__uiSmokePostedMessages;
+                return messages.filter(message => message.type === 'comparison-panel-test-snapshot').at(-1)!.renderedUi.entry.dist;
+            });
+            const { low, high } = await snapshot();
+            const box = (await row.boundingBox())!;
+            const frame = (await noted(row)).frame;
+            const left = frame.length === 4 && frame.every(Number.isFinite) ? frame[0] : 0, width = frame.length === 4 && frame.every(Number.isFinite) ? frame[2] : box.width;
+            // Near the top edge of the row, where no dot is: the bin of the value at x 0.2 of the axis.
+            const x = box.x + left + width * 0.2, y = box.y + 2;
+            const value = low + 0.2 * (high - low);
+            await page.mouse.click(x, y);
+            await page.keyboard.press('=');
+            await page.waitForTimeout(700);
+            const picked = (await snapshot()).range;
+            expect(picked, 'a bin is picked').not.toBeNull();
+            expect(picked!.low <= value + 1e-9 && value - 1e-9 <= picked!.high, `the bin clicked on (${value}) is picked, not one the zoom put there: ${JSON.stringify(picked)}`).toBe(true);
+        },
+    },
+    {
+        chart: 'steps overlay (a trigger\'s events, over its lanes)', event: 'an event-line click, then a drag before it is decided: the drag takes its place', backend: true,
+        async run(page) {
+            await page.setViewportSize({ width: 1280, height: 1100 });
+            await openTrigger(page, scanned!);
+            const overlay = page.locator('[data-stage-canvas="overlay"]');
+            await expect.poll(() => overlay.getAttribute('data-plot')).toBe('');
+            await hoverAt(page, overlay, 0.5);
+            await readFull(overlay);
+            const box = (await overlay.boundingBox())!;
+            const on = await overlay.evaluate(canvas => { const read = (canvas as HTMLElement & { __plotRead?: { x: number; y: number } | null }).__plotRead; return read ? { x: read.x, y: read.y } : null; });
+            expect(on, 'an event\'s line under the pointer').not.toBeNull();
+            const left = page.locator('[data-action="stage-event-toggle"][data-out="true"]');
+            const leftOut = await left.count();
+            const whole = (window: string | null): boolean => !window || window.startsWith('0.000 1.000');
+            // The click on the line, then at once a drag into a box elsewhere on the plot.
+            await page.mouse.click(box.x + on!.x, box.y + on!.y);
+            await page.mouse.move(box.x + box.width * 0.2, box.y + box.height * 0.3);
+            await page.mouse.down();
+            await page.mouse.move(box.x + box.width * 0.45, box.y + box.height * 0.8, { steps: 5 });
+            await page.mouse.up();
+            await expect.poll(async () => whole(await overlay.getAttribute('data-plot-window'))).toBe(false);
+            await page.waitForTimeout(800);
+            expect(await left.count(), 'no event left out: the drag took the click\'s place').toBe(leftOut);
+            // A click alone on the line leaves its event out, once no second press follows.
+            await page.keyboard.press('0');
+            await expect.poll(async () => whole(await overlay.getAttribute('data-plot-window'))).toBe(true);
+            await hoverAt(page, overlay, 0.5);
+            const again = await overlay.evaluate(canvas => { const read = (canvas as HTMLElement & { __plotRead?: { x: number; y: number } | null }).__plotRead; return read ? { x: read.x, y: read.y } : null; });
+            await page.mouse.click(box.x + again!.x, box.y + again!.y);
+            await expect.poll(() => left.count(), { message: 'the click alone leaves it out' }).toBe(leftOut + 1);
+        },
+    },
 ];
 
 for (const row of ROWS) {
@@ -378,5 +637,5 @@ test('the browser table holds a row for each chart the readout runs on and each 
     const charts = new Set(ROWS.map(row => row.chart.split(' ')[0] + ' ' + row.chart.split(' ')[1]));
     for (const chart of ['track waveform', 'track spectrogram', 'cursor spectrum', 'pair gain', 'steps overlay', 'trigger events', 'entry distribution']) expect(charts.has(chart), chart).toBe(true);
     const events = ROWS.map(row => row.event).join(' | ');
-    for (const path of ['scroll', 'Tab', 'then +', 'pending', 'failed', '(a redraw)', 'add up']) expect(events, path).toContain(path);
+    for (const path of ['scroll', 'Tab', 'then +', 'pending', 'failed', '(a redraw)', 'add up', 'off the window', 'seek', 'double click', 'drag', 'the surface from under', 'double-click wait', 'event-line click']) expect(events, path).toContain(path);
 });

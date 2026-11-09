@@ -224,3 +224,125 @@ test('a point stepped to above the level axis stays read when the plot is drawn 
     layer.show(plot, again, 60, 60, slot);
     assert.equal(layer.reading()?.at, 1);
 });
+
+/** A line over 0..9 whose full data is held, on its way (`pending`) or failed (`failed`, its readers told once it recovers). */
+function gatedLine(values: number[]) {
+    const xs = values.map((_, i) => i);
+    const whole = localLine(xs, values);
+    const waiting: Array<() => void> = [];
+    const gate = { mode: 'held' as 'held' | 'pending' | 'failed' };
+    const full: FullSource = {
+        held: 'fetched',
+        line(query, ready) {
+            if (gate.mode === 'pending') { waiting.push(ready); return undefined; }
+            if (gate.mode === 'failed') { waiting.push(ready); return null; }
+            return whole.line?.(query, ready);
+        },
+    };
+    const set = (mode: typeof gate.mode): void => { gate.mode = mode; if (mode === 'held') for (const ready of waiting.splice(0)) ready(); };
+    const draw = (): StagePlot => ({ ...plotWith([{ ...line('a', '#f00', values), full }]), xOf: (x: number) => (x - 50) / 10, levelOf: (y: number) => (110 - y) / 10 });
+    return { draw, set, waiting };
+}
+
+test('the point stepped to is read again on every drawing: an empty one reads nothing (never its old value or line), the next with data reads it again (R7)', () => {
+    const { plot, slot, layer, segments } = setup();
+    const { draw } = gatedLine([0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5]);
+    const first = draw();
+    // The pointer stays at (80, 75); the owner shows a step there, at the true pointer.
+    layer.show(plot, first, 80, 75, slot);
+    assert.equal(layer.reading()?.at, 3);
+    const at = layer.stepFrom(plot, first, 1);
+    assert.deepEqual(at, { clientX: 90, clientY: 65 });
+    layer.show(plot, first, 80, 75, slot);
+    assert.equal(layer.reading()?.at, 4, 'the point stepped to, read at the pointer');
+    // Drawn anew with nothing on it (a step computing): no number, no line, the point kept.
+    segments.length = 0;
+    layer.show(plot, null, 80, 75, slot);
+    assert.equal(layer.reading(), null, 'an empty drawing reads nothing');
+    assert.equal(plot.dataset.plotRead, 'pending');
+    assert.equal(slot?.querySelector('span:last-child')?.textContent ?? '', '', 'its old value is not shown');
+    const again = draw();
+    layer.show(plot, again, 80, 75, slot);
+    assert.equal(layer.reading()?.at, 4, 'read again on the drawing with its data');
+});
+
+test('a key while the point stepped to is read again on a new drawing waits for that read: it steps from the new data, never the old drawing (R7)', () => {
+    const { plot, slot, layer } = setup();
+    const old = gatedLine([0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5]);
+    const next = gatedLine([0.25, 1.25, 2.25, 3.25, 4.25, 5.25, 6.25, 7.25, 8.25, 9.25]);
+    const first = old.draw();
+    layer.show(plot, first, 80, 75, slot);
+    layer.stepFrom(plot, first, 1);
+    layer.show(plot, first, 80, 75, slot);
+    assert.equal(layer.reading()?.at, 4);
+    // Redrawn with new data whose points are on their way: the key waits for them.
+    next.set('pending');
+    const redrawn = next.draw();
+    // The key comes before the owner shows the new drawing (a lane shows on its next frame), and again after it.
+    for (const before of [true, false]) {
+        if (!before) { layer.hide(); layer.show(plot, first, 80, 75, slot); layer.stepFrom(plot, first, 1); layer.show(plot, first, 80, 75, slot); }
+        if (!before) layer.show(plot, redrawn, 80, 75, slot);
+        if (!before) assert.equal(layer.reading(), null, 'pending: no number');
+        const key = layer.stepFrom(plot, redrawn, 1);
+        assert.ok(key, 'the key is kept');
+        layer.show(plot, redrawn, 80, 75, slot);
+        assert.equal(layer.reading(), null, `still no number, no step from the old drawing (${before ? 'before' : 'after'} the owner shows)`);
+        if (before) { next.set('held'); assert.equal(layer.reading()?.at, 5); assert.equal(layer.reading()?.value, 5.25); next.set('pending'); }
+    }
+    next.set('held');
+    assert.equal(layer.reading()?.at, 5, 'one step from the point read again');
+    assert.equal(layer.reading()?.value, 5.25, 'of the new data');
+});
+
+test('a re-read on a new drawing that fails keeps the point stepped to and reads it once the backend answers again (R7)', () => {
+    const { plot, slot, layer } = setup();
+    const source = gatedLine([0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5]);
+    const first = source.draw();
+    layer.show(plot, first, 80, 75, slot);
+    layer.stepFrom(plot, first, 1);
+    layer.show(plot, first, 80, 75, slot);
+    assert.equal(layer.reading()?.at, 4);
+    source.set('failed');
+    const redrawn = source.draw();
+    layer.show(plot, redrawn, 80, 75, slot);
+    assert.equal(layer.reading(), null, 'failed: no number');
+    assert.equal(plot.dataset.plotRead, 'failed');
+    source.set('held');
+    assert.equal(layer.reading()?.at, 4, 'the point stepped to, not the one under the pointer (3)');
+});
+
+test('keys waiting for a seek whose read fails are kept and taken once the backend answers again: three keys, three points (R7)', () => {
+    const { plot, slot, layer } = setup();
+    const source = gatedLine([0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5]);
+    const drawn = source.draw();
+    layer.show(plot, drawn, 80, 75, slot);
+    assert.equal(layer.reading()?.at, 3);
+    const arrived = (): void => { layer.show(plot, drawn, 80, 75, slot); };
+    source.set('pending');
+    for (let key = 0; key < 3; key++) layer.stepFrom(plot, drawn, 1, arrived);
+    // The backend fails the seek: the keys stay; it answers after its pause.
+    source.set('failed');
+    for (const ready of source.waiting.splice(0)) ready();
+    assert.equal(layer.reading()?.at, 3, 'nothing taken meanwhile');
+    source.set('held');
+    assert.equal(layer.reading()?.at, 6, 'three keys, three points');
+});
+
+test('the true pointer and the point stepped to are kept apart: a step the new drawing no longer shows is let go and the true pointer read, wherever the owner shows (R7)', () => {
+    const { plot, slot, layer } = setup();
+    const values = [0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5];
+    const source = gatedLine(values);
+    const first = source.draw();
+    layer.show(plot, first, 80, 75, slot);
+    const at = layer.stepFrom(plot, first, 1)!;
+    // An owner that shows at the step's place: the step is read there too.
+    layer.show(plot, first, at.clientX, at.clientY, slot);
+    assert.equal(layer.reading()?.at, 4);
+    // Zoomed so the point stepped to is off the window (x 4 is left of the frame): let go, the true pointer read.
+    const zoomed: StagePlot = { ...source.draw(), xAt: (x: number) => 50 + (x - 4.5) * 20, xOf: (x: number) => (x - 50) / 20 + 4.5 };
+    layer.show(plot, zoomed, at.clientX, at.clientY, slot);
+    const fresh = createPlotHoverLayer(plot.ownerDocument);
+    fresh.show(plot, zoomed, 80, 75, null);
+    assert.ok(layer.reading(), 'a point is read');
+    assert.equal(layer.reading()?.at, fresh.reading()?.at, 'the point at the true pointer, not at the step\'s place');
+});

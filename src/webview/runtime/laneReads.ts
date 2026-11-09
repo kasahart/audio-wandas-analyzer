@@ -80,11 +80,13 @@ export function createLaneReads(post: (message: ReadRequest) => void, now: () =>
         },
         slice(track, cursorNorm, channel) {
             const key = answerKey({ ask: ['slice', track, cursorNorm], file: track.filePath, version: trackVersion(track) });
-            // A failed slice: the latest read waiting on it is told once the store's pause is over, so a still pointer
+            // A failed slice: every read waiting on it is told once the store's pause is over, so a still pointer
             // is read again (R7), as fetchedSource's reads are.
             let woken: ReturnType<typeof setTimeout> | null = null, wake: (() => void) | null = null;
             const wakeOnRetry = (ready: () => void): void => {
-                wake = ready;
+                // Every reader waiting on it is told (the readout's and the paint's level for the order alike), each once.
+                const before = wake;
+                wake = before && before !== ready ? () => { before(); ready(); } : ready;
                 if (woken !== null) return;
                 let at = now();
                 for (const [held, item] of slices.newestFirst()) if (held.id === key.id && item.state === 'failed') at = item.retryAt;

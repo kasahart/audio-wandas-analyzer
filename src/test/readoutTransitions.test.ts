@@ -228,7 +228,8 @@ for (const [kind, view] of Object.entries(KINDS)) {
                 let pointer: { x: number; y: number } | null = null;
                 const frame = (): void => { if (pointer) layer.show(canvas, drawn, pointer.x, pointer.y, slot); };
                 const hover = (x: number, y: number): void => { pointer = { x, y }; if (!chart.later) frame(); };
-                const arrived = (at: { clientX: number; clientY: number }): void => hover(at.clientX, at.clientY);
+                // A step is shown at the true pointer (plotInteraction's hoverAt), which a key never moves.
+                const arrived = (at: { clientX: number; clientY: number }): void => { if (pointer) hover(pointer.x, pointer.y); else hover(at.clientX, at.clientY); };
                 const key = (delta: -1 | 1): boolean => {
                     const at = layer.stepFrom(canvas, drawn, delta, arrived);
                     if (at) arrived(at);
@@ -266,7 +267,9 @@ for (const [kind, view] of Object.entries(KINDS)) {
                     assert.ok(under?.full, 'the point under the pointer, once in');
                     const xs = under.layer.view.xs ?? [];
                     assert.ok(near(reading()?.at, xs[indexIn(xs, under.at) + 1]) || (view.kind === 'heatmap' && reading()?.at !== under.at), `the key's step taken once in: ${reading()?.at} after ${under.at}`);
-                    // Back to the point under the pointer.
+                    // The pointer moved off and back: the point under it.
+                    hover(place.x + 1, place.y);
+                    rendered();
                     hover(place.x, place.y);
                     rendered();
                 }
@@ -298,6 +301,21 @@ for (const [kind, view] of Object.entries(KINDS)) {
                 assert.ok(near(reading()?.at, stepped), `${kind}: the same point after a resize`);
                 const shown = reading();
                 assert.ok(shown && shown.x >= drawn.frame.left - 0.5 && shown.x <= drawn.frame.left + drawn.frame.width + 0.5, 'on the plot');
+                // Moved on screen (a resize that shifts it) under the still pointer: the step is let go and the true
+                // pointer read, never the step's place.
+                {
+                    const moved = createPlotHoverLayer(document);
+                    const truePointer = pointer!;
+                    moved.show(canvas, drawn, truePointer.x, truePointer.y, null);
+                    const step = moved.stepFrom(canvas, drawn, 1);
+                    if (step && moved.reading()) {
+                        box.left += 24;
+                        moved.show(canvas, drawn, step.clientX, step.clientY, null);
+                        const there = fresh(truePointer.x, truePointer.y);
+                        assert.equal(moved.reading()?.at, there?.at, `${kind}: moved, the true pointer is read`);
+                        box.left -= 24;
+                    }
+                }
                 // + / −: zoomed off the point stepped to, it is let go: never read off the plot (the pointer's place is read).
                 const shownAt = (shown.x - drawn.frame.left) / drawn.frame.width;
                 drawn = draw({ window: shownAt < 0.55 ? { start: 0.6, end: 0.9 } : { start: 0.05, end: 0.35 } });
@@ -306,7 +324,7 @@ for (const [kind, view] of Object.entries(KINDS)) {
                 assert.ok(!near(zoomed?.at, stepped), `${kind}: the point off the window is not read`);
                 if (zoomed) assert.ok(zoomed.x >= drawn.frame.left - 0.5 && zoomed.x <= drawn.frame.left + drawn.frame.width + 0.5, 'what is read is on the plot');
                 // Outside the zoomed window: at its right edge the key cannot step past it; the readout stays.
-                const edge = at(0.999, 0.5);
+                const edge = at(0.999, 0.45);
                 hover(edge.x, edge.y);
                 rendered();
                 const atEdge = reading();

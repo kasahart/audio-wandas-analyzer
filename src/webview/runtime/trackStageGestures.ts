@@ -14,8 +14,6 @@ import type { TrackStageState } from './trackStageModel';
 
 /** How near (px) a click must be to an event's line to leave it out. */
 const EVENT_PICK_PX = 6;
-/** How long a click on an event's line waits for a second one (a double-click resets the zoom instead). */
-const DOUBLE_CLICK_MS = 300;
 
 /** The pointer over the mode's plots, while it is over one. */
 export interface StageGestures {
@@ -111,30 +109,25 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
     // A scroll under a still pointer: the shared gestures hover again at the pointer (trackPointerEvents.ts), so the
     // plot now under it is read there (R7).
     // A click on an event's line (the plot gestures' tap: a press that stayed put, a drag zooms instead) leaves it out
-    // or puts it back. It waits out a double-click (which resets the zoom): the second press takes the first one back.
-    // A click while the lines' full data is on its way is decided once it is in (R7), never dropped; a later press
-    // (the double-click's second, or another click) takes its place.
-    let pending: number | undefined;
-    let taps = 0;
+    // or puts it back, once no double click (which resets the zoom) follows: plotInteraction.ts arbitrates the click.
+    // It is decided on the plot as it was clicked; a click while the lines' full data is on its way is decided once it
+    // is in (R7), never dropped, unless a later press anywhere (a drag, another click) takes its place first.
     const view = document.defaultView;
-    const tap = (plot: HTMLElement, event: MouseEvent): void => {
+    const tap = (plot: HTMLElement, event: MouseEvent, current: () => boolean): (() => void) | undefined => {
         const toggle = deps.toggleEvent;
-        if (!state.on || !toggle || !view) return;
-        if (pending !== undefined) { view.clearTimeout(pending); pending = undefined; }
-        const mine = ++taps;
-        if (event.detail > 1) return;
+        if (!state.on || !toggle || !view) return undefined;
         const { clientX, clientY } = event;
         // Decided on the plot as it was clicked: a redraw meanwhile (a zoom by the wheel, which is no press) draws other
         // lines under that pixel, and the click is of the line it was on (R7).
         const clicked = drawnPlot(plot) ?? undefined;
         const decide = (): void => {
-            if (mine !== taps || !state.on) return;
+            if (!current() || !state.on) return;
             const line = eventAt(plot, clientX, clientY, decide, clicked);
             if (line === undefined) return;
             const edit = line ? toggle(line) : undefined;
-            if (edit) pending = view.setTimeout(() => { pending = undefined; edit(); }, DOUBLE_CLICK_MS);
+            edit?.();
         };
-        decide();
+        return decide;
     };
     const gestures = (selector: string, container: HTMLElement): void => attachPlotInteraction(container, document, selector, {
         locate(target, clientX, clientY): PlotHit | null {

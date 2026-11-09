@@ -117,6 +117,15 @@ test('a click on a row (the plot gestures\' tap: a press that stays put) picks t
     for (const detail of [1, 2]) { fire(canvas, 'mousedown', detail); fire(document, 'mouseup', detail); }
     await wait();
     assert.equal(calls.length, 1, 'a double-click picks no bin');
+    // A click, then a zoom (Ctrl+wheel) before it is done: the bin clicked on, on the plot as it was clicked.
+    const zoomedBefore = (canvas as HTMLElement).dataset.plotWindow;
+    fire(canvas, 'mousedown');
+    fire(document, 'mouseup');
+    canvas.dispatchEvent(new dom.window.WheelEvent('wheel', { bubbles: true, cancelable: true, clientX: 200, clientY: 10, deltaY: -300, ctrlKey: true }));
+    assert.notEqual((canvas as HTMLElement).dataset.plotWindow, zoomedBefore, 'the wheel zoomed');
+    await wait();
+    assert.equal(calls.length, 2);
+    assert.deepEqual(calls[1], calls[0], 'the bin under the click, not the one the zoom put there');
 });
 
 test('each group is a row of the plot component: its dots, its slots and the base on it', () => {

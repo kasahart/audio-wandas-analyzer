@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
-import { attachPlotInteraction, FULL_PLOT_WINDOW, windowFromBox, type PlotDrag, type PlotInteractionDeps, type PlotPoint, type PlotWindow } from '../webview/runtime/plotInteraction';
+import { attachPlotInteraction, FULL_PLOT_WINDOW, PLOT_DOUBLE_CLICK_MS, windowFromBox, type PlotDrag, type PlotInteractionDeps, type PlotPoint, type PlotWindow } from '../webview/runtime/plotInteraction';
 
 test('a box zooms both axes; one too thin on an axis it zooms zooms nothing', () => {
     assert.deepEqual(windowFromBox(FULL_PLOT_WINDOW, { fx: 0.2, fy: 0.1 }, { fx: 0.6, fy: 0.5 }), { x: { start: 0.2, end: 0.6 }, y: { start: 0.1, end: 0.5 } });
@@ -187,4 +187,76 @@ test('a drag under way reads nothing, and let go (a box zoom, Alt+drag, Shift+dr
         drag('a', 20, 60, init);
         assert.deepEqual(calls, ['clear', 'hover:a:60'], JSON.stringify(init));
     }
+});
+
+/** Two surfaces of plots on one page, each with its own gestures, recording taps done and hovers read. */
+function twoSurfaces() {
+    const { window } = new JSDOM('<!doctype html><body><div id="one"><canvas class="plot" id="a"></canvas></div><div id="two"><canvas class="plot" id="b"></canvas></div></body>');
+    const doc = window.document;
+    const element = (id: string): HTMLElement => doc.getElementById(id) as HTMLElement;
+    for (const id of ['a', 'b']) element(id).getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 100, right: 100, bottom: 100, x: 0, y: 0, toJSON: () => ({}) });
+    const done: string[] = [];
+    const point = (clientX: number, clientY: number): PlotPoint => ({ fx: clientX / 100, fy: 1 - clientY / 100 });
+    for (const id of ['one', 'two']) {
+        attachPlotInteraction(element(id), doc, '.plot', {
+            locate: (target, clientX, clientY) => {
+                const plot = (target as HTMLElement | null)?.closest?.<HTMLElement>('.plot');
+                return plot ? { plot, point: point(clientX, clientY), axis: null } : null;
+            },
+            pointOn: (_plot, clientX, clientY) => point(clientX, clientY),
+            window: () => FULL_PLOT_WINDOW,
+            setWindow: () => undefined,
+            hover: (_event, hit) => { if (hit) done.push(`hover:${hit.plot.id}`); },
+            clearHover: () => undefined,
+            showBox: () => undefined,
+            hideBox: () => undefined,
+            openAxisRange: () => false,
+            stepFrom: () => null,
+            // The click is decided at the press (its x on the plot as clicked), done once no double click follows.
+            tap: (plot, event) => { const x = event.clientX; return () => { done.push(`tap:${plot.id}:${x}`); }; },
+        });
+    }
+    const mouse = (target: EventTarget, type: string, clientX: number, init: MouseEventInit = {}): void => {
+        target.dispatchEvent(new window.MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX, clientY: 50, ...init }));
+    };
+    const click = (id: string, clientX: number, detail = 1): void => { mouse(element(id), 'mousedown', clientX, { detail }); mouse(doc, 'mouseup', clientX, { detail }); };
+    const wait = (): Promise<void> => new Promise(resolve => { setTimeout(resolve, PLOT_DOUBLE_CLICK_MS + 60); });
+    return { doc, element, done, mouse, click, wait };
+}
+
+test('one arbitration of a click for every plot: done once no double click follows, a double click does none, and the next press anywhere (a drag, another plot\'s click) takes its place (R13)', async () => {
+    const { doc, element, done: calls, mouse, click, wait } = twoSurfaces();
+    const done = { get taps() { return calls.filter(call => call.startsWith('tap:')); } };
+    click('a', 30);
+    assert.deepEqual(done.taps, [], 'not at once: a double click may follow');
+    await wait();
+    assert.deepEqual(done.taps, ['tap:a:30']);
+    // A double click (a zoom reset) does nothing else.
+    click('a', 30, 1); click('a', 30, 2);
+    await wait();
+    assert.deepEqual(done.taps, ['tap:a:30'], 'a double click is no click');
+    // A click, then a drag on the other surface before it is done: the drag takes its place.
+    click('a', 40);
+    mouse(element('b'), 'mousedown', 20);
+    mouse(doc, 'mousemove', 70);
+    mouse(doc, 'mouseup', 70);
+    await wait();
+    assert.deepEqual(done.taps, ['tap:a:30'], 'the next press cancels the click');
+    // A click on one plot, then one on the other: only the last is done.
+    click('a', 40); click('b', 60);
+    await wait();
+    assert.deepEqual(done.taps, ['tap:a:30', 'tap:b:60']);
+});
+
+test('a drag under way on one surface reads nothing on another: no hover until it is let go (R7)', () => {
+    const { doc, element, done, mouse } = twoSurfaces();
+    mouse(element('a'), 'mousedown', 20);
+    mouse(doc, 'mousemove', 70);
+    done.length = 0;
+    mouse(element('b'), 'mousemove', 50);
+    assert.deepEqual(done.filter(call => call === 'hover:b'), [], 'no hover on the other surface while dragging');
+    mouse(doc, 'mouseup', 70);
+    done.length = 0;
+    mouse(element('b'), 'mousemove', 55);
+    assert.ok(done.includes('hover:b'), 'read again once let go');
 });

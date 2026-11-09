@@ -1766,6 +1766,9 @@ export function stageReadAgain(plot: StagePlot, read: StageRead, ready: () => vo
     const at = read.at;
     const got = layer.full.line({ x0: at, x1: at, beyond: 1 }, ready);
     if (got === undefined) return undefined;
+    // Its read failed on the new drawing (the backend's passing failure): the point is kept, read as failed until it is
+    // asked again (`ready`, once the store's pause is over), never let go for a point that is not drawn.
+    if (got === null && layer.full.held === 'fetched') return { ...read, layer, failed: true };
     const index = got?.xs.indexOf(at) ?? -1;
     const point = got && index >= 0 ? fullPoint(plot, layer, got, index, 'edge') : null;
     if (!point || point.x < plot.frame.left || point.x > plot.frame.left + plot.frame.width) return null;
@@ -1776,7 +1779,7 @@ export function stageReadAgain(plot: StagePlot, read: StageRead, ready: () => vo
  * What an arrow key reads `delta` along from `read` (R7), as the pointer on it would: of a line with full data, its
  * next full-resolution point (bin, sample, frame), however many share a pixel, at every zoom; of a line drawn whole,
  * its next value (a bar, a dot); of an image, the next column on the same row. Null past the end or off the plot;
- * undefined while the next points are fetched (`ready` is called once they are in).
+ * undefined while the next points are fetched, or their read failed (`ready` is called once they are in, or asked again).
  */
 export function stageStep(plot: StagePlot, read: StageRead, delta: -1 | 1, ready: () => void = () => undefined): StageRead | null | undefined {
     if (read.pending || read.failed) return null;
@@ -1792,6 +1795,9 @@ export function stageStep(plot: StagePlot, read: StageRead, delta: -1 | 1, ready
         const at = read.at;
         const got = source.line?.({ x0: at, x1: at, beyond: STEP_AHEAD, seek: delta, ...(floorless(read.layer.view) ? { plain: true } : {}) }, ready);
         if (got === undefined) return undefined;
+        // The seek failed (not the data's end): the step waits for it to be asked again once the store's pause is over
+        // (`ready`), and the keys pressed meanwhile with it (R7).
+        if (got === null && source.held === 'fetched') return undefined;
         if (!got) return null;
         let index = -1;
         if (delta > 0) index = got.xs.findIndex(x => x > at);
@@ -1849,6 +1855,7 @@ function imageReadAgain(plot: StagePlot, read: StageRead, ready: () => void): St
     if (!image || !source?.cells || read.at === undefined || read.row === undefined) return null;
     const got = source.cells({ x: read.at, y: read.row, beyond: 1 }, ready);
     if (got === undefined) return undefined;
+    if (got === null && source.held === 'fetched') return { ...read, layer: image.layer, failed: true };
     if (!got?.xs.length || !got.ys?.length) return null;
     const column = got.xs.indexOf(read.at), row = got.ys.indexOf(read.row);
     if (column < 0 || row < 0) return null;
@@ -1862,6 +1869,8 @@ function imageStep(plot: StagePlot, image: NonNullable<StagePlot['image']>, sour
     const at = read.at as number, place = read.row as number;
     const got = source.cells?.({ x: at, y: place, beyond: STEP_AHEAD }, ready);
     if (got === undefined) return undefined;
+    // The next cells' read failed: the step waits, and is taken once they are asked again (`ready`), never dropped.
+    if (got === null && source.held === 'fetched') return undefined;
     if (!got?.xs.length || !got.ys?.length) return null;
     let from = 0;
     for (let index = 1; index < got.xs.length; index++) if (Math.abs(got.xs[index] - at) < Math.abs(got.xs[from] - at)) from = index;

@@ -209,15 +209,15 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
             stepFrom(plot, delta, arrived) { return marks.stepFrom(plot, plot === heldCanvas ? deps.heldPicture()?.drawn ?? null : overviewDrawn, delta, arrived); },
             // A press on the strip that stayed put (a drag zooms instead) goes to the row under it.
             tap(plot, event) {
-                // The second press of a double click (which resets the zoom) picks nothing: the first already did.
-                if (plot !== overview || event.detail > 1) return;
+                // The row under the press on the strip as clicked, gone to once no double click follows (plotInteraction.ts).
+                if (plot !== overview) return undefined;
                 const rows = deps.rows();
                 const box = overview.getBoundingClientRect();
                 // The strip's rows (top first) over the part of it on screen.
                 const zoom = plotWindow('overview');
                 const plotTop = box.top + OVERVIEW_MARGINS.top, plotHeight = box.height - OVERVIEW_MARGINS.top - OVERVIEW_MARGINS.bottom;
                 const row = rows[Math.floor(((1 - zoom.y.end) + (event.clientY - plotTop) / Math.max(1, plotHeight) * (zoom.y.end - zoom.y.start)) * rows.length)];
-                if (row) deps.pickRow(row.key);
+                return row ? () => deps.pickRow(row.key) : undefined;
             },
             showBox(plot, from, to) {
                 const box = plot.getBoundingClientRect(), outer = side.getBoundingClientRect(), margins = marginsOf(plot);

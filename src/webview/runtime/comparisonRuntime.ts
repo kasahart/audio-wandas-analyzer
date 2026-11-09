@@ -2747,7 +2747,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             showBox: showLaneBox,
             hideBox() { rectZoomSelection = null; },
             zoomToBox: zoomLanesToBox,
-            tap: (_plot, e) => endLaneDrag(e, false),
+            // A click moves the time cursor there and clears the loop once no double click (a zoom reset) follows.
+            tap: (_plot, e) => endLaneDrag(e, false, true),
             altDrag: {
                 start() { if (lanePress) lanePress.dragType = loopGripAt(viewState.loop, lanePress.startNorm, waveformView.span()) ?? 'loop'; },
                 move: moveLaneDrag,
@@ -3999,20 +4000,24 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         scheduleRender();
     }
     /** A press let go after its drag, or where it was (a click: the cursor goes there and the loop is cleared). */
-    function endLaneDrag(e: MouseEvent, dragged: boolean): void {
+    function endLaneDrag(e: MouseEvent, dragged: boolean, waits = false): (() => void) | undefined {
         const press = lanePress;
         lanePress = null;
-        if (!press) return;
+        if (!press) return undefined;
+        let click: (() => void) | undefined;
         if (!dragged) {
+            // The time under the press on the lane as clicked; a plain click's waits out a double click (plotInteraction.ts).
             const canvas = trackStore.protocolIndexForId(press.trackId) === null ? null : canvasById(document, press.canvasId);
             const hit = canvas ? trackCanvasTimeHit(canvas, e.clientX, e.clientY) : null;
             if (hit) {
-                moveCursor(hit.norm);
-                setLoopRegion(null);
+                const norm = hit.norm;
+                click = () => { moveCursor(norm); setLoopRegion(null); scheduleSpectrumRefresh('immediate'); };
             }
         }
         scheduleSpectrumRefresh('immediate');
         followPointerAfterDrag(e);
+        if (!waits) { click?.(); return undefined; }
+        return click;
     }
     /**
      * ← / → over a lane (R7): the next full-resolution point of the lane's data (a waveform's next sample, a
@@ -4027,7 +4032,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     /** The readout follows the pointer again from where the drag ended, in the view it leaves (a box zoom's zoomed one), or shows the cursor off the lanes. */
     function followPointerAfterDrag(e: MouseEvent): void {
-        const under = document.elementFromPoint(e.clientX, e.clientY);
+        const under = typeof document.elementFromPoint === 'function' ? document.elementFromPoint(e.clientX, e.clientY) : null;
         const canvas = under instanceof HTMLCanvasElement && under.classList.contains('track-canvas') ? under : null;
         const hit = canvas ? trackCanvasTimeHit(canvas, e.clientX, e.clientY) : null;
         if (hit) renderWithHoverAt(hit.norm);
