@@ -245,8 +245,12 @@ test('a track with no entry result takes its level reference from its own analys
     assert.deepEqual(trackLevelInput([channel(true, fs), channel(true, fs)], undefined), FS);
     assert.deepEqual(trackLevelInput([channel(false, pa)], undefined), { ...SPL, fullScale: false }, 'a calibrated CSV keeps its calibration');
     const plain = { unit: '', ref: 1, levelReferenceLabel: 'dB', calibrationStatus: 'calibrated', fullScale: true };
-    assert.deepEqual(trackLevelInput([channel(true, pa), channel(true, g)], undefined), plain, 'channels calibrated apart share no reference');
-    assert.deepEqual(trackLevelInput([channel(true, pa), channel(true, fs)], undefined), plain, 'nor do Pa and an uncalibrated channel');
+    // Channels calibrated apart share no reference: never a bare "dB" (C1). A picture is of one channel, which its
+    // caller passes alone; given several, the first calibrated one's reference names them.
+    const spl = { unit: 'Pa', ref: 2e-5, levelReferenceLabel: 'dB SPL re 20 µPa', calibrationStatus: 'calibrated', fullScale: true };
+    assert.deepEqual(trackLevelInput([channel(true, pa), channel(true, g)], undefined), spl);
+    assert.deepEqual(trackLevelInput([channel(true, fs), channel(true, pa)], undefined), spl, 'nor do Pa and an uncalibrated channel');
+    assert.deepEqual(trackLevelInput([channel(true, g)], undefined), { unit: 'm/s^2', ref: 1, levelReferenceLabel: 'dB re 1 m/s^2', calibrationStatus: 'calibrated', fullScale: true }, 'the channel read, alone');
     // A gain correction in FS keeps dBFS: it shares the uncalibrated channel's reference, as the scan judges it.
     const gain = { ...fs, calibrationStatus: 'calibrated', calibrationSource: 'manual', factor: 2 } as const;
     assert.deepEqual(trackLevelInput([channel(true, gain), channel(true, fs)], undefined), FS);

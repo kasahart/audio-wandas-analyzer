@@ -41,7 +41,8 @@ export interface TriggerLanesFrame {
     color: (path: string) => string;
     trigger: TriggerSettings;
     /** The lanes' axes (the signal's unit). */
-    axes: (view: StageView | null) => StageAxes;
+    /** A lane's axes, named in its own recording's reference and calibration (C1). */
+    axes: (view: StageView | null, path: string) => StageAxes;
     window: PlotWindow;
     drawnOn: Map<Element, Drawn>;
     /** Where a recording's numbers are read (R7): its full data, never the signal thinned to be drawn. */
@@ -69,7 +70,7 @@ export function paintTriggerLanes(frame: TriggerLanesFrame): number {
         const canvas = track.canvas;
         if (!canvas) return;
         const view = views[index];
-        const axes = frame.axes(view);
+        const axes = frame.axes(view, track.filePath);
         const events = frame.events(track.filePath) ?? [];
         const out = new Set(frame.excluded(track.filePath));
         // Where each event used was cut (its pre-trigger part and the rest of its length), and the level the trigger

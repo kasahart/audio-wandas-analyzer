@@ -578,6 +578,7 @@ export interface UiStrings {
     calibrationButtonTitle: string;
     calibrationButtonAria: string;
     calibrationOverlayIncompatible: string;
+    stageTooManyReferences: string;
     loopTimeDisplayTitle: string;
     btnFollowCursor: string;
     btnFollowCursorTitle: string;
@@ -1374,6 +1375,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         calibrationButtonTitle: 'Configure per-channel calibration',
         calibrationButtonAria: 'Configure calibration',
         calibrationOverlayIncompatible: 'Spectrum overlay is unavailable because visible channels use more than two level references. Show tracks with at most two level references.',
+        stageTooManyReferences: 'These recordings use more than two level references, so they are not overlaid on one plot. Show one lane per track, or tracks with at most two references.',
         loopTimeDisplayTitle: 'Click to copy loop range',
         btnFollowCursor: 'Follow',
         btnFollowCursorTitle: 'Auto-scroll to keep cursor centered during playback (key: F)',
@@ -2163,6 +2165,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         calibrationButtonTitle: 'チャンネルごとの校正を設定',
         calibrationButtonAria: '校正を設定',
         calibrationOverlayIncompatible: '表示中のチャンネルのレベル基準が 3 種類以上あるため、スペクトルの重ね表示は使用できません。表示するトラックのレベル基準を 2 種類までにしてください。',
+        stageTooManyReferences: 'この録音はレベルの基準が 3 つ以上あるので、1 つのグラフには重ねません。トラックごとのレーンで見るか、基準が 2 つまでのトラックにしてください。',
         loopTimeDisplayTitle: 'クリックでループ範囲をコピー',
         btnFollowCursor: '追従',
         btnFollowCursorTitle: '再生中にカーソルを中央に保つ（キー: F）',

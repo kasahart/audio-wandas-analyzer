@@ -680,6 +680,8 @@ export interface StageLayer {
     fill?: number;
     /** What the readout calls it while the pointer is on it (the legend's name). */
     label?: string;
+    /** The recording the line is of: its reference and calibration name the axis it is read on (C1). */
+    recording?: string;
     /** A dash pattern (px) for a line told apart by more than its colour: one read on the second level axis. */
     dash?: readonly number[];
     /** The recording a trigger's events are of, whose events a click leaves out (or puts back), and those left out. */

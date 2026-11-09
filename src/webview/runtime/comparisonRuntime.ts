@@ -19,7 +19,7 @@ import type { DrawTheme } from '../draw/canvasDrawers';
 import { isCacheSufficient, isOverviewSufficient, isRangeCacheDrawable, parseRangeRequestKey, planLaneRange, rangeCacheCoversView, rangeHasDetail } from '../waveform/rangeRequestPolicy';
 import { extractSpectrumAtCursor as extractCursorSpectrum, sliceIsAtCursor } from '../spectrum/cursorSpectrum';
 import { spectrogramBandServes, spectrogramWindowServes, spectrogramZoomBand, spectrogramZoomWindow, type SpectrogramBand, type SpectrogramBandSource, type SpectrogramWindow, type SpectrogramZoomSource } from '../spectrum/spectrogramZoom';
-import { buildSpectrumCsv, wavLoopRegions } from './runtimeExports';
+import { buildSpectrumCsv, wavLoopRegions, type CsvSpectrumTrack } from './runtimeExports';
 import { audioById, buttonById, buttonMatching, canvasById, canvasesMatching, eventTarget, requiredElementById } from './domAdapter';
 import { HostMessenger } from './hostMessaging';
 import {
@@ -1490,8 +1490,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     const canvas = canvasById(document, trackCanvasId(i, channelIndex));
                     canvas?.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
                 });
-                // The file's unit and reference as the entry table scanned it (else as the track was analysed), so the level axis names its reference.
-                const input = trackLevelInput(channelsForResult(result), entryResults.get(result.filePath)?.input);
+                // The file's unit and reference as the entry table scanned it (else as the track was analysed: the channel
+                // the step reads), so the level axis names its reference (C1), never a bare dB for channels calibrated apart.
+                const channels = channelsForResult(result);
+                const read = entryScreen.stageChannel(result.filePath, result.filePath);
+                const input = trackLevelInput(read !== null && read !== undefined && channels[read] ? [channels[read]] : channels, entryResults.get(result.filePath)?.input);
                 tracks.push({ filePath: result.filePath, color: trackColor(i), canvas: canvasById(document, trackCanvasId(i, 0)), axis: canvasById(document, trackAxisCanvasId(i, 0)), input });
             });
             return tracks;
@@ -3405,7 +3408,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         let missing = false;
-        const tracks: Array<{ name: string; slice: SpectrumSlice }> = [];
+        const tracks: CsvSpectrumTrack[] = [];
         const omitted: string[] = [];
         trackStore.activeIds().forEach(function (trackId) {
             const record = trackStore.require(trackId);
@@ -3432,7 +3435,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     if (waiting || inside) omitted.push(name);
                     return;
                 }
-                tracks.push({ name, slice: slice });
+                tracks.push({ name, slice, levelTitle: spectrogramLevelTitle(channelsForResult(result)[channelIndex]) });
             });
         });
         // A spectrum still on its way: write once the requests the export asked for are answered (or after a while).
@@ -3446,7 +3449,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             taskStatus(STR.announceExportCsvFailed, 'failed');
             return;
         }
-        const csv = buildSpectrumCsv(tracks);
+        const csv = buildSpectrumCsv(tracks, STR.axisFrequency);
         // A spectrum the backend failed (or never answered) is left out rather than written from the row cut for display.
         const left = omitted.length > 0 ? STR.exportCsvOmitted.replace('{count}', String(omitted.length)).replace('{names}', omitted.join(', ')) : '';
         if (left) messaging.post({ type: 'show-info', message: left });

@@ -2544,7 +2544,7 @@ test('renderScript: multichannel CSV includes all spectrum channels', async () =
         const anchor = created.find((a) => a.download === 'spectrum-export.csv');
         assert.ok(anchor, 'CSV download anchor が作られること');
         const csv = decodeDataUriPayload(anchor.href);
-        assert.equal(csv.split('\n')[0], 'stereo.wav Channel 1 / 2 (Left) frequency (Hz),stereo.wav Channel 1 / 2 (Left) Spectrum level [dB],stereo.wav Channel 2 / 2 (Right) frequency (Hz),stereo.wav Channel 2 / 2 (Right) Spectrum level [dB]');
+        assert.equal(csv.split('\n')[0], 'stereo.wav Channel 1 / 2 (Left) Frequency [Hz],"stereo.wav Channel 1 / 2 (Left) Amplitude, uncalibrated [dB re 1 input unit]",stereo.wav Channel 2 / 2 (Right) Frequency [Hz],"stereo.wav Channel 2 / 2 (Right) Amplitude, uncalibrated [dB re 1 input unit]"');
     } finally {
         env.dom.window.document.createElement = origCreate;
         env.dom.window.close();
@@ -2662,7 +2662,7 @@ test('renderScript: export-csv preserves each track frequency axis', async () =>
         const anchor = created.find((a) => a.download === 'spectrum-export.csv');
         assert.ok(anchor, 'CSV download anchor が作られること');
         const rows = decodeDataUriPayload(anchor.href).split('\n');
-        assert.equal(rows[0], 'coarse.wav Channel 1 (L) frequency (Hz),coarse.wav Channel 1 (L) Spectrum level [dB],fine.wav Channel 1 (L) frequency (Hz),fine.wav Channel 1 (L) Spectrum level [dB]');
+        assert.equal(rows[0], 'coarse.wav Channel 1 (L) Frequency [Hz],"coarse.wav Channel 1 (L) Amplitude, uncalibrated [dB re 1 input unit]",fine.wav Channel 1 (L) Frequency [Hz],"fine.wav Channel 1 (L) Amplitude, uncalibrated [dB re 1 input unit]"');
         assert.equal(rows[1], '0.0000,-80.000000,0.0000,-20.000000');
         assert.equal(rows[4], '600.0000,-20.000000,540.0000,-65.000000');
         assert.equal(rows[5], ',,720.0000,-80.000000');

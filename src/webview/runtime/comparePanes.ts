@@ -543,8 +543,11 @@ export function trackLevelInput(channels: ReadonlyArray<ChannelSummary | null | 
         const calibrationStatus = measured.every(measurement => measurement?.calibrationStatus === 'calibrated') ? 'calibrated' : 'uncalibrated';
         return { unit: first.referenceUnit, ref: first.referenceValue, levelReferenceLabel: first.levelReferenceLabel, calibrationStatus, fullScale };
     }
-    return measured.some(measurement => measurement?.calibrationStatus === 'calibrated')
-        ? { unit: '', ref: 1, levelReferenceLabel: 'dB', calibrationStatus: 'calibrated', fullScale }
+    // Channels of other references read together: named by the first one's, never a bare "dB" (C1). (A picture is
+    // of one channel: its caller passes that one.)
+    const calibrated = measured.find(measurement => measurement?.calibrationStatus === 'calibrated');
+    return calibrated
+        ? { unit: calibrated.referenceUnit, ref: calibrated.referenceValue, levelReferenceLabel: calibrated.levelReferenceLabel, calibrationStatus: 'calibrated', fullScale }
         : uncalibratedLevelInput(fullScale);
 }
 

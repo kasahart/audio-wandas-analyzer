@@ -4,6 +4,8 @@ import type { SpectrumSlice } from './types';
 export interface CsvSpectrumTrack {
     name: string;
     slice: SpectrumSlice;
+    /** Its level column's name as its level axis names it: the quantity and its unit with the channel's reference (C5). */
+    levelTitle: string;
 }
 
 export interface WavLoopTrack {
@@ -22,15 +24,15 @@ function csvCell(s: string): string {
     return /[,"\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
 }
 
-function levelAxisLabel(slice: SpectrumSlice): string {
-    return slice.axisLabel ? slice.axisLabel : 'Spectrum level [dB]';
-}
-
-export function buildSpectrumCsv(tracks: CsvSpectrumTrack[]): string {
+/**
+ * The spectra at the cursor as CSV: per track a frequency and a level column, each named as its axis is ("Quantity
+ * [unit]", the level with its reference: never a bare dB), `frequencyTitle` the frequency axis's name.
+ */
+export function buildSpectrumCsv(tracks: CsvSpectrumTrack[], frequencyTitle: string): string {
     const headers: string[] = [];
     tracks.forEach(function (t) {
-        headers.push(csvCell(t.name + ' frequency (Hz)'));
-        headers.push(csvCell(t.name + ' ' + levelAxisLabel(t.slice)));
+        headers.push(csvCell(t.name + ' ' + frequencyTitle));
+        headers.push(csvCell(t.name + ' ' + t.levelTitle));
     });
     const rows = [headers.join(',')];
     const maxBins = tracks.reduce(function (max, t) {

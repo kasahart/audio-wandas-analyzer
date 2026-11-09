@@ -116,7 +116,7 @@ export const compareOverlay: ChartContract = {
         },
         {
             id: 'compare-overlay.range', value: 'range', what: '線の値の軸の自動の範囲',
-            computedIn: [`${SP}:stageRange`, `${SP}:roundEdge`, 'src/webview/runtime/trackStagePainter.ts:paintStageOverlay', 'src/webview/plot/waveformLayer.ts:waveformRange', 'python-backend/stage_combine.py:value_range'],
+            computedIn: [`${SP}:stageRange`, `${SP}:roundEdge`, 'src/webview/runtime/trackStagePainter.ts:paintStageOverlay', 'src/webview/runtime/trackStagePainter.ts:byReference', 'src/webview/plot/waveformLayer.ts:waveformRange', 'python-backend/stage_combine.py:value_range'],
             from: 'full', trace: 'バックエンドが全データ（StageData：間引く前の全点・全マス）の最小と最大を valueRange として絵に付け（value_range。無音の −300 dB の床は除く）、stageRange はその端から決める。時間信号は absolutePeak の ±1.05 倍を切りのよい端に広げる（waveformRange、R9）。webview が全部を持つ絵（帯の表・レベルの線）は描く値が全部。',
             tests: [
                 t('src/test/stagePanes.test.ts', 'levels share a range of four round steps; coherence keeps 0 to 1'),

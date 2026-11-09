@@ -749,7 +749,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
                 signal: path => { const wanted = signalSpec(path); return wanted ? source.view(wanted, path) : undefined; },
                 detail: path => (laneDetail.get(path) ?? []).map(wanted => source.view(wanted, path)).find(view => !!view),
                 color: path => colorOf(role, path, tracks.find(track => track.filePath === path)?.color ?? ownColor(0)),
-                axes: view => stageAxes(strings, view, tracks.find(track => track.input)?.input),
+                axes: (view, path) => stageAxes(strings, view, tracks.find(track => track.filePath === path)?.input),
             });
             root.dataset.lanesMarked = String(lanesDrawn);
         }
