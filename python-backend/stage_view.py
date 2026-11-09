@@ -580,12 +580,32 @@ def _spectral_rows(frame: Any) -> tuple[Quantity, np.ndarray]:
     if isinstance(frame, CoherenceFrame):
         quantity, raw = "coherence", frame.coherence
     elif isinstance(frame, TransferFunctionFrame):
-        quantity, raw = "gain", frame.gain_db
+        quantity, raw = "gain", _transfer_rows(frame)
     elif isinstance(frame, CrossSpectralFrame):
         quantity, raw = "level", frame.level_db
     else:
         quantity, raw = "level", frame.dB
     return quantity, np.asarray(raw, dtype=np.float64).reshape(-1, np.asarray(frame.freqs).size)
+
+
+def _transfer_rows(frame: TransferFunctionFrame) -> np.ndarray:
+    """A transfer function's rows in dB, as the pair view measures them (A33): a gain, 20 log10 |H|, for a pair of
+    one unit; else the transfer level in dB re the units' ratio, since a gain of two units is no ratio. gain_db
+    refuses a Frame with any such pair, so every row is taken as a transfer level and a dimensionless one's
+    reference ratio put back."""
+    levels = np.asarray(frame.transfer_level_db, dtype=np.float64).reshape(len(frame.pair_domains), -1).copy()
+    for row, domain in enumerate(frame.pair_domains):
+        if domain.unit == "1":
+            levels[row] += 20.0 * np.log10(domain.reference)
+    return levels
+
+
+def _transfer_unit(frame: Any, row: int) -> str | None:
+    """A transfer function row's level reference ("dB re 2e-05 Pa/V") where its two channels' units differ; None
+    for a gain, which is plain dB."""
+    if not isinstance(frame, TransferFunctionFrame) or frame.pair_domains[row].unit == "1":
+        return None
+    return str(frame.channels[row].level_reference.label)
 
 
 def _pairwise(frame: Any) -> bool:
@@ -599,11 +619,12 @@ def _spectral_view(frame: Any) -> StageView:
     if nyquist <= spec.SPECTRUM_MIN_HZ or freqs.size < 2:
         return {"frame": type(frame).__name__, "kind": "none"}
     pair: StagePair | None = None
+    unit: str | None = None
     if _pairwise(frame):
         row = _cross_pair(frame)
         if row is None:
             return {"frame": type(frame).__name__, "kind": "none"}
-        values, pair = values[row : row + 1], _pair_of(frame, row)
+        values, pair, unit = values[row : row + 1], _pair_of(frame, row), _transfer_unit(frame, row)
     if quantity == "coherence":
         # As a spectrum's line: each bucket's lowest and highest bin at its own frequency, so a dip stays.
         centres, line = spectrum_line(freqs, values[0], [spec.SPECTRUM_MIN_HZ, nyquist], SPECTRUM_LINE_BUCKETS)
@@ -626,6 +647,8 @@ def _spectral_view(frame: Any) -> StageView:
     }
     if pair is not None:
         view["pair"] = pair
+    if unit is not None:
+        view["unit"] = unit
     return view
 
 

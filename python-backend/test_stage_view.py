@@ -281,6 +281,25 @@ def test_a_pairwise_frame_draws_one_named_pair_of_two_channels_never_a_channel_w
         assert _checked(frame)["kind"] == "none"
 
 
+def test_a_transfer_function_of_two_units_is_drawn_as_its_transfer_level_named_by_its_reference() -> None:
+    # A33: gain_db refuses a pair of two units (Pa over V); the stage draws the transfer level in dB re the units'
+    # ratio, as the pair view does (analysis_service), and names that reference. A pair of one unit stays a gain.
+    noise = np.random.default_rng(5).standard_normal(48_000)
+    mixed = wd.from_numpy(np.vstack([noise, 0.5 * noise]), sampling_rate=48_000, ch_units=["V", "Pa"])
+    transfer = mixed.transfer_function(n_fft=1024)
+    view = _checked(transfer)
+    assert view["quantity"] == "gain" and view["pair"] == {"output": 2, "input": 1}
+    picked = transfer.select_pair(1, 0)
+    assert view["unit"] == picked.channels[0].level_reference.label
+    # |H| = 0.5 Pa/V, in dB re the ratio of Pa's 20 µPa to V's 1 V.
+    expected = 20 * np.log10(0.5 / picked.pair_domains[0].reference)
+    assert np.median(view["values"]) == pytest.approx(expected, abs=0.2)
+    assert np.median(view["values"]) == pytest.approx(np.median(np.asarray(picked.transfer_level_db)), abs=0.2)
+    same = wd.from_numpy(np.vstack([noise, 0.5 * noise]), sampling_rate=48_000, ch_units=["Pa", "Pa"])
+    gain = _checked(same.transfer_function(n_fft=1024))
+    assert "unit" not in gain and np.median(gain["values"]) == pytest.approx(20 * np.log10(0.5), abs=0.2)
+
+
 def test_power_mean_db_is_the_power_average_every_view_used() -> None:
     from analyzer import _mean_power_db
     from stage_view import _power_mean, power_mean_db

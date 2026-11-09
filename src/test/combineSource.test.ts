@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createCombineSource, FAILED_HOLD_MS, noDeltaNote } from '../webview/runtime/combineSource';
+import { createCombineSource, createLastFine, FAILED_HOLD_MS, noDeltaNote, type Combined } from '../webview/runtime/combineSource';
 import { createStageSource, stageBasis } from '../webview/runtime/stageSource';
 import { runCompareCombine, type CompareCombineMessage } from '../shared/analysis/entryScan';
 import { getStrings } from '../shared/i18n/strings';
@@ -153,4 +153,14 @@ test('stageBasis follows the screen\'s scan (version, calibration) and the track
     const second = basisOf('/a.wav');
     analyses.set('/a.wav', { calibrationSignature: 's2', analysisRevision: 2 });
     assert.notEqual(basisOf('/a.wav'), second, 'the track calibrated anew');
+});
+
+test('the last zoomed answer kept on screen is of the pictures it was taken of: a rescan, a calibration or a file\'s new version is not it (A35, C2)', () => {
+    const last = createLastFine();
+    const zoomed = { base: null, diff: null } as Combined;
+    last.keep('one.wav|base.wav', { base: ['k-base'], compare: 'k-one' }, zoomed);
+    assert.equal(last.of('one.wav|base.wav', { base: ['k-base'], compare: 'k-one' }), zoomed, 'the same pictures: kept');
+    assert.equal(last.of('one.wav|base.wav', { base: ['k-base'], compare: 'k-one-v2' }), undefined, 'the compared file scanned again: not its');
+    assert.equal(last.of('one.wav|base.wav', { base: ['k-base-calibrated'], compare: 'k-one' }), undefined, 'the base calibrated since: not its');
+    assert.equal(last.of('two.wav|base.wav', { base: ['k-base'], compare: 'k-one' }), undefined, 'another pair: not its');
 });

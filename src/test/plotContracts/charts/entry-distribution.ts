@@ -54,7 +54,7 @@ export const entryDistribution: ChartContract = {
         },
         {
             id: 'entry-distribution.ticks', value: 'ticks', what: '値の軸の目盛り',
-            computedIn: [`${SP}:paintPlot`, `${SP}:valueAxisTicks`, `${SP}:valueTickTexts`, `${SP}:alongAxisTicks`, `${SP}:rowAxisTicks`, `${SP}:tickTexts`, `${SP}:levelTick`, `${SP}:paintRightAxis`],
+            computedIn: [`${SP}:paintPlot`, `${SP}:valueAxisTicks`, `${SP}:valueTickTexts`, `${SP}:alongAxisTicks`, `${SP}:rowAxisTicks`, `${SP}:tickTexts`, `${SP}:colourEndText`, `${SP}:paintRightAxis`],
             from: 'axis', trace: '範囲から部品が決める。',
             tests: [
                 t('src/test/distribution.test.ts', 'ticks fall on round values without floating-point drift'),

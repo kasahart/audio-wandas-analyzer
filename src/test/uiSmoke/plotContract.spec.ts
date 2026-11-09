@@ -225,7 +225,11 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
     const same = (a: number, b: number): boolean => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a), Math.abs(b));
     const onPoint = (point: PointRead | null, at: number | null | undefined): boolean => !!point && !!origin && at !== null && at !== undefined
         && point.sameLayer && same(point.at, at) && (origin.row === null ? point.row === null : point.row !== null && same(point.row, origin.row));
-    const onePoint = !!next && onPoint(stepped[0], next) && onPoint(stepped[1], origin?.at) && onPoint(stepped[2], next);
+    // The next point of the signal the test posted, where it posted one: the plot's full source must agree with it.
+    const known = knownSignal;
+    const knownNext = known && origin ? known.xs.find((x, index) => x > origin.at + 1e-12 * Math.max(1, Math.abs(origin.at)) && (known.values === undefined || (known.values[index] !== null && Number.isFinite(known.values[index])))) : undefined;
+    const agrees = !known || (knownNext !== undefined && next !== null && same(next, knownNext));
+    const onePoint = !!next && agrees && onPoint(stepped[0], next) && onPoint(stepped[1], origin?.at) && onPoint(stepped[2], next);
     // Where the point is, written apart from its neighbour's (C3: its digits from the points' spacing), not only its
     // value: the readout less its last part (the value) differs between two neighbouring points.
     const place = (text: string): string => text.split(' / ').slice(0, -1).join(' / ');
@@ -384,6 +388,13 @@ const UNCHECKED: Record<string, string> = {
 };
 const seenPlots = new Set<string>();
 const checkedPlots = new Set<string>();
+/**
+ * The points of the signal a test posted itself (a kind's picture, which the page's stand-in reads answer from, so it
+ * is the full data there): the next point after the one read is checked against them too, an answer apart from the
+ * plot's own full source (C6). Null where the test knows no signal of its own.
+ */
+let knownSignal: { xs: number[]; values?: Array<number | null> } | null = null;
+test.afterEach(() => { knownSignal = null; });
 test.beforeEach(() => { seenPlots.clear(); checkedPlots.clear(); });
 /**
  * A plot's name, as the audit names a canvas: its id, else its class and the data attributes that say which plot it
@@ -552,6 +563,10 @@ for (const [kind, chain] of reachableFrameKinds()) {
         }
         await answerKinds(page, scanned!, answered);
         expect((await stageScans(page)).map(stageFrame)).toContain(kind);
+        // The posted picture is the data its reads answer from: a line's or bar's points, an image's columns. A
+        // signal drawn as itself (its envelope) and a trigger's events are read elsewhere, so they have none here.
+        const posted = KIND_VIEWS[kind] as { xs: number[]; values?: Array<number | null>; waveform?: unknown; events?: unknown; kind: string };
+        knownSignal = posted.waveform || posted.events ? null : posted.kind === 'heatmap' ? { xs: posted.xs } : { xs: posted.xs, ...(posted.values ? { values: posted.values } : {}) };
         // The kind is drawn: overlaid, or (an image a recording each) in lanes.
         await expect.poll(async () => (await page.locator('.track-canvas[data-plot], [data-stage-canvas][data-plot]').evaluateAll(plots => plots.filter(plot => (plot as HTMLElement).dataset.plotAxes).length))).toBeGreaterThan(0);
         await expectEveryPlot(page);

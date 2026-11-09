@@ -46,6 +46,25 @@ export interface CombineRequest {
     detail?: StageDetail;
 }
 
+/**
+ * The last zoomed answer a plot keeps on screen while the next window's comes (A35, C2): kept for the pictures it was
+ * taken of (the request's data keys, which a new scan, a calibration or a file's new version changes), so a picture
+ * taken since never shows it.
+ */
+export interface LastFine {
+    keep(identity: string, asked: CombineRequest, combined: Combined): void;
+    of(identity: string, asked: CombineRequest): Combined | undefined;
+}
+
+export function createLastFine(): LastFine {
+    const kept = new Map<string, Combined>();
+    const key = (identity: string, asked: CombineRequest): string => `${identity}|${JSON.stringify([asked.base, asked.compare])}`;
+    return {
+        keep(identity, asked, combined) { kept.set(key(identity, asked), combined); },
+        of: (identity, asked) => kept.get(key(identity, asked)),
+    };
+}
+
 export interface CombineSource {
     /**
      * The combination, undefined while it is asked for. `identity` names what is combined whatever its keys (the

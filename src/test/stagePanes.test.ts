@@ -6,10 +6,11 @@ import { held } from './helpers/heldSource';
 import { spectrumLayer } from '../webview/runtime/overlaySpectrumPainter';
 import { axisNameParts, fontPixels } from '../webview/plot/axisTitle';
 import { heatmapDbRange, niceRange } from '../shared/utils/ticks';
-import { alongAxisTicks, axisFractionOf, axisValueAt, byLevel, levelBinsOf, emptyStageText, eventLayers, paintOverlay, stageAxes, paintColourBar, colourBarTop, stageEventCounts, stageDiffRange, stageHeadline, stageRange, stageHover, stageStep, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
+import { alongAxisTicks, axisFractionOf, colourEndText, paintTimeAxis, axisValueAt, byLevel, levelBinsOf, emptyStageText, eventLayers, paintOverlay, stageAxes, paintColourBar, colourBarTop, stageEventCounts, stageDiffRange, stageHeadline, stageRange, stageHover, stageStep, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
 import type { StageView } from '../shared/protocol/backendProtocol';
 import { getStrings } from '../shared/i18n/strings';
 import { fetchedSource, localCells, localLine, NO_FULL_DATA } from '../webview/runtime/fullRead';
+import { gainAxisName } from '../webview/runtime/pairSpectrum';
 
 const line = (values: number[], quantity: StageView['quantity'] = 'level'): StageView => ({ frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity, xs: [100, 1000, 10000], values });
 const strings = { stageNoDelta: 'none', stageMaxDelta: '{at} {delta}' };
@@ -99,6 +100,13 @@ test('a cross-channel picture names its pair on the value axis: the channel over
     assert.deepEqual(stageAxes(names, { ...line([0.2, 0.5, 0.9], 'coherence'), pair: { output: 2, input: 1 } }, undefined), { x: 'Frequency [Hz]', y: 'Coherence γ² · ch2 / ch1 [–]' });
     assert.equal(stageAxes(names, { ...line([0, -3, -6], 'gain'), pair: { output: 3, input: 1 } }, undefined).y, 'Gain · ch3 / ch1 [dB]');
     assert.equal(stageAxes(names, line([0.2, 0.5, 0.9], 'coherence'), undefined).y, 'Coherence γ² [–]');
+    // A transfer function of two units is a transfer level in dB re their ratio, as the pair view names it (A33).
+    for (const language of ['en', 'ja'] as const) {
+        const strings = getStrings(language);
+        const level = stageAxes(strings, { ...line([94, 91, 88], 'gain'), unit: 'dB re 2e-05 Pa/V', pair: { output: 2, input: 1 } }, undefined).y;
+        assert.equal(level, `${gainAxisName({ axisLabel: '', levelReferenceLabel: 'dB re 2e-05 Pa/V' }, strings).replace(/ \[/u, ' · ch2 / ch1 [')}`);
+        assert.equal(stageAxes(strings, { ...line([0, -3, -6], 'gain'), pair: { output: 2, input: 1 } }, undefined).y, `${gainAxisName(undefined, strings).replace(/ \[/u, ' · ch2 / ch1 [')}`);
+    }
 });
 
 test('a metric or level over time names what it measures on its value axis, never a bare value or an amplitude in dB (R4)', () => {
@@ -676,8 +684,9 @@ test('the right-hand level axis writes its own round ticks, each at the place of
 });
 
 /** A context that records each text drawn with its place, alignment and font, measuring 6 px a character at 10 px. */
-function textCanvas(width: number, height: number): { canvas: HTMLCanvasElement; texts: Array<{ text: string; x: number; y: number; font: string; align: string; turned: boolean }> } {
+function textCanvas(width: number, height: number): { canvas: HTMLCanvasElement; texts: Array<{ text: string; x: number; y: number; font: string; align: string; turned: boolean }>; strokes: number[] } {
     const texts: Array<{ text: string; x: number; y: number; font: string; align: string; turned: boolean }> = [];
+    const strokes: number[] = [];
     const state = { font: '10px sans-serif', textAlign: 'left', turned: false };
     const saved: Array<typeof state> = [];
     const context = new Proxy({}, {
@@ -685,12 +694,13 @@ function textCanvas(width: number, height: number): { canvas: HTMLCanvasElement;
             : key === 'fillText' ? (text: string, x: number, y: number) => { texts.push({ text, x, y, font: state.font, align: state.textAlign, turned: state.turned }); }
             : key === 'save' ? () => { saved.push({ ...state }); } : key === 'restore' ? () => { Object.assign(state, saved.pop() ?? state); }
             : key === 'rotate' ? () => { state.turned = true; }
+            : key === 'moveTo' || key === 'lineTo' ? (x: number) => { if (!state.turned) strokes.push(x); }
             : key === 'font' || key === 'textAlign' ? state[key] : key === 'createImageData' || key === 'getImageData' ? (w: number, h: number) => ({ width: w, height: h, data: new Uint8ClampedArray(Math.max(1, w * h * 4)) })
             : key.toString().startsWith('create') ? () => ({ addColorStop: () => undefined }) : () => undefined,
         set: (_target, key, value) => { if (key === 'font' || key === 'textAlign') state[key] = String(value); return true; },
     });
     const canvas = { width: 0, height: 0, clientWidth: width, clientHeight: height, ownerDocument: {}, dataset: {} as DOMStringMap, getContext: () => context } as unknown as HTMLCanvasElement;
-    return { canvas, texts };
+    return { canvas, texts, strokes };
 }
 
 test('every number along a horizontal axis writes a negative with a true minus (a lag, the time from a trigger), as the value axis does (R4)', () => {
@@ -770,4 +780,76 @@ test('a horizontal axis name too long for a narrow plot, even fitted, starts at 
         assert.ok(drawn.length > 0, `${width}: the name is drawn: ${JSON.stringify(texts.map(item => item.text))}`);
         for (const item of drawn) assert.ok(item.x >= plot.frame.left - 0.5, `${width}: "${item.text}" at ${item.x}, the plot starts at ${plot.frame.left}`);
     }
+});
+
+test('a colour bar\'s ends are written as the range they end, never rounded off a typed range: −23.5 reads −23.5, and no −0 (A31, C5)', () => {
+    assert.equal(colourEndText(-23.5, 23.5), '−23.5');
+    assert.equal(colourEndText(-80, 80), '−80');
+    assert.equal(colourEndText(0, 80), '0');
+    assert.equal(colourEndText(-0.0001, 80), '−0.0001');
+    // A narrow span still takes the decimals it needs, as the ticks do.
+    assert.equal(colourEndText(0.002, 0.004), '0.0020');
+    const { canvas, texts } = textCanvas(400, 160);
+    const heat: StageView = { frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity: 'level', yAxis: 'frequency', xs: [0, 1], ys: [100, 1000], matrix: [[-40, -40], [-30, -30]] };
+    paintOverlay(canvas, { layers: [{ view: heat, color: '', full: held(heat) }] }, { min: -23.5, max: 0 }, { x: 'Time [s]', y: 'Frequency [Hz]', colour: 'Level [dBFS]' });
+    assert.ok(texts.some(item => item.text === '−23.5'), JSON.stringify(texts.map(item => item.text)));
+    assert.ok(!texts.some(item => item.text === '−23' || item.text === '−24'), JSON.stringify(texts.map(item => item.text)));
+});
+
+test('the right-hand level axis writes its numbers clear of its name, all smaller where the widest would reach it, as the left axis does (A36, R4)', () => {
+    const { canvas, texts } = textCanvas(400, 200);
+    const flat = (level: number): StageView => measured(line([level, level, level]));
+    // Numbers as wide as "−100000" would reach the name from a 52 px margin unless all are written smaller.
+    const right = { min: -100000, max: 0 };
+    const plot = paintOverlay(canvas, { layers: [{ view: flat(-20), color: 'a', full: held(flat(-20)) }] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dBFS]' },
+        { secondary: { layers: [{ view: flat(-50), color: 'b', full: held(flat(-50)) }], range: right, title: 'Level [dB SPL re 20 µPa]' } });
+    assert.ok(plot);
+    const edge = plot.frame.left + plot.frame.width;
+    const ticks = texts.filter(item => !item.turned && item.x > edge && /\d/u.test(item.text));
+    assert.ok(ticks.length >= 2, JSON.stringify(texts.filter(item => item.x > edge)));
+    // The name is turned and centred 10 px in from the right edge: half a 10 px line either side of it.
+    const nameLeft = 400 - 10 - 5;
+    for (const tick of ticks) {
+        const end = tick.x + tick.text.length * 6 * fontPixels(tick.font) / 10;
+        assert.ok(end <= nameLeft + 0.5, `"${tick.text}" at ${tick.x} in ${tick.font} ends at ${end}, the name starts at ${nameLeft}, the plot ends at ${edge}`);
+    }
+});
+
+test('a report figure\'s title and legend never run past the canvas: the title cut in the middle, each legend name cut to its share of the row (A37, R4)', () => {
+    const title = 'Spectrum of a very long recording name from the third measurement session, channel 2 — 1/3-octave';
+    const legend = [
+        { color: 'a', text: 'Base: a recording whose file name runs on well past the figure, take 12.wav' },
+        { color: 'b', text: 'Compare 1: another recording with an even longer file name than the base, take 13.wav' },
+    ];
+    for (const width of [640, 320, 180, 90]) {
+        const { canvas, texts, strokes } = textCanvas(width, 240);
+        const view = measured(line([-20, -40, -60]));
+        paintOverlay(canvas, { layers: [{ view, color: 'a', full: held(view) }] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dBFS]' }, { labels: { title, legend } });
+        for (const item of texts.filter(entry => !entry.turned)) {
+            const length = item.text.length * 6 * fontPixels(item.font) / 10;
+            const end = item.align === 'center' ? item.x + length / 2 : item.align === 'right' ? item.x : item.x + length;
+            assert.ok(end <= width + 0.5, `${width}: "${item.text}" in ${item.font} ends at ${end}`);
+        }
+        for (const x of strokes) assert.ok(x <= width + 0.5, `${width}: a line drawn to ${x}`);
+        const shownTitle = texts.find(item => item.font.startsWith('bold'));
+        if (width >= 180) {
+            assert.ok(shownTitle && shownTitle.text.includes('…') && title.startsWith(shownTitle.text.split('…')[0]) && title.endsWith(shownTitle.text.split('…')[1]), `${width}: the title is cut in the middle: ${shownTitle?.text}`);
+            assert.ok(texts.filter(item => item.font === '12px sans-serif' && item.y === 34).length === 2, `${width}: both legend names are written`);
+        }
+    }
+    // A title that fits is written whole.
+    const { canvas, texts } = textCanvas(640, 240);
+    const view = measured(line([-20, -40, -60]));
+    paintOverlay(canvas, { layers: [{ view, color: 'a', full: held(view) }] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dBFS]' }, { labels: { title: 'Spectrum', legend: [{ color: 'a', text: 'Base: a.wav' }] } });
+    assert.ok(texts.some(item => item.text === 'Spectrum') && texts.some(item => item.text === 'Base: a.wav'));
+});
+
+test('a time axis strip fits its name as every axis name is: smaller, its quantity shortened, never cut off the strip (A36, R4)', () => {
+    const { canvas, texts } = textCanvas(120, 20);
+    Object.assign(canvas, { width: 120, height: 20 });
+    paintTimeAxis(canvas, [{ x: 10, text: '0' }, { x: 60, text: '1' }], 'Time from the trigger, in seconds [s]', 120, { muted: '#888', line: '#444', text: '#ddd' });
+    const name = texts.find(item => item.text.endsWith('[s]'));
+    assert.ok(name, JSON.stringify(texts.map(item => item.text)));
+    assert.ok(name.x >= 0, `the name starts at ${name.x}, inside the strip`);
+    assert.ok(name.x + name.text.length * 6 * fontPixels(name.font) / 10 <= 120 + 0.5, `"${name.text}" runs past the strip`);
 });

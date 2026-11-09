@@ -11,6 +11,7 @@ import type { UiStrings } from '../../shared/i18n/strings';
 import { BAND_CENTERS_HZ } from './entryTable';
 import { PANE_LEFT, paneAxes, type LevelInput, type PaneRange } from './comparePanes';
 import { uncalibratedUnits } from '../../shared/utils/format';
+import { middleEllipsis } from '../../shared/dataset/datasetTable';
 import type { NormalizedRange } from './waveformInteraction';
 import { plotPointIn, type PlotMargins } from './plotInteraction';
 import { HOVER_PICK_RADIUS_PX, nearestPoint } from './plotHover';
@@ -25,7 +26,7 @@ import { cellIndex, NO_FULL_DATA, STEP_AHEAD, type FullPoints, type FullRead, ty
 /** Canvas x the level axis's turned title is centred on, in the gutter left of its tick labels. */
 const AXIS_TITLE_X = 10;
 
-export type StageStrings = Pick<UiStrings, 'axisFrequency' | 'axisTime' | 'axisTriggerTime' | 'axisBand' | 'axisBark' | 'axisQuefrency' | 'axisCepstrum' | 'axisLag' | 'axisCorrelation' | 'axisLevel' | 'axisLevelUncal' | 'axisLevelCal' | 'axisDelta' | 'dsValue' | 'axisGain' | 'axisCoherence' | 'legendHeadline' | 'legendLeak' | 'legendLine' | 'stageNoDelta' | 'stageEventCounts' | 'stageNoEvents' | 'stageMaxDelta' | 'stepNotDrawable' | 'waveRangeAxisAmplitude' | 'stagePairBase' | 'axisLoudness' | 'axisSharpness' | 'axisRoughness' | 'axisSpecificRoughness' | 'axisLevelOf' | 'axisRms' | 'axisRmsTimeWeighted' | 'axisPower' | 'axisUncalibrated' | 'axisUnitUnknown'>;
+export type StageStrings = Pick<UiStrings, 'axisFrequency' | 'axisTime' | 'axisTriggerTime' | 'axisBand' | 'axisBark' | 'axisQuefrency' | 'axisCepstrum' | 'axisLag' | 'axisCorrelation' | 'axisLevel' | 'axisLevelUncal' | 'axisLevelCal' | 'axisDelta' | 'dsValue' | 'axisGain' | 'axisTransferLevel' | 'axisCoherence' | 'legendHeadline' | 'legendLeak' | 'legendLine' | 'stageNoDelta' | 'stageEventCounts' | 'stageNoEvents' | 'stageMaxDelta' | 'stepNotDrawable' | 'waveRangeAxisAmplitude' | 'stagePairBase' | 'axisLoudness' | 'axisSharpness' | 'axisRoughness' | 'axisSpecificRoughness' | 'axisLevelOf' | 'axisRms' | 'axisRmsTimeWeighted' | 'axisPower' | 'axisUncalibrated' | 'axisUnitUnknown'>;
 
 const DB_QUANTITIES = ['level', 'gain'];
 const isDb = (view: StageView | null): boolean => DB_QUANTITIES.includes(view?.quantity ?? '');
@@ -209,7 +210,8 @@ export function stageAxes(strings: StageStrings, view: StageView | null, input: 
     // A level over time (sound_level or rms_trend in dB) names what it is the level of, in the files' reference.
     if (view?.quantity === 'level' && view.x === 'time') return { x, y: timeLevelTitle(strings, input, view.measure) };
     const y = view?.quantity === 'level' ? paneAxes(strings, input).level.y
-        : view?.quantity === 'gain' ? strings.axisGain
+        // A transfer function of two units is a transfer level in dB re their ratio, named as the pair view names it (A33).
+        : view?.quantity === 'gain' ? (view.unit ? strings.axisTransferLevel.replace('{unit}', view.unit) : strings.axisGain)
             : view?.quantity === 'coherence' ? strings.axisCoherence
                 : view?.quantity === 'cepstrum' ? strings.axisCepstrum
                     : view?.quantity === 'correlation' ? strings.axisCorrelation
@@ -663,8 +665,17 @@ export function tickTexts(values: readonly number[], log: boolean): string[] {
     const allK = high >= 1000 && low < 1000 && high / low < 10;
     return values.map(value => (value >= 1000 || allK ? `${stepText(value / 1000, step === undefined ? undefined : step / 1000)}k` : stepText(value, step)));
 }
-/** A value on the level axis with as many decimals as its span needs (cepstral coefficients need four or five). */
-const levelTick = (value: number, span: number): string => withMinus(span >= 8 ? String(Math.round(value)) : value.toFixed(Math.max(1, Math.min(6, Math.ceil(-Math.log10(span / 8))))));
+/**
+ * An end of a colour bar: with as many decimals as its span needs (cepstral coefficients need four or five), and
+ * never fewer than the end itself has, so a range typed as −23.5 to 0 reads −23.5, not −23 (A31, C5).
+ */
+export function colourEndText(value: number, span: number): string {
+    const spanDecimals = span >= 8 ? 0 : Math.max(1, Math.min(6, Math.ceil(-Math.log10(span / 8))));
+    let own = 0;
+    while (own < 6 && Math.abs(value * 10 ** own - Math.round(value * 10 ** own)) > 1e-6 * Math.max(1, Math.abs(value * 10 ** own))) own++;
+    const text = value.toFixed(Math.max(spanDecimals, own));
+    return withMinus(Number(text) === 0 ? text.replace(/^-/u, '') : text);
+}
 
 /** One picture drawn on a pane: its colour and, over others, its line weight. */
 export interface StageLayer {
@@ -961,21 +972,30 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
     const text = options.labels ? '#222' : style?.getPropertyValue('--text').trim() || '#ddd';
     const margins = options.margins ?? (lane ? { left: 0, top: 0, right: 0, bottom: 0 } : undefined);
     const xLabels = options.xAxisLabels !== false && !lane;
-    const left = margins?.left ?? PANE_LEFT, top = margins?.top ?? (options.labels ? 40 : 4), bottom = margins?.bottom ?? 16, right = margins?.right ?? 4;
+    const left = margins?.left ?? PANE_LEFT, top = margins?.top ?? (options.labels ? 40 : 4), bottom = margins?.bottom ?? 16, right = margins?.right ?? (options.secondary ? PANE_LEFT : 4);
     const plotWidth = Math.max(1, width - left - right), plotHeight = Math.max(1, height - top - bottom);
     if (options.labels) {
+        // A figure's title and legend stay on the canvas (A37, R4): the title cut in the middle, and the legend's
+        // names, where all of them do not fit one row, each given an equal share of it and cut in the middle to it.
+        const room = Math.max(0, width - left - 4);
         context.font = 'bold 14px sans-serif';
         context.fillStyle = '#222';
-        context.fillText(options.labels.title, left, 18);
+        const title = fitToWidth(options.labels.title, room, text => context.measureText(text).width);
+        if (title) context.fillText(title, left, 18);
         context.font = '12px sans-serif';
+        const legend = options.labels.legend;
+        const natural = legend.reduce((sum, item) => sum + 30 + context.measureText(item.text).width, 0) - 8;
+        const share = legend.length ? room / legend.length : 0;
         let x = left;
-        for (const item of options.labels.legend) {
+        for (const item of legend) {
+            if (x + 18 > width - 4) break;
             context.strokeStyle = item.color;
             context.lineWidth = 2.5;
             context.beginPath(); context.moveTo(x, 30); context.lineTo(x + 18, 30); context.stroke();
             context.fillStyle = '#444';
-            context.fillText(item.text, x + 22, 34);
-            x += 30 + context.measureText(item.text).width;
+            const name = natural <= room ? item.text : fitToWidth(item.text, Math.min(share - 30, width - 4 - (x + 22)), text => context.measureText(text).width);
+            if (name) context.fillText(name, x + 22, 34);
+            x += natural <= room ? 30 + context.measureText(item.text).width : share;
         }
     }
     context.font = PLOT_TEXT_FONT;
@@ -1109,7 +1129,7 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
         // The colour bar, top right inside the plot: what the colour measures, and its ends.
         const edge = Math.max(Math.abs(range.min), Math.abs(range.max));
         const low = signedScale ? -edge : range.min, high = signedScale ? edge : range.max;
-        const endText = (value: number): string => levelTick(value, high - low);
+        const endText = (value: number): string => colourEndText(value, high - low);
         // Under the region's corner tag when there is one, as the pending note is.
         // What the colour measures, named on the canvas: every ui-smoke test fails a colour bar that does not draw it (R4).
         if (canvas.dataset) canvas.dataset.plotColour = axes.colour ?? '';
@@ -1298,7 +1318,10 @@ export function paintTimeAxis(canvas: HTMLCanvasElement, ticks: ReadonlyArray<{ 
         context.font = PLOT_TEXT_FONT;
         context.textAlign = 'left';
         context.textBaseline = 'alphabetic';
-        const titleLeft = width - context.measureText(title).width - 2;
+        // Its name fitted as every axis name is (fitAxisTitle: smaller, its quantity shortened, never dropped, A36).
+        const fitted = fitAxisTitle(title, width / 2, part => context.measureText(part).width);
+        const fittedTitle = fitted.lines.join(' ');
+        const titleLeft = Math.max(0, width - context.measureText(fittedTitle).width * fitted.scale - 2);
         context.fillStyle = colors.muted;
         context.strokeStyle = colors.line;
         context.lineWidth = 1;
@@ -1314,7 +1337,9 @@ export function paintTimeAxis(canvas: HTMLCanvasElement, ticks: ReadonlyArray<{ 
         }
         context.stroke();
         context.fillStyle = colors.text;
-        context.fillText(title, titleLeft, height - 6);
+        context.font = scaledFont(PLOT_TEXT_FONT, fitted.scale);
+        context.fillText(fittedTitle, titleLeft, height - 6);
+        context.font = PLOT_TEXT_FONT;
     });
 }
 
@@ -1359,6 +1384,18 @@ function paintValueTitle(context: CanvasRenderingContext2D, frame: { top: number
 
 /** The least a value axis's numbers are shrunk to keep clear of its name; past it they are written at this size. */
 const MIN_TICK_SCALE = 0.6;
+/** `text` as it fits `room` px: whole, or cut in the middle ("start…end"); '' where not even "…" fits. */
+export function fitToWidth(text: string, room: number, measure: (text: string) => number): string {
+    if (measure(text) <= room) return text;
+    let low = 0, high = text.length - 1;
+    while (low < high) {
+        const mid = Math.ceil((low + high) / 2);
+        if (measure(middleEllipsis(text, mid + 1)) <= room) low = mid; else high = mid - 1;
+    }
+    const cut = middleEllipsis(text, low + 1);
+    return measure(cut) <= room ? cut : '';
+}
+
 /** The least room between two numbers along the horizontal axis. */
 const X_LABEL_GAP_PX = 4;
 
@@ -1457,16 +1494,24 @@ function paintRightAxis(context: CanvasRenderingContext2D, frame: { left: number
     context.strokeStyle = colors.line;
     context.lineWidth = 1;
     context.beginPath(); context.moveTo(x, frame.top); context.lineTo(x, frame.top + frame.height); context.stroke();
+    // Its name first, so its numbers are written clear of it: all smaller where the widest would reach it (A36, R4),
+    // as the left axis's are.
+    const centre = width - AXIS_TITLE_X;
+    const titleRight = paintValueTitle(context, frame, title, colors.text, centre);
+    const titleLeft = title ? 2 * centre - titleRight : width;
     context.fillStyle = colors.muted;
     context.textAlign = 'left';
-    for (const tick of range.max > range.min ? ticks : []) {
+    const shown = range.max > range.min ? ticks : [];
+    const room = titleLeft - 1 - (x + 4);
+    const widest = shown.reduce((most, tick) => Math.max(most, context.measureText(tick.text).width), 0);
+    context.font = scaledFont(typeof context.font === 'string' ? context.font : PLOT_TEXT_FONT, widest > room && widest > 0 ? Math.max(MIN_TICK_SCALE, room / widest) : 1);
+    for (const tick of shown) {
         const y = frame.top + (1 - tick.fraction) * frame.height;
         context.beginPath(); context.moveTo(x, y); context.lineTo(x + 3, y); context.stroke();
         context.textBaseline = tick.fraction >= 1 ? 'top' : tick.fraction <= 0 ? 'bottom' : 'middle';
         context.fillText(tick.text, x + 4, y);
     }
     context.restore();
-    paintValueTitle(context, frame, title, colors.text, width - AXIS_TITLE_X);
 }
 
 /** Where a bar centred on `x` starts and ends on the canvas: a ratio each side on a log axis, a step on a linear one. */

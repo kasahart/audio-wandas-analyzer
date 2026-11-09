@@ -116,12 +116,16 @@ export function barkText(bark: number): string {
 
 /** A level to a tenth of a decibel, in its unit ("−42.3 dB", "61.0 dB SPL"). */
 export function levelText(db: number, unit = 'dB'): string {
-    return `${withMinus(db.toFixed(1))} ${unit}`;
+    return `${noNegativeZero(withMinus(db.toFixed(1)))} ${unit}`;
 }
 
-/** A signed number with a sign always written: to a tenth by default ("+23.7", "−1.4"). */
+/** A number written as zero has no sign ("−0.0" is "0.0", A36): a level just below zero is not negative as written. */
+const noNegativeZero = (text: string): string => (/^[−-]0(\.0*)?$/u.test(text) ? text.slice(1) : text);
+
+/** A signed number with a sign always written: to a tenth by default ("+23.7", "−1.4"); zero as written is "+0.0", never "−0.0". */
 export function signedNumberText(value: number, digits = 1): string {
-    return `${value >= 0 ? '+' : '−'}${Math.abs(value).toFixed(digits)}`;
+    const magnitude = Math.abs(value).toFixed(digits);
+    return `${value >= 0 || Number(magnitude) === 0 ? '+' : '−'}${magnitude}`;
 }
 
 /** A signed difference: dB to a tenth with its unit, other values to three significant figures ("+3.2 dB", "−0.125"). */

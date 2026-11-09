@@ -22,7 +22,7 @@ import { eventsKey, excludedOf, withDroppedEvents, withEventExcluded, type Event
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { createStepBar, invalidReason, stepChipLabel, stepLimits, INPUT_STAGE } from './stepBar';
 import { createStageSource, type StageSpec } from './stageSource';
-import { createCombineSource, NOTHING_COMBINED, TOO_LARGE_COMBINED, type Combined } from './combineSource';
+import { createCombineSource, createLastFine, NOTHING_COMBINED, TOO_LARGE_COMBINED } from './combineSource';
 import { createStageReader } from './stageReader';
 import type { FullRead } from './fullRead';
 import { chosenStage, combineRequest, comparedPath as comparedPathOf, eachBaseTitle, enterStageState, holdStageSpec, initialStageState, liveRegion as liveRegionOf, openStageState, pictureSummary, plotsOf, regionStageSpec, stageSpec, WHOLE_ZOOM } from './trackStageModel';
@@ -178,7 +178,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
     /** 報告に pressed: the report waits for its files' bins (with Δ shown or not, as when it was pressed). */
     let pendingReport: { showDiff: boolean; region: EntryRegion | null } | null = null;
     /** The last zoomed combination of each comparison, drawn until the next zoom's is in. */
-    const lastFine = new Map<string, Combined>();
+    const lastFine = createLastFine();
     const detail = createDetailPlanner(deps.window.performance, deps.window, () => deps.rerender());
     const stepBar = createStepBar({
         document, strings, mode: 'compare',
@@ -689,8 +689,9 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         } : undefined;
         const fineAsk = fineDetail ? { ...fineDetail, ...peakWindow } : undefined;
         const fineCombined = asked && fineAsk ? combine.get(`${combineIdentity}|${JSON.stringify(fineAsk)}`, { ...asked, detail: fineAsk }, forget) : undefined;
-        if (fineCombined) lastFine.set(combineIdentity, fineCombined);
-        const shownCombined = fineCombined ?? (fineDetail ? lastFine.get(combineIdentity) : undefined) ?? coarseCombined;
+        // The last zoomed answer, for the pictures it was taken of only (createLastFine, A35).
+        if (fineCombined && asked) lastFine.keep(combineIdentity, asked, fineCombined);
+        const shownCombined = fineCombined ?? (fineDetail && asked ? lastFine.of(combineIdentity, asked) : undefined) ?? coarseCombined;
         const combining = !waiting && asked != null && coarseCombined === undefined;
         const coarsePlots = plotsOf(coarse, tracks, comparePath, basePaths, coarseCombined);
         // Where each picture's numbers are read (R7): a recording's own full data, or the median and the difference

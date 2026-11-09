@@ -18,7 +18,7 @@ import { deltaViews, sameCondition, withBins, type CompareModel, type LevelInput
 import type { PlotMargins, PlotWindow } from './plotInteraction';
 import { axisFractionOf, axisValueAt, paintOverlay, stageAxes, stageDiffRange, stageRange, STAGE_MARGINS, type StageAxes, type StagePlot } from './stagePanes';
 import { createDetailPlanner } from './stageDetail';
-import { createCombineSource, noDeltaNote, TOO_LARGE_COMBINED, type Combined } from './combineSource';
+import { createCombineSource, createLastFine, noDeltaNote, TOO_LARGE_COMBINED } from './combineSource';
 import { createStageSource, stageBasis, type StageSpec } from './stageSource';
 import { createStageReader } from './stageReader';
 import { localLine, NO_FULL_DATA, wholeBars, type FullRead } from './fullRead';
@@ -126,7 +126,7 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
     // A read of values the backend let go: their pictures are scanned again, then read anew.
     const reader = createStageReader('read-held', message => deps.post(message), keys => { source.forgetData(keys); deps.scheduleSide(); });
     /** The last zoomed difference of each held step, drawn until the next zoom's is in. */
-    const lastFine = new Map<string, Combined>();
+    const lastFine = createLastFine();
     const detail = createDetailPlanner(window.performance, window, () => deps.scheduleSide());
 
     /** The step `id`'s picture under `recipe` (the whole file, as the table scans it). */
@@ -211,9 +211,10 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
         const finer = coarse.kind === 'bar' || coarse.kind === 'none' ? null : detail.spec(specs.with, coarse, zoom.x, zoom.y, canvas.clientWidth || 300);
         const fineDetail = finer?.message.detail;
         const zoomed = asked && fineDetail ? combine.get(`${identity}|${JSON.stringify(fineDetail)}`, { ...asked, detail: fineDetail }, forget) : undefined;
-        if (zoomed) lastFine.set(identity, zoomed);
+        // The last zoomed answer, for the pictures it was taken of only (createLastFine, A35).
+        if (zoomed && asked) lastFine.keep(identity, asked, zoomed);
         const delta = whole.diff;
-        const shown = (zoomed ?? (fineDetail ? lastFine.get(identity) : undefined))?.diff ?? delta;
+        const shown = (zoomed ?? (fineDetail && asked ? lastFine.of(identity, asked) : undefined))?.diff ?? delta;
         paintView(shown, delta, stageDiffRange(delta), stageAxes(strings, delta, input, true), zoom, { diff: true, color: DIFF_COLOR, empty: noDeltaNote(whole, strings), ...(asked ? { full: reader.combined(asked.base, asked.compare, 'diff') } : {}) });
     }
     /** The held row's Δ spectrum (from the table's own scan), zoomed as its window says. */

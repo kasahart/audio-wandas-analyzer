@@ -202,3 +202,12 @@ test('a stretch of time is written to 10 ms, finer where its ends would read ali
     const fixture = { averages: 32, startSeconds: 1.2341, endSeconds: 1.2346 };
     assert.match(pairHeader([{ response: { status: 'ok', axisLabel: 'a', ...fixture } } as unknown as PairCurve], { pairAverages: '{n} avg' } as PairStrings)?.text ?? '', / 1\.23410–1\.23460 s$/u);
 });
+
+test('a level or a difference written as zero is never negative: "0.0 dB" and "+0.0", not "−0.0" (A36, C5)', () => {
+    assert.equal(levelText(-0.04), '0.0 dB');
+    assert.equal(levelText(-0.06), '−0.1 dB');
+    assert.equal(signedNumberText(-0.04), '+0.0');
+    assert.equal(signedText(-0.04), '+0.0 dB');
+    assert.equal(signedText(0.06), '+0.1 dB');
+    assert.equal(signedNumberText(-0.0004, 3), '+0.000');
+});

@@ -10,7 +10,7 @@ export const colourBar: ChartContract = {
     rows: [
         {
             id: 'colour-bar.ticks', value: 'ticks', what: 'カラーバーの両端の数の書き方',
-            computedIn: [`${SP}:paintPlot`, `${SP}:endText`, `${SP}:levelTick`],
+            computedIn: [`${SP}:paintPlot`, `${SP}:endText`, `${SP}:colourEndText`],
             from: 'axis', trace: '呼ぶ側の範囲の両端を書く（範囲の出どころは各熱図の range の行）。',
             tests: [
                 t('src/test/stagePanes.test.ts', 'a colour or value range not in dB is widened to round ends, as a dB range is'),
