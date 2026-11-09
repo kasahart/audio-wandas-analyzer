@@ -148,6 +148,12 @@ export function stageRange(views: ReadonlyArray<StageView | null>): PaneRange {
     return { min, max };
 }
 
+/** A level axis's unit, from its name ("Level [dBFS]" → "dBFS"), for the plot's level readouts; none for another axis. */
+function levelUnitOf(title: string | undefined): { levelUnit?: string } {
+    const unit = axisNameParts(title ?? '')?.unit;
+    return unit?.startsWith('dB') ? { levelUnit: unit } : {};
+}
+
 /** A dB axis's round steps, and the most steps it takes (stageRange). */
 const DB_STEPS = [5, 10, 20, 25] as const;
 const DB_MAX_STEPS = 6;
@@ -701,6 +707,11 @@ export interface StagePlot {
     lineYAt?: (value: number) => number;
     /** The lines read on the right-hand level axis (`StagePaintOptions.secondary`), placed by its range. */
     secondary?: StagePlot;
+    /**
+     * The unit a level on this plot reads in: its level axis's own (a heatmap's colour bar's), with the files'
+     * reference ("dBFS", "dB SPL re 20 µPa"), so a readout never writes a bare "dB" beside an axis that says more.
+     */
+    levelUnit?: string;
     /** A heatmap drawn: its picture, and the cell (column, row of its matrix; −1 off the picture) at a point of the canvas. */
     image?: {
         layer: StageLayer;
@@ -962,7 +973,7 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
     let levelTicks: AxisTick[] = [];
     const levelOf = (axis: PaneRange) => (y: number): number => axis.min + (1 - (y - top) / plotHeight) * (axis.max - axis.min);
     const plot: StagePlot = { frame: { left, top, width: plotWidth, height: plotHeight }, xAt, yAt, xOf: x => xAxis.at((x - left) / plotWidth), xLog: xAxis.log, levelOf: levelOf(range),
-        lineYAt: looseAt(range), ratioStep: 1.12, lines: [], diff: !!options.diff, ...(options.readout === false ? { noReadout: true } : {}) };
+        lineYAt: looseAt(range), ratioStep: 1.12, lines: [], diff: !!options.diff, ...(options.readout === false ? { noReadout: true } : {}), ...levelUnitOf(heatmap ? axes.colour : axes.y) };
     // Every picture drawn says where its numbers are read (R7): a plot drawing one that does not is marked, and every
     // ui-smoke test fails it (canvasAudit.ts). A figure no pointer reads needs none.
     if (canvas.dataset) {
@@ -1116,7 +1127,8 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
             context.restore();
         }
         if (options.secondary) {
-            const secondPlot: StagePlot = { ...plot, yAt: levelAt(options.secondary.range), levelOf: levelOf(options.secondary.range), lineYAt: looseAt(options.secondary.range), lines: [] };
+            const { levelUnit: _main, ...shared } = plot;
+            const secondPlot: StagePlot = { ...shared, yAt: levelAt(options.secondary.range), levelOf: levelOf(options.secondary.range), lineYAt: looseAt(options.secondary.range), lines: [], ...levelUnitOf(options.secondary.title) };
             plot.secondary = secondPlot;
             for (const layer of secondaryOrder) {
                 if (layer.view.kind !== 'line' && layer.view.kind !== 'bar') continue;
@@ -1462,7 +1474,7 @@ function lineRead(plot: StagePlot, layer: StageLayer, point: ReadPoint, away?: n
     if (layer.readout) return { ...readoutOf(layer, point, layer.label ?? '', layer.readout(point.index, { x: point.at, value: point.value, ...(point.full && point.step !== undefined ? { step: point.step } : {}) })), index: point.index, away, ...full };
     const amount = plot.diff ? signed(point.value, isDb(view))
         // Levels to 0.1 dB, as the spectrum overlay reads them; other quantities (a coherence) to 3 figures.
-        : isDb(view) ? levelText(point.value) : amountText(point.value, view.unit);
+        : isDb(view) ? levelText(point.value, plot.levelUnit) : amountText(point.value, view.unit);
     const where = point.full ? atValue(view, point.at, undefined, point.step) : atText(view, point.index);
     return { ...readoutOf(layer, point, layer.label || (plot.diff ? 'Δ' : ''), [where, amount]), index: point.index, away, ...full };
 }
@@ -1536,7 +1548,7 @@ function cellRead(plot: StagePlot, layer: StageLayer, got: FullPoints, column: n
     const value = got.matrix?.[row]?.[column];
     const at = got.xs[column], place = got.ys?.[row];
     if (value === null || value === undefined || at === undefined || place === undefined) return null;
-    const amount = plot.diff ? signed(value, isDb(view)) : isDb(view) ? levelText(value) : amountText(value);
+    const amount = plot.diff ? signed(value, isDb(view)) : isDb(view) ? levelText(value, plot.levelUnit) : amountText(value);
     const where = layer.rowName ? atValue(view, at) : atValue(view, at, place, spacingAt(got.xs, column), spacingAt(got.ys, row));
     const name = got.rowNames?.[row] ?? layer.label ?? (plot.diff ? 'Δ' : '');
     const rowStep = spacingAt(got.ys, row);

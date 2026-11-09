@@ -8,7 +8,7 @@ import { axisNameParts, fontPixels } from '../webview/plot/axisTitle';
 import { heatmapDbRange, niceRange } from '../shared/utils/ticks';
 import { axisFractionOf, axisValueAt, byLevel, levelBinsOf, emptyStageText, eventLayers, paintOverlay, stageAxes, paintColourBar, colourBarTop, stageEventCounts, stageDiffRange, stageHeadline, stageRange, stageHover, stageStep, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
 import type { StageView } from '../shared/protocol/backendProtocol';
-import { fetchedSource, localLine, NO_FULL_DATA } from '../webview/runtime/fullRead';
+import { fetchedSource, localCells, localLine, NO_FULL_DATA } from '../webview/runtime/fullRead';
 
 const line = (values: number[], quantity: StageView['quantity'] = 'level'): StageView => ({ frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity, xs: [100, 1000, 10000], values });
 const strings = { stageNoDelta: 'none', stageMaxDelta: '{at} {delta}' };
@@ -587,4 +587,39 @@ test('a colour or value range not in dB is widened to round ends, as a dB range 
     assert.deepEqual(stageRange([view([3.21, 17.4], 'roughness')]), { min: 2, max: 19 });
     assert.deepEqual(stageRange([view([0.13, 0.87], 'value')]), { min: 0.05, max: 0.95 });
     assert.deepEqual(stageDiffRange(view([-0.37, 0.12], 'value')), { min: -0.4, max: 0.4 });
+});
+
+test('a level is read in its axis\'s own unit and reference, on the main axis, the right-hand one and a colour bar: never a bare dB beside "dBFS" (R4, R7)', () => {
+    const flat = (level: number): StageView => measured(line([level, level, level]));
+    const main = { view: flat(-20), color: 'main', full: held(flat(-20)) }, second = { view: flat(-60), color: 'second', full: held(flat(-60)) };
+    const plot = paintOverlay(strokingCanvas().canvas, { layers: [main] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level, uncalibrated [dBFS]' },
+        { secondary: { layers: [second], range: { min: -80, max: 0 }, title: 'Level [dB SPL re 20 µPa]' } });
+    assert.ok(plot);
+    const at = (layer: 'main' | 'second'): string => {
+        // The right-hand axis's lines are read on its own plot (plotHoverLayer reads both and takes the nearer).
+        const target = layer === 'main' ? plot : plot.secondary!;
+        const read = stageHover(target, plot.xAt(1000), target.yAt(layer === 'main' ? -20 : -60));
+        assert.ok(read, `the ${layer} line is read`);
+        return read.text;
+    };
+    assert.match(at('main'), /−20\.0 dBFS$/u);
+    assert.match(at('second'), /−60\.0 dB SPL re 20 µPa$/u);
+    // A spectrogram's cell, in its colour bar's unit.
+    const xs = [0, 1, 2, 3], ys = [100, 1000];
+    const cells = [[-30, -30, -30, -30], [-30, -30, -30, -30]];
+    const heat: StageView = { frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity: 'level', yAxis: 'frequency', xs, ys, matrix: cells };
+    const pictureContext = new Proxy({}, {
+        get: (_target, key) => (key === 'measureText' ? (text: string) => ({ width: text.length * 6 })
+            : key === 'createImageData' ? (width: number, height: number) => ({ width, height, data: new Uint8ClampedArray(width * height * 4) })
+                : key === 'createLinearGradient' ? () => ({ addColorStop: () => undefined }) : () => undefined),
+        set: () => true,
+    });
+    const picture = { width: 0, height: 0, clientWidth: 600, clientHeight: 200, ownerDocument: { createElement: () => ({ width: 0, height: 0, getContext: () => pictureContext }) }, dataset: {} as DOMStringMap, getContext: () => pictureContext } as unknown as HTMLCanvasElement;
+    const image = paintOverlay(picture, { layers: [{ view: heat, color: '', full: localCells(xs, ys, cells) }] }, { min: -80, max: 0 }, { x: 'Time [s]', y: 'Frequency [Hz]', colour: 'Level [dB SPL re 20 µPa]' });
+    assert.ok(image?.image);
+    const place = image.image.placeOf(1, 1000);
+    assert.match(stageHover(image, place.x, place.y)!.text, /−30\.0 dB SPL re 20 µPa$/u);
+    // A difference is a plain dB, as its axis says.
+    const diff = paintOverlay(strokingCanvas().canvas, { layers: [main] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Δ level [dB]' }, { diff: true });
+    assert.match(stageHover(diff!, diff!.xAt(1000), diff!.yAt(-20))!.text, /−20\.0 dB$/u);
 });
