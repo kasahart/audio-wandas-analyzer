@@ -8,7 +8,7 @@ import type { UiStrings } from '../../shared/i18n/strings';
 import type { ChannelSummary } from '../../shared/analysis/analysisTypes';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { uncalibratedUnits } from '../../shared/utils/format';
-import { BAND_CENTERS_HZ, bandLabel, HEADLINE_WITHIN_DB, quantile, levelDelta, type EntryModel } from './entryTable';
+import { BAND_CENTERS_HZ, bandLabel, HEADLINE_WITHIN_DB, quantile, levelDelta, type DerivedRow, type EntryModel } from './entryTable';
 import { baseName } from '../../shared/analysis/entryMetadata';
 import { median } from '../../shared/dataset/distribution';
 import { powerMeanDb, powerMeanOrNull } from '../../shared/utils/levels';
@@ -152,6 +152,19 @@ export function ofOneUnit<T>(results: ReadonlyMap<string, ScanResult>, members: 
 /** Whether every scan here that read its file has its levels of one level identity (levelIdentityOf). */
 export function oneLevelIdentity(results: ReadonlyArray<ScanResult | undefined>): boolean {
     return new Set(results.map(levelIdentity).filter((identity): identity is string => identity !== null)).size <= 1;
+}
+
+/**
+ * A fixed difference (D) measured again from `scans.fresh()`: the answer store's results of the current chain and
+ * calibration (or a region's scans just made under it). Taken from the store, never from a map of every result: a
+ * file or base recording whose result is of an earlier chain has none there, so the D row stays ≠ (baseOf needs them all).
+ */
+export function remeasuredFrom(row: DerivedRow, scans: { fresh(): ReadonlyMap<string, ScanResult> }, recipeKey: string): DerivedRow | null {
+    const fresh = scans.fresh();
+    const result = fresh.get(row.parentPath);
+    const base = baseOf(fresh, row.base.paths ?? [], result);
+    if (!result?.ok || !base) return null;
+    return { ...row, result, base: { ...row.base, ...base }, recipeKey, stale: false };
 }
 
 /**

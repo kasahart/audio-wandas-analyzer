@@ -15,7 +15,7 @@ import type { ScanResult } from '../../shared/protocol/backendProtocol';
 import { BAND_CENTERS_HZ, bandLabel, buildEntryModel, derivedKey, entryCsv, type BaseDefinition, type DerivedRow, type EntryModel } from './entryTable';
 import { levelColumns } from './figureModel';
 import { batchBundle, batchCount } from '../../shared/batch/batchBundle';
-import { baseOf, type CompareModel } from './comparePanes';
+import { remeasuredFrom, type CompareModel } from './comparePanes';
 import { compareGroupNames, groupLabels } from '../../shared/dataset/distribution';
 import { createDistributionPane } from './entryDistributionPane';
 import { createFilterPopover } from './entryFilterPopover';
@@ -805,16 +805,6 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     }
     /** A new Recipe from a step bar: every number changes, so the table scans again from the start. */
     /**
-     * Fixed differences marked ≠ are measured again under the current Recipe once its scan is done: the
-     * whole-file ones from the table's results, a region by a scan of its file and base over that region.
-     */
-    function remeasured(row: DerivedRow, results: ReadonlyMap<string, ScanResult>): DerivedRow | null {
-        const result = results.get(row.parentPath);
-        const base = baseOf(results, row.base.paths ?? [], result);
-        if (!result?.ok || !base) return null;
-        return { ...row, result, base: { ...row.base, ...base }, recipeKey: recipeKey(scanRecipe()), stale: false };
-    }
-    /**
      * Fixed differences of an earlier chain, measured again after a computation the user started (never at open);
      * one over a region whose base is a large group stays ≠ rather than scanning that group unasked.
      */
@@ -825,9 +815,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             if (!row.stale || !basePaths?.length) return;
             if (row.region !== 'all' && (basePaths.length > LARGE_BASE || progress.seconds(basePaths) > LARGE_BASE_S)) return;
             if (row.region === 'all') {
-                // Measured again only from results of the current chain and calibration: one still of an earlier one keeps it ≠.
-                if ([row.parentPath, ...basePaths].some(isStale)) return;
-                const next = remeasured(row, results);
+                // Measured again only from results of the current chain and calibration (comparePanes.remeasuredFrom).
+                const next = remeasuredFrom(row, scans, recipeKey(scanRecipe()));
                 if (next) derived = derived.map(item => (item === row ? next : item));
                 return;
             }
@@ -852,7 +841,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         if (!pending) return false;
         if (publication.type === 'compare-scan-result') { pending.results.set(publication.filePath, publication.result); return true; }
         remeasuring.settle(publication.requestId);
-        const next = remeasured(pending.row, pending.results);
+        const next = remeasuredFrom(pending.row, { fresh: () => pending.results }, recipeKey(scanRecipe()));
         if (next) setDerived(derived.map(item => (item === pending.row ? next : item)));
         return true;
     }

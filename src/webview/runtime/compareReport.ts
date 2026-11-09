@@ -136,6 +136,14 @@ function maxBandCells(comparison: CompareModel): [string, string] {
  * A file row of the entry CSV as this comparison measures it (entryBase.fileComparison): the same Δ Leq, band Δ,
  * largest-Δ band and base count the comparison, its held picture and 報告.csv show.
  */
+/**
+ * Which of a report's files have numbers of an earlier chain or calibration: the table's stale ones, but for those
+ * measured afresh for the report (a region's scans, made under the current chain), whose numbers replace them.
+ */
+export function reportStale(stale: ReadonlySet<string>, measuredNow: ReadonlyMap<string, unknown>): Set<string> {
+    return new Set([...stale].filter(path => !measuredNow.has(path)));
+}
+
 /** The base's recordings the figure's numbers are of (figureModel.figureUsed): the ready ones; n is how many. */
 export function baseUsed(comparison: Pick<CompareModel, 'base'>, results: ReadonlyMap<string, ScanResult>): { n: number; paths: string[] } {
     return figureUsed((comparison.base?.filePaths ?? []).map(path => scanAnswer(path, results.get(path))));
