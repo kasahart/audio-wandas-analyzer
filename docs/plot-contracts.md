@@ -19,7 +19,7 @@
 
 | グラフ | 描く・書き出す関数 | 行の数 | 穴 |
 | --- | --- | --- | --- |
-| 比較台の重ね図（トリガーのイベント図を含む） (`compare-overlay`) | `webview/runtime/trackStagePainter.ts:paintStageOverlay`<br>`webview/runtime/trackStagePainter.ts:paintNoPicture` | 19 | 6 |
+| 比較台の重ね図（トリガーのイベント図を含む） (`compare-overlay`) | `webview/runtime/trackStagePainter.ts:paintStageOverlay`<br>`webview/runtime/trackStagePainter.ts:paintNoPicture` | 19 | 5 |
 | 比較台の Δ 欄 (`compare-delta`) | `webview/runtime/trackStagePainter.ts:paintStageOverlay` | 9 | 2 |
 | 比較台の横並びのレーン (`compare-lanes`) | `webview/runtime/trackStagePainter.ts:paintStageLanes`<br>`webview/runtime/trackStagePainter.ts:paintNoStage` | 6 | 4 |
 | トリガーのイベント図の下のレーン (`trigger-lanes`) | `webview/runtime/triggerLanes.ts:paintTriggerLanes` | 6 | 0 |
@@ -63,7 +63,7 @@
 | 軸の名前 | ケプストラムの値の軸（「実ケプストラム」） | `webview/runtime/stagePanes.ts:stageAxes` | 文字：axisCepstrum は「実ケプストラム [–]」：無次元の量を [–] と書く（R4）。 | `axisNames.test.ts` › every axis-name string, in every language, names its quantity and its unit (R4)<br>`stagePanes.test.ts` › a cepstrum is drawn on a quefrency axis, symmetric about zero without its zero-quefrency coefficient |  |
 | 見出し・最大 | 上の行の注記（トリガーのイベント数、区間） | `webview/runtime/trackStagePainter.ts:stageModeHeadline`<br>`webview/runtime/stagePanes.ts:stageEventCounts` | 描く点が全部（間引かない）：イベント数はバックエンドが切り出した全イベント（view.events は全部を運ぶ）の数。区間は利用者が決めた値。差は書かない。 | `trackStagePainter.test.ts` › the headline names no difference (the row holds the pointer's readout): the steps bypassed and the region; nothing while computing<br>`uiSmoke/trackCompare.spec.ts` › a trigger added from ＋ fires at half the tracks' peak, draws each event of each recording over the time from its trigger, and is followed only by what takes events |  |
 | 入力・設定の表示 | 区間の印と名札（「区間 a–b s」） | `webview/runtime/trackStageMode.ts:paintNow`<br>`webview/runtime/stagePanes.ts:paintRegion` | 利用者の値・メタデータ：区間のチップで決めた値を書く。 | `uiSmoke/trackCompare.spec.ts` › a region set with its chip compares only that part of the files, shows on the plots, and holding a step shows the comparison without it |  |
-| どのデータか | 拡大の細部の要求のキー（どの窓の細部か） | `webview/runtime/stageDetail.ts:detailSpec` | 軸の範囲・窓：窓の両端（正規化した値）を toPrecision(6) で丸めてキーにする。有効数字 6 桁より細かく違う 2 つの窓（長い録音を深く拡大したとき）は同じキーになり、前の窓の細部が使われうる。 | なし | **P2** 細部のキーが窓の端を有効数字 6 桁に丸める。深く拡大した別の窓が同じキーになりうるのに、確かめるテストがない。 |
+| どのデータか | 拡大の細部の要求のキー（どの窓の細部か） | `webview/runtime/stageDetail.ts:detailSpecKey`<br>`webview/runtime/stageSource.ts:stageCacheKey` | 軸の範囲・窓：キーは要求として送る窓の両端の数そのもの（丸めない）と点の数。取得の結果は、そのキーと送った StageDetail そのもので保つので、違うサンプル・ビンを求める 2 つの窓が同じ細部を使うことはない。 | `stageDetail.test.ts` › a detail's key is the range asked for exactly as it is sent: two deep windows a few samples apart never share one<br>`stageDetail.test.ts` › pictures are cached under the range sent, so a spec whose key matches another's never takes its detail |  |
 
 ## 比較台の Δ 欄
 
@@ -183,7 +183,7 @@
 | 値 | 何の数か | 計算する場所 | 出どころ | テスト | 穴 |
 | --- | --- | --- | --- | --- | --- |
 | 目盛り | カラーバーの両端の数の書き方 | `webview/runtime/stagePanes.ts:paintPlot`<br>`webview/runtime/stagePanes.ts:endText`<br>`webview/runtime/stagePanes.ts:levelTick` | 軸の範囲・窓：呼ぶ側の範囲の両端を書く（範囲の出どころは各熱図の range の行）。 | `stagePanes.test.ts` › a colour or value range not in dB is widened to round ends, as a dB range is |  |
-| 軸の名前 | カラーバーの名前（量・単位・基準） | `webview/runtime/stagePanes.ts:paintColourBar`<br>`webview/runtime/stagePanes.ts:stageAxes` | 文字：熱図の色が表す量・単位・基準。狭いと単位だけにし、それも入らなければ書かない。 | `stagePanes.test.ts` › a heatmap names what its colour measures, with its unit and reference, for its colour bar<br>`stagePanes.test.ts` › a colour bar stays inside a narrow plot: its name shortens its quantity and keeps its unit, then is left out |  |
+| 軸の名前 | カラーバーの名前（量・単位・基準） | `webview/runtime/stagePanes.ts:paintColourBar`<br>`webview/runtime/stagePanes.ts:stageAxes` | 文字：熱図の色が表す量・単位・基準。目盛りの横に入らなければ上の行に図の幅で書き、軸の名前と同じく縮めるが、量と単位を必ず描く（UI テスト全件で data-plot-colour と描いた文字を照合）。 | `stagePanes.test.ts` › a heatmap names what its colour measures, with its unit and reference, for its colour bar<br>`stagePanes.test.ts` › a colour bar stays inside a narrow plot and never leaves out its name: beside the scale, else above it, shortened only as every axis name is (R4) |  |
 
 ## 入口の保持図（スロットの Δ、手順の有無の Δ、平均スペクトル）
 
@@ -272,13 +272,12 @@
 - `compare-delta.range-image`：カラーバーの両端の数を、描くために平均した Δ のマスから求めている。
 - `compare-lanes.range-image`：カラーバーの両端の数を、描くために平均したマスから求めている。
 
-### P2（14、上限 14）
+### P2（13、上限 13）
 
 - `compare-overlay.pending`：R7 は届くまで読み値を空にするが、密な窓を別の高さで読むときは前の高さの点を読む。その間の読み値は今のマウスに一番近い点とは限らない。
 - `compare-overlay.readout-events`：イベントの線の読み値と ← / → がそのイベントの全サンプルから来ることを確かめるテストがない（ジェスチャのテストは数字の出どころを見ない）。
 - `compare-overlay.range`：範囲の端を間引いた線から求めている。間引きが端を残すので同じ値のはずだが、範囲が全データの端と一致することを確かめるテストがない。
 - `compare-overlay.axis-metric`：量の名前がない：sone・acum・asper・dB 以外の指標は「値 [単位]」で、何の値かを書かない（単位がなければ「値 [単位不明]」）。
-- `compare-overlay.detail-key`：細部のキーが窓の端を有効数字 6 桁に丸める。深く拡大した別の窓が同じキーになりうるのに、確かめるテストがない。
 - `compare-delta.range`：範囲を間引いた Δ から求めている。全データの Δ の端と一致することを確かめるテストがない。
 - `compare-lanes.readout`：全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。
 - `compare-lanes.step`：全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。

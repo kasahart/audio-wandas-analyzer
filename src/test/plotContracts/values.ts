@@ -34,7 +34,7 @@ export const NOT_CHART_VALUES: Readonly<Record<string, string>> = {
     'src/webview/runtime/testSnapshot.ts:spectrogramAxisLabelTexts': 'a test hook\'s snapshot of the axis texts',
     'src/webview/runtime/testSnapshot.ts:spectrumAxisLabelTexts': 'a test hook\'s snapshot of the axis texts',
     'src/webview/runtime/laneAxes.ts:markLanePlot': 'the lane\'s data-plot-window attribute for the plot contract test, not shown',
-    'src/webview/runtime/plotInteraction.ts:setWindow': 'a plot\'s data-plot-window attribute for the plot contract test, not shown',
+    'src/webview/runtime/plotInteraction.ts:notePlotWindow': 'a plot\'s data-plot-window attribute for the plot contract test, not shown',
     'src/webview/runtime/entrySidePlots.ts:paint': 'the side plots\' data-window attribute for tests, not shown',
     'src/webview/runtime/trackStageMode.ts:span': 'a zoom window in a data attribute and a request key, not shown',
     'src/webview/runtime/pairSpectrumPanel.ts:applySplit': 'the pair pane\'s CSS height, not a value',

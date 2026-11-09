@@ -2866,6 +2866,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 zoomBox.className = 'compare-zoom-box';
                 zoomBox.hidden = true;
                 document.body.append(zoomBox);
+                // The level axis's part on screen, as a part of the levels shown before a box zoomed it (R13): known
+                // while the dB range is the one the box set; another (typed, a key's zoom) is a new whole.
+                let boxedDb: { min: number; max: number; y: { start: number; end: number } } | null = null;
+                const spectrumWindow = (): PlotWindow => ({
+                    x: { start: spectrumView.freqStart, end: spectrumView.freqEnd },
+                    y: boxedDb && spectrumView.dbMin === boxedDb.min && spectrumView.dbMax === boxedDb.max ? boxedDb.y : FULL_PLOT_WINDOW.y,
+                });
                 attachPlotInteraction(overlayCanvas.parentElement ?? overlayCanvas, document, '#spectrum-overlay-canvas', {
                     locate(target, clientX, clientY) {
                         if (target !== overlayCanvas || !spectrumView.hasData()) return null;
@@ -2875,10 +2882,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                         return { plot: overlayCanvas, point: pointOn(clientX, clientY), axis: region === 'db-axis' ? 'y' : region === 'freq-axis' ? 'x' : null };
                     },
                     pointOn: (_plot, clientX, clientY) => pointOn(clientX, clientY),
-                    window: () => ({ x: { start: spectrumView.freqStart, end: spectrumView.freqEnd }, y: FULL_PLOT_WINDOW.y }),
+                    window: spectrumWindow,
                     setWindow(_plot, next) {
-                        if (!next) { specZoomReset(); return; }
-                        spectrumView.applyBoxZoom(spectrumZoomFromWindow(next, spectrumView.paintedDb()));
+                        if (!next) { boxedDb = null; specZoomReset(); return; }
+                        // The box is a part of the window shown; its dB, a part of the levels painted now.
+                        const shown = spectrumWindow().y, span = shown.end - shown.start || 1;
+                        const y = { start: (next.y.start - shown.start) / span, end: (next.y.end - shown.start) / span };
+                        spectrumView.applyBoxZoom(spectrumZoomFromWindow({ x: next.x, y }, spectrumView.paintedDb()));
+                        if (spectrumView.dbMin !== null && spectrumView.dbMax !== null && (y.start !== 0 || y.end !== 1)) boxedDb = { min: spectrumView.dbMin, max: spectrumView.dbMax, y: next.y };
                         scheduleSpectrumRefresh('immediate');
                     },
                     hover(event, hit) {

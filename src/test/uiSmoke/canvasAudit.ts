@@ -26,7 +26,8 @@
  * And (R4): a plot on screen with an axis whose name (`data-plot-axes`) gives no quantity and unit in closing brackets
  * ("Phase [°]", "Coherence γ² [–]", "temp_c (CSV column) [unit unknown]") fails it, whichever plot it is; so does a
  * plot on screen with two tick labels of one axis (numbers written in one column: the same alignment and x) whose
- * ink overlaps, however short the plot is.
+ * ink overlaps, however short the plot is; so does a heatmap whose colour bar does not draw what its colour measures
+ * (`data-plot-colour`), whole or fitted as an axis name is.
  */
 import { test as base } from '@playwright/test';
 import { DRAWN_OUTSIDE_PENDING, PLOT_LAYERS, PLOTS_PENDING, SVG_CHARTS_PENDING } from './plotRegistry';
@@ -308,6 +309,18 @@ function installCanvasAudit({ settle, measureMs, others, drawnOutside, svgCharts
         return found;
     };
     const named = (name: string): boolean => /^.*\S\s*\[[^\]]*[^\]\s][^\]]*\]$/su.test(name.trim());
+    // A colour bar's name as drawn on its canvas (R4): whole, or on two lines (quantity, then "[unit]"), or with its
+    // quantity shortened to its symbol or first characters with an ellipsis (axisTitle.ts fitAxisTitle); never left out.
+    const colourNameDrawn = (texts: readonly string[], name: string): boolean => {
+        const parts = /^(.*\S)\s*\[([^\]]+)\]$/su.exec(name.trim());
+        if (!parts) return false;
+        const [, quantity, unit] = parts;
+        const words = quantity.split(/\s+/u);
+        const isQuantity = (text: string): boolean => text === quantity || (words.length > 1 && text === words[words.length - 1])
+            || (text.length > 1 && text.endsWith('…') && quantity.startsWith(text.slice(0, -1)));
+        const oneLine = texts.some(text => { const drawn = /^(.*\S)\s*\[([^\]]+)\]$/su.exec(text.trim()); return !!drawn && drawn[2] === unit && isQuantity(drawn[1]); });
+        return oneLine || (texts.includes(`[${unit}]`) && texts.some(isQuantity));
+    };
     const rises = (order: string): boolean => order.split(';').some(axis => {
         // A compared level ordered with no levels from the values before thinning ('?', drawnLevelsText) fails too.
         if (axis.split(',').includes('?')) return true;
@@ -346,6 +359,11 @@ function installCanvasAudit({ settle, measureMs, others, drawnOutside, svgCharts
             if (bare.length) {
                 const name = `units ${canvasName(canvas)}: ${bare.join(' | ')}`;
                 if (!reported.has(name)) { reported.add(name); unitless.push(`${canvasName(canvas)} names ${bare.map(text => `"${text}"`).join(', ')}`); }
+            }
+            const colour = canvas.getAttribute('data-plot-colour');
+            if (colour && canvas.hasAttribute('data-plot') && shownBox(canvas) && !colourNameDrawn((canvas as Texted).__plotTexts ?? [], colour)) {
+                const name = `colour ${canvasName(canvas)}: ${colour}`;
+                if (!reported.has(name)) { reported.add(name); unitless.push(`${canvasName(canvas)} (${canvas.clientWidth}×${canvas.clientHeight}) draws its colour bar without its name "${colour}"`); }
             }
             const full = canvas.getAttribute('data-plot-full');
             if (full?.startsWith('missing') && canvas.hasAttribute('data-plot') && shownBox(canvas)) {
@@ -399,7 +417,7 @@ export const test = base.extend<{ canvasAudit: void }>({
         const undeclaredFound = await page.evaluate(() => window.__fullAudit ?? []);
         base.expect.soft(undeclaredFound, 'plots that draw a layer without its full data declared (R7: give the layer `full`, fullRead.ts)').toEqual([]);
         const unitlessFound = await page.evaluate(() => window.__unitAudit ?? []);
-        base.expect.soft(unitlessFound, 'plots with an axis named without its quantity and unit (R4: "Quantity [unit]", "[–]" when dimensionless)').toEqual([]);
+        base.expect.soft(unitlessFound, 'plots with an axis or a colour bar named without its quantity and unit (R4: "Quantity [unit]", "[–]" when dimensionless)').toEqual([]);
         const crowdedFound = await page.evaluate(() => window.__tickAudit ?? []);
         base.expect.soft(crowdedFound, 'plots with two tick labels of one axis over each other (fewer ticks on a short plot: valueAxisTicks, spacedTicks)').toEqual([]);
         const svgFound = await page.evaluate(() => window.__svgAudit ?? []);

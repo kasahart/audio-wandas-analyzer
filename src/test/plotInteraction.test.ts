@@ -9,10 +9,12 @@ test('a box zooms both axes; one too thin on an axis it zooms zooms nothing', ()
     assert.equal(windowFromBox(FULL_PLOT_WINDOW, { fx: 0.3, fy: 0.1 }, { fx: 0.3, fy: 0.5 }), null);
 });
 
-test('on a plot that zooms only its horizontal axis, a level drag zooms it and the vertical window stays', () => {
+test('on a plot whose vertical axis shows all counts, a box zooms its value axis and every count stays on screen (R13)', () => {
     const window = { x: { start: 0, end: 0.5 }, y: { start: 0.25, end: 0.75 } };
-    assert.deepEqual(windowFromBox(window, { fx: 0.2, fy: 0.3 }, { fx: 0.6, fy: 0.3 }, true), { x: { start: 0.1, end: 0.3 }, y: window.y });
-    assert.equal(windowFromBox(window, { fx: 0.3, fy: 0.1 }, { fx: 0.3, fy: 0.9 }, true), null);
+    assert.deepEqual(windowFromBox(window, { fx: 0.2, fy: 0.3 }, { fx: 0.6, fy: 0.3 }, 'all-counts'), { x: { start: 0.1, end: 0.3 }, y: FULL_PLOT_WINDOW.y });
+    assert.deepEqual(windowFromBox(window, { fx: 0.2, fy: 0.1 }, { fx: 0.6, fy: 0.5 }, 'all-counts'), { x: { start: 0.1, end: 0.3 }, y: FULL_PLOT_WINDOW.y });
+    assert.equal(windowFromBox(window, { fx: 0.3, fy: 0.1 }, { fx: 0.3, fy: 0.9 }, 'all-counts'), null);
+    assert.deepEqual(windowFromBox(window, { fx: 0.2, fy: 0.1 }, { fx: 0.6, fy: 0.5 }, 'zoom'), { x: { start: 0.1, end: 0.3 }, y: { start: 0.3, end: 0.5 } });
 });
 
 /** Two plots and an axis strip on a surface, with the shared gestures' deps recording what they are asked. */
