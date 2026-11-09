@@ -21,6 +21,12 @@ window.__uiSmokeStageData = {};
 // value: a level's power mean of 10^(dB/10), a waveform's mean square, in stretches of its axis (R6's order).
 function uiSmokeLevelBins(view) {
     const xs = view.xs || [];
+    // A trigger's events: the mean square of every event's samples (stage_combine._event_level_bins, A44).
+    if (view.events && view.events.length) {
+        let sum = 0, n = 0, low = Infinity, high = -Infinity;
+        view.events.forEach(function(event) { (event.values || []).forEach(function(value, i) { if (value === null || !isFinite(value)) return; sum += value * value; n += 1; low = Math.min(low, event.xs[i]); high = Math.max(high, event.xs[i]); }); });
+        return n ? { edges: [low, high > low ? high : low + 1], power: [sum / n], count: [n] } : null;
+    }
     const db = view.quantity === 'level' || view.quantity === 'gain';
     if ((view.kind !== 'line' && view.kind !== 'bar') || (!db && !view.waveform) || !xs.length) return null;
     const powers = view.waveform

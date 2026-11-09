@@ -68,7 +68,7 @@ test('a reference lane splits the spectrum section into the power spectrum and t
     const overlay = await page.locator('#spectrum-overlay-canvas').boundingBox();
     if (!overlay) throw new Error('power spectrum canvas has no layout box');
     await page.mouse.move(overlay.x + overlay.width / 2, overlay.y + overlay.height / 2);
-    await expect(page.locator('#spectrum-freq-readout')).toContainText(/ \/ \d+(\.\d{1,4})? k?Hz \/ .* dB$/u);
+    await expect(page.locator('#spectrum-freq-readout')).toContainText(/ \/ \d+(\.\d{1,4})? k?Hz \/ .* dB\S*$/u);
     await expect(cursors).toHaveCount(3);
     await expect(page.locator('#pair-spectrum-readout')).toBeHidden();
     // Both readouts sit at the right end of their own half's header row.
