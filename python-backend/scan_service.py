@@ -97,6 +97,9 @@ class ScanResult(TypedDict):
     elapsedMs: NotRequired[float]
     endFrame: NotRequired[str]
     stage: NotRequired[StageView]
+    #: With ``stage``: the step's full-resolution values are over the store's budget, so they are not kept (no
+    #: ``data`` key) and nothing is combined of them; the comparison says the base is too large.
+    stageDataTooLarge: NotRequired[bool]
     failedStep: NotRequired[str]
 
 
@@ -832,23 +835,31 @@ def _stage_result(
 ) -> ScanResult:
     """A step's picture alone: the comparison asks for it per step, so the metrics are not computed again.
 
-    The step's own values are kept (stage_combine) and the picture names them (``data``), unless they are kept
-    already (a zoomed picture of a step asked for before).
+    The step's own values are kept (stage_combine) and the picture names them (``data``) only once the store holds
+    them: a key the store refused (over its budget) would be asked for, answered missing and scanned again, over
+    and over. Refused, the result says so (``stageDataTooLarge``) and the comparison draws no median or Δ of it.
     """
-    if not STORE.has(data_key):
+    too_large = False
+    if STORE.has(data_key):
+        view["data"] = data_key
+    else:
         data = stage_data(frame, view, signal_s)
         if data is not None:
             STORE.put(data_key, data)
-            view["data"] = data_key
-    else:
-        view["data"] = data_key
-    return {
+            if STORE.has(data_key):
+                view["data"] = data_key
+            else:
+                too_large = True
+    result: ScanResult = {
         "ok": True,
         "input": described,
         "stage": view,
         "specVersion": spec.ANALYSIS_SPEC_VERSION,
         "wandasVersion": wd.__version__,
     }
+    if too_large:
+        result["stageDataTooLarge"] = True
+    return result
 
 
 def _first_line(error: BaseException) -> str:

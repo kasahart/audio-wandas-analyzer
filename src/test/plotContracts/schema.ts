@@ -115,7 +115,7 @@ export const SCHEMA_FIELDS: Readonly<Record<string, readonly string[] | string>>
     'ScanResult.peakHz': ['entry-table.cells', 'entry-distribution.readout', 'report-overlay.headline'],
     'ScanResult.crest': ['entry-table.cells', 'entry-distribution.readout', 'report-overlay.headline'],
     'ScanResult.thirdOctDb': ['entry-table.cells', 'entry-distribution.readout', 'report-overlay.headline'],
-    'ScanResult.spectrumDb': ['entry-held.identity', 'entry-table.delta'],
+    'ScanResult.spectrumDb': ['entry-table.delta'],
     'ScanResult.spectrumBinsDb': ['entry-held.delta', 'report-files.csv'],
     'ScanResult.spectrumBinHz': ['entry-held.delta', 'report-files.csv'],
     'ScanResult.specVersion': 'the analysis spec a scan was measured by, to tell stale scans; not shown',

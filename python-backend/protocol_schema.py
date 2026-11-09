@@ -778,6 +778,8 @@ DEFINITIONS: dict[str, Schema] = {
             # The type of the Frame the Recipe's chain ends in, e.g. "SpectralFrame".
             "endFrame": {"type": "string"},
             "stage": {"$ref": "#/$defs/StageView"},
+            # With ``stage``: its full-resolution values are over the store's budget and not kept (no ``data``).
+            "stageDataTooLarge": {"type": "boolean"},
             # With ``ok: false``: the Recipe step (node id) that failed on this file.
             "failedStep": {"type": "string"},
         },

@@ -6,7 +6,7 @@ import type { ScanResult } from '../shared/protocol/backendProtocol';
 import { getStrings } from '../shared/i18n/strings';
 import { BAND_CENTERS_HZ, buildEntryModel } from '../webview/runtime/entryTable';
 import { deltaFigure } from '../webview/runtime/compareReport';
-import { binsView, buildCompareModel, deltaViews, diffHeadline, minMaxLine, withBins, legendHtml, levelsHeadline, paneAxes, trackLevelInput, type LevelInput } from '../webview/runtime/comparePanes';
+import { binsView, buildCompareModel, deltaViews, diffHeadline, minMaxLine, sameCondition, withBins, legendHtml, levelsHeadline, paneAxes, trackLevelInput, type LevelInput } from '../webview/runtime/comparePanes';
 import type { ChannelSummary } from '../shared/analysis/analysisTypes';
 import { byLevel, paintOverlay, stageAxes } from '../webview/runtime/stagePanes';
 import type { StageView } from '../shared/protocol/backendProtocol';
@@ -277,13 +277,21 @@ test('files whose bins differ (another sample rate or n_fft) have no bins to com
     assert.ok(comparison.diffDb);
 });
 
-test('the table\'s results take the bins of a scan of the same spectrum only', () => {
-    const own = files.get('/f/free.wav')!;
+test('the table\'s results take the bins of a scan of the same condition only, never judged by its 192 drawn points', () => {
+    const own = { ...files.get('/f/free.wav')!, conditionId: 'free@v1' };
+    const run1 = { ...files.get('/f/L1_900rpm_run1.wav')!, conditionId: 'run1@v1' };
+    const table = new Map([...files, ['/f/free.wav', own], ['/f/L1_900rpm_run1.wav', run1]]);
     const same: ScanResult = { ...own, elapsedMs: 9, spectrumBinsDb: [[-30, -31]], spectrumBinHz: 2 };
-    const other: ScanResult = { ...own, spectrumDb: [[-1, -2, -3]], spectrumBinsDb: [[-1, -2]], spectrumBinHz: 2 };
-    const merged = withBins(files, new Map([['/f/free.wav', same], ['/f/L1_900rpm_run1.wav', other]]));
+    // The file changed on disk with its 192 points alike (a change between them): another condition, not its bins.
+    const changed: ScanResult = { ...run1, conditionId: 'run1@v2', spectrumBinsDb: [[-1, -2]], spectrumBinHz: 2 };
+    const merged = withBins(table, new Map([['/f/free.wav', same], ['/f/L1_900rpm_run1.wav', changed]]));
     assert.deepEqual(merged.get('/f/free.wav'), { ...own, spectrumBinsDb: [[-30, -31]], spectrumBinHz: 2 }, 'the table\'s own numbers, with the bins');
-    assert.equal(merged.get('/f/L1_900rpm_run1.wav'), files.get('/f/L1_900rpm_run1.wav'), 'another spectrum: as it was');
+    assert.equal(merged.get('/f/L1_900rpm_run1.wav'), run1, 'another condition with the same drawn points: as it was');
+    // Without a condition on either side nothing is matched.
+    const unnamed = withBins(new Map([['/f/free.wav', { ...own, conditionId: undefined }]]), new Map([['/f/free.wav', { ...same, conditionId: undefined }]]));
+    assert.equal(unnamed.get('/f/free.wav')?.spectrumBinsDb, undefined);
+    assert.equal(sameCondition(own, same), true);
+    assert.equal(sameCondition(run1, changed), false);
 });
 
 test('the held Δ zoomed in is drawn again from every bin between its ends, not the whole Δ decimated and stretched (R1, R3)', () => {

@@ -14,11 +14,11 @@ import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { recipeKey, recipeNodes, recipeSteps, slotReferenced, timeSignalStep, TIME_SLICE, type RecipeStep } from '../../shared/recipe/recipeSteps';
 import { baseName } from '../../shared/analysis/entryMetadata';
 import { DIFF_COLOR } from '../../shared/gui/roleColors';
-import { deltaViews, withBins, type CompareModel, type LevelInput, type PaneRange } from './comparePanes';
+import { deltaViews, sameCondition, withBins, type CompareModel, type LevelInput, type PaneRange } from './comparePanes';
 import type { PlotMargins, PlotWindow } from './plotInteraction';
 import { axisFractionOf, axisValueAt, paintOverlay, stageAxes, stageDiffRange, stageRange, STAGE_MARGINS, type StageAxes, type StagePlot } from './stagePanes';
 import { createDetailPlanner } from './stageDetail';
-import { createCombineSource, noDeltaNote, type Combined } from './combineSource';
+import { createCombineSource, noDeltaNote, TOO_LARGE_COMBINED, type Combined } from './combineSource';
 import { createStageSource, type StageSpec } from './stageSource';
 import { createStageReader } from './stageReader';
 import { localLine, type FullRead } from './fullRead';
@@ -196,8 +196,10 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
             }
             deps.scheduleSide();
         };
-        const asked = coarse.data && coarseWithout?.data ? { base: [coarse.data], compare: coarseWithout.data } : null;
-        const whole = asked ? combine.get(identity, asked, forget) : { diff: null, tooLarge: false };
+        // A picture whose values were over what the backend keeps has no key: nothing to combine, nothing scanned again.
+        const tooLarge = [specs.with, without].some(spec => !!source.result(spec, path)?.stageDataTooLarge);
+        const asked = !tooLarge && coarse.data && coarseWithout?.data ? { base: [coarse.data], compare: coarseWithout.data } : null;
+        const whole = asked ? combine.get(identity, asked, forget) : tooLarge ? TOO_LARGE_COMBINED : { diff: null, tooLarge: false };
         if (!whole) {
             held.classList.add('is-pending');
             title.textContent += ` · ${strings.comparePending}`;
@@ -233,14 +235,14 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
         const run = deps.scanRecipe();
         const spec: StageSpec = { key: `held-bins|${recipeKey(run)}`, message: { ...(run ? { recipe: run } : {}), spectrumBins: true } };
         const files = [path, ...deps.basePaths(path)].filter(file => deps.results.get(file)?.ok);
-        // A file scanned again since (changed on disk, the folder opened anew): its kept bins are of the old
-        // spectrum, so they are asked for again, once for each table spectrum (one that never matches is not asked forever).
+        // A file scanned again since (changed on disk, the folder opened anew): its kept bins are of another
+        // condition, so they are asked for again, once for each table condition (one that never matches is not asked forever).
         for (const file of files) {
             const kept = bins.result(spec, file);
             const scanned = deps.results.get(file);
-            const own = JSON.stringify(scanned?.ok ? scanned.spectrumDb : null);
+            const own = scanned?.ok ? scanned.conditionId ?? '' : '';
             const key = `${spec.key}|${file}`;
-            if (kept?.ok && JSON.stringify(kept.spectrumDb) !== own && binsAskedFor.get(key) !== own) bins.forget(spec, file);
+            if (kept?.ok && !sameCondition(kept, scanned) && binsAskedFor.get(key) !== own) bins.forget(spec, file);
             if (!kept || bins.result(spec, file) === undefined) binsAskedFor.set(key, own);
         }
         const waiting = !!table.diffDb && bins.ensure(spec, files);
