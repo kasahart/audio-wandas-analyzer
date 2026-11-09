@@ -25,6 +25,9 @@ const KNOWN_GAPS: Record<string, readonly Check[]> = {};
 const FULL = '0.000 1.000 0.000 1.000';
 let scanned: ScannedFile[] | undefined;
 test.beforeAll(() => { scanned = entry100Results(); });
+// Each test opens its own page and reads only `scanned`, which every worker loads for itself: the file's tests run
+// in parallel across workers (it is the longest file; one worker held it ~6.6 min).
+test.describe.configure({ mode: 'parallel' });
 
 type Posted = { type: string; requestId: string; filePaths: string[]; stage?: string; recipe?: { nodes: Array<{ id: string; operation: string }> } };
 const stageScans = async (page: Page): Promise<Posted[]> => (await page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Posted[] }).__uiSmokePostedMessages))
