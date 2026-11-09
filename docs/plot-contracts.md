@@ -33,7 +33,7 @@
 | ペアの図（利得・位相・γ²） (`pair-view`) | `webview/runtime/pairSpectrumPanel.ts:render` | 9 | 0 |
 | カラーバー（比較台の熱図、スペクトログラムのレーン、入口の概観帯） (`colour-bar`) | `webview/runtime/stagePanes.ts:paintColourBar` | 2 | 0 |
 | 入口の保持図（スロットの Δ、手順の有無の Δ、平均スペクトル） (`entry-held`) | `webview/runtime/entryHeldPlot.ts:paintView` | 8 | 2 |
-| 入口の概観帯 (`entry-overview`) | `webview/runtime/entryPlots.ts:paintOverview` | 5 | 3 |
+| 入口の概観帯 (`entry-overview`) | `webview/runtime/entryPlots.ts:paintOverview` | 5 | 0 |
 | 入口の分布図（群ごとの行と下の値の軸） (`entry-distribution`) | `webview/runtime/entryDistributionPane.ts:paint` | 8 | 0 |
 | 入口の表（値の列、Δ、見出しの数、D の差、表の CSV） (`entry-table`) | `webview/runtime/entryTableHtml.ts:datasetRowsHtml`<br>`webview/runtime/entryTable.ts:entryCsv` | 6 | 1 |
 | レポートの重ね図（比較 n.png、要約.png の上段） (`report-overlay`) | `webview/runtime/compareReport.ts:paintOverlayFigure` | 5 | 2 |
@@ -202,9 +202,9 @@
 
 | 値 | 何の数か | 計算する場所 | 出どころ | テスト | 穴 |
 | --- | --- | --- | --- | --- | --- |
-| 読み値 | 概観帯の読み値（録音・帯・レベル） | `webview/runtime/entryPlots.ts:overviewCells`<br>`webview/runtime/stagePanes.ts:cellRead` | 全データ：描く絵は行が多いと画素の行ごとに一番大きい帯のレベルにするが、読み値は表の本当の行（overviewCells）を読む。 | `uiSmoke/entry.spec.ts` › the overview strip has a row per channel, as the table does: its readout names the channel of a recording of several<br>`uiSmoke/plotContract.spec.ts` › the entry's overview strip answers the same gestures as every plot (R13) | **P2** 全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。 |
-| ← / → | 概観帯の ← / →（次の帯） | `webview/runtime/stagePanes.ts:imageStep` | 全データ：表の本当の行の次の帯。 | `uiSmoke/plotContract.spec.ts` › the entry's overview strip answers the same gestures as every plot (R13) | **P2** 全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。 |
-| 自動の範囲 | 色の範囲（カラーバーの両端） | `webview/runtime/entryPlots.ts:overviewPicture` | 全データ：表のすべての行のすべての帯のレベルの最小と最大を 1 dB に切り下げ・切り上げる（niceRange ではない）。 | なし | **P2** 範囲を確かめるテストがない。端の丸めも R9 の切りのよい値（niceRange）ではない。 |
+| 読み値 | 概観帯の読み値（録音・帯・レベル） | `webview/runtime/entryPlots.ts:overviewCells`<br>`webview/runtime/stagePanes.ts:cellRead` | 全データ：描く絵は行が多いと画素の行ごとに一番大きい帯のレベルにするが、読み値は表の本当の行（overviewCells）を読む。 | ◆ `entrySidePlots.test.ts` › the strip is read at the table row under the pointer, never the loudest row its line draws, and ← / → step that row's bands (R7)<br>`uiSmoke/entry.spec.ts` › the overview strip has a row per channel, as the table does: its readout names the channel of a recording of several<br>`uiSmoke/plotContract.spec.ts` › the entry's overview strip answers the same gestures as every plot (R13) |  |
+| ← / → | 概観帯の ← / →（次の帯） | `webview/runtime/stagePanes.ts:imageStep` | 全データ：表の本当の行の次の帯。 | ◆ `entrySidePlots.test.ts` › the strip is read at the table row under the pointer, never the loudest row its line draws, and ← / → step that row's bands (R7)<br>`uiSmoke/plotContract.spec.ts` › the entry's overview strip answers the same gestures as every plot (R13) |  |
+| 自動の範囲 | 色の範囲（カラーバーの両端） | `webview/runtime/entryPlots.ts:overviewPicture` | 全データ：表のすべての行のすべての帯のレベル（線ごとに一番大きいものだけを描くが、描かない行も）の最小と最大を niceRange で切りのよい値に広げる（R9）。 | ◆ `entrySidePlots.test.ts` › the strip's colour range holds every table row's level, not only the loudest drawn per line, and opens at round ends (R9) |  |
 | 目盛り | 帯と行の目盛り | `webview/runtime/stagePanes.ts:paintPlot`<br>`webview/runtime/stagePanes.ts:valueAxisTicks`<br>`webview/runtime/stagePanes.ts:valueTickTexts`<br>`webview/runtime/stagePanes.ts:alongAxisTicks`<br>`webview/runtime/stagePanes.ts:rowAxisTicks`<br>`webview/runtime/stagePanes.ts:tickText`<br>`webview/runtime/stagePanes.ts:levelTick`<br>`webview/runtime/stagePanes.ts:paintRightAxis` | 軸の範囲・窓：行は表の上からの番号（yTickText）。 | `entrySidePlots.test.ts` › the strip is a heatmap of the table: a row per table row counted down from the top, the loudest per line when they outnumber its lines |  |
 | 軸の名前 | 帯・行・色の名前 | `webview/runtime/entryPlots.ts:paintOverview` | 文字：帯域中心 [Hz]、行（表の順）、色はレベルと共有の基準。 | `entrySidePlots.test.ts` › the overview colour scale and the dataset table name the recordings' shared level reference, plain dB once they differ |  |
 
@@ -272,7 +272,7 @@
 - `compare-delta.range-image`：カラーバーの両端の数を、描くために平均した Δ のマスから求めている。
 - `compare-lanes.range-image`：カラーバーの両端の数を、描くために平均したマスから求めている。
 
-### P2（22、上限 22）
+### P2（19、上限 19）
 
 - `compare-overlay.pending`：R7 は届くまで読み値を空にするが、密な窓を別の高さで読むときは前の高さの点を読む。その間の読み値は今のマウスに一番近い点とは限らない。
 - `compare-overlay.readout-events`：イベントの線の読み値と ← / → がそのイベントの全サンプルから来ることを確かめるテストがない（ジェスチャのテストは数字の出どころを見ない）。
@@ -288,9 +288,6 @@
 - `track-header.peak`：全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。
 - `entry-held.step`：全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。
 - `entry-held.range`：範囲を間引いた点から求めている。全データの端と一致することを確かめるテストがない。
-- `entry-overview.readout`：全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。
-- `entry-overview.step`：全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。
-- `entry-overview.range`：範囲を確かめるテストがない。端の丸めも R9 の切りのよい値（niceRange）ではない。
 - `entry-table.count`：見出しやフィルタの数がすべての行を数えていることを確かめるテストがない。
 - `report-overlay.order`：レポートの図の順が全ビンのパワーで決まることを確かめるテストがない。
 - `report-overlay.range`：範囲を間引いた線から求めている。全ビンの端と一致することを確かめるテストがない。
