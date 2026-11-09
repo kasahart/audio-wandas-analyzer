@@ -242,7 +242,7 @@ test('side by side, each lane is read at its own full data, never the line thinn
             keep.push(start + part.indexOf(Math.min(...part)), start + part.indexOf(Math.max(...part)));
         }
         const at = [...new Set(keep)].sort((a, b) => a - b);
-        return { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'level', xs: at.map(bin => xs[bin]), values: at.map(bin => values[bin]), xLimits: [0, 24000] } as StageView;
+        return { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'level', xs: at.map(bin => xs[bin]), values: at.map(bin => values[bin]), xLimits: [0, 24000] };
     };
     const views = Object.fromEntries(Object.entries(spectra).map(([path, values]) => [path, thinned(values)]));
     const tracks = [lane('base.wav'), lane('one.wav')];

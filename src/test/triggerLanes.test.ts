@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { StageView } from '../shared/protocol/backendProtocol';
 import { localLine } from '../webview/runtime/fullRead';
-import { stageHover, stageStep, type StagePlot } from '../webview/runtime/stagePanes';
+import { stageHover, stageStep } from '../webview/runtime/stagePanes';
 import type { Drawn } from '../webview/runtime/trackStagePainter';
 import { paintTriggerLanes, type TriggerLanesFrame } from '../webview/runtime/triggerLanes';
 
@@ -75,7 +75,7 @@ test('the trigger lanes share a range holding every sample\'s peak of every reco
 test('a trigger lane is read at every sample: the pointer reads a sample between the envelope\'s points, and ← / → go one sample at a time (R7)', () => {
     const loud = recording(0.2, -0.93);
     const { drawn, canvases } = lanes(0.4, { '/a.wav': loud });
-    const plot = drawn.get(canvases['/a.wav'])?.plot as StagePlot | null | undefined;
+    const plot = drawn.get(canvases['/a.wav'])?.plot;
     assert.ok(plot);
     const at = 3005;
     const drawnTimes = new Set([...(loud.view.waveform?.minT ?? []), ...(loud.view.waveform?.maxT ?? [])]);
