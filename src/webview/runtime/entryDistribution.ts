@@ -9,7 +9,7 @@ import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import type { UiStrings } from '../../shared/i18n/strings';
 import { binCounts, DISTRIBUTION_BINS, DOTS_BELOW, type Distribution } from '../../shared/dataset/distribution';
 import type { StageView } from '../../shared/protocol/backendProtocol';
-import type { PaneRange } from './comparePanes';
+import { plainRange, type FigureRange } from './figureModel';
 import type { StageLayer } from './stagePanes';
 import { localLine } from './fullRead';
 
@@ -58,7 +58,7 @@ export interface DistributionRow {
     count: string;
     max: string;
     layers: StageLayer[];
-    range: PaneRange;
+    range: FigureRange;
     /** The slots ticked on it, and whether the base's median is drawn on it. */
     slots: number[];
     base: boolean;
@@ -158,7 +158,8 @@ export function distributionRows(dist: Distribution, picture: DistributionPictur
             // The rug: a tick per member, so a few far from the rest show even where their bar is thin.
             layers.push({ ...line(members.map(member => member.value), members.map(() => 0)), color: colours.barIn, alpha: 0.55, width: 1, marks: 'rug', label, readout: memberText });
         }
-        const range = { min: 0, max: top };
+        // A count axis from none (not a level: figureModel.plainRange).
+        const range = plainRange(0, top);
         // The slots: the rows in 1–3 (and 0) as ticks in their colours; the base as the group's median when 0 is empty.
         const slots: number[] = [];
         for (const slot of picture.slots) {

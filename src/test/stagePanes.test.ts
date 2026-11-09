@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { N, R, T } from './helpers/figure';
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
@@ -274,7 +275,7 @@ test('each event of a trigger is its own series, drawn at its own times: never a
         set: () => true,
     });
     const canvas = { width: 0, height: 0, clientWidth: 600, clientHeight: 200, ownerDocument: {}, dataset: {} as DOMStringMap, getContext: () => context } as unknown as HTMLCanvasElement;
-    const plot = paintOverlay(canvas, { layers }, { min: -1, max: 1 }, { x: 'Time [s]', y: 'Amplitude [Pa]' });
+    const plot = paintOverlay(canvas, { layers }, R({ min: -1, max: 1 }), N({ x: 'Time [s]', y: 'Amplitude [Pa]' }));
     assert.ok(plot);
     // Each event's line (three points) has its top at its own peak's time and value.
     const peaks = paths.filter(points => points.length === 3).map(points => points.reduce((top, point) => (point[1] < top[1] ? point : top)));
@@ -287,17 +288,17 @@ test('every plot draws its overlaid lines loudest first and the quietest last on
     const layer = (color: string, values: number[]) => { const view = measured(line(values)); return { view, color, width: 2, full: held(view) }; };
     const { canvas, strokes } = strokingCanvas();
     // Given the quiet one first, as the report gives its base before the compared file: the plot puts it on top.
-    paintOverlay(canvas, { layers: [layer('quiet', [-60, -60, -60]), layer('loud', [-20, -20, -20]), layer('base', [-40, -40, -40])] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dB]' });
+    paintOverlay(canvas, { layers: [layer('quiet', [-60, -60, -60]), layer('loud', [-20, -20, -20]), layer('base', [-40, -40, -40])] }, R({ min: -80, max: 0 }), N({ x: 'Frequency [Hz]', y: 'Level [dB]' }));
     assert.deepEqual(strokes.filter(color => ['loud', 'base', 'quiet'].includes(color)), ['loud', 'base', 'quiet'], 'the quietest line is stroked last');
     assert.equal(canvas.dataset.plotOrder, '-20.00,-40.00,-60.00', 'the levels it drew, in order, for the audit of every plot');
     // Given loud first, the same order: the caller's order does not decide it, and the colours stay the caller's.
     strokes.length = 0;
-    paintOverlay(canvas, { layers: [layer('loud', [-20, -20, -20]), layer('quiet', [-60, -60, -60]), layer('base', [-40, -40, -40])] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dB]' });
+    paintOverlay(canvas, { layers: [layer('loud', [-20, -20, -20]), layer('quiet', [-60, -60, -60]), layer('base', [-40, -40, -40])] }, R({ min: -80, max: 0 }), N({ x: 'Frequency [Hz]', y: 'Level [dB]' }));
     assert.deepEqual(strokes.filter(color => ['loud', 'base', 'quiet'].includes(color)), ['loud', 'base', 'quiet']);
     // Lines on the right-hand level axis are ordered among themselves the same way.
     strokes.length = 0;
-    paintOverlay(canvas, { layers: [layer('loud', [-20, -20, -20])] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dB]' },
-        { secondary: { layers: [layer('second-quiet', [-70, -70, -70]), layer('second-loud', [-30, -30, -30])], range: { min: -80, max: 0 }, title: 'Level [dB re 1]' } });
+    paintOverlay(canvas, { layers: [layer('loud', [-20, -20, -20])] }, R({ min: -80, max: 0 }), N({ x: 'Frequency [Hz]', y: 'Level [dB]' }),
+        { secondary: { layers: [layer('second-quiet', [-70, -70, -70]), layer('second-loud', [-30, -30, -30])], range: R({ min: -80, max: 0 }), title: T('Level [dB re 1]') } });
     assert.deepEqual(strokes.filter(color => color.startsWith('second')), ['second-loud', 'second-quiet']);
 });
 
@@ -306,12 +307,12 @@ test('a picture that is not a compared line keeps the place its caller gave it a
     // A median tick (a line without a level) first, then a quiet and a loud line: the tick stays first, the lines swap.
     const tick = { view: { ...line([0, 1, 0]), quantity: undefined }, color: 'tick', full: held({ ...line([0, 1, 0]), quantity: undefined }) };
     const quiet = { view: measured(line([-60, -60, -60])), color: 'quiet', full: held(line([-60, -60, -60])) }, loud = { view: measured(line([-20, -20, -20])), color: 'loud', full: held(line([-20, -20, -20])) };
-    paintOverlay(canvas, { layers: [quiet, loud, tick] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dB]' });
+    paintOverlay(canvas, { layers: [quiet, loud, tick] }, R({ min: -80, max: 0 }), N({ x: 'Frequency [Hz]', y: 'Level [dB]' }));
     assert.deepEqual(strokes.filter(color => ['tick', 'quiet', 'loud'].includes(color)), ['loud', 'quiet', 'tick']);
     // A lane's finer data over part of its view is a part of one picture, not a line compared: drawn as given.
     strokes.length = 0;
     const part = (color: string, values: number[], span: [number, number]) => ({ view: line(values), color, span, full: held(line(values)) });
-    paintOverlay(canvas, { layers: [part('around', [-60, -60, -60], [100, 300]), part('detail', [-20, -20, -20], [300, 10000])] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dB]' });
+    paintOverlay(canvas, { layers: [part('around', [-60, -60, -60], [100, 300]), part('detail', [-20, -20, -20], [300, 10000])] }, R({ min: -80, max: 0 }), N({ x: 'Frequency [Hz]', y: 'Level [dB]' }));
     assert.deepEqual(strokes.filter(color => ['around', 'detail'].includes(color)), ['around', 'detail']);
 });
 
@@ -416,18 +417,18 @@ test('while a line\'s level on screen is on its way, the plot keeps the order it
     const zoomed = { axisView: axis, window: { x: { start: x0 / 24000, end: x1 / 24000 } } };
     // Before anything is judged, the caller's order: not one guessed from the stretches on screen.
     const fresh = strokingCanvas();
-    paintOverlay(fresh.canvas, { layers: [layer('peaked', peaked), layer('flat', flat)] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dB]' }, zoomed);
+    paintOverlay(fresh.canvas, { layers: [layer('peaked', peaked), layer('flat', flat)] }, R({ min: -80, max: 0 }), N({ x: 'Frequency [Hz]', y: 'Level [dB]' }), zoomed);
     assert.deepEqual(lines(fresh.strokes), ['peaked', 'flat']);
     assert.match(fresh.canvas.dataset.plotOrder ?? '', /…/u);
     // Over the whole axis every stretch is on screen: judged at once, the peaked line the louder (under).
     const { canvas, strokes } = strokingCanvas();
-    paintOverlay(canvas, { layers: [layer('flat', flat), layer('peaked', peaked)] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dB]' }, { axisView: axis });
+    paintOverlay(canvas, { layers: [layer('flat', flat), layer('peaked', peaked)] }, R({ min: -80, max: 0 }), N({ x: 'Frequency [Hz]', y: 'Level [dB]' }), { axisView: axis });
     assert.deepEqual(lines(strokes), expectedOrder([{ color: 'peaked', xs, values: peaked }, { color: 'flat', xs, values: flat }], 0, 24000));
     assert.deepEqual(lines(strokes), ['peaked', 'flat']);
     // Zoomed, the levels on screen are asked for: until both are in, the plot keeps that order, given in either order.
     for (const given of [['flat', 'peaked'], ['peaked', 'flat']] as const) {
         strokes.length = 0;
-        paintOverlay(canvas, { layers: given.map(color => layer(color, color === 'flat' ? flat : peaked)) }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dB]' }, zoomed);
+        paintOverlay(canvas, { layers: given.map(color => layer(color, color === 'flat' ? flat : peaked)) }, R({ min: -80, max: 0 }), N({ x: 'Frequency [Hz]', y: 'Level [dB]' }), zoomed);
         assert.deepEqual(lines(strokes), ['peaked', 'flat'], `kept while measured, given ${given.join(', ')}`);
         assert.match(canvas.dataset.plotOrder ?? '', /…/u);
     }
@@ -470,7 +471,7 @@ test('zoomed, lines are ordered by every value on screen: a loud peak just off s
     const expected = expectedOrder([{ color: 'peaked', xs, values: peaked }, { color: 'flat', xs, values: flat }], x0, x1);
     assert.deepEqual(expected, ['flat', 'peaked']);
     const { canvas, strokes } = strokingCanvas();
-    paintOverlay(canvas, { layers: [layer('flat', flat), layer('peaked', peaked)] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dB]' },
+    paintOverlay(canvas, { layers: [layer('flat', flat), layer('peaked', peaked)] }, R({ min: -80, max: 0 }), N({ x: 'Frequency [Hz]', y: 'Level [dB]' }),
         { axisView: axis, window: { x: { start: x0 / 24000, end: x1 / 24000 } } });
     // Until every value on screen is in, the order is not judged.
     assert.match(canvas.dataset.plotOrder ?? '', /…/u);
@@ -482,7 +483,7 @@ test('zoomed, lines are ordered by every value on screen: a loud peak just off s
     assert.equal(canvas.dataset.plotOrder, '-35.00,-40.00');
     // Over the whole axis every stretch is on screen: its levelBins give the order at once, with nothing fetched.
     strokes.length = 0;
-    paintOverlay(canvas, { layers: [layer('peaked', peaked), layer('flat', flat)] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dB]' }, { axisView: axis });
+    paintOverlay(canvas, { layers: [layer('peaked', peaked), layer('flat', flat)] }, R({ min: -80, max: 0 }), N({ x: 'Frequency [Hz]', y: 'Level [dB]' }), { axisView: axis });
     assert.deepEqual(strokes.filter(color => color === 'flat' || color === 'peaked'), expectedOrder([{ color: 'peaked', xs, values: peaked }, { color: 'flat', xs, values: flat }], 0, 24000));
     assert.equal(reads.length, 2);
 });
@@ -501,7 +502,7 @@ test('a line the webview holds every value of is ordered at once by its values o
 
 test('a level drawn with no levels from its values before thinning is written as unmeasured, for the audit to fail (R6)', () => {
     const { canvas } = strokingCanvas();
-    paintOverlay(canvas, { layers: [{ view: line([-20, -20, -20]), color: 'a', full: held(line([-20, -20, -20])) }, { view: measured(line([-40, -40, -40])), color: 'b', full: held(measured(line([-40, -40, -40]))) }] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dB]' });
+    paintOverlay(canvas, { layers: [{ view: line([-20, -20, -20]), color: 'a', full: held(line([-20, -20, -20])) }, { view: measured(line([-40, -40, -40])), color: 'b', full: held(measured(line([-40, -40, -40]))) }] }, R({ min: -80, max: 0 }), N({ x: 'Frequency [Hz]', y: 'Level [dB]' }));
     assert.match(canvas.dataset.plotOrder ?? '', /\?/u);
 });
 
@@ -625,8 +626,8 @@ test('a colour or value range not in dB is widened to round ends, as a dB range 
 test('a level is read in its axis\'s own unit and reference, on the main axis, the right-hand one and a colour bar: never a bare dB beside "dBFS" (R4, R7)', () => {
     const flat = (level: number): StageView => measured(line([level, level, level]));
     const main = { view: flat(-20), color: 'main', full: held(flat(-20)) }, second = { view: flat(-60), color: 'second', full: held(flat(-60)) };
-    const plot = paintOverlay(strokingCanvas().canvas, { layers: [main] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level, uncalibrated [dBFS]' },
-        { secondary: { layers: [second], range: { min: -80, max: 0 }, title: 'Level [dB SPL re 20 µPa]' } });
+    const plot = paintOverlay(strokingCanvas().canvas, { layers: [main] }, R({ min: -80, max: 0 }), N({ x: 'Frequency [Hz]', y: 'Level, uncalibrated [dBFS]' }),
+        { secondary: { layers: [second], range: R({ min: -80, max: 0 }), title: T('Level [dB SPL re 20 µPa]') } });
     assert.ok(plot);
     const at = (layer: 'main' | 'second'): string => {
         // The right-hand axis's lines are read on its own plot (plotHoverLayer reads both and takes the nearer).
@@ -648,12 +649,12 @@ test('a level is read in its axis\'s own unit and reference, on the main axis, t
         set: () => true,
     });
     const picture = { width: 0, height: 0, clientWidth: 600, clientHeight: 200, ownerDocument: { createElement: () => ({ width: 0, height: 0, getContext: () => pictureContext }) }, dataset: {} as DOMStringMap, getContext: () => pictureContext } as unknown as HTMLCanvasElement;
-    const image = paintOverlay(picture, { layers: [{ view: heat, color: '', full: localCells(xs, ys, cells) }] }, { min: -80, max: 0 }, { x: 'Time [s]', y: 'Frequency [Hz]', colour: 'Level [dB SPL re 20 µPa]' });
+    const image = paintOverlay(picture, { layers: [{ view: heat, color: '', full: localCells(xs, ys, cells) }] }, R({ min: -80, max: 0 }), N({ x: 'Time [s]', y: 'Frequency [Hz]', colour: 'Level [dB SPL re 20 µPa]' }));
     assert.ok(image?.image);
     const place = image.image.placeOf(1, 1000);
     assert.match(stageHover(image, place.x, place.y)!.text, /−30\.0 dB SPL re 20 µPa$/u);
     // A difference is a plain dB, as its axis says.
-    const diff = paintOverlay(strokingCanvas().canvas, { layers: [main] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Δ level [dB]' }, { diff: true });
+    const diff = paintOverlay(strokingCanvas().canvas, { layers: [main] }, R({ min: -80, max: 0 }), N({ x: 'Frequency [Hz]', y: 'Δ level [dB]' }), { diff: true });
     assert.match(stageHover(diff!, diff!.xAt(1000), diff!.yAt(-20))!.text, /−20\.0 dB$/u);
 });
 
@@ -668,8 +669,8 @@ test('the right-hand level axis writes its own round ticks, each at the place of
     const flat = (level: number): StageView => measured(line([level, level, level]));
     // The right-hand range is not the left's shifted by a round number: its values at the left's ticks are not round.
     const right = { min: -93.7, max: -13.7 };
-    const plot = paintOverlay(canvas, { layers: [{ view: flat(-20), color: 'a', full: held(flat(-20)) }] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dBFS]' },
-        { secondary: { layers: [{ view: flat(-50), color: 'b', full: held(flat(-50)) }], range: right, title: 'Level [dB SPL re 20 µPa]' } });
+    const plot = paintOverlay(canvas, { layers: [{ view: flat(-20), color: 'a', full: held(flat(-20)) }] }, R({ min: -80, max: 0 }), N({ x: 'Frequency [Hz]', y: 'Level [dBFS]' }),
+        { secondary: { layers: [{ view: flat(-50), color: 'b', full: held(flat(-50)) }], range: R(right), title: T('Level [dB SPL re 20 µPa]') } });
     assert.ok(plot);
     const edge = plot.frame.left + plot.frame.width;
     const ticks = texts.filter(item => item.x > edge && /^−?\d+$/u.test(item.text));
@@ -713,7 +714,7 @@ test('no two numbers along a horizontal axis touch, a log frequency axis on a na
     for (const width of [120, 160, 220, 600]) {
         const { canvas, texts } = textCanvas(width, 200);
         const view: StageView = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity: 'level', xs: [20, 1000, 24000], values: [-20, -30, -40] };
-        paintOverlay(canvas, { layers: [{ view, color: 'a', full: held(view) }] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dB]' });
+        paintOverlay(canvas, { layers: [{ view, color: 'a', full: held(view) }] }, R({ min: -80, max: 0 }), N({ x: 'Frequency [Hz]', y: 'Level [dB]' }));
         const along = texts.filter(item => item.y === 200 - 3 && /^[\d.]+k?$/u.test(item.text)).sort((a, b) => a.x - b.x);
         assert.ok(along.length >= (width >= 600 ? 4 : 1), `${width}: numbers are written`);
         along.slice(1).forEach((item, index) => assert.ok(item.x >= along[index].x + along[index].text.length * 6, `${width}: "${along[index].text}" and "${item.text}" touch`));
@@ -725,7 +726,7 @@ test('a value axis\'s numbers never cover its name in the gutter: a long one is 
   for (const [low, high] of [[-0.0012, 0.0012], [-1234567.89, -1234567.81]]) {
     const { canvas, texts } = textCanvas(400, 400);
     const view: StageView = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', unit: 'Pa', xs: [0, 1, 2], values: [low, (low + high) / 2, high] };
-    paintOverlay(canvas, { layers: [{ view, color: 'a', full: held(view) }] }, { min: low, max: high }, { x: 'Time [s]', y: 'Sound pressure, uncalibrated [Pa]' });
+    paintOverlay(canvas, { layers: [{ view, color: 'a', full: held(view) }] }, R({ min: low, max: high }), N({ x: 'Time [s]', y: 'Sound pressure, uncalibrated [Pa]' }));
     const name = texts.filter(item => item.turned);
     const numbers = texts.filter(item => !item.turned && item.align === 'right' && /^−?\d/u.test(item.text));
     assert.ok(name.length >= 1 && numbers.length >= 2, JSON.stringify(texts));
@@ -763,12 +764,12 @@ test('a plot notes every text it draws, as it draws it, for a test to read: neve
     });
     const canvas = { width: 0, height: 0, clientWidth: 600, clientHeight: 300, ownerDocument: {}, dataset: {} as DOMStringMap, getContext: () => context } as unknown as HTMLCanvasElement;
     const view = measured(line([-20, -40, -60]));
-    const plot = paintOverlay(canvas, { layers: [{ view, color: 'a', full: held(view) }] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dBFS]' });
+    const plot = paintOverlay(canvas, { layers: [{ view, color: 'a', full: held(view) }] }, R({ min: -80, max: 0 }), N({ x: 'Frequency [Hz]', y: 'Level [dBFS]' }));
     assert.ok(plot && drawn.length > 4, JSON.stringify(drawn));
     assert.deepEqual(plot.drawnTexts, drawn, 'the texts noted are the texts drawn, in order');
     assert.ok(drawn.includes('−80') && drawn.includes('Level [dBFS]'), JSON.stringify(drawn));
     // Drawn again, it notes that drawing's texts alone.
-    const again = paintOverlay(canvas, { layers: [{ view, color: 'a', full: held(view) }] }, { min: -60, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dBFS]' });
+    const again = paintOverlay(canvas, { layers: [{ view, color: 'a', full: held(view) }] }, R({ min: -60, max: 0 }), N({ x: 'Frequency [Hz]', y: 'Level [dBFS]' }));
     assert.ok(again?.drawnTexts?.includes('−60') && !again.drawnTexts.includes('−80'), JSON.stringify(again?.drawnTexts));
 });
 
@@ -777,7 +778,7 @@ test('a horizontal axis name too long for a narrow plot, even fitted, starts at 
     for (const width of [600, 160, 90, 75, 66]) {
         const { canvas, texts } = textCanvas(width, 120);
         const view = measured(line([-20, -40, -60]));
-        const plot = paintOverlay(canvas, { layers: [{ view, color: 'a', full: held(view) }] }, { min: -80, max: 0 }, { x: name, y: 'Level [dBFS]' });
+        const plot = paintOverlay(canvas, { layers: [{ view, color: 'a', full: held(view) }] }, R({ min: -80, max: 0 }), N({ x: name, y: 'Level [dBFS]' }));
         assert.ok(plot);
         const drawn = texts.filter(item => !item.turned && (item.text === name || name.startsWith(item.text.replace(/…$/u, '')) || item.text.endsWith('[Hz]')));
         assert.ok(drawn.length > 0, `${width}: the name is drawn: ${JSON.stringify(texts.map(item => item.text))}`);
@@ -794,7 +795,7 @@ test('a colour bar\'s ends are written as the range they end, never rounded off 
     assert.equal(colourEndText(0.002, 0.004), '0.0020');
     const { canvas, texts } = textCanvas(400, 160);
     const heat: StageView = { frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity: 'level', yAxis: 'frequency', xs: [0, 1], ys: [100, 1000], matrix: [[-40, -40], [-30, -30]] };
-    paintOverlay(canvas, { layers: [{ view: heat, color: '', full: held(heat) }] }, { min: -23.5, max: 0 }, { x: 'Time [s]', y: 'Frequency [Hz]', colour: 'Level [dBFS]' });
+    paintOverlay(canvas, { layers: [{ view: heat, color: '', full: held(heat) }] }, R({ min: -23.5, max: 0 }), N({ x: 'Time [s]', y: 'Frequency [Hz]', colour: 'Level [dBFS]' }));
     assert.ok(texts.some(item => item.text === '−23.5'), JSON.stringify(texts.map(item => item.text)));
     assert.ok(!texts.some(item => item.text === '−23' || item.text === '−24'), JSON.stringify(texts.map(item => item.text)));
 });
@@ -804,8 +805,8 @@ test('the right-hand level axis writes its numbers clear of its name, all smalle
     const flat = (level: number): StageView => measured(line([level, level, level]));
     // Numbers as wide as "−100000" would reach the name from a 52 px margin unless all are written smaller.
     const right = { min: -100000, max: 0 };
-    const plot = paintOverlay(canvas, { layers: [{ view: flat(-20), color: 'a', full: held(flat(-20)) }] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dBFS]' },
-        { secondary: { layers: [{ view: flat(-50), color: 'b', full: held(flat(-50)) }], range: right, title: 'Level [dB SPL re 20 µPa]' } });
+    const plot = paintOverlay(canvas, { layers: [{ view: flat(-20), color: 'a', full: held(flat(-20)) }] }, R({ min: -80, max: 0 }), N({ x: 'Frequency [Hz]', y: 'Level [dBFS]' }),
+        { secondary: { layers: [{ view: flat(-50), color: 'b', full: held(flat(-50)) }], range: R(right), title: T('Level [dB SPL re 20 µPa]') } });
     assert.ok(plot);
     const edge = plot.frame.left + plot.frame.width;
     const ticks = texts.filter(item => !item.turned && item.x > edge && /\d/u.test(item.text));
@@ -827,7 +828,7 @@ test('a report figure\'s title and legend never run past the canvas: the title c
     for (const width of [640, 320, 180, 90]) {
         const { canvas, texts, strokes } = textCanvas(width, 240);
         const view = measured(line([-20, -40, -60]));
-        paintOverlay(canvas, { layers: [{ view, color: 'a', full: held(view) }] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dBFS]' }, { labels: { title, legend } });
+        paintOverlay(canvas, { layers: [{ view, color: 'a', full: held(view) }] }, R({ min: -80, max: 0 }), N({ x: 'Frequency [Hz]', y: 'Level [dBFS]' }), { labels: { title, legend } });
         for (const item of texts.filter(entry => !entry.turned)) {
             const length = item.text.length * 6 * fontPixels(item.font) / 10;
             const end = item.align === 'center' ? item.x + length / 2 : item.align === 'right' ? item.x : item.x + length;
@@ -843,7 +844,7 @@ test('a report figure\'s title and legend never run past the canvas: the title c
     // A title that fits is written whole.
     const { canvas, texts } = textCanvas(640, 240);
     const view = measured(line([-20, -40, -60]));
-    paintOverlay(canvas, { layers: [{ view, color: 'a', full: held(view) }] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dBFS]' }, { labels: { title: 'Spectrum', legend: [{ color: 'a', text: 'Base: a.wav' }] } });
+    paintOverlay(canvas, { layers: [{ view, color: 'a', full: held(view) }] }, R({ min: -80, max: 0 }), N({ x: 'Frequency [Hz]', y: 'Level [dBFS]' }), { labels: { title: 'Spectrum', legend: [{ color: 'a', text: 'Base: a.wav' }] } });
     assert.ok(texts.some(item => item.text === 'Spectrum') && texts.some(item => item.text === 'Base: a.wav'));
 });
 

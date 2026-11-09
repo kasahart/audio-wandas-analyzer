@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { N, R } from './helpers/figure';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
@@ -68,7 +69,7 @@ for (const [kind, view] of Object.entries(KINDS)) {
             const source = sourceOf(view, fetched);
             const range = stageRange([view]);
             const draw = (on: PaneRange = range): StagePlot => {
-                const plot = paintOverlay(canvas, { layers: [{ view, color: '#36c', label: 'a.wav', full: source.full }] }, on, { x: 'x', y: 'y', ...(view.kind === 'heatmap' ? { colour: 'Level [dBFS]' } : {}) }, { size: { width: W, height: H } });
+                const plot = paintOverlay(canvas, { layers: [{ view, color: '#36c', label: 'a.wav', full: source.full }] }, R(on), N({ x: 'x', y: 'y', ...(view.kind === 'heatmap' ? { colour: 'Level [dBFS]' } : {}) }), { size: { width: W, height: H } });
                 assert.ok(plot, `${kind} is drawn`);
                 return plot;
             };

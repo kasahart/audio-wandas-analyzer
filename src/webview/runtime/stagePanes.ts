@@ -6,6 +6,7 @@
  * (combineSource.ts) and drawn here like any picture; without one the Δ pane says why it is empty. Pure apart
  * from `paintStage`, which only draws.
  */
+import type { FigureNames, FigureRange, FigureTitle } from './figureModel';
 import type { StageView } from '../../shared/protocol/backendProtocol';
 import type { UiStrings } from '../../shared/i18n/strings';
 import { BAND_CENTERS_HZ } from './entryTable';
@@ -846,7 +847,7 @@ export interface StagePaintOptions {
      * Lines read against a second level reference, on a level axis of their own at the right: `range` is that
      * axis' range and `title` its name. They are drawn after the left axis' lines, as lines (not signals).
      */
-    secondary?: { layers: StageLayer[]; range: PaneRange; title: string };
+    secondary?: { layers: StageLayer[]; range: FigureRange; title: FigureTitle };
     /**
      * A track lane's layout: its value axis on a canvas of its own beside the plot (its ticks and name are drawn
      * there), the plot filling its canvas at the canvas's own size, and no time labels (the ruler above has them).
@@ -888,7 +889,7 @@ export function wrapLines(text: string, maxWidth: number, measure: (part: string
 }
 
 /** One picture on its own: the base, the compared file or their difference; `full`, where its numbers are read (R7). */
-export function paintStage(canvas: HTMLCanvasElement, view: StageView | null, range: PaneRange, color: string, axes: StageAxes, options: StagePaintOptions = {}, full?: FullRead): StagePlot | null {
+export function paintStage(canvas: HTMLCanvasElement, view: StageView | null, range: FigureRange, color: string, axes: FigureNames, options: StagePaintOptions = {}, full?: FullRead): StagePlot | null {
     return paintOverlay(canvas, { layers: view ? [{ view, color, filled: true, full: full ?? NO_FULL_DATA }] : [] }, range, axes, options);
 }
 
@@ -898,7 +899,7 @@ export function paintStage(canvas: HTMLCanvasElement, view: StageView | null, ra
  * louder) and grey (quieter). Without a picture it says `empty` in the middle of the pane. Returns where its lines
  * are, for the pointer (null when nothing is drawn).
  */
-export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, range: PaneRange, axes: StageAxes, options: StagePaintOptions = {}): StagePlot | null {
+export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, range: FigureRange, axes: FigureNames, options: StagePaintOptions = {}): StagePlot | null {
     // While it draws, the page says so: the ui-smoke audit (canvasAudit.ts) fails a plot drawn into by anything else
     // (R13: what drew a canvas, not only its mark, is what makes it the plot component's).
     const scope = globalThis as { __plotPainting?: number };

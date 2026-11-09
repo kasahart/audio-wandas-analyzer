@@ -1,6 +1,7 @@
 import type { SpectrogramData, SpectrogramDisplaySettings } from '../../shared/analysis/analysisTypes';
 import { middleEllipsis } from '../../shared/dataset/datasetTable';
-import { HEATMAP_DB_SPAN, niceRange } from '../../shared/utils/ticks';
+import { HEATMAP_DB_SPAN } from '../../shared/utils/ticks';
+import { roundedRange } from './figureModel';
 import type { UiStrings } from '../../shared/i18n/strings';
 export interface SpectrogramRasterView {
     zoomStart: number;
@@ -44,10 +45,10 @@ export function spectrogramDisplayBounds(
     // Typed ends stay as typed; auto ends are widened to round values for the range actually shown. The auto bottom
     // is the STFT's lowest cell but no more than HEATMAP_DB_SPAN under its loudest (as every heatmap's, heatmapDbRange):
     // digital silence's −240 dB would leave the sound in a few colours.
-    const rounded = niceRange(display.dbMin ?? Math.max(auto.minDb, auto.maxDb - HEATMAP_DB_SPAN), display.dbMax ?? auto.maxDb);
+    const rounded = roundedRange(display.dbMin ?? Math.max(auto.minDb, auto.maxDb - HEATMAP_DB_SPAN), display.dbMax ?? auto.maxDb);
     return {
-        dbLo: display.dbMin != null ? display.dbMin : rounded.low,
-        dbHi: display.dbMax != null ? display.dbMax : rounded.high,
+        dbLo: display.dbMin != null ? display.dbMin : rounded.min,
+        dbHi: display.dbMax != null ? display.dbMax : rounded.max,
         maxFrequencyHz: clamp ? Math.min(top, spec.maxFrequencyHz) : top,
         minFrequencyHz: min,
     };

@@ -9,7 +9,7 @@ import type { ScanResult } from '../../shared/protocol/backendProtocol';
 import { rowKey, type DatasetRow } from '../../shared/dataset/datasetTable';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
 import { commonLevelLabel } from '../../shared/utils/format';
-import { levelKeyOf } from './levelGrouping';
+import { levelKeyOf } from './figureModel';
 import { installRangePopover, linearAxis, openAxisPart, type AxisMapping } from '../rangePopover';
 import type { HeldPicture } from './entryHeldPlot';
 import { OVERVIEW_MARGINS, paintOverview } from './entryPlots';

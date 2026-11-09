@@ -54,7 +54,7 @@ import { attachGlobalKeyboardListeners } from './globalKeyboardEvents';
 import { keyRouterFor } from './keyRouter';
 import { attachSeparatorKeys } from './separatorKeys';
 import { buildPythonButtonText, buildPythonTooltip, isPythonEnvError } from './pythonEnvironmentLabels';
-import { laneAmplitudeRange, laneAmplitudeTicks, laneTimeTicks, markLanePlot } from './laneAxes';
+import { laneAmplitudeTicks, laneTimeTicks, markLanePlot } from './laneAxes';
 import { createPlaybackDisplay } from './playbackDisplay';
 import { installLayoutResizeHandling } from './layoutResize';
 import { syncPanelToggle, syncSpectrumMaximize } from './panelCollapse';
@@ -81,7 +81,7 @@ import {
     spectrumSlicesFromResult,
     withCalibrationWords,
 } from './spectrumRuntime';
-import { levelKeyOfReading, shownLevelOf } from './levelGrouping';
+import { emptyFigure, laneAmplitudeRange, levelKeyOfReading, levelTitle as figureLevelTitle, paneNames, plainNames, plainRange, shownLevelOf, uncalibratedWord } from './figureModel';
 import { normalizeRuntimeState, PersistedStateStore } from './stateStore';
 import { ComparisonTestBridge } from './testBridge';
 import { RuntimeEventFeed } from './runtimeEvents';
@@ -92,7 +92,7 @@ import { installSpectrogramSettingsPopover } from './spectrogramSettingsPopover'
 import { installReanalyzeOverlay } from './reanalyzeOverlay';
 import { SpectrogramSettingsStore } from './spectrogramSettingsStore';
 import { createEntryScreen } from './entryRuntime';
-import { diffHeadline, paneAxes, trackLevelInput, withBins } from './comparePanes';
+import { diffHeadline, trackLevelInput, withBins } from './comparePanes';
 import { baseName } from '../../shared/analysis/entryMetadata';
 import { channelResult } from '../../shared/recipe/channelSelection';
 import { reportFiles } from './compareReport';
@@ -351,7 +351,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     type LinkedScale = { peaks: Map<string, number>; levels: Map<string, { minDb: number; maxDb: number }>; maxFrequencyHz: number };
     let linkedScaleMemo: LinkedScale | null = null;
     const amplitudeUnitKey = (ch: ChannelSummary | undefined) => (ch && typeof ch.unit === 'string' ? ch.unit.trim() : '');
-    // Spectrograms share a colour scale only by level identity (levelGrouping, R1).
+    // Spectrograms share a colour scale only by level identity (figureModel, R1).
     const levelUnitKey = levelKeyOfReading;
     function displayedLanes(): { record: ReturnType<typeof trackStore.require>; channelIndex: number; ch: ChannelSummary }[] {
         const lanes: { record: ReturnType<typeof trackStore.require>; channelIndex: number; ch: ChannelSummary }[] = [];
@@ -1627,7 +1627,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
 
     /** A spectrogram lane's colour bar name, as the comparison's heatmaps name their colour: the level, with the channel's reference. */
     function spectrogramLevelTitle(ch: ChannelSummary | null | undefined): string {
-        return paneAxes(STR, trackLevelInput([ch], undefined)).level.y;
+        return paneNames(STR, trackLevelInput([ch], undefined)).level.y;
     }
     /** A waveform lane's amplitude axis: what it shows from bottom to top (as the waveform is drawn), its ticks and its title. */
     function laneAmplitudeAxis(result: ComparisonTrackState, channelIndex: number) {
@@ -2120,7 +2120,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const lane = laneWaveformOverlay(src, { ...trackStore.globalSpan(), ...placement }, color, unit, laneTrackFull(trackIndex, track => laneReads.waveform(track, channelIndex)));
         const ratio = W / (canvas.clientWidth || W);
         let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-        const lanePlot = paintOverlay(canvas, lane.overlay, axis.range, { x: STR.axisTime, y: axis.title }, {
+        const lanePlot = paintOverlay(canvas, lane.overlay, axis.range, plainNames(STR.axisTime, axis.title), {
             axisCanvas: options.drawAxis === false ? null : canvasById(document, trackAxisCanvasId(trackIndex, channelIndex)),
             axisView: lane.axisView,
             window: { x: { start: waveformView.start, end: waveformView.end } },
@@ -2202,7 +2202,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 ? spectrogramFailureText(STR, failure.message)
                 : STR.spectrogramLoading;
             // An empty plot with its message, drawn by the plot component as an empty pane is: no axes named yet.
-            paintOverlay(canvas, { layers: [] }, { min: 0, max: 1 }, { x: STR.axisTime, y: STR.axisFrequency }, { axisCanvas: null, empty: message });
+            paintOverlay(canvas, { layers: [] }, plainRange(0, 1), plainNames(STR.axisTime, STR.axisFrequency), { axisCanvas: null, empty: message });
             delete canvas.dataset.plotAxis;
             delete canvas.dataset.plotWindow;
             return;
@@ -3622,7 +3622,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (axis === 'db') {
             spectrumRangePopover.open({
                 // The popover names the axis as the plot does (R4): its level axis' own name, never a bracketless "(dB)".
-                axisLabel: spectrumLevelAxisTitle || STR.axisLevelUncal.replace('{label}', 'dBFS'),
+                axisLabel: spectrumLevelAxisTitle || figureLevelTitle(STR, 'dBFS', false),
                 horizontal: false,
                 ...spectrumView.dbRangeFields(),
                 clientX, clientY,
@@ -4143,7 +4143,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         const W = canvas.width, H = canvas.height;
         const { series: collected, pending: pendingVisibleSlice } = spectrumSeriesAt(spectrumCursorNorm);
-        // Each line carries its recording's level identity: lines share a level axis only by it (levelGrouping, R1).
+        // Each line carries its recording's level identity: lines share a level axis only by it (figureModel, R1).
         // A slice that names no reference of its own is in its channel's, as wandas named it (never a bare dB, R4, A50).
         const slices = collected.map(series => {
             const channel = channelsForResult(state.results[series.index])[series.channelIndex];
@@ -4162,7 +4162,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         shownSpectrumCursor.drawn(spectrumCursorNorm);
         if (slices.length === 0) {
             // Empty, the plot component says why in its middle, as every plot does (R13).
-            paintOverlay(canvas, { layers: [] }, { min: 0, max: 1 }, { x: '', y: '' }, { size: { width: W, height: H }, empty: STR.spectrumNoData });
+            const none = emptyFigure();
+            paintOverlay(canvas, { layers: [] }, none.range, none.names, { size: { width: W, height: H }, empty: STR.spectrumNoData });
             spectrumDrawn = null;
             showSpectrumMarks();
             // No line is drawn: none is named.
@@ -4174,10 +4175,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         // A level axis says uncalibrated only when every line read on it is (R4, as the comparison's overlay); on one
         // that mixes them, each uncalibrated line says so in its legend and readout (withCalibrationWords, A49).
         const calibratedSeries = (s: SpectrumSeries): boolean => channelsForResult(state.results[s.index])[s.channelIndex]?.measurement?.calibrationStatus === 'calibrated';
-        const levelTitle = (reference: string, series: readonly SpectrumSeries[]): string =>
-            (series.some(calibratedSeries) ? STR.axisLevelCal : STR.axisLevelUncal).replace('{label}', reference);
+        const levelTitle = (reference: string, series: readonly SpectrumSeries[]) => figureLevelTitle(STR, reference, series.some(calibratedSeries));
         // A slice cut for display is read at every bin (R7): the same slice asked for again at full resolution.
-        const read = withCalibrationWords(slices, calibratedSeries, STR.axisUncalibrated).map(series => {
+        const read = withCalibrationWords(slices, calibratedSeries, uncalibratedWord(STR)).map(series => {
             const track = series.slice.frequenciesHz && !series.slice.bandCentersHz && series.slice.cursorNorm !== undefined ? laneTrack(series.index) : null;
             return track && series.slice.cursorNorm !== undefined ? { ...series, full: laneReads.slice(track, series.slice.cursorNorm, series.channelIndex) } : series;
         });

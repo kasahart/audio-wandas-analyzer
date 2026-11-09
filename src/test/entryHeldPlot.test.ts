@@ -1,3 +1,4 @@
+import { R } from './helpers/figure';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
@@ -254,7 +255,7 @@ test('a held step whose values the backend refused to keep asks for no combinati
 });
 
 test('narrowed takes a window\'s vertical part of a level range', () => {
-    assert.deepEqual(narrowed({ min: -20, max: 20 }, { x: { start: 0, end: 1 }, y: { start: 0.25, end: 0.75 } }), { min: -10, max: 10 });
+    assert.deepEqual(narrowed(R({ min: -20, max: 20 }), { x: { start: 0, end: 1 }, y: { start: 0.25, end: 0.75 } }), { min: -10, max: 10 });
 });
 
 test('a held slot asks once for every bin of its file and its base, then draws its Δ from them (R1, R3)', () => {

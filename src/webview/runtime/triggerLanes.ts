@@ -5,11 +5,9 @@
  */
 import type { StageView } from '../../shared/protocol/backendProtocol';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
-import { niceRange } from '../../shared/utils/ticks';
-import { clearSideAxis, paintOverlay, stageRange, type StageAxes } from './stagePanes';
+import { clearSideAxis, paintOverlay } from './stagePanes';
 import { withMinus } from '../plot/plotText';
-import { type PaneRange } from './comparePanes';
-import { byLevelKey, levelKeyOf } from './levelGrouping';
+import { byLevelKey, dataRange, levelKeyOf, membersOf, narrowedRange, rangeWith, roundedRange, type FigureNames, type FigureRange } from './figureModel';
 import type { Drawn, StageTrack } from './trackStagePainter';
 import type { PlotWindow } from './plotInteraction';
 import { NO_FULL_DATA, type FullRead } from './fullRead';
@@ -43,7 +41,7 @@ export interface TriggerLanesFrame {
     trigger: TriggerSettings;
     /** The lanes' axes (the signal's unit). */
     /** A lane's axes, named in its own recording's reference and calibration (C1). */
-    axes: (view: StageView | null, path: string) => StageAxes;
+    axes: (view: StageView | null, path: string) => FigureNames;
     window: PlotWindow;
     drawnOn: Map<Element, Drawn>;
     /** Where a recording's numbers are read (R7): its full data, never the signal thinned to be drawn. */
@@ -62,19 +60,13 @@ export function paintTriggerLanes(frame: TriggerLanesFrame): number {
     // compare lanes do: a lane in Pa is never on a full-scale lane's scale.
     const identityOf = (track: StageTrack): string => levelKeyOf(track.input);
     const lanesOf = byLevelKey(frame.tracks.map((track, index) => ({ track, view: views[index] })), ({ track }) => identityOf(track));
-    const ranges = new Map<string, PaneRange>();
-    const rangeOf = (track: StageTrack): PaneRange => {
-        const key = identityOf(track);
-        const known = ranges.get(key);
-        if (known) return known;
+    const rangeOf = (track: StageTrack): FigureRange => {
         // The level stays in sight above or below every signal (a waveform's range leaves other views out).
-        const base = stageRange([...(lanesOf.get(key) ?? []).map(lane => lane.view), levelView(trigger.threshold)]);
+        const base = dataRange([...membersOf(lanesOf, identityOf(track)).map(lane => lane.view), levelView(trigger.threshold)]);
         const margin = Math.abs(trigger.threshold) * 0.05;
         // Widened again to round ends once the level is in (R9): the waveform's range alone is round already.
-        const held = niceRange(Math.min(base.min, trigger.threshold - margin), Math.max(base.max, trigger.threshold + margin));
-        const range: PaneRange = { ...base, min: held.low, max: held.high };
-        ranges.set(key, range);
-        return range;
+        const held = roundedRange(Math.min(base.min, trigger.threshold - margin), Math.max(base.max, trigger.threshold + margin));
+        return rangeWith(base, held.min, held.max);
     };
     let drawn = 0;
     frame.tracks.forEach((track, index) => {
@@ -95,7 +87,7 @@ export function paintTriggerLanes(frame: TriggerLanesFrame): number {
         } : undefined;
         // The lanes' own zoom (their time is the recording's): the vertical part narrows the level range.
         const { x, y } = frame.window;
-        const narrowed: PaneRange = { min: range.min + y.start * (range.max - range.min), max: range.min + y.end * (range.max - range.min) };
+        const narrowed = narrowedRange(range, y);
         const drawnView = (view && frame.detail?.(track.filePath)) || view;
         const full = (drawnView ? frame.fullOf?.(drawnView) : undefined) ?? NO_FULL_DATA;
         const plot = paintOverlay(canvas, { layers: drawnView ? [{ view: drawnView, color: frame.color(track.filePath), width: 1.5, full }] : [] }, narrowed, axes, { window: { x }, ...(view ? { axisView: view, guides } : {}) });

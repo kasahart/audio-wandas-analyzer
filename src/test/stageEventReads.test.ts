@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { N, R } from './helpers/figure';
 import test from 'node:test';
 import type { StageView } from '../shared/protocol/backendProtocol';
 import { localLine, type FullSource } from '../webview/runtime/fullRead';
@@ -24,7 +25,7 @@ test('a trigger\'s event lines are each read at that event\'s every sample, neve
     const full: FullSource = { held: 'inline', event: id => localLine(times, samples[id]) };
     const layers = eventLayers({ view, color: '#ff0', label: 'b.wav', full });
     assert.equal(layers.length, 3);
-    const plot = paintOverlay(plotCanvas(), { layers }, { min: -0.6, max: 0.6 }, { x: 'Time [s]', y: 'Amplitude [FS]' });
+    const plot = paintOverlay(plotCanvas(), { layers }, R({ min: -0.6, max: 0.6 }), N({ x: 'Time [s]', y: 'Amplitude [FS]' }));
     assert.ok(plot);
     // A sample of the second event between two drawn points, under the pointer.
     const at = 241;

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { N, R } from './helpers/figure';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
@@ -162,12 +163,12 @@ test('every pane names its axes: level and frequency, Δ with its legend, in the
     const ja = getStrings('ja');
     const uncal = paneAxes(ja, { unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true });
     const view = (values: number[]): StageView => ({ frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity: 'level', xs: [100, 1000], values });
-    paintOverlay(canvas, { layers: [{ view: view([-40, -50]), color: '#00f', full: held(view([-40, -50])) }] }, { min: -80, max: 0 }, uncal.level);
+    paintOverlay(canvas, { layers: [{ view: view([-40, -50]), color: '#00f', full: held(view([-40, -50])) }] }, R({ min: -80, max: 0 }), N(uncal.level));
     assert.ok(texts.includes('レベル 未校正 [dBFS]') && texts.includes('周波数 [Hz]'));
     // The top tick is a number only: the unit is in the axis name.
     assert.ok(!texts.some(text => /^0 dB$/.test(text)));
     texts.length = 0;
-    paintOverlay(canvas, { layers: [{ view: view([1, 2]), color: '#0f0', full: held(view([1, 2])) }] }, { min: -8, max: 8 }, uncal.delta, { diff: true, bandSteps: { deltas: [], headline: [], color: '#0f0', legend: uncal.delta.legend } });
+    paintOverlay(canvas, { layers: [{ view: view([1, 2]), color: '#0f0', full: held(view([1, 2])) }] }, R({ min: -8, max: 8 }), N(uncal.delta), { diff: true, bandSteps: { deltas: [], headline: [], color: '#0f0', legend: uncal.delta.legend } });
     assert.ok(['差 Δ [dB]', '1/3 oct 見出し', '漏れ', '点ごとの差'].every(text => texts.includes(text)));
     assert.equal(paneAxes(ja, { unit: 'Pa', ref: 2e-5, levelReferenceLabel: 'dB SPL re 20 µPa', calibrationStatus: 'calibrated', fullScale: true }).level.y, 'レベル [dB SPL re 20 µPa]');
 });
@@ -423,7 +424,7 @@ function recordingCanvas(): { canvas: HTMLCanvasElement; calls: Array<[string, u
 
 test('an empty plot\'s message keeps its line breaks: the summary and the backend\'s text each on their own line', () => {
     const { canvas, calls } = recordingCanvas();
-    paintOverlay(canvas, { layers: [] }, { min: 0, max: 1 }, { x: 'Time [s]', y: 'Frequency [Hz]' }, { axisCanvas: null, size: { width: 600, height: 200 }, empty: 'Summary\nDetail' });
+    paintOverlay(canvas, { layers: [] }, R({ min: 0, max: 1 }), N({ x: 'Time [s]', y: 'Frequency [Hz]' }), { axisCanvas: null, size: { width: 600, height: 200 }, empty: 'Summary\nDetail' });
     const texts = calls.filter(([name]) => name === 'fillText').map(([, args]) => args[0]);
     assert.ok(texts.includes('Summary') && texts.includes('Detail'), JSON.stringify(texts));
     assert.ok(!texts.some(text => String(text).includes('Summary') && String(text).includes('Detail')));
@@ -433,10 +434,10 @@ test('a plot\'s guides are drawn by the plot component: each span shaded, the le
     const { canvas, calls } = recordingCanvas();
     const view: StageView = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs: [0, 1, 2], values: [0, 0.5, 0] };
     const fills = (): number => calls.filter(([name]) => name === 'fillRect').length;
-    paintOverlay(canvas, { layers: [{ view, color: '#00f', full: held(view) }] }, { min: -1, max: 1 }, { x: 'Time [s]', y: 'Value' }, { axisView: view });
+    paintOverlay(canvas, { layers: [{ view, color: '#00f', full: held(view) }] }, R({ min: -1, max: 1 }), N({ x: 'Time [s]', y: 'Value' }), { axisView: view });
     const without = { fills: fills(), dashes: calls.filter(([name, args]) => name === 'setLineDash' && JSON.stringify(args[0]) === '[5,3]').length };
     calls.length = 0;
-    paintOverlay(canvas, { layers: [{ view, color: '#00f', full: held(view) }] }, { min: -1, max: 1 }, { x: 'Time [s]', y: 'Value' }, { axisView: view, guides: { spans: [{ start: 0.5, end: 1 }], level: { value: 0.25, label: 'Threshold 0.25' } } });
+    paintOverlay(canvas, { layers: [{ view, color: '#00f', full: held(view) }] }, R({ min: -1, max: 1 }), N({ x: 'Time [s]', y: 'Value' }), { axisView: view, guides: { spans: [{ start: 0.5, end: 1 }], level: { value: 0.25, label: 'Threshold 0.25' } } });
     assert.equal(fills() - without.fills, 1, 'one shaded span');
     assert.equal(calls.filter(([name, args]) => name === 'setLineDash' && JSON.stringify(args[0]) === '[5,3]').length - without.dashes, 1, 'the level dashed');
     assert.ok(calls.some(([name, args]) => name === 'fillText' && args[0] === 'Threshold 0.25'), 'the level named');

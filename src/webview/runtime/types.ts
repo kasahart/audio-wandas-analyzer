@@ -237,7 +237,7 @@ export interface SpectrumSeries {
     label: string;
     /** A slice cut for display: where its every bin is read (R7, laneReads.slice). */
     full?: FullSource;
-    /** Its recording's level identity, where known: lines share a level axis only by it and their slices' own reference (levelGrouping). */
+    /** Its recording's level identity, where known: lines share a level axis only by it and their slices' own reference (figureModel). */
     level?: { unit?: string; ref?: number; levelReferenceLabel?: string };
 }
 

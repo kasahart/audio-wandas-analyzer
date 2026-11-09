@@ -9,9 +9,9 @@ import type { StageView } from '../../shared/protocol/backendProtocol';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { baseName } from '../../shared/analysis/entryMetadata';
 import { DIFF_COLOR, ROLE_COLORS } from '../../shared/gui/roleColors';
-import { axisInputOf, byLevelKey, calibrationWordsBy, levelKeyOf } from './levelGrouping';
-import { type LegendItem, type LevelInput, type PaneRange } from './comparePanes';
-import { clearSideAxis, emptyStageText, isEventsView, paintOverlay, paintStage, stageAxes, stageDiffRange, stageEventCounts, stageHeadline, stageRange, type StageAxes, type StageLayer, type StagePlot } from './stagePanes';
+import { dataRange, diffRange as figureDiffRange, emptyFigure, levelAxes, levelKeyOf, membersOf, byLevelKey, narrowedRange, stageNames, titleOf, type FigureNames, type FigureRange, type FigureTitle } from './figureModel';
+import { type LegendItem, type LevelInput } from './comparePanes';
+import { clearSideAxis, emptyStageText, isEventsView, paintOverlay, paintStage, stageEventCounts, stageHeadline, type StageLayer, type StagePlot } from './stagePanes';
 import type { PlotWindow } from './plotInteraction';
 import { noDeltaNote } from './combineSource';
 import { SECONDARY_AXIS_DASH } from './overlaySpectrumPainter';
@@ -32,7 +32,7 @@ export interface StageTrack {
  * uses, its level range before the vertical zoom, its axes' names, the pictures read under the pointer, and
  * where its lines are (the line nearest the pointer is picked from them).
  */
-export type Drawn = { picture: StageView | null; range: PaneRange; axes: StageAxes; plot?: StagePlot | null };
+export type Drawn = { picture: StageView | null; range: FigureRange; axes: FigureNames; plot?: StagePlot | null };
 
 /** The mode's own elements: its root (controls, overlaid plot, legend, diff) and the step bar in it. */
 export interface StageDom {
@@ -53,8 +53,6 @@ export function stageDom(root: HTMLElement, bar: HTMLElement): StageDom {
     return { root, bar, panel: query<HTMLElement>('[data-stage-panel]'), query };
 }
 
-const narrowed = (range: PaneRange, y: { start: number; end: number }): PaneRange => ({ min: range.min + y.start * (range.max - range.min), max: range.min + y.end * (range.max - range.min) });
-
 /** The region on the plots: its part of a whole-file picture (a step before the region's), else a corner tag. */
 export type RegionMark = { start: number; end: number; mark: 'range' | 'tag'; label: string };
 /** The files in of all asked for, said on the plots while any is missing. */
@@ -63,7 +61,8 @@ export type Pending = { done: number; total: number; label: string };
 /** No chain or no step to show: the lanes, each saying so. */
 export function paintNoStage(dom: StageDom, tracks: readonly StageTrack[], strings: Pick<UiStrings, 'stepOpenCompare'>): void {
     dom.panel.hidden = true;
-    for (const track of tracks) if (track.canvas) paintStage(track.canvas, null, { min: 0, max: 1 }, track.color, { x: '', y: '' }, { empty: strings.stepOpenCompare });
+    const none = emptyFigure();
+    for (const track of tracks) if (track.canvas) paintStage(track.canvas, null, none.range, track.color, none.names, { empty: strings.stepOpenCompare });
 }
 
 /** A step that cannot run, or a base recording to measure against that is not there: the plot says why, and how to fix it. */
@@ -74,7 +73,8 @@ export function paintNoPicture(dom: StageDom, id: string, message: string): void
     dom.query<HTMLElement>('[data-stage-diff]').hidden = true;
     dom.bar.dataset.drawn = '0';
     dom.bar.dataset.stage = id;
-    paintOverlay(dom.query<HTMLCanvasElement>('[data-stage-canvas="overlay"]'), { layers: [] }, { min: 0, max: 1 }, { x: '', y: '' }, { empty: message });
+    const none = emptyFigure();
+    paintOverlay(dom.query<HTMLCanvasElement>('[data-stage-canvas="overlay"]'), { layers: [] }, none.range, none.names, { empty: message });
 }
 
 /** The layout and difference toggles: images cannot be overlaid, and without a compared file there is no difference. */
@@ -173,7 +173,7 @@ export function stageModeHeadline(frame: Pick<StageFrame, 'strings' | 'waiting' 
 export const colorOf = (role: StageFrame['role'], path: string, fallback: string): string => ROLE_COLORS[role(path) ?? -1] ?? fallback;
 const widthOf = (role: StageFrame['role'], path: string, width: number): number => (role(path) === undefined ? 1.2 : width);
 
-/** What a lane's levels are in (levelGrouping.levelKeyOf). */
+/** What a lane's levels are in (figureModel.levelKeyOf). */
 const referenceOf = (track: StageTrack): string => levelKeyOf(track.input);
 
 /**
@@ -183,13 +183,9 @@ const referenceOf = (track: StageTrack): string => levelKeyOf(track.input);
  */
 export function paintStageLanes(frame: StageFrame): number {
     const { strings, tracks, coarse, shown, picture, window, regionMark, pending } = frame;
-    const ranges = new Map<string, PaneRange>();
-    const rangeOf = (track: StageTrack): PaneRange => {
-        const key = referenceOf(track);
-        let found = ranges.get(key);
-        if (!found) ranges.set(key, found = stageRange(tracks.filter(other => referenceOf(other) === key).map(other => coarse(other.filePath) ?? null)));
-        return found;
-    };
+    // One range per level identity, over its lanes alone (figureModel).
+    const groups = byLevelKey(tracks, referenceOf);
+    const rangeOf = (track: StageTrack): FigureRange => dataRange(membersOf(groups, referenceOf(track)).map(other => coarse(other.filePath) ?? null));
     const heat = picture?.kind === 'heatmap';
     let drawn = 0;
     // Every lane in while the base group is still computed: the first lane says so, in its corner.
@@ -204,10 +200,10 @@ export function paintStageLanes(frame: StageFrame): number {
         const view = shown(track.filePath) ?? null;
         const missing = coarse(track.filePath) === undefined;
         const empty = missing ? '' : emptyStageText(strings, coarse(track.filePath) ?? picture);
-        const axes = stageAxes(strings, coarse(track.filePath) ?? picture, track.input);
+        const axes = stageNames(strings, coarse(track.filePath) ?? picture, track.input);
         // A lane holds one picture, drawn as it is (1/3-octave levels as steps, without a fill).
         const range = rangeOf(track);
-        const lanePlot = paintOverlay(track.canvas, { layers: view ? [{ view, color: colorOf(frame.role, track.filePath, track.color), width: widthOf(frame.role, track.filePath, 2), label: frame.named(track.filePath, frame.role(track.filePath)).label, ...eventsOf(frame, track.filePath, view), ...fullOf(frame, view) }] : [] }, heat ? range : narrowed(range, window.y), axes,
+        const lanePlot = paintOverlay(track.canvas, { layers: view ? [{ view, color: colorOf(frame.role, track.filePath, track.color), width: widthOf(frame.role, track.filePath, 2), label: frame.named(track.filePath, frame.role(track.filePath)).label, ...eventsOf(frame, track.filePath, view), ...fullOf(frame, view) }] : [] }, heat ? range : narrowedRange(range, window.y), axes,
             { empty, window: { x: window.x, ...(heat ? { y: window.y } : {}) }, axisView: coarse(track.filePath) ?? picture, ...(regionMark ? { region: regionMark } : {}), ...((missing || track.filePath === progressLane) && pending ? { pending } : {}) });
         frame.drawnOn.set(track.canvas, { picture: coarse(track.filePath) ?? picture, range, axes, plot: lanePlot });
         if (view) drawn++;
@@ -217,7 +213,8 @@ export function paintStageLanes(frame: StageFrame): number {
     const referenceTrack = referencePath ? frame.allTracks.find(track => track.filePath === referencePath) : undefined;
     // Its side axis held the waveform's: cleared, as the lanes' are, since the lane draws no picture of its own.
     if (referenceTrack?.axis) clearSideAxis(referenceTrack.axis);
-    if (referencePath && referenceTrack?.canvas) paintStage(referenceTrack.canvas, null, { min: 0, max: 1 }, referenceTrack.color, { x: '', y: '' }, { empty: strings.stageBaseLane.replace('{file}', frame.named(referencePath, 0).label) });
+    const none = emptyFigure();
+    if (referencePath && referenceTrack?.canvas) paintStage(referenceTrack.canvas, null, none.range, referenceTrack.color, none.names, { empty: strings.stageBaseLane.replace('{file}', frame.named(referencePath, 0).label) });
     return drawn;
 }
 
@@ -292,50 +289,39 @@ export function writeStageLegend(legend: HTMLElement, html: string, written: str
 }
 
 /**
- * The calibration word each recording's legend name and readout carry (R1, R4): where recordings of one level
- * identity (levelIdentityOf: they share an axis) differ in calibration status, each uncalibrated one says so, since
- * the axis they share names only the common quantity, unit and reference (axisInputOf); '' otherwise.
- */
-export function calibrationWords(strings: Pick<StageFrame['strings'], 'axisUncalibrated'>, allTracks: readonly Pick<StageTrack, 'filePath' | 'input'>[], paths: readonly (string | null | undefined)[]): (path: string | null | undefined) => string {
-    const inputOf = (path: string | null | undefined): StageTrack['input'] => (path ? allTracks.find(track => track.filePath === path)?.input : undefined);
-    const known = [...new Set(paths)].filter(path => !!inputOf(path));
-    const word = calibrationWordsBy(known, path => levelKeyOf(inputOf(path)), path => inputOf(path)?.calibrationStatus === 'calibrated', strings.axisUncalibrated);
-    return path => (inputOf(path) ? word(path) : '');
-}
-
-/**
  * The overlay's lines by the level identity of their own recordings (R1, levelIdentityOf: unit, reference value,
  * level reference name; C1, as the cursor spectrum's): all on one axis when they share one; with two, the base's on
  * the left and the other's on the right, its lines dashed; with more, none overlaid (`tooMany`). An axis is named by
  * axisInputOf its lines' inputs. An image keeps one axis; a trigger's events are split as any line (A43).
  */
 export function byReference(frame: Pick<StageFrame, 'strings' | 'picture' | 'allTracks' | 'tracks' | 'role'> & Partial<Pick<StageFrame, 'window'>>, layers: readonly StageLayer[]): {
-    mainLayers: StageLayer[]; secondary?: { layers: StageLayer[]; range: PaneRange; title: string }; mainInput: StageTrack['input']; tooMany: boolean;
+    mainLayers: StageLayer[]; secondary?: { layers: StageLayer[]; range: FigureRange; title: FigureTitle }; mainInput: StageTrack['input']; mainNames: FigureNames; tooMany: boolean;
 } {
     const { strings, picture, tracks } = frame;
     const inputOf = (layer: StageLayer): StageTrack['input'] => frame.allTracks.find(track => track.filePath === layer.recording)?.input ?? tracks[0]?.input;
-    const keyOf = (layer: StageLayer): string => levelKeyOf(inputOf(layer));
-    const inputFor = (members: readonly StageLayer[]): StageTrack['input'] => axisInputOf(members.map(inputOf)) ?? tracks[0]?.input;
-    // An image has one colour bar; a trigger's events are their recordings' lines, split by identity as any line (A43).
-    const one = picture?.kind === 'heatmap';
-    const keys = [...byLevelKey(layers, keyOf).keys()];
-    if (one || keys.length < 2) return { mainLayers: [...layers], mainInput: layers.length ? inputFor(layers) : tracks[0]?.input, tooMany: false };
-    if (keys.length > 2) return { mainLayers: [], mainInput: tracks[0]?.input, tooMany: true };
     const base = layers.find(layer => layer.recording !== undefined && frame.role(layer.recording) === 0);
-    const main = base ? keyOf(base) : keys[0];
-    const mainLayers = layers.filter(layer => keyOf(layer) === main);
-    const second = layers.filter(layer => keyOf(layer) !== main).map(layer => ({ ...layer, dash: SECONDARY_AXIS_DASH }));
+    // An image has one colour bar; a trigger's events are their recordings' lines, split by identity as any line (A43).
+    const { axes, tooMany } = levelAxes(layers, {
+        inputOf, ...(base ? { first: base } : {}), one: picture?.kind === 'heatmap', fallback: tracks[0]?.input,
+        names: input => stageNames(strings, picture, input),
+        range: members => dataRange(members.map(layer => layer.view)),
+    });
+    if (tooMany) return { mainLayers: [], mainInput: tracks[0]?.input, mainNames: stageNames(strings, picture, tracks[0]?.input), tooMany: true };
+    const [main, second] = axes;
+    if (!main) return { mainLayers: [], mainInput: tracks[0]?.input, mainNames: stageNames(strings, picture, tracks[0]?.input), tooMany: false };
+    if (!second) return { mainLayers: main.lines, mainInput: main.input, mainNames: main.names, tooMany: false };
     // A vertical zoom narrows the right-hand axis by the same part of it as the left (A45, R13), as the cursor spectrum's.
-    const whole = stageRange(second.map(layer => layer.view));
-    return { mainLayers, mainInput: inputFor(mainLayers), tooMany: false, secondary: { layers: second, range: frame.window ? narrowed(whole, frame.window.y) : whole, title: stageAxes(strings, picture, inputFor(second)).y } };
+    return {
+        mainLayers: main.lines, mainInput: main.input, mainNames: main.names, tooMany: false,
+        secondary: { layers: second.lines.map(layer => ({ ...layer, dash: SECONDARY_AXIS_DASH })), range: frame.window ? narrowedRange(second.range, frame.window.y) : second.range, title: titleOf(second.names) },
+    };
 }
 
 /** Overlaid: the base, the other tracks and the compared one on one plot, then their difference under it on request. */
 export function paintStageOverlay(dom: StageDom, frame: StageFrame, plots: StagePlots<StageTrack>, layers: StageLayer[], showDiff: boolean): void {
     const { strings, tracks, picture, coarsePlots, window, regionMark, pending, waiting, comparePath, referencePath } = frame;
-    const range = stageRange([coarsePlots.base, ...coarsePlots.baseMembers.map(item => item.view), coarsePlots.compare, ...coarsePlots.others.map(item => item.view)]);
-    const { mainLayers, secondary, mainInput, tooMany } = byReference(frame, layers);
-    const axes = stageAxes(strings, picture, mainInput);
+    const range = dataRange([coarsePlots.base, ...coarsePlots.baseMembers.map(item => item.view), coarsePlots.compare, ...coarsePlots.others.map(item => item.view)]);
+    const { mainLayers, secondary, mainNames: axes, tooMany } = byReference(frame, layers);
     const empty = tooMany ? strings.stageTooManyReferences : waiting ? '' : emptyStageText(strings, picture);
     // The difference shown or hidden first: it takes part of the overlay's height, which the overlay is measured at.
     const diffBox = dom.query<HTMLElement>('[data-stage-diff]');
@@ -343,18 +329,18 @@ export function paintStageOverlay(dom: StageDom, frame: StageFrame, plots: Stage
     const withDiff = showDiff && !referencePath && !!comparePath && !frame.baseEach && !isEventsView(picture);
     diffBox.hidden = !withDiff;
     const overlay = dom.query<HTMLCanvasElement>('[data-stage-canvas="overlay"]');
-    const mainRange = secondary ? stageRange(mainLayers.map(layer => layer.view)) : range;
-    const overlayPlot = paintOverlay(overlay, { layers: mainLayers }, narrowed(mainRange, window.y), axes, { empty, window: { x: window.x }, axisView: picture, ...(secondary ? { secondary } : {}), ...(regionMark ? { region: regionMark } : {}), ...(pending ? { pending } : {}) });
+    const mainRange = secondary ? dataRange(mainLayers.map(layer => layer.view)) : range;
+    const overlayPlot = paintOverlay(overlay, { layers: mainLayers }, narrowedRange(mainRange, window.y), axes, { empty, window: { x: window.x }, axisView: picture, ...(secondary ? { secondary } : {}), ...(regionMark ? { region: regionMark } : {}), ...(pending ? { pending } : {}) });
     frame.drawnOn.set(overlay, { picture, range: mainRange, axes, plot: overlayPlot });
     if (!withDiff) return;
     // Zoomed, the largest difference on screen, once this window's own difference is in (C4).
     const zoomed = window.x.start > 0 || window.x.end < 1 || (plots.diff?.kind === 'heatmap' && (window.y.start > 0 || window.y.end < 1));
     dom.query<HTMLElement>('[data-stage-diff-headline]').textContent = waiting ? '' : plots.diff ? stageHeadline(plots.diff, strings, !zoomed || !!frame.diffOfWindow) : noDeltaNote(frame, strings);
     // A Δ is only of recordings of one reference (stage_combine._no_delta_reason): the compared one's names it.
-    const diffAxes = stageAxes(strings, coarsePlots.diff, frame.allTracks.find(track => track.filePath === comparePath)?.input ?? tracks[0]?.input, true);
+    const diffAxes = stageNames(strings, coarsePlots.diff, frame.allTracks.find(track => track.filePath === comparePath)?.input ?? tracks[0]?.input, true);
     const diffCanvas = dom.query<HTMLCanvasElement>('[data-stage-canvas="diff"]');
-    const diffRange = stageDiffRange(coarsePlots.diff);
-    const diffPlot = paintStage(diffCanvas, plots.diff, narrowed(diffRange, frame.diffY), DIFF_COLOR, diffAxes,
+    const diffRange = figureDiffRange(coarsePlots.diff);
+    const diffPlot = paintStage(diffCanvas, plots.diff, narrowedRange(diffRange, frame.diffY), DIFF_COLOR, diffAxes,
         { diff: true, empty: waiting ? '' : noDeltaNote(frame, strings), window: { x: window.x }, axisView: coarsePlots.diff, ...(pending ? { pending } : {}) }, frame.fullOf?.(plots.diff));
     frame.drawnOn.set(diffCanvas, { picture: coarsePlots.diff, range: diffRange, axes: diffAxes, plot: diffPlot });
 }

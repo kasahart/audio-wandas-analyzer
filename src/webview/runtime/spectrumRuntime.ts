@@ -1,12 +1,9 @@
 import { readoutText } from '../../shared/gui-core/index';
 import { frequencyAtFraction, type SpectrumPlotFrame } from '../draw/canvasDrawers';
 import { frequencyText, levelText } from '../plot/plotText';
-import { HEATMAP_DB_SPAN } from '../../shared/utils/ticks';
-import type { StageView } from '../../shared/protocol/backendProtocol';
-import { stageRange } from './stagePanes';
 import type { HostInboundMessage } from './hostMessaging';
 import type { DragPoint, SpectrumSeries, SpectrumSlice } from './types';
-import { byLevelKey, calibrationWordsBy, levelKeyOf, shownLevelOf } from './levelGrouping';
+import { backendTitle, byLevelKey, calibrationWordsBy, levelKeyOf, levelLineRange, shownLevelOf, type FigureTitle } from './figureModel';
 import { type NormalizedRange, zoomNormalizedRange } from './waveformInteraction';
 
 export function zoomSpectrumRange(range: NormalizedRange, factor: number): NormalizedRange {
@@ -49,10 +46,7 @@ export interface SpectrumSeriesRange {
  * A typed end is kept exactly; with the top typed, the bottom is at most 100 dB under it.
  */
 export function spectrumLevelRange(low: number, high: number, typed: { min?: number; max?: number } = {}): { minDb: number; maxDb: number } {
-    const auto = stageRange([{ kind: 'line', quantity: 'level', xs: [], values: [], valueRange: { min: low, max: high } } as unknown as StageView]);
-    const maxDb = typed.max ?? auto.max;
-    const minDb = typed.min ?? (typed.max !== undefined ? Math.max(auto.min, typed.max - HEATMAP_DB_SPAN) : auto.min);
-    return maxDb > minDb ? { minDb, maxDb } : { minDb: auto.min, maxDb: auto.max };
+    return levelLineRange(low, high, typed);
 }
 
 /** The series' shared ranges: frequency to the highest, level by spectrumLevelRange over every series' extremes. */
@@ -135,7 +129,7 @@ export function spectrumLevelReference(slice: SpectrumSlice): string {
     return shownLevelOf(slice);
 }
 
-/** What a line's levels are in, for sharing an axis (levelGrouping): its recording's identity and its slice's reference. */
+/** What a line's levels are in, for sharing an axis (figureModel): its recording's identity and its slice's reference. */
 type LevelKeyed = { slice: SpectrumSlice; level?: SpectrumSeries['level'] };
 const levelOf = (level: SpectrumSeries['level']) => (level ? { unit: level.unit ?? '', ref: level.ref ?? 1, levelReferenceLabel: level.levelReferenceLabel ?? '' } : undefined);
 const spectrumLevelKey = (s: LevelKeyed): string => levelKeyOf(levelOf(s.level), spectrumLevelReference(s.slice));
@@ -153,7 +147,7 @@ export function withCalibrationWords<S extends LevelKeyed & { label: string }>(s
 export interface OverlayLevelAxis<S> {
     series: S[];
     /** The axis' title: the first series' level axis label, or its reference when it has none. */
-    title: string;
+    title: FigureTitle;
     reference: string;
     visible: SpectrumVisibleWindow;
 }
@@ -176,16 +170,17 @@ function autoDbRange(series: ReadonlyArray<{ slice: SpectrumSlice }>): { minDb: 
  */
 export function overlayLevelAxes<S extends LevelKeyed>(series: readonly S[], view: SpectrumViewState): OverlayLevelAxis<S>[] {
     const all = spectrumSeriesRange(series);
-    const entries = [...byLevelKey(series, spectrumLevelKey).entries()];
+    const entries = byLevelKey(series, spectrumLevelKey).map(group => [group.key, group.items] as const);
     const axisFor = (_key: string, members: S[], visible: SpectrumVisibleWindow): OverlayLevelAxis<S> => {
         const reference = spectrumLevelReference(members[0].slice);
-        return { series: members, title: members[0].slice.axisLabel || reference, reference, visible };
+        return { series: members, title: backendTitle(members[0].slice.axisLabel || reference), reference, visible };
     };
     if (entries.length < 2) {
         const visible = spectrumVisibleWindow(all.maxFrequencyHz, all.minDb, all.maxDb, view, all.logMinFrequencyHz);
-        return entries.length === 0 ? [{ series: [], title: '', reference: '', visible }] : [axisFor(entries[0][0], entries[0][1], visible)];
+        return entries.length === 0 ? [{ series: [], title: backendTitle(''), reference: '', visible }] : [axisFor(entries[0][0], [...entries[0][1]], visible)];
     }
-    const [[firstReference, first], [secondReference, second]] = entries;
+    const [[firstReference, firstOnes], [secondReference, secondOnes]] = entries;
+    const first = [...firstOnes], second = [...secondOnes];
     const firstRange = spectrumSeriesRange(first);
     const primary = spectrumVisibleWindow(all.maxFrequencyHz, firstRange.minDb, firstRange.maxDb, view, all.logMinFrequencyHz);
     if (entries.length > 2) {

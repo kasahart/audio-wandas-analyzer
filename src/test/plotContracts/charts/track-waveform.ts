@@ -38,7 +38,7 @@ export const trackWaveform: ChartContract = {
         },
         {
             id: 'track-waveform.range', value: 'range', what: '振幅の軸の範囲',
-            computedIn: [`${RT}:laneAmplitudeAxis`, `${RT}:amplitudeScaleFor`, 'src/webview/runtime/laneAxes.ts:laneAmplitudeRange', 'python-backend/decimator.py:decimated_waveform'],
+            computedIn: [`${RT}:laneAmplitudeAxis`, `${RT}:amplitudeScaleFor`, 'src/webview/runtime/figureModel.ts:laneAmplitudeRange', 'python-backend/decimator.py:decimated_waveform'],
             from: 'full', trace: 'absolutePeak（全サンプルの絶対値の最大、間引く前に求める）か、つないだ録音で共有するピークから決める。',
             tests: [
                 tt('python-backend/test_decimator.py', 'test_absolute_peak'),

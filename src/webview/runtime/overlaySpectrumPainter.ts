@@ -1,3 +1,4 @@
+import { plainNames, plainRange, withTitle, type FigureTitle } from './figureModel';
 import { binFrequencyHz } from '../draw/canvasDrawers';
 import { levelBinsOf, paintOverlay, type StageLayer, type StagePlot } from './stagePanes';
 import type { StageView } from '../../shared/protocol/backendProtocol';
@@ -110,7 +111,7 @@ export function paintOverlaySpectrum(
     view: SpectrumViewState,
     frequencyTitle = '',
     /** Names a level axis from its reference and the lines read on it (the UI's words, calibrated or not); the slice's own label otherwise. */
-    levelTitle?: (reference: string, series: readonly SpectrumSeries[]) => string,
+    levelTitle?: (reference: string, series: readonly SpectrumSeries[]) => FigureTitle,
 ): OverlaySpectrumPaint {
     const { maxFrequencyHz, logMinFrequencyHz } = spectrumSeriesRange(slices);
     const axes = overlayLevelAxes(slices, view).map(axis => (levelTitle && axis.series.length ? { ...axis, title: levelTitle(axis.reference, axis.series) } : axis));
@@ -130,11 +131,11 @@ export function paintOverlaySpectrum(
     const [primary, secondary] = axes;
     // About two pixels a bucket across the plot, as every line is thinned (R2).
     const lineBuckets = Math.max(64, Math.round((W - pad.left - pad.right) / 2));
-    const plot = paintOverlay(canvas, { layers: layersOf(primary.series, vis, primary.reference) }, { min: vis.dbMin, max: vis.dbMax }, { x: frequencyTitle, y: primary.title }, {
+    const plot = paintOverlay(canvas, { layers: layersOf(primary.series, vis, primary.reference) }, plainRange(vis.dbMin, vis.dbMax), withTitle(plainNames(frequencyTitle, ''), primary.title), {
         size: { width: W, height: H },
         margins: { ...pad },
         axisView: frequencyAxis(empty ? { ...vis, frequencyMax: vis.frequencyMin + 1 } : vis),
-        ...(secondary ? { secondary: { layers: layersOf(secondary.series, secondary.visible, secondary.reference, SECONDARY_AXIS_DASH), range: { min: secondary.visible.dbMin, max: secondary.visible.dbMax }, title: secondary.title } } : {}),
+        ...(secondary ? { secondary: { layers: layersOf(secondary.series, secondary.visible, secondary.reference, SECONDARY_AXIS_DASH), range: plainRange(secondary.visible.dbMin, secondary.visible.dbMax), title: secondary.title } } : {}),
     });
     return { maxFrequencyHz, logMinFrequencyHz, dbMin: vis.dbMin, dbMax: vis.dbMax, painted: !empty, plot: empty ? null : plot, levelAxes };
 }

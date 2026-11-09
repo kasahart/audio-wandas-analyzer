@@ -1,3 +1,4 @@
+import { N } from './helpers/figure';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { StageView } from '../shared/protocol/backendProtocol';
@@ -45,7 +46,7 @@ function lanes(threshold: number, recordings: Record<string, ReturnType<typeof r
         excluded: () => [],
         color: () => '#00f',
         trigger: { threshold, channel: 0, duration: 0.1, pre: 0.01 },
-        axes: () => ({ x: 'Time [s]', y: 'Amplitude [FS]' }),
+        axes: () => N({ x: 'Time [s]', y: 'Amplitude [FS]' }),
         window: { x: { start: 0, end: 1 }, y: { start: 0, end: 1 } },
         drawnOn: drawn,
         // Every sample, as the backend reads it (R7).

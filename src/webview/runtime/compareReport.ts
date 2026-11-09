@@ -9,10 +9,10 @@ import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { encodeNumber, plainFloats, recipeSteps, timeSignalStep, upToStep, withDefaults, withParam, TIME_SLICE } from '../../shared/recipe/recipeSteps';
 import { BAND_CENTERS_HZ, bandCentreCell, bandLabel, csvNumber, EDGE_GUARD_S, HEADLINE_WITHIN_DB, levelReferenceCell, measuredRegion, regionCells, type BaseDefinition, type DerivedRow, type EntryMeasure, type EntryModel } from './entryTable';
 import { withBaseInput, withChannel } from '../../shared/recipe/channelSelection';
-import { levelKeyOf } from './levelGrouping';
-import { bandsSource, binsSource, binsView, deltaViews, diffHeadline, levelsHeadline, paneAxes, sideView, type CompareModel, type CompareStrings, type LevelInput } from './comparePanes';
+import { dataRange, diffRange, levelAxes, paneNames, plainNames, titleOf, withTitle, type FigureRange, type FigureTitle } from './figureModel';
+import { bandsSource, binsSource, binsView, deltaViews, diffHeadline, levelsHeadline, sideView, type CompareModel, type CompareStrings, type LevelInput } from './comparePanes';
 import { SECONDARY_AXIS_DASH } from './overlaySpectrumPainter';
-import { paintOverlay, stageDiffRange, stageRange } from './stagePanes';
+import { paintOverlay } from './stagePanes';
 import type { InlineFullSource } from './fullRead';
 import { secondsSpanText } from '../plot/plotText';
 import type { EntryRegion } from '../../shared/analysis/entryScan';
@@ -352,45 +352,50 @@ function sideInput(side: CompareModel['base'], input: ReportInput): LevelInput |
 
 /**
  * The level axes of a report figure (R1, R4: as the comparison's overlay, trackStagePainter.byReference): base and
- * compared on one axis when their levels are of one level identity (levelGrouping.levelKeyOf), else the base's on the left
+ * compared on one axis when their levels are of one level identity (figureModel.levelKeyOf), else the base's on the left
  * and the compared one's on the right, never one read on the other's numbers. An axis is "uncalibrated" only when
  * every line on it is; each uncalibrated line says so itself in the legend.
  */
-export function reportLevelAxes(comparison: Pick<CompareModel, 'base' | 'compare'>, input: Pick<ReportInput, 'results'>, strings: ReportStrings): {
-    left: string; right: string | null; legend: { base: string; compare: string };
+export function reportLevelAxes(comparison: Pick<CompareModel, 'base' | 'compare'>, input: Pick<ReportInput, 'results'>, strings: ReportStrings, views: { base?: StageView | null; compare?: StageView | null } = {}): {
+    left: FigureTitle; right: FigureTitle | null; legend: { base: string; compare: string }; leftRange: FigureRange; rightRange: FigureRange | null;
 } {
     const base = sideInput(comparison.base, input as ReportInput), compare = sideInput(comparison.compare, input as ReportInput);
-    const apart = !!base && !!compare && levelKeyOf(base) !== levelKeyOf(compare);
-    const lines = [base, compare].filter((item): item is LevelInput => !!item);
-    const shared: LevelInput | undefined = lines[0] && { ...lines[0], calibrationStatus: lines.some(item => item.calibrationStatus === 'calibrated') ? 'calibrated' : 'uncalibrated' };
-    const axes = paneAxes(strings, apart ? base : shared ?? compare).level;
+    const sides = [{ side: 'base' as const, input: base, view: views.base ?? null }, { side: 'compare' as const, input: compare, view: views.compare ?? null }].filter(item => !!item.input || !!item.view);
+    // As every figure's level axes (figureModel.levelAxes): one per level identity, the base's on the left.
+    const { axes } = levelAxes(sides, {
+        inputOf: item => item.input, first: sides[0],
+        names: axisInput => paneNames(strings, axisInput ?? compare).level,
+        range: members => dataRange(members.map(item => item.view)),
+    });
+    const [left, right] = axes;
+    const leftTitle = titleOf(left?.names ?? paneNames(strings, compare).level);
+    const rightTitle = right ? titleOf(right.names) : null;
     const word = (item: LevelInput | undefined): string => (item && item.calibrationStatus !== 'calibrated' ? ` · ${strings.entryLeqUncalibrated}` : '');
-    const right = apart ? paneAxes(strings, compare).level.y : null;
     return {
-        left: axes.y, right,
+        left: leftTitle, right: rightTitle, leftRange: left?.range ?? dataRange([]), rightRange: right?.range ?? null,
         legend: {
-            base: `${word(base)}${apart ? ` · ${axes.y}` : ''}`,
-            compare: `${word(compare)}${right ? ` · ${right}` : ''}`,
+            base: `${word(base)}${right ? ` · ${leftTitle}` : ''}`,
+            compare: `${word(compare)}${rightTitle ? ` · ${rightTitle}` : ''}`,
         },
     };
 }
 
 /** One slot's base and compare as the comparison's overlay: solid lines, no fills, each on its own level reference's axis. */
 export function paintOverlayFigure(canvas: HTMLCanvasElement, comparison: CompareModel, slot: number, title: string, strings: ReportStrings, input: ReportInput, size: { width: number; height: number }): void {
-    const level = reportLevelAxes(comparison, input, strings);
     // Every bin, decimated only to be drawn, as the comparison draws a spectrum. Where a scan gave no bins, the
     // 1/3-octave levels (each the scan's own, from every bin; a group's median band by band): never the 192 points.
     const { bins } = comparison;
     const base = bins?.base ? binsView(bins, 'base') : sideView(comparison.base, comparison.frequencies, true);
     const compare = bins?.compare ? binsView(bins, 'compare') : sideView(comparison.compare, comparison.frequencies, true);
     const color = ROLE_COLORS[slot] ?? ROLE_COLORS[1];
+    const level = reportLevelAxes(comparison, input, strings, { base, compare });
     // Ordered by every bin (or every band, which the figure draws whole), never the points thinned to draw (R6).
     const fullOf = (which: 'base' | 'compare'): InlineFullSource => (bins?.[which] ? binsSource(bins, which) : null) ?? bandsSource(comparison[which]?.bands ?? [], comparison.frequencies);
     const baseLayers = base ? [{ view: base, color: ROLE_COLORS[0], width: 2, full: fullOf('base') }] : [];
     const compareLayers = compare ? [{ view: compare, color, width: 2, full: fullOf('compare'), ...(level.right ? { dash: SECONDARY_AXIS_DASH } : {}) }] : [];
     // Levels of another reference are drawn on the right-hand axis, by their own range (never the left one's numbers).
-    const secondary = level.right && compareLayers.length ? { layers: compareLayers, range: stageRange([compare]), title: level.right } : undefined;
-    paintOverlay(canvas, { layers: secondary ? baseLayers : [...baseLayers, ...compareLayers] }, stageRange(secondary ? [base] : [base, compare]), { x: figureXAxis([base, compare], strings), y: level.left }, {
+    const secondary = level.right && level.rightRange && compareLayers.length ? { layers: compareLayers, range: level.rightRange, title: level.right } : undefined;
+    paintOverlay(canvas, { layers: secondary ? baseLayers : [...baseLayers, ...compareLayers] }, level.leftRange, withTitle(plainNames(figureXAxis([base, compare], strings), ''), level.left), {
         // A figure on paper: no pointer reads it, so it reads no number (R7).
         size, readout: false,
         ...(secondary ? { secondary } : {}),
@@ -408,22 +413,22 @@ export function paintOverlayFigure(canvas: HTMLCanvasElement, comparison: Compar
  * What a Δ figure draws (R1): compare − base bin by bin, decimated only to be drawn, or, without the bins, the
  * 1/3-octave Δ (the held plot's own picture). The range covers the band steps too, so a step is never cut off.
  */
-export function deltaFigure(comparison: Pick<CompareModel, 'bins' | 'bandDeltas' | 'frequencies'>): { view: StageView | null; range: { min: number; max: number }; binned: boolean } {
+export function deltaFigure(comparison: Pick<CompareModel, 'bins' | 'bandDeltas' | 'frequencies'>): { view: StageView | null; range: FigureRange; binned: boolean } {
     const view = deltaViews(comparison).picture;
     // Every bin's Δ (binsView's valueRange) and every band's: a step is never cut off.
     const bands = comparison.bandDeltas.filter((value): value is number => value !== null && Number.isFinite(value));
     const whole = view?.valueRange;
     const valueRange = whole || bands.length ? { min: Math.min(whole?.min ?? Infinity, ...bands), max: Math.max(whole?.max ?? -Infinity, ...bands) } : undefined;
-    const range = stageDiffRange(view && { ...view, values: [...(view.values ?? []), ...comparison.bandDeltas], ...(valueRange ? { valueRange } : {}) });
+    const range = diffRange(view && { ...view, values: [...(view.values ?? []), ...comparison.bandDeltas], ...(valueRange ? { valueRange } : {}) });
     return { view, range, binned: !!comparison.bins?.diff };
 }
 
 /** A Δ figure: compare − base per point, the 1/3-octave Δ as steps under it, titled and with its legend. */
 function paintDeltaFigure(canvas: HTMLCanvasElement, comparison: CompareModel, title: string, curve: string, strings: ReportStrings, input: ReportInput, size: { width: number; height: number }): void {
     const { view, range, binned } = deltaFigure(comparison);
-    const axes = paneAxes(strings, input.results.get(comparison.compare?.filePaths[0] ?? '')?.input).delta;
+    const axes = paneNames(strings, input.results.get(comparison.compare?.filePaths[0] ?? '')?.input).delta;
     const full = (comparison.bins ? binsSource(comparison.bins, 'diff') : null) ?? bandsSource(comparison.bandDeltas, comparison.frequencies);
-    paintOverlay(canvas, { layers: view ? [{ view, color: DIFF_COLOR, width: 1.5, full }] : [] }, range, { x: figureXAxis([view], strings), y: axes.y }, {
+    paintOverlay(canvas, { layers: view ? [{ view, color: DIFF_COLOR, width: 1.5, full }] : [] }, range, withTitle(plainNames(figureXAxis([view], strings), ''), titleOf(axes)), {
         size, diff: true, readout: false,
         labels: { title, legend: [...(binned ? [{ color: DIFF_COLOR, text: curve }] : []), { color: DIFF_COLOR, text: strings.reportStepsLegend }] },
         bandSteps: { deltas: comparison.bandDeltas, headline: comparison.topBands.map(item => item.band), color: DIFF_COLOR, legend: axes.legend },

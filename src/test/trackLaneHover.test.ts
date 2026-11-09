@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { N, R } from './helpers/figure';
 import test from 'node:test';
 import type { SpectrogramData } from '../shared/analysis/analysisTypes';
 import { localCells, localLine } from '../webview/runtime/fullRead';
@@ -49,7 +50,7 @@ test('the pointer on a track lane reads the file\'s own sample nearest it, not t
     }
     const lane = laneWaveformOverlay({ waveform: { min, max, minT, maxT, samples: [], absolutePeak: 1 }, dataStart: 0, dataEnd: 1, amplitudeScale: 1 },
         place, '#00ff00', 'Pa', localLine(norms, samples));
-    const plot = paintOverlay(laneCanvas(400, 100), lane.overlay, { min: -1, max: 1 }, { x: 'Time [s]', y: 'Amplitude [Pa]' },
+    const plot = paintOverlay(laneCanvas(400, 100), lane.overlay, R({ min: -1, max: 1 }), N({ x: 'Time [s]', y: 'Amplitude [Pa]' }),
         { axisCanvas: null, axisView: lane.axisView, window: { x: { start: 0, end: 1 } } }) as StagePlot;
     assert.ok(plot);
     let at = 20003;

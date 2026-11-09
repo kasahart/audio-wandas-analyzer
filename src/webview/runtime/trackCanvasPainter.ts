@@ -3,6 +3,7 @@ import type { SpectrogramData, WaveformEnvelope } from '../../shared/analysis/an
 import { viridis, type AxisTick } from '../../shared/gui-core/index';
 import { spectrogramTimeBinEdges } from '../spectrum/spectrogramTimeBins';
 import { spectrogramRowSpan } from '../spectrum/spectrogramZoom';
+import { plainNames, plainRange } from './figureModel';
 import { paintOverlay, paintSideAxis, type ColourBarBox, type StageLayer, type StagePlot, type StageOverlay } from './stagePanes';
 import type { NormalizedRange } from './waveformInteraction';
 import type { StageView } from '../../shared/protocol/backendProtocol';
@@ -184,8 +185,8 @@ export function paintTrackSpectrogram(
     const span: [number, number] = [place.startSec + place.offsetNorm * place.spanSec, place.startSec + (place.offsetNorm + place.trackDurRatio) * place.spanSec];
     // Every number read off the lane is a real STFT cell (R7): its full data in seconds from the file's start.
     const cells = full ? mappedSource(full, seconds => seconds - span[0], seconds => seconds + span[0]) : NO_FULL_DATA;
-    const plot = paintOverlay(canvas, { layers: [{ view: picture, color: '', span, full: cells }] }, { min: view.dbLo, max: view.dbHi },
-        { x: titles.time, y: titles.frequency, colour: titles.colour },
+    const plot = paintOverlay(canvas, { layers: [{ view: picture, color: '', span, full: cells }] }, plainRange(view.dbLo, view.dbHi),
+        plainNames(titles.time, titles.frequency, titles.colour),
         { axisCanvas, axisView, heatmapPalette: viridis, window: { x: view.window, y: { start: (Math.max(0, view.minFrequencyHz) - low) / rowSpan, end: (view.maxFrequencyHz - low) / rowSpan } } });
     return { source: spec, key, full, plot, colourBar: plot?.colourBar ?? { x: 0, y: 0, width: 0, height: 0 }, ticks: plot?.levelTicks ?? [] };
 }

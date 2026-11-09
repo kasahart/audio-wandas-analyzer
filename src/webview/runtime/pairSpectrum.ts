@@ -4,7 +4,8 @@ import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import type { StageView } from '../../shared/protocol/backendProtocol';
 import type { FrequencyScale } from '../draw/canvasDrawers';
 import { hintAttr } from './hintFooter';
-import { levelBinsOf, stageRange, type StageLayer } from './stagePanes';
+import { levelBinsOf, type StageLayer } from './stagePanes';
+import { dataRange, plainNames, plainRange, type FigureNames, type FigureRange } from './figureModel';
 import { localLine } from './fullRead';
 import { secondsSpanText } from '../plot/plotText';
 import type { TrackId } from './types';
@@ -118,7 +119,7 @@ export function pairLegendHtml(curves: readonly PairCurve[], strings: PairString
 
 const DEGREES = 180 / Math.PI;
 
-function gainRange(curves: readonly PairCurve[], bins: readonly number[]): { min: number; max: number } {
+function gainRange(curves: readonly PairCurve[], bins: readonly number[]): FigureRange {
     let min = Infinity, max = -Infinity;
     curves.forEach(curve => bins.forEach(bin => {
         const value = curve.response.gainDb[bin];
@@ -128,11 +129,11 @@ function gainRange(curves: readonly PairCurve[], bins: readonly number[]): { min
         }
     }));
     if (!isFinite(min)) {
-        return { min: -20, max: 20 };
+        return plainRange(-20, 20);
     }
     // The dB line rule every level and gain axis keeps (R9: 5, 10, 20 or 25 dB steps, at most 100 dB under the top),
     // the very function the comparison's step of the same transfer function is ranged by, from every bin on screen.
-    return stageRange([gainSpan(min, max)]);
+    return dataRange([gainSpan(min, max)]);
 }
 
 /** A gain line's span as stageRange reads it: every bin's lowest and highest. */
@@ -153,8 +154,8 @@ export type PairLaneKey = typeof PAIR_LANES[number];
 /** One of the pair view's plots, as the plot component draws it (stagePanes.paintOverlay): its axes, range and lines. */
 export interface PairLane {
     key: PairLaneKey;
-    axes: { x: string; y: string };
-    range: { min: number; max: number };
+    axes: FigureNames;
+    range: FigureRange;
     layers: StageLayer[];
 }
 
@@ -186,8 +187,8 @@ export function pairLanes(input: PairPaintInput, visible: FrequencyScale, string
             ...(curve.dashed ? { dash: [4, 2] } : {}),
         }));
     return [
-        { key: 'gain', axes: { x: strings.axisFrequency, y: gainAxisName(drawn[0]?.response, strings) }, range: gainRange(drawn, shown), layers: lines(response => response.gainDb, 'gain', 'dB') },
-        { key: 'phase', axes: { x: strings.axisFrequency, y: strings.pairPhaseLabel }, range: { min: -180, max: 180 }, layers: lines(response => response.phaseRad.map(value => (value === null ? null : value * DEGREES)), 'value', '°') },
-        { key: 'coherence', axes: { x: strings.axisFrequency, y: strings.pairCoherenceLabel }, range: { min: 0, max: 1 }, layers: lines(response => response.coherence, 'coherence', 'γ²') },
+        { key: 'gain', axes: plainNames(strings.axisFrequency, gainAxisName(drawn[0]?.response, strings)), range: gainRange(drawn, shown), layers: lines(response => response.gainDb, 'gain', 'dB') },
+        { key: 'phase', axes: plainNames(strings.axisFrequency, strings.pairPhaseLabel), range: plainRange(-180, 180), layers: lines(response => response.phaseRad.map(value => (value === null ? null : value * DEGREES)), 'value', '°') },
+        { key: 'coherence', axes: plainNames(strings.axisFrequency, strings.pairCoherenceLabel), range: plainRange(0, 1), layers: lines(response => response.coherence, 'coherence', 'γ²') },
     ];
 }

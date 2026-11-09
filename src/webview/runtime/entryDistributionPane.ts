@@ -18,6 +18,7 @@ import { attachPlotInteraction, FULL_PLOT_WINDOW, notePlotWindow, plotPointIn, t
 import { createPlotHoverLayer } from './plotHoverLayer';
 import { showPlotReadout } from './plotHover';
 import { paintOverlay, type StagePlot } from './stagePanes';
+import { plainNames, plainRange } from './figureModel';
 import { localLine } from './fullRead';
 import { positionPopover } from './settingsPopover';
 
@@ -196,7 +197,7 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
         const zoom = { x: zoomWindow.x };
         groups.querySelectorAll<HTMLCanvasElement>('[data-dist-canvas]').forEach((canvas, index) => {
             const row = rows[index];
-            const plot = paintOverlay(canvas, { layers: row.layers }, row.range, { x: axisLabel, y: strings.dsDistCountAxis.replace('{unit}', unit) },
+            const plot = paintOverlay(canvas, { layers: row.layers }, row.range, plainNames(axisLabel, strings.dsDistCountAxis.replace('{unit}', unit)),
                 { axisView, window: zoom, margins: ROW_MARGINS, xAxisLabels: false, yAxisLabels: false, ...(range ? { highlight: { start: range.low, end: range.high } } : {}) });
             if (plot) plots.set(canvas, plot);
             notePlotWindow(canvas, { x: zoomWindow.x, y: FULL_PLOT_WINDOW.y }, DIST_VERTICAL);
@@ -206,7 +207,7 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
         // The value axis below them, drawn by the same component: its numbers and name; what a bar's height counts beside it.
         // It holds no values: nothing to read.
         axisCanvas.style.width = `${width}px`;
-        paintOverlay(axisCanvas, { layers: [{ view: axisView, color: '', full: localLine([], []) }] }, { min: 0, max: 1 }, { x: axisLabel, y: strings.dsDistCountAxis.replace('{unit}', unit) },
+        paintOverlay(axisCanvas, { layers: [{ view: axisView, color: '', full: localLine([], []) }] }, plainRange(0, 1), plainNames(axisLabel, strings.dsDistCountAxis.replace('{unit}', unit)),
             { window: zoom, margins: { left: DIST_MARGINS.left, right: DIST_MARGINS.right, top: 0, bottom: 19 }, yAxisLabels: false });
         countAxis.textContent = strings.dsDistCountAxis.replace('{unit}', unit);
         if (strip && scrollToSlot) {

@@ -9,7 +9,7 @@ import { BAND_CENTERS_HZ, type EntryRow } from './entryTable';
 import { FULL_PLOT_WINDOW, type PlotMargins, type PlotWindow } from './plotInteraction';
 import { paintOverlay, type StagePlot } from './stagePanes';
 import type { InlineFullSource } from './fullRead';
-import { heatmapDbRange } from '../../shared/utils/ticks';
+import { emptyFigure, heatmapRange, levelTitle, plainNames, type FigureRange } from './figureModel';
 
 /** The strip's margins: its row axis at the left, the frequency axis below, the colour bar inside the plot's top right. */
 export const OVERVIEW_MARGINS: PlotMargins = { left: 44, top: 2, right: 4, bottom: 16 };
@@ -34,7 +34,7 @@ export function overviewPicture(
     bands: ReadonlyMap<string, (number | null)[]>,
     window: PlotWindow,
     lines: number,
-): { view: StageView; whole: StageView; names: string[][]; range: { min: number; max: number } } | null {
+): { view: StageView; whole: StageView; names: string[][]; range: FigureRange } | null {
     const bandCount = BAND_CENTERS_HZ.length;
     const total = rows.length;
     const firstRow = Math.max(0, Math.floor((1 - window.y.end) * total));
@@ -100,7 +100,7 @@ export function overviewPicture(
     const whole: StageView = { ...view, ys: [-total, 0], matrix: [] };
     // The colours span every table row's every band (not only the extremes each bucket draws), widened to round ends (R9).
     // As every heatmap's colours (R9): to the loudest level, no more than 100 dB under it.
-    return { view, whole, names: order.map(cell => names[cell]), range: heatmapDbRange(low, high) };
+    return { view, whole, names: order.map(cell => names[cell]), range: heatmapRange(low, high) };
 }
 
 const fileName = (filePath: string): string => filePath.split(/[\\/]/).at(-1) ?? filePath;
@@ -164,7 +164,7 @@ export function paintOverview(
     const { left, top, right, bottom } = OVERVIEW_MARGINS;
     const width = canvas.clientWidth || 400, height = canvas.clientHeight || 120;
     const plotWidth = Math.max(1, width - left - right), plotHeight = Math.max(1, height - top - bottom);
-    const colour = (level.calibrated ? strings.axisLevelCal : strings.axisLevelUncal).replace('{label}', level.label);
+    const colour = levelTitle(strings, level.label, level.calibrated);
     // The theme's colours and the screen's pixel ratio too: a theme switch or another monitor draws the cells again.
     const view = canvas.ownerDocument.defaultView;
     const style = view?.getComputedStyle(canvas);
@@ -175,8 +175,8 @@ export function paintOverview(
     if (bandsVersion !== undefined && cached && cached.key === key && cached.rows === rows) drawn = cached.drawn;
     else {
         const picture = overviewPicture(rows, bands, window, Math.ceil(plotHeight));
-        drawn = paintOverlay(canvas, { layers: picture ? [{ view: picture.view, color: '', rowName: (row, column) => picture.names[row]?.[column] ?? '', full: overviewCells(rows, bands) }] : [] }, picture?.range ?? { min: 0, max: 1 },
-            { x: strings.axisBand, y: strings.axisEntryRows, colour }, {
+        drawn = paintOverlay(canvas, { layers: picture ? [{ view: picture.view, color: '', rowName: (row, column) => picture.names[row]?.[column] ?? '', full: overviewCells(rows, bands) }] : [] }, picture?.range ?? emptyFigure().range,
+            plainNames(strings.axisBand, strings.axisEntryRows, colour), {
                 margins: OVERVIEW_MARGINS,
                 window: { x: window.x, y: window.y }, axisView: picture?.whole ?? null,
                 // The rows are counted down from the top: a row's place is minus its value.

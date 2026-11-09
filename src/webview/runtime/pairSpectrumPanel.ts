@@ -8,7 +8,8 @@ import {
 } from './pairSpectrum';
 import { attachPlotInteraction, FULL_PLOT_WINDOW, plotPointIn, type PlotMargins, type PlotWindow } from './plotInteraction';
 import { createPlotHoverLayer, type PlotHoverLayer } from './plotHoverLayer';
-import { paintOverlay, stageRange, STAGE_MARGINS, type StagePlot } from './stagePanes';
+import { paintOverlay, STAGE_MARGINS, type StagePlot } from './stagePanes';
+import { dataRange, emptyFigure, plainRange, type FigureRange } from './figureModel';
 import type { NormalizedRange } from './waveformInteraction';
 import type { TrackId } from './types';
 import { HostRequests } from './hostRequests';
@@ -376,9 +377,10 @@ export class PairSpectrumPanel {
             // Each plot is drawn by the plot component (R13): its axes, its zoom, its cursor and readout. They are laid
             // on the power spectrum's frequency axis, so the same x is the same frequency on both sides, and only the
             // bottom one labels it.
-            const range = lane ? this.levelRange(key, lane.range) : { min: 0, max: 1 };
+            const none = emptyFigure();
+            const range = lane ? this.levelRange(key, lane.range) : none.range;
             const axisView = lane?.layers[0] && axis ? { ...lane.layers[0].view, xs: [0, axis.maxFrequencyHz], values: [0, 0] } : null;
-            const drawn = paintOverlay(canvas, { layers: lane?.layers ?? [] }, range, lane?.axes ?? { x: '', y: '' },
+            const drawn = paintOverlay(canvas, { layers: lane?.layers ?? [] }, range, lane?.axes ?? none.names,
                 { window: { x: axis?.window ?? FULL_PLOT_WINDOW.x }, axisView, margins: pairMargins(key), xAxisLabels: key === PAIR_LANES[PAIR_LANES.length - 1] });
             this.drawn.set(key, { canvas, plot: drawn, range: lane ? this.wholeHolding(key, lane.range) : range, label: lane?.axes.y ?? '' });
         }
@@ -390,15 +392,16 @@ export class PairSpectrumPanel {
      * screen, widened by the same dB rule (R9) to hold the values zoomed to, so a box below the bins on screen is
      * still a part of it.
      */
-    private wholeHolding(key: PairLaneKey, whole: { min: number; max: number }): { min: number; max: number } {
+    private wholeHolding(key: PairLaneKey, whole: FigureRange): FigureRange {
         const zoom = this.levelWindow.get(key);
         if (!zoom || (zoom.min >= whole.min && zoom.max <= whole.max)) return whole;
-        return key === 'gain' ? stageRange([gainSpan(Math.min(whole.min, zoom.min), Math.max(whole.max, zoom.max))]) : { min: Math.min(whole.min, zoom.min), max: Math.max(whole.max, zoom.max) };
+        return key === 'gain' ? dataRange([gainSpan(Math.min(whole.min, zoom.min), Math.max(whole.max, zoom.max))]) : plainRange(Math.min(whole.min, zoom.min), Math.max(whole.max, zoom.max));
     }
 
     /** The plot's level range on screen: its whole range, or the part of it zoomed to. */
-    private levelRange(key: PairLaneKey, whole: { min: number; max: number }): { min: number; max: number } {
-        return this.levelWindow.get(key) ?? whole;
+    private levelRange(key: PairLaneKey, whole: FigureRange): FigureRange {
+        const zoom = this.levelWindow.get(key);
+        return zoom ? plainRange(zoom.min, zoom.max) : whole;
     }
 
     /** The plot's level zoom as the part of its whole range now drawn (what the gestures and the range popover take). */

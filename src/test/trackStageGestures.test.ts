@@ -1,3 +1,4 @@
+import { N, R } from './helpers/figure';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { fetchedSource, localLine } from '../webview/runtime/fullRead';
@@ -41,7 +42,7 @@ test('a click on a trigger\'s event line (the plot gestures\' tap: a press that 
     state.on = true;
     const toggled: string[] = [];
     attachStageGestures(document.querySelector('.lanes') as HTMLElement, root, document, {
-        strings: getStrings('en'), state, drawnOn: new Map([[canvas, { picture: null, range: { min: 0, max: 1 }, axes: { x: 't', y: 'v' }, plot }]]), painted: () => true,
+        strings: getStrings('en'), state, drawnOn: new Map([[canvas, { picture: null, range: R({ min: 0, max: 1 }), axes: N({ x: 't', y: 'v' }), plot }]]), painted: () => true,
         moved: () => undefined, rerender: () => undefined, hint: () => undefined, lanesApart: () => false,
         toggleEvent: line => { toggled.push(`take ${line.id}`); return () => toggled.push(`edit ${line.id}`); },
     });
@@ -93,7 +94,7 @@ test('a click on a trigger\'s event line while its full data is on its way is de
     state.on = true;
     const toggled: string[] = [];
     attachStageGestures(document.querySelector('.lanes') as HTMLElement, root, document, {
-        strings: getStrings('en'), state, drawnOn: new Map([[canvas, { picture: null, range: { min: 0, max: 1 }, axes: { x: 't', y: 'v' }, plot }]]), painted: () => true,
+        strings: getStrings('en'), state, drawnOn: new Map([[canvas, { picture: null, range: R({ min: 0, max: 1 }), axes: N({ x: 't', y: 'v' }), plot }]]), painted: () => true,
         moved: () => undefined, rerender: () => undefined, hint: () => undefined, lanesApart: () => false,
         toggleEvent: line => { toggled.push(`take ${line.id}`); return () => toggled.push(`edit ${line.id}`); },
     });

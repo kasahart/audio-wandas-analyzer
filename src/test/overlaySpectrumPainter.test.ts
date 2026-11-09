@@ -1,3 +1,4 @@
+import { T } from './helpers/figure';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { frequencyFraction, type CanvasDrawCtx } from '../webview/draw/canvasDrawers';
@@ -266,7 +267,7 @@ test('paintOverlaySpectrum names a level axis as the caller says, from its refer
     const named: Array<[string, string[]]> = [];
     const paint = paintOverlaySpectrum(canvasOf(recording), 400, 200, mixed, fullView, '', (reference, series) => {
         named.push([reference, series.map(s => s.label)]);
-        return `Level, uncalibrated [${reference}]`;
+        return T(`Level, uncalibrated [${reference}]`);
     });
     assert.deepEqual(named, [['dB SPL re 20 µPa', ['A']], ['dB re 1 V', ['B']]]);
     assert.deepEqual(paint.levelAxes.map(axis => axis.title), ['Level, uncalibrated [dB SPL re 20 µPa]', 'Level, uncalibrated [dB re 1 V]']);

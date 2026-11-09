@@ -157,7 +157,7 @@ export const compareOverlay: ChartContract = {
         },
         {
             id: 'compare-overlay.axis-identity', value: 'axis', what: '重ねた線をどの値の軸に載せるか（左・右・重ねない）と、その軸の名前の校正の語',
-            computedIn: ['src/webview/runtime/trackStagePainter.ts:byReference', 'src/webview/runtime/levelGrouping.ts:axisInputOf', 'src/webview/runtime/levelGrouping.ts:byLevelKey', 'src/webview/runtime/levelGrouping.ts:calibrationWordsBy', 'src/webview/runtime/trackStagePainter.ts:calibrationWords', 'src/webview/runtime/comparePanes.ts:levelIdentityOf'],
+            computedIn: ['src/webview/runtime/trackStagePainter.ts:byReference', 'src/webview/runtime/figureModel.ts:levelAxes', 'src/webview/runtime/figureModel.ts:axisInputOf', 'src/webview/runtime/figureModel.ts:byLevelKey', 'src/webview/runtime/figureModel.ts:calibrationWordsBy', 'src/webview/runtime/figureModel.ts:calibrationWords', 'src/webview/runtime/comparePanes.ts:levelIdentityOf'],
             from: 'words', trace: '線は録音のレベルの同一性（levelIdentityOf）で軸に分ける。軸の名前の文字では分けない。同一性が 3 つ以上なら重ねない。軸の名前は、その軸の線に校正済みが 1 本でもあればその録音の入力で書き、全部が未校正のときだけ未校正と書く。校正状態が混ざる軸では、未校正の線が凡例と読み値に自分で未校正と書く（calibrationWords）。',
             tests: [
                 t('src/test/trackStagePainter.test.ts', 'overlaid, lines share an axis by their level identity, not their axis name: a gain-corrected FS file and a raw one are one axis, and only the raw one says uncalibrated (R1, R4)'),

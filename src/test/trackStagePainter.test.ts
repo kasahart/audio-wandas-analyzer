@@ -9,7 +9,8 @@ import { plotsOf } from '../webview/runtime/trackStageModel';
 import { localLine } from '../webview/runtime/fullRead';
 import { stageAxes, stageHover, stageStep } from '../webview/runtime/stagePanes';
 import type { Combined } from '../webview/runtime/combineSource';
-import { byReference, calibrationWords, overlayLayers, overlayLegendItems, paintBaseGate, paintNoPicture, paintStageControls, paintStageLanes, paintStageOverlay, stageDom, stageModeHeadline, writeStageLegend, type Drawn, type StageFrame, type StageTrack } from '../webview/runtime/trackStagePainter';
+import { calibrationWords } from '../webview/runtime/figureModel';
+import { byReference, overlayLayers, overlayLegendItems, paintBaseGate, paintNoPicture, paintStageControls, paintStageLanes, paintStageOverlay, stageDom, stageModeHeadline, writeStageLegend, type Drawn, type StageFrame, type StageTrack } from '../webview/runtime/trackStagePainter';
 
 const strings = getStrings('en');
 const line = (values: Array<number | null>): StageView => ({ kind: 'line', x: 'frequency', quantity: 'level', xScale: 'log', xs: values.map((_, index) => 100 * 2 ** index), values } as StageView);

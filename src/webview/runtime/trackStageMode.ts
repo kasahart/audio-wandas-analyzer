@@ -29,10 +29,11 @@ import type { FullRead } from './fullRead';
 import { chosenStage, combineRequest, comparedPath as comparedPathOf, eachBaseTitle, enterStageState, holdStageSpec, initialStageState, liveRegion as liveRegionOf, openStageState, pictureSummary, plotsOf, regionStageSpec, stageSpec, WHOLE_ZOOM } from './trackStageModel';
 import { createDetailPlanner, onOneRange } from './stageDetail';
 import { attachStageGestures, type StageGestures } from './trackStageGestures';
-import { calibrationWords, colorOf, overlayLayers, overlayLegendItems, paintBaseGate, paintNoPicture, paintNoStage, paintStageControls, paintStageLanes, paintStageOverlay, stageDom, stageModeHeadline, writeStageLegend, type Drawn, type StageFrame, type StageTrack } from './trackStagePainter';
+import { colorOf, overlayLayers, overlayLegendItems, paintBaseGate, paintNoPicture, paintNoStage, paintStageControls, paintStageLanes, paintStageOverlay, stageDom, stageModeHeadline, writeStageLegend, type Drawn, type StageFrame, type StageTrack } from './trackStagePainter';
 
 export type { StageTrack } from './trackStagePainter';
-import { axisValueAt, isEventsView, rowValueAt, stageAxes } from './stagePanes';
+import { axisValueAt, isEventsView, rowValueAt } from './stagePanes';
+import { calibrationWords, stageNames, uncalibratedWord } from './figureModel';
 import { clearTriggerLanes, paintTriggerLanes, type TriggerSettings } from './triggerLanes';
 import { zoomNormalizedRange, ZOOM_IN_FACTOR } from './waveformInteraction';
 import { keyRouterFor } from './keyRouter';
@@ -712,7 +713,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         // Each recording's legend name and readout say uncalibrated where its axis does not (R1, R4: calibrationWords).
         const word = calibrationWords(strings, allTracks, [comparePath, ...tracks.map(track => track.filePath), ...basePaths]);
         const namedHere = (path: string, slot: number | undefined): ReturnType<typeof named> => { const name = named(path, slot); const said = word(path); return said ? { ...name, label: `${name.label}${said}` } : name; };
-        const baseWord = basePaths.some(path => word(path)) ? strings.axisUncalibrated : '';
+        const baseWord = basePaths.some(path => word(path)) ? uncalibratedWord(strings) : '';
         const frame: StageFrame = { strings, tracks, allTracks, referencePath, comparePath, coarse, shown, picture, coarsePlots, fullOf, window: state.window, diffY: state.diffY, diffOfWindow: !!fineCombined && !!peakWindow, regionMark, pending, waiting: waiting || combining, role, named: namedHere, drawnOn, baseEach: each, excluded, ...(coarseCombined?.tooLarge ? { tooLarge: true } : {}), ...(coarseCombined?.noDelta ? { noDelta: coarseCombined.noDelta } : {}), ...(coarseCombined?.failed ? { failed: true } : {}) };
         const bypassed = steps.filter(step => step.bypassed).map(step => stepChipLabel(step, strings, state.regionSet));
         query<HTMLElement>('[data-stage-headline]').textContent = stageModeHeadline(frame, bypassed, region);
@@ -755,7 +756,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
                 signal: path => { const wanted = signalSpec(path); return wanted ? source.view(wanted, path) : undefined; },
                 detail: path => (laneDetail.get(path) ?? []).map(wanted => source.view(wanted, path)).find(view => !!view),
                 color: path => colorOf(role, path, tracks.find(track => track.filePath === path)?.color ?? ownColor(0)),
-                axes: (view, path) => stageAxes(strings, view, tracks.find(track => track.filePath === path)?.input),
+                axes: (view, path) => stageNames(strings, view, tracks.find(track => track.filePath === path)?.input),
             });
             root.dataset.lanesMarked = String(lanesDrawn);
         }

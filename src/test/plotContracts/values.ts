@@ -23,7 +23,8 @@ export const VALUE_HELPERS: readonly string[] = [
     'src/webview/runtime/spectrumRuntime.ts:spectrumReadoutValues',
     'src/webview/plot/waveformLayer.ts:waveformRange',
     'src/webview/draw/canvasDrawers.ts:formatHz',
-    ...['laneAmplitudeRange', 'laneAmplitudeTicks', 'laneTimeTicks'].map(name => `src/webview/runtime/laneAxes.ts:${name}`),
+    ...['laneAmplitudeTicks', 'laneTimeTicks'].map(name => `src/webview/runtime/laneAxes.ts:${name}`),
+    'src/webview/runtime/figureModel.ts:laneAmplitudeRange',
     ...['valueTickTexts', 'valueAxisTicks', 'rowAxisTicks', 'alongAxisTicks', 'tickTexts', 'timeDigits', 'colourEndText', 'ticks', 'stageRange', 'stageDiffRange', 'roundEdge', 'robustEdge', 'overlayOrder', 'byLevel', 'levelBinsOf', 'timeText', 'atValue', 'atText', 'drawnLevelsText', 'readoutOf'].map(name => `${SP}:${name}`),
 ];
 

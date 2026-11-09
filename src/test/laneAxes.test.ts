@@ -4,7 +4,8 @@
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { laneAmplitudeRange, laneAmplitudeTicks, laneTimeTicks } from '../webview/runtime/laneAxes';
+import { laneAmplitudeTicks, laneTimeTicks } from '../webview/runtime/laneAxes';
+import { laneAmplitudeRange } from '../webview/runtime/figureModel';
 import { makeCoordTransform } from '../webview/waveform/waveformRenderer';
 import { valueAxisTicks, alongAxisTicks, amplitudeAxisTitle, paintSideAxis } from '../webview/runtime/stagePanes';
 import { getStrings } from '../shared/i18n/strings';
