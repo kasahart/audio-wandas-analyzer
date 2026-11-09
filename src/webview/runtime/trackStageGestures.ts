@@ -108,8 +108,8 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
         if (!hovered || !drawn || !hovered.plot.isConnected || hovered.plot.closest('[hidden]')) { hideHover(); return; }
         marks.show(hovered.plot, drawn.plot ?? null, hovered.clientX, hovered.clientY, slotOf(hovered.plot));
     };
-    // The marks sit where the plot was on screen: a scroll under a still pointer takes them away.
-    document.addEventListener('scroll', () => { if (hovered) { hovered = null; hideHover(); } }, true);
+    // A scroll under a still pointer: the shared gestures hover again at the pointer (trackPointerEvents.ts), so the
+    // plot now under it is read there (R7).
     // A click on an event's line (the plot gestures' tap: a press that stayed put, a drag zooms instead) leaves it out
     // or puts it back. It waits out a double-click (which resets the zoom): the second press takes the first one back.
     // A click while the lines' full data is on its way is decided once it is in (R7), never dropped; a later press

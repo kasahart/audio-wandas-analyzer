@@ -41,10 +41,11 @@ export interface PlotSelectors {
  * surface that only has the focus (A47, R7).
  */
 const POINTER_PLOT = Symbol.for('audio-wandas-analyzer.pointerPlot');
-type PointerPlotHolder = { [POINTER_PLOT]?: { plot: Element | null } };
-function pointerPlotOf(doc: object): { plot: Element | null } {
+type PointerPlot = { plot: Element | null; event: Event | null };
+type PointerPlotHolder = { [POINTER_PLOT]?: PointerPlot };
+function pointerPlotOf(doc: object): PointerPlot {
     const holder = doc as PointerPlotHolder;
-    return holder[POINTER_PLOT] ??= { plot: null };
+    return holder[POINTER_PLOT] ??= { plot: null, event: null };
 }
 
 /** Wheel events further apart than this start a new swipe. */
@@ -59,7 +60,7 @@ const TRACK_SELECTORS: PlotSelectors = { plot: '.track-canvas', axis: '.track-ax
  * point at a time (R7), and + / − / 0 to zoom that plot's horizontal axis around its middle or show it whole. plotInteraction.ts attaches every plot, the lanes too, through these listeners, and
  * nothing else attaches them (src/test/plotGestures.test.ts).
  */
-export function attachTrackPointerListeners(tracksWrapper: PointerSurface, doc: Pick<Document, 'addEventListener'>, keys: Pick<KeyRouter, 'add'>, handlers: TrackPointerHandlers, selectors: PlotSelectors = TRACK_SELECTORS): void {
+export function attachTrackPointerListeners(tracksWrapper: PointerSurface, doc: Pick<Document, 'addEventListener'> & Partial<Pick<Document, 'elementFromPoint'>>, keys: Pick<KeyRouter, 'add'>, handlers: TrackPointerHandlers, selectors: PlotSelectors = TRACK_SELECTORS): void {
     tracksWrapper.addEventListener('dblclick', function (e) {
         const target = e.target as Partial<Element> | null;
         const hit = target && target.closest ? target.closest([selectors.plot, selectors.axis].filter(Boolean).join(', ')) : null;
@@ -92,13 +93,46 @@ export function attachTrackPointerListeners(tracksWrapper: PointerSurface, doc: 
         return pointer && doc && typeof doc.elementFromPoint === 'function' ? plotOf(doc.elementFromPoint(pointer.x, pointer.y)) : null;
     };
     const shared = pointerPlotOf(doc);
-    tracksWrapper.addEventListener('mousemove', function (e) { over = plotOf(e.target); shared.plot = over; pointer = { x: e.clientX, y: e.clientY }; handlers.hover(e); });
+    /**
+     * The plot this surface finds under the pointer, told to every surface: a surface inside another (the steps' plots
+     * inside the lanes' wrapper) sees the event first, and the one around it, which finds none of its own plots
+     * there, does not take that plot back (A47).
+     */
+    const notePointer = (plot: Element | null, event: Event): void => {
+        if (plot || shared.event !== event) shared.plot = plot;
+        shared.event = event;
+    };
+    /** The pointer is over a plot, of any surface, other than `plot`. */
+    const pointerElsewhere = (plot: Element): boolean => !!shared.plot && shared.plot !== plot && shared.plot.isConnected;
+    /** The plot whose readout the focus gave (none since the pointer read one here): only that readout goes with the focus. */
+    let focusGave: Element | null = null;
+    tracksWrapper.addEventListener('mousemove', function (e) { over = plotOf(e.target); notePointer(over, e); focusGave = null; pointer = { x: e.clientX, y: e.clientY }; handlers.hover(e); });
+    // A scroll under a still pointer moves another place of a plot, or another plot, under it: read there, as a
+    // pointer moved there would (R7), never a readout only taken away, nor one left where the plot was.
+    doc.addEventListener('scroll', function (e) {
+        const at = pointer;
+        const under = at && typeof doc.elementFromPoint === 'function' ? doc.elementFromPoint(at.x, at.y) : null;
+        if (!at || !under || !tracksWrapper.contains(under)) return;
+        over = plotOf(under);
+        notePointer(over, e);
+        handlers.hover({ clientX: at.x, clientY: at.y, target: under, altKey: false, shiftKey: false, ctrlKey: false, metaKey: false, buttons: 0 } as unknown as MouseEvent);
+    }, true);
     tracksWrapper.addEventListener('mouseleave', function () { if (shared.plot && shared.plot === over) shared.plot = null; over = null; pointer = null; handlers.clearHover(); });
     // A plot given the focus from the keyboard reads where it starts, so the arrows have a point to step from;
     // let go of the focus with the pointer elsewhere, its readout goes.
-    tracksWrapper.addEventListener('focusin', function (e) { const plot = plotOf(e.target); if (plot && !over && !selectors.focusKeepsArrows) handlers.step(plot, 0); });
-    // Only a readout the focus gave goes: with the pointer over a plot of this surface, its readout is the pointer's.
-    tracksWrapper.addEventListener('focusout', function (e) { const plot = plotOf(e.target); if (plot && !over) handlers.clearHover(); });
+    // With the pointer over a plot, of this surface or another (one inside it too), the readout is the pointer's (A47).
+    tracksWrapper.addEventListener('focusin', function (e) {
+        const plot = plotOf(e.target);
+        if (!plot || over || selectors.focusKeepsArrows || pointerElsewhere(plot)) return;
+        if (handlers.step(plot, 0)) focusGave = plot;
+    });
+    // Only a readout the focus gave goes: one the pointer read since, here or on a plot inside this surface, stays.
+    tracksWrapper.addEventListener('focusout', function (e) {
+        const plot = plotOf(e.target);
+        if (!plot || focusGave !== plot) return;
+        focusGave = null;
+        if (!over) handlers.clearHover();
+    });
     keys.add({
         layer: 'plot',
         keydown(e) {

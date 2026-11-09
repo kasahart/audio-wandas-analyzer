@@ -43,7 +43,6 @@ class TrackDetailResult(TypedDict):
     channels: list[ChannelSummary]
     calibrationSignature: str
     analysisRevision: int
-    sourceVersion: str
     #: With a read: the lane's real STFT cells around the pointer (full_read.read_cells), and no channels.
     points: NotRequired[StagePoints]
 
@@ -66,7 +65,6 @@ class SpectrumSliceResult(TypedDict):
     computeMs: float
     calibrationSignature: str
     analysisRevision: int
-    sourceVersion: str
 
 
 class PairSpectrumResponse(TypedDict):
@@ -87,7 +85,6 @@ class PairSpectrumResponse(TypedDict):
     levelReferenceLabel: NotRequired[str]
     calibrationSignature: str
     analysisRevision: int
-    sourceVersion: str
 
 
 class PairSpectrumResult(TypedDict):
@@ -103,7 +100,6 @@ class PairSpectrumResult(TypedDict):
     computeMs: float
     calibrationSignature: str
     analysisRevision: int
-    sourceVersion: str
     responses: list[PairSpectrumResponse]
 
 
@@ -137,7 +133,6 @@ class WaveformRangeResult(TypedDict):
     channels: list[WaveformEnvelope]
     calibrationSignature: str
     analysisRevision: int
-    sourceVersion: str
     #: With a read: the lane's samples the pointer reads (full_read.read_line, x the file's 0..1), and no channels.
     points: NotRequired[StagePoints]
 
@@ -246,7 +241,6 @@ class AnalysisService:
             raw_peaks=cached.source_peaks,
         )
         result["analysisRevision"] = _analysis_revision(analysis_revision)
-        result["sourceVersion"] = cached.version
         return result
 
     def track_detail(
@@ -259,12 +253,11 @@ class AnalysisService:
         stft_options: Mapping[str, object] | None = None,
         calibration_profile: object = None,
         analysis_revision: object = 0,
-        source_version: object = None,
         time_window: tuple[float, float] | None = None,
         frequency_band: tuple[float, float] | None = None,
         read: StageRead | None = None,
     ) -> TrackDetailResult:
-        cached, analysis_frame, resolved = self.engine.get_analysis(file_path, calibration_profile, source_version)
+        cached, analysis_frame, resolved = self.engine.get_analysis(file_path, calibration_profile)
         n_fft, hop_length, window = resolve_stft_params(analysis_frame.n_samples, stft_options)
         centers: np.ndarray | None = None
         window_hop: int | None = None
@@ -293,7 +286,6 @@ class AnalysisService:
                 "points": _spectrogram_cells(spectrogram, centers, read),
                 "calibrationSignature": resolved.signature,
                 "analysisRevision": _analysis_revision(analysis_revision),
-                "sourceVersion": cached.version,
             }
         result = analyze_from_frame(
             analysis_frame,
@@ -317,7 +309,6 @@ class AnalysisService:
             "channels": result["channels"],
             "calibrationSignature": resolved.signature,
             "analysisRevision": _analysis_revision(analysis_revision),
-            "sourceVersion": cached.version,
         }
 
     def spectrum_slice(
@@ -331,12 +322,11 @@ class AnalysisService:
         stft_options: Mapping[str, object] | None = None,
         calibration_profile: object = None,
         analysis_revision: object = 0,
-        source_version: object = None,
         bands_per_octave: int | None = None,
         full_resolution: bool = False,
     ) -> SpectrumSliceResult:
         compute_started = time.perf_counter()
-        cached, analysis_frame, resolved = self.engine.get_analysis(file_path, calibration_profile, source_version)
+        cached, analysis_frame, resolved = self.engine.get_analysis(file_path, calibration_profile)
         window_size, hop_size, window_name = resolve_stft_params(analysis_frame.n_samples, stft_options)
         clipped_norm = max(0.0, min(1.0, cursor_norm))
         revision = _analysis_revision(analysis_revision)
@@ -402,7 +392,6 @@ class AnalysisService:
             "computeMs": (time.perf_counter() - compute_started) * 1000.0,
             "calibrationSignature": resolved.signature,
             "analysisRevision": revision,
-            "sourceVersion": cached.version,
         }
         if bands is not None:
             result.update(
@@ -472,7 +461,6 @@ class AnalysisService:
                     **pair.level,  # type: ignore[typeddict-item]
                     "calibrationSignature": y.signature,
                     "analysisRevision": y.revision,
-                    "sourceVersion": y.cached.version,
                 }
             )
         return {
@@ -488,15 +476,12 @@ class AnalysisService:
             "computeMs": (time.perf_counter() - compute_started) * 1000.0,
             "calibrationSignature": x.signature,
             "analysisRevision": x.revision,
-            "sourceVersion": x.cached.version,
             "responses": replies,
         }
 
     def _pair_source(self, source: Mapping[str, object]) -> _PairSource:
         file_path = str(source["filePath"])
-        cached, frame, resolved = self.engine.get_analysis(
-            file_path, source.get("calibrationProfile"), source.get("sourceVersion")
-        )
+        cached, frame, resolved = self.engine.get_analysis(file_path, source.get("calibrationProfile"))
         channel = int(source["channelIndex"])  # type: ignore[call-overload]
         if not 0 <= channel < frame.n_channels:
             raise InputError(f"channelIndex {channel} is out of range for {cached.path.name}")
@@ -519,10 +504,9 @@ class AnalysisService:
         point_count: int = 2000,
         calibration_profile: object = None,
         analysis_revision: object = 0,
-        source_version: object = None,
         read: StageRead | None = None,
     ) -> WaveformRangeResult:
-        cached, analysis_frame, resolved = self.engine.get_analysis(file_path, calibration_profile, source_version)
+        cached, analysis_frame, resolved = self.engine.get_analysis(file_path, calibration_profile)
         sample_count = analysis_frame.n_samples
         if read is not None:
             # The samples the lane reads, never its envelope: x is the file's 0..1, as the envelope's times are.
@@ -533,7 +517,6 @@ class AnalysisService:
                 "points": _sample_points(analysis_frame, read),
                 "calibrationSignature": resolved.signature,
                 "analysisRevision": _analysis_revision(analysis_revision),
-                "sourceVersion": cached.version,
             }
         start_idx, end_idx = sample_range(start_norm, end_norm, sample_count)
 
@@ -557,7 +540,6 @@ class AnalysisService:
             "channels": channels,
             "calibrationSignature": resolved.signature,
             "analysisRevision": _analysis_revision(analysis_revision),
-            "sourceVersion": cached.version,
         }
 
     def export_wav_loop(

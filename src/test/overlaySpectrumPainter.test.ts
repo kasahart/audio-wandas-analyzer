@@ -353,7 +353,7 @@ test('the cursor spectrum orders a slice cut for display by every bin on screen,
     // Every bin is read through the track view's reads: the same slice asked for again at full resolution.
     const posted: Array<{ requestId: string }> = [];
     const reads = createLaneReads(message => { posted.push(message); });
-    const track = { trackIndex: 0, filePath: 'a.wav', sourceVersion: undefined, calibrationSignature: undefined, analysisId: 'a', settingsSignature: 's' };
+    const track = { trackIndex: 0, filePath: 'a.wav', analysisId: 'a', settingsSignature: 's' };
     const lines = [cut(spiky, 0, 'spiky'), cut(steady, 1, 'steady')].map(series => ({ ...series, full: reads.slice(track, 0.5, series.channelIndex) }));
     // The order expected, worked out here from every bin on screen (the linear axis from 0 Hz to the top).
     const mean = (values: number[]): number => values.reduce((sum, value) => sum + 10 ** (value / 10), 0) / values.length;

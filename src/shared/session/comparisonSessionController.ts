@@ -252,7 +252,7 @@ export class ComparisonSessionController {
             if (request.type !== 'request-waveform-range') { const pending = this.ports.publish(lazyAnalysisError(request, reason)); if (thenable(pending)) await pending; }
             else if (request.read) {
                 // A read waits for its answer: one that failed is answered with no points (the readout shows none).
-                const pending = this.ports.publish({ type: 'waveform-range-result', requestId: request.requestId, trackIndex: request.trackIndex, sourceVersion: request.sourceVersion,
+                const pending = this.ports.publish({ type: 'waveform-range-result', requestId: request.requestId, trackIndex: request.trackIndex,
                     startNorm: request.startNorm, endNorm: request.endNorm, channels: [] });
                 if (thenable(pending)) await pending;
             }

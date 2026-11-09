@@ -8,7 +8,7 @@ import {
 } from './pairSpectrum';
 import { attachPlotInteraction, FULL_PLOT_WINDOW, plotPointIn, type PlotMargins, type PlotWindow } from './plotInteraction';
 import { createPlotHoverLayer, type PlotHoverLayer } from './plotHoverLayer';
-import { paintOverlay, STAGE_MARGINS, type StagePlot } from './stagePanes';
+import { paintOverlay, STAGE_MARGINS, type StagePlot, type StageRead } from './stagePanes';
 import { dataRange, emptyFigure, plainRange, type FigureRange } from './figureModel';
 import type { NormalizedRange } from './waveformInteraction';
 import type { TrackId } from './types';
@@ -18,8 +18,6 @@ import { HostRequests } from './hostRequests';
 export interface PairChannelSource {
     trackId: TrackId;
     filePath: string;
-    /** The version of the file the track was analysed from: part of the request, so of its answer's key. */
-    sourceVersion: string | undefined;
     channelIndex: number;
     offsetSeconds: number;
     label: string;
@@ -91,6 +89,8 @@ export class PairSpectrumPanel {
     private pointer: { lane: PairLaneKey; clientX: number; clientY: number } | null = null;
     /** The frequency the pair cursor last read under the pointer. */
     private readHz: number | null = null;
+    /** The frequency last told to the power spectrum (undefined: none yet), so a show and its handler tell it once. */
+    private toldHz: number | null | undefined = undefined;
     /** What each plot last drew, for the pointer and the gestures. */
     private readonly drawn = new Map<PairLaneKey, { canvas: HTMLCanvasElement; plot: StagePlot | null; range: { min: number; max: number }; label: string }>();
     /** Each plot's part of its level axis on screen (the frequency axis is the power spectrum's). */
@@ -134,7 +134,7 @@ export class PairSpectrumPanel {
         this.host.onReferenceChange(next);
         if (hadHover) {
             // The pointer may still be over a pane that is closing, so no mouseleave will clear the power spectrum cursor.
-            this.host.onHoverFrequency(null);
+            this.tellHostNone();
         }
         this.schedule(0);
     }
@@ -238,7 +238,7 @@ export class PairSpectrumPanel {
     private requestNow(): { request: Omit<PairSpectrumRequest, 'requestId'>; key: string } | null {
         const sources = this.sources();
         if (!sources || sources.responses.length === 0) return null;
-        const ref = (source: PairChannelSource) => ({ filePath: source.filePath, sourceVersion: source.sourceVersion, channelIndex: source.channelIndex, offsetSeconds: source.offsetSeconds });
+        const ref = (source: PairChannelSource) => ({ filePath: source.filePath, channelIndex: source.channelIndex, offsetSeconds: source.offsetSeconds });
         const range = this.host.range();
         const request: Omit<PairSpectrumRequest, 'requestId'> = {
             type: 'request-pair-spectrum',
@@ -450,6 +450,7 @@ export class PairSpectrumPanel {
                 if (key === except) continue;
                 const drawn = this.drawn.get(key);
                 const x = hz === null || !result || !drawn?.plot ? null : this.xOfFrequency(key, hz);
+                if (drawn) noteCursorHz(drawn.canvas, x === null ? null : hz);
                 if (x === null || !drawn) marks.get(key)?.hide();
                 else marks.get(key)?.line(drawn.canvas, drawn.plot, drawn.canvas.getBoundingClientRect().left + x);
             }
@@ -460,11 +461,29 @@ export class PairSpectrumPanel {
             const slot = this.doc.getElementById('pair-spectrum-readout');
             // The others first: the plot under the pointer then fills the readout row.
             lineAt(null, pointer.lane);
-            const x = marks.get(pointer.lane)?.show(drawn.canvas, drawn.plot, pointer.clientX, pointer.clientY, slot) ?? null;
-            this.readHz = x === null ? null : this.frequencyAtX(pointer.lane, x);
+            const before = this.readHz;
+            let showing = true;
+            // The frequency of the point read, from the readout's own state (R7): on this show, and again when its
+            // full data comes in later under a still pointer, never the pointer's column beside it.
+            const follow = (read: StageRead | null): void => {
+                if (this.pointer !== pointer) return;
+                const hz = !read || read.pending || read.failed ? null : read.full && read.at !== undefined ? read.at : this.frequencyAtX(pointer.lane, read.x);
+                const changed = hz !== this.readHz;
+                this.readHz = hz;
+                noteCursorHz(drawn.canvas, hz);
+                if (showing || !changed) return;
+                const followed = hz ?? this.frequencyAtX(pointer.lane, pointer.clientX - drawn.canvas.getBoundingClientRect().left);
+                lineAt(followed, pointer.lane);
+                this.syncHostHover();
+            };
+            marks.get(pointer.lane)?.show(drawn.canvas, drawn.plot, pointer.clientX, pointer.clientY, slot, { read: follow });
+            showing = false;
             // With no line read there, the others follow the frequency under the pointer, as the power spectrum does.
             const followed = this.readHz ?? this.frequencyAtX(pointer.lane, pointer.clientX - drawn.canvas.getBoundingClientRect().left);
             if (followed !== null) lineAt(followed, pointer.lane);
+            // A redraw under a still pointer (a zoom, a result come in) that reads another point: the power spectrum's
+            // line follows it too (R7, R8).
+            if (this.readHz !== before) this.syncHostHover();
             return;
         }
         this.readHz = null;
@@ -472,6 +491,11 @@ export class PairSpectrumPanel {
         const synced = result ? this.host.hoverFrequencyHz() : null;
         const halfBin = result ? result.maxFrequencyHz / Math.max(result.frequencyBins - 1, 1) / 2 : 0;
         lineAt(synced !== null && result && synced <= result.maxFrequencyHz + halfBin ? synced : null);
+    }
+
+    /** The power spectrum's point read changed (its points came in under a still pointer): the cursors here follow it (R7). */
+    followHost(): void {
+        if (!this.pointer) this.showMarks();
     }
 
     private xOfFrequency(key: PairLaneKey, hz: number): number | null {
@@ -483,13 +507,22 @@ export class PairSpectrumPanel {
         return drawn.plot.frame.left + fraction * drawn.plot.frame.width;
     }
 
+    /** The pointer off the pair plots: the power spectrum's line follows nothing of theirs. */
+    private tellHostNone(): void {
+        this.toldHz = null;
+        this.host.onHoverFrequency(null);
+    }
+
     private syncHostHover(): void {
         const result = this.result;
         // The power spectrum follows the point the pair cursor reads (R7), not the pointer beside it.
         const frequencyHz = result && this.pointer
             ? this.readHz ?? this.frequencyAtX(this.pointer.lane, this.pointer.clientX - (this.drawn.get(this.pointer.lane)?.canvas.getBoundingClientRect().left ?? 0)) : null;
         // The power spectrum may reach past the reference's Nyquist, where the pair cursor stops at its last bin.
-        this.host.onHoverFrequency(frequencyHz === null || !result ? null : Math.min(frequencyHz, result.maxFrequencyHz));
+        const told = frequencyHz === null || !result ? null : Math.min(frequencyHz, result.maxFrequencyHz);
+        if (told === this.toldHz) return;
+        this.toldHz = told;
+        this.host.onHoverFrequency(told);
     }
 
     /** The plots' gestures (the plot component's, R9) and the divider drag; call again after the spectrum section is rebuilt. */
@@ -522,12 +555,12 @@ export class PairSpectrumPanel {
                     this.pointer = hit && !hit.axis ? { lane: laneOf(hit.plot), clientX: event.clientX, clientY: event.clientY } : null;
                     this.showMarks();
                     if (this.pointer) this.syncHostHover();
-                    else this.host.onHoverFrequency(null);
+                    else this.tellHostNone();
                 },
                 clearHover: () => {
                     this.pointer = null;
                     this.showMarks();
-                    this.host.onHoverFrequency(null);
+                    this.tellHostNone();
                 },
                 stepFrom: (plot, delta, arrived) => {
                     const drawn = this.result ? this.drawn.get(laneOf(plot)) : undefined;
@@ -600,4 +633,9 @@ export class PairSpectrumPanel {
             this.timer = null;
         }
     }
+}
+
+/** The frequency a plot's cursor is drawn at (`data-cursor-hz`, '' with none), for the tests of the linked cursors (R7, R8). */
+export function noteCursorHz(plot: HTMLElement, hz: number | null): void {
+    if (plot.dataset) plot.dataset.cursorHz = hz === null ? '' : String(hz);
 }

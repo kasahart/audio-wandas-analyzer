@@ -122,6 +122,35 @@ test('a step that waits for its points is taken, once they are in, through the o
     assert.equal(layer.reading()?.at, 4);
 });
 
+test('keys pressed while a step waits for its next points add up: three keys, three points, however late the points come (R7)', () => {
+    for (const keys of [1, 2, 3] as const) {
+        const { plot, slot, layer } = setup();
+        const xs = Array.from({ length: 10 }, (_, i) => i), values = xs.map(i => i + 0.5);
+        const whole = localLine(xs, values);
+        const later: Array<() => void> = [];
+        let held = true;
+        const full: FullSource = {
+            held: 'fetched',
+            line(query, ready) {
+                if (query.beyond === STEP_AHEAD && held) { later.push(ready); return undefined; }
+                return whole.line?.(query, ready);
+            },
+        };
+        const drawn: StagePlot = { ...plotWith([{ ...line('a', '#f00', values), full }]), xOf: (x: number) => (x - 50) / 10, levelOf: (y: number) => (110 - y) / 10 };
+        layer.show(plot, drawn, 80, 75, slot);
+        assert.equal(layer.reading()?.at, 3);
+        const arrived = (place: { clientX: number; clientY: number }): void => { layer.show(plot, drawn, place.clientX, place.clientY, slot); };
+        for (let key = 0; key < keys; key++) {
+            const at = layer.stepFrom(plot, drawn, 1, arrived);
+            assert.deepEqual(at, { clientX: 80, clientY: 75 }, 'meanwhile, the point read');
+            if (at) layer.show(plot, drawn, at.clientX, at.clientY, slot);
+        }
+        held = false;
+        for (const ready of later.splice(0)) ready();
+        assert.equal(layer.reading()?.at, 3 + keys, `${keys} keys, ${keys} points`);
+    }
+});
+
 test('an arrow key pressed while the readout waits for its points is taken once they are in: the point it steps to, never lost and never an empty readout; two keys, two points (A42, R7)', () => {
     for (const keys of [1, 2] as const) {
         const { plot, slot, layer } = setup();
