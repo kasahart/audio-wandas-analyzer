@@ -31,6 +31,16 @@ export interface LineQuery {
      */
     at?: number;
     pixels?: readonly [number, number];
+    /**
+     * An arrow key's read (x0 = x1): the first point with a value to read strictly past x toward larger (1) or smaller
+     * (-1) x, however far, with `beyond` past it (and the point before it), as one complete window.
+     */
+    seek?: -1 | 1;
+}
+
+/** Whether a line's value is one a plot reads (not a gap, nor the silent floor drawn as one). */
+export function readableValue(value: number | null | undefined): value is number {
+    return value !== null && value !== undefined && Number.isFinite(value) && value > -250;
 }
 
 /** An image's cells around a place: its columns `beyond` either side of the one at `x`, its rows around `y`. */
@@ -130,12 +140,23 @@ function firstFrom(xs: ArrayLike<number>, x: number, after = false): number {
     return low;
 }
 
+/** A seek (LineQuery.seek) in a line held whole: as full_read._seek_line answers it. */
+function seekIn(xs: readonly number[], values: readonly (number | null)[], n: number, x: number, direction: -1 | 1, beyond: number): FullPoints {
+    let found = -1;
+    if (direction > 0) { for (let index = firstFrom(xs, x, true); index < n && found < 0; index++) if (readableValue(values[index])) found = index; }
+    else for (let index = firstFrom(xs, x) - 1; index >= 0 && found < 0; index--) if (readableValue(values[index])) found = index;
+    if (found < 0) return { xs: [], values: [], start: null, end: null, complete: true };
+    const first = Math.max(0, found - (direction > 0 ? 1 : beyond)), after = Math.min(n, found + (direction > 0 ? beyond : 1) + 1);
+    return { xs: xs.slice(first, after), values: values.slice(first, after), start: first > 0 ? xs[first] : null, end: after < n ? xs[after - 1] : null, complete: true, offset: first };
+}
+
 /** A line the webview holds every point of (ascending `xs`): its full data, read as the backend reads one. */
 export function localLine(xs: readonly number[], values: readonly (number | null)[]): InlineFullSource {
     return {
         held: 'inline',
         line(query) {
             const n = Math.min(xs.length, values.length);
+            if (query.seek) return seekIn(xs, values, n, query.x0, query.seek, query.beyond);
             const low = firstFrom(xs, Math.min(query.x0, query.x1)), high = firstFrom(xs, Math.max(query.x0, query.x1), true);
             const first = Math.max(0, low - query.beyond), after = Math.min(n, Math.max(low, high) + query.beyond);
             return { xs: xs.slice(first, after), values: values.slice(first, after), start: first > 0 ? xs[first] : null, end: after < n ? xs[after - 1] : null, complete: true, offset: first };
@@ -197,6 +218,20 @@ function holdsDense(read: StageRead, x0: number, x1: number, columns: number, lo
     const kept = (measure(high) - measure(low)) / read.columns;
     const asked = (measure(x1) - measure(x0)) / Math.max(1, columns);
     return kept <= asked * 1.01;
+}
+
+/** Whether a kept window answers a seek from `x` toward `direction` (LineQuery.seek): see fetchedSource. */
+function seeks(points: FullPoints, x: number, direction: -1 | 1): boolean {
+    if (!points.complete || !points.values || !points.xs.length) return false;
+    const xs = points.xs, values = points.values;
+    if (direction > 0) {
+        if (points.start !== null && points.start > x) return false;
+        for (let index = 0; index < xs.length; index++) if (xs[index] > x && readableValue(values[index])) return true;
+        return points.end === null && xs[xs.length - 1] >= x;
+    }
+    if (points.end !== null && points.end < x) return false;
+    for (let index = xs.length - 1; index >= 0; index--) if (xs[index] < x && readableValue(values[index])) return true;
+    return points.start === null && xs[0] <= x;
 }
 
 /**
@@ -268,7 +303,11 @@ export function fetchedSource(fetch: (read: StageRead, done: (points: StagePoint
             const read: StageRead = { ...extra, x: x0 === x1 ? [x0] : [low, high], beyond: query.beyond,
                 ...(query.near !== undefined && Number.isFinite(query.near) ? { near: query.near } : {}),
                 ...(columns ? { columns } : {}), ...(query.log ? { log: true } : {}),
-                ...(pointer && query.pixels ? { at: query.at, pixels: [...query.pixels] } : {}) };
+                ...(pointer && query.pixels ? { at: query.at, pixels: [...query.pixels] } : {}),
+                ...(query.seek ? { seek: query.seek } : {}) };
+            // An arrow key's seek is answered by a kept window that runs on, every point, from x to a point to read
+            // past it (or to the data's end): the next keys after one seek need no request.
+            if (query.seek) return answer(JSON.stringify(read), read, ready, points => seeks(points, x0, query.seek ?? 1));
             // A window too dense to send whole comes as each pixel column's lowest, highest and the point nearest the
             // level under the pointer, with the one point nearest the pointer on screen: it answers only a read at
             // that place, level and scale. Elsewhere its nearest point is another's: the read waits for its own.

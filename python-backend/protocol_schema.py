@@ -568,7 +568,8 @@ DEFINITIONS: dict[str, Schema] = {
     # [x]) in the axis's own units, an image's row place ``y`` (and ``rows`` either side of it), points past each
     # end (``beyond``) and, for a window too dense to send whole, ``columns`` pixel columns across it (log-spaced on
     # a ``log`` axis) and the level ``near`` the pointer, with its place ``at`` and the screen's ``pixels`` per unit
-    # of each axis, for the point nearest it on screen. ``event`` names a trigger's event, ``of`` a combined
+    # of each axis, for the point nearest it on screen; ``seek`` asks for an arrow key's next point to read past x,
+    # however far. ``event`` names a trigger's event, ``of`` a combined
     # picture, ``channel`` a lane's. ``level`` asks instead for the power of every value in the window (R6).
     "StageRead": {
         "type": "object",
@@ -583,6 +584,7 @@ DEFINITIONS: dict[str, Schema] = {
             "log": {"type": "boolean"},
             "at": _NUMBER,
             "pixels": {"type": "array", "items": _NUMBER},
+            "seek": {"type": "integer", "enum": [-1, 1]},
             "event": {"type": "integer", "minimum": 0},
             "of": {"type": "string", "enum": ["base", "diff"]},
             "channel": {"type": "integer", "minimum": 0},

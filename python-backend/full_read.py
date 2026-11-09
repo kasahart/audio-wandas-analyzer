@@ -45,6 +45,9 @@ class StageRead(TypedDict):
     #: nearest the pointer on screen, by its true distance there.
     at: NotRequired[float]
     pixels: NotRequired[list[float]]
+    #: An arrow key's read (with ``x`` = [x]): the first point with a value to read strictly past x, toward larger
+    #: (1) or smaller (-1) x, however far (a long silence is crossed in one read), with ``beyond`` past it.
+    seek: NotRequired[Literal[-1, 1]]
     #: A trigger's event (its id): that event's own line.
     event: NotRequired[int]
     #: Which combined picture: the base (its median, or a recording's own) or the difference.
@@ -138,6 +141,9 @@ def read_line(
             "level": read_level(values_in(low, max(low, high)), read["level"]),
         }
     beyond = _limited(read, "beyond", 1, READ_BEYOND_LIMIT)
+    seek = read.get("seek")
+    if seek in (-1, 1):
+        return _seek_line(axis, values_in, x0, int(seek), beyond, shown)
     first, after = max(0, low - beyond), min(count, max(high, low) + beyond)
     if high - low <= READ_POINT_LIMIT or "near" not in read:
         # Few enough to send whole (a read with no level asked for is a step's, which never spans a window).
@@ -181,6 +187,60 @@ def read_line(
         "start": float(x_at(np.asarray(first))) if first > 0 and complete else None,
         "end": float(x_at(np.asarray(after - 1))) if after < count and complete else None,
         "complete": complete,
+    }
+
+
+#: How many values an arrow key's seek takes at a time while it crosses a silence.
+SEEK_CHUNK = 1 << 16
+
+
+def _readable(values: np.ndarray) -> np.ndarray:
+    """Which values a plot reads: finite and above the silent floor (drawn as a gap)."""
+    block = np.asarray(values, dtype=np.float64)
+    return np.isfinite(block) & (block > SILENT_DB)
+
+
+def _seek_line(
+    axis: tuple[int, XAt, IndexOf],
+    values_in: Callable[[int, int], np.ndarray],
+    x: float,
+    direction: int,
+    beyond: int,
+    shown: Callable[[np.ndarray], np.ndarray],
+) -> StagePoints:
+    """An arrow key's read (StageRead ``seek``): the first point with a value strictly past ``x`` toward
+    ``direction``, found a chunk at a time however long the silence before it, sent with the point before it and
+    ``beyond`` past it, as a complete window; none past it: only the data's end."""
+    count, x_at, index_of = axis
+    found: int | None = None
+    if direction > 0:
+        start = index_of(x, "right")
+        while start < count and found is None:
+            end = min(count, start + SEEK_CHUNK)
+            hits = np.flatnonzero(_readable(values_in(start, end)))
+            if hits.size:
+                found = start + int(hits[0])
+            start = end
+    else:
+        end = index_of(x, "left")
+        while end > 0 and found is None:
+            start = max(0, end - SEEK_CHUNK)
+            hits = np.flatnonzero(_readable(values_in(start, end)))
+            if hits.size:
+                found = start + int(hits[-1])
+            end = start
+    if found is None:
+        # Nothing past it to read: the data's end that way.
+        return {"xs": [], "values": [], "start": None, "end": None, "complete": True}
+    first = max(0, found - (1 if direction > 0 else beyond))
+    after = min(count, found + (beyond if direction > 0 else 1) + 1)
+    picked = np.arange(first, after)
+    return {
+        "xs": [float(value) for value in np.asarray(x_at(picked), dtype=np.float64).tolist()],
+        "values": json_values(shown(np.asarray(values_in(first, after), dtype=np.float64))),
+        "start": float(x_at(np.asarray(first))) if first > 0 else None,
+        "end": float(x_at(np.asarray(after - 1))) if after < count else None,
+        "complete": True,
     }
 
 

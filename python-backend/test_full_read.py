@@ -109,6 +109,48 @@ def test_a_dense_window_sends_the_point_nearest_the_pointer_on_screen_as_brute_f
         assert len(sent) <= 3 * 41 + 3 < READ_POINT_LIMIT
 
 
+def test_an_arrow_keys_seek_crosses_a_silence_of_any_length_to_the_next_value_as_brute_force_finds_it() -> None:
+    # Three million samples, silent (−300 dB or NaN) but for a few values far apart: each seek is one read.
+    count = 3_000_000
+    values = np.full(count, -300.0)
+    values[1_000_000:1_000_005] = np.nan
+    readable = [7, 5, 1_500_000, 2_999_998]
+    values[readable] = [-20.0, -21.0, -22.0, -23.0]
+    calls: list[tuple[int, int]] = []
+
+    def values_in(a: int, b: int) -> np.ndarray:
+        calls.append((a, b))
+        return values[a:b]
+
+    axis = uniform_axis(count, 0.0, 0.5)
+    rng = np.random.default_rng(5)
+    good = np.sort(np.asarray(readable))
+    for x in [*rng.uniform(0.0, count * 0.5, 30).tolist(), 2.5, 3.5, 750_000.0, 1_499_999.0]:
+        for direction in (1, -1):
+            read = {"x": [x], "beyond": 4, "seek": direction}
+            assert first_violation(DEFINITIONS["StageRead"], read) is None
+            points = read_line(axis, values_in, read)
+            places = good * 0.5
+            ahead = places[places > x] if direction > 0 else places[places < x]
+            expected = (ahead.min() if direction > 0 else ahead.max()) if ahead.size else None
+            sent = np.asarray(points["xs"], dtype=np.float64)
+            sent_values = np.asarray(
+                [np.nan if value is None else value for value in points.get("values", [])], dtype=np.float64
+            )
+            past = (sent > x) if direction > 0 else (sent < x)
+            hits = sent[past & np.isfinite(sent_values) & (sent_values > -250.0)]
+            found = (hits.min() if direction > 0 else hits.max()) if hits.size else None
+            assert found == expected, (x, direction)
+            assert points["complete"] is True
+            if expected is not None:
+                # The point found at its own place and value, with ``beyond`` past it: the next keys need no read.
+                at = int(round(expected / 0.5))
+                assert sent_values[np.flatnonzero(sent == expected)[0]] == pytest.approx(values[at])
+                assert len(sent) <= 4 + 2
+    # Read a chunk at a time, never the whole recording at once.
+    assert max(b - a for a, b in calls) <= 1 << 16
+
+
 def test_an_images_cells_are_its_own_around_the_place_read() -> None:
     xs, ys = np.arange(50) * 0.01, np.array([100.0, 200.0, 300.0, 400.0, 500.0, 600.0])
     matrix = np.random.default_rng(3).normal(-50, 10, (ys.size, xs.size))

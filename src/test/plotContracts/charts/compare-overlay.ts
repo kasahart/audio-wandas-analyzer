@@ -68,11 +68,13 @@ export const compareOverlay: ChartContract = {
         },
         {
             id: 'compare-overlay.step', value: 'step', what: '← / → で進む先（次のビン・サンプル・フレーム）',
-            computedIn: [`${SP}:stageStep`, `${SP}:imageStep`, 'src/webview/runtime/fullRead.ts:fetchedSource'],
-            from: 'full', trace: 'full のある層は、読んだ点の先 256 点（STEP_AHEAD）を全データから取り寄せ、次の本当の点を読む。棒も帯もその全帯（InlineFullSource）の次の値。',
+            computedIn: [`${SP}:stageStep`, `${SP}:imageStep`, 'src/webview/runtime/fullRead.ts:fetchedSource', 'src/webview/runtime/fullRead.ts:seekIn', 'python-backend/full_read.py:_seek_line'],
+            from: 'full', trace: 'full のある層は、読んだ点から ← / → の向きに次の値のある点を 1 回の要求で探させ（seek）、その先 256 点（STEP_AHEAD）と一緒に全データから受け取り、次の本当の点を読む。無音がどれだけ長くても要求は 1 つ。棒も帯もその全帯（InlineFullSource）の次の値。',
             tests: [
                 t('src/test/plotHoverLayer.test.ts', 'an arrow key reads the next point of the line read, as the pointer on it would; with none read, the plot\'s left edge (R7)'),
                 t('src/test/fullRead.test.ts', 'an arrow key crosses silent points past one fetched window to the next point with a value (R7)'),
+                t('src/test/fullRead.test.ts', 'an arrow key crosses a silence of any length in one read the backend answers, and the keys after it ask for nothing more: never a request per window, never one asked again (R7)'),
+                tt('python-backend/test_full_read.py', 'test_an_arrow_keys_seek_crosses_a_silence_of_any_length_to_the_next_value_as_brute_force_finds_it'),
                 tt('src/test/uiSmoke/narrowFeatures.spec.ts', 'a hover and the arrow keys on the thinned whole spectrum read its real bins from the backend, one bin per key, each at its exact value (R7)'),
                 t('src/test/uiSmoke/plotContract.spec.ts', 'every plot the comparison shows answers the same gestures: readout above it, ← / → step it, Ctrl+wheel zoom, double-click reset, axis range, both axes named (R13)'),
             ],

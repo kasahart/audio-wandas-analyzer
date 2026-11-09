@@ -1287,6 +1287,13 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                         "type": "number"
                     }
                 },
+                "seek": {
+                    "type": "integer",
+                    "enum": [
+                        -1,
+                        1
+                    ]
+                },
                 "event": {
                     "type": "integer",
                     "minimum": 0
@@ -2479,6 +2486,7 @@ export interface StageRead {
     log?: boolean;
     at?: number;
     pixels?: number[];
+    seek?: -1 | 1;
     event?: number;
     of?: "base" | "diff";
     channel?: number;

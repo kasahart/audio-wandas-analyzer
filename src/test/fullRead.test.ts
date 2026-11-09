@@ -321,3 +321,47 @@ test('an arrow key crosses silent points past one fetched window to the next poi
     assert.equal(next?.at, 600);
     assert.equal(next ? stageStep(plot, next, 1) : 'none', null, 'nothing past the last value');
 });
+
+test('an arrow key crosses a silence of any length in one read the backend answers, and the keys after it ask for nothing more: never a request per window, never one asked again (R7)', () => {
+    // Two million samples, readable at 10, 1_999_000 and the 300 after it, silent (−300 dB) between: thousands of
+    // step windows apart. The backend answers a seek as full_read._seek_line does (the held line's own seek).
+    const count = 2_000_000;
+    const xs = Array.from({ length: count }, (_, index) => index);
+    const values = xs.map(index => (index === 10 || index >= 1_999_000 && index < 1_999_300 ? -20 : -300));
+    const whole = localLine(xs, values);
+    const asked: FullReadRequest[] = [];
+    const source = fetchedSource((read, done) => {
+        asked.push(read);
+        done(whole.line?.({ x0: read.x[0], x1: read.x[read.x.length - 1], beyond: read.beyond ?? 1, ...(read.seek ? { seek: read.seek } : {}) }, () => undefined));
+    });
+    const view: StageView = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', quantity: 'level', unit: 'dB', xs: [0, count - 1], values: [-20, -20] };
+    const plot: StagePlot = {
+        frame: { left: 0, top: 0, width: 1000, height: 100 }, xAt: value => value / 2000, xOf: x => x * 2000, yAt: value => -value, levelOf: y => -y,
+        ratioStep: 1.12, diff: false, lines: [{ view, color: 'blue', full: source }],
+    };
+    const read = (x: number, y: number) => { const first = stageHover(plot, x, y); return first?.pending ? stageHover(plot, x, y) : first; };
+    const start = read(0.005, 20);
+    assert.equal(start?.at, 10);
+    const before = asked.length;
+    // → crosses the 1 998 989 silent samples in one request, and reads the first sample past them.
+    const step = (from: StageRead, delta: -1 | 1): StageRead | null => { const got = stageStep(plot, from, delta); return got === undefined ? stageStep(plot, from, delta) ?? null : got; };
+    const past = start ? step(start, 1) : null;
+    assert.equal(past?.at, 1_999_000);
+    assert.equal(asked.length, before + 1, 'one read for the whole silence');
+    assert.equal(asked.at(-1)?.seek, 1);
+    // The next 200 keys read the samples that came with it: no request.
+    let here: StageRead | null = past;
+    for (let key = 0; key < 200 && here; key++) here = step(here, 1);
+    assert.equal(here?.at, 1_999_200);
+    assert.equal(asked.length, before + 1, 'the keys after it need none');
+    // ← back across the silence: one read again, to the sample before it.
+    const back = past ? step(past, -1) : null;
+    assert.equal(back?.at, 10);
+    assert.equal(asked.length, before + 2);
+    // Past the last value there is nothing: one read says so, and it is not asked again.
+    const last = { ...(here), at: 1_999_299 };
+    assert.equal(step(last, 1), null);
+    const asking = asked.length;
+    assert.equal(step(last, 1), null);
+    assert.equal(asked.length, asking, 'the end, once known, is not asked again');
+});
