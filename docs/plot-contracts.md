@@ -26,7 +26,7 @@
 | トラックの波形レーン (`track-waveform`) | `webview/runtime/comparisonRuntime.ts:drawTrackWaveform` | 7 | 0 |
 | トラックのスペクトログラムのレーン (`track-spectrogram`) | `webview/runtime/trackCanvasPainter.ts:paintTrackSpectrogram`<br>`webview/runtime/comparisonRuntime.ts:drawSpectrogram` | 5 | 0 |
 | トラックのレーンの軸（振幅・周波数の軸、上の時間の目盛り） (`track-axes`) | `webview/runtime/comparisonRuntime.ts:renderRuler`<br>`webview/runtime/stagePanes.ts:paintSideAxis`<br>`.track-axis-canvas:not(.track-spec-axis)`<br>`.track-spec-axis`<br>`#ruler-canvas` | 2 | 0 |
-| トラックの見出しとツールバーの数（カーソルの時刻、ずらし、ピーク、解析窓） (`track-header`) | `webview/runtime/calibrationDecorations.ts:channelMetricSummaryHtml`<br>`webview/runtime/comparisonRuntime.ts:updateCursorDisplay` | 5 | 2 |
+| トラックの見出しとツールバーの数（カーソルの時刻、ずらし、ピーク、解析窓） (`track-header`) | `webview/runtime/calibrationDecorations.ts:channelMetricSummaryHtml`<br>`webview/runtime/comparisonRuntime.ts:updateCursorDisplay` | 5 | 0 |
 | トラック表示の PNG 書き出し (`track-png`) | `webview/runtime/exportDownloads.ts:composeTrackCanvases` | 1 | 0 |
 | カーソルスペクトル (`cursor-spectrum`) | `webview/runtime/overlaySpectrumPainter.ts:paintOverlaySpectrum`<br>`webview/runtime/comparisonRuntime.ts:renderOverlaySpectrum` | 7 | 0 |
 | カーソルスペクトルの CSV 書き出し (`spectrum-csv`) | `webview/runtime/runtimeExports.ts:buildSpectrumCsv` | 1 | 0 |
@@ -134,8 +134,8 @@
 
 | 値 | 何の数か | 計算する場所 | 出どころ | テスト | 穴 |
 | --- | --- | --- | --- | --- | --- |
-| 要約の値 | チャンネルのピーク（振幅とレベル） | `webview/runtime/calibrationDecorations.ts:channelMetricSummaryHtml`<br>`webview/runtime/calibrationDecorations.ts:levelText`<br>`webview/runtime/calibrationDecorations.ts:peakText`<br>`analyzer.py:analyze_from_frame` | 全データ：バックエンドが全サンプルのピークと wandas のレベルを返し、webview は計算し直さない。 | `renderScript.integration.test.ts` › renderScript: channel peak metrics use backend-provided levels without recalculating dB<br>`calibrationContracts.test.ts` › calibration row helpers draw badges, peak text, requests and the overlay guard | **P2** 全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。 |
-| 要約の値 | チャンネル数とサンプリング周波数（kHz） | `webview/runtime/trackLaneHtml.ts:trackRowHtml` | 利用者の値・メタデータ：ファイルのメタデータ。 | なし | **P3** 「48.0kHz」の書き方が読み値の決まり（plotText.ts）と違い、確かめるテストもない。 |
+| 要約の値 | チャンネルのピーク（振幅とレベル） | `webview/runtime/calibrationDecorations.ts:channelMetricSummaryHtml`<br>`webview/runtime/calibrationDecorations.ts:levelText`<br>`webview/runtime/calibrationDecorations.ts:peakText`<br>`analyzer.py:analyze_from_frame` | 全データ：バックエンドが全サンプルのピークと wandas のレベルを返し、webview は計算し直さない。 | ◆ `test_analyzer.py` › test_channel_peak_is_every_samples_largest_magnitude_not_the_envelope_drawn<br>`renderScript.integration.test.ts` › renderScript: channel peak metrics use backend-provided levels without recalculating dB<br>`calibrationContracts.test.ts` › calibration row helpers draw badges, peak text, requests and the overlay guard |  |
+| 要約の値 | チャンネル数とサンプリング周波数（kHz） | `webview/runtime/trackLaneHtml.ts:trackRowHtml` | 利用者の値・メタデータ：ファイルのメタデータ。サンプリング周波数は読み値と同じ frequencyText で書く（48 kHz、44.1 kHz）。 | `trackLaneHtml.test.ts` › a track row writes its sample rate as every plot writes a frequency (plotText.frequencyText) |  |
 | 入力・設定の表示 | カーソルの時刻、再生の時刻、ループの範囲 | `webview/runtime/comparisonRuntime.ts:updateCursorDisplay`<br>`webview/runtime/comparisonRuntime.ts:refreshSpectrumViews`<br>`webview/runtime/playbackDisplay.ts:update`<br>`webview/runtime/waveformInteraction.ts:loopRegionClockText` | 利用者の値・メタデータ：カーソル・再生・ループの位置（利用者の操作）を m:ss.ss で書く。 | `uiSmoke/toolbar.spec.ts` › the cursor readout is labelled and follows a loop drag to where it was released<br>`playbackDisplay.test.ts` › createPlaybackDisplay shows the prefixed clock time while playing and hides it when stopped<br>`sharedFormat.test.ts` › time and channel labels share one implementation | 例外（R7）：クリックで決めるカーソル（カーソルスペクトルの時刻と解析窓）はこれとは別です。<br> |
 | 入力・設定の表示 | トラックのずらし（+0.000s） | `webview/runtime/comparisonRuntime.ts:updateOffsetDisplays` | 利用者の値・メタデータ：利用者が入れたずらし。 | `renderScript.integration.test.ts` › renderScript: Enter commits inline offset edit |  |
 | 入力・設定の表示 | 解析窓の時刻の範囲と長さ（ms） | `webview/runtime/comparisonRuntime.ts:analysisWindowCaption` | 描く点が全部（間引かない）：バックエンドがスライスに付けた窓の始まりと終わり（windowStartNorm / EndNorm）。描くために間引いた形はない。 | `uiSmoke/analysisWindow.spec.ts` › analysis window band follows the cursor on the waveform only and the header names it |  |
@@ -272,7 +272,7 @@
 - `compare-delta.range-image`：カラーバーの両端の数を、描くために平均した Δ のマスから求めている。
 - `compare-lanes.range-image`：カラーバーの両端の数を、描くために平均したマスから求めている。
 
-### P2（17、上限 17）
+### P2（16、上限 16）
 
 - `compare-overlay.pending`：R7 は届くまで読み値を空にするが、密な窓を別の高さで読むときは前の高さの点を読む。その間の読み値は今のマウスに一番近い点とは限らない。
 - `compare-overlay.readout-events`：イベントの線の読み値と ← / → がそのイベントの全サンプルから来ることを確かめるテストがない（ジェスチャのテストは数字の出どころを見ない）。
@@ -283,7 +283,6 @@
 - `compare-lanes.readout`：全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。
 - `compare-lanes.step`：全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。
 - `compare-lanes.range`：範囲を間引いた線から求めている。全データの端と一致することを確かめるテストがない。
-- `track-header.peak`：全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。
 - `entry-held.step`：全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。
 - `entry-held.range`：範囲を間引いた点から求めている。全データの端と一致することを確かめるテストがない。
 - `entry-table.count`：見出しやフィルタの数がすべての行を数えていることを確かめるテストがない。
@@ -292,6 +291,5 @@
 - `report-delta.range`：全ビンがあるときの範囲を間引いた線から求めている。テストは帯だけの場合しか見ていない。
 - `analysis-report.export`：全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。
 
-### P3（1、上限 1）
+### P3（0、上限 0）
 
-- `track-header.meta`：「48.0kHz」の書き方が読み値の決まり（plotText.ts）と違い、確かめるテストもない。

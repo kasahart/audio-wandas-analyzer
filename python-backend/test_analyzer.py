@@ -629,3 +629,24 @@ def test_with_automatic_settings_a_zoom_window_gets_its_own_hop_and_its_columns(
     assert centers[0] >= 12.0 - 0.05 and centers[-1] <= 13.5 + 0.05
     # The tone's level is the whole file's: the window's STFT is the same transform, not a rescaled one.
     assert zoomed["maxDb"] == pytest.approx(whole["maxDb"], abs=0.05)
+
+
+def test_channel_peak_is_every_samples_largest_magnitude_not_the_envelope_drawn(
+    tmp_path: Path, service: AnalysisService
+) -> None:
+    # Ten seconds of a quiet tone and one negative sample far below it: the envelope drawn thins the samples to a few
+    # thousand points; the header's peak and its level are every sample's.
+    rate = 48_000
+    times = np.arange(10 * rate) / rate
+    samples = 0.25 * np.sin(2 * np.pi * 97 * times)
+    samples[312_345] = -0.8125
+    audio = tmp_path / "spike.wav"
+    sf.write(audio, samples, rate, subtype="FLOAT")
+
+    channel = service.analyze(audio)["channels"][0]
+
+    read = sf.read(audio, dtype="float64")[0]
+    assert len(channel["waveform"]["max"]) < len(read) / 10
+    assert channel["peakAbsolute"] == pytest.approx(float(np.max(np.abs(read))))
+    assert channel["peakAbsolute"] == pytest.approx(0.8125)
+    assert channel["peakLevelDb"] == pytest.approx(20 * math.log10(0.8125), abs=1e-6)
