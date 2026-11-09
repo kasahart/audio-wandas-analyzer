@@ -133,11 +133,14 @@ export function stageRange(views: ReadonlyArray<StageView | null>): PaneRange {
     }
     if (DB_QUANTITIES.includes(quantity ?? '') && first?.kind === 'heatmap') return heatmapDbRange(low, high);
     if (DB_QUANTITIES.includes(quantity ?? '')) {
-        // Every value from the loudest down to at most 100 dB under it (as a heatmap's colours): never a value of the
-        // full data off the axis, each end rounded outward to the step, so at most a step of slack on each side. The
-        // step is the finest round one that gives at most six steps (−49.5…−9.5 dB: 10 dB, −50…0).
-        const bottom = Math.max(low, high - HEATMAP_DB_SPAN);
-        const edges = (step: number): { min: number; max: number } => ({ min: Math.floor(bottom / step) * step || 0, max: Math.ceil(high / step) * step || 0 });
+        // Every value of the full data, each end rounded outward to the step (an end already on one stays put), so at
+        // most a step of slack on each side; but never more than 100 dB (as a heatmap's colours): the top rounded up,
+        // the bottom at most 100 dB under it, exactly. The step is the finest round one that gives at most six steps
+        // (−49.5…−9.5 dB: 10 dB, −50…0). Each step divides 100, so a capped bottom is on it too.
+        const edges = (step: number): { min: number; max: number } => {
+            const max = Math.ceil(high / step) * step || 0;
+            return { min: Math.max(Math.floor(low / step) * step, max - HEATMAP_DB_SPAN) || 0, max };
+        };
         const step = DB_STEPS.find(size => { const { min, max } = edges(size); return (max - min) / size <= DB_MAX_STEPS; }) ?? DB_STEPS[DB_STEPS.length - 1];
         const { min, max } = edges(step);
         return max > min ? { min, max } : { min: min - step, max };

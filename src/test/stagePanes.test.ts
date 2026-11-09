@@ -42,13 +42,17 @@ test('a dB line\'s automatic range encloses every value of its full data down to
     const range = (min: number, max: number): { min: number; max: number } => stageRange([{ ...line([min, max]), valueRange: { min, max } }]);
     // 40 dB: 10 dB steps, each end rounded out to the next step (−9.5 up to 0).
     assert.deepEqual(range(-49.5, -9.5), { min: -50, max: 0 });
-    // 100 dB: 20 dB steps.
-    assert.deepEqual(range(-109.5, -9.5), { min: -120, max: 0 });
-    // 140 dB (a silent stretch): held to 100 dB under the loudest, as a heatmap's colours are.
-    assert.deepEqual(range(-149.5, -9.5), { min: -120, max: 0 });
-    for (const [min, max] of [[-49.5, -9.5], [-41, -1], [-109.5, -9.5], [-149.5, -9.5], [-61, -2], [-12.3, -12.1], [-300, -20], [-20, -20], [3, 47]]) {
+    // 100 dB ending on steps: the ends stay put, with no slack.
+    assert.deepEqual(range(-100, 0), { min: -100, max: 0 });
+    assert.deepEqual(range(-80, -20), { min: -80, max: -20 });
+    // 140 dB (a silent stretch): held to exactly 100 dB under the rounded top, as a heatmap's colours are.
+    assert.deepEqual(range(-149.5, -9.5), { min: -100, max: 0 });
+    assert.deepEqual(range(-109.5, -9.5), { min: -100, max: 0 });
+    for (const [min, max] of [[-49.5, -9.5], [-41, -1], [-100, 0], [-109.5, -9.5], [-149.5, -9.5], [-61, -2], [-12.3, -12.1], [-300, -20], [-20, -20], [3, 47]]) {
         const got = range(min, max);
-        const bottom = Math.max(min, max - 100);
+        // Never more than 100 dB; within it, every value.
+        assert.ok(got.max - got.min <= 100, `${min}…${max} dB: ${got.min}…${got.max} spans at most 100 dB`);
+        const bottom = Math.max(min, got.max - 100);
         // Its steps: the finest round step both ends are on that divides it into at most six.
         const ticks = [5, 10, 20, 25].filter(step => got.min % step === 0 && got.max % step === 0 && (got.max - got.min) / step <= 6);
         const step = Math.min(...ticks);
