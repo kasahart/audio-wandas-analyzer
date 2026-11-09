@@ -20,12 +20,12 @@ export const cursorSpectrum: ChartContract = {
         },
         {
             id: 'cursor-spectrum.pending', value: 'pending', what: 'バックエンドのスライスが届くまでのカーソルスペクトル（線と読み値）、トラックの終わりの後の床',
-            computedIn: ['src/webview/spectrum/cursorSpectrum.ts:extractSpectrumAtCursor', 'src/webview/spectrum/cursorSpectrum.ts:makeSilentSpectrumSlice', `${RT}:cursorSpectrumFor`],
-            from: 'thinned', trace: 'スライスがまだないとき、レーンの表示用スペクトログラム（_build_spectrogram が時間と周波数をパワー平均したマス）のカーソルの列をスライスとして描き、その値を全ビンの行として読む（frequenciesHz がない）。トラックの終わりの後は表示用の minDb の床を描く。',
+            computedIn: ['src/webview/spectrum/cursorSpectrum.ts:extractSpectrumAtCursor', 'src/webview/spectrum/cursorSpectrum.ts:makeSilentSpectrumSlice', `${RT}:cursorSpectrumFor`, 'src/webview/runtime/overlaySpectrumPainter.ts:spectrumLayer'],
+            from: 'full', trace: 'スライスがまだないときはレーンの表示用スペクトログラムのカーソルの列を描くだけで、standIn: \'pending\' の印を付ける。spectrumLayer はその線を読まない（読み値は届くまで空、R7）し、その値から levelBins を作らない。トラックの終わりの後の床は standIn: \'silence\' で、読みも測りもしない（帯も線として描き、描いたままは読まない）。届いたスライスは全ビンから読む。',
             tests: [
+                tt('src/test/overlaySpectrumPainter.test.ts', 'until the backend\'s slice comes, the cursor spectrum draws the lane\'s averaged spectrogram column and reads nothing of it; past the end, nothing (R7)'),
                 t('src/test/cursorSpectrum.test.ts', 'extractSpectrumAtCursor: cursor in middle picks middle bin'),
             ],
-            gap: { severity: 'P1', why: 'スライスが届くまで、表示用に平均したスペクトログラムの列を描き、全ビンのように読み値に出す。' },
         },
         {
             id: 'cursor-spectrum.step', value: 'step', what: '← / → で進む先（次のビン）',
@@ -74,7 +74,6 @@ export const cursorSpectrum: ChartContract = {
         },
     ],
     knownGaps: {
-        'cursor-spectrum.pending': 'P1',
         'cursor-spectrum.range': 'P2',
     },
 };

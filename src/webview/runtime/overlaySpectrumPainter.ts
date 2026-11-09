@@ -2,7 +2,7 @@ import { binFrequencyHz } from '../draw/canvasDrawers';
 import { levelBinsOf, paintOverlay, type StageLayer, type StagePlot } from './stagePanes';
 import type { StageView } from '../../shared/protocol/backendProtocol';
 import { minMaxLine } from './comparePanes';
-import { localLine } from './fullRead';
+import { localLine, type FullSource } from './fullRead';
 import {
     OVERLAY_SPECTRUM_PAD,
     overlayLevelAxes,
@@ -27,6 +27,16 @@ export interface OverlaySpectrumPaint {
     levelAxes: Array<{ title: string; reference: string; colors: string[]; lines: Array<{ color: string; label: string }> }>;
 }
 
+/**
+ * Where a stand-in's numbers are read (types.ts SpectrumStandIn): nowhere. While the slice is on its way its read is
+ * pending (R7: the cursor's marks, no number) and it is measured for the overlay's order once the slice comes; past
+ * the track's end there is nothing to read or measure.
+ */
+const STAND_IN_READ: Record<NonNullable<SpectrumSeries['slice']['standIn']>, FullSource> = {
+    pending: { line: () => undefined, level: () => undefined },
+    silence: { line: () => null, level: () => null },
+};
+
 /** Marks the right-hand axis in the legend. */
 export const SECONDARY_AXIS_MARK = '▶';
 
@@ -48,7 +58,9 @@ export function spectrumLayer(series: SpectrumSeries, cutoffHz: number, visible?
     }
     // Every number read off it is a bin of the slice (R7): the bins kept here, before any thinning, or for a slice cut
     // for display the slice read again at every bin (series.full).
-    const full = series.full ?? (bands ? 'drawn' : slice.frequenciesHz ? undefined : localLine(xs, values));
+    // A stand-in is drawn only: none of its values is a bin of a slice.
+    const standIn = slice.standIn ? STAND_IN_READ[slice.standIn] : undefined;
+    const full = standIn ?? series.full ?? (bands ? 'drawn' : slice.frequenciesHz ? undefined : localLine(xs, values));
     // Ordered among the overlaid slices by every bin's power before thinning (R6), over the axis drawn.
     // Over the frequencies on screen when known (the whole slice is in hand: measured again at every zoom), on the axis
     // drawn: a linear one keeps the 0 Hz bin, a log one starts at the first bin above it. A slice cut for display holds
@@ -57,7 +69,7 @@ export function spectrumLayer(series: SpectrumSeries, cutoffHz: number, visible?
     const log = bands || (visible ? !!visible.logFrequency : true);
     const span: [number, number] | null = visible ? [log ? Math.max(visible.frequencyMin, firstPositive ?? visible.frequencyMin) : visible.frequencyMin, visible.frequencyMax]
         : xs.length ? [log ? firstPositive ?? xs[0] : xs[0], xs[xs.length - 1]] : null;
-    if (!slice.frequenciesHz && span && span[1] > span[0]) levelBins = levelBinsOf(xs, values, span, log);
+    if (!slice.frequenciesHz && !standIn && span && span[1] > span[0]) levelBins = levelBinsOf(xs, values, span, log);
     // A slice at full resolution (asked for while zoomed in, R3) is thinned here, only to be drawn, by the rule every
     // spectrum is thinned by (R2: each bucket's lowest and highest bin), between the frequencies on screen and a bin
     // past each, so the line reaches the plot's edges.
@@ -72,13 +84,14 @@ export function spectrumLayer(series: SpectrumSeries, cutoffHz: number, visible?
     // slice's unit, or with two level axes in the reference of the axis it is read on.
     const level = levelUnit ? { ...slice, unit: levelUnit } : slice;
     return {
-        view: { frame: 'spectrum', kind: bands ? 'bar' : 'line', x: 'frequency', xScale: bands ? 'log' : 'linear', quantity: 'level', xs, values, ...(levelBins ? { levelBins } : {}) },
+        // Bars are read as they are drawn (whole): a stand-in's floor past the end is drawn as a line, read as none.
+        view: { frame: 'spectrum', kind: bands && !standIn ? 'bar' : 'line', x: 'frequency', xScale: bands ? 'log' : 'linear', quantity: 'level', xs, values, ...(levelBins ? { levelBins } : {}) },
         color: series.color,
         width: bands ? 2 : 1.4,
         label: series.label,
         readout: (_index, point) => spectrumReadoutValues(level, point.x, point.value, point.step),
         ...(full ? { full } : {}),
-        ...(!levelBins && !bands ? { measured: true } : {}),
+        ...(!levelBins && (!bands || standIn) ? { measured: true } : {}),
     };
 }
 

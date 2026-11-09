@@ -5,7 +5,8 @@ import { paintOverlaySpectrum, renderSpectrumAxisLegend, spectrumLayer, SECONDAR
 import { stageHover, stageStep, type StagePlot } from '../webview/runtime/stagePanes';
 import { SpectrumView } from '../webview/runtime/spectrumView';
 import { OVERLAY_SPECTRUM_PAD, overlayLevelAxes, spectrumReadoutText, type SpectrumViewState } from '../webview/runtime/spectrumRuntime';
-import type { SpectrumSeries } from '../webview/runtime/types';
+import type { SpectrumSeries, SpectrumSlice } from '../webview/runtime/types';
+import { extractSpectrumAtCursor } from '../webview/spectrum/cursorSpectrum';
 import { createLaneReads } from '../webview/runtime/laneReads';
 
 function recordingCtx(): { ctx: CanvasDrawCtx; calls: string[] } {
@@ -360,4 +361,49 @@ test('the cursor spectrum orders a slice cut for display by every bin on screen,
     await new Promise(resolve => setTimeout(resolve, 0));
     assert.deepEqual(strokes.filter(color => color === 'spiky' || color === 'steady'), expected, 'drawn again with every bin: the quieter on top');
     assert.equal(canvas.dataset.plotOrder, `${(10 * Math.log10(mean(steady))).toFixed(2)},${(10 * Math.log10(mean(spiky))).toFixed(2)}`);
+});
+
+test('until the backend\'s slice comes, the cursor spectrum draws the lane\'s averaged spectrogram column and reads nothing of it; past the end, nothing (R7)', () => {
+    // The lane's display spectrogram: each cell a power average of many STFT cells, drawn only.
+    const spectrogram = {
+        values: [[-70, -42.5, -61, -66], [-71, -43, -60, -65]], timeBins: 2, frequencyBins: 4, windowSize: 512, hopSize: 256,
+        maxFrequencyHz: 1000, minDb: -100, maxDb: -3, unit: 'dB',
+    };
+    const source = { durationSeconds: 1, channels: [{ spectrogram }] };
+    const asked: number[] = [];
+    const context = { trackIndex: 0, cached: null, settingsSignature: 's', requestSlice: (_track: number, norm: number) => { asked.push(norm); }, applyDisplaySettings: (slice: SpectrumSlice) => slice };
+    const pending = extractSpectrumAtCursor(source, 0, 0.25, { startSec: 0, spanSec: 1 }, context);
+    assert.ok(pending);
+    assert.deepEqual(asked, [0.25], 'the slice is asked for');
+    assert.equal(pending.standIn, 'pending');
+    const { ctx } = recordingCtx();
+    const plot = plotOf(paintOverlaySpectrum(canvasOf(ctx), 400, 200, [{ ...series[0], slice: pending }], fullView));
+    assert.deepEqual(plot.lines[0].view.values, spectrogram.values[0], 'the averaged column is drawn');
+    assert.equal(plot.lines[0].view.levelBins, undefined, 'the averaged column is never the level the overlay is ordered by');
+    // On the column's top: the cursor's marks, no number, until the slice is in.
+    const read = stageHover(plot, plot.xAt(1000 / 3), plot.yAt(-42.5));
+    assert.equal(read?.pending, true);
+    assert.equal(read?.text, '');
+    assert.equal(read?.value, undefined);
+
+    // Past the track's end: the floor is drawn, and a line beside it with a slice of its own is the one read.
+    const silence = extractSpectrumAtCursor(source, 0, 1.5, { startSec: 0, spanSec: 1 }, context);
+    assert.ok(silence);
+    assert.equal(silence.standIn, 'silence');
+    const real = { values: [-80, -30, -50, -55], frequencyBins: 4, maxFrequencyHz: 1000, minDb: -80, maxDb: -30, unit: 'dB' };
+    const both = plotOf(paintOverlaySpectrum(canvasOf(ctx), 400, 200, [{ ...series[0], slice: silence }, { ...series[0], color: '#0000ff', label: 'B', slice: real }], fullView));
+    const floor = both.lines.find(line => line.color === '#ff0000');
+    assert.ok(floor, 'the floor is drawn');
+    const onFloor = stageHover(both, both.xAt(2000 / 3), both.yAt(silence.values[2]));
+    assert.notEqual(onFloor?.layer.color, '#ff0000', 'the floor past the end is never read as a level');
+    assert.ok(!onFloor || onFloor.text === spectrumReadoutText('B', real, 2000 / 3, -50));
+    const stepped = stageStep(both, { ...(stageHover(both, both.xAt(1000 / 3), both.yAt(-30)) as NonNullable<ReturnType<typeof stageHover>>) }, 1);
+    assert.equal(stepped?.layer.color, '#0000ff');
+
+    // Octave bands past the end: the floor is a line read as none, not bars read as they are drawn.
+    const bandsCached = { values: [-40, -35, -30], frequencyBins: 3, maxFrequencyHz: 1000, minDb: -90, maxDb: -30, unit: 'dB', bandCentersHz: [250, 500, 1000], settingsSignature: 's' };
+    const bandSilence = extractSpectrumAtCursor(source, 0, 1.5, { startSec: 0, spanSec: 1 }, { ...context, bands: true, cached: bandsCached });
+    assert.ok(bandSilence);
+    const bandsPlot = plotOf(paintOverlaySpectrum(canvasOf(ctx), 400, 200, [{ ...series[0], slice: bandSilence }], fullView));
+    assert.equal(stageHover(bandsPlot, bandsPlot.xAt(500), bandsPlot.yAt(-90))?.text ?? '', '');
 });

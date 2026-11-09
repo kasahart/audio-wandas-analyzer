@@ -110,7 +110,7 @@ export const DRAWN_READERS: Readonly<Record<string, { use: DrawnUse; why: string
     ['src/webview/runtime/comparisonRuntime.ts:applySpectrumDisplaySettings']: { use: 'value', why: 'the cursor spectrum\'s level range from the slice\'s minDb / maxDb, those of the row cut for display (cursor-spectrum.range)' },
     ['src/webview/runtime/comparisonRuntime.ts:exportCsv']: { use: 'whole', why: 'starts writeCsvWhenDetailed' },
     ['src/webview/runtime/comparisonRuntime.ts:writeCsvWhenDetailed']: { use: 'whole', why: 'writes a slice only when it holds every bin, else waits or leaves it out (spectrum-csv.export)' },
-    ['src/webview/runtime/overlaySpectrumPainter.ts:spectrumLayer']: { use: 'whole', why: 'reads a slice\'s values as every bin when it has no frequenciesHz, and a cut one from laneReads; the lane spectrogram\'s column standing in meanwhile also has none (cursor-spectrum.pending)' },
+    ['src/webview/runtime/overlaySpectrumPainter.ts:spectrumLayer']: { use: 'whole', why: 'reads a slice\'s values as every bin when it has no frequenciesHz, and a cut one from laneReads; a stand-in (the lane spectrogram\'s column meanwhile, the floor past the end) is drawn and never read or measured (cursor-spectrum.pending)' },
     ['src/webview/runtime/runtimeExports.ts:buildSpectrumCsv']: { use: 'whole', why: 'writes a slice that holds every bin (spectrum-csv.export)' },
     ['src/webview/runtime/spectrumRuntime.ts:autoDbRange']: { use: 'value', why: 'the overlay\'s auto level range from each slice\'s minDb / maxDb (cursor-spectrum.range)' },
     ['src/webview/runtime/spectrumRuntime.ts:overlayLevelAxes']: { use: 'value', why: 'the overlay\'s level axes, from autoDbRange (cursor-spectrum.range)' },
@@ -123,6 +123,6 @@ export const DRAWN_READERS: Readonly<Record<string, { use: DrawnUse; why: string
     ['src/webview/runtime/trackStageModel.ts:pictureSummary']: { use: 'draws', why: 'a test hook\'s count and median of the drawn points, not shown' },
     ['src/webview/runtime/trackStageModel.ts:plotsOf']: { use: 'draws', why: 'whether pictures are signals, to choose how to draw them' },
     ['src/webview/runtime/trackStagePainter.ts:eventsOf']: { use: 'draws', why: 'the events drawn, as layers' },
-    ['src/webview/spectrum/cursorSpectrum.ts:extractSpectrumAtCursor']: { use: 'value', why: 'until the backend\'s slice is in, the cursor spectrum is the lane\'s display spectrogram column, power-averaged to draw (cursor-spectrum.pending)' },
-    ['src/webview/spectrum/cursorSpectrum.ts:makeSilentSpectrumSlice']: { use: 'value', why: 'past the track\'s end, a floor at the display spectrogram\'s minDb (cursor-spectrum.pending)' },
+    ['src/webview/spectrum/cursorSpectrum.ts:extractSpectrumAtCursor']: { use: 'draws', why: 'until the backend\'s slice is in, the lane\'s display spectrogram column is drawn, marked a stand-in that is never read (cursor-spectrum.pending)' },
+    ['src/webview/spectrum/cursorSpectrum.ts:makeSilentSpectrumSlice']: { use: 'draws', why: 'past the track\'s end, a floor drawn at the spectrogram\'s minDb, marked a stand-in that is never read (cursor-spectrum.pending)' },
 };

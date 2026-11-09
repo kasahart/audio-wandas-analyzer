@@ -142,7 +142,15 @@ export interface SpectrumSlice {
     /** Set when a typed spectrogram dB range replaced minDb/maxDb: the slice's own rounded range. */
     autoMinDb?: number;
     autoMaxDb?: number;
+    /** Drawn in place of a slice the backend has not given (cursorSpectrum.ts): no number is read of it (R7). */
+    standIn?: SpectrumStandIn;
 }
+
+/**
+ * What a cursor spectrum draws when it has no slice of the backend's: 'pending', the lane's display spectrogram's
+ * column (cells power-averaged to draw) while the slice is on its way; 'silence', the floor past the track's end.
+ */
+export type SpectrumStandIn = 'pending' | 'silence';
 
 export interface WaveformRangeCache {
     startNorm: number;
