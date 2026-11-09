@@ -38,6 +38,17 @@ test('levels share a range of four round steps; coherence keeps 0 to 1', () => {
     assert.deepEqual(stageRange([line([0.2, 0.5, 0.9], 'coherence')]), { min: 0, max: 1 });
 });
 
+test('a dB line\'s automatic range holds every value of its full data down to 100 dB under its loudest, on round steps (R9)', () => {
+    // −49.5 to −9.5 dB: 40 dB wide, but four 10 dB steps from 0 would cut −49.5 off; 20 dB steps hold it.
+    assert.deepEqual(stageRange([{ ...line([-30, -20]), valueRange: { min: -49.5, max: -9.5 } }]), { min: -80, max: 0 });
+    for (const [min, max] of [[-49.5, -9.5], [-41, -1], [-109.5, -9.5], [-61, -2], [-12.3, -12.1], [-300, -20]]) {
+        const range = stageRange([{ ...line([min, max]), valueRange: { min, max } }]);
+        assert.ok(range.max >= max && range.min <= Math.max(min, max - 100), `${min}…${max} dB drawn on ${range.min}…${range.max}`);
+        // Never wider than it needs: its bottom is at most a step under 100 dB below the loudest.
+        assert.ok(range.min >= max - 100 - 25, `${min}…${max} dB drawn on ${range.min}…${range.max}`);
+    }
+});
+
 test('every range is set from the full data\'s lowest and highest value (valueRange), never the points drawn or the cells averaged to draw an image (R1, R9)', () => {
     // A line thinned to points whose extremes were averaged away: its range holds every value.
     assert.deepEqual(stageRange([{ ...line([-43, -12, -30]), valueRange: { min: -61, max: -2 } }]), stageRange([line([-61, -2])]));

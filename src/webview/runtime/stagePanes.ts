@@ -18,7 +18,7 @@ import { paintWaveformLayer, waveformRange, type SignalPointSink } from '../plot
 import { packRgb, paletteColour, rasterizeHeatmap, unpackRgb } from '../plot/heatmapRaster';
 import { drawValueAxis, readoutText, type AxisTick, type Palette } from '../../shared/gui-core/index';
 import { axisName, axisNameParts, fitAxisTitle, fontPixels, scaledFont } from '../plot/axisTitle';
-import { heatmapDbRange, niceRange, niceTicks } from '../../shared/utils/ticks';
+import { HEATMAP_DB_SPAN, heatmapDbRange, niceRange, niceTicks } from '../../shared/utils/ticks';
 import { amountText, barkText, frequencyText, lagText, levelText, quefrencyText, secondsText, signedText, withMinus } from '../plot/plotText';
 import { cellIndex, NO_FULL_DATA, STEP_AHEAD, type FullPoints, type FullRead, type FullSource, type LevelAnswer } from './fullRead';
 
@@ -133,10 +133,14 @@ export function stageRange(views: ReadonlyArray<StageView | null>): PaneRange {
     }
     if (DB_QUANTITIES.includes(quantity ?? '') && first?.kind === 'heatmap') return heatmapDbRange(low, high);
     if (DB_QUANTITIES.includes(quantity ?? '')) {
-        // Four equal steps of a round size, as the spectra's.
-        const step = [5, 10, 20, 25].find(size => 4 * size >= Math.min(100, high - low)) ?? 25;
-        const max = Math.ceil(high / step) * step;
-        return { min: max - 4 * step, max };
+        // Every value from the loudest down to at most 100 dB under it (as a heatmap's colours): never a value of the
+        // full data off the axis. Four equal steps of a round size, as the spectra's, where four hold it; else more.
+        const bottom = Math.max(low, high - HEATMAP_DB_SPAN);
+        for (const step of [5, 10, 20, 25]) {
+            const max = Math.ceil(high / step) * step || 0;
+            if (max - 4 * step <= bottom) return { min: max - 4 * step, max };
+        }
+        return { min: Math.floor(bottom / 25) * 25, max: Math.ceil(high / 25) * 25 || 0 };
     }
     // Any other quantity (a loudness, a roughness, an amplitude): its extent padded, to round ends, as a dB range has.
     const pad = (high - low) * 0.05 || Math.abs(high) * 0.1 || 1;
