@@ -1986,6 +1986,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 return;
             }
             if (!laneInView(i)) {
+                // Not drawn until scrolled to: its axes beside it are left empty by the plot component meanwhile.
+                channelsForResult(result).forEach(function (_, channelIndex: number) {
+                    for (const id of [trackAxisCanvasId(i, channelIndex), trackSpecAxisCanvasId(i, channelIndex)]) {
+                        const axis = canvasById(document, id);
+                        if (axis && !axis.hasAttribute('data-plot-axis-canvas')) clearSideAxis(axis);
+                    }
+                });
                 return;
             }
             const color = trackColor(i);
