@@ -69,8 +69,15 @@ export function attachTrackPointerListeners(tracksWrapper: PointerSurface, doc: 
         const plot = element && element.closest ? element.closest(selectors.plot) : null;
         return plot && tracksWrapper.contains(plot) ? plot : null;
     };
-    tracksWrapper.addEventListener('mousemove', function (e) { over = plotOf(e.target); handlers.hover(e); });
-    tracksWrapper.addEventListener('mouseleave', function () { over = null; handlers.clearHover(); });
+    /** Where the pointer last was, so a key finds the plot under it after the one it was over is made again. */
+    let pointer: { x: number; y: number } | null = null;
+    const underPointer = (): Element | null => {
+        if (over && over.isConnected) return over;
+        const doc = (tracksWrapper as Partial<HTMLElement>).ownerDocument;
+        return pointer && doc && typeof doc.elementFromPoint === 'function' ? plotOf(doc.elementFromPoint(pointer.x, pointer.y)) : null;
+    };
+    tracksWrapper.addEventListener('mousemove', function (e) { over = plotOf(e.target); pointer = { x: e.clientX, y: e.clientY }; handlers.hover(e); });
+    tracksWrapper.addEventListener('mouseleave', function () { over = null; pointer = null; handlers.clearHover(); });
     // A plot given the focus from the keyboard reads where it starts, so the arrows have a point to step from;
     // let go of the focus with the pointer elsewhere, its readout goes.
     tracksWrapper.addEventListener('focusin', function (e) { const plot = plotOf(e.target); if (plot && !over && !selectors.focusKeepsArrows) handlers.step(plot, 0); });
@@ -81,7 +88,8 @@ export function attachTrackPointerListeners(tracksWrapper: PointerSurface, doc: 
             // + / − / 0 zoom the plot under the pointer (not one only focused: the view's own keys take those).
             const zoom = zoomKeyAction(e.key);
             if (zoom) {
-                if (e.ctrlKey || e.metaKey || e.altKey || isTextEntryTarget(e.target) || !over || !over.isConnected || !handlers.zoomKey(over, zoom)) return false;
+                const plot = e.ctrlKey || e.metaKey || e.altKey || isTextEntryTarget(e.target) ? null : underPointer();
+                if (!plot || !handlers.zoomKey(plot, zoom)) return false;
                 e.preventDefault();
                 return true;
             }

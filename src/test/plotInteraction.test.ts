@@ -168,3 +168,10 @@ test('Ctrl+wheel over an axis zooms the horizontal axis around its middle; over 
     wheel('a', { ctrlKey: true, deltaY: -100, clientX: 0 });
     assert.deepEqual(calls, ['window:a:0.075-0.925', 'window:a:0.011-0.989', 'window:a:0.011-0.842']);
 });
+
+test('Ctrl+wheel on an axis drawn on its own canvas zooms about the middle, as on an axis drawn on the plot', () => {
+    const { wheel, calls, element } = surface({ axes: { selector: '.axis', locate: () => ({ plot: element('a'), point: { fx: 0.1, fy: 0.5 }, axis: 'x' }) } });
+    wheel('axis', { ctrlKey: true, deltaY: -100, clientX: 10 });
+    wheel('header', { ctrlKey: true, deltaY: -100 });
+    assert.deepEqual(calls, ['window:a:0.075-0.925']);
+});

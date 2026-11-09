@@ -28,6 +28,7 @@ export const GENERAL_KEYS: readonly KeyRow[] = [
     { shortcut: '? / F1', labelKey: 'helpRowQuestion' },
     { shortcut: 'Esc', labelKey: 'helpRowEsc' },
     { shortcut: '← / → (over a plot)', labelKey: 'helpRowPlotStep' },
+    { shortcut: '+ / − / 0 (over a plot)', labelKey: 'helpRowPlotZoom' },
 ];
 
 export const LANE_KEYS: readonly KeyRow<GlobalShortcutAction>[] = [

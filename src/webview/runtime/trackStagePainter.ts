@@ -9,7 +9,7 @@ import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { baseName } from '../../shared/analysis/entryMetadata';
 import { DIFF_COLOR, ROLE_COLORS } from '../../shared/gui/roleColors';
 import type { LegendItem, LevelInput, PaneRange } from './comparePanes';
-import { emptyStageText, isEventsView, paintOverlay, paintStage, stageAxes, stageDiffRange, stageEventCounts, stageHeadline, stageRange, type StageAxes, type StageLayer, type StagePlot } from './stagePanes';
+import { clearSideAxis, emptyStageText, isEventsView, paintOverlay, paintStage, stageAxes, stageDiffRange, stageEventCounts, stageHeadline, stageRange, type StageAxes, type StageLayer, type StagePlot } from './stagePanes';
 import type { PlotWindow } from './plotInteraction';
 import { noDeltaNote } from './combineSource';
 import type { StagePlots } from './trackStageModel';
@@ -178,7 +178,7 @@ export function paintStageLanes(frame: StageFrame): number {
     const anyMissing = tracks.some(track => track.canvas && coarse(track.filePath) === undefined);
     const progressLane = anyMissing ? null : tracks.find(track => track.canvas)?.filePath;
     tracks.forEach(track => {
-        track.axis?.getContext('2d')?.clearRect(0, 0, track.axis.width, track.axis.height);
+        if (track.axis) clearSideAxis(track.axis);
         if (!track.canvas) return;
         // The lane shows the step now, not its waveform: its name says so until the comparison closes.
         track.canvas.dataset.laneLabel ??= track.canvas.getAttribute('aria-label') ?? '';

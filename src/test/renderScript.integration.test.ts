@@ -1890,7 +1890,7 @@ test('spectrogram hit testing maps pointer positions to the whole lane width and
     env.dom.window.close();
 });
 
-test('spectrogram Ctrl+wheel zoom uses the whole lane width and ignores the colour bar', async () => {
+test('spectrogram Ctrl+wheel zoom uses the whole lane width; on the colour bar, an axis, it zooms about the middle (R13)', async () => {
     const env = setupSpectrumEnv();
     await nextAnimationFrame(env.dom);
     const spectrogramBtn = env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="content-waveform"]');
@@ -1952,8 +1952,10 @@ test('spectrogram Ctrl+wheel zoom uses the whole lane width and ignores the colo
 
     snap = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any;
     assert.equal(colorbarWheel.defaultPrevented, true);
-    assert.equal(snap.renderedUi.zoomStart, beforeColorbar.zoomStart, 'Ctrl+wheel on the colour bar does not change audio zoom');
-    assert.equal(snap.renderedUi.zoomEnd, beforeColorbar.zoomEnd, 'Ctrl+wheel on the colour bar does not change audio zoom');
+    // An axis has no time under the pointer to zoom around: the middle of what is shown, as over every plot's axis.
+    const middle = (beforeColorbar.zoomStart + beforeColorbar.zoomEnd) / 2, span = beforeColorbar.zoomEnd - beforeColorbar.zoomStart;
+    assert.ok(Math.abs((snap.renderedUi.zoomStart + snap.renderedUi.zoomEnd) / 2 - middle) < 1e-9, 'Ctrl+wheel on the colour bar zooms about the middle');
+    assert.ok(Math.abs(snap.renderedUi.zoomEnd - snap.renderedUi.zoomStart - span * 0.85) < 1e-9, 'Ctrl+wheel on the colour bar zooms in by one notch');
     env.dom.window.close();
 });
 

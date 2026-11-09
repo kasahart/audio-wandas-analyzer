@@ -6,7 +6,7 @@
 import type { StageView } from '../../shared/protocol/backendProtocol';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { niceRange } from '../../shared/utils/ticks';
-import { paintOverlay, stageRange, type StageAxes } from './stagePanes';
+import { clearSideAxis, paintOverlay, stageRange, type StageAxes } from './stagePanes';
 import type { PaneRange } from './comparePanes';
 import type { Drawn, StageTrack } from './trackStagePainter';
 import type { PlotWindow } from './plotInteraction';
@@ -63,6 +63,8 @@ export function paintTriggerLanes(frame: TriggerLanesFrame): number {
     const range: PaneRange = { ...base, min: held.low, max: held.high };
     let drawn = 0;
     frame.tracks.forEach((track, index) => {
+        // The lane draws its level axis itself: the canvas beside it is left empty, by the plot component.
+        if (track.axis) clearSideAxis(track.axis);
         const canvas = track.canvas;
         if (!canvas) return;
         const view = views[index];

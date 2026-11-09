@@ -183,8 +183,14 @@ export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 
         deps.setWindow(plot, next);
         notePlotWindow(plot, deps.window(plot), vertical);
     };
+    // An axis on a canvas of its own (deps.axes) takes the wheel as the plot's own axis does.
+    const onAxis = (target: EventTarget | null, clientX: number, clientY: number): PlotHit | null => {
+        const element = target as Partial<Element> | null, axes = deps.axes;
+        const axis = axes && typeof element?.closest === 'function' ? element.closest<HTMLElement>(axes.selector) : null;
+        return axes && axis ? axes.locate(axis, clientX, clientY) : null;
+    };
     const wheelAt = (event: WheelEvent, gesture: 'zoom' | 'pan'): PlotHit | null =>
-        deps.wheelAt ? deps.wheelAt(event.target, event.clientX, event.clientY, gesture) : deps.locate(event.target, event.clientX, event.clientY);
+        deps.wheelAt ? deps.wheelAt(event.target, event.clientX, event.clientY, gesture) : deps.locate(event.target, event.clientX, event.clientY) ?? onAxis(event.target, event.clientX, event.clientY);
     const view = surface.ownerDocument.defaultView;
     attachTrackPointerListeners(surface, doc, view ? keyRouterFor(view) : { add: () => () => undefined }, {
         step(plot, delta) {

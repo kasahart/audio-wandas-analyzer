@@ -1206,6 +1206,19 @@ export function paintSideAxis(canvas: HTMLCanvasElement, ticks: readonly AxisTic
 }
 
 /**
+ * A lane's value axis canvas left empty, by the plot component: the plot beside it draws its axis itself (the
+ * comparison's lanes) or has nothing to draw yet.
+ */
+export function clearSideAxis(canvas: HTMLCanvasElement): void {
+    const context = canvas.getContext('2d');
+    if (!context) return;
+    paintingAxis(canvas, () => {
+        context.setTransform(1, 0, 0, 1, 0, 0);
+        context.clearRect(0, 0, canvas.width, canvas.height);
+    });
+}
+
+/**
  * The time axis plots stacked on it share, on its own canvas above them (the track lanes' ruler): its ticks along
  * the bottom over `width` pixels, their numbers, and its name at the right end, as every plot writes its time axis;
  * a number the name would cover is left out.

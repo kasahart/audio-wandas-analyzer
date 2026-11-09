@@ -169,6 +169,7 @@ export const GUI_TRIGGERABILITY_SCOPED_SHORTCUTS = [
     'Show Δ',
     '← / →',
     '← / → (over a plot)',
+    '+ / − / 0 (over a plot)',
     'F',
     'L',
     'Wheel',
@@ -500,6 +501,13 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
         label: 'Step the readout of the plot under the pointer (or the focused cursor spectrum) to the next or previous point with ← / →, on every plot',
         entryPoints: ['canvas-gesture', 'keyboard'],
         triggers: ['← / → (over a plot)'],
+        regressionLayers: ['node:test', 'ui-smoke'],
+    },
+    {
+        id: 'plot-zoom-keys',
+        label: 'Zoom the horizontal axis of the plot under the pointer about its middle with + / −, and show all of it with 0, on every plot',
+        entryPoints: ['keyboard'],
+        triggers: ['+ / − / 0 (over a plot)'],
         regressionLayers: ['node:test', 'ui-smoke'],
     },
     {

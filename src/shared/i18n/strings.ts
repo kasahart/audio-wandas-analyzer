@@ -118,6 +118,7 @@ export interface UiStrings {
     helpRowDoubleClickEdge: string;
     helpRowQuestion: string;
     helpRowPlotStep: string;
+    helpRowPlotZoom: string;
     helpRowEsc: string;
     entryColFile: string;
     entryColCondition: string;
@@ -924,6 +925,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpRowDoubleClickEdge: 'collapse the file list; collapse or expand the spectrum',
         helpRowQuestion: 'toggle this help',
         helpRowPlotStep: 'step the readout of the plot under the pointer one point at a time (on the focused lane they move its cursor)',
+        helpRowPlotZoom: 'zoom the horizontal axis of the plot under the pointer about its middle / show all of it',
         helpRowEsc: 'close popover / help, restore a maximized spectrum',
         entryColFile: 'File',
         entryColCondition: 'Cond. {n}',
@@ -1710,6 +1712,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpRowDoubleClickEdge: 'ファイル一覧を畳む、スペクトルを畳む/戻す',
         helpRowQuestion: 'このヘルプを開閉',
         helpRowPlotStep: 'マウスの下のグラフの読み値を 1 点ずつ動かす（フォーカスしたレーンではカーソルを動かす）',
+        helpRowPlotZoom: 'マウスの下のグラフの横軸を真ん中を中心にズームする / 全体に戻す',
         helpRowEsc: 'ポップオーバー / ヘルプを閉じる、最大化を戻す',
         entryColFile: 'ファイル',
         entryColCondition: '条件 {n}',

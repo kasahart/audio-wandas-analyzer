@@ -316,11 +316,16 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
     const axisId = await plot.getAttribute('data-plot-axis');
     const axisBox = axisId ? await page.locator(`[id="${axisId}"]`).boundingBox() : null;
     if (await rangeApplies({ x: axisBox ? axisBox.x + axisBox.width / 2 : box.x + 8, y: axisBox ? axisBox.y + axisBox.height / 2 : middle.y })) passed.add('axis range');
-    // The horizontal axis: the plot's own bottom margin, or the canvas that holds the time axis it shares with the
-    // plots stacked on it (data-plot-x-axis, the lanes' ruler).
+    // The horizontal axis: the plot's own bottom margin, or the element that holds the axis it shares with the plots
+    // stacked on it (data-plot-x-axis): a canvas of its own (the lanes' ruler, the distribution's value axis), in its
+    // middle, or the plot at the bottom of the stack, in its bottom margin (the pair view's frequency axis).
     const xAxisId = await plot.getAttribute('data-plot-x-axis');
-    const xAxisBox = xAxisId ? await page.locator(`[id="${xAxisId}"]`).boundingBox() : null;
-    if (await rangeApplies({ x: xAxisBox ? xAxisBox.x + xAxisBox.width / 2 : middle.x, y: xAxisBox ? xAxisBox.y + xAxisBox.height / 2 : box.y + box.height - 6 })) passed.add('x range');
+    const xAxis = xAxisId ? page.locator(`[id="${xAxisId}"]`) : null;
+    const xAxisBox = xAxis ? await xAxis.boundingBox() : null;
+    const xAxisIsPlot = xAxis ? await xAxis.evaluate(element => element.hasAttribute('data-plot')) : false;
+    const xAt = !xAxisBox ? { x: middle.x, y: box.y + box.height - 6 }
+        : { x: xAxisBox.x + xAxisBox.width / 2, y: xAxisIsPlot ? xAxisBox.y + xAxisBox.height - 6 : xAxisBox.y + xAxisBox.height / 2 };
+    if (await rangeApplies(xAt)) passed.add('x range');
     await page.mouse.move(1, 1);
     return passed;
 }
@@ -707,7 +712,11 @@ test('every ui-smoke test fails on a plot on screen whose axis name is in its at
         plot.setAttribute('data-plot-axes', 'Time [s]|Ghost pressure [Pa]');
         Object.assign(plot.style, { position: 'fixed', left: '0', top: '0', width: '120px', height: '60px' });
         document.body.append(plot);
+        // Drawn as the plot component draws (while it says so), so only the missing name is wrong with it.
+        const scope = window as { __plotPainting?: number };
+        scope.__plotPainting = (scope.__plotPainting ?? 0) + 1;
         plot.getContext('2d')?.fillText('Time [s]', 10, 50);
+        scope.__plotPainting -= 1;
     });
     await expect.poll(() => page.evaluate(() => window.__unitAudit ?? []), { timeout: 15_000 }).toEqual(expect.arrayContaining([expect.stringMatching(/^canvas\.unnamed-axis .*names "Ghost pressure \[Pa\]" but does not draw it$/u)]));
     // Taken away, with the audit's record cleared, so this test itself passes the audit.

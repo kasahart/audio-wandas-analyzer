@@ -60,7 +60,7 @@ import { syncPanelToggle, syncSpectrumMaximize } from './panelCollapse';
 import { SpectrumView } from './spectrumView';
 import { WaveformView } from './waveformView';
 import { OVERLAY_LEVEL_AXES, paintOverlaySpectrum, renderSpectrumAxisLegend } from './overlaySpectrumPainter';
-import { amplitudeAxisTitle, paintOverlay, paintTimeAxis, type StagePlot } from './stagePanes';
+import { amplitudeAxisTitle, clearSideAxis, paintOverlay, paintTimeAxis, type StagePlot } from './stagePanes';
 import { referenceButtonHtml } from './pairSpectrum';
 import { PAIR_SPLIT_MAX, PAIR_SPLIT_MIN, PairSpectrumPanel } from './pairSpectrumPanel';
 import { collectSpectrumSeries, type CollectedSpectrumSeries, type SpectrumSeriesSource } from './spectrumSeriesCollector';
@@ -1995,7 +1995,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     return;
                 }
                 const axisC = canvasById(document, trackAxisCanvasId(i, channelIndex));
-                axisC?.getContext('2d')?.clearRect(0, 0, axisC.width, axisC.height);
+                if (axisC) clearSideAxis(axisC);
                 drawTrackWaveform(canvas, result, i, channelIndex, trackRuntimeAt(i).offsetSeconds, color);
                 const specCanvas = canvasById(document, trackSpecCanvasId(i, channelIndex));
                 if (specCanvas) {
@@ -2163,10 +2163,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
         }
         const axisCanvas = canvasById(document, trackSpecAxisCanvasId(trackIndex, channelIndex));
-        const axisCtx = axisCanvas ? axisCanvas.getContext('2d') : null;
-        if (axisCanvas && axisCtx) {
-            axisCtx.clearRect(0, 0, axisCanvas.width, axisCanvas.height);
-        }
+        if (axisCanvas) clearSideAxis(axisCanvas);
         const ch = channelsForResult(result)[channelIndex];
         if (!ch || !ch.spectrogram) {
             requestTrackDetail(trackIndex);

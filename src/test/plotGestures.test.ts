@@ -59,12 +59,13 @@ const NOT_PLOTS: Record<string, { sites: readonly string[]; why: string }> = {
 
 /**
  * The key contexts (keyRouter layers) outside the shared plot gestures, each with what it takes keys for. Only
- * trackPointerEvents.ts adds the 'plot' layer. A context that zooms a plot with + / − / 0 says so in `zooms`: that is
- * owed to the shared plot gestures (one key zoom for every plot, R7, R13) and is taken off once it lives there.
+ * trackPointerEvents.ts adds the 'plot' layer, and with it + / − / 0 over a plot zoom that plot (plotInteraction.ts,
+ * the same on every plot). A context that zooms with + / − / 0 too says what in `offPlots`: only its view's shared
+ * window, with the pointer on no plot (the plot layer comes first and takes the keys over one).
  */
-const KEY_CONTEXTS: Record<string, { layers: readonly string[]; why: string; zooms?: string }> = {
+const KEY_CONTEXTS: Record<string, { layers: readonly string[]; why: string; offPlots?: string }> = {
     'rangePopover.ts': { layers: ['popover'], why: 'Esc closes the axis range popover' },
-    'runtime/comparisonRuntime.ts': { layers: ['lanes'], why: 'Esc leaves the maximized spectrum; the lanes\' shortcuts (shortcuts.ts) run here', zooms: 'zoomIn / zoomOut / resetZoom: the lanes\' time axis whatever plot the pointer is on; to move into plotInteraction' },
+    'runtime/comparisonRuntime.ts': { layers: ['lanes'], why: 'Esc leaves the maximized spectrum; the lanes\' shortcuts (shortcuts.ts) run here', offPlots: 'zoomIn / zoomOut / resetZoom: the lanes\' time axis, and the toolbar\'s zoom buttons' },
     'runtime/entryRuntime.ts': { layers: ['entry'], why: 'the entry table\'s keys (Esc closes its innermost popover, form or list)' },
     'runtime/globalKeyboardEvents.ts': { layers: ['lanes'], why: 'the lanes\' cursor, playback and shortcut keys' },
     'runtime/helpOverlay.ts': { layers: ['help'], why: '? / F1 opens or closes the help; while open it keeps Tab and scrolls itself' },
@@ -74,7 +75,7 @@ const KEY_CONTEXTS: Record<string, { layers: readonly string[]; why: string; zoo
     'runtime/staticFooter.ts': { layers: ['popover'], why: 'Esc closes the about popover' },
     'runtime/stepBar.ts': { layers: ['step-bar'], why: 'the step bar\'s undo / redo (Ctrl+Z / Ctrl+Y)' },
     'runtime/toolbarEvents.ts': { layers: ['popover'], why: 'Esc closes a toolbar menu' },
-    'runtime/trackStageMode.ts': { layers: ['stage'], why: 'the comparison\'s keys: 1–3, B, D, Esc', zooms: 'zoomHovered: the plot under the pointer, else the shared window; to move into plotInteraction' },
+    'runtime/trackStageMode.ts': { layers: ['stage'], why: 'the comparison\'s keys: 1–3, B, D, Esc', offPlots: 'the comparison\'s shared window' },
 };
 
 const EVENT_NAMES = '(?:(?:mouse|pointer|touch|gesture)[a-z]+|drag[a-z]*|drop|wheel|click|dblclick|auxclick|contextmenu|key(?:down|up|press)|focus(?:in|out)?|blur)';
@@ -172,7 +173,7 @@ test('no webview module listens for pointer or key events of a plot outside the 
     assert.deepEqual(stale, [], 'listens for it no more: take it off the list');
 });
 
-test('every key context outside the shared plot gestures is listed with what it takes keys for; one that zooms a plot says it is owed to them (R7, R13)', () => {
+test('every key context outside the shared plot gestures is listed with what it takes keys for; + / − / 0 over a plot are the shared gestures, and one zooming too zooms its shared window only (R7, R13)', () => {
     const contexts = new Map<string, string[]>();
     for (const file of sources(webview)) {
         if (SHARED[file]) continue;
@@ -181,9 +182,12 @@ test('every key context outside the shared plot gestures is listed with what it 
     }
     assert.deepEqual(Object.fromEntries(contexts), Object.fromEntries(Object.entries(KEY_CONTEXTS).map(([file, { layers }]) => [file, sorted(layers)])), 'a key context not listed (or listed no more) in KEY_CONTEXTS');
     assert.ok(![...contexts.values()].some(layers => layers.includes('plot')), 'only the shared listeners add the plot layer');
-    // The key zoom (+ / − / 0) acts on plots: only where KEY_CONTEXTS says it is still owed to the shared gestures.
+    // The key zoom (+ / − / 0) over a plot is the shared gestures' (trackPointerEvents.ts zoomKey); a context zooms
+    // only its shared window, and never looks for the plot under the pointer itself.
     const zooming = sources(webview).filter(file => !SHARED[file] && file !== 'runtime/shortcuts.ts' && /'zoom-(?:in|out|reset)'/.test(read(file)));
-    assert.deepEqual(sorted(zooming), sorted(Object.entries(KEY_CONTEXTS).filter(([, context]) => context.zooms).map(([file]) => file)), 'a key zoom outside the shared plot gestures');
+    assert.deepEqual(sorted(zooming), sorted(Object.entries(KEY_CONTEXTS).filter(([, context]) => context.offPlots).map(([file]) => file)), 'a key zoom outside the shared plot gestures');
+    assert.deepEqual(sources(webview).filter(file => /zoomHovered/.test(read(file))), [], 'the plot under the pointer is zoomed by the shared gestures only');
+    assert.match(read('runtime/trackPointerEvents.ts'), /zoomKeyAction\(e\.key\)/, 'the plot layer takes + / − / 0 over a plot');
 });
 
 test('every plot\'s gestures are built on plotInteraction.ts: the shared listeners are called from nowhere else, the plots\' ← / → context added nowhere else (R7, R13)', () => {
