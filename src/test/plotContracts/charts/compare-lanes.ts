@@ -60,7 +60,6 @@ export const compareLanes: ChartContract = {
                 t('src/test/comparePanes.test.ts', 'every pane names its axes: level and frequency, Δ with its legend, in the language and calibration of the files'),
             ],
             names: { quantity: true, unit: true, reference: true },
-            inFlight: 'claude/axis-quantity-unit',
         },
     ],
     knownGaps: {

@@ -73,18 +73,16 @@ export const entryHeld: ChartContract = {
         {
             id: 'entry-held.axis', value: 'axis', what: '保持図の軸の名前（Δ は「Δ [dB]」）',
             computedIn: [`${SP}:stageAxes`],
-            from: 'words', trace: '比較台と同じ stageAxes。Δ は何の差かと基準を書かない。',
+            from: 'words', trace: 'dB の Δ は axisDelta（「差 Δ [dB]」）。量（差）と単位を書く。同じ基準の 2 つのレベルの差なので、差そのものの基準はない（基準は凡例と重ね図の軸）。dB でない量は「Δ 量 [単位]」。',
             tests: [
+                t('src/test/axisNames.test.ts', 'every axis a picture is drawn on names its quantity and unit, whatever it measures, with or without a unit, Δ or not (R4)'),
                 t('src/test/uiSmoke/plotContract.spec.ts', 'the entry\'s held plot answers the same gestures as every plot (R13)'),
             ],
-            names: { quantity: false, unit: true, reference: false },
-            gap: { severity: 'P2', why: '「Δ [dB]」は何の差か（レベルの差）を書かず、dB の基準もない。' },
-            inFlight: 'claude/axis-quantity-unit',
+            names: { quantity: true, unit: true },
         },
     ],
     knownGaps: {
         'entry-held.step': 'P2',
         'entry-held.range': 'P2',
-        'entry-held.axis': 'P2',
     },
 };

@@ -22,7 +22,7 @@ export const colourBar: ChartContract = {
             from: 'words', trace: '熱図の色が表す量・単位・基準。狭いと単位だけにし、それも入らなければ書かない。',
             tests: [
                 t('src/test/stagePanes.test.ts', 'a heatmap names what its colour measures, with its unit and reference, for its colour bar'),
-                t('src/test/stagePanes.test.ts', 'a colour bar stays inside a narrow plot: its name shrinks to the unit, then is left out'),
+                t('src/test/stagePanes.test.ts', 'a colour bar stays inside a narrow plot: its name shortens its quantity and keeps its unit, then is left out'),
             ],
             names: { quantity: true, unit: true, reference: true },
         },

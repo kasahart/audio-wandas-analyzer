@@ -126,7 +126,7 @@ export const compareOverlay: ChartContract = {
         },
         {
             id: 'compare-overlay.ticks', value: 'ticks', what: '両軸の目盛りの値',
-            computedIn: [`${SP}:paintPlot`, `${SP}:valueAxisTicks`, `${SP}:valueTickTexts`, `${SP}:alongAxisTicks`, `${SP}:rowAxisTicks`, `${SP}:tickText`, `${SP}:levelTick`, `${SP}:paintRightAxis`],
+            computedIn: [`${SP}:paintPlot`, `${SP}:valueAxisTicks`, `${SP}:valueTickTexts`, `${SP}:alongAxisTicks`, `${SP}:rowAxisTicks`, `${SP}:tickText`, `${SP}:levelTick`, `${SP}:paintRightAxis`, `${SP}:at`],
             from: 'axis', trace: '範囲（または窓）から部品が決める。データには触れない。',
             tests: [
                 t('src/test/stagePanes.test.ts', 'levels share a range of four round steps; coherence keeps 0 to 1'),
@@ -140,31 +140,30 @@ export const compareOverlay: ChartContract = {
             tests: [
                 t('src/test/comparePanes.test.ts', 'every pane names its axes: level and frequency, Δ with its legend, in the language and calibration of the files'),
                 t('src/test/comparePanes.test.ts', 'the level axis is named by wandas\' level reference, and says uncalibrated from the calibration status, not the unit'),
-                t('src/test/stagePanes.test.ts', 'a cross-channel picture names its pair on the value axis: the channel over its reference'),
+                t('src/test/stagePanes.test.ts', 'a cross-channel picture names its pair on the value axis: the channel over its reference, before the unit'),
             ],
             names: { quantity: true, unit: true, reference: true },
-            inFlight: 'claude/axis-quantity-unit',
         },
         {
             id: 'compare-overlay.axis-metric', value: 'axis', what: '単位で名前の決まらない指標の値の軸（「値 [unit]」）',
             computedIn: [`${SP}:stageAxes`, `${SP}:metricName`],
-            from: 'words', trace: 'metricName は sone・acum・asper・dB 以外の単位を「値」とだけ書く。単位がなければ「値」だけになる。',
+            from: 'words', trace: 'metricName は sone・acum・asper・dB 以外の単位の指標を「値」と書き、単位を角かっこに書く。単位がなければ「[単位不明]」（R4 が認める書き方）。',
             tests: [
+                t('src/test/axisNames.test.ts', 'every axis a picture is drawn on names its quantity and unit, whatever it measures, with or without a unit, Δ or not (R4)'),
                 t('src/test/stagePanes.test.ts', 'a metric over time names what it measures on its value axis, from its unit'),
             ],
             names: { quantity: false, unit: true },
-            gap: { severity: 'P2', why: '量の名前がない（「値」）。単位もない指標では量も単位も書かれない。' },
-            inFlight: 'claude/axis-quantity-unit',
+            gap: { severity: 'P2', why: '量の名前がない：sone・acum・asper・dB 以外の指標は「値 [単位]」で、何の値かを書かない（単位がなければ「値 [単位不明]」）。' },
         },
         {
             id: 'compare-overlay.axis-cepstrum', value: 'axis', what: 'ケプストラムの値の軸（「実ケプストラム」）',
             computedIn: [`${SP}:stageAxes`],
-            from: 'words', trace: 'axisCepstrum は量だけで単位を書かない（無次元）。',
+            from: 'words', trace: 'axisCepstrum は「実ケプストラム [–]」：無次元の量を [–] と書く（R4）。',
             tests: [
+                t('src/test/axisNames.test.ts', 'every axis-name string, in every language, names its quantity and its unit (R4)'),
                 t('src/test/stagePanes.test.ts', 'a cepstrum is drawn on a quefrency axis, symmetric about zero without its zero-quefrency coefficient'),
             ],
-            names: { quantity: true, unit: false },
-            gap: { severity: 'P3', why: '無次元の量に単位の表記がない（「[-]」などがない）。' },
+            names: { quantity: true, unit: true },
         },
         {
             id: 'compare-overlay.headline', value: 'headline', what: '上の行の注記（トリガーのイベント数、区間）',
@@ -197,7 +196,6 @@ export const compareOverlay: ChartContract = {
         'compare-overlay.range': 'P2',
         'compare-overlay.range-image': 'P1',
         'compare-overlay.axis-metric': 'P2',
-        'compare-overlay.axis-cepstrum': 'P3',
         'compare-overlay.detail-key': 'P2',
     },
 };

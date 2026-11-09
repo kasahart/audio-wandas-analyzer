@@ -70,12 +70,12 @@ export const pairView: ChartContract = {
         {
             id: 'pair-view.axis-coherence', value: 'axis', what: 'コヒーレンスの軸の名前（「γ²」）',
             computedIn: ['src/webview/runtime/pairSpectrum.ts:pairLanes'],
-            from: 'words', trace: 'pairCoherenceLabel は記号だけで、量の名前と単位（無次元）を書かない。',
+            from: 'words', trace: 'pairCoherenceLabel は「コヒーレンス γ² [–]」。狭いと記号「γ² [–]」に縮めるが単位は残す（axisTitle.ts）。',
             tests: [
+                t('src/test/axisNames.test.ts', 'every axis a picture is drawn on names its quantity and unit, whatever it measures, with or without a unit, Δ or not (R4)'),
                 t('src/test/pairSpectrum.test.ts', 'the pair view is three plots on one frequency axis, each named with its quantity and unit, drawing ok responses only'),
             ],
-            names: { quantity: false, unit: false },
-            gap: { severity: 'P3', why: '記号「γ²」だけで、量（コヒーレンス）の名前と無次元の表記がない。' },
+            names: { quantity: true, unit: true },
         },
         {
             id: 'pair-view.summary', value: 'summary', what: '見出し（H1・平均回数・時間の範囲）',
@@ -89,6 +89,5 @@ export const pairView: ChartContract = {
     knownGaps: {
         'pair-view.order': 'P2',
         'pair-view.range': 'P2',
-        'pair-view.axis-coherence': 'P3',
     },
 };

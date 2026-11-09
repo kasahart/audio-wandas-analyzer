@@ -73,13 +73,13 @@ export const entryDistribution: ChartContract = {
         {
             id: 'entry-distribution.axis-csv', value: 'axis', what: 'CSV の列の値の軸（「{列}（CSV の列）」）',
             computedIn: ['src/webview/runtime/entryDistributionPane.ts:paint'],
-            from: 'words', trace: 'CSV の列は単位がわからず、列の名前だけを書く。',
-            tests: [],
-            names: { quantity: true, unit: false },
-            gap: { severity: 'P3', why: 'CSV の列の値の軸に単位がない（列の名前に単位がなければ量だけ）。' },
+            from: 'words', trace: 'csvAxisName は列の名前に書いた単位（「温度 [°C]」「温度 (°C)」）を軸の単位にし、書いていなければ「[単位不明]」と書く（R4）。',
+            tests: [
+                t('src/test/axisNames.test.ts', 'a CSV column\'s value axis names the unit its header gives, and says when it gives none'),
+            ],
+            names: { quantity: true, unit: true },
         },
     ],
     knownGaps: {
-        'entry-distribution.axis-csv': 'P3',
     },
 };

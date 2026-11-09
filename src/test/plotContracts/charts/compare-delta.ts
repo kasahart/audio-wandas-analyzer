@@ -75,13 +75,12 @@ export const compareDelta: ChartContract = {
         {
             id: 'compare-delta.axis', value: 'axis', what: 'Δ の軸の名前（「Δ [dB]」）',
             computedIn: [`${SP}:stageAxes`],
-            from: 'words', trace: 'dB の Δ は axisDelta（「Δ [dB]」）。何の Δ か（量）と基準を書かない。dB でない量は「Δ 量 [単位]」。',
+            from: 'words', trace: 'dB の Δ は axisDelta（「差 Δ [dB]」）。量（差）と単位を書く。同じ基準の 2 つのレベルの差なので、差そのものの基準はない（基準は凡例と重ね図の軸）。dB でない量は「Δ 量 [単位]」。',
             tests: [
+                t('src/test/axisNames.test.ts', 'every axis a picture is drawn on names its quantity and unit, whatever it measures, with or without a unit, Δ or not (R4)'),
                 t('src/test/comparePanes.test.ts', 'every pane names its axes: level and frequency, Δ with its legend, in the language and calibration of the files'),
             ],
-            names: { quantity: false, unit: true, reference: false },
-            gap: { severity: 'P2', why: '「Δ [dB]」は何の差か（レベルの差）を書かず、dB の基準もない。' },
-            inFlight: 'claude/axis-quantity-unit',
+            names: { quantity: true, unit: true },
         },
         {
             id: 'compare-delta.no-delta', value: 'label', what: 'Δ が出せない理由（見出しと図）',
@@ -95,6 +94,5 @@ export const compareDelta: ChartContract = {
     knownGaps: {
         'compare-delta.range': 'P2',
         'compare-delta.range-image': 'P1',
-        'compare-delta.axis': 'P2',
     },
 };
