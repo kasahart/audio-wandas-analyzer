@@ -48,11 +48,11 @@ export const cursorSpectrum: ChartContract = {
         {
             id: 'cursor-spectrum.range', value: 'range', what: 'レベルの軸の自動の範囲（左右の軸）',
             computedIn: ['src/webview/runtime/spectrumRuntime.ts:spectrumSeriesRange', 'src/webview/runtime/spectrumRuntime.ts:overlayLevelAxes', `${RT}:applySpectrumDisplaySettings`, 'python-backend/analysis_service.py:spectrum_slice'],
-            from: 'extremes', trace: 'slice.minDb / maxDb はバックエンドが min_max_spectrum で切った行（各区間の最小・最大のビン）の最小と最大。端は全ビンと同じ。niceRange で丸める。',
+            from: 'full', trace: 'slice.minDb / maxDb はバックエンドが行を表示用に切る（min_max_spectrum）前の全ビンの最小と最大。スライスが届くまでの代わりの列は表示用スペクトログラムの minDb / maxDb（全 STFT のマスの端）。niceRange で丸める。',
             tests: [
+                tt('python-backend/test_analysis_service.py', 'test_cursor_spectrum_level_range_is_every_bins_not_the_row_cut_for_display'),
                 t('src/test/renderScript.integration.test.ts', 'renderScript: lazy spectrum slices apply display range settings'),
             ],
-            gap: { severity: 'P2', why: '範囲を切った行から求めている。全ビンの最小・最大と一致することを確かめるテストがない。' },
         },
         {
             id: 'cursor-spectrum.ticks', value: 'ticks', what: '周波数とレベルの目盛り',
@@ -74,6 +74,5 @@ export const cursorSpectrum: ChartContract = {
         },
     ],
     knownGaps: {
-        'cursor-spectrum.range': 'P2',
     },
 };

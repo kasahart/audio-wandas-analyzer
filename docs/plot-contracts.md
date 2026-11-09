@@ -28,7 +28,7 @@
 | トラックのレーンの軸（振幅・周波数の軸、上の時間の目盛り） (`track-axes`) | `webview/runtime/comparisonRuntime.ts:renderRuler`<br>`webview/runtime/stagePanes.ts:paintSideAxis`<br>`.track-axis-canvas:not(.track-spec-axis)`<br>`.track-spec-axis`<br>`#ruler-canvas` | 2 | 0 |
 | トラックの見出しとツールバーの数（カーソルの時刻、ずらし、ピーク、解析窓） (`track-header`) | `webview/runtime/calibrationDecorations.ts:channelMetricSummaryHtml`<br>`webview/runtime/comparisonRuntime.ts:updateCursorDisplay` | 5 | 2 |
 | トラック表示の PNG 書き出し (`track-png`) | `webview/runtime/exportDownloads.ts:composeTrackCanvases` | 1 | 0 |
-| カーソルスペクトル (`cursor-spectrum`) | `webview/runtime/overlaySpectrumPainter.ts:paintOverlaySpectrum`<br>`webview/runtime/comparisonRuntime.ts:renderOverlaySpectrum` | 7 | 1 |
+| カーソルスペクトル (`cursor-spectrum`) | `webview/runtime/overlaySpectrumPainter.ts:paintOverlaySpectrum`<br>`webview/runtime/comparisonRuntime.ts:renderOverlaySpectrum` | 7 | 0 |
 | カーソルスペクトルの CSV 書き出し (`spectrum-csv`) | `webview/runtime/runtimeExports.ts:buildSpectrumCsv` | 1 | 0 |
 | ペアの図（利得・位相・γ²） (`pair-view`) | `webview/runtime/pairSpectrumPanel.ts:render` | 9 | 2 |
 | カラーバー（比較台の熱図、スペクトログラムのレーン、入口の概観帯） (`colour-bar`) | `webview/runtime/stagePanes.ts:paintColourBar` | 2 | 0 |
@@ -154,7 +154,7 @@
 | 届くまでの表示 | バックエンドのスライスが届くまでのカーソルスペクトル（線と読み値）、トラックの終わりの後の床 | `webview/spectrum/cursorSpectrum.ts:extractSpectrumAtCursor`<br>`webview/spectrum/cursorSpectrum.ts:makeSilentSpectrumSlice`<br>`webview/runtime/comparisonRuntime.ts:cursorSpectrumFor`<br>`webview/runtime/overlaySpectrumPainter.ts:spectrumLayer` | 全データ：スライスがまだないときはレーンの表示用スペクトログラムのカーソルの列を描くだけで、standIn: 'pending' の印を付ける。spectrumLayer はその線を読まない（読み値は届くまで空、R7）し、その値から levelBins を作らない。トラックの終わりの後の床は standIn: 'silence' で、読みも測りもしない（帯も線として描き、描いたままは読まない）。届いたスライスは全ビンから読む。 | ◆ `overlaySpectrumPainter.test.ts` › until the backend's slice comes, the cursor spectrum draws the lane's averaged spectrogram column and reads nothing of it; past the end, nothing (R7)<br>`cursorSpectrum.test.ts` › extractSpectrumAtCursor: cursor in middle picks middle bin |  |
 | ← / → | ← / → で進む先（次のビン） | `webview/runtime/stagePanes.ts:stageStep` | 全データ：全ビンの行の次のビン。 | `overlaySpectrumPainter.test.ts` › an arrow key reads the next bin the cursor spectrum drew, from the one the pointer read (R7)<br>◆ `overlaySpectrumPainter.test.ts` › a slice too dense to draw whole is read at its real bins: a bin thinned out of the line, and every bin by the arrow keys (R7) |  |
 | 重ねる順 | 重ねる順（静かな線が上） | `webview/runtime/overlaySpectrumPainter.ts:spectrumLayer`<br>`webview/runtime/stagePanes.ts:screenLevels`<br>`webview/runtime/stagePanes.ts:overlayOrder`<br>`full_read.py:read_level` | 全データ：全ビンの行は手元の全ビンから levelBins を作る。表示用に切ったスライス（frequenciesHz があるもの）は levelBins を作らず measured とし、画面に見えている範囲の全ビンを laneReads の level で測る。 | ◆ `overlaySpectrumPainter.test.ts` › the cursor spectrum orders a slice cut for display by every bin on screen, not by the points kept to draw it (R6, R2)<br>`stagePanes.test.ts` › a cursor spectrum on a linear axis counts its 0 Hz bin in its level (R6) |  |
-| 自動の範囲 | レベルの軸の自動の範囲（左右の軸） | `webview/runtime/spectrumRuntime.ts:spectrumSeriesRange`<br>`webview/runtime/spectrumRuntime.ts:overlayLevelAxes`<br>`webview/runtime/comparisonRuntime.ts:applySpectrumDisplaySettings`<br>`analysis_service.py:spectrum_slice` | 間引いた点（区間の最小・最大）：slice.minDb / maxDb はバックエンドが min_max_spectrum で切った行（各区間の最小・最大のビン）の最小と最大。端は全ビンと同じ。niceRange で丸める。 | `renderScript.integration.test.ts` › renderScript: lazy spectrum slices apply display range settings | **P2** 範囲を切った行から求めている。全ビンの最小・最大と一致することを確かめるテストがない。 |
+| 自動の範囲 | レベルの軸の自動の範囲（左右の軸） | `webview/runtime/spectrumRuntime.ts:spectrumSeriesRange`<br>`webview/runtime/spectrumRuntime.ts:overlayLevelAxes`<br>`webview/runtime/comparisonRuntime.ts:applySpectrumDisplaySettings`<br>`analysis_service.py:spectrum_slice` | 全データ：slice.minDb / maxDb はバックエンドが行を表示用に切る（min_max_spectrum）前の全ビンの最小と最大。スライスが届くまでの代わりの列は表示用スペクトログラムの minDb / maxDb（全 STFT のマスの端）。niceRange で丸める。 | ◆ `test_analysis_service.py` › test_cursor_spectrum_level_range_is_every_bins_not_the_row_cut_for_display<br>`renderScript.integration.test.ts` › renderScript: lazy spectrum slices apply display range settings |  |
 | 目盛り | 周波数とレベルの目盛り | `webview/runtime/stagePanes.ts:paintPlot`<br>`webview/runtime/stagePanes.ts:valueAxisTicks`<br>`webview/runtime/stagePanes.ts:valueTickTexts`<br>`webview/runtime/stagePanes.ts:alongAxisTicks`<br>`webview/runtime/stagePanes.ts:rowAxisTicks`<br>`webview/runtime/stagePanes.ts:tickText`<br>`webview/runtime/stagePanes.ts:levelTick`<br>`webview/runtime/stagePanes.ts:paintRightAxis` | 軸の範囲・窓：範囲から部品が決める。 | `overlaySpectrumPainter.test.ts` › zoomed between two log ticks, the frequency axis still labels where it is |  |
 | 軸の名前 | 周波数とレベルの軸の名前、凡例の頭のレベルの名前 | `webview/runtime/overlaySpectrumPainter.ts:paintOverlaySpectrum`<br>`webview/runtime/overlaySpectrumPainter.ts:renderSpectrumAxisLegend` | 文字：レベルは比較台と同じ名前（基準・未校正）、周波数 [Hz]。 | `uiSmoke/spectrumOctaveBands.spec.ts` › the cursor spectrum names its level axis as Compare does, uncalibrated, and its lines in a legend<br>`overlaySpectrumPainter.test.ts` › paintOverlaySpectrum names the frequency axis at the right end of its ticks, as the comparison does |  |
 
@@ -272,7 +272,7 @@
 - `compare-delta.range-image`：カラーバーの両端の数を、描くために平均した Δ のマスから求めている。
 - `compare-lanes.range-image`：カラーバーの両端の数を、描くために平均したマスから求めている。
 
-### P2（25、上限 25）
+### P2（24、上限 24）
 
 - `compare-overlay.pending`：R7 は届くまで読み値を空にするが、密な窓を別の高さで読むときは前の高さの点を読む。その間の読み値は今のマウスに一番近い点とは限らない。
 - `compare-overlay.readout-events`：イベントの線の読み値と ← / → がそのイベントの全サンプルから来ることを確かめるテストがない（ジェスチャのテストは数字の出どころを見ない）。
@@ -286,7 +286,6 @@
 - `trigger-lanes.step`：全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。
 - `trigger-lanes.range`：レーンの範囲が全サンプルのピークとしきい値を含むことを確かめるテストがない。
 - `track-header.peak`：全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。
-- `cursor-spectrum.range`：範囲を切った行から求めている。全ビンの最小・最大と一致することを確かめるテストがない。
 - `pair-view.order`：ペアの利得の levelBins が全ビンから作られ、静かな応答が上に来ることを確かめるテストがない（部品の一般のテストだけ）。
 - `pair-view.range`：範囲を確かめるテストがなく、R9（自動の範囲は切りのよい値）を守っていない。
 - `entry-held.step`：全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。

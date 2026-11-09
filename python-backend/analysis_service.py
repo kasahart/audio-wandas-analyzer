@@ -360,6 +360,8 @@ class AnalysisService:
             rows = np.asarray(spectrum.dB, dtype=np.float32).reshape(analysis_frame.n_channels, -1)
             self.engine.put_spectrum_slice(cached, slice_key, rows, max_frequency_hz)
         frequencies_hz = None
+        # Each channel's level range is every bin's, taken before the row is cut to draw it.
+        ends = [(float(np.min(row)), float(np.max(row))) for row in rows]
         if bands is None and not full_resolution:
             rows, frequencies_hz = min_max_spectrum(rows, max_frequency_hz)
         quantity = "Band level" if bands is not None else "Spectrum amplitude level"
@@ -370,8 +372,8 @@ class AnalysisService:
                 {
                     "channelIndex": channel_index,
                     "values": row.tolist(),
-                    "minDb": float(np.min(row)),
-                    "maxDb": float(np.max(row)),
+                    "minDb": ends[channel_index][0],
+                    "maxDb": ends[channel_index][1],
                     **level_scale_metadata(reference, quantity),
                 }
             )
