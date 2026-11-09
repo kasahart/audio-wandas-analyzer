@@ -30,6 +30,16 @@ export function isResponseToLazyRequest(
         && pending.settingsSignature === response.settingsSignature;
 }
 
+/**
+ * Whether a lane's lazy answer (range, detail, zoom window, slice, or their failure) is of the version of the file
+ * its track shows: the request named the track's sourceVersion and the backend answers only of it, so an answer of
+ * another version (a track analysed again since) is never drawn over this one. A track with no version (a host that
+ * gives none) takes any.
+ */
+export function isOfShownVersion(shown: { sourceVersion?: string }, answer: { sourceVersion?: string }): boolean {
+    return shown.sourceVersion === undefined || answer.sourceVersion === shown.sourceVersion;
+}
+
 export function mergeDetailSpectrograms(target: ChannelSummary[], incoming: ChannelSummary[]): void {
     incoming.forEach(function (channel, channelIndex) {
         if (!target[channelIndex]) {

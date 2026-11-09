@@ -10,19 +10,26 @@ import type { StagePoints, StageRead } from '../../shared/protocol/backendProtoc
 import type { SpectrumSliceRequest, TrackDetailRequest, WaveformRangeRequest } from '../../shared/utils/audioTarget';
 import { fetchedSource, localLine, type FullSource } from './fullRead';
 import { answerKey, createAnswerStore } from './answerStore';
+import { isOfShownVersion } from './lazyResponses';
 
 type ReadRequest = WaveformRangeRequest | TrackDetailRequest | SpectrumSliceRequest;
 /** A slice read at every bin: each channel's values over 0..maxHz. */
 type FullSlice = { values: Map<number, number[]>; maxHz: number };
 type ReadAnswer = { points?: StagePoints; slice?: FullSlice } | null;
 
-/** A lane's track as a read names it: its index on the protocol, its file and the analysis it is drawn from. */
+/** A lane's track as a read names it: its index on the protocol, its file, the file's version and calibration, and the analysis it is drawn from. */
 export interface LaneTrack {
     trackIndex: number;
     filePath: string;
+    /** The version of the file the track was analysed from (sourceVersion): every read names it and is kept under it. */
+    sourceVersion: string | undefined;
+    calibrationSignature: string | undefined;
     analysisId: string;
     settingsSignature: string;
 }
+
+/** A read's place in the stores: of the track's file version and calibration, never of the file as it is now. */
+const trackVersion = (track: LaneTrack) => ({ fileVersion: track.sourceVersion ?? '', calibration: track.calibrationSignature ?? '' });
 
 export interface LaneReads {
     /** A waveform lane's samples, by the file's 0..1 (the lane's own time axis). */
@@ -44,34 +51,35 @@ const PREFIX = 'read-lane';
 
 export function createLaneReads(post: (message: ReadRequest) => void, now: () => number = () => Date.now()): LaneReads {
     let count = 0;
-    /** Each read on its way: what to call with its answer, and the analysis settings it was asked under. */
-    const waiting = new Map<string, { done: (answer: ReadAnswer) => void; settingsSignature?: string }>();
+    /** Each read on its way: what to call with its answer, and the analysis settings and file version it was asked under. */
+    const waiting = new Map<string, { done: (answer: ReadAnswer) => void; settingsSignature?: string; sourceVersion: string | undefined }>();
     // Each read's source, kept with what it fetched: of the track's file, analysis and settings (LaneTrack).
     const sources = createAnswerStore<FullSource>({ capacity: 128, now });
-    const once = (ask: unknown[], make: () => FullSource): FullSource => sources.keep(answerKey({ ask, version: { by: 'analysis' } }), make);
+    const once = (track: LaneTrack, ask: unknown[], make: () => FullSource): FullSource =>
+        sources.keep(answerKey({ ask: [...ask, track], file: track.filePath, version: trackVersion(track) }), make);
     const ask = (message: (requestId: string) => ReadRequest, done: (answer: ReadAnswer) => void): void => {
         const requestId = `${PREFIX}-${++count}`;
         const request = message(requestId);
-        waiting.set(requestId, { done, ...('settingsSignature' in request ? { settingsSignature: request.settingsSignature } : {}) });
+        waiting.set(requestId, { done, sourceVersion: request.sourceVersion, ...('settingsSignature' in request ? { settingsSignature: request.settingsSignature } : {}) });
         post(request);
     };
     /** The full slices asked for: in (values per channel), failed (asked again after the store's pause), or on their way. */
     const slices = createAnswerStore<FullSlice>({ capacity: 32, now });
     return {
         waveform(track, channel) {
-            return once(['wave', track, channel], () => fetchedSource((read: StageRead, done) => ask(requestId => ({
-                type: 'request-waveform-range', requestId, trackIndex: track.trackIndex, filePath: track.filePath,
+            return once(track, ['wave', channel], () => fetchedSource((read: StageRead, done) => ask(requestId => ({
+                type: 'request-waveform-range', requestId, trackIndex: track.trackIndex, filePath: track.filePath, sourceVersion: track.sourceVersion,
                 startNorm: Math.max(0, Math.min(...read.x)), endNorm: Math.min(1, Math.max(...read.x)), points: 1, read: { ...read, channel },
             }), answer => done(answer?.points ?? null))));
         },
         spectrogram(track, channel, window) {
-            return once(['spec', track, channel, window], () => fetchedSource((read: StageRead, done) => ask(requestId => ({
+            return once(track, ['spec', channel, window], () => fetchedSource((read: StageRead, done) => ask(requestId => ({
                 type: 'request-track-detail', requestId, analysisId: track.analysisId, settingsSignature: track.settingsSignature,
-                trackIndex: track.trackIndex, filePath: track.filePath, ...(window ? window : {}), read: { ...read, channel },
+                trackIndex: track.trackIndex, filePath: track.filePath, sourceVersion: track.sourceVersion, ...(window ? window : {}), read: { ...read, channel },
             }), answer => done(answer?.points ?? null))));
         },
         slice(track, cursorNorm, channel) {
-            const key = answerKey({ ask: ['slice', track, cursorNorm], version: { by: 'analysis' } });
+            const key = answerKey({ ask: ['slice', track, cursorNorm], file: track.filePath, version: trackVersion(track) });
             // A failed slice: the latest read waiting on it is told once the store's pause is over, so a still pointer
             // is read again (R7), as fetchedSource's reads are.
             let woken: ReturnType<typeof setTimeout> | null = null, wake: (() => void) | null = null;
@@ -88,7 +96,7 @@ export function createLaneReads(post: (message: ReadRequest) => void, now: () =>
                 if (slices.ask(key)) {
                     ask(requestId => ({
                         type: 'request-spectrum-slice', requestId, analysisId: track.analysisId, settingsSignature: track.settingsSignature,
-                        trackIndex: track.trackIndex, filePath: track.filePath, cursorNorm, fullResolution: true, read: true,
+                        trackIndex: track.trackIndex, filePath: track.filePath, sourceVersion: track.sourceVersion, cursorNorm, fullResolution: true, read: true,
                     }), answer => {
                         if (answer?.slice) slices.ready(key, answer.slice);
                         else slices.fail(key);
@@ -105,7 +113,7 @@ export function createLaneReads(post: (message: ReadRequest) => void, now: () =>
                 const step = slice.maxHz / Math.max(1, values.length - 1);
                 return localLine(values.map((_, bin) => bin * step), values);
             };
-            return once(['slice', track, cursorNorm, channel], () => ({
+            return once(track, ['slice', cursorNorm, channel], () => ({
                 held: 'fetched',
                 line(query, ready) {
                     const source = full(ready);
@@ -124,9 +132,11 @@ export function createLaneReads(post: (message: ReadRequest) => void, now: () =>
             waiting.delete(requestId);
             if (!asked) return true;
             const { done } = asked;
-            const answer = message as { type: string; settingsSignature?: string; points?: StagePoints; maxFrequencyHz?: number; channels?: Array<{ channelIndex?: number; values?: number[] }> };
-            // An answer made under other analysis settings (another STFT) than the read was asked under reads nothing.
-            if (answer.settingsSignature !== undefined && asked.settingsSignature !== undefined && answer.settingsSignature !== asked.settingsSignature) {
+            const answer = message as { type: string; settingsSignature?: string; sourceVersion?: string; points?: StagePoints; maxFrequencyHz?: number; channels?: Array<{ channelIndex?: number; values?: number[] }> };
+            // An answer made under other analysis settings (another STFT), or of another version of the file, than the
+            // read was asked under reads nothing.
+            if (answer.settingsSignature !== undefined && asked.settingsSignature !== undefined && answer.settingsSignature !== asked.settingsSignature
+                || !isOfShownVersion(asked, answer)) {
                 done(null);
                 return true;
             }

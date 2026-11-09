@@ -18,6 +18,8 @@ import { HostRequests } from './hostRequests';
 export interface PairChannelSource {
     trackId: TrackId;
     filePath: string;
+    /** The version of the file the track was analysed from: part of the request, so of its answer's key. */
+    sourceVersion: string | undefined;
     channelIndex: number;
     offsetSeconds: number;
     label: string;
@@ -238,7 +240,7 @@ export class PairSpectrumPanel {
     private requestNow(): { request: Omit<PairSpectrumRequest, 'requestId'>; key: string } | null {
         const sources = this.sources();
         if (!sources || sources.responses.length === 0) return null;
-        const ref = (source: PairChannelSource) => ({ filePath: source.filePath, channelIndex: source.channelIndex, offsetSeconds: source.offsetSeconds });
+        const ref = (source: PairChannelSource) => ({ filePath: source.filePath, sourceVersion: source.sourceVersion, channelIndex: source.channelIndex, offsetSeconds: source.offsetSeconds });
         const range = this.host.range();
         const request: Omit<PairSpectrumRequest, 'requestId'> = {
             type: 'request-pair-spectrum',
@@ -286,7 +288,8 @@ export class PairSpectrumPanel {
         // The answer is to the request last asked (requests.answering): that request's key.
         if (message.type === 'pair-spectrum-error') {
             // A passing failure does not stay: once the store's pause is over the request is asked again (its retried).
-            this.answers.fail(pairKey(request.key), message.error);
+            // A file changed since its track was analysed is no passing failure: it stands until the tracks are analysed again.
+            this.answers.fail(pairKey(request.key), message.error, message.staleSource);
         } else {
             this.answers.ready(pairKey(request.key), message);
         }

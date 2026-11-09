@@ -17,6 +17,10 @@ export interface LazyResponseIdentity {
     settingsSignature: string;
     trackIndex: number;
     filePath: string;
+    /** The version of the file the answer is of (the backend's sourceVersion): drawn only over a track of the same. */
+    sourceVersion?: string;
+    /** A failure because the file changed on disk since the track was analysed: asking again cannot mend it. */
+    staleSource?: true;
 }
 
 export type HostInboundMessage =
@@ -27,6 +31,8 @@ export type HostInboundMessage =
         startNorm: number;
         endNorm: number;
         channels: RangeWaveform[];
+        sourceVersion?: string;
+        staleSource?: true;
         /** A readout's read: the samples it reads (R7). */
         points?: StagePoints;
     }
@@ -110,6 +116,8 @@ export function isHostInboundMessage(value: unknown): value is HostInboundMessag
     if (!isRecord(value) || typeof value.type !== 'string') {
         return false;
     }
+    if (value.sourceVersion !== undefined && typeof value.sourceVersion !== 'string') return false;
+    if (value.staleSource !== undefined && value.staleSource !== true) return false;
     switch (value.type) {
         case 'waveform-range-result':
             return hasString(value, 'requestId') && hasNumber(value, 'trackIndex')

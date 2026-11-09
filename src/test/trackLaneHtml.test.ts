@@ -54,7 +54,7 @@ const rowStrings = {
     ariaResizeTrackHeight: 'Track height',
     hintRemoveTrack: 'Remove this track', hintOffsetUp: '+10 ms', hintOffsetDown: '-10 ms', hintTrackHeightResizer: 'Drag height',
     trackMoreHint: 'Time offset', offsetStepUp: '+10 ms', offsetStepDown: '−10 ms', offsetEdit: 'Type…', offsetReset: 'Reset to 0',
-    trackNoAudio: 'No audio',
+    trackNoAudio: 'No audio', reanalyzeChanged: 'Analyse again', reanalyzeChangedHint: 'Changed on disk',
     peakLabel: 'Pk', calibrationBadgeUncalibratedHint: 'Full scale', calibrationBadgeRawHint: 'Raw', calibrationBadgePartialHint: 'Partial', calibrationFactorLabel: 'k',
 } satisfies TrackRowStrings;
 
