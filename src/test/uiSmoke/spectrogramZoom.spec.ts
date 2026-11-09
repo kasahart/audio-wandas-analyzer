@@ -3,7 +3,7 @@
  * and draws and reads that window's frames instead of the whole file's columns stretched. Zoomed back out, it draws
  * the whole file's again.
  */
-import { expect, test } from './canvasAudit';
+import { expect, settled, test } from './canvasAudit';
 import { buildExtensionHostPathUiSmokeHtml } from './buildHtml';
 
 type Posted = Array<Record<string, unknown>>;
@@ -63,7 +63,7 @@ test('a zoomed spectrogram lane asks for its window again and draws it from that
     // may ask more than once: wait until it has stopped asking and draws the last window it asked for.
     await expect.poll(async () => {
         const before = await windowRequests();
-        await page.waitForTimeout(250);
+        await settled(page);
         const asked = await windowRequests();
         const last = asked[asked.length - 1];
         const drawn = (await lane.getAttribute('data-spectrogram-window')) ?? '';

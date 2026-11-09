@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { expect, test, type Locator, type Page } from './canvasAudit';
+import { expect, settled, test, type Locator, type Page } from './canvasAudit';
 import { backendRequired, openEntry, type ScannedFile } from './entryHelpers';
 import { bridgeComparison, RealBackend, runFixture } from './realBackend';
 
@@ -165,7 +165,7 @@ async function zoomInto(page: Page, plot: Locator, [x, y]: Point, notches: numbe
     const box = (await plot.boundingBox())!;
     await page.mouse.move(box.x + x, box.y + y);
     await page.keyboard.down('Control');
-    for (let notch = 0; notch < notches; notch++) { await page.mouse.wheel(0, -240); await page.waitForTimeout(60); }
+    for (let notch = 0; notch < notches; notch++) { await page.mouse.wheel(0, -240); await settled(page); }
     await page.keyboard.up('Control');
     await page.mouse.move(1, 1);
 }

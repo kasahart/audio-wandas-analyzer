@@ -1,4 +1,4 @@
-import { expect, test, type Page } from './canvasAudit';
+import { expect, settled, test, type Page } from './canvasAudit';
 import { buildExtensionHostPathUiSmokeHtml } from './buildHtml';
 
 interface PostedMessage {
@@ -77,15 +77,17 @@ test('a reference lane splits the spectrum section into the power spectrum and t
         return Math.round((half!.x + half!.width) - (readout!.x + readout!.width));
     };
     await page.mouse.move(overlay.x + overlay.width / 2, overlay.y + overlay.height / 2);
+    await settled(page);
     const powerRight = await readoutRight('#spectrum-freq-readout', '#spectrum-overlay-wrap');
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await expect(page.locator('#pair-spectrum-readout')).not.toHaveText('');
+    await settled(page);
     expect(await readoutRight('#pair-spectrum-readout', '#pair-spectrum-wrap')).toBe(powerRight);
     const track = page.locator('.track-canvas').first();
     const trackBox = await track.boundingBox();
     if (!trackBox) throw new Error('track canvas has no layout box');
     await page.mouse.click(trackBox.x + trackBox.width * 0.7, trackBox.y + trackBox.height / 2);
-    await page.waitForTimeout(400);
+    await settled(page);
     expect((await pairRequests(page)).length).toBe(1);
 
     // Dragging the divider moves the split.
@@ -97,6 +99,7 @@ test('a reference lane splits the spectrum section into the power spectrum and t
     await page.mouse.down();
     await page.mouse.move(divider.x - 150, divider.y + divider.height / 2);
     await page.mouse.up();
+    await settled(page);
     expect(await overlayWidth()).toBeLessThan(before - 100);
 
     await buttons.first().click();

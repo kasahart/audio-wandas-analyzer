@@ -53,7 +53,16 @@ test('F5-equivalent playback exercises lazy spectrum IPC at interactive rate', a
     });
 
     await page.locator('[data-action="toggle-playback"][data-track-id="track-1"]').click();
-    await page.waitForTimeout(3000);
+    // How much playback asked and drew is checked after as much playback as it takes (a loaded machine draws fewer
+    // frames a second); how fast is the rate's check, held with AWA_PERF=1 over the 3 s it was set for.
+    if (holdRate) await page.waitForTimeout(3000);
+    else {
+        await page.waitForFunction(() => {
+            const metrics = (window as typeof window & { __uiSmokeHostMetrics: HostMetrics }).__uiSmokeHostMetrics;
+            const cursors = metrics.requests.map(entry => entry.cursorNorm);
+            return metrics.requests.length > 70 && metrics.spectrumPaints.length > 60 && Math.max(...cursors) - Math.min(...cursors) > 0.5;
+        }, undefined, { timeout: 20_000 });
+    }
 
     const result = await page.evaluate(() => {
         const testWindow = window as typeof window & { __uiSmokeHostMetrics: HostMetrics };
