@@ -22,7 +22,7 @@
 | 比較台の重ね図（トリガーのイベント図を含む） (`compare-overlay`) | `webview/runtime/trackStagePainter.ts:paintStageOverlay`<br>`webview/runtime/trackStagePainter.ts:paintNoPicture` | 19 | 6 |
 | 比較台の Δ 欄 (`compare-delta`) | `webview/runtime/trackStagePainter.ts:paintStageOverlay` | 9 | 2 |
 | 比較台の横並びのレーン (`compare-lanes`) | `webview/runtime/trackStagePainter.ts:paintStageLanes`<br>`webview/runtime/trackStagePainter.ts:paintNoStage` | 6 | 4 |
-| トリガーのイベント図の下のレーン (`trigger-lanes`) | `webview/runtime/triggerLanes.ts:paintTriggerLanes` | 6 | 2 |
+| トリガーのイベント図の下のレーン (`trigger-lanes`) | `webview/runtime/triggerLanes.ts:paintTriggerLanes` | 6 | 0 |
 | トラックの波形レーン (`track-waveform`) | `webview/runtime/comparisonRuntime.ts:drawTrackWaveform` | 7 | 0 |
 | トラックのスペクトログラムのレーン (`track-spectrogram`) | `webview/runtime/trackCanvasPainter.ts:paintTrackSpectrogram`<br>`webview/runtime/comparisonRuntime.ts:drawSpectrogram` | 5 | 0 |
 | トラックのレーンの軸（振幅・周波数の軸、上の時間の目盛り） (`track-axes`) | `webview/runtime/comparisonRuntime.ts:renderRuler`<br>`webview/runtime/stagePanes.ts:paintSideAxis`<br>`.track-axis-canvas:not(.track-spec-axis)`<br>`.track-spec-axis`<br>`#ruler-canvas` | 2 | 0 |
@@ -95,8 +95,8 @@
 | 値 | 何の数か | 計算する場所 | 出どころ | テスト | 穴 |
 | --- | --- | --- | --- | --- | --- |
 | 読み値 | イベント図の下のレーン（録音の時間信号）の読み値 | `webview/runtime/stagePanes.ts:lineRead`<br>`webview/runtime/triggerLanes.ts:paintTriggerLanes` | 全データ：frame.fullOf（stageReader.of）で録音の全サンプルを読む。 | `uiSmoke/plotContract.spec.ts` › a trigger's events plot and the lanes under it answer the same gestures as every plot (R13)<br>◆ `test_full_read.py` › test_a_signals_samples_are_read_one_by_one |  |
-| ← / → | レーンの ← / → | `webview/runtime/stagePanes.ts:stageStep` | 全データ：全サンプルの次の点。 | `plotHoverLayer.test.ts` › an arrow key reads the next point of the line read, as the pointer on it would; with none read, the plot's left edge (R7)<br>`fullRead.test.ts` › an arrow key crosses silent points past one fetched window to the next point with a value (R7) | **P2** 全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。 |
-| 自動の範囲 | レーンの振幅の範囲（しきい値を含む） | `webview/runtime/triggerLanes.ts:paintTriggerLanes`<br>`webview/plot/waveformLayer.ts:waveformRange` | 全データ：時間信号は absolutePeak（全サンプルの絶対値の最大）の ±1.05 倍に、しきい値が入るよう広げる。 | なし | **P2** レーンの範囲が全サンプルのピークとしきい値を含むことを確かめるテストがない。 |
+| ← / → | レーンの ← / → | `webview/runtime/stagePanes.ts:stageStep` | 全データ：全サンプルの次の点。 | ◆ `triggerLanes.test.ts` › a trigger lane is read at every sample: the pointer reads a sample between the envelope's points, and ← / → go one sample at a time (R7)<br>`plotHoverLayer.test.ts` › an arrow key reads the next point of the line read, as the pointer on it would; with none read, the plot's left edge (R7)<br>`fullRead.test.ts` › an arrow key crosses silent points past one fetched window to the next point with a value (R7) |  |
+| 自動の範囲 | レーンの振幅の範囲（しきい値を含む） | `webview/runtime/triggerLanes.ts:paintTriggerLanes`<br>`webview/plot/waveformLayer.ts:waveformRange` | 全データ：時間信号は absolutePeak（全サンプルの絶対値の最大）の ±1.05 倍に、しきい値が入るよう広げる。 | ◆ `triggerLanes.test.ts` › the trigger lanes share a range holding every sample's peak of every recording and the trigger's level, not the envelope drawn (R1) |  |
 | 目盛り | レーンの目盛り | `webview/runtime/stagePanes.ts:paintPlot`<br>`webview/runtime/stagePanes.ts:valueAxisTicks`<br>`webview/runtime/stagePanes.ts:valueTickTexts`<br>`webview/runtime/stagePanes.ts:alongAxisTicks`<br>`webview/runtime/stagePanes.ts:rowAxisTicks`<br>`webview/runtime/stagePanes.ts:tickText`<br>`webview/runtime/stagePanes.ts:levelTick`<br>`webview/runtime/stagePanes.ts:paintRightAxis` | 軸の範囲・窓：範囲から部品が決める。 | `stagePanes.test.ts` › levels share a range of four round steps; coherence keeps 0 to 1<br>`laneAxes.test.ts` › the lanes take the ticks and their text from the rules every plot uses |  |
 | 軸の名前 | レーンの両軸の名前 | `webview/runtime/stagePanes.ts:stageAxes`<br>`webview/runtime/stagePanes.ts:amplitudeAxisTitle` | 文字：振幅（単位、未校正）と時間。 | `uiSmoke/plotContract.spec.ts` › a trigger's events plot and the lanes under it answer the same gestures as every plot (R13) |  |
 | 数 | 使ったイベントの数と全体の数（角の表示）、しきい値の名札 | `webview/runtime/triggerLanes.ts:paintTriggerLanes` | 描く点が全部（間引かない）：数はバックエンドが切り出した全イベントと除いたものの数。しきい値は利用者の値。（描くために間引いた形はない） | `uiSmoke/trackCompare.spec.ts` › a trigger added from ＋ fires at half the tracks' peak, draws each event of each recording over the time from its trigger, and is followed only by what takes events |  |
@@ -272,7 +272,7 @@
 - `compare-delta.range-image`：カラーバーの両端の数を、描くために平均した Δ のマスから求めている。
 - `compare-lanes.range-image`：カラーバーの両端の数を、描くために平均したマスから求めている。
 
-### P2（19、上限 19）
+### P2（17、上限 17）
 
 - `compare-overlay.pending`：R7 は届くまで読み値を空にするが、密な窓を別の高さで読むときは前の高さの点を読む。その間の読み値は今のマウスに一番近い点とは限らない。
 - `compare-overlay.readout-events`：イベントの線の読み値と ← / → がそのイベントの全サンプルから来ることを確かめるテストがない（ジェスチャのテストは数字の出どころを見ない）。
@@ -283,8 +283,6 @@
 - `compare-lanes.readout`：全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。
 - `compare-lanes.step`：全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。
 - `compare-lanes.range`：範囲を間引いた線から求めている。全データの端と一致することを確かめるテストがない。
-- `trigger-lanes.step`：全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。
-- `trigger-lanes.range`：レーンの範囲が全サンプルのピークとしきい値を含むことを確かめるテストがない。
 - `track-header.peak`：全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。
 - `entry-held.step`：全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。
 - `entry-held.range`：範囲を間引いた点から求めている。全データの端と一致することを確かめるテストがない。

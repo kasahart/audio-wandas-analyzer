@@ -37,4 +37,4 @@ export const KNOWN_GAPS: Readonly<Record<string, Severity>> = Object.assign({}, 
  * How many gaps the table may hold, by severity. A change may only lower these: one that closes a gap lowers its
  * count here; one that finds a new gap is a change review should stop (or it closes another of the same severity).
  */
-export const GAP_CEILING: Readonly<Record<Severity, number>> = { P1: 3, P2: 19, P3: 1 };
+export const GAP_CEILING: Readonly<Record<Severity, number>> = { P1: 3, P2: 17, P3: 1 };

@@ -22,17 +22,18 @@ export const triggerLanes: ChartContract = {
             computedIn: [`${SP}:stageStep`],
             from: 'full', trace: '全サンプルの次の点。',
             tests: [
+                tt('src/test/triggerLanes.test.ts', 'a trigger lane is read at every sample: the pointer reads a sample between the envelope\'s points, and ← / → go one sample at a time (R7)'),
                 t('src/test/plotHoverLayer.test.ts', 'an arrow key reads the next point of the line read, as the pointer on it would; with none read, the plot\'s left edge (R7)'),
                 t('src/test/fullRead.test.ts', 'an arrow key crosses silent points past one fetched window to the next point with a value (R7)'),
             ],
-            gap: { severity: 'P2', why: '全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。' },
         },
         {
             id: 'trigger-lanes.range', value: 'range', what: 'レーンの振幅の範囲（しきい値を含む）',
             computedIn: ['src/webview/runtime/triggerLanes.ts:paintTriggerLanes', 'src/webview/plot/waveformLayer.ts:waveformRange'],
             from: 'full', trace: '時間信号は absolutePeak（全サンプルの絶対値の最大）の ±1.05 倍に、しきい値が入るよう広げる。',
-            tests: [],
-            gap: { severity: 'P2', why: 'レーンの範囲が全サンプルのピークとしきい値を含むことを確かめるテストがない。' },
+            tests: [
+                tt('src/test/triggerLanes.test.ts', 'the trigger lanes share a range holding every sample\'s peak of every recording and the trigger\'s level, not the envelope drawn (R1)'),
+            ],
         },
         {
             id: 'trigger-lanes.ticks', value: 'ticks', what: 'レーンの目盛り',
@@ -61,8 +62,5 @@ export const triggerLanes: ChartContract = {
             ],
         },
     ],
-    knownGaps: {
-        'trigger-lanes.step': 'P2',
-        'trigger-lanes.range': 'P2',
-    },
+    knownGaps: {},
 };
