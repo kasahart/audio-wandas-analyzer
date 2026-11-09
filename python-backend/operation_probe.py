@@ -31,6 +31,7 @@ from wandas.pipeline import RecipePlan
 from operation_catalog import catalog, frames
 from optional_packages import OPTIONAL_MODULES
 from scan_service import TIME_SLICE_OPERATION, apply_step, wandas_cause
+from stage_combine import stage_data
 from stage_view import METRIC_SERIES_UNITS, metric_operation, stage_view
 
 # The parameters a new step starts with where wandas has none (the step bar's STEP_PARAMS `initial`).
@@ -136,24 +137,20 @@ def _self_pairs_only(frame: object) -> bool:
     return pairs is not None and all(pair.output.index == pair.input.index for pair in pairs)
 
 
-def _numbers(value: object) -> list[float]:
-    if isinstance(value, Mapping):
-        return []
-    if isinstance(value, (list, tuple)):
-        return [number for item in value for number in _numbers(item)]
-    return [float(value)] if isinstance(value, (int, float)) and np.isfinite(value) else []
-
-
-def _flat(view: Mapping[str, Any]) -> bool:
-    """Whether every part of a drawn picture (its values, matrix, waveform envelope) is one value, or none is finite."""
-    waveform = view.get("waveform")
-    parts = [view.get("values"), view.get("matrix")]
-    if isinstance(waveform, Mapping):
-        # The envelope is one part: a steady tone's ±A band is not flat, an all-zero envelope is.
-        parts += [[waveform.get("min"), waveform.get("max")]]
-    # Each part on its own: a waveform's envelope and its level line are on different scales.
-    present = [_numbers(part) for part in parts if part is not None]
-    return bool(present) and all(not numbers or max(numbers) == min(numbers) for numbers in present)
+def _flat(frame: object, view: Mapping[str, Any]) -> bool:
+    """Whether a drawn picture's Frame holds one value, or none that is finite, in every part of it: its every value
+    at full resolution (stage_data: each cell, sample or event line as the comparison keeps them), never the points
+    thinned to draw it. A block-averaged image can draw flat while its cells are not."""
+    data = stage_data(frame, view)  # type: ignore[arg-type]
+    if data is None:
+        return False
+    parts = [data.values, *([data.rows] if data.rows is not None else [])]
+    for part in parts:
+        values = np.asarray(part, dtype=np.float64)
+        finite = values[np.isfinite(values)]
+        if finite.size and finite.max() != finite.min():
+            return False
+    return True
 
 
 def _refused(operation: str, frame_type: str, label: str, error: str) -> ProbeRun:
@@ -189,7 +186,7 @@ def _run(operation: Mapping[str, Any], frame_type: str, label: str, frame: objec
             # cross-channel step on one channel (recipeSteps.ts CROSS_CHANNEL), so that is no gap.
             view = stage_view(result)
             run["drawn"] = view["kind"] != "none" or _self_pairs_only(result)
-            run["flat"] = view["kind"] != "none" and _flat(view)
+            run["flat"] = view["kind"] != "none" and _flat(result, view)
         run["ok"] = True
         return run, result
     except Exception as error:  # noqa: BLE001 - every failure is a finding.

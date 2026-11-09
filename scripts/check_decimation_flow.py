@@ -122,13 +122,7 @@ CLEAN_BUILTINS = frozenset(
 
 #: Flows the backend has today, by ``module:function: what``, with the contract table's gap that holds each (or, for
 #: a number the app does not show, why). Fix the flow and remove its line; never add one to let a new flow through.
-KNOWN_FLOWS: dict[str, str] = {
-    # Not a number shown: whether an operation's drawn picture is flat, for the catalog's probe (a step whose output
-    # draws as one value is greyed). Thinning keeps a line's extremes, but an image's block averages can be flat
-    # where its cells are not.
-    "operation_probe:_flat: max(numbers)": "not shown: the probe's flat picture",
-    "operation_probe:_flat: min(numbers)": "not shown: the probe's flat picture",
-}
+KNOWN_FLOWS: dict[str, str] = {}
 
 Pair = tuple[str, str]  # (field, origin): origin is "source|kind"; a parameter's source is "@index:kind"
 Taint = frozenset[Pair]
