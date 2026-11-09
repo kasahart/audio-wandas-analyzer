@@ -1221,7 +1221,7 @@ test('renderScript: lazy spectrum slices apply display range settings', async ()
     assert.ok(overlay.some((label) => label === '1.0 kHz'), `overlay should use configured max frequency: ${JSON.stringify(overlay)}`);
 });
 
-test('renderScript: lazy spectrum cache is scoped to the current cursor', async () => {
+test('renderScript: lazy spectrum cache is scoped to the current cursor: an earlier cursor\'s slice is never this one\'s', async () => {
     const state = JSON.parse(makeLazySpectrogramState());
     state.results = state.results.slice(0, 1);
     const env = setupEnvWithState(JSON.stringify(state));
@@ -1255,7 +1255,9 @@ test('renderScript: lazy spectrum cache is scoped to the current cursor', async 
 
     const snapshots = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot') as any[];
     const lastSnap = snapshots[snapshots.length - 1];
-    assert.equal(lastSnap.renderedUi.visibleSpectrumTrackCount, 1, 'the last successful slice should remain visible while the new cursor is pending');
+    // The earlier cursor's slice is not this cursor's (R7): it is not drawn or read as the cursor's spectrum. The
+    // picture painted before is held a moment while the new one comes (the next test, SpectrumCommitHold).
+    assert.equal(lastSnap.renderedUi.visibleSpectrumTrackCount, 0, 'the earlier cursor\'s slice is not this cursor\'s spectrum while its own is pending');
     env.dom.window.close();
 });
 

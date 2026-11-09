@@ -13,7 +13,7 @@ import type { StageSpec } from './stageSource';
 import { FULL_PLOT_WINDOW, type PlotWindow } from './plotInteraction';
 import type { NormalizedRange } from './waveformInteraction';
 import type { Combined } from './combineSource';
-import { regionLabel } from './entryTable';
+import { regionKey } from './entryTable';
 
 /** The Recipe the entry table scans with, the one its scans run (the steps that cannot run left out), and the failures. */
 export interface StageRecipe { recipe: RecipeDocument; runRecipe?: RecipeDocument; failed?: Readonly<Record<string, string>> }
@@ -109,7 +109,7 @@ export function channelRecipe(recipe: RecipeDocument | undefined, ch: number | n
 /** The scan for step `id`'s pictures over `region`, one channel or all. */
 export function stageSpec(recipe: StageRecipe | null, region: EntryRegion | null, id: string, ch: number | null = null): StageSpec {
     const run = channelRecipe(recipe?.runRecipe, ch, recipe?.recipe);
-    return { key: `stage|${recipeKey(run)}|${regionLabel(region)}|${id}`, message: { ...(run ? { recipe: run } : {}), ...(region ? { region } : {}), stage: id } };
+    return { key: `stage|${recipeKey(run)}|${regionKey(region)}|${id}`, message: { ...(run ? { recipe: run } : {}), ...(region ? { region } : {}), stage: id } };
 }
 
 /**
@@ -119,7 +119,7 @@ export function stageSpec(recipe: StageRecipe | null, region: EntryRegion | null
 export function regionStageSpec(recipe: StageRecipe | null, region: EntryRegion | null): StageSpec {
     // The metrics: the base recording is not paired in this scan, so the steps measured against it are left out.
     const run = unpairedRecipe(recipe?.runRecipe, recipe?.recipe);
-    return { key: `region|${recipeKey(run)}|${regionLabel(region)}|bins`, message: { ...(run ? { recipe: run } : {}), ...(region ? { region } : {}), spectrumBins: true } };
+    return { key: `region|${recipeKey(run)}|${regionKey(region)}|bins`, message: { ...(run ? { recipe: run } : {}), ...(region ? { region } : {}), spectrumBins: true } };
 }
 
 /** What holding `step` draws: the chain without it (and the steps that then cannot run), on the step on screen `id`. */
@@ -133,7 +133,7 @@ export function holdStageSpec(recipe: StageRecipe | null, id: string | null, ste
     if (!unselected) return undefined;
     // With a channel there is a Recipe to pick it from: the one without the step.
     const without = channelRecipe(unselected, ch, recipe.recipe) ?? unselected;
-    return { key: `hold|${recipeKey(without)}|${regionLabel(region)}|${shownOf}`, message: { recipe: without, ...(region ? { region } : {}), stage: shownOf } };
+    return { key: `hold|${recipeKey(without)}|${regionKey(region)}|${shownOf}`, message: { recipe: without, ...(region ? { region } : {}), stage: shownOf } };
 }
 
 /** How many points of a picture have a level (silence floors at −300 dB), and their median. */

@@ -19,10 +19,11 @@ export const reportFiles: ChartContract = {
         },
         {
             id: 'report-files.region', value: 'label', what: '要約.png の頭書きと図の題の区間',
-            computedIn: ['src/webview/runtime/compareReport.ts:summaryPng', 'src/webview/runtime/compareReport.ts:regionText'],
-            from: 'input', trace: '利用者の区間（測った区間はファイルの端の 0.15 s を除く）。',
+            computedIn: ['src/webview/runtime/compareReport.ts:summaryPng', 'src/webview/runtime/compareReport.ts:summaryRegionText', 'src/webview/runtime/compareReport.ts:slotRegions', 'src/webview/runtime/compareReport.ts:regionSeconds', 'src/webview/runtime/compareReport.ts:regionText'],
+            from: 'input', trace: '利用者の区間。要約.png の頭書きは各ファイルを測った区間（そのファイル自身の長さの中で端の 0.15 s を除く）で、ファイルどうしで違えばスロットごとに書く。図の題は利用者の区間。',
             tests: [
                 t('src/test/benchReport.test.ts', 'the report Recipe carries the region as its time slice and still loads in wandas'),
+                t('src/test/benchReport.test.ts', 'each compared file\'s row, Recipe and heading give the region that file was measured over, cut within its own length'),
             ],
         },
     ],

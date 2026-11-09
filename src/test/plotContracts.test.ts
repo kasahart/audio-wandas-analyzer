@@ -447,9 +447,17 @@ function reasons(row: ContractRow): string[] {
     ];
 }
 
+/**
+ * Tests that take their answer from the plot under test itself (the generic UI contract asks the plot's own full
+ * source for the next point, and its pages stand the drawn view in for the full data): they hold the wiring
+ * together, but cannot tell the full data from the drawn points, whatever words they use.
+ */
+const SELF_REFERENTIAL = ['src/test/uiSmoke/plotContract.spec.ts'];
+
 test('a test said to tell full data from drawn points is about what is thinned', () => {
     for (const row of ROWS) {
         for (const named of row.tests.filter(item => item.tells)) {
+            assert.ok(!SELF_REFERENTIAL.includes(named.file), `${row.id}: "${named.name}" checks the plot against its own answer: it cannot tell full data from drawn`);
             const found = namedTest(named.file, read(named.file), named.name);
             assert.ok(found && TELLS.test(`${named.name}\n${found.body}`), `${row.id}: "${named.name}" is said to tell full data from drawn, but says nothing of thinning`);
         }

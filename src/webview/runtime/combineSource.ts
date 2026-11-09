@@ -18,10 +18,13 @@ export interface Combined {
     tooLarge?: boolean;
     /** Why there is no difference when it is not the axes: time signals at other sample rates, or in another unit. */
     noDelta?: 'rate' | 'unit';
+    /** The backend failed to take it (an error, not a reason the pictures cannot be combined). */
+    failed?: boolean;
 }
 
 /** What the Δ plot and its headline say when there is no line: too much data, other sample rates or units, or other axes. */
-export function noDeltaNote(combined: Pick<Combined, 'tooLarge' | 'noDelta'> | undefined, strings: { stageNoDelta: string; stageTooLarge: string; stageNoDeltaRate: string; stageNoDeltaUnit: string }): string {
+export function noDeltaNote(combined: Pick<Combined, 'tooLarge' | 'noDelta' | 'failed'> | undefined, strings: { stageNoDelta: string; stageTooLarge: string; stageNoDeltaRate: string; stageNoDeltaUnit: string; stageCombineFailed: string }): string {
+    if (combined?.failed) return strings.stageCombineFailed;
     if (combined?.tooLarge) return strings.stageTooLarge;
     if (combined?.noDelta === 'rate') return strings.stageNoDeltaRate;
     if (combined?.noDelta === 'unit') return strings.stageNoDeltaUnit;
@@ -32,6 +35,9 @@ export const NOTHING_COMBINED: Combined = { base: null, diff: null };
 
 /** Nothing combined because a picture's values were over what the backend keeps (its scan said stageDataTooLarge). */
 export const TOO_LARGE_COMBINED: Combined = { ...NOTHING_COMBINED, tooLarge: true };
+
+/** Nothing combined because the backend failed (its answer ok: false with nothing missing). */
+export const FAILED_COMBINED: Combined = { ...NOTHING_COMBINED, failed: true };
 
 export interface CombineRequest {
     base: readonly string[];
@@ -90,6 +96,8 @@ export function createCombineSource(prefix: string, post: (message: CompareCombi
             if (result.ok) {
                 retried.delete(request.identity);
                 keep(request.key, { base: result.base ?? null, diff: result.diff ?? null, ...(result.noDelta ? { noDelta: result.noDelta } : {}) });
+            } else if (!result.missing?.length) {
+                keep(request.key, FAILED_COMBINED);
             } else if (!retried.has(request.identity)) {
                 retried.add(request.identity);
                 request.forget(result.missing ?? []);

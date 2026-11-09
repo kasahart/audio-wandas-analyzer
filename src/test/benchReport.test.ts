@@ -8,7 +8,7 @@ import type { ScanResult } from '../shared/protocol/backendProtocol';
 import type { RecipeDocument } from '../shared/recipe/recipeSelection';
 import { recipeSteps } from '../shared/recipe/recipeSteps';
 import { BAND_CENTERS_HZ, buildEntryModel } from '../webview/runtime/entryTable';
-import { reportCsv, reportDefinitions, reportFolderName, reportOctaveRecipe, reportRecipe } from '../webview/runtime/compareReport';
+import { reportCsv, reportDefinitions, reportFiles, reportFolderName, reportOctaveRecipe, reportRecipe, summaryRegionText } from '../webview/runtime/compareReport';
 import { buildCompareModel } from '../webview/runtime/comparePanes';
 import { withChannel } from '../shared/recipe/channelSelection';
 import type { BaseDefinition, DerivedRow } from '../webview/runtime/entryTable';
@@ -17,10 +17,10 @@ const repoRoot = path.resolve(__dirname, '..', '..');
 const entry = JSON.parse(readFileSync(path.join(repoRoot, 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8')) as RecipeDocument;
 const BAND_3150 = BAND_CENTERS_HZ.indexOf(3150);
 
-function scan(leq: number, band: number): ScanResult {
+function scan(leq: number, band: number, durationS = 2): ScanResult {
     return {
         ok: true, conditionId: 'c', specVersion: 2, wandasVersion: '0.9.0', elapsedMs: 1,
-        input: { id: 'i', fs: 16000, channels: [0], durationS: 2, unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true },
+        input: { id: 'i', fs: 16000, channels: [0], durationS, unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true },
         leqDbA: [leq], peakHz: [100], spectrumDb: [[-40, -50]],
         thirdOctDb: [BAND_CENTERS_HZ.map((_, index) => (index === BAND_3150 ? band : -60))], crest: [1.4],
     };
@@ -57,6 +57,30 @@ test('報告.csv has one row per slot in the agreed columns: dB to one decimal, 
     const whole = reportCsv({ model, results, slots: [null, '/f/L1_900rpm_run3.wav', null, null], region: null, recipe: entry, recipeName: 'entry-scan', now: new Date() }, getStrings('ja'));
     // The whole file is written as the region actually measured: its guarded ends are left out.
     assert.deepEqual(whole.split('\r\n')[1].split(',').slice(5, 7), ['0.15', '1.85']);
+});
+
+test('each compared file\'s row, Recipe and heading give the region that file was measured over, cut within its own length', () => {
+    // Slot 1 is 10 s long, slot 2 5 s: the whole of each is measured within its own guarded ends (scan_service).
+    const results = new Map<string, ScanResult>([['/f/base.wav', scan(-20, -30, 10)], ['/f/long.wav', scan(-10, -10, 10)], ['/f/short.wav', scan(-12, -12, 5)]]);
+    const model = buildEntryModel([...results].map(([filePath, result]) => ({ filePath, result })), null, { band: BAND_3150 });
+    const STR = getStrings('ja');
+    const input = { model, results, slots: ['/f/base.wav', '/f/long.wav', '/f/short.wav', null], region: null, recipe: entry, recipeName: 'entry-scan', now: new Date() };
+    const [header, ...rows] = reportCsv(input, STR).slice(1).trimEnd().split('\r\n');
+    const columns = header.split(',');
+    const span = (row: string): string[] => [row.split(',')[columns.indexOf('開始 s')], row.split(',')[columns.indexOf('終了 s')]];
+    assert.deepEqual(rows.map(span), [['0.15', '9.85'], ['0.15', '4.85']], 'each row its own file\'s measured region');
+    assert.equal(summaryRegionText(input, STR), '1: 0.15–9.85 s · 2: 0.15–4.85 s');
+    // One Recipe per measured region, each slicing as its rows were measured.
+    const fakeDocument = { createElement: () => ({ getContext: () => null, toDataURL: () => '' }) } as unknown as Document;
+    const recipes = reportFiles(fakeDocument, input, STR).files.filter(file => file.name.endsWith('.recipe.json') && !file.name.includes('1-3oct'));
+    const ends = Object.fromEntries(recipes.map(file => [file.name, recipeSteps(JSON.parse(file.text!) as RecipeDocument).find(step => step.name === 'time_slice')!.params['end']]));
+    assert.deepEqual(ends, { 'entry-scan.slot1.recipe.json': 9.85, 'entry-scan.slot2.recipe.json': 4.85 });
+    const definitions = reportDefinitions({ ...input, rowInfo: path => ({ label: path, value: '', memo: '', channel: null, base: { kind: 'file', file: 'base.wav' } as BaseDefinition }) }, 2, STR) as { comparisons: Array<{ measured: unknown }> };
+    assert.deepEqual(definitions.comparisons.map(item => item.measured), [{ startS: 0.15, endS: 9.85 }, { startS: 0.15, endS: 4.85 }]);
+    // Files measured over the same region share one Recipe and one heading.
+    const same = { ...input, region: { start: 1, end: 3 } };
+    assert.equal(summaryRegionText(same, STR), '1.00–3.00 s');
+    assert.deepEqual(reportFiles(fakeDocument, same, STR).files.filter(file => file.name.endsWith('.recipe.json')).map(file => file.name), ['entry-scan.recipe.json', 'entry-scan.1-3oct.recipe.json']);
 });
 
 test('the report Recipe carries the region as its time slice and still loads in wandas', (t) => {
@@ -155,7 +179,7 @@ test('the report says what the comparison was taken from: the value, the filters
     assert.equal(cell(d, '基準の定義'), '基準群 rpm 1500 · n=2 · ch2 · -1 (< ch2) · ch = 2');
     const definitions = reportDefinitions(input, 2, STR) as { selection: unknown; comparisons: Array<{ slot: number; file: string; channel: number; base: BaseDefinition }> };
     assert.deepEqual(definitions.selection, input.selection);
-    assert.deepEqual(definitions.comparisons, [{ slot: 1, file: 'c.wav ch2', channel: 2, base }]);
+    assert.deepEqual(definitions.comparisons, [{ slot: 1, file: 'c.wav ch2', channel: 2, base, measured: { startS: 0.15, endS: 1.85 } }]);
 });
 
 test('a compared channel is a get_channel step in the exported Recipe, and wandas loads it', (t) => {

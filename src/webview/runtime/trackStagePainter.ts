@@ -136,6 +136,8 @@ export interface StageFrame {
     tooLarge?: boolean;
     /** Why there is no difference when it is not the axes (combineSource's ``noDelta``). */
     noDelta?: 'rate' | 'unit';
+    /** The backend failed to take the median and difference (combineSource's ``failed``). */
+    failed?: boolean;
 }
 
 /**
@@ -143,14 +145,14 @@ export interface StageFrame {
  * trigger's event counts, a base too large, or what to do while nothing is compared; then the steps bypassed and
  * the region. Empty while computing.
  */
-export function stageModeHeadline(frame: Pick<StageFrame, 'strings' | 'waiting' | 'referencePath' | 'comparePath' | 'role' | 'named' | 'coarsePlots' | 'baseEach' | 'tooLarge'>, bypassed: readonly string[], region: { start: number; end: number } | null): string {
+export function stageModeHeadline(frame: Pick<StageFrame, 'strings' | 'waiting' | 'referencePath' | 'comparePath' | 'role' | 'named' | 'coarsePlots' | 'baseEach' | 'tooLarge' | 'failed'>, bypassed: readonly string[], region: { start: number; end: number } | null): string {
     const { strings, waiting, referencePath, comparePath, coarsePlots, baseEach } = frame;
     // While computing, the plots say so (with the files in): the headline waits for the levels.
     let text = waiting ? ''
         : referencePath ? strings.stageVsBase.replace('{file}', frame.named(referencePath, 0).label)
         // The row's numbers are the pointer's readout (R7, as over the cursor spectrum): no difference is named here.
         // A trigger's events say how many each found; a base too large for the median says so.
-        : comparePath ? (baseEach ? '' : frame.tooLarge ? strings.stageTooLarge
+        : comparePath ? (baseEach ? '' : frame.failed ? strings.stageCombineFailed : frame.tooLarge ? strings.stageTooLarge
             : isEventsView(coarsePlots.compare) || isEventsView(coarsePlots.base) ? stageEventCounts(coarsePlots.base, coarsePlots.compare, strings) : '')
         // No compare role yet: the lines are there, but nothing to measure against a base; the legend's chips set one.
         : strings.stageChooseRoles;

@@ -4,6 +4,7 @@
  * pipeline (computeViewRange → decimateBuckets → paintDecimatedPoints). The comparison's ChannelFrame panes use it.
  */
 import type { StageView } from '../../shared/protocol/backendProtocol';
+import { niceRange } from '../../shared/utils/ticks';
 import { computeViewRange, decimateBuckets, makeCoordTransform, paintDecimatedPoints, type WaveformEnv } from '../waveform/waveformRenderer';
 
 export type StageWaveform = NonNullable<StageView['waveform']>;
@@ -86,8 +87,12 @@ export function paintWaveformLayer(
     }
 }
 
-/** ± the largest peak of these waveforms (a little room above it), the amplitude axis they share. */
+/**
+ * ± the largest peak of these waveforms (every sample's, a little room above it), the amplitude axis they share,
+ * widened to round ends as every automatic range is (R9): ±0.35, not ±0.34272.
+ */
 export function waveformRange(waveforms: ReadonlyArray<StageWaveform | null | undefined>): { min: number; max: number } {
     const peak = Math.max(0, ...waveforms.map(item => item?.absolutePeak ?? 0)) * 1.05 || 1;
-    return { min: -peak, max: peak };
+    const { low, high } = niceRange(-peak, peak);
+    return { min: low, max: high };
 }

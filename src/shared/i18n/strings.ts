@@ -443,6 +443,7 @@ export interface UiStrings {
     axisUnitUnknown: string;
     stageNoDelta: string;
     stageTooLarge: string;
+    stageCombineFailed: string;
     stageNoDeltaRate: string;
     stageNoDeltaUnit: string;
     stageEventCounts: string;
@@ -1239,6 +1240,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         axisUnitUnknown: 'unit unknown',
         stageNoDelta: '— (Δ only between pictures of one kind on the same axes)',
         stageTooLarge: '— (too much data to take the median and Δ at full resolution)',
+        stageCombineFailed: '— (the median and Δ could not be computed: the backend failed)',
         stageNoDeltaRate: '— (no sample-by-sample Δ between recordings at different sample rates)',
         stageNoDeltaUnit: '— (no Δ between recordings in different units or calibrations)',
         stageEventCounts: '{base} events in the base, {compare} in the compared',
@@ -2024,6 +2026,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         axisUnitUnknown: '単位不明',
         stageNoDelta: '— 差は同じ種類・同じ軸の結果どうしでだけ出せます',
         stageTooLarge: '— データが多すぎて、元の分解能で中央値と差を出せません',
+        stageCombineFailed: '— 中央値と差を計算できませんでした（バックエンドのエラー）',
         stageNoDeltaRate: '— サンプリング周波数が違う録音どうしは、サンプルごとの差を出せません',
         stageNoDeltaUnit: '— 単位や校正が違う録音どうしは、差を出せません',
         stageEventCounts: 'イベント 基準 {base} 個・比較 {compare} 個',

@@ -75,6 +75,14 @@ export interface DerivedRow {
     stale?: boolean;
 }
 
+/**
+ * A region as a key: its ends exactly as they are sent (JSON reads each back to the same double), so two regions share
+ * a key only when they ask for the same samples. regionLabel rounds it for reading, and is never a key's part.
+ */
+export function regionKey(region: { start: number; end: number } | null): string {
+    return region ? JSON.stringify([region.start, region.end]) : 'all';
+}
+
 export function regionLabel(region: { start: number; end: number } | null): string {
     return region ? `${region.start.toFixed(2)}–${region.end.toFixed(2)}` : 'all';
 }

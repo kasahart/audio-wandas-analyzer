@@ -371,7 +371,7 @@ test('until the backend\'s slice comes, the cursor spectrum draws the lane\'s av
     };
     const source = { durationSeconds: 1, channels: [{ spectrogram }] };
     const asked: number[] = [];
-    const context = { trackIndex: 0, cached: null, settingsSignature: 's', requestSlice: (_track: number, norm: number) => { asked.push(norm); }, applyDisplaySettings: (slice: SpectrumSlice) => slice };
+    const context = { trackIndex: 0, cached: null, settingsSignature: 's', cursorTolerance: 0.002, requestSlice: (_track: number, norm: number) => { asked.push(norm); }, applyDisplaySettings: (slice: SpectrumSlice) => slice };
     const pending = extractSpectrumAtCursor(source, 0, 0.25, { startSec: 0, spanSec: 1 }, context);
     assert.ok(pending);
     assert.deepEqual(asked, [0.25], 'the slice is asked for');
