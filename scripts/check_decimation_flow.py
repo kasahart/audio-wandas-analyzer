@@ -123,14 +123,6 @@ CLEAN_BUILTINS = frozenset(
 #: Flows the backend has today, by ``module:function: what``, with the contract table's gap that holds each (or, for
 #: a number the app does not show, why). Fix the flow and remove its line; never add one to let a new flow through.
 KNOWN_FLOWS: dict[str, str] = {
-    "analysis_service:AnalysisService.spectrum_slice: np.min(row)": "cursor-spectrum.range",
-    "analysis_service:AnalysisService.spectrum_slice: np.max(row)": "cursor-spectrum.range",
-    "analysis_service:AnalysisService.spectrum_slice: field 'minDb' = drawn points": "cursor-spectrum.range",
-    "analysis_service:AnalysisService.spectrum_slice: field 'maxDb' = drawn points": "cursor-spectrum.range",
-    "analyzer:_build_spectrogram: np.min(spectrogram)": "track-spectrogram.range",
-    "analyzer:_build_spectrogram: np.max(spectrogram)": "track-spectrogram.range",
-    "analyzer:_build_spectrogram: field 'minDb' = drawn points": "track-spectrogram.range",
-    "analyzer:_build_spectrogram: field 'maxDb' = drawn points": "track-spectrogram.range",
     # Not a number shown: whether an operation's drawn picture is flat, for the catalog's probe (a step whose output
     # draws as one value is greyed). Thinning keeps a line's extremes, but an image's block averages can be flat
     # where its cells are not.
