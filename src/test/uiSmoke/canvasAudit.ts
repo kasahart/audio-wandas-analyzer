@@ -93,7 +93,7 @@ function installCanvasAudit({ settle, measureMs, others, drawnOutside, svgCharts
     }
     // The words each canvas shows (fillText), whoever drew them, since the whole of it was last cleared: what a test
     // reads to see an axis's name on screen, not only in the plot's attributes.
-    type Texted = HTMLCanvasElement & { __plotTexts?: string[]; __tickBoxes?: Array<{ text: string; column: string; top: number; bottom: number }> };
+    type Texted = HTMLCanvasElement & { __plotTexts?: string[]; __tickBoxes?: Array<{ text: string; column: string; row: string; x: number; top: number; bottom: number }> };
     const fillText = proto.fillText;
     const measureText = proto.measureText;
     const tickText = /^[−+-]?\d[\d.]*(e[−+-]?\d+)?k?$/u;
@@ -109,7 +109,7 @@ function installCanvasAudit({ settle, measureMs, others, drawnOutside, svgCharts
                 const metrics = measureText.call(this, args[0]) as TextMetrics;
                 const [x, y] = [Number(args[1]), Number(args[2])];
                 canvas.__tickBoxes ??= [];
-                canvas.__tickBoxes.push({ text: args[0], column: `${this.textAlign}@${Math.round(at.a * x + at.e)}`, top: at.d * (y - metrics.actualBoundingBoxAscent) + at.f, bottom: at.d * (y + metrics.actualBoundingBoxDescent) + at.f });
+                canvas.__tickBoxes.push({ text: args[0], column: `${this.textAlign}@${Math.round(at.a * x + at.e)}`, row: `${this.textBaseline}@${Math.round(at.d * y + at.f)}`, x: at.a * x + at.e, top: at.d * (y - metrics.actualBoundingBoxAscent) + at.f, bottom: at.d * (y + metrics.actualBoundingBoxDescent) + at.f });
                 if (canvas.__tickBoxes.length > 400) canvas.__tickBoxes.shift();
             }
         }
@@ -308,6 +308,20 @@ function installCanvasAudit({ settle, measureMs, others, drawnOutside, svgCharts
         for (const boxes of columns.values()) {
             boxes.sort((a, b) => a.top - b.top);
             boxes.forEach((box, index) => { const next = boxes[index + 1]; if (next && next.top < box.bottom - 0.5) found.push(`"${box.text}"/"${next.text}"`); });
+            // Two ticks of one axis that read the same number (R7, C3: a tick has the digits that tell it from its neighbours).
+            const texts = boxes.map(box => box.text);
+            texts.forEach((text, index) => { if (texts.indexOf(text) !== index && Math.abs(boxes[index].top - boxes[texts.indexOf(text)].top) > 1) found.push(`"${text}" twice`); });
+        }
+        // So for a horizontal axis's ticks: numbers written along one baseline.
+        const rows = new Map<string, Array<{ text: string; x: number }>>();
+        for (const box of canvas.__tickBoxes ?? []) rows.set(box.row, [...(rows.get(box.row) ?? []), box]);
+        for (const boxes of rows.values()) {
+            const seen = new Map<string, number>();
+            for (const box of boxes) {
+                const first = seen.get(box.text);
+                if (first !== undefined && Math.abs(first - box.x) > 2) { found.push(`"${box.text}" twice`); break; }
+                if (first === undefined) seen.set(box.text, box.x);
+            }
         }
         return found;
     };
@@ -444,7 +458,7 @@ export const test = base.extend<{ canvasAudit: void }>({
         const unitlessFound = await page.evaluate(() => window.__unitAudit ?? []);
         base.expect.soft(unitlessFound, 'plots with an axis or a colour bar named without its quantity and unit (R4: "Quantity [unit]", "[–]" when dimensionless)').toEqual([]);
         const crowdedFound = await page.evaluate(() => window.__tickAudit ?? []);
-        base.expect.soft(crowdedFound, 'plots with two tick labels of one axis over each other (fewer ticks on a short plot: valueAxisTicks, spacedTicks)').toEqual([]);
+        base.expect.soft(crowdedFound, 'plots with two tick labels of one axis over each other (fewer ticks on a short plot: valueAxisTicks, spacedTicks), or two that read the same number (tickTexts)').toEqual([]);
         const svgFound = await page.evaluate(() => window.__svgAudit ?? []);
         base.expect.soft(svgFound, 'charts drawn as SVG (R13: draw them with paintOverlay, or list them in plotRegistry.ts while they wait)').toEqual([]);
     }, { auto: true }],

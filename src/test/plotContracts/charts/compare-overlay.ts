@@ -137,7 +137,7 @@ export const compareOverlay: ChartContract = {
         },
         {
             id: 'compare-overlay.ticks', value: 'ticks', what: '両軸の目盛りの値',
-            computedIn: [`${SP}:paintPlot`, `${SP}:valueAxisTicks`, `${SP}:valueTickTexts`, `${SP}:alongAxisTicks`, `${SP}:rowAxisTicks`, `${SP}:tickText`, `${SP}:levelTick`, `${SP}:paintRightAxis`, `${SP}:at`],
+            computedIn: [`${SP}:paintPlot`, `${SP}:valueAxisTicks`, `${SP}:valueTickTexts`, `${SP}:alongAxisTicks`, `${SP}:rowAxisTicks`, `${SP}:tickTexts`, `${SP}:levelTick`, `${SP}:paintRightAxis`, `${SP}:at`],
             from: 'axis', trace: '範囲（または窓）から部品が決める。データには触れない。',
             tests: [
                 t('src/test/stagePanes.test.ts', 'levels share a range of four round steps; coherence keeps 0 to 1'),

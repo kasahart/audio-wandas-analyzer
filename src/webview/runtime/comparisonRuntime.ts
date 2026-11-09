@@ -2403,7 +2403,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         // The other lanes and the time shown follow the point read, not the pointer beside it (as the spectra do).
         if (viewState.hover === null || Math.abs(viewState.hover - readNorm) > 1e-9) viewState.setHover(readNorm);
         const unit = channelsForResult(result)[channelIndex]?.unit?.trim() || null;
-        showPlotReadout(slot, spectrumReadoutTrackLabel(result, channelIndex), laneReadoutText('', read.at, secondsPerPixel, read.value, unit), color);
+        showPlotReadout(slot, spectrumReadoutTrackLabel(result, channelIndex), laneReadoutText('', read.at, secondsPerPixel, read.value, unit, read.step), color);
     }
     /**
      * The pointer over a spectrogram lane reads the real STFT cell under it in the toolbar (R7): one frame and one bin
@@ -2433,7 +2433,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const label = spectrumReadoutTrackLabel(result, channelIndex);
         if (!read.full || read.at === undefined || read.row === undefined || read.value === undefined) { showPlotReadout(slot, label, read.values, trackColor(trackIndex)); return; }
         const secondsPerPixel = (view.end - view.start) * span.spanSec / rect.width;
-        showPlotReadout(slot, label, spectrogramReadoutText('', read.at, secondsPerPixel, { frequencyHz: read.row, level: read.value, ...(read.rowStep !== undefined ? { stepHz: read.rowStep } : {}) }, spec.unit ?? 'dB'), trackColor(trackIndex));
+        showPlotReadout(slot, label, spectrogramReadoutText('', read.at, secondsPerPixel, { frequencyHz: read.row, level: read.value, ...(read.rowStep !== undefined ? { stepHz: read.rowStep } : {}) }, spec.unit ?? 'dB', read.step), trackColor(trackIndex));
     }
     function drawHoverLineOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number) {
         if (viewState.hover !== null) {

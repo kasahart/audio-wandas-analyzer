@@ -83,6 +83,11 @@ def test_every_frame_kinds_picture_is_a_stage_view_the_comparison_draws(made: di
         assert view["frame"] == kind
 
 
+def test_a_roughness_spectrum_is_named_specific_roughness_per_bark_not_the_total(made: dict[str, dict]) -> None:
+    # roughness_dw_spec's cells are each Bark band's specific roughness (wandas plots "Specific Roughness [Asper/Bark]").
+    assert made["RoughnessFrame"]["unit"] == "asper/Bark"
+
+
 def test_the_frame_kinds_fixture_is_what_the_backend_draws_now(made: dict[str, dict]) -> None:
     fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
     assert sorted(fixture) == sorted(made), (

@@ -1,5 +1,6 @@
 // Axis range popover shared by the comparison runtime and the recipe ChartSpec renderer.
 
+import { fieldNumberText } from './plot/plotText';
 import { keyRouterFor } from './runtime/keyRouter';
 
 export interface RangePopoverStrings {
@@ -49,7 +50,6 @@ export interface AxisMapping {
 
 export const linearAxis = (low: number, high: number, label: string): AxisMapping => ({ at: f => low + f * (high - low), of: v => (v - low) / (high - low || 1), label });
 
-const shownNumber = (value: number): string => String(Math.round(value * 1000) / 1000);
 
 /** Opens `popover` on the part `current` of an axis: typed values become the part `set` receives (blank: that end). */
 export function openAxisPart(popover: RangePopover, axis: {
@@ -61,7 +61,7 @@ export function openAxisPart(popover: RangePopover, axis: {
     const { mapping, current, set } = axis;
     popover.open({
         axisLabel: mapping.label, horizontal: axis.horizontal,
-        min: shownNumber(mapping.at(current.start)), max: shownNumber(mapping.at(current.end)),
+        min: fieldNumberText(mapping.at(current.start), mapping.at(current.end) - mapping.at(current.start)), max: fieldNumberText(mapping.at(current.end), mapping.at(current.end) - mapping.at(current.start)),
         clientX: axis.clientX, clientY: axis.clientY,
         apply(min, max) {
             const start = min === null ? 0 : mapping.of(min), end = max === null ? 1 : mapping.of(max);

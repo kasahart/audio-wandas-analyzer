@@ -19,13 +19,13 @@ import { packRgb, paletteColour, rasterizeHeatmap, unpackRgb } from '../plot/hea
 import { readoutText, type AxisTick, type Palette } from '../../shared/gui-core/index';
 import { axisName, axisNameParts, fitAxisTitle, fontPixels, scaledFont } from '../plot/axisTitle';
 import { HEATMAP_DB_SPAN, heatmapDbRange, niceRange, niceTicks } from '../../shared/utils/ticks';
-import { amountText, barkText, frequencyText, lagText, levelText, quefrencyText, secondsText, signedText, withMinus } from '../plot/plotText';
+import { amountText, barkText, frequencyText, lagText, levelText, quefrencyText, secondsText, signedText, spacingDecimals, stepText, withMinus } from '../plot/plotText';
 import { cellIndex, NO_FULL_DATA, STEP_AHEAD, type FullPoints, type FullRead, type FullSource, type LevelAnswer } from './fullRead';
 
 /** Canvas x the level axis's turned title is centred on, in the gutter left of its tick labels. */
 const AXIS_TITLE_X = 10;
 
-export type StageStrings = Pick<UiStrings, 'axisFrequency' | 'axisTime' | 'axisTriggerTime' | 'axisBand' | 'axisBark' | 'axisQuefrency' | 'axisCepstrum' | 'axisLag' | 'axisCorrelation' | 'axisLevel' | 'axisLevelUncal' | 'axisLevelCal' | 'axisDelta' | 'dsValue' | 'axisGain' | 'axisCoherence' | 'legendHeadline' | 'legendLeak' | 'legendLine' | 'stageNoDelta' | 'stageEventCounts' | 'stageNoEvents' | 'stageMaxDelta' | 'stepNotDrawable' | 'waveRangeAxisAmplitude' | 'stagePairBase' | 'axisLoudness' | 'axisSharpness' | 'axisRoughness' | 'axisLevelOf' | 'axisRms' | 'axisRmsTimeWeighted' | 'axisPower' | 'axisUncalibrated' | 'axisUnitUnknown'>;
+export type StageStrings = Pick<UiStrings, 'axisFrequency' | 'axisTime' | 'axisTriggerTime' | 'axisBand' | 'axisBark' | 'axisQuefrency' | 'axisCepstrum' | 'axisLag' | 'axisCorrelation' | 'axisLevel' | 'axisLevelUncal' | 'axisLevelCal' | 'axisDelta' | 'dsValue' | 'axisGain' | 'axisCoherence' | 'legendHeadline' | 'legendLeak' | 'legendLine' | 'stageNoDelta' | 'stageEventCounts' | 'stageNoEvents' | 'stageMaxDelta' | 'stepNotDrawable' | 'waveRangeAxisAmplitude' | 'stagePairBase' | 'axisLoudness' | 'axisSharpness' | 'axisRoughness' | 'axisSpecificRoughness' | 'axisLevelOf' | 'axisRms' | 'axisRmsTimeWeighted' | 'axisPower' | 'axisUncalibrated' | 'axisUnitUnknown'>;
 
 const DB_QUANTITIES = ['level', 'gain'];
 const isDb = (view: StageView | null): boolean => DB_QUANTITIES.includes(view?.quantity ?? '');
@@ -237,7 +237,7 @@ export function amplitudeAxisTitle(strings: Pick<StageStrings, 'axisRms' | 'axis
 
 /** Whether a metric's unit names what it measures (loudness in sone, …, a level in dB). */
 function namedByUnit(unit: string | undefined): boolean {
-    return unit === 'sone' || unit === 'acum' || unit === 'asper' || !!unit?.startsWith('dB');
+    return unit === 'sone' || unit === 'acum' || unit === 'asper' || unit === 'asper/Bark' || !!unit?.startsWith('dB');
 }
 
 /**
@@ -260,6 +260,8 @@ function metricName(strings: StageStrings, unit: string | undefined): string {
     if (unit === 'sone') return strings.axisLoudness;
     if (unit === 'acum') return strings.axisSharpness;
     if (unit === 'asper') return strings.axisRoughness;
+    // Per Bark band (roughness_dw_spec): the specific roughness, told apart from the total over time.
+    if (unit === 'asper/Bark') return strings.axisSpecificRoughness;
     if (unit?.startsWith('dB')) return strings.axisLevelOf;
     // Any other value a step gives is in the signal's unit: its amplitude (the backend names no other kind).
     return strings.waveRangeAxisAmplitude;
@@ -286,13 +288,13 @@ function spacingAt(values: readonly number[] | undefined, index: number): number
  * The decimals a time needs so that points `step` s apart never read the same (R7, as a frequency's do): at least
  * 10 ms, to the nanosecond at most (a hop of 256 at 48 kHz, 5.3 ms apart: "1.008 s", "1.013 s").
  */
-const timeDigits = (step?: number): number => (step !== undefined && step > 0 && Number.isFinite(step) ? Math.max(2, Math.min(9, Math.ceil(-Math.log10(step) - 1e-9))) : 2);
+export const timeDigits = (step?: number): number => spacingDecimals(step, 2, 9);
 
 /** A point of `view`'s axes in their units: "1 kHz", "1.00 s · 100 Hz". */
 function atValue(view: StageView, x: number, y?: number, xStep?: number, yStep?: number): string {
-    const along = view.x === 'time' ? secondsText(x, timeDigits(xStep)) : view.x === 'quefrency' ? quefrency(x) : view.x === 'lag' ? lag(x) : hz(x, xStep);
+    const along = view.x === 'time' ? secondsText(x, timeDigits(xStep)) : view.x === 'quefrency' ? quefrency(x, xStep) : view.x === 'lag' ? lag(x, xStep) : hz(x, xStep);
     if (y === undefined) return along;
-    return `${along} · ${view.yAxis === 'bark' ? barkText(y) : view.yAxis === 'quefrency' ? quefrency(y) : hz(y, yStep)}`;
+    return `${along} · ${view.yAxis === 'bark' ? barkText(y) : view.yAxis === 'quefrency' ? quefrency(y, yStep) : hz(y, yStep)}`;
 }
 
 /**
@@ -544,8 +546,10 @@ function axisScale(view: Pick<StageView, 'xs' | 'xScale' | 'xLimits'>): { low: n
 function ticks(low: number, high: number, log: boolean): number[] {
     if (log) {
         const inside = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000].filter(value => value > low * 1.05 && value < high * 0.95);
-        // Zoomed between two of them, the window's ends are labelled, so the axis still says where it is.
-        return inside.length > 1 ? inside : [low, ...(inside.length ? inside : [Math.sqrt(low * high)]), high];
+        if (inside.length > 1) return inside;
+        // Zoomed between two of them: round values inside the window (1001, 1002, … Hz), each written where it is
+        // (tickTexts), so no tick names a frequency it is not at.
+        return niceTicks(low, high, 4).filter(value => value > 0 && value >= low && value <= high);
     }
     return niceTicks(low, high, 8);
 }
@@ -630,16 +634,32 @@ export function valueTickTexts(values: readonly number[]): (value: number) => st
 export function rowAxisTicks(low: number, high: number, log: boolean, height: number, text?: (value: number) => string): Array<AxisTick & { value: number }> {
     const span = high - low || 1;
     const values = log ? ticks(low, high, true) : niceTicks(low, high, Math.max(2, Math.min(8, Math.floor(height / 22))));
-    return values.map(value => ({ value, text: text?.(value) ?? tickText(value, log), fraction: log ? Math.log(value / low) / Math.log(high / low) : (value - low) / span }));
+    const texts = tickTexts(values, log);
+    return values.map((value, index) => ({ value, text: text?.(value) ?? texts[index], fraction: log ? Math.log(value / low) / Math.log(high / low) : (value - low) / span }));
 }
 
 /** A time or frequency axis's ticks between `low` and `high` (a log frequency axis's at its round values), with their text. */
 export function alongAxisTicks(low: number, high: number, log = false): Array<{ value: number; text: string }> {
-    return ticks(low, high, log).map(value => ({ value, text: tickText(value, log) }));
+    const values = ticks(low, high, log);
+    const texts = tickTexts(values, log);
+    return values.map((value, index) => ({ value, text: texts[index] }));
 }
 
 // A negative tick (a lag, the time from a trigger) with a true minus, as every number a plot writes (plotText.ts).
-const tickText = (value: number, log: boolean): string => withMinus(log ? (value >= 1000 ? `${Number((value / 1000).toPrecision(3))}k` : String(Number(value.toPrecision(3)))) : String(value));
+/**
+ * An axis's tick texts, each to the digits that tell it from its neighbours (plotText.ts spacingDecimals, the rule
+ * every readout's digits follow), so two ticks never read the same and none reads a value it is not at. A log
+ * frequency axis writes kHz from 1 kHz ("500", "1k", "1.002k"), all of a window under a decade that crosses 1 kHz
+ * in kHz ("0.998k", "1k"), never "1000" beside "1k". A negative tick (a lag, the time from a trigger) with a true minus.
+ */
+export function tickTexts(values: readonly number[], log: boolean): string[] {
+    const gaps = values.slice(1).map((value, index) => Math.abs(value - values[index])).filter(gap => gap > 0);
+    const step = gaps.length ? Math.min(...gaps) : undefined;
+    if (!log) return values.map(value => (step === undefined ? withMinus(String(value)) : stepText(value, step)));
+    const low = Math.min(...values), high = Math.max(...values);
+    const allK = high >= 1000 && low < 1000 && high / low < 10;
+    return values.map(value => (value >= 1000 || allK ? `${stepText(value / 1000, step === undefined ? undefined : step / 1000)}k` : stepText(value, step)));
+}
 /** A value on the level axis with as many decimals as its span needs (cepstral coefficients need four or five). */
 const levelTick = (value: number, span: number): string => withMinus(span >= 8 ? String(Math.round(value)) : value.toFixed(Math.max(1, Math.min(6, Math.ceil(-Math.log10(span / 8))))));
 
@@ -1468,11 +1488,14 @@ export function strokeStageLine(context: CanvasRenderingContext2D, plot: StagePl
     context.restore();
 }
 
-/** A time to the digits a pixel column of the plot tells apart (at least 10 ms). */
-function timeText(plot: StagePlot, seconds: number): string {
+/**
+ * A signal's time to the digits that tell its neighbouring points apart (`step`, the spacing of the samples read: at
+ * 48 kHz "3.27002 s", "3.27004 s"), as every time is; at least 10 ms. Without a spacing (an envelope point), to the
+ * digits a pixel column of the plot tells apart.
+ */
+function timeText(plot: StagePlot, seconds: number, step?: number): string {
     const perPixel = Math.abs(plot.xAt(1) - plot.xAt(0)) > 0 ? 1 / Math.abs(plot.xAt(1) - plot.xAt(0)) : 0.01;
-    const digits = Math.max(2, Math.min(6, Math.ceil(-Math.log10(Math.max(perPixel, 1e-6)))));
-    return secondsText(seconds, digits);
+    return secondsText(seconds, timeDigits(step ?? perPixel));
 }
 
 /** Whether (`x`, `y`) is inside the plot's frame: a point clipped off it is not on screen to pick. */
@@ -1509,6 +1532,8 @@ export interface StageRead {
     value?: number;
     /** An image cell's row spacing (a spectrogram's bin width), so neighbouring rows read apart. */
     rowStep?: number;
+    /** The spacing along the horizontal axis of the points around the one read (a signal's samples, an image's frames). */
+    step?: number;
     /** The full data around the pointer is still being fetched: the marks are shown, no number until it is in. */
     pending?: boolean;
 }
@@ -1578,7 +1603,7 @@ function lineRead(plot: StagePlot, layer: StageLayer, point: ReadPoint, away?: n
     if (view.waveform) {
         // A signal reads its amplitude in its unit, to 3 figures, where its point is.
         const unit = view.waveform.unit || plot.signal?.unit;
-        return { ...readoutOf(layer, point, layer.label ?? '', [timeText(plot, point.time ?? point.at), amountText(point.value, unit)]), index: -1, time: point.time ?? point.at, away, ...full };
+        return { ...readoutOf(layer, point, layer.label ?? '', [timeText(plot, point.time ?? point.at, point.full ? point.step : undefined), amountText(point.value, unit)]), index: -1, time: point.time ?? point.at, away, ...full, ...(point.full && point.step !== undefined ? { step: point.step } : {}) };
     }
     if (layer.readout) return { ...readoutOf(layer, point, layer.label ?? '', layer.readout(point.index, { x: point.at, value: point.value, ...(point.full && point.step !== undefined ? { step: point.step } : {}) })), index: point.index, away, ...full };
     const amount = plot.diff ? signed(point.value, isDb(view))
@@ -1660,8 +1685,8 @@ function cellRead(plot: StagePlot, layer: StageLayer, got: FullPoints, column: n
     const amount = plot.diff ? signed(value, isDb(view)) : isDb(view) ? levelText(value, plot.levelUnit) : amountText(value);
     const where = layer.rowName ? atValue(view, at) : atValue(view, at, place, spacingAt(got.xs, column), spacingAt(got.ys, row));
     const name = got.rowNames?.[row] ?? layer.label ?? (plot.diff ? 'Δ' : '');
-    const rowStep = spacingAt(got.ys, row);
-    return { ...readoutOf(layer, { x, y }, name, [where, amount]), image: true, index: -1, full: true, at, row: place, value, ...(rowStep !== undefined ? { rowStep } : {}) };
+    const rowStep = spacingAt(got.ys, row), step = spacingAt(got.xs, column);
+    return { ...readoutOf(layer, { x, y }, name, [where, amount]), image: true, index: -1, full: true, at, row: place, value, ...(rowStep !== undefined ? { rowStep } : {}), ...(step !== undefined ? { step } : {}) };
 }
 
 /**

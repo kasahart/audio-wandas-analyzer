@@ -6,11 +6,11 @@ import path from 'node:path';
 import test from 'node:test';
 import { held } from './helpers/heldSource';
 import type { StageView } from '../shared/protocol/backendProtocol';
-import { amountText, barkText, frequencyText, lagText, levelText, quefrencyText, secondsText, signedNumberText, signedText, withMinus } from '../webview/plot/plotText';
+import { amountText, barkText, fieldNumberText, frequencyText, lagText, levelText, quefrencyText, secondsText, signedNumberText, signedText, withMinus } from '../webview/plot/plotText';
 import { formatValue, plotValueText } from '../webview/runtime/entryTableHtml';
 import { spectrumReadoutText } from '../webview/runtime/spectrumRuntime';
-import { stageHover, type StagePlot } from '../webview/runtime/stagePanes';
-import { spectrogramReadoutText } from '../webview/runtime/trackLaneHover';
+import { alongAxisTicks, rowAxisTicks, stageHover, type StagePlot } from '../webview/runtime/stagePanes';
+import { laneReadoutText, spectrogramReadoutText } from '../webview/runtime/trackLaneHover';
 
 test('a frequency reads in Hz below 1 kHz and in kHz to the hertz from there, so neighbouring bins never read the same (R7)', () => {
     assert.equal(frequencyText(15.625), '15.6 Hz');
@@ -155,4 +155,36 @@ test('the lint stops a number the report writes without plotText\'s minus: "-1.8
     const run = spawnSync(process.execPath, [path.join(__dirname, '..', '..', 'scripts', 'lint-webview-patterns.js'), '--report-number-hits', file], { encoding: 'utf8' });
     rmSync(dir, { recursive: true, force: true });
     assert.deepEqual(run.stdout.trim().split('\n').map(line => line.split(':').pop()), ['1', '3']);
+});
+
+test('every tick and readout takes its digits from the spacing of its neighbours: no two read the same, none reads a value it is not at (C3)', () => {
+    // A log frequency axis zoomed into a few bins, or a little: round ticks inside the window, each written as the value it is at.
+    const kHz = (text: string): number => (text.endsWith('k') ? Number(text.slice(0, -1).replace('−', '-')) * 1000 : Number(text.replace('−', '-')));
+    for (const [low, high] of [[1000.5, 1005], [10000, 10040], [995, 1005], [600, 1800], [1500, 1700], [20, 20000]]) {
+        for (const ticks of [alongAxisTicks(low, high, true), rowAxisTicks(low, high, true, 300)]) {
+            const texts = ticks.map(tick => tick.text);
+            assert.equal(new Set(texts).size, texts.length, `${low}–${high} Hz: ${texts.join(' ')}`);
+            for (const tick of ticks) assert.ok(Math.abs(kHz(tick.text) - tick.value) < 1e-6, `${low}–${high} Hz: "${tick.text}" is at ${tick.value}`);
+            assert.ok(texts.every(text => kHz(text) >= low && kHz(text) <= high), `${low}–${high} Hz: ${texts.join(' ')} inside the window`);
+            assert.ok(!(texts.some(text => text.endsWith('k')) && texts.some(text => !text.endsWith('k') && kHz(text) >= 1000)), `${low}–${high} Hz: never "1000" beside "1k"`);
+        }
+    }
+    // A time axis zoomed to a few samples.
+    const times = alongAxisTicks(1.23451, 1.23459).map(tick => tick.text);
+    assert.equal(new Set(times).size, times.length, times.join(' '));
+    // Neighbouring samples, lags and quefrencies read apart at any rate.
+    const rate = 192000, step = 1 / rate;
+    for (const at of [0.0125, 3.27, 9.99]) {
+        assert.notEqual(laneReadoutText('', at, 0.01, 0.5, 'FS', step), laneReadoutText('', at + step, 0.01, 0.5, 'FS', step), `a sample at ${at} s and the next`);
+        assert.notEqual(quefrencyText(at / 100, step), quefrencyText(at / 100 + step, step), `quefrencies ${step} s apart`);
+        assert.notEqual(lagText(at / 100, step), lagText(at / 100 + step, step), `lags ${step} s apart`);
+    }
+    // An axis range's field keeps the range it shows: a window of a few samples applied unchanged stays that window.
+    const [low, high] = [1.23456, 1.23461];
+    const typed = [fieldNumberText(low, high - low), fieldNumberText(high, high - low)].map(Number);
+    assert.ok(typed[1] > typed[0] && Math.abs(typed[0] - low) < (high - low) / 1000 && Math.abs(typed[1] - high) < (high - low) / 1000, typed.join('–'));
+    assert.equal(fieldNumberText(-12.3456789, 40), '-12.346');
+    // Without a finer spacing, the usual digits.
+    assert.equal(quefrencyText(0.0025), '2.50 ms');
+    assert.equal(lagText(-0.0005), '−0.50 ms');
 });

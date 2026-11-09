@@ -702,7 +702,8 @@ def _roughness_view(frame: RoughnessFrame) -> StageView:
         "x": "time",
         "xScale": "linear",
         "quantity": "roughness",
-        "unit": "asper",
+        # Each Bark band's specific roughness (wandas' own plot: "Specific Roughness [Asper/Bark]"), not the total.
+        "unit": "asper/Bark",
         "xs": _axis(np.array([float(np.mean(times[block])) for block in blocks])),
         "ys": _axis(np.asarray(frame.bark_axis, dtype=np.float64)[: plane.shape[0]]),
         "yAxis": "bark",

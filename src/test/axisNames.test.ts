@@ -16,7 +16,7 @@ const LOCALES = ['en', 'ja'] as const;
  * Strings named like an axis that are not a whole axis name: the quantity a producer below puts its unit after
  * (metricAxisName, amplitudeAxisTitle), and the words for an unknown unit. Every other axis string names its unit.
  */
-const FRAGMENTS = new Set<keyof UiStrings>(['axisLoudness', 'axisSharpness', 'axisRoughness', 'axisLevelOf', 'axisRms', 'axisRmsTimeWeighted', 'axisPower', 'axisUncalibrated', 'axisUnitUnknown']);
+const FRAGMENTS = new Set<keyof UiStrings>(['axisLoudness', 'axisSharpness', 'axisRoughness', 'axisSpecificRoughness', 'axisLevelOf', 'axisRms', 'axisRmsTimeWeighted', 'axisPower', 'axisUncalibrated', 'axisUnitUnknown']);
 /** Axis names whose key does not say so: the pair view's plots and the values the distribution's value axis takes. */
 const NAMED_ELSEWHERE: Array<keyof UiStrings> = ['pairPhaseLabel', 'pairCoherenceLabel', 'dsLeq', 'dsPeak', 'dsCrest', 'dsBand'];
 
@@ -48,7 +48,7 @@ const calibrated: LevelInput = { unit: 'Pa', ref: 2e-5, levelReferenceLabel: 'dB
 const views = (): StageView[] => {
     const xs = ['frequency', 'time', 'band', 'quefrency', 'lag'] as const;
     const quantities = ['level', 'gain', 'coherence', 'value', 'roughness', 'cepstrum', 'correlation'] as const;
-    const units = [undefined, 'sone', 'acum', 'asper', 'dB re 1 FS', 'Pa'];
+    const units = [undefined, 'sone', 'acum', 'asper', 'asper/Bark', 'dB re 1 FS', 'Pa'];
     const lines = xs.flatMap(x => quantities.flatMap(quantity => units.map((unit): StageView => ({ frame: 'SpectralFrame', kind: 'line', x, xScale: 'linear', quantity, ...(unit ? { unit } : {}), xs: [1, 2], values: [0, 1] }))));
     const pairs = lines.flatMap((view): StageView[] => [{ ...view, pair: { output: 2, input: 1 } }, { ...view, pair: { output: 1, input: 1, base: true } }]);
     const measures = (['rms', 'timeWeightedRms', 'power'] as const).flatMap((measure): StageView[] => [

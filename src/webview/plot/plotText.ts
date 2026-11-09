@@ -9,6 +9,36 @@ export function withMinus(text: string): string {
     return text.replace(/^-/, '−').replace('e-', 'e−').replace('e+', 'e');
 }
 
+/**
+ * The one rule for how many decimals a number needs (R7): enough that points `step` apart (neighbouring samples,
+ * bins, frames, lags, ticks) never read the same, and never fewer than `least`; `most` at most. A time, a frequency,
+ * a quefrency, a lag, a tick and a range field all take their decimals from it.
+ */
+export function spacingDecimals(step: number | undefined, least = 0, most = 9): number {
+    if (step === undefined || !(step > 0) || !Number.isFinite(step)) return least;
+    return Math.max(least, Math.min(most, Math.ceil(-Math.log10(step) - 1e-9)));
+}
+
+/**
+ * A tick's number, written exactly as the value it is at and to the digits that tell it from ticks `step` apart
+ * (spacingDecimals, and the step's own digits: 2.5 apart, "997.5"), trailing zeros dropped; with a true minus.
+ */
+export function stepText(value: number, step: number | undefined): string {
+    let decimals = spacingDecimals(step);
+    while (step !== undefined && decimals < 9 && Math.abs(step * 10 ** decimals - Math.round(step * 10 ** decimals)) > 1e-6) decimals++;
+    const text = value.toFixed(decimals);
+    return withMinus(text.includes('.') ? text.replace(/\.?0+$/, '') : text);
+}
+
+/**
+ * An end of a range typed into a field (the axis range popover): to the digits that keep the range `span` wide to a
+ * thousandth of itself (spacingDecimals), at least to 0.001, so a range applied unchanged is the range it was
+ * (1.23456–1.23461 s stays so, never "1.235"–"1.235"). With a hyphen minus, as a field is typed and parsed.
+ */
+export function fieldNumberText(value: number, span: number): string {
+    return String(Number(value.toFixed(spacingDecimals(Math.abs(span) / 1000, 3, 15))));
+}
+
 /** Trailing zeros of a decimal fraction dropped ("3.150" → "3.15", "2.000" → "2"). */
 const trimmed = (text: string): string => (text.includes('.') ? text.replace(/\.?0+$/, '') : text);
 
@@ -19,7 +49,7 @@ const trimmed = (text: string): string => (text.includes('.') ? text.replace(/\.
  */
 export function frequencyText(hz: number, stepHz?: number): string {
     // Decimals in Hz that tell points `stepHz` apart: a resolution no coarser than the step.
-    const needed = stepHz !== undefined && stepHz > 0 && Number.isFinite(stepHz) ? Math.max(0, Math.ceil(-Math.log10(stepHz) - 1e-9)) : 0;
+    const needed = spacingDecimals(stepHz);
     if (Math.abs(hz) < 1000) {
         if (needed > 1) return `${withMinus(trimmed(hz.toFixed(needed)))} Hz`;
         const whole = Math.round(hz);
@@ -51,17 +81,22 @@ export function amountText(value: number, unit?: string | null): string {
     return unit ? `${number}${unit === '°' ? '°' : ` ${unit}`}` : number;
 }
 
-/** A quefrency in milliseconds: to 10 µs under 10 ms, to 0.1 ms from there ("2.50 ms", "12.5 ms"). */
-export function quefrencyText(seconds: number): string {
-    return `${withMinus((seconds * 1000).toFixed(Math.abs(seconds) < 0.01 ? 2 : 1))} ms`;
+/**
+ * A quefrency in milliseconds: to 10 µs under 10 ms, to 0.1 ms from there ("2.50 ms", "12.5 ms"), and to the digits
+ * that tell points `stepSeconds` apart where they are closer (a sample at 96 kHz: "12.510 ms", "12.521 ms").
+ */
+export function quefrencyText(seconds: number, stepSeconds?: number): string {
+    const digits = Math.max(Math.abs(seconds) < 0.01 ? 2 : 1, spacingDecimals(stepSeconds === undefined ? undefined : stepSeconds * 1000));
+    return `${withMinus((seconds * 1000).toFixed(digits))} ms`;
 }
 
 /**
  * A signed lag in milliseconds: the output later than the input when positive. To 10 µs at any lag (a sample at
  * 96 kHz, since a delay is read sample by sample), and no sign on none ("+1.25 ms", "−0.50 ms", "0.00 ms").
  */
-export function lagText(seconds: number): string {
-    const ms = (Math.abs(seconds) * 1000).toFixed(2);
+export function lagText(seconds: number, stepSeconds?: number): string {
+    // Finer than 10 µs apart (a sample past 100 kHz), to the digits that tell neighbouring lags apart.
+    const ms = (Math.abs(seconds) * 1000).toFixed(spacingDecimals(stepSeconds === undefined ? undefined : stepSeconds * 1000, 2));
     return `${Number(ms) === 0 ? '' : seconds > 0 ? '+' : '−'}${ms} ms`;
 }
 

@@ -224,7 +224,11 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
     const onPoint = (point: PointRead | null, at: number | null | undefined): boolean => !!point && !!origin && at !== null && at !== undefined
         && point.sameLayer && same(point.at, at) && (origin.row === null ? point.row === null : point.row !== null && same(point.row, origin.row));
     const onePoint = !!next && onPoint(stepped[0], next) && onPoint(stepped[1], origin?.at) && onPoint(stepped[2], next);
-    if (above && onePoint && steps.every(Boolean) && steps[0] !== after.filter(Boolean).join(' | ') && steps[1] !== steps[0] && steps[2] === steps[0] && hovered === steps[2]) passed.add('step');
+    // Where the point is, written apart from its neighbour's (C3: its digits from the points' spacing), not only its
+    // value: the readout less its last part (the value) differs between two neighbouring points.
+    const place = (text: string): string => text.split(' / ').slice(0, -1).join(' / ');
+    const apart = place(steps[0]) !== place(steps[1]);
+    if (above && onePoint && apart && steps.every(Boolean) && steps[0] !== after.filter(Boolean).join(' | ') && steps[1] !== steps[0] && steps[2] === steps[0] && hovered === steps[2]) passed.add('step');
     // Ctrl+wheel zooms; a double-click resets. Each is seen in what the plot shows, not only in its attributes: its
     // picture is drawn again and differs from the one before (reset need not be the very first picture: a plot may
     // have taken finer data while zoomed).

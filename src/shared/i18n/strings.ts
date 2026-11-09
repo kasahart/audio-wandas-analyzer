@@ -433,6 +433,7 @@ export interface UiStrings {
     axisUncalibrated: string;
     axisSharpness: string;
     axisRoughness: string;
+    axisSpecificRoughness: string;
     axisLevelOf: string;
     axisBand: string;
     /** The entry strip's row axis: the table's rows, counted down from the top. */
@@ -1234,6 +1235,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         axisUncalibrated: ', uncalibrated',
         axisSharpness: 'Sharpness',
         axisRoughness: 'Roughness',
+        axisSpecificRoughness: 'Specific roughness',
         axisLevelOf: 'Level',
         axisBand: 'Band centre [Hz]',
         axisEntryRows: 'Row (table order) [–]',
@@ -2022,6 +2024,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         axisUncalibrated: ' 未校正',
         axisSharpness: 'シャープネス',
         axisRoughness: 'ラフネス',
+        axisSpecificRoughness: '比ラフネス',
         axisLevelOf: 'レベル',
         axisBand: '帯域中心 [Hz]',
         axisEntryRows: '行（表の順） [–]',

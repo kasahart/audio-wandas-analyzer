@@ -11,7 +11,7 @@ import { SP } from './model';
  * primitive: toFixed, toPrecision, toExponential, toLocaleString) is a value-producing path.
  */
 export const VALUE_HELPERS: readonly string[] = [
-    ...['withMinus', 'frequencyText', 'secondsText', 'amountText', 'quefrencyText', 'lagText', 'barkText', 'levelText', 'signedNumberText', 'signedText', 'significant'].map(name => `src/webview/plot/plotText.ts:${name}`),
+    ...['withMinus', 'frequencyText', 'secondsText', 'amountText', 'quefrencyText', 'lagText', 'barkText', 'levelText', 'signedNumberText', 'signedText', 'significant', 'stepText', 'spacingDecimals', 'fieldNumberText'].map(name => `src/webview/plot/plotText.ts:${name}`),
     ...['formatMeasurementNumber', 'formatMeasuredLevel', 'formatClockTime', 'formatReportDuration'].map(name => `src/shared/utils/format.ts:${name}`),
     ...['niceStep', 'niceTicks', 'niceRange', 'widened', 'round'].map(name => `src/shared/utils/ticks.ts:${name}`),
     'src/shared/utils/levels.ts:powerMeanDb', 'src/shared/utils/levels.ts:powerMeanOrNull',
@@ -24,7 +24,7 @@ export const VALUE_HELPERS: readonly string[] = [
     'src/webview/plot/waveformLayer.ts:waveformRange',
     'src/webview/draw/canvasDrawers.ts:formatHz', 'src/webview/draw/canvasDrawers.ts:formatDbLevel',
     ...['laneAmplitudeRange', 'laneAmplitudeTicks', 'laneTimeTicks'].map(name => `src/webview/runtime/laneAxes.ts:${name}`),
-    ...['valueTickTexts', 'valueAxisTicks', 'rowAxisTicks', 'alongAxisTicks', 'tickText', 'levelTick', 'ticks', 'stageRange', 'stageDiffRange', 'roundEdge', 'robustEdge', 'overlayOrder', 'byLevel', 'levelBinsOf', 'timeText', 'atValue', 'atText', 'drawnLevelsText', 'readoutOf'].map(name => `${SP}:${name}`),
+    ...['valueTickTexts', 'valueAxisTicks', 'rowAxisTicks', 'alongAxisTicks', 'tickTexts', 'timeDigits', 'levelTick', 'ticks', 'stageRange', 'stageDiffRange', 'roundEdge', 'robustEdge', 'overlayOrder', 'byLevel', 'levelBinsOf', 'timeText', 'atValue', 'atText', 'drawnLevelsText', 'readoutOf'].map(name => `${SP}:${name}`),
 ];
 
 /** Functions that write a number nobody reads as a value of a chart, each with why. */
@@ -46,7 +46,6 @@ export const NOT_CHART_VALUES: Readonly<Record<string, string>> = {
     'src/webview/plot/axisTitle.ts:scaledFont': 'a CSS font size in pixels, not a value',
     'src/webview/runtime/stagePanes.ts:paintValueTitle': 'the axis name\'s font size (scaledFont), not a value',
     'src/webview/runtime/stagePanes.ts:paintValueTicks': 'the tick numbers\' font size (scaledFont) to keep clear of the axis name; the numbers are valueTickTexts\'',
-    'src/webview/rangePopover.ts:shownNumber': 'the axis range field\'s starting text, which the user edits',
     'src/webview/rangePopover.ts:openAxisPart': 'the axis range field\'s starting text (shownNumber), which the user edits',
     'src/webview/runtime/compareReport.ts:reportRecipe': 'the region a report\'s Recipe is cut to, kept to the microsecond: a setting',
     'src/webview/runtime/compareReport.ts:reportDefinitions': 'the report\'s Recipe (reportRecipe): a setting',
