@@ -84,10 +84,12 @@ export const compareDelta: ChartContract = {
         },
         {
             id: 'compare-delta.no-delta', value: 'label', what: 'Δ が出せない理由（見出しと図）',
-            computedIn: ['src/webview/runtime/combineSource.ts:noDeltaNote'],
-            from: 'input', trace: 'サンプリング周波数・単位・データの大きさの違いを理由として書く。数は出さない。',
+            computedIn: ['src/webview/runtime/combineSource.ts:noDeltaNote', 'src/webview/runtime/trackStageModel.ts:combineRequest', 'python-backend/scan_service.py:_stage_result'],
+            from: 'input', trace: 'サンプリング周波数・単位・データの大きさの違いを理由として書く。数は出さない。保存の予算を超えた段の値には data キーを付けず（stageDataTooLarge）、結合を頼まず再走査もしないで「大きすぎる」と書く。',
             tests: [
                 t('src/test/trackStagePainter.test.ts', 'with no difference, the Δ headline says the same reason as its plot: other rates, other units, too much data'),
+                t('python-backend/test_scan_service.py', 'test_a_step_over_the_store_budget_is_not_named_by_a_key_it_was_refused'),
+                t('src/test/entryHeldPlot.test.ts', 'a held step whose values the backend refused to keep asks for no combination and scans nothing again'),
             ],
         },
     ],

@@ -12,7 +12,7 @@ import soundfile as sf
 import wandas as wd
 
 import analysis_spec as spec
-from analysis_engine import AnalysisEngine
+from analysis_engine import AnalysisEngine, file_version
 from analysis_service import AnalysisService
 from browser_service import create_service
 from command_dispatch import dispatch, validate_request
@@ -54,9 +54,7 @@ def test_scan_measures_the_analysis_spec_metrics(tmp_path: Path) -> None:
 
     assert result["ok"] is True
     assert result["input"] == {
-        "id": json.dumps(
-            [str(Path(path).resolve()), Path(path).stat().st_size, Path(path).stat().st_mtime_ns // 10**6]
-        ),
+        "id": json.dumps([str(Path(path).resolve()), *file_version(Path(path).stat())]),
         "fs": RATE,
         "channels": [0, 1],
         "durationS": 2.0,
@@ -937,3 +935,55 @@ def test_importing_and_creating_the_browser_service_leaves_the_dask_scheduler_al
         [sys.executable, "-c", code], cwd=Path(__file__).parent, capture_output=True, text=True, check=True
     ).stdout
     assert output.strip() == "None"
+
+
+def test_a_file_replaced_within_the_same_millisecond_is_another_input(tmp_path: Path) -> None:
+    """The scan's input id and condition id name the version read: a rewrite within the same millisecond, or a
+    copy that keeps the old modification time and size, is read again and named anew (never by a truncated mtime)."""
+    service = AnalysisService(AnalysisEngine())
+    path = _write(tmp_path / "tone.wav", [_sine(1000, 0.5)])
+    first = _scan(service, path)
+    mtime = Path(path).stat().st_mtime_ns
+    # Same size, a modification time 1 µs later (the same millisecond), other content.
+    _write(tmp_path / "tone.wav", [_sine(1000, 0.1)])
+    import os
+
+    os.utime(path, ns=(mtime + 1_000, mtime + 1_000))
+    second = _scan(service, path)
+    assert second["input"]["id"] != first["input"]["id"]
+    assert second["conditionId"] != first["conditionId"]
+    assert second["leqDbA"][0] < first["leqDbA"][0] - 10
+    # Replaced by a copy carrying the old modification time (cp -p): the same mtime and size, another file.
+    replacement = _write(tmp_path / "copy.wav", [_sine(1000, 0.5)])
+    os.utime(replacement, ns=(mtime, mtime))
+    os.replace(replacement, path)
+    third = _scan(service, path)
+    assert third["input"]["id"] not in {first["input"]["id"], second["input"]["id"]}
+    assert third["leqDbA"][0] == pytest.approx(first["leqDbA"][0], abs=0.01)
+
+
+def test_a_step_over_the_store_budget_is_not_named_by_a_key_it_was_refused(tmp_path: Path) -> None:
+    """Every ``data`` key a scan gives is held by the store (stage-combine finds it), so a combination never answers
+    ``missing`` for a key the store refused, and the comparison never scans the step again for it: over the budget
+    the result says ``stageDataTooLarge`` instead, on every scan of that step (zoomed too)."""
+    from stage_combine import STAGE_DATA_BUDGET_BYTES as STAGE_BUDGET
+    from stage_combine import STORE, combine_keys
+
+    service = AnalysisService(AnalysisEngine())
+    path = _write(tmp_path / "tone.wav", [_sine(1000, 0.5)])
+    STORE.clear()
+    try:
+        STORE.resize(1)
+        for detail in (None, {"x": [0.1, 0.2], "points": 2000}):
+            result = _scan(service, path, stage="node-0", **({"detail": detail} if detail else {}))
+            assert result["ok"] is True and "data" not in result["stage"]
+            assert result["stageDataTooLarge"] is True
+        STORE.resize(STAGE_BUDGET)
+        kept = _scan(service, path, stage="node-0")
+        assert "stageDataTooLarge" not in kept
+        key = kept["stage"]["data"]
+        assert STORE.has(key)
+        assert combine_keys([key], None)["ok"] is True
+    finally:
+        STORE.resize(STAGE_BUDGET)
+        STORE.clear()

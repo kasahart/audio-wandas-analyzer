@@ -49,9 +49,11 @@ export const entryHeld: ChartContract = {
         {
             id: 'entry-held.identity', value: 'identity', what: '取り寄せた全ビンが表の行と同じスペクトルか（つき合わせ）',
             computedIn: ['src/webview/runtime/comparePanes.ts:withBins', 'src/webview/runtime/entryHeldPlot.ts:paintSlot'],
-            from: 'whole', trace: '取り寄せた全ビンのスキャンは、表のスキャンと 192 点のスペクトル（spectrumDb）が JSON で同じときだけ使う。ファイルがスキャンし直されて 192 点が変われば、全ビンを頼み直す（1 つの表のスペクトルに 1 回）。192 点が同じで全ビンが違う 2 つのスキャンは区別しない。',
+            from: 'whole', trace: '取り寄せた全ビンのスキャンは、表のスキャンと conditionId（ファイルの版＝大きさ・ナノ秒の更新時刻と状態変更時刻・inode、区間、チャンネル、校正、単位、Recipe）が同じときだけ使う（comparePanes.ts sameCondition）。描いた 192 点（spectrumDb）では照合しない。ファイルがスキャンし直されて conditionId が変われば、全ビンを頼み直す（1 つの表の conditionId に 1 回）。',
             tests: [
                 t('src/test/entryHeldPlot.test.ts', 'a file scanned again since its bins were kept is asked for again, once, so a hold does not stay at 192 points'),
+                t('src/test/comparePanes.test.ts', 'the table\'s results take the bins of a scan of the same condition only, never judged by its 192 drawn points'),
+                t('python-backend/test_scan_service.py', 'test_a_file_replaced_within_the_same_millisecond_is_another_input'),
             ],
         },
         {
