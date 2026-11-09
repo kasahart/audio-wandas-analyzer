@@ -60,7 +60,7 @@ import { syncPanelToggle, syncSpectrumMaximize } from './panelCollapse';
 import { SpectrumView } from './spectrumView';
 import { WaveformView } from './waveformView';
 import { OVERLAY_LEVEL_AXES, paintOverlaySpectrum, renderSpectrumAxisLegend } from './overlaySpectrumPainter';
-import { amplitudeAxisTitle, paintOverlay, PLOT_TEXT_FONT, type StagePlot } from './stagePanes';
+import { amplitudeAxisTitle, paintOverlay, paintTimeAxis, type StagePlot } from './stagePanes';
 import { referenceButtonHtml } from './pairSpectrum';
 import { PAIR_SPLIT_MAX, PAIR_SPLIT_MIN, PairSpectrumPanel } from './pairSpectrumPanel';
 import { collectSpectrumSeries, type CollectedSpectrumSeries, type SpectrumSeriesSource } from './spectrumSeriesCollector';
@@ -1918,30 +1918,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         // The ticks follow the lanes' time span: the waveform's width.
         const lane = canvasesMatching(document, '.track-canvas:not(.track-spec-canvas)').find(function (c) { return c.width > 1 && c.offsetParent !== null; });
         const timeW = lane ? Math.min(W, lane.width) : W;
-        const H = canvas.height;
-        ctx.clearRect(0, 0, W, H);
         const seconds = laneVisibleSeconds();
         const style = getComputedStyle(document.body);
-        // The lanes' time axis as every plot's: its ticks and their numbers, and its name at the right end; a number the
-        // name would overlap is left out.
-        ctx.font = PLOT_TEXT_FONT;
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'alphabetic';
-        const title = STR.axisTime;
-        const titleLeft = timeW - ctx.measureText(title).width - 2;
-        ctx.fillStyle = style.getPropertyValue('--muted').trim() || '#888';
-        ctx.strokeStyle = style.getPropertyValue('--line').trim() || '#444';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        laneTimeTicks(seconds.start, seconds.end, timeW).forEach(function (tick) {
-            const x = Math.round(tick.x) + 0.5;
-            ctx.moveTo(x, H - 4);
-            ctx.lineTo(x, H);
-            if (tick.x + 2 + ctx.measureText(tick.text).width < titleLeft - 4) ctx.fillText(tick.text, tick.x + 2, H - 6);
+        // The lanes' time axis, drawn by the plot component as every plot's (R13): its ticks, their numbers and its name.
+        paintTimeAxis(canvas, laneTimeTicks(seconds.start, seconds.end, timeW), STR.axisTime, timeW, {
+            muted: style.getPropertyValue('--muted').trim() || '#888',
+            line: style.getPropertyValue('--line').trim() || '#444',
+            text: style.getPropertyValue('--text').trim() || '#ddd',
         });
-        ctx.stroke();
-        ctx.fillStyle = style.getPropertyValue('--text').trim() || '#ddd';
-        ctx.fillText(title, titleLeft, H - 6);
     }
     function renderStackedTracks() {
         linkedScaleMemo = null;
@@ -2721,9 +2705,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             },
             openAxisRange: (_hit, clientX, clientY, element) => openTrackAxisRange(element, clientX, clientY),
             axes: {
-                selector: '.track-axis-canvas',
+                selector: '.track-axis-canvas, #ruler-canvas',
                 locate(axis, clientX, clientY) {
                     if (contentType === 'stage') return null;
+                    // The lanes' time axis: the first lane shown, at the time under the pointer.
+                    if (axis.id === 'ruler-canvas') {
+                        const first = canvasesMatching(document, '.track-canvas:not(.track-spec-canvas)').find(function (c) { return c.width > 1 && c.offsetParent !== null; });
+                        return first ? { plot: first, point: lanePoint(first, clientX, first.getBoundingClientRect().top + 1), axis: 'x' } : null;
+                    }
                     const lane = laneOfAxis(axis);
                     return { plot: lane ?? axis, point: lane ? lanePoint(lane, clientX, clientY) : { fx: 0, fy: 0.5 }, axis: 'y' };
                 },
@@ -3648,7 +3637,19 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (element.classList.contains('track-spec-canvas')) {
             return onSpectrogramColourBar(element as HTMLCanvasElement, clientX, clientY) && openSpectrogramRangePopup(element, 'level', clientX, clientY);
         }
+        if (element.id === 'ruler-canvas') return openTimeRangePopup(clientX, clientY);
         return element.classList.contains('track-axis-canvas') && openWaveformRangePopup(element, clientX, clientY);
+    }
+    // The lanes' time axis: the part of the tracks' time they show, typed in seconds (blank: that end of it).
+    function openTimeRangePopup(clientX: number, clientY: number): boolean {
+        const gs = trackStore.globalSpan();
+        if (!(gs.spanSec > 0)) return false;
+        openAxisPart(waveformRangePopover, {
+            mapping: linearAxis(gs.startSec, gs.startSec + gs.spanSec, STR.axisTime), horizontal: true,
+            current: waveformView.timeRange(), clientX, clientY, invalid: STR.specRangeErrorMinMax,
+            set: part => setLaneWindow(part.start <= 0 && part.end >= 1 ? null : { x: part, y: FULL_PLOT_WINDOW.y }),
+        });
+        return true;
     }
     // The spectrogram's ranges are display settings shared by every lane, like the ⚙ popover's.
     function openSpectrogramRangePopup(element: Element, axis: 'frequency' | 'level', clientX: number, clientY: number): boolean {

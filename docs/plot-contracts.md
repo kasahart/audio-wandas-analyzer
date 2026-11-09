@@ -25,7 +25,7 @@
 | トリガーのイベント図の下のレーン (`trigger-lanes`) | `webview/runtime/triggerLanes.ts:paintTriggerLanes` | 6 | 0 |
 | トラックの波形レーン (`track-waveform`) | `webview/runtime/comparisonRuntime.ts:drawTrackWaveform` | 7 | 0 |
 | トラックのスペクトログラムのレーン (`track-spectrogram`) | `webview/runtime/trackCanvasPainter.ts:paintTrackSpectrogram`<br>`webview/runtime/comparisonRuntime.ts:drawSpectrogram` | 5 | 0 |
-| トラックのレーンの軸（振幅・周波数の軸、上の時間の目盛り） (`track-axes`) | `webview/runtime/comparisonRuntime.ts:renderRuler`<br>`webview/runtime/stagePanes.ts:paintSideAxis`<br>`.track-axis-canvas:not(.track-spec-axis)`<br>`.track-spec-axis`<br>`#ruler-canvas` | 2 | 0 |
+| トラックのレーンの軸（振幅・周波数の軸、上の時間の目盛り） (`track-axes`) | `webview/runtime/comparisonRuntime.ts:renderRuler`<br>`webview/runtime/stagePanes.ts:paintSideAxis` | 2 | 0 |
 | トラックの見出しとツールバーの数（カーソルの時刻、ずらし、ピーク、解析窓） (`track-header`) | `webview/runtime/calibrationDecorations.ts:channelMetricSummaryHtml`<br>`webview/runtime/comparisonRuntime.ts:updateCursorDisplay` | 5 | 0 |
 | トラック表示の PNG 書き出し (`track-png`) | `webview/runtime/exportDownloads.ts:composeTrackCanvases` | 1 | 0 |
 | カーソルスペクトル (`cursor-spectrum`) | `webview/runtime/overlaySpectrumPainter.ts:paintOverlaySpectrum`<br>`webview/runtime/comparisonRuntime.ts:renderOverlaySpectrum` | 7 | 0 |
@@ -127,8 +127,8 @@
 
 | 値 | 何の数か | 計算する場所 | 出どころ | テスト | 穴 |
 | --- | --- | --- | --- | --- | --- |
-| 目盛り | 時間の目盛り（上の定規）と横の軸のキャンバスの目盛り | `webview/runtime/comparisonRuntime.ts:renderRuler`<br>`webview/runtime/laneAxes.ts:laneTimeTicks`<br>`webview/runtime/stagePanes.ts:paintSideAxis` | 軸の範囲・窓：見えている時間の窓から、比較台と同じ規則で決める。 | `laneAxes.test.ts` › the lanes take the ticks and their text from the rules every plot uses |  |
-| 軸の名前 | 時間の軸の名前（定規の右端） | `webview/runtime/comparisonRuntime.ts:renderRuler` | 文字：「時間 [s]」。 | `laneAxes.test.ts` › a lane axis names its quantity, unit and calibration as Compare's waveform axis does |  |
+| 目盛り | 時間の目盛り（上の定規）と横の軸のキャンバスの目盛り | `webview/runtime/comparisonRuntime.ts:renderRuler`<br>`webview/runtime/laneAxes.ts:laneTimeTicks`<br>`webview/runtime/stagePanes.ts:paintSideAxis`<br>`webview/runtime/stagePanes.ts:paintTimeAxis` | 軸の範囲・窓：見えている時間の窓から、比較台と同じ規則で決める。 | `laneAxes.test.ts` › the lanes take the ticks and their text from the rules every plot uses |  |
+| 軸の名前 | 時間の軸の名前（定規の右端） | `webview/runtime/comparisonRuntime.ts:renderRuler`<br>`webview/runtime/stagePanes.ts:paintTimeAxis` | 文字：「時間 [s]」。部品（paintTimeAxis）が定規に描き、ダブルクリックで時間の範囲を入れる（openTimeRangePopup）。 | `laneAxes.test.ts` › a lane axis names its quantity, unit and calibration as Compare's waveform axis does |  |
 
 ## トラックの見出しとツールバーの数（カーソルの時刻、ずらし、ピーク、解析窓）
 

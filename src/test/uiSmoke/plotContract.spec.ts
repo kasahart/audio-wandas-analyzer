@@ -13,7 +13,7 @@ import { entry100Results, openEntry, type ScannedFile } from './entryHelpers';
  * A plot that does not pass one yet is listed in KNOWN_GAPS with the deviation of the unified plot spec it waits
  * for; a gap that is fixed fails here until it is taken off, so the list only shrinks.
  */
-type Check = 'readout' | 'step' | 'zoom' | 'reset' | 'box zoom' | 'axis range' | 'axes';
+type Check = 'readout' | 'step' | 'zoom' | 'reset' | 'box zoom' | 'axis range' | 'x range' | 'axes';
 const KNOWN_GAPS: Record<string, readonly Check[]> = {};
 
 const FULL = '0.000 1.000 0.000 1.000';
@@ -166,7 +166,8 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
         const pageText = (name: string): boolean => Array.from(document.querySelectorAll<HTMLElement>('body *')).some(element => element.children.length === 0 && element.checkVisibility() && element.textContent?.trim() === name);
         return names.map(name => NAME.test(name.trim()) && (fits(own, name) || shown.includes(name) || pageText(name)));
     }, names);
-    if (names.length === 2 && written.every(Boolean)) passed.add('axes');
+    // Both axes, and a right-hand level axis where there is one.
+    if (names.length >= 2 && written.every(Boolean)) passed.add('axes');
     // A hover shows its readout in the row just above the plot, and the plot does not move: a readout there shows
     // text it did not show before the pointer came (not one left from an earlier hover).
     const readouts = (top: number): Promise<string[]> => page.evaluate(top => Array.from(document.querySelectorAll<HTMLElement>('[id*="readout"], [class*="readout"]'))
@@ -245,35 +246,44 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
     }
     await page.mouse.dblclick(middle.x, middle.y);
     await page.waitForTimeout(80);
-    // A double-click on the level axis opens its range: the plot's own left margin, or the canvas beside it that
-    // holds its value axis (data-plot-axis).
+    // A double-click on an axis opens its range. The range is applied, not only offered: bounds narrowed to the middle
+    // half of the ones it shows are typed in and applied, and the plot shows another part (its picture changes; the
+    // window attribute is only the gestures'), then Auto gives the whole back (the picture changes again).
+    const rangeApplies = async (at: { x: number; y: number }): Promise<boolean> => {
+        await page.mouse.dblclick(at.x, at.y);
+        const popover = page.locator('[id$="range-popover"]:visible');
+        let done = false;
+        if (await popover.count()) {
+            const min = popover.locator('input[id$="-min"]'), max = popover.locator('input[id$="-max"]');
+            const low = Number(await min.inputValue()), high = Number(await max.inputValue());
+            const pictureBefore = await picture();
+            if (Number.isFinite(low) && Number.isFinite(high) && high > low) {
+                await min.fill(String(low + (high - low) / 4));
+                await max.fill(String(high - (high - low) / 4));
+                await popover.locator('button[id$="-apply"]').click();
+                await page.waitForTimeout(80);
+                const narrowed = await picture();
+                const applied = !(await popover.count()) && narrowed !== pictureBefore;
+                await page.mouse.dblclick(at.x, at.y);
+                const again = page.locator('[id$="range-popover"]:visible');
+                if (await again.count()) await again.locator('button[id$="-auto"]').click();
+                await page.waitForTimeout(80);
+                done = applied && await picture() !== narrowed;
+            }
+        }
+        // Escape only for a popover still open: with none, it is the screen's own (it would leave the comparison).
+        if (await page.locator('[id$="range-popover"]:visible').count()) await page.keyboard.press('Escape');
+        return done;
+    };
+    // The level axis: the plot's own left margin, or the canvas beside it that holds its value axis (data-plot-axis).
     const axisId = await plot.getAttribute('data-plot-axis');
     const axisBox = axisId ? await page.locator(`[id="${axisId}"]`).boundingBox() : null;
-    await page.mouse.dblclick(axisBox ? axisBox.x + axisBox.width / 2 : box.x + 8, axisBox ? axisBox.y + axisBox.height / 2 : middle.y);
-    // The range is applied, not only offered: bounds narrowed to the middle half of the ones it shows are typed in and
-    // applied, and the plot shows another part (its picture changes; the window attribute is only the gestures'), then
-    // Auto gives the whole back (the picture changes again).
-    const popover = page.locator('[id$="range-popover"]:visible');
-    if (await popover.count()) {
-        const min = popover.locator('input[id$="-min"]'), max = popover.locator('input[id$="-max"]');
-        const low = Number(await min.inputValue()), high = Number(await max.inputValue());
-        const pictureBefore = await picture();
-        if (Number.isFinite(low) && Number.isFinite(high) && high > low) {
-            await min.fill(String(low + (high - low) / 4));
-            await max.fill(String(high - (high - low) / 4));
-            await popover.locator('button[id$="-apply"]').click();
-            await page.waitForTimeout(80);
-            const narrowed = await picture();
-            const applied = !(await popover.count()) && narrowed !== pictureBefore;
-            await page.mouse.dblclick(axisBox ? axisBox.x + axisBox.width / 2 : box.x + 8, axisBox ? axisBox.y + axisBox.height / 2 : middle.y);
-            const again = page.locator('[id$="range-popover"]:visible');
-            if (await again.count()) await again.locator('button[id$="-auto"]').click();
-            await page.waitForTimeout(80);
-            if (applied && await picture() !== narrowed) passed.add('axis range');
-        }
-    }
-    // Escape only for a popover still open: with none, it is the screen's own (it would leave the comparison).
-    if (await page.locator('[id$="range-popover"]:visible').count()) await page.keyboard.press('Escape');
+    if (await rangeApplies({ x: axisBox ? axisBox.x + axisBox.width / 2 : box.x + 8, y: axisBox ? axisBox.y + axisBox.height / 2 : middle.y })) passed.add('axis range');
+    // The horizontal axis: the plot's own bottom margin, or the canvas that holds the time axis it shares with the
+    // plots stacked on it (data-plot-x-axis, the lanes' ruler).
+    const xAxisId = await plot.getAttribute('data-plot-x-axis');
+    const xAxisBox = xAxisId ? await page.locator(`[id="${xAxisId}"]`).boundingBox() : null;
+    if (await rangeApplies({ x: xAxisBox ? xAxisBox.x + xAxisBox.width / 2 : middle.x, y: xAxisBox ? xAxisBox.y + xAxisBox.height / 2 : box.y + box.height - 6 })) passed.add('x range');
     await page.mouse.move(1, 1);
     return passed;
 }
@@ -346,7 +356,7 @@ async function expectContract(page: Page, name: string, plot: Locator): Promise<
     checkedPlots.add(await plot.evaluate(plotName));
     const passed = await contract(page, plot);
     const gaps = KNOWN_GAPS[name] ?? [];
-    const checks: Check[] = ['readout', 'step', 'zoom', 'reset', 'box zoom', 'axis range', 'axes'];
+    const checks: Check[] = ['readout', 'step', 'zoom', 'reset', 'box zoom', 'axis range', 'x range', 'axes'];
     expect.soft(checks.filter(check => !passed.has(check) && !gaps.includes(check)), `${name}: fails the plot contract (R13)`).toEqual([]);
     expect.soft(gaps.filter(check => passed.has(check)), `${name}: now passes; take it off KNOWN_GAPS`).toEqual([]);
 }
@@ -648,6 +658,23 @@ test('every ui-smoke test fails on a plot drawn into before it was marked, or of
     expect((await page.evaluate(() => window.__drawnAudit ?? [])).filter(name => name.includes('paper-only'))).toEqual([]);
     // Taken away, with the audit's record cleared, so this test itself passes the audit.
     await page.evaluate(() => { document.querySelector('.drawn-before-marked')?.remove(); window.__drawnAudit?.splice(0); });
+});
+
+test('every ui-smoke test fails on a plot on screen whose axis name is in its attributes but not drawn: what is checked is what is drawn (R4)', async ({ page }) => {
+    await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
+    // A plot that says it has a time axis and a pressure axis, but writes only the time axis's name.
+    await page.evaluate(() => {
+        const plot = document.createElement('canvas');
+        plot.className = 'unnamed-axis';
+        plot.setAttribute('data-plot', '');
+        plot.setAttribute('data-plot-axes', 'Time [s]|Ghost pressure [Pa]');
+        Object.assign(plot.style, { position: 'fixed', left: '0', top: '0', width: '120px', height: '60px' });
+        document.body.append(plot);
+        plot.getContext('2d')?.fillText('Time [s]', 10, 50);
+    });
+    await expect.poll(() => page.evaluate(() => window.__unitAudit ?? []), { timeout: 15_000 }).toEqual(expect.arrayContaining([expect.stringMatching(/^canvas\.unnamed-axis .*names "Ghost pressure \[Pa\]" but does not draw it$/u)]));
+    // Taken away, with the audit's record cleared, so this test itself passes the audit.
+    await page.evaluate(() => { document.querySelector('.unnamed-axis')?.remove(); window.__unitAudit?.splice(0); });
 });
 
 test('every ui-smoke test fails on a plot on screen that drew a louder compared line over a quieter one (R6)', async ({ page }) => {

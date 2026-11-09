@@ -27,7 +27,9 @@
  * ("Phase [°]", "Coherence γ² [–]", "temp_c (CSV column) [unit unknown]") fails it, whichever plot it is; so does a
  * plot on screen with two tick labels of one axis (numbers written in one column: the same alignment and x) whose
  * ink overlaps, however short the plot is; so does a heatmap whose colour bar does not draw what its colour measures
- * (`data-plot-colour`), whole or fitted as an axis name is.
+ * (`data-plot-colour`), whole or fitted as an axis name is; so does a plot whose axis name, said in its attributes, is
+ * not drawn for a while: on the plot, on the canvas holding its value axis, on a canvas that is no plot (the lanes'
+ * shared time axis), on a plot stacked on the same axis, or as text on the page. What is checked is what is drawn.
  */
 import { test as base } from '@playwright/test';
 import { DRAWN_OUTSIDE_PENDING, PLOT_LAYERS, PLOTS_PENDING, SVG_CHARTS_PENDING } from './plotRegistry';
@@ -78,7 +80,8 @@ function installCanvasAudit({ settle, measureMs, others, drawnOutside, svgCharts
             const paper = method === 'fillRect' && this.globalCompositeOperation === 'destination-over';
             if (canvas instanceof HTMLCanvasElement && !(window.__plotPainting ?? 0) && !paper && !(drawnOutside && canvas.matches(drawnOutside))) {
                 const name = `${canvasName(canvas)}: ${method}`;
-                if (canvas.isConnected && canvas.hasAttribute('data-plot')) reportDrawn(name);
+                // A plot, or an axis the component draws on a canvas of its own (data-plot-axis-canvas), is the component's.
+                if (canvas.isConnected && (canvas.hasAttribute('data-plot') || canvas.hasAttribute('data-plot-axis-canvas'))) reportDrawn(name);
                 else {
                     const kept = unseen.get(canvas) ?? new Set<string>();
                     kept.add(name);
@@ -331,6 +334,21 @@ function installCanvasAudit({ settle, measureMs, others, drawnOutside, svgCharts
     });
     // Since when each plot on screen has shown a level still being fetched: one that never comes in fails too.
     const measuringSince = new WeakMap<HTMLCanvasElement, number>();
+    // Since when each plot on screen has named an axis it does not draw: drawn soon after (its axis canvas painted
+    // next), it is not reported; never drawn, it is.
+    const undrawnSince = new WeakMap<HTMLCanvasElement, number>();
+    // Whether an axis name is drawn where a reader sees it (as plotContract.spec's 'axes' check reads it).
+    const nameShown = (canvas: HTMLCanvasElement, name: string): boolean => {
+        const axisId = canvas.dataset.plotAxis;
+        const own = [...((canvas as Texted).__plotTexts ?? []), ...((axisId ? (document.getElementById(axisId) as Texted | null)?.__plotTexts : undefined) ?? [])];
+        if (colourNameDrawn(own, name)) return true;
+        const stack = canvas.closest('[data-plot-stack]');
+        const shared = Array.from(document.querySelectorAll<HTMLCanvasElement>('canvas'))
+            .filter(other => other !== canvas && shownBox(other) && (!other.hasAttribute('data-plot') || (!!stack && stack.contains(other))))
+            .flatMap(other => (other as Texted).__plotTexts ?? []);
+        if (shared.includes(name)) return true;
+        return Array.from(document.querySelectorAll<HTMLElement>('body *')).some(element => element.children.length === 0 && element.checkVisibility() && element.textContent?.trim() === name);
+    };
     const samplePlots = (): void => {
         const now = performance.now();
         for (const canvas of Array.from(document.querySelectorAll('canvas'))) {
@@ -360,6 +378,13 @@ function installCanvasAudit({ settle, measureMs, others, drawnOutside, svgCharts
                 const name = `units ${canvasName(canvas)}: ${bare.join(' | ')}`;
                 if (!reported.has(name)) { reported.add(name); unitless.push(`${canvasName(canvas)} names ${bare.map(text => `"${text}"`).join(', ')}`); }
             }
+            const undrawn = axes && canvas.hasAttribute('data-plot') && shownBox(canvas) ? axes.split('|').filter(text => named(text) && !nameShown(canvas, text)) : [];
+            if (undrawn.length) {
+                const since = undrawnSince.get(canvas) ?? now;
+                undrawnSince.set(canvas, since);
+                const name = `undrawn ${canvasName(canvas)}: ${undrawn.join(' | ')}`;
+                if (now - since > measureMs && !reported.has(name)) { reported.add(name); unitless.push(`${canvasName(canvas)} (${canvas.clientWidth}×${canvas.clientHeight}) names ${undrawn.map(text => `"${text}"`).join(', ')} but does not draw it`); }
+            } else undrawnSince.delete(canvas);
             const colour = canvas.getAttribute('data-plot-colour');
             if (colour && canvas.hasAttribute('data-plot') && shownBox(canvas) && !colourNameDrawn((canvas as Texted).__plotTexts ?? [], colour)) {
                 const name = `colour ${canvasName(canvas)}: ${colour}`;
@@ -370,7 +395,7 @@ function installCanvasAudit({ settle, measureMs, others, drawnOutside, svgCharts
                 const name = `full ${canvasName(canvas)}: ${full}`;
                 if (!reported.has(name)) { reported.add(name); undeclared.push(`${canvasName(canvas)} ${full}`); }
             }
-            if (canvas.hasAttribute('data-plot') || (others && canvas.matches(others)) || !shownBox(canvas)) { unmarkedSince.delete(canvas); continue; }
+            if (canvas.hasAttribute('data-plot') || canvas.hasAttribute('data-plot-axis-canvas') || (others && canvas.matches(others)) || !shownBox(canvas)) { unmarkedSince.delete(canvas); continue; }
             const from = unmarkedSince.get(canvas) ?? { frame, at: now };
             unmarkedSince.set(canvas, from);
             if (frame - from.frame < settle.frames || now - from.at < settle.ms) continue;

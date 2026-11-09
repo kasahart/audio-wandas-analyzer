@@ -891,7 +891,8 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
     // plot contract test gives each one marked the same gestures. Its axes are named on it for that test.
     if (canvas.dataset) {
         canvas.dataset.plot = '';
-        canvas.dataset.plotAxes = overlay.layers.length ? `${axes.x}|${axes.y}` : '';
+        // The right-hand level axis's name too, where there is one: it is drawn and audited as the others are (R4).
+        canvas.dataset.plotAxes = overlay.layers.length ? [axes.x, axes.y, ...(options.secondary && !overlay.layers.some(layer => layer.view.kind === 'heatmap') ? [options.secondary.title] : [])].join('|') : '';
         canvas.dataset.plotOrder = '';
         canvas.dataset.plotFull = '';
         canvas.dataset.plotColour = '';
@@ -1194,12 +1195,62 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
 export function paintSideAxis(canvas: HTMLCanvasElement, ticks: readonly AxisTick[], title: string, colors: { muted: string; text: string }): void {
     const context = canvas.getContext('2d');
     if (!context) return;
-    context.setTransform(1, 0, 0, 1, 0, 0);
-    context.clearRect(0, 0, canvas.width, canvas.height);
-    const frame = { left: canvas.width, top: 0, width: 0, height: canvas.height };
-    drawValueAxis(context, frame, spacedTicks(ticks, canvas.height), '', { color: colors.muted, font: PLOT_TEXT_FONT, titleX: AXIS_TITLE_X });
-    context.font = PLOT_TEXT_FONT;
-    paintValueTitle(context, frame, title, colors.text, AXIS_TITLE_X);
+    paintingAxis(canvas, () => {
+        context.setTransform(1, 0, 0, 1, 0, 0);
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        const frame = { left: canvas.width, top: 0, width: 0, height: canvas.height };
+        drawValueAxis(context, frame, spacedTicks(ticks, canvas.height), '', { color: colors.muted, font: PLOT_TEXT_FONT, titleX: AXIS_TITLE_X });
+        context.font = PLOT_TEXT_FONT;
+        paintValueTitle(context, frame, title, colors.text, AXIS_TITLE_X);
+    });
+}
+
+/**
+ * The time axis plots stacked on it share, on its own canvas above them (the track lanes' ruler): its ticks along
+ * the bottom over `width` pixels, their numbers, and its name at the right end, as every plot writes its time axis;
+ * a number the name would cover is left out.
+ */
+export function paintTimeAxis(canvas: HTMLCanvasElement, ticks: ReadonlyArray<{ x: number; text: string }>, title: string, width: number, colors: { muted: string; line: string; text: string }): void {
+    const context = canvas.getContext('2d');
+    if (!context) return;
+    paintingAxis(canvas, () => {
+        const height = canvas.height;
+        context.setTransform(1, 0, 0, 1, 0, 0);
+        context.clearRect(0, 0, canvas.width, height);
+        context.font = PLOT_TEXT_FONT;
+        context.textAlign = 'left';
+        context.textBaseline = 'alphabetic';
+        const titleLeft = width - context.measureText(title).width - 2;
+        context.fillStyle = colors.muted;
+        context.strokeStyle = colors.line;
+        context.lineWidth = 1;
+        context.beginPath();
+        for (const tick of ticks) {
+            const x = Math.round(tick.x) + 0.5;
+            context.moveTo(x, height - 4);
+            context.lineTo(x, height);
+            if (tick.x + 2 + context.measureText(tick.text).width < titleLeft - 4) context.fillText(tick.text, tick.x + 2, height - 6);
+        }
+        context.stroke();
+        context.fillStyle = colors.text;
+        context.fillText(title, titleLeft, height - 6);
+    });
+}
+
+/**
+ * An axis drawn on a canvas of its own by the plot component, beside or above the plots it serves (a lane's value
+ * axis, the lanes' time axis): marked as the component's (`data-plot-axis-canvas`), and drawn while the page knows
+ * the component is drawing, so the audit holds it to the component as it holds a plot (R13).
+ */
+function paintingAxis(canvas: HTMLCanvasElement, paint: () => void): void {
+    const scope = globalThis as { __plotPainting?: number };
+    scope.__plotPainting = (scope.__plotPainting ?? 0) + 1;
+    try {
+        if (canvas.dataset) canvas.dataset.plotAxisCanvas = '';
+        paint();
+    } finally {
+        scope.__plotPainting = (scope.__plotPainting ?? 1) - 1;
+    }
 }
 
 /**

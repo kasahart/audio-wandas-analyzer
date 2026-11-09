@@ -39,5 +39,7 @@ export function markLanePlot(canvas: HTMLElement, axes: { x: string; y: string }
     // Not its `data-plot` mark: only paintOverlay sets that, as it draws the lane (R13).
     canvas.dataset.plotAxes = `${axes.x}|${axes.y}`;
     canvas.dataset.plotAxis = axisId;
+    // The time axis every lane shares, drawn once above them by the component (paintTimeAxis): its range is set there.
+    canvas.dataset.plotXAxis = 'ruler-canvas';
     canvas.dataset.plotWindow = [window.x.start, window.x.end, window.y.start, window.y.end].map(value => value.toFixed(3)).join(' ');
 }

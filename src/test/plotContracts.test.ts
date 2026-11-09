@@ -14,7 +14,7 @@ import { PLOTS_PENDING } from './uiSmoke/plotRegistry';
 const repoRoot = path.resolve(__dirname, '..', '..');
 const STAGE_PANES = 'src/webview/runtime/stagePanes.ts';
 /** The plot component's entry points: every call of one outside stagePanes.ts draws a chart. */
-const PLOT_COMPONENT = new Set(['paintOverlay', 'paintStage', 'paintSideAxis']);
+const PLOT_COMPONENT = new Set(['paintOverlay', 'paintStage', 'paintSideAxis', 'paintTimeAxis']);
 /** Number primitives: a call of one turns a number into the text a user reads. */
 const NUMBER_TEXT = new Set(['toFixed', 'toPrecision', 'toExponential', 'toLocaleString']);
 /** Math's integer roundings: one applied to a value scaled by a power of ten rounds it to decimals, as text does. */
