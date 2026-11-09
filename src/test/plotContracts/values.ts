@@ -112,7 +112,6 @@ export const DRAWN_READERS: Readonly<Record<string, { use: DrawnUse; why: string
     [`${SP}:paint`]: { use: 'draws', why: 'draws a signal\'s envelope' },
     [`${SP}:paintPlot`]: { use: 'draws', why: 'draws the pictures' },
     [`${SP}:points`]: { use: 'whole', why: 'every drawn value of a picture, for the range of one without valueRange (which the webview holds whole)' },
-    [`${SP}:robustEdge`]: { use: 'whole', why: 'a cepstrogram\'s colour edge: its full coefficients\' 99th percentile (valueRange.robust); the drawn cells only of a picture without it' },
     [`${SP}:screenLevels`]: { use: 'whole', why: 'a line\'s level on screen from its values only where the webview holds every value; else levelBins or its full read (R6)' },
     [`${SP}:stageAxes`]: { use: 'draws', why: 'whether a picture is a signal, for the amplitude axis\'s name' },
     [`${SP}:stageDiffRange`]: { use: 'whole', why: 'the Δ\'s auto range from extent: the full Δ\'s valueRange' },
