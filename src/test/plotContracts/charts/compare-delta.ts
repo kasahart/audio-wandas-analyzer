@@ -21,10 +21,11 @@ export const compareDelta: ChartContract = {
         {
             id: 'compare-delta.identity', value: 'identity', what: 'Δ と中央値を出す録音の組（レベルの同一性）',
             computedIn: ['src/webview/runtime/comparePanes.ts:levelIdentityOf', 'src/webview/runtime/comparePanes.ts:levelIdentity', 'python-backend/level_identity.py:level_identity', 'python-backend/stage_combine.py:_calibration'],
-            from: 'whole', trace: '単位・基準値・レベル基準の名前の 3 つ。webview とバックエンドが同じ表（levelIdentityCases.json）に同じ答えを返す。',
+            from: 'whole', trace: '単位・基準値・レベル基準の名前の 3 つ（伝達関数は描くペアの単位の比の 3 つ）。webview とバックエンドが同じ表（levelIdentityCases.json）に同じ答えを返す。',
             tests: [
                 t('src/test/levelIdentity.test.ts', 'levels compare only in one unit, reference and its label, whatever their calibration status: the webview answers the table the backend answers (R1, R4, A34)'),
                 t('python-backend/test_level_identity.py', 'test_levels_compare_in_one_unit_reference_and_label_whatever_their_calibration_status'),
+                t('python-backend/test_stage_combine.py', 'test_a_transfer_functions_difference_is_gated_by_its_pairs_unit_ratio_not_its_channels_level'),
             ],
             exception: { rule: 'R1', quote: '校正状態は含めません（ゲイン補正した FS の録音と補正していない FS の録音はどちらも dBFS なので比べます）。それでも校正状態の違う線が 1 本の軸に載るときは、未校正の線が読み値と凡例に自分で「未校正」と書きます（R4）。' },
         },

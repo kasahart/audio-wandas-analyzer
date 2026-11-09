@@ -44,6 +44,8 @@
 - テスト: `src/test/levelIdentity.test.ts` › levels compare only in one unit, reference and its label, whatever their calibration status: the webview answers the table the backend answers (R1, R4, A34)
 - テスト: `python-backend/test_level_identity.py` › test_levels_compare_in_one_unit_reference_and_label_whatever_their_calibration_status
 - テスト: `src/test/entryBase.test.ts` › a base group keeps to the one level identity the backend uses: a gain-corrected FS file and a raw one are both dBFS and are one group (A34, R1)
+- 伝達関数の値は、描くペア（ch2 / ch1）の単位の比を基準にしているので、その Δ と中央値はチャンネルのレベルではなくその比の同一性で分けます（同じ単位どうしの利得は Pa の録音でも V の録音でも比べ、Pa/V と V/V は比べません。`stage_combine.py` の `_calibration`）。
+- テスト: `python-backend/test_stage_combine.py` › test_a_transfer_functions_difference_is_gated_by_its_pairs_unit_ratio_not_its_channels_level
 - 入口でスロットのキーを押し続けて出す保持図の Δ は、押したときに、その録音と基準の録音の全ビンを取り寄せて計算します。届くまでは何も描かず、題に「計算中」と出します。表の 192 点の Δ は描きません。全ビンが取れない録音（スキャンがビンを返さないとき）は、1/3 オクターブ帯の Δ を棒で描きます。帯のレベルは、スキャンが全ビンから求めた値です。レポートの図も同じで、全ビンがないときは、重ね図は 1/3 オクターブ帯のレベルを、Δ の図は帯の Δ の段だけを描きます。
 - テスト: `src/test/entryHeldPlot.test.ts` › a held slot asks once for every bin of its file and its base, then draws its Δ from them (R1, R3)
 - テスト: `src/test/uiSmoke/heldDelta.spec.ts` › a held slot draws its own channel's Δ against its base from every bin the hold asks for (R1, R3, R11)

@@ -275,6 +275,31 @@ def test_time_signals_in_other_units_or_calibrations_have_no_sample_difference(s
     assert combine([base, compare], None) == {"ok": True, "noDelta": "unit"}
 
 
+def test_a_transfer_functions_difference_is_gated_by_its_pairs_unit_ratio_not_its_channels_level() -> None:
+    # Two recordings' gains (one unit over itself) compare though one is in Pa and the other in V: a gain is re 1
+    # either way. Two transfer levels compare only in one ratio: Pa/V against V/V has no Δ.
+    noise = np.random.default_rng(11).standard_normal(48_000)
+
+    def transfer(units: list[str], gain: float) -> object:
+        frame = wd.from_numpy(np.vstack([noise, gain * noise]), sampling_rate=48_000, ch_units=units)
+        transfer = frame.transfer_function(n_fft=1024)
+        item = stage_data(transfer, dict(stage_view(transfer)))
+        assert item is not None
+        return item
+
+    pa, volt = transfer(["Pa", "Pa"], 0.5), transfer(["V", "V"], 0.25)
+    result = combine([pa], volt)
+    assert "noDelta" not in result and result.get("diff") is not None
+    assert np.median([value for value in result["diff"]["values"] if value is not None]) == pytest.approx(
+        20 * np.log10(0.5), abs=0.3
+    )
+    # What its values are in is the drawn pair's (ch2 / ch1) ratio, never the Frame's first row (ch1 / ch1, always 1).
+    assert transfer(["V", "Pa"], 0.5).calibration == ("Pa/V", pytest.approx(2e-5), "dB re 2e-05 Pa/V")
+    assert pa.calibration == volt.calibration == ("1", 1.0, "dB re 1 1")
+    assert combine([transfer(["V", "Pa"], 0.5)], transfer(["V", "V"], 0.5)) == {"ok": True, "noDelta": "unit"}
+    assert "noDelta" not in combine([transfer(["V", "Pa"], 0.5)], transfer(["V", "Pa"], 0.25))
+
+
 def _level(bins: dict, low: float = -np.inf, high: float = np.inf) -> float:
     edges, power, count = np.asarray(bins["edges"]), np.asarray(bins["power"]), np.asarray(bins["count"])
     middle = (edges[:-1] + edges[1:]) / 2

@@ -185,9 +185,16 @@ def _column_whole(frame: Any, columns: int, signal_s: float | None) -> np.ndarra
 
 def _calibration(frame: object) -> LevelIdentity:
     """What ``frame``'s values are in (level_identity: unit, reference, its label; a trigger's events: their first
-    event's)."""
+    event's; a transfer function: its drawn pair's unit ratio)."""
     if isinstance(frame, ChannelFrameSegments):
         frame = frame[0] if len(frame) else None
+    if isinstance(frame, TransferFunctionFrame):
+        # A transfer function's values are re its pair's unit ratio (a gain of one unit is re 1), not either
+        # channel's level: two recordings' transfer functions compare when their drawn pairs' ratios are alike.
+        row = sv._cross_pair(frame)
+        if row is not None:
+            domain = frame.pair_domains[row]
+            return level_identity(domain.unit, domain.reference, frame.channels[row].level_reference.label)
     channels = getattr(frame, "channels", None)
     if not channels:
         return level_identity("", 1.0, "")
