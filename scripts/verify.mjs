@@ -3,7 +3,8 @@
 // An agent's task is not done until this script exits 0. Plain Node, so it runs the same on Windows.
 //
 // Runs: tsc compile, ESLint, Webview pattern lint, generated protocol types, single-source consistency,
-// agent skills copy, GUI triggerability audit, node:test, ruff check + format --check, pyright, pytest.
+// agent skills copy, GUI triggerability audit, node:test, ruff check + format --check, pyright, the backend's
+// drawn-points flow check, pytest.
 //   AWA_VERIFY_BROWSER=1  also checks the browser runtime assets and Worker/native parity
 //   AWA_SLOW=1            also runs the slow pytest checks (the operation catalog's probe); CI sets it
 //   AWA_PERF=1            also holds the pytest and node:test wall-clock budgets (they are reported either way)
@@ -58,12 +59,14 @@ run('agent skills copy (.claude/skills from .agents/skills)', ...node('scripts/s
 run('gui triggerability audit', ...npm(['run', 'lint:gui-triggerability']));
 // spec (not the non-TTY TAP default) repeats every failure at the end, so it survives a truncated CI log tail.
 run('node:test', ...node('--test', '--test-reporter=spec', 'dist/test/**/*.test.js'));
-run('ruff check', python, ['-m', 'ruff', 'check', 'python-backend']);
-run('ruff format --check', python, ['-m', 'ruff', 'format', '--check', 'python-backend']);
+run('ruff check', python, ['-m', 'ruff', 'check', 'python-backend', 'scripts/check_decimation_flow.py']);
+run('ruff format --check', python, ['-m', 'ruff', 'format', '--check', 'python-backend', 'scripts/check_decimation_flow.py']);
 // Configured in pyproject.toml ([tool.pyright]); --pythonpath points it at the interpreter verify runs. pyright
 // needs that interpreter's absolute path: given a bare `python3` (CI has no .venv) it finds no site-packages.
 const pythonExecutable = spawnSync(python, ['-c', 'import sys; print(sys.executable)'], { env, encoding: 'utf8' }).stdout.trim();
 run('pyright', python, ['-m', 'pyright', '--pythonpath', pythonExecutable]);
+// What the backend thins to draw (min/max per bucket, block averages) never becomes a number it sends (R1, R2).
+run('drawn points never become numbers (scripts/check_decimation_flow.py)', python, ['scripts/check_decimation_flow.py']);
 run('pytest', python, ['-m', 'pytest', 'python-backend']);
 
 if (process.env.AWA_VERIFY_BROWSER === '1') {
