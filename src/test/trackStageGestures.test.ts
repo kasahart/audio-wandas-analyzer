@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { localLine } from '../webview/runtime/fullRead';
 import { JSDOM } from 'jsdom';
 import { getStrings } from '../shared/i18n/strings';
 import { attachStageGestures } from '../webview/runtime/trackStageGestures';
@@ -34,7 +35,7 @@ test('a click on a trigger\'s event line (the plot gestures\' tap: a press that 
     const plot = {
         frame, xAt: (value: number) => frame.left + value * frame.width, yAt: (value: number) => frame.top + (1 - value) * frame.height,
         xOf: (x: number) => (x - frame.left) / frame.width, ratioStep: 1, diff: false,
-        lines: [{ view: { kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs: [0, 0.5, 1], values: [0.5, 0.5, 0.5] }, color: '#000', event, full: 'drawn' }],
+        lines: [{ view: { kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs: [0, 0.5, 1], values: [0.5, 0.5, 0.5] }, color: '#000', event, full: localLine([0, 0.5, 1], [0.5, 0.5, 0.5]) }],
     } as unknown as StagePlot;
     const state = initialStageState();
     state.on = true;

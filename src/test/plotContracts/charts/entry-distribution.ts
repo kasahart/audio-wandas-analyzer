@@ -11,18 +11,17 @@ export const entryDistribution: ChartContract = {
         {
             id: 'entry-distribution.readout', value: 'readout', what: '分布図の読み値（ビンの範囲と数、点の録音と値、スロット、基準の中央値）',
             computedIn: ['src/webview/runtime/entryDistribution.ts:distributionRows', 'src/webview/runtime/entryTableHtml.ts:plotValueText', 'src/webview/runtime/entryRuntime.ts:format'],
-            from: 'whole', trace: 'ビン・点・目盛りのしるしは間引かず全部描く（full: \'drawn\'）。値は表の値（スキャンの全データの値）。',
+            from: 'whole', trace: 'ビン・点・目盛りのしるしは間引かず全部描き、層ごとにその全部の値を InlineFullSource（localLine）として持って読む。値は表の値（スキャンの全データの値）。',
             tests: [
                 t('src/test/plotText.test.ts', 'the distribution reads a value as a plot does, not as the table column writes it (R7)'),
                 t('src/test/plotText.test.ts', 'neighbouring distribution bins never read the same: the bins\' width adds the digits it needs (R7)'),
                 t('src/test/entryDistributionPane.test.ts', 'each group is a row of the plot component: its dots, its slots and the base on it'),
             ],
-            exception: { rule: 'R7', quote: '描いた点がそのまま全部の点であるもの（棒、帯、ペアの図の全ビン、分布のビン）は \'drawn\'' },
         },
         {
             id: 'entry-distribution.step', value: 'step', what: '分布図の ← / →',
-            computedIn: [`${SP}:stageStep`],
-            from: 'whole', trace: '描いた次のビン・点。',
+            computedIn: [`${SP}:stageStep`, 'src/webview/runtime/fullRead.ts:localLine'],
+            from: 'whole', trace: '層が持つ全部の値（InlineFullSource）の次のビン・点。',
             tests: [
                 t('src/test/uiSmoke/plotContract.spec.ts', 'the entry\'s distribution answers the same gestures as every plot: each group\'s row, on the value axis below them (R13)'),
             ],

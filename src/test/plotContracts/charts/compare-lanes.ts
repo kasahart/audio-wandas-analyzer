@@ -14,7 +14,7 @@ export const compareLanes: ChartContract = {
             from: 'full', trace: '重ね図と同じ fullOf（stageReader.of）を各レーンの層に付ける。',
             tests: [
                 tt('src/test/trackStagePainter.test.ts', 'side by side, each lane is read at its own full data, never the line thinned to draw it: a bin thinned out under the pointer, and ← / → one bin at a time (R7)'),
-                t('src/test/fullRead.test.ts', 'every line and image a plot draws says where its full data is read; bars are whole (R7)'),
+                t('src/test/fullRead.test.ts', 'every layer a plot draws is given its full data, held or fetched: one given none is marked and reads no number, bars too (R7)'),
                 t('src/test/stagePanes.test.ts', 'the pointer reads the point nearest it within a few pixels, so a narrow peak beside it is read at its top (R7)'),
                 t('src/test/trackStagePainter.test.ts', 'side by side, every lane draws its own picture and says it shows the step; the base measured against says so'),
             ],

@@ -1,4 +1,4 @@
-import { mappedSource, type FullSource } from './fullRead';
+import { mappedSource, NO_FULL_DATA, type FullSource } from './fullRead';
 import type { SpectrogramData, WaveformEnvelope } from '../../shared/analysis/analysisTypes';
 import { viridis, type AxisTick } from '../../shared/gui-core/index';
 import { spectrogramTimeBinEdges } from '../spectrum/spectrogramTimeBins';
@@ -56,9 +56,9 @@ export function laneWaveformOverlay(src: WaveformPaintSource | null, place: Lane
     const fileNormOf = (seconds: number): number => (seconds - fileStart) / fileSpan;
     if (!src) return { overlay: { layers: [] }, axisView, fileNormOf };
     // Every number read off the lane is a sample of the file (R7): its full data over the file's 0..1, on the lanes' axis.
-    const samples = full ? mappedSource(full, fileNormOf, toSec) : undefined;
+    const samples = full ? mappedSource(full, fileNormOf, toSec) : NO_FULL_DATA;
     const layerOf = (part: WaveformPaintSource, span?: readonly [number, number]): StageLayer =>
-        ({ view: { ...axisView, waveform: laneWaveform(part, place, unit) }, color, ...(span ? { span } : {}), ...(samples ? { full: samples } : {}) });
+        ({ view: { ...axisView, waveform: laneWaveform(part, place, unit) }, color, ...(span ? { span } : {}), full: samples });
     const detail = src.detail;
     if (!detail) return { overlay: { layers: [layerOf(src)] }, axisView, fileNormOf };
     const from = toSec(detail.dataStart), to = toSec(detail.dataEnd);
@@ -183,8 +183,8 @@ export function paintTrackSpectrogram(
     // Clipped to the recording: its first and last cells reach half a frame past it, where the lane shows no file.
     const span: [number, number] = [place.startSec + place.offsetNorm * place.spanSec, place.startSec + (place.offsetNorm + place.trackDurRatio) * place.spanSec];
     // Every number read off the lane is a real STFT cell (R7): its full data in seconds from the file's start.
-    const cells = full ? mappedSource(full, seconds => seconds - span[0], seconds => seconds + span[0]) : undefined;
-    const plot = paintOverlay(canvas, { layers: [{ view: picture, color: '', span, ...(cells ? { full: cells } : {}) }] }, { min: view.dbLo, max: view.dbHi },
+    const cells = full ? mappedSource(full, seconds => seconds - span[0], seconds => seconds + span[0]) : NO_FULL_DATA;
+    const plot = paintOverlay(canvas, { layers: [{ view: picture, color: '', span, full: cells }] }, { min: view.dbLo, max: view.dbHi },
         { x: titles.time, y: titles.frequency, colour: titles.colour },
         { axisCanvas, axisView, heatmapPalette: viridis, window: { x: view.window, y: { start: (Math.max(0, view.minFrequencyHz) - low) / rowSpan, end: (view.maxFrequencyHz - low) / rowSpan } } });
     return { source: spec, key, full, plot, colourBar: plot?.colourBar ?? { x: 0, y: 0, width: 0, height: 0 }, ticks: plot?.levelTicks ?? [] };

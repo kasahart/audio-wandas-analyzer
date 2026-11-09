@@ -1,10 +1,11 @@
 /**
  * How a plot reads its numbers (R7): decimated data is only for drawing lines; the readout under the pointer and the
  * point an arrow key steps to come from the data before it was thinned. Every layer a plot draws declares where its
- * full data is read (StageLayer.full): 'drawn' when what it draws is every point (bars, a pair spectrum's every bin, a
- * histogram's bins), or a source that gives the full-resolution points around a place. The plot component
- * (stagePanes.ts) reads only through it, and marks a plot that draws a layer without one (`data-plot-full`), which
- * every ui-smoke test fails (canvasAudit.ts).
+ * full data is read (StageLayer.full, required): an InlineFullSource the webview holds every value of (bars and
+ * bands, a pair spectrum's every bin, a histogram's bins, localLine / localCells), or a FetchedFullSource the backend
+ * holds (fetchedSource). The plot component (stagePanes.ts) reads only through it, never from what it draws, bars
+ * included. A layer whose caller has no full data is given NO_FULL_DATA: it reads no number, and the plot marks it
+ * (`data-plot-full`), which every ui-smoke test fails (canvasAudit.ts).
  *
  * A source gives what full_read.py gives: the points in a window and some past each end (`complete`: every point
  * between `start` and `end`), or for a window too dense to send whole, per pixel column its lowest, highest and the
@@ -12,7 +13,7 @@
  * localCells); one the backend holds (fetchedSource) asks for the window around the pointer, or the next steps, once,
  * keeps what came, and says when it is in (`ready`): until then the plot shows its marks and no number.
  */
-import type { StagePoints, StageRead } from '../../shared/protocol/backendProtocol';
+import type { StagePoints, StageRead, StageView } from '../../shared/protocol/backendProtocol';
 
 /** A line's points between two places of its horizontal axis (its own units), with `beyond` more past each end. */
 export interface LineQuery {
@@ -70,12 +71,12 @@ export function levelOfValues(xs: ArrayLike<number>, values: ArrayLike<number | 
 }
 
 /** Points as full_read.py gives them; an image's cells may name their rows (the entry overview's recordings). */
-export type FullPoints = StagePoints & { rowNames?: readonly string[] };
+export type FullPoints = StagePoints & { rowNames?: readonly string[]; offset?: number };
 
 /** undefined: being fetched (`ready` is called once it is in); null: there is no full data to read. */
 export type FullAnswer = FullPoints | null | undefined;
 
-export interface FullSource {
+interface FullSourceReads {
     line?(query: LineQuery, ready: () => void): FullAnswer;
     cells?(query: CellQuery, ready: () => void): FullAnswer;
     /** The power of every value of the line in a window (R6), from its full data. */
@@ -84,8 +85,30 @@ export interface FullSource {
     event?(id: number): FullSource;
 }
 
-/** What a layer declares: its drawn points are all its points, or the source of its full data. */
-export type FullRead = 'drawn' | FullSource;
+/**
+ * Full data the webview holds every value of (localLine, localCells, wholeOf): it answers at once, never pending.
+ * Bars, a pair spectrum's every bin, a histogram's bins and a band table are read through one of these, built from
+ * their every value, never from what a plot draws.
+ */
+export interface InlineFullSource extends FullSourceReads {
+    readonly held: 'inline';
+}
+
+/** Full data the backend holds (fetchedSource): asked for around the pointer, pending until it is in. */
+export interface FetchedFullSource extends FullSourceReads {
+    readonly held: 'fetched';
+}
+
+export type FullSource = InlineFullSource | FetchedFullSource;
+
+/** What every layer declares (StageLayer.full, required): the source of its full data, held or fetched. */
+export type FullRead = FullSource;
+
+/**
+ * The full data of a layer whose caller has none to give: every read is unavailable (no number, R7), and the plot
+ * marks the layer (`data-plot-full`), which every ui-smoke test fails (canvasAudit.ts).
+ */
+export const NO_FULL_DATA: FetchedFullSource = Object.freeze({ held: 'fetched' as const });
 
 /** How many points past the one read an arrow key's read asks for, so the next steps need no request. */
 export const STEP_AHEAD = 256;
@@ -101,25 +124,32 @@ function firstFrom(xs: ArrayLike<number>, x: number, after = false): number {
 }
 
 /** A line the webview holds every point of (ascending `xs`): its full data, read as the backend reads one. */
-export function localLine(xs: readonly number[], values: readonly (number | null)[]): FullSource {
+export function localLine(xs: readonly number[], values: readonly (number | null)[]): InlineFullSource {
     return {
+        held: 'inline',
         line(query) {
             const n = Math.min(xs.length, values.length);
             const low = firstFrom(xs, Math.min(query.x0, query.x1)), high = firstFrom(xs, Math.max(query.x0, query.x1), true);
             const first = Math.max(0, low - query.beyond), after = Math.min(n, Math.max(low, high) + query.beyond);
-            return { xs: xs.slice(first, after), values: values.slice(first, after), start: first > 0 ? xs[first] : null, end: after < n ? xs[after - 1] : null, complete: true };
+            return { xs: xs.slice(first, after), values: values.slice(first, after), start: first > 0 ? xs[first] : null, end: after < n ? xs[after - 1] : null, complete: true, offset: first };
         },
         level: query => levelOfValues(xs, values, query),
     };
 }
 
+/** A band table's bars, which the backend sends whole (every band, none thinned): read from their every value. */
+export function wholeBars(view: StageView | null | undefined): InlineFullSource | undefined {
+    return view?.kind === 'bar' ? localLine(view.xs ?? [], view.values ?? []) : undefined;
+}
+
 /** An image the webview holds every cell of: `matrix` rows over ascending `ys`, columns over ascending `xs`. */
-export function localCells(xs: readonly number[], ys: readonly number[], matrix: ReadonlyArray<ReadonlyArray<number | null>>, rowNames?: readonly string[]): FullSource {
+export function localCells(xs: readonly number[], ys: readonly number[], matrix: ReadonlyArray<ReadonlyArray<number | null>>, rowNames?: readonly string[]): InlineFullSource {
     const nearest = (axis: readonly number[], value: number): number => {
         const at = Math.max(1, Math.min(axis.length - 1, firstFrom(axis, value)));
         return axis.length < 2 ? 0 : Math.abs(axis[at - 1] - value) <= Math.abs(axis[at] - value) ? at - 1 : at;
     };
     return {
+        held: 'inline',
         cells(query) {
             if (!xs.length || !ys.length) return null;
             const column = nearest(xs, query.x), row = nearest(ys, query.y);
@@ -168,7 +198,7 @@ function holdsDense(read: StageRead, x0: number, x1: number, columns: number, lo
  * asked for meanwhile goes next, so a moving pointer never queues a request per pixel; the latest level asked for
  * meanwhile keeps a place of its own after it, so a moving pointer never starves the line's order (R6).
  */
-export function fetchedSource(fetch: (read: StageRead, done: (points: StagePoints | null | undefined) => void) => void, extra: Omit<StageRead, 'x' | 'y' | 'beyond' | 'near' | 'columns' | 'log' | 'level'> = {}): FullSource {
+export function fetchedSource(fetch: (read: StageRead, done: (points: StagePoints | null | undefined) => void) => void, extra: Omit<StageRead, 'x' | 'y' | 'beyond' | 'near' | 'columns' | 'log' | 'level'> = {}): FetchedFullSource {
     const kept: Array<{ key: string; read: StageRead; points: FullPoints | null }> = [];
     let busy: string | null = null;
     // Asked for while one is on its way: the pointer's latest read, and the latest level (of the window on screen
@@ -218,7 +248,8 @@ export function fetchedSource(fetch: (read: StageRead, done: (points: StagePoint
         }
         return meanwhile;
     };
-    const source: FullSource = {
+    const source: FetchedFullSource = {
+        held: 'fetched',
         line(query, ready) {
             const x0 = Math.min(query.x0, query.x1), x1 = Math.max(query.x0, query.x1);
             // A window is asked for wider than the pointer needs (PAD times its width each side), so a pointer moving
@@ -288,6 +319,7 @@ export function cellIndex(axis: readonly number[], value: number, log: boolean, 
 export function mappedSource(source: FullSource, to: (x: number) => number, from: (x: number) => number): FullSource {
     const back = (points: FullAnswer): FullAnswer => (points ? { ...points, xs: points.xs.map(from), start: points.start === null ? null : from(points.start), end: points.end === null ? null : from(points.end) } : points);
     return {
+        held: source.held,
         ...(source.line ? { line: (query: LineQuery, ready: () => void) => back(source.line?.({ ...query, x0: to(query.x0), x1: to(query.x1) }, ready)) } : {}),
         ...(source.cells ? { cells: (query: CellQuery, ready: () => void) => back(source.cells?.({ ...query, x: to(query.x) }, ready)) } : {}),
         ...(source.level ? { level: (query: LevelQuery, ready: () => void) => source.level?.({ ...query, x0: to(query.x0), x1: to(query.x1) }, ready) } : {}),

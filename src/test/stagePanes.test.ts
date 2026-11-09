@@ -2,12 +2,13 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
+import { held } from './helpers/heldSource';
 import { spectrumLayer } from '../webview/runtime/overlaySpectrumPainter';
 import { axisNameParts, fontPixels } from '../webview/plot/axisTitle';
 import { heatmapDbRange, niceRange } from '../shared/utils/ticks';
 import { axisFractionOf, axisValueAt, byLevel, levelBinsOf, emptyStageText, eventLayers, paintOverlay, stageAxes, paintColourBar, colourBarTop, stageEventCounts, stageDiffRange, stageHeadline, stageRange, stageHover, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
 import type { StageView } from '../shared/protocol/backendProtocol';
-import { fetchedSource, localLine } from '../webview/runtime/fullRead';
+import { fetchedSource, localLine, NO_FULL_DATA } from '../webview/runtime/fullRead';
 
 const line = (values: number[], quantity: StageView['quantity'] = 'level'): StageView => ({ frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity, xs: [100, 1000, 10000], values });
 const strings = { stageNoDelta: 'none', stageMaxDelta: '{at} {delta}' };
@@ -117,7 +118,7 @@ test('a cross-correlation is drawn over a signed lag axis on the fixed [-1, 1] c
     // A delay is read to 10 µs at any lag, and none has no sign.
     const long: StageView = { ...view, xs: [-0.0125, 0, 0.0125, 0.02] };
     // Points 50 px apart, so the pointer over each reads that one.
-    const plot: StagePlot = { frame: { left: 0, top: 0, width: 200, height: 100 }, xAt: value => (value + 0.0125) * 4000, yAt: value => -value, ratioStep: 1.12, lines: [{ view: long, color: 'blue' }], diff: false };
+    const plot: StagePlot = { frame: { left: 0, top: 0, width: 200, height: 100 }, xAt: value => (value + 0.0125) * 4000, xOf: x => x / 4000 - 0.0125, yAt: value => -value, ratioStep: 1.12, lines: [{ view: long, color: 'blue', full: held(long) }], diff: false };
     assert.match(stageHover(plot, 0, 0)!.text, /^−12\.50 ms/);
     assert.match(stageHover(plot, 50, 0)!.text, /^0\.00 ms/);
 });
@@ -128,14 +129,14 @@ test('a trigger\'s events are each a line of their slot, on one amplitude range,
         values: [0, peaks.reduce((a, b) => a + b, 0) / peaks.length, 0], events: peaks.map((peak, id) => ({ id: id * 2, time: id, values: [0, peak, 0] })),
     });
     const base = events([1, 3]), compare = events([2]);
-    const layers = eventLayers({ view: compare, color: '#ff0', width: 2.2, label: 'b.wav' });
+    const layers = eventLayers({ view: compare, color: '#ff0', width: 2.2, label: 'b.wav', full: held(compare) });
     // One line per event, in the slot's colour, named by its event from 1 for the readout.
     // One line per event, named by its event and where in the recording it was cut.
     assert.deepEqual(layers.map(layer => [layer.label, layer.view.values, layer.color, layer.view.events]), [['b.wav #1 @ 0.00 s', [0, 2, 0], '#ff0', undefined]]);
     // A recording's events can be left out: those are faint, and each line says whose event it is.
-    const own = eventLayers({ view: base, color: '#00f', source: 'a.wav', excluded: [2] });
+    const own = eventLayers({ view: base, color: '#00f', source: 'a.wav', excluded: [2], full: held(base) });
     assert.deepEqual(own.map(layer => [layer.event, layer.alpha]), [[{ id: 0, source: 'a.wav', out: false }, 0.85], [{ id: 2, source: 'a.wav', out: true }, 0.25]]);
-    assert.deepEqual(eventLayers({ view: line([1, 2, 3]), color: '#00f' }).map(layer => layer.view.values), [[1, 2, 3]]);
+    assert.deepEqual(eventLayers({ view: line([1, 2, 3]), color: '#00f', full: held(line([1, 2, 3])) }).map(layer => layer.view.values), [[1, 2, 3]]);
     // The range holds every event's peak, not only their mean.
     assert.ok(stageRange([base, compare]).max >= 3);
     // Amplitudes have no −300 dB floor: a −500 (raw counts) peak is in the range.
@@ -184,7 +185,7 @@ function measured(view: StageView, full: number[] = (view.values ?? []).map(valu
 }
 
 test('overlaid lines are drawn loudest first, the quietest last on top, by their level on screen', () => {
-    const layer = (color: string, values: number[], quantity: StageView['quantity'] = 'level') => ({ view: quantity === 'level' ? measured(line(values, quantity)) : line(values, quantity), color });
+    const layer = (color: string, values: number[], quantity: StageView['quantity'] = 'level') => { const view = quantity === 'level' ? measured(line(values, quantity)) : line(values, quantity); return { view, color, full: held(view) }; };
     const base = layer('blue', [-40, -40, -40]), loud = layer('yellow', [-20, -40, -40]), quiet = layer('grey', [-60, -60, -60]);
     assert.deepEqual(byLevel([quiet, base, loud], line([0, 0, 0])).map(item => item.color), ['yellow', 'blue', 'grey']);
     // Zoomed past the 100 Hz point, the yellow and blue lines are as loud: they keep their order.
@@ -208,7 +209,7 @@ function strokingCanvas(): { canvas: HTMLCanvasElement; strokes: string[] } {
 }
 
 test('every plot draws its overlaid lines loudest first and the quietest last on top, whatever order the caller gives them (R6)', () => {
-    const layer = (color: string, values: number[]) => ({ view: measured(line(values)), color, width: 2 });
+    const layer = (color: string, values: number[]) => { const view = measured(line(values)); return { view, color, width: 2, full: held(view) }; };
     const { canvas, strokes } = strokingCanvas();
     // Given the quiet one first, as the report gives its base before the compared file: the plot puts it on top.
     paintOverlay(canvas, { layers: [layer('quiet', [-60, -60, -60]), layer('loud', [-20, -20, -20]), layer('base', [-40, -40, -40])] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dB]' });
@@ -228,13 +229,13 @@ test('every plot draws its overlaid lines loudest first and the quietest last on
 test('a picture that is not a compared line keeps the place its caller gave it among the overlay (R6)', () => {
     const { canvas, strokes } = strokingCanvas();
     // A median tick (a line without a level) first, then a quiet and a loud line: the tick stays first, the lines swap.
-    const tick = { view: { ...line([0, 1, 0]), quantity: undefined }, color: 'tick' };
-    const quiet = { view: measured(line([-60, -60, -60])), color: 'quiet' }, loud = { view: measured(line([-20, -20, -20])), color: 'loud' };
+    const tick = { view: { ...line([0, 1, 0]), quantity: undefined }, color: 'tick', full: held({ ...line([0, 1, 0]), quantity: undefined }) };
+    const quiet = { view: measured(line([-60, -60, -60])), color: 'quiet', full: held(line([-60, -60, -60])) }, loud = { view: measured(line([-20, -20, -20])), color: 'loud', full: held(line([-20, -20, -20])) };
     paintOverlay(canvas, { layers: [quiet, loud, tick] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dB]' });
     assert.deepEqual(strokes.filter(color => ['tick', 'quiet', 'loud'].includes(color)), ['loud', 'quiet', 'tick']);
     // A lane's finer data over part of its view is a part of one picture, not a line compared: drawn as given.
     strokes.length = 0;
-    const part = (color: string, values: number[], span: [number, number]) => ({ view: line(values), color, span });
+    const part = (color: string, values: number[], span: [number, number]) => ({ view: line(values), color, span, full: held(line(values)) });
     paintOverlay(canvas, { layers: [part('around', [-60, -60, -60], [100, 300]), part('detail', [-20, -20, -20], [300, 10000])] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dB]' });
     assert.deepEqual(strokes.filter(color => ['around', 'detail'].includes(color)), ['around', 'detail']);
 });
@@ -257,13 +258,13 @@ test('waveforms are ordered by their samples\' mean square on the shared amplitu
         frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'level', xs: [0, 1], values: [level, level],
         waveform: { min: [-peak, -peak], max: [peak, peak], minT: [0, 1], maxT: [0, 1], absolutePeak: peak, unit: ref === 1 ? 'FS' : 'Pa', ref },
         levelBins: { edges: [0, 1], power: [peak * peak / 2], count: [48000] },
-    } as StageView });
+    } as StageView, full: NO_FULL_DATA });
     const pa = signal('blue', 0.1, 71, 2e-5), fs = signal('yellow', 0.5, -9, 1);
     assert.deepEqual(byLevel([pa, fs], pa.view).map(item => item.color), ['yellow', 'blue']);
 });
 
 test('silence on screen lowers a line\'s level as no power, instead of being left out', () => {
-    const layer = (color: string, values: number[]) => ({ view: measured({ ...line(values), xs: [100, 200, 400, 800] }), color });
+    const layer = (color: string, values: number[]) => { const view = measured({ ...line(values), xs: [100, 200, 400, 800] }); return { view, color, full: held(view) }; };
     const gaps = layer('blue', [-20, -300, -300, -300]), steady = layer('yellow', [-23, -23, -23, -23]);
     assert.deepEqual(byLevel([gaps, steady], steady.view).map(item => item.color), ['yellow', 'blue']);
 });
@@ -271,20 +272,20 @@ test('silence on screen lowers a line\'s level as no power, instead of being lef
 test('the order comes from every value before thinning, never from the points drawn (R2, R6)', () => {
     // Drawn, the blue line's thinned points look louder (one −10 dB spike kept as a bucket's highest); over every bin
     // it is the quieter. It goes on top.
-    const spiky = { view: measured(line([-10, -70, -70]), [-40, -70, -70]), color: 'blue' };
-    const steady = { view: measured(line([-30, -30, -30])), color: 'yellow' };
+    const spiky = { view: measured(line([-10, -70, -70]), [-40, -70, -70]), color: 'blue', full: held(measured(line([-10, -70, -70]), [-40, -70, -70])) };
+    const steady = { view: measured(line([-30, -30, -30])), color: 'yellow', full: held(line([-30, -30, -30])) };
     assert.deepEqual(byLevel([spiky, steady], line([0, 0, 0])).map(item => item.color), ['yellow', 'blue']);
     // A DC signal, and a signal zoomed in to single samples, have their mean square, not the zero of max − min.
     const signal = (color: string, power: number) => ({ color, view: {
         frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs: [0, 1], values: [0.5, 0.5],
         waveform: { min: [0.5, 0.5], max: [0.5, 0.5], minT: [0, 1], maxT: [0, 1], absolutePeak: 0.5, unit: '', ref: 1 },
         levelBins: { edges: [0, 0.5, 1], power: [power, power], count: [2, 2] },
-    } as StageView });
+    } as StageView, full: NO_FULL_DATA });
     const dc = signal('dc', 0.25), faint = signal('faint', 0.0001);
     assert.deepEqual(byLevel([faint, dc], dc.view).map(item => item.color), ['dc', 'faint']);
     // Over part of the axis, only the stretches on screen count.
-    const late = { color: 'late', view: { ...dc.view, levelBins: { edges: [0, 0.5, 1], power: [0, 1], count: [2, 2] } } };
-    const early = { color: 'early', view: { ...dc.view, levelBins: { edges: [0, 0.5, 1], power: [0.5, 0], count: [2, 2] } } };
+    const late = { color: 'late', view: { ...dc.view, levelBins: { edges: [0, 0.5, 1], power: [0, 1], count: [2, 2] } }, full: dc.full };
+    const early = { color: 'early', view: { ...dc.view, levelBins: { edges: [0, 0.5, 1], power: [0.5, 0], count: [2, 2] } }, full: dc.full };
     assert.deepEqual(byLevel([late, early], dc.view, { start: 0, end: 0.5 }).map(item => item.color), ['early', 'late']);
     assert.deepEqual(byLevel([early, late], dc.view, { start: 0.5, end: 1 }).map(item => item.color), ['late', 'early']);
 });
@@ -294,7 +295,7 @@ test('a zoom narrower than one of a line\'s stretches still orders it by the str
     const xs = Array.from({ length: 2049 }, (_, i) => i * 24000 / 2048);
     const flat = (level: number): StageView => ({ frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'level', xs, values: xs.map(() => level),
         levelBins: levelBinsOf(xs, xs.map(() => level), [0, 24000], false) });
-    const quiet = { view: flat(-60), color: 'quiet' }, loud = { view: flat(-20), color: 'loud' };
+    const quiet = { view: flat(-60), color: 'quiet', full: held(flat(-60)) }, loud = { view: flat(-20), color: 'loud', full: held(flat(-20)) };
     const axis: StageView = { frame: 'spectrum', kind: 'line', xs: [0, 24000], xLimits: [0, 24000], xScale: 'linear' };
     const window = { start: 10000 / 24000, end: 10010 / 24000 };
     assert.deepEqual(byLevel([quiet, loud], axis, window).map(item => item.color), ['loud', 'quiet']);
@@ -374,7 +375,7 @@ test('a line the webview holds every value of is ordered at once by its values o
 
 test('a level drawn with no levels from its values before thinning is written as unmeasured, for the audit to fail (R6)', () => {
     const { canvas } = strokingCanvas();
-    paintOverlay(canvas, { layers: [{ view: line([-20, -20, -20]), color: 'a' }, { view: measured(line([-40, -40, -40])), color: 'b' }] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dB]' });
+    paintOverlay(canvas, { layers: [{ view: line([-20, -20, -20]), color: 'a', full: held(line([-20, -20, -20])) }, { view: measured(line([-40, -40, -40])), color: 'b', full: held(measured(line([-40, -40, -40]))) }] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dB]' });
     assert.match(canvas.dataset.plotOrder ?? '', /\?/u);
 });
 
@@ -423,7 +424,7 @@ test("a colour bar moves under the region's corner tag, which covers the plot's 
 test('the pointer reads the point nearest it within a few pixels, so a narrow peak beside it is read at its top (R7)', () => {
     const xs = Array.from({ length: 101 }, (_, i) => i), values = xs.map(i => (i === 50 ? 1 : 0));
     const spiky: StageView = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'coherence', xs, values };
-    const plot: StagePlot = { frame: { left: 0, top: 0, width: 200, height: 100 }, xAt: value => value * 2, yAt: value => 100 - value * 80, ratioStep: 1.12, lines: [{ view: spiky, color: 'blue' }], diff: false };
+    const plot: StagePlot = { frame: { left: 0, top: 0, width: 200, height: 100 }, xAt: value => value * 2, xOf: x => x / 2, yAt: value => 100 - value * 80, ratioStep: 1.12, lines: [{ view: spiky, color: 'blue', full: held(spiky) }], diff: false };
     // 8 px right of the peak and a little under its top: the top.
     assert.deepEqual(pick(stageHover(plot, 108, 25)), { x: 100, y: 20 });
     // Down by the floor at the same place: the floor under the pointer.
@@ -436,12 +437,18 @@ test('the pointer reads the point nearest it within a few pixels, so a narrow pe
     assert.deepEqual(pick(stageHover(zoomed, 108, 3)), { x: 108, y: 100 });
 });
 
-test('a wide waveform bucket whose earlier point is beside the pointer is read, though its middle is past the radius (R7)', () => {
+test('a signal is read at its sample nearest the pointer within a few pixels, never at a point of the envelope drawn (R7)', () => {
+    // Drawn as two buckets of their lowest and highest; its samples are four, at their own times.
     const wave: StageView = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'amplitude', xs: [], values: [],
         waveform: { min: [-0.5, -0.2], max: [0.5, 0.9], minT: [0, 99], maxT: [40, 51] } } as unknown as StageView;
-    const plot: StagePlot = { frame: { left: 0, top: 0, width: 200, height: 100 }, xAt: value => value, yAt: value => 50 - value * 50, ratioStep: 1.12, lines: [{ view: wave, color: 'blue' }], diff: false };
-    // The second bucket's highest point at (51, 5) is 1 px from the pointer; the first bucket's at (40, 25) is farther.
+    const samples = localLine([0, 40, 51, 52, 99], [-0.5, 0.5, 0.9, 0.7, -0.2]);
+    const plot: StagePlot = { frame: { left: 0, top: 0, width: 200, height: 100 }, xAt: value => value, xOf: x => x, yAt: value => 50 - value * 50, ratioStep: 1.12, lines: [{ view: wave, color: 'blue', full: samples }], diff: false };
+    // The sample at (51, 5) is 1 px from the pointer; the one at (40, 25) is farther.
     assert.deepEqual(pick(stageHover(plot, 50, 5)), { x: 51, y: 5 });
+    // A sample the envelope does not draw (52 s, 0.7) is read where it is nearest.
+    assert.deepEqual(pick(stageHover(plot, 53, 15)), { x: 52, y: 15 });
+    // Given no full data, a signal reads nothing, not the envelope's point under the pointer.
+    assert.equal(stageHover({ ...plot, lines: [{ view: wave, color: 'blue', full: NO_FULL_DATA }] }, 50, 5), null);
 });
 
 function pick(hit: ReturnType<typeof stageHover>): { x: number; y: number } | null {

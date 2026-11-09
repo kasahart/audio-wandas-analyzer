@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { held } from './helpers/heldSource';
 import type { StageView } from '../shared/protocol/backendProtocol';
 import { amountText, barkText, frequencyText, lagText, levelText, quefrencyText, secondsText, signedNumberText, signedText, withMinus } from '../webview/plot/plotText';
 import { formatValue, plotValueText } from '../webview/runtime/entryTableHtml';
@@ -90,7 +91,7 @@ test('a negative number is written with a true minus sign, its exponent too, nev
 
 test('the same frequency and level read the same on the comparison, the cursor spectrum and a spectrogram lane (R7)', () => {
     const view: StageView = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'level', xs: [1015.625], values: [-42.3] };
-    const plot: StagePlot = { frame: { left: 0, top: 0, width: 200, height: 100 }, xAt: () => 100, yAt: () => 50, ratioStep: 1.12, lines: [{ view, color: 'blue', label: 'a.wav' }], diff: false };
+    const plot: StagePlot = { frame: { left: 0, top: 0, width: 200, height: 100 }, xAt: () => 100, xOf: () => 1015.625, yAt: () => 50, ratioStep: 1.12, lines: [{ view, color: 'blue', label: 'a.wav', full: held(view) }], diff: false };
     const comparison = stageHover(plot, 100, 50)!.text;
     const spectrum = spectrumReadoutText('a.wav', { values: [], frequencyBins: 0, maxFrequencyHz: 0, minDb: 0, maxDb: 0, unit: 'dB' }, 1015.625, -42.3);
     const lane = spectrogramReadoutText('a.wav', 1, 0.01, { frequencyHz: 1015.625, level: -42.3 }, 'dB');
@@ -100,7 +101,7 @@ test('the same frequency and level read the same on the comparison, the cursor s
     }
     // Bins 0.732 Hz apart: each plot tells two neighbours apart, the same way.
     const step = 48000 / 65536, xs = [1369 * step, 1370 * step];
-    const fine: StagePlot = { ...plot, xAt: value => (value === xs[0] ? 50 : 150), lines: [{ view: { ...view, xs, values: [-42.3, -42.3] }, color: 'blue', label: 'a.wav' }] };
+    const fine: StagePlot = { ...plot, xAt: value => 50 + (value - xs[0]) / (xs[1] - xs[0]) * 100, xOf: x => xs[0] + (x - 50) / 100 * (xs[1] - xs[0]), lines: [{ view: { ...view, xs, values: [-42.3, -42.3] }, color: 'blue', label: 'a.wav', full: held({ ...view, xs, values: [-42.3, -42.3] }) }] };
     const fineSlice = { values: [], frequencyBins: 65537, maxFrequencyHz: 48000, minDb: 0, maxDb: 0, unit: 'dB' };
     const readouts = xs.map((hz, i) => [stageHover(fine, i ? 150 : 50, 50)!.text, spectrumReadoutText('a.wav', fineSlice, hz, -42.3), spectrogramReadoutText('a.wav', 1, 0.01, { frequencyHz: hz, level: -42.3, stepHz: step }, 'dB')]);
     for (const [i, expected] of ['1.0027 kHz', '1.0034 kHz'].entries()) for (const text of readouts[i]) assert.ok(text.includes(expected), text);

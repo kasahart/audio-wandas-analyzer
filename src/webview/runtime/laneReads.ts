@@ -101,6 +101,7 @@ export function createLaneReads(post: (message: ReadRequest) => void): LaneReads
                 return localLine(values.map((_, bin) => bin * step), values);
             };
             return once(JSON.stringify([key, channel]), () => ({
+                held: 'fetched',
                 line(query, ready) {
                     const source = full(ready);
                     return source ? source.line?.(query, ready) : source;

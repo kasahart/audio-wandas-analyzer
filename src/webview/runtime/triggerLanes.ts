@@ -9,7 +9,7 @@ import { paintOverlay, stageRange, type StageAxes } from './stagePanes';
 import type { PaneRange } from './comparePanes';
 import type { Drawn, StageTrack } from './trackStagePainter';
 import type { PlotWindow } from './plotInteraction';
-import type { FullRead } from './fullRead';
+import { NO_FULL_DATA, type FullRead } from './fullRead';
 
 export interface TriggerSettings {
     threshold: number;
@@ -76,8 +76,8 @@ export function paintTriggerLanes(frame: TriggerLanesFrame): number {
         const { x, y } = frame.window;
         const narrowed: PaneRange = { min: range.min + y.start * (range.max - range.min), max: range.min + y.end * (range.max - range.min) };
         const drawnView = (view && frame.detail?.(track.filePath)) || view;
-        const full = drawnView ? frame.fullOf?.(drawnView) : undefined;
-        const plot = paintOverlay(canvas, { layers: drawnView ? [{ view: drawnView, color: frame.color(track.filePath), width: 1.5, ...(full ? { full } : {}) }] : [] }, narrowed, axes, { window: { x }, ...(view ? { axisView: view, guides } : {}) });
+        const full = (drawnView ? frame.fullOf?.(drawnView) : undefined) ?? NO_FULL_DATA;
+        const plot = paintOverlay(canvas, { layers: drawnView ? [{ view: drawnView, color: frame.color(track.filePath), width: 1.5, full }] : [] }, narrowed, axes, { window: { x }, ...(view ? { axisView: view, guides } : {}) });
         frame.drawnOn.set(canvas, { picture: view, range, axes, plot });
         const marks = marksOf(canvas);
         if (!view || !plot || !marks) { if (marks) { marks.innerHTML = ''; delete marks.dataset.html; } return; }

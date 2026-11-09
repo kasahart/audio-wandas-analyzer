@@ -13,7 +13,7 @@ import { emptyStageText, isEventsView, paintOverlay, paintStage, stageAxes, stag
 import type { PlotWindow } from './plotInteraction';
 import { noDeltaNote } from './combineSource';
 import type { StagePlots } from './trackStageModel';
-import type { FullRead } from './fullRead';
+import { NO_FULL_DATA, type FullRead } from './fullRead';
 
 /** A track as the mode draws it: its lane's canvas, and the lane's own axis canvas (cleared: the painter draws the axes on the lane). */
 export interface StageTrack {
@@ -200,8 +200,7 @@ export function paintStageLanes(frame: StageFrame): number {
 
 /** Where a picture's numbers are read (R7): its full data, as the mode gives it. */
 function fullOf(frame: Pick<StageFrame, 'fullOf'>, view: StageView): Pick<StageLayer, 'full'> {
-    const full = frame.fullOf?.(view);
-    return full ? { full } : {};
+    return { full: frame.fullOf?.(view) ?? NO_FULL_DATA };
 }
 
 /** A recording's events as a line each can be left out of: whose they are, and those left out. */

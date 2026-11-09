@@ -13,7 +13,8 @@ export const compareOverlay: ChartContract = {
             computedIn: [`${SP}:stageHover`, `${SP}:lineRead`, `${SP}:atValue`, `${SP}:atText`, `${SP}:timeText`, 'src/webview/runtime/trackStagePainter.ts:overlayLayers', 'python-backend/full_read.py:read_line'],
             from: 'full', trace: '各層の full は stageReader.of（compare-combine の read）。バックエンドが保持した段の全ビン・全サンプルからマウスのまわりの窓を返す（full_read.py）。描いた間引きの線は読まない。',
             tests: [
-                t('src/test/fullRead.test.ts', 'every line and image a plot draws says where its full data is read; bars are whole (R7)'),
+                t('src/test/fullRead.test.ts', 'every layer a plot draws is given its full data, held or fetched: one given none is marked and reads no number, bars too (R7)'),
+                t('src/test/fullRead.test.ts', 'a picture\'s full data is held or fetched, never its drawn points: a band table without a key reads its every band at once, a line without one has none (R7)'),
                 t('src/test/stagePanes.test.ts', 'the pointer reads the point nearest it within a few pixels, so a narrow peak beside it is read at its top (R7)'),
                 tt('src/test/uiSmoke/narrowFeatures.spec.ts', 'a hover and the arrow keys on the thinned whole spectrum read its real bins from the backend, one bin per key, each at its exact value (R7)'),
                 tt('python-backend/test_full_read.py', 'test_a_recordings_spectrum_is_read_at_its_own_bins_not_its_picture'),
@@ -50,13 +51,12 @@ export const compareOverlay: ChartContract = {
         },
         {
             id: 'compare-overlay.readout-bands', value: 'readout', what: '1/3 オクターブ帯（棒）の読み値',
-            computedIn: [`${SP}:lineRead`, 'python-backend/stage_view.py:_noct_view'],
-            from: 'whole', trace: '帯は間引かない（NOctFrame の全帯）。棒は描いた値がそのまま全部の値で、full がなくても描いた値を読む。',
+            computedIn: [`${SP}:lineRead`, 'python-backend/stage_view.py:_noct_view', 'src/webview/runtime/fullRead.ts:wholeBars', 'src/webview/runtime/stageReader.ts:createStageReader'],
+            from: 'whole', trace: '帯は間引かない（NOctFrame の全帯）。バックエンドが全データの鍵を付けない帯の表は、stageReader が wholeBars で全帯を InlineFullSource にして読む。全データのない層は読み値を出さない（NO_FULL_DATA）。',
             tests: [
-                t('src/test/fullRead.test.ts', 'every line and image a plot draws says where its full data is read; bars are whole (R7)'),
+                t('src/test/fullRead.test.ts', 'every layer a plot draws is given its full data, held or fetched: one given none is marked and reads no number, bars too (R7)'),
                 t('src/test/uiSmoke/trackCompare.spec.ts', 'the comparison shows a step\'s bands as bars, and hides the lanes\' own controls'),
             ],
-            exception: { rule: 'R7', quote: '描いた点がそのまま全部の点であるもの（棒、帯、ペアの図の全ビン、分布のビン）は \'drawn\'' },
         },
         {
             id: 'compare-overlay.readout-events', value: 'readout', what: 'トリガーのイベントごとの線の読み値（#n @ 時刻）',
@@ -68,8 +68,8 @@ export const compareOverlay: ChartContract = {
         },
         {
             id: 'compare-overlay.step', value: 'step', what: '← / → で進む先（次のビン・サンプル・フレーム）',
-            computedIn: [`${SP}:stageStep`, `${SP}:imageStep`, `${SP}:stageNeighbour`, 'src/webview/runtime/fullRead.ts:fetchedSource'],
-            from: 'full', trace: 'full のある層は、読んだ点の先 256 点（STEP_AHEAD）を全データから取り寄せ、次の本当の点を読む。棒は描いた次の値。',
+            computedIn: [`${SP}:stageStep`, `${SP}:imageStep`, 'src/webview/runtime/fullRead.ts:fetchedSource'],
+            from: 'full', trace: 'full のある層は、読んだ点の先 256 点（STEP_AHEAD）を全データから取り寄せ、次の本当の点を読む。棒も帯もその全帯（InlineFullSource）の次の値。',
             tests: [
                 t('src/test/plotHoverLayer.test.ts', 'an arrow key reads the next point of the line read, as the pointer on it would; with none read, the plot\'s left edge (R7)'),
                 t('src/test/fullRead.test.ts', 'an arrow key crosses silent points past one fetched window to the next point with a value (R7)'),

@@ -10,18 +10,17 @@ export const pairView: ChartContract = {
     rows: [
         {
             id: 'pair-view.readout', value: 'readout', what: '利得・位相・γ² の読み値',
-            computedIn: ['src/webview/runtime/pairSpectrum.ts:pairLanes', `${SP}:lineRead`, 'python-backend/analysis_service.py:pair_spectrum'],
-            from: 'whole', trace: 'バックエンドが全ビンをそれぞれの周波数で返し、図はその全部をつなぐ（full: \'drawn\'）。',
+            computedIn: ['src/webview/runtime/pairSpectrum.ts:pairLanes', `${SP}:lineRead`, 'src/webview/runtime/fullRead.ts:localLine', 'python-backend/analysis_service.py:pair_spectrum'],
+            from: 'whole', trace: 'バックエンドが全ビンをそれぞれの周波数で返し、図はその全部をつなぐ。読み値は各応答の全ビンを持つ InlineFullSource（localLine）から読み、描いた線からは読まない。',
             tests: [
                 t('src/test/pairSpectrum.test.ts', 'the plot under the pointer reads its nearest line in the row above, in its unit, and the others follow its frequency (R7, R8)'),
                 t('python-backend/test_analysis_service.py', 'test_pair_spectrum_keeps_every_bin_at_its_own_frequency_so_a_narrow_notch_stays'),
             ],
-            exception: { rule: 'R7', quote: '描いた点がそのまま全部の点であるもの（棒、帯、ペアの図の全ビン、分布のビン）は \'drawn\'' },
         },
         {
             id: 'pair-view.step', value: 'step', what: '← / → で進む先',
-            computedIn: [`${SP}:stageStep`, `${SP}:stageNeighbour`],
-            from: 'whole', trace: '描いた次のビン（全ビン）。',
+            computedIn: [`${SP}:stageStep`, 'src/webview/runtime/fullRead.ts:localLine'],
+            from: 'whole', trace: '全ビンを持つ InlineFullSource の次のビン。',
             tests: [
                 t('src/test/uiSmoke/plotContract.spec.ts', 'the pair view\'s gain, phase and γ² plots answer the same gestures as every plot (R13)'),
             ],

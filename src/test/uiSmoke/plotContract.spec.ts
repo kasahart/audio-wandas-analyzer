@@ -92,8 +92,8 @@ async function pointRead(plot: Locator, from?: PointRead | null): Promise<PointR
 
 /**
  * The next point to the right of the one the plot reads, in the full-resolution data that point is read from (R7):
- * the layer's full source (fullRead.ts: StageLayer.full), asked as the plot asks it, or the points it draws where
- * they are every point ('drawn', bars). A line's next point is the next with a value to read (not a gap, nor the
+ * the layer's full source (fullRead.ts: StageLayer.full, which every layer has, bars too), asked as the plot asks
+ * it, never the points it draws. A line's next point is the next with a value to read (not a gap, nor the
  * silent floor below −250 dB that it draws as a gap); an image's, the next column (time frame, band) on its row.
  * Null where the plot reads no point of its data.
  */
@@ -101,11 +101,11 @@ async function nextPoint(plot: Locator): Promise<number | null> {
     return plot.evaluate(async canvas => {
         type Points = { xs: number[]; values?: Array<number | null> };
         type Source = { line?(query: Record<string, unknown>, ready: () => void): Points | null | undefined; cells?(query: Record<string, unknown>, ready: () => void): Points | null | undefined };
-        type Layer = { full?: 'drawn' | Source; view: { kind: string; quantity?: string; xs?: number[]; values?: Array<number | null> } };
+        type Layer = { full: Source; view: { kind: string; quantity?: string } };
         const read = (canvas as NotedPlot).__plotRead as { at?: number; row?: number; image?: boolean; layer: Layer } | null | undefined;
         if (!read || read.at === undefined) return null;
         const at = read.at, layer = read.layer;
-        const source = layer.full && layer.full !== 'drawn' && layer.view.kind !== 'bar' ? layer.full : null;
+        const source = layer.full;
         // Asked as the plot asks it: an answer on its way calls `ready`, and is asked again then.
         const ask = (query: (ready: () => void) => Points | null | undefined): Promise<Points | null> => new Promise(resolve => {
             let done = false;
@@ -115,13 +115,13 @@ async function nextPoint(plot: Locator): Promise<number | null> {
             ready();
         });
         if (read.image) {
-            if (!source?.cells || read.row === undefined) return null;
+            if (!source.cells || read.row === undefined) return null;
             const got = await ask(ready => source.cells!({ x: at, y: read.row, beyond: 8 }, ready));
             const xs = got?.xs ?? [];
             const column = xs.findIndex(x => x === at);
             return column >= 0 && column + 1 < xs.length ? xs[column + 1] : null;
         }
-        const got = source?.line ? await ask(ready => source.line!({ x0: at, x1: at, beyond: 8 }, ready)) : source ? null : { xs: layer.view.xs ?? [], values: layer.view.values };
+        const got = source.line ? await ask(ready => source.line!({ x0: at, x1: at, beyond: 8 }, ready)) : null;
         if (!got) return null;
         const readable = (value: number | null | undefined): boolean => value !== null && value !== undefined && Number.isFinite(value) && !(value <= -250 && layer.view.quantity !== 'value');
         const index = got.xs.findIndex((x, i) => x > at && readable(got.values?.[i]));

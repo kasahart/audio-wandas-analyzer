@@ -13,6 +13,7 @@ import { baseName } from '../../shared/analysis/entryMetadata';
 import { median } from '../../shared/dataset/distribution';
 import { powerMeanDb, powerMeanOrNull } from '../../shared/utils/levels';
 import { axisValueAt, levelBinsOf } from './stagePanes';
+import { localLine, type InlineFullSource } from './fullRead';
 import { signedNumberText, withMinus } from '../plot/plotText';
 
 type ScanOk = ScanResult & { ok: true };
@@ -341,6 +342,18 @@ export function binsView(bins: NonNullable<CompareModel['bins']>, which: 'base' 
         ...(which !== 'diff' ? { levelBins: levelBinsOf(xs, values, span, true) } : {}),
         ...(bounds ? { detail: true } : {}),
     };
+}
+
+/** Every 1/3-octave band up to Nyquist of `bands` (a side's levels, or the Δ per band), held whole: what their bars read (R7). */
+export function bandsSource(bands: readonly (number | null)[], frequencies: number[]): InlineFullSource {
+    const count = bandCount(frequencies);
+    return localLine(BAND_CENTERS_HZ.slice(0, count), bands.slice(0, count));
+}
+
+/** Every bin of one of the comparison's spectra, held whole (R7): what a plot drawing its binsView reads and orders by. */
+export function binsSource(bins: NonNullable<CompareModel['bins']>, which: 'base' | 'compare' | 'diff'): InlineFullSource | null {
+    const values = bins[which];
+    return values?.length ? localLine(values.map((_, bin) => bin * bins.hz), values) : null;
 }
 
 /**

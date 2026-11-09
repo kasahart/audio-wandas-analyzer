@@ -24,7 +24,7 @@ export const compareDelta: ChartContract = {
             from: 'full', trace: 'Δ の層の full は stageReader.combined(base, compare, \'diff\')。バックエンドが全データの Δ からマウスのまわりを返す。',
             tests: [
                 tt('python-backend/test_full_read.py', 'test_a_difference_is_read_bin_by_bin'),
-                t('src/test/fullRead.test.ts', 'every line and image a plot draws says where its full data is read; bars are whole (R7)'),
+                t('src/test/fullRead.test.ts', 'every layer a plot draws is given its full data, held or fetched: one given none is marked and reads no number, bars too (R7)'),
             ],
         },
         {

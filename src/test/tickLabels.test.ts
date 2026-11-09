@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { held } from './helpers/heldSource';
 import type { StageView } from '../shared/protocol/backendProtocol';
 import { paintOverlay, paintSideAxis, valueAxisTicks } from '../webview/runtime/stagePanes';
 
@@ -61,12 +62,12 @@ test('no two tick labels on a value axis overlap, on a plot of any height: a sho
         for (const range of RANGES) {
             const { canvas, drawn } = textCanvas(400, height);
             // The pair view's margins: the whole canvas height is its plot.
-            paintOverlay(canvas, { layers: [{ view: line(range), color: '#0f0' }] }, range, { x: 'Frequency [Hz]', y: 'Value [Pa]' }, { margins: { left: 52, right: 4, top: 0, bottom: 0 } });
+            paintOverlay(canvas, { layers: [{ view: line(range), color: '#0f0', full: held(line(range)) }] }, range, { x: 'Frequency [Hz]', y: 'Value [Pa]' }, { margins: { left: 52, right: 4, top: 0, bottom: 0 } });
             assert.deepEqual(overlapping(drawn), [], `${height} px, ${range.min} to ${range.max}`);
             if (height >= 40) assert.ok(drawn.filter(item => NUMBER.test(item.text) && item.align === 'right').length >= 2, `${height} px keeps two ticks at least`);
         }
         const heat = textCanvas(400, height);
-        paintOverlay(heat.canvas, { layers: [{ view: bark, color: '' }] }, { min: 0, max: 0.3 }, { x: 'Time [s]', y: 'Critical band [Bark]', colour: 'Roughness [asper]' }, { margins: { left: 52, right: 4, top: 0, bottom: 0 } });
+        paintOverlay(heat.canvas, { layers: [{ view: bark, color: '', full: held(bark) }] }, { min: 0, max: 0.3 }, { x: 'Time [s]', y: 'Critical band [Bark]', colour: 'Roughness [asper]' }, { margins: { left: 52, right: 4, top: 0, bottom: 0 } });
         assert.deepEqual(overlapping(heat.drawn), [], `heatmap rows, ${height} px`);
         const side = textCanvas(40, height);
         paintSideAxis(side.canvas, valueAxisTicks({ min: -1, max: 1 }), 'Amplitude [Pa]', { muted: '#888', text: '#ddd' });

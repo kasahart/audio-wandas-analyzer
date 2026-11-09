@@ -21,7 +21,7 @@ import { createDetailPlanner } from './stageDetail';
 import { createCombineSource, noDeltaNote, TOO_LARGE_COMBINED, type Combined } from './combineSource';
 import { createStageSource, type StageSpec } from './stageSource';
 import { createStageReader } from './stageReader';
-import { localLine, type FullRead } from './fullRead';
+import { localLine, NO_FULL_DATA, wholeBars, type FullRead } from './fullRead';
 import { recipeWithout, stepChipLabel, stepLimits } from './stepBar';
 import { withChannel } from '../../shared/recipe/channelSelection';
 
@@ -152,7 +152,7 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
     }
     /** The held plot's picture and what it was drawn on, for its readout and an axis's range. */
     function paintView(view: StageView | null, picture: StageView | null, range: PaneRange, axes: StageAxes, zoom: PlotWindow, options: { diff?: boolean; color: string; empty?: string; full?: FullRead }): void {
-        const drawn = paintOverlay(canvas, { layers: view ? [{ view, color: options.color, width: 2, ...(options.full ? { full: options.full } : {}) }] : [] }, narrowed(range, zoom), axes,
+        const drawn = paintOverlay(canvas, { layers: view ? [{ view, color: options.color, width: 2, full: options.full ?? NO_FULL_DATA }] : [] }, narrowed(range, zoom), axes,
             { diff: options.diff, empty: options.empty ?? '', window: { x: zoom.x }, axisView: picture });
         hold.plot = picture ? { margins: STAGE_MARGINS, x: f => axisValueAt(picture, f), ofX: number => axisFractionOf(picture, number), range, xLabel: axes.x, yLabel: axes.y, drawn: view ? drawn : null } : null;
     }
@@ -219,9 +219,9 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
         const zoom = deps.keepWindow('held', `delta|${key}`);
         // From every bin, zoomed or not (R1, R3): the table's per-band Δ only where the scans gave no bins.
         const { picture, view } = deltaViews(comparison, zoom.x);
-        // Read from every bin of the Δ (R7); without the bins, the table's per-band Δ is drawn whole.
+        // Read from every bin of the Δ (R7); without the bins, from every band of the table's per-band Δ.
         const bins = comparison.bins?.diff;
-        const full: FullRead = bins?.length && comparison.bins ? localLine(bins.map((_, bin) => bin * (comparison.bins?.hz ?? 0)), bins) : 'drawn';
+        const full: FullRead | undefined = bins?.length && comparison.bins ? localLine(bins.map((_, bin) => bin * (comparison.bins?.hz ?? 0)), bins) : wholeBars(view);
         paintView(view, picture, stageDiffRange(picture), stageAxes(strings, picture, input, true), zoom, { diff: true, color: DIFF_COLOR, empty: strings.stageNoDelta, full });
     }
 

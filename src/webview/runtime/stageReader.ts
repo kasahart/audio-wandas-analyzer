@@ -6,10 +6,10 @@
  */
 import type { CompareCombineMessage, ComparePublication } from '../../shared/analysis/entryScan';
 import type { StagePoints, StageRead, StageView } from '../../shared/protocol/backendProtocol';
-import { fetchedSource, type FullRead, type FullSource } from './fullRead';
+import { fetchedSource, wholeBars, type FullRead, type FullSource } from './fullRead';
 
 export interface StageReader {
-    /** A recording's own picture's full data, by the key its scan kept it under; undefined without one. */
+    /** A recording's own picture's full data, by the key its scan kept it under (a band table's own bars); undefined without one. */
     of(view: StageView | null | undefined): FullRead | undefined;
     /** A combined picture's: the median of the `base` keys, or `compare` − that median (`of: 'diff'`). */
     combined(base: readonly string[], compare: string | null, of: 'base' | 'diff'): FullSource;
@@ -44,7 +44,8 @@ export function createStageReader(prefix: string, post: (message: CompareCombine
         return made;
     };
     return {
-        of: view => (view?.data ? source([view.data], null, 'base') : undefined),
+        // A band table without a key is sent whole: its bars are read from their every value.
+        of: view => (view?.data ? source([view.data], null, 'base') : wholeBars(view)),
         combined: (base, compare, of) => source(base, compare, of),
         handle(message) {
             if (message.type !== 'compare-combine-result') return false;

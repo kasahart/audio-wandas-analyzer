@@ -9,8 +9,9 @@ import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { encodeNumber, plainFloats, recipeSteps, timeSignalStep, upToStep, withDefaults, withParam, TIME_SLICE } from '../../shared/recipe/recipeSteps';
 import { BAND_CENTERS_HZ, bandLabel, csvNumber, EDGE_GUARD_S, HEADLINE_WITHIN_DB, measuredRegion, regionCells, type BaseDefinition, type DerivedRow, type EntryModel } from './entryTable';
 import { withBaseInput, withChannel } from '../../shared/recipe/channelSelection';
-import { binsView, buildCompareModel, deltaViews, diffHeadline, levelsHeadline, paneAxes, sideView, type CompareModel, type CompareStrings } from './comparePanes';
+import { bandsSource, binsSource, binsView, buildCompareModel, deltaViews, diffHeadline, levelsHeadline, paneAxes, sideView, type CompareModel, type CompareStrings } from './comparePanes';
 import { paintOverlay, stageDiffRange, stageRange } from './stagePanes';
+import type { InlineFullSource } from './fullRead';
 import type { EntryRegion } from '../../shared/analysis/entryScan';
 import type { ScanResult, StageView } from '../../shared/protocol/backendProtocol';
 import { baseName } from '../../shared/analysis/entryMetadata';
@@ -300,8 +301,10 @@ function paintOverlayFigure(canvas: HTMLCanvasElement, comparison: CompareModel,
     const base = bins?.base ? binsView(bins, 'base') : sideView(comparison.base, comparison.frequencies, true);
     const compare = bins?.compare ? binsView(bins, 'compare') : sideView(comparison.compare, comparison.frequencies, true);
     const color = ROLE_COLORS[slot] ?? ROLE_COLORS[1];
+    // Ordered by every bin (or every band, which the figure draws whole), never the points thinned to draw (R6).
+    const fullOf = (which: 'base' | 'compare'): InlineFullSource => (bins?.[which] ? binsSource(bins, which) : null) ?? bandsSource(comparison[which]?.bands ?? [], comparison.frequencies);
     paintOverlay(canvas, {
-        layers: [...(base ? [{ view: base, color: ROLE_COLORS[0], width: 2 }] : []), ...(compare ? [{ view: compare, color, width: 2 }] : [])],
+        layers: [...(base ? [{ view: base, color: ROLE_COLORS[0], width: 2, full: fullOf('base') }] : []), ...(compare ? [{ view: compare, color, width: 2, full: fullOf('compare') }] : [])],
     }, stageRange([base, compare]), { x: axes.x, y: axes.y }, {
         // A figure on paper: no pointer reads it, so it reads no number (R7).
         size, readout: false,
@@ -333,7 +336,8 @@ export function deltaFigure(comparison: Pick<CompareModel, 'bins' | 'bandDeltas'
 function paintDeltaFigure(canvas: HTMLCanvasElement, comparison: CompareModel, title: string, curve: string, strings: ReportStrings, input: ReportInput, size: { width: number; height: number }): void {
     const { view, range, binned } = deltaFigure(comparison);
     const axes = paneAxes(strings, input.results.get(comparison.compare?.filePaths[0] ?? '')?.input).delta;
-    paintOverlay(canvas, { layers: view ? [{ view, color: DIFF_COLOR, width: 1.5 }] : [] }, range, { x: axes.x, y: axes.y }, {
+    const full = (comparison.bins ? binsSource(comparison.bins, 'diff') : null) ?? bandsSource(comparison.bandDeltas, comparison.frequencies);
+    paintOverlay(canvas, { layers: view ? [{ view, color: DIFF_COLOR, width: 1.5, full }] : [] }, range, { x: axes.x, y: axes.y }, {
         size, diff: true, readout: false,
         labels: { title, legend: [...(binned ? [{ color: DIFF_COLOR, text: curve }] : []), { color: DIFF_COLOR, text: strings.reportStepsLegend }] },
         bandSteps: { deltas: comparison.bandDeltas, headline: comparison.topBands.map(item => item.band), color: DIFF_COLOR, legend: axes.legend },

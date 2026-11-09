@@ -8,7 +8,7 @@ import type { StageView } from '../../shared/protocol/backendProtocol';
 import { BAND_CENTERS_HZ, type EntryRow } from './entryTable';
 import { FULL_PLOT_WINDOW, type PlotMargins, type PlotWindow } from './plotInteraction';
 import { paintOverlay, type StagePlot } from './stagePanes';
-import type { FullSource } from './fullRead';
+import type { InlineFullSource } from './fullRead';
 import { heatmapDbRange } from '../../shared/utils/ticks';
 
 /** The strip's margins: its row axis at the left, the frequency axis below, the colour bar inside the plot's top right. */
@@ -84,8 +84,9 @@ const fileName = (filePath: string): string => filePath.split(/[\\/]/).at(-1) ??
  * The strip's every cell, one per table row and band, which the pointer reads (R7): a picture row holding several
  * table rows (their loudest) is only drawn; the readout names the one table row under the pointer and its level.
  */
-export function overviewCells(rows: ReadonlyArray<OverviewRow>, bands: ReadonlyMap<string, (number | null)[]>): FullSource {
+export function overviewCells(rows: ReadonlyArray<OverviewRow>, bands: ReadonlyMap<string, (number | null)[]>): InlineFullSource {
     return {
+        held: 'inline',
         cells(query) {
             const n = rows.length;
             if (!n) return null;

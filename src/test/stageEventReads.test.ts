@@ -21,7 +21,7 @@ test('a trigger\'s event lines are each read at that event\'s every sample, neve
         events: [0, 1, 2].map(id => ({ id, time: 1 + id, values: drawnAt.map(index => samples[id][index]) })),
     } as StageView;
     // The recording's full data: each event's own samples (the backend's read of `event`).
-    const full: FullSource = { event: id => localLine(times, samples[id]) };
+    const full: FullSource = { held: 'inline', event: id => localLine(times, samples[id]) };
     const layers = eventLayers({ view, color: '#ff0', label: 'b.wav', full });
     assert.equal(layers.length, 3);
     const plot = paintOverlay(plotCanvas(), { layers }, { min: -0.6, max: 0.6 }, { x: 'Time [s]', y: 'Amplitude [FS]' });

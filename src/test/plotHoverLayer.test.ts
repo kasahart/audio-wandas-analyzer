@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { held } from './helpers/heldSource';
 import { JSDOM } from 'jsdom';
 import { localLine, STEP_AHEAD, type FullSource } from '../webview/runtime/fullRead';
 import { createPlotHoverLayer } from '../webview/runtime/plotHoverLayer';
@@ -8,12 +9,12 @@ import type { StageLayer, StagePlot } from '../webview/runtime/stagePanes';
 /** A plot 100 px wide from x 50, its levels 0–10 over 100 px from y 10, with `lines` (and `right` on a right-hand axis). */
 function plotWith(lines: StageLayer[], right: StageLayer[] = []): StagePlot {
     const frame = { left: 50, top: 10, width: 100, height: 100 };
-    const base = { frame, xAt: (x: number) => 50 + x * 10, ratioStep: 1, diff: false };
+    const base = { frame, xAt: (x: number) => 50 + x * 10, xOf: (x: number) => (x - 50) / 10, ratioStep: 1, diff: false };
     const plot: StagePlot = { ...base, yAt: (v: number) => 110 - v * 10, lines };
     if (right.length) plot.secondary = { ...base, yAt: (v: number) => 110 - (v + 100) * 10, lines: right };
     return plot;
 }
-const line = (label: string, color: string, values: number[]): StageLayer => ({ view: { frame: 'spectrum', kind: 'line', x: 'frequency', quantity: 'value', xs: values.map((_, i) => i), values }, color, label });
+const line = (label: string, color: string, values: number[]): StageLayer => ({ view: { frame: 'spectrum', kind: 'line', x: 'frequency', quantity: 'value', xs: values.map((_, i) => i), values }, color, label, full: held({ frame: 'spectrum', kind: 'line', x: 'frequency', quantity: 'value', xs: values.map((_, i) => i), values }) });
 
 function setup() {
     const { window } = new JSDOM('<!doctype html><body><div class="plot-readout" hidden><span></span><span></span></div><canvas id="plot"></canvas></body>');
@@ -101,6 +102,7 @@ test('a step that waits for its points is taken, once they are in, through the o
     let held = true;
     // The hover's points are at hand; a step's (STEP_AHEAD) come later.
     const full: FullSource = {
+        held: 'fetched',
         line(query, ready) {
             if (query.beyond === STEP_AHEAD && held) { later = ready; return undefined; }
             return whole.line?.({ ...query, beyond: Math.min(query.beyond, 1) }, ready);

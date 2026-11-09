@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { fetchedSource, localCells, localLine, STEP_AHEAD, type FullSource } from '../webview/runtime/fullRead';
+import { fetchedSource, localCells, localLine, NO_FULL_DATA, STEP_AHEAD, wholeBars, type FullSource } from '../webview/runtime/fullRead';
 import { declaresFullRead, stageHover, stageStep, type StagePlot, type StageRead } from '../webview/runtime/stagePanes';
 import { createStageReader } from '../webview/runtime/stageReader';
 import { spectrumReadoutValues } from '../webview/runtime/spectrumRuntime';
@@ -235,12 +235,29 @@ test('a spectrogram is read at its real cells, never the cells averaged to draw 
     }
 });
 
-test('every line and image a plot draws says where its full data is read; bars are whole (R7)', () => {
+test('every layer a plot draws is given its full data, held or fetched: one given none is marked and reads no number, bars too (R7)', () => {
     const line: StageView = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'level', xs: [1, 2], values: [0, 1] };
-    assert.equal(declaresFullRead({ view: line, color: '' }), false);
-    assert.equal(declaresFullRead({ view: line, color: '', full: 'drawn' }), true);
+    const bars: StageView = { ...line, kind: 'bar' };
+    assert.equal(declaresFullRead({ view: line, color: '', full: NO_FULL_DATA }), false);
+    assert.equal(declaresFullRead({ view: bars, color: '', full: NO_FULL_DATA }), false, 'bars are not taken as whole for being bars');
     assert.equal(declaresFullRead({ view: line, color: '', full: localLine([1, 2], [0, 1]) }), true);
-    assert.equal(declaresFullRead({ view: { ...line, kind: 'bar' }, color: '' }), true);
+    assert.equal(declaresFullRead({ view: bars, color: '', full: wholeBars(bars) ?? NO_FULL_DATA }), true);
+    assert.equal(wholeBars(line), undefined, 'a line is never read from what it draws');
+    // Given none, the pointer reads no number off it, not the point drawn under it.
+    const plot = (full: FullSource): StagePlot => ({ frame: { left: 0, top: 0, width: 100, height: 100 }, xAt: x => (x - 1) * 100, yAt: v => 100 - v * 100, xOf: x => 1 + x / 100, ratioStep: 1.12, lines: [{ view: bars, color: '', full }], diff: false });
+    assert.equal(stageHover(plot(NO_FULL_DATA), 0, 100), null);
+    assert.equal(stageHover(plot(wholeBars(bars) ?? NO_FULL_DATA), 0, 100)?.value, 0);
+});
+
+test('a picture\'s full data is held or fetched, never its drawn points: a band table without a key reads its every band at once, a line without one has none (R7)', () => {
+    const reader = createStageReader('kinds-test', () => undefined);
+    const keyed = reader.of({ frame: 'SpectralFrame', kind: 'line', xs: [0, 1], values: [0, 0], data: 'k1' });
+    assert.equal(keyed?.held, 'fetched');
+    const bands: StageView = { frame: 'NOctFrame', kind: 'bar', x: 'band', xs: [100, 125, 160], values: [-40, -12, -33] };
+    const whole = reader.of(bands);
+    assert.equal(whole?.held, 'inline');
+    assert.deepEqual(whole?.line?.({ x0: 125, x1: 125, beyond: 1 }, () => undefined)?.values, [-40, -12, -33]);
+    assert.equal(reader.of({ frame: 'SpectralFrame', kind: 'line', xs: [0, 1], values: [0, 0] }), undefined, 'a thinned line is never read as if whole');
 });
 
 test('a read of values the backend let go is not kept as empty: their pictures are scanned again, and the read is asked again (R7)', () => {

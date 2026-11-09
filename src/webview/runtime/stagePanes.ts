@@ -20,7 +20,7 @@ import { drawValueAxis, readoutText, type AxisTick, type Palette } from '../../s
 import { axisName, axisNameParts, fitAxisTitle, fontPixels, scaledFont } from '../plot/axisTitle';
 import { heatmapDbRange, niceRange, niceTicks } from '../../shared/utils/ticks';
 import { amountText, barkText, frequencyText, lagText, levelText, quefrencyText, secondsText, signedText, withMinus } from '../plot/plotText';
-import { cellIndex, levelOfValues, STEP_AHEAD, type FullPoints, type FullRead, type FullSource, type LevelAnswer } from './fullRead';
+import { cellIndex, NO_FULL_DATA, STEP_AHEAD, type FullPoints, type FullRead, type FullSource, type LevelAnswer } from './fullRead';
 
 /** Canvas x the level axis's turned title is centred on, in the gutter left of its tick labels. */
 const AXIS_TITLE_X = 10;
@@ -76,8 +76,8 @@ export function eventLayers(layer: StageLayer): StageLayer[] {
         // Where in the recording it was cut (its trigger): the plot's time is from the trigger.
         const at = Number.isFinite(event.time) ? ` @ ${secondsText(event.time)}` : '';
         // Each event's line reads its own full data (R7), not the recording's.
-        const full: FullRead | undefined = layer.full && layer.full !== 'drawn' ? layer.full.event?.(event.id) : layer.full;
-        return { ...rest, view: { ...view, values: event.values }, width: Math.min(layer.width ?? 1.5, 1.2), alpha: out ? 0.25 : 0.85, label: `${layer.label ? `${layer.label} ` : ''}#${event.id + 1}${at}`, ...(source !== undefined ? { event: { id: event.id, source, out } } : {}), ...(full ? { full } : {}) };
+        const full: FullRead = layer.full.event?.(event.id) ?? NO_FULL_DATA;
+        return { ...rest, view: { ...view, values: event.values }, width: Math.min(layer.width ?? 1.5, 1.2), alpha: out ? 0.25 : 0.85, label: `${layer.label ? `${layer.label} ` : ''}#${event.id + 1}${at}`, ...(source !== undefined ? { event: { id: event.id, source, out } } : {}), full };
     });
 }
 
@@ -381,8 +381,7 @@ export function screenLevels(layers: readonly StageLayer[], axisView: Pick<Stage
         const ends: [number, number] | null = scale ? [scale.at(window.start), scale.at(window.end)] : xs.length ? [xs[0], xs[xs.length - 1]] : null;
         const full = layer.full;
         let sum: LevelAnswer = null;
-        if (ends && full === 'drawn' && !signal) sum = levelOfValues(xs, view.values ?? [], { x0: ends[0], x1: ends[1], square: false });
-        else if (ends && full && full !== 'drawn' && full.level) sum = full.level({ x0: ends[0], x1: ends[1], square: signal }, context.ready ?? (() => undefined));
+        if (ends && full.level) sum = full.level({ x0: ends[0], x1: ends[1], square: signal }, context.ready ?? (() => undefined));
         levels.set(layer, sum === undefined ? { level: estimate, state: 'pending' } : sum === null ? { level: estimate, state: 'unmeasured' } : { level: dB(sum), state: 'exact' });
     }
     return levels;
@@ -595,11 +594,12 @@ export interface StageLayer {
     /** `step`: for a point of the full data, the spacing of its real neighbours (the digits a place needs, R7). */
     readout?: (index: number, point: { x: number; value: number; step?: number }) => string[];
     /**
-     * Where every number read of this picture comes from (R7, fullRead.ts): 'drawn' when what it draws is every
-     * point, else the source of its full-resolution data. Every line and image a plot draws says which (bars are whole
-     * bands): the plot marks one that does not (`data-plot-full`), and every ui-smoke test fails it.
+     * Where every number read of this picture comes from (R7, fullRead.ts), required of every layer: a source the
+     * webview holds every value of (InlineFullSource: bars, a pair spectrum's bins, a histogram's), or one the backend
+     * holds (FetchedFullSource). Nothing is ever read from what the plot draws. A layer given NO_FULL_DATA reads no
+     * number, and the plot marks it (`data-plot-full`), which every ui-smoke test fails.
      */
-    full?: FullRead;
+    full: FullRead;
     /**
      * A level line with no levelBins, measured for the overlay's order (R6) from every value on screen of its full
      * data (`full`): a cursor slice cut for display, which holds only the points kept to draw it.
@@ -766,7 +766,7 @@ export function wrapLines(text: string, maxWidth: number, measure: (part: string
 
 /** One picture on its own: the base, the compared file or their difference; `full`, where its numbers are read (R7). */
 export function paintStage(canvas: HTMLCanvasElement, view: StageView | null, range: PaneRange, color: string, axes: StageAxes, options: StagePaintOptions = {}, full?: FullRead): StagePlot | null {
-    return paintOverlay(canvas, { layers: view ? [{ view, color, filled: true, ...(full ? { full } : {}) }] : [] }, range, axes, options);
+    return paintOverlay(canvas, { layers: view ? [{ view, color, filled: true, full: full ?? NO_FULL_DATA }] : [] }, range, axes, options);
 }
 
 /**
@@ -1291,45 +1291,6 @@ export function strokeStageLine(context: CanvasRenderingContext2D, plot: StagePl
     context.restore();
 }
 
-/**
- * A signal's point under the pointer at (`x`, `y`): of what its envelope draws in the pixel column at `x` (the
- * buckets in it, or the nearest one zoomed past single buckets), its lowest or highest point, whichever is nearer
- * `y`; null past its ends.
- */
-function signalPointAt(plot: StagePlot, waveform: NonNullable<StageView['waveform']>, x: number, y: number): { index: number; time: number; x: number; y: number; value: number } | null {
-    const { min, max, minT, maxT } = waveform;
-    const timeOf = (index: number): number => ((minT[index] ?? maxT[index] ?? 0) + (maxT[index] ?? minT[index] ?? 0)) / 2;
-    const n = Math.min(min.length, max.length, minT.length, maxT.length);
-    // The envelope's ends as drawn: the first bucket's earlier time, the last one's later time.
-    const start = Math.min(minT[0] ?? Infinity, maxT[0] ?? Infinity), end = Math.max(minT[n - 1] ?? -Infinity, maxT[n - 1] ?? -Infinity);
-    if (!n || x < plot.xAt(start) - 0.5 || x > plot.xAt(end) + 0.5) return null;
-    let low = 0, high = n - 1;
-    while (high - low > 1) {
-        const middle = (low + high) >> 1;
-        if (plot.xAt(timeOf(middle)) <= x) low = middle; else high = middle;
-    }
-    const nearest = Math.abs(plot.xAt(timeOf(high)) - x) < Math.abs(plot.xAt(timeOf(low)) - x) ? high : low;
-    let best: { time: number; value: number } | null = null;
-    // As the painter draws them: a missing value at 0, a missing time at the bucket's other one.
-    const consider = (raw: number | null, time: number): void => {
-        const value = raw ?? 0;
-        // A point clipped off the plot (zoomed into part of the amplitude) is not on screen to pick.
-        const shown = plot.signal?.range;
-        if (shown && (value < shown.min || value > shown.max)) return;
-        if (!best || Math.abs(plot.yAt(value) - y) < Math.abs(plot.yAt(best.value) - y)) best = { time, value };
-    };
-    const column = (index: number): boolean => Math.abs(plot.xAt(timeOf(index)) - x) <= 0.5;
-    let first = nearest, last = nearest;
-    while (first > 0 && column(first - 1)) first--;
-    while (last < n - 1 && column(last + 1)) last++;
-    for (let index = first; index <= last; index++) { consider(min[index], minT[index] ?? timeOf(index)); consider(max[index], maxT[index] ?? timeOf(index)); }
-    const found = best as { time: number; value: number } | null;
-    if (!found) return null;
-    // A point off the plot (zoomed between two samples) keeps its cursor at the plot's edge.
-    const at = Math.max(plot.frame.left, Math.min(plot.frame.left + plot.frame.width, plot.xAt(found.time)));
-    return { index: -1, time: found.time, x: at, y: plot.yAt(found.value), value: found.value };
-}
-
 /** A time to the digits a pixel column of the plot tells apart (at least 10 ms). */
 function timeText(plot: StagePlot, seconds: number): string {
     const perPixel = Math.abs(plot.xAt(1) - plot.xAt(0)) > 0 ? 1 / Math.abs(plot.xAt(1) - plot.xAt(0)) : 0.01;
@@ -1337,82 +1298,10 @@ function timeText(plot: StagePlot, seconds: number): string {
     return secondsText(seconds, digits);
 }
 
-/** A line's point nearest across to `x` (canvas CSS pixels): its index and where it is drawn; null where it has no value. */
-function linePointAt(plot: StagePlot, layer: StageLayer, x: number): { index: number; x: number; y: number; value: number } | null {
-    const xs = layer.view.xs ?? [], values = layer.view.values ?? [];
-    if (!xs.length) return null;
-    let low = 0, high = xs.length - 1;
-    while (high - low > 1) {
-        const middle = (low + high) >> 1;
-        if (plot.xAt(xs[middle]) <= x) low = middle; else high = middle;
-    }
-    // A band is the one whose step the pointer is over (its centre may be off the plot, zoomed into part of it).
-    const inBand = (index: number): boolean => { const [x0, x1] = barEdges(plot, xs[index]); return x >= x0 && x <= x1; };
-    // Between two bands' centres the pointer is over one of them, or, in the sliver between nominal bands (630 and
-    // 800 Hz are not quite a third of an octave apart), the nearer one.
-    const between = (): boolean => high > low && x > plot.xAt(xs[low]) && x < plot.xAt(xs[high]);
-    // Past a line's ends, or beside the bands, the pointer is over no point of it.
-    if (layer.view.kind === 'bar' ? !inBand(low) && !inBand(high) && !between() : x < plot.xAt(xs[0]) || x > plot.xAt(xs[xs.length - 1])) return null;
-    const index = layer.view.kind === 'bar' ? (inBand(high) ? high : inBand(low) ? low : x - barEdges(plot, xs[low])[1] < barEdges(plot, xs[high])[0] - x ? low : high)
-        : Math.abs(plot.xAt(xs[high]) - x) < Math.abs(plot.xAt(xs[low]) - x) ? high : low;
-    const value = values[index];
-    if (value === null || value === undefined || silent(layer.view, value)) return null;
-    // A point off the plot (zoomed between two points) keeps its cursor at the plot's edge.
-    const at = Math.max(plot.frame.left, Math.min(plot.frame.left + plot.frame.width, plot.xAt(xs[index])));
-    return { index, x: at, y: plot.yAt(value), value };
-}
-
 /** Whether (`x`, `y`) is inside the plot's frame: a point clipped off it is not on screen to pick. */
 function onPlot(plot: StagePlot, x: number, y: number): boolean {
     const { left, top, width, height } = plot.frame;
     return x >= left && x <= left + width && y >= top && y <= top + height;
-}
-
-/** The first index of ascending `xs` drawn at or right of `x`. */
-function firstAtOrRight(count: number, xAt: (index: number) => number, x: number): number {
-    let low = 0, high = count;
-    while (low < high) {
-        const middle = (low + high) >> 1;
-        if (xAt(middle) < x) low = middle + 1; else high = middle;
-    }
-    return low;
-}
-
-/** A line's points drawn within `radius` across of `x` and on the plot (bands are read under the pointer only). */
-function linePointsNear(plot: StagePlot, layer: StageLayer, x: number, radius: number): Array<{ index: number; x: number; y: number; value: number }> {
-    const xs = layer.view.xs ?? [], values = layer.view.values ?? [];
-    if (layer.view.kind === 'bar' || !xs.length) return [];
-    const points: Array<{ index: number; x: number; y: number; value: number }> = [];
-    for (let index = firstAtOrRight(xs.length, i => plot.xAt(xs[i]), x - radius); index < xs.length; index++) {
-        const at = plot.xAt(xs[index]);
-        if (at > x + radius) break;
-        const value = values[index];
-        if (value === null || value === undefined || silent(layer.view, value)) continue;
-        // yAt holds a value past the level axis at the plot's edge: whether it is on screen is read unclamped.
-        if (onPlot(plot, at, (plot.lineYAt ?? plot.yAt)(value))) points.push({ index, x: at, y: plot.yAt(value), value });
-    }
-    return points;
-}
-
-/** A signal's envelope points (each bucket's lowest and highest) drawn within `radius` across of `x` and on the plot. */
-function signalPointsNear(plot: StagePlot, waveform: NonNullable<StageView['waveform']>, x: number, radius: number): Array<{ index: number; time: number; x: number; y: number; value: number }> {
-    const { min, max, minT, maxT } = waveform;
-    const n = Math.min(min.length, max.length, minT.length, maxT.length);
-    const timeOf = (index: number): number => ((minT[index] ?? maxT[index] ?? 0) + (maxT[index] ?? minT[index] ?? 0)) / 2;
-    const shown = plot.signal?.range;
-    const points: Array<{ index: number; time: number; x: number; y: number; value: number }> = [];
-    // A bucket's two points sit at their own times, up to a bucket from its middle: start one bucket early.
-    for (let index = Math.max(0, firstAtOrRight(n, i => plot.xAt(timeOf(i)), x - radius) - 1); index < n; index++) {
-        // Past the radius once the bucket's earlier point is: a wide bucket's middle may be past it while that point is not.
-        if (plot.xAt(Math.min(minT[index] ?? timeOf(index), maxT[index] ?? timeOf(index))) > x + radius) break;
-        for (const [raw, time] of [[min[index], minT[index]], [max[index], maxT[index]]] as const) {
-            const value = raw ?? 0, at = plot.xAt(time ?? timeOf(index));
-            if (shown && (value < shown.min || value > shown.max)) continue;
-            const y = plot.yAt(value);
-            if (Math.abs(at - x) <= radius && onPlot(plot, at, y)) points.push({ index: -1, time: time ?? timeOf(index), x: at, y, value });
-        }
-    }
-    return points;
 }
 
 /**
@@ -1450,14 +1339,9 @@ export interface StageRead {
 /** A point a plot reads: where it is drawn, its value, where it is along its axis and its index in the drawn line. */
 type ReadPoint = { index: number; time?: number; x: number; y: number; value: number; at: number; step?: number; full?: boolean };
 
-/** The source of a layer's full data, or null when what it draws is every point ('drawn', or bars, which are whole). */
-function fullSourceOf(layer: StageLayer): FullSource | null {
-    return layer.full && layer.full !== 'drawn' && layer.view.kind !== 'bar' ? layer.full : null;
-}
-
-/** Whether a layer drawn on a plot says where its full data is read (R7): every line and image does; bars are whole. */
+/** Whether a layer drawn on a plot was given its full data (R7): every one is, held or fetched; nothing to read is none. */
 export function declaresFullRead(layer: StageLayer): boolean {
-    return !!layer.full || layer.view.kind === 'bar' || layer.view.kind === 'none';
+    return (!!layer.full && layer.full !== NO_FULL_DATA) || layer.view.kind === 'none';
 }
 
 /** A point of the full data on the plot: null where it has no value, or is silent, or is clipped off the level axis. */
@@ -1468,7 +1352,8 @@ function fullPoint(plot: StagePlot, layer: StageLayer, points: FullPoints, index
     const shown = layer.view.waveform ? plot.signal?.range : undefined;
     if (shown && (value < shown.min || value > shown.max)) return null;
     const gaps = [at - points.xs[index - 1], points.xs[index + 1] - at].map(Math.abs).filter(gap => Number.isFinite(gap) && gap > 0);
-    return { index: -1, at, x: plot.xAt(at), y: plot.yAt(value), value, full: true, ...(layer.view.waveform ? { time: at } : {}), ...(gaps.length ? { step: Math.min(...gaps) } : {}) };
+    // Of a source the webview holds, the point's index in its every value (a histogram's bin, for its readout).
+    return { index: points.offset !== undefined ? points.offset + index : -1, at, x: plot.xAt(at), y: plot.yAt(value), value, full: true, ...(layer.view.waveform ? { time: at } : {}), ...(gaps.length ? { step: Math.min(...gaps) } : {}) };
 }
 
 /**
@@ -1476,7 +1361,7 @@ function fullPoint(plot: StagePlot, layer: StageLayer, points: FullPoints, index
  * the one nearest across to it (with none that near: zoomed past single points). undefined while they are fetched.
  */
 function fullLineNear(plot: StagePlot, layer: StageLayer, source: FullSource, x: number, y: number, radius: number, ready: () => void): { near: ReadPoint[]; at: ReadPoint | null } | undefined {
-    if (!source.line || layer.view.kind === 'bar' || !plot.xOf) return { near: [], at: null };
+    if (!source.line || !plot.xOf) return { near: [], at: null };
     const got = source.line({ x0: plot.xOf(x - radius), x1: plot.xOf(x + radius), beyond: 1, near: plot.levelOf?.(y), columns: 2 * radius + 1, log: !!plot.xLog }, ready);
     if (got === undefined) return undefined;
     if (!got?.xs.length) return { near: [], at: null };
@@ -1530,27 +1415,13 @@ export function stageHover(plot: StagePlot, x: number, y: number, ready: () => v
     if (plot.image) return imageHover(plot, plot.image, x, y, ready);
     const fulls = new Map<StageLayer, { near: ReadPoint[]; at: ReadPoint | null }>();
     for (const layer of plot.lines) {
-        const source = fullSourceOf(layer);
-        if (!source) continue;
-        const got = fullLineNear(plot, layer, source, x, y, HOVER_PICK_RADIUS_PX, ready);
+        const got = fullLineNear(plot, layer, layer.full, x, y, HOVER_PICK_RADIUS_PX, ready);
         if (got === undefined) return pendingRead(layer, x, y);
         fulls.set(layer, got);
     }
     // The point nearest the pointer within a few pixels, so a narrow peak beside it is read at its top (R7).
-    const hit = nearestPoint<StageLayer, ReadPoint>(plot.lines,
-        layer => fulls.get(layer)?.near ?? (layer.view.waveform ? drawnPoints(signalPointsNear(plot, layer.view.waveform, x, HOVER_PICK_RADIUS_PX)) : drawnPoints(linePointsNear(plot, layer, x, HOVER_PICK_RADIUS_PX), layer)),
-        layer => {
-            const full = fulls.get(layer);
-            if (full) return full.at;
-            const point = layer.view.waveform ? signalPointAt(plot, layer.view.waveform, x, y) : linePointAt(plot, layer, x);
-            return point ? drawnPoints([point], layer)[0] : null;
-        }, x, y, HOVER_PICK_RADIUS_PX);
+    const hit = nearestPoint<StageLayer, ReadPoint>(plot.lines, layer => fulls.get(layer)?.near ?? [], layer => fulls.get(layer)?.at ?? null, x, y, HOVER_PICK_RADIUS_PX);
     return hit ? lineRead(plot, hit.s, hit.point, hit.away) : null;
-}
-
-/** Points read from what a layer draws, placed on its axis (a signal's by their time). */
-function drawnPoints(points: ReadonlyArray<{ index: number; time?: number; x: number; y: number; value: number }>, layer?: StageLayer): ReadPoint[] {
-    return points.map(point => ({ ...point, at: point.time ?? layer?.view.xs?.[point.index] ?? 0 }));
 }
 
 /**
@@ -1562,13 +1433,11 @@ function drawnPoints(points: ReadonlyArray<{ index: number; time?: number; x: nu
 export function stageStep(plot: StagePlot, read: StageRead, delta: -1 | 1, ready: () => void = () => undefined): StageRead | null | undefined {
     if (read.pending) return null;
     if (read.image) {
-        const source = fullSourceOf(read.layer);
-        if (plot.image && source?.cells && read.full && read.at !== undefined && read.row !== undefined) return imageStep(plot, plot.image, source, read, delta, ready);
-        const next = stageNeighbour(plot, read, delta);
-        return next && plot.image ? imageHover(plot, plot.image, next.x, next.y, ready) : null;
+        const source = read.layer.full;
+        return plot.image && source.cells && read.full && read.at !== undefined && read.row !== undefined ? imageStep(plot, plot.image, source, read, delta, ready) : null;
     }
-    const source = fullSourceOf(read.layer);
-    if (source && read.full && read.at !== undefined) {
+    const source = read.layer.full;
+    if (read.full && read.at !== undefined) {
         // The first full point past the one read, in the key's direction, that has a value to read: past a window of
         // silent points the next window is asked for, until a point, the plot's side or the data's end.
         let from = read.at;
@@ -1601,19 +1470,7 @@ export function stageStep(plot: StagePlot, read: StageRead, delta: -1 | 1, ready
         }
         return null;
     }
-    const next = stageNeighbour(plot, read, delta);
-    if (!next) return null;
-    if (read.index !== undefined && read.index >= 0 && !read.layer.view.waveform) {
-        const values = read.layer.view.values ?? [];
-        // The next drawn value of the same line (stageNeighbour skipped the ones without a value).
-        for (let index = read.index + delta; index >= 0 && index < values.length; index += delta) {
-            const value = values[index];
-            if (value === null || value === undefined || silent(read.layer.view, value)) continue;
-            return lineRead(plot, read.layer, { index, x: next.x, y: next.y, value, at: read.layer.view.xs?.[index] ?? 0 });
-        }
-        return null;
-    }
-    return stageHover(plot, next.x, next.y, ready);
+    return null;
 }
 
 /** The readout of an image's real cell (R7): its name (a row's thing, or the picture's), where it is and its value. */
@@ -1635,25 +1492,17 @@ function cellRead(plot: StagePlot, layer: StageLayer, got: FullPoints, column: n
  * bin), never a cell averaged for the screen. An image has no line to mark: the cursor alone, at the pointer.
  */
 function imageHover(plot: StagePlot, image: NonNullable<StagePlot['image']>, x: number, y: number, ready: () => void): StageRead | null {
-    const { layer } = image, view = layer.view;
-    const source = fullSourceOf(layer);
-    if (source?.cells) {
-        const place = image.valueAt(x, y);
-        if (!place) return null;
-        const got = source.cells({ x: place.x, y: place.y, beyond: 1 }, ready);
-        if (got === undefined) return pendingRead(layer, x, y, true);
-        if (!got?.xs.length || !got.ys?.length) return null;
-        const column = cellIndex(got.xs, place.x, false, { low: got.start === null, high: got.end === null });
-        const row = cellIndex(got.ys, place.y, image.rowLog, { low: true, high: true });
-        return column < 0 || row < 0 ? null : cellRead(plot, layer, got, column, row, x, y);
-    }
-    const { column, row } = image.cellAt(x, y);
-    const value = column < 0 || row < 0 ? null : view.matrix?.[row]?.[column] ?? null;
-    if (value === null) return null;
-    const amount = plot.diff ? signed(value, isDb(view))
-        : isDb(view) ? levelText(value) : amountText(value);
-    const at = layer.rowName ? atValue(view, view.xs?.[column] ?? 0) : atText(view, column, row);
-    return { ...readoutOf(layer, { x, y }, layer.rowName?.(row, column) ?? layer.label ?? (plot.diff ? 'Δ' : ''), [at, amount]), image: true };
+    const { layer } = image;
+    const source = layer.full;
+    if (!source.cells) return null;
+    const place = image.valueAt(x, y);
+    if (!place) return null;
+    const got = source.cells({ x: place.x, y: place.y, beyond: 1 }, ready);
+    if (got === undefined) return pendingRead(layer, x, y, true);
+    if (!got?.xs.length || !got.ys?.length) return null;
+    const column = cellIndex(got.xs, place.x, false, { low: got.start === null, high: got.end === null });
+    const row = cellIndex(got.ys, place.y, image.rowLog, { low: true, high: true });
+    return column < 0 || row < 0 ? null : cellRead(plot, layer, got, column, row, x, y);
 }
 
 /** An arrow key on an image with full data: the next real column (time frame) on the row read. */
@@ -1670,64 +1519,6 @@ function imageStep(plot: StagePlot, image: NonNullable<StagePlot['image']>, sour
     const x = image.placeOf(got.xs[column], place).x;
     if (x < plot.frame.left || x > plot.frame.left + plot.frame.width) return null;
     return cellRead(plot, read.layer, got, column, row, x, read.y);
-}
-
-/**
- * Where the point `delta` points along from the one `read` reads is drawn (canvas CSS pixels), so an arrow key reads
- * it as the pointer would (R7): the next value of the same line (a bar, a dot), the next point of a signal's envelope
- * by time, the next column of an image on the same row. Null past the line's end or off the plot.
- */
-export function stageNeighbour(plot: StagePlot, read: StageRead, delta: -1 | 1): { x: number; y: number } | null {
-    if (read.image && plot.image) {
-        const image = plot.image, { left, width } = plot.frame;
-        const cellAt = (x: number, y: number) => image.cellAt(x, y);
-        const from = cellAt(read.x, read.y).column;
-        // Columns may be narrower than a pixel: walked in tenths of one to the next column, then to its far edge.
-        let x = read.x, start: number | null = null;
-        for (let step = 0; step < width * 10 + 10; step++) {
-            x += delta * 0.1;
-            if (x < left || x > left + width) break;
-            const column = cellAt(x, read.y).column;
-            if (start === null && column !== from && column >= 0) start = x;
-            else if (start !== null && column !== cellAt(start, read.y).column) return { x: (start + x - delta * 0.1) / 2, y: read.y };
-        }
-        return start === null ? null : { x: (start + x - delta * 0.1) / 2, y: read.y };
-    }
-    const view = read.layer.view;
-    if (view.waveform) {
-        const { min, max, minT, maxT } = view.waveform;
-        const points: Array<{ time: number; value: number }> = [];
-        for (let index = 0; index < Math.min(min.length, max.length, minT.length, maxT.length); index++) {
-            const middle = ((minT[index] ?? maxT[index] ?? 0) + (maxT[index] ?? minT[index] ?? 0)) / 2;
-            points.push({ time: minT[index] ?? middle, value: min[index] ?? 0 }, { time: maxT[index] ?? middle, value: max[index] ?? 0 });
-        }
-        points.sort((a, b) => a.time - b.time);
-        const at = (point: { time: number; value: number }): { x: number; y: number } => ({ x: plot.xAt(point.time), y: plot.yAt(point.value) });
-        let from = -1;
-        for (let index = 0; index < points.length; index++) {
-            const p = at(points[index]);
-            if (from < 0 || Math.hypot(p.x - read.x, p.y - read.y) < Math.hypot(at(points[from]).x - read.x, at(points[from]).y - read.y)) from = index;
-        }
-        const shown = plot.signal?.range;
-        for (let index = from + delta; from >= 0 && index >= 0 && index < points.length; index += delta) {
-            const p = at(points[index]);
-            if (Math.abs(p.x - read.x) < 1e-9 && Math.abs(p.y - read.y) < 1e-9) continue;
-            if (!onPlot(plot, p.x, p.y) || (shown && (points[index].value < shown.min || points[index].value > shown.max))) return null;
-            return p;
-        }
-        return null;
-    }
-    const xs = view.xs ?? [], values = view.values ?? [];
-    for (let index = (read.index ?? -1) + delta; read.index !== undefined && read.index >= 0 && index >= 0 && index < xs.length; index += delta) {
-        const value = values[index];
-        if (value === null || value === undefined || silent(view, value)) continue;
-        const x = plot.xAt(xs[index]);
-        // Past the plot's side there is nothing further to read; a point above or below the level axis is read at the
-        // plot's edge, where yAt holds it, as the pointer reads it there.
-        if (x < plot.frame.left || x > plot.frame.left + plot.frame.width) return null;
-        return { x, y: plot.yAt(value) };
-    }
-    return null;
 }
 
 /** A hover's readout: the line's name (cut short first where there is no room) and where and what it reads. */

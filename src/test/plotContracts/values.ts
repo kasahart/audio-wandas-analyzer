@@ -56,7 +56,7 @@ export const DRAWN_FIELDS: Readonly<Record<string, readonly string[]>> = {
 };
 
 /** Functions whose result is drawn points: a call of one is a read of drawn points too. Each reads DRAWN_FIELDS itself. */
-export const DRAWN_ACCESSORS: readonly string[] = [`${SP}:points`, `${SP}:linePointAt`, `${SP}:linePointsNear`];
+export const DRAWN_ACCESSORS: readonly string[] = [`${SP}:points`];
 
 /** The backend's functions that thin data to draw it: a def that calls one reads (or makes) drawn points. */
 export const PY_DECIMATORS: readonly string[] = [
@@ -68,7 +68,7 @@ export const PY_DECIMATORS: readonly string[] = [
 export type DrawnUse =
     /** Reads drawn points only to draw them, place marks, or tell what kind of picture it is: no number comes of them. */
     | 'draws'
-    /** Reads drawn points as values only where they are every point (bars, a layer whose full is 'drawn', events drawn whole). */
+    /** Reads drawn points as values only where they are every point (a band table's bars, events drawn whole). */
     | 'whole'
     /** A number shown comes of drawn points: its rows are from 'extremes' or 'thinned'. */
     | 'value';
@@ -82,10 +82,8 @@ export const DRAWN_READERS: Readonly<Record<string, { use: DrawnUse; why: string
     [`${SP}:eventLayers`]: { use: 'draws', why: 'a layer per event drawn; its readout reads the event\'s full samples' },
     [`${SP}:extent`]: { use: 'whole', why: 'the lowest and highest value: the full data\'s valueRange; the drawn points only of a picture the webview holds whole (a band table, a level line)' },
     [`${SP}:fullPoint`]: { use: 'draws', why: 'whether the layer is a signal drawn as itself, to place a full point on its range' },
-    [`${SP}:imageHover`]: { use: 'whole', why: 'reads the drawn cell only for an image whose full is \'drawn\'; else its full cells' },
+    ['src/webview/runtime/fullRead.ts:wholeBars']: { use: 'whole', why: 'a band table\'s bars, which the backend sends whole (every band), held as their InlineFullSource' },
     [`${SP}:isEventsView`]: { use: 'draws', why: 'whether a picture is a trigger\'s events' },
-    [`${SP}:linePointAt`]: { use: 'whole', why: 'the drawn point under the pointer: its value is read only for bars and \'drawn\' layers, else the full read replaces it' },
-    [`${SP}:linePointsNear`]: { use: 'whole', why: 'the drawn points near the pointer, as linePointAt' },
     [`${SP}:lineRead`]: { use: 'draws', why: 'whether the layer is a signal drawn as itself' },
     [`${SP}:paint`]: { use: 'draws', why: 'draws a signal\'s envelope' },
     [`${SP}:paintPlot`]: { use: 'draws', why: 'draws the pictures' },
@@ -96,10 +94,8 @@ export const DRAWN_READERS: Readonly<Record<string, { use: DrawnUse; why: string
     [`${SP}:stageDiffRange`]: { use: 'whole', why: 'the Δ\'s auto range from extent: the full Δ\'s valueRange' },
     [`${SP}:stageEventCounts`]: { use: 'whole', why: 'counts a picture\'s events, every one of which it carries' },
     [`${SP}:stageHeadline`]: { use: 'draws', why: 'whether the Δ is an image, to write the backend\'s peak with a y' },
-    [`${SP}:stageHover`]: { use: 'whole', why: 'the drawn points find the line under the pointer; the number is the full read\'s unless the layer is whole' },
-    [`${SP}:stageNeighbour`]: { use: 'whole', why: 'the next drawn point, for bars and \'drawn\' layers only' },
     [`${SP}:stageRange`]: { use: 'whole', why: 'an auto range from extent: the full data\'s valueRange (a signal\'s from its absolute peak)' },
-    [`${SP}:stageStep`]: { use: 'whole', why: 'an arrow key\'s next drawn point, for bars and \'drawn\' layers only; else the full read\'s' },
+    [`${SP}:stageStep`]: { use: 'draws', why: 'whether the layer is a signal drawn as itself, to stop past its clipped level axis; every step is read from the layer\'s full data' },
     [`${SP}:strokeStageLine`]: { use: 'draws', why: 'draws a line' },
     ['python-backend/analysis_service.py:spectrum_slice']: { use: 'draws', why: 'cuts the row to draw it (min_max_spectrum); minDb / maxDb are every bin\'s, taken before (cursor-spectrum.range)' },
     ['python-backend/analyzer.py:_build_spectrogram']: { use: 'draws', why: 'resamples the cells to draw them; minDb / maxDb are every full cell\'s, taken before (track-spectrogram.range)' },

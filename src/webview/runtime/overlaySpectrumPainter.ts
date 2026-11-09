@@ -2,7 +2,7 @@ import { binFrequencyHz } from '../draw/canvasDrawers';
 import { levelBinsOf, paintOverlay, type StageLayer, type StagePlot } from './stagePanes';
 import type { StageView } from '../../shared/protocol/backendProtocol';
 import { minMaxLine } from './comparePanes';
-import { localLine, type FullSource } from './fullRead';
+import { localLine, NO_FULL_DATA, type FullSource } from './fullRead';
 import {
     OVERLAY_SPECTRUM_PAD,
     overlayLevelAxes,
@@ -33,8 +33,8 @@ export interface OverlaySpectrumPaint {
  * the track's end there is no point to read, and silence has no power (the quietest, drawn last on top, R6).
  */
 const STAND_IN_READ: Record<NonNullable<SpectrumSeries['slice']['standIn']>, FullSource> = {
-    pending: { line: () => undefined, level: () => undefined },
-    silence: { line: () => null, level: () => ({ power: 0, count: 0 }) },
+    pending: { held: 'fetched', line: () => undefined, level: () => undefined },
+    silence: { held: 'fetched', line: () => null, level: () => ({ power: 0, count: 0 }) },
 };
 
 /** Marks the right-hand axis in the legend. */
@@ -60,7 +60,8 @@ export function spectrumLayer(series: SpectrumSeries, cutoffHz: number, visible?
     // for display the slice read again at every bin (series.full).
     // A stand-in is drawn only: none of its values is a bin of a slice.
     const standIn = slice.standIn ? STAND_IN_READ[slice.standIn] : undefined;
-    const full = standIn ?? series.full ?? (bands ? 'drawn' : slice.frequenciesHz ? undefined : localLine(xs, values));
+    // Bands are every band of the slice; a slice cut for display without its every bin (series.full) has none to read.
+    const full = standIn ?? series.full ?? (slice.frequenciesHz && !bands ? NO_FULL_DATA : localLine(xs, values));
     // Ordered among the overlaid slices by every bin's power before thinning (R6), over the axis drawn.
     // Over the frequencies on screen when known (the whole slice is in hand: measured again at every zoom), on the axis
     // drawn: a linear one keeps the 0 Hz bin, a log one starts at the first bin above it. A slice cut for display holds
@@ -84,13 +85,13 @@ export function spectrumLayer(series: SpectrumSeries, cutoffHz: number, visible?
     // slice's unit, or with two level axes in the reference of the axis it is read on.
     const level = levelUnit ? { ...slice, unit: levelUnit } : slice;
     return {
-        // Bars are read as they are drawn (whole): a stand-in's floor past the end is drawn as a line, read as none.
+        // Bars are read from every band (whole): a stand-in's floor past the end is drawn as a line, read as none.
         view: { frame: 'spectrum', kind: bands && !standIn ? 'bar' : 'line', x: 'frequency', xScale: bands ? 'log' : 'linear', quantity: 'level', xs, values, ...(levelBins ? { levelBins } : {}) },
         color: series.color,
         width: bands ? 2 : 1.4,
         label: series.label,
         readout: (_index, point) => spectrumReadoutValues(level, point.x, point.value, point.step),
-        ...(full ? { full } : {}),
+        full,
         ...(!levelBins && (!bands || standIn) ? { measured: true } : {}),
     };
 }

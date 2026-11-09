@@ -6,6 +6,7 @@ import type { StageView } from '../../shared/protocol/backendProtocol';
 import type { FrequencyScale } from '../draw/canvasDrawers';
 import { hintAttr } from './hintFooter';
 import { levelBinsOf, type StageLayer } from './stagePanes';
+import { localLine } from './fullRead';
 import type { TrackId } from './types';
 
 export type PairSpectrumResultMessage = Extract<PairSpectrumPublication, { type: 'pair-spectrum-result' }>;
@@ -171,8 +172,8 @@ export function pairLanes(input: PairPaintInput, visible: FrequencyScale, string
             },
             color: curve.color,
             label: curve.label,
-            // Every bin is drawn: what the line draws is all it holds (R7).
-            full: 'drawn' as const,
+            // Read from every bin of the response, which the webview holds (R7).
+            full: localLine(xs, [...values(curve.response)]),
             ...(curve.dashed ? { dash: [4, 2] } : {}),
         }));
     return [
