@@ -24,6 +24,13 @@ export interface LineQuery {
     near?: number;
     columns?: number;
     log?: boolean;
+    /**
+     * The pointer's place on the axis (`near` is its level) and the screen's scale there, pixels per axis unit (per
+     * natural-log unit on a log axis) and per value unit: a dense window then holds the point nearest the pointer
+     * on screen by its true distance (full_read._nearest_on_screen), read only at that place.
+     */
+    at?: number;
+    pixels?: readonly [number, number];
 }
 
 /** An image's cells around a place: its columns `beyond` either side of the one at `x`, its rows around `y`. */
@@ -257,14 +264,17 @@ export function fetchedSource(fetch: (read: StageRead, done: (points: StagePoint
             const log = !!query.log && x0 > 0;
             const [low, high] = x0 === x1 ? [x0, x1] : log ? [x0 * (x0 / x1) ** PAD, x1 * (x1 / x0) ** PAD] : [x0 - (x1 - x0) * PAD, x1 + (x1 - x0) * PAD];
             const columns = query.columns ? Math.max(1, Math.min(512, Math.round(query.columns * (1 + 2 * PAD)))) : 0;
+            const pointer = query.at !== undefined && query.pixels && [query.at, ...query.pixels].every(Number.isFinite);
             const read: StageRead = { ...extra, x: x0 === x1 ? [x0] : [low, high], beyond: query.beyond,
                 ...(query.near !== undefined && Number.isFinite(query.near) ? { near: query.near } : {}),
-                ...(columns ? { columns } : {}), ...(query.log ? { log: true } : {}) };
+                ...(columns ? { columns } : {}), ...(query.log ? { log: true } : {}),
+                ...(pointer && query.pixels ? { at: query.at, pixels: [...query.pixels] } : {}) };
             // A window too dense to send whole comes as each pixel column's lowest, highest and the point nearest the
-            // level under the pointer: it is read again wherever it holds the pointer's window as finely as the screen
-            // draws it, at that level. At another level its nearest points are another's: the read waits for its own.
+            // level under the pointer, with the one point nearest the pointer on screen: it answers only a read at
+            // that place, level and scale. Elsewhere its nearest point is another's: the read waits for its own.
+            const same = (asked: StageRead): boolean => asked.near === read.near && asked.at === read.at && asked.pixels?.[0] === read.pixels?.[0] && asked.pixels?.[1] === read.pixels?.[1];
             return answer(JSON.stringify(read), read, ready, (points, asked) => covers(points, x0, x1, query.beyond)
-                || (!points.complete && query.columns !== undefined && holdsDense(asked, x0, x1, query.columns, log) && asked.near === read.near));
+                || (!points.complete && query.columns !== undefined && holdsDense(asked, x0, x1, query.columns, log) && same(asked)));
         },
         level(query, ready) {
             // Every value of the window, measured where the data is (full_read.read_level): never the drawn points.

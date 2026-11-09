@@ -1278,6 +1278,15 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "log": {
                     "type": "boolean"
                 },
+                "at": {
+                    "type": "number"
+                },
+                "pixels": {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    }
+                },
                 "event": {
                     "type": "integer",
                     "minimum": 0
@@ -2468,6 +2477,8 @@ export interface StageRead {
     near?: number;
     columns?: number;
     log?: boolean;
+    at?: number;
+    pixels?: number[];
     event?: number;
     of?: "base" | "diff";
     channel?: number;

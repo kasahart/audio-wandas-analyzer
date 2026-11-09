@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { fetchedSource, localCells, localLine, NO_FULL_DATA, STEP_AHEAD, wholeBars, type FullSource } from '../webview/runtime/fullRead';
 import { declaresFullRead, stageHover, stageStep, type StagePlot, type StageRead } from '../webview/runtime/stagePanes';
+import { HOVER_PICK_RADIUS_PX } from '../webview/runtime/plotHover';
 import { createStageReader } from '../webview/runtime/stageReader';
 import { spectrumReadoutValues } from '../webview/runtime/spectrumRuntime';
 import type { StageRead as FullReadRequest, StageView } from '../shared/protocol/backendProtocol';
@@ -111,13 +112,17 @@ test('a window read is asked for once and kept: the pointer moving inside it ask
     assert.equal(backend.asked.length, 1);
 });
 
-test('a window too dense to send whole is read again while the pointer moves along it; at another level its readout is empty until that level\'s points come; zoomed in further it is asked anew (R7)', () => {
+test('a window too dense to send whole is read where the pointer is: the point nearest it on screen, by its true distance, as brute force finds it; elsewhere, or at another level, its readout is empty until that place\'s points come; zoomed in further it is asked anew (R7)', () => {
     const asked: FullReadRequest[] = [];
-    // The backend's dense answer: each pixel column's lowest, highest and nearest the level asked (full_read.read_line).
+    const count = 400 * 50;
+    const signal = Array.from({ length: count }, (_, index) => Math.sin(index * 0.37) * Math.cos(index * 0.011) * 0.9);
+    const envelope = (): StageView => ({ frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs: [0, count - 1], values: [0, 0] });
+    // The backend's dense answer (full_read.read_line): each pixel column's lowest, highest and nearest the level
+    // asked, and the one point nearest the pointer on screen at the scale asked.
     const source = fetchedSource((read, done) => {
         asked.push(read);
         const [low, high] = read.x, columns = read.columns ?? 1;
-        const xs: number[] = [], values: number[] = [];
+        const keep = new Set<number>();
         for (let column = 0; column < columns; column++) {
             const a = Math.ceil(low + (high - low) * column / columns), b = Math.min(count, Math.ceil(low + (high - low) * (column + 1) / columns));
             let lo = -1, hi = -1, near = -1;
@@ -126,9 +131,16 @@ test('a window too dense to send whole is read again while the pointer moves alo
                 if (hi < 0 || signal[index] > signal[hi]) hi = index;
                 if (near < 0 || Math.abs(signal[index] - (read.near ?? 0)) < Math.abs(signal[near] - (read.near ?? 0))) near = index;
             }
-            for (const index of [...new Set([lo, hi, near])].filter(index => index >= 0).sort((p, q) => p - q)) { xs.push(index); values.push(signal[index]); }
+            for (const index of [lo, hi, near]) if (index >= 0) keep.add(index);
         }
-        done({ xs, values, start: null, end: null, complete: false });
+        if (read.at !== undefined && read.pixels) {
+            let best = -1;
+            const away = (index: number): number => Math.hypot((index - (read.at ?? 0)) * (read.pixels?.[0] ?? 0), (signal[index] - (read.near ?? 0)) * (read.pixels?.[1] ?? 0));
+            for (let index = Math.max(0, Math.ceil(low)); index <= Math.min(count - 1, Math.floor(high)); index++) if (best < 0 || away(index) < away(best)) best = index;
+            if (best >= 0) keep.add(best);
+        }
+        const xs = [...keep].sort((p, q) => p - q);
+        done({ xs, values: xs.map(index => signal[index]), start: null, end: null, complete: false });
     });
     // 50 samples a pixel: a hover window of 41 columns holds 2050 samples, padded to 8200, more than the backend sends whole.
     const plot = (perPixel: number): StagePlot => ({
@@ -136,29 +148,36 @@ test('a window too dense to send whole is read again while the pointer moves alo
         yAt: value => 50 - value * 40, levelOf: y => (50 - y) / 40, ratioStep: 1.12, diff: false,
         lines: [{ view: envelope(), color: 'blue', full: source }],
     });
+    // Brute force: of every sample within the pick radius on screen, the nearest the pointer.
+    const nearest = (perPixel: number, x: number, y: number): number | null => {
+        let best: number | null = null, bestAway = Infinity;
+        for (let index = 0; index < count; index++) {
+            const away = Math.hypot(index / perPixel - x, 50 - signal[index] * 40 - y);
+            if (away <= HOVER_PICK_RADIUS_PX && away < bestAway) { best = index; bestAway = away; }
+        }
+        return best;
+    };
     const lane = plot(50);
     assert.equal(stageHover(lane, 200, 50)?.pending, true);
     assert.equal(asked.length, 1);
     assert.ok(asked[0].columns && asked[0].columns > 41, 'the window is padded, its columns with it');
-    for (const x of [200, 201, 203, 190, 215]) {
-        const read = stageHover(lane, x, 50);
-        assert.equal(read?.pending, undefined, `read at once at ${x}`);
+    assert.equal(asked[0].at, 200 * 50);
+    assert.ok(Math.abs((asked[0].pixels?.[0] ?? 0) - 1 / 50) < 1e-9 && asked[0].pixels?.[1] === 40, 'the screen\'s scale: pixels per sample and per unit of value');
+    for (const [x, y] of [[200, 50], [201, 50], [203.5, 31], [190, 70], [215, 22]] as const) {
+        const first = stageHover(lane, x, y);
+        // Each new place waits for its own nearest point: an empty readout, never the last place's point.
+        if (first?.pending) assert.equal(first.text, '');
+        const read = first?.pending ? stageHover(lane, x, y) : first;
         assert.equal(read?.full, true);
+        assert.equal(read?.at, nearest(50, x, y), `the true nearest sample at (${x}, ${y})`);
         assert.equal(signal[read?.at as number], read?.value, 'a real sample');
     }
-    assert.equal(asked.length, 1, 'nothing more asked while the pointer moves along the window');
-    // At another level the points that came are another level's nearest: the readout is empty (marks only) until
-    // that level's own come, never a number read from the points that came for the first.
-    const waiting = stageHover(lane, 203, 20);
-    assert.equal(waiting?.pending, true);
-    assert.equal(waiting?.text, '');
-    assert.equal(asked.length, 2);
-    assert.equal(asked[1].near, (50 - 20) / 40);
-    assert.equal(stageHover(lane, 203, 20)?.full, true);
-    assert.equal(asked.length, 2, 'that level\'s answer is kept');
+    const before = asked.length;
+    assert.equal(stageHover(lane, 215, 22)?.full, true);
+    assert.equal(asked.length, before, 'the same place is read from what came');
     // Zoomed in fourfold: the kept columns are coarser than the screen's, so the window is asked for again.
     assert.equal(stageHover(plot(12.5), 800, 50)?.pending, true);
-    assert.equal(asked.length, 3);
+    assert.equal(asked.length, before + 1);
 });
 
 test('a spectrogram\'s hover asks the backend once for a block around the pointer: moving across frames and bins reads what came (R7)', () => {

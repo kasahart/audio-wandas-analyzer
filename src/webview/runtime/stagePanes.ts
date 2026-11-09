@@ -1391,7 +1391,13 @@ function fullPoint(plot: StagePlot, layer: StageLayer, points: FullPoints, index
  */
 function fullLineNear(plot: StagePlot, layer: StageLayer, source: FullSource, x: number, y: number, radius: number, ready: () => void): { near: ReadPoint[]; at: ReadPoint | null } | undefined {
     if (!source.line || !plot.xOf) return { near: [], at: null };
-    const got = source.line({ x0: plot.xOf(x - radius), x1: plot.xOf(x + radius), beyond: 1, near: plot.levelOf?.(y), columns: 2 * radius + 1, log: !!plot.xLog }, ready);
+    // The pointer's place and the screen's scale there, so a window too dense to send whole holds the point nearest
+    // the pointer by its true distance on screen (R7), not only each column's nearest in height.
+    const place = plot.xOf(x), level = plot.levelOf?.(y);
+    const lineY = plot.lineYAt ?? plot.yAt;
+    const pixels: [number, number] | undefined = level === undefined ? undefined
+        : [Math.abs(plot.xLog ? plot.xAt(place * Math.E) - plot.xAt(place) : plot.xAt(place + 1) - plot.xAt(place)), Math.abs(lineY(level + 1) - lineY(level))];
+    const got = source.line({ x0: plot.xOf(x - radius), x1: plot.xOf(x + radius), beyond: 1, near: level, columns: 2 * radius + 1, log: !!plot.xLog, ...(pixels ? { at: place, pixels } : {}) }, ready);
     if (got === undefined) return undefined;
     if (!got?.xs.length) return { near: [], at: null };
     const near: ReadPoint[] = [];

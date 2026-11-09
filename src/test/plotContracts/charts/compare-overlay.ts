@@ -32,11 +32,12 @@ export const compareOverlay: ChartContract = {
         },
         {
             id: 'compare-overlay.readout-dense', value: 'readout', what: '画面の幅より密な窓での最寄りの点（読み値の点の選び方）',
-            computedIn: ['python-backend/full_read.py:read_line', 'src/webview/runtime/fullRead.ts:fetchedSource', `${SP}:stageHover`],
-            from: 'full', trace: '窓の点が多すぎると、バックエンドは画素の列ごとに最小・最大とマウスの高さに一番近い点（3 つ、どれも本当の点）を返し、部品はその中から縦横の距離で一番近い点を読む。列の幅は 1 画素なので、横の距離の差は 1 画素より小さい。',
+            computedIn: ['python-backend/full_read.py:read_line', 'python-backend/full_read.py:_nearest_on_screen', `${SP}:fullLineNear`, 'src/webview/runtime/fullRead.ts:fetchedSource', `${SP}:stageHover`],
+            from: 'full', trace: '窓の点が多すぎると、バックエンドは画素の列ごとに最小・最大とマウスの高さに一番近い点に加えて、Webview が送るマウスの位置と画面の縮尺（fullLineNear の at と pixels）から、画面の上の本当の距離でマウスに一番近い点を全点から探して返す（_nearest_on_screen）。部品はその中から画面の距離で一番近い点を読むので、総当たりと同じ点になる。その答えは同じ位置・高さ・縮尺の読みにだけ使う。',
             tests: [
                 tt('python-backend/test_full_read.py', 'test_a_dense_window_gives_each_pixel_columns_real_extremes_and_the_point_nearest_the_pointer'),
-                tt('src/test/fullRead.test.ts', 'a window too dense to send whole is read again while the pointer moves along it; at another level its readout is empty until that level\'s points come; zoomed in further it is asked anew (R7)'),
+                tt('python-backend/test_full_read.py', 'test_a_dense_window_sends_the_point_nearest_the_pointer_on_screen_as_brute_force_finds_it'),
+                tt('src/test/fullRead.test.ts', 'a window too dense to send whole is read where the pointer is: the point nearest it on screen, by its true distance, as brute force finds it; elsewhere, or at another level, its readout is empty until that place\'s points come; zoomed in further it is asked anew (R7)'),
             ],
         },
         {
@@ -44,7 +45,7 @@ export const compareOverlay: ChartContract = {
             computedIn: ['src/webview/runtime/fullRead.ts:fetchedSource', `${SP}:stageHover`, 'src/webview/runtime/trackStageGestures.ts:attachStageGestures'],
             from: 'full', trace: '何も届いていなければカーソルだけを出し読み値は空（pendingRead）。密な窓を別の高さで読むときも、前の高さで届いた点は読まず、その高さの点が届くまで空（fetchedSource の answer は自分の点か、同じ高さで同じ細かさの窓だけを答える）。届く前のトリガーのイベントのクリックは、届いてから決める（trackStageGestures の tap）。',
             tests: [
-                tt('src/test/fullRead.test.ts', 'a window too dense to send whole is read again while the pointer moves along it; at another level its readout is empty until that level\'s points come; zoomed in further it is asked anew (R7)'),
+                tt('src/test/fullRead.test.ts', 'a window too dense to send whole is read where the pointer is: the point nearest it on screen, by its true distance, as brute force finds it; elsewhere, or at another level, its readout is empty until that place\'s points come; zoomed in further it is asked anew (R7)'),
                 t('src/test/trackStageGestures.test.ts', 'a click on a trigger\'s event line while its full data is on its way is decided once it is in, never dropped; a double-click meanwhile still takes it back (R7)'),
             ],
         },

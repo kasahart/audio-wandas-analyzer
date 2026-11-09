@@ -11,6 +11,7 @@ the point nearest the level under the pointer (``near``), each a real point at i
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from typing import Literal, NotRequired, TypedDict
 
@@ -39,6 +40,11 @@ class StageRead(TypedDict):
     near: NotRequired[float]
     columns: NotRequired[int]
     log: NotRequired[bool]
+    #: The pointer's place on the axis (with ``near``, its level) and the screen's scale there: pixels per axis unit
+    #: (per natural-log unit on a ``log`` axis) and per value unit, so a dense window also sends the one point
+    #: nearest the pointer on screen, by its true distance there.
+    at: NotRequired[float]
+    pixels: NotRequired[list[float]]
     #: A trigger's event (its id): that event's own line.
     event: NotRequired[int]
     #: Which combined picture: the base (its median, or a recording's own) or the difference.
@@ -162,6 +168,9 @@ def read_line(
                 start + int(index)
                 for index in (np.nanargmin(masked), np.nanargmax(masked), np.nanargmin(np.abs(masked - near)))
             )
+        nearest = _nearest_on_screen(read, window, x_at, low, high, near, log)
+        if nearest is not None:
+            chosen.append(nearest)
         inside = np.unique(np.asarray(chosen, dtype=np.int64))
         picked = np.concatenate([np.arange(first, low), inside, np.arange(high, after)]).astype(np.int64)
         picked_values = np.concatenate([values_in(first, low), window[inside - low], values_in(high, after)])
@@ -173,6 +182,28 @@ def read_line(
         "end": float(x_at(np.asarray(after - 1))) if after < count and complete else None,
         "complete": complete,
     }
+
+
+def _nearest_on_screen(
+    read: StageRead, window: np.ndarray, x_at: XAt, low: int, high: int, near: float, log: bool
+) -> int | None:
+    """The index of the point of ``window`` (indices [low, high)) nearest the pointer (``at``, ``near``) by its true
+    distance on screen (``pixels``: per axis unit, or per natural-log unit on a log axis, and per value unit), of
+    those with a value to read (finite, above the silent floor); None without the pointer's place or scale."""
+    if "at" not in read or "pixels" not in read or high <= low:
+        return None
+    scale = [float(value) for value in read["pixels"]]
+    at = float(read["at"])
+    if len(scale) != 2 or not all(math.isfinite(value) for value in [*scale, at]) or (log and at <= 0):
+        return None
+    xs = np.asarray(x_at(np.arange(low, high)), dtype=np.float64)
+    along = (np.log(np.maximum(xs, 1e-300)) - math.log(at)) * scale[0] if log else (xs - at) * scale[0]
+    across = (window - near) * scale[1]
+    away = np.hypot(along, across)
+    readable = np.isfinite(window) & (window > SILENT_DB) & np.isfinite(away)
+    if not readable.any():
+        return None
+    return low + int(np.argmin(np.where(readable, away, np.inf)))
 
 
 def read_level(values: np.ndarray, kind: Literal["db", "square"]) -> StageLevel:

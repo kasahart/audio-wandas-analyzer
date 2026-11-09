@@ -63,6 +63,52 @@ def test_a_dense_window_gives_each_pixel_columns_real_extremes_and_the_point_nea
         assert int(block[np.argmin(np.abs(values[block] - 0.123))]) in inside
 
 
+@pytest.mark.parametrize("log", [False, True])
+def test_a_dense_window_sends_the_point_nearest_the_pointer_on_screen_as_brute_force_finds_it(log: bool) -> None:
+    # A noisy line far denser than the screen: per pixel column its extremes and its point nearest the pointer's
+    # level, and the one point nearest the pointer by its true distance on screen, wherever that is.
+    rng = np.random.default_rng(11)
+    count = 300_000
+    values = rng.normal(0.0, 1.0, count)
+    values[rng.integers(0, count, 500)] = -300.0
+    xs_all = np.arange(count, dtype=np.float64) + 1.0
+    axis = sorted_axis(xs_all)
+    for trial in range(40):
+        x0, x1 = (2000.0, 250_000.0) if not log else (20.0, 280_000.0)
+        at = float(rng.uniform(x0, x1)) if not log else float(np.exp(rng.uniform(np.log(x0), np.log(x1))))
+        near = float(rng.normal(0.0, 1.5))
+        pixels = (
+            [float(rng.uniform(1e-4, 3e-3)), float(rng.uniform(5.0, 60.0))]
+            if not log
+            else [float(rng.uniform(20.0, 80.0)), float(rng.uniform(5.0, 60.0))]
+        )
+        read = {
+            "x": [x0, x1],
+            "beyond": 1,
+            "near": near,
+            "columns": 41,
+            "at": at,
+            "pixels": pixels,
+            **({"log": True} if log else {}),
+        }
+        assert first_violation(DEFINITIONS["StageRead"], read) is None
+        points = read_line(axis, lambda a, b: values[a:b], read)
+        inside = (xs_all >= x0) & (xs_all <= x1) & (values > -250.0)
+        along = (np.log(xs_all) - np.log(at)) * pixels[0] if log else (xs_all - at) * pixels[0]
+        away = np.hypot(along, (values - near) * pixels[1])
+        best = int(np.argmin(np.where(inside, away, np.inf)))
+        sent = np.asarray(points["xs"], dtype=np.float64)
+        sent_values = np.asarray(points["values"], dtype=np.float64)
+        sent_along = (np.log(sent) - np.log(at)) * pixels[0] if log else (sent - at) * pixels[0]
+        sent_away = np.hypot(sent_along, (sent_values - near) * pixels[1])
+        readable = (sent >= x0) & (sent <= x1) & (sent_values > -250.0)
+        # The nearest of the points sent is brute force's nearest of every point: at its own place, its own value.
+        nearest = int(np.argmin(np.where(readable, sent_away, np.inf)))
+        assert sent[nearest] == pytest.approx(xs_all[best]), f"trial {trial}"
+        assert sent_values[nearest] == pytest.approx(values[best])
+        assert len(sent) <= 3 * 41 + 3 < READ_POINT_LIMIT
+
+
 def test_an_images_cells_are_its_own_around_the_place_read() -> None:
     xs, ys = np.arange(50) * 0.01, np.array([100.0, 200.0, 300.0, 400.0, 500.0, 600.0])
     matrix = np.random.default_rng(3).normal(-50, 10, (ys.size, xs.size))

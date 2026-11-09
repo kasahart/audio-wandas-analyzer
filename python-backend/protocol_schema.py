@@ -567,7 +567,8 @@ DEFINITIONS: dict[str, Schema] = {
     # What a plot reads under its pointer or steps to with an arrow key (full_read.py): its window [x0, x1] (or
     # [x]) in the axis's own units, an image's row place ``y`` (and ``rows`` either side of it), points past each
     # end (``beyond``) and, for a window too dense to send whole, ``columns`` pixel columns across it (log-spaced on
-    # a ``log`` axis) and the level ``near`` the pointer. ``event`` names a trigger's event, ``of`` a combined
+    # a ``log`` axis) and the level ``near`` the pointer, with its place ``at`` and the screen's ``pixels`` per unit
+    # of each axis, for the point nearest it on screen. ``event`` names a trigger's event, ``of`` a combined
     # picture, ``channel`` a lane's. ``level`` asks instead for the power of every value in the window (R6).
     "StageRead": {
         "type": "object",
@@ -580,6 +581,8 @@ DEFINITIONS: dict[str, Schema] = {
             "near": _NUMBER,
             "columns": {"type": "integer", "minimum": 1, "maximum": 512},
             "log": {"type": "boolean"},
+            "at": _NUMBER,
+            "pixels": {"type": "array", "items": _NUMBER},
             "event": {"type": "integer", "minimum": 0},
             "of": {"type": "string", "enum": ["base", "diff"]},
             "channel": {"type": "integer", "minimum": 0},
