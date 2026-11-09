@@ -250,10 +250,13 @@ def test_a_lane_reads_its_files_own_samples_and_stft_cells(tmp_path: Path) -> No
     count = samples.size
     at = 1234
     ranged = service.waveform_range(
-        audio, start_norm=0.0, end_norm=1.0, point_count=1, read={"x": [at / (count - 1)], "beyond": 2}
+        audio, start_norm=0.0, end_norm=1.0, point_count=1, read={"x": [at / count], "beyond": 2}
     )
     points = ranged["points"]
-    assert points["xs"] == pytest.approx([(at + offset) / (count - 1) for offset in range(-2, 3)])
+    # Placed on the file's duration (the webview's 0..1 times n / fs), each sample is at wandas' own time for it.
+    frame = wd.read_wav(str(audio))
+    duration = frame.n_samples / frame.sampling_rate
+    assert [x * duration for x in points["xs"]] == pytest.approx(frame.time[at - 2 : at + 3].tolist(), abs=1e-12)
     assert points["values"] == pytest.approx(samples[at - 2 : at + 3].tolist(), abs=1e-6)
     detail = service.track_detail(
         audio,

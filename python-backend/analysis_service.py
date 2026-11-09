@@ -767,7 +767,8 @@ __all__ = [
 
 
 def _sample_points(frame: wd.ChannelFrame, read: StageRead) -> StagePoints:
-    """A lane's samples for ``read`` (full_read.read_line), its x the file's 0..1 (sample / (samples - 1))."""
+    """A lane's samples for ``read`` (full_read.read_line), its x the file's 0..1 (sample / samples): the webview
+    places 1.0 at the file's duration (n / fs), so sample i is at i / fs, wandas' ``frame.time``."""
     from full_read import read_line, uniform_axis
 
     count = int(frame.n_samples)
@@ -779,7 +780,7 @@ def _sample_points(frame: wd.ChannelFrame, read: StageRead) -> StagePoints:
             return np.empty(0)
         return channels_first(frame[:, first:after].data, channels, after - first)[channel]
 
-    return read_line(uniform_axis(count, 0.0, 1.0 / max(1, count - 1)), values, read)
+    return read_line(uniform_axis(count, 0.0, 1.0 / max(1, count)), values, read)
 
 
 def _spectrogram_cells(spectrogram: wd.SpectrogramFrame, centers: np.ndarray | None, read: StageRead) -> StagePoints:

@@ -67,7 +67,9 @@ def decimated_waveform(
             "samples": [],
             "absolutePeak": _absolute_peak(samples),
         }
-    denom = max(1, total_samples - 1)
+    # A sample's place in the file's 0..1 is sample / samples, as its time is i / fs of the duration n / fs (and as
+    # analyzer.sample_range maps a 0..1 range back to samples).
+    denom = max(1, total_samples)
     starts = bucket_starts(n, point_count)
     sizes = np.diff(np.append(starts, n))
     minimum_indices = np.full(point_count, n)
