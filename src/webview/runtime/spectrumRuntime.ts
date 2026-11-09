@@ -240,15 +240,17 @@ export function spectrumZoomFromWindow(next: { x: { start: number; end: number }
     return zoom;
 }
 
-export type OverlaySpectrumRegion = 'db-axis' | 'freq-axis' | 'plot' | null;
+export type OverlaySpectrumRegion = 'db-axis' | 'db-axis-right' | 'freq-axis' | 'plot' | null;
 
+/** Where on the overlay a point is: either level axis (the right-hand one while drawn, A48, R13), the frequency axis or the plot. */
 export function overlaySpectrumRegionAt(x: number, y: number, width: number, height: number): OverlaySpectrumRegion {
     const pad = OVERLAY_SPECTRUM_PAD;
     if (x < pad.left) {
         return 'db-axis';
     }
     if (x > width - pad.right) {
-        return null;
+        // The right-hand level axis answers the axis gestures as the left one does: it follows the left one's levels.
+        return pad.right > OVERLAY_PAD_RIGHT && y <= height - pad.bottom ? 'db-axis-right' : null;
     }
     if (y > height - pad.bottom) {
         return 'freq-axis';

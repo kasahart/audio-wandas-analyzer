@@ -332,6 +332,9 @@
 - テスト: `src/test/uiSmoke/plotContract.spec.ts` › every ui-smoke test fails on a picture copied into a plot from another canvas by anything but the plot component (R13)
 - テスト: `src/test/uiSmoke/plotContract.spec.ts` › every plot the comparison shows answers the same gestures: readout above it, ← / → step it, Ctrl+wheel zoom, double-click reset, axis range, both axes named (R13)
 - テスト: `src/test/uiSmoke/plotContract.spec.ts` › the cursor spectrum answers the same gestures as every plot (R13)
+- 右に 2 本目のレベル軸を描く図では、その軸も左の軸と同じく Ctrl+ホイールとダブルクリックに答えます。契約テストは図のすべての値の軸を押します。
+- テスト: `src/test/uiSmoke/plotContract.spec.ts` › the cursor spectrum with two level references answers the axis gestures on its right-hand axis as on its left (A48, R13)
+- テスト: `src/test/spectrumOverlayInteraction.test.ts` › with a right-hand level axis drawn, its margin is a level axis too: it answers the axis gestures as the left one (A48, R13)
 - テスト: `src/test/uiSmoke/plotContract.spec.ts` › a trigger's events plot and the lanes under it answer the same gestures as every plot (R13)
 - テスト: `src/test/uiSmoke/plotContract.spec.ts` › the entry's held plot answers the same gestures as every plot (R13)
 - テスト: `src/test/uiSmoke/plotContract.spec.ts` › the pair view's gain, phase and γ² plots answer the same gestures as every plot (R13)

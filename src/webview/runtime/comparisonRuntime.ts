@@ -2900,7 +2900,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                         const at = canvasPoint(clientX, clientY);
                         const region = overlaySpectrumRegionAt(at.x, at.y, overlayCanvas.width, overlayCanvas.height);
                         if (!region) return null;
-                        return { plot: overlayCanvas, point: pointOn(clientX, clientY), axis: region === 'db-axis' ? 'y' : region === 'freq-axis' ? 'x' : null };
+                        return { plot: overlayCanvas, point: pointOn(clientX, clientY), axis: region === 'db-axis' || region === 'db-axis-right' ? 'y' : region === 'freq-axis' ? 'x' : null };
                     },
                     pointOn: (_plot, clientX, clientY) => pointOn(clientX, clientY),
                     window: spectrumWindow,

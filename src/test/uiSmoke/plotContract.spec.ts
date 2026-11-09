@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { expect, test, type Locator, type Page } from './canvasAudit';
-import { buildExtensionHostPathUiSmokeHtml, buildUiSmokeHtml } from './buildHtml';
+import { buildExtensionHostPathUiSmokeHtml, buildUiSmokeCalibrationHtml, buildUiSmokeHtml } from './buildHtml';
 import { getStrings } from '../../shared/i18n/strings';
 import { entry100Results, openEntry, type ScannedFile } from './entryHelpers';
 import { INPUT_FRAME, isCharted, outputOf, WANDAS_OPERATIONS } from '../../shared/recipe/recipeCatalog';
@@ -299,9 +299,31 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
     await page.mouse.wheel(0, -240);
     await page.keyboard.up('Control');
     await page.waitForTimeout(80);
-    if (centred(await windowOf(), 0.99) && await picture() !== beforeWheel) passed.add('axis wheel');
+    const leftWheel = centred(await windowOf(), 0.99) && await picture() !== beforeWheel;
     await page.mouse.dblclick(middle.x, middle.y);
     await page.waitForTimeout(80);
+    // Every value axis answers it, the right-hand one too where the plot draws one (its third axis name, in its right
+    // margin from data-plot-frame): a plot with an axis that does not fails, whichever axis it is (A48, R13).
+    const rightAxis = async (): Promise<{ x: number; y: number } | null> => {
+        const frame = await frameOf();
+        if (names.length < 3 || frame.length !== 4 || !frame.every(Number.isFinite)) return null;
+        const margin = box.width - frame[0] - frame[2];
+        return margin > 12 ? { x: box.x + frame[0] + frame[2] + margin / 2, y: box.y + frame[1] + frame[3] / 2 } : null;
+    };
+    const right = await rightAxis();
+    let rightWheel = true;
+    if (right) {
+        await page.mouse.move(right.x, right.y);
+        const beforeRight = await picture();
+        await page.keyboard.down('Control');
+        await page.mouse.wheel(0, -240);
+        await page.keyboard.up('Control');
+        await page.waitForTimeout(80);
+        rightWheel = centred(await windowOf(), 0.99) && await picture() !== beforeRight;
+        await page.mouse.dblclick(middle.x, middle.y);
+        await page.waitForTimeout(80);
+    }
+    if (leftWheel && rightWheel) passed.add('axis wheel');
     // A plain drag zooms into its box (R13): the window narrows on the horizontal axis and on the vertical one, but
     // for a vertical axis defined to show every count always (data-plot-y-axis "all-counts", plotInteraction.ts
     // VerticalAxis), which stays whole and must be the plot's count axis. A double-click gives the whole back.
@@ -365,7 +387,10 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
     // The level axis: the plot's own left margin, or the canvas beside it that holds its value axis (data-plot-axis).
     const axisId = await plot.getAttribute('data-plot-axis');
     const axisBox = axisId ? await page.locator(`[id="${axisId}"]`).boundingBox() : null;
-    if (await rangeApplies({ x: axisBox ? axisBox.x + axisBox.width / 2 : box.x + 8, y: axisBox ? axisBox.y + axisBox.height / 2 : middle.y })) passed.add('axis range');
+    const leftRange = await rangeApplies({ x: axisBox ? axisBox.x + axisBox.width / 2 : box.x + 8, y: axisBox ? axisBox.y + axisBox.height / 2 : middle.y });
+    // The right-hand level axis opens a range too (A48), as every axis does.
+    const rightAt = await rightAxis();
+    if (leftRange && (!rightAt || await rangeApplies(rightAt))) passed.add('axis range');
     // The horizontal axis: the plot's own bottom margin, or the element that holds the axis it shares with the plots
     // stacked on it (data-plot-x-axis): a canvas of its own (the lanes' ruler, the distribution's value axis), in its
     // middle, or the plot at the bottom of the stack, in its bottom margin (the pair view's frequency axis).
@@ -761,6 +786,15 @@ test('the cursor spectrum answers the same gestures as every plot (R13)', async 
     const plot = page.locator('#spectrum-overlay-canvas');
     await expect.poll(() => plot.evaluate(canvas => (canvas as HTMLCanvasElement).dataset.plotAxes ?? '')).not.toBe('');
     await expectContract(page, 'cursor spectrum', plot);
+    await expectEveryPlot(page);
+});
+
+test('the cursor spectrum with two level references answers the axis gestures on its right-hand axis as on its left (A48, R13)', async ({ page }) => {
+    await page.setViewportSize({ width: 1200, height: 900 });
+    await page.setContent(buildUiSmokeCalibrationHtml(), { waitUntil: 'domcontentloaded' });
+    const plot = page.locator('#spectrum-overlay-canvas');
+    await expect.poll(() => plot.evaluate(canvas => ((canvas as HTMLCanvasElement).dataset.plotAxes ?? '').split('|').length)).toBe(3);
+    await expectContract(page, 'cursor spectrum, two references', plot);
     await expectEveryPlot(page);
 });
 
