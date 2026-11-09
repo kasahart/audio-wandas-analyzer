@@ -157,11 +157,8 @@ test('a cached slice from an earlier cursor is never drawn or read as this curso
         { ...context, cached: { ...earlier, cursorNorm: 0.5005 } })!;
     assert.equal(near.values, earlier.values);
     assert.equal(near.standIn, undefined);
-    // Octave bands have no column to stand in: the earlier bands are drawn marked pending, never read.
-    const bands = extractSpectrumAtCursor(makeSource(), 0, 0.5, { startSec: 0, spanSec: 1 },
-        { ...context, bands: true })!;
-    assert.deepEqual(bands.values, earlier.values);
-    assert.equal(bands.standIn, 'pending');
+    // Octave bands have no column at this cursor to stand in: an earlier cursor's bands (another point) are not drawn.
+    assert.equal(extractSpectrumAtCursor(makeSource(), 0, 0.5, { startSec: 0, spanSec: 1 }, { ...context, bands: true }), null);
     assert.equal(extractSpectrumAtCursor(makeSource(), 0, 0.5, { startSec: 0, spanSec: 1 },
         { ...context, bands: true, cached: null }), null);
 });
@@ -200,7 +197,7 @@ test('octave-band cursor spectrum never falls back to the FFT spectrogram column
     const span = { startSec: 0, spanSec: 1 };
     assert.equal(extractSpectrumAtCursor(makeSource(), 0, 0.5, span, context), null);
     assert.equal(extractSpectrumAtCursor(makeSource(), 0, 0.5, span, { ...context, cached: { ...cached, settingsSignature: 'current' } }), null);
-    assert.deepEqual(extractSpectrumAtCursor(makeSource(), 0, 0.5, span, { ...context, cached })!.bandCentersHz, [500, 1000]);
+    assert.deepEqual(extractSpectrumAtCursor(makeSource(), 0, 0.5, span, { ...context, cached: { ...cached, cursorNorm: 0.5 } })!.bandCentersHz, [500, 1000]);
     assert.deepEqual(extractSpectrumAtCursor(makeSource(), 0, 2, span, { ...context, cached })!.values, [-30, -30]);
     assert.equal(extractSpectrumAtCursor(makeSource(), 0, 2, span, context), null);
 });

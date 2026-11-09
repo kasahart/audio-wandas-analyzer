@@ -1,4 +1,4 @@
-import { answerKey, createAnswerStore, FAILED_RETRY_MS, type AnswerKey } from './answerStore';
+import { answerKey, createAnswerStore, type AnswerKey } from './answerStore';
 import type { PairSpectrumRequest } from '../../shared/utils/audioTarget';
 import type { DrawTheme, FrequencyScale } from '../draw/canvasDrawers';
 import type { HostInboundMessage } from './hostMessaging';
@@ -83,7 +83,7 @@ export class PairSpectrumPanel {
     /** The response spectra asked for ('pair'), as every on-demand request is kept. */
     private readonly requests = new HostRequests<undefined>();
     /** The answers, by the request (its sources, offsets, range, settings) each answered; a failed one is asked again after the store's pause. */
-    private readonly answers = createAnswerStore<PairSpectrumResultMessage>({ capacity: 4 });
+    private readonly answers = createAnswerStore<PairSpectrumResultMessage>({ capacity: 4, retried: () => this.schedule(0) });
     private timer: ReturnType<typeof setTimeout> | null = null;
     /** The pointer over one of the pair plots, while it is. */
     private pointer: { lane: PairLaneKey; clientX: number; clientY: number } | null = null;
@@ -283,9 +283,8 @@ export class PairSpectrumPanel {
         this.requests.settle(message.requestId);
         // The answer is to the request last asked (requests.answering): that request's key.
         if (message.type === 'pair-spectrum-error') {
+            // A passing failure does not stay: once the store's pause is over the request is asked again (its retried).
             this.answers.fail(pairKey(request.key), message.error);
-            // A passing failure does not stay: once the store's pause is over the request is asked again.
-            this.schedule(FAILED_RETRY_MS + 10);
         } else {
             this.answers.ready(pairKey(request.key), message);
         }

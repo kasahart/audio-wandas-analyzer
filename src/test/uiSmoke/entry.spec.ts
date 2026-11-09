@@ -383,16 +383,16 @@ test('the step bar (in 比較解析) shows every step of the scan Recipe; an inv
     await expect(page.locator('[data-entry-rows] tr.entry-row:not(.is-stale)')).toHaveCount(0);
     // 計算 says how many files and about how long; it computes with the new chain and can be stopped.
     const compute = page.locator('[data-action="entry-compute"]');
-    // The unreadable recording has no row: 99 files to compute.
-    await expect(compute).toHaveText(new RegExp(`^${STR.dsCompute.replace('{n}', '99').replace('{time}', '.+')}$`));
+    // The unreadable recording has no row, but its failure may pass (it is not a step that cannot run): 計算 asks it again, 100 files.
+    await expect(compute).toHaveText(new RegExp(`^${STR.dsCompute.replace('{n}', '100').replace('{time}', '.+')}$`));
     await compute.click();
     const scan = (await scans()).at(-1)!;
     expect(scan.recipe!.nodes.map(node => node.operation)).toEqual(['wandas.audio.highpass_filter', 'wandas.frame.time_slice', 'wandas.audio.welch']);
-    expect(scan.filePaths.length).toBe(99);
+    expect(scan.filePaths.length).toBe(100);
     await page.evaluate(({ requestId, files }) => {
         for (const file of files.slice(0, 3)) window.postMessage({ type: 'entry-scan-result', requestId, filePath: file.filePath, result: file.result }, '*');
     }, { requestId: scan.requestId, files: scanned!.filter(file => scan.filePaths.slice(0, 3).includes(file.filePath)) });
-    await expect(page.locator('[data-entry-progress]')).toHaveText(STR.dsComputing.replace('{done}', '3').replace('{n}', '99'));
+    await expect(page.locator('[data-entry-progress]')).toHaveText(STR.dsComputing.replace('{done}', '3').replace('{n}', '100'));
     await page.locator('[data-action="entry-compute-cancel"]').click();
     const cancels = await page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Array<{ type: string }> }).__uiSmokePostedMessages.filter(message => message.type === 'entry-scan-cancel').length);
     expect(cancels).toBe(1);
@@ -497,7 +497,7 @@ test('a step added between two chips measures every file again; one that fails o
     const scan = await lastScan();
     const added = scan.recipe!.nodes.find(node => node.operation === 'wandas.audio.a_weighting')!;
     expect(scan.recipe!.nodes.map(node => node.operation)).toEqual(['wandas.audio.highpass_filter', 'wandas.frame.time_slice', 'wandas.audio.a_weighting', 'wandas.audio.welch']);
-    await expect(page.locator('[data-entry-progress]')).toHaveText(STR.dsComputing.replace('{done}', '0').replace('{n}', '99'));
+    await expect(page.locator('[data-entry-progress]')).toHaveText(STR.dsComputing.replace('{done}', '0').replace('{n}', '100'));
     // The step fails on a file: the chain cannot run from there. It and every step after it are marked ⚠; the scan stops and nothing is computed without the step.
     const scansBefore = await page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Array<{ type: string }> }).__uiSmokePostedMessages.filter(message => message.type === 'entry-scan').length);
     await page.evaluate(({ requestId, filePath, step }) => {

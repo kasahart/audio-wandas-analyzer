@@ -423,8 +423,9 @@ test('a calibration change refreshes every lane that shows the file, under each 
         }
 
         assert.deepEqual(refreshCalls, [[linkPath], [targetPath]]);
-        // The entry table hears of it too, track or not: its scans of the file are of the old calibration.
-        assert.deepEqual(notices, [calibrationFileKey(targetPath)]);
+        // The entry table hears of it too, track or not, under each path the panel names the file by (never the
+        // canonical key, which the webview cannot compare its paths with).
+        assert.deepEqual(notices, [linkPath, targetPath]);
         assert.deepEqual(displayed.map((entry) => [entry.filePath, entry.analysisRevision]), [[linkPath, 1], [targetPath, 1]]);
         controller.dispose();
     } finally {

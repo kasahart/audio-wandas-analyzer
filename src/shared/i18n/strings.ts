@@ -174,6 +174,8 @@ export interface UiStrings {
     reportSaved: string;
     /** While the report's files are measured for every spectrum bin, before it is written. */
     reportMeasuring: string;
+    /** A report not written because some of its files could not be measured: which, and why. */
+    reportCannotMeasure: string;
     stepRegion: string;
     stepAll: string;
     stepMetrics: string;
@@ -995,6 +997,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         reportSpecVersion: 'Spec version',
         reportSaved: 'Report saved: ',
         reportMeasuring: 'Measuring {count} files for the report…',
+        reportCannotMeasure: 'No report: {files} could not be measured ({why})',
         stepRegion: 'Region',
         stepAll: 'all',
         stepMetrics: 'Metrics',
@@ -1793,6 +1796,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         reportSpecVersion: '解析仕様版',
         reportSaved: '報告を保存しました: ',
         reportMeasuring: '報告のために {count} ファイルを計算しています…',
+        reportCannotMeasure: '報告できません: {files} を計算できませんでした（{why}）',
         stepRegion: '区間',
         stepAll: '全体',
         stepMetrics: '指標',

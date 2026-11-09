@@ -69,7 +69,7 @@ import { attachExclusiveMenus, attachHeightResizeListeners, attachToolbarActions
 import { resultsPaneHtml, trackAudioHtml, type SpectrumBandsSetting } from './resultsPaneHtml';
 import { selectionFolderButton, selectionLayoutHtml } from './selectionLayoutHtml';
 import { ShownSpectrumCursor, SpectrumCommitHold } from './spectrumCommitHold';
-import { createLatestAnswers, createRequestClock, FAILED_RETRY_MS } from './answerStore';
+import { createLatestAnswers, createRequestClock } from './answerStore';
 import { type AnalysisWindowBand, canvasTimeHit, clampedCanvasNorm, clientToCanvasPixels, CURSOR_LINE_STYLE, drawAnalysisWindowBand, drawDashedTimeLine, drawRectZoomSelection, HOVER_LINE_STYLE, waveformCursorLineStyle } from './canvasOverlays';
 import { applyOverlayCompatibility, calibrationRequest, channelMetricSummaryHtml, ensureCalibrationStyles, hasIncompatibleLevelReferences } from './calibrationDecorations';
 import {
@@ -93,7 +93,7 @@ import { installReanalyzeOverlay } from './reanalyzeOverlay';
 import { SpectrogramSettingsStore } from './spectrogramSettingsStore';
 import { createEntryScreen } from './entryRuntime';
 import { regionResults } from './entryBase';
-import { diffHeadline, trackLevelInput, withBins } from './comparePanes';
+import { diffHeadline, trackLevelInput } from './comparePanes';
 import { baseName } from '../../shared/analysis/entryMetadata';
 import { channelResult } from '../../shared/recipe/channelSelection';
 import { baseLevelOf, baseUsed, reportFiles, reportStale } from './compareReport';
@@ -490,7 +490,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function createTrackRuntime(): TrackRuntimeState {
         return { offsetSeconds: 0, hidden: false };
     }
-    const trackStore = new TrackStore(state.results, createTrackRuntime);
+    // A lane's failed answer is asked again once its pause is over: drawn again then, its requests made anew.
+    const trackStore = new TrackStore(state.results, createTrackRuntime, () => { scheduleRender(); scheduleRangeRequests(); });
     const runtimeSessionId = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
     let analysisGeneration = 0;
     function createAnalysisId(): string {
@@ -744,7 +745,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         const timeWindow = spectrogramZoomWindow(source, view, width);
         const band = bandSource && viewBand ? spectrogramZoomBand(bandSource, viewBand, height) : null;
-        if ((!timeWindow && !band) || record.spectrogramZoom.holds()) {
+        // The window asked for, under the settings and analysis: a failure stands for that window only, not every other.
+        const zoomAsk = [timeWindow ? `${timeWindow.startNorm}|${timeWindow.endNorm}` : '0|1', band ? `${band.lowHz}|${band.highHz}` : ''].join('|');
+        if ((!timeWindow && !band) || record.spectrogramZoom.holds(`${zoomAsk}|${settingsSignature}|${analysisId}`)) {
             return;
         }
         const pending = record.requests.pending('specZoom');
@@ -755,7 +758,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }
         }
         const requestId = nextRequestId('specZoom', i);
-        record.requests.ask('specZoom', requestId, [timeWindow ? `${timeWindow.startNorm}|${timeWindow.endNorm}` : '0|1', band ? `${band.lowHz}|${band.highHz}` : ''].join('|'),
+        record.requests.ask('specZoom', requestId, zoomAsk,
             { trackId: record.id, requestId: requestId, analysisId: analysisId, settingsSignature: settingsSignature });
         messaging.post({
             type: 'request-track-detail',
@@ -1020,8 +1023,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             record.requests.settle(msg.requestId);
             if (msg.type === 'track-detail-error') {
                 // The lane keeps the whole file's picture; the window is asked again after the pause.
-                record.spectrogramZoom.fail(msg.error);
-                setTimeout(scheduleRangeRequests, FAILED_RETRY_MS);
+                record.spectrogramZoom.fail(msg.error, `${zoomRequest.key}|${asked.settingsSignature}|${asked.analysisId}`);
                 return;
             }
             if (state.results[i] && state.results[i].filePath === msg.filePath && Array.isArray(msg.channels)) {
@@ -1038,10 +1040,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         record.requests.settle(msg.requestId);
         if (msg.type === 'track-detail-error') {
+            // The cause may pass (a restarted backend, memory freed): the slot's pause over, the lane asks again (trackStore's retried).
             record.detail.fail(msg.error, pending.settingsSignature);
             scheduleRender();
-            // The cause may pass (a restarted backend, memory freed): the lane asks again after the pause.
-            setTimeout(scheduleRender, FAILED_RETRY_MS);
             return;
         }
         record.detail.set(true);
@@ -1525,6 +1526,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         hint: text => hintFooter.show(text),
         notify: text => taskStatus(text, 'done'),
         busy: text => taskStatus(text, 'busy'),
+        failed: text => taskStatus(text, 'failed'),
         inFront: () => !entryScreen.isOpen(),
         // Esc goes back to where the comparison was opened: the entry table, or the tracks (playback, zoom and
         // selection as they were, the compared recording's lane in sight).
@@ -1579,8 +1581,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         report(showDiff, region, measured, binned) {
             const data = entryScreen.compareData();
             // Every bin of the files' spectra, for the figures' median and Δ: over a region, the region's metrics carry
-            // them; without one, the whole files' scans give them to the table's results of the same spectrum.
-            const results = region ? regionResults(measured) : withBins(data.results, binned);
+            // them; without one, the whole files measured afresh for the report (their version now, the current chain)
+            // stand for the table's scans of them, never dropped for a condition the table's no longer is.
+            const measuredNow = region ? measured : new Map([...binned].filter(([, result]) => result.ok));
+            const results = region ? regionResults(measured) : regionResults([...data.results, ...measuredNow]);
             const { folder, files } = reportFiles(document, {
                 model: data.model, results, slots: data.slots, region, recipe: entryScreen.recipes(comparedChannels())?.runRecipe ?? data.recipe ?? null, recipeName: STR.stepRecipeName, now: new Date(), showDiff,
                 // The comparisons as the table defines their bases (grouping, filters, channel), and what it was narrowed to.
@@ -1590,7 +1594,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 derived: entryScreen.derivedRows(),
                 slotReference: activeSlotReferenced(data.recipe),
                 // Which numbers are of an earlier chain or calibration (the report's chain column): the table's stale ones not measured afresh over the region.
-                stale: reportStale(data.stale, region ? measured : new Map()),
+                stale: reportStale(data.stale, measuredNow),
             }, STR);
             messaging.post({ type: 'save-report-folder', folder, files });
             hintFooter.show(STR.reportSaved + folder);

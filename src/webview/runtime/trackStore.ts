@@ -60,6 +60,8 @@ export class TrackStore {
     constructor(
         results: ComparisonTrackState[],
         private readonly createRuntime: () => TrackRuntimeState,
+        /** Called once a lane's failed answer may be asked again (its slot's pause is over): the lanes are drawn again. */
+        private readonly retried?: () => void,
     ) {
         results.forEach((result, protocolIndex) => {
             const record = this.createRecord(result, protocolIndex);
@@ -268,10 +270,10 @@ export class TrackStore {
             active: true,
             runtime: this.createRuntime(),
             waveformCoverage: null,
-            rangeCache: createAnswerSlot<WaveformRangeCache>(),
+            rangeCache: createAnswerSlot<WaveformRangeCache>(undefined, this.retried),
             requests: new HostRequests(),
-            detail: createAnswerSlot<true>(),
-            spectrogramZoom: createAnswerSlot<SpectrogramZoom>(),
+            detail: createAnswerSlot<true>(undefined, this.retried),
+            spectrogramZoom: createAnswerSlot<SpectrogramZoom>(undefined, this.retried),
             spectrumSliceCache: createLatestAnswers<SpectrumSlice, number>(),
         };
         result.trackId = id;

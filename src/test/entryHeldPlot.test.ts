@@ -1,3 +1,4 @@
+import type { CurrentAnswers, ShownAnswers } from '../webview/runtime/answerStore';
 import { R } from './helpers/figure';
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -65,7 +66,8 @@ function setup(results = new Map<string, ScanResult>(), options: { recipe?: Reci
         post: message => calls.push(['post', message]),
         scheduleSide: () => calls.push(['side', null]),
         keepWindow: () => FULL_PLOT_WINDOW,
-        results,
+        // The table's scans as the answer store hands them: all of the current chain here (read live, as a test changes them).
+        shown: results as unknown as ShownAnswers, current: () => results as unknown as CurrentAnswers,
         comparison: (path, over) => { compared.push({ path, over }); return buildCompareModel(buildEntryModel([...over].map(([filePath, result]) => ({ filePath, result })), null), over, path, null, strings, false, undefined, { paths: [...results.keys()].filter(file => file !== path), title: 'base' }); },
         basePaths: path => [...results.keys()].filter(file => file !== path),
         scanRecipe: () => undefined,

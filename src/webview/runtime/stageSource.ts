@@ -5,7 +5,7 @@
  */
 import type { ComparePublication, CompareScanMessage } from '../../shared/analysis/entryScan';
 import type { ScanResult, StageView } from '../../shared/protocol/backendProtocol';
-import { answerKey, createAnswerStore, createLatestAnswers, FAILED_RETRY_MS, type AnswerKey } from './answerStore';
+import { answerKey, createAnswerStore, createLatestAnswers, type AnswerKey } from './answerStore';
 import { HostRequests } from './hostRequests';
 
 export interface StageSpec {
@@ -20,6 +20,8 @@ export interface StageSource {
     view(spec: StageSpec, filePath: string): StageView | null | undefined;
     /** A file's whole scan result for `spec` (its metrics, for a spec without a step). */
     result(spec: StageSpec, filePath: string): ScanResult | undefined;
+    /** Why a file's scan for `spec` failed, while that failure stands (it is asked again after FAILED_RETRY_MS). */
+    failure(spec: StageSpec, filePath: string): string | undefined;
     /** Drops a file's picture for `spec`, so it is asked for again (its kept values are gone from the backend). */
     forget(spec: StageSpec, filePath: string): void;
     /** Drops every picture whose values the backend kept under one of `keys` and has let go (`missing`). */
@@ -75,7 +77,8 @@ const fileKey = (cacheKey: string, filePath: string, basis: string): AnswerKey =
  */
 export function createStageSource(prefix: string, post: (message: CompareScanMessage) => void, changed: () => void, basisOf: (filePath: string) => string = () => '', now: () => number = () => Date.now()): StageSource {
     // The CACHED_SPECS specs last answered, each with every file's answer to it.
-    const answers = createAnswerStore<ScanResult>({ capacity: CACHED_SPECS, evictBy: 'ask', now });
+    // A failure's pause over, the screen draws again and the picture is asked for anew (the store keeps the time).
+    const answers = createAnswerStore<ScanResult>({ capacity: CACHED_SPECS, evictBy: 'ask', now, retried: () => changed() });
     // One slot: the pictures being asked for. A superseded request's answers are still kept, under its own spec.
     const requests = new HostRequests<{ key: string; bases: ReadonlyMap<string, string> }>();
     let count = 0;
@@ -105,6 +108,10 @@ export function createStageSource(prefix: string, post: (message: CompareScanMes
             return true;
         },
         result: (spec, filePath) => current(spec, filePath),
+        failure(spec, filePath) {
+            const key = fileKey(stageCacheKey(spec), filePath, basisFor(spec, filePath));
+            return answers.state(key) === 'failed' ? answers.reason(key) ?? '' : undefined;
+        },
         forget(spec, filePath) { answers.forget(fileKey(stageCacheKey(spec), filePath, basisFor(spec, filePath))); },
         forgetData(keys) {
             answers.forgetWhere(result => !!(result.ok && result.stage?.data && keys.includes(result.stage.data)));
@@ -125,11 +132,7 @@ export function createStageSource(prefix: string, post: (message: CompareScanMes
                 // A step that cannot run on the file (failedStep) is its answer; any other failure (the file unreadable
                 // for now, the backend restarted) may pass: it stands for the store's pause and is then asked again.
                 if (publication.result.ok || publication.result.failedStep) answers.ready(answer, publication.result);
-                else {
-                    answers.fail(answer, publication.result.reason);
-                    // Drawn again once the pause is over, so the picture is asked for then (a timer that keeps nothing alive).
-                    (setTimeout(changed, FAILED_RETRY_MS + 10) as { unref?: () => void }).unref?.();
-                }
+                else answers.fail(answer, publication.result.reason);
             }
             if (publication.type === 'compare-scan-done') requests.settle(publication.requestId);
             changed();

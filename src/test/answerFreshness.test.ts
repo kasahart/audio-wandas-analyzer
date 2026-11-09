@@ -123,12 +123,12 @@ test('a file\'s scan is stale once the chain or its calibration is another, pend
     current.recipeKey = 'r2';
     assert.equal(scans.answer('/a.wav').state, 'stale', 'another chain');
     assert.equal(scans.stale('/a.wav'), true);
-    assert.equal(scans.fresh().size, 0, 'nothing of the current chain to measure from');
+    assert.equal(scans.current().size, 0, 'nothing of the current chain to measure from');
     current.recipeKey = 'r1';
     current.condition = '1';
     assert.equal(scans.answer('/a.wav').state, 'stale', 'the file calibrated anew');
     current.condition = '0';
-    assert.deepEqual([...scans.fresh().keys()], ['/a.wav']);
+    assert.deepEqual([...scans.current().keys()], ['/a.wav']);
     scans.set('/b.wav', { ok: false, reason: 'busy' }, { recipeKey: 'r0', condition: '0' });
     assert.equal(scans.answer('/b.wav').state, 'failed', 'a failure stays a failure, of whichever chain');
     assert.equal(scans.stale('/b.wav'), true, 'but it is asked again under the current chain');
@@ -140,16 +140,16 @@ test('a fixed difference is measured again only from results of the current chai
     const all = new Map([['/a.wav', ok(40)], ['/b.wav', ok(41)], ['/c.wav', ok(50)], ['/d.wav', ok(42)]]);
     const scans = createScanAnswers(() => ({ recipeKey: 'new', condition: () => '0' }));
     for (const [path, result] of all) scans.set(path, result, { recipeKey: 'new', condition: '0' });
-    const again = remeasuredFrom(row, scans, 'new');
+    const again = remeasuredFrom(row, { fresh: () => scans.current() }, 'new');
     assert.equal(again?.stale, false);
     assert.equal(again?.recipeKey, 'new');
     assert.equal(again?.base.leq, 41);
     // b's result is of the earlier chain: no median of a and d alone, nor marked current.
     scans.set('/b.wav', ok(41), { recipeKey: 'old', condition: '0' });
-    assert.equal(remeasuredFrom(row, scans, 'new'), null);
+    assert.equal(remeasuredFrom(row, { fresh: () => scans.current() }, 'new'), null);
     scans.set('/b.wav', ok(41), { recipeKey: 'new', condition: '0' });
     scans.set('/c.wav', ok(50), { recipeKey: 'old', condition: '0' });
-    assert.equal(remeasuredFrom(row, scans, 'new'), null, 'nor with the compared file stale');
+    assert.equal(remeasuredFrom(row, { fresh: () => scans.current() }, 'new'), null, 'nor with the compared file stale');
 });
 
 test('a report\'s chain column names the table\'s stale files unless the report measured them afresh', () => {

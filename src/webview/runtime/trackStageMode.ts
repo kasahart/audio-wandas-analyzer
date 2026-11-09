@@ -114,6 +114,8 @@ export interface TrackStageDeps {
     notify?(text: string): void;
     /** The task status while something asked for runs (the report's files measured), until the next notice. */
     busy?(text: string): void;
+    /** The task status when what was asked could not be done (a report whose files could not be measured). */
+    failed?(text: string): void;
 }
 
 export interface TrackStageMode {
@@ -253,6 +255,14 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         const spec = regionStageSpec(deps.recipe(), region);
         // Read from the report's own measuring alone: the comparison's pictures (source) may be of a version since recorded again.
         const lacking = paths.filter(path => reportSource.result(spec, path) === undefined);
+        // A file that could not be measured (and not for a step that cannot run on it) stops the report and says so,
+        // rather than asking for it again and again with the report never written.
+        const failed = lacking.filter(path => reportSource.failure(spec, path) !== undefined);
+        if (failed.length) {
+            pendingReport = null;
+            deps.failed?.(strings.reportCannotMeasure.replace('{files}', failed.map(baseName).join(', ')).replace('{why}', reportSource.failure(spec, failed[0]) || '—'));
+            return;
+        }
         if (lacking.length) {
             reportSource.ensure(spec, lacking);
             deps.busy?.(strings.reportMeasuring.replace('{count}', String(lacking.length)));
@@ -551,7 +561,9 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         // The step figure's base set (figureModel.pictureSet): of the base's recordings, those whose picture is in and
         // kept its values. Once every picture is in, a failed or empty one is left out with why, so the median, the
         // drawn waveforms and the heading's n are of the same recordings; while one is on its way, all are asked.
-        const levelOf = (path: string): LevelInput | undefined => allTracks.find(track => track.filePath === path)?.input ?? deps.levelOf?.(path);
+        // A recording's levels are those of the version its picture is of: the picture's own scan, else its track, else
+        // the table's current scan (never a stale one's, which may be of another calibration).
+        const levelOf = (path: string): LevelInput | undefined => source.result(specFor(path), path)?.input ?? allTracks.find(track => track.filePath === path)?.input ?? deps.levelOf?.(path);
         const compareInput = comparePath ? levelOf(comparePath) : undefined;
         const stageSet = pictureSet(allowed, coarse, levelOf, compareInput);
         const waitingBase = stageSet.excluded.some(item => item.reason === 'pending');

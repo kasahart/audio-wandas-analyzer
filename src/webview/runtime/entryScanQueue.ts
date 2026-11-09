@@ -88,13 +88,14 @@ export interface HeaderProbe {
     clear(): void;
 }
 
-export function createHeaderProbe(now: () => number = () => Date.now()): HeaderProbe {
+/** `retried`: called once a header that could not be read may be read again (its pause is over): the screen reads it then. */
+export function createHeaderProbe(now: () => number = () => Date.now(), retried?: () => void): HeaderProbe {
     // Each file's header as read: its channels (or why it could not be read) and its length.
     const channelAnswers = createLatestAnswers<number>();
     const durationAnswers = createLatestAnswers<number>();
     const channels = channelAnswers.view, errors = channelAnswers.failures, durations = durationAnswers.view;
     // A header that could not be read (a file still being written) is read again once the store's pause is over.
-    const unread = createFailureHold(now);
+    const unread = createFailureHold(now, retried);
     let running: { requestId: string; done: number; total: number } | null = null;
     return {
         channels, errors, durations,

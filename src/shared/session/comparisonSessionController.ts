@@ -6,7 +6,7 @@ import type {
     SpectrogramSettings,
     StftOptions,
 } from '../analysis/analysisTypes';
-import { saveSession, runCompareCombine, runCompareScan, runEntryProbe, runEntryScan, type ComparePublication, type EntryProbePublication, type EntryPublication, type EntryScanPorts } from '../analysis/entryScan';
+import { compareScanAsker, saveSession, runCompareCombine, runCompareScan, runEntryProbe, runEntryScan, type ComparePublication, type EntryProbePublication, type EntryPublication, type EntryScanPorts } from '../analysis/entryScan';
 import { userErrorText, type CalibrationRequestContext, type ErrorSummaryStrings, type PairSpectrumResult } from '../protocol/backendProtocol';
 import { parsePanelMessage, type PanelMessage, type SaveRecipeMessage } from '../protocol/panelMessages';
 import type { AnalyzeSelectedFilesMessage, ConfigureCalibrationMessage, ExportReportOptionsMessage, ExportWavLoopMessage, PairSpectrumRequest, SelectionTargetKind } from '../utils/audioTarget';
@@ -175,7 +175,7 @@ export class ComparisonSessionController {
                 case 'compare-scan': {
                     const entry = this.ports.entry;
                     if (!entry) { this.ports.unsupported(message.type); return; }
-                    const source = message.requestId.replace(/-[^-]*$/, '');
+                    const source = compareScanAsker(message.requestId);
                     const scan = ++this.compareScanCount;
                     this.compareScans.set(source, scan);
                     await runCompareScan(entry, message, publication => this.ports.publish(publication),

@@ -117,9 +117,9 @@ export function extractSpectrumAtCursor(
         }
     }
     if (context?.bands) {
-        // Octave bands have no spectrogram column to stand in: the earlier cursor's bands are drawn, marked pending,
-        // and no number is read of them until this cursor's come.
-        return cached && cachedHasSettings ? applySpectrumDisplaySettings({ ...cached, standIn: 'pending' }) : null;
+        // Octave bands have no spectrogram column at this cursor to stand in, and an earlier cursor's bands are of
+        // another point: nothing is drawn, nor sets the axis, until this cursor's come.
+        return null;
     }
     if (!spec || !spec.values || spec.timeBins <= 0 || spec.frequencyBins <= 0) {
         return null;
