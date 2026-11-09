@@ -21,7 +21,7 @@
 | --- | --- | --- | --- |
 | 比較台の重ね図（トリガーのイベント図を含む） (`compare-overlay`) | `webview/runtime/trackStagePainter.ts:paintStageOverlay`<br>`webview/runtime/trackStagePainter.ts:paintNoPicture` | 19 | 5 |
 | 比較台の Δ 欄 (`compare-delta`) | `webview/runtime/trackStagePainter.ts:paintStageOverlay` | 9 | 2 |
-| 比較台の横並びのレーン (`compare-lanes`) | `webview/runtime/trackStagePainter.ts:paintStageLanes`<br>`webview/runtime/trackStagePainter.ts:paintNoStage` | 6 | 4 |
+| 比較台の横並びのレーン (`compare-lanes`) | `webview/runtime/trackStagePainter.ts:paintStageLanes`<br>`webview/runtime/trackStagePainter.ts:paintNoStage` | 6 | 2 |
 | トリガーのイベント図の下のレーン (`trigger-lanes`) | `webview/runtime/triggerLanes.ts:paintTriggerLanes` | 6 | 0 |
 | トラックの波形レーン (`track-waveform`) | `webview/runtime/comparisonRuntime.ts:drawTrackWaveform` | 7 | 0 |
 | トラックのスペクトログラムのレーン (`track-spectrogram`) | `webview/runtime/trackCanvasPainter.ts:paintTrackSpectrogram`<br>`webview/runtime/comparisonRuntime.ts:drawSpectrogram` | 5 | 0 |
@@ -83,8 +83,8 @@
 
 | 値 | 何の数か | 計算する場所 | 出どころ | テスト | 穴 |
 | --- | --- | --- | --- | --- | --- |
-| 読み値 | 各レーンの読み値 | `webview/runtime/stagePanes.ts:stageHover`<br>`webview/runtime/stagePanes.ts:lineRead`<br>`webview/runtime/stagePanes.ts:cellRead`<br>`webview/runtime/trackStagePainter.ts:paintStageLanes` | 全データ：重ね図と同じ fullOf（stageReader.of）を各レーンの層に付ける。 | `fullRead.test.ts` › every line and image a plot draws says where its full data is read; bars are whole (R7)<br>`stagePanes.test.ts` › the pointer reads the point nearest it within a few pixels, so a narrow peak beside it is read at its top (R7)<br>`trackStagePainter.test.ts` › side by side, every lane draws its own picture and says it shows the step; the base measured against says so | **P2** 全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。 |
-| ← / → | 各レーンの ← / → | `webview/runtime/stagePanes.ts:stageStep` | 全データ：重ね図と同じ。 | `plotHoverLayer.test.ts` › an arrow key reads the next point of the line read, as the pointer on it would; with none read, the plot's left edge (R7)<br>`fullRead.test.ts` › an arrow key crosses silent points past one fetched window to the next point with a value (R7) | **P2** 全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。 |
+| 読み値 | 各レーンの読み値 | `webview/runtime/stagePanes.ts:stageHover`<br>`webview/runtime/stagePanes.ts:lineRead`<br>`webview/runtime/stagePanes.ts:cellRead`<br>`webview/runtime/trackStagePainter.ts:paintStageLanes` | 全データ：重ね図と同じ fullOf（stageReader.of）を各レーンの層に付ける。 | ◆ `trackStagePainter.test.ts` › side by side, each lane is read at its own full data, never the line thinned to draw it: a bin thinned out under the pointer, and ← / → one bin at a time (R7)<br>`fullRead.test.ts` › every line and image a plot draws says where its full data is read; bars are whole (R7)<br>`stagePanes.test.ts` › the pointer reads the point nearest it within a few pixels, so a narrow peak beside it is read at its top (R7)<br>`trackStagePainter.test.ts` › side by side, every lane draws its own picture and says it shows the step; the base measured against says so |  |
+| ← / → | 各レーンの ← / → | `webview/runtime/stagePanes.ts:stageStep` | 全データ：重ね図と同じ。 | ◆ `trackStagePainter.test.ts` › side by side, each lane is read at its own full data, never the line thinned to draw it: a bin thinned out under the pointer, and ← / → one bin at a time (R7)<br>`plotHoverLayer.test.ts` › an arrow key reads the next point of the line read, as the pointer on it would; with none read, the plot's left edge (R7)<br>`fullRead.test.ts` › an arrow key crosses silent points past one fetched window to the next point with a value (R7) |  |
 | 自動の範囲 | レーンが共有する値の軸の範囲（線） | `webview/runtime/stagePanes.ts:stageRange`<br>`webview/runtime/trackStagePainter.ts:paintStageLanes` | 間引いた点（区間の最小・最大）：全レーンの粗い絵（各区間の最小と最大）から 1 つの範囲を決める。 | なし | **P2** 範囲を間引いた線から求めている。全データの端と一致することを確かめるテストがない。 |
 | 自動の範囲 | 熱図のレーンの色の範囲（カラーバーの両端） | `webview/runtime/stagePanes.ts:stageRange` | 間引いた点（平均・切り出し）：重ね図の熱図と同じく、ブロックごとに平均したマスから求める。 | なし | **P1** カラーバーの両端の数を、描くために平均したマスから求めている。 |
 | 目盛り | 各レーンの目盛り | `webview/runtime/stagePanes.ts:paintPlot`<br>`webview/runtime/stagePanes.ts:valueAxisTicks`<br>`webview/runtime/stagePanes.ts:valueTickTexts`<br>`webview/runtime/stagePanes.ts:alongAxisTicks`<br>`webview/runtime/stagePanes.ts:rowAxisTicks`<br>`webview/runtime/stagePanes.ts:tickText`<br>`webview/runtime/stagePanes.ts:levelTick`<br>`webview/runtime/stagePanes.ts:paintRightAxis` | 軸の範囲・窓：範囲から部品が決める。 | `stagePanes.test.ts` › levels share a range of four round steps; coherence keeps 0 to 1<br>`laneAxes.test.ts` › the lanes take the ticks and their text from the rules every plot uses |  |
@@ -272,15 +272,13 @@
 - `compare-delta.range-image`：カラーバーの両端の数を、描くために平均した Δ のマスから求めている。
 - `compare-lanes.range-image`：カラーバーの両端の数を、描くために平均したマスから求めている。
 
-### P2（12、上限 12）
+### P2（10、上限 10）
 
 - `compare-overlay.pending`：R7 は届くまで読み値を空にするが、密な窓を別の高さで読むときは前の高さの点を読む。その間の読み値は今のマウスに一番近い点とは限らない。
 - `compare-overlay.readout-events`：イベントの線の読み値と ← / → がそのイベントの全サンプルから来ることを確かめるテストがない（ジェスチャのテストは数字の出どころを見ない）。
 - `compare-overlay.range`：範囲の端を間引いた線から求めている。間引きが端を残すので同じ値のはずだが、範囲が全データの端と一致することを確かめるテストがない。
 - `compare-overlay.axis-metric`：量の名前がない：sone・acum・asper・dB 以外の指標は「値 [単位]」で、何の値かを書かない（単位がなければ「値 [単位不明]」）。
 - `compare-delta.range`：範囲を間引いた Δ から求めている。全データの Δ の端と一致することを確かめるテストがない。
-- `compare-lanes.readout`：全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。
-- `compare-lanes.step`：全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。
 - `compare-lanes.range`：範囲を間引いた線から求めている。全データの端と一致することを確かめるテストがない。
 - `entry-held.step`：全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。
 - `entry-held.range`：範囲を間引いた点から求めている。全データの端と一致することを確かめるテストがない。
