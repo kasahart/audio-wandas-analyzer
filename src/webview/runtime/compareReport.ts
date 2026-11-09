@@ -145,7 +145,7 @@ export function reportCsv(input: ReportInput, strings: ReportStrings): string {
         const result = input.results.get(path);
         lines.push([
             // What a reader looks for first: where the file differs most from its base, and by how much.
-            input.rowInfo?.(path).label ?? baseName(path), ...maxBandCells(comparison), ...(row?.cells ?? columns.map(() => '')), ...regionCells(measuredRegion(input.region, reportDuration(input))),
+            input.rowInfo?.(path).label ?? baseName(path), ...maxBandCells(comparison), ...(row?.cells ?? columns.map(() => '')), ...regionCells(measuredRegion(input.region, fileDuration(input, path))),
             dB(comparison.leq?.compare ?? comparison.compare?.leq), dB(comparison.leq?.base), dB(comparison.leq?.delta),
             ...bands.map(band => dB(bandDelta(comparison, band))),
             comparison.base ? String(comparison.base.filePaths.length) : '', (comparison.base?.filePaths ?? []).map(baseName).join(';'),
@@ -233,14 +233,24 @@ export function reportOctaveRecipe(recipe: RecipeDocument, region: EntryRegion |
     };
 }
 
-/** The compared files' length, which the measured region is cut from. */
-function reportDuration(input: ReportInput): number | undefined {
-    for (const path of input.slots.slice(1)) {
-        const result = path ? input.results.get(path) : undefined;
-        if (result?.ok) return result.input?.durationS;
-    }
-    return undefined;
+/**
+ * One file's length, which its own measured region is cut from (the scan guards each file's ends within its own
+ * length, scan_service): never another file's.
+ */
+function fileDuration(input: ReportInput, path: string | null | undefined): number | undefined {
+    const result = path ? input.results.get(path) : undefined;
+    return result?.ok ? result.input?.durationS : undefined;
 }
+
+/** The region each compared slot was measured over, in slot order. */
+function slotRegions(input: ReportInput): Array<{ slot: number; path: string; measured: { start: number; end: number } | null }> {
+    return [1, 2, 3].flatMap(slot => {
+        const path = input.slots[slot];
+        return path ? [{ slot, path, measured: measuredRegion(input.region, fileDuration(input, path)) }] : [];
+    });
+}
+
+const regionSeconds = (region: { start: number; end: number }): string => `${region.start.toFixed(2)}–${region.end.toFixed(2)} s`;
 
 /** What the scan computes, in words and decimals, beside the Recipe (whose own floats are hex). */
 export function reportDefinitions(input: ReportInput, specVersion: number | undefined, strings: Pick<UiStrings, 'defLeq' | 'defSpectrum' | 'defThirdOct' | 'defChannels' | 'defBase' | 'defDelta' | 'defRegion' | 'defHeadline' | 'defHeadlineEdges' | 'entryColLeq' | 'outside192' | 'outsideMedian' | 'outsideDelta' | 'outsideOutliers' | 'stepOctave'>): Record<string, unknown> {
@@ -267,14 +277,16 @@ export function reportDefinitions(input: ReportInput, specVersion: number | unde
         headline: strings.defHeadline.replace('{within}', String(HEADLINE_WITHIN_DB)),
         headlineWithinDb: HEADLINE_WITHIN_DB,
         headlineEdges: strings.defHeadlineEdges,
-        steps: input.recipe ? recipeSteps(reportRecipe(input.recipe, input.region, reportDuration(input))).map(step => ({ operation: step.operation, params: step.params })) : [],
+        // The steps as asked; each comparison below says the region it was measured over (its own guarded ends).
+        steps: input.recipe ? recipeSteps(reportRecipe(input.recipe, input.region)).map(step => ({ operation: step.operation, params: step.params })) : [],
         // What the comparison was taken from: the value and grouping on show, the filters, and each base.
         ...(input.selection ? { selection: input.selection } : {}),
         comparisons: [1, 2, 3].flatMap(slot => {
             const path = input.slots[slot];
             if (!path || !input.rowInfo) return [];
             const info = input.rowInfo(path);
-            return [{ slot, file: info.label, channel: info.channel, base: info.base }];
+            const measured = measuredRegion(input.region, fileDuration(input, path));
+            return [{ slot, file: info.label, channel: info.channel, base: info.base, measured: measured ? { startS: measured.start, endS: measured.end } : null }];
         }),
     };
 }
@@ -366,8 +378,7 @@ export function summaryPng(document: Document, input: ReportInput, comparisons: 
     const hints = [...(uncalibrated.has('full-scale') ? [strings.hintLeqUncalibrated] : []), ...(uncalibrated.has('raw-units') ? [strings.hintLeqUncalibratedRaw] : [])];
     context.fillText([input.recipeName, ...(input.selection?.filters ?? []), ...hints].join(' · '), 16, 24);
     context.font = '13px sans-serif';
-    const measured = measuredRegion(input.region, reportDuration(input));
-    context.fillText(`${strings.stepRegion} ${measured ? `${measured.start.toFixed(2)}–${measured.end.toFixed(2)} s` : strings.reportWhole}`, 16, 46);
+    context.fillText(`${strings.stepRegion} ${summaryRegionText(input, strings)}`, 16, 46);
     comparisons.forEach(({ slot, comparison }, index) => {
         const top = head + index * pane * perSlot;
         const levels = document.createElement('canvas');
@@ -379,6 +390,14 @@ export function summaryPng(document: Document, input: ReportInput, comparisons: 
         context.drawImage(delta, 0, top + pane);
     });
     return page.toDataURL('image/png').replace(/^data:image\/png;base64,/, '');
+}
+
+/** The region the summary heads: the one every compared file was measured over, or each slot's where they differ. */
+export function summaryRegionText(input: ReportInput, strings: Pick<UiStrings, 'reportWhole'>): string {
+    const slots = slotRegions(input);
+    const texts = slots.map(({ measured }) => measured ? regionSeconds(measured) : strings.reportWhole);
+    if (new Set(texts).size <= 1) return texts[0] ?? (input.region ? regionSeconds(input.region) : strings.reportWhole);
+    return slots.map(({ slot }, index) => `${slot}: ${texts[index]}`).join(' · ');
 }
 
 /** Every file of the report folder, in the order they are listed. */
@@ -411,17 +430,34 @@ export function reportFiles(document: Document, input: ReportInput, strings: Rep
         // measures against the base slot takes a channel of each recording, the slots' rows'.
         const slotted = input.slotReference ?? [];
         const ownPair = !slotted.length && withChannel(input.recipe, 1) === input.recipe;
-        const variants = ownPair ? [{ suffix: '', ch: null }] : channels.length > 1 ? channels.map(ch => ({ suffix: ch ? `.ch${ch}` : '', ch })) : [{ suffix: '', ch: channels[0] ?? null }];
+        const byChannel = ownPair ? [{ suffix: '', ch: null }] : channels.length > 1 ? channels.map(ch => ({ suffix: ch ? `.ch${ch}` : '', ch })) : [{ suffix: '', ch: channels[0] ?? null }];
+        // Each compared file is sliced within its own length, as the scan measured it: files whose measured regions
+        // differ get one Recipe each (".slot2"), so every Recipe replays its rows' numbers.
+        const regions = slotRegions(input);
+        const lengths = [...new Set(regions.map(({ path }) => fileDuration(input, path)))];
+        const regionsDiffer = new Set(regions.map(({ measured }) => JSON.stringify(measured))).size > 1;
+        const variants = byChannel.flatMap(variant => {
+            const own = regions.filter(({ path }) => ownPair || channels.length <= 1 || (input.rowInfo?.(path).channel ?? null) === variant.ch);
+            if (!regionsDiffer) return [{ ...variant, durationS: lengths.length === 1 ? lengths[0] : fileDuration(input, own[0]?.path) }];
+            const groups = new Map<string, { slots: number[]; durationS: number | undefined }>();
+            for (const { slot, path, measured } of own) {
+                const key = JSON.stringify(measured);
+                const group = groups.get(key) ?? { slots: [], durationS: fileDuration(input, path) };
+                group.slots.push(slot);
+                groups.set(key, group);
+            }
+            return [...groups.values()].map(group => ({ suffix: `${variant.suffix}.slot${group.slots.join('-')}`, ch: variant.ch, durationS: group.durationS }));
+        });
         const fs = reportSampleRate(input);
-        for (const { suffix, ch } of variants) {
+        for (const { suffix, ch, durationS } of variants) {
             const recipe = ch ? withChannel(input.recipe, ch, slotted.length > 0) : input.recipe;
             const baseChannel = input.slots[0] ? input.rowInfo?.(input.slots[0]).channel ?? null : null;
             // The base is sliced within its own length, as the scan does (its end guard, not the compared file's).
             const baseResult = input.slots[0] ? input.results.get(input.slots[0]) : undefined;
             const baseEnd = baseResult?.ok && baseResult.input ? baseResult.input.durationS - EDGE_GUARD_S : undefined;
-            const measured = slotted.reduce((paired, id) => withBaseInput(paired, id, { channel: baseChannel, endS: baseEnd }), reportRecipe(recipe, input.region, reportDuration(input)));
+            const measured = slotted.reduce((paired, id) => withBaseInput(paired, id, { channel: baseChannel, endS: baseEnd }), reportRecipe(recipe, input.region, durationS));
             files.push({ name: `${input.recipeName}${suffix}.recipe.json`, text: JSON.stringify(measured, null, 2) + '\n' });
-            if (fs) files.push({ name: `${input.recipeName}${suffix}.1-3oct.recipe.json`, text: JSON.stringify(reportOctaveRecipe(recipe, input.region, reportDuration(input), fs), null, 2) + '\n' });
+            if (fs) files.push({ name: `${input.recipeName}${suffix}.1-3oct.recipe.json`, text: JSON.stringify(reportOctaveRecipe(recipe, input.region, durationS, fs), null, 2) + '\n' });
         }
     }
     const specVersion = comparisons.map(({ comparison }) => comparison.compare?.filePaths[0]).map(path => input.results.get(path ?? '')).find(result => result?.ok)?.specVersion;

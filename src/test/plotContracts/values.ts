@@ -115,5 +115,5 @@ export const DRAWN_READERS: Readonly<Record<string, { use: DrawnUse; why: string
     ['src/webview/runtime/trackStageModel.ts:pictureSummary']: { use: 'draws', why: 'a test hook\'s count and median of the drawn points, not shown' },
     ['src/webview/runtime/trackStageModel.ts:plotsOf']: { use: 'draws', why: 'whether pictures are signals, to choose how to draw them' },
     ['src/webview/runtime/trackStagePainter.ts:eventsOf']: { use: 'draws', why: 'the events drawn, as layers' },
-    ['src/webview/spectrum/cursorSpectrum.ts:extractSpectrumAtCursor']: { use: 'draws', why: 'until the backend\'s slice is in, the lane\'s display spectrogram column is drawn, marked a stand-in that is never read (cursor-spectrum.pending)' },
+    ['src/webview/spectrum/cursorSpectrum.ts:extractSpectrumAtCursor']: { use: 'draws', why: 'until the backend\'s slice at this cursor is in (a cached slice of an earlier cursor is not it: sliceIsAtCursor), the lane\'s display spectrogram column is drawn, marked a stand-in that is never read (cursor-spectrum.pending)' },
 };

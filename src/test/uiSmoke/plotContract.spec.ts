@@ -90,6 +90,9 @@ async function pointRead(plot: Locator, from?: PointRead | null): Promise<PointR
     return now();
 }
 
+/** The quantity a count axis is named by (the distribution's dsDistCountAxis), in each language. */
+const COUNT_QUANTITIES = (['en', 'ja'] as const).map(language => getStrings(language).dsDistCountAxis.split('[')[0].trim());
+
 /**
  * The next point to the right of the one the plot reads, in the full-resolution data that point is read from (R7):
  * the layer's full source (fullRead.ts: StageLayer.full, which every layer has, bars too), asked as the plot asks
@@ -154,7 +157,8 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
             const isQuantity = (text: string): boolean => text === quantity || (words.length > 1 && text === words[words.length - 1])
                 || (text.length > 1 && text.endsWith('…') && quantity.startsWith(text.slice(0, -1)));
             const oneLine = texts.some(text => { const drawn = NAME.exec(text.trim()); return !!drawn && drawn[2] === unit && isQuantity(drawn[1]); });
-            return oneLine || (texts.includes(`[${unit}]`) && texts.some(isQuantity));
+            // On two lines: the quantity and its unit written one after the other (one name), not anywhere apart.
+            return oneLine || texts.some((text, index) => isQuantity(text) && (texts[index + 1] === `[${unit}]` || texts[index - 1] === `[${unit}]`));
         };
         const axisId = canvas.getAttribute('data-plot-axis');
         const own = [...((canvas as Texted).__plotTexts ?? []), ...((axisId ? (document.getElementById(axisId) as Texted | null)?.__plotTexts : undefined) ?? [])];
@@ -238,8 +242,9 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
     if (boxed.length === 4 && boxed.every(Number.isFinite) && (vertical === 'zoom' || vertical === 'all-counts')) {
         const [x0, x1, y0, y1] = boxed;
         const across = x0 > 0.001 && x1 < 0.999 && x1 > x0;
-        // A count axis is one that shows every count (display-rules R13), and only a count axis may.
-        const counts = /count|数/iu.test(names[1] ?? '');
+        // A count axis is one that shows every count (display-rules R13), and only a count axis may: named as the
+        // distribution names its count axis in either language (a word like 周波数 holds 数 and is no count).
+        const counts = COUNT_QUANTITIES.includes(/^(.*\S)\s*\[/su.exec((names[1] ?? '').trim())?.[1] ?? '');
         const up = vertical === 'all-counts' ? counts && y0 === 0 && y1 === 1 : !counts && y0 > 0.001 && y1 < 0.999 && y1 > y0;
         if (across && up && await picture() !== beforeBox) passed.add('box zoom');
     }

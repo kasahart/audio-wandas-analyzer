@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createCombineSource, noDeltaNote } from '../webview/runtime/combineSource';
 import { createStageSource } from '../webview/runtime/stageSource';
-import type { CompareCombineMessage } from '../shared/analysis/entryScan';
+import { runCompareCombine, type CompareCombineMessage } from '../shared/analysis/entryScan';
+import { getStrings } from '../shared/i18n/strings';
 import { parsePanelMessage } from '../shared/protocol/panelMessages';
 import type { StageView } from '../shared/protocol/backendProtocol';
 
@@ -61,12 +62,30 @@ test('a Δ that cannot be taken says why: too much data, other sample rates or u
     source.handle({ type: 'compare-combine-result', requestId: 'r-1', result: { ok: true, noDelta: 'rate' } } as { type: string });
     const combined = source.get('id', { base: ['ka'], compare: 'kc' }, () => undefined);
     assert.deepEqual(combined, { base: null, diff: null, noDelta: 'rate' });
-    const strings = { stageNoDelta: 'axes', stageTooLarge: 'large', stageNoDeltaRate: 'rate', stageNoDeltaUnit: 'unit' };
+    const strings = { stageNoDelta: 'axes', stageTooLarge: 'large', stageNoDeltaRate: 'rate', stageNoDeltaUnit: 'unit', stageCombineFailed: 'failed' };
     assert.equal(noDeltaNote(combined, strings), 'rate');
     assert.equal(noDeltaNote({ noDelta: 'unit' }, strings), 'unit');
     assert.equal(noDeltaNote({ tooLarge: true }, strings), 'large');
     assert.equal(noDeltaNote({}, strings), 'axes');
     assert.equal(noDeltaNote(undefined, strings), 'axes');
+    assert.equal(noDeltaNote({ failed: true }, strings), 'failed');
+});
+
+test('a combination the backend failed is kept as a failure and says so, never as one with nothing to compare', async () => {
+    const posted: CompareCombineMessage[] = [];
+    const source = createCombineSource('f', message => posted.push(message), () => undefined);
+    const forgotten: string[][] = [];
+    source.get('id', { base: ['ka'], compare: 'kc' }, keys => { forgotten.push([...keys]); });
+    // What the host answers when stage-combine throws.
+    const published: Array<{ type: string; requestId: string; result: unknown }> = [];
+    await runCompareCombine({ combine: async () => { throw new Error('boom'); } } as unknown as Parameters<typeof runCompareCombine>[0],
+        { ...posted[0] }, message => { published.push(message as { type: string; requestId: string; result: unknown }); });
+    assert.deepEqual(published, [{ type: 'compare-combine-result', requestId: 'f-1', result: { ok: false } }]);
+    source.handle(published[0]);
+    const combined = source.get('id', { base: ['ka'], compare: 'kc' }, () => undefined);
+    assert.deepEqual(combined, { base: null, diff: null, failed: true });
+    assert.deepEqual(forgotten, [], 'nothing to scan again: no picture is missing');
+    assert.equal(noDeltaNote(combined, getStrings('ja')), getStrings('ja').stageCombineFailed);
 });
 
 test('a picture whose values the backend let go is dropped wherever it is kept, so it is scanned again', () => {

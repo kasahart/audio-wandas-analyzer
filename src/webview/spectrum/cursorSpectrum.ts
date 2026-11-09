@@ -12,6 +12,8 @@ export interface SpectrumSlice {
     axisLabel?: string;
     originalMaxFrequencyHz?: number;
     settingsSignature?: string;
+    /** Track-normalized cursor the backend transformed this slice at. */
+    cursorNorm?: number;
     bandCentersHz?: number[];
     /** Drawn in place of the backend's slice, never read as one (types.ts SpectrumStandIn). */
     standIn?: SpectrumStandIn;
@@ -34,6 +36,8 @@ export interface CursorSpectrumContext {
     channelIndex?: number;
     cached: SpectrumSlice | null;
     settingsSignature: string;
+    /** How far (track-normalized) a cached slice's cursor may lie from this one and still be this cursor's slice. */
+    cursorTolerance: number;
     /** Octave bands come only from the backend; the spectrogram column is an FFT and cannot stand in for them. */
     bands?: boolean;
     requestSlice(trackIndex: number, cursorNorm: number): void;
@@ -63,6 +67,12 @@ function makeSilentSpectrumSlice(
     });
 }
 
+/** Whether a slice was transformed at this track-normalized cursor (within the tolerance a cursor move needs). */
+export function sliceIsAtCursor(slice: Pick<SpectrumSlice, 'cursorNorm'> | null | undefined, localNorm: number, tolerance: number): boolean {
+    return !!slice && slice.cursorNorm !== undefined && Number.isFinite(slice.cursorNorm)
+        && Math.abs(slice.cursorNorm - localNorm) < tolerance;
+}
+
 export function extractSpectrumAtCursor(
     result: SpectrumSource | null | undefined,
     offsetSeconds: number,
@@ -90,10 +100,13 @@ export function extractSpectrumAtCursor(
     const ch = Array.isArray(result.channels) ? result.channels[chIdx] : undefined;
     const spec = ch && ch.spectrogram;
     const cached = idx >= 0 ? context?.cached ?? null : null;
-    const cachedIsCurrent = !!cached && cached.settingsSignature === context?.settingsSignature;
+    const cachedHasSettings = !!cached && cached.settingsSignature === context?.settingsSignature;
+    // A slice is this cursor's only when it was transformed here: one from an earlier cursor (its successor still on
+    // its way, or failed) is never drawn or read as the current one (R7).
+    const cachedIsCurrent = cachedHasSettings && !!context && sliceIsAtCursor(cached, trackLocalSec / dur, context.cursorTolerance);
     if (trackLocalSec >= dur) {
         if (context?.bands) {
-            return cached && cachedIsCurrent ? applySpectrumDisplaySettings({ ...cached, values: cached.values.map(() => cached.minDb), standIn: 'silence' }) : null;
+            return cached && cachedHasSettings ? applySpectrumDisplaySettings({ ...cached, values: cached.values.map(() => cached.minDb), standIn: 'silence' }) : null;
         }
         return makeSilentSpectrumSlice(result, spec ?? null, cached, applySpectrumDisplaySettings);
     }
@@ -104,7 +117,9 @@ export function extractSpectrumAtCursor(
         }
     }
     if (context?.bands) {
-        return null;
+        // Octave bands have no spectrogram column to stand in: the earlier cursor's bands are drawn, marked pending,
+        // and no number is read of them until this cursor's come.
+        return cached && cachedHasSettings ? applySpectrumDisplaySettings({ ...cached, standIn: 'pending' }) : null;
     }
     if (!spec || !spec.values || spec.timeBins <= 0 || spec.frequencyBins <= 0) {
         return null;

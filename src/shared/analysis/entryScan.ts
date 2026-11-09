@@ -355,7 +355,9 @@ export async function runCompareCombine(
     try {
         result = ports.combine ? await ports.combine(payload) : { ok: true };
     } catch {
-        result = { ok: true };
+        // A failure is answered as one (ok: false, nothing missing), never as a combination with nothing in it: the
+        // Δ then says it failed, not that the pictures cannot be compared.
+        result = { ok: false };
     }
     await publish({ type: 'compare-combine-result', requestId, result });
 }

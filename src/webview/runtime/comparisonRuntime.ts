@@ -16,7 +16,7 @@ import { nextRequestId } from './hostRequests';
 import { DEFAULT_PYTHON_ENVIRONMENT_STATE, isResponseToLazyRequest, mergeDetailSpectrograms, pythonEnvironmentStateFromMessage } from './lazyResponses';
 import type { DrawTheme } from '../draw/canvasDrawers';
 import { isCacheSufficient, isOverviewSufficient, isRangeCacheDrawable, parseRangeRequestKey, planLaneRange, rangeCacheCoversView, rangeHasDetail } from '../waveform/rangeRequestPolicy';
-import { extractSpectrumAtCursor as extractCursorSpectrum } from '../spectrum/cursorSpectrum';
+import { extractSpectrumAtCursor as extractCursorSpectrum, sliceIsAtCursor } from '../spectrum/cursorSpectrum';
 import { spectrogramBandServes, spectrogramWindowServes, spectrogramZoomBand, spectrogramZoomWindow, type SpectrogramBand, type SpectrogramBandSource, type SpectrogramWindow, type SpectrogramZoomSource } from '../spectrum/spectrogramZoom';
 import { buildSpectrumCsv, wavLoopRegions } from './runtimeExports';
 import { audioById, buttonById, buttonMatching, canvasById, canvasesMatching, eventTarget, requiredElementById } from './domAdapter';
@@ -818,6 +818,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         return Math.min(0.002, 0.01 / dur);
     }
+    /** Whether a cached slice is this cursor's: the current settings, transformed at this cursor (cursorSpectrum.ts). */
+    function sliceIsCurrentAt(i: number, slice: SpectrumSlice | null | undefined, cursorNormValue: number): slice is SpectrumSlice {
+        const result = state.results[i];
+        const localNorm = trackLocalCursorNorm(i, cursorNormValue);
+        return !!slice && !!result && localNorm !== null && slice.settingsSignature === currentSpectrumDataSignature()
+            && sliceIsAtCursor(slice, localNorm, spectrumCursorTolerance(result));
+    }
     /** The slice wanted or in flight for a track, unless a cursor move since has made its answer stale (it would be dropped). */
     function currentSpectrumSliceRequest(record: NonNullable<ReturnType<typeof trackRecordAtIndex>>) {
         const inFlight = record.requests.pending('slice')?.meta;
@@ -861,8 +868,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         // resolution, not the whole spectrum's thinned line stretched); thinned again only to be drawn.
         const fullResolution = spectrumCsvExportOpen || spectrumView.frequencyZoomed();
         const cached = record.spectrumSliceCache.get(0);
-        if (cached && cached.settingsSignature === settingsSignature && Math.abs((cached.cursorNorm ?? -1) - localNorm) < spectrumCursorTolerance(result)
-            && !(fullResolution && cached.frequenciesHz)) {
+        if (sliceIsCurrentAt(i, cached, cursorNormValue) && !(fullResolution && cached.frequenciesHz)) {
             return;
         }
         const key = spectrumSliceRequestKey(record.id);
@@ -2271,8 +2277,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         const slice = record.spectrumSliceCache.get(channelIndex) ?? record.spectrumSliceCache.get(0);
         // A slice from another cursor (one still on its way after playback or a move) would put the band elsewhere.
-        if (!slice || slice.settingsSignature !== currentSpectrumDataSignature()
-            || slice.cursorNorm === undefined || Math.abs(slice.cursorNorm - localNorm) >= spectrumCursorTolerance(result)
+        if (!sliceIsCurrentAt(trackIndex, slice, spectrumCursorNorm)
             || slice.windowStartNorm === undefined || slice.windowEndNorm === undefined) {
             return null;
         }
@@ -3410,7 +3415,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 const slice = extractSpectrumAtCursor(result, i, trackRuntimeAt(i).offsetSeconds, viewState.cursor, channelIndex);
                 // A lane out of view may still hold the spectrum of an earlier cursor position while this one is on its way.
                 const cached = record.spectrumSliceCache.get(channelIndex);
-                const current = cached?.settingsSignature === currentSpectrumDataSignature();
+                // Only this cursor's slice is written: one from an earlier cursor (its successor failed or still on its
+                // way) is left out, never written as this cursor's row.
+                const current = sliceIsCurrentAt(i, cached, viewState.cursor);
                 const stale = current && isSpectrumSliceRequestPendingForCursor(i, viewState.cursor);
                 // Inside the track only the backend's every-bin row is written: never the row cut for display, nor
                 // the spectrogram column drawn while that row is on its way.
@@ -4025,6 +4032,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             channelIndex: chIdx,
             cached: trackIndex >= 0 ? trackRecordAtIndex(trackIndex)?.spectrumSliceCache.get(chIdx) ?? null : null,
             settingsSignature: currentSpectrumDataSignature(),
+            cursorTolerance: spectrumCursorTolerance(result),
             bands: spectrumBandsPerOctave !== 0,
             requestSlice,
             applyDisplaySettings: applySpectrumDisplaySettings,

@@ -5,6 +5,7 @@
  */
 import type { StageView } from '../../shared/protocol/backendProtocol';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
+import { niceRange } from '../../shared/utils/ticks';
 import { paintOverlay, stageRange, type StageAxes } from './stagePanes';
 import type { PaneRange } from './comparePanes';
 import type { Drawn, StageTrack } from './trackStagePainter';
@@ -57,7 +58,9 @@ export function paintTriggerLanes(frame: TriggerLanesFrame): number {
     // The level stays in sight above or below every signal (a waveform's range leaves other views out).
     const base = stageRange([...views, levelView(trigger.threshold)]);
     const margin = Math.abs(trigger.threshold) * 0.05;
-    const range: PaneRange = { ...base, min: Math.min(base.min, trigger.threshold - margin), max: Math.max(base.max, trigger.threshold + margin) };
+    // Widened again to round ends once the level is in (R9): the waveform's range alone is round already.
+    const held = niceRange(Math.min(base.min, trigger.threshold - margin), Math.max(base.max, trigger.threshold + margin));
+    const range: PaneRange = { ...base, min: held.low, max: held.high };
     let drawn = 0;
     frame.tracks.forEach((track, index) => {
         const canvas = track.canvas;

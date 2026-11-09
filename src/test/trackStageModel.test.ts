@@ -7,6 +7,7 @@ import type { RecipeDocument } from '../shared/recipe/recipeSelection';
 import type { StageView } from '../shared/protocol/backendProtocol';
 import { INPUT_STAGE, runnableRecipe } from '../webview/runtime/stepBarModel';
 import { FULL_PLOT_WINDOW } from '../webview/runtime/plotInteraction';
+import { stageCacheKey } from '../webview/runtime/stageSource';
 import { channelRecipe, chosenStage, comparedPath, eachBaseTitle, enterStageState, holdStageSpec, initialStageState, liveRegion, openStageState, pictureSummary, plotsOf, combineRequest, regionStageSpec, stageSpec } from '../webview/runtime/trackStageModel';
 
 const entry = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8')) as RecipeDocument;
@@ -60,6 +61,23 @@ test('a scan\'s key names its Recipe, region and step; one channel adds a get_ch
     assert.deepEqual(stageSpec(null, null, welch.id).message, { stage: welch.id });
     assert.equal(regionStageSpec(recipe, { start: 0, end: 1 }).message.stage, undefined);
     assert.match(regionStageSpec(recipe, null).key, /^region\|/);
+});
+
+test('every scan\'s key holds its region exactly as it is sent: a region imported from a selection and one typed to 0.01 s never share a cache', () => {
+    const recipe = { recipe: entry, runRecipe: runnableRecipe(entry, 16000) };
+    const imported = { start: 1.2345, end: 2.5 };
+    const typed = { start: 1.23, end: 2.5 };
+    const specs = [
+        (region: { start: number; end: number }) => stageSpec(recipe, region, welch.id),
+        (region: { start: number; end: number }) => regionStageSpec(recipe, region),
+        (region: { start: number; end: number }) => holdStageSpec(recipe, welch.id, hpf, limits, region)!,
+    ];
+    for (const of of specs) {
+        const a = of(imported), b = of(typed);
+        assert.deepEqual(a.message.region, imported);
+        assert.notEqual(stageCacheKey(a), stageCacheKey(b), `${a.key} and ${b.key} ask for different samples`);
+        assert.equal(stageCacheKey(of({ ...imported })), stageCacheKey(a), 'the same region is the same key');
+    }
 });
 
 test('holding a step scans the chain without it, on the step before it when it is the one shown', () => {

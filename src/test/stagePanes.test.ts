@@ -538,4 +538,15 @@ test('a colour or value range not in dB is widened to round ends, as a dB range 
     assert.deepEqual(stageRange([view([3.21, 17.4], 'roughness')]), { min: 2, max: 19 });
     assert.deepEqual(stageRange([view([0.13, 0.87], 'value')]), { min: 0.05, max: 0.95 });
     assert.deepEqual(stageDiffRange(view([-0.37, 0.12], 'value')), { min: -0.4, max: 0.4 });
+    // A waveform's ± its every sample's peak, widened as well: a 0.3264 FS peak is drawn on ±0.35, not ±0.34272.
+    const waveform = (absolutePeak: number): StageView => ({ frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs: [0, 1], values: [0, 0],
+        waveform: { min: [-absolutePeak], max: [absolutePeak], minT: [0], maxT: [1], absolutePeak, unit: 'FS', ref: 1 } });
+    for (const peak of [0.3264, 0.93, 1, 0.0123, 37.2]) {
+        const range = stageRange([waveform(peak)]);
+        assert.equal(range.min, -range.max, 'symmetric round 0');
+        assert.ok(range.max >= peak, `${peak} on the axis`);
+        assert.equal(Number(range.max.toPrecision(2)), range.max, `±${range.max} is round`);
+        assert.ok(range.max <= peak * 1.05 + 0.08 * 2 * peak * 1.05 + 1e-12, `±${range.max} no wider than the peak's room and the rounding`);
+    }
+    assert.deepEqual(stageRange([waveform(0.3264)]), { min: -0.35, max: 0.35 });
 });

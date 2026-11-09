@@ -175,6 +175,7 @@ test('with no difference, the Δ headline says the same reason as its plot: othe
         [{ noDelta: 'rate' }, strings.stageNoDeltaRate],
         [{ noDelta: 'unit' }, strings.stageNoDeltaUnit],
         [{ tooLarge: true }, strings.stageTooLarge],
+        [{ failed: true }, strings.stageCombineFailed],
         [{}, strings.stageNoDelta],
     ];
     for (const [extra, reason] of cases) {

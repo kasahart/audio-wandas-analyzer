@@ -70,6 +70,12 @@ test('the trigger lanes share a range holding every sample\'s peak of every reco
     // A trigger level above every sample stays in sight.
     const high = lanes(1.5, { '/a.wav': loud }).drawn.values().next().value?.range;
     assert.ok(high && high.max >= 1.5, `${high?.max}`);
+    // Both ends round (R9), with the level held as with the peaks.
+    for (const [threshold, value] of [[0.4, range], [1.5, high], [0.37, lanes(0.37, { '/b.wav': quiet }).drawn.values().next().value?.range]] as const) {
+        assert.ok(value);
+        for (const end of [value.min, value.max]) assert.equal(Number(end.toPrecision(2)), end, `level ${threshold}: ${value.min}..${value.max} at round ends`);
+        assert.ok(value.max >= threshold);
+    }
 });
 
 test('a trigger lane is read at every sample: the pointer reads a sample between the envelope\'s points, and ← / → go one sample at a time (R7)', () => {

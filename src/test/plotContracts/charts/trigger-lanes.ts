@@ -30,7 +30,7 @@ export const triggerLanes: ChartContract = {
         {
             id: 'trigger-lanes.range', value: 'range', what: 'レーンの振幅の範囲（しきい値を含む）',
             computedIn: ['src/webview/runtime/triggerLanes.ts:paintTriggerLanes', 'src/webview/plot/waveformLayer.ts:waveformRange'],
-            from: 'full', trace: '時間信号は absolutePeak（全サンプルの絶対値の最大）の ±1.05 倍に、しきい値が入るよう広げる。',
+            from: 'full', trace: '時間信号は absolutePeak（全サンプルの絶対値の最大）の ±1.05 倍に、しきい値が入るよう広げ、端を切りのよい値に広げる（niceRange、R9）。',
             tests: [
                 tt('src/test/triggerLanes.test.ts', 'the trigger lanes share a range holding every sample\'s peak of every recording and the trigger\'s level, not the envelope drawn (R1)'),
             ],
