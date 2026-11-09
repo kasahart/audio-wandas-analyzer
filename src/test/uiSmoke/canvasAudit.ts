@@ -109,7 +109,7 @@ function installCanvasAudit({ settle, measureMs, others, drawnOutside, svgCharts
                 const metrics = measureText.call(this, args[0]) as TextMetrics;
                 const [x, y] = [Number(args[1]), Number(args[2])];
                 canvas.__tickBoxes ??= [];
-                canvas.__tickBoxes.push({ text: args[0], column: `${this.textAlign}@${Math.round(at.a * x + at.e)}`, row: `${this.textBaseline}@${Math.round(at.d * y + at.f)}`, x: at.a * x + at.e, top: at.d * (y - metrics.actualBoundingBoxAscent) + at.f, bottom: at.d * (y + metrics.actualBoundingBoxDescent) + at.f });
+                canvas.__tickBoxes.push({ text: args[0], column: `${this.textAlign}@${Math.round(at.a * x + at.e)}`, row: `${this.textAlign}/${this.textBaseline}@${Math.round(at.d * y + at.f)}`, x: at.a * x + at.e, top: at.d * (y - metrics.actualBoundingBoxAscent) + at.f, bottom: at.d * (y + metrics.actualBoundingBoxDescent) + at.f });
                 if (canvas.__tickBoxes.length > 400) canvas.__tickBoxes.shift();
             }
         }
@@ -312,9 +312,10 @@ function installCanvasAudit({ settle, measureMs, others, drawnOutside, svgCharts
             const texts = boxes.map(box => box.text);
             texts.forEach((text, index) => { if (texts.indexOf(text) !== index && Math.abs(boxes[index].top - boxes[texts.indexOf(text)].top) > 1) found.push(`"${text}" twice`); });
         }
-        // So for a horizontal axis's ticks: numbers written along one baseline.
+        // So for a horizontal axis's ticks: numbers centred under their ticks along one baseline (a value axis's
+        // numbers, left and right of the plot, are aligned to its sides).
         const rows = new Map<string, Array<{ text: string; x: number }>>();
-        for (const box of canvas.__tickBoxes ?? []) rows.set(box.row, [...(rows.get(box.row) ?? []), box]);
+        for (const box of canvas.__tickBoxes ?? []) if (box.row.startsWith('center/')) rows.set(box.row, [...(rows.get(box.row) ?? []), box]);
         for (const boxes of rows.values()) {
             const seen = new Map<string, number>();
             for (const box of boxes) {

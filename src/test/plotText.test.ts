@@ -169,6 +169,9 @@ test('every tick and readout takes its digits from the spacing of its neighbours
             assert.ok(!(texts.some(text => text.endsWith('k')) && texts.some(text => !text.endsWith('k') && kHz(text) >= 1000)), `${low}–${high} Hz: never "1000" beside "1k"`);
         }
     }
+    // A caller's own tick text (the entry overview's whole row numbers on a few rows) never writes a number twice.
+    const rows = rowAxisTicks(0, 3, false, 300, value => String(Math.round(value))).map(tick => tick.text);
+    assert.equal(new Set(rows).size, rows.length, rows.join(' '));
     // A time axis zoomed to a few samples.
     const times = alongAxisTicks(1.23451, 1.23459).map(tick => tick.text);
     assert.equal(new Set(times).size, times.length, times.join(' '));
