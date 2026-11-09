@@ -9,7 +9,7 @@
 import type { StagePoints, StageRead } from '../../shared/protocol/backendProtocol';
 import type { SpectrumSliceRequest, TrackDetailRequest, WaveformRangeRequest } from '../../shared/utils/audioTarget';
 import { fetchedSource, localLine, type FullSource } from './fullRead';
-import { FAILED_HOLD_MS } from './combineSource';
+import { answerKey, createAnswerStore } from './answerStore';
 
 type ReadRequest = WaveformRangeRequest | TrackDetailRequest | SpectrumSliceRequest;
 /** A slice read at every bin: each channel's values over 0..maxHz. */
@@ -46,70 +46,52 @@ export function createLaneReads(post: (message: ReadRequest) => void, now: () =>
     let count = 0;
     /** Each read on its way: what to call with its answer, and the analysis settings it was asked under. */
     const waiting = new Map<string, { done: (answer: ReadAnswer) => void; settingsSignature?: string }>();
-    const sources = new Map<string, FullSource>();
-    const once = (key: string, make: () => FullSource): FullSource => {
-        let source = sources.get(key);
-        if (!source) {
-            source = make();
-            sources.set(key, source);
-            if (sources.size > 128) sources.delete(sources.keys().next().value as string);
-        }
-        return source;
-    };
+    // Each read's source, kept with what it fetched: of the track's file, analysis and settings (LaneTrack).
+    const sources = createAnswerStore<FullSource>({ capacity: 128, now });
+    const once = (ask: unknown[], make: () => FullSource): FullSource => sources.keep(answerKey({ ask }), make);
     const ask = (message: (requestId: string) => ReadRequest, done: (answer: ReadAnswer) => void): void => {
         const requestId = `${PREFIX}-${++count}`;
         const request = message(requestId);
         waiting.set(requestId, { done, ...('settingsSignature' in request ? { settingsSignature: request.settingsSignature } : {}) });
         post(request);
     };
-    /** The full slices asked for, by key: in (values per channel), or on their way (the callers waiting). */
-    const slices = new Map<string, { slice?: FullSlice | null; failedAt?: number; ready: Set<() => void> }>();
+    /** The full slices asked for: in (values per channel), failed (asked again after the store's pause), or on their way. */
+    const slices = createAnswerStore<FullSlice>({ capacity: 32, now });
     return {
         waveform(track, channel) {
-            return once(JSON.stringify(['wave', track, channel]), () => fetchedSource((read: StageRead, done) => ask(requestId => ({
+            return once(['wave', track, channel], () => fetchedSource((read: StageRead, done) => ask(requestId => ({
                 type: 'request-waveform-range', requestId, trackIndex: track.trackIndex, filePath: track.filePath,
                 startNorm: Math.max(0, Math.min(...read.x)), endNorm: Math.min(1, Math.max(...read.x)), points: 1, read: { ...read, channel },
             }), answer => done(answer?.points ?? null))));
         },
         spectrogram(track, channel, window) {
-            return once(JSON.stringify(['spec', track, channel, window]), () => fetchedSource((read: StageRead, done) => ask(requestId => ({
+            return once(['spec', track, channel, window], () => fetchedSource((read: StageRead, done) => ask(requestId => ({
                 type: 'request-track-detail', requestId, analysisId: track.analysisId, settingsSignature: track.settingsSignature,
                 trackIndex: track.trackIndex, filePath: track.filePath, ...(window ? window : {}), read: { ...read, channel },
             }), answer => done(answer?.points ?? null))));
         },
         slice(track, cursorNorm, channel) {
-            const key = JSON.stringify(['slice', track, cursorNorm]);
+            const key = answerKey({ ask: ['slice', track, cursorNorm] });
             // The slice at every bin, fetched once for every read of it: its points, and its level for the order (R6).
             const full = (ready: () => void): FullSource | null | undefined => {
-                let entry = slices.get(key);
-                // A slice that failed is asked again once FAILED_HOLD_MS have passed: a passing failure does not stay for good.
-                if (entry?.failedAt !== undefined && now() - entry.failedAt >= FAILED_HOLD_MS) {
-                    slices.delete(key);
-                    entry = undefined;
-                }
-                if (!entry) {
-                    const made: { slice?: FullSlice | null; failedAt?: number; ready: Set<() => void> } = { ready: new Set() };
-                    entry = made;
-                    slices.set(key, made);
-                    if (slices.size > 32) slices.delete(slices.keys().next().value as string);
+                if (slices.ask(key)) {
                     ask(requestId => ({
                         type: 'request-spectrum-slice', requestId, analysisId: track.analysisId, settingsSignature: track.settingsSignature,
                         trackIndex: track.trackIndex, filePath: track.filePath, cursorNorm, fullResolution: true, read: true,
                     }), answer => {
-                        made.slice = answer?.slice ?? null;
-                        if (!made.slice) made.failedAt = now();
-                        const calls = [...made.ready];
-                        made.ready.clear();
-                        for (const call of calls) call();
+                        if (answer?.slice) slices.ready(key, answer.slice);
+                        else slices.fail(key);
                     });
                 }
-                if (entry.slice === undefined) { entry.ready.add(ready); return undefined; }
-                const values = entry.slice?.values.get(channel);
-                if (!entry.slice || !values?.length) return null;
-                const step = entry.slice.maxHz / Math.max(1, values.length - 1);
+                const state = slices.state(key);
+                if (state === 'pending') { slices.whenSettled(key, ready); return undefined; }
+                const slice = slices.value(key);
+                const values = slice?.values.get(channel);
+                if (!slice || !values?.length) return null;
+                const step = slice.maxHz / Math.max(1, values.length - 1);
                 return localLine(values.map((_, bin) => bin * step), values);
             };
-            return once(JSON.stringify([key, channel]), () => ({
+            return once(['slice', track, cursorNorm, channel], () => ({
                 held: 'fetched',
                 line(query, ready) {
                     const source = full(ready);

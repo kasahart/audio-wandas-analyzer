@@ -2,6 +2,7 @@
  * The entry table's work with the host before and during a computation: reading the files' headers (their
  * channels and lengths, no audio decoded) and the progress and cost of the scan the user started with 「計算」.
  */
+import { createLatestAnswers } from './answerStore';
 import type { EntryProbeMessage, EntryProbePublication } from '../../shared/analysis/entryScan';
 
 /**
@@ -88,9 +89,10 @@ export interface HeaderProbe {
 }
 
 export function createHeaderProbe(): HeaderProbe {
-    const channels = new Map<string, number>();
-    const errors = new Map<string, string>();
-    const durations = new Map<string, number>();
+    // Each file's header as read: its channels (or why it could not be read) and its length.
+    const channelAnswers = createLatestAnswers<number>();
+    const durationAnswers = createLatestAnswers<number>();
+    const channels = channelAnswers.view, errors = channelAnswers.failures, durations = durationAnswers.view;
     let running: { requestId: string; done: number; total: number } | null = null;
     return {
         channels, errors, durations,
@@ -111,13 +113,13 @@ export function createHeaderProbe(): HeaderProbe {
             if (!running || header.requestId !== running.requestId) return 'stale';
             if (header.type === 'entry-probe-done') { running = null; return 'done'; }
             running.done++;
-            if (header.durationS !== undefined) durations.set(header.filePath, header.durationS);
-            if (header.channels) channels.set(header.filePath, header.channels);
-            else if (header.error) errors.set(header.filePath, header.error);
+            if (header.durationS !== undefined) durationAnswers.set(header.filePath, header.durationS);
+            if (header.channels) channelAnswers.set(header.filePath, header.channels);
+            else if (header.error) channelAnswers.fail(header.filePath, header.error);
             return 'result';
         },
         clear() {
-            channels.clear(); errors.clear(); durations.clear();
+            channelAnswers.clear(); durationAnswers.clear();
             running = null;
         },
     };

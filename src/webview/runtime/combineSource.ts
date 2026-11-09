@@ -9,7 +9,7 @@
  */
 import type { CompareCombineMessage, ComparePublication } from '../../shared/analysis/entryScan';
 import type { StageDetail, StageView } from '../../shared/protocol/backendProtocol';
-import { FAILED_HOLD_MS } from './fullRead';
+import { answerKey, createAnswerStore, FAILED_RETRY_MS, type AnswerKey } from './answerStore';
 
 /** What a combination gives: the median (of two or more recordings) and the difference. */
 export interface Combined {
@@ -57,13 +57,16 @@ export interface LastFine {
 }
 
 export function createLastFine(): LastFine {
-    const kept = new Map<string, Combined>();
-    const key = (identity: string, asked: CombineRequest): string => `${identity}|${JSON.stringify([asked.base, asked.compare])}`;
+    const kept = createAnswerStore<Combined>({ capacity: KEPT_FINE });
+    const key = (identity: string, asked: CombineRequest): AnswerKey => answerKey({ ask: ['last-fine', asked.base, asked.compare], condition: identity });
     return {
-        keep(identity, asked, combined) { kept.set(key(identity, asked), combined); },
-        of: (identity, asked) => kept.get(key(identity, asked)),
+        keep(identity, asked, combined) { kept.ready(key(identity, asked), combined); },
+        of: (identity, asked) => kept.value(key(identity, asked)),
     };
 }
+
+/** Last zoomed answers kept: one per held plot and step, so a handful. */
+const KEPT_FINE = 64;
 
 export interface CombineSource {
     /**
@@ -80,38 +83,31 @@ const CACHED = 64;
 
 /**
  * How long a failed answer stands (ms): until then it is shown as failed rather than asked again on every draw; after
- * it, the next draw asks again, so a passing failure does not stay for good. The track view's reads keep theirs as long.
+ * it, the next draw asks again, so a passing failure does not stay for good (answerStore decides it for every answer).
  */
-export { FAILED_HOLD_MS };
+export { FAILED_RETRY_MS as FAILED_HOLD_MS };
 
-const requestKey = (request: CombineRequest): string => JSON.stringify([request.base, request.compare, request.detail ?? null]);
+/**
+ * A combination's key: the data keys it combines (each the backend's hash of the file's version, the Recipe, region,
+ * channels, calibration and step, scan_service._data_key) and the part on screen exactly as it is sent.
+ */
+const combineKey = (request: CombineRequest): AnswerKey => answerKey({ ask: ['combine', request.base, request.compare], region: JSON.stringify(request.detail ?? null) });
 
 export function createCombineSource(prefix: string, post: (message: CompareCombineMessage) => void, changed: () => void, now: () => number = () => Date.now()): CombineSource {
-    const results = new Map<string, Combined>();
-    /** When each failed answer came (by request key): it is asked again once FAILED_HOLD_MS have passed. */
-    const failedAt = new Map<string, number>();
-    const asked = new Map<string, { key: string; identity: string; forget: (keys: readonly string[]) => void }>();
-    const retried = new Set<string>();
+    const answers = createAnswerStore<Combined>({ capacity: CACHED, now });
+    /** The requests on their way, by id: what each asks, of what, and how to drop pictures the backend let go. */
+    const asked = new Map<string, { key: AnswerKey; identity: string; forget: (keys: readonly string[]) => void }>();
     let count = 0;
-    function keep(key: string, combined: Combined): void {
-        results.delete(key);
-        results.set(key, combined);
-        for (const oldest of results.keys()) {
-            if (results.size <= CACHED) break;
-            results.delete(oldest);
-        }
-    }
     return {
         get(identity, request, forget) {
-            const key = requestKey(request);
-            const failed = failedAt.get(key);
-            if (failed !== undefined && now() - failed >= FAILED_HOLD_MS) {
-                failedAt.delete(key);
-                results.delete(key);
-            }
-            const done = results.get(key);
-            if (done) return done;
-            if (![...asked.values()].some(item => item.key === key)) {
+            const key = combineKey(request);
+            const state = answers.state(key);
+            if (state === 'ready') return answers.value(key);
+            if (state === 'failed') return FAILED_COMBINED;
+            // Missing and not to be asked: the backend could not keep its values even when they were scanned again.
+            if (state === 'missing' && !answers.ask(key)) return TOO_LARGE_COMBINED;
+            // Asked just now (a pending one is on its way).
+            if (state === 'missing') {
                 const requestId = `${prefix}-${++count}`;
                 asked.set(requestId, { key, identity, forget });
                 post({ type: 'compare-combine', requestId, base: [...request.base], ...(request.compare ? { compare: request.compare } : {}), ...(request.detail ? { detail: request.detail } : {}) });
@@ -126,18 +122,9 @@ export function createCombineSource(prefix: string, post: (message: CompareCombi
             if (!request) return true;
             asked.delete(publication.requestId);
             const { result } = publication;
-            if (result.ok) {
-                retried.delete(request.identity);
-                keep(request.key, { base: result.base ?? null, diff: result.diff ?? null, ...(result.noDelta ? { noDelta: result.noDelta } : {}) });
-            } else if (!result.missing?.length) {
-                keep(request.key, FAILED_COMBINED);
-                failedAt.set(request.key, now());
-            } else if (!retried.has(request.identity)) {
-                retried.add(request.identity);
-                request.forget(result.missing ?? []);
-            } else {
-                keep(request.key, TOO_LARGE_COMBINED);
-            }
+            if (result.ok) answers.ready(request.key, { base: result.base ?? null, diff: result.diff ?? null, ...(result.noDelta ? { noDelta: result.noDelta } : {}) }, { group: request.identity });
+            else if (!result.missing?.length) answers.fail(request.key);
+            else if (answers.unreached(request.key, request.identity) === 'again') request.forget(result.missing ?? []);
             changed();
             return true;
         },

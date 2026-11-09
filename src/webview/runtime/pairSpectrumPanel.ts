@@ -1,3 +1,4 @@
+import { answerKey, createAnswerStore, FAILED_RETRY_MS, type AnswerKey } from './answerStore';
 import type { PairSpectrumRequest } from '../../shared/utils/audioTarget';
 import type { DrawTheme, FrequencyScale } from '../draw/canvasDrawers';
 import type { HostInboundMessage } from './hostMessaging';
@@ -60,6 +61,9 @@ export interface PairPanelHost {
 
 export const PAIR_REQUEST_DELAY_MS = 150;
 
+/** A pair request's answer key: the request as it is sent (its analysis, settings, sources, offsets and range). */
+const pairKey = (request: string): AnswerKey => answerKey({ ask: request });
+
 /** The plots share one frequency axis: only the bottom one has room under it for the axis's numbers and name. */
 export function pairMargins(key: PairLaneKey): PlotMargins {
     return key === PAIR_LANES[PAIR_LANES.length - 1] ? STAGE_MARGINS : { ...STAGE_MARGINS, bottom: 4 };
@@ -74,12 +78,11 @@ export const PAIR_SPLIT_MAX = 0.75;
  */
 export class PairSpectrumPanel {
     private referenceState: PairReference | null = null;
-    private sentKey: string | null = null;
     private observedKey: string | null = null;
     /** The response spectra asked for ('pair'), as every on-demand request is kept. */
     private readonly requests = new HostRequests<undefined>();
-    /** The last answer, and the request (its sources, offsets, range, settings) it answered. */
-    private answer: { result: PairSpectrumResultMessage | null; error: string | null; key: string } | null = null;
+    /** The answers, by the request (its sources, offsets, range, settings) each answered; a failed one is asked again after the store's pause. */
+    private readonly answers = createAnswerStore<PairSpectrumResultMessage>({ capacity: 4 });
     private timer: ReturnType<typeof setTimeout> | null = null;
     /** The pointer over one of the pair plots, while it is. */
     private pointer: { lane: PairLaneKey; clientX: number; clientY: number } | null = null;
@@ -114,10 +117,9 @@ export class PairSpectrumPanel {
     setReference(next: PairReference | null): void {
         const hadHover = this.pointer !== null;
         this.referenceState = next;
-        this.sentKey = null;
         this.observedKey = null;
         this.requests.drop('pair');
-        this.answer = null;
+        this.answers.clear();
         this.pointer = null;
         this.levelWindow.clear();
         this.ownWindow = FULL_PLOT_WINDOW.x;
@@ -206,18 +208,22 @@ export class PairSpectrumPanel {
             return;
         }
         if (sources.responses.length === 0) {
-            this.sentKey = null;
             this.requests.drop('pair');
-            this.answer = null;
+            this.answers.clear();
             this.render();
             return;
         }
         const asked = this.requestNow();
-        if (!asked || asked.key === this.sentKey) {
+        if (!asked) {
             return;
         }
         const { request, key } = asked;
-        this.sentKey = key;
+        // A request superseded on its way is never answered: it is asked anew if it is wanted again.
+        const superseded = this.requests.pending('pair');
+        if (superseded && superseded.key !== key) this.answers.forget(pairKey(superseded.key));
+        if (!this.answers.ask(pairKey(key))) {
+            return;
+        }
         this.requests.ask('pair', this.host.nextRequestId(), key, undefined, ({ requestId }) => this.host.post({ ...request, requestId }));
         this.render();
     }
@@ -247,8 +253,13 @@ export class PairSpectrumPanel {
      * not drawn or read under today's names (R7: no numbers until they arrive), while its successor is waited for.
      */
     private current(): { result: PairSpectrumResultMessage | null; error: string | null } | null {
-        const answer = this.answer;
-        return answer && answer.key === this.requestNow()?.key ? answer : null;
+        const asked = this.requestNow();
+        if (!asked) return null;
+        const key = pairKey(asked.key);
+        const result = this.answers.value(key);
+        if (result) return { result, error: null };
+        const error = this.answers.reason(key);
+        return error !== undefined ? { result: null, error } : null;
     }
 
     private get result(): PairSpectrumResultMessage | null {
@@ -264,13 +275,19 @@ export class PairSpectrumPanel {
         if (message.type !== 'pair-spectrum-result' && message.type !== 'pair-spectrum-error') {
             return false;
         }
-        if (!this.requests.answering('pair', message.requestId) || message.analysisId !== this.host.analysisId()) {
+        const request = this.requests.answering('pair', message.requestId);
+        if (!request || message.analysisId !== this.host.analysisId()) {
             return true;
         }
         this.requests.settle(message.requestId);
         // The answer is to the request last asked (requests.answering): that request's key.
-        const key = this.sentKey ?? '';
-        this.answer = message.type === 'pair-spectrum-error' ? { result: null, error: message.error, key } : { result: message, error: null, key };
+        if (message.type === 'pair-spectrum-error') {
+            this.answers.fail(pairKey(request.key), message.error);
+            // A passing failure does not stay: once the store's pause is over the request is asked again.
+            this.schedule(FAILED_RETRY_MS + 10);
+        } else {
+            this.answers.ready(pairKey(request.key), message);
+        }
         this.render();
         if (this.pointer) {
             this.syncHostHover();

@@ -7,6 +7,7 @@
  * pictures come as the steps view's do (stageSource, the Frame's full resolution once zoomed) and are drawn by
  * its painter. Let go, the picture stays 150 ms, so a quick look does not flicker.
  */
+import { answerKey, createLatestAnswers } from './answerStore';
 import type { UiStrings } from '../../shared/i18n/strings';
 import type { CompareCombineMessage, CompareScanMessage } from '../../shared/analysis/entryScan';
 import type { ScanResult, StageView } from '../../shared/protocol/backendProtocol';
@@ -119,7 +120,7 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
     // Every Welch bin of a held slot's file and its base: the table's own scans carry only the 192 points.
     const bins = createStageSource('held-bins', message => deps.post(message), () => deps.scheduleSide(), basis);
     /** The table spectrum each file's bins were last asked for with (by spec and file). */
-    const binsAskedFor = new Map<string, string>();
+    const binsAskedFor = createLatestAnswers<string>();
     // Without the step − with it, taken by the backend from the Frames' full resolution (combineSource.ts).
     const combine = createCombineSource('held-combine', message => deps.post(message), () => deps.scheduleSide());
     // Every number read off the held plot comes from the full data, never its thinned line (R7).
@@ -244,7 +245,7 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
             const kept = bins.result(spec, file);
             const scanned = deps.results.get(file);
             const own = scanned?.ok ? scanned.conditionId ?? '' : '';
-            const key = `${spec.key}|${file}`;
+            const key = answerKey({ ask: spec.key, file }).id;
             if (kept?.ok && !sameCondition(kept, scanned) && binsAskedFor.get(key) !== own) bins.forget(spec, file);
             if (!kept || bins.result(spec, file) === undefined) binsAskedFor.set(key, own);
         }

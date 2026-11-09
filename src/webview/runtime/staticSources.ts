@@ -144,7 +144,6 @@ function shortHash(text: string): string {
 }
 
 export function createFolderKeys(folder: ReadonlyMap<string, File>): FolderKeys {
-    const folderTags = new Map<string, Promise<string>>();
     function identity(path: string): string | undefined {
         const file = folder.get(path);
         return file ? `${file.name}|${file.size}|${(file as File & { lastModified?: number }).lastModified ?? ''}` : undefined;
@@ -155,13 +154,8 @@ export function createFolderKeys(folder: ReadonlyMap<string, File>): FolderKeys 
         tagged(key) {
             const root = key.slice(key.indexOf(':') + 1);
             const paths = [...folder.keys()].filter(path => !root || path.startsWith(`${root}/`)).sort();
-            const listing = `${root}|${paths.length}|${paths.slice(0, 3).join('|')}`;
-            let tag = folderTags.get(listing);
-            if (!tag) {
-                tag = Promise.resolve(`${paths.length}:${shortHash(paths.slice(0, 3).map(path => identity(path) ?? '-').join('/'))}`);
-                folderTags.set(listing, tag);
-            }
-            return tag.then(value => `${key}#${value}`);
+            // Taken anew each time from the files as they are now: a tag kept by the listing alone would outlive a file's new version.
+            return Promise.resolve(`${key}#${paths.length}:${shortHash(paths.slice(0, 3).map(path => identity(path) ?? '-').join('/'))}`);
         },
     };
 }
