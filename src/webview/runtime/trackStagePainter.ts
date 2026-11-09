@@ -196,6 +196,8 @@ export function paintStageLanes(frame: StageFrame): number {
     // The base slot's lane: the reference the others are measured against, not a picture of its own.
     const referencePath = frame.referencePath;
     const referenceTrack = referencePath ? frame.allTracks.find(track => track.filePath === referencePath) : undefined;
+    // Its side axis held the waveform's: cleared, as the lanes' are, since the lane draws no picture of its own.
+    if (referenceTrack?.axis) clearSideAxis(referenceTrack.axis);
     if (referencePath && referenceTrack?.canvas) paintStage(referenceTrack.canvas, null, { min: 0, max: 1 }, referenceTrack.color, { x: '', y: '' }, { empty: strings.stageBaseLane.replace('{file}', frame.named(referencePath, 0).label) });
     return drawn;
 }

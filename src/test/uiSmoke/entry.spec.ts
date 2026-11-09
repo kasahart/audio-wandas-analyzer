@@ -3,6 +3,7 @@ import path from 'node:path';
 import { expect, test, type Locator, type Page } from './canvasAudit';
 import { getStrings } from '../../shared/i18n/strings';
 import { OVERVIEW_MARGINS } from '../../webview/runtime/entryPlots';
+import { FLAG_COLOR } from '../../shared/gui/roleColors';
 import { answerProbe, entry100Metadata, entry100Results, openEntry, openStepsView, pickCsv, type ScannedFile } from './entryHelpers';
 
 const SPECTRUM_VIEW = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity: 'level', xs: [100, 1000, 5000], values: [-40, -30, -50] };
@@ -89,6 +90,9 @@ test('a picked CSV attaches its attributes by asd-insight\'s rules and lists wha
     await unmatched.click();
     await expect(page.locator('#entry-screen')).toHaveAttribute('data-mode', 'unmatched');
     await expect(page.locator('[data-entry-rows] .entry-why')).toHaveText([STR.dsReasonUnreadable, STR.dsReasonNoRow]);
+    // Each why in the failure's orange (R5).
+    const flag = `rgb(${[1, 3, 5].map(at => parseInt(FLAG_COLOR.slice(at, at + 2), 16)).join(', ')})`;
+    for (const why of await page.locator('[data-entry-rows] .entry-why').all()) await expect(why).toHaveCSS('color', flag);
     await expect(page.locator('[data-entry-rows] tr').nth(1)).toContainText('mono_48k.wav');
     await page.keyboard.press('Escape');
     await expect(page.locator('#entry-screen')).toHaveAttribute('data-mode', 'all');

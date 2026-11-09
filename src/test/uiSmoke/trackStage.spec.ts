@@ -2,6 +2,10 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { expect, test, type Page } from './canvasAudit';
 import { entry100Results, openEntry, type ScannedFile } from './entryHelpers';
+import { FLAG_COLOR } from '../../shared/gui/roleColors';
+
+/** A `#rrggbb` colour as the browser computes it. */
+const rgb = (hex: string): string => `rgb(${[1, 3, 5].map(at => parseInt(hex.slice(at, at + 2), 16)).join(', ')})`;
 
 let scanned: ScannedFile[] | undefined;
 test.beforeAll(() => { scanned = entry100Results(); });
@@ -295,6 +299,8 @@ test('a step that cannot run on these recordings says why: ＋ greys a 48 kHz-on
         window.postMessage({ type: 'compare-scan-done', requestId: request.requestId }, '*');
     }, request);
     await expect(bar.locator('.step-chip.is-invalid')).toHaveCount(1);
+    // Marked in the failure's orange (R5), the one colour no role, difference or recording has.
+    await expect(bar.locator('.step-chip.is-invalid')).toHaveCSS('border-top-color', rgb(FLAG_COLOR));
     await expect.poll(async () => (await page.evaluate(() => (window as unknown as { __drawnTexts: string[] }).__drawnTexts)).join(' ')).toContain('boom on this file');
 });
 

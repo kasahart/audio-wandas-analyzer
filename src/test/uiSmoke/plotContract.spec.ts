@@ -4,6 +4,11 @@ import { expect, test, type Locator, type Page } from './canvasAudit';
 import { buildExtensionHostPathUiSmokeHtml, buildUiSmokeHtml } from './buildHtml';
 import { getStrings } from '../../shared/i18n/strings';
 import { entry100Results, openEntry, type ScannedFile } from './entryHelpers';
+import { INPUT_FRAME, isCharted, outputOf, WANDAS_OPERATIONS } from '../../shared/recipe/recipeCatalog';
+import { reachableFrameKinds } from '../helpers/frameKinds';
+import { DIFF_COLOR, FLAG_COLOR, ROLE_COLORS } from '../../shared/gui/roleColors';
+
+const STR_EN = getStrings('en');
 
 /**
  * R13: every plot is the one plot component, so every plot answers the same gestures the same way. This test opens
@@ -21,7 +26,7 @@ const FULL = '0.000 1.000 0.000 1.000';
 let scanned: ScannedFile[] | undefined;
 test.beforeAll(() => { scanned = entry100Results(); });
 
-type Posted = { type: string; requestId: string; filePaths: string[]; stage?: string; recipe?: { nodes: Array<{ operation: string }> } };
+type Posted = { type: string; requestId: string; filePaths: string[]; stage?: string; recipe?: { nodes: Array<{ id: string; operation: string }> } };
 const stageScans = async (page: Page): Promise<Posted[]> => (await page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Posted[] }).__uiSmokePostedMessages))
     .filter(message => message.type === 'compare-scan' && message.requestId.startsWith('track-stage'));
 const spectrum = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity: 'level', xs: [100, 1000, 5000], values: [-40, -30, -50] };
@@ -181,7 +186,13 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
     await page.mouse.move(1, 1);
     await page.waitForTimeout(80);
     // Plots stacked on one shared axis (data-plot-stack) share the one readout row above the stack.
-    const rowTop = await plot.evaluate(canvas => (canvas.closest('[data-plot-stack]') ?? canvas).getBoundingClientRect().top);
+    // The comparison's lanes, on one window, share the row above the first of them (trackStageGestures.ts slotOf),
+    // the base's lane too where it draws no picture of its own (a step measured against the base).
+    const rowTop = await plot.evaluate(canvas => {
+        const lanes = document.body.classList.contains('is-stage-view') && canvas.classList.contains('track-canvas')
+            ? Array.from(document.querySelectorAll<HTMLElement>('#tracks-wrapper .track-canvas')).find(lane => lane.checkVisibility()) : undefined;
+        return (lanes ?? canvas.closest('[data-plot-stack]') ?? canvas).getBoundingClientRect().top;
+    });
     const before = await readouts(rowTop);
     await page.mouse.move(middle.x, middle.y);
     await page.waitForTimeout(80);
@@ -445,6 +456,88 @@ test('a trigger\'s events plot and the lanes under it answer the same gestures a
     await expectEveryPlot(page);
 });
 
+/**
+ * R7: each Frame kind a chain of steps from ＋ can give and the comparison draws (the operation catalogue's, as
+ * frameKinds.ts walks it), reached the way a user reaches it (the chain's last step deleted, then each step added
+ * from ＋), answered with the StageView the backend makes of that kind (fixtures/stageViewKinds.json, which
+ * python-backend/test_stage_view_kinds.py holds to the backend), and every plot on screen given the same checks,
+ * overlaid, with its Δ when it has one, and in lanes.
+ */
+const KIND_VIEWS = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', '..', 'src', 'test', 'fixtures', 'stageViewKinds.json'), 'utf8')) as Record<string, Record<string, unknown>>;
+const OPERATIONS = new Map(WANDAS_OPERATIONS.map(operation => [operation.id, operation]));
+
+/** The Frame kind a scan's stage gives: the chain's steps up to and with that node, from the recording. */
+function stageFrame(request: Posted): string {
+    let frame = INPUT_FRAME;
+    const nodes = request.recipe?.nodes ?? [];
+    if (!nodes.some(node => node.id === request.stage)) return frame;
+    for (const node of nodes) {
+        const operation = OPERATIONS.get(node.operation);
+        frame = (operation && outputOf(operation, frame)) ?? frame;
+        if (node.id === request.stage) break;
+    }
+    return frame;
+}
+
+/** Answers every stage scan not answered yet with its kind's picture, until none comes for a while. */
+async function answerKinds(page: Page, files: ScannedFile[], answered: Set<string>): Promise<void> {
+    for (let quiet = 0; quiet < 3;) {
+        const open = (await stageScans(page)).filter(request => !answered.has(request.requestId));
+        if (!open.length) { quiet++; await page.waitForTimeout(150); continue; }
+        quiet = 0;
+        for (const request of open) {
+            answered.add(request.requestId);
+            await page.evaluate(({ request, view, files }) => {
+                request.filePaths.forEach((filePath, index) => {
+                    const file = files.find(item => item.filePath === filePath)!;
+                    // The recordings differ a little, inside the quantity's range (a coherence stays within 0–1).
+                    const values = (view.values as number[] | undefined)?.map(value => value * (index === 0 ? 0.9 : 1));
+                    window.postMessage({ type: 'compare-scan-result', requestId: request.requestId, filePath, result: { ...file.result, stage: { ...view, ...(values ? { values } : {}) } } }, '*');
+                });
+                window.postMessage({ type: 'compare-scan-done', requestId: request.requestId }, '*');
+            }, { request, view: KIND_VIEWS[stageFrame(request)], files });
+        }
+    }
+}
+
+for (const [kind, chain] of reachableFrameKinds()) {
+    if (!isCharted(kind)) continue;
+    test(`a ${kind} reached from ＋ answers the same gestures as every plot, overlaid, as its Δ and in lanes (R7)`, async ({ page }) => {
+        test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+        test.setTimeout(240_000);
+        await page.setViewportSize({ width: 1280, height: 1000 });
+        await openComparison(page, scanned!);
+        const answered = new Set((await stageScans(page)).map(request => request.requestId));
+        const bar = page.locator('.track-stage-bar');
+        await bar.locator('.step-chip', { hasText: STR_EN.stepAverage }).locator('[data-action="step-delete"]').click();
+        for (const id of chain) {
+            await bar.locator('[data-action="step-add"]').click();
+            await bar.locator('[data-step-menu-filter]').fill(id.split('.').pop()!);
+            await bar.locator(`.step-menu-item[data-op="${id}"]`).click();
+            await expect.poll(async () => (await stageScans(page)).at(-1)?.recipe?.nodes.at(-1)?.operation).toBe(id);
+        }
+        await answerKinds(page, scanned!, answered);
+        expect((await stageScans(page)).map(stageFrame)).toContain(kind);
+        // The kind is drawn: overlaid, or (an image a recording each) in lanes.
+        await expect.poll(async () => (await page.locator('.track-canvas[data-plot], [data-stage-canvas][data-plot]').evaluateAll(plots => plots.filter(plot => (plot as HTMLElement).dataset.plotAxes).length))).toBeGreaterThan(0);
+        await expectEveryPlot(page);
+        expect(checkedPlots.size, `${kind}: a plot on screen to check`).toBeGreaterThan(0);
+        const diff = page.locator('[data-action="stage-diff"]');
+        if (await diff.isVisible() && await diff.isEnabled()) {
+            await diff.click();
+            await answerKinds(page, scanned!, answered);
+            await expectEveryPlot(page);
+            await diff.click();
+        }
+        const layout = page.locator('[data-action="stage-layout"]');
+        if (await layout.isVisible() && await layout.isEnabled()) {
+            await layout.click();
+            await answerKinds(page, scanned!, answered);
+            await expectEveryPlot(page);
+        }
+    });
+}
+
 /** A box dragged over the middle of the plot, from 30 % to 70 % across and up: a zoom into it. */
 async function boxZoom(page: Page, plot: Locator): Promise<void> {
     const box = (await plot.boundingBox())!;
@@ -474,6 +567,21 @@ test('the Δ pane zooms its own level axis, sharing only the frequency axis with
     await boxZoom(page, page.locator('[data-stage-canvas="overlay"]'));
     await expect(root).not.toHaveAttribute('data-y-window', '0.000-1.000');
     await expect(root).toHaveAttribute('data-diff-y-window', diffY!);
+});
+
+test('the comparison draws its difference in the difference\'s green and its recordings in their roles\' colours, neither in the other\'s nor the failure\'s orange (R5)', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await openComparison(page, scanned!);
+    await page.locator('[data-action="stage-diff"]').click();
+    await expect(page.locator('[data-stage-diff]')).toBeVisible();
+    // The lines each plot drew (the canvas audit's record of its strokes), not its grid or ticks: more than two points.
+    const lines = (selector: string): Promise<string[]> => page.locator(selector).evaluate(canvas => [...new Set(((canvas as unknown as { __plotDrawn?: { strokes: Array<{ color: string; points: unknown[] }> } }).__plotDrawn?.strokes ?? [])
+        .filter(stroke => stroke.points.length > 2).map(stroke => stroke.color.toLowerCase()))]);
+    await expect.poll(() => lines('[data-stage-canvas="diff"]')).toEqual([DIFF_COLOR]);
+    const overlay = await lines('[data-stage-canvas="overlay"]');
+    expect(overlay.sort()).toEqual([ROLE_COLORS[0], ROLE_COLORS[1]].sort());
+    expect(overlay).not.toContain(FLAG_COLOR);
 });
 
 test('the lanes under a trigger zoom on their own (the recording\'s time, not the trigger\'s) and draw the signal at full resolution once zoomed', async ({ page }) => {

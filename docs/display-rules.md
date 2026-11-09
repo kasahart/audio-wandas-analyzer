@@ -135,7 +135,7 @@
 
 ## R5 色は役割を表し、役割のない録音は録音ごとの色
 
-基準は青、比較 1 は黄、比較 2 は紫、比較 3 はマゼンタ、差は緑、手順バーに置いた手順のうち動かないもの（実行して失敗した、サンプルレートや値が合わない、前の手順が動かない）はオレンジです（`src/shared/gui/roleColors.ts`）。役割のない録音は、録音ごとに自分の色（青緑・茶・オリーブ・砂色、役割・差・失敗の色と重ならない）を持ち、比較台でもトラック表示でもカーソルスペクトルとペアスペクトルでも、入口の保持図でも同じ色です。どのピークがどの録音の線かを色でたどれるようにするためです。ほかの録音の役割が変わっても、録音が足されても色は変わりません。役割を付けると役割の色になります。解析窓の帯は灰色です。＋ で選べない操作はオレンジにせず、灰色にして理由を書きます（R8）。
+基準は青、比較 1 は黄、比較 2 は紫、比較 3 はマゼンタ、差は緑、手順バーに置いた手順のうち動かないもの（実行して失敗した、サンプルレートや値が合わない、前の手順が動かない）と、入口の表で読めない録音や CSV の行と合わない録音の理由はオレンジです（`src/shared/gui/roleColors.ts`）。役割のない録音は、録音ごとに自分の色（青緑・茶・オリーブ・砂色、役割・差・失敗の色と重ならない）を持ち、比較台でもトラック表示でもカーソルスペクトルとペアスペクトルでも、入口の保持図でも同じ色です。どのピークがどの録音の線かを色でたどれるようにするためです。ほかの録音の役割が変わっても、録音が足されても色は変わりません。役割を付けると役割の色になります。解析窓の帯は灰色です。＋ で選べない操作はオレンジにせず、灰色にして理由を書きます（R8）。
 
 - テスト: `src/test/uiSmoke/stageReturn.spec.ts` › in Compare, colour is the role's: a recording without one has its own colour, its name in the legend
 - テスト: `src/test/uiSmoke/roleChips.spec.ts` › in the track view, each recording without a role has its own colour on its lane and its chip, as in Compare; a role gives it the role's colour
@@ -143,7 +143,9 @@
 - テスト: `src/test/canvasOverlays.test.ts` › drawAnalysisWindowBand is a neutral grey, not a role's or the failure's hue, on a dark and a light lane (R5)
 - テスト: `src/test/entrySlots.test.ts` › a recording beside the table is drawn in its role's colour, else its track's own, else the first own colour (R5)
 - テスト: `src/test/entryHeldPlot.test.ts` › a held step draws its row in the colour the row is drawn in elsewhere (its role's, else its own), not always slot 1's yellow (R5)
-- 未: 差の緑、失敗のオレンジ
+- テスト: `src/test/uiSmoke/plotContract.spec.ts` › the comparison draws its difference in the difference's green and its recordings in their roles' colours, neither in the other's nor the failure's orange (R5)
+- テスト: `src/test/uiSmoke/trackStage.spec.ts` › a step that cannot run on these recordings says why: ＋ greys a 48 kHz-only step out, and a step failing on a file is marked with wandas' reason on the plot
+- テスト: `src/test/uiSmoke/entry.spec.ts` › a picked CSV attaches its attributes by asd-insight's rules and lists what did not match with why (I5)
 
 ## R6 比較は重ね描き、静かなものが上
 
@@ -232,7 +234,9 @@
 - テスト: `src/test/uiSmoke/trackCompare.spec.ts` › the comparison's step bar grows the chain with ＋, offers only what takes the Frame there, and the plot answers the lanes' gestures
 - テスト: `src/test/trackStagePainter.test.ts` › the headline names no difference (the row holds the pointer's readout): the steps bypassed and the region; nothing while computing
 - テスト: `src/test/uiSmoke/trackCompare.spec.ts` › the readout row above the comparison keeps the values whole at any width, with the base group's button in it, and a hover never moves the plots
-- 未: Frame の全種類に対する同じ操作の確認
+- テスト: `src/test/stageViewKinds.test.ts` › every Frame kind a step from ＋ can give that the app draws has its backend picture in the fixture the plot contract is run on (R7)
+- テスト: `python-backend/test_stage_view_kinds.py` › test_the_frame_kinds_fixture_is_what_the_backend_draws_now
+- テスト: `src/test/uiSmoke/plotContract.spec.ts` › a ${kind} reached from ＋ answers the same gestures as every plot, overlaid, as its Δ and in lanes (R7)
 
 ## R8 ＋ で選べる操作は結果を描く
 
