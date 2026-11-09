@@ -109,8 +109,11 @@ export interface EntryRow {
     /** Rows with the same key share a condition; undefined when the row has none. */
     group?: string;
     values: Record<EntryColumn, number | null>;
+    /**
+     * A derived row's Δ against the base it was fixed with. A file row's is null: what it is measured against now is the
+     * entry screen's base (entryBase), which the CSV asks for (`entryCsv`'s `measure`), never a group made here.
+     */
     delta: Record<EntryColumn, number | null>;
-    groupSize: number;
     /** The file's length, which the measured region is cut from. */
     durationS?: number;
     /** Set without calibration: the level is relative to full scale, or to 1 raw input unit for a source without one (CSV). */
@@ -241,7 +244,7 @@ export function buildEntryModel(
         const { cells, conditions } = rowConditions(file.filePath, table, columns);
         const row: EntryRow = {
             filePath: file.filePath, name, status: 'pending', conditions, cells,
-            values: { ...empty }, delta: { ...empty }, groupSize: 0,
+            values: { ...empty }, delta: { ...empty },
         };
         const result = file.result;
         if (!result) return row;
@@ -260,38 +263,12 @@ export function buildEntryModel(
     });
     const band = options.band ?? mostTellingBand(rows.filter(row => row.status === 'ok'), results);
     const groups = new Map<string, EntryRow[]>();
-    const levels = new Map<string, (number | null)[]>();
     for (const row of rows) {
         const result = results.get(row.filePath);
         if (row.status !== 'ok' || !result) continue;
         row.values = fileValues(result, band);
         row.levels = bandLevels(result);
-        levels.set(row.filePath, row.levels);
         if (row.group) groups.set(row.group, [...(groups.get(row.group) ?? []), row]);
-    }
-    for (const members of groups.values()) {
-        for (const row of members) {
-            // The other files of the condition: a row is not part of its own base.
-            const others = members.filter(member => member !== row);
-            // The files a row is measured against: the same count as the comparison's base group and the slot chip.
-            row.groupSize = others.length;
-            if (!others.length) continue;
-            for (const column of ['leq', 'band'] as const) {
-                const value = row.values[column];
-                const values = others.map(member => member.values[column]).filter((item): item is number => item !== null);
-                const center = median(values);
-                if (value === null || center === null) continue;
-                row.delta[column] = levelDelta(value, center);
-            }
-            const own = levels.get(row.filePath);
-            if (!own) continue;
-            const max = maxBandDelta(own, others.map(member => levels.get(member.filePath) ?? []));
-            const level = max ? own[max.band] : null;
-            if (max && level !== null) {
-                row.values.peak = BAND_CENTERS_HZ[max.band];
-                row.delta.peak = levelDelta(level, level - max.delta);
-            }
-        }
     }
     return { rows: withDerived(fileOrder(rows, table), options.derived ?? [], band), band, columns, groups };
 }
@@ -347,7 +324,7 @@ function withDerived(rows: EntryRow[], derived: readonly DerivedRow[], band: num
                 filePath: derivedKey(item), name: [item.region === 'all' ? '└ Δ' : `└ Δ ${item.region} s`, ...(item.base.label ? [item.base.label] : [])].join(' · '),
                 // Fixed under an earlier Recipe: kept (only a click removes it), but no longer a number to read.
                 status: item.stale ? 'mismatch' : item.result.ok ? 'ok' : 'failed', ...(item.stale ? { mismatch: '≠' } : {}),
-                conditions: row.conditions, cells: row.cells, values, groupSize: 0, durationS: row.durationS,
+                conditions: row.conditions, cells: row.cells, values, durationS: row.durationS,
                 delta: {
                     leq: values.leq === null ? null : levelDelta(values.leq, item.base.leq),
                     peak: max ? max.delta : null,
@@ -382,7 +359,15 @@ export function csvCell(value: string | number | null): string {
     return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
-/** A number for the CSVs: dB to 1 decimal, seconds to 2, Hz whole; never "-0.0". */
+/**
+ * A 1/3-octave band's centre as the CSVs write it: the nominal centre exactly as its column header names it ("31.5",
+ * "3150"), never rounded to a whole Hz ("32" is no band).
+ */
+export function bandCentreCell(hz: number | null | undefined): string {
+    return hz === null || hz === undefined || !Number.isFinite(hz) ? '' : String(hz);
+}
+
+/** A number for the CSVs: dB to 1 decimal, seconds to 2; never "-0.0". A band's centre is `bandCentreCell`. */
 export function csvNumber(value: number | null | undefined, decimals: number): string {
     if (value === null || value === undefined || !Number.isFinite(value)) return '';
     const text = value.toFixed(decimals);
@@ -427,22 +412,39 @@ export function regionCells(region: string | { start: number; end: number } | nu
 }
 
 /**
- * The entry table as CSV, UTF-8 with a BOM so spreadsheet apps read Japanese names (U-01). Rows keep
- * the table's order; the same input always gives the same bytes.
+ * What a file row of the entry CSV is measured against, as the comparison measures it now (entryBase.fileComparison):
+ * its Δ Leq, the chosen band's Δ, the band of the largest |Δ| and the count of recordings in the base.
  */
-export function entryCsv(model: EntryModel, labels: { file: string; condition: (n: number) => string; regionStart: string; regionEnd: string; leq: string; peak: string; band: string; deltaLeq: string; deltaBand: string; groupSize: string; status: string }): string {
+export interface EntryMeasure {
+    leq: number | null;
+    band: number | null;
+    peak: { hz: number; db: number } | null;
+    count: number;
+}
+
+/**
+ * The entry table as CSV, UTF-8 with a BOM so spreadsheet apps read Japanese names (U-01). Rows keep
+ * the table's order; the same input always gives the same bytes. A file row's Δ columns are `measure`'s: the base the
+ * screen, the comparison and the report measure from, so the CSV never has a Δ of its own.
+ */
+export function entryCsv(model: EntryModel, labels: { file: string; condition: (n: number) => string; regionStart: string; regionEnd: string; leq: string; peak: string; band: string; deltaLeq: string; deltaBand: string; groupSize: string; status: string },
+    measure: (filePath: string) => EntryMeasure | null): string {
     // Every metadata column goes out, checked ones first, so the CSV keeps what the table was read from.
     const header = [labels.file, ...model.columns.map((column, index) => column.name || labels.condition(index + 1)), labels.regionStart, labels.regionEnd, labels.leq, `${labels.peak} Hz`, `${labels.peak} dB`, labels.band, labels.deltaLeq, labels.deltaBand, labels.groupSize, labels.status];
     const dB = (value: number | null): string => csvNumber(value, 1);
     const lines = [header.map(csvCell).join(',')];
     for (const row of model.rows) {
         const ok = row.status === 'ok';
+        // A derived row keeps the Δ it was fixed with; a file row is measured against the base it has now.
+        const now = ok && !row.derived ? measure(row.filePath) : null;
+        const delta = row.derived ? { leq: row.delta.leq, band: row.delta.band, hz: row.values.peak, peak: row.delta.peak, count: null }
+            : { leq: now?.leq ?? null, band: now?.band ?? null, hz: now?.peak?.hz ?? null, peak: now?.peak?.db ?? null, count: now?.count || null };
         lines.push([
             row.derived ? baseName(row.derived.parent) : row.name,
             // The region the numbers were measured over, never blank: the scan skips the file's guarded ends.
             ...row.cells, ...regionCells(ok ? measuredRegion(row.derived?.region, row.durationS) : row.derived?.region),
-            ok ? dB(row.values.leq) : null, ok ? csvNumber(row.values.peak, 0) : null, ok ? dB(row.delta.peak) : null, ok ? dB(row.values.band) : null,
-            dB(row.delta.leq), dB(row.delta.band), row.groupSize ? String(row.groupSize) : null,
+            ok ? dB(row.values.leq) : null, ok ? bandCentreCell(delta.hz) : null, ok ? dB(delta.peak) : null, ok ? dB(row.values.band) : null,
+            dB(delta.leq), dB(delta.band), delta.count ? String(delta.count) : null,
             row.status === 'failed' ? '✕' : row.status === 'mismatch' ? row.mismatch ?? '' : '',
         ].map(csvCell).join(','));
     }

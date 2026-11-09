@@ -24,7 +24,7 @@ import { channelOfRow, createEntryBase } from './entryBase';
 import { HostRequests } from './hostRequests';
 import { LARGE_BASE, LARGE_BASE_S } from './trackStageMode';
 import { createStepBar, endsInSpectrum, runnableRecipe, stepLimits, unpairedRecipe } from './stepBar';
-import { leqLabel } from './compareReport';
+import { entryMeasure, leqLabel } from './compareReport';
 import { activeSlotReferenced, brokenStep, chainEnd, endsInEvents, isRecipeChain, recipeKey, recipeNodes } from '../../shared/recipe/recipeSteps';
 import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { baseName, isMetadataCandidate, withFolderColumns } from '../../shared/analysis/entryMetadata';
@@ -703,6 +703,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const filter = chosen.filters.find(item => item.column === chosen.value);
         return filter?.kind === 'range' ? { low: filter.low, high: filter.high } : null;
     }
+    /** A level (Leq, a band): drawn on an axis of one reference. */
+    const isLevel = (value: ValueId): boolean => value === 'leq' || value.startsWith('band:');
     /** A computed value counts only when it is of the current chain. */
     const usable = (row: DatasetRow): boolean => !isComputed(chosen.value) || (results.has(row.filePath) && !isStale(row.filePath));
     /** 「計算」 for the rows on screen without a value of this chain; while it runs, its progress and 中止. */
@@ -860,7 +862,10 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     }
     function paintDistribution(): void {
         distPane.paint({
-            pool: distributionPool(), value: chosen.value, group: chosen.group, results, range: valueRange(), usable, slots, rowOf, baseGroup: entryBase.groupName(),
+            pool: distributionPool(), value: chosen.value, group: chosen.group, results, range: valueRange(), usable, slots, rowOf,
+            // The base line where the comparison measures its Δ from (one definition: entryBase), of the axis's reference.
+            base: entryBase.groupBase(chosen.value, path => !isLevel(chosen.value) || sidePlots.onLevelAxis(path)),
+            onAxis: row => !isLevel(chosen.value) || sidePlots.onLevelAxis(row.filePath),
             valueLabel: valueLabel(chosen.value), format: (number, step) => plotValueText(chosen.value, number, step), rowName: key => rowName(key),
         });
     }
@@ -1064,7 +1069,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             deltaBand: `Δ ${bandLabel(model.band)} dB`,
             groupSize: strings.entryCsvGroupSize,
             status: strings.dsReason,
-        });
+        }, filePath => entryMeasure(entryBase.fileComparison(filePath), model.band));
         deps.download(csvText, 'entry-table.csv');
     }
 

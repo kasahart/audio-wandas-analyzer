@@ -7,7 +7,7 @@
  */
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import type { UiStrings } from '../../shared/i18n/strings';
-import { binCounts, DISTRIBUTION_BINS, DOTS_BELOW, median, type Distribution } from '../../shared/dataset/distribution';
+import { binCounts, DISTRIBUTION_BINS, DOTS_BELOW, type Distribution } from '../../shared/dataset/distribution';
 import type { StageView } from '../../shared/protocol/backendProtocol';
 import type { PaneRange } from './comparePanes';
 import type { StageLayer } from './stagePanes';
@@ -28,8 +28,11 @@ export interface DistributionPicture {
     range: { low: number; high: number } | null;
     /** The slotted rows: their slot, group and value (rows not drawn, e.g. without the value, are left out). */
     slots: ReadonlyArray<{ slot: number; key: string; group: string; value: number }>;
-    /** The group whose median is the base (slot 0 empty), or null. */
-    baseGroup: string | null;
+    /**
+     * The group whose median is the base (slot 0 empty), or null, and that median as the comparison measures from it
+     * (entryBase.groupBase): never a median of this row's own members, which hold the compared rows and other units.
+     */
+    base: { group: string; value: number | null } | null;
     labels: ReadonlyMap<string, string>;
     /** "ch " before a channel number when grouped by channel. */
     groupPrefix: string;
@@ -164,8 +167,8 @@ export function distributionRows(dist: Distribution, picture: DistributionPictur
             layers.push({ ...line([slot.value, slot.value], [0, top]), color: colours.slots[slot.slot] ?? colours.bar, width: 2, label: picture.name(slot.key), readout: () => [picture.format(slot.value, binWidth)] });
         }
         let base = false;
-        if (picture.baseGroup === group.name) {
-            const middle = median(group.members.map(member => member.value));
+        if (picture.base?.group === group.name) {
+            const middle = picture.base.value;
             if (middle !== null) {
                 base = true;
                 layers.push({ ...line([middle, middle], [0, top]), color: colours.slots[0] ?? colours.bar, width: 2, dash: [3, 2], label: strings.dsLegendBaseMedian.replace('{group}', label), readout: () => [picture.format(middle, binWidth)] });

@@ -6,8 +6,17 @@ import path from 'node:path';
 import test from 'node:test';
 import type { ScanResult } from '../shared/protocol/backendProtocol';
 import {
-    BAND_CENTERS_HZ, buildEntryModel, csvNumber, entryCsv, filenameConditions, levelDelta, type DerivedRow, type EntryFile,
+    BAND_CENTERS_HZ, buildEntryModel, csvNumber, entryCsv, filenameConditions, levelDelta, type DerivedRow, type EntryFile, type EntryMeasure, type EntryModel,
 } from '../webview/runtime/entryTable';
+import { buildCompareModel } from '../webview/runtime/comparePanes';
+import { entryMeasure } from '../webview/runtime/compareReport';
+import { getStrings } from '../shared/i18n/strings';
+
+/** Each file measured against its condition's other files, as a comparison with no slot 0 measures it here. */
+const byCondition = (model: EntryModel, files: readonly EntryFile[]) => {
+    const results = new Map(files.flatMap(file => (file.result ? [[file.filePath, file.result] as const] : [])));
+    return (filePath: string): EntryMeasure | null => entryMeasure(buildCompareModel(model, results, filePath, null, getStrings('en')), model.band);
+};
 
 const repoRoot = path.resolve(__dirname, '..', '..');
 const BAND_3150 = BAND_CENTERS_HZ.indexOf(3150);
@@ -37,36 +46,38 @@ test('names give two conditions before the run token, split on _ or -', () => {
 test('a Δ is taken from the full levels and rounded only as written: −9.996 against −10.004 reads 0.0, never the 0.1 of levels rounded first (R7)', () => {
     assert.ok(Math.abs(levelDelta(-9.996, -10.004) - 0.008) < 1e-12);
     assert.equal(csvNumber(levelDelta(-9.996, -10.004), 1), '0.0');
-    // A row's Δ against its condition is the same: the full levels' difference.
+    // The CSV's Δ is the same: the full levels' difference.
     const files: EntryFile[] = [
         { filePath: '/f/L1_900rpm_run0.wav', result: scan(-10.004, -30) },
         { filePath: '/f/L1_900rpm_run1.wav', result: scan(-9.996, -30) },
     ];
-    const row = buildEntryModel(files, null, { band: BAND_CENTERS_HZ.indexOf(3150) }).rows.find(item => item.filePath.endsWith('run1.wav'))!;
-    assert.equal(csvNumber(row.delta.leq, 1), '0.0');
+    const model = buildEntryModel(files, null, { band: BAND_CENTERS_HZ.indexOf(3150) });
+    assert.equal(entryCsv(model, LABELS, byCondition(model, files)).split('\r\n')[2].split(',')[9], '0.0');
 });
 
-test('rows get Δ from the median of their condition\'s other files, never an outlier mark', () => {
+test('a file row has no Δ of its own: the CSV writes what `measure` (the screen\'s base) gives, the band centre as its column names it', () => {
     const files: EntryFile[] = [
         ...[-30, -30.2, -29.8, -30.1, -18].map((band, i) => ({ filePath: `/f/L1_900rpm_run${i}.wav`, result: scan(-20, band) })),
-        { filePath: '/f/L2_900rpm_run9.wav', result: scan(-20, -40) },
-        { filePath: '/f/L2_900rpm_run8.wav', result: scan(-20, -20) },
         { filePath: '/f/free.wav', result: scan(-25, -35) },
     ];
     const model = buildEntryModel(files, null, { band: BAND_3150 });
-    const row = (name: string) => model.rows.find(item => item.filePath.endsWith(name))!;
-    // A row is not part of its own base: run4 against the median of run0–run3 (−30.05).
-    assert.ok(Math.abs(row('run4.wav').delta.band! - 12.05) < 1e-9);
-    // Its most different band, with that Δ.
-    assert.equal(row('run4.wav').values.peak, 3150);
-    assert.ok(Math.abs(row('run4.wav').delta.peak! - 12.05) < 1e-9);
-    // Two rows: Δ shown.
-    assert.equal(row('run9.wav').delta.band, -20);
-    // n counts the files a row is measured against: the one other file.
-    assert.equal(row('run9.wav').groupSize, 1);
-    // No condition: no Δ. Rows keep the files' order (by name without a table).
-    assert.equal(row('free.wav').delta.band, null);
-    assert.equal(model.rows[0].name, 'L1_900rpm_run0.wav');
+    assert.ok(model.rows.every(row => Object.values(row.delta).every(value => value === null)), 'no group is made in the model');
+    // A base the model knows nothing of (as slot 0 or a filtered group would be): its numbers are the CSV's.
+    const measure = (filePath: string): EntryMeasure | null => (filePath.endsWith('run4.wav') ? { leq: 1.25, band: 12.05, peak: { hz: 31.5, db: -7.5 }, count: 3 } : null);
+    const lines = entryCsv(model, LABELS, measure).slice(1).trimEnd().split('\r\n');
+    const run4 = lines.find(line => line.startsWith('L1_900rpm_run4.wav'))!.split(',');
+    assert.deepEqual(run4.slice(6, 12), ['31.5', '-7.5', '-18.0', '1.3', '12.1', '3']);
+    const free = lines.find(line => line.startsWith('free.wav'))!.split(',');
+    assert.deepEqual(free.slice(6, 12), ['', '', '-35.0', '', '', '']);
+});
+
+test('every band centre is written in the CSV as its column header names it, never rounded to a whole Hz', () => {
+    const files: EntryFile[] = [{ filePath: '/f/a.wav', result: scan(-20, -30) }];
+    const model = buildEntryModel(files, null, { band: BAND_3150 });
+    for (const hz of BAND_CENTERS_HZ) {
+        const line = entryCsv(model, LABELS, () => ({ leq: 0, band: 0, peak: { hz, db: 1 }, count: 1 })).slice(1).split('\r\n')[1];
+        assert.equal(line.split(',')[6], String(hz));
+    }
 });
 
 test('unreadable files and files of another shape show no numbers', () => {
@@ -94,7 +105,6 @@ test('a table decides the condition over the name, on its checked columns', () =
     const table = { columns: ['line', 'rpm'], checked: [0, 1], rows: { '/f/L1_900rpm_run1.wav': ['A', '900'], '/f/run2.wav': ['A', '900'] } };
     const model = buildEntryModel(files, table, { band: BAND_3150 });
     assert.deepEqual(model.columns.map(column => column.name), ['line', 'rpm']);
-    assert.deepEqual(model.rows.map(row => row.groupSize), [1, 1]);
     const byLine = buildEntryModel(files, { ...table, checked: [0] }, { band: BAND_3150 });
     assert.deepEqual(byLine.rows[0].conditions, ['A']);
 });
@@ -104,8 +114,9 @@ test('the CSV has the agreed columns, a BOM, and the same bytes every time', () 
         ...[-30, -30, -18].map((band, i) => ({ filePath: `/f/L1_900rpm_run${i}.wav`, result: scan(-20, band) })),
         { filePath: '/f/broken.wav', result: { ok: false, reason: 'x' } },
     ];
-    const first = entryCsv(buildEntryModel(files, null, { band: BAND_3150 }), LABELS);
-    const second = entryCsv(buildEntryModel(files, null, { band: BAND_3150 }), LABELS);
+    const model = buildEntryModel(files, null, { band: BAND_3150 });
+    const first = entryCsv(model, LABELS, byCondition(model, files));
+    const second = entryCsv(buildEntryModel(files, null, { band: BAND_3150 }), LABELS, byCondition(model, files));
     assert.equal(first, second);
     assert.ok(first.startsWith('\uFEFF'));
     const lines = first.slice(1).trimEnd().split('\r\n');
@@ -141,9 +152,10 @@ test('on the scanned entry100 fixture the three resonances stand 10 dB above the
         const files = JSON.parse(run.stdout) as EntryFile[];
         const model = buildEntryModel(files, null);
         assert.equal(BAND_CENTERS_HZ[model.band], 3150);
-        assert.deepEqual(model.rows.filter(row => (row.delta.band ?? 0) >= 10).map(row => row.name).sort(),
+        const measure = byCondition(model, files);
+        assert.deepEqual(model.rows.filter(row => (measure(row.filePath)?.band ?? 0) >= 10).map(row => row.name).sort(),
             ['L1_1500rpm_run018.wav', 'L2_1500rpm_run043.wav', 'L3_1500rpm_run060.wav']);
-        assert.ok(model.rows.filter(row => row.conditions[1] === '1800rpm').every(row => row.groupSize < 3));
+        assert.ok(model.rows.filter(row => row.conditions[1] === '1800rpm').every(row => (measure(row.filePath)?.count ?? 0) < 3));
         assert.deepEqual(model.rows.filter(row => row.status !== 'ok').map(row => row.name).sort(), ['Rec_0012.wav', 'mono_48k.wav']);
         assert.ok(files.every(file => JSON.stringify(file.result).length < 5 * 1024));
     } finally {
@@ -158,7 +170,7 @@ test('a folder with one file or no shared condition still builds: no Δ, the 1 k
     assert.equal(one.rows[0].delta.leq, null);
     const empty = buildEntryModel([], null);
     assert.deepEqual(empty.rows, []);
-    assert.equal(entryCsv(empty, LABELS).slice(1).split('\r\n').length, 2);
+    assert.equal(entryCsv(empty, LABELS, () => null).slice(1).split('\r\n').length, 2);
 });
 
 test('a derived row sits under its parent with the parent\'s condition and Δ against its own base, and counts toward no group', () => {
@@ -176,10 +188,9 @@ test('a derived row sits under its parent with the parent\'s condition and Δ ag
     assert.deepEqual(child.conditions, ['L1', '900rpm']);
     assert.equal(child.delta.leq, 5);
     assert.equal(child.delta.band, 6);
-    assert.equal(child.groupSize, 0);
-    // The group, its median and its outliers are those of the table without the derived row.
-    assert.deepEqual(model.rows.filter(row => !row.derived).map(row => [row.groupSize, row.delta.band]), plain.rows.map(row => [row.groupSize, row.delta.band]));
-    const csv = entryCsv(model, LABELS).slice(1).split('\r\n');
+    // The file rows are those of the table without the derived row.
+    assert.deepEqual(model.rows.filter(row => !row.derived).map(row => row.values), plain.rows.map(row => row.values));
+    const csv = entryCsv(model, LABELS, byCondition(plain, files)).slice(1).split('\r\n');
     assert.equal(csv[parent + 2].split(',').slice(0, 5).join(','), 'L1_900rpm_run1.wav,L1,900rpm,0.50,1.50');
 });
 
@@ -193,4 +204,16 @@ test('an uncalibrated row says what its level is relative to (full scale for aud
     const row = (filePath: string, result: ScanResult) => buildEntryModel([{ filePath, result }], null, { band: BAND_3150 }).rows[0];
     assert.deepEqual([row('/f/a.wav', scan(-20, -30)), row('/f/b.csv', csv), row('/f/c.wav', volts)].map(item => [item.status, item.uncalibrated]),
         [['ok', 'full-scale'], ['ok', 'raw-units'], ['ok', undefined]]);
+});
+
+test('no CSV writes a number rounded to a whole (a band centre of 31.5 Hz read "32"): centres go through bandCentreCell', async () => {
+    const { readFileSync, readdirSync } = await import('node:fs');
+    const root = path.join(repoRoot, 'src');
+    const files = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
+        const full = path.join(dir, entry.name);
+        return entry.isDirectory() ? (entry.name === 'test' ? [] : files(full)) : full.endsWith('.ts') ? [full] : [];
+    });
+    for (const file of files(root)) {
+        assert.doesNotMatch(readFileSync(file, 'utf8'), /csvNumber\([^()]*(?:\([^()]*\)[^()]*)*,\s*0\s*\)/, path.relative(root, file));
+    }
 });

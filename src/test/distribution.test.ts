@@ -116,3 +116,14 @@ test('a range far narrower than its values keeps ends that hold every value, nev
         assert.ok(range.low <= low && range.high >= high, `${low}…${high} → ${range.low}…${range.high}`);
     }
 });
+
+test('levels of another reference than the value axis\'s are never placed on it: they are left off its range and counted apart', () => {
+    const attributes = new Map([['/d/fs.wav', { rpm: '900' }], ['/d/spl.wav', { rpm: '900' }]]);
+    const results = new Map([['/d/fs.wav', ok([-40])], ['/d/spl.wav', ok([70])]]);
+    const rows = datasetRows(['/d/fs.wav', '/d/spl.wav'], '/d', attributes, results);
+    const dist = distribution(rows, 'leq', 'csv:rpm', results, null, () => true, row => row.filePath === '/d/fs.wav');
+    assert.deepEqual(dist.groups.flatMap(group => group.members.map(member => member.filePath)), ['/d/fs.wav']);
+    assert.equal(dist.apart, 1);
+    assert.equal(dist.missing, 0, 'apart is not "not computed"');
+    assert.ok(dist.high < 0, 'the axis spans only the drawn reference\'s levels');
+});

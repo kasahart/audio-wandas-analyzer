@@ -103,3 +103,61 @@ test('a group\'s recordings in another unit, reference or calibration than the c
     assert.deepEqual(comparison.base!.filePaths, ['/d/c.wav']);
     assert.equal(comparison.blocked, undefined);
 });
+
+test('one base group everywhere: the distribution\'s base line, the comparison\'s Δ and the entry CSV\'s Δ are of the same recordings', () => {
+    // Group L3: a −30, b −25, c −20, d −15, e −10 dB; e compared in slot 1, d in slot 2, c excluded (out of the pool).
+    const levels: Record<string, number> = { a: -30, b: -25, c: -20, d: -15, e: -10 };
+    const paths = Object.keys(levels).map(name => `/d/${name}.wav`);
+    const attributes = new Map(paths.map(path => [path, { line: 'L3' }]));
+    const results = new Map<string, ScanResult>(paths.map(path => [path, scanned(levels[path.slice(3, 4)])]));
+    const rows: DatasetRow[] = datasetRows(paths, '/d', attributes, results);
+    const byKey = new Map(rows.map(row => [row.key, row]));
+    const state = { slots: [null, '/d/e.wav', '/d/d.wav', null] as (string | null)[], baseGroup: null as string | null };
+    const base = createEntryBase({
+        strings, slots: () => state.slots, rows: () => rows, rowOf: key => (key ? byKey.get(key) : undefined), pool: () => rows.filter(row => row.filePath !== '/d/c.wav'),
+        group: () => 'csv:line', baseGroup: () => state.baseGroup, narrowedBy: () => [], groupLabel: id => id.replace(/^csv:/, ''), rowName: key => key,
+        results, isStale: () => false, entryModel: () => buildEntryModel([...results].map(([filePath, result]) => ({ filePath, result })), null),
+    });
+    const comparison = base.comparison('/d/e.wav');
+    assert.deepEqual(comparison.base?.filePaths, ['/d/a.wav', '/d/b.wav'], 'not e itself, not d (compared), not c (excluded)');
+    assert.equal(comparison.leq?.base, -27.5);
+    assert.deepEqual(base.groupBase('leq'), { group: 'L3', value: -27.5 }, 'the line sits where the Δ is measured from');
+    assert.deepEqual(base.groupBase('band:0'), { group: 'L3', value: comparison.base?.bands[0] ?? null });
+    assert.equal(base.fileComparison('/d/e.wav').leq?.delta, comparison.leq?.delta, 'the CSV\'s Δ is the comparison\'s');
+    assert.equal(base.text(), base.resolve('/d/e.wav').title);
+    // A level of another reference than the axis's is not part of the line.
+    assert.deepEqual(base.groupBase('leq', path => path !== '/d/a.wav'), { group: 'L3', value: -25 });
+    // No compared row, a group chosen: the group's recordings but the compared slots, as the chip counts them.
+    state.slots = [null, null, '/d/d.wav', null];
+    state.baseGroup = 'L3';
+    assert.deepEqual(base.groupBase('leq'), { group: 'L3', value: -25 }, 'median of a, b, e');
+    assert.equal(base.text(), `line L3 · ${strings.entryBaseMedian.replace('{count}', '3')}`);
+    // Slot 0 filled: the base is that recording, no group line.
+    state.slots = ['/d/a.wav', '/d/e.wav', null, null];
+    assert.equal(base.groupBase('leq'), null);
+    assert.equal(base.fileComparison('/d/e.wav').leq?.delta, 20);
+});
+
+test('only the entry base builds a comparison or a base group: no screen, file or report makes its own', async () => {
+    const { readFileSync, readdirSync } = await import('node:fs');
+    const path = await import('node:path');
+    const root = path.resolve(__dirname, '..', '..', 'src');
+    const files = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
+        const full = path.join(dir, entry.name);
+        return entry.isDirectory() ? (entry.name === 'test' ? [] : files(full)) : full.endsWith('.ts') ? [full] : [];
+    });
+    const allowed: Record<string, string[]> = {
+        'buildCompareModel(': ['webview/runtime/entryBase.ts', 'webview/runtime/comparePanes.ts'],
+        'baseGroupMembers(': ['webview/runtime/entryBase.ts', 'shared/dataset/datasetTable.ts'],
+        'groupMedian(': ['webview/runtime/entryBase.ts', 'webview/runtime/comparePanes.ts'],
+    };
+    for (const file of files(root)) {
+        const text = readFileSync(file, 'utf8');
+        const name = path.relative(root, file).split(path.sep).join('/');
+        for (const [call, places] of Object.entries(allowed)) {
+            assert.ok(!text.includes(call) || places.includes(name), `${name} calls ${call}: a base is resolved only in entryBase.ts`);
+        }
+    }
+    // The distribution draws the base it is given; it takes no median of its own rows.
+    assert.doesNotMatch(readFileSync(path.join(root, 'webview/runtime/entryDistribution.ts'), 'utf8'), /\bmedian\(/);
+});

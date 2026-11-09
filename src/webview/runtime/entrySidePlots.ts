@@ -56,6 +56,11 @@ export interface SidePlots {
     levelLabel(): string;
     /** A level value's name ("Leq A特性{uncal} [{label}]"): the most common reference, and 未校正 while it is uncalibrated. */
     levelName(template: string): string;
+    /**
+     * Whether a recording's levels are of the reference `levelLabel` names: the one test every level axis beside the
+     * table (the overview's colours, the distribution's value axis) keeps its levels to. A recording not scanned yet is not.
+     */
+    onLevelAxis(filePath: string): boolean;
     /** The side plots painted on the next frame; `distribution`: the distribution too, not only the strip's window. */
     schedule(distribution?: boolean): void;
     /** The gestures on the plots, and a click on the strip. */
@@ -234,6 +239,7 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
         keepWindow,
         levelLabel,
         levelName,
+        onLevelAxis: filePath => levelLabels.get(filePath) === reference().label,
         levels: key => levels.get(key),
         noteResult(filePath: string, result: ScanResult): void {
             version++;

@@ -157,6 +157,16 @@ export function baseOf(results: ReadonlyMap<string, ScanResult>, paths: readonly
     return { leq: side.leq, bands: side.bands };
 }
 
+/**
+ * The median of a group's files as a base: their scans that read their file, each one spectrum, Leq and band row
+ * (channels power-averaged), and the median of those; null when none has been read yet. The comparison's base group
+ * and the distribution's base line both take it here, so the line sits where the Δ is measured from.
+ */
+export function groupMedian(results: ReadonlyMap<string, ScanResult>, paths: readonly string[]): Omit<CompareSide, 'title' | 'filePaths'> | null {
+    const sides = paths.map(path => results.get(path)).filter((result): result is ScanOk => !!result?.ok).map(fileSide);
+    return sides.length ? medianSide(sides) : null;
+}
+
 function medianSide(sides: Array<Omit<CompareSide, 'title' | 'filePaths'>>): Omit<CompareSide, 'title' | 'filePaths'> {
     const bandsAt = (p: number): (number | null)[] => BAND_CENTERS_HZ.map((_, band) => {
         const levels = sides.map(side => side.bands[band]);
@@ -226,9 +236,10 @@ export function buildCompareModel(
     } else if (comparePath && group) {
         const members = ofOneUnit(results, group.paths.filter(path => path !== comparePath), path => path, compared);
         const sides = members.map(path => ok(path)).filter((result): result is ScanOk => !!result);
-        if (sides.length) {
+        const middle = groupMedian(results, members);
+        if (middle) {
             bandSpread = sides.length >= 3 ? spreadOf(sides.map(fileSide).map(side => side.bands)) : BAND_CENTERS_HZ.map(() => MIN_HEADLINE_DB);
-            base = { title: group.title, filePaths: members, ...medianSide(sides.map(fileSide)) };
+            base = { title: group.title, filePaths: members, ...middle };
         } else loneGroup = true;
     } else if (comparePath) {
         const row = model.rows.find(item => item.filePath === comparePath);

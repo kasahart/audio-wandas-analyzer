@@ -356,6 +356,8 @@ export interface UiStrings {
     dsDistNotComputed: string;
     dsDistEmpty: string;
     dsDistGroups: string;
+    /** Rows whose level is of another reference than the value axis's: left off it. */
+    dsDistApart: string;
     dsDistAll: string;
     dsDerivedRemove: string;
     dsBaseNarrowed: string;
@@ -1163,6 +1165,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dsDistNotComputed: '{value} is not computed yet: it is computed per channel.',
         dsDistEmpty: 'No recording has this value under the filters.',
         dsDistGroups: '{n} groups',
+        dsDistApart: '{n} on another reference, not drawn',
         dsDistAll: 'All',
         dsDerivedRemove: 'Delete this fixed difference',
         dsBaseNarrowed: ' (within {filters})',
@@ -1953,6 +1956,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dsDistNotComputed: '{value} はまだ計算していません。チャンネルごとに計算します。',
         dsDistEmpty: '絞り込みに当たる録音がありません。',
         dsDistGroups: '{n} 群',
+        dsDistApart: '{n} 件は別の基準のため描かない',
         dsDistAll: '全体',
         dsDerivedRemove: 'この固定した差を消す',
         dsBaseNarrowed: '（{filters} に絞った中で）',
