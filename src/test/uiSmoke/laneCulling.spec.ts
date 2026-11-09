@@ -1,4 +1,4 @@
-import { expect, test, type Page } from './canvasAudit';
+import { expect, settled, test, type Page } from './canvasAudit';
 import { buildUiSmokeHtml, buildUiSmokeManyTracksHtml } from './buildHtml';
 import { getStrings } from '../../shared/i18n/strings';
 
@@ -226,7 +226,7 @@ test('the PNG export keeps waiting for the zoom detail on its way across redraws
     const canvas = (await page.locator('#track-canvas-0').boundingBox())!;
     await page.mouse.click(canvas.x + canvas.width * 0.5, canvas.y + canvas.height / 2);
     await nextFrames(page);
-    await page.waitForTimeout(200);
+    await settled(page);
     expect((await rangeRequests()).length).toBe(asked);
     // Everything else the export waits for is answered.
     await answerRounds(page, 12);
@@ -333,7 +333,7 @@ test('a lane whose file changed after it was analysed stops asking, says so, and
     // Past the store's pause a passing failure would be asked again; this one is not.
     await page.waitForTimeout(5600);
     await page.mouse.click(500, 300);
-    await page.waitForTimeout(300);
+    await settled(page);
     expect(await asked()).toBe(before);
     await button.click();
     await expect.poll(() => page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Array<Record<string, unknown>> }).__uiSmokePostedMessages
@@ -349,13 +349,13 @@ test('a zoom-detail range the host never answers is asked again by a later redra
     const rangeRequests = () => page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Array<Record<string, unknown>> }).__uiSmokePostedMessages
         .filter((message) => message.type === 'request-waveform-range' && !message.read).length);
     await expect.poll(rangeRequests).toBeGreaterThan(0);
-    await page.waitForTimeout(300);
+    await settled(page);
     const asked = await rangeRequests();
     const canvas = (await page.locator('#track-canvas-0').boundingBox())!;
     const redraw = (x: number) => page.mouse.click(canvas.x + canvas.width * x, canvas.y + canvas.height / 2);
     // A failed range gets no answer; while it may still be on its way, a redraw does not ask again...
     await redraw(0.4);
-    await page.waitForTimeout(300);
+    await settled(page);
     expect(await rangeRequests()).toBe(asked);
     // ...but after a while it no longer counts, so the next redraw asks again.
     await page.waitForTimeout(2000);

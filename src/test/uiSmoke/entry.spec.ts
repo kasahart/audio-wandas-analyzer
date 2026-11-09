@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { expect, test, type Locator, type Page } from './canvasAudit';
+import { expect, settled, test, type Locator, type Page } from './canvasAudit';
 import { getStrings } from '../../shared/i18n/strings';
 import { OVERVIEW_MARGINS } from '../../webview/runtime/entryPlots';
 import { FLAG_COLOR } from '../../shared/gui/roleColors';
@@ -530,7 +530,7 @@ test('a step added between two chips measures every file again; one that fails o
     await expect(page.locator('.entry-stale-tag')).toHaveText(STR.entryChainBroken);
     await expect(page.locator('[data-action="entry-compute"]')).toHaveCount(0);
     await expect(page.locator('[data-action="entry-compute-cancel"]')).toHaveCount(0);
-    await page.waitForTimeout(400);
+    await settled(page);
     expect(await page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Array<{ type: string }> }).__uiSmokePostedMessages.filter(message => message.type === 'entry-scan').length)).toBe(scansBefore);
     await bar.locator('.step-chip.is-invalid [data-action="step-settings"]').first().click();
     await expect(bar.locator('.step-form-why')).toHaveText(STR.stepFailedOn.replace('{reason}', 'boom'));

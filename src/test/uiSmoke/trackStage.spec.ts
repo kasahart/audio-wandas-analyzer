@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { expect, test, type Page } from './canvasAudit';
+import { expect, settled, test, type Page } from './canvasAudit';
 import { entry100Results, openEntry, type ScannedFile } from './entryHelpers';
 import { FLAG_COLOR } from '../../shared/gui/roleColors';
 
@@ -88,7 +88,7 @@ test('the track view\'s steps mode draws every track as the chosen step\'s Frame
         window.dispatchEvent(new Event('resize'));
     });
     await expect.poll(() => page.evaluate(() => document.querySelector('[data-stage-canvas="overlay"]') !== null)).toBe(true);
-    await page.waitForTimeout(300);
+    await settled(page);
     expect(await page.evaluate(() => (window as unknown as { __hiddenPaints: string[] }).__hiddenPaints)).toEqual([]);
     // Δ on request, under the overlay.
     await page.locator('[data-action="stage-diff"]').click();

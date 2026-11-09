@@ -1,4 +1,4 @@
-import { expect, test, type Page } from './canvasAudit';
+import { expect, settled, test, type Page } from './canvasAudit';
 import { buildUiSmokeTwoRatesHtml, buildUiSmokeHtml, buildUiSmokeSelectionHtml } from './buildHtml';
 import { getStrings } from '../../shared/i18n/strings';
 
@@ -135,7 +135,7 @@ test('results-toolbar buttons either change UI state or emit a VS Code side effe
 
     const spectrumBeforeZoom = await getUiSmokeState(page);
     await domClick(page, '#spectrum-zoom-toolbar [data-action="spec-zoom-in"]');
-    await page.waitForTimeout(100);
+    await settled(page);
     const spectrumAfterZoomIn = await getUiSmokeState(page);
     expect(spectrumAfterZoomIn.spectrumZoom?.specFreqStart).not.toBe(spectrumBeforeZoom.spectrumZoom?.specFreqStart);
     expect(spectrumAfterZoomIn.spectrumZoom?.specFreqEnd).not.toBe(spectrumBeforeZoom.spectrumZoom?.specFreqEnd);
@@ -185,7 +185,7 @@ test('a drag on a waveform lane shows a rubber band and zooms time plus amplitud
     await expect(toolbar.locator('[data-action="zoom-to-selection"]')).toBeDisabled();
 
     await page.mouse.up();
-    await page.waitForTimeout(100);
+    await settled(page);
     const zoomed = await getUiSmokeState(page);
     expect(zoomed.rectZoomSelection).toBeNull();
     expect(zoomed.zoomStart).toBeGreaterThan(0.2);
@@ -204,7 +204,7 @@ test('a drag on a spectrogram lane zooms into its time and frequencies; a double
     await page.mouse.move(box.x + box.width * 0.75, box.y + box.height * 0.6, { steps: 4 });
     expect((await getUiSmokeState(page)).rectZoomSelection).not.toBeNull();
     await page.mouse.up();
-    await page.waitForTimeout(100);
+    await settled(page);
     const zoomed = await getUiSmokeState(page);
     expect(zoomed.rectZoomSelection).toBeNull();
     expect(zoomed.zoomStart).toBeGreaterThan(0.2);

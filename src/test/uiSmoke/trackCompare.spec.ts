@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { expect, test, type Page } from './canvasAudit';
+import { expect, settled, test, type Page } from './canvasAudit';
 import { getStrings } from '../../shared/i18n/strings';
 import { entry100Metadata, entry100Results, openEntry, pickCsv, type ScannedFile } from './entryHelpers';
 
@@ -852,7 +852,7 @@ test('a trigger added from ＋ fires at half the tracks\' peak, draws each event
     await expect(plot).toHaveCSS('cursor', 'pointer');
     // A double-click resets the zoom and leaves no event out.
     await page.mouse.dblclick(x, lineY);
-    await page.waitForTimeout(400);
+    await settled(page);
     await page.mouse.move(x, lineY + 1);
     await page.mouse.move(x, lineY);
     await expect(footer).toHaveText(STR.stageEventClickOut);

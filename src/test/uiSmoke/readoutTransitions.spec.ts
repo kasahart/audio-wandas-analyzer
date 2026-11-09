@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { expect, test, type Locator, type Page } from './canvasAudit';
+import { expect, settled, test, type Locator, type Page } from './canvasAudit';
 import { buildExtensionHostPathManyTracksHtml, buildExtensionHostPathUiSmokeHtml, buildUiSmokeHtml } from './buildHtml';
 import { backendRequired, entry100Metadata, entry100Results, openEntry, pickCsv, type ScannedFile } from './entryHelpers';
 import { getStrings } from '../../shared/i18n/strings';
@@ -142,7 +142,7 @@ const steppedThenZoomed = (selector: string): Row['run'] => async page => {
     const stepped = await readFull(lane);
     await page.keyboard.press('=');
     await expect.poll(() => lane.getAttribute('data-plot-window')).not.toBe('0.000 1.000 0.000 1.000');
-    await page.waitForTimeout(200);
+    await settled(page);
     const zoomed = await readFull(lane);
     expect(zoomed.at, 'the cell or sample stepped to is still the one read').toBe(stepped.at);
     const readout = (await page.locator('#plot-readout').textContent()) ?? '';
@@ -249,7 +249,7 @@ const ROWS: Row[] = [
             await page.keyboard.press('ArrowRight');
             await page.keyboard.press('ArrowRight');
             await page.keyboard.press('ArrowRight');
-            await page.waitForTimeout(1500);
+            await settled(page);
             const after = await readFull(lane);
             const next = await pointsAfter(lane, from.at!, 3);
             expect(next.length).toBe(3);
@@ -274,7 +274,7 @@ const ROWS: Row[] = [
             const rowStep = (await nextLane.boundingBox())!.y - (await lane.boundingBox())!.y;
             await page.mouse.wheel(0, rowStep);
             await expect.poll(() => wrapper.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
-            await page.waitForTimeout(300);
+            await settled(page);
             // The lane under the pointer now reads, and it alone.
             const id = await page.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.id ?? '', pointer);
             expect(id).toMatch(/^track-(?:spec-)?canvas-[\d-]+$/u);
@@ -325,7 +325,7 @@ const ROWS: Row[] = [
             // + twice: zoomed about the middle, so another point is under the still pointer.
             for (let turn = 0; turn < 2; turn++) {
                 await page.keyboard.press('=');
-                await page.waitForTimeout(150);
+                await settled(page);
             }
             await expect.poll(async () => (await noted(gain)).at).not.toBe(before.at);
             const zoomed = await readFull(gain);
@@ -355,7 +355,7 @@ const ROWS: Row[] = [
             const lane = page.locator('.track-canvas:not(.track-spec-canvas)').first();
             const laneBox = (await lane.boundingBox())!;
             await page.mouse.click(laneBox.x + laneBox.width * 0.73, laneBox.y + laneBox.height / 2);
-            await page.waitForTimeout(300);
+            await settled(page);
             await hoverAt(page, spectrum, 0.4, 0.4);
             await expect.poll(async () => (await noted(spectrum)).read).toBe('failed');
             await expect(page.locator('#spectrum-freq-readout')).not.toContainText(/\d/u);
@@ -384,7 +384,7 @@ const ROWS: Row[] = [
             await readFull(overlay);
             await page.mouse.wheel(0, 50);
             await expect.poll(() => wrapper.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
-            await page.waitForTimeout(300);
+            await settled(page);
             const box = (await overlay.boundingBox())!;
             expect(pointer.y >= box.y && pointer.y <= box.y + box.height, 'still over the plot').toBe(true);
             const read = await readFull(overlay);
@@ -413,12 +413,12 @@ const ROWS: Row[] = [
             for (let presses = 0; presses < 60 && !await onLane(); presses++) await page.keyboard.press('Tab');
             if (!await onLane()) await lane.focus();
             expect(await onLane()).toBe(true);
-            await page.waitForTimeout(150);
+            await settled(page);
             expect((await noted(overlay)).at, 'the focus gives no readout over the pointer\'s').toBe(read.at);
             await expect(slot).toBeVisible();
             await expect(slot).toHaveText(text);
             await page.keyboard.press('Tab');
-            await page.waitForTimeout(150);
+            await settled(page);
             expect(await onLane()).toBe(false);
             expect((await noted(overlay)).at, 'nor does its leaving take the pointer\'s away').toBe(read.at);
             await expect(slot).toBeVisible();
@@ -439,11 +439,11 @@ const ROWS: Row[] = [
             await page.keyboard.press('ArrowRight');
             await expect.poll(async () => (await noted(again)).at).not.toBe(first.at);
             await page.keyboard.press('ArrowRight');
-            await page.waitForTimeout(150);
+            await settled(page);
             const stepped = await readFull(again);
             await page.keyboard.press('=');
             await expect.poll(() => again.getAttribute('data-plot-window')).not.toMatch(/^0\.000 1\.000/u);
-            await page.waitForTimeout(200);
+            await settled(page);
             expect((await readFull(again)).at, 'the bin stepped to, on the row drawn anew').toBe(stepped.at);
         },
     },
@@ -458,7 +458,7 @@ const ROWS: Row[] = [
             await expect(page.locator('#spectrum-freq-readout')).not.toContainText(/\d/u);
             // A key meanwhile: no step from the old drawing, no number.
             await page.keyboard.press('ArrowRight');
-            await page.waitForTimeout(250);
+            await settled(page);
             expect((await noted(spectrum)).read, 'still waiting, never a step from the old data').toBe('pending');
             await expect(page.locator('#spectrum-freq-readout')).not.toContainText(/\d/u);
             await setGate(page, 'pass');
@@ -500,10 +500,10 @@ const ROWS: Row[] = [
             expect((far.x ?? 0) - frame[0], 'and left of the middle quarter').toBeLessThan(frame[2] * 0.37);
             // + twice, about the middle: the point stepped to is off the window, the pointer still on the plot.
             await page.keyboard.press('=');
-            await page.waitForTimeout(150);
+            await settled(page);
             await page.keyboard.press('=');
             await expect.poll(() => spectrum.getAttribute('data-plot-window')).not.toMatch(/^0\.000 1\.000/u);
-            await page.waitForTimeout(300);
+            await settled(page);
             const read = await readFull(spectrum);
             expect(read.at, 'the point off the window is not read').not.toBe(far.at);
             expect(Math.abs((read.x ?? NaN) - at), 'read at the true pointer').toBeLessThan(15);
@@ -525,7 +525,7 @@ const ROWS: Row[] = [
             await page.keyboard.press('ArrowRight');
             await page.keyboard.press('ArrowRight');
             await page.keyboard.press('ArrowRight');
-            await page.waitForTimeout(1200);
+            await settled(page);
             await setGate(page, 'pass');
             await expect.poll(async () => (await noted(lane)).at, { timeout: 15_000, message: 'three keys, three points' }).toBe(next[2]);
         },
@@ -552,7 +552,7 @@ const ROWS: Row[] = [
             const box = (await lane.boundingBox())!;
             await page.mouse.dblclick(box.x + box.width * 0.85, box.y + box.height / 2);
             await expect.poll(() => lane.getAttribute('data-plot-window')).toBe('0.000 1.000 0.000 1.000');
-            await page.waitForTimeout(500);
+            await settled(page);
             expect(await cursor(), 'the time cursor stays').toBe(before);
             await expect(page.locator('#loop-time-display'), 'the loop stays').toHaveText(loop ?? '');
             // A click alone moves the cursor and clears the loop, once no second press follows.
@@ -576,7 +576,7 @@ const ROWS: Row[] = [
             await page.mouse.move(from.x + 40, from.y + 20, { steps: 4 });
             const gainBox = (await gain.boundingBox())!;
             await page.mouse.move(gainBox.x + gainBox.width * 0.5, gainBox.y + gainBox.height * 0.5, { steps: 6 });
-            await page.waitForTimeout(200);
+            await settled(page);
             expect((await noted(gain)).read, 'the pair plot reads nothing while the drag is under way').not.toBe('full');
             expect((await noted(gain)).read).not.toBe('pending');
             // Keys meanwhile: no step and no zoom of the plot under the pointer.
@@ -607,7 +607,7 @@ const ROWS: Row[] = [
             // Scrolled until the steps' view is off the pointer: a lane (another surface) or the page under it.
             const surface = page.locator('.track-stage');
             const off = async (): Promise<boolean> => page.evaluate(({ x, y }) => { const under = document.elementFromPoint(x, y); return !!under && !document.querySelector('.track-stage')?.contains(under); }, pointer);
-            for (let turn = 0; turn < 12 && !await off(); turn++) { await wrapper.evaluate(element => { element.scrollTop += 80; }); await page.waitForTimeout(80); }
+            for (let turn = 0; turn < 12 && !await off(); turn++) { await wrapper.evaluate(element => { element.scrollTop += 80; }); await settled(page); }
             expect(await off(), 'the steps\' view scrolled from under the pointer').toBe(true);
             expect(await surface.count()).toBe(1);
             await expect.poll(async () => (await noted(overlay)).read, { message: 'its point is no longer read' }).not.toBe('full');
@@ -634,7 +634,7 @@ const ROWS: Row[] = [
             const value = low + 0.2 * (high - low);
             await page.mouse.click(x, y);
             await page.keyboard.press('=');
-            await page.waitForTimeout(700);
+            await settled(page);
             const picked = (await snapshot()).range;
             expect(picked, 'a bin is picked').not.toBeNull();
             expect(picked!.low <= value + 1e-9 && value - 1e-9 <= picked!.high, `the bin clicked on (${value}) is picked, not one the zoom put there: ${JSON.stringify(picked)}`).toBe(true);
@@ -662,7 +662,7 @@ const ROWS: Row[] = [
             await page.mouse.move(box.x + box.width * 0.45, box.y + box.height * 0.8, { steps: 5 });
             await page.mouse.up();
             await expect.poll(async () => whole(await overlay.getAttribute('data-plot-window'))).toBe(false);
-            await page.waitForTimeout(800);
+            await settled(page);
             expect(await left.count(), 'no event left out: the drag took the click\'s place').toBe(leftOut);
             // A click alone on the line leaves its event out, once no second press follows.
             await page.keyboard.press('0');
