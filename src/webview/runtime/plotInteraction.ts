@@ -139,7 +139,7 @@ export interface PlotInteractionDeps {
      * what it does is decided now, on the plot as it was clicked, and returned to be done once no double click follows
      * (PLOT_DOUBLE_CLICK_MS; a double click resets the zoom only). Any later press, on any plot, takes its place:
      * `current` says whether it still stands (for a click that waits further, for its data). The second press of a
-     * double click is no tap.
+     * double click is no click: it is told too (a press that ended), with `current` false and its action never done.
      */
     tap?(plot: HTMLElement, event: MouseEvent, current: () => boolean): (() => void) | void;
     /** Any press on a plot, before it is known whether it drags (a lane takes the keyboard focus). */
@@ -290,12 +290,14 @@ export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 
             done.drag?.end(event, done.isDrag);
             if (!done.isDrag) {
                 // The one arbitration of a click for every plot: the second press of a double click is no click (it
-                // resets the zoom only), and a click is done once no second press follows, unless another press came.
-                if (done.drag || event.detail > 1) return;
+                // resets the zoom only: its receiver is told the press ended, with nothing to do, `current` false), and a
+                // click is done once no second press follows, unless another press came.
+                if (done.drag) return;
+                const second = event.detail > 1;
                 const at = presses.count;
-                const current = (): boolean => presses.count === at;
+                const current = (): boolean => !second && presses.count === at;
                 const action = deps.tap?.(done.plot, event, current);
-                if (typeof action === 'function') setTimeout(() => { if (current()) action(); }, PLOT_DOUBLE_CLICK_MS);
+                if (!second && typeof action === 'function') setTimeout(() => { if (current()) action(); }, PLOT_DOUBLE_CLICK_MS);
                 return;
             }
             draggedAt = event.timeStamp;

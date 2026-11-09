@@ -166,7 +166,7 @@ async function gateReads(page: Page): Promise<void> {
             const message = args[0] as { type?: string; requestId?: string } | null;
             const ours = gate.mode !== 'pass' && !!message && String(message.requestId).startsWith('read-lane-') && gate.types.includes(String(message.type));
             if (ours && gate.mode === 'hold') { gate.held.push(args); return; }
-            post(ours ? { ...message, type: String(message!.type).replace(/-result$/u, '-error'), error: 'test: failed for a while' } : args[0], ...args.slice(1));
+            post(ours ? { ...message, type: String(message.type).replace(/-result$/u, '-error'), error: 'test: failed for a while' } : args[0], ...args.slice(1));
         }) as typeof window.postMessage;
     });
 }

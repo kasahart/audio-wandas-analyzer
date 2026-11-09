@@ -82,6 +82,8 @@ test('directory file remove/re-add keeps surviving offset, cursor and document',
     await canvas.scrollIntoViewIfNeeded();
     const box = (await canvas.boundingBox())!;
     await page.mouse.click(box.x + box.width * .437, box.y + box.height * .5);
+    // The click moves the cursor once no double click follows (plotInteraction.ts), then the zoom is about it.
+    await page.waitForTimeout(450);
     await page.locator('#toolbar [data-action="zoom-in"]').click();
     const viewState = () => page.evaluate(() => {
         window.dispatchEvent(new MessageEvent('message', { data: {

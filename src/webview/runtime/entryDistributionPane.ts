@@ -255,8 +255,8 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
     // once no double-click follows.
     // The bin is the one under the pointer on the rows as clicked (a zoom before the click is done draws another
     // there), and is picked once no double click follows (plotInteraction.ts arbitrates every plot's click).
-    const tap = (canvas: HTMLElement, event: MouseEvent): (() => void) | undefined => {
-        if (!scale || event.altKey) return undefined;
+    const tap = (canvas: HTMLElement, event: MouseEvent, current: () => boolean): (() => void) | undefined => {
+        if (!scale || event.altKey || !current()) return undefined;
         const bounds = canvas.getBoundingClientRect();
         const dot = dotAt(canvas, event.clientX - bounds.left, event.clientY - bounds.top);
         if (dot) { deps.dot(dot); return undefined; }

@@ -607,8 +607,9 @@ test('the overview strip answers the lanes\' gestures, and a press that stays pu
     await expect(strip).not.toHaveAttribute('data-window', /^0\.000-1\.000\|/);
     // Its plot sits inside the strip's margins.
     await page.mouse.click(stripBox.x + stripBox.width / 2, stripBox.y + OVERVIEW_MARGINS.top + (stripBox.height - OVERVIEW_MARGINS.top - OVERVIEW_MARGINS.bottom) * 0.9);
+    // Gone to once no double click follows (plotInteraction.ts arbitrates every plot's click).
     await expect(page.locator('[data-entry-rows] tr.is-focused')).toHaveCount(1);
-    expect(await page.locator('[data-entry-rows] tr.is-focused').getAttribute('data-file-path')).not.toBe(focusedBefore);
+    await expect.poll(() => page.locator('[data-entry-rows] tr.is-focused').getAttribute('data-file-path')).not.toBe(focusedBefore);
 });
 
 test('the overview strip has a row per channel, as the table does: its readout names the channel of a recording of several', async ({ page }) => {

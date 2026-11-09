@@ -223,7 +223,8 @@ test('every plot that acts on a press that stayed put (plotInteraction\'s tap) l
     // The arbitration is plotInteraction's alone: the second press of a double click is no tap, and a tap's action waits
     // out a double click and is taken back by any later press. No receiver waits a click out with a timer of its own.
     const shared = read('runtime/plotInteraction.ts');
-    assert.match(shared, /done\.drag \|\| event\.detail > 1\) return;/u, 'the second press of a double click reaches no tap');
-    assert.match(shared, /setTimeout\(\(\) => \{ if \(current\(\)\) action\(\); \}, PLOT_DOUBLE_CLICK_MS\)/u, 'a tap acts once no second press came');
+    assert.match(shared, /const second = event\.detail > 1;/u, 'the second press of a double click is known');
+    assert.match(shared, /const current = \(\): boolean => !second && presses\.count === at;/u, 'and never stands as a click');
+    assert.match(shared, /if \(!second && typeof action === 'function'\) setTimeout\(\(\) => \{ if \(current\(\)\) action\(\); \}, PLOT_DOUBLE_CLICK_MS\)/u, 'a tap acts once no second press came');
     for (const { file, body } of taps) assert.doesNotMatch(body, /setTimeout|DOUBLE_CLICK|CLICK_WAIT/u, `${file}: a tap that waits out a double click itself`);
 });
