@@ -84,7 +84,7 @@ def test_every_frame_kinds_picture_is_a_stage_view_the_comparison_draws(made: di
 
 
 def test_a_roughness_spectrum_is_named_specific_roughness_per_bark_not_the_total(made: dict[str, dict]) -> None:
-    # roughness_dw_spec's cells are each Bark band's specific roughness (wandas plots "Specific Roughness [Asper/Bark]").
+    # roughness_dw_spec's cells are each Bark band's specific roughness (wandas: "Specific Roughness [Asper/Bark]").
     assert made["RoughnessFrame"]["unit"] == "asper/Bark"
 
 

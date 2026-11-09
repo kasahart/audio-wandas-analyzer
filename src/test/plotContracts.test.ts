@@ -212,6 +212,16 @@ test('every row has its own id, on a chart the table lists, and every chart has 
     }
 });
 
+test('no row says a difference or a median is taken of rounded values: rounding is for writing only (R1)', () => {
+    // "round(a) − round(b)", or "subtracts … (rounded to …)": the contract would invite a "fix" that breaks R1.
+    const roundedFirst = [/round\([^)]*\)\s*[−-]\s*round\(/u, /引く（[^）]*丸める）/u, /(中央値|Δ|差)[^。]*を丸めてから/u, /subtract\w*[^.]*\(rounded/iu];
+    for (const row of ROWS) {
+        for (const pattern of roundedFirst) assert.ok(!pattern.test(row.trace ?? ''), `${row.id}: "${row.trace}" takes a value of rounded numbers`);
+    }
+    const source = read('src/webview/runtime/comparePanes.ts');
+    assert.ok(!/Rounded so that base \+ delta/u.test(source), 'comparePanes.ts says the Δ is of rounded levels');
+});
+
 test('every call of the plot component, and every plot plotRegistry.ts lists, is a chart of the table', () => {
     const painted = new Set(CHARTS.flatMap(chart => chart.paintedBy));
     assert.deepEqual([...plotCallers()].filter(caller => !painted.has(caller)).sort(), [], 'these functions draw a plot no chart of plotContracts.ts lists');

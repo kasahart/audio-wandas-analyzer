@@ -5,7 +5,7 @@ import { getStrings } from '../shared/i18n/strings';
 import { datasetRows } from '../shared/dataset/datasetTable';
 import { OVERVIEW_MARGINS, overviewPicture, paintOverview } from '../webview/runtime/entryPlots';
 import { createSidePlots, type SidePlotsDeps } from '../webview/runtime/entrySidePlots';
-import { sharedLevelLabel } from '../shared/utils/format';
+import { commonLevelLabel } from '../shared/utils/format';
 import { entryScreenHtml } from '../webview/runtime/entryTableHtml';
 import { FULL_PLOT_WINDOW } from '../webview/runtime/plotInteraction';
 import { BAND_CENTERS_HZ } from '../webview/runtime/entryTable';
@@ -155,21 +155,25 @@ test('the side plots keep each channel\'s own levels, as the table\'s rows are k
     assert.equal(plots.levels('/d/a.wav'), undefined);
 });
 
-test('the overview colour scale and the dataset table name the recordings\' shared level reference, plain dB once they differ', () => {
-    assert.equal(sharedLevelLabel([]), 'dBFS');
-    assert.equal(sharedLevelLabel(['dBFS', 'dBFS']), 'dBFS');
-    assert.equal(sharedLevelLabel(['dB re 1 input unit']), 'dB re 1 input unit');
-    assert.equal(sharedLevelLabel(['dB SPL re 20 µPa']), 'dB SPL re 20 µPa');
-    assert.equal(sharedLevelLabel(['dBFS', 'dB re 1 input unit']), 'dB');
-    assert.equal(sharedLevelLabel(['dB SPL re 20 µPa', 'dBFS']), 'dB');
+test('the overview colour scale and the dataset table name the recordings\' most common level reference, never plain dB, and say uncalibrated (R4)', () => {
+    assert.equal(commonLevelLabel([]), 'dBFS');
+    assert.equal(commonLevelLabel(['dBFS', 'dBFS']), 'dBFS');
+    assert.equal(commonLevelLabel(['dB re 1 input unit']), 'dB re 1 input unit');
+    assert.equal(commonLevelLabel(['dB SPL re 20 µPa']), 'dB SPL re 20 µPa');
+    assert.equal(commonLevelLabel(['dBFS', 'dB SPL re 20 µPa', 'dB SPL re 20 µPa']), 'dB SPL re 20 µPa');
     const { plots } = setup();
     const input = (levelReferenceLabel: string, calibrationStatus: 'calibrated' | 'uncalibrated') => ({ id: 'x', fs: 48000, channels: [0], durationS: 1, unit: 'Pa', ref: 2e-5, levelReferenceLabel, calibrationStatus, fullScale: true });
+    const leq = strings.dsLeq;
     assert.equal(plots.levelLabel(), 'dBFS');
-    plots.noteResult('/d/a.wav', { ok: true, input: input('dB SPL re 20 µPa', 'calibrated') });
+    plots.noteResult('/d/a.wav', { ok: true, input: input('dB SPL re 20 µPa', 'calibrated'), thirdOctDb: [[60, 61]] });
     assert.equal(plots.levelLabel(), 'dB SPL re 20 µPa');
-    plots.noteResult('/d/b.wav', { ok: true, input: input('dBFS', 'uncalibrated') });
-    assert.equal(plots.levelLabel(), 'dB');
+    assert.equal(plots.levelName(leq), 'Leq A-weighted [dB SPL re 20 µPa]');
+    plots.noteResult('/d/b.wav', { ok: true, input: input('dBFS', 'uncalibrated'), thirdOctDb: [[-30, -31]] });
+    plots.noteResult('/d/c.wav', { ok: true, input: input('dBFS', 'uncalibrated'), thirdOctDb: [[-32, -33]] });
+    assert.equal(plots.levelLabel(), 'dBFS', 'the most common reference, not a bare dB');
+    assert.equal(plots.levelName(leq), 'Leq A-weighted, uncalibrated [dBFS]', 'uncalibrated says so');
     plots.noteResult('/d/b.wav', { ok: false, reason: 'unreadable' });
+    plots.noteResult('/d/c.wav', { ok: false, reason: 'unreadable' });
     assert.equal(plots.levelLabel(), 'dB SPL re 20 µPa', 'a file that cannot be read has no reference');
     plots.clear();
     assert.equal(plots.levelLabel(), 'dBFS');

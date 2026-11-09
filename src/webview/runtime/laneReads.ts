@@ -9,6 +9,7 @@
 import type { StagePoints, StageRead } from '../../shared/protocol/backendProtocol';
 import type { SpectrumSliceRequest, TrackDetailRequest, WaveformRangeRequest } from '../../shared/utils/audioTarget';
 import { fetchedSource, localLine, type FullSource } from './fullRead';
+import { FAILED_HOLD_MS } from './combineSource';
 
 type ReadRequest = WaveformRangeRequest | TrackDetailRequest | SpectrumSliceRequest;
 /** A slice read at every bin: each channel's values over 0..maxHz. */
@@ -41,9 +42,10 @@ export interface LaneReads {
 
 const PREFIX = 'read-lane';
 
-export function createLaneReads(post: (message: ReadRequest) => void): LaneReads {
+export function createLaneReads(post: (message: ReadRequest) => void, now: () => number = () => Date.now()): LaneReads {
     let count = 0;
-    const waiting = new Map<string, (answer: ReadAnswer) => void>();
+    /** Each read on its way: what to call with its answer, and the analysis settings it was asked under. */
+    const waiting = new Map<string, { done: (answer: ReadAnswer) => void; settingsSignature?: string }>();
     const sources = new Map<string, FullSource>();
     const once = (key: string, make: () => FullSource): FullSource => {
         let source = sources.get(key);
@@ -56,11 +58,12 @@ export function createLaneReads(post: (message: ReadRequest) => void): LaneReads
     };
     const ask = (message: (requestId: string) => ReadRequest, done: (answer: ReadAnswer) => void): void => {
         const requestId = `${PREFIX}-${++count}`;
-        waiting.set(requestId, done);
-        post(message(requestId));
+        const request = message(requestId);
+        waiting.set(requestId, { done, ...('settingsSignature' in request ? { settingsSignature: request.settingsSignature } : {}) });
+        post(request);
     };
     /** The full slices asked for, by key: in (values per channel), or on their way (the callers waiting). */
-    const slices = new Map<string, { slice?: FullSlice | null; ready: Set<() => void> }>();
+    const slices = new Map<string, { slice?: FullSlice | null; failedAt?: number; ready: Set<() => void> }>();
     return {
         waveform(track, channel) {
             return once(JSON.stringify(['wave', track, channel]), () => fetchedSource((read: StageRead, done) => ask(requestId => ({
@@ -79,8 +82,13 @@ export function createLaneReads(post: (message: ReadRequest) => void): LaneReads
             // The slice at every bin, fetched once for every read of it: its points, and its level for the order (R6).
             const full = (ready: () => void): FullSource | null | undefined => {
                 let entry = slices.get(key);
+                // A slice that failed is asked again once FAILED_HOLD_MS have passed: a passing failure does not stay for good.
+                if (entry?.failedAt !== undefined && now() - entry.failedAt >= FAILED_HOLD_MS) {
+                    slices.delete(key);
+                    entry = undefined;
+                }
                 if (!entry) {
-                    const made: { slice?: FullSlice | null; ready: Set<() => void> } = { ready: new Set() };
+                    const made: { slice?: FullSlice | null; failedAt?: number; ready: Set<() => void> } = { ready: new Set() };
                     entry = made;
                     slices.set(key, made);
                     if (slices.size > 32) slices.delete(slices.keys().next().value as string);
@@ -89,6 +97,7 @@ export function createLaneReads(post: (message: ReadRequest) => void): LaneReads
                         trackIndex: track.trackIndex, filePath: track.filePath, cursorNorm, fullResolution: true, read: true,
                     }), answer => {
                         made.slice = answer?.slice ?? null;
+                        if (!made.slice) made.failedAt = now();
                         const calls = [...made.ready];
                         made.ready.clear();
                         for (const call of calls) call();
@@ -115,10 +124,16 @@ export function createLaneReads(post: (message: ReadRequest) => void): LaneReads
         handle(message) {
             const { requestId } = message;
             if (typeof requestId !== 'string' || !requestId.startsWith(`${PREFIX}-`)) return false;
-            const done = waiting.get(requestId);
+            const asked = waiting.get(requestId);
             waiting.delete(requestId);
-            if (!done) return true;
-            const answer = message as { type: string; points?: StagePoints; maxFrequencyHz?: number; channels?: Array<{ channelIndex?: number; values?: number[] }> };
+            if (!asked) return true;
+            const { done } = asked;
+            const answer = message as { type: string; settingsSignature?: string; points?: StagePoints; maxFrequencyHz?: number; channels?: Array<{ channelIndex?: number; values?: number[] }> };
+            // An answer made under other analysis settings (another STFT) than the read was asked under reads nothing.
+            if (answer.settingsSignature !== undefined && asked.settingsSignature !== undefined && answer.settingsSignature !== asked.settingsSignature) {
+                done(null);
+                return true;
+            }
             if (answer.type === 'spectrum-slice-result') {
                 done({ slice: { maxHz: answer.maxFrequencyHz ?? 0, values: new Map((answer.channels ?? []).map((channel, index) => [channel.channelIndex ?? index, channel.values ?? []])) } });
             } else if (answer.type.endsWith('-error')) done(null);

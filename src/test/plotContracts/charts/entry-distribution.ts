@@ -62,9 +62,10 @@ export const entryDistribution: ChartContract = {
         },
         {
             id: 'entry-distribution.axis', value: 'axis', what: '値の軸と縦の名前',
-            computedIn: ['src/webview/runtime/entryDistributionPane.ts:paint'],
-            from: 'words', trace: '値の名前（「Leq A特性 [基準]」など）と「縦：{単位}数（群ごと）」。',
+            computedIn: ['src/webview/runtime/entryDistributionPane.ts:paint', 'src/webview/runtime/entrySidePlots.ts:createSidePlots', 'src/shared/utils/format.ts:commonLevelLabel'],
+            from: 'words', trace: '値の名前（「Leq A特性 [基準]」、未校正なら「Leq A特性 未校正 [dBFS]」）と「縦：{単位}数（群ごと）」。基準は録音に最も多いもので、素の dB にしない（levelName）。',
             tests: [
+                t('src/test/entrySidePlots.test.ts', 'the overview colour scale and the dataset table name the recordings\' most common level reference, never plain dB, and say uncalibrated (R4)'),
                 t('src/test/uiSmoke/plotContract.spec.ts', 'the entry\'s distribution answers the same gestures as every plot: each group\'s row, on the value axis below them (R13)'),
             ],
             names: { quantity: true, unit: true, reference: true },

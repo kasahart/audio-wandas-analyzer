@@ -60,7 +60,8 @@ export function baseDefinitionText(definition: BaseDefinition, strings: Pick<UiS
     const what = definition.kind === 'file' ? `${strings.entryBase} ${definition.file ?? ''}` : `${strings.entryBaseGroup} ${[definition.group?.column, definition.group?.name].filter(Boolean).join(' ')}`.trim();
     return [
         what, `n=${definition.count}`, ...(definition.channel ? [`ch${definition.channel}`] : []),
-        ...(definition.fewerChannels ? [`-${definition.fewerChannels} (< ch${definition.channel})`] : []), ...definition.filters,
+        ...(definition.fewerChannels ? [`-${definition.fewerChannels} (< ch${definition.channel})`] : []),
+        ...(definition.otherUnits ? [`-${definition.otherUnits} (≠ unit)`] : []), ...definition.filters,
     ].join(' · ');
 }
 

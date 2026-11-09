@@ -638,7 +638,9 @@ export function rowAxisTicks(low: number, high: number, log: boolean, height: nu
     const span = high - low || 1;
     const values = log ? ticks(low, high, true) : niceTicks(low, high, Math.max(2, Math.min(8, Math.floor(height / 22))));
     const texts = tickTexts(values, log);
-    return values.map((value, index) => ({ value, text: text?.(value) ?? texts[index], fraction: log ? Math.log(value / low) / Math.log(high / low) : (value - low) / span }));
+    const drawn = values.map((value, index) => ({ value, text: text?.(value) ?? texts[index], fraction: log ? Math.log(value / low) / Math.log(high / low) : (value - low) / span }));
+    // A caller's own text (a table's whole row numbers) may write two ticks alike: each number is written once (C3).
+    return drawn.filter((tick, index) => drawn.findIndex(other => other.text === tick.text) === index);
 }
 
 /** A time or frequency axis's ticks between `low` and `high` (a log frequency axis's at its round values), with their text. */

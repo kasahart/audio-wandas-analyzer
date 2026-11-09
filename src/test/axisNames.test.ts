@@ -126,3 +126,52 @@ test('no plot names an axis through gui-core\'s drawValueAxis or fittedAxisTitle
     const using = files(webview).filter(file => /\b(?:drawValueAxis|fittedAxisTitle)\b/u.test(readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/gu, '')));
     assert.deepEqual(using.map(file => path.relative(webview, file)), []);
 });
+
+test('a range popover names its axis as the plot does: the plot\'s own axis name, never words of its own (R4)', () => {
+    const root = path.join(__dirname, '..', '..', 'src', 'webview');
+    const files: string[] = [];
+    const walk = (dir: string): void => {
+        for (const name of readdirSync(dir)) {
+            const full = path.join(dir, name);
+            if (statSync(full).isDirectory()) walk(full); else if (name.endsWith('.ts')) files.push(full);
+        }
+    };
+    walk(root);
+    // What a popover may be named by: the plot's axis-name strings, or the title the plot drew its axis with.
+    const PLOT_NAMES = [/^STR\.axis\w+(\.replace\(.*\))?(\s*\|\|.*)?$/u, /^spectrumLevelAxisTitle\b/u, /^spectrogramLevelTitle\(/u, /^laneAmplitudeAxis\(.*\)\.title$/u, /^mapping\.label\b/u];
+    let opens = 0;
+    for (const file of files) {
+        const source = readFileSync(file, 'utf8');
+        for (const match of source.matchAll(/\.open\(\{\s*(?:\/\/[^\n]*\n\s*)*axisLabel:\s*([^\n]+?),\n/gu)) {
+            opens++;
+            const expression = match[1].trim();
+            assert.ok(PLOT_NAMES.some(pattern => pattern.test(expression)), `${path.relative(root, file)}: a popover named "${expression}"`);
+            assert.ok(!/['"`]\s*\(/u.test(expression), `${path.relative(root, file)}: "${expression}" writes a unit in round brackets`);
+        }
+    }
+    assert.ok(opens >= 5, `the popovers are walked (${opens})`);
+});
+
+test('no absolute level falls back to a bare "dB" unit: it names its reference, or says full scale (R4, R7)', () => {
+    const root = path.join(__dirname, '..', '..', 'src');
+    const files: string[] = [];
+    const walk = (dir: string): void => {
+        for (const name of readdirSync(dir)) {
+            const full = path.join(dir, name);
+            if (statSync(full).isDirectory()) { if (name !== 'test') walk(full); } else if (name.endsWith('.ts')) files.push(full);
+        }
+    };
+    walk(path.join(root, 'webview'));
+    walk(path.join(root, 'shared'));
+    // Where a bare dB is a ratio or a difference, not an absolute level: said here with why.
+    const RATIOS: Record<string, string> = {
+        'webview/runtime/pairSpectrum.ts': 'a transfer level is dB re the units\' ratio',
+        'webview/draw/canvasDrawers.ts': 'dbLevelUnitFor: a slice without a unit (each caller passes its axis reference)',
+        'shared/utils/format.ts': 'formatMeasuredLevel: a measurement with neither a reference nor a unit',
+    };
+    const found = files.flatMap(file => {
+        const rel = path.relative(root, file).split(path.sep).join('/');
+        return /(\?\?|\|\||\?)\s*'dB'(?![\w ])/u.test(readFileSync(file, 'utf8')) && !RATIOS[rel] ? [rel] : [];
+    });
+    assert.deepEqual(found, []);
+});

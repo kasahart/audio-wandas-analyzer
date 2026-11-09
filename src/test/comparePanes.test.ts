@@ -7,7 +7,7 @@ import type { ScanResult } from '../shared/protocol/backendProtocol';
 import { getStrings } from '../shared/i18n/strings';
 import { BAND_CENTERS_HZ, buildEntryModel } from '../webview/runtime/entryTable';
 import { deltaFigure } from '../webview/runtime/compareReport';
-import { binsSource, binsView, buildCompareModel, deltaViews, diffHeadline, minMaxLine, sameCondition, withBins, legendHtml, levelsHeadline, paneAxes, trackLevelInput, type LevelInput } from '../webview/runtime/comparePanes';
+import { baseOf, binsSource, binsView, buildCompareModel, deltaViews, diffHeadline, minMaxLine, sameCondition, withBins, legendHtml, levelsHeadline, paneAxes, trackLevelInput, type LevelInput } from '../webview/runtime/comparePanes';
 import type { ChannelSummary } from '../shared/analysis/analysisTypes';
 import { byLevel, paintOverlay, stageAxes } from '../webview/runtime/stagePanes';
 import { NO_FULL_DATA } from '../webview/runtime/fullRead';
@@ -79,6 +79,46 @@ test('a Δ that cannot be read is withheld: the file against itself, a group of 
     assert.equal(buildCompareModel(model, files, '/f/L1_900rpm_run3.wav', '/f/free.wav', STR, true).blocked, undefined);
 });
 
+
+test('levels in another unit, reference or calibration have no Δ and no shared median, whichever way the base is made', () => {
+    const calibrated = (leq: number): ScanResult => {
+        const result = scan(leq, [60, 50, 40], 70);
+        return { ...result, input: { ...result.input!, unit: 'Pa', ref: 2e-5, levelReferenceLabel: 'dB SPL re 20 µPa', calibrationStatus: 'calibrated', fullScale: false } };
+    };
+    const mixed = new Map<string, ScanResult>([
+        ['/m/L1_900rpm_run1.wav', scan(-20, [-40, -50, -60], -30)],
+        ['/m/L1_900rpm_run2.wav', scan(-21, [-41, -50, -61], -31)],
+        ['/m/L1_900rpm_run3.wav', calibrated(62)],
+        ['/m/L1_900rpm_run4.wav', calibrated(64)],
+    ]);
+    const mixedModel = buildEntryModel([...mixed].map(([filePath, result]) => ({ filePath, result })), null, { band: BAND_3150 });
+    // Slot 0 in another unit: both levels stay, the Δ is withheld (as the backend's noDelta 'unit').
+    const single = buildCompareModel(mixedModel, mixed, '/m/L1_900rpm_run3.wav', '/m/L1_900rpm_run1.wav', STR);
+    assert.equal(single.blocked, 'unit');
+    assert.equal(single.diffDb, null);
+    assert.deepEqual(single.bandDeltas, []);
+    assert.equal(single.bins?.diff ?? null, null);
+    assert.ok(Number.isNaN(single.leq!.delta));
+    assert.equal(diffHeadline(single, STR), '— · ≠ unit');
+    // Both levels stay, each named by its own reference (no bare dB).
+    assert.equal(levelsHeadline(single, STR), 'Leq base −20.0 dBFS / compare 62.0 dB SPL re 20 µPa · — · ≠ unit');
+    // A group: only its files in the compared file's unit make the median; the rest are left out.
+    const group = buildCompareModel(mixedModel, mixed, '/m/L1_900rpm_run4.wav', null, STR, false, undefined,
+        { paths: ['/m/L1_900rpm_run1.wav', '/m/L1_900rpm_run2.wav', '/m/L1_900rpm_run3.wav'], title: 'g' });
+    assert.deepEqual(group.base!.filePaths, ['/m/L1_900rpm_run3.wav']);
+    assert.equal(group.blocked, undefined);
+    assert.equal(group.leq!.delta, 2);
+    // A group with none in the compared file's unit: the median of one unit, no Δ.
+    const other = buildCompareModel(mixedModel, mixed, '/m/L1_900rpm_run4.wav', null, STR, false, undefined,
+        { paths: ['/m/L1_900rpm_run1.wav', '/m/L1_900rpm_run2.wav'], title: 'g' });
+    assert.equal(other.blocked, 'unit');
+    assert.equal(other.leq!.base, -20.5);
+    assert.equal(other.diffDb, null);
+    // A fixed difference is never measured against a base of another unit.
+    assert.equal(baseOf(mixed, ['/m/L1_900rpm_run1.wav', '/m/L1_900rpm_run3.wav']), null);
+    assert.equal(baseOf(mixed, ['/m/L1_900rpm_run1.wav'], mixed.get('/m/L1_900rpm_run3.wav')), null);
+    assert.equal(baseOf(mixed, ['/m/L1_900rpm_run3.wav'], mixed.get('/m/L1_900rpm_run4.wav'))!.leq, 62);
+});
 
 test('a tone that leaks into the neighbouring bands heads the list alone: only peaks of |Δ| across bands count', () => {
     const leak = (center: number, side: number): ScanResult => ({
@@ -167,7 +207,7 @@ test('the level axis is named by wandas\' level reference, and says uncalibrated
 
 test('the headline gives both levels, and a band far below the loudest does not head it however large its Δ', () => {
     const comparison = buildCompareModel(model, files, '/f/L1_900rpm_run3.wav', null, STR);
-    assert.match(levelsHeadline(comparison, STR), /^3\.15 kHz base −30\.5 \/ compare −10\.0 · Leq base −20\.0 \/ compare −10\.1 dB$/);
+    assert.match(levelsHeadline(comparison, STR), /^3\.15 kHz base −30\.5 \/ compare −10\.0 dBFS · Leq base −20\.0 \/ compare −10\.1 dBFS$/);
     // 60 → 65 dB is heard; 20 → 30 dB under it is not: only the loud band heads the list.
     const level = (band3150: number, quiet: number) => {
         const result = scan(-20, [-40, -50, -60], band3150);
@@ -178,7 +218,7 @@ test('the headline gives both levels, and a band far below the loudest does not 
     const loudModel = buildEntryModel([...loud].map(([filePath, result]) => ({ filePath, result })), null, { band: BAND_3150 });
     const heard = buildCompareModel(loudModel, loud, '/g/L2_1200rpm_run3.wav', null, STR);
     assert.deepEqual(heard.topBands.map(item => item.band), [BAND_3150]);
-    assert.ok(levelsHeadline(heard, STR).startsWith('3.15 kHz base 60.0 / compare 65.0 · '));
+    assert.ok(levelsHeadline(heard, STR).startsWith('3.15 kHz base 60.0 / compare 65.0 dBFS · '));
     // A group of three or more files carries its quartiles for the band under its median.
     assert.equal(buildCompareModel(model, files, '/f/free.wav', '/f/L1_900rpm_run1.wav', STR).base!.spread, undefined);
 });

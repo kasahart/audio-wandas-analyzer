@@ -1,6 +1,9 @@
 import { readoutText } from '../../shared/gui-core/index';
 import { dbLevelUnitFor, frequencyAtFraction, type SpectrumPlotFrame } from '../draw/canvasDrawers';
 import { frequencyText, levelText } from '../plot/plotText';
+import { HEATMAP_DB_SPAN } from '../../shared/utils/ticks';
+import type { StageView } from '../../shared/protocol/backendProtocol';
+import { stageRange } from './stagePanes';
 import type { HostInboundMessage } from './hostMessaging';
 import type { DragPoint, SpectrumSlice } from './types';
 import { type NormalizedRange, zoomNormalizedRange } from './waveformInteraction';
@@ -39,6 +42,19 @@ export interface SpectrumSeriesRange {
     logMinFrequencyHz?: number;
 }
 
+/**
+ * A level axis over lines from `low` to `high` dB: the comparison's dB line rule (stageRange, R9) — every value, each
+ * end rounded out to a 5/10/20/25 dB step, never more than 100 dB, so a silent line (−300 dB) cannot squash the rest.
+ * A typed end is kept exactly; with the top typed, the bottom is at most 100 dB under it.
+ */
+export function spectrumLevelRange(low: number, high: number, typed: { min?: number; max?: number } = {}): { minDb: number; maxDb: number } {
+    const auto = stageRange([{ kind: 'line', quantity: 'level', xs: [], values: [], valueRange: { min: low, max: high } } as unknown as StageView]);
+    const maxDb = typed.max ?? auto.max;
+    const minDb = typed.min ?? (typed.max !== undefined ? Math.max(auto.min, typed.max - HEATMAP_DB_SPAN) : auto.min);
+    return maxDb > minDb ? { minDb, maxDb } : { minDb: auto.min, maxDb: auto.max };
+}
+
+/** The series' shared ranges: frequency to the highest, level by spectrumLevelRange over every series' extremes. */
 export function spectrumSeriesRange(series: ReadonlyArray<{ slice: SpectrumSlice }>): SpectrumSeriesRange {
     let minDb = Infinity, maxDb = -Infinity, maxFrequencyHz = 0, logMinFrequencyHz = Infinity;
     series.forEach(({ slice }) => {
@@ -49,7 +65,8 @@ export function spectrumSeriesRange(series: ReadonlyArray<{ slice: SpectrumSlice
         const bandMin = sliceLogMinFrequencyHz(slice);
         logMinFrequencyHz = bandMin === undefined ? NaN : Math.min(logMinFrequencyHz, bandMin);
     });
-    return { minDb, maxDb, maxFrequencyHz, ...(isFinite(logMinFrequencyHz) ? { logMinFrequencyHz } : {}) };
+    const level = series.length ? spectrumLevelRange(minDb, maxDb, series[0].slice.typedDb) : { minDb, maxDb };
+    return { ...level, maxFrequencyHz, ...(isFinite(logMinFrequencyHz) ? { logMinFrequencyHz } : {}) };
 }
 
 export function spectrumReadoutText(label: string, slice: SpectrumSlice, freqHz: number, dbVal: number): string {
@@ -133,7 +150,7 @@ function autoDbRange(series: ReadonlyArray<{ slice: SpectrumSlice }>): { minDb: 
         minDb = Math.min(minDb, slice.autoMinDb ?? slice.minDb);
         maxDb = Math.max(maxDb, slice.autoMaxDb ?? slice.maxDb);
     });
-    return { minDb, maxDb };
+    return series.length ? spectrumLevelRange(minDb, maxDb) : { minDb, maxDb };
 }
 
 /**

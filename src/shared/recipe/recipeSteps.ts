@@ -726,13 +726,16 @@ export function withSlotReference(recipe: RecipeDocument, stepId: string, on: bo
     return copy;
 }
 
-/** A short stable key for a Recipe, so stored scan results are reused only for the same Recipe. */
+/**
+ * A Recipe as a key, so stored scan results are reused only for the same Recipe: its canonical JSON (keys sorted)
+ * itself, never a hash of it. Two Recipes share a key only when they are equal; nothing can collide.
+ */
 export function recipeKey(recipe: RecipeDocument | undefined): string {
     if (!recipe) return '';
-    const text = JSON.stringify(recipe);
-    let hash = 0x811c9dc5;
-    for (let index = 0; index < text.length; index++) hash = Math.imul(hash ^ text.charCodeAt(index), 0x01000193) >>> 0;
-    return `${text.length}:${hash.toString(16)}`;
+    const canonical = (value: unknown): unknown => Array.isArray(value) ? value.map(canonical)
+        : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical((value as Record<string, unknown>)[key])]))
+            : value;
+    return JSON.stringify(canonical(recipe));
 }
 
 export function isRecipeChain(value: unknown): value is RecipeDocument {

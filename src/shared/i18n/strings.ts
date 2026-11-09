@@ -360,6 +360,7 @@ export interface UiStrings {
     dsDerivedRemove: string;
     dsBaseNarrowed: string;
     dsBaseFewer: string;
+    dsBaseOtherUnits: string;
     reportMemo: string;
     reportBaseDefinition: string;
     reportDerived: string;
@@ -522,6 +523,8 @@ export interface UiStrings {
     hintRowStop: string;
     compareSingleBase: string;
     compareRegionDiffers: string;
+    /** The base's levels are in another unit, reference or calibration than the compared file's: no Δ. */
+    compareUnitDiffers: string;
     helpRowStepKeys: string;
     helpRowStepBypass: string;
     helpRowStepUndo: string;
@@ -688,8 +691,6 @@ export interface UiStrings {
     ariaSpecZoomReset: string;
     btnSpecZoomReset: string;
     specRangeTitle: string;
-    specRangeAxisFreq: string;
-    specRangeAxisDb: string;
     waveRangeAxisAmplitude: string;
     waveRangeErrorTooNarrow: string;
     specRangeMin: string;
@@ -1075,10 +1076,10 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dsGroupNone: 'None',
         dsFromCsv: 'CSV columns',
         dsFromSound: 'Computed from the sound',
-        dsLeq: 'Leq A-weighted [{label}]',
+        dsLeq: 'Leq A-weighted{uncal} [{label}]',
         dsPeak: 'Peak frequency [Hz]',
         dsCrest: 'Crest factor [–]',
-        dsBand: '{band} band [{label}]',
+        dsBand: '{band} band{uncal} [{label}]',
         dsNotComputed: 'Not computed: press 「Compute」 first',
         dsRows: '{n} rows',
         dsPickCsv: 'Pick a CSV',
@@ -1165,6 +1166,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dsDerivedRemove: 'Delete this fixed difference',
         dsBaseNarrowed: ' (within {filters})',
         dsBaseFewer: ' · {n} without ch {ch} left out',
+        dsBaseOtherUnits: ' · {n} in another unit left out',
         reportMemo: 'Memo',
         reportBaseDefinition: 'Base definition',
         reportDerived: 'Fixed Δ (D)',
@@ -1318,6 +1320,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintRowStop: 'Stop',
         compareSingleBase: 'n=1',
         compareRegionDiffers: '≠ region',
+        compareUnitDiffers: '≠ unit',
         helpRowStepKeys: 'step bar: press a step to see its Frame in the comparison, hold it to see what it does, ＋ adds a wandas operation, Delete on a step removes it',
         helpRowStepBypass: 'step bar: M on a step bypasses it (kept in place, skipped), M again brings it back',
         helpRowStepUndo: 'step bar: undo and redo its edits (↶ ↷)',
@@ -1479,8 +1482,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         ariaSpecZoomReset: 'Spectrum zoom reset',
         btnSpecZoomReset: 'All',
         specRangeTitle: 'Range',
-        specRangeAxisFreq: 'Frequency (Hz)',
-        specRangeAxisDb: 'Level (dB)',
         waveRangeAxisAmplitude: 'Amplitude',
         waveRangeErrorTooNarrow: 'Range is too narrow for this channel',
         specRangeMin: 'Min',
@@ -1864,10 +1865,10 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dsGroupNone: 'なし',
         dsFromCsv: 'CSV の列',
         dsFromSound: '音から計算',
-        dsLeq: 'Leq A特性 [{label}]',
+        dsLeq: 'Leq A特性{uncal} [{label}]',
         dsPeak: 'ピーク周波数 [Hz]',
         dsCrest: '波高率 [–]',
-        dsBand: '{band} 帯 [{label}]',
+        dsBand: '{band} 帯{uncal} [{label}]',
         dsNotComputed: '未計算：先に「計算」を押してください',
         dsRows: '{n} 行',
         dsPickCsv: 'CSV を選ぶ',
@@ -1954,6 +1955,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dsDerivedRemove: 'この固定した差を消す',
         dsBaseNarrowed: '（{filters} に絞った中で）',
         dsBaseFewer: ' · ch {ch} のない {n} 本は除外',
+        dsBaseOtherUnits: ' · 単位の違う {n} 本は除外',
         reportMemo: 'メモ',
         reportBaseDefinition: '基準の定義',
         reportDerived: '固定した差（D）',
@@ -2107,6 +2109,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintRowStop: '止める',
         compareSingleBase: 'n=1',
         compareRegionDiffers: '≠ 区間',
+        compareUnitDiffers: '≠ 単位',
         helpRowStepKeys: '手順バー: 手順を押すとその結果、長押しでその手順あり／なし、＋ で wandas の操作を足す、手順で Delete で外す',
         helpRowStepBypass: '手順バー: 手順で M を押すとバイパス（残したまま飛ばす）、もう一度で戻す',
         helpRowStepUndo: '手順バー: 編集を元に戻す／やり直す（↶ ↷）',
@@ -2268,8 +2271,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         ariaSpecZoomReset: 'スペクトルズームリセット',
         btnSpecZoomReset: '全域',
         specRangeTitle: 'レンジ',
-        specRangeAxisFreq: '周波数 (Hz)',
-        specRangeAxisDb: 'レベル (dB)',
         waveRangeAxisAmplitude: '振幅',
         waveRangeErrorTooNarrow: 'このチャンネルには狭すぎる範囲です',
         specRangeMin: 'Min',

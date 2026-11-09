@@ -1,12 +1,13 @@
 import { channelLabel, channelsForResult, formatClockTime } from '../../shared/utils/format';
-import { niceRange } from '../../shared/utils/ticks';
 import { linkedSpectrogramBounds, spectrogramDisplayBounds, spectrogramFailureText } from './spectrogramRaster';
 import { laneWaveformOverlay, onColourBar, paintTrackSpectrogram, type SpectrogramRasterCacheEntry } from './trackCanvasPainter';
 import { laneReadoutText, spectrogramReadoutText } from './trackLaneHover';
 import { createLaneReads, type LaneTrack } from './laneReads';
 import type { FullSource } from './fullRead';
 import { stageHover, stageStep, type StageRead } from './stagePanes';
+import { stageBasis } from './stageSource';
 import { hidePlotReadout, paintHoverMarks, PLOT_READOUT_ID, showPlotReadout } from './plotHover';
+import { secondsText, withMinus } from '../plot/plotText';
 import { trackTimelinePlacement, waveformCoverageFromExtent } from './waveformCoverage';
 import { envelopePeak } from '../waveform/envelopePeak';
 import { fileOfKey } from '../../shared/dataset/datasetTable';
@@ -458,6 +459,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     let spectrumFollowHz: number | null = null;
     /** Where the cursor spectrum last drew its lines. */
     let spectrumDrawn: StagePlot | null = null;
+    /** The cursor spectrum's (left) level axis name as last drawn: its range popover names the axis the same way. */
+    let spectrumLevelAxisTitle = '';
     /** The frequency the power spectrum's cursor last read under the pointer (R7). */
     let overlayReadHz: number | null = null;
     // ── スペクトルズーム ───────────────────────────────────
@@ -903,24 +906,24 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
     function applySpectrumDisplaySettings(slice: SpectrumSlice) {
         const displaySettings = spectrogramSettings.display;
-        // Typed ends stay as typed; auto ends are widened to round values, as the spectrogram's colour range.
-        const rounded = niceRange(displaySettings.dbMin ?? slice.minDb, displaySettings.dbMax ?? slice.maxDb);
-        const minDb = displaySettings.dbMin != null ? displaySettings.dbMin : rounded.low;
-        const maxDb = displaySettings.dbMax != null ? displaySettings.dbMax : rounded.high;
+        // Typed ends stay as typed; auto ends are the slice's extremes, rounded with every other line's (spectrumLevelRange: R9's dB rule).
+        const minDb = displaySettings.dbMin != null ? displaySettings.dbMin : slice.minDb;
+        const maxDb = displaySettings.dbMax != null ? displaySettings.dbMax : slice.maxDb;
+        const typedDb = { ...(displaySettings.dbMin != null ? { min: displaySettings.dbMin } : {}), ...(displaySettings.dbMax != null ? { max: displaySettings.dbMax } : {}) };
         const requestedMaxFreq = displaySettings.maxFrequencyHz;
         let maxFrequencyHz = slice.originalMaxFrequencyHz || slice.maxFrequencyHz;
         if (requestedMaxFreq != null && Number.isFinite(requestedMaxFreq) && requestedMaxFreq > 0) {
             maxFrequencyHz = Math.min(requestedMaxFreq, maxFrequencyHz);
         }
         // A second level reference is read over its own range (a typed range is in the first reference's dB).
-        const auto = niceRange(slice.autoMinDb ?? slice.minDb, slice.autoMaxDb ?? slice.maxDb);
         return Object.assign({}, slice, {
             originalMaxFrequencyHz: slice.originalMaxFrequencyHz || slice.maxFrequencyHz,
             maxFrequencyHz: maxFrequencyHz,
             minDb: minDb,
             maxDb: maxDb,
-            autoMinDb: auto.low,
-            autoMaxDb: auto.high,
+            autoMinDb: slice.autoMinDb ?? slice.minDb,
+            autoMaxDb: slice.autoMaxDb ?? slice.maxDb,
+            typedDb,
         });
     }
     function trackColor(i: number) {
@@ -1494,6 +1497,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return tracks;
         },
         sampleRate: () => state.results.find(result => !result.error)?.sampleRateHz,
+        // A file's pictures are of its version (the table's scan) and calibration (the track's analysis): a change asks them again.
+        basis: stageBasis(path => entryScreen.compareData().results.get(path), path => state.results.find(result => result.filePath === path && !result.error)),
         // What a trigger sees: the compared slots' channels (a channel row, its own) of the shown tracks, over the region.
         peak: region => {
             const shown = trackStore.displayOrder.map(trackId => trackStore.require(trackId)).filter(record => !record.runtime.hidden && !record.result.error);
@@ -1612,6 +1617,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         return spectrogramSettings.reanalyzeBusy;
     }
 
+    /** A spectrogram lane's colour bar name, as the comparison's heatmaps name their colour: the level, with the channel's reference. */
+    function spectrogramLevelTitle(ch: ChannelSummary | null | undefined): string {
+        return paneAxes(STR, trackLevelInput([ch], undefined)).level.y;
+    }
     /** A waveform lane's amplitude axis: what it shows from bottom to top (as the waveform is drawn), its ticks and its title. */
     function laneAmplitudeAxis(result: ComparisonTrackState, channelIndex: number) {
         const ch = channelsForResult(result)[channelIndex];
@@ -2196,8 +2205,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         const cacheId = record.id + ':' + channelIndex;
         const theme = drawTheme(), text = getComputedStyle(document.body).getPropertyValue('--text').trim() || '#ddd';
-        // The colour bar is named as the comparison's heatmaps name their colour: the level, with the channel's reference.
-        const title = paneAxes(STR, trackLevelInput([ch], undefined)).level.y;
+        const title = spectrogramLevelTitle(ch);
         const painted = paintTrackSpectrogram(canvas, axisCanvas, spec, { ...trackStore.globalSpan(), offsetNorm: trackStart, trackDurRatio }, {
             window: { start: waveformView.start, end: waveformView.end }, dbLo, dbHi, maxFrequencyHz: maxFreq, minFrequencyHz: minFreq,
             durationSec: result.durationSeconds,
@@ -2433,7 +2441,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const label = spectrumReadoutTrackLabel(result, channelIndex);
         if (!read.full || read.at === undefined || read.row === undefined || read.value === undefined) { showPlotReadout(slot, label, read.values, trackColor(trackIndex)); return; }
         const secondsPerPixel = (view.end - view.start) * span.spanSec / rect.width;
-        showPlotReadout(slot, label, spectrogramReadoutText('', read.at, secondsPerPixel, { frequencyHz: read.row, level: read.value, ...(read.rowStep !== undefined ? { stepHz: read.rowStep } : {}) }, spec.unit ?? 'dB', read.step), trackColor(trackIndex));
+        // The level in the reference its colour bar names (dB re 1 V, dB SPL re 20 µPa, dBFS), never bare dB (R7).
+        const levelUnit = trackLevelInput([channelsForResult(result)[channelIndex]], undefined).levelReferenceLabel;
+        showPlotReadout(slot, label, spectrogramReadoutText('', read.at, secondsPerPixel, { frequencyHz: read.row, level: read.value, ...(read.rowStep !== undefined ? { stepHz: read.rowStep } : {}) }, levelUnit, read.step), trackColor(trackIndex));
     }
     function drawHoverLineOnCanvas(ctx: CanvasRenderingContext2D, W: number, H: number) {
         if (viewState.hover !== null) {
@@ -3596,7 +3606,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function openSpectrumRangePopup(axis: string, clientX: number, clientY: number) {
         if (axis === 'db') {
             spectrumRangePopover.open({
-                axisLabel: STR.specRangeAxisDb,
+                // The popover names the axis as the plot does (R4): its level axis' own name, never a bracketless "(dB)".
+                axisLabel: spectrumLevelAxisTitle || STR.axisLevelUncal.replace('{label}', 'dBFS'),
                 horizontal: false,
                 ...spectrumView.dbRangeFields(),
                 clientX, clientY,
@@ -3612,7 +3623,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         spectrumRangePopover.open({
-            axisLabel: STR.specRangeAxisFreq,
+            axisLabel: STR.axisFrequency,
             horizontal: true,
             ...spectrumView.frequencyRangeFieldsHz(),
             clientX, clientY,
@@ -3681,7 +3692,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             value !== null && field(value) === field(shown) ? setting ?? null : value;
         if (axis === 'level') {
             waveformRangePopover.open({
-                axisLabel: STR.specRangeAxisDb,
+                axisLabel: spectrogramLevelTitle(channelsForResult(result as ComparisonTrackState)[channelIndexAttribute(element) ?? 0]),
                 horizontal: false,
                 min: field(bounds.dbLo),
                 max: field(bounds.dbHi),
@@ -3696,7 +3707,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return true;
         }
         waveformRangePopover.open({
-            axisLabel: STR.specRangeAxisFreq,
+            axisLabel: STR.axisFrequency,
             horizontal: false,
             min: field(bounds.minFrequencyHz),
             max: field(bounds.maxFrequencyHz),
@@ -3727,11 +3738,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return false;
         }
         const peak = amplitudeScaleFor(channel);
-        const unit = typeof channel.unit === 'string' ? channel.unit.trim() : '';
         const painted = waveformView.paintedAmplitudeRange();
         const field = (norm: number) => String(Number((norm * peak).toPrecision(4)));
         waveformRangePopover.open({
-            axisLabel: unit ? STR.waveRangeAxisAmplitude + ' (' + unit + ')' : STR.waveRangeAxisAmplitude,
+            axisLabel: laneAmplitudeAxis(result as ComparisonTrackState, channelIndexAttribute(axis) ?? 0).title,
             horizontal: false,
             min: field(painted.min),
             max: field(painted.max),
@@ -4144,6 +4154,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         });
         const paint = paintOverlaySpectrum(canvas, W, H, read, spectrumView.state(), STR.axisFrequency, levelTitle);
         spectrumDrawn = paint.plot;
+        spectrumLevelAxisTitle = paint.levelAxes[0]?.title ?? '';
         spectrumView.recordPaint(paint);
         renderSpectrumAxisLegend(document.getElementById('spectrum-axis-legend'), paint.levelAxes);
         showSpectrumMarks();
@@ -4174,9 +4185,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const band = displayedWindowBand(trackStore.require(trackId).protocolIndex, 0, holding);
             if (band) {
                 const ms = (band.endNorm - band.startNorm) * gs.spanSec * 1000;
+                // Written by the plots' own number text (a true minus): "−0.012–0.010 s (21.33 ms)".
                 captions.add(STR.spectrumAnalysisWindow + (band.window ? ' ' + band.window : '') + ' '
-                    + (gs.startSec + band.startNorm * gs.spanSec).toFixed(3) + '–' + (gs.startSec + band.endNorm * gs.spanSec).toFixed(3)
-                    + ' s (' + ms.toFixed(ms < 10 ? 2 : 1) + ' ms)');
+                    + withMinus((gs.startSec + band.startNorm * gs.spanSec).toFixed(3)) + '–' + secondsText(gs.startSec + band.endNorm * gs.spanSec, 3)
+                    + ' (' + withMinus(ms.toFixed(ms < 10 ? 2 : 1)) + ' ms)');
             }
         }
         if (captions.size === 0) {
@@ -4248,20 +4260,33 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         scheduleSpectrumRefresh('immediate');
         testBridge.publishAfterFrame();
     }
+    /**
+     * The STFT the spectra are made of changed (⚙ Apply, or Reset back from another): every track is analysed again
+     * with it, and spectra and reads asked for under the old one are stale, so lanes, readouts and the cursor spectrum
+     * stay of one STFT. The only way the settings' data signature changes.
+     */
+    function reanalyzeSpectrogram(): void {
+        invalidateDesiredSpectrumSliceRequests();
+        laneReads.clear();
+        setReanalyzeBusy(true, STR.reanalyzingStft);
+        messaging.post({ type: 'request-reanalyze', settings: spectrogramSettings.settings });
+    }
     const specSettingsPopover = installSpectrogramSettingsPopover(document, {
         strings: STR,
         getSettings: () => spectrogramSettings.settings,
         onDisplayChange: setSpectrogramDisplay,
         onReset() {
-            spectrogramSettings.reset();
+            const before = spectrogramSettings.display;
+            if (spectrogramSettings.reset()) { spectrogramFrequencyView = null; reanalyzeSpectrogram(); return; }
+            // The STFT is as it was: only the display range goes back (the box zoom's band with a frequency range).
+            if (before.minFrequencyHz !== spectrogramSettings.display.minFrequencyHz || before.maxFrequencyHz !== spectrogramSettings.display.maxFrequencyHz) spectrogramFrequencyView = null;
             messaging.post({ type: 'update-spectrogram-settings', settings: spectrogramSettings.settings });
             scheduleRender();
+            scheduleSpectrumRefresh('immediate');
         },
         onApply(settings) {
             spectrogramSettings.applyStft(settings);
-            invalidateDesiredSpectrumSliceRequests();
-            setReanalyzeBusy(true, STR.reanalyzingStft);
-            messaging.post({ type: 'request-reanalyze', settings: spectrogramSettings.settings });
+            reanalyzeSpectrogram();
         },
     });
     const reanalyzeOverlay = installReanalyzeOverlay(document, {

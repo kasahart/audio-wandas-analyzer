@@ -241,7 +241,7 @@ test('calibration row helpers draw badges, peak text, requests and the overlay g
     assert.equal(calibrationBadgeHtml([channel({ measurement: measurement('<b>', 'x') })], STR), '<span class="calibration-badge" data-hint="&lt;b&gt;; factor 2; x" aria-description="&lt;b&gt;; factor 2; x">CAL: &lt;b&gt;</span>');
     assert.equal(peakText(channel({}), 'Peak'), null, 'uncalibrated channels keep the runtime dBFS text');
     assert.match(peakText(channel({ measurement: pa }), 'Peak') ?? '', /^Peak 5\.00 Pa/);
-    assert.equal(channelMetricSummaryHtml(channel({}), 'Peak'), '<span>Peak 80.0 dB</span>');
+    assert.equal(channelMetricSummaryHtml(channel({}), 'Peak'), '<span>Peak 80.0 dBFS</span>');
     assert.equal(channelMetricSummaryHtml(channel({ peakLevelDb: Number.NEGATIVE_INFINITY }), 'Peak'), '<span>Peak —</span>');
     assert.equal(channelMetricSummaryHtml(channel({ peakLevelDb: Number.NaN }), 'Peak'), '<span>Peak —</span>');
     assert.equal(channelMetricSummaryHtml(undefined, 'Peak'), '<span>Peak —</span>');

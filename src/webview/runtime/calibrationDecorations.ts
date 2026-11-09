@@ -28,7 +28,8 @@ export function peakText(channel: Channel, peakLabel: string): string | null {
 
 function levelText(channel: ChannelSummary, levelDb: number | undefined): string {
     if (!Number.isFinite(levelDb)) { return '—'; }
-    return dbText(Number(levelDb), channel.measurement?.levelUnit ?? 'dB');
+    // Named by its reference, as the level axes are (R7): never bare dB for an absolute level.
+    return dbText(Number(levelDb), channel.measurement?.levelReferenceLabel ?? channel.sourceLevelReferenceLabel ?? 'dBFS');
 }
 
 export function channelMetricSummaryHtml(channel: Channel, peakLabel: string): string {
