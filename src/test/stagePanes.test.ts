@@ -6,7 +6,7 @@ import { held } from './helpers/heldSource';
 import { spectrumLayer } from '../webview/runtime/overlaySpectrumPainter';
 import { axisNameParts, fontPixels } from '../webview/plot/axisTitle';
 import { heatmapDbRange, niceRange } from '../shared/utils/ticks';
-import { alongAxisTicks, axisFractionOf, colourEndText, paintTimeAxis, axisValueAt, byLevel, levelBinsOf, emptyStageText, eventLayers, paintOverlay, stageAxes, paintColourBar, colourBarTop, stageEventCounts, stageDiffRange, stageHeadline, stageRange, stageHover, stageStep, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
+import { alongAxisTicks, axisFractionOf, colourEndText, drawnLevelsText, type StageLayer, paintTimeAxis, axisValueAt, byLevel, levelBinsOf, emptyStageText, eventLayers, paintOverlay, stageAxes, paintColourBar, colourBarTop, stageEventCounts, stageDiffRange, stageHeadline, stageRange, stageHover, stageStep, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
 import type { StageView } from '../shared/protocol/backendProtocol';
 import { getStrings } from '../shared/i18n/strings';
 import { fetchedSource, localCells, localLine, NO_FULL_DATA } from '../webview/runtime/fullRead';
@@ -852,4 +852,18 @@ test('a time axis strip fits its name as every axis name is: smaller, its quanti
     assert.ok(name, JSON.stringify(texts.map(item => item.text)));
     assert.ok(name.x >= 0, `the name starts at ${name.x}, inside the strip`);
     assert.ok(name.x + name.text.length * 6 * fontPixels(name.font) / 10 <= 120 + 0.5, `"${name.text}" runs past the strip`);
+});
+
+test('a trigger\'s events overlaid are ordered by their samples\' power: without it they are written unmeasured, which the audit of every plot fails (A44, R6)', () => {
+    const events = (scale: number, bins?: StageView['levelBins']): StageLayer => {
+        const view = { frame: 'ChannelFrameSegments', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs: [0, 1], values: [0, 0], ...(bins ? { levelBins: bins } : {}),
+            events: [{ id: 0, time: 0.5, xs: [0, 1], values: [-scale, scale] }] } as unknown as StageView;
+        return { view, color: 'a', full: held(view) };
+    };
+    const layers = [events(0.5), events(0.01)].flatMap(eventLayers);
+    assert.ok(drawnLevelsText(layers, { xs: [0, 1], xScale: 'linear' }).split(',').every(text => text === '?'), drawnLevelsText(layers, { xs: [0, 1], xScale: 'linear' }));
+    const bins = (power: number): StageView['levelBins'] => ({ edges: [0, 1], power: [power], count: [10] });
+    const measured = [events(0.5, bins(0.25)), events(0.01, bins(0.0001))].flatMap(eventLayers);
+    const texts = drawnLevelsText(measured, { xs: [0, 1], xScale: 'linear' }).split(',').map(Number);
+    assert.ok(texts[0] > texts[1], texts.join(','));
 });

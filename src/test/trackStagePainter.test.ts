@@ -346,7 +346,7 @@ test('overlaid, a trigger\'s events are split by level identity as any line, and
     assert.ok(whole.secondary, 'the Pa recording\'s events on an axis of their own');
     assert.equal(whole.mainLayers.length, 1);
     const zoomed = byReference({ ...frame, window: { x: { start: 0, end: 1 }, y: { start: 0.25, end: 0.75 } } }, overlayLayers(frame, plots, undefined, 'base.wav'));
-    const [a, b] = [whole.secondary!.range, zoomed.secondary!.range];
+    const [a, b] = [whole.secondary.range, zoomed.secondary?.range ?? { min: NaN, max: NaN }];
     assert.equal(b.min, a.min + 0.25 * (a.max - a.min));
     assert.equal(b.max, a.min + 0.75 * (a.max - a.min));
 });

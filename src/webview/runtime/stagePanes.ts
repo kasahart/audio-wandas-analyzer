@@ -78,7 +78,7 @@ export function eventLayers(layer: StageLayer): StageLayer[] {
         const at = Number.isFinite(event.time) ? ` @ ${secondsText(event.time)}` : '';
         // Each event's line reads its own full data (R7), not the recording's.
         const full: FullRead = layer.full.event?.(event.id) ?? NO_FULL_DATA;
-        return { ...rest, view: { ...view, xs: event.xs, values: event.values }, width: Math.min(layer.width ?? 1.5, 1.2), alpha: out ? 0.25 : 0.85, label: `${layer.label ? `${layer.label} ` : ''}#${event.id + 1}${at}`, ...(source !== undefined ? { event: { id: event.id, source, out } } : {}), full };
+        return { ...rest, ofEvents: true as const, view: { ...view, xs: event.xs, values: event.values }, width: Math.min(layer.width ?? 1.5, 1.2), alpha: out ? 0.25 : 0.85, label: `${layer.label ? `${layer.label} ` : ''}#${event.id + 1}${at}`, ...(source !== undefined ? { event: { id: event.id, source, out } } : {}), full };
     });
 }
 
@@ -399,7 +399,8 @@ export function screenLevels(layers: readonly StageLayer[], axisView: Pick<Stage
         const bins = view.levelBins;
         const signal = !!view.waveform;
         if (!bins && !layer.measured) {
-            levels.set(layer, { level: -Infinity, state: isDb(view) || signal ? 'unmeasured' : 'none' });
+            // A trigger's events are their recording's signal, ordered by their samples (A44): unmeasured without bins.
+            levels.set(layer, { level: -Infinity, state: isDb(view) || signal || !!view.events || !!layer.ofEvents ? 'unmeasured' : 'none' });
             continue;
         }
         let estimate = -Infinity;
@@ -703,6 +704,8 @@ export interface StageLayer {
     excluded?: readonly number[];
     /** One event of `source` (eventLayers'), and whether it is left out. */
     event?: { id: number; source: string; out: boolean };
+    /** A line of a trigger's events (eventLayers'): a signal, ordered by its samples' power (R6, A44). */
+    ofEvents?: true;
     /** What the readout says of the point at `index` of the drawn line (−1 for a point of the full data, at `point.x`), in place of where and how much (a histogram's bin and its count, a dot's recording, a spectrum's level in its unit). */
     /** `step`: for a point of the full data, the spacing of its real neighbours (the digits a place needs, R7). */
     readout?: (index: number, point: { x: number; value: number; step?: number }) => string[];

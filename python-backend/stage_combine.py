@@ -447,6 +447,8 @@ def level_bins(data: StageData, detail: StageDetail | None = None) -> StageLevel
         # The last stretch ends at its last sample's time.
         times[-1] = data.start + (last - 1) / data.rate
         return {"edges": sv._axis(times), "power": powers, "count": counts}
+    if data.mode == "events" and data.rows is not None:
+        return _event_level_bins(data, bounds)
     if data.view.get("quantity") not in DB_QUANTITIES or data.values.ndim != 1:
         return None
     xs, values = data.xs, _f64(data.values)
@@ -469,6 +471,29 @@ def level_bins(data: StageData, detail: StageDetail | None = None) -> StageLevel
     power = np.where(values <= SILENT_DB, 0.0, 10.0 ** (values / 10.0))
     counts = np.bincount(which, minlength=LEVEL_BINS)
     sums = np.bincount(which, weights=power, minlength=LEVEL_BINS)
+    means = np.divide(sums, counts, out=np.zeros(LEVEL_BINS), where=counts > 0)
+    return {"edges": sv._axis(edges), "power": [float(v) for v in means], "count": [int(c) for c in counts]}
+
+
+def _event_level_bins(data: StageData, bounds: list[float] | None) -> StageLevelBins | None:
+    """A trigger's events' power, as a signal's (A44, R6): the mean square of every event's samples, in LEVEL_BINS
+    stretches of the time from the trigger, so its events are ordered among the overlaid recordings' by their
+    samples, never left unordered."""
+    rows = np.asarray(data.rows, dtype=np.float64)
+    xs = _f64(data.xs)
+    if rows.ndim != 2 or not xs.size or rows.shape[1] != xs.size:
+        return None
+    low, high = (min(bounds), max(bounds)) if bounds is not None else (float(xs[0]), float(xs[-1]))
+    keep = np.isfinite(xs) & (xs >= low) & (xs <= high)
+    if not keep.any() or high <= low:
+        return None
+    edges = np.linspace(low, high, LEVEL_BINS + 1)
+    which = np.clip(np.searchsorted(edges, xs[keep], side="right") - 1, 0, LEVEL_BINS - 1)
+    part = rows[:, keep]
+    finite = np.isfinite(part)
+    squares = np.where(finite, part, 0.0) ** 2
+    counts = np.bincount(which, weights=finite.sum(axis=0), minlength=LEVEL_BINS)
+    sums = np.bincount(which, weights=squares.sum(axis=0), minlength=LEVEL_BINS)
     means = np.divide(sums, counts, out=np.zeros(LEVEL_BINS), where=counts > 0)
     return {"edges": sv._axis(edges), "power": [float(v) for v in means], "count": [int(c) for c in counts]}
 
