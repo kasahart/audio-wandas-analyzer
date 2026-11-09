@@ -143,7 +143,7 @@ test('a range popover names its axis as the plot does: the plot\'s own axis name
     };
     walk(root);
     // What a popover may be named by: the plot's axis-name strings, or the title the plot drew its axis with.
-    const PLOT_NAMES = [/^STR\.axis\w+(\.replace\(.*\))?(\s*\|\|.*)?$/u, /^spectrumLevelAxisTitle\b/u, /^spectrogramLevelTitle\(/u, /^laneAmplitudeAxis\(.*\)\.title$/u, /^mapping\.label\b/u];
+    const PLOT_NAMES = [/^STR\.axis\w+(\.replace\(.*\))?(\s*\|\|.*)?$/u, /^spectrumLevelAxisTitle\b/u, /^spectrumRightAxis\.title\b/u, /^spectrogramLevelTitle\(/u, /^laneAmplitudeAxis\(.*\)\.title$/u, /^mapping\.label\b/u];
     let opens = 0;
     for (const file of files) {
         const source = readFileSync(file, 'utf8');

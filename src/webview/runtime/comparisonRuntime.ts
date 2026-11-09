@@ -46,6 +46,7 @@ import { contentBoxWidth, readThenWrite, syncCanvasSize } from './canvasSizing';
 import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpecAxisCanvasId, trackSpecCanvasId, trackSpectrogramOverlayCanvasId, trackWaveformOverlayCanvasId } from './trackCanvasIds';
 import { channelLaneHtml, trackRowHtml } from './trackLaneHtml';
 import { attachPlotInteraction, FULL_PLOT_WINDOW, type PlotHit, type PlotPoint, type PlotPointer, type PlotWindow } from './plotInteraction';
+import { plotUnderPointer } from './trackPointerEvents';
 import { createPlotHoverLayer, notePlotRead, type PlotPlace } from './plotHoverLayer';
 import { attachCanvasFocusHint, attachHoverHints, createHintFooter, createTaskStatus, setHint } from './hintFooter';
 import { attachTrackLaneActions } from './trackLaneActions';
@@ -467,6 +468,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     let spectrumDrawn: StagePlot | null = null;
     /** The cursor spectrum's (left) level axis name as last drawn: its range popover names the axis the same way. */
     let spectrumLevelAxisTitle = '';
+    /** The right-hand level axis as last drawn (a second reference): its name and the levels on screen, with the left's. */
+    let spectrumRightAxis: { title: string; left: { min: number; max: number }; right: { min: number; max: number } } | null = null;
     /** The frequency the power spectrum's cursor last read under the pointer (R7). */
     let overlayReadHz: number | null = null;
     // ── スペクトルズーム ───────────────────────────────────
@@ -2906,6 +2909,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 if (!active) {
                     return;
                 }
+                // The pointer on another plot (one showing nothing yet too): the key is that plot's, never the
+                // focused lane's time (R7).
+                const under = plotUnderPointer(document);
+                if (under && under !== active) {
+                    return;
+                }
                 const step = arrowCursorStep(shiftKey, trackStore.globalSpan().spanSec, waveformView.start, waveformView.end, (active as HTMLCanvasElement).width || 800);
                 moveCursor(viewState.cursor + direction * step);
             },
@@ -2943,7 +2952,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                         const at = canvasPoint(clientX, clientY);
                         const region = overlaySpectrumRegionAt(at.x, at.y, overlayCanvas.width, overlayCanvas.height);
                         if (!region) return null;
-                        return { plot: overlayCanvas, point: pointOn(clientX, clientY), axis: region === 'db-axis' || region === 'db-axis-right' ? 'y' : region === 'freq-axis' ? 'x' : null };
+                        return { plot: overlayCanvas, point: pointOn(clientX, clientY), axis: region === 'db-axis' || region === 'db-axis-right' ? 'y' : region === 'freq-axis' ? 'x' : null, ...(region === 'db-axis-right' ? { right: true } : {}) };
                     },
                     pointOn: (_plot, clientX, clientY) => pointOn(clientX, clientY),
                     window: spectrumWindow,
@@ -2979,7 +2988,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                         zoomBox.hidden = false;
                     },
                     hideBox() { zoomBox.hidden = true; },
-                    openAxisRange(hit, clientX, clientY) { openSpectrumRangePopup(hit.axis === 'y' ? 'db' : 'freq', clientX, clientY); return true; },
+                    // The right-hand level axis opens its own range, as on every plot with two level axes (R13).
+                    openAxisRange(hit, clientX, clientY) { openSpectrumRangePopup(hit.axis === 'y' ? (hit.right && spectrumRightAxis ? 'db-right' : 'db') : 'freq', clientX, clientY); return true; },
                 });
                 attachCanvasFocusHint(overlayCanvas, hintFooter, STR.hintSpectrumPlot);
             }
@@ -3660,6 +3670,28 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         position: positionPopover,
     });
     function openSpectrumRangePopup(axis: string, clientX: number, clientY: number) {
+        if (axis === 'db-right' && spectrumRightAxis) {
+            const right = spectrumRightAxis;
+            // The right axis follows the left one's levels as the same part of its own range: its range typed here is
+            // the left one's range that shows it.
+            const toLeft = (db: number): number => right.left.min + (db - right.right.min) / ((right.right.max - right.right.min) || 1) * (right.left.max - right.left.min);
+            spectrumRangePopover.open({
+                axisLabel: spectrumRightAxis.title || unknownLevelTitle(STR),
+                horizontal: false,
+                min: String(Math.round(right.right.min)), max: String(Math.round(right.right.max)),
+                clientX, clientY,
+                apply(min, max) {
+                    if (min === null || max === null) { spectrumView.setDbRange(null, null); scheduleSpectrumRefresh('immediate'); return; }
+                    spectrumView.setDbRange(toLeft(min), toLeft(max));
+                    scheduleSpectrumRefresh('immediate');
+                },
+                auto() {
+                    spectrumView.setDbRange(null, null);
+                    scheduleSpectrumRefresh('immediate');
+                },
+            });
+            return;
+        }
         if (axis === 'db') {
             spectrumRangePopover.open({
                 // The popover names the axis as the plot does (R4): its level axis' own name, never a bracketless "(dB)".
@@ -4229,6 +4261,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const paint = paintOverlaySpectrum(canvas, W, H, read, spectrumView.state(), frequencyTitle(STR), levelTitle);
         spectrumDrawn = paint.plot;
         spectrumLevelAxisTitle = paint.levelAxes[0]?.title ?? '';
+        const [leftAxis, rightAxis] = paint.levelAxes;
+        spectrumRightAxis = leftAxis?.visible && rightAxis?.visible ? { title: rightAxis.title, left: { min: leftAxis.visible.dbMin, max: leftAxis.visible.dbMax }, right: { min: rightAxis.visible.dbMin, max: rightAxis.visible.dbMax } } : null;
         spectrumView.recordPaint(paint);
         renderSpectrumAxisLegend(document.getElementById('spectrum-axis-legend'), paint.levelAxes);
         showSpectrumMarks();

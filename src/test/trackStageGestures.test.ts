@@ -172,6 +172,17 @@ test('a click on an event line waiting for its data is decided on the plot it wa
     await new Promise(resolve => { setTimeout(resolve, 400); });
     while (replies.length) replies.shift()?.();
     assert.deepEqual(toggled, ['take 2', 'edit 2'], 'the line clicked on is the one decided');
+    // A scroll before it is decided moves the plot on screen (its line now 40 px off the pixel clicked): the line
+    // clicked on is decided all the same, at the place the plot was clicked at.
+    drawnOn.set(canvas, { ...drawnOn.get(canvas)!, plot: plotOf(0.5) });
+    const slow = fetchedSource((read, done) => { replies.push(() => done(samples.line?.({ x0: read.x[0], x1: read.x[read.x.length - 1], beyond: read.beyond ?? 1 }, () => undefined))); });
+    (drawnOn.get(canvas)!.plot.lines[0] as { full: unknown }).full = slow;
+    canvas.dispatchEvent(new dom.window.MouseEvent('mousedown', { ...at, button: 0, bubbles: true, detail: 1 }));
+    document.dispatchEvent(new dom.window.MouseEvent('mouseup', { ...at, button: 0, bubbles: true, detail: 1 }));
+    canvas.getBoundingClientRect = () => ({ left: 0, top: -40, width, height, right: width, bottom: height - 40, x: 0, y: -40, toJSON: () => ({}) });
+    await new Promise(resolve => { setTimeout(resolve, 400); });
+    while (replies.length) replies.shift()?.();
+    assert.deepEqual(toggled, ['take 2', 'edit 2', 'take 2', 'edit 2'], 'decided where the plot was as clicked, a scroll meanwhile');
 });
 
 test('the steps\' gestures place the pointer on the plot as it was drawn: with a second level axis on the right its margin is the drawn one, and over that axis is an axis (R13)', async () => {

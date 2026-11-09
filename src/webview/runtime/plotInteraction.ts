@@ -104,6 +104,8 @@ export interface PlotHit {
     plot: HTMLElement;
     point: PlotPoint;
     axis: 'x' | 'y' | null;
+    /** On a plot with two level axes, the right-hand one: its own range is opened there (R13). */
+    right?: boolean;
 }
 
 export interface PlotInteractionDeps {
@@ -142,6 +144,11 @@ export interface PlotInteractionDeps {
      * double click is no click: it is told too (a press that ended), with `current` false and its action never done.
      */
     tap?(plot: HTMLElement, event: MouseEvent, current: () => boolean): (() => void) | void;
+    /**
+     * Whether `plot` takes ← / → now, its picture still on its way too (the keys wait for it in the readout, R7);
+     * where it is left out, a plot takes them where `locate` finds it.
+     */
+    takesKeys?(plot: HTMLElement): boolean;
     /** Any press on a plot, before it is known whether it drags (a lane takes the keyboard focus). */
     pressed?(hit: PlotHit, event: MouseEvent): void;
     /** What the plots' vertical axis is (VerticalAxis); 'zoom' when left out. */
@@ -181,14 +188,16 @@ export const PLOT_DOUBLE_CLICK_MS = 300;
  * under way, so no other plot reads the pointer during it (R7).
  */
 const PLOT_PRESSES = Symbol.for('audio-wandas-analyzer.plotPresses');
-type PlotPresses = { count: number; dragging: boolean };
+type PlotPresses = { count: number; dragging: boolean; endedBy: Event | null };
 function plotPressesOf(doc: object): PlotPresses {
     const holder = doc as { [PLOT_PRESSES]?: PlotPresses };
-    return holder[PLOT_PRESSES] ??= { count: 0, dragging: false };
+    return holder[PLOT_PRESSES] ??= { count: 0, dragging: false, endedBy: null };
 }
 
 export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 'addEventListener'>, plotSelector: string, deps: PlotInteractionDeps): void {
     const presses = plotPressesOf(doc);
+    /** Whether an event's target is on this surface (a release is told on the document). */
+    const onSurface = (target: EventTarget | null): target is Element => !!target && 'nodeType' in target && surface.contains(target as Node);
     // A press that became a drag (a box zoom) is not a click: the click it ends with is not passed on, so a
     // plot's own click (picking a point, going to a row) answers only a press that stayed put, as on the lanes.
     let draggedAt = -Infinity;
@@ -218,8 +227,9 @@ export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 
         step(plot, delta, pointer) {
             // A plot these gestures do not answer now (locate finds none there: the steps' view off, the lanes in it): not theirs.
             const box = plot.getBoundingClientRect();
-            if (!deps.locate(plot, box.left + box.width / 2, box.top + box.height / 2)) return null;
-            if (press?.isDrag) return false;
+            if (deps.takesKeys ? !deps.takesKeys(plot as HTMLElement) : !deps.locate(plot, box.left + box.width / 2, box.top + box.height / 2)) return null;
+            // A drag under way, on this surface or another, steps nothing and reads nothing (R7).
+            if (press?.isDrag || presses.dragging) return false;
             // The owner hovers where the pointer really is (the layer reads the point stepped to there and keeps the
             // step's place apart), or, with the pointer on no plot (a plot given the focus), at the step's place.
             const hoverAt = (at: PlotPlace): void => {
@@ -232,7 +242,9 @@ export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 
             return true;
         },
         zoomKey(plot, action) {
-            if (press?.isDrag) return false;
+            // A drag under way, here or on another surface: the key is taken and zooms nothing (the box would be laid
+            // on another window than it was drawn on).
+            if (press?.isDrag || presses.dragging) return true;
             const box = plot.getBoundingClientRect();
             const hit = deps.locate(plot, box.left + box.width / 2, box.top + box.height / 2);
             if (!hit) return false;
@@ -285,19 +297,35 @@ export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 
         release(event) {
             const done = press;
             press = null;
-            if (!done) return;
+            if (!done) {
+                // A drag pressed on another surface let go over a plot of this one: read where it was let go (R7),
+                // whichever surface's release comes first.
+                if ((presses.dragging || presses.endedBy === event) && onSurface(event.target)) {
+                    const hit = deps.locate(event.target, event.clientX, event.clientY);
+                    if (hit && !hit.axis) { hit.plot.dataset.plotYAxis = vertical; deps.hover(event, hit); }
+                }
+                return;
+            }
+            if (done.isDrag) presses.endedBy = event;
             presses.dragging = false;
             done.drag?.end(event, done.isDrag);
             if (!done.isDrag) {
                 // The one arbitration of a click for every plot: the second press of a double click is no click (it
                 // resets the zoom only: its receiver is told the press ended, with nothing to do, `current` false), and a
                 // click is done once no second press follows, unless another press came.
-                if (done.drag) return;
-                const second = event.detail > 1;
-                const at = presses.count;
-                const current = (): boolean => !second && presses.count === at;
-                const action = deps.tap?.(done.plot, event, current);
-                if (!second && typeof action === 'function') setTimeout(() => { if (current()) action(); }, PLOT_DOUBLE_CLICK_MS);
+                if (!done.drag) {
+                    const second = event.detail > 1;
+                    const at = presses.count;
+                    const current = (): boolean => !second && presses.count === at;
+                    const action = deps.tap?.(done.plot, event, current);
+                    if (!second && typeof action === 'function') setTimeout(() => { if (current()) action(); }, PLOT_DOUBLE_CLICK_MS);
+                }
+                // Let go where it moved to (within the drag threshold): the readout is the pointer's there, as the
+                // time lines are (R7), whoever owns the press (read once its owner has let go of it).
+                if (onSurface(event.target)) {
+                    const hit = deps.locate(event.target, event.clientX, event.clientY);
+                    if (hit && !hit.axis && (event.clientX !== done.clientX || event.clientY !== done.clientY)) { hit.plot.dataset.plotYAxis = vertical; deps.hover(event, hit); }
+                }
                 return;
             }
             draggedAt = event.timeStamp;

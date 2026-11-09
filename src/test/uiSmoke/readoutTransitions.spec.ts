@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { expect, test, type Locator, type Page } from './canvasAudit';
 import { buildExtensionHostPathManyTracksHtml, buildExtensionHostPathUiSmokeHtml, buildUiSmokeHtml } from './buildHtml';
-import { entry100Results, openEntry, type ScannedFile } from './entryHelpers';
+import { backendRequired, entry100Metadata, entry100Results, openEntry, pickCsv, type ScannedFile } from './entryHelpers';
 import { getStrings } from '../../shared/i18n/strings';
 
 /**
@@ -191,6 +191,48 @@ async function spectrumStepped(page: Page, across = 0.3): Promise<{ spectrum: Lo
     await page.keyboard.press('ArrowRight');
     await expect.poll(async () => (await noted(spectrum)).at).not.toBe(under.at);
     return { spectrum, stepped: await readFull(spectrum), pointer, under };
+}
+
+/** → then + on `plot` under a still pointer: the point stepped to is read on, on the plot drawn anew (R7). */
+async function stepThenPlus(page: Page, plot: Locator, across = 0.45, down = 0.5): Promise<void> {
+    await hoverAt(page, plot, across, down);
+    const first = await readFull(plot);
+    await page.keyboard.press('ArrowRight');
+    await expect.poll(async () => (await noted(plot)).at).not.toBe(first.at);
+    const stepped = await readFull(plot);
+    const before = await plot.getAttribute('data-plot-window');
+    await page.keyboard.press('=');
+    await expect.poll(() => plot.getAttribute('data-plot-window')).not.toBe(before);
+    await page.waitForTimeout(250);
+    expect((await readFull(plot)).at, 'the point stepped to, on the plot drawn anew').toBe(stepped.at);
+}
+const snapshotUi = (page: Page): Promise<{ cursorNorm: number; entry?: { focused: string | null; dist: { range: unknown } | null } }> => page.evaluate(() => {
+    window.dispatchEvent(new MessageEvent('message', { data: { type: 'comparison-panel-test-action', actionId: `snap-${Date.now()}`, actions: [] } }));
+    const messages = (window as unknown as { __uiSmokePostedMessages: Array<{ type: string; renderedUi: { cursorNorm: number } }> }).__uiSmokePostedMessages;
+    return messages.filter(message => message.type === 'comparison-panel-test-snapshot').at(-1)!.renderedUi;
+});
+/** The entry's held plot of slot 1, held down (key 1), its bins answered (as plotContract.spec.ts does). */
+async function openHeld(page: Page): Promise<Locator> {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await openEntry(page, scanned!, { language: 'en' });
+    await page.keyboard.press('1');
+    await page.keyboard.down('1');
+    const plot = page.locator('[data-entry-held-canvas]');
+    await expect(plot).toBeVisible();
+    const binsAsked = async (): Promise<Posted | undefined> => (await page.evaluate(() => (window as unknown as { __uiSmokePostedMessages: Posted[] }).__uiSmokePostedMessages))
+        .find(message => message.type === 'compare-scan' && message.requestId.startsWith('held-bins'));
+    await expect.poll(binsAsked).toBeTruthy();
+    const request = (await binsAsked())!;
+    await page.evaluate(({ request, files }) => {
+        for (const file of files.filter(item => request.filePaths.includes(item.filePath))) {
+            const result = file.result as { spectrumDb: number[][]; input: { fs: number } };
+            const bins = { ...result, spectrumBinsDb: result.spectrumDb, spectrumBinHz: result.input.fs / 2 / Math.max(1, (result.spectrumDb[0]?.length ?? 1) - 1) };
+            window.postMessage({ type: 'compare-scan-result', requestId: request.requestId, filePath: file.filePath, result: bins }, '*');
+        }
+        window.postMessage({ type: 'compare-scan-done', requestId: request.requestId }, '*');
+    }, { request, files: scanned! });
+    await expect.poll(() => plot.getAttribute('data-plot-axes')).not.toBe('');
+    return plot;
 }
 
 const ROWS: Row[] = [
@@ -520,7 +562,7 @@ const ROWS: Row[] = [
         },
     },
     {
-        chart: 'cursor spectrum', event: 'a box drag carried over the pair plots: no hover on that surface while it drags',
+        chart: 'cursor spectrum', event: 'a box drag carried over the pair plots: no hover and no keys on that surface while it drags; let go there, read without a move',
         async run(page) {
             await page.setViewportSize({ width: 1200, height: 900 });
             await page.setContent(buildExtensionHostPathUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
@@ -537,9 +579,17 @@ const ROWS: Row[] = [
             await page.waitForTimeout(200);
             expect((await noted(gain)).read, 'the pair plot reads nothing while the drag is under way').not.toBe('full');
             expect((await noted(gain)).read).not.toBe('pending');
+            // Keys meanwhile: no step and no zoom of the plot under the pointer.
+            const windowBefore = await gain.getAttribute('data-plot-window');
+            await page.keyboard.press('ArrowRight');
+            await page.keyboard.press('=');
+            await page.waitForTimeout(200);
+            expect((await noted(gain)).read, 'no step read while the drag is under way').not.toBe('full');
+            expect(await gain.getAttribute('data-plot-window'), 'no zoom while the drag is under way').toBe(windowBefore);
+            // Let go over the gain, the pointer still: it reads there.
             await page.mouse.up();
-            await page.mouse.move(gainBox.x + gainBox.width * 0.52, gainBox.y + gainBox.height * 0.5);
-            await readFull(gain);
+            const read = await readFull(gain);
+            expect(Math.abs((read.x ?? NaN) - gainBox.width * 0.5), 'read where it was let go').toBeLessThan(25);
         },
     },
     {
@@ -623,19 +673,257 @@ const ROWS: Row[] = [
             await expect.poll(() => left.count(), { message: 'the click alone leaves it out' }).toBe(leftOut + 1);
         },
     },
+    {
+        chart: 'cursor spectrum', event: 'focused from the keyboard with the pointer on its header: → steps the focused plot, + is not its own',
+        async run(page) {
+            await page.setViewportSize({ width: 1200, height: 900 });
+            await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
+            const spectrum = page.locator('#spectrum-overlay-canvas');
+            await expect.poll(() => spectrum.getAttribute('data-plot-axes')).not.toBe('');
+            const header = page.locator('#spectrum-overlay-header');
+            const headerBox = (await header.boundingBox())!;
+            await page.mouse.move(headerBox.x + headerBox.width * 0.6, headerBox.y + headerBox.height / 2);
+            await spectrum.focus();
+            const first = await readFull(spectrum);
+            await page.keyboard.press('ArrowRight');
+            await expect.poll(async () => (await noted(spectrum)).at, { message: '→ steps the focused plot' }).not.toBe(first.at);
+            await page.keyboard.press('ArrowRight');
+            const second = await readFull(spectrum);
+            await expect(page.locator('#spectrum-freq-readout')).toContainText(/\d/u);
+            const before = await spectrum.getAttribute('data-plot-window');
+            await page.keyboard.press('=');
+            await page.waitForTimeout(200);
+            expect(await spectrum.getAttribute('data-plot-window'), '+ does not zoom a plot the pointer is not on').toBe(before);
+            expect((await noted(spectrum)).at).toBe(second.at);
+        },
+    },
+    {
+        chart: 'cursor spectrum', event: '→ twice then a resize that moves the plot (the height splitter): the point stepped to is read on',
+        async run(page) {
+            const { spectrum } = await spectrumStepped(page);
+            await page.keyboard.press('ArrowRight');
+            const stepped = await readFull(spectrum);
+            const top = (await spectrum.boundingBox())!.y;
+            const splitter = page.locator('.spectrum-height-resizer');
+            await splitter.focus();
+            for (let key = 0; key < 4; key++) await page.keyboard.press('ArrowUp');
+            await expect.poll(async () => Math.abs((await spectrum.boundingBox())!.y - top), { message: 'the plot moved' }).toBeGreaterThan(4);
+            await page.waitForTimeout(250);
+            expect((await readFull(spectrum)).at, 'the point stepped to, not the one now under the pointer').toBe(stepped.at);
+        },
+    },
+    {
+        chart: 'cursor spectrum', event: 'no slice drawn yet, a lane focused: → over the spectrum is its own, never the lane\'s time cursor',
+        async run(page) {
+            await page.setViewportSize({ width: 1200, height: 900 });
+            await page.setContent(buildExtensionHostPathUiSmokeHtml(4000), { waitUntil: 'domcontentloaded' });
+            const lane = page.locator('.track-canvas:not(.track-spec-canvas)').first();
+            await expect(lane).toBeVisible();
+            await lane.focus();
+            const spectrum = page.locator('#spectrum-overlay-canvas');
+            await expect(spectrum).toBeVisible();
+            const box = (await spectrum.boundingBox())!;
+            await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+            const before = (await snapshotUi(page)).cursorNorm;
+            await page.keyboard.press('ArrowRight');
+            await page.keyboard.press('ArrowRight');
+            await page.waitForTimeout(200);
+            expect((await snapshotUi(page)).cursorNorm, 'the focused lane\'s time cursor stays').toBe(before);
+        },
+    },
+    {
+        chart: 'track waveform lane', event: 'a press moved within the drag threshold and let go: the readout and the time lines are both at the release',
+        async run(page) {
+            await page.setViewportSize({ width: 1200, height: 900 });
+            await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
+            const lane = page.locator('.track-canvas:not(.track-spec-canvas)').first();
+            await expect.poll(() => lane.getAttribute('data-plot')).toBe('');
+            // A press and a release a few pixels apart that read two points (the lane reads its nearest one).
+            let at = await hoverAt(page, lane, 0.4);
+            let pressed = await readFull(lane), released = pressed, releasedClock = NaN;
+            for (let across = 0.4; across < 0.6 && released.at === pressed.at; across += 0.004) {
+                at = await hoverAt(page, lane, across);
+                pressed = await readFull(lane);
+                await page.mouse.move(at.x + 3, at.y);
+                await expect.poll(async () => (await noted(lane)).read).toBe('full');
+                released = await noted(lane);
+                releasedClock = await clock(page);
+            }
+            expect(released.at, 'two points a few pixels apart').not.toBe(pressed.at);
+            await page.mouse.move(at.x, at.y);
+            await expect.poll(async () => (await noted(lane)).at).toBe(pressed.at);
+            await page.mouse.down();
+            await page.mouse.move(at.x + 3, at.y);
+            await page.mouse.up();
+            await page.waitForTimeout(500);
+            const read = await readFull(lane);
+            expect(read.at, 'read at the release').toBe(released.at);
+            // The clock shows hundredths: the time lines are at the release, as a hover there puts them.
+            expect(Math.abs(await clock(page) - releasedClock), 'the time lines are where a hover there puts them').toBeLessThan(0.011);
+        },
+    },
+    {
+        chart: 'pair phase', event: '→ then + : the point stepped to stays its own',
+        async run(page) {
+            await page.setViewportSize({ width: 1200, height: 900 });
+            await page.setContent(buildExtensionHostPathUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
+            await page.locator('[data-action="set-pair-reference"]').first().click();
+            const plot = page.locator('[data-pair-lane="phase"]');
+            await expect.poll(() => plot.getAttribute('data-plot-axes')).not.toBe('');
+            await stepThenPlus(page, plot);
+        },
+    },
+    {
+        chart: 'pair γ²', event: '→ then + : the point stepped to stays its own',
+        async run(page) {
+            await page.setViewportSize({ width: 1200, height: 900 });
+            await page.setContent(buildExtensionHostPathUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
+            await page.locator('[data-action="set-pair-reference"]').first().click();
+            const plot = page.locator('[data-pair-lane="coherence"]');
+            await expect.poll(() => plot.getAttribute('data-plot-axes')).not.toBe('');
+            await stepThenPlus(page, plot);
+        },
+    },
+    {
+        chart: 'steps overlay', event: '→ while its picture is made anew (pending): kept, taken once it is drawn', backend: true,
+        async run(page) {
+            await page.setViewportSize({ width: 1280, height: 900 });
+            await openComparison(page, scanned!);
+            const overlay = page.locator('[data-stage-canvas="overlay"]');
+            await expect.poll(() => overlay.getAttribute('data-plot')).toBe('');
+            await hoverAt(page, overlay, 0.2);
+            const first = await readFull(overlay);
+            // Where → goes from there, as the plot steps once drawn; and back.
+            await page.keyboard.press('ArrowRight');
+            await expect.poll(async () => (await noted(overlay)).at).not.toBe(first.at);
+            const next = (await readFull(overlay)).at;
+            await page.keyboard.press('ArrowLeft');
+            await expect.poll(async () => (await noted(overlay)).at).toBe(first.at);
+            // A step before it bypassed (without moving the pointer): the picture is asked for anew.
+            const scans = (await stageScans(page)).length;
+            await page.evaluate(() => {
+                document.querySelector<HTMLElement>('[data-action="step-bypass"][data-step="node-0"]')?.click();
+                (document.activeElement as HTMLElement | null)?.blur();
+            });
+            await expect.poll(async () => (await stageScans(page)).length).toBeGreaterThan(scans);
+            await page.keyboard.press('ArrowRight');
+            await answer(page, scanned!);
+            await expect.poll(async () => (await noted(overlay)).at, { message: 'the key pressed while pending, taken once drawn' }).toBe(next);
+        },
+    },
+    {
+        chart: 'trigger events overlay inside the lanes\' surface', event: '→ then + : the point stepped to stays its own', backend: true,
+        async run(page) {
+            await page.setViewportSize({ width: 1280, height: 1100 });
+            await openTrigger(page, scanned!);
+            const overlay = page.locator('[data-stage-canvas="overlay"]');
+            await expect.poll(() => overlay.getAttribute('data-plot')).toBe('');
+            await stepThenPlus(page, overlay, 0.3);
+        },
+    },
+    {
+        chart: 'steps difference pane', event: '→ then + : the point stepped to stays its own', backend: true,
+        async run(page) {
+            await page.setViewportSize({ width: 1280, height: 900 });
+            await openComparison(page, scanned!);
+            await page.locator('[data-action="stage-diff"]').click();
+            const plot = page.locator('[data-stage-canvas="diff"]');
+            await expect(plot).toBeVisible();
+            await expect.poll(() => plot.getAttribute('data-plot')).toBe('');
+            await stepThenPlus(page, plot);
+        },
+    },
+    {
+        chart: 'steps lanes (no trigger)', event: '→ then + : the point stepped to stays its own', backend: true,
+        async run(page) {
+            await page.setViewportSize({ width: 1280, height: 900 });
+            await openComparison(page, scanned!);
+            await page.locator('[data-action="stage-layout"]').click();
+            await expect(page.locator('.track-stage')).toHaveAttribute('data-layout', 'lanes');
+            const plot = page.locator('.track-canvas[data-plot]').first();
+            await expect(plot).toBeVisible();
+            await stepThenPlus(page, plot);
+        },
+    },
+    {
+        chart: 'steps overlay (a trigger\'s events, over its lanes)', event: 'an event-line click, then a scroll before it is decided: the line clicked on is left out', backend: true,
+        async run(page) {
+            await page.setViewportSize({ width: 1280, height: 620 });
+            await openTrigger(page, scanned!, 2);
+            const overlay = page.locator('[data-stage-canvas="overlay"]');
+            await expect.poll(() => overlay.getAttribute('data-plot')).toBe('');
+            await hoverAt(page, overlay, 0.5, 0.4);
+            await readFull(overlay);
+            const box = (await overlay.boundingBox())!;
+            const on = await overlay.evaluate(canvas => { const read = (canvas as HTMLElement & { __plotRead?: { x: number; y: number; layer: { event?: { id: number; source: string } } } | null }).__plotRead; return read ? { x: read.x, y: read.y, id: read.layer.event?.id ?? null, source: read.layer.event?.source ?? '' } : null; });
+            expect(on?.id, 'an event\'s line under the pointer').not.toBeNull();
+            await page.mouse.click(box.x + on!.x, box.y + on!.y);
+            await page.locator('#tracks-wrapper').evaluate(element => { element.scrollTop += 60; });
+            const out = page.locator(`[data-action="stage-event-toggle"][data-event="${on!.id}"][data-path="${on!.source}"][data-out="true"]`);
+            await expect.poll(() => out.count(), { message: 'the event clicked on is left out, the scroll notwithstanding' }).toBe(1);
+            expect(await page.locator('[data-action="stage-event-toggle"][data-out="true"]').count(), 'and no other').toBe(1);
+        },
+    },
+    {
+        chart: 'entry distribution', event: 'a double click on a dot resets the zoom only: the table stays on its row', backend: true,
+        async run(page) {
+            await page.setViewportSize({ width: 1280, height: 900 });
+            await openEntry(page, scanned!, { language: 'en' });
+            await pickCsv(page, 'motor.csv', entry100Metadata());
+            await page.locator('[data-action="entry-group"]').selectOption('csv:rpm');
+            // 1800 rpm: too few recordings for a histogram, drawn as dots.
+            const dotCanvas = page.locator('[data-dist-group="1800"] [data-dist-canvas]');
+            const dots = async (): Promise<Array<{ key: string; x: number; y: number }>> => ((await dotCanvas.getAttribute('data-dots')) ?? '').split('\n').filter(Boolean)
+                .map(line => { const [key, x, y] = line.split('\t'); return { key, x: Number(x), y: Number(y) }; });
+            await expect.poll(async () => (await dots()).length).toBeGreaterThan(0);
+            const focused = async (): Promise<string | null> => page.locator('[data-entry-rows] tr.is-focused').getAttribute('data-key', { timeout: 500 }).catch(() => null);
+            const before = await focused();
+            const dot = (await dots()).find(item => item.key !== before);
+            expect(dot, 'a dot of another row').toBeTruthy();
+            const at = (await dotCanvas.boundingBox())!;
+            await page.mouse.dblclick(at.x + dot!.x, at.y + dot!.y);
+            await page.waitForTimeout(600);
+            expect(await focused(), 'the table stays on its row').toBe(before);
+        },
+    },
+    {
+        chart: 'entry held plot', event: '→ then + : the point stepped to stays its own', backend: true,
+        async run(page) {
+            const plot = await openHeld(page);
+            await stepThenPlus(page, plot);
+            await page.keyboard.up('1');
+        },
+    },
+    {
+        chart: 'entry overview strip', event: '→ then + : the cell stepped to stays its own', backend: true,
+        async run(page) {
+            await page.setViewportSize({ width: 1280, height: 900 });
+            await openEntry(page, scanned!, { language: 'en' });
+            const plot = page.locator('[data-entry-overview]');
+            await expect.poll(() => plot.getAttribute('data-plot-axes')).not.toBe('');
+            await stepThenPlus(page, plot, 0.45, 0.3);
+        },
+    },
 ];
 
 for (const row of ROWS) {
     test(`${row.chart} × ${row.event} (R7)`, async ({ page }) => {
-        if (row.backend) test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+        // Where the backend is required (AWA_REQUIRE_BACKEND=1, or the repo's .venv), a row that needs it fails, never skips.
+        if (row.backend && !scanned && backendRequired()) throw new Error('the Python backend is required here but the entry100 fixture was not scanned');
+        if (row.backend) test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture (AWA_REQUIRE_BACKEND=0)');
         test.setTimeout(90_000);
         await row.run(page);
     });
 }
 
-test('the browser table holds a row for each chart the readout runs on and each real path R7 names', () => {
-    const charts = new Set(ROWS.map(row => row.chart.split(' ')[0] + ' ' + row.chart.split(' ')[1]));
-    for (const chart of ['track waveform', 'track spectrogram', 'cursor spectrum', 'pair gain', 'steps overlay', 'trigger events', 'entry distribution']) expect(charts.has(chart), chart).toBe(true);
+test('the browser table holds a row for each chart the readout runs on, by its full name, and each real path R7 names', () => {
+    // Every chart an owner shows through plotHoverLayer, exactly: one not listed here, or listed and with no row, fails.
+    const CHARTS = ['track waveform lane', 'track spectrogram lane', 'cursor spectrum', 'pair gain', 'pair phase', 'pair γ²',
+        'steps overlay', 'steps overlay (a trigger\'s events, over its lanes)', 'trigger events overlay inside the lanes\' surface', 'steps difference pane',
+        'steps lanes (no trigger)', 'entry distribution', 'entry held plot', 'entry overview strip'];
+    expect([...new Set(ROWS.map(row => row.chart))].sort()).toEqual([...CHARTS].sort());
+    // Each chart is stepped (→) or zoomed (+) under a still pointer in at least one of its rows.
+    for (const chart of CHARTS) expect(ROWS.some(row => row.chart === chart && /→|\+/u.test(row.event)), `${chart}: a step or a zoom`).toBe(true);
     const events = ROWS.map(row => row.event).join(' | ');
-    for (const path of ['scroll', 'Tab', 'then +', 'pending', 'failed', '(a redraw)', 'add up', 'off the window', 'seek', 'double click', 'drag', 'the surface from under', 'double-click wait', 'event-line click']) expect(events, path).toContain(path);
+    for (const path of ['scroll', 'Tab', 'then +', 'pending', 'failed', '(a redraw)', 'add up', 'off the window', 'seek', 'double click', 'drag', 'the surface from under', 'double-click wait', 'event-line click', 'header', 'resize', 'no slice drawn yet', 'drag threshold', 'picture is made anew', 'on a dot', 'let go there']) expect(events, path).toContain(path);
 });

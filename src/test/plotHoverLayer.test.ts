@@ -346,3 +346,21 @@ test('the true pointer and the point stepped to are kept apart: a step the new d
     assert.ok(layer.reading(), 'a point is read');
     assert.equal(layer.reading()?.at, fresh.reading()?.at, 'the point at the true pointer, not at the step\'s place');
 });
+
+test('keys pressed while the plot has no drawing (its picture on its way) wait with the point read: two keys, two points once it is drawn (R7)', () => {
+    const { plot, slot, layer } = setup();
+    const source = gatedLine([0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5]);
+    const first = source.draw();
+    layer.show(plot, first, 80, 75, slot);
+    layer.stepFrom(plot, first, 1);
+    layer.show(plot, first, 80, 75, slot);
+    assert.equal(layer.reading()?.at, 4);
+    // The picture is made anew: no drawing yet. The owner's keys come before it shows that, and after.
+    assert.ok(layer.stepFrom(plot, null, 1), 'the key is kept');
+    layer.show(plot, null, 80, 75, slot);
+    assert.ok(layer.stepFrom(plot, null, 1), 'and the next');
+    layer.show(plot, null, 80, 75, slot);
+    assert.equal(layer.reading(), null, 'nothing read meanwhile');
+    layer.show(plot, source.draw(), 80, 75, slot);
+    assert.equal(layer.reading()?.at, 6, 'two keys, two points from the point stepped to');
+});

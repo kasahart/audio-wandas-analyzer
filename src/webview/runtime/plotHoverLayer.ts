@@ -234,18 +234,16 @@ export function createPlotHoverLayer(document: Document, className = '', parent:
             // A step carries its point; the point stepped to stays read at its place until the pointer moves: a redraw
             // there reads that very point on the plot drawn anew (stageReadAgain), never the neighbour the pointer
             // would pick at a value held at the edge (A46), and one the new drawing does not show is let go.
-            // A plot moved under a still pointer (a scroll) has another point under it: the step is let go.
             const kept = stepped && samePlot(stepped.plot, plot) && atStep(clientX, clientY) ? stepped : null;
-            // Moved on screen with no scroll told (a layout shift): another point is under the pointer, let go too.
-            const moved = !!kept && (kept.left !== rect.left || kept.top !== rect.top);
-            const here = kept && !moved ? kept : null;
+            // Only a scroll lets it go (the listener above); a resize that moves the plot keeps it, where it is now (R7).
+            const here = kept;
             if (!here) stepped = null;
-            else here.plot = plot;
+            else { here.plot = plot; here.left = rect.left; here.top = rect.top; }
             if (queued && (!samePlot(queued.plot, plot) || queued.clientX !== clientX || queued.clientY !== clientY)) queued = null;
             const step = here ? rebased(here, drawn, again) : null;
             if (here && !step) stepped = null;
             // A step the new drawing no longer shows is let go: the true pointer's place is read, never the step's.
-            const gone = kept && (moved || !step) ? kept.pointer : null;
+            const gone = kept && !step ? kept.pointer : null;
             const looks = gone ? { x: gone.clientX - rect.left, y: gone.clientY - rect.top } : { x, y };
             const found = step ?? (drawn ? readAt(drawn, looks.x, looks.y, again) : null);
             const hit = found?.read ?? null;
@@ -319,7 +317,11 @@ export function createPlotHoverLayer(document: Document, className = '', parent:
             // step from the drawing before it (R7).
             const lastHere = shown && last && samePlot(last.plot, plot) ? last : null;
             if (lastHere && waits(lastHere.read)) return queue(lastHere.read);
-            if (!drawn) return null;
+            // No drawing yet (a picture on its way): the key waits with the point read, taken once one is drawn (R7).
+            if (!drawn) {
+                const held = shown && stepped && samePlot(stepped.plot, plot) ? stepped.found.read : lastHere?.read;
+                return held ? queue(held) : null;
+            }
             // The point to step from, on the drawing the owner has now: a step carried but not yet shown (an owner that
             // shows on its next frame, the lanes), else the point shown; read again first where it was read on another.
             const base = shown && stepped && samePlot(stepped.plot, plot) ? stepped : lastHere ? { drawnOn: lastHere.drawn, found: { on: lastHere.on, read: lastHere.read } } : null;
