@@ -13,7 +13,7 @@ import { entry100Results, openEntry, type ScannedFile } from './entryHelpers';
  * A plot that does not pass one yet is listed in KNOWN_GAPS with the deviation of the unified plot spec it waits
  * for; a gap that is fixed fails here until it is taken off, so the list only shrinks.
  */
-type Check = 'readout' | 'step' | 'zoom' | 'reset' | 'axis range' | 'axes';
+type Check = 'readout' | 'step' | 'zoom' | 'reset' | 'box zoom' | 'axis range' | 'axes';
 const KNOWN_GAPS: Record<string, readonly Check[]> = {};
 
 const FULL = '0.000 1.000 0.000 1.000';
@@ -223,6 +223,28 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
     await page.mouse.dblclick(middle.x, middle.y);
     await page.waitForTimeout(80);
     if (zoomed && (await plot.getAttribute('data-plot-window')) === FULL && await picture() !== zoomedPicture) passed.add('reset');
+    // A plain drag zooms into its box (R13): the window narrows on the horizontal axis and on the vertical one, but
+    // for a vertical axis defined to show every count always (data-plot-y-axis "all-counts", plotInteraction.ts
+    // VerticalAxis), which stays whole and must be the plot's count axis. A double-click gives the whole back.
+    const beforeBox = await picture();
+    await page.mouse.move(box.x + box.width * 0.3, box.y + box.height * 0.3);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.45, { steps: 4 });
+    await page.mouse.move(box.x + box.width * 0.7, box.y + box.height * 0.6, { steps: 4 });
+    await page.mouse.up();
+    await page.waitForTimeout(80);
+    const boxed = ((await plot.getAttribute('data-plot-window')) ?? '').split(' ').map(Number);
+    const vertical = await plot.getAttribute('data-plot-y-axis');
+    if (boxed.length === 4 && boxed.every(Number.isFinite) && (vertical === 'zoom' || vertical === 'all-counts')) {
+        const [x0, x1, y0, y1] = boxed;
+        const across = x0 > 0.001 && x1 < 0.999 && x1 > x0;
+        // A count axis is one that shows every count (display-rules R13), and only a count axis may.
+        const counts = /count|数/iu.test(names[1] ?? '');
+        const up = vertical === 'all-counts' ? counts && y0 === 0 && y1 === 1 : !counts && y0 > 0.001 && y1 < 0.999 && y1 > y0;
+        if (across && up && await picture() !== beforeBox) passed.add('box zoom');
+    }
+    await page.mouse.dblclick(middle.x, middle.y);
+    await page.waitForTimeout(80);
     // A double-click on the level axis opens its range: the plot's own left margin, or the canvas beside it that
     // holds its value axis (data-plot-axis).
     const axisId = await plot.getAttribute('data-plot-axis');
@@ -324,7 +346,7 @@ async function expectContract(page: Page, name: string, plot: Locator): Promise<
     checkedPlots.add(await plot.evaluate(plotName));
     const passed = await contract(page, plot);
     const gaps = KNOWN_GAPS[name] ?? [];
-    const checks: Check[] = ['readout', 'step', 'zoom', 'reset', 'axis range', 'axes'];
+    const checks: Check[] = ['readout', 'step', 'zoom', 'reset', 'box zoom', 'axis range', 'axes'];
     expect.soft(checks.filter(check => !passed.has(check) && !gaps.includes(check)), `${name}: fails the plot contract (R13)`).toEqual([]);
     expect.soft(gaps.filter(check => passed.has(check)), `${name}: now passes; take it off KNOWN_GAPS`).toEqual([]);
 }
