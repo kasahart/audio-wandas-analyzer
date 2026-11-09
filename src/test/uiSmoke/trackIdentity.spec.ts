@@ -1,4 +1,4 @@
-import { expect, test, type Page } from './canvasAudit';
+import { expect, settled, test, type Page } from './canvasAudit';
 import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import { buildUiSmokeHtml, buildUiSmokeSelectionHtml } from './buildHtml';
@@ -83,7 +83,7 @@ test('directory file remove/re-add keeps surviving offset, cursor and document',
     const box = (await canvas.boundingBox())!;
     await page.mouse.click(box.x + box.width * .437, box.y + box.height * .5);
     // The click moves the cursor once no double click follows (plotInteraction.ts), then the zoom is about it.
-    await page.waitForTimeout(450);
+    await settled(page);
     await page.locator('#toolbar [data-action="zoom-in"]').click();
     const viewState = () => page.evaluate(() => {
         window.dispatchEvent(new MessageEvent('message', { data: {

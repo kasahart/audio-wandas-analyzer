@@ -1,4 +1,4 @@
-import { expect, test, type Page } from './canvasAudit';
+import { expect, settled, test, type Page } from './canvasAudit';
 import { getStrings } from '../../shared/i18n/strings';
 import { entry100Metadata, entry100Results, openEntry, pickCsv, type ScannedFile } from './entryHelpers';
 
@@ -23,7 +23,7 @@ test('the CSV, value, group, filters, base, slots, memo and exclusions are saved
     const STR = getStrings('ja');
     await openEntry(page, scanned!, { language: 'ja' });
     // Nothing is saved for a folder just opened: its stored session (none) came back and nothing changed.
-    await page.waitForTimeout(800);
+    await settled(page);
     expect(await saves(page)).toEqual([]);
     await pickCsv(page, 'motor.csv', entry100Metadata());
     await page.locator('[data-action="entry-value"]').selectOption('csv:temp_c');
@@ -44,7 +44,7 @@ test('the CSV, value, group, filters, base, slots, memo and exclusions are saved
     await rows.nth(1).locator('[data-action="entry-row-exclude"]').click();
     // Saved once things settle, with the CSV (it changed).
     await expect.poll(async () => (await saves(page)).length, { timeout: 5000 }).toBeGreaterThan(0);
-    await page.waitForTimeout(800);
+    await settled(page);
     const all = await saves(page);
     const last = all.at(-1)!;
     expect(last.rootPath).toBe('/entry100');
@@ -66,7 +66,7 @@ test('the CSV, value, group, filters, base, slots, memo and exclusions are saved
     await expect(page.locator('[data-action="entry-base"]')).toHaveValue('group:1500');
     // setContent keeps the window: the saves posted so far are the first page's; the reopening adds none.
     const before = (await saves(page)).length;
-    await page.waitForTimeout(800);
+    await settled(page);
     expect((await saves(page)).length).toBe(before);
 
     // 「メモと除外を CSV に書き出す」: the CSV as it was, with memo and excluded after its columns.

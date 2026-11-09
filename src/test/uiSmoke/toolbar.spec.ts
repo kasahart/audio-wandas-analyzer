@@ -1,4 +1,4 @@
-import { expect, test, type Page } from './canvasAudit';
+import { expect, settled, test, type Page } from './canvasAudit';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -534,15 +534,29 @@ test('a lane shows the waveform over its spectrogram on one time axis, split by 
     expect(before.wave.x).toBeCloseTo(before.spec.x, 0);
     expect(before.spec.y).toBeGreaterThan(before.wave.y + before.wave.height - 1);
     expect(before.spec.width).toBeCloseTo(before.wave.width, 0);
-    // Hovering either plot moves the same cursor time.
-    await page.mouse.move(before.spec.x + before.wave.width / 2, before.spec.y + before.spec.height / 2);
+    // Hovering either plot moves the same cursor time. Each shows the time of the point it reads (R7): the
+    // spectrogram its STFT frame's, the waveform its sample's; so the waveform is hovered where that frame is, found
+    // from the time the waveform reads at the pointer's place (the lanes start at 0 s).
+    type Noted = HTMLElement & { __plotRead?: { at?: number } | null };
+    const readAt = (plot: typeof wave): Promise<number | undefined> => plot.evaluate(canvas => (canvas as Noted).__plotRead?.at);
+    const across = before.wave.width / 2;
+    await page.mouse.move(before.wave.x + across, before.wave.y + before.wave.height / 2);
+    await settled(page);
+    const sampleAt = await readAt(wave);
+    await page.mouse.move(before.spec.x + across, before.spec.y + before.spec.height / 2);
+    await settled(page);
     const fromSpec = await page.locator('#cursor-display').textContent();
-    await page.mouse.move(before.wave.x + before.wave.width / 2, before.wave.y + before.wave.height / 2);
+    const frameAt = await readAt(spec);
+    expect(sampleAt).toBeGreaterThan(0);
+    expect(frameAt).toBeDefined();
+    await page.mouse.move(before.wave.x + across * frameAt! / sampleAt!, before.wave.y + before.wave.height / 2);
+    await settled(page);
     expect(await page.locator('#cursor-display').textContent()).toBe(fromSpec);
     // A click on the spectrogram gives the lane the keys: → moves the cursor.
     await spec.click({ position: { x: before.wave.width / 4, y: before.spec.height / 2 } });
     await expect(spec).toBeFocused();
     await page.mouse.move(0, 0);
+    await settled(page);
     const clicked = await page.locator('#cursor-display').textContent();
     await page.keyboard.press('Shift+ArrowRight');
     await expect(page.locator('#cursor-display')).not.toHaveText(clicked ?? '');
@@ -601,20 +615,22 @@ test('the cursor readout is labelled and follows a loop drag to where it was rel
     const y = wave.y + wave.height / 2;
     const readout = page.locator('#cursor-display');
     await page.mouse.move(wave.x + wave.width * 0.2, y);
+    await settled(page);
     const atPress = await readout.textContent();
     await page.mouse.down();
     await page.mouse.move(wave.x + wave.width * 0.6, y, { steps: 6 });
     // While dragging the readout is the pointer's time, not the time pressed.
     await expect(readout).not.toHaveText(atPress ?? '');
-    const dragged = await readout.textContent();
     await page.mouse.up();
-    await expect(readout).toHaveText(dragged ?? '');
-    // The same time hovered afresh reads the same time: on the spectrogram, where the time is the pointer's (on the
-    // waveform it is the point the lane reads, R7).
-    const spec = (await page.locator('#track-spec-canvas-0').boundingBox())!;
+    // Let go, it reads where it was released: the time a fresh hover there reads, the point the lane reads (R7).
+    await settled(page);
+    const released = await readout.textContent();
     await page.mouse.move(0, 0);
-    await page.mouse.move(wave.x + wave.width * 0.6, spec.y + spec.height / 2);
-    await expect(readout).toHaveText(dragged ?? '');
+    await settled(page);
+    await expect(readout).not.toHaveText(released ?? '');
+    await page.mouse.move(wave.x + wave.width * 0.6, y);
+    await settled(page);
+    await expect(readout).toHaveText(released ?? '');
 });
 
 test('after a box zoom the cursor readout is the time under the pointer in the zoomed view', async ({ page }) => {
@@ -625,12 +641,15 @@ test('after a box zoom the cursor readout is the time under the pointer in the z
     await page.mouse.move(wave.x + wave.width * 0.2, y - 20);
     await page.mouse.down();
     await page.mouse.move(wave.x + wave.width * 0.6, y + 20, { steps: 6 });
+    await settled(page);
     const dragged = await readout.textContent();
     await page.mouse.up();
     await expect(readout).not.toHaveText(dragged ?? '');
+    await settled(page);
     const released = await readout.textContent();
     await page.mouse.move(0, 0);
     await page.mouse.move(wave.x + wave.width * 0.6, y + 20);
+    await settled(page);
     await expect(readout).toHaveText(released ?? '');
 });
 
