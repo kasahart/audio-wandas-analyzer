@@ -39,7 +39,7 @@
 | レポートの重ね図（比較 n.png、要約.png の上段） (`report-overlay`) | `webview/runtime/compareReport.ts:paintOverlayFigure` | 5 | 1 |
 | レポートの Δ 図（差 n.png、要約.png の下段） (`report-delta`) | `webview/runtime/compareReport.ts:paintDeltaFigure` | 4 | 1 |
 | レポートの 要約.png の頭書き・報告.csv・定義.json (`report-files`) | `webview/runtime/compareReport.ts:summaryPng`<br>`webview/runtime/compareReport.ts:reportCsv` | 2 | 0 |
-| 解析レポート（Markdown） (`analysis-report`) | `shared/report/analysisReport.ts:buildMarkdownReport` | 1 | 1 |
+| 解析レポート（Markdown） (`analysis-report`) | `shared/report/analysisReport.ts:buildMarkdownReport` | 1 | 0 |
 
 ## 比較台の重ね図（トリガーのイベント図を含む）
 
@@ -262,7 +262,7 @@
 
 | 値 | 何の数か | 計算する場所 | 出どころ | テスト | 穴 |
 | --- | --- | --- | --- | --- | --- |
-| 書き出し | Markdown のレポートの数（長さ、ピーク、レベル） | `shared/report/analysisReport.ts:buildMarkdownReport`<br>`shared/report/analysisReport.ts:formatReportDb`<br>`shared/report/analysisReport.ts:reportLevel` | 全データ：バックエンドの全サンプルのピークとレベル、ファイルの長さ。 | `analysisReport.test.ts` › markdown report is a pure function of tracks, loop region and time<br>`renderScript.integration.test.ts` › renderScript: multichannel report lists peak metrics for every channel | **P2** 全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。 |
+| 書き出し | Markdown のレポートの数（長さ、ピーク、レベル） | `shared/report/analysisReport.ts:buildMarkdownReport`<br>`shared/report/analysisReport.ts:formatReportDb`<br>`shared/report/analysisReport.ts:reportLevel` | 全データ：バックエンドの全サンプルのピークとレベル、ファイルの長さ。 | ◆ `analysisReport.test.ts` › the markdown report writes every sample's peak and level and the file's own length, never the envelope thinned to draw it<br>`analysisReport.test.ts` › markdown report is a pure function of tracks, loop region and time<br>`renderScript.integration.test.ts` › renderScript: multichannel report lists peak metrics for every channel |  |
 
 ## 穴の一覧
 
@@ -272,7 +272,7 @@
 - `compare-delta.range-image`：カラーバーの両端の数を、描くために平均した Δ のマスから求めている。
 - `compare-lanes.range-image`：カラーバーの両端の数を、描くために平均したマスから求めている。
 
-### P2（13、上限 13）
+### P2（12、上限 12）
 
 - `compare-overlay.pending`：R7 は届くまで読み値を空にするが、密な窓を別の高さで読むときは前の高さの点を読む。その間の読み値は今のマウスに一番近い点とは限らない。
 - `compare-overlay.readout-events`：イベントの線の読み値と ← / → がそのイベントの全サンプルから来ることを確かめるテストがない（ジェスチャのテストは数字の出どころを見ない）。
@@ -286,7 +286,6 @@
 - `entry-held.range`：範囲を間引いた点から求めている。全データの端と一致することを確かめるテストがない。
 - `report-overlay.range`：範囲を間引いた線から求めている。全ビンの端と一致することを確かめるテストがない。
 - `report-delta.range`：全ビンがあるときの範囲を間引いた線から求めている。テストは帯だけの場合しか見ていない。
-- `analysis-report.export`：全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。
 
 ### P3（0、上限 0）
 
