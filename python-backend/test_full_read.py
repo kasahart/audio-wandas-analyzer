@@ -92,7 +92,7 @@ def test_a_recordings_spectrum_is_read_at_its_own_bins_not_its_picture(signal: w
     points = read_points([data], None, {"x": [float(data.xs[at])], "beyond": 4})
     assert points is not None and points["complete"]
     assert points["xs"] == pytest.approx(data.xs[at - 4 : at + 5].tolist())
-    assert points["values"] == pytest.approx(data.values[at - 4 : at + 5].tolist())
+    assert points["values"] == pytest.approx(np.round(data.values[at - 4 : at + 5], 2).tolist(), abs=1e-9)
 
 
 def test_a_difference_is_read_bin_by_bin(signal: wd.ChannelFrame) -> None:

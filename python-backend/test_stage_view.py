@@ -364,3 +364,37 @@ def test_spectrum_decimation_matches_the_shared_cases_the_webview_is_held_to() -
         values = np.array([np.nan if value is None else value for value in case["values"]], dtype=np.float64)
         xs, _ = spectrum_line(freqs, values, case["span"], case["buckets"])
         assert np.rint(xs / case["binHz"]).astype(int).tolist() == case["expectedBins"], case["name"]
+
+
+def test_a_spectrums_channels_are_power_averaged_before_their_level_is_rounded(signal: wd.ChannelFrame) -> None:
+    """Rounding only what is sent: two channels at 50.0051 and 49.9951 dB (written 50.01 and 50.00) power-average to
+    50.0001, written 50.00 — not 50.01, the power mean of their written levels. Checked against numpy over the
+    Frame's own dB."""
+    import dask.array as da
+
+    stereo = signal.fft()
+    xs = np.asarray(stereo.freqs, dtype=np.float64)
+    at = int(np.argmin(np.abs(xs - 3000)))
+    data = np.array(stereo.data, dtype=np.complex128)
+
+    def made(values: np.ndarray) -> wd.SpectralFrame:
+        return wd.SpectralFrame(
+            data=da.from_array(values),
+            sampling_rate=stereo.sampling_rate,
+            n_fft=stereo.n_fft,
+            window=stereo.window,
+            channel_metadata=list(stereo.channels),
+        )
+
+    # A unit bin's level, then each channel's bin scaled from it (a silent bin reads wandas' floor, not its level).
+    data[:, at] = 1.0
+    unit = np.asarray(made(data).dB, dtype=np.float64)[:, at]
+    for channel, level in enumerate((50.0051, 49.9951)):
+        data[channel, at] = 10 ** ((level - unit[channel]) / 20)
+    frame = made(data)
+    raw = np.asarray(frame.dB, dtype=np.float64)[:, at]
+    assert raw == pytest.approx([50.0051, 49.9951], abs=1e-9)
+    expected = round(float(10 * np.log10(np.mean(10 ** (raw / 10)))), spec.DB_DECIMALS)
+    view = stage_view(frame)
+    drawn = dict(zip(view["xs"], view["values"], strict=True))
+    assert drawn.get(float(xs[at])) == pytest.approx(expected) == pytest.approx(50.0)

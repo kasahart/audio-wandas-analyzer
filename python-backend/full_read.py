@@ -106,10 +106,19 @@ def _limited(read: StageRead, key: Literal["beyond", "columns", "rows"], default
     return max(0, min(limit, int(read.get(key, default))))
 
 
+def _as_is(values: np.ndarray) -> np.ndarray:
+    return values
+
+
 def read_line(
-    axis: tuple[int, XAt, IndexOf], values_in: Callable[[int, int], np.ndarray], read: StageRead
+    axis: tuple[int, XAt, IndexOf],
+    values_in: Callable[[int, int], np.ndarray],
+    read: StageRead,
+    shown: Callable[[np.ndarray], np.ndarray] = _as_is,
 ) -> StagePoints:
-    """A line's points for ``read`` (see the module): ``values_in(a, b)`` gives the values at indices [a, b)."""
+    """A line's points for ``read`` (see the module): ``values_in(a, b)`` gives the values at indices [a, b),
+    unrounded; the points are picked and a level taken from those, and only the values sent are ``shown`` (rounded
+    as the plot writes them)."""
     count, x_at, index_of = axis
     bounds = [float(value) for value in read["x"]]
     x0, x1 = min(bounds), max(bounds)
@@ -129,7 +138,7 @@ def read_line(
         high = min(high, low + READ_POINT_LIMIT)
         after = min(count, max(high, low) + beyond)
         picked = np.arange(first, after)
-        shown = values_in(first, after)
+        picked_values = values_in(first, after)
         complete = True
     else:
         columns = max(1, _limited(read, "columns", 41, READ_COLUMN_LIMIT))
@@ -155,11 +164,11 @@ def read_line(
             )
         inside = np.unique(np.asarray(chosen, dtype=np.int64))
         picked = np.concatenate([np.arange(first, low), inside, np.arange(high, after)]).astype(np.int64)
-        shown = np.concatenate([values_in(first, low), window[inside - low], values_in(high, after)])
+        picked_values = np.concatenate([values_in(first, low), window[inside - low], values_in(high, after)])
         complete = False
     return {
         "xs": [float(value) for value in np.asarray(x_at(picked), dtype=np.float64).tolist()],
-        "values": json_values(shown),
+        "values": json_values(shown(np.asarray(picked_values, dtype=np.float64))),
         "start": float(x_at(np.asarray(first))) if first > 0 and complete else None,
         "end": float(x_at(np.asarray(after - 1))) if after < count and complete else None,
         "complete": complete,
@@ -178,7 +187,11 @@ def read_level(values: np.ndarray, kind: Literal["db", "square"]) -> StageLevel:
 
 
 def read_cells(
-    xs: np.ndarray, ys: np.ndarray, cells_in: Callable[[slice, slice], np.ndarray], read: StageRead
+    xs: np.ndarray,
+    ys: np.ndarray,
+    cells_in: Callable[[slice, slice], np.ndarray],
+    read: StageRead,
+    shown: Callable[[np.ndarray], np.ndarray] = _as_is,
 ) -> StagePoints:
     """An image's real cells around ``read``'s place: the column nearest ``x[0]`` and ``beyond`` columns past it on
     each side, the row nearest ``y[0]`` and ``rows`` (two unless asked) past it on each side (the plot picks the
@@ -198,7 +211,7 @@ def read_cells(
     columns = slice(max(0, column - beyond), min(times.size, column + beyond + 1))
     either = _limited(read, "rows", 2, READ_ROW_LIMIT)
     rows = slice(max(0, row - either), min(rows_axis.size, row + either + 1))
-    matrix = np.asarray(cells_in(rows, columns), dtype=np.float64)
+    matrix = np.asarray(shown(np.asarray(cells_in(rows, columns), dtype=np.float64)), dtype=np.float64)
     return {
         "xs": [float(value) for value in times[columns].tolist()],
         "ys": [float(value) for value in rows_axis[rows].tolist()],
