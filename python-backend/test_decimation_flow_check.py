@@ -45,14 +45,14 @@ def test_the_thinning_functions_are_the_contract_tables(backend: dict[str, str])
 MUTATIONS = {
     "headline from the drawn Δ": (
         "stage_combine",
-        "    peak = difference_peak(drawn, difference, detail)\n",
+        "    peak = difference_peak(drawn, difference, _on_screen(detail))\n",
         '    peak = {"x": 0.0, "value": float(np.max(result["diff"]["values"]))}\n',
         "stage_combine:combine: np.max(",
     ),
     "headline searched in the drawn Δ (through a call)": (
         "stage_combine",
-        "    peak = difference_peak(drawn, difference, detail)\n",
-        '    peak = difference_peak(drawn, np.asarray(result["diff"]["values"]), detail)\n',
+        "    peak = difference_peak(drawn, difference, _on_screen(detail))\n",
+        '    peak = difference_peak(drawn, np.asarray(result["diff"]["values"]), _on_screen(detail))\n',
         "stage_combine:difference_peak: np.argmax(",
     ),
     "median of the recordings' drawn lines": (
