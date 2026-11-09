@@ -177,16 +177,59 @@ export function findFileKeysWithoutVersion(file: string, source: ts.SourceFile):
     return found;
 }
 
-/** Names an answer from the host goes by where it is taken (a message handler's message, a publication, a reply). */
-const ANSWER_NAMES = /^(msg|message|publication|answer|reply|result|incoming)$/;
+/**
+ * The files that declare what the host and the backend answer (the messages a handler takes, the backend's results,
+ * the analysis a track is drawn from, the entry screen's publications): a value of a type declared in one of them is
+ * a host answer, whatever the variable holding it is called.
+ */
+export const ANSWER_DECLARATIONS = [
+    'src/webview/runtime/hostMessaging.ts',
+    'src/shared/protocol/backendProtocol.ts',
+    'src/shared/protocol/generated/backendProtocolSchema.ts',
+    'src/shared/analysis/analysisTypes.ts',
+    'src/shared/analysis/entryScan.ts',
+    'src/shared/session/comparisonSessionController.ts',
+];
 /** Fields of a page element: a text or handler written from a message is shown, not kept. */
-const PAGE_FIELDS = new Set(['textContent', 'innerHTML', 'title', 'className', 'onmessage', 'hidden', 'value']);
+const PAGE_FIELDS = new Set(['textContent', 'innerHTML', 'title', 'className', 'onmessage', 'hidden', 'value', 'checked']);
+/** An element's data attribute (`el.dataset.x`): written for the page and the tests to read, not kept. */
+const isDataAttribute = (node: ts.Expression): boolean => ts.isPropertyAccessExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'dataset';
 
-function namesAnswer(node: ts.Node): boolean {
+/** The webview's sources with a type checker, so an answer is known by its type (answerStoreBoundary.test.ts). */
+export function answerProgram(repoRoot: string, files: readonly string[], extra: Record<string, string> = {}): ts.Program {
+    const options: ts.CompilerOptions = { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, lib: ['lib.es2022.d.ts', 'lib.dom.d.ts'], strict: true, esModuleInterop: true, skipLibCheck: true, noEmit: true, types: [] };
+    const host = ts.createCompilerHost(options, true);
+    const read = host.getSourceFile.bind(host);
+    const virtual = new Map(Object.entries(extra).map(([file, text]) => [ts.sys.resolvePath(`${repoRoot}/${file}`), text]));
+    host.getSourceFile = (name, version, onError, create) => {
+        const text = virtual.get(ts.sys.resolvePath(name));
+        return text !== undefined ? ts.createSourceFile(name, text, version, true) : read(name, version, onError, create);
+    };
+    const fileExists = host.fileExists.bind(host);
+    host.fileExists = name => virtual.has(ts.sys.resolvePath(name)) || fileExists(name);
+    return ts.createProgram([...files, ...Object.keys(extra)].map(file => `${repoRoot}/${file}`), options, host);
+}
+
+/** Whether a type is, holds (an array's items, a union's members, a type's arguments) or is part of a host answer. */
+function isAnswerType(type: ts.Type, checker: ts.TypeChecker, answerFiles: ReadonlySet<string>, depth = 0): boolean {
+    if (depth > 4) return false;
+    const declared = (symbol: ts.Symbol | undefined): boolean => !!symbol?.declarations?.some(item => answerFiles.has(ts.sys.resolvePath(item.getSourceFile().fileName)));
+    if (declared(type.aliasSymbol) || declared(type.getSymbol())) return true;
+    if (type.isUnionOrIntersection()) return type.types.some(member => isAnswerType(member, checker, answerFiles, depth + 1));
+    const args = [...(type.aliasTypeArguments ?? []), ...(checker.isArrayType(type) || checker.isTupleType(type) || (type.flags & ts.TypeFlags.Object && ((type as ts.ObjectType).objectFlags & ts.ObjectFlags.Reference)) ? checker.getTypeArguments(type as ts.TypeReference) : [])];
+    return args.some(arg => isAnswerType(arg, checker, answerFiles, depth + 1));
+}
+
+/** Whether an expression reads a host answer: any name in it whose value is of an answer's type (not a function that makes one). */
+function readsAnswer(node: ts.Node, checker: ts.TypeChecker, answerFiles: ReadonlySet<string>): boolean {
     let found = false;
     const visit = (inner: ts.Node): void => {
         if (found) return;
-        if (ts.isIdentifier(inner) && ANSWER_NAMES.test(inner.text) && !(ts.isPropertyAccessExpression(inner.parent) && inner.parent.name === inner)) { found = true; return; }
+        if (ts.isFunctionLike(inner)) return;
+        if (ts.isIdentifier(inner) && !(ts.isPropertyAccessExpression(inner.parent) && inner.parent.name === inner) && !(ts.isPropertyAssignment(inner.parent) && inner.parent.name === inner)) {
+            const type = checker.getTypeAtLocation(inner);
+            if (!type.getCallSignatures().length && isAnswerType(type, checker, answerFiles)) { found = true; return; }
+        }
         ts.forEachChild(inner, visit);
     };
     visit(node);
@@ -194,17 +237,37 @@ function namesAnswer(node: ts.Node): boolean {
 }
 
 /**
- * Every write of a host's answer into a field of an object (`record.range = { … msg … }`): an answer kept so is kept
- * outside the store, with no key and no state. A class's own fields (`this.x`) are its state and found as collections.
+ * Every write of a host answer outside the store, known by its type (ANSWER_DECLARATIONS), whatever its names: into a
+ * field of an object (`record.range = { … msg … }`, `target[i].spectrogram = channel.spectrogram`), as `file#target`,
+ * or into a `let` that outlives the call (a module's, or a closure's a factory keeps), as `file#let name`. A class's
+ * own fields (`this.x`) are its state and found as collections.
  */
-export function findAnswerWrites(file: string, source: ts.SourceFile): string[] {
+export function findAnswerWrites(file: string, source: ts.SourceFile, checker: ts.TypeChecker, answerFiles: ReadonlySet<string>): string[] {
     const found = new Set<string>();
+    const lets = new Map<ts.Node, string>();
+    const visitLets = (node: ts.Node): void => {
+        if (ts.isVariableDeclarationList(node) && node.flags & ts.NodeFlags.Let) {
+            for (const declaration of node.declarations) if (ts.isIdentifier(declaration.name) && persists(declaration, declaration.name.text)) {
+                const symbol = checker.getSymbolAtLocation(declaration.name);
+                const decl = symbol?.valueDeclaration;
+                if (decl) lets.set(decl, declaration.name.text);
+                if (declaration.initializer && readsAnswer(declaration.initializer, checker, answerFiles)) found.add(`${file}#let ${declaration.name.text}`);
+            }
+        }
+        ts.forEachChild(node, visitLets);
+    };
+    visitLets(source);
     const visit = (node: ts.Node): void => {
-        if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
-            && (ts.isPropertyAccessExpression(node.left) || ts.isElementAccessExpression(node.left))
-            && node.left.expression.kind !== ts.SyntaxKind.ThisKeyword && namesAnswer(node.right)) {
-            const field = ts.isPropertyAccessExpression(node.left) ? node.left.name.text : '';
-            if (!PAGE_FIELDS.has(field)) found.add(`${file}#${node.left.getText(source)}`);
+        if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken && readsAnswer(node.right, checker, answerFiles)) {
+            const left = node.left;
+            if ((ts.isPropertyAccessExpression(left) || ts.isElementAccessExpression(left)) && left.expression.kind !== ts.SyntaxKind.ThisKeyword) {
+                const field = ts.isPropertyAccessExpression(left) ? left.name.text : '';
+                if (!PAGE_FIELDS.has(field) && !isDataAttribute(left)) found.add(`${file}#${left.getText(source)}`);
+            } else if (ts.isIdentifier(left)) {
+                const decl = checker.getSymbolAtLocation(left)?.valueDeclaration;
+                const name = decl && lets.get(decl);
+                if (name) found.add(`${file}#let ${name}`);
+            }
         }
         ts.forEachChild(node, visit);
     };

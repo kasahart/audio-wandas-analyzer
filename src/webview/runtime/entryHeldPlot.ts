@@ -62,7 +62,8 @@ export interface HeldPlotDeps {
     /** The scans of the current chain and calibration: every number, level reference and axis name is taken from these. */
     current(): CurrentAnswers;
     /** How many times a file's calibration changed while the folder is open: its pictures are asked again after one. */
-    calibrationEpoch?(path: string): number;
+    /** How often the file's calibration or the file itself changed while the folder is open (the host said so). */
+    fileEpoch?(path: string): string;
     /** The comparison of `comparePath` with its base over `over`, each file as the channel it is compared as (entryBase.comparison). */
     /** The screen's comparison of a row (of the answer store's answers), with every Welch bin of `binned` where given. */
     comparison(comparePath: string, binned?: ReadonlyMap<string, ScanResult>): CompareModel;
@@ -122,7 +123,7 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
         plot: HeldPicture | null;
     } = { slot: null, step: null, plot: null };
     // A file's pictures are of its version and calibration as the table scanned it: a change asks them again.
-    const basis = stageBasis(path => deps.shown.get(path), undefined, path => deps.calibrationEpoch?.(path) ?? 0);
+    const basis = stageBasis(path => deps.shown.get(path), undefined, path => deps.fileEpoch?.(path) ?? '');
     const source = createStageSource('entry-hold', message => deps.post(message), () => deps.scheduleSide(), basis);
     // Every Welch bin of a held slot's file and its base: the table's own scans carry only the 192 points.
     const bins = createStageSource('held-bins', message => deps.post(message), () => deps.scheduleSide(), basis);

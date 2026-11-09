@@ -21,6 +21,8 @@ export interface LazyResponseIdentity {
     sourceVersion?: string;
     /** A failure because the file changed on disk since the track was analysed: asking again cannot mend it. */
     staleSource?: true;
+    /** The STFT the answer was taken with (the backend's, not the settingsSignature it echoes): drawn only over an analysis of it. */
+    stftSignature?: string;
 }
 
 export type HostInboundMessage =
@@ -118,6 +120,7 @@ export function isHostInboundMessage(value: unknown): value is HostInboundMessag
     }
     if (value.sourceVersion !== undefined && typeof value.sourceVersion !== 'string') return false;
     if (value.staleSource !== undefined && value.staleSource !== true) return false;
+    if (value.stftSignature !== undefined && typeof value.stftSignature !== 'string') return false;
     switch (value.type) {
         case 'waveform-range-result':
             return hasString(value, 'requestId') && hasNumber(value, 'trackIndex')
@@ -193,6 +196,7 @@ export function isHostInboundMessage(value: unknown): value is HostInboundMessag
                 && (value.durationS === undefined || (typeof value.durationS === 'number' && Number.isFinite(value.durationS) && value.durationS >= 0))
                 && (value.error === undefined || typeof value.error === 'string');
         case 'entry-calibration-changed':
+        case 'entry-source-changed':
             return hasString(value, 'filePath');
         case 'entry-probe-done':
         case 'entry-scan-done':

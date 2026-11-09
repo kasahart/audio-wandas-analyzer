@@ -86,6 +86,8 @@ export interface HeaderProbe {
     take(publication: EntryProbePublication): 'stale' | 'result' | 'done';
     /** Forgets every header and the reading running (another folder). */
     clear(): void;
+    /** Forgets one file's header (the file was written on disk): the next reading reads it again. */
+    forget(path: string): void;
 }
 
 /** `retried`: called once a header that could not be read may be read again (its pause is over): the screen reads it then. */
@@ -124,6 +126,9 @@ export function createHeaderProbe(now: () => number = () => Date.now(), retried?
         clear() {
             channelAnswers.clear(); durationAnswers.clear(); unread.clear();
             running = null;
+        },
+        forget(path) {
+            channelAnswers.delete(path); durationAnswers.delete(path); unread.clear(path);
         },
     };
 }

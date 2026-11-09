@@ -131,7 +131,9 @@ export type EntryPublication =
     | { type: 'entry-scan-result'; requestId: string; filePath: string; result: ScanResult }
     | { type: 'entry-scan-done'; requestId: string }
     /** A file's calibration changed (its canonical path): what was scanned of it is of the old calibration. */
-    | { type: 'entry-calibration-changed'; filePath: string };
+    | { type: 'entry-calibration-changed'; filePath: string }
+    /** A file was written on disk (recorded again, replaced) while the panel names it: its scans are of the old version. */
+    | { type: 'entry-source-changed'; filePath: string };
 
 /** Storage keys; a new layout gets a new suffix and the old key is simply never read again. */
 export const ENTRY_SCAN_INDEX_KEY = 'awa.scanIndex.v2';

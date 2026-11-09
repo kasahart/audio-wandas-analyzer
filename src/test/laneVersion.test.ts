@@ -21,7 +21,7 @@ import { ComparisonSessionController, type ComparisonSessionPorts, type SessionP
 import { mock } from 'node:test';
 
 const repoRoot = path.resolve(__dirname, '..', '..');
-const track = (sourceVersion: string): LaneTrack => ({ trackIndex: 0, filePath: '/a.wav', sourceVersion, calibrationSignature: 'c', analysisId: 'a', settingsSignature: 's' });
+const track = (sourceVersion: string): LaneTrack => ({ trackIndex: 0, filePath: '/a.wav', sourceVersion, calibrationSignature: 'c', stftSignature: '1024/256/hann', analysisId: 'a', settingsSignature: 's' });
 
 test('every lane request names the version of its file: a request without one does not compile', () => {
     // @ts-expect-error sourceVersion is required
@@ -43,6 +43,10 @@ test('an answer of another version than the track shows is not drawn; a track wi
     assert.equal(isOfShownVersion({ sourceVersion: 'v1' }, { sourceVersion: 'v2' }), false, 'the file was analysed again since');
     assert.equal(isOfShownVersion({ sourceVersion: 'v1' }, {}), false, 'an answer that names no version is not of v1');
     assert.equal(isOfShownVersion({}, { sourceVersion: 'v2' }), true);
+    // The STFT is the backend's own word for the one it computed with (stftSignature), never the settings it echoes.
+    assert.equal(isOfShownVersion({ sourceVersion: 'v1', stftSignature: '1024/256/hann' }, { sourceVersion: 'v1', stftSignature: '4096/1024/hann' }), false, 'computed with another STFT');
+    assert.equal(isOfShownVersion({ sourceVersion: 'v1', stftSignature: '1024/256/hann' }, { sourceVersion: 'v1', stftSignature: '1024/256/hann' }), true);
+    assert.equal(isOfShownVersion({ sourceVersion: 'v1', stftSignature: '1024/256/hann' }, { sourceVersion: 'v1' }), true, 'a waveform answer has no STFT');
 });
 
 test('a lane read names its track\'s version, is kept under it, and reads nothing of an answer of another version', () => {

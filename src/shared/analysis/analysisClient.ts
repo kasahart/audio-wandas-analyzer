@@ -242,7 +242,8 @@ export async function executeLazyAnalysis(
             { ...payload, cursorNorm: message.cursorNorm, ...(message.bandsPerOctave ? { bandsPerOctave: message.bandsPerOctave } : {}),
                 ...(message.fullResolution ? { fullResolution: true } : {}) }, message.requestId, cancellation);
     const identity = { requestId: message.requestId, analysisId: message.analysisId,
-        settingsSignature: message.settingsSignature, trackIndex: message.trackIndex, filePath: message.filePath, sourceVersion: result.sourceVersion };
+        settingsSignature: message.settingsSignature, trackIndex: message.trackIndex, filePath: message.filePath, sourceVersion: result.sourceVersion,
+        ...(result.stftSignature !== undefined ? { stftSignature: result.stftSignature } : {}) };
     if ('frequencyBins' in result) {
         return { ...identity, analysisRevision: result.analysisRevision, type: 'spectrum-slice-result' as const, channels: result.channels,
             frequencyBins: result.frequencyBins, maxFrequencyHz: result.maxFrequencyHz, computeMs: result.computeMs,

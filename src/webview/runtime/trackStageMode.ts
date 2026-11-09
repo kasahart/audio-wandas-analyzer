@@ -189,7 +189,10 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
     // The report's files with every Welch bin, asked for on 報告に only (a stored result keeps the 192 points alone).
     const reportSource = createStageSource('report-scan', message => deps.post(message), () => writeReport(), basis);
     /** 報告に pressed: the report waits for its files' bins (with Δ shown or not, as when it was pressed). */
-    let pendingReport: { showDiff: boolean; region: EntryRegion | null } | null = null;
+    /** The report pressed for: its region and Δ view, and the recordings and chain it is of (asked: changed, it is not written). */
+    let pendingReport: { showDiff: boolean; region: EntryRegion | null; asked: string } | null = null;
+    /** What a report is of beyond its region: the slots' recordings and the chain. */
+    const reportAsked = (): string => JSON.stringify([deps.slots(), deps.recipe()?.runRecipe ?? deps.recipe()?.recipe ?? null]);
     /** The last zoomed combination of each comparison, drawn until the next zoom's is in. */
     const lastFine = createLastFine();
     const detail = createDetailPlanner(deps.window.performance, deps.window, () => deps.rerender());
@@ -239,7 +242,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         const recipe = deps.recipe()?.recipe;
         if (recipe && brokenStep(recipe, limits())) { deps.hint(strings.stepOctaveBroken); return; }
         // The region as it was pressed: changed meanwhile, the report is still of the comparison asked for.
-        pendingReport = { showDiff: state.showDiff, region: liveRegion() };
+        pendingReport = { showDiff: state.showDiff, region: liveRegion(), asked: reportAsked() };
         // Measured afresh on each 報告に: a file recorded again since the last report is not drawn from its old bins.
         const spec = regionStageSpec(deps.recipe(), pendingReport.region);
         for (const path of reportPaths()) reportSource.forget(spec, path);
@@ -256,7 +259,13 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
      */
     function writeReport(): void {
         if (!pendingReport) return;
-        const { showDiff, region } = pendingReport;
+        const { showDiff, region, asked } = pendingReport;
+        // The slots or the chain changed while it was measured: a report of them would not be the one pressed for.
+        if (reportAsked() !== asked) {
+            pendingReport = null;
+            deps.failed?.(strings.reportChanged);
+            return;
+        }
         const paths = reportPaths();
         const spec = regionStageSpec(deps.recipe(), region);
         // Read from the report's own measuring alone: the comparison's pictures (source) may be of a version since recorded again.

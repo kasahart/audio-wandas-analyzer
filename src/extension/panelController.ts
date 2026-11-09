@@ -102,6 +102,8 @@ export interface PanelControllerHost {
     showError(message: string): void;
     language(): string;
     withProgress: AnalysisHost['withProgress'];
+    /** Calls `changed` with a file's path whenever a file directly in `folder` is written, created or deleted. */
+    watchFolder?: (folder: string, changed: (filePath: string) => void) => vscode.Disposable;
 }
 
 const defaultPanelFactory: PanelFactory = {
@@ -146,6 +148,12 @@ const defaultHost: PanelControllerHost = {
     showError: (message) => { void vscode.window.showErrorMessage(message); },
     language: () => vscode.env.language,
     withProgress: (options, task) => vscode.window.withProgress(options, task),
+    watchFolder: (folder, changed) => {
+        const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(vscode.Uri.file(folder), '*'));
+        const on = (uri: vscode.Uri): void => changed(uri.fsPath);
+        watcher.onDidChange(on); watcher.onDidCreate(on); watcher.onDidDelete(on);
+        return watcher;
+    },
 };
 
 /** The calibration revisions a panel's results are checked against, and their change events. */
@@ -158,6 +166,8 @@ export class PanelController implements vscode.Disposable {
     private readonly sessions = new Map<PanelHandle, PanelSession<PanelHandle>>();
     private readonly calibrationRefreshQueues = new WeakMap<PanelSession<PanelHandle>, Promise<void>>();
     private readonly calibrationChangeDisposable: vscode.Disposable;
+    /** Each panel's watched folders (the folders of every file it may name), so a file rewritten on disk is told. */
+    private readonly watchers = new WeakMap<PanelSession<PanelHandle>, Map<string, vscode.Disposable>>();
 
     constructor(
         private readonly context: SpectrogramSettingsContext & { extensionUri: vscode.Uri; storageUri?: vscode.Uri; globalStorageUri?: vscode.Uri },
@@ -187,6 +197,33 @@ export class PanelController implements vscode.Disposable {
                 }
             }
         });
+    }
+
+    /**
+     * Watches the folders of every file the panel may name. A file written on disk (recorded again, replaced) is told
+     * to the panel under each path it names it by: its scans and tracks are of the old version from then on.
+     */
+    private syncWatchers(session: PanelSession<PanelHandle>): void {
+        const watch = this.host.watchFolder;
+        if (!watch) return;
+        const held = this.watchers.get(session) ?? new Map<string, vscode.Disposable>();
+        this.watchers.set(session, held);
+        const folders = new Set(session.knownFilePaths().map((filePath) => path.dirname(filePath)));
+        for (const [folder, watcher] of held) if (!folders.has(folder)) { watcher.dispose(); held.delete(folder); }
+        for (const folder of folders) {
+            if (held.has(folder)) continue;
+            held.set(folder, watch(folder, (changedPath) => {
+                const key = calibrationFileKey(changedPath);
+                for (const filePath of session.knownFilePaths().filter((known) => calibrationFileKey(known) === key)) {
+                    void session.postMessage({ type: 'entry-source-changed', filePath });
+                }
+            }));
+        }
+    }
+
+    private disposeWatchers(session: PanelSession<PanelHandle>): void {
+        for (const watcher of this.watchers.get(session)?.values() ?? []) watcher.dispose();
+        this.watchers.delete(session);
     }
 
     async analyzeTarget(
@@ -241,6 +278,7 @@ export class PanelController implements vscode.Disposable {
                 cachedResultsByFilePath: new Map(),
             });
             session.setActiveResults([]);
+            this.syncWatchers(session);
             this.postPythonEnvironmentState(session, this.pythonEnvironment.getCurrentPythonEnvironmentState());
             return;
         }
@@ -260,7 +298,7 @@ export class PanelController implements vscode.Disposable {
 
     dispose(): void {
         this.calibrationChangeDisposable.dispose();
-        for (const session of this.sessions.values()) { session.dispose(); }
+        for (const session of this.sessions.values()) { this.disposeWatchers(session); session.dispose(); }
         this.sessions.clear();
     }
 
@@ -300,6 +338,7 @@ export class PanelController implements vscode.Disposable {
         const session = this.ensureSession(panel);
         session.clearDirectorySelection();
         session.setActiveResults(results.map((result) => result.filePath));
+        this.syncWatchers(session);
         await this.refreshStalePanelResults(session);
     }
 
@@ -368,6 +407,7 @@ export class PanelController implements vscode.Disposable {
             this.postPythonEnvironmentState(session, state);
         }));
         panel.onDidDispose(() => {
+            this.disposeWatchers(session);
             session.dispose();
             this.sessions.delete(panel);
         });
@@ -559,6 +599,7 @@ export class PanelController implements vscode.Disposable {
         const fresh = filePaths.filter((filePath) => !selection.allFilePaths.includes(filePath));
         selection.extraFilePaths = [...(selection.extraFilePaths ?? []), ...fresh];
         selection.allFilePaths = [...selection.allFilePaths, ...fresh];
+        this.syncWatchers(session);
         await session.postMessage({ type: 'directory-selection', rootPath: selection.rootPath, filePaths: selection.allFilePaths });
         await this.handleSelection(session, {
             type: 'analyze-selected-files',
@@ -573,24 +614,18 @@ export class PanelController implements vscode.Disposable {
         scope: SessionScope,
     ): Promise<AnalysisResultWithError[] | undefined> {
         const filePaths = session.getActiveFilePaths();
-        const results = await this.analysis.analyzeFiles(
+        // A file calibrated anew while it was analysed is analysed again under the new settings too: the result shown
+        // before (of the old STFT) never stands in for one of the new settings.
+        const acceptedResults = await this.settleLiveResults(await this.analysis.analyzeFiles(
             filePaths,
             stftOptions,
             this.progressTitle('progressRecomputeSpectrogram', filePaths.length),
             session,
-        );
+        ), stftOptions);
         if (!scope.isCurrent()) { return undefined; }
-        const displayedByPath = new Map(
-            this.panelFactory.getResults(session.panel).map((result) => [result.filePath, result]),
-        );
-        const acceptedResults = results.map((result) => {
-            if (this.isLiveResult(result)) {
-                return result;
-            }
-            return displayedByPath.get(result.filePath) ?? result;
-        });
         session.cacheResults(acceptedResults);
         session.setActiveResults(acceptedResults.map((result) => result.filePath));
+        this.syncWatchers(session);
         this.panelFactory.updateResults(session.panel, acceptedResults);
         return acceptedResults;
     }
@@ -682,6 +717,7 @@ export class PanelController implements vscode.Disposable {
         results: AnalysisResultWithError[],
     ): Promise<void> {
         session.setActiveResults(results.map((result) => result.filePath));
+        this.syncWatchers(session);
         // The selection goes with the results, so the webview's tracks follow files the host added (＋ Add files).
         await this.panelFactory.updateDirectoryResults(
             results,

@@ -10,7 +10,7 @@ class RecordingClient extends AnalysisClient {
     calls: Array<{ command: BackendCommand; payload: unknown; requestId?: string }> = [];
     protected async request<K extends BackendCommand>(command: K, payload: BackendPayload<K>, requestId?: string): Promise<BackendResult<K>> {
         this.calls.push({ command, payload, requestId });
-        return { channels: [], analysisRevision: 7, ...(command === 'spectrum-slice' ? { frequencyBins: 0, maxFrequencyHz: 8000, windowStartNorm: 0.4, windowEndNorm: 0.6, window: 'hann' } : {}) } as unknown as BackendResult<K>;
+        return { channels: [], analysisRevision: 7, ...(command !== 'range' ? { stftSignature: '256/64/hann' } : {}), ...(command === 'spectrum-slice' ? { frequencyBins: 0, maxFrequencyHz: 8000, windowStartNorm: 0.4, windowEndNorm: 0.6, window: 'hann' } : {}) } as unknown as BackendResult<K>;
     }
 }
 
@@ -24,10 +24,12 @@ test('all analysis paths carry the same settings/calibration context; range carr
     assert.equal(detail.type, 'track-detail-result');
     assert.equal(detail.requestId, 'ui');
     assert.equal(detail.filePath, 'source');
+    assert.equal('stftSignature' in detail && detail.stftSignature, '256/64/hann', 'the STFT the backend computed with, not the settings asked under');
     await executeLazyAnalysis(client, { ...identity, type: 'request-waveform-range', startNorm: 0.2, endNorm: 0.7, points: 128 }, context);
     const slice = await executeLazyAnalysis(client, { ...identity, type: 'request-spectrum-slice', cursorNorm: 0.5 }, context);
     assert.equal(slice.type, 'spectrum-slice-result');
     assert.equal('cursorNorm' in slice && slice.cursorNorm, 0.5);
+    assert.equal('stftSignature' in slice && slice.stftSignature, '256/64/hann');
     assert.deepEqual('windowStartNorm' in slice && [slice.windowStartNorm, slice.windowEndNorm, slice.window], [0.4, 0.6, 'hann']);
     for (const call of client.calls) {
         const payload = call.payload as Record<string, unknown>;
