@@ -552,15 +552,15 @@ test('zoomed in on a signal\'s level axis, the arrow keys still step one sample 
     assert.ok(read && read.at === 0);
     const visited: Array<[number | undefined, number]> = [];
     for (let key = 0; key < 4; key++) {
-        const next = stageStep(plot, read!, 1);
-        assert.ok(next, `the key after ${read!.at} s steps on`);
+        const next = stageStep(plot, read, 1);
+        assert.ok(next, `the key after ${read.at} s steps on`);
         visited.push([next.at, next.y]);
         read = next;
     }
     // Every sample in turn; those past the axis at its top and bottom edge.
     assert.deepEqual(visited, [[10, 0], [20, 25], [30, 100], [40, 40]]);
     // And back again, the same samples.
-    assert.equal(stageStep(plot, read!, -1)?.at, 30);
+    assert.equal(stageStep(plot, read, -1)?.at, 30);
 });
 
 function pick(hit: ReturnType<typeof stageHover>): { x: number; y: number } | null {
