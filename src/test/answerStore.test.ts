@@ -3,7 +3,7 @@ import test from 'node:test';
 import { answerKey, createAnswerStore, createFailureHold, createLatestAnswers, createRequestClock, FAILED_RETRY_MS, UNANSWERED_RETRY_MS, type AnswerKeyParts } from '../webview/runtime/answerStore';
 import type { AnswerIdentity } from '../webview/runtime/answerTypes';
 
-const parts: AnswerKeyParts = { ask: ['stage', 'welch'], file: 'a.wav', fileVersion: '[100,1,2,3]', calibration: 'cal-1', recipe: 'recipe-1', region: '[0,48000]', condition: 'cond-1' };
+const parts: AnswerKeyParts = { ask: ['stage', 'welch'], file: 'a.wav', version: { fileVersion: '[100,1,2,3]', calibration: 'cal-1' }, recipe: 'recipe-1', region: '[0,48000]', condition: 'cond-1' };
 const identity: AnswerIdentity = {
     path: 'a.wav', fileVersion: '[100,1,2,3]', calibrationSignature: 'cal-1', recipeKey: 'recipe-1', region: '[0,48000]', conditionId: 'cond-1',
     level: { unit: 'Pa', ref: 2e-5, levelReferenceLabel: 'dB SPL', calibrationStatus: 'calibrated', fullScale: false },
@@ -11,13 +11,17 @@ const identity: AnswerIdentity = {
 
 test('an answer\'s key changes with every part: the file version, calibration, recipe, region, condition and what is asked', () => {
     const base = answerKey(parts).id;
-    for (const part of ['file', 'fileVersion', 'calibration', 'recipe', 'region', 'condition'] as const) {
+    for (const part of ['file', 'recipe', 'region', 'condition'] as const) {
         assert.notEqual(answerKey({ ...parts, [part]: `${parts[part]}-other` }).id, base, `${part} is in the key`);
         assert.notEqual(answerKey({ ...parts, [part]: undefined }).id, base, `${part} left out is another key`);
     }
+    assert.notEqual(answerKey({ ...parts, version: { fileVersion: '[100,1,2,4]', calibration: 'cal-1' } }).id, base, 'the file version is in the key');
+    assert.notEqual(answerKey({ ...parts, version: { fileVersion: '[100,1,2,3]', calibration: 'cal-2' } }).id, base, 'the calibration is in the key');
+    assert.notEqual(answerKey({ ...parts, version: { basis: 'b1' } }).id, answerKey({ ...parts, version: { basis: 'b2' } }).id, 'a basis is in the key');
+    assert.notEqual(answerKey({ ...parts, version: { by: 'data-keys' } }).id, base, 'a version carried by the ask is said so');
     assert.notEqual(answerKey({ ...parts, ask: ['stage', 'rms'] }).id, base);
     // Numbers are written exactly: two windows that differ past a rounding are two answers.
-    assert.notEqual(answerKey({ ask: [0.1 + 0.2] }).id, answerKey({ ask: [0.3] }).id);
+    assert.notEqual(answerKey({ ask: [0.1 + 0.2], version: { by: 'request' } }).id, answerKey({ ask: [0.3], version: { by: 'request' } }).id);
     assert.equal(answerKey({ ...parts }).id, base, 'the same parts are the same key');
 });
 
@@ -87,25 +91,25 @@ test('a request never answered is asked again after UNANSWERED_RETRY_MS only whe
 
 test('the least recently used answers are let go, never one on its way; by ask, every file\'s answer to it goes together', () => {
     const store = createAnswerStore<number>({ capacity: 2 });
-    const a = answerKey({ ask: 'a' }), b = answerKey({ ask: 'b' }), c = answerKey({ ask: 'c' });
+    const a = answerKey({ ask: 'a', version: { by: 'request' } }), b = answerKey({ ask: 'b', version: { by: 'request' } }), c = answerKey({ ask: 'c', version: { by: 'request' } });
     store.ask(a);
     store.ready(b, 2);
     store.ready(c, 3);
     assert.equal(store.state(a), 'pending', 'the pending one stays');
     assert.equal(store.state(b), 'missing');
     const byAsk = createAnswerStore<number>({ capacity: 1, evictBy: 'ask' });
-    byAsk.ready(answerKey({ ask: 's1', file: 'x' }), 1);
-    byAsk.ready(answerKey({ ask: 's1', file: 'y' }), 2);
+    byAsk.ready(answerKey({ ask: 's1', file: 'x', version: { by: 'request' } }), 1);
+    byAsk.ready(answerKey({ ask: 's1', file: 'y', version: { by: 'request' } }), 2);
     assert.equal(byAsk.size, 2, 'one ask, two files');
-    byAsk.ready(answerKey({ ask: 's2', file: 'x' }), 3);
+    byAsk.ready(answerKey({ ask: 's2', file: 'x', version: { by: 'request' } }), 3);
     assert.equal(byAsk.size, 1);
-    assert.equal(byAsk.value(answerKey({ ask: 's2', file: 'x' })), 3);
+    assert.equal(byAsk.value(answerKey({ ask: 's2', file: 'x', version: { by: 'request' } })), 3);
 });
 
 test('a kept handle is made once; forgetWhere lets go the values named', () => {
     const store = createAnswerStore<{ data: string }>({ capacity: 8 });
     let made = 0;
-    const key = answerKey({ ask: 'handle' });
+    const key = answerKey({ ask: 'handle', version: { by: 'request' } });
     const first = store.keep(key, () => ({ data: `k${++made}` }));
     assert.equal(store.keep(key, () => ({ data: `k${++made}` })), first);
     assert.equal(made, 1);

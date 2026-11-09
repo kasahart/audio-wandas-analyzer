@@ -184,6 +184,8 @@ export function isHostInboundMessage(value: unknown): value is HostInboundMessag
                 && (value.channels === undefined || (typeof value.channels === 'number' && Number.isInteger(value.channels) && value.channels > 0))
                 && (value.durationS === undefined || (typeof value.durationS === 'number' && Number.isFinite(value.durationS) && value.durationS >= 0))
                 && (value.error === undefined || typeof value.error === 'string');
+        case 'entry-calibration-changed':
+            return hasString(value, 'filePath');
         case 'entry-probe-done':
         case 'entry-scan-done':
         case 'compare-scan-done':

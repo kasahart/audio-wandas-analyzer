@@ -38,7 +38,7 @@ test('報告.csv has one row per slot in the agreed columns: dB to one decimal, 
         ['/f/L1_900rpm_run1.wav', scan(-20.04, -30)], ['/f/L1_900rpm_run2.wav', scan(-20.0, -31)], ['/f/L1_900rpm_run3.wav', scan(-10.06, -10)],
     ]);
     const model = buildEntryModel([...results].map(([filePath, result]) => ({ filePath, result })), null, { band: BAND_3150 });
-    const csv = reportCsv({ model, results, slots: [null, '/f/L1_900rpm_run3.wav', null, null], compare: compareOf(model, results, []), region: { start: 0.5, end: 1.5 }, recipe: entry, recipeName: 'entry-scan', now: new Date() }, getStrings('ja'));
+    const csv = reportCsv({ model, results, slots: [null, '/f/L1_900rpm_run3.wav', null, null], compare: compareOf(model, results, []), region: { start: 0.5, end: 1.5 }, recipe: entry, recipeName: 'entry-scan', now: new Date(), stale: new Set<string>() }, getStrings('ja'));
     assert.ok(csv.startsWith('﻿'));
     const [header, row, ...rest] = csv.slice(1).trimEnd().split('\r\n');
     assert.equal(rest.length, 0);
@@ -57,7 +57,7 @@ test('報告.csv has one row per slot in the agreed columns: dB to one decimal, 
     assert.equal(at('手順'), getStrings('ja').reportChainCurrent);
     const previous = reportCsv({ model, results, slots: [null, '/f/L1_900rpm_run3.wav', null, null], compare: compareOf(model, results, []), region: null, recipe: entry, recipeName: 'entry-scan', now: new Date(), stale: new Set(['/f/L1_900rpm_run1.wav']) }, getStrings('ja'));
     assert.equal(previous.trimEnd().split('\r\n')[1].split(',')[header.split(',').indexOf('手順')], getStrings('ja').reportChainPrevious);
-    const whole = reportCsv({ model, results, slots: [null, '/f/L1_900rpm_run3.wav', null, null], compare: compareOf(model, results, []), region: null, recipe: entry, recipeName: 'entry-scan', now: new Date() }, getStrings('ja'));
+    const whole = reportCsv({ model, results, slots: [null, '/f/L1_900rpm_run3.wav', null, null], compare: compareOf(model, results, []), region: null, recipe: entry, recipeName: 'entry-scan', now: new Date(), stale: new Set<string>() }, getStrings('ja'));
     // The whole file is written as the region actually measured: its guarded ends are left out.
     assert.deepEqual(whole.split('\r\n')[1].split(',').slice(5, 7), ['0.15', '1.85']);
 });
@@ -67,7 +67,7 @@ test('each compared file\'s row, Recipe and heading give the region that file wa
     const results = new Map<string, ScanResult>([['/f/base.wav', scan(-20, -30, 10)], ['/f/long.wav', scan(-10, -10, 10)], ['/f/short.wav', scan(-12, -12, 5)]]);
     const model = buildEntryModel([...results].map(([filePath, result]) => ({ filePath, result })), null, { band: BAND_3150 });
     const STR = getStrings('ja');
-    const input = { model, results, slots: ['/f/base.wav', '/f/long.wav', '/f/short.wav', null], compare: compareOf(model, results, ['/f/base.wav']), region: null, recipe: entry, recipeName: 'entry-scan', now: new Date() };
+    const input = { model, results, slots: ['/f/base.wav', '/f/long.wav', '/f/short.wav', null], compare: compareOf(model, results, ['/f/base.wav']), region: null, recipe: entry, recipeName: 'entry-scan', now: new Date(), stale: new Set<string>() };
     const [header, ...rows] = reportCsv(input, STR).slice(1).trimEnd().split('\r\n');
     const columns = header.split(',');
     const span = (row: string): string[] => [row.split(',')[columns.indexOf('開始 s')], row.split(',')[columns.indexOf('終了 s')]];
@@ -101,7 +101,7 @@ test('the report Recipe carries the region as its time slice and still loads in 
 
 test('定義.json says what each number is, with the steps\' parameters in decimals', () => {
     const model = buildEntryModel([], null);
-    const definitions = reportDefinitions({ model, results: new Map(), slots: [], compare: compareOf(model, new Map(), []), region: { start: 0.5, end: 1.5 }, recipe: entry, recipeName: 'entry-scan', now: new Date() }, 2, getStrings('ja')) as {
+    const definitions = reportDefinitions({ model, results: new Map(), slots: [], compare: compareOf(model, new Map(), []), region: { start: 0.5, end: 1.5 }, recipe: entry, recipeName: 'entry-scan', now: new Date(), stale: new Set<string>() }, 2, getStrings('ja')) as {
         region: unknown; metrics: Record<string, string>; steps: Array<{ operation: string; params: Record<string, unknown> }>;
     };
     assert.deepEqual(definitions.region, { startS: 0.5, endS: 1.5 });
@@ -162,7 +162,7 @@ test('the report says what the comparison was taken from: the value, the filters
     const base: BaseDefinition = { kind: 'group', group: { column: 'rpm', name: '1500' }, count: 2, channel: 2, filters: ['ch = 2'], fewerChannels: 1 };
     const derived: DerivedRow = { parentPath: '/f/c.wav', ch: 2, region: 'all', result: scan(-10, -10), base: { leq: -20.5, bands: BAND_CENTERS_HZ.map(() => -30), label: '基準群 rpm 1500', paths: ['/f/a.wav', '/f/b.wav'], definition: base } };
     const input = {
-        model, results, slots: [null, '/f/c.wav', null, null], region: null, recipe: entry, recipeName: 'entry-scan', now: new Date(),
+        model, results, slots: [null, '/f/c.wav', null, null], region: null, recipe: entry, recipeName: 'entry-scan', now: new Date(), stale: new Set<string>(),
         compare: (path: string) => buildCompareModel(model, results, path, null, STR, false, undefined, { paths: ['/f/a.wav', '/f/b.wav'], title: '基準群 rpm 1500' }),
         rowInfo: () => ({ label: 'c.wav ch2', value: 'Leq A特性 [dBFS] −10.0', memo: 'ベアリングかも', channel: 2, base }),
         selection: { value: 'Leq A特性 [dBFS]', group: 'rpm', filters: ['ch = 2'], excluded: 1 },
@@ -180,6 +180,10 @@ test('the report says what the comparison was taken from: the value, the filters
     assert.match(d.split(',')[0], /^固定した差（D） · c\.wav ch2 · all$/);
     assert.equal(cell(d, 'Δ Leq dB(A)'), '10.5');
     assert.equal(cell(d, '基準の定義'), '基準群 rpm 1500 · n=2 · ch2 · -1 (< ch2) · ch = 2');
+    // Fixed under an earlier chain (≠): the table has no number to read, and the report writes none either.
+    const [, , previous] = reportCsv({ ...input, derived: [{ ...derived, stale: true }] }, STR).slice(1).trimEnd().split('\r\n');
+    assert.deepEqual([cell(previous, 'Leq A特性 [dBFS]'), cell(previous, 'Δ Leq dB(A)')].filter(Boolean), [], previous);
+    assert.equal(cell(previous, STR.reportChain), STR.reportChainPrevious);
     const definitions = reportDefinitions(input, 2, STR) as { selection: unknown; comparisons: Array<{ slot: number; file: string; channel: number; base: BaseDefinition }> };
     assert.deepEqual(definitions.selection, input.selection);
     assert.deepEqual(definitions.comparisons, [{ slot: 1, file: 'c.wav ch2', channel: 2, base, measured: { startS: 0.15, endS: 1.85 } }]);
@@ -238,7 +242,7 @@ test('a report figure draws levels of another reference on their own axis, each 
         assert.equal(axes.legend.compare.includes(strings.entryLeqUncalibrated), compareWord, what);
         // The painted figure (off screen, so no canvas audit sees it) names both axes and writes each line's word.
         const { canvas, texts } = recordingCanvas();
-        const input = { model, results, slots: ['/f/base.wav', '/f/cmp.wav', null, null], compare: () => comparison, region: null, recipe: null, recipeName: 'r', now: new Date() };
+        const input = { model, results, slots: ['/f/base.wav', '/f/cmp.wav', null, null], compare: () => comparison, region: null, recipe: null, recipeName: 'r', now: new Date(), stale: new Set<string>() };
         paintOverlayFigure(canvas, comparison, 1, 'title', strings, input, { width: 900, height: 320 });
         // Without bins the figure draws the 1/3-octave bands: its horizontal axis is the bands' centres, as the comparison names it.
         assert.equal(canvas.dataset.plotAxes, [strings.axisBand, left, ...(right ? [right] : [])].join('|'), what);
@@ -251,7 +255,7 @@ test('the CSVs say each row\'s level reference beside its levels: never one cali
     const strings = getStrings('ja');
     const results = new Map<string, ScanResult>([['/f/L1_900rpm_run1.wav', scan(-20, -30)], ['/f/L1_900rpm_run2.wav', calibrated(60, 50)], ['/f/L1_900rpm_run3.wav', calibrated(62, 52)]]);
     const model = buildEntryModel([...results].map(([filePath, result]) => ({ filePath, result })), null, { band: BAND_3150 });
-    const csv = reportCsv({ model, results, slots: ['/f/L1_900rpm_run2.wav', '/f/L1_900rpm_run3.wav', '/f/L1_900rpm_run1.wav', null], compare: compareOf(model, results, ['/f/L1_900rpm_run2.wav']), region: null, recipe: entry, recipeName: 'entry-scan', now: new Date() }, strings);
+    const csv = reportCsv({ model, results, slots: ['/f/L1_900rpm_run2.wav', '/f/L1_900rpm_run3.wav', '/f/L1_900rpm_run1.wav', null], compare: compareOf(model, results, ['/f/L1_900rpm_run2.wav']), region: null, recipe: entry, recipeName: 'entry-scan', now: new Date(), stale: new Set<string>() }, strings);
     const [header, ...rows] = csv.slice(1).trimEnd().split('\r\n');
     const names = header.split(',');
     assert.ok(!names.some(name => name.includes(strings.entryLeqUncalibrated)), 'no heading carries a calibration word');

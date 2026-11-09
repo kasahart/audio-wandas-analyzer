@@ -246,7 +246,7 @@ function seeks(points: FullPoints, x: number, direction: -1 | 1): boolean {
 export function fetchedSource(fetch: (read: StageRead, done: (points: StagePoints | null | undefined) => void) => void, extra: Omit<StageRead, 'x' | 'y' | 'beyond' | 'near' | 'columns' | 'log' | 'level'> = {}, now: () => number = () => Date.now()): FetchedFullSource {
     // The windows read, the latest KEPT: each one's points (ready) or its failure (asked again after the store's pause).
     const kept = createAnswerStore<{ read: StageRead; points: FullPoints }>({ capacity: KEPT, now });
-    const keyOf = (key: string): AnswerKey => answerKey({ ask: key });
+    const keyOf = (key: string): AnswerKey => answerKey({ ask: key, version: { by: 'source' } });
     let busy: string | null = null;
     // Asked for while one is on its way: the pointer's latest read, and the latest level (of the window on screen
     // now). Each keeps its own place, so the line's order is never dropped for a newer read, nor a read for a level;

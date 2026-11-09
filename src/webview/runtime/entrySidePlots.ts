@@ -21,6 +21,8 @@ import { STAGE_MARGINS, type StagePlot } from './stagePanes';
 import { createPlotHoverLayer } from './plotHoverLayer';
 
 export interface SidePlotsDeps {
+    /** The recordings whose scan is of the current chain and calibration (the answer store's): a stale one is never coloured nor on a scale. */
+    fresh(): ReadonlyMap<string, unknown>;
     document: Document;
     window: Pick<Window, 'requestAnimationFrame'>;
     strings: UiStrings;
@@ -114,22 +116,26 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
     const levelOf = (filePath: string): { identity: string; label: string } | undefined => scanned.get(filePath)?.level;
     /** Bumped on every change to them, so the strip knows when to draw its cells again. */
     let version = 0;
-    let shared: { version: number; identity: string; label: string; calibrated: boolean; levels: Map<string, (number | null)[]> } = { version: -1, identity: '', label: '', calibrated: false, levels: new Map() };
+    let shared: { version: number; stale: string; identity: string; label: string; calibrated: boolean; levels: Map<string, (number | null)[]> } = { version: -1, stale: '', identity: '', label: '', calibrated: false, levels: new Map() };
     /**
      * The scanned recordings' level reference as wandas names it (the most common one), whether all of theirs are
      * calibrated, and the levels of only the recordings in it: a level of another reference is never coloured on the
      * same scale. Once per change rather than per call.
      */
     function reference(): typeof shared {
-        if (shared.version === version) return shared;
+        // A recording of an earlier chain or calibration is left out: its bands are neither drawn nor set the colour scale's ends.
+        const fresh = deps.fresh();
+        const stale = [...scanned.view.keys()].filter(path => !fresh.has(path)).join('\n');
+        if (shared.version === version && shared.stale === stale) return shared;
+        const left = new Set(stale ? stale.split('\n') : []);
         // The most common level identity (R1, the one the comparison and the backend use), named by its reference's label.
-        const labelled = [...scanned.view].flatMap(([path, own]) => (own.level ? [[path, own.level] as const] : []));
+        const labelled = [...scanned.view].flatMap(([path, own]) => (own.level && !left.has(path) ? [[path, own.level] as const] : []));
         const identity = commonLevelLabel(labelled.map(([, own]) => own.identity));
         const files = labelled.filter(([, own]) => own.identity === identity).map(([path]) => path);
         const label = files.length ? levelOf(files[0])?.label ?? 'dBFS' : 'dBFS';
         const keys = new Set(files.flatMap(path => scanned.get(path)?.rows ?? []));
         // The axis says uncalibrated only when every recording on it is (R4, axisInputOf); each uncalibrated one then says so itself.
-        shared = { version, identity, label, calibrated: files.some(path => !!scanned.get(path)?.calibrated), levels: new Map([...levels.view].filter(([key]) => keys.has(key))) };
+        shared = { version, stale, identity, label, calibrated: files.some(path => !!scanned.get(path)?.calibrated), levels: new Map([...levels.view].filter(([key]) => keys.has(key))) };
         return shared;
     }
     const levelLabel = (): string => reference().label;

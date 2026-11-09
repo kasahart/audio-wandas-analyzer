@@ -171,6 +171,8 @@ export class PanelController implements vscode.Disposable {
     ) {
         this.calibrationChangeDisposable = calibration.onDidChange((event) => {
             for (const session of this.sessions.values()) {
+                // The entry table's scans of the file (a track or not) are of the old calibration.
+                void session.postMessage({ type: 'entry-calibration-changed', filePath: event.filePath });
                 // The event carries the canonical key, which differs from the panel's path on Windows (drive-letter
                 // case, resolved root) and for symlinked files; refresh under every path the panel shows for it.
                 const filePaths = new Set(session.getActiveFilePaths()

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { frequencyAxisTicks } from '../webview/draw/canvasDrawers';
 import { spectrumLayer } from '../webview/runtime/overlaySpectrumPainter';
-import { spectrumLevelRange, spectrumSeriesRange } from '../webview/runtime/spectrumRuntime';
+import { overlayLevelAxes, spectrumLevelRange, spectrumSeriesRange } from '../webview/runtime/spectrumRuntime';
 import { stageRange } from '../webview/runtime/stagePanes';
 import type { StageView } from '../shared/protocol/backendProtocol';
 import type { SpectrumSlice } from '../webview/runtime/types';
@@ -34,6 +34,17 @@ test('spectrumSeriesRange spans every series', () => {
         { slice: slice([0], { minDb: -80, maxDb: -10, maxFrequencyHz: 8000 }) },
         { slice: slice([0], { minDb: -90, maxDb: -20, maxFrequencyHz: 24_000 }) },
     ]), { minDb: -100, maxDb: 0, maxFrequencyHz: 24_000 });
+});
+
+test('an earlier cursor\'s bands drawn while this one\'s are on their way never set the level axis beside a current one', () => {
+    const earlier = { slice: slice([0], { minDb: -20, maxDb: 40, maxFrequencyHz: 8000, standIn: 'pending', axisLabel: 'earlier' }) };
+    const current = { slice: slice([0], { minDb: -73, maxDb: -21.5, maxFrequencyHz: 8000, axisLabel: 'current' }) };
+    assert.deepEqual(spectrumSeriesRange([earlier, current]), spectrumSeriesRange([current]), 'the current cursor\'s levels alone');
+    const view = { freqStart: 0, freqEnd: 1, dbMin: null, dbMax: null };
+    assert.deepEqual(overlayLevelAxes([earlier, current], view)[0].title, overlayLevelAxes([current], view)[0].title, 'named by the current one');
+    // While none has its own yet, the axis stays as it was drawn for the bands shown.
+    const alone = spectrumSeriesRange([earlier]);
+    assert.ok(alone.maxDb >= 40);
 });
 
 test('the cursor spectrum\'s level axis follows the dB line rule: round steps, at most 100 dB, a silent line squashes nothing (R9)', () => {

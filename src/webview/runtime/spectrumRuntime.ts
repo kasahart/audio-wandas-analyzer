@@ -50,11 +50,25 @@ export function spectrumLevelRange(low: number, high: number, typed: { min?: num
 }
 
 /** The series' shared ranges: frequency to the highest, level by spectrumLevelRange over every series' extremes. */
+/**
+ * The series whose levels set a level axis' range: those of the cursor where it is. An earlier cursor's bands drawn
+ * while this one's are on their way (standIn 'pending') set it only while no series has its own yet, so the axis
+ * stays as it was drawn for them, never moved by another point's levels beside a current one.
+ */
+export function levelRangeSeries<S extends { slice: SpectrumSlice }>(series: readonly S[]): readonly S[] {
+    const current = series.filter(({ slice }) => slice.standIn !== 'pending');
+    return current.length ? current : series;
+}
+
 export function spectrumSeriesRange(series: ReadonlyArray<{ slice: SpectrumSlice }>): SpectrumSeriesRange {
     let minDb = Infinity, maxDb = -Infinity, maxFrequencyHz = 0, logMinFrequencyHz = Infinity;
-    series.forEach(({ slice }) => {
-        minDb = Math.min(minDb, slice.minDb);
-        maxDb = Math.max(maxDb, slice.maxDb);
+    const ranged = new Set(levelRangeSeries(series));
+    series.forEach(entry => {
+        const { slice } = entry;
+        if (ranged.has(entry)) {
+            minDb = Math.min(minDb, slice.minDb);
+            maxDb = Math.max(maxDb, slice.maxDb);
+        }
         maxFrequencyHz = Math.max(maxFrequencyHz, slice.maxFrequencyHz);
         // An FFT slice has a 0 Hz bin, so a log axis is used only when every series is octave bands.
         const bandMin = sliceLogMinFrequencyHz(slice);
@@ -155,7 +169,7 @@ export interface OverlayLevelAxis<S> {
 /** A slice's own range, before a typed spectrogram dB range replaced it. */
 function autoDbRange(series: ReadonlyArray<{ slice: SpectrumSlice }>): { minDb: number; maxDb: number } {
     let minDb = Infinity, maxDb = -Infinity;
-    series.forEach(({ slice }) => {
+    levelRangeSeries(series).forEach(({ slice }) => {
         minDb = Math.min(minDb, slice.autoMinDb ?? slice.minDb);
         maxDb = Math.max(maxDb, slice.autoMaxDb ?? slice.maxDb);
     });
@@ -172,8 +186,10 @@ export function overlayLevelAxes<S extends LevelKeyed>(series: readonly S[], vie
     const all = spectrumSeriesRange(series);
     const entries = byLevelKey(series, spectrumLevelKey).map(group => [group.key, group.items] as const);
     const axisFor = (_key: string, members: S[], visible: SpectrumVisibleWindow): OverlayLevelAxis<S> => {
-        const reference = spectrumLevelReference(members[0].slice);
-        return { series: members, title: backendTitle(members[0].slice.axisLabel || reference), reference, visible };
+        // Named by a series of the cursor where it is, when one has come.
+        const named = levelRangeSeries(members)[0];
+        const reference = spectrumLevelReference(named.slice);
+        return { series: members, title: backendTitle(named.slice.axisLabel || reference), reference, visible };
     };
     if (entries.length < 2) {
         const visible = spectrumVisibleWindow(all.maxFrequencyHz, all.minDb, all.maxDb, view, all.logMinFrequencyHz);

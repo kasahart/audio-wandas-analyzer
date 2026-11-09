@@ -2,7 +2,7 @@
  * The entry table's work with the host before and during a computation: reading the files' headers (their
  * channels and lengths, no audio decoded) and the progress and cost of the scan the user started with 「計算」.
  */
-import { createLatestAnswers } from './answerStore';
+import { createFailureHold, createLatestAnswers } from './answerStore';
 import type { EntryProbeMessage, EntryProbePublication } from '../../shared/analysis/entryScan';
 
 /**
@@ -88,17 +88,19 @@ export interface HeaderProbe {
     clear(): void;
 }
 
-export function createHeaderProbe(): HeaderProbe {
+export function createHeaderProbe(now: () => number = () => Date.now()): HeaderProbe {
     // Each file's header as read: its channels (or why it could not be read) and its length.
     const channelAnswers = createLatestAnswers<number>();
     const durationAnswers = createLatestAnswers<number>();
     const channels = channelAnswers.view, errors = channelAnswers.failures, durations = durationAnswers.view;
+    // A header that could not be read (a file still being written) is read again once the store's pause is over.
+    const unread = createFailureHold(now);
     let running: { requestId: string; done: number; total: number } | null = null;
     return {
         channels, errors, durations,
         progress: () => (running ? { done: running.done, total: running.total } : null),
         start(paths, nextId) {
-            const pending = paths.filter(path => !channels.has(path) && !errors.has(path));
+            const pending = paths.filter(path => !channels.has(path) && !unread.holds(path));
             if (!pending.length) return null;
             const requestId = nextId();
             running = { requestId, done: 0, total: pending.length };
@@ -115,11 +117,11 @@ export function createHeaderProbe(): HeaderProbe {
             running.done++;
             if (header.durationS !== undefined) durationAnswers.set(header.filePath, header.durationS);
             if (header.channels) channelAnswers.set(header.filePath, header.channels);
-            else if (header.error) channelAnswers.fail(header.filePath, header.error);
+            else if (header.error) { channelAnswers.fail(header.filePath, header.error); unread.fail(header.filePath); }
             return 'result';
         },
         clear() {
-            channelAnswers.clear(); durationAnswers.clear();
+            channelAnswers.clear(); durationAnswers.clear(); unread.clear();
             running = null;
         },
     };

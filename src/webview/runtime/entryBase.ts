@@ -52,10 +52,10 @@ export interface EntryBaseDeps {
     groupLabel(id: GroupId): string;
     rowName(key: string): string;
     results: ReadonlyMap<string, ScanResult>;
-    /** A file's scan as the answer store hands it (its state and identity); from `results` when not given. */
-    answerOf?(path: string): ScanAnswer;
-    /** Whether a file's result is of an earlier chain. */
-    isStale(path: string): boolean;
+    /** Files' scans as the answer store hands them (state and identity: stale when of an earlier chain); the answer store's alone, so no base is measured from results it has not judged. */
+    answersOf(paths: readonly string[]): ScanAnswer[];
+    /** The results of the current chain and calibration (the answer store's). */
+    fresh(): ReadonlyMap<string, ScanResult>;
     entryModel(): EntryModel;
 }
 
@@ -85,17 +85,35 @@ export interface EntryBase {
     groupName(): string | null;
 }
 
+/**
+ * Results the comparison measured now over a region, under the current chain (its own compare-scan): a file's answer
+ * over them is its value there, never the table's state (a table result of an earlier chain does not make it stale).
+ */
+export type RegionResults = ReadonlyMap<string, ScanResult> & { readonly measuredNow: true };
+export function regionResults(measured: Iterable<readonly [string, ScanResult]>): RegionResults {
+    return Object.assign(new Map(measured), { measuredNow: true as const });
+}
+const isRegionResults = (over: ReadonlyMap<string, ScanResult>): over is RegionResults => (over as Partial<RegionResults>).measuredNow === true;
+
 export function createEntryBase(deps: EntryBaseDeps): EntryBase {
-    const { strings, results } = deps;
+    const { strings } = deps;
+    const answersOf = (paths: readonly string[]): ScanAnswer[] => deps.answersOf(paths);
+    /**
+     * The results a base is measured from: the table's, without those of an earlier chain or calibration (stale: shown
+     * greyed, never in a median, an n or a Δ). Every median, count and Δ here is taken over these alone.
+     */
+    const current = (): ReadonlyMap<string, ScanResult> => deps.fresh();
     const slotRowOf = (filePath: string): DatasetRow | undefined => deps.rowOf(roleKey(deps.slots(), filePath) ?? null);
     /**
      * A file's answer for a figure: the table's (the answer store's state and identity), stale when of an earlier chain;
-     * over a region (`over`), the region's value of a file the table measured (none yet: pending).
+     * over results measured now over a region (regionResults), the region's value whatever the table's state (none
+     * yet: pending); over the table's own results with more in them (withBins), the table's state with their value.
      */
     function answerOf(path: string, over?: ReadonlyMap<string, ScanResult>): ScanAnswer {
-        const table = deps.answerOf?.(path) ?? scanAnswer(path, results.get(path));
-        const fresh: ScanAnswer = table.state === 'ready' && deps.isStale(path) ? { state: 'stale', value: table.value, identity: table.identity } : table;
-        if (!over || fresh.state !== 'ready' || over === results) return fresh;
+        // The answer store's (stale when of an earlier chain or calibration): never judged here.
+        const fresh = answersOf([path])[0];
+        if (over && isRegionResults(over)) return scanAnswer(path, over.get(path), { recipeKey: fresh.identity.recipeKey, region: 'over' });
+        if (!over || fresh.state !== 'ready' || over === deps.results) return fresh;
         return scanAnswer(path, over.get(path), { recipeKey: fresh.identity.recipeKey, region: 'over' });
     }
     /**
@@ -170,7 +188,7 @@ export function createEntryBase(deps: EntryBaseDeps): EntryBase {
         return out;
     }
     function compareWith(comparePath: string, base: EntryBaseOf, compareChannel: number | null, byGroup: boolean, over?: ReadonlyMap<string, ScanResult>, entryRegionBase = false): CompareModel {
-        const source = over ?? results;
+        const source = over ?? current();
         const chosen = picked(picked(source, base.paths, base.channel), [comparePath], compareChannel);
         const slot0 = deps.slots()[0];
         const single = slot0 && !byGroup ? fileOfKey(slot0) : null;
@@ -209,6 +227,7 @@ export function createEntryBase(deps: EntryBaseDeps): EntryBase {
             const anchor = deps.slots()[1];
             const comparePath = anchor ? fileOfKey(anchor) : null;
             const base = comparePath ? resolve(comparePath) : { paths: groupSet(null, name, null).set.paths, channel: null };
+            const results = current();
             if (!isComputed(value) || value === 'peak' || value === 'crest') {
                 // Not a level: the median of the members' own values (a CSV value once per recording, else per channel row).
                 const members = deps.pool().filter(row => base.paths.includes(row.filePath) && (!base.channel || row.ch === base.channel));

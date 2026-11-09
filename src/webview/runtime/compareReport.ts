@@ -9,7 +9,7 @@ import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { encodeNumber, plainFloats, recipeSteps, timeSignalStep, upToStep, withDefaults, withParam, TIME_SLICE } from '../../shared/recipe/recipeSteps';
 import { BAND_CENTERS_HZ, bandCentreCell, bandLabel, csvNumber, EDGE_GUARD_S, HEADLINE_WITHIN_DB, levelReferenceCell, measuredRegion, regionCells, type BaseDefinition, type DerivedRow, type EntryMeasure, type EntryModel } from './entryTable';
 import { withBaseInput, withChannel } from '../../shared/recipe/channelSelection';
-import { baseLevelColumns, dataRange, diffRange, levelAxes, scanSet, levelColumns, paneNames, plainNames, titleOf, withTitle, type FigureColumns, type FigureRange, type FigureTitle } from './figureModel';
+import { baseLevelColumns, dataRange, diffRange, figureUsed, levelAxes, scanFigureOf, scanSet, levelColumns, paneNames, plainNames, titleOf, withTitle, type FigureColumns, type FigureRange, type FigureTitle } from './figureModel';
 import { bandsSource, binsSource, binsView, deltaViews, diffHeadline, levelsHeadline, sideView, type CompareModel, type CompareStrings, type LevelInput } from './comparePanes';
 import { SECONDARY_AXIS_DASH } from './overlaySpectrumPainter';
 import { paintOverlay } from './stagePanes';
@@ -17,6 +17,7 @@ import type { InlineFullSource } from './fullRead';
 import { secondsSpanText } from '../plot/plotText';
 import type { EntryRegion } from '../../shared/analysis/entryScan';
 import type { ScanResult, StageView } from '../../shared/protocol/backendProtocol';
+import type { ScanAnswer } from './answerStore';
 import { baseName } from '../../shared/analysis/entryMetadata';
 import { powerMeanDb, powerMeanOrNull } from '../../shared/utils/levels';
 import { DIFF_COLOR, ROLE_COLORS } from '../../shared/gui/roleColors';
@@ -43,7 +44,7 @@ export interface ReportInput {
     /** Whether a compared file's base kept the entry region (see CompareModel.blocked). */
     entryRegionBase?(path: string): boolean;
     /** Files whose values are of the previous chain (the comparison's measuring of them was cancelled). */
-    stale?: ReadonlySet<string>;
+    stale: ReadonlySet<string>;
     /** The comparison shows the difference pane: the report has its Δ figures too. */
     showDiff?: boolean;
     /**
@@ -147,6 +148,25 @@ export function baseUsed(comparison: Pick<CompareModel, 'base' | 'compare' | 'bl
     return scanSet(results, comparison.base?.filePaths ?? [], compared ? results.get(compared) : undefined);
 }
 
+/**
+ * The report's stale set: the table's results of an earlier chain or calibration; over a region none, since every
+ * number there is measured now under the current chain (entryBase.regionResults).
+ */
+export function reportStale(region: EntryRegion | null | undefined, tableStale: ReadonlySet<string>): ReadonlySet<string> {
+    return region ? new Set<string>() : tableStale;
+}
+
+/**
+ * Whether a fixed Δ (D) can be measured again from the table's results: only when its compared recording is ready
+ * and every base recording it was fixed with is counted by the figure model now (figureUsed: ready, of the current
+ * chain and calibration, of the compared one's reference and axis). One left out (stale, pending, failed, another
+ * reference) keeps the row ≠ rather than measuring a Δ of fewer or other files than it was fixed with.
+ */
+export function remeasurable(compared: ScanAnswer, base: readonly ScanAnswer[]): boolean {
+    if (compared.state !== 'ready' || !base.length) return false;
+    return figureUsed(base, scanFigureOf(compared.value)).n === base.length;
+}
+
 export function entryMeasure(comparison: CompareModel, band: number, results: ReadonlyMap<string, ScanResult>): EntryMeasure | null {
     if (!comparison.base || !comparison.compare) return null;
     const withheld = !!comparison.blocked;
@@ -205,15 +225,17 @@ export function reportCsv(input: ReportInput, strings: ReportStrings): string {
     // The differences fixed with D: each against the base it was fixed with, as that base was defined then.
     for (const item of input.derived ?? []) {
         if (!item.result.ok) continue;
-        const leq = powerMeanDb(item.result.leqDbA ?? []);
-        const bandLevel = (band: number): number | null => powerMeanOrNull((item.result.thirdOctDb ?? []).map(channel => channel[band]));
+        // A ≠ row (fixed under an earlier chain) has no number to read, as the table says: its numbers are not written either.
+        const numbers = !item.stale;
+        const leq = numbers ? powerMeanDb(item.result.leqDbA ?? []) : null;
+        const bandLevel = (band: number): number | null => (numbers ? powerMeanOrNull((item.result.thirdOctDb ?? []).map(channel => channel[band])) : null);
         const definition = item.base.definition;
         lines.push([
             `${strings.reportDerived} · ${baseName(item.parentPath)}${item.ch ? ` ch${item.ch}` : ''} · ${item.region}`, '', '', ...columns.map(() => ''),
             ...regionCells(measuredRegion(item.region === 'all' ? null : parseRegion(item.region), item.result.input?.durationS)),
             // Fixed only when both are of one level reference (no Δ across references): the base is in the row's.
             // The base's own reference and calibration, as fixed with it (never the compared row's).
-            dB(leq), levelReferenceCell(levelRowOf(item.result), own), dB(item.base.leq), levelReferenceCell(item.base.level, base), dB(leq - item.base.leq),
+            dB(leq), levelReferenceCell(levelRowOf(item.result), own), dB(numbers ? item.base.leq : null), levelReferenceCell(item.base.level, base), dB(leq === null ? null : leq - item.base.leq),
             ...bands.map(band => { const level = bandLevel(band), reference = item.base.bands[band]; return dB(level === null || reference === null || reference === undefined ? null : level - reference); }),
             String(item.base.paths?.length ?? ''), (item.base.paths ?? []).map(baseName).join(';'), String(item.result.specVersion ?? ''),
             item.stale ? strings.reportChainPrevious : strings.reportChainCurrent,

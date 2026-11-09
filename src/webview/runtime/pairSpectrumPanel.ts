@@ -63,7 +63,7 @@ export interface PairPanelHost {
 export const PAIR_REQUEST_DELAY_MS = 150;
 
 /** A pair request's answer key: the request as it is sent (its analysis, settings, sources, offsets and range). */
-const pairKey = (request: string): AnswerKey => answerKey({ ask: request });
+const pairKey = (request: string): AnswerKey => answerKey({ ask: request, version: { by: 'request' } });
 
 /** The plots share one frequency axis: only the bottom one has room under it for the axis's numbers and name. */
 export function pairMargins(key: PairLaneKey): PlotMargins {

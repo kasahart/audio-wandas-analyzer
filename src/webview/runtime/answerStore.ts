@@ -30,16 +30,27 @@ export interface AnswerKey {
     readonly [answerKeyBrand]: true;
 }
 
+/**
+ * Where an answer's file version and calibration are in its key, which every key says (never left out by default):
+ * - `fileVersion` and `calibration` given apart;
+ * - `basis`: one string the screen names both by (stageSource.stageBasis: the scan's condition and the track's calibration);
+ * - `by`: the ask itself names them: the backend's data keys (each a hash of the file version, Recipe, region, channels,
+ *   calibration and step), the track's analysis (its id and settings signature, renewed on a new version or
+ *   calibration), the full request as sent, or the source the answer is kept in (made per data key or analysis).
+ */
+export type AnswerVersion =
+    | { fileVersion: string; calibration: string }
+    | { basis: string }
+    | { by: 'data-keys' | 'analysis' | 'request' | 'source' };
+
 /** What an answer is of. Every part a source knows goes in; a part it does not know is left out, never guessed. */
 export interface AnswerKeyParts {
     /** What is asked of the file(s): the source's name and its request (a spec, a window, a read, a combination). */
     ask: unknown;
+    /** Where the file's version and calibration are (AnswerVersion): required, so no key leaves them out unsaid. */
+    version: AnswerVersion;
     /** The file (or subject) answered for. */
     file?: string;
-    /** The file's version (size, ns mtime, ns ctime, inode), or the screen's basis that names it with its calibration. */
-    fileVersion?: string;
-    /** The calibration applied to the file's channels. */
-    calibration?: string;
     /** The full recipe text (recipeKey). */
     recipe?: string;
     /** The measured region, in whole samples, or the part on screen as it is sent. */
@@ -51,7 +62,8 @@ export interface AnswerKeyParts {
 /** The key of an answer: every part, in one order, written exactly (JSON reads each number back to the same double). */
 export function answerKey(parts: AnswerKeyParts): AnswerKey {
     const ask = typeof parts.ask === 'string' ? parts.ask : JSON.stringify(parts.ask ?? null);
-    const id = JSON.stringify([ask, parts.file ?? '', parts.fileVersion ?? '', parts.calibration ?? '', parts.recipe ?? '', parts.region ?? '', parts.condition ?? '']);
+    const version = 'by' in parts.version ? ['by', parts.version.by] : 'basis' in parts.version ? ['basis', parts.version.basis] : [parts.version.fileVersion, parts.version.calibration];
+    const id = JSON.stringify([ask, parts.file ?? '', version, parts.recipe ?? '', parts.region ?? '', parts.condition ?? '']);
     return { id, ask } as AnswerKey;
 }
 
@@ -263,6 +275,9 @@ export function createLatestAnswers<T, K extends string | number = string>(): La
             else unders.delete(subject);
         },
         fail(subject, reason) {
+            // The failure is the subject's answer now: what it had before is not shown for it.
+            values.delete(subject);
+            unders.delete(subject);
             failures.set(subject, reason);
         },
         failure: subject => failures.get(subject),
@@ -355,12 +370,92 @@ export function scanAnswer(path: string, result: ScanResult | undefined, under?:
     return { state: 'ready', value: result as ScanResult & { ok: true }, identity };
 }
 
-/** The latest scan of each file, handed as answers (scanAnswer) with the recipe each was measured with. */
+/** The latest scan of each file, handed as answers (scanAnswer) with the recipe and condition each was measured with. */
 export interface ScanAnswers extends LatestAnswers<ScanResult> {
+    /**
+     * A file's scan as an answer: stale when it was measured under another recipe or condition than the current one
+     * (its value is shown greyed, never counted), pending only while it is asked for, missing when it was never asked.
+     */
     answer(path: string): ScanAnswer;
+    /** Several files' answers, against one reading of what is current. */
+    answers(paths: readonly string[]): ScanAnswer[];
+    /** Whether the file's result (read or failed) is of another recipe or condition than the current one. */
+    stale(path: string): boolean;
+    /** The results that are of the current recipe and condition (a failed one too): what a median, Δ or n is taken over. */
+    fresh(): ReadonlyMap<string, ScanResult>;
+    /** These files are asked for now: until each answers or the asking ends, it is pending. */
+    asking(paths: readonly string[]): void;
+    /** The asking ended (done or stopped): a file not answered is missing again. */
+    settled(): void;
 }
 
-export function createScanAnswers(): ScanAnswers {
+/** What a scan must be of now: the current recipe's key (asked once per question, it may be costly) and each file's condition. */
+export interface ScanCurrent {
+    recipeKey: string;
+    condition(path: string): string;
+}
+
+export function createScanAnswers(currentOf: () => ScanCurrent = () => ({ recipeKey: '', condition: () => '' })): ScanAnswers {
     const latest = createLatestAnswers<ScanResult>();
-    return { ...latest, view: latest.view, failures: latest.failures, answer: path => scanAnswer(path, latest.get(path), latest.under(path)) };
+    const asked = new Set<string>();
+    const staleUnder = (path: string, now: ScanCurrent): boolean => {
+        if (!latest.has(path)) return false;
+        const under = latest.under(path);
+        return under?.recipeKey !== now.recipeKey || (under?.condition ?? '') !== now.condition(path);
+    };
+    const answerUnder = (path: string, now: ScanCurrent): ScanAnswer => {
+        const result = latest.get(path);
+        const found = scanAnswer(path, result, latest.under(path));
+        if (!result) return asked.has(path) ? found : { state: 'missing', identity: found.identity };
+        if (found.state === 'ready' && staleUnder(path, now)) return { state: 'stale', value: found.value, identity: found.identity };
+        return found;
+    };
+    return {
+        ...latest,
+        view: latest.view,
+        failures: latest.failures,
+        set(path, value, under) { asked.delete(path); latest.set(path, value, under); },
+        clear() { asked.clear(); latest.clear(); },
+        stale: path => staleUnder(path, currentOf()),
+        fresh() {
+            const now = currentOf();
+            const out = new Map<string, ScanResult>();
+            for (const [path, result] of latest.view) if (!staleUnder(path, now)) out.set(path, result);
+            return out;
+        },
+        asking(paths) { for (const path of paths) asked.add(path); },
+        settled() { asked.clear(); },
+        answer: path => answerUnder(path, currentOf()),
+        answers(paths) { const now = currentOf(); return paths.map(path => answerUnder(path, now)); },
+    };
+}
+
+/**
+ * One answer held for one subject (a track's range, its zoom window, its spectrogram's failure): its value, or its
+ * failure under the condition it was asked under, standing for FAILED_RETRY_MS and then asked again.
+ */
+export interface AnswerSlot<T> {
+    get(): T | null;
+    set(value: T): void;
+    /** The answer failed under `condition` (and why): what was held is let go. */
+    fail(reason: string, condition?: string): void;
+    /** Why the answer failed under `condition`, while it has not been asked again. */
+    failure(condition?: string): string | undefined;
+    /** Whether a failure under `condition` still stands (it is not asked again until it does not). */
+    holds(condition?: string): boolean;
+    /** Lets go the value and the failure (asked anew, a new analysis). */
+    clear(): void;
+}
+
+export function createAnswerSlot<T>(now: () => number = () => Date.now()): AnswerSlot<T> {
+    let value: T | null = null;
+    let failed: { reason: string; condition: string; until: number } | null = null;
+    return {
+        get: () => value,
+        set(next) { value = next; failed = null; },
+        fail(reason, condition = '') { value = null; failed = { reason, condition, until: now() + FAILED_RETRY_MS }; },
+        failure: (condition = '') => (failed && failed.condition === condition ? failed.reason : undefined),
+        holds: (condition = '') => !!failed && failed.condition === condition && now() < failed.until,
+        clear() { value = null; failed = null; },
+    };
 }

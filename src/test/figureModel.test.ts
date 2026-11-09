@@ -142,7 +142,7 @@ test('every figure and every file written of a base group with another reference
     assert.equal(comparison.base?.leq, 60);
     assert.equal(comparison.blocked, undefined);
     // 報告.csv: the row's reference and the base's, n and files of the same set.
-    const report = reportCsv({ model, results, slots: [null, '/f/spl.wav', null, null], compare: () => comparison, region: null, recipe: null, recipeName: 'r', now: new Date() }, STR);
+    const report = reportCsv({ model, results, slots: [null, '/f/spl.wav', null, null], compare: () => comparison, region: null, recipe: null, recipeName: 'r', now: new Date(), stale: new Set<string>() }, STR);
     const [reportHeader, row] = report.slice(1).trimEnd().split('\r\n').map(csvColumns);
     assert.equal(csvHeaderProblem(reportHeader, levelColumns(STR)), null);
     assert.equal(csvHeaderProblem(reportHeader, baseLevelColumns(STR)), null);

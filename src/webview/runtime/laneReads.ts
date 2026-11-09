@@ -48,7 +48,7 @@ export function createLaneReads(post: (message: ReadRequest) => void, now: () =>
     const waiting = new Map<string, { done: (answer: ReadAnswer) => void; settingsSignature?: string }>();
     // Each read's source, kept with what it fetched: of the track's file, analysis and settings (LaneTrack).
     const sources = createAnswerStore<FullSource>({ capacity: 128, now });
-    const once = (ask: unknown[], make: () => FullSource): FullSource => sources.keep(answerKey({ ask }), make);
+    const once = (ask: unknown[], make: () => FullSource): FullSource => sources.keep(answerKey({ ask, version: { by: 'analysis' } }), make);
     const ask = (message: (requestId: string) => ReadRequest, done: (answer: ReadAnswer) => void): void => {
         const requestId = `${PREFIX}-${++count}`;
         const request = message(requestId);
@@ -71,7 +71,7 @@ export function createLaneReads(post: (message: ReadRequest) => void, now: () =>
             }), answer => done(answer?.points ?? null))));
         },
         slice(track, cursorNorm, channel) {
-            const key = answerKey({ ask: ['slice', track, cursorNorm] });
+            const key = answerKey({ ask: ['slice', track, cursorNorm], version: { by: 'analysis' } });
             // The slice at every bin, fetched once for every read of it: its points, and its level for the order (R6).
             const full = (ready: () => void): FullSource | null | undefined => {
                 if (slices.ask(key)) {

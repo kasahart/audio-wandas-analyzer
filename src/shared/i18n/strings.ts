@@ -368,6 +368,7 @@ export interface UiStrings {
     dsBaseOtherUnits: string;
     dsBaseFailed: string;
     dsBasePending: string;
+    /** A base group's recordings left out because their value is of an earlier chain or calibration. */
     dsBaseStale: string;
     dsBaseOtherBins: string;
     reportMemo: string;
@@ -1183,7 +1184,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dsBaseOtherUnits: ' · {n} of another level reference left out',
         dsBaseFailed: ' · {n} failed left out',
         dsBasePending: ' · {n} still computing',
-        dsBaseStale: ' · {n} of an earlier recipe left out',
+        dsBaseStale: ' · {n} of an earlier chain left out',
         dsBaseOtherBins: ' · {n} on another frequency axis left out',
         reportMemo: 'Memo',
         reportBaseDefinition: 'Base definition',
