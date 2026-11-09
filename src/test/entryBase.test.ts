@@ -247,11 +247,11 @@ test('over a region the base counts what was measured there now: a recording sta
     // The report over the region (its stale set empty: every number is measured now) writes c's base as current: n 2.
     const report = (stale: ReadonlySet<string>): string[][] => reportCsv({ model: buildEntryModel([...results].map(([filePath, result]) => ({ filePath, result })), null), results: region, slots: [null, '/d/a.wav', null, null],
         compare: path => base.comparison(path, false, region), region: { start: 0, end: 1 }, recipe: null, recipeName: 'r', now: new Date(), stale }, strings).slice(1).trimEnd().split('\r\n').map(line => line.split(','));
-    const [header, row] = report(reportStale({ start: 0, end: 1 }, new Set(['/d/c.wav'])));
+    const [header, row] = report(reportStale(new Set(['/d/c.wav']), region));
     assert.equal(row[header.indexOf(strings.entryCsvGroupSize)], '2');
     assert.ok(row.includes(strings.reportChainCurrent) && !row.includes(strings.reportChainPrevious), row.join(','));
-    // The table's stale set handed over a region instead would mark the row of an earlier chain: the region's is empty.
-    assert.ok(report(reportStale(null, new Set(['/d/c.wav'])))[1].includes(strings.reportChainPrevious));
+    // Not measured afresh (no region's scans), the table's stale file marks the row of an earlier chain.
+    assert.ok(report(reportStale(new Set(['/d/c.wav']), new Map()))[1].includes(strings.reportChainPrevious));
 });
 
 test('a fixed Δ is measured again only when every file it was fixed with is counted now: one stale, pending, failed or of another reference keeps it ≠', () => {

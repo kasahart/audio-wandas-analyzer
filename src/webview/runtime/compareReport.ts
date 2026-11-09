@@ -149,11 +149,11 @@ export function baseUsed(comparison: Pick<CompareModel, 'base' | 'compare' | 'bl
 }
 
 /**
- * The report's stale set: the table's results of an earlier chain or calibration; over a region none, since every
- * number there is measured now under the current chain (entryBase.regionResults).
+ * Which of a report's files have numbers of an earlier chain or calibration: the table's stale ones, but for those
+ * measured afresh for the report (a region's scans, made under the current chain), whose numbers replace them.
  */
-export function reportStale(region: EntryRegion | null | undefined, tableStale: ReadonlySet<string>): ReadonlySet<string> {
-    return region ? new Set<string>() : tableStale;
+export function reportStale(stale: ReadonlySet<string>, measuredNow: ReadonlyMap<string, unknown>): Set<string> {
+    return new Set([...stale].filter(path => !measuredNow.has(path)));
 }
 
 /**

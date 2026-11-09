@@ -10,6 +10,9 @@ import { createCombineSource } from '../webview/runtime/combineSource';
 import { createHeaderProbe } from '../webview/runtime/entryScanQueue';
 import { createStageSource, stageBasis } from '../webview/runtime/stageSource';
 import type { ScanResult } from '../shared/protocol/backendProtocol';
+import { remeasuredFrom } from '../webview/runtime/comparePanes';
+import { reportStale } from '../webview/runtime/compareReport';
+import type { DerivedRow } from '../webview/runtime/entryTable';
 
 const stage = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', quantity: 'level', xs: [0], values: [0], data: 'k' };
 
@@ -129,4 +132,28 @@ test('a file\'s scan is stale once the chain or its calibration is another, pend
     scans.set('/b.wav', { ok: false, reason: 'busy' }, { recipeKey: 'r0', condition: '0' });
     assert.equal(scans.answer('/b.wav').state, 'failed', 'a failure stays a failure, of whichever chain');
     assert.equal(scans.stale('/b.wav'), true, 'but it is asked again under the current chain');
+});
+
+test('a fixed difference is measured again only from results of the current chain: a stale or missing file or base keeps it ≠', () => {
+    const ok = (leq: number): ScanResult => ({ ok: true, input: { id: 'x', fs: 48000, channels: [0], durationS: 1, unit: 'Pa', ref: 2e-5, levelReferenceLabel: 'dB SPL', calibrationStatus: 'calibrated', fullScale: true }, leqDbA: [leq], thirdOctDb: [[leq]], spectrumDb: [[leq]], peakHz: [100], crest: [3], specVersion: 5 });
+    const row: DerivedRow = { parentPath: '/c.wav', region: 'all', result: ok(30), recipeKey: 'old', stale: true, base: { leq: 20, bands: [20], paths: ['/a.wav', '/b.wav', '/d.wav'] } };
+    const all = new Map([['/a.wav', ok(40)], ['/b.wav', ok(41)], ['/c.wav', ok(50)], ['/d.wav', ok(42)]]);
+    const scans = createScanAnswers(() => ({ recipeKey: 'new', condition: () => '0' }));
+    for (const [path, result] of all) scans.set(path, result, { recipeKey: 'new', condition: '0' });
+    const again = remeasuredFrom(row, scans, 'new');
+    assert.equal(again?.stale, false);
+    assert.equal(again?.recipeKey, 'new');
+    assert.equal(again?.base.leq, 41);
+    // b's result is of the earlier chain: no median of a and d alone, nor marked current.
+    scans.set('/b.wav', ok(41), { recipeKey: 'old', condition: '0' });
+    assert.equal(remeasuredFrom(row, scans, 'new'), null);
+    scans.set('/b.wav', ok(41), { recipeKey: 'new', condition: '0' });
+    scans.set('/c.wav', ok(50), { recipeKey: 'old', condition: '0' });
+    assert.equal(remeasuredFrom(row, scans, 'new'), null, 'nor with the compared file stale');
+});
+
+test('a report\'s chain column names the table\'s stale files unless the report measured them afresh', () => {
+    const stale = new Set(['/a.wav', '/b.wav']);
+    assert.deepEqual([...reportStale(stale, new Map())], ['/a.wav', '/b.wav'], 'whole files: the table\'s numbers, stale as they are');
+    assert.deepEqual([...reportStale(stale, new Map([['/a.wav', 1]]))], ['/b.wav'], 'a region\'s scan of a replaces its numbers; b kept the table\'s');
 });
