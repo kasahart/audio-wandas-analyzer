@@ -36,8 +36,9 @@ test('linking the scales gives every track the same amplitude and colour scale; 
     await link.click();
     await expect(link).toHaveAttribute('aria-pressed', 'true');
     expect(await rangeAt(page, AMPLITUDE_AXIS, 1)).toEqual(loud);
-    expect(await rangeAt(page, '.track-spec-canvas', 0, true)).toEqual({ min: '-110', max: '0' });
-    expect(await rangeAt(page, '.track-spec-canvas', 1, true)).toEqual({ min: '-110', max: '0' });
+    // Linked, the colours reach the loudest track's top and no more than 100 dB under it (R9), not the quiet one's floor.
+    expect(await rangeAt(page, '.track-spec-canvas', 0, true)).toEqual({ min: '-100', max: '0' });
+    expect(await rangeAt(page, '.track-spec-canvas', 1, true)).toEqual({ min: '-100', max: '0' });
 
     // A range typed on one track's axis shows on the other in the same values.
     await page.locator('#track-row-1 ' + AMPLITUDE_AXIS).first().dblclick();
