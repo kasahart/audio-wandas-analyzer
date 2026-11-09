@@ -45,10 +45,11 @@ export const reportOverlay: ChartContract = {
         },
         {
             id: 'report-overlay.axis', value: 'axis', what: '軸の名前',
-            computedIn: ['src/webview/runtime/comparePanes.ts:paneAxes'],
-            from: 'words', trace: 'レベル（基準・未校正）と周波数。',
+            computedIn: ['src/webview/runtime/comparePanes.ts:paneAxes', 'src/webview/runtime/compareReport.ts:reportLevelAxes', 'src/webview/runtime/compareReport.ts:sideInput'],
+            from: 'words', trace: 'レベル（基準・未校正）と周波数。基準と比較のレベルの同一性が違えば、基準を左、比較を右の軸に分け、それぞれの録音で名付ける。未校正の線は凡例に自分で書く（R1）。',
             tests: [
                 t('src/test/comparePanes.test.ts', 'every pane names its axes: level and frequency, Δ with its legend, in the language and calibration of the files'),
+                t('src/test/benchReport.test.ts', 'a report figure draws levels of another reference on their own axis, each named by its own recordings, and each uncalibrated line says so (R1, R4)'),
             ],
             names: { quantity: true, unit: true, reference: true },
         },

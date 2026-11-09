@@ -123,7 +123,8 @@ export function levelText(db: number, unit: string): string {
 }
 
 /** A number written as zero has no sign ("−0.0" is "0.0", A36): a level just below zero is not negative as written. */
-const noNegativeZero = (text: string): string => (/^[−-]0(\.0*)?$/u.test(text) ? text.slice(1) : text);
+/** A number text without its sign when it rounds to zero ("−0.0" → "0.0"). */
+export const noNegativeZero = (text: string): string => (/^[−-]0(\.0*)?$/u.test(text) ? text.slice(1) : text);
 
 /** A signed number with a sign always written: to a tenth by default ("+23.7", "−1.4"); zero as written is "+0.0", never "−0.0". */
 export function signedNumberText(value: number, digits = 1): string {

@@ -196,3 +196,13 @@ test('every plot\'s gestures are built on plotInteraction.ts: the shared listene
     const plotKeys = sources(webview).filter(file => /layer:\s*'plot'/.test(read(file)));
     assert.deepEqual(plotKeys, ['runtime/trackPointerEvents.ts'], 'only the shared listeners step a plot\'s readout with the keys');
 });
+
+test('every plot that acts on a press that stayed put (plotInteraction\'s tap) leaves the second press of a double click alone: a double click resets the zoom only (R13)', () => {
+    // A receiver's tap(plot, event) { … } method or its tap handler, with the body up to the next method.
+    const taps = sources(webview).flatMap(file => {
+        const text = read(file);
+        return [...text.matchAll(/\btap\s*(?:\(\s*\w+\s*,\s*(\w+)\s*\)\s*\{|=\s*\(\s*\w+[^,)]*,\s*(\w+)[^)]*\)[^{]*\{)/gu)].map(match => ({ file, body: text.slice(match.index, match.index + 600), event: match[1] ?? match[2] }));
+    });
+    assert.ok(taps.length >= 2, `the tap receivers are found: ${JSON.stringify(taps.map(item => item.file))}`);
+    for (const { file, body, event } of taps) assert.ok(new RegExp(`\\b${event}\\.detail\\s*>\\s*1`).test(body), `${file}: a tap that does not drop a double click's second press`);
+});

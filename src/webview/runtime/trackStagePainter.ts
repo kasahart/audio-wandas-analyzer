@@ -3,6 +3,7 @@
  * file overlaid on one plot with its legend and, on request, their difference under it. The mode works out what is
  * shown (trackStageMode.ts); these draw it and remember what each plot drew, for the pointer's readout.
  */
+import { secondsSpanText } from '../plot/plotText';
 import type { UiStrings } from '../../shared/i18n/strings';
 import type { StageView } from '../../shared/protocol/backendProtocol';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
@@ -163,7 +164,7 @@ export function stageModeHeadline(frame: Pick<StageFrame, 'strings' | 'waiting' 
     // The steps bypassed are named: what is drawn is the chain without them.
     if (bypassed.length && !waiting) text += strings.stepBypassing.replace('{ops}', bypassed.join(', '));
     // The part of the files compared, while a region is set.
-    if (region && !waiting && comparePath) text += ` · ${strings.stepRegion} ${region.start.toFixed(2)}–${region.end.toFixed(2)} s`;
+    if (region && !waiting && comparePath) text += ` · ${strings.stepRegion} ${secondsSpanText(region.start, region.end)}`;
     // With no difference named (a base group drawn as its waveforms), the bypassed steps and the region lead.
     return text.replace(/^\s*(·\s*)?/, '');
 }

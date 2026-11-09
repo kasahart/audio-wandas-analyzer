@@ -5,6 +5,7 @@ import type { ScanResult } from '../shared/protocol/backendProtocol';
 import { datasetRows, type DatasetRow, type GroupId } from '../shared/dataset/datasetTable';
 import { channelOfRow, createEntryBase, type EntryBaseDeps } from '../webview/runtime/entryBase';
 import { buildEntryModel } from '../webview/runtime/entryTable';
+import { entryMeasure } from '../webview/runtime/compareReport';
 
 const strings = getStrings('en');
 
@@ -15,7 +16,7 @@ const scanned = (level: number, channels = 1): ScanResult => ({
     spectrumDb: Array.from({ length: channels }, () => [level, level]), thirdOctDb: Array.from({ length: channels }, () => [level, level + 1]), specVersion: 5,
 });
 
-function setup(options: { slots?: (string | null)[]; group?: GroupId; baseGroup?: string | null; channels?: Record<string, number>; narrowedBy?: string[]; stale?: string[]; uncalibrated?: string[]; gainCorrected?: string[] } = {}) {
+function setup(options: { slots?: (string | null)[]; group?: GroupId; baseGroup?: string | null; channels?: Record<string, number>; narrowedBy?: string[]; stale?: string[]; uncalibrated?: string[]; gainCorrected?: string[]; failed?: string[]; pending?: string[] } = {}) {
     const attributes = new Map([
         ['/d/a.wav', { rpm: '900' }], ['/d/b.wav', { rpm: '900' }], ['/d/c.wav', { rpm: '900' }], ['/d/d.wav', { rpm: '1500' }],
     ]);
@@ -26,7 +27,9 @@ function setup(options: { slots?: (string | null)[]; group?: GroupId; baseGroup?
         const corrected = (raw: ScanResult): ScanResult => ({ ...raw, input: { ...raw.input!, calibrationStatus: 'calibrated' } });
         return [path, options.gainCorrected?.includes(path) ? corrected(uncalibrated(result)) : options.uncalibrated?.includes(path) ? uncalibrated(result) : result];
     }));
+    for (const path of options.failed ?? []) results.set(path, { ok: false, error: 'failed' } as ScanResult);
     const rows: DatasetRow[] = datasetRows([...attributes.keys()], '/d', attributes, results);
+    for (const path of options.pending ?? []) results.delete(path);
     const byKey = new Map(rows.map(row => [row.key, row]));
     const state = { slots: options.slots ?? [null, null, null, null], group: options.group ?? 'csv:rpm', baseGroup: options.baseGroup ?? null };
     const deps: EntryBaseDeps = {
@@ -35,7 +38,7 @@ function setup(options: { slots?: (string | null)[]; group?: GroupId; baseGroup?
         groupLabel: id => id.replace(/^csv:/, ''), rowName: key => (byKey.get(key)?.name ?? key), results, isStale: path => (options.stale ?? []).includes(path),
         entryModel: () => buildEntryModel([...results].map(([filePath, result]) => ({ filePath, result })), null),
     };
-    return { base: createEntryBase(deps), state, rows };
+    return { base: createEntryBase(deps), state, rows, results };
 }
 
 test('with slot 0 filled the base is that recording, unless the group is asked for', () => {
@@ -170,4 +173,39 @@ test('only the entry base builds a comparison or a base group: no screen, file o
     }
     // The distribution draws the base it is given; it takes no median of its own rows.
     assert.doesNotMatch(readFileSync(path.join(root, 'webview/runtime/entryDistribution.ts'), 'utf8'), /\bmedian\(/);
+});
+
+test('a base group counts, names and measures only the recordings its median is of: never a failed or still-computing one', () => {
+    const cases: Array<{ options: Parameters<typeof setup>[0]; measured: string[]; failed: number; pending: number }> = [
+        { options: { slots: [null, '/d/a.wav', null, null] }, measured: ['/d/b.wav', '/d/c.wav'], failed: 0, pending: 0 },
+        { options: { slots: [null, '/d/a.wav', null, null], failed: ['/d/b.wav'] }, measured: ['/d/c.wav'], failed: 1, pending: 0 },
+        { options: { slots: [null, '/d/a.wav', null, null], pending: ['/d/b.wav'] }, measured: ['/d/c.wav'], failed: 0, pending: 1 },
+        { options: { slots: [null, '/d/a.wav', null, null], group: 'none', failed: ['/d/b.wav'], pending: ['/d/d.wav'] }, measured: ['/d/c.wav'], failed: 1, pending: 1 },
+    ];
+    for (const { options, measured, failed, pending } of cases) {
+        const { base } = setup(options);
+        const resolved = base.resolve('/d/a.wav');
+        const what = JSON.stringify(options);
+        assert.equal(resolved.definition.count, measured.length, what);
+        assert.equal(resolved.definition.failed ?? 0, failed, what);
+        assert.equal(resolved.definition.pending ?? 0, pending, what);
+        assert.ok(resolved.title.includes(strings.entryBaseMedian.replace('{count}', String(measured.length))), `${what}: ${resolved.title}`);
+        assert.equal(resolved.title.includes(strings.dsBaseFailed.replace('{n}', String(failed))), failed > 0, what);
+        assert.equal(resolved.title.includes(strings.dsBasePending.replace('{n}', String(pending))), pending > 0, what);
+        // Every reader of the base (the comparison, the entry CSV, 報告.csv) sees the same recordings the median is of.
+        for (const comparison of [base.comparison('/d/a.wav'), base.fileComparison('/d/a.wav')]) {
+            assert.deepEqual(comparison.base?.filePaths, measured, what);
+            assert.equal(entryMeasure(comparison, 0)?.count, measured.length, what);
+            assert.equal(!!comparison.pending, pending > 0, `${what}: still computing keeps the comparison pending`);
+        }
+    }
+});
+
+test('a slot-0 recording that failed or is still computing leaves no base: never the group\'s median in its place', () => {
+    for (const options of [{ failed: ['/d/d.wav'] }, { pending: ['/d/d.wav'] }]) {
+        const { base } = setup({ slots: ['/d/d.wav', '/d/a.wav', null, null], ...options });
+        const comparison = base.comparison('/d/a.wav');
+        assert.equal(comparison.base, null, JSON.stringify(options));
+        assert.equal(!!comparison.pending, !!options.pending, JSON.stringify(options));
+    }
 });

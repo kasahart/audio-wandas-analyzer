@@ -7,9 +7,10 @@
 import type { UiStrings } from '../../shared/i18n/strings';
 import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { encodeNumber, plainFloats, recipeSteps, timeSignalStep, upToStep, withDefaults, withParam, TIME_SLICE } from '../../shared/recipe/recipeSteps';
-import { BAND_CENTERS_HZ, bandCentreCell, bandLabel, csvNumber, EDGE_GUARD_S, HEADLINE_WITHIN_DB, measuredRegion, regionCells, type BaseDefinition, type DerivedRow, type EntryMeasure, type EntryModel } from './entryTable';
+import { BAND_CENTERS_HZ, bandCentreCell, bandLabel, csvNumber, EDGE_GUARD_S, HEADLINE_WITHIN_DB, levelReferenceCell, measuredRegion, regionCells, type BaseDefinition, type DerivedRow, type EntryMeasure, type EntryModel } from './entryTable';
 import { withBaseInput, withChannel } from '../../shared/recipe/channelSelection';
-import { bandsSource, binsSource, binsView, deltaViews, diffHeadline, levelsHeadline, paneAxes, sideView, type CompareModel, type CompareStrings } from './comparePanes';
+import { bandsSource, binsSource, binsView, deltaViews, diffHeadline, levelIdentityOf, levelsHeadline, paneAxes, sideView, type CompareModel, type CompareStrings, type LevelInput } from './comparePanes';
+import { SECONDARY_AXIS_DASH } from './overlaySpectrumPainter';
 import { paintOverlay, stageDiffRange, stageRange } from './stagePanes';
 import type { InlineFullSource } from './fullRead';
 import { secondsSpanText } from '../plot/plotText';
@@ -28,7 +29,7 @@ export interface ReportFile {
 
 export type ReportStrings = CompareStrings & Pick<UiStrings,
     | 'entryColFile' | 'entryColCondition' | 'stepRegion' | 'entryColLeq' | 'entryColPeak' | 'entryCsvGroupSize' | 'entryBase' | 'entryBaseGroup'
-    | 'reportBase' | 'reportCompare' | 'reportDiff' | 'reportCsv' | 'reportBaseLeq' | 'reportBandDelta' | 'reportGroupFiles' | 'reportSpecVersion' | 'entryLeqUncalibrated' | 'reportSummary' | 'reportStepsLegend' | 'axisFrequency' | 'axisLevelUncal' | 'axisLevelCal' | 'axisDelta' | 'legendHeadline' | 'legendLeak' | 'legendLine' | 'hintLeqUncalibrated' | 'hintLeqUncalibratedRaw' | 'reportRegion' | 'reportRegionStart' | 'reportRegionEnd' | 'reportWhole' | 'reportDefinitions' | 'compareDelta' | 'defLeq' | 'defSpectrum' | 'defThirdOct' | 'defChannels' | 'defBase' | 'defDelta' | 'defRegion' | 'defHeadline' | 'defHeadlineEdges' | 'outside192' | 'outsideMedian' | 'outsideDelta' | 'outsideOutliers' | 'stepOctave' | 'reportChain' | 'reportChainCurrent' | 'reportChainPrevious' | 'reportMemo' | 'dsCh' | 'reportBaseDefinition' | 'reportDerived'>;
+    | 'reportBase' | 'reportCompare' | 'reportDiff' | 'reportCsv' | 'reportBaseLeq' | 'reportLevelReference' | 'reportBaseLevelReference' | 'reportBandDelta' | 'reportGroupFiles' | 'reportSpecVersion' | 'entryLeqUncalibrated' | 'reportSummary' | 'reportStepsLegend' | 'axisFrequency' | 'axisBand' | 'axisLevelUncal' | 'axisLevelCal' | 'axisDelta' | 'legendHeadline' | 'legendLeak' | 'legendLine' | 'hintLeqUncalibrated' | 'hintLeqUncalibratedRaw' | 'reportRegion' | 'reportRegionStart' | 'reportRegionEnd' | 'reportWhole' | 'reportDefinitions' | 'compareDelta' | 'defLeq' | 'defSpectrum' | 'defThirdOct' | 'defChannels' | 'defBase' | 'defDelta' | 'defRegion' | 'defHeadline' | 'defHeadlineEdges' | 'outside192' | 'outsideMedian' | 'outsideDelta' | 'outsideOutliers' | 'stepOctave' | 'reportChain' | 'reportChainCurrent' | 'reportChainPrevious' | 'reportMemo' | 'dsCh' | 'reportBaseDefinition' | 'reportDerived'>;
 
 export interface ReportInput {
     model: EntryModel;
@@ -65,7 +66,8 @@ export function baseDefinitionText(definition: BaseDefinition, strings: Pick<UiS
     return [
         what, `n=${definition.count}`, ...(definition.channel ? [`ch${definition.channel}`] : []),
         ...(definition.fewerChannels ? [`-${definition.fewerChannels} (< ch${definition.channel})`] : []),
-        ...(definition.otherUnits ? [`-${definition.otherUnits} (≠ unit)`] : []), ...definition.filters,
+        ...(definition.otherUnits ? [`-${definition.otherUnits} (≠ unit)`] : []),
+        ...(definition.failed ? [`-${definition.failed} (failed)`] : []), ...(definition.pending ? [`-${definition.pending} (pending)`] : []), ...definition.filters,
     ].join(' · ');
 }
 
@@ -102,9 +104,16 @@ export function reportRecipe(recipe: RecipeDocument, region: EntryRegion | null,
     return end === null ? withStart : withParam(withStart, slice.id, { name: 'end', kind: 'float' }, end);
 }
 
-/** "Leq dB(A) 未校正" when the files are uncalibrated (relative to full scale or 1 input unit), so a level is not read as sound pressure. */
-export function leqLabel(model: EntryModel, strings: Pick<UiStrings, 'entryColLeq' | 'entryLeqUncalibrated'>, name: string = strings.entryColLeq): string {
-    return model.rows.some(row => row.uncalibrated) ? `${name} ${strings.entryLeqUncalibrated}` : name;
+/** A scan's level reference as an entry row has it. */
+function levelRowOf(result: ScanResult): { levelReference?: string; uncalibrated?: 'full-scale' } {
+    const level = result.ok ? result.input : undefined;
+    return level ? { levelReference: level.levelReferenceLabel, ...(level.calibrationStatus !== 'calibrated' ? { uncalibrated: 'full-scale' as const } : {}) } : {};
+}
+
+/** What a side's levels are in, as the CSV writes it beside them ("dBFS 未校正", "dB SPL re 20 µPa"): its own, never the table's. */
+function sideReferenceCell(side: CompareModel['base'], input: ReportInput, strings: Pick<UiStrings, 'entryLeqUncalibrated'>): string {
+    const level = sideInput(side, input);
+    return level ? levelReferenceCell({ levelReference: level.levelReferenceLabel, ...(level.calibrationStatus !== 'calibrated' ? { uncalibrated: 'full-scale' as const } : {}) }, strings.entryLeqUncalibrated) : '';
 }
 
 /** The band with the largest |Δ| against this comparison's base: its centre and Δ; none while the Δ is withheld. */
@@ -136,11 +145,6 @@ export function entryMeasure(comparison: CompareModel, band: number): EntryMeasu
     };
 }
 
-/** The region in seconds, as the CSV and the figures write it. */
-function regionText(region: EntryRegion | null, strings: Pick<UiStrings, 'reportWhole'>): string {
-    return region ? `${region.start.toFixed(2)}–${region.end.toFixed(2)}` : strings.reportWhole;
-}
-
 /**
  * 報告.csv: one row per slot 1–3 (requirements §4). Values are numbers and marks only, dB to one
  * decimal, missing values empty, UTF-8 with a BOM. Each 1/3-octave band has its own Δ column, headed
@@ -160,7 +164,7 @@ export function reportCsv(input: ReportInput, strings: ReportStrings): string {
     const header = [
         strings.entryColFile, `${strings.entryColPeak} Hz`, `${strings.entryColPeak} dB`,
         ...columns.map((column, index) => column.name || strings.entryColCondition.replace('{n}', String(index + 1))),
-        strings.reportRegionStart, strings.reportRegionEnd, leqLabel(input.model, strings), leqLabel(input.model, strings, strings.reportBaseLeq), `Δ ${strings.entryColLeq}`,
+        strings.reportRegionStart, strings.reportRegionEnd, strings.entryColLeq, strings.reportLevelReference, strings.reportBaseLeq, strings.reportBaseLevelReference, `Δ ${strings.entryColLeq}`,
         ...bands.map(band => strings.reportBandDelta.replace('{band}', bandLabel(band))),
         strings.entryCsvGroupSize, strings.reportGroupFiles, strings.reportSpecVersion, strings.reportChain,
         strings.dsCh, ...(input.selection ? [input.selection.value] : []), strings.reportMemo, strings.reportBaseDefinition,
@@ -172,7 +176,8 @@ export function reportCsv(input: ReportInput, strings: ReportStrings): string {
         lines.push([
             // What a reader looks for first: where the file differs most from its base, and by how much.
             input.rowInfo?.(path).label ?? baseName(path), ...maxBandCells(comparison), ...(row?.cells ?? columns.map(() => '')), ...regionCells(measuredRegion(input.region, fileDuration(input, path))),
-            dB(comparison.leq?.compare ?? comparison.compare?.leq), dB(comparison.leq?.base), dB(comparison.leq?.delta),
+            dB(comparison.leq?.compare ?? comparison.compare?.leq), sideReferenceCell(comparison.compare, input, strings),
+            dB(comparison.leq?.base), comparison.leq ? sideReferenceCell(comparison.base, input, strings) : '', dB(comparison.leq?.delta),
             ...bands.map(band => dB(bandDelta(comparison, band))),
             comparison.base ? String(comparison.base.filePaths.length) : '', (comparison.base?.filePaths ?? []).map(baseName).join(';'),
             result?.ok ? String(result.specVersion) : '',
@@ -190,7 +195,8 @@ export function reportCsv(input: ReportInput, strings: ReportStrings): string {
         lines.push([
             `${strings.reportDerived} · ${baseName(item.parentPath)}${item.ch ? ` ch${item.ch}` : ''} · ${item.region}`, '', '', ...columns.map(() => ''),
             ...regionCells(measuredRegion(item.region === 'all' ? null : parseRegion(item.region), item.result.input?.durationS)),
-            dB(leq), dB(item.base.leq), dB(leq - item.base.leq),
+            // Fixed only when both are of one level reference (no Δ across references): the base is in the row's.
+            dB(leq), levelReferenceCell(levelRowOf(item.result), strings.entryLeqUncalibrated), dB(item.base.leq), item.result.input?.levelReferenceLabel ?? '', dB(leq - item.base.leq),
             ...bands.map(band => { const level = bandLevel(band), reference = item.base.bands[band]; return dB(level === null || reference === null || reference === undefined ? null : level - reference); }),
             String(item.base.paths?.length ?? ''), (item.base.paths ?? []).map(baseName).join(';'), String(item.result.specVersion ?? ''),
             item.stale ? strings.reportChainPrevious : strings.reportChainCurrent,
@@ -330,9 +336,47 @@ function pngOf(document: Document, paint: (canvas: HTMLCanvasElement) => void): 
     return canvas.toDataURL('image/png').replace(/^data:image\/png;base64,/, '');
 }
 
-/** One slot's base and compare on one set of axes, as the comparison's overlay: solid lines, no fills. */
-function paintOverlayFigure(canvas: HTMLCanvasElement, comparison: CompareModel, slot: number, title: string, strings: ReportStrings, input: ReportInput, size: { width: number; height: number }): void {
-    const axes = paneAxes(strings, input.results.get(comparison.compare?.filePaths[0] ?? '')?.input).level;
+/** A report figure's horizontal axis as the comparison names the same picture (stagePanes.stageAxes): band centres for 1/3-octave bands. */
+function figureXAxis(views: ReadonlyArray<StageView | null>, strings: Pick<UiStrings, 'axisFrequency' | 'axisBand'>): string {
+    return views.find(Boolean)?.x === 'band' ? strings.axisBand : strings.axisFrequency;
+}
+
+/** One side of a report figure as its recordings are levelled: their reference, and calibrated only if every one of them is. */
+function sideInput(side: CompareModel['base'], input: ReportInput): LevelInput | undefined {
+    const inputs = (side?.filePaths ?? []).map(path => input.results.get(path)).flatMap(result => (result?.ok && result.input ? [result.input] : []));
+    const first = inputs[0];
+    if (!first) return undefined;
+    return { ...first, calibrationStatus: inputs.every(item => item.calibrationStatus === 'calibrated') ? 'calibrated' : 'uncalibrated' };
+}
+
+/**
+ * The level axes of a report figure (R1, R4: as the comparison's overlay, trackStagePainter.byReference): base and
+ * compared on one axis when their levels are of one level identity (levelIdentityOf), else the base's on the left
+ * and the compared one's on the right, never one read on the other's numbers. An axis is "uncalibrated" only when
+ * every line on it is; each uncalibrated line says so itself in the legend.
+ */
+export function reportLevelAxes(comparison: Pick<CompareModel, 'base' | 'compare'>, input: Pick<ReportInput, 'results'>, strings: ReportStrings): {
+    left: string; right: string | null; legend: { base: string; compare: string };
+} {
+    const base = sideInput(comparison.base, input as ReportInput), compare = sideInput(comparison.compare, input as ReportInput);
+    const apart = !!base && !!compare && levelIdentityOf(base) !== levelIdentityOf(compare);
+    const lines = [base, compare].filter((item): item is LevelInput => !!item);
+    const shared: LevelInput | undefined = lines[0] && { ...lines[0], calibrationStatus: lines.some(item => item.calibrationStatus === 'calibrated') ? 'calibrated' : 'uncalibrated' };
+    const axes = paneAxes(strings, apart ? base : shared ?? compare).level;
+    const word = (item: LevelInput | undefined): string => (item && item.calibrationStatus !== 'calibrated' ? ` · ${strings.entryLeqUncalibrated}` : '');
+    const right = apart ? paneAxes(strings, compare).level.y : null;
+    return {
+        left: axes.y, right,
+        legend: {
+            base: `${word(base)}${apart ? ` · ${axes.y}` : ''}`,
+            compare: `${word(compare)}${right ? ` · ${right}` : ''}`,
+        },
+    };
+}
+
+/** One slot's base and compare as the comparison's overlay: solid lines, no fills, each on its own level reference's axis. */
+export function paintOverlayFigure(canvas: HTMLCanvasElement, comparison: CompareModel, slot: number, title: string, strings: ReportStrings, input: ReportInput, size: { width: number; height: number }): void {
+    const level = reportLevelAxes(comparison, input, strings);
     // Every bin, decimated only to be drawn, as the comparison draws a spectrum. Where a scan gave no bins, the
     // 1/3-octave levels (each the scan's own, from every bin; a group's median band by band): never the 192 points.
     const { bins } = comparison;
@@ -341,16 +385,19 @@ function paintOverlayFigure(canvas: HTMLCanvasElement, comparison: CompareModel,
     const color = ROLE_COLORS[slot] ?? ROLE_COLORS[1];
     // Ordered by every bin (or every band, which the figure draws whole), never the points thinned to draw (R6).
     const fullOf = (which: 'base' | 'compare'): InlineFullSource => (bins?.[which] ? binsSource(bins, which) : null) ?? bandsSource(comparison[which]?.bands ?? [], comparison.frequencies);
-    paintOverlay(canvas, {
-        layers: [...(base ? [{ view: base, color: ROLE_COLORS[0], width: 2, full: fullOf('base') }] : []), ...(compare ? [{ view: compare, color, width: 2, full: fullOf('compare') }] : [])],
-    }, stageRange([base, compare]), { x: axes.x, y: axes.y }, {
+    const baseLayers = base ? [{ view: base, color: ROLE_COLORS[0], width: 2, full: fullOf('base') }] : [];
+    const compareLayers = compare ? [{ view: compare, color, width: 2, full: fullOf('compare'), ...(level.right ? { dash: SECONDARY_AXIS_DASH } : {}) }] : [];
+    // Levels of another reference are drawn on the right-hand axis, by their own range (never the left one's numbers).
+    const secondary = level.right && compareLayers.length ? { layers: compareLayers, range: stageRange([compare]), title: level.right } : undefined;
+    paintOverlay(canvas, { layers: secondary ? baseLayers : [...baseLayers, ...compareLayers] }, stageRange(secondary ? [base] : [base, compare]), { x: figureXAxis([base, compare], strings), y: level.left }, {
         // A figure on paper: no pointer reads it, so it reads no number (R7).
         size, readout: false,
+        ...(secondary ? { secondary } : {}),
         labels: {
             title,
             legend: [
-                { color: ROLE_COLORS[0], text: `${strings.reportBase}: ${comparison.base?.title ?? '—'}` },
-                { color, text: `${strings.reportCompare} ${slot}: ${comparison.compare?.title ?? '—'}` },
+                { color: ROLE_COLORS[0], text: `${strings.reportBase}: ${comparison.base?.title ?? '—'}${level.legend.base}` },
+                { color, text: `${strings.reportCompare} ${slot}: ${comparison.compare?.title ?? '—'}${level.legend.compare}` },
             ],
         },
     });
@@ -375,7 +422,7 @@ function paintDeltaFigure(canvas: HTMLCanvasElement, comparison: CompareModel, t
     const { view, range, binned } = deltaFigure(comparison);
     const axes = paneAxes(strings, input.results.get(comparison.compare?.filePaths[0] ?? '')?.input).delta;
     const full = (comparison.bins ? binsSource(comparison.bins, 'diff') : null) ?? bandsSource(comparison.bandDeltas, comparison.frequencies);
-    paintOverlay(canvas, { layers: view ? [{ view, color: DIFF_COLOR, width: 1.5, full }] : [] }, range, { x: axes.x, y: axes.y }, {
+    paintOverlay(canvas, { layers: view ? [{ view, color: DIFF_COLOR, width: 1.5, full }] : [] }, range, { x: figureXAxis([view], strings), y: axes.y }, {
         size, diff: true, readout: false,
         labels: { title, legend: [...(binned ? [{ color: DIFF_COLOR, text: curve }] : []), { color: DIFF_COLOR, text: strings.reportStepsLegend }] },
         bandSteps: { deltas: comparison.bandDeltas, headline: comparison.topBands.map(item => item.band), color: DIFF_COLOR, legend: axes.legend },
@@ -400,7 +447,9 @@ export function summaryPng(document: Document, input: ReportInput, comparisons: 
     context.fillRect(0, 0, page.width, page.height);
     context.fillStyle = '#222';
     context.font = 'bold 18px sans-serif';
-    const uncalibrated = new Set(input.model.rows.map(row => row.uncalibrated));
+    // The page head's calibration note is of the recordings on this page (each compared one and its base), not the table's.
+    const shown = new Set(comparisons.flatMap(({ comparison }) => [...(comparison.compare?.filePaths ?? []), ...(comparison.base?.filePaths ?? [])]));
+    const uncalibrated = new Set(input.model.rows.filter(row => shown.has(row.filePath)).map(row => row.uncalibrated));
     const hints = [...(uncalibrated.has('full-scale') ? [strings.hintLeqUncalibrated] : []), ...(uncalibrated.has('raw-units') ? [strings.hintLeqUncalibratedRaw] : [])];
     context.fillText([input.recipeName, ...(input.selection?.filters ?? []), ...hints].join(' · '), 16, 24);
     context.font = '13px sans-serif';
@@ -433,7 +482,8 @@ export function reportFiles(document: Document, input: ReportInput, strings: Rep
         const path = input.slots[slot];
         return path ? [{ slot, path, comparison: comparisonOf(input, path) }] : [];
     });
-    const region = `${regionText(input.region, strings)}${input.region ? ' s' : ''}`;
+    // The figures' region as every region is written (R7): to a tenth of its length, never fixed at 10 ms.
+    const region = input.region ? secondsSpanText(input.region.start, input.region.end) : strings.reportWhole;
     // Each figure says on its own what it is: role, file, region, and the base it is against.
     for (const { slot, comparison } of comparisons) {
         const baseName = comparison.base?.title ?? '—';

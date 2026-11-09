@@ -2,12 +2,12 @@ import type { PairSpectrumRequest } from '../../shared/utils/audioTarget';
 import type { DrawTheme, FrequencyScale } from '../draw/canvasDrawers';
 import type { HostInboundMessage } from './hostMessaging';
 import {
-    pairHeader, pairLanes, pairLegendHtml, PAIR_LANES, syncReferenceButtons,
+    gainSpan, pairHeader, pairLanes, pairLegendHtml, PAIR_LANES, syncReferenceButtons,
     type PairCurve, type PairLaneKey, type PairReference, type PairSpectrumResultMessage, type PairStrings,
 } from './pairSpectrum';
 import { attachPlotInteraction, FULL_PLOT_WINDOW, plotPointIn, type PlotMargins, type PlotWindow } from './plotInteraction';
 import { createPlotHoverLayer, type PlotHoverLayer } from './plotHoverLayer';
-import { paintOverlay, STAGE_MARGINS, type StagePlot } from './stagePanes';
+import { paintOverlay, stageRange, STAGE_MARGINS, type StagePlot } from './stagePanes';
 import type { NormalizedRange } from './waveformInteraction';
 import type { TrackId } from './types';
 import { HostRequests } from './hostRequests';
@@ -363,9 +363,20 @@ export class PairSpectrumPanel {
             const axisView = lane?.layers[0] && axis ? { ...lane.layers[0].view, xs: [0, axis.maxFrequencyHz], values: [0, 0] } : null;
             const drawn = paintOverlay(canvas, { layers: lane?.layers ?? [] }, range, lane?.axes ?? { x: '', y: '' },
                 { window: { x: axis?.window ?? FULL_PLOT_WINDOW.x }, axisView, margins: pairMargins(key), xAxisLabels: key === PAIR_LANES[PAIR_LANES.length - 1] });
-            this.drawn.set(key, { canvas, plot: drawn, range: lane?.range ?? range, label: lane?.axes.y ?? '' });
+            this.drawn.set(key, { canvas, plot: drawn, range: lane ? this.wholeHolding(key, lane.range) : range, label: lane?.axes.y ?? '' });
         }
         this.showMarks();
+    }
+
+    /**
+     * The whole range the gestures and the range popover take the zoom as a part of: the one refitted to the bins on
+     * screen, widened by the same dB rule (R9) to hold the values zoomed to, so a box below the bins on screen is
+     * still a part of it.
+     */
+    private wholeHolding(key: PairLaneKey, whole: { min: number; max: number }): { min: number; max: number } {
+        const zoom = this.levelWindow.get(key);
+        if (!zoom || (zoom.min >= whole.min && zoom.max <= whole.max)) return whole;
+        return key === 'gain' ? stageRange([gainSpan(Math.min(whole.min, zoom.min), Math.max(whole.max, zoom.max))]) : { min: Math.min(whole.min, zoom.min), max: Math.max(whole.max, zoom.max) };
     }
 
     /** The plot's level range on screen: its whole range, or the part of it zoomed to. */

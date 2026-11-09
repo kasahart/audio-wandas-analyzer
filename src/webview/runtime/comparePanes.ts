@@ -14,7 +14,7 @@ import { median } from '../../shared/dataset/distribution';
 import { powerMeanDb, powerMeanOrNull } from '../../shared/utils/levels';
 import { axisValueAt, levelBinsOf } from './stagePanes';
 import { localLine, type InlineFullSource } from './fullRead';
-import { signedNumberText, withMinus } from '../plot/plotText';
+import { noNegativeZero, signedNumberText, withMinus } from '../plot/plotText';
 
 type ScanOk = ScanResult & { ok: true };
 
@@ -232,6 +232,8 @@ export function buildCompareModel(
     let loneGroup = false;
     /** Per band, how far a file of the base's condition typically sits from it by chance (3 MAD, at least 1.5 dB). */
     let bandSpread: number[] | null = null;
+    /** The base group's recordings, measured or not: one still scanning keeps the comparison pending. */
+    let candidates: readonly string[] = [];
     const single = ok(basePath);
     if (single && basePath) {
         base = { title: `${strings.entryBase} · ${baseName(basePath)}`, filePaths: [basePath], ...fileSide(single) };
@@ -243,30 +245,35 @@ export function buildCompareModel(
             .filter(member => levelIdentity(results.get(member.filePath)) === levelIdentity(single))
             .map(member => ok(member.filePath)).filter((result): result is ScanOk => !!result);
         bandSpread = peers.length >= 3 ? spreadOf(peers.map(fileSide).map(side => side.bands)) : BAND_CENTERS_HZ.map(() => MIN_HEADLINE_DB);
+    } else if (basePath) {
+        // Slot 0's recording failed or is still scanning: there is nothing to measure against (never another base instead).
     } else if (comparePath && group) {
         const members = ofOneUnit(results, group.paths.filter(path => path !== comparePath), path => path, compared);
+        candidates = members;
         const sides = members.map(path => ok(path)).filter((result): result is ScanOk => !!result);
         const middle = groupMedian(results, members);
         if (middle) {
             bandSpread = sides.length >= 3 ? spreadOf(sides.map(fileSide).map(side => side.bands)) : BAND_CENTERS_HZ.map(() => MIN_HEADLINE_DB);
-            base = { title: group.title, filePaths: members, ...middle };
+            // The base names the recordings its median is of: those measured, never a failed or still-scanning one.
+            base = { title: group.title, filePaths: members.filter(path => !!ok(path)), ...middle };
         } else loneGroup = true;
     } else if (comparePath) {
         const row = model.rows.find(item => item.filePath === comparePath);
         const members = ofOneUnit(results, (row?.group ? model.groups.get(row.group) ?? [] : []).filter(member => member.filePath !== comparePath), member => member.filePath, compared);
+        candidates = members.map(member => member.filePath);
         const sides = members.map(member => ok(member.filePath)).filter((result): result is ScanOk => !!result);
         if (row && sides.length) {
             bandSpread = sides.length >= 3 ? spreadOf(sides.map(fileSide).map(side => side.bands)) : BAND_CENTERS_HZ.map(() => MIN_HEADLINE_DB);
             base = {
                 title: [strings.entryBaseGroup, ...row.conditions, strings.entryCount.replace('{count}', String(sides.length))].join(' · '),
-                filePaths: members.map(member => member.filePath),
+                filePaths: members.map(member => member.filePath).filter(path => !!ok(path)),
                 ...medianSide(sides.map(fileSide)),
             };
         } else if (row?.group) loneGroup = true;
     }
     // A member without any result yet is still being scanned; a failed one is simply left out.
     const basePaths = single && basePath ? [basePath] : base?.filePaths ?? [];
-    const pending = !!comparePath && [comparePath, ...basePaths].some(path => !results.has(path));
+    const pending = !!comparePath && [comparePath, ...(basePath ? [basePath] : candidates)].some(path => !results.has(path));
     const fs = (compared ?? single)?.input?.fs ?? 0;
     const points = (compare ?? base)?.spectrumDb.length ?? 0;
     const frequencies = spectrumFrequencies(fs / 2, points);
@@ -438,7 +445,7 @@ export function deltaViews(comparison: Pick<CompareModel, 'bins' | 'bandDeltas' 
 }
 
 const signed = (value: number): string => signedNumberText(value);
-const level = (value: number): string => withMinus(value.toFixed(1));
+const level = (value: number): string => noNegativeZero(withMinus(value.toFixed(1)));
 
 /** "3.15 kHz +23.7 · 25 Hz +13.9 · 4 kHz +3.9 · Leq +1.4 dB" */
 export function diffHeadline(comparison: CompareModel, strings?: CompareStrings): string {

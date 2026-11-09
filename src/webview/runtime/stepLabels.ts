@@ -1,4 +1,5 @@
 /** The step bar's words: a chip's label, a value as a field shows it, and why a step cannot run. */
+import { secondsSpanText } from '../plot/plotText';
 import { SLOT_REFERABLE, type RecipeStep, type StepParam } from '../../shared/recipe/recipeSteps';
 import { type RegionRange, type StepBarState, type StepBarStrings } from './stepBarModel';
 
@@ -67,7 +68,7 @@ export function stepLabel(step: RecipeStep, strings: StepBarStrings, state: Pick
         case 'highpass_filter': return `${strings.stepHighpass} ${formatNumber(p['cutoff'])} Hz`;
         case 'lowpass_filter': return `${strings.stepLowpass} ${formatNumber(p['cutoff'])} Hz`;
         case 'bandpass_filter': return `${strings.stepBandpass} ${formatNumber(p['low_cutoff'])}–${formatNumber(p['high_cutoff'])} Hz`;
-        case 'time_slice': return `${strings.stepRegion} ${state.regionRange ? `${state.regionRange.start.toFixed(2)}–${state.regionRange.end.toFixed(2)} s` : state.region ?? strings.stepAll}`;
+        case 'time_slice': return `${strings.stepRegion} ${state.regionRange ? secondsSpanText(state.regionRange.start, state.regionRange.end) : state.region ?? strings.stepAll}`;
         case 'welch': return strings.stepAverageFft.replace('{name}', strings.stepAverage).replace('{n}', formatNumber(p['n_fft']));
         case 'stft': return `STFT ${formatNumber(p['n_fft'])}`;
         case 'resampling': return `→ ${hzText(p['target_sr'])}`;

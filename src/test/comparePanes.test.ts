@@ -208,6 +208,9 @@ test('the level axis is named by wandas\' level reference, and says uncalibrated
 test('the headline gives both levels, and a band far below the loudest does not head it however large its Δ', () => {
     const comparison = buildCompareModel(model, files, '/f/L1_900rpm_run3.wav', null, STR);
     assert.match(levelsHeadline(comparison, STR), /^3\.15 kHz base −30\.5 \/ compare −10\.0 dBFS · Leq base −20\.0 \/ compare −10\.1 dBFS$/);
+    // A level that rounds to zero is written without a sign, as levelText writes it (R7).
+    const nearZero = { ...comparison, topBands: [], leq: { base: -0.04, compare: 0.04, delta: 0.08 } };
+    assert.ok(!levelsHeadline(nearZero, STR).includes('−0.0'), levelsHeadline(nearZero, STR));
     // 60 → 65 dB is heard; 20 → 30 dB under it is not: only the loud band heads the list.
     const level = (band3150: number, quiet: number) => {
         const result = scan(-20, [-40, -50, -60], band3150);

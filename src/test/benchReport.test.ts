@@ -8,7 +8,7 @@ import type { ScanResult } from '../shared/protocol/backendProtocol';
 import type { RecipeDocument } from '../shared/recipe/recipeSelection';
 import { recipeSteps } from '../shared/recipe/recipeSteps';
 import { BAND_CENTERS_HZ, buildEntryModel } from '../webview/runtime/entryTable';
-import { reportCsv, reportDefinitions, reportFiles, reportFolderName, reportOctaveRecipe, reportRecipe, summaryRegionText } from '../webview/runtime/compareReport';
+import { paintOverlayFigure, reportCsv, reportDefinitions, reportLevelAxes, reportFiles, reportFolderName, reportOctaveRecipe, reportRecipe, summaryRegionText } from '../webview/runtime/compareReport';
 import { buildCompareModel } from '../webview/runtime/comparePanes';
 import { withChannel } from '../shared/recipe/channelSelection';
 import type { BaseDefinition, DerivedRow, EntryModel } from '../webview/runtime/entryTable';
@@ -42,14 +42,14 @@ test('報告.csv has one row per slot in the agreed columns: dB to one decimal, 
     assert.ok(csv.startsWith('﻿'));
     const [header, row, ...rest] = csv.slice(1).trimEnd().split('\r\n');
     assert.equal(rest.length, 0);
-    assert.equal(header, `ファイル,Δ最大帯域 Hz,Δ最大帯域 dB,条件 1,条件 2,開始 s,終了 s,Leq dB(A) 未校正,基準 Leq dB(A) 未校正,Δ Leq dB(A),${header.split(',').filter(name => /^Δ [\d.]+ k?Hz dB$/.test(name)).join(',')},基準群 n,基準群ファイル,解析仕様版,手順,ch,メモ,基準の定義`);
+    assert.equal(header, `ファイル,Δ最大帯域 Hz,Δ最大帯域 dB,条件 1,条件 2,開始 s,終了 s,Leq dB(A),レベル基準,基準 Leq dB(A),基準 レベル基準,Δ Leq dB(A),${header.split(',').filter(name => /^Δ [\d.]+ k?Hz dB$/.test(name)).join(',')},基準群 n,基準群ファイル,解析仕様版,手順,ch,メモ,基準の定義`);
     assert.ok(header.includes(',Δ 3.15 kHz dB,'));
     const cells = row.split(',');
     // Where the file differs most comes first.
     assert.deepEqual(cells.slice(0, 7), ['L1_900rpm_run3.wav', '3150', '20.5', 'L1', '900rpm', '0.50', '1.50']);
     // The Δ is taken from the full levels (−10.06 against the base's −20.02) and rounded only as it is written: 10.0,
     // never the 9.9 of the two rounded columns (−10.1 − −20.0) subtracted.
-    assert.deepEqual([cells[7], cells[8], cells[9]], ['-10.1', '-20.0', '10.0']);
+    assert.deepEqual([cells[7], cells[8], cells[9], cells[10], cells[11]], ['-10.1', 'dBFS 未校正', '-20.0', 'dBFS 未校正', '10.0']);
     assert.equal(cells[header.split(',').indexOf('Δ 3.15 kHz dB')], '20.5');
     const at = (name: string): string => cells[header.split(',').indexOf(name)];
     assert.deepEqual([at('基準群 n'), at('基準群ファイル'), at('解析仕様版')], ['2', 'L1_900rpm_run1.wav;L1_900rpm_run2.wav', '2']);
@@ -196,4 +196,69 @@ test('a compared channel is a get_channel step in the exported Recipe, and wanda
     if (/No module named 'wandas'/.test(run.stderr)) { t.skip('wandas is not installed'); return; }
     assert.equal(run.status, 0, run.stderr);
     assert.equal(run.stdout.trim(), '4');
+});
+
+/** A scan in Pa, calibrated to dB SPL re 20 µPa; `gain`: a gain-corrected FS file instead (dBFS, calibrated). */
+function calibrated(leq: number, band: number, gain = false): ScanResult {
+    const raw = scan(leq, band);
+    return { ...raw, input: { ...raw.input!, ...(gain ? {} : { unit: 'Pa', ref: 2e-5, levelReferenceLabel: 'dB SPL re 20 µPa' }), calibrationStatus: 'calibrated' } };
+}
+
+/** A 2D context that records each text drawn; the canvas keeps its data attributes. */
+function recordingCanvas(): { canvas: HTMLCanvasElement; texts: string[] } {
+    const texts: string[] = [];
+    const context = new Proxy({}, {
+        get: (_target, key) => (key === 'measureText' ? (text: string) => ({ width: text.length * 6 }) : (...args: unknown[]) => { if (key === 'fillText') texts.push(String(args[0])); }),
+        set: () => true,
+    });
+    const canvas = { width: 0, height: 0, clientWidth: 900, clientHeight: 320, ownerDocument: {}, dataset: {}, setAttribute: () => undefined, getContext: () => context } as unknown as HTMLCanvasElement;
+    return { canvas, texts };
+}
+
+test('a report figure draws levels of another reference on their own axis, each named by its own recordings, and each uncalibrated line says so (R1, R4)', () => {
+    const strings = getStrings('ja');
+    const cases: Array<{ base: ScanResult; compare: ScanResult; left: string; right: string | null; baseWord: boolean; compareWord: boolean }> = [
+        // Slot 0 in dB SPL, slot 1 uncalibrated dBFS: Δ withheld, and never one read on the other's numbers.
+        { base: calibrated(60, 50), compare: scan(-20, -30), left: 'レベル [dB SPL re 20 µPa]', right: 'レベル 未校正 [dBFS]', baseWord: false, compareWord: true },
+        { base: scan(-20, -30), compare: calibrated(60, 50), left: 'レベル 未校正 [dBFS]', right: 'レベル [dB SPL re 20 µPa]', baseWord: true, compareWord: false },
+        // One reference (dBFS), calibrated apart: one axis, the uncalibrated line names itself.
+        { base: scan(-20, -30), compare: calibrated(-18, -28, true), left: 'レベル [dBFS]', right: null, baseWord: true, compareWord: false },
+        { base: scan(-20, -30), compare: scan(-18, -28), left: 'レベル 未校正 [dBFS]', right: null, baseWord: true, compareWord: true },
+        { base: calibrated(60, 50), compare: calibrated(62, 52), left: 'レベル [dB SPL re 20 µPa]', right: null, baseWord: false, compareWord: false },
+    ];
+    for (const { base, compare, left, right, baseWord, compareWord } of cases) {
+        const results = new Map<string, ScanResult>([['/f/base.wav', base], ['/f/cmp.wav', compare]]);
+        const model = buildEntryModel([...results].map(([filePath, result]) => ({ filePath, result })), null, { band: BAND_3150 });
+        const comparison = buildCompareModel(model, results, '/f/cmp.wav', '/f/base.wav', strings);
+        const what = `${left} / ${right}`;
+        assert.equal(comparison.blocked === 'unit', right !== null, `${what}: the Δ is withheld exactly when the references differ`);
+        const axes = reportLevelAxes(comparison, { results }, strings);
+        assert.deepEqual([axes.left, axes.right], [left, right], what);
+        assert.equal(axes.legend.base.includes(strings.entryLeqUncalibrated), baseWord, what);
+        assert.equal(axes.legend.compare.includes(strings.entryLeqUncalibrated), compareWord, what);
+        // The painted figure (off screen, so no canvas audit sees it) names both axes and writes each line's word.
+        const { canvas, texts } = recordingCanvas();
+        const input = { model, results, slots: ['/f/base.wav', '/f/cmp.wav', null, null], compare: () => comparison, region: null, recipe: null, recipeName: 'r', now: new Date() };
+        paintOverlayFigure(canvas, comparison, 1, 'title', strings, input, { width: 900, height: 320 });
+        // Without bins the figure draws the 1/3-octave bands: its horizontal axis is the bands' centres, as the comparison names it.
+        assert.equal(canvas.dataset.plotAxes, [strings.axisBand, left, ...(right ? [right] : [])].join('|'), what);
+        const legend = texts.filter(text => text.startsWith(strings.reportBase) || text.startsWith(strings.reportCompare));
+        assert.equal(legend.length, 2, `${what}: ${JSON.stringify(texts)}`);
+    }
+});
+
+test('the CSVs say each row\'s level reference beside its levels: never one calibration word for the whole table (R1, R4)', () => {
+    const strings = getStrings('ja');
+    const results = new Map<string, ScanResult>([['/f/L1_900rpm_run1.wav', scan(-20, -30)], ['/f/L1_900rpm_run2.wav', calibrated(60, 50)], ['/f/L1_900rpm_run3.wav', calibrated(62, 52)]]);
+    const model = buildEntryModel([...results].map(([filePath, result]) => ({ filePath, result })), null, { band: BAND_3150 });
+    const csv = reportCsv({ model, results, slots: ['/f/L1_900rpm_run2.wav', '/f/L1_900rpm_run3.wav', '/f/L1_900rpm_run1.wav', null], compare: compareOf(model, results, ['/f/L1_900rpm_run2.wav']), region: null, recipe: entry, recipeName: 'entry-scan', now: new Date() }, strings);
+    const [header, ...rows] = csv.slice(1).trimEnd().split('\r\n');
+    const names = header.split(',');
+    assert.ok(!names.some(name => name.includes(strings.entryLeqUncalibrated)), 'no heading carries a calibration word');
+    const at = (row: string, name: string): string => row.split(',')[names.indexOf(name)];
+    assert.deepEqual(rows.map(row => [at(row, strings.reportLevelReference), at(row, strings.reportBaseLevelReference)]), [
+        ['dB SPL re 20 µPa', 'dB SPL re 20 µPa'],
+        // The uncalibrated file against a calibrated base: both levels, each with its own reference (no Δ across them).
+        ['dBFS 未校正', 'dB SPL re 20 µPa'],
+    ]);
 });

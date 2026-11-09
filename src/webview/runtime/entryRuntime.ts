@@ -24,7 +24,7 @@ import { channelOfRow, createEntryBase } from './entryBase';
 import { HostRequests } from './hostRequests';
 import { LARGE_BASE, LARGE_BASE_S } from './trackStageMode';
 import { createStepBar, endsInSpectrum, runnableRecipe, stepLimits, unpairedRecipe } from './stepBar';
-import { entryMeasure, leqLabel } from './compareReport';
+import { entryMeasure } from './compareReport';
 import { activeSlotReferenced, brokenStep, chainEnd, endsInEvents, isRecipeChain, recipeKey, recipeNodes } from '../../shared/recipe/recipeSteps';
 import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { baseName, isMetadataCandidate, withFolderColumns } from '../../shared/analysis/entryMetadata';
@@ -1062,7 +1062,9 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             condition: n => strings.entryColCondition.replace('{n}', String(n)),
             regionStart: strings.reportRegionStart,
             regionEnd: strings.reportRegionEnd,
-            leq: leqLabel(model, strings),
+            leq: strings.entryColLeq,
+            levelReference: strings.reportLevelReference,
+            uncalibrated: strings.entryLeqUncalibrated,
             peak: strings.entryColPeak,
             band: `${bandLabel(model.band)} dB`,
             deltaLeq: `Δ ${strings.entryColLeq}`,
