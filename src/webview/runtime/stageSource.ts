@@ -29,6 +29,16 @@ export interface StageSource {
 
 const CACHED_SPECS = 48;
 
+/**
+ * What a spec's pictures are cached and asked under: its key, and the part on screen exactly as it is sent (a zoomed
+ * picture's StageDetail, JSON reads each number back to the same double). Two specs share it only when they ask the
+ * host for the same samples or bins, whatever their keys round, so one window's detail is never drawn for another.
+ */
+export function stageCacheKey(spec: StageSpec): string {
+    const detail = spec.message.detail;
+    return detail ? `${spec.key}|${JSON.stringify([detail.x, detail.y ?? null, detail.points])}` : spec.key;
+}
+
 export function createStageSource(prefix: string, post: (message: CompareScanMessage) => void, changed: () => void): StageSource {
     const cache = new Map<string, Map<string, ScanResult>>();
     // One slot: the pictures being asked for. A superseded request's answers are still kept, under its own spec.
@@ -48,23 +58,24 @@ export function createStageSource(prefix: string, post: (message: CompareScanMes
     }
     return {
         ensure(spec, files) {
-            const results = cache.get(spec.key);
+            const key = stageCacheKey(spec);
+            const results = cache.get(key);
             const need = files.filter(path => !results?.has(path));
             if (!need.length) return false;
-            if (requests.pending('pictures')?.key === spec.key) return true;
-            cacheFor(spec.key);
-            requests.ask('pictures', `${prefix}-${++count}`, spec.key, undefined, ({ requestId }) => post({ type: 'compare-scan', requestId, filePaths: need, ...spec.message }));
+            if (requests.pending('pictures')?.key === key) return true;
+            cacheFor(key);
+            requests.ask('pictures', `${prefix}-${++count}`, key, undefined, ({ requestId }) => post({ type: 'compare-scan', requestId, filePaths: need, ...spec.message }));
             return true;
         },
-        result: (spec, filePath) => cache.get(spec.key)?.get(filePath),
-        forget(spec, filePath) { cache.get(spec.key)?.delete(filePath); },
+        result: (spec, filePath) => cache.get(stageCacheKey(spec))?.get(filePath),
+        forget(spec, filePath) { cache.get(stageCacheKey(spec))?.delete(filePath); },
         forgetData(keys) {
             for (const results of cache.values()) {
                 for (const [path, result] of results) if (result.ok && result.stage?.data && keys.includes(result.stage.data)) results.delete(path);
             }
         },
         view(spec, filePath) {
-            const result = cache.get(spec.key)?.get(filePath);
+            const result = cache.get(stageCacheKey(spec))?.get(filePath);
             return result === undefined ? undefined : result.ok ? result.stage ?? null : null;
         },
         handle(message) {
