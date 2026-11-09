@@ -9,7 +9,7 @@ import { plotsOf } from '../webview/runtime/trackStageModel';
 import { localLine } from '../webview/runtime/fullRead';
 import { stageAxes, stageHover, stageStep } from '../webview/runtime/stagePanes';
 import type { Combined } from '../webview/runtime/combineSource';
-import { byReference, overlayLayers, overlayLegendItems, paintBaseGate, paintNoPicture, paintStageControls, paintStageLanes, paintStageOverlay, stageDom, stageModeHeadline, writeStageLegend, type Drawn, type StageFrame, type StageTrack } from '../webview/runtime/trackStagePainter';
+import { byReference, calibrationWords, overlayLayers, overlayLegendItems, paintBaseGate, paintNoPicture, paintStageControls, paintStageLanes, paintStageOverlay, stageDom, stageModeHeadline, writeStageLegend, type Drawn, type StageFrame, type StageTrack } from '../webview/runtime/trackStagePainter';
 
 const strings = getStrings('en');
 const line = (values: Array<number | null>): StageView => ({ kind: 'line', x: 'frequency', quantity: 'level', xScale: 'log', xs: values.map((_, index) => 100 * 2 ** index), values } as StageView);
@@ -296,6 +296,39 @@ test('overlaid, each line is on the axis of its own recording\'s reference: one 
     assert.deepEqual(draw({ 'base.wav': fs, 'one.wav': spl }).map(title => /\[(.*)\]$/u.exec(title)?.[1]), ['dBFS', 'dB SPL re 20 µPa']);
     // Three references: not overlaid on one plot, as the cursor spectrum does not.
     assert.deepEqual(draw({ 'base.wav': fs, 'one.wav': spl, 'two.wav': volt }, ['base.wav', 'one.wav', 'two.wav']), []);
+});
+
+test('overlaid, lines share an axis by their level identity, not their axis name: a gain-corrected FS file and a raw one are one axis, and only the raw one says uncalibrated (R1, R4)', () => {
+    const { lane } = page();
+    const raw = { unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true } as const;
+    const corrected = { ...raw, calibrationStatus: 'calibrated' } as const;
+    const spl = { unit: 'Pa', ref: 2e-5, levelReferenceLabel: 'dB SPL re 20 µPa', calibrationStatus: 'calibrated', fullScale: false } as const;
+    const views = { 'base.wav': line([-20, -30]), 'one.wav': line([-24, -28]), 'two.wav': line([74, 64]) };
+    const split = (inputs: Record<string, StageTrack['input']>, paths = ['base.wav', 'one.wav']) => {
+        const tracks = paths.map(path => ({ ...lane(path), input: inputs[path] }));
+        const frame = frameFor(tracks, views);
+        const plots = { ...plotsOf(frame.shown, tracks, 'one.wav', ['base.wav'], combined), others: tracks.filter(track => track.filePath === 'two.wav').map(track => ({ track, view: views['two.wav'] })) };
+        return { frame, tracks, result: byReference(frame, overlayLayers(frame, plots, undefined, 'base.wav')) };
+    };
+    // One identity, two calibration statuses: one axis, which says uncalibrated only when every line on it is.
+    const mixed = split({ 'base.wav': raw, 'one.wav': corrected });
+    assert.equal(mixed.result.tooMany, false);
+    assert.equal(mixed.result.secondary, undefined, 'one axis for one identity');
+    assert.equal(mixed.result.mainLayers.length, 2);
+    const title = stageAxes(strings, mixed.frame.picture, mixed.result.mainInput).y;
+    assert.ok(!title.includes(strings.axisUncalibrated), title);
+    assert.ok(title.endsWith('[dBFS]'), title);
+    const word = calibrationWords(strings, mixed.tracks, ['base.wav', 'one.wav']);
+    assert.equal(word('base.wav'), strings.axisUncalibrated, 'the raw line says so itself');
+    assert.equal(word('one.wav'), '');
+    const both = split({ 'base.wav': raw, 'one.wav': raw });
+    assert.ok(stageAxes(strings, both.frame.picture, both.result.mainInput).y.includes(strings.axisUncalibrated), 'all uncalibrated: the axis says so');
+    assert.equal(calibrationWords(strings, both.tracks, ['base.wav', 'one.wav'])('base.wav'), '', 'and no line repeats it');
+    // Three axis names but two identities: two axes, not too many.
+    const three = split({ 'base.wav': raw, 'one.wav': corrected, 'two.wav': spl }, ['base.wav', 'one.wav', 'two.wav']);
+    assert.equal(three.result.tooMany, false);
+    assert.equal(three.result.mainLayers.length, 2);
+    assert.ok(three.result.secondary?.title.endsWith('[dB SPL re 20 µPa]'), three.result.secondary?.title);
 });
 
 test('side by side, lanes share a range only with the lanes in their own reference: a dB SPL lane is never on a dBFS lane\'s scale (A32, C1)', () => {

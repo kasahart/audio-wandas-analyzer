@@ -40,7 +40,7 @@
 - テスト: `src/test/trackStagePainter.test.ts` › with no difference, the Δ headline says the same reason as its plot: other rates, other units, too much data
 - テスト: `python-backend/test_stage_view.py` › test_a_time_signal_is_its_own_values_never_a_level_the_comparison_makes
 - テスト: `src/test/combineSource.test.ts` › a Δ that cannot be taken says why: too much data, other sample rates or units, or other axes
-- レベルが比べられるかは、単位・基準値・レベル基準の名前の 3 つで決めます。校正状態は含めません（ゲイン補正した FS の録音と補正していない FS の録音はどちらも dBFS なので比べます）。それでも各線は、読み値と凡例に自分の校正状態を書きます。webview とバックエンドはこの 1 つの定義を使います（`comparePanes.ts` の `levelIdentityOf`、`python-backend/level_identity.py`）。入口の基準群（`entryBase`）と、表の横のレベルの軸（概観帯の色、分布図の値の軸。`entrySidePlots` の `onLevelAxis`）も同じ定義で分けます。
+- レベルが比べられるかは、単位・基準値・レベル基準の名前の 3 つで決めます。校正状態は含めません（ゲイン補正した FS の録音と補正していない FS の録音はどちらも dBFS なので比べます）。それでも校正状態の違う線が 1 本の軸に載るときは、未校正の線が読み値と凡例に自分で「未校正」と書きます（R4）。webview とバックエンドはこの 1 つの定義を使います（`comparePanes.ts` の `levelIdentityOf`、`python-backend/level_identity.py`）。入口の基準群（`entryBase`）と、表の横のレベルの軸（概観帯の色、分布図の値の軸。`entrySidePlots` の `onLevelAxis`）も同じ定義で分けます。
 - テスト: `src/test/levelIdentity.test.ts` › levels compare only in one unit, reference and its label, whatever their calibration status: the webview answers the table the backend answers (R1, R4, A34)
 - テスト: `python-backend/test_level_identity.py` › test_levels_compare_in_one_unit_reference_and_label_whatever_their_calibration_status
 - テスト: `src/test/entryBase.test.ts` › a base group keeps to the one level identity the backend uses: a gain-corrected FS file and a raw one are both dBFS and are one group (A34, R1)
@@ -114,7 +114,8 @@
 
 - テスト: `src/test/comparePanes.test.ts` › every pane names its axes: level and frequency, Δ with its legend, in the language and calibration of the files
 - テスト: `src/test/comparePanes.test.ts` › the level axis is named by wandas' level reference, and says uncalibrated from the calibration status, not the unit
-- 1 つの軸に載る線は、R1 のレベルの同一性（単位・基準値・レベル基準の名前）が同じ録音のものだけです。並べた表示のレーンも、範囲を共有するのは同じ基準のレーンどうしだけです。
+- 1 つの軸に載る線は、R1 のレベルの同一性（単位・基準値・レベル基準の名前）が同じ録音のものだけです。並べた表示のレーンも、範囲を共有するのは同じ基準のレーンどうしだけです。重ねた線を軸に分けるのはこの同一性で、軸の名前の文字ではありません（`trackStagePainter.ts` の `byReference`）。同一性が 3 つ以上なら重ねません。1 本の軸に校正状態の違う線が載るとき、軸の名前は量・単位・基準で書き、未校正はその軸の線がすべて未校正のときだけ書きます。未校正の線は、凡例と読み値に自分で「未校正」と書きます（`calibrationWords`）。
+- テスト: `src/test/trackStagePainter.test.ts` › overlaid, lines share an axis by their level identity, not their axis name: a gain-corrected FS file and a raw one are one axis, and only the raw one says uncalibrated (R1, R4)
 - テスト: `src/test/trackStagePainter.test.ts` › side by side, lanes share a range only with the lanes in their own reference: a dB SPL lane is never on a dBFS lane's scale (A32, C1)
 - テスト: `src/test/stagePanes.test.ts` › a metric or level over time names what it measures on its value axis, never a bare value or an amplitude in dB (R4)
 - テスト: `src/test/stagePanes.test.ts` › a heatmap names what its colour measures, with its unit and reference, for its colour bar

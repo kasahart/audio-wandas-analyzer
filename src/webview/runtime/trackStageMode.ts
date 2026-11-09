@@ -28,7 +28,7 @@ import type { FullRead } from './fullRead';
 import { chosenStage, combineRequest, comparedPath as comparedPathOf, eachBaseTitle, enterStageState, holdStageSpec, initialStageState, liveRegion as liveRegionOf, openStageState, pictureSummary, plotsOf, regionStageSpec, stageSpec, WHOLE_ZOOM } from './trackStageModel';
 import { createDetailPlanner, onOneRange } from './stageDetail';
 import { attachStageGestures, type StageGestures } from './trackStageGestures';
-import { colorOf, overlayLayers, overlayLegendItems, paintBaseGate, paintNoPicture, paintNoStage, paintStageControls, paintStageLanes, paintStageOverlay, stageDom, stageModeHeadline, writeStageLegend, type Drawn, type StageFrame, type StageTrack } from './trackStagePainter';
+import { calibrationWords, colorOf, overlayLayers, overlayLegendItems, paintBaseGate, paintNoPicture, paintNoStage, paintStageControls, paintStageLanes, paintStageOverlay, stageDom, stageModeHeadline, writeStageLegend, type Drawn, type StageFrame, type StageTrack } from './trackStagePainter';
 
 export type { StageTrack } from './trackStagePainter';
 import { axisValueAt, isEventsView, rowValueAt, stageAxes } from './stagePanes';
@@ -708,7 +708,11 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         // The events left out of each recording's, on the trigger's picture (and a step after it that keeps them).
         const excluded = (path: string): readonly number[] => (viewTrigger ? excludedOf(recipe.recipe, eventsKey(viewTrigger, path, channelFor(path))) : []);
         channelOf = channelFor;
-        const frame: StageFrame = { strings, tracks, allTracks, referencePath, comparePath, coarse, shown, picture, coarsePlots, fullOf, window: state.window, diffY: state.diffY, diffOfWindow: !!fineCombined && !!peakWindow, regionMark, pending, waiting: waiting || combining, role, named, drawnOn, baseEach: each, excluded, ...(coarseCombined?.tooLarge ? { tooLarge: true } : {}), ...(coarseCombined?.noDelta ? { noDelta: coarseCombined.noDelta } : {}), ...(coarseCombined?.failed ? { failed: true } : {}) };
+        // Each recording's legend name and readout say uncalibrated where its axis does not (R1, R4: calibrationWords).
+        const word = calibrationWords(strings, allTracks, [comparePath, ...tracks.map(track => track.filePath), ...basePaths]);
+        const namedHere = (path: string, slot: number | undefined): ReturnType<typeof named> => { const name = named(path, slot); const said = word(path); return said ? { ...name, label: `${name.label}${said}` } : name; };
+        const baseWord = basePaths.some(path => word(path)) ? strings.axisUncalibrated : '';
+        const frame: StageFrame = { strings, tracks, allTracks, referencePath, comparePath, coarse, shown, picture, coarsePlots, fullOf, window: state.window, diffY: state.diffY, diffOfWindow: !!fineCombined && !!peakWindow, regionMark, pending, waiting: waiting || combining, role, named: namedHere, drawnOn, baseEach: each, excluded, ...(coarseCombined?.tooLarge ? { tooLarge: true } : {}), ...(coarseCombined?.noDelta ? { noDelta: coarseCombined.noDelta } : {}), ...(coarseCombined?.failed ? { failed: true } : {}) };
         const bypassed = steps.filter(step => step.bypassed).map(step => stepChipLabel(step, strings, state.regionSet));
         query<HTMLElement>('[data-stage-headline]').textContent = stageModeHeadline(frame, bypassed, region);
         if (!overlay) {
@@ -719,10 +723,10 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         const plots = plotsOf(shown, tracks, comparePath, basePaths, shownCombined, baseShown);
         root.dataset.compared = comparePath ? String(role(comparePath) ?? '') : '';
         root.dataset.base = state.groupBase || !deps.slots()[0] ? 'group' : 'file';
-        const baseTitle = (path: string): string => { const title = deps.baseTitle(path, state.groupBase); return each ? eachBaseTitle(title, allBase.length, strings) : title; };
+        const baseTitle = (path: string): string => { const title = deps.baseTitle(path, state.groupBase) + baseWord; return each ? eachBaseTitle(title, allBase.length, strings) : title; };
         const aggregate = each ? strings.stageBaseEach : strings.stageBaseAggregate;
         query<HTMLElement>('[data-stage-base-aggregate]').textContent = aggregate;
-        const baseLabel = comparePath ? baseTitle(comparePath) : basePaths.length === 1 ? named(basePaths[0], role(basePaths[0])).label : undefined;
+        const baseLabel = comparePath ? baseTitle(comparePath) : basePaths.length === 1 ? namedHere(basePaths[0], role(basePaths[0])).label : undefined;
         const layers = overlayLayers(frame, plots, baseLabel, basePaths.length === 1 ? basePaths[0] : undefined);
         stepBar.element.dataset.drawn = String(layers.length);
         const items = overlayLegendItems(frame, plots, {

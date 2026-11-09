@@ -156,6 +156,17 @@ export const compareOverlay: ChartContract = {
             names: { quantity: true, unit: true, reference: true },
         },
         {
+            id: 'compare-overlay.axis-identity', value: 'axis', what: '重ねた線をどの値の軸に載せるか（左・右・重ねない）と、その軸の名前の校正の語',
+            computedIn: ['src/webview/runtime/trackStagePainter.ts:byReference', 'src/webview/runtime/trackStagePainter.ts:axisInputOf', 'src/webview/runtime/trackStagePainter.ts:calibrationWords', 'src/webview/runtime/comparePanes.ts:levelIdentityOf'],
+            from: 'words', trace: '線は録音のレベルの同一性（levelIdentityOf）で軸に分ける。軸の名前の文字では分けない。同一性が 3 つ以上なら重ねない。軸の名前は、その軸の線に校正済みが 1 本でもあればその録音の入力で書き、全部が未校正のときだけ未校正と書く。校正状態が混ざる軸では、未校正の線が凡例と読み値に自分で未校正と書く（calibrationWords）。',
+            tests: [
+                t('src/test/trackStagePainter.test.ts', 'overlaid, lines share an axis by their level identity, not their axis name: a gain-corrected FS file and a raw one are one axis, and only the raw one says uncalibrated (R1, R4)'),
+                t('src/test/trackStagePainter.test.ts', 'overlaid, each line is on the axis of its own recording\'s reference: one shared, two split left and right as the cursor spectrum does, more not overlaid (A22, C1)'),
+            ],
+            exception: { rule: 'R4', quote: '軸の名前は量・単位・基準で書き、未校正はその軸の線がすべて未校正のときだけ書きます。' },
+            names: { quantity: true, unit: true, reference: true },
+        },
+        {
             id: 'compare-overlay.axis-metric', value: 'axis', what: '指標・手順が作った量・dB の時間変化の値の軸',
             computedIn: [`${SP}:stageAxes`, `${SP}:metricName`, `${SP}:timeLevelTitle`, `${SP}:amplitudeAxisTitle`, 'python-backend/stage_view.py:signal_measure'],
             from: 'words', trace: '単位で決まる指標（sone・acum・asper）はその名前、手順の量（view.measure）は実効値・時間重み付き実効値・パワー、ほかは信号の単位の振幅（amplitudeAxisTitle）。dB の時間変化は何のレベルか（timeLevelTitle、measure はバックエンドが dB でも送る）をファイルの基準で書く。「値」とは書かない。',

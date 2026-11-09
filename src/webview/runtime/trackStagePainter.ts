@@ -290,25 +290,56 @@ export function writeStageLegend(legend: HTMLElement, html: string, written: str
 }
 
 /**
- * The overlay's lines by the level reference of their own recordings (C1, as the cursor spectrum's): all on one axis
- * named by theirs when they share one; with two, the base's on the left and the other's on the right, its lines
- * dashed; with more, none overlaid (`tooMany`). An image or a trigger's events keep one axis.
+ * The calibration word each recording's legend name and readout carry (R1, R4): where recordings of one level
+ * identity (levelIdentityOf: they share an axis) differ in calibration status, each uncalibrated one says so, since
+ * the axis they share names only the common quantity, unit and reference (axisInputOf); '' otherwise.
+ */
+export function calibrationWords(strings: Pick<StageFrame['strings'], 'axisUncalibrated'>, allTracks: readonly Pick<StageTrack, 'filePath' | 'input'>[], paths: readonly (string | null | undefined)[]): (path: string | null | undefined) => string {
+    const inputOf = (path: string | null | undefined): StageTrack['input'] => (path ? allTracks.find(track => track.filePath === path)?.input : undefined);
+    const statuses = new Map<string, Set<boolean>>();
+    for (const path of new Set(paths)) {
+        const input = inputOf(path);
+        if (!input) continue;
+        const key = levelIdentityOf(input);
+        statuses.set(key, (statuses.get(key) ?? new Set()).add(input.calibrationStatus === 'calibrated'));
+    }
+    return path => {
+        const input = inputOf(path);
+        return input && input.calibrationStatus !== 'calibrated' && (statuses.get(levelIdentityOf(input))?.size ?? 0) > 1 ? strings.axisUncalibrated : '';
+    };
+}
+
+/**
+ * The input an axis shared by `inputs` (all of one level identity) is named by: a calibrated one's where any is, so
+ * the axis says uncalibrated only when every line on it is (R4); each uncalibrated line then says so itself
+ * (calibrationWords).
+ */
+export function axisInputOf(inputs: readonly StageTrack['input'][]): StageTrack['input'] {
+    return inputs.find(input => input?.calibrationStatus === 'calibrated') ?? inputs.find(input => !!input);
+}
+
+/**
+ * The overlay's lines by the level identity of their own recordings (R1, levelIdentityOf: unit, reference value,
+ * level reference name; C1, as the cursor spectrum's): all on one axis when they share one; with two, the base's on
+ * the left and the other's on the right, its lines dashed; with more, none overlaid (`tooMany`). An axis is named by
+ * axisInputOf its lines' inputs. An image or a trigger's events keep one axis.
  */
 export function byReference(frame: Pick<StageFrame, 'strings' | 'picture' | 'allTracks' | 'tracks' | 'role'>, layers: readonly StageLayer[]): {
     mainLayers: StageLayer[]; secondary?: { layers: StageLayer[]; range: PaneRange; title: string }; mainInput: StageTrack['input']; tooMany: boolean;
 } {
     const { strings, picture, tracks } = frame;
     const inputOf = (layer: StageLayer): StageTrack['input'] => frame.allTracks.find(track => track.filePath === layer.recording)?.input ?? tracks[0]?.input;
-    const titleOf = (layer: StageLayer): string => stageAxes(strings, picture, inputOf(layer)).y;
+    const keyOf = (layer: StageLayer): string => { const input = inputOf(layer); return input ? levelIdentityOf(input) : ''; };
+    const inputFor = (members: readonly StageLayer[]): StageTrack['input'] => axisInputOf(members.map(inputOf)) ?? tracks[0]?.input;
     const one = isEventsView(picture) || picture?.kind === 'heatmap';
-    const titles = [...new Set(layers.map(titleOf))];
-    if (one || titles.length < 2) return { mainLayers: [...layers], mainInput: layers[0] ? inputOf(layers[0]) : tracks[0]?.input, tooMany: false };
-    if (titles.length > 2) return { mainLayers: [], mainInput: tracks[0]?.input, tooMany: true };
+    const keys = [...new Set(layers.map(keyOf))];
+    if (one || keys.length < 2) return { mainLayers: [...layers], mainInput: layers.length ? inputFor(layers) : tracks[0]?.input, tooMany: false };
+    if (keys.length > 2) return { mainLayers: [], mainInput: tracks[0]?.input, tooMany: true };
     const base = layers.find(layer => layer.recording !== undefined && frame.role(layer.recording) === 0);
-    const main = base ? titleOf(base) : titles[0];
-    const mainLayers = layers.filter(layer => titleOf(layer) === main);
-    const second = layers.filter(layer => titleOf(layer) !== main).map(layer => ({ ...layer, dash: SECONDARY_AXIS_DASH }));
-    return { mainLayers, mainInput: inputOf(mainLayers[0]), tooMany: false, secondary: { layers: second, range: stageRange(second.map(layer => layer.view)), title: titleOf(second[0]) } };
+    const main = base ? keyOf(base) : keys[0];
+    const mainLayers = layers.filter(layer => keyOf(layer) === main);
+    const second = layers.filter(layer => keyOf(layer) !== main).map(layer => ({ ...layer, dash: SECONDARY_AXIS_DASH }));
+    return { mainLayers, mainInput: inputFor(mainLayers), tooMany: false, secondary: { layers: second, range: stageRange(second.map(layer => layer.view)), title: stageAxes(strings, picture, inputFor(second)).y } };
 }
 
 /** Overlaid: the base, the other tracks and the compared one on one plot, then their difference under it on request. */
