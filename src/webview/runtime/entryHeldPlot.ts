@@ -7,7 +7,7 @@
  * pictures come as the steps view's do (stageSource, the Frame's full resolution once zoomed) and are drawn by
  * its painter. Let go, the picture stays 150 ms, so a quick look does not flicker.
  */
-import { createLatestAnswers } from './answerStore';
+import { createLatestAnswers, type CurrentAnswers, type ShownAnswers } from './answerStore';
 import type { UiStrings } from '../../shared/i18n/strings';
 import type { CompareCombineMessage, CompareScanMessage } from '../../shared/analysis/entryScan';
 import type { ScanResult, StageView } from '../../shared/protocol/backendProtocol';
@@ -57,7 +57,10 @@ export interface HeldPlotDeps {
     scheduleSide(): void;
     /** The plot's zoom, kept while it shows the same thing (`key`), whole again for another. */
     keepWindow(name: string, key: string): PlotWindow;
-    results: ReadonlyMap<string, ScanResult>;
+    /** Every file's latest scan (a stale one too): only what each file's pictures are of (stageBasis) is read of it. */
+    shown: ShownAnswers;
+    /** The scans of the current chain and calibration: every number, level reference and axis name is taken from these. */
+    current(): CurrentAnswers;
     /** How many times a file's calibration changed while the folder is open: its pictures are asked again after one. */
     calibrationEpoch?(path: string): number;
     /** The comparison of `comparePath` with its base over `over`, each file as the channel it is compared as (entryBase.comparison). */
@@ -119,7 +122,7 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
         plot: HeldPicture | null;
     } = { slot: null, step: null, plot: null };
     // A file's pictures are of its version and calibration as the table scanned it: a change asks them again.
-    const basis = stageBasis(path => deps.results.get(path), undefined, path => deps.calibrationEpoch?.(path) ?? 0);
+    const basis = stageBasis(path => deps.shown.get(path), undefined, path => deps.calibrationEpoch?.(path) ?? 0);
     const source = createStageSource('entry-hold', message => deps.post(message), () => deps.scheduleSide(), basis);
     // Every Welch bin of a held slot's file and its base: the table's own scans carry only the 192 points.
     const bins = createStageSource('held-bins', message => deps.post(message), () => deps.scheduleSide(), basis);
@@ -165,12 +168,13 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
     }
     function paintStep({ step, path, ch }: { step: RecipeStep; path: string; ch: number | null }): void {
         held.hidden = false;
-        const input = deps.results.get(path)?.input;
         const name = step.name === 'welch' ? strings.stepAverage : strings.stepHeldWithout.replace('{step}', stepChipLabel(step, strings));
         title.textContent = strings.stepHeldRow.replace('{what}', name).replace('{file}', baseName(path));
         held.classList.remove('is-pending');
         const zoom = deps.keepWindow('held', step.id);
         const specs = heldSpecs(step, ch);
+        // The axis names the version the picture is of: the step's own scan of it, else the table's current one (never a stale one's).
+        const input = (specs ? source.result(specs.with, path)?.input : undefined) ?? deps.current().get(path)?.input;
         const waiting = !!specs && [specs.with, specs.without].some(spec => spec && source.ensure(spec, [path]));
         const coarse = specs ? source.view(specs.with, path) ?? null : null;
         const coarseWithout = specs?.without ? source.view(specs.without, path) ?? null : null;
@@ -239,6 +243,7 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
      * nothing until they are in (never the table's 192 points). Without a base to measure against there is nothing to ask for.
      */
     function paintSlot(path: string, slot: number): void {
+        const current = deps.current();
         const table = deps.comparison(path);
         const run = deps.scanRecipe();
         const spec: StageSpec = { key: `held-bins|${recipeKey(run)}`, message: { ...(run ? { recipe: run } : {}), spectrumBins: true } };
@@ -248,7 +253,7 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
         // condition, so they are asked for again, once for each table condition (one that never matches is not asked forever).
         for (const file of files) {
             const kept = bins.result(spec, file);
-            const scanned = deps.results.get(file);
+            const scanned = current.get(file);
             const own = scanned?.ok ? scanned.conditionId ?? '' : '';
             const key = `${spec.key}|${file}`;
             if (kept?.ok && !sameCondition(kept, scanned) && binsAskedFor.get(key) !== own) bins.forget(spec, file);
@@ -259,11 +264,11 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
             // Nothing of the table's 192 points is drawn meanwhile: the Δ is taken only of every bin (R1, R2).
             held.classList.add('is-pending');
             title.textContent += ` · ${strings.comparePending}`;
-            paintView(null, null, emptyFigure().range, stageNames(strings, null, deps.results.get(path)?.input), deps.keepWindow('held', `delta|slot|${slot}`), { color: DIFF_COLOR, empty: '' });
+            paintView(null, null, emptyFigure().range, stageNames(strings, null, current.get(path)?.input), deps.keepWindow('held', `delta|slot|${slot}`), { color: DIFF_COLOR, empty: '' });
             return;
         }
         const binned = new Map(files.flatMap(file => { const result = bins.result(spec, file); return result ? [[file, result] as [string, ScanResult]] : []; }));
-        paintDelta(binned.size ? deps.comparison(path, binned) : table, `slot|${slot}`, deps.results.get(path)?.input);
+        paintDelta(binned.size ? deps.comparison(path, binned) : table, `slot|${slot}`, (binned.get(path) ?? current.get(path))?.input);
     }
 
     return {
@@ -292,7 +297,7 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
             }
             if (hold.stepRelease !== undefined) { window.clearTimeout(hold.stepRelease); hold.stepRelease = undefined; }
             const path = deps.focusedFile() ?? deps.slotFiles()[1];
-            if (!path || !deps.results.get(path)?.ok) { document.getElementById('hint-footer')?.replaceChildren(strings.stepHeldNoRow); return; }
+            if (!path || !deps.current().get(path)?.ok) { document.getElementById('hint-footer')?.replaceChildren(strings.stepHeldNoRow); return; }
             hold.step = { step, path, ch: deps.channelOf(path) };
             deps.scheduleSide();
         },

@@ -122,12 +122,12 @@ test('a file\'s scan is stale once the chain or its calibration is another, pend
     current.recipeKey = 'r2';
     assert.equal(scans.answer('/a.wav').state, 'stale', 'another chain');
     assert.equal(scans.stale('/a.wav'), true);
-    assert.equal(scans.fresh().size, 0, 'nothing of the current chain to measure from');
+    assert.equal(scans.current().size, 0, 'nothing of the current chain to measure from');
     current.recipeKey = 'r1';
     current.condition = '1';
     assert.equal(scans.answer('/a.wav').state, 'stale', 'the file calibrated anew');
     current.condition = '0';
-    assert.deepEqual([...scans.fresh().keys()], ['/a.wav']);
+    assert.deepEqual([...scans.current().keys()], ['/a.wav']);
     scans.set('/b.wav', { ok: false, reason: 'busy' }, { recipeKey: 'r0', condition: '0' });
     assert.equal(scans.answer('/b.wav').state, 'failed', 'a failure stays a failure, of whichever chain');
     assert.equal(scans.stale('/b.wav'), true, 'but it is asked again under the current chain');

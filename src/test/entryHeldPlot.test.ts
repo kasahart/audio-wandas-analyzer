@@ -1,3 +1,4 @@
+import type { CurrentAnswers, ShownAnswers } from '../webview/runtime/answerStore';
 import { R } from './helpers/figure';
 import assert from 'node:assert/strict';
 import test from 'node:test';
@@ -8,7 +9,6 @@ import type { RecipeStep } from '../shared/recipe/recipeSteps';
 import { TIME_SLICE } from '../shared/recipe/recipeSteps';
 import { createHeldPlot, DELTA_RELEASE_MS, narrowed, TAP_MS, type HeldPlotDeps } from '../webview/runtime/entryHeldPlot';
 import { compareOf } from './helpers/compareInput';
-import { withBins } from '../webview/runtime/comparePanes';
 import { buildEntryModel } from '../webview/runtime/entryTable';
 import { FULL_PLOT_WINDOW } from '../webview/runtime/plotInteraction';
 import { stageHover, stageStep } from '../webview/runtime/stagePanes';
@@ -66,8 +66,10 @@ function setup(results = new Map<string, ScanResult>(), options: { recipe?: Reci
         post: message => calls.push(['post', message]),
         scheduleSide: () => calls.push(['side', null]),
         keepWindow: () => FULL_PLOT_WINDOW,
-        results,
-        comparison: (path, binned) => { const over = binned ? withBins(results, binned) : results; compared.push({ path, over }); return compareOf(buildEntryModel([...over].map(([filePath, result]) => ({ filePath, result })), null), over, path, null, strings, false, undefined, { paths: [...results.keys()].filter(file => file !== path), title: 'base' }); },
+        // The table's scans as the answer store hands them: all of the current chain here (read live, as a test changes them).
+        shown: results as unknown as ShownAnswers, current: () => results as unknown as CurrentAnswers,
+        // The files measured now (their bins) stand for the table's answers (entryBase.binnedAnswers).
+        comparison: (path, binned) => { const over = binned ? new Map([...results, ...[...binned].filter(([, result]) => result.ok)]) : results; compared.push({ path, over }); return compareOf(buildEntryModel([...over].map(([filePath, result]) => ({ filePath, result })), null), over, path, null, strings, false, undefined, { paths: [...results.keys()].filter(file => file !== path), title: 'base' }); },
         basePaths: path => [...results.keys()].filter(file => file !== path),
         scanRecipe: () => undefined,
         focusedFile: () => state.focused, slotFiles: () => state.slots,

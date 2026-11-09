@@ -205,7 +205,7 @@ test('a base group counts, names and measures only the recordings its median is 
         { options: { slots: [null, '/d/a.wav', null, null], group: 'none', failed: ['/d/b.wav'], pending: ['/d/d.wav'] }, measured: ['/d/c.wav'], failed: 1, pending: 1 },
     ];
     for (const { options, measured, failed, pending } of cases) {
-        const { base, results } = setup(options);
+        const { base } = setup(options);
         const resolved = base.resolve('/d/a.wav');
         const what = JSON.stringify(options);
         assert.equal(resolved.definition.count, measured.length, what);

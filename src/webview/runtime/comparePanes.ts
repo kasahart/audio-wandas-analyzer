@@ -8,7 +8,7 @@ import type { UiStrings } from '../../shared/i18n/strings';
 import type { ChannelSummary } from '../../shared/analysis/analysisTypes';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { uncalibratedUnits } from '../../shared/utils/format';
-import { BAND_CENTERS_HZ, bandLabel, HEADLINE_WITHIN_DB, quantile, levelDelta, type DerivedRow, type EntryModel } from './entryTable';
+import { BAND_CENTERS_HZ, bandLabel, HEADLINE_WITHIN_DB, quantile, levelDelta } from './entryTable';
 import { baseName } from '../../shared/analysis/entryMetadata';
 import { median } from '../../shared/dataset/distribution';
 import { powerMeanDb, powerMeanOrNull } from '../../shared/utils/levels';
@@ -297,19 +297,6 @@ export function sameCondition(a: ScanResult | undefined, b: ScanResult | undefin
     return !!a?.ok && !!b?.ok && typeof a.conditionId === 'string' && a.conditionId === b.conditionId;
 }
 
-/**
- * The table's results with every Welch bin from `binned` (scans of the same files asked for with spectrumBins), where
- * a scan measured the same condition as the table's result (sameCondition); the rest as they are.
- */
-export function withBins(results: ReadonlyMap<string, ScanResult>, binned: ReadonlyMap<string, ScanResult>): Map<string, ScanResult> {
-    const out = new Map(results);
-    for (const [path, scan] of binned) {
-        const own = results.get(path);
-        if (!own?.ok || !scan.ok || !scan.spectrumBinsDb || !sameCondition(own, scan)) continue;
-        out.set(path, { ...own, spectrumBinsDb: scan.spectrumBinsDb, ...(scan.spectrumBinHz !== undefined ? { spectrumBinHz: scan.spectrumBinHz } : {}) });
-    }
-    return out;
-}
 
 /** The comparison draws a spectrum in this many log-spaced buckets from 20 Hz to Nyquist (stage_view.SPECTRUM_LINE_BUCKETS). */
 export const SPECTRUM_LINE_BUCKETS = 640;

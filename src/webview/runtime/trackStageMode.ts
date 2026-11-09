@@ -115,6 +115,8 @@ export interface TrackStageDeps {
     notify?(text: string): void;
     /** The task status while something asked for runs (the report's files measured), until the next notice. */
     busy?(text: string): void;
+    /** The task status when what was asked could not be done (a report whose files could not be measured). */
+    failed?(text: string): void;
 }
 
 export interface TrackStageMode {
@@ -254,6 +256,14 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         const spec = regionStageSpec(deps.recipe(), region);
         // Read from the report's own measuring alone: the comparison's pictures (source) may be of a version since recorded again.
         const lacking = paths.filter(path => reportSource.result(spec, path) === undefined);
+        // A file that could not be measured (and not for a step that cannot run on it) stops the report and says so,
+        // rather than asking for it again and again with the report never written.
+        const failed = lacking.filter(path => reportSource.failure(spec, path) !== undefined);
+        if (failed.length) {
+            pendingReport = null;
+            deps.failed?.(strings.reportCannotMeasure.replace('{files}', failed.map(baseName).join(', ')).replace('{why}', reportSource.failure(spec, failed[0]) || '—'));
+            return;
+        }
         if (lacking.length) {
             reportSource.ensure(spec, lacking);
             deps.busy?.(strings.reportMeasuring.replace('{count}', String(lacking.length)));
@@ -583,10 +593,9 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         // backend, the heading's n and the legend's words are all of this one set; a recording still on its way is
         // pending in it, and no median is asked until none is. A level is the step's own scan's, never a guess.
         const levelOf = (path: string): LevelInput | undefined => {
-            const own = allTracks.find(track => track.filePath === path)?.input;
-            if (own) return own;
+            // The version its picture is of: the picture's own scan, else its track, else the table's current scan.
             const scanned = source.result(specFor(path), path);
-            return (scanned?.ok ? scanned.input : undefined) ?? deps.levelOf?.(path);
+            return (scanned?.ok ? scanned.input : undefined) ?? allTracks.find(track => track.filePath === path)?.input ?? deps.levelOf?.(path);
         };
         const compareInput = comparePath ? levelOf(comparePath) : undefined;
         const stageSet = pictureSet(allowed, coarse, levelOf, { level: compareInput, view: comparePath ? coarse(comparePath) : undefined }, !each);

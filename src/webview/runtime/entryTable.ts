@@ -83,6 +83,8 @@ export interface DerivedRow {
     recipeKey?: string;
     /** Fixed under another Recipe and not measured again yet: shown as ≠. */
     stale?: boolean;
+    /** Each file's condition (the scan's conditionId: its version and calibration) when it was fixed: another one makes it ≠. */
+    conditions?: Record<string, string>;
 }
 
 /**

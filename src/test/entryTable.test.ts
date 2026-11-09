@@ -123,7 +123,7 @@ test('the CSV has the agreed columns, a BOM, and the same bytes every time', () 
     const lines = first.slice(1).trimEnd().split('\r\n');
     assert.equal(lines[0], 'File,Line,rpm,Start s,End s,Leq dB(A),Level reference,Δ max band Hz,Δ max band dB,3.15 kHz level,3.15 kHz level · Level reference,Δ Leq,Δ band,n,Left out,Reason');
     assert.equal(lines[3], 'L1_900rpm_run2.wav,L1,900rpm,0.15,1.85,-20.0,dBFS uncalibrated,3150,12.0,-18.0,dBFS uncalibrated,0.0,12.0,2,,');
-    assert.equal(lines.at(-1), 'broken.wav,,,,,,,,,,,,,,✕');
+    assert.equal(lines.at(-1), 'broken.wav,,,,,,,,,,,,,,,✕');
 });
 
 test('one stored scan result stays within about 5 KB', () => {

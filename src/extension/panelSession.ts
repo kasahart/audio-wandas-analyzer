@@ -80,6 +80,11 @@ export class PanelSession<P extends PanelPort = PanelPort> {
             : [...this.activeResultPaths];
     }
 
+    /** Every path the panel may name a file by: the folder's listing, the selection and the tracks shown. */
+    knownFilePaths(): string[] {
+        return [...new Set([...(this.directorySelection?.allFilePaths ?? []), ...(this.directorySelection?.selectedFilePaths ?? []), ...this.activeResultPaths])];
+    }
+
     /** Whether a webview request may name this file: one the folder listed, added beside it, or shown. */
     allowsFile(filePath: string): boolean {
         return this.activeResultPaths.includes(filePath)

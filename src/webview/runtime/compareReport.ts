@@ -9,7 +9,7 @@ import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { encodeNumber, plainFloats, recipeSteps, timeSignalStep, upToStep, withDefaults, withParam, TIME_SLICE } from '../../shared/recipe/recipeSteps';
 import { BAND_CENTERS_HZ, bandCentreCell, bandLabel, csvNumber, EDGE_GUARD_S, HEADLINE_WITHIN_DB, levelReferenceCell, measuredRegion, regionCells, type BaseDefinition, type DerivedRow, type EntryMeasure, type EntryModel } from './entryTable';
 import { withBaseInput, withChannel } from '../../shared/recipe/channelSelection';
-import { baseLevelColumns, baseLevelOf, dataRange, diffRange, figureUsed, levelAxes, scanIdentity, setExclusionText, type FigureSet, type ReadScan, type SetStrings, levelColumns, paneNames, plainNames, titleOf, withTitle, type FigureColumns, type FigureRange, type FigureTitle } from './figureModel';
+import { baseLevelColumns, baseLevelOf, dataRange, diffRange, figureUsed, levelAxes, scanIdentity, setExclusionText, type SetStrings, levelColumns, paneNames, plainNames, titleOf, withTitle, type FigureColumns, type FigureRange, type FigureTitle } from './figureModel';
 import { setMedian, bandsSource, binsSource, binsView, deltaViews, diffHeadline, levelsHeadline, sideView, type CompareModel, type CompareStrings, type LevelInput } from './comparePanes';
 import { SECONDARY_AXIS_DASH } from './overlaySpectrumPainter';
 import { paintOverlay } from './stagePanes';
@@ -470,7 +470,8 @@ export function deltaFigure(comparison: Pick<CompareModel, 'bins' | 'bandDeltas'
 /** A Δ figure: compare − base per point, the 1/3-octave Δ as steps under it, titled and with its legend. */
 function paintDeltaFigure(canvas: HTMLCanvasElement, comparison: CompareModel, title: string, curve: string, strings: ReportStrings, input: ReportInput, size: { width: number; height: number }): void {
     const { view, range, binned } = deltaFigure(comparison);
-    const axes = paneNames(strings, input.results.get(comparison.compare?.filePaths[0] ?? '')?.input).delta;
+    // The Δ axis names the compared recording's levels as its fresh answer read them (never a raw, maybe stale, scan).
+    const axes = paneNames(strings, comparison.compareResult?.input).delta;
     const full = (comparison.bins ? binsSource(comparison.bins, 'diff') : null) ?? bandsSource(comparison.bandDeltas, comparison.frequencies);
     paintOverlay(canvas, { layers: view ? [{ view, color: DIFF_COLOR, width: 1.5, full }] : [] }, range, withTitle(plainNames(figureXAxis([view], strings), ''), titleOf(axes)), {
         size, diff: true, readout: false,

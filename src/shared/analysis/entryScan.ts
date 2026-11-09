@@ -140,6 +140,14 @@ export const ENTRY_SESSION_KEY = 'awa.session.v1';
 export const ENTRY_SESSION_CSV_KEY = 'awa.sessionCsv.v1';
 /** A folder's own key: one index and one session per opened folder, so a folder of 100,000 files does not rewrite another's. */
 export const folderKey = (key: string, rootPath: string): string => `${key}:${rootPath}`;
+
+/**
+ * The asker a compare-scan request is of: its id up to the last '-' (the request's count after it). A newer request of
+ * the same asker stops an older one on the host; askers that must not stop each other (each fixed difference measured
+ * again) name themselves apart. compareScanId and compareScanAsker are the one place the two sides agree on it.
+ */
+export const compareScanAsker = (requestId: string): string => requestId.replace(/-[^-]*$/, '');
+export const compareScanId = (asker: string, count: number): string => `${asker}-${count}`;
 /** Results kept per file: one per Recipe (a channel is one of the result's arrays), the most recent first. */
 const RECIPES_PER_FILE = 4;
 /** Results are written in batches of this many, so a 100-file scan stores a few times rather than 100. */

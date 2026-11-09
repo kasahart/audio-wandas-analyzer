@@ -87,6 +87,17 @@ export interface AnswerStoreOptions {
     /** An answer asked for and not in after UNANSWERED_RETRY_MS is asked again (its request may have been lost). */
     retryUnanswered?: boolean;
     now?: () => number;
+    /**
+     * Called once a failure's pause is over (FAILED_RETRY_MS after it), so its owner draws again and the answer is asked
+     * for anew: the store keeps the time, no source keeps a timer of its own.
+     */
+    retried?: () => void;
+}
+
+/** Calls `then` once a failure's pause is over (a timer that keeps nothing alive). */
+function afterPause(then: (() => void) | undefined): void {
+    if (!then) return;
+    (setTimeout(then, FAILED_RETRY_MS + 10) as { unref?: () => void }).unref?.();
 }
 
 export interface AnswerStore<T> {
@@ -183,7 +194,7 @@ export function createAnswerStore<T>(options: AnswerStoreOptions): AnswerStore<T
             put(key, { state: 'ready', value, ...(extra?.identity ? { identity: extra.identity } : {}) });
         },
         empty(key, identity) { put(key, { state: 'empty', ...(identity ? { identity } : {}) }); },
-        fail(key, reason) { put(key, { state: 'failed', retryAt: now() + FAILED_RETRY_MS, ...(reason !== undefined ? { reason } : {}) }); },
+        fail(key, reason) { put(key, { state: 'failed', retryAt: now() + FAILED_RETRY_MS, ...(reason !== undefined ? { reason } : {}) }); afterPause(options.retried); },
         reason(key) {
             const found = held(key);
             return found?.state === 'failed' ? found.reason : undefined;
@@ -328,10 +339,10 @@ export interface FailureHold {
     clear(subject?: string): void;
 }
 
-export function createFailureHold(now: () => number = () => Date.now()): FailureHold {
+export function createFailureHold(now: () => number = () => Date.now(), retried?: () => void): FailureHold {
     const failed = new Map<string, { condition: string; retryAt: number }>();
     return {
-        fail(subject, condition = '') { failed.set(subject, { condition, retryAt: now() + FAILED_RETRY_MS }); },
+        fail(subject, condition = '') { failed.set(subject, { condition, retryAt: now() + FAILED_RETRY_MS }); afterPause(retried); },
         holds(subject, condition = '') {
             const found = failed.get(subject);
             return !!found && found.condition === condition && now() < found.retryAt;
@@ -370,34 +381,70 @@ export function scanAnswer(path: string, result: ScanResult | undefined, under?:
     return { state: 'ready', value: result as ScanResult & { ok: true }, identity };
 }
 
-/** The latest scan of each file, handed as answers (scanAnswer) with the recipe and condition each was measured with. */
-export interface ScanAnswers extends LatestAnswers<ScanResult> {
-    /**
-     * A file's scan as an answer: stale when it was measured under another recipe or condition than the current one
-     * (its value is shown greyed, never counted), pending only while it is asked for, missing when it was never asked.
-     */
+declare const currentBrand: unique symbol;
+declare const shownBrand: unique symbol;
+/**
+ * The scans of the current chain and calibration (ready, and failed with why), as only the answer store makes them:
+ * what a median, a Δ, an n, a level reference or an axis name is taken from. A map of every scan cannot pass for it.
+ * It stands in for the answers until every figure takes Answers itself (figureModel's FigureSet).
+ */
+export type CurrentAnswers = ReadonlyMap<string, ScanResult> & { readonly [currentBrand]: 'current' };
+/** Every file's latest scan, an earlier chain's too, for the table to show (greyed when stale): never counted. */
+export type ShownAnswers = ReadonlyMap<string, ScanResult> & { readonly [shownBrand]: 'shown' };
+
+/** What a scan is asked under: the recipe and the file's condition (its calibration epoch) when it is asked. */
+export interface ScanUnder {
+    recipeKey: string;
+    condition: string;
+}
+
+/**
+ * The latest scan of each file, handed out only as answers with their state (scanAnswer): stale when measured under
+ * another recipe or condition than the current one, pending only while asked, missing when never asked. No raw map of
+ * the scans leaves the store: the current ones as CurrentAnswers, every one for showing as ShownAnswers.
+ */
+export interface ScanAnswers {
+    /** A file's scan as an answer (stale: its value shown greyed, never counted). */
     answer(path: string): ScanAnswer;
     /** Several files' answers, against one reading of what is current. */
     answers(paths: readonly string[]): ScanAnswer[];
     /** Whether the file's result (read or failed) is of another recipe or condition than the current one. */
     stale(path: string): boolean;
-    /** The results that are of the current recipe and condition (a failed one too): what a median, Δ or n is taken over. */
-    fresh(): ReadonlyMap<string, ScanResult>;
-    /** These files are asked for now: until each answers or the asking ends, it is pending. */
+    /** The scans of the current recipe and condition (a failed one too, with why): what is counted. */
+    current(): CurrentAnswers;
+    /** Every file's latest scan, for the table to show: an earlier chain's is there greyed. */
+    shown(): ShownAnswers;
+    /** Why a file's scan failed, and the step that cannot run on it if that is why; undefined when it did not fail. */
+    failure(path: string): { reason: string; failedStep?: string } | undefined;
+    /** These files are asked for now, each under what is current as it is asked: until it answers or the asking ends, it is pending. */
     asking(paths: readonly string[]): void;
+    /**
+     * A scan asked for came in: kept under what it was asked under (a calibration changed meanwhile makes it stale).
+     * One not asked for (an asking already ended) is not kept, and false is said.
+     */
+    answered(path: string, result: ScanResult): boolean;
     /** The asking ended (done or stopped): a file not answered is missing again. */
     settled(): void;
+    /** A scan kept under `under` as it is (tests, stored sessions). */
+    set(path: string, result: ScanResult, under: ScanUnder): void;
+    delete(path: string): void;
+    clear(): void;
+    /** Bumped on every change to the scans kept: what is derived of them all (the chain's limits) is made again after one. */
+    readonly revision: number;
 }
 
 /** What a scan must be of now: the current recipe's key (asked once per question, it may be costly) and each file's condition. */
 export interface ScanCurrent {
     recipeKey: string;
     condition(path: string): string;
+    /** Changed whenever any file's condition does (a calibration changed): the current scans are taken again then. */
+    conditions?: number;
 }
 
 export function createScanAnswers(currentOf: () => ScanCurrent = () => ({ recipeKey: '', condition: () => '' })): ScanAnswers {
     const latest = createLatestAnswers<ScanResult>();
-    const asked = new Set<string>();
+    /** Each file asked for now, with what it was asked under. */
+    const asked = new Map<string, ScanUnder>();
     const staleUnder = (path: string, now: ScanCurrent): boolean => {
         if (!latest.has(path)) return false;
         const under = latest.under(path);
@@ -405,28 +452,49 @@ export function createScanAnswers(currentOf: () => ScanCurrent = () => ({ recipe
     };
     const answerUnder = (path: string, now: ScanCurrent): ScanAnswer => {
         const result = latest.get(path);
-        const found = scanAnswer(path, result, latest.under(path));
-        if (!result) return asked.has(path) ? found : { state: 'missing', identity: found.identity };
-        if (found.state === 'ready' && staleUnder(path, now)) return { state: 'stale', value: found.value, identity: found.identity };
-        return found;
+        const under = latest.under(path);
+        const found = scanAnswer(path, result, under);
+        const identity = { ...found.identity, calibrationSignature: `${found.identity.calibrationSignature}|${under?.condition ?? ''}` };
+        if (!result) return asked.has(path) ? { state: 'pending', identity } : { state: 'missing', identity };
+        if (found.state === 'ready') return staleUnder(path, now) ? { state: 'stale', value: found.value, identity } : { ...found, identity };
+        return { ...found, identity };
     };
+    let revision = 0;
+    /** The current scans as last taken, and what they were taken under. */
+    let made: { revision: number; recipeKey: string; conditions?: number; answers: CurrentAnswers } | null = null;
+    const keep = (path: string, result: ScanResult, under: ScanUnder): void => { asked.delete(path); latest.set(path, result, under); revision++; };
     return {
-        ...latest,
-        view: latest.view,
-        failures: latest.failures,
-        set(path, value, under) { asked.delete(path); latest.set(path, value, under); },
-        clear() { asked.clear(); latest.clear(); },
-        stale: path => staleUnder(path, currentOf()),
-        fresh() {
-            const now = currentOf();
-            const out = new Map<string, ScanResult>();
-            for (const [path, result] of latest.view) if (!staleUnder(path, now)) out.set(path, result);
-            return out;
-        },
-        asking(paths) { for (const path of paths) asked.add(path); },
-        settled() { asked.clear(); },
+        get revision() { return revision; },
         answer: path => answerUnder(path, currentOf()),
         answers(paths) { const now = currentOf(); return paths.map(path => answerUnder(path, now)); },
+        stale: path => staleUnder(path, currentOf()),
+        current() {
+            const now = currentOf();
+            if (made && made.revision === revision && made.recipeKey === now.recipeKey && now.conditions !== undefined && made.conditions === now.conditions) return made.answers;
+            const out = new Map<string, ScanResult>();
+            for (const [path, result] of latest.view) if (!staleUnder(path, now)) out.set(path, result);
+            made = { revision, recipeKey: now.recipeKey, conditions: now.conditions, answers: out as unknown as CurrentAnswers };
+            return made.answers;
+        },
+        shown: () => latest.view as unknown as ShownAnswers,
+        failure(path) {
+            const result = latest.get(path);
+            return result && !result.ok ? { reason: result.reason ?? '', ...(result.failedStep ? { failedStep: result.failedStep } : {}) } : undefined;
+        },
+        asking(paths) {
+            const now = currentOf();
+            for (const path of paths) asked.set(path, { recipeKey: now.recipeKey, condition: now.condition(path) });
+        },
+        answered(path, result) {
+            const under = asked.get(path);
+            if (!under) return false;
+            keep(path, result, under);
+            return true;
+        },
+        settled() { asked.clear(); },
+        set: keep,
+        delete(path) { asked.delete(path); latest.delete(path); revision++; },
+        clear() { asked.clear(); latest.clear(); revision++; },
     };
 }
 
@@ -447,13 +515,13 @@ export interface AnswerSlot<T> {
     clear(): void;
 }
 
-export function createAnswerSlot<T>(now: () => number = () => Date.now()): AnswerSlot<T> {
+export function createAnswerSlot<T>(now: () => number = () => Date.now(), retried?: () => void): AnswerSlot<T> {
     let value: T | null = null;
     let failed: { reason: string; condition: string; until: number } | null = null;
     return {
         get: () => value,
         set(next) { value = next; failed = null; },
-        fail(reason, condition = '') { value = null; failed = { reason, condition, until: now() + FAILED_RETRY_MS }; },
+        fail(reason, condition = '') { value = null; failed = { reason, condition, until: now() + FAILED_RETRY_MS }; afterPause(retried); },
         failure: (condition = '') => (failed && failed.condition === condition ? failed.reason : undefined),
         holds: (condition = '') => !!failed && failed.condition === condition && now() < failed.until,
         clear() { value = null; failed = null; },

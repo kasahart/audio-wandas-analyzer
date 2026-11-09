@@ -10,7 +10,7 @@ import type { ScanResult } from '../../shared/protocol/backendProtocol';
 import { baseGroupMembers, fileOfKey, groupOf, isComputed, valueOf, type DatasetRow, type GroupId, type ValueId } from '../../shared/dataset/datasetTable';
 import { median } from '../../shared/dataset/distribution';
 import { channelResult } from '../../shared/recipe/channelSelection';
-import { buildCompareModel, sameCondition, setMedian, type CompareInput, type CompareModel } from './comparePanes';
+import { buildCompareModel, setMedian, type CompareInput, type CompareModel } from './comparePanes';
 import { comparedKeys, roleKey } from './entrySlots';
 import { scanAnswer, type ScanAnswer } from './answerStore';
 import { excludedFor, figureUsed, referenceIdentity, scanIdentity, setCountText, setExclusionText, type FigureSet, type FolderReference, type ReadScan } from './figureModel';
@@ -33,21 +33,20 @@ export function regionAnswers(measured: ReadonlyMap<string, ScanResult>): Answer
 }
 
 /**
- * The store's answers with every Welch bin of `binned` (scans of the same files asked for with spectrumBins) where a
- * scan measured the same condition as the answer's value: its state stays the store's (a stale one stays stale).
+ * The store's answers, with the files `measured` now (the held plot's and the report's own scans of them, under the
+ * current chain and their version now, with every Welch bin) standing for the store's: such a file's answer is its scan
+ * now, ready, never the table's state (a table scan of an earlier chain does not make it stale); every other file's is
+ * the store's.
  */
-export function binnedAnswers(source: AnswerSource, binned: ReadonlyMap<string, ScanResult>): AnswerSource {
+export function binnedAnswers(source: AnswerSource, measured: ReadonlyMap<string, ScanResult>): AnswerSource {
     return {
-        answers: paths => source.answers(paths).map(answer => {
-            if (answer.state !== 'ready' && answer.state !== 'stale') return answer;
-            const scan = binned.get(answer.identity.path);
-            if (!scan?.ok || !scan.spectrumBinsDb || !sameCondition(answer.value, scan)) return answer;
-            return { ...answer, value: { ...answer.value, spectrumBinsDb: scan.spectrumBinsDb, ...(scan.spectrumBinHz !== undefined ? { spectrumBinHz: scan.spectrumBinHz } : {}) } };
-        }),
+        answers: paths => {
+            const own = source.answers(paths);
+            return paths.map((path, index) => { const scan = measured.get(path); return scan?.ok ? scanAnswer(path, scan) : own[index]; });
+        },
     };
 }
 
-/** A base: its one figure set, the recordings it asks for, its name, what it is and the channel it is of. */
 export interface EntryBaseOf {
     /** The figure set every count, median, file list and heading of this base is of. */
     set: FigureSet<ReadScan>;

@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { compareOf } from './helpers/compareInput';
+import { binnedAnswers } from '../webview/runtime/entryBase';
+import { scanAnswer } from '../webview/runtime/answerStore';
 import { N, R } from './helpers/figure';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -9,7 +11,7 @@ import type { ScanResult } from '../shared/protocol/backendProtocol';
 import { getStrings } from '../shared/i18n/strings';
 import { BAND_CENTERS_HZ, buildEntryModel } from '../webview/runtime/entryTable';
 import { deltaFigure } from '../webview/runtime/compareReport';
-import { binsSource, binsView, deltaViews, diffHeadline, minMaxLine, sameCondition, withBins, legendHtml, levelsHeadline, paneAxes, trackLevelInput, type LevelInput } from '../webview/runtime/comparePanes';
+import { binsSource, binsView, deltaViews, diffHeadline, minMaxLine, sameCondition, legendHtml, levelsHeadline, paneAxes, trackLevelInput, type LevelInput } from '../webview/runtime/comparePanes';
 import type { ChannelSummary } from '../shared/analysis/analysisTypes';
 import { byLevel, paintOverlay, stageAxes } from '../webview/runtime/stagePanes';
 import { NO_FULL_DATA } from '../webview/runtime/fullRead';
@@ -351,12 +353,12 @@ test('the table\'s results take the bins of a scan of the same condition only, n
     const same: ScanResult = { ...own, elapsedMs: 9, spectrumBinsDb: [[-30, -31]], spectrumBinHz: 2 };
     // The file changed on disk with its 192 points alike (a change between them): another condition, not its bins.
     const changed: ScanResult = { ...run1, conditionId: 'run1@v2', spectrumBinsDb: [[-1, -2]], spectrumBinHz: 2 };
-    const merged = withBins(table, new Map([['/f/free.wav', same], ['/f/L1_900rpm_run1.wav', changed]]));
-    assert.deepEqual(merged.get('/f/free.wav'), { ...own, spectrumBinsDb: [[-30, -31]], spectrumBinHz: 2 }, 'the table\'s own numbers, with the bins');
-    assert.equal(merged.get('/f/L1_900rpm_run1.wav'), run1, 'another condition with the same drawn points: as it was');
-    // Without a condition on either side nothing is matched.
-    const unnamed = withBins(new Map([['/f/free.wav', { ...own, conditionId: undefined }]]), new Map([['/f/free.wav', { ...same, conditionId: undefined }]]));
-    assert.equal(unnamed.get('/f/free.wav')?.spectrumBinsDb, undefined);
+    // The held plot keeps a file's bins only while they are of the table's condition (entryHeldPlot.paintSlot asks
+    // again otherwise); those it keeps stand for the table's answers (entryBase.binnedAnswers).
+    const store = { answers: (paths: readonly string[]) => paths.map(path => scanAnswer(path, table.get(path))) };
+    const [free, other] = binnedAnswers(store, new Map([['/f/free.wav', same]])).answers(['/f/free.wav', '/f/L1_900rpm_run1.wav']);
+    assert.equal(free.state === 'ready' ? free.value.spectrumBinsDb : null, same.spectrumBinsDb);
+    assert.equal(other.state === 'ready' ? other.value : null, run1, 'a file not measured now keeps the store\'s answer');
     assert.equal(sameCondition(own, same), true);
     assert.equal(sameCondition(run1, changed), false);
 });

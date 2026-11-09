@@ -88,7 +88,8 @@ const CACHED = 64;
 const combineKey = (request: CombineRequest): AnswerKey => answerKey({ ask: ['combine', request.base, request.compare], version: { by: 'data-keys' }, region: JSON.stringify(request.detail ?? null) });
 
 export function createCombineSource(prefix: string, post: (message: CompareCombineMessage) => void, changed: () => void, now: () => number = () => Date.now()): CombineSource {
-    const answers = createAnswerStore<Combined>({ capacity: CACHED, now });
+    // A failed combination is asked again once its pause is over: the screen draws again then (the store keeps the time).
+    const answers = createAnswerStore<Combined>({ capacity: CACHED, now, retried: () => changed() });
     /** The requests on their way, by id: what each asks, of what, and how to drop pictures the backend let go. */
     const asked = new Map<string, { key: AnswerKey; identity: string; forget: (keys: readonly string[]) => void }>();
     let count = 0;
