@@ -471,9 +471,9 @@ def test_a_scans_step_keeps_its_values_for_the_combine_command(tmp_path: Path) -
 @pytest.mark.parametrize("name", ["coherence", "correlation", "cepstrum", "series", "events"])
 def test_every_line_keeps_a_one_point_dip_and_peak_when_drawn(signal: wd.ChannelFrame, name: str) -> None:
     """R2: a line with more points than the screen keeps each bucket's lowest and highest value, at its own x (a
-    trigger's events, which share one x list, at their bucket's ends): a one-bin coherence dip, a one-lag
-    correlation peak or a one-sample hit of either sign is never averaged away, interpolated past or dropped for
-    the other sign's extreme."""
+    trigger's events' mean too): a one-bin coherence dip, a one-lag correlation peak or a one-sample hit of either
+    sign is never averaged away, interpolated past, moved to its bucket's edge or dropped for the other sign's
+    extreme."""
     frames = _frames(signal)
     frames["events"] = (signal.segment([0.5], duration=0.5), None)
     frames["series"] = (signal.rms_trend(frame_length=64, hop_length=8), None)
@@ -498,10 +498,38 @@ def test_every_line_keeps_a_one_point_dip_and_peak_when_drawn(signal: wd.Channel
     assert np.nanmin(line) == pytest.approx(floor, abs=1e-3)
     if name != "coherence":
         assert np.nanmax(line) == pytest.approx(top, abs=1e-3)
-    if name != "events":
-        assert xs[int(np.nanargmin(line))] == pytest.approx(data.xs[low_at])
-        if name != "coherence":
-            assert xs[int(np.nanargmax(line))] == pytest.approx(data.xs[high_at])
+    assert xs[int(np.nanargmin(line))] == pytest.approx(data.xs[low_at])
+    if name != "coherence":
+        assert xs[int(np.nanargmax(line))] == pytest.approx(data.xs[high_at])
+
+
+def test_each_event_of_a_trigger_is_its_own_line_with_its_extremes_at_their_own_times() -> None:
+    """R2: a trigger's events are drawn as every line is (stage_view._envelope), each its own series: its own xs,
+    each bucket's lowest and highest sample at the time from the trigger it occurred. One event's hit is never moved
+    to the edge of a bucket shared with another event, nor given the other's times."""
+    from stage_view import EVENT_POINTS, _envelope
+
+    count = RATE
+    samples = np.zeros(count)
+    # Two events cut at 0.1 s and 0.6 s: a positive hit inside the first, a negative one elsewhere in the second.
+    samples[1600 + 1000], samples[9600 + 2345] = 0.9, -0.7
+    frame = wd.from_numpy(samples[np.newaxis], sampling_rate=RATE).segment([0.1, 0.6], duration=0.3)
+    view = stage_view(frame, None)
+    events = view["events"]
+    rows = frame.to_numpy().reshape(len(events), -1)
+    times = np.arange(rows.shape[1]) / RATE - float(frame.pre)
+    for event, row in zip(events, rows, strict=True):
+        xs, values = _envelope(times, row, EVENT_POINTS)
+        np.testing.assert_allclose(event["xs"], xs)
+        np.testing.assert_allclose(np.asarray(event["values"], dtype=float), values)
+        assert len(event["xs"]) == len(event["values"]) < row.size
+    first, second = (np.asarray(event["xs"]) for event in events)
+    one, two = (np.asarray(event["values"], dtype=float) for event in events)
+    # Each hit at the time its own sample is from its trigger (brute force over its own samples).
+    assert one.max() == pytest.approx(0.9) and first[int(one.argmax())] == pytest.approx(times[int(rows[0].argmax())])
+    assert two.min() == pytest.approx(-0.7) and second[int(two.argmin())] == pytest.approx(times[int(rows[1].argmin())])
+    # Each its own series: the second's xs are not the first's.
+    assert not np.array_equal(first, second)
 
 
 @pytest.mark.parametrize(

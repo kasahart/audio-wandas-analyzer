@@ -1716,6 +1716,7 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                         "required": [
                             "id",
                             "time",
+                            "xs",
                             "values"
                         ],
                         "properties": {
@@ -1725,6 +1726,12 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                             },
                             "time": {
                                 "type": "number"
+                            },
+                            "xs": {
+                                "type": "array",
+                                "items": {
+                                    "type": "number"
+                                }
                             },
                             "values": {
                                 "type": "array",
@@ -2558,6 +2565,7 @@ export interface StageView {
     events?: {
     id: number;
     time: number;
+    xs: number[];
     values: (number | null)[];
 }[];
 }

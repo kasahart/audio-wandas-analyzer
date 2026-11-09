@@ -691,17 +691,19 @@ DEFINITIONS: dict[str, Schema] = {
                 "properties": {"x": _NUMBER, "y": _NUMBER, "value": _NUMBER, "xStep": _NUMBER, "yStep": _NUMBER},
             },
             # A trigger's segments: each event's signal (channels averaged) over the time from its trigger, drawn as
-            # its own line; ``values`` are their mean.
+            # its own line at its own ``xs``; the picture's ``values`` are their mean.
             "events": {
                 "type": "array",
                 "items": {
                     "type": "object",
-                    "required": ["id", "time", "values"],
+                    "required": ["id", "time", "xs", "values"],
                     "properties": {
                         # wandas' event ID, from 0: it stays the same when other events are dropped.
                         "id": {"type": "integer", "minimum": 0},
                         # When it triggered, seconds into the file.
                         "time": _NUMBER,
+                        # The event's own times from the trigger, one per value.
+                        "xs": _NUMBERS,
                         "values": _NULLABLE_NUMBERS,
                     },
                 },

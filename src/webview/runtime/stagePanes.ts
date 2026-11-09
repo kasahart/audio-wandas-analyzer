@@ -63,7 +63,7 @@ function points(view: StageView): Array<number | null> {
 
 /**
  * A layer of a trigger's events as one layer per event, in its colour and thinner, each named by its event (from 1,
- * as the tracks number them): the lines are drawn and read under the pointer like any other.
+ * as the tracks number them): each is its own series, at its own xs, drawn and read under the pointer like any other.
  */
 export function eventLayers(layer: StageLayer): StageLayer[] {
     const events = layer.view.events;
@@ -77,7 +77,7 @@ export function eventLayers(layer: StageLayer): StageLayer[] {
         const at = Number.isFinite(event.time) ? ` @ ${secondsText(event.time)}` : '';
         // Each event's line reads its own full data (R7), not the recording's.
         const full: FullRead = layer.full.event?.(event.id) ?? NO_FULL_DATA;
-        return { ...rest, view: { ...view, values: event.values }, width: Math.min(layer.width ?? 1.5, 1.2), alpha: out ? 0.25 : 0.85, label: `${layer.label ? `${layer.label} ` : ''}#${event.id + 1}${at}`, ...(source !== undefined ? { event: { id: event.id, source, out } } : {}), full };
+        return { ...rest, view: { ...view, xs: event.xs, values: event.values }, width: Math.min(layer.width ?? 1.5, 1.2), alpha: out ? 0.25 : 0.85, label: `${layer.label ? `${layer.label} ` : ''}#${event.id + 1}${at}`, ...(source !== undefined ? { event: { id: event.id, source, out } } : {}), full };
     });
 }
 

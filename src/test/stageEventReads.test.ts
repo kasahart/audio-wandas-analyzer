@@ -18,7 +18,7 @@ test('a trigger\'s event lines are each read at that event\'s every sample, neve
     const drawnAt = times.map((_, index) => index).filter(index => index % 12 === 0);
     const view = {
         frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', unit: 'FS', xs: drawnAt.map(index => times[index]), values: [],
-        events: [0, 1, 2].map(id => ({ id, time: 1 + id, values: drawnAt.map(index => samples[id][index]) })),
+        events: [0, 1, 2].map(id => ({ id, time: 1 + id, xs: drawnAt.map(index => times[index]), values: drawnAt.map(index => samples[id][index]) })),
     } as StageView;
     // The recording's full data: each event's own samples (the backend's read of `event`).
     const full: FullSource = { held: 'inline', event: id => localLine(times, samples[id]) };

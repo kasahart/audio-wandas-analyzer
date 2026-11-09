@@ -109,6 +109,7 @@ export const SCHEMA_FIELDS: Readonly<Record<string, readonly string[] | string>>
     'StageView.valueRange.robust': ['compare-overlay.range-image', 'compare-lanes.range-image'],
     'StageView.events.id': ['compare-overlay.headline', 'compare-overlay.readout-events', 'trigger-lanes.count'],
     'StageView.events.time': ['compare-overlay.headline', 'compare-overlay.readout-events', 'trigger-lanes.count'],
+    'StageView.events.xs': ['compare-overlay.readout-events'],
     'StageView.events.values': ['compare-overlay.readout-events'],
     'ScanInput.fs': ['entry-table.mismatch'],
     'ScanInput.channels': ['entry-table.count'],

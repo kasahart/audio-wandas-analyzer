@@ -126,7 +126,7 @@ test('a cross-correlation is drawn over a signed lag axis on the fixed [-1, 1] c
 test('a trigger\'s events are each a line of their slot, on one amplitude range, with no difference between recordings', () => {
     const events = (peaks: number[]): StageView => ({
         frame: 'ChannelFrameSegments', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', unit: 'Pa', xs: [-0.01, 0, 0.1],
-        values: [0, peaks.reduce((a, b) => a + b, 0) / peaks.length, 0], events: peaks.map((peak, id) => ({ id: id * 2, time: id, values: [0, peak, 0] })),
+        values: [0, peaks.reduce((a, b) => a + b, 0) / peaks.length, 0], events: peaks.map((peak, id) => ({ id: id * 2, time: id, xs: [-0.01, 0, 0.1], values: [0, peak, 0] })),
     });
     const base = events([1, 3]), compare = events([2]);
     const layers = eventLayers({ view: compare, color: '#ff0', width: 2.2, label: 'b.wav', full: held(compare) });
@@ -207,6 +207,33 @@ function strokingCanvas(): { canvas: HTMLCanvasElement; strokes: string[] } {
     const canvas = { width: 0, height: 0, clientWidth: 600, clientHeight: 200, ownerDocument: {}, dataset: {} as DOMStringMap, getContext: () => context } as unknown as HTMLCanvasElement;
     return { canvas, strokes };
 }
+
+test('each event of a trigger is its own series, drawn at its own times: never at the xs of another event or of their mean (R2)', () => {
+    // Their mean on its own xs; each event's peak where it occurred, at a time neither the mean nor the other has.
+    const view: StageView = {
+        frame: 'ChannelFrameSegments', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', unit: 'Pa', xs: [-0.01, 0, 0.1], values: [0, 0.5, 0],
+        events: [{ id: 0, time: 1, xs: [-0.01, 0.02, 0.1], values: [0, 1, 0] }, { id: 1, time: 2, xs: [-0.01, 0.07, 0.1], values: [0, 0.8, 0] }],
+    };
+    const layers = eventLayers({ view, color: '#ff0', label: 'b.wav', full: held(view) });
+    assert.deepEqual(layers.map(layer => layer.view.xs), [[-0.01, 0.02, 0.1], [-0.01, 0.07, 0.1]]);
+    // What is stroked: each line's points, in canvas pixels.
+    const paths: Array<Array<[number, number]>> = [];
+    let path: Array<[number, number]> = [];
+    const context = new Proxy({}, {
+        get: (_target, key) => (key === 'measureText' ? (text: string) => ({ width: text.length * 6 })
+            : key === 'beginPath' ? () => { path = []; } : key === 'moveTo' || key === 'lineTo' ? (x: number, y: number) => { path.push([x, y]); }
+                : key === 'stroke' ? () => { paths.push(path); } : () => undefined),
+        set: () => true,
+    });
+    const canvas = { width: 0, height: 0, clientWidth: 600, clientHeight: 200, ownerDocument: {}, dataset: {} as DOMStringMap, getContext: () => context } as unknown as HTMLCanvasElement;
+    const plot = paintOverlay(canvas, { layers }, { min: -1, max: 1 }, { x: 'Time [s]', y: 'Amplitude [Pa]' });
+    assert.ok(plot);
+    // Each event's line (three points) has its top at its own peak's time and value.
+    const peaks = paths.filter(points => points.length === 3).map(points => points.reduce((top, point) => (point[1] < top[1] ? point : top)));
+    for (const [at, value] of [[0.02, 1], [0.07, 0.8]]) {
+        assert.ok(peaks.some(([x, y]) => Math.abs(x - plot.xAt(at)) < 0.5 && Math.abs(y - plot.yAt(value)) < 0.5), `a line peaks at ${at} s`);
+    }
+});
 
 test('every plot draws its overlaid lines loudest first and the quietest last on top, whatever order the caller gives them (R6)', () => {
     const layer = (color: string, values: number[]) => { const view = measured(line(values)); return { view, color, width: 2, full: held(view) }; };

@@ -67,7 +67,7 @@ function uiSmokeReadPoints(view, read) {
     if (view.matrix) return uiSmokeReadCells(view.xs || [], view.ys || [], view.matrix, read);
     if (read.event !== undefined) {
         var event = (view.events || []).find(function(item) { return item.id === read.event; });
-        return event ? uiSmokeReadLine(view.xs || [], event.values, read) : null;
+        return event ? uiSmokeReadLine(event.xs || [], event.values, read) : null;
     }
     if (view.waveform) {
         var xs = view.xs || [];

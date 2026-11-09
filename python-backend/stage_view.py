@@ -12,7 +12,6 @@ Channels are combined as the entry table combines them: levels power-averaged, v
 
 from __future__ import annotations
 
-import warnings
 from collections.abc import Sequence
 from typing import Any, Literal, NotRequired, TypedDict
 
@@ -33,7 +32,7 @@ from wandas.frames import (
 from wandas.frames.segments import ChannelFrameSegments
 
 import analysis_spec as spec
-from decimator import bucket_edges, bucket_starts
+from decimator import bucket_edges
 
 #: A metric's or level's points over time before any zoom (each bucket's lowest and highest value). A time signal is
 #: told from a metric by the operation that made it (metric_operation), never by how many samples it has.
@@ -113,7 +112,7 @@ class StageView(TypedDict):
     #: time it occurred (s into the file). ``values`` keep the samples' min/max line; the Δ is taken sample by sample.
     waveform: NotRequired[StageWaveform]
     #: A trigger's segments: every event's signal (channels averaged) over the time from its trigger, each drawn
-    #: as its own line. ``values`` are their mean, which a group's median and the readout use.
+    #: as its own line at its own xs. ``values`` (at ``xs``) are their mean, which a group's median uses.
     events: NotRequired[list[StageEvent]]
     #: The key the step's full-resolution values are kept under (stage_combine.py), for a median or a difference.
     data: NotRequired[str]
@@ -160,6 +159,9 @@ class StageEvent(TypedDict):
     id: int
     #: When it triggered, seconds into the file.
     time: float
+    #: The event's own line, as every line is drawn (_envelope): per bucket its lowest and highest sample, each at
+    #: the time from the trigger it occurred.
+    xs: list[float]
     values: list[float | None]
 
 
@@ -503,9 +505,10 @@ def _event_rows(segments: ChannelFrameSegments) -> tuple[np.ndarray, np.ndarray]
 
 
 def _events_view(segments: ChannelFrameSegments, rows: np.ndarray, times: np.ndarray, points: int) -> StageView:
-    # Every event's line and their mean by one rule: each bucket's lowest and highest value, at shared xs.
-    xs, lines = _shared_envelope(times, np.vstack([np.mean(rows, axis=0), rows]), points)
-    mean, lines = lines[0], lines[1:]
+    # Every event's line and their mean by the rule of every line: each bucket's lowest and highest value, each at
+    # its own time, so each event is its own series (no x shared, no value moved to a bucket's edge).
+    xs, mean = _envelope(times, np.mean(rows, axis=0), points)
+    lines = [_envelope(times, row, points) for row in rows]
     return {
         "frame": type(segments).__name__,
         "kind": "line",
@@ -517,8 +520,13 @@ def _events_view(segments: ChannelFrameSegments, rows: np.ndarray, times: np.nda
         "values": _json(mean),
         # Each event's trigger in the file's own time (trigger_times count from the region the events were cut from).
         "events": [
-            {"id": int(event_id), "time": float(item.source_time_offset[0]) + float(segments.pre), "values": _json(row)}
-            for event_id, item, row in zip(segments.event_ids, segments, lines, strict=True)
+            {
+                "id": int(event_id),
+                "time": float(item.source_time_offset[0]) + float(segments.pre),
+                "xs": _axis(line_xs),
+                "values": _json(line_values),
+            }
+            for event_id, item, (line_xs, line_values) in zip(segments.event_ids, segments, lines, strict=True)
         ],
     }
 
@@ -792,23 +800,6 @@ def _envelope(xs: np.ndarray, values: np.ndarray, points: int) -> tuple[np.ndarr
     if xs.size <= points:
         return xs, values
     return min_max_line(xs, values, max(1, points // 2), False)
-
-
-def _shared_envelope(xs: np.ndarray, rows: np.ndarray, points: int) -> tuple[np.ndarray, np.ndarray]:
-    """Lines that share one x list (a trigger's events): per bucket each row's lowest and highest value, at the
-    bucket's first and last x, so every row has a value at every x. Non-finite values are ignored."""
-    n = xs.size
-    if n <= points:
-        return xs, rows
-    starts = bucket_starts(n, max(1, points // 2))
-    ends = np.append(starts[1:], n) - 1
-    masked = np.where(np.isfinite(rows), rows, np.nan)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", RuntimeWarning)
-        low, high = np.fmin.reduceat(masked, starts, axis=-1), np.fmax.reduceat(masked, starts, axis=-1)
-    return np.stack([xs[starts], xs[ends]], axis=1).reshape(-1), np.stack([low, high], axis=-1).reshape(
-        *rows.shape[:-1], -1
-    )
 
 
 def _inside(axis: np.ndarray, bounds: list[float]) -> np.ndarray:

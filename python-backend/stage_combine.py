@@ -377,8 +377,7 @@ def _line(data: StageData, detail: StageDetail | None, diff: bool) -> tuple[np.n
         line = sv._envelope(xs, values, points or sv.LAG_POINTS)
         return line[0], np.round(line[1], sv.CORRELATION_DECIMALS)
     if mode == "events":
-        line = sv._shared_envelope(xs, values[np.newaxis], points or sv.EVENT_POINTS)
-        return line[0], line[1][0]
+        return sv._envelope(xs, values, points or sv.EVENT_POINTS)
     raise ValueError(f"not a line: {mode}")
 
 

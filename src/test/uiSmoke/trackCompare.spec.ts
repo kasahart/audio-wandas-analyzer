@@ -792,7 +792,7 @@ test('a trigger added from ＋ fires at half the tracks\' peak, draws each event
     const trigger = await chip.getAttribute('data-step-id');
     await expect(bar).toHaveAttribute('data-stage', trigger!);
     await expect.poll(async () => (await stageScans(page)).at(-1)?.recipe?.nodes.map(node => node.operation.split('.').pop())).toEqual(['get_channel', 'highpass_filter', 'time_slice', 'trigger']);
-    const event = (id: number, peak: number): Record<string, unknown> => ({ id, time: 0.3 + id * 0.5, values: [0, peak, -peak / 2, 0] });
+    const event = (id: number, peak: number): Record<string, unknown> => ({ id, time: 0.3 + id * 0.5, xs: [-0.01, 0, 0.05, 0.19], values: [0, peak, -peak / 2, 0] });
     await answer(page, { frame: 'ChannelFrameSegments', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', unit: 'FS', xs: [-0.01, 0, 0.05, 0.19], events: [event(0, 0.5), event(1, 0.4), event(2, 0.45)] });
     // Each recording's events are its lines: no difference between them, the headline counts them.
     await expect(page.locator('[data-stage-headline]')).toHaveText(STR.stageEventCounts.replace('{base}', '3').replace('{compare}', '3'));

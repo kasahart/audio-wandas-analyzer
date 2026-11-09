@@ -610,7 +610,7 @@ def test_a_trigger_step_draws_each_event_and_the_steps_after_it_take_them(tmp_pa
     assert [event["id"] for event in events["events"]] == [0, 1, 2]
     assert [round(event["time"], 2) for event in events["events"]] == [0.3, 0.8, 1.3]
     assert events["xs"][0] == pytest.approx(-0.01, abs=1e-3) and events["xs"][-1] < 0.19
-    assert all(len(event["values"]) == len(events["xs"]) for event in events["events"])
+    assert all(len(event["values"]) == len(event["xs"]) for event in events["events"])
     # The block of largest magnitude keeps each hit's peak (channels averaged: 1 and 0.5).
     assert max(max(abs(value) for value in event["values"] if value is not None) for event in events["events"]) > 0.7
     # Zoomed, the events come at the samples' own resolution over the part on screen.

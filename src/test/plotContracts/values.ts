@@ -61,7 +61,7 @@ export const DRAWN_ACCESSORS: readonly string[] = [`${SP}:points`];
 /** The backend's functions that thin data to draw it: a def that calls one reads (or makes) drawn points. */
 export const PY_DECIMATORS: readonly string[] = [
     ...['decimated_waveform'].map(name => `python-backend/decimator.py:${name}`),
-    ...['min_max_indices', 'min_max_line', 'min_max_rows', 'spectrum_line', 'samples_waveform', '_time_blocks', '_block_peaks', '_signed_peaks', '_envelope', '_shared_envelope', '_cepstrum_envelope'].map(name => `python-backend/stage_view.py:${name}`),
+    ...['min_max_indices', 'min_max_line', 'min_max_rows', 'spectrum_line', 'samples_waveform', '_time_blocks', '_block_peaks', '_signed_peaks', '_envelope', '_cepstrum_envelope'].map(name => `python-backend/stage_view.py:${name}`),
     ...['resample_frequency_bins', '_resample_time_bins', 'min_max_spectrum'].map(name => `python-backend/analyzer.py:${name}`),
 ];
 
