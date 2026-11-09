@@ -183,7 +183,7 @@
 | 値 | 何の数か | 計算する場所 | 出どころ | テスト | 穴 |
 | --- | --- | --- | --- | --- | --- |
 | 目盛り | カラーバーの両端の数の書き方 | `webview/runtime/stagePanes.ts:paintPlot`<br>`webview/runtime/stagePanes.ts:endText`<br>`webview/runtime/stagePanes.ts:levelTick` | 軸の範囲・窓：呼ぶ側の範囲の両端を書く（範囲の出どころは各熱図の range の行）。 | `stagePanes.test.ts` › a colour or value range not in dB is widened to round ends, as a dB range is |  |
-| 軸の名前 | カラーバーの名前（量・単位・基準） | `webview/runtime/stagePanes.ts:paintColourBar`<br>`webview/runtime/stagePanes.ts:stageAxes` | 文字：熱図の色が表す量・単位・基準。狭いと単位だけにし、それも入らなければ書かない。 | `stagePanes.test.ts` › a heatmap names what its colour measures, with its unit and reference, for its colour bar<br>`stagePanes.test.ts` › a colour bar stays inside a narrow plot: its name shortens its quantity and keeps its unit, then is left out |  |
+| 軸の名前 | カラーバーの名前（量・単位・基準） | `webview/runtime/stagePanes.ts:paintColourBar`<br>`webview/runtime/stagePanes.ts:stageAxes` | 文字：熱図の色が表す量・単位・基準。目盛りの横に入らなければ上の行に図の幅で書き、軸の名前と同じく縮めるが、量と単位を必ず描く（UI テスト全件で data-plot-colour と描いた文字を照合）。 | `stagePanes.test.ts` › a heatmap names what its colour measures, with its unit and reference, for its colour bar<br>`stagePanes.test.ts` › a colour bar stays inside a narrow plot and never leaves out its name: beside the scale, else above it, shortened only as every axis name is (R4) |  |
 
 ## 入口の保持図（スロットの Δ、手順の有無の Δ、平均スペクトル）
 
