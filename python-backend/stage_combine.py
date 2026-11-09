@@ -767,7 +767,8 @@ def _step_at(axis: np.ndarray, index: int) -> float | None:
 
 
 def difference_peak(data: StageData, values: np.ndarray, detail: StageDetail | None = None) -> StagePeak | None:
-    """Where the difference ``values`` (``data``'s axes) is largest in magnitude over the part on screen, from every
+    """Where the difference ``values`` (``data``'s axes) is largest in magnitude over the detail's range (the screen and
+    a margin around it: the webview names it only when it is on screen, stagePanes.peakOnScreen), from every
     value before thinning (R2): the Δ pane's headline. Its first quefrency and an STFT's columns that read padding
     are left out, as the headline leaves them out; None with nothing to find."""
     bounds, _ = _bounds(detail)

@@ -9,7 +9,7 @@ import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { baseName } from '../../shared/analysis/entryMetadata';
 import { DIFF_COLOR, ROLE_COLORS } from '../../shared/gui/roleColors';
 import type { LegendItem, LevelInput, PaneRange } from './comparePanes';
-import { clearSideAxis, emptyStageText, isEventsView, paintOverlay, paintStage, stageAxes, stageDiffRange, stageEventCounts, stageHeadline, stageRange, type StageAxes, type StageLayer, type StagePlot } from './stagePanes';
+import { clearSideAxis, emptyStageText, isEventsView, paintOverlay, paintStage, stageAxes, stageDiffRange, stageEventCounts, stageHeadline, stageRange, type StageAxes, type StageLayer, type StagePlot, axisValueAt } from './stagePanes';
 import type { PlotWindow } from './plotInteraction';
 import { noDeltaNote } from './combineSource';
 import type { StagePlots } from './trackStageModel';
@@ -118,6 +118,8 @@ export interface StageFrame {
     window: PlotWindow;
     /** The Δ pane's own vertical zoom (its horizontal one is the window's). */
     diffY: { start: number; end: number };
+    /** Zoomed, whether the difference drawn is this window's own (its detail in): else its headline names no point. */
+    diffOfWindow?: boolean;
     regionMark?: RegionMark;
     pending?: Pending;
     waiting: boolean;
@@ -287,7 +289,11 @@ export function paintStageOverlay(dom: StageDom, frame: StageFrame, plots: Stage
     const overlayPlot = paintOverlay(overlay, { layers }, narrowed(range, window.y), axes, { empty, window: { x: window.x }, axisView: picture, ...(regionMark ? { region: regionMark } : {}), ...(pending ? { pending } : {}) });
     frame.drawnOn.set(overlay, { picture, range, axes, plot: overlayPlot });
     if (!withDiff) return;
-    dom.query<HTMLElement>('[data-stage-diff-headline]').textContent = waiting ? '' : plots.diff ? stageHeadline(plots.diff, strings) : noDeltaNote(frame, strings);
+    // Zoomed, the largest difference on screen, once this window's own difference is in (C4).
+    const zoomed = window.x.start > 0 || window.x.end < 1;
+    const axis = coarsePlots.diff ?? picture;
+    const shownX = !zoomed || !axis ? undefined : frame.diffOfWindow ? { low: axisValueAt(axis, window.x.start), high: axisValueAt(axis, window.x.end) } : null;
+    dom.query<HTMLElement>('[data-stage-diff-headline]').textContent = waiting ? '' : plots.diff ? stageHeadline(plots.diff, strings, shownX) : noDeltaNote(frame, strings);
     const diffAxes = stageAxes(strings, coarsePlots.diff, tracks[0]?.input, true);
     const diffCanvas = dom.query<HTMLCanvasElement>('[data-stage-canvas="diff"]');
     const diffRange = stageDiffRange(coarsePlots.diff);
