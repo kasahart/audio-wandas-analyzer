@@ -142,7 +142,7 @@ test('every figure and every file written of a mixed-reference pair with pending
     assert.equal(axisProblem(screen.axes, line => line.input), null);
     assert.equal(screen.axes.length, 2);
     // 報告.csv: each row says its own reference (and the base's), n and files are the measured ones.
-    const report = reportCsv({ model, results, slots: [null, '/f/spl.wav', null, null], compare: () => comparison, region: null, recipe: null, recipeName: 'r', now: new Date() }, STR);
+    const report = reportCsv({ model, results, slots: [null, '/f/spl.wav', null, null], compare: () => comparison, region: null, recipe: null, recipeName: 'r', now: new Date(), stale: new Set<string>() }, STR);
     const [reportHeader, row] = report.slice(1).trimEnd().split('\r\n').map(csvColumns);
     assert.equal(csvHeaderProblem(reportHeader, levelColumns(STR)), null);
     const cell = (name: string): string => row[reportHeader.indexOf(name)];

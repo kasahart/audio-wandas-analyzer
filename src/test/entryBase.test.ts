@@ -6,6 +6,7 @@ import { datasetRows, type DatasetRow, type GroupId } from '../shared/dataset/da
 import { channelOfRow, createEntryBase, type EntryBaseDeps } from '../webview/runtime/entryBase';
 import { buildEntryModel } from '../webview/runtime/entryTable';
 import { entryMeasure } from '../webview/runtime/compareReport';
+import { scanAnswer } from '../webview/runtime/answerStore';
 
 const strings = getStrings('en');
 
@@ -35,7 +36,10 @@ function setup(options: { slots?: (string | null)[]; group?: GroupId; baseGroup?
     const deps: EntryBaseDeps = {
         strings, slots: () => state.slots, rows: () => rows, rowOf: key => (key ? byKey.get(key) : undefined), pool: () => rows,
         group: () => state.group, baseGroup: () => state.baseGroup, narrowedBy: () => options.narrowedBy ?? [],
-        groupLabel: id => id.replace(/^csv:/, ''), rowName: key => (byKey.get(key)?.name ?? key), results, isStale: path => (options.stale ?? []).includes(path),
+        groupLabel: id => id.replace(/^csv:/, ''), rowName: key => (byKey.get(key)?.name ?? key), results,
+        // The answer store's answer: a result of an earlier chain is stale (shown greyed, never counted).
+        answersOf: paths => paths.map(path => { const answer = scanAnswer(path, results.get(path)); return answer.state === 'ready' && options.stale?.includes(path) ? { ...answer, state: 'stale' } : answer; }),
+        fresh: () => new Map([...results].filter(([path]) => !options.stale?.includes(path))),
         entryModel: () => buildEntryModel([...results].map(([filePath, result]) => ({ filePath, result })), null),
     };
     return { base: createEntryBase(deps), state, rows, results };
@@ -91,10 +95,25 @@ test('a channel row is compared as its channel; recordings without it are left o
 });
 
 test('the comparison comes from the base it resolves', () => {
-    const { base } = setup({ slots: [null, '/d/a.wav', null, null], stale: ['/d/c.wav'] });
+    const { base } = setup({ slots: [null, '/d/a.wav', null, null] });
     const model = base.comparison('/d/a.wav');
     assert.equal(model.compare?.leq, 40);
-    assert.ok(model.base, 'the group median of b and c');
+    assert.deepEqual(model.base?.filePaths, ['/d/b.wav', '/d/c.wav'], 'the group median of b and c');
+});
+
+test('a base group\'s recording of an earlier chain is in no median, n or Δ, and the base says it is left out', () => {
+    const { base } = setup({ slots: [null, '/d/a.wav', null, null], stale: ['/d/c.wav'] });
+    const model = base.comparison('/d/a.wav');
+    assert.deepEqual(model.base?.filePaths, ['/d/b.wav'], 'c (stale) is not in the median');
+    assert.equal(model.leq?.base, 42);
+    const resolved = base.resolve('/d/a.wav');
+    assert.equal(resolved.definition.count, 1);
+    assert.ok(resolved.title.includes(strings.dsBaseStale.replace('{n}', '1')), resolved.title);
+    assert.deepEqual(base.groupBase('leq'), { group: '900', value: 42 }, 'the distribution\'s base line is of the same recordings');
+    assert.equal(base.fileComparison('/d/a.wav').leq?.base, 42, 'the entry CSV\'s Δ too');
+    // The compared recording of an earlier chain has no Δ at all.
+    const staleCompared = setup({ slots: [null, '/d/a.wav', null, null], stale: ['/d/a.wav'] }).base.comparison('/d/a.wav');
+    assert.equal(staleCompared.compare, null);
 });
 
 test('a group\'s recordings in another unit, reference or calibration than the compared one are left out and said', () => {
@@ -129,7 +148,7 @@ test('one base group everywhere: the distribution\'s base line, the comparison\'
     const base = createEntryBase({
         strings, slots: () => state.slots, rows: () => rows, rowOf: key => (key ? byKey.get(key) : undefined), pool: () => rows.filter(row => row.filePath !== '/d/c.wav'),
         group: () => 'csv:line', baseGroup: () => state.baseGroup, narrowedBy: () => [], groupLabel: id => id.replace(/^csv:/, ''), rowName: key => key,
-        results, isStale: () => false, entryModel: () => buildEntryModel([...results].map(([filePath, result]) => ({ filePath, result })), null),
+        results, answersOf: paths => paths.map(path => scanAnswer(path, results.get(path))), fresh: () => results, entryModel: () => buildEntryModel([...results].map(([filePath, result]) => ({ filePath, result })), null),
     });
     const comparison = base.comparison('/d/e.wav');
     assert.deepEqual(comparison.base?.filePaths, ['/d/a.wav', '/d/b.wav'], 'not e itself, not d (compared), not c (excluded)');

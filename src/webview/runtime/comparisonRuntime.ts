@@ -1583,6 +1583,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 selection: entryScreen.selection(),
                 derived: entryScreen.derivedRows(),
                 slotReference: activeSlotReferenced(data.recipe),
+                // Which of the table's results are of an earlier chain or calibration: the report's レシピ column says so.
+                // Over a region every number is measured now, under the current chain.
+                stale: region ? new Set<string>() : data.stale,
             }, STR);
             messaging.post({ type: 'save-report-folder', folder, files });
             hintFooter.show(STR.reportSaved + folder);

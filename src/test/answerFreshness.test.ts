@@ -5,7 +5,7 @@
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createLatestAnswers, FAILED_RETRY_MS } from '../webview/runtime/answerStore';
+import { createLatestAnswers, createScanAnswers, FAILED_RETRY_MS } from '../webview/runtime/answerStore';
 import { createCombineSource } from '../webview/runtime/combineSource';
 import { createHeaderProbe } from '../webview/runtime/entryScanQueue';
 import { createStageSource, stageBasis } from '../webview/runtime/stageSource';
@@ -105,4 +105,28 @@ test('a file calibrated anew while the folder is open is another basis, track or
     const first = basisOf('/b.wav');
     epoch = 1;
     assert.notEqual(basisOf('/b.wav'), first, 'the old pictures are not the file\'s');
+});
+
+test('a file\'s scan is stale once the chain or its calibration is another, pending only while asked, missing when never asked', () => {
+    const current = { recipeKey: 'r1', condition: '0' };
+    const scans = createScanAnswers(() => ({ recipeKey: current.recipeKey, condition: () => current.condition }));
+    assert.equal(scans.answer('/a.wav').state, 'missing', 'never asked: not "still computing"');
+    scans.asking(['/a.wav', '/b.wav']);
+    assert.equal(scans.answer('/a.wav').state, 'pending');
+    scans.set('/a.wav', { ok: true, conditionId: 'c1' }, { recipeKey: 'r1', condition: '0' });
+    assert.equal(scans.answer('/a.wav').state, 'ready');
+    scans.settled();
+    assert.equal(scans.answer('/b.wav').state, 'missing', 'the asking stopped (中止) without its answer');
+    current.recipeKey = 'r2';
+    assert.equal(scans.answer('/a.wav').state, 'stale', 'another chain');
+    assert.equal(scans.stale('/a.wav'), true);
+    assert.equal(scans.fresh().size, 0, 'nothing of the current chain to measure from');
+    current.recipeKey = 'r1';
+    current.condition = '1';
+    assert.equal(scans.answer('/a.wav').state, 'stale', 'the file calibrated anew');
+    current.condition = '0';
+    assert.deepEqual([...scans.fresh().keys()], ['/a.wav']);
+    scans.set('/b.wav', { ok: false, reason: 'busy' }, { recipeKey: 'r0', condition: '0' });
+    assert.equal(scans.answer('/b.wav').state, 'failed', 'a failure stays a failure, of whichever chain');
+    assert.equal(scans.stale('/b.wav'), true, 'but it is asked again under the current chain');
 });

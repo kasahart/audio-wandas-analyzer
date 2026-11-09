@@ -248,7 +248,8 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         const { showDiff, region } = pendingReport;
         const paths = reportPaths();
         const spec = regionStageSpec(deps.recipe(), region);
-        const lacking = paths.filter(path => source.result(spec, path) === undefined && reportSource.result(spec, path) === undefined);
+        // Read from the report's own measuring alone: the comparison's pictures (source) may be of a version since recorded again.
+        const lacking = paths.filter(path => reportSource.result(spec, path) === undefined);
         if (lacking.length) {
             reportSource.ensure(spec, lacking);
             deps.busy?.(strings.reportMeasuring.replace('{count}', String(lacking.length)));
@@ -256,7 +257,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         }
         pendingReport = null;
         const binned = new Map(paths.flatMap(path => {
-            const result = source.result(spec, path) ?? reportSource.result(spec, path);
+            const result = reportSource.result(spec, path);
             return result ? [[path, result] as [string, ScanResult]] : [];
         }));
         deps.report(showDiff, region, region ? binned : new Map(), binned);

@@ -89,7 +89,7 @@ export interface CompareData {
     /** The step the comparison opens on (a chip pressed on the entry table); the chain's end without one. */
     stage?: string;
     /** Files whose entry-table results are of an earlier chain or calibration. */
-    stale?: ReadonlySet<string>;
+    stale: ReadonlySet<string>;
     /** How many times a file's calibration changed while the folder is open: part of what its pictures are of (stageBasis). */
     calibrationEpoch?(path: string): number;
 }
@@ -248,6 +248,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     const side = query<HTMLElement>('.entry-side');
     /** The overview strip and the held plot beside the distribution, each zoomed as the lanes are. */
     const sidePlots = createSidePlots({
+        fresh: () => scans.fresh(),
         document, window, strings, screen, side, body, tableWrap, overview, heldCanvas,
         rows: () => shownRows, focusedRow: () => focus.key, paintDistribution: () => paintDistribution(),
         paintHeld: () => heldPlot.paint(), heldPicture: () => heldPlot.picture(), pickRow: key => redraw.batch(() => focusRow(key, true)),
@@ -285,7 +286,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
 
     let filePaths: string[] = [];
     /** Each file's latest scan, with the Recipe it was measured with (recipeKey of the run): a result of another chain is greyed. */
-    const scans = createScanAnswers();
+    const scans = createScanAnswers(() => ({ recipeKey: currentKey(), condition: path => String(calibrationEpoch(path)) }));
     const results = scans.view;
     function noteResult(filePath: string, result: ScanResult, recipe: string): void {
         scans.set(filePath, result, { recipeKey: recipe, condition: String(calibrationEpoch(filePath)) });
@@ -302,10 +303,11 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     const calibrations = createLatestAnswers<number>();
     const calibrationEpoch = (path: string): number => calibrations.get(path) ?? 0;
     const passingFailure = (path: string): boolean => { const result = results.get(path); return !!result && !result.ok && !result.failedStep; };
-    const isStale = (path: string): boolean => results.has(path) && (scans.under(path)?.recipeKey !== currentKey() || scans.under(path)?.condition !== String(calibrationEpoch(path)));
+    /** Whether a file's result is of another chain or calibration than the current one (the answer store decides). */
+    const isStale = (path: string): boolean => scans.stale(path);
     function stalePaths(): Set<string> {
-        const key = currentKey();
-        return new Set(filePaths.filter(path => results.has(path) && (scans.under(path)?.recipeKey !== key || scans.under(path)?.condition !== String(calibrationEpoch(path)))));
+        const fresh = scans.fresh();
+        return new Set(filePaths.filter(path => results.has(path) && !fresh.has(path)));
     }
     /** The files' headers (channels, lengths), read at open; then the computation the user started, and what one costs. */
     const headers = createHeaderProbe();
@@ -671,7 +673,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     const entryBase = createEntryBase({
         strings, slots: () => slots, rows: () => rows, rowOf, pool: () => distributionPool(), group: () => chosen.group, baseGroup: () => chosen.baseGroup,
         narrowedBy: () => chosen.filters.filter(filter => filter.column !== chosen.value).map(chipText),
-        groupLabel, rowName: key => rowName(key), results, answerOf: path => scans.answer(path), isStale, entryModel,
+        groupLabel, rowName: key => rowName(key), results, answersOf: paths => scans.answers(paths), fresh: () => scans.fresh(), entryModel,
     });
     /** A compared file as the comparison names it: its name and channel, the value on show, its memo. */
     function rowInfo(path: string): { label: string; value: string; memo: string } {
@@ -823,6 +825,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             if (!row.stale || !basePaths?.length) return;
             if (row.region !== 'all' && (basePaths.length > LARGE_BASE || progress.seconds(basePaths) > LARGE_BASE_S)) return;
             if (row.region === 'all') {
+                // Measured again only from results of the current chain and calibration: one still of an earlier one keeps it ≠.
+                if ([row.parentPath, ...basePaths].some(isStale)) return;
                 const next = remeasured(row, results);
                 if (next) derived = derived.map(item => (item === row ? next : item));
                 return;
@@ -935,6 +939,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         if (!pending.length) return;
         const slotted = pending.filter(path => slotFiles().includes(path));
         const { requestId } = requests.ask('scan', `entry-${++requestCount}`, currentKey(), undefined);
+        scans.asking(pending);
         progress.start(pending.length);
         const recipe = scanRecipe();
         deps.post({ type: 'entry-scan', requestId, rootPath, filePaths: [...slotted, ...pending.filter(path => !slotted.includes(path))], ...(recipe ? { recipe } : {}) });
@@ -962,6 +967,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         deps.post({ type: 'entry-scan-cancel' });
         progress.stop();
         requests.settle(requests.pending('scan')?.requestId ?? '');
+        scans.settled();
         rebuild();
     }
     /** Moves the focus to a row and brings it on screen (the rows are drawn only where they are seen). */
@@ -1511,6 +1517,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             } else if (publication.type === 'entry-scan-done') {
                 resultsRedraw.cancel();
                 requests.settle(publication.requestId);
+                scans.settled();
                 // Only a computation the user started measures fixed differences again; reading what is stored does not.
                 const started = progress.stop();
                 if (started) remeasureStale();

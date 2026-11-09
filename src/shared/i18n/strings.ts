@@ -367,6 +367,8 @@ export interface UiStrings {
     dsBaseOtherUnits: string;
     dsBaseFailed: string;
     dsBasePending: string;
+    /** A base group's recordings left out because their value is of an earlier chain or calibration. */
+    dsBaseStale: string;
     reportMemo: string;
     reportBaseDefinition: string;
     reportDerived: string;
@@ -1179,6 +1181,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dsBaseOtherUnits: ' · {n} in another unit left out',
         dsBaseFailed: ' · {n} failed left out',
         dsBasePending: ' · {n} still computing',
+        dsBaseStale: ' · {n} of an earlier chain left out',
         reportMemo: 'Memo',
         reportBaseDefinition: 'Base definition',
         reportDerived: 'Fixed Δ (D)',
@@ -1974,6 +1977,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dsBaseOtherUnits: ' · 単位の違う {n} 本は除外',
         dsBaseFailed: ' · 失敗した {n} 本は除外',
         dsBasePending: ' · 計算中 {n} 本',
+        dsBaseStale: ' · 前の手順の {n} 本は除外',
         reportMemo: 'メモ',
         reportBaseDefinition: '基準の定義',
         reportDerived: '固定した差（D）',

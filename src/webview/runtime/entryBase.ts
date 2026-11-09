@@ -11,7 +11,7 @@ import { median } from '../../shared/dataset/distribution';
 import { channelResult } from '../../shared/recipe/channelSelection';
 import { buildCompareModel, groupMedian, ofOneUnit, type CompareModel } from './comparePanes';
 import { comparedKeys, roleKey } from './entrySlots';
-import { scanAnswer, type ScanAnswer } from './answerStore';
+import type { ScanAnswer } from './answerStore';
 import { figureUsed } from './figureModel';
 import { type BaseDefinition, type EntryModel } from './entryTable';
 
@@ -42,10 +42,10 @@ export interface EntryBaseDeps {
     groupLabel(id: GroupId): string;
     rowName(key: string): string;
     results: ReadonlyMap<string, ScanResult>;
-    /** A file's scan as the answer store hands it (its state and identity); from `results` when not given. */
-    answerOf?(path: string): ScanAnswer;
-    /** Whether a file's result is of an earlier chain. */
-    isStale(path: string): boolean;
+    /** Files' scans as the answer store hands them (state and identity: stale when of an earlier chain); the answer store's alone, so no base is measured from results it has not judged. */
+    answersOf(paths: readonly string[]): ScanAnswer[];
+    /** The results of the current chain and calibration (the answer store's). */
+    fresh(): ReadonlyMap<string, ScanResult>;
     entryModel(): EntryModel;
 }
 
@@ -76,7 +76,13 @@ export interface EntryBase {
 }
 
 export function createEntryBase(deps: EntryBaseDeps): EntryBase {
-    const { strings, results } = deps;
+    const { strings } = deps;
+    const answersOf = (paths: readonly string[]): ScanAnswer[] => deps.answersOf(paths);
+    /**
+     * The results a base is measured from: the table's, without those of an earlier chain or calibration (stale: shown
+     * greyed, never in a median, an n or a Δ). Every median, count and Δ here is taken over these alone.
+     */
+    const current = (): ReadonlyMap<string, ScanResult> => deps.fresh();
     const slotRowOf = (filePath: string): DatasetRow | undefined => deps.rowOf(roleKey(deps.slots(), filePath) ?? null);
     /**
      * The base group's recordings: `name`'s rows of the pool (every row when not grouped), of `channel`, without the
@@ -89,6 +95,9 @@ export function createEntryBase(deps: EntryBaseDeps): EntryBase {
         const compared = new Set(comparedKeys(deps.slots()).map(fileOfKey));
         const members = baseGroupMembers(deps.pool().filter(row => row.filePath === comparePath || !compared.has(row.filePath)), comparePath ?? '', group, name, channel);
         // A median is of one level identity (R1, levelIdentityOf; calibration status is not part of it): the group's recordings in another than the compared one's are left out and counted.
+        // Who is in the group is told by every scan known (a stale one still says its unit and reference); only the
+        // median, n and Δ are taken over the current ones.
+        const results = deps.results;
         const paths = ofOneUnit(results, members.paths, path => path, comparePath ? results.get(comparePath) : undefined);
         return { paths, fewerChannels: members.fewerChannels, otherUnits: members.paths.length - paths.length };
     }
@@ -96,17 +105,19 @@ export function createEntryBase(deps: EntryBaseDeps): EntryBase {
      * How many of a base group's recordings its median is of (those measured), and how many it leaves out because their
      * scan failed or is still running (comparePanes.buildCompareModel takes the median of the measured ones only).
      */
-    function measuredOf(paths: readonly string[]): { measured: number; failed: number; pending: number } {
-        // From the answers' states (figureModel.figureUsed): only a ready one is counted, never one still computing.
-        const { n, excluded } = figureUsed(paths.map(path => deps.answerOf?.(path) ?? scanAnswer(path, results.get(path))));
-        return { measured: n, failed: excluded.filter(item => item.reason === 'failed').length, pending: excluded.filter(item => item.reason === 'pending').length };
+    function measuredOf(paths: readonly string[]): { measured: number; failed: number; pending: number; stale: number } {
+        // From the answers' states (figureModel.figureUsed): only a ready one is counted, never one still computing or of an earlier chain.
+        const { n, excluded } = figureUsed(answersOf(paths));
+        const count = (reason: string): number => excluded.filter(item => item.reason === reason).length;
+        return { measured: n, failed: count('failed'), pending: count('pending'), stale: count('stale') };
     }
     /** "median of 3 · 1 failed left out · 1 still computing": the count every base title and its definition say. */
     function medianText(paths: readonly string[]): string {
-        const { measured, failed, pending } = measuredOf(paths);
+        const { measured, failed, pending, stale } = measuredOf(paths);
         return strings.entryBaseMedian.replace('{count}', String(measured))
             + (failed ? strings.dsBaseFailed.replace('{n}', String(failed)) : '')
-            + (pending ? strings.dsBasePending.replace('{n}', String(pending)) : '');
+            + (pending ? strings.dsBasePending.replace('{n}', String(pending)) : '')
+            + (stale ? strings.dsBaseStale.replace('{n}', String(stale)) : '');
     }
     function resolve(comparePath: string, byGroup = false, asChannel?: number | null): EntryBaseOf {
         const slots = deps.slots();
@@ -149,7 +160,7 @@ export function createEntryBase(deps: EntryBaseDeps): EntryBase {
         return out;
     }
     function compareWith(comparePath: string, base: EntryBaseOf, compareChannel: number | null, byGroup: boolean, over?: ReadonlyMap<string, ScanResult>, entryRegionBase = false): CompareModel {
-        const source = over ?? results;
+        const source = over ?? current();
         const chosen = picked(picked(source, base.paths, base.channel), [comparePath], compareChannel);
         const slot0 = deps.slots()[0];
         const single = slot0 && !byGroup ? fileOfKey(slot0) : null;
@@ -188,6 +199,7 @@ export function createEntryBase(deps: EntryBaseDeps): EntryBase {
             const anchor = deps.slots()[1];
             const comparePath = anchor ? fileOfKey(anchor) : null;
             const base = comparePath ? resolve(comparePath) : { paths: groupMembers(null, name, null).paths, channel: null };
+            const results = current();
             if (!isComputed(value) || value === 'peak' || value === 'crest') {
                 // Not a level: the median of the members' own values (a CSV value once per recording, else per channel row).
                 const members = deps.pool().filter(row => base.paths.includes(row.filePath) && (!base.channel || row.ch === base.channel));

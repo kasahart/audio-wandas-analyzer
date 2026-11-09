@@ -44,7 +44,7 @@ export interface ReportInput {
     /** Whether a compared file's base kept the entry region (see CompareModel.blocked). */
     entryRegionBase?(path: string): boolean;
     /** Files whose values are of the previous chain (the comparison's measuring of them was cancelled). */
-    stale?: ReadonlySet<string>;
+    stale: ReadonlySet<string>;
     /** The comparison shows the difference pane: the report has its Δ figures too. */
     showDiff?: boolean;
     /**
@@ -198,14 +198,16 @@ export function reportCsv(input: ReportInput, strings: ReportStrings): string {
     // The differences fixed with D: each against the base it was fixed with, as that base was defined then.
     for (const item of input.derived ?? []) {
         if (!item.result.ok) continue;
-        const leq = powerMeanDb(item.result.leqDbA ?? []);
-        const bandLevel = (band: number): number | null => powerMeanOrNull((item.result.thirdOctDb ?? []).map(channel => channel[band]));
+        // A ≠ row (fixed under an earlier chain) has no number to read, as the table says: its numbers are not written either.
+        const numbers = !item.stale;
+        const leq = numbers ? powerMeanDb(item.result.leqDbA ?? []) : null;
+        const bandLevel = (band: number): number | null => (numbers ? powerMeanOrNull((item.result.thirdOctDb ?? []).map(channel => channel[band])) : null);
         const definition = item.base.definition;
         lines.push([
             `${strings.reportDerived} · ${baseName(item.parentPath)}${item.ch ? ` ch${item.ch}` : ''} · ${item.region}`, '', '', ...columns.map(() => ''),
             ...regionCells(measuredRegion(item.region === 'all' ? null : parseRegion(item.region), item.result.input?.durationS)),
             // Fixed only when both are of one level reference (no Δ across references): the base is in the row's.
-            dB(leq), levelReferenceCell(levelRowOf(item.result), own), dB(item.base.leq), item.result.input?.levelReferenceLabel ?? '', dB(leq - item.base.leq),
+            dB(leq), levelReferenceCell(levelRowOf(item.result), own), dB(numbers ? item.base.leq : null), item.result.input?.levelReferenceLabel ?? '', dB(leq === null ? null : leq - item.base.leq),
             ...bands.map(band => { const level = bandLevel(band), reference = item.base.bands[band]; return dB(level === null || reference === null || reference === undefined ? null : level - reference); }),
             String(item.base.paths?.length ?? ''), (item.base.paths ?? []).map(baseName).join(';'), String(item.result.specVersion ?? ''),
             item.stale ? strings.reportChainPrevious : strings.reportChainCurrent,

@@ -14,7 +14,7 @@ import { fontPixels } from '../webview/plot/axisTitle';
 
 const strings = getStrings('en');
 
-function setup() {
+function setup(stale: Set<string> = new Set()) {
     const dom = new JSDOM('<!doctype html><body><div id="hint-footer"></div></body>');
     const { document } = dom.window;
     const host = document.createElement('div');
@@ -41,6 +41,7 @@ function setup() {
         rows: () => rows, focusedRow: () => null,
         paintDistribution: () => calls.push('distribution'), paintHeld: () => calls.push('held'), heldPicture: () => null,
         pickRow: key => calls.push(`pick ${key}`),
+        fresh: () => new Map(['/d/a.wav', '/d/b.wav', '/d/c.wav', '/d/d.wav'].filter(path => !stale.has(path)).map(path => [path, true])),
     };
     const plots = createSidePlots(deps);
     const flush = (): void => { for (const frame of frames.splice(0)) frame(); };
@@ -53,6 +54,22 @@ test('a plot keeps its zoom while it shows the same thing, and starts whole for 
     assert.equal(plots.keepWindow('held', 'a'), FULL_PLOT_WINDOW);
     assert.equal(plots.keepWindow('held', 'a'), FULL_PLOT_WINDOW, 'nothing zoomed yet');
     assert.equal(plots.keepWindow('held', 'b'), FULL_PLOT_WINDOW);
+});
+
+test('a recording of an earlier chain is neither coloured on the strip nor sets its scale or reference', () => {
+    const stale = new Set<string>();
+    const { plots } = setup(stale);
+    const input = (unit: string, ref: number, label: string) => ({ id: 'x', fs: 48000, channels: [0], durationS: 1, unit, ref, levelReferenceLabel: label, calibrationStatus: unit === 'Pa' ? 'calibrated' as const : 'uncalibrated' as const, fullScale: true });
+    plots.noteResult('/d/a.wav', { ok: true, input: input('Pa', 2e-5, 'dB SPL re 20 µPa'), thirdOctDb: [[40, 50]] });
+    plots.noteResult('/d/b.wav', { ok: true, input: input('FS', 1, 'dBFS'), thirdOctDb: [[-40, -30]] });
+    plots.noteResult('/d/c.wav', { ok: true, input: input('FS', 1, 'dBFS'), thirdOctDb: [[-42, -32]] });
+    assert.equal(plots.levelLabel(), 'dBFS', 'the commonest reference');
+    assert.equal(plots.onLevelAxis('/d/b.wav'), true);
+    stale.add('/d/b.wav');
+    stale.add('/d/c.wav');
+    assert.equal(plots.levelLabel(), 'dB SPL re 20 µPa', 'the stale ones no longer set the reference');
+    assert.equal(plots.onLevelAxis('/d/b.wav'), false, 'nor are on its scale');
+    assert.equal(plots.onLevelAxis('/d/a.wav'), true);
 });
 
 test('painting waits for the next frame, once however often it is asked; the distribution only when asked for', () => {

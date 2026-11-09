@@ -370,14 +370,64 @@ export function scanAnswer(path: string, result: ScanResult | undefined, under?:
     return { state: 'ready', value: result as ScanResult & { ok: true }, identity };
 }
 
-/** The latest scan of each file, handed as answers (scanAnswer) with the recipe each was measured with. */
+/** The latest scan of each file, handed as answers (scanAnswer) with the recipe and condition each was measured with. */
 export interface ScanAnswers extends LatestAnswers<ScanResult> {
+    /**
+     * A file's scan as an answer: stale when it was measured under another recipe or condition than the current one
+     * (its value is shown greyed, never counted), pending only while it is asked for, missing when it was never asked.
+     */
     answer(path: string): ScanAnswer;
+    /** Several files' answers, against one reading of what is current. */
+    answers(paths: readonly string[]): ScanAnswer[];
+    /** Whether the file's result (read or failed) is of another recipe or condition than the current one. */
+    stale(path: string): boolean;
+    /** The results that are of the current recipe and condition (a failed one too): what a median, Δ or n is taken over. */
+    fresh(): ReadonlyMap<string, ScanResult>;
+    /** These files are asked for now: until each answers or the asking ends, it is pending. */
+    asking(paths: readonly string[]): void;
+    /** The asking ended (done or stopped): a file not answered is missing again. */
+    settled(): void;
 }
 
-export function createScanAnswers(): ScanAnswers {
+/** What a scan must be of now: the current recipe's key (asked once per question, it may be costly) and each file's condition. */
+export interface ScanCurrent {
+    recipeKey: string;
+    condition(path: string): string;
+}
+
+export function createScanAnswers(currentOf: () => ScanCurrent = () => ({ recipeKey: '', condition: () => '' })): ScanAnswers {
     const latest = createLatestAnswers<ScanResult>();
-    return { ...latest, view: latest.view, failures: latest.failures, answer: path => scanAnswer(path, latest.get(path), latest.under(path)) };
+    const asked = new Set<string>();
+    const staleUnder = (path: string, now: ScanCurrent): boolean => {
+        if (!latest.has(path)) return false;
+        const under = latest.under(path);
+        return under?.recipeKey !== now.recipeKey || (under?.condition ?? '') !== now.condition(path);
+    };
+    const answerUnder = (path: string, now: ScanCurrent): ScanAnswer => {
+        const result = latest.get(path);
+        const found = scanAnswer(path, result, latest.under(path));
+        if (!result) return asked.has(path) ? found : { state: 'missing', identity: found.identity };
+        if (found.state === 'ready' && staleUnder(path, now)) return { state: 'stale', value: found.value, identity: found.identity };
+        return found;
+    };
+    return {
+        ...latest,
+        view: latest.view,
+        failures: latest.failures,
+        set(path, value, under) { asked.delete(path); latest.set(path, value, under); },
+        clear() { asked.clear(); latest.clear(); },
+        stale: path => staleUnder(path, currentOf()),
+        fresh() {
+            const now = currentOf();
+            const out = new Map<string, ScanResult>();
+            for (const [path, result] of latest.view) if (!staleUnder(path, now)) out.set(path, result);
+            return out;
+        },
+        asking(paths) { for (const path of paths) asked.add(path); },
+        settled() { asked.clear(); },
+        answer: path => answerUnder(path, currentOf()),
+        answers(paths) { const now = currentOf(); return paths.map(path => answerUnder(path, now)); },
+    };
 }
 
 /**
