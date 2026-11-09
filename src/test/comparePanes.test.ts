@@ -8,7 +8,7 @@ import { BAND_CENTERS_HZ, buildEntryModel } from '../webview/runtime/entryTable'
 import { deltaFigure } from '../webview/runtime/compareReport';
 import { binsView, buildCompareModel, deltaViews, diffHeadline, minMaxLine, withBins, legendHtml, levelsHeadline, paneAxes, trackLevelInput, type LevelInput } from '../webview/runtime/comparePanes';
 import type { ChannelSummary } from '../shared/analysis/analysisTypes';
-import { paintOverlay, stageAxes } from '../webview/runtime/stagePanes';
+import { byLevel, paintOverlay, stageAxes } from '../webview/runtime/stagePanes';
 import type { StageView } from '../shared/protocol/backendProtocol';
 
 const STR = getStrings('en');
@@ -362,4 +362,21 @@ test('a plot\'s guides are drawn by the plot component: each span shaded, the le
     assert.equal(fills() - without.fills, 1, 'one shaded span');
     assert.equal(calls.filter(([name, args]) => name === 'setLineDash' && JSON.stringify(args[0]) === '[5,3]').length - without.dashes, 1, 'the level dashed');
     assert.ok(calls.some(([name, args]) => name === 'fillText' && args[0] === 'Threshold 0.25'), 'the level named');
+});
+
+test('the report\'s overlay figure orders base and compared by every bin\'s power, not the points thinned to draw them: the quieter on top (R6)', () => {
+    // The base is −60 dB with a narrow −10 dB line every 300 bins; the compared one a flat −30 dB. By every bin the
+    // compared is louder (the base's power mean is about −35 dB); its thinned line keeps each bucket's highest bin,
+    // so many of the base's drawn points are its narrow lines and a measure of them would put the base louder.
+    const count = 65537;
+    const base = Array.from({ length: count }, (_, bin) => (bin % 300 === 7 ? -10 : -60));
+    const compare = new Array<number>(count).fill(-30);
+    const bins = { hz: 0.5, nyquist: (count - 1) * 0.5, base, compare, diff: compare.map((value, bin) => value - base[bin]) };
+    const baseView = binsView(bins, 'base'), compareView = binsView(bins, 'compare');
+    assert.ok(baseView && compareView);
+    assert.ok((baseView.xs?.length ?? 0) < count / 20, 'the line is thinned to be drawn');
+    const drawnMean = (values: readonly (number | null)[]) => 10 * Math.log10(values.reduce<number>((sum, value) => sum + 10 ** ((value ?? -250) / 10), 0) / values.length);
+    assert.ok(drawnMean(baseView.values ?? []) > -30, 'the drawn points alone would make the base the louder');
+    const layers = [{ view: baseView, color: 'base' }, { view: compareView, color: 'compare' }];
+    assert.deepEqual(byLevel(layers, baseView).map(layer => layer.color), ['compare', 'base'], 'drawn loudest first: the quieter base last, on top');
 });

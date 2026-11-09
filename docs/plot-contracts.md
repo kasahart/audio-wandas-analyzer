@@ -36,7 +36,7 @@
 | 入口の概観帯 (`entry-overview`) | `webview/runtime/entryPlots.ts:paintOverview` | 5 | 0 |
 | 入口の分布図（群ごとの行と下の値の軸） (`entry-distribution`) | `webview/runtime/entryDistributionPane.ts:paint` | 8 | 0 |
 | 入口の表（値の列、Δ、見出しの数、D の差、表の CSV） (`entry-table`) | `webview/runtime/entryTableHtml.ts:datasetRowsHtml`<br>`webview/runtime/entryTable.ts:entryCsv` | 6 | 1 |
-| レポートの重ね図（比較 n.png、要約.png の上段） (`report-overlay`) | `webview/runtime/compareReport.ts:paintOverlayFigure` | 5 | 2 |
+| レポートの重ね図（比較 n.png、要約.png の上段） (`report-overlay`) | `webview/runtime/compareReport.ts:paintOverlayFigure` | 5 | 1 |
 | レポートの Δ 図（差 n.png、要約.png の下段） (`report-delta`) | `webview/runtime/compareReport.ts:paintDeltaFigure` | 4 | 1 |
 | レポートの 要約.png の頭書き・報告.csv・定義.json (`report-files`) | `webview/runtime/compareReport.ts:summaryPng`<br>`webview/runtime/compareReport.ts:reportCsv` | 2 | 0 |
 | 解析レポート（Markdown） (`analysis-report`) | `shared/report/analysisReport.ts:buildMarkdownReport` | 1 | 1 |
@@ -237,7 +237,7 @@
 | 値 | 何の数か | 計算する場所 | 出どころ | テスト | 穴 |
 | --- | --- | --- | --- | --- | --- |
 | 見出し・最大 | 図の題（見出しの帯と Leq の両方のレベル） | `webview/runtime/comparePanes.ts:levelsHeadline`<br>`webview/runtime/comparePanes.ts:pair`<br>`webview/runtime/comparePanes.ts:buildCompareModel`<br>`webview/runtime/comparePanes.ts:medianSide`<br>`webview/runtime/comparePanes.ts:spreadOf`<br>`webview/runtime/compareReport.ts:reportFiles` | 描く点が全部（間引かない）：帯と Leq はスキャンの全データの値（群は帯ごとの中央値）。（描くために間引いた形はない） | `comparePanes.test.ts` › the headline gives both levels, and a band far below the loudest does not head it however large its Δ<br>`comparePanes.test.ts` › a tone that leaks into the neighbouring bands heads the list alone: only peaks of \|Δ\| across bands count |  |
-| 重ねる順 | 基準と比較の重ねる順 | `webview/runtime/comparePanes.ts:binsView`<br>`webview/runtime/comparePanes.ts:sideView` | 全データ：binsView は全ビンから levelBins を作り、描く線だけを間引く。帯は全帯。 | なし | **P2** レポートの図の順が全ビンのパワーで決まることを確かめるテストがない。 |
+| 重ねる順 | 基準と比較の重ねる順 | `webview/runtime/comparePanes.ts:binsView`<br>`webview/runtime/comparePanes.ts:sideView` | 全データ：binsView は全ビンから levelBins を作り、描く線だけを間引く。帯は全帯。 | ◆ `comparePanes.test.ts` › the report's overlay figure orders base and compared by every bin's power, not the points thinned to draw them: the quieter on top (R6) |  |
 | 自動の範囲 | レベルの軸の範囲 | `webview/runtime/compareReport.ts:paintOverlayFigure`<br>`webview/runtime/stagePanes.ts:stageRange` | 間引いた点（区間の最小・最大）：binsView で 640 区間の最小・最大に間引いた線から stageRange で決める。 | なし | **P2** 範囲を間引いた線から求めている。全ビンの端と一致することを確かめるテストがない。 |
 | 目盛り | 目盛り | `webview/runtime/stagePanes.ts:paintPlot`<br>`webview/runtime/stagePanes.ts:valueAxisTicks`<br>`webview/runtime/stagePanes.ts:valueTickTexts`<br>`webview/runtime/stagePanes.ts:alongAxisTicks`<br>`webview/runtime/stagePanes.ts:rowAxisTicks`<br>`webview/runtime/stagePanes.ts:tickText`<br>`webview/runtime/stagePanes.ts:levelTick`<br>`webview/runtime/stagePanes.ts:paintRightAxis` | 軸の範囲・窓：範囲から部品が決める。 | `stagePanes.test.ts` › levels share a range of four round steps; coherence keeps 0 to 1<br>`laneAxes.test.ts` › the lanes take the ticks and their text from the rules every plot uses |  |
 | 軸の名前 | 軸の名前 | `webview/runtime/comparePanes.ts:paneAxes` | 文字：レベル（基準・未校正）と周波数。 | `comparePanes.test.ts` › every pane names its axes: level and frequency, Δ with its legend, in the language and calibration of the files |  |
@@ -272,7 +272,7 @@
 - `compare-delta.range-image`：カラーバーの両端の数を、描くために平均した Δ のマスから求めている。
 - `compare-lanes.range-image`：カラーバーの両端の数を、描くために平均したマスから求めている。
 
-### P2（16、上限 16）
+### P2（15、上限 15）
 
 - `compare-overlay.pending`：R7 は届くまで読み値を空にするが、密な窓を別の高さで読むときは前の高さの点を読む。その間の読み値は今のマウスに一番近い点とは限らない。
 - `compare-overlay.readout-events`：イベントの線の読み値と ← / → がそのイベントの全サンプルから来ることを確かめるテストがない（ジェスチャのテストは数字の出どころを見ない）。
@@ -286,7 +286,6 @@
 - `entry-held.step`：全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。
 - `entry-held.range`：範囲を間引いた点から求めている。全データの端と一致することを確かめるテストがない。
 - `entry-table.count`：見出しやフィルタの数がすべての行を数えていることを確かめるテストがない。
-- `report-overlay.order`：レポートの図の順が全ビンのパワーで決まることを確かめるテストがない。
 - `report-overlay.range`：範囲を間引いた線から求めている。全ビンの端と一致することを確かめるテストがない。
 - `report-delta.range`：全ビンがあるときの範囲を間引いた線から求めている。テストは帯だけの場合しか見ていない。
 - `analysis-report.export`：全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。

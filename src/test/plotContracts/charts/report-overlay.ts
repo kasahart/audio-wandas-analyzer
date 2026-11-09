@@ -1,4 +1,4 @@
-import { SP, t, type ChartContract } from '../model';
+import { SP, t, tt, type ChartContract } from '../model';
 
 /** レポートの重ね図（比較 n.png、要約.png の上段） */
 export const reportOverlay: ChartContract = {
@@ -21,8 +21,9 @@ export const reportOverlay: ChartContract = {
             id: 'report-overlay.order', value: 'order', what: '基準と比較の重ねる順',
             computedIn: ['src/webview/runtime/comparePanes.ts:binsView', 'src/webview/runtime/comparePanes.ts:sideView'],
             from: 'full', trace: 'binsView は全ビンから levelBins を作り、描く線だけを間引く。帯は全帯。',
-            tests: [],
-            gap: { severity: 'P2', why: 'レポートの図の順が全ビンのパワーで決まることを確かめるテストがない。' },
+            tests: [
+                tt('src/test/comparePanes.test.ts', 'the report\'s overlay figure orders base and compared by every bin\'s power, not the points thinned to draw them: the quieter on top (R6)'),
+            ],
         },
         {
             id: 'report-overlay.range', value: 'range', what: 'レベルの軸の範囲',
@@ -51,7 +52,6 @@ export const reportOverlay: ChartContract = {
         },
     ],
     knownGaps: {
-        'report-overlay.order': 'P2',
         'report-overlay.range': 'P2',
     },
 };
