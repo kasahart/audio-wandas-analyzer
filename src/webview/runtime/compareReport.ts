@@ -9,7 +9,8 @@ import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { encodeNumber, plainFloats, recipeSteps, timeSignalStep, upToStep, withDefaults, withParam, TIME_SLICE } from '../../shared/recipe/recipeSteps';
 import { BAND_CENTERS_HZ, bandCentreCell, bandLabel, csvNumber, EDGE_GUARD_S, HEADLINE_WITHIN_DB, levelReferenceCell, measuredRegion, regionCells, type BaseDefinition, type DerivedRow, type EntryMeasure, type EntryModel } from './entryTable';
 import { withBaseInput, withChannel } from '../../shared/recipe/channelSelection';
-import { bandsSource, binsSource, binsView, deltaViews, diffHeadline, levelIdentityOf, levelsHeadline, paneAxes, sideView, type CompareModel, type CompareStrings, type LevelInput } from './comparePanes';
+import { levelKeyOf } from './levelGrouping';
+import { bandsSource, binsSource, binsView, deltaViews, diffHeadline, levelsHeadline, paneAxes, sideView, type CompareModel, type CompareStrings, type LevelInput } from './comparePanes';
 import { SECONDARY_AXIS_DASH } from './overlaySpectrumPainter';
 import { paintOverlay, stageDiffRange, stageRange } from './stagePanes';
 import type { InlineFullSource } from './fullRead';
@@ -351,7 +352,7 @@ function sideInput(side: CompareModel['base'], input: ReportInput): LevelInput |
 
 /**
  * The level axes of a report figure (R1, R4: as the comparison's overlay, trackStagePainter.byReference): base and
- * compared on one axis when their levels are of one level identity (levelIdentityOf), else the base's on the left
+ * compared on one axis when their levels are of one level identity (levelGrouping.levelKeyOf), else the base's on the left
  * and the compared one's on the right, never one read on the other's numbers. An axis is "uncalibrated" only when
  * every line on it is; each uncalibrated line says so itself in the legend.
  */
@@ -359,7 +360,7 @@ export function reportLevelAxes(comparison: Pick<CompareModel, 'base' | 'compare
     left: string; right: string | null; legend: { base: string; compare: string };
 } {
     const base = sideInput(comparison.base, input as ReportInput), compare = sideInput(comparison.compare, input as ReportInput);
-    const apart = !!base && !!compare && levelIdentityOf(base) !== levelIdentityOf(compare);
+    const apart = !!base && !!compare && levelKeyOf(base) !== levelKeyOf(compare);
     const lines = [base, compare].filter((item): item is LevelInput => !!item);
     const shared: LevelInput | undefined = lines[0] && { ...lines[0], calibrationStatus: lines.some(item => item.calibrationStatus === 'calibrated') ? 'calibrated' : 'uncalibrated' };
     const axes = paneAxes(strings, apart ? base : shared ?? compare).level;
