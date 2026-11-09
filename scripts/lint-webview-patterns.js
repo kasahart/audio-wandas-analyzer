@@ -71,6 +71,10 @@ function hasAny(tag, regexes) {
 function collectInlineVisibilityFindings(source, filePath) {
     /** @type {Array<{filePath:string,line:number,description:string,excerpt:string}>} */
     // `--minus-hits <file>...`: only the hand-made minus signs of those files, one line each (for its test).
+if (process.argv[2] === '--report-number-hits') {
+    for (const finding of collectReportNumberFindings(process.argv.slice(3))) console.log(`${finding.filePath}:${finding.line}`);
+    process.exit(0);
+}
 if (process.argv[2] === '--minus-hits') {
     for (const finding of collectMinusFindings(process.argv.slice(3))) console.log(`${finding.filePath}:${finding.line}`);
     process.exit(0);
@@ -204,6 +208,35 @@ function collectMinusFindings(filePaths) {
     return out;
 }
 
+// The report (and the formatters it shares with the comparison) writes its numbers for people too: a number turned
+// to text there goes through plotText.ts (levelText, withMinus), so a negative one gets a true minus, never "-1.8 dBFS".
+const REPORT_NUMBER_FILES = ['src/shared/report/', 'src/shared/utils/format.ts'];
+const numberTextRegex = /\.to(?:Fixed|Precision|Exponential)\(/gu;
+/** @param {string[]} filePaths */
+function collectReportNumberFindings(filePaths) {
+    /** @type {Array<{filePath:string,line:number,description:string,excerpt:string}>} */
+    const out = [];
+    for (const filePath of filePaths) {
+        const source = withoutComments(fs.readFileSync(filePath, 'utf8'));
+        for (const match of source.matchAll(numberTextRegex)) {
+            // Wrapped: the call is inside withMinus( … ) on its line.
+            const lineStart = source.lastIndexOf('\n', match.index) + 1;
+            const before = source.slice(lineStart, match.index);
+            const opened = before.lastIndexOf('withMinus(');
+            let depth = 0;
+            for (const char of opened >= 0 ? before.slice(opened + 'withMinus'.length) : '') depth += char === '(' ? 1 : char === ')' ? -1 : 0;
+            if (opened >= 0 && depth > 0) continue;
+            out.push({
+                filePath,
+                line: lineNumberAt(source, match.index),
+                description: `A number the report writes goes through ${MINUS_FILE} (levelText, withMinus), so a negative one gets a true minus sign.`,
+                excerpt: excerptAt(source, match.index),
+            });
+        }
+    }
+    return out;
+}
+
 const findings = [];
 
 for (const filePath of listSourceFiles(webviewRoot)) {
@@ -212,6 +245,7 @@ for (const filePath of listSourceFiles(webviewRoot)) {
     findings.push(...collectDialogEscapeFindings(source, filePath));
 }
 findings.push(...collectMinusFindings([...listSourceFiles(webviewRoot), ...listSourceFiles(path.join(repoRoot, 'src', 'shared'))]));
+findings.push(...collectReportNumberFindings(listSourceFiles(path.join(repoRoot, 'src', 'shared')).filter(filePath => REPORT_NUMBER_FILES.some(prefix => path.relative(repoRoot, filePath).split(path.sep).join('/').startsWith(prefix)))));
 findings.push(...collectCanvasDrawingFindings([...listSourceFiles(webviewRoot), ...listSourceFiles(path.join(repoRoot, 'src', 'shared'))]));
 
 if (findings.length > 0) {

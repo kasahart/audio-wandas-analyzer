@@ -141,3 +141,17 @@ test('the lint stops a minus sign picked by hand, as a lone string or a replaced
     rmSync(dir, { recursive: true, force: true });
     assert.deepEqual(run.stdout.trim().split('\n').map(line => line.split(':').pop()), ['1', '2', '3']);
 });
+
+test('the lint stops a number the report writes without plotText\'s minus: "-1.8 dBFS" (R7)', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'report-minus-'));
+    const file = path.join(dir, 'sample.ts');
+    writeFileSync(file, [
+        "const level = (v: number): string => v.toFixed(1) + ' dBFS';",
+        "const time = (v: number): string => withMinus(v.toFixed(3)) + ' s';",
+        "const both = (v: number): string => withMinus(v.toFixed(3)) + ' / ' + v.toPrecision(3);",
+        "const shown = (v: number): string => levelText(v, 'dBFS');",
+    ].join('\n'));
+    const run = spawnSync(process.execPath, [path.join(__dirname, '..', '..', 'scripts', 'lint-webview-patterns.js'), '--report-number-hits', file], { encoding: 'utf8' });
+    rmSync(dir, { recursive: true, force: true });
+    assert.deepEqual(run.stdout.trim().split('\n').map(line => line.split(':').pop()), ['1', '3']);
+});

@@ -60,7 +60,7 @@ test('the markdown report writes every sample\'s peak and level and the file\'s 
     }];
     const report = buildMarkdownReport([spike], undefined, new Date('2026-11-09T00:00:00Z'));
     // The backend's peak of every sample (0.8125 FS, −1.8 dBFS), not the envelope's 0.3; the length is the file's.
-    assert.match(report, /\| spike\.wav \| [^|]+ \| 48000 Hz \| 12\.500 ?s \| 1 \| -1\.8 dBFS \|/);
-    assert.match(report, /\| 0\.813 FS \| -1\.8 dBFS \|/);
+    assert.match(report, /\| spike\.wav \| [^|]+ \| 48000 Hz \| 12\.500 ?s \| 1 \| −1\.8 dBFS \|/);
+    assert.match(report, /\| 0\.813 FS \| −1\.8 dBFS \|/);
     assert.doesNotMatch(report, /\b0\.30\b/);
 });

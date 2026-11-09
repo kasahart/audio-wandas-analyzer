@@ -1,3 +1,4 @@
+import { levelText, withMinus } from '../../webview/plot/plotText';
 // Display formatters shared by the comparison runtime and the report builders.
 
 export interface LevelMeasurement {
@@ -30,16 +31,16 @@ export function formatMeasurementNumber(value: unknown): string {
     const numberValue = Number(value);
     if (!Number.isFinite(numberValue)) { return '—'; }
     const absolute = Math.abs(numberValue);
-    if (absolute >= 100) { return numberValue.toFixed(0); }
-    if (absolute >= 1) { return numberValue.toFixed(2); }
-    if (absolute >= 0.01) { return numberValue.toFixed(3); }
-    return numberValue.toPrecision(3);
+    if (absolute >= 100) { return withMinus(numberValue.toFixed(0)); }
+    if (absolute >= 1) { return withMinus(numberValue.toFixed(2)); }
+    if (absolute >= 0.01) { return withMinus(numberValue.toFixed(3)); }
+    return withMinus(numberValue.toPrecision(3));
 }
 
 /** "<linear> <unit> / <level> <levelUnit>" for calibrated channels, "<level> <levelUnit>" otherwise; null without a finite level. */
 export function formatMeasuredLevel(linearValue: unknown, levelValue: unknown, measurement: LevelMeasurement | null | undefined): string | null {
     if (!Number.isFinite(levelValue)) { return null; }
-    const level = Number(levelValue).toFixed(1) + ' ' + ((measurement && measurement.levelUnit) || 'dB');
+    const level = levelText(Number(levelValue), (measurement && measurement.levelUnit) || 'dB');
     if (!measurement || measurement.calibrationStatus === 'uncalibrated') { return level; }
     return formatMeasurementNumber(linearValue) + ' ' + measurement.linearUnit + ' / ' + level;
 }
@@ -47,14 +48,14 @@ export function formatMeasuredLevel(linearValue: unknown, levelValue: unknown, m
 /** Timeline clock: "m:ss.ss". */
 export function formatClockTime(seconds: number): string {
     const m = Math.floor(seconds / 60);
-    const s = (seconds % 60).toFixed(2);
+    const s = withMinus((seconds % 60).toFixed(2));
     return m + ':' + (parseFloat(s) < 10 ? '0' : '') + s;
 }
 
 /** Report durations: "1m 2.500s" / "2.500s". */
 export function formatReportDuration(seconds: number): string {
     const m = Math.floor(seconds / 60);
-    const s = (seconds - m * 60).toFixed(3);
+    const s = withMinus((seconds - m * 60).toFixed(3));
     return (m > 0 ? m + 'm ' : '') + s + 's';
 }
 

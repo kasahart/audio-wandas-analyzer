@@ -1,6 +1,7 @@
 // Markdown and Jupyter Notebook report builders for the comparison view's "Export report".
 // Pure functions of the active tracks, so the runtime only gathers its state and posts the result.
 import type { AnalysisResultWithError, ChannelSummary } from '../analysis/analysisTypes';
+import { levelText, withMinus } from '../../webview/plot/plotText';
 import { channelLabel, channelsForResult, formatMeasuredLevel, formatMeasurementNumber, formatReportDuration } from '../utils/format';
 
 export interface ReportTrack {
@@ -28,7 +29,7 @@ function reportLevel(channel: ChannelSummary, linearValue: number, levelValue: n
 }
 
 function formatReportDb(value: number | undefined, unit: string): string {
-    return Number.isFinite(value) ? Number(value).toFixed(1) + ' ' + markdownTableCell(unit) : '—';
+    return Number.isFinite(value) ? levelText(Number(value), markdownTableCell(unit)) : '—';
 }
 
 function pythonString(value: string): string {
@@ -106,9 +107,9 @@ export function buildMarkdownReport(tracks: readonly ReportTrack[], loop: Report
         lines.push('## Loop Region');
         lines.push('');
         lines.push('- Time basis: global comparison timeline (offset-adjusted)');
-        lines.push('- Global Start: ' + globalStartSec.toFixed(3) + ' s');
-        lines.push('- Global End: ' + globalEndSec.toFixed(3) + ' s');
-        lines.push('- Global Duration: ' + globalDurationSec.toFixed(3) + ' s');
+        lines.push('- Global Start: ' + withMinus(globalStartSec.toFixed(3)) + ' s');
+        lines.push('- Global End: ' + withMinus(globalEndSec.toFixed(3)) + ' s');
+        lines.push('- Global Duration: ' + withMinus(globalDurationSec.toFixed(3)) + ' s');
         lines.push('');
         lines.push('| Track | Offset | Local Start | Local End | Local Duration | Status |');
         lines.push('|-------|--------|-------------|-----------|----------------|--------|');
@@ -124,10 +125,10 @@ export function buildMarkdownReport(tracks: readonly ReportTrack[], loop: Report
             const status = inRange
                 ? ((localStart < 0 || localEnd > dur) ? 'Partial' : 'In range')
                 : 'Out of range';
-            const localStartText = inRange ? coveredStart.toFixed(3) + ' s' : '-';
-            const localEndText = inRange ? coveredEnd.toFixed(3) + ' s' : '-';
-            const localDurationText = inRange ? (coveredEnd - coveredStart).toFixed(3) + ' s' : '-';
-            lines.push('| ' + markdownTableCell(r.fileName) + ' | ' + offset.toFixed(3) + ' s | ' + localStartText + ' | ' + localEndText + ' | ' + localDurationText + ' | ' + status + ' |');
+            const localStartText = inRange ? withMinus(coveredStart.toFixed(3)) + ' s' : '-';
+            const localEndText = inRange ? withMinus(coveredEnd.toFixed(3)) + ' s' : '-';
+            const localDurationText = inRange ? withMinus((coveredEnd - coveredStart).toFixed(3)) + ' s' : '-';
+            lines.push('| ' + markdownTableCell(r.fileName) + ' | ' + withMinus(offset.toFixed(3)) + ' s | ' + localStartText + ' | ' + localEndText + ' | ' + localDurationText + ' | ' + status + ' |');
         });
         lines.push('');
     }
