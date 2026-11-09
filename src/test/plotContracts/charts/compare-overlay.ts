@@ -83,8 +83,8 @@ export const compareOverlay: ChartContract = {
         },
         {
             id: 'compare-overlay.median', value: 'median', what: '基準の群の中央値の線（とその読み値）',
-            computedIn: ['python-backend/stage_combine.py:combine', 'src/webview/runtime/stageReader.ts:createStageReader'],
-            from: 'full', trace: 'バックエンドが群の各録音の全ビン・全サンプルから中央値をとり、そのあとで描くために間引く。読み値は combined(…, \'base\') で中央値の全データを読む。',
+            computedIn: ['python-backend/stage_combine.py:combine', 'src/webview/runtime/stageReader.ts:createStageReader', 'src/webview/runtime/figureModel.ts:pictureSet', 'src/webview/runtime/figureModel.ts:figureUsed'],
+            from: 'full', trace: 'バックエンドが群の各録音の全ビン・全サンプルから中央値をとり、そのあとで描くために間引く。見出しの本数と凡例は figureModel.pictureSet の一つの集合（届いていない・失敗・空の絵は理由つきで除外）。読み値は combined(…, \'base\') で中央値の全データを読む。',
             tests: [
                 tt('python-backend/test_stage_combine.py', 'test_a_groups_median_is_taken_bin_by_bin_before_it_is_drawn'),
                 t('python-backend/test_full_read.py', 'test_a_medians_read_stops_where_its_picture_was_aligned_with_the_compared_one'),

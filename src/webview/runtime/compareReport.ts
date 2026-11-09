@@ -9,8 +9,7 @@ import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { encodeNumber, plainFloats, recipeSteps, timeSignalStep, upToStep, withDefaults, withParam, TIME_SLICE } from '../../shared/recipe/recipeSteps';
 import { BAND_CENTERS_HZ, bandCentreCell, bandLabel, csvNumber, EDGE_GUARD_S, HEADLINE_WITHIN_DB, levelReferenceCell, measuredRegion, regionCells, type BaseDefinition, type DerivedRow, type EntryMeasure, type EntryModel } from './entryTable';
 import { withBaseInput, withChannel } from '../../shared/recipe/channelSelection';
-import { scanAnswer } from './answerStore';
-import { baseLevelColumns, dataRange, diffRange, figureUsed, levelAxes, levelColumns, paneNames, plainNames, titleOf, withTitle, type FigureColumns, type FigureRange, type FigureTitle } from './figureModel';
+import { baseLevelColumns, dataRange, diffRange, levelAxes, scanSet, levelColumns, paneNames, plainNames, titleOf, withTitle, type FigureColumns, type FigureRange, type FigureTitle } from './figureModel';
 import { bandsSource, binsSource, binsView, deltaViews, diffHeadline, levelsHeadline, sideView, type CompareModel, type CompareStrings, type LevelInput } from './comparePanes';
 import { SECONDARY_AXIS_DASH } from './overlaySpectrumPainter';
 import { paintOverlay } from './stagePanes';
@@ -69,7 +68,8 @@ export function baseDefinitionText(definition: BaseDefinition, strings: Pick<UiS
         what, `n=${definition.count}`, ...(definition.channel ? [`ch${definition.channel}`] : []),
         ...(definition.fewerChannels ? [`-${definition.fewerChannels} (< ch${definition.channel})`] : []),
         ...(definition.otherUnits ? [`-${definition.otherUnits} (≠ unit)`] : []),
-        ...(definition.failed ? [`-${definition.failed} (failed)`] : []), ...(definition.pending ? [`-${definition.pending} (pending)`] : []), ...definition.filters,
+        ...(definition.failed ? [`-${definition.failed} (failed)`] : []), ...(definition.pending ? [`-${definition.pending} (pending)`] : []),
+        ...(definition.stale ? [`-${definition.stale} (stale)`] : []), ...definition.filters,
     ].join(' · ');
 }
 
@@ -136,9 +136,15 @@ function maxBandCells(comparison: CompareModel): [string, string] {
  * A file row of the entry CSV as this comparison measures it (entryBase.fileComparison): the same Δ Leq, band Δ,
  * largest-Δ band and base count the comparison, its held picture and 報告.csv show.
  */
-/** The base's recordings the figure's numbers are of (figureModel.figureUsed): the ready ones; n is how many. */
-export function baseUsed(comparison: Pick<CompareModel, 'base'>, results: ReadonlyMap<string, ScanResult>): { n: number; paths: string[] } {
-    return figureUsed((comparison.base?.filePaths ?? []).map(path => scanAnswer(path, results.get(path))));
+/**
+ * The base's recordings the figure's numbers are of (figureModel.scanSet): the comparison's base set, counted against
+ * the compared recording's level identity and axis; n is how many. A comparison with its Δ withheld (the file is its
+ * own base, another reference, another region) measures from no base: n 0, no files.
+ */
+export function baseUsed(comparison: Pick<CompareModel, 'base' | 'compare' | 'blocked'>, results: ReadonlyMap<string, ScanResult>): { n: number; paths: string[] } {
+    if (comparison.blocked) return { n: 0, paths: [] };
+    const compared = comparison.compare?.filePaths[0];
+    return scanSet(results, comparison.base?.filePaths ?? [], compared ? results.get(compared) : undefined);
 }
 
 export function entryMeasure(comparison: CompareModel, band: number, results: ReadonlyMap<string, ScanResult>): EntryMeasure | null {
@@ -188,7 +194,8 @@ export function reportCsv(input: ReportInput, strings: ReportStrings): string {
             dB(comparison.leq?.compare ?? comparison.compare?.leq), sideReferenceCell(comparison.compare, input, own),
             dB(comparison.leq?.base), comparison.leq ? sideReferenceCell(comparison.base, input, base) : '', dB(comparison.leq?.delta),
             ...bands.map(band => dB(bandDelta(comparison, band))),
-            comparison.base ? String(baseUsed(comparison, input.results).n) : '', baseUsed(comparison, input.results).paths.map(baseName).join(';'),
+            // The 基準群 n and files: the base set the Δ is of (none while the Δ is withheld).
+            comparison.base && !comparison.blocked ? String(baseUsed(comparison, input.results).n) : '', baseUsed(comparison, input.results).paths.map(baseName).join(';'),
             result?.ok ? String(result.specVersion) : '',
             // Which chain the row's numbers are of: the Recipe written beside it, or the one before.
             [path, ...(comparison.base?.filePaths ?? [])].some(file => input.stale?.has(file)) ? strings.reportChainPrevious : strings.reportChainCurrent,
@@ -205,7 +212,8 @@ export function reportCsv(input: ReportInput, strings: ReportStrings): string {
             `${strings.reportDerived} · ${baseName(item.parentPath)}${item.ch ? ` ch${item.ch}` : ''} · ${item.region}`, '', '', ...columns.map(() => ''),
             ...regionCells(measuredRegion(item.region === 'all' ? null : parseRegion(item.region), item.result.input?.durationS)),
             // Fixed only when both are of one level reference (no Δ across references): the base is in the row's.
-            dB(leq), levelReferenceCell(levelRowOf(item.result), own), dB(item.base.leq), item.result.input?.levelReferenceLabel ?? '', dB(leq - item.base.leq),
+            // The base's own reference and calibration, as fixed with it (never the compared row's).
+            dB(leq), levelReferenceCell(levelRowOf(item.result), own), dB(item.base.leq), levelReferenceCell(item.base.level, base), dB(leq - item.base.leq),
             ...bands.map(band => { const level = bandLevel(band), reference = item.base.bands[band]; return dB(level === null || reference === null || reference === undefined ? null : level - reference); }),
             String(item.base.paths?.length ?? ''), (item.base.paths ?? []).map(baseName).join(';'), String(item.result.specVersion ?? ''),
             item.stale ? strings.reportChainPrevious : strings.reportChainCurrent,
@@ -351,6 +359,12 @@ function figureXAxis(views: ReadonlyArray<StageView | null>, strings: Pick<UiStr
 }
 
 /** One side of a report figure as its recordings are levelled: their reference, and calibrated only if every one of them is. */
+/** What a base's levels are in, as its reference cell says it: its recordings' reference, uncalibrated while any of them is. */
+export function baseLevelOf(paths: readonly string[], results: ReadonlyMap<string, ScanResult>): { levelReference?: string; uncalibrated?: 'full-scale' } {
+    const level = sideInput({ title: '', filePaths: [...paths], spectrumDb: [], leq: 0, bands: [] }, { results } as ReportInput);
+    return level ? { levelReference: level.levelReferenceLabel, ...(level.calibrationStatus !== 'calibrated' ? { uncalibrated: 'full-scale' as const } : {}) } : {};
+}
+
 function sideInput(side: CompareModel['base'], input: ReportInput): LevelInput | undefined {
     const inputs = (side?.filePaths ?? []).map(path => input.results.get(path)).flatMap(result => (result?.ok && result.input ? [result.input] : []));
     const first = inputs[0];
@@ -463,7 +477,8 @@ export function summaryPng(document: Document, input: ReportInput, comparisons: 
     context.font = 'bold 18px sans-serif';
     // The page head's calibration note is of the recordings on this page (each compared one and its base), not the table's.
     const shown = new Set(comparisons.flatMap(({ comparison }) => [...(comparison.compare?.filePaths ?? []), ...(comparison.base?.filePaths ?? [])]));
-    const uncalibrated = new Set(input.model.rows.filter(row => shown.has(row.filePath)).map(row => row.uncalibrated));
+    // From each recording's own scan (a row the table marks ≠ keeps its calibration status there too).
+    const uncalibrated = new Set([...shown].map(path => input.results.get(path)).flatMap(result => (result?.ok && result.input && result.input.calibrationStatus !== 'calibrated' ? [result.input.fullScale ? 'full-scale' : 'raw-units'] : [])));
     const hints = [...(uncalibrated.has('full-scale') ? [strings.hintLeqUncalibrated] : []), ...(uncalibrated.has('raw-units') ? [strings.hintLeqUncalibratedRaw] : [])];
     context.fillText([input.recipeName, ...(input.selection?.filters ?? []), ...hints].join(' · '), 16, 24);
     context.font = '13px sans-serif';

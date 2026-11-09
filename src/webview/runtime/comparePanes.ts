@@ -15,6 +15,7 @@ import { powerMeanDb, powerMeanOrNull } from '../../shared/utils/levels';
 import { axisValueAt, levelBinsOf } from './stagePanes';
 import { localLine, type InlineFullSource } from './fullRead';
 import { noNegativeZero, signedNumberText, withMinus } from '../plot/plotText';
+import { levelKeyOf, oneLevelKey, scanSet } from './figureModel';
 
 type ScanOk = ScanResult & { ok: true };
 
@@ -29,6 +30,8 @@ export interface CompareSide {
     bands: (number | null)[];
     /** Its levels' reference as wandas names it ("dBFS", "dB SPL re 20 µPa"): one for a group, whose median is of one unit. */
     levelLabel?: string;
+    /** Uncalibrated: its scan's (a group: any of its recordings') calibration status is not calibrated (R4). */
+    uncalibrated?: boolean;
     /** A group of three or more files: its lower and upper quartiles, point by point and band by band. */
     spread?: { spectrumDb: [number[], number[]]; bands: [(number | null)[], (number | null)[]] };
 }
@@ -63,7 +66,7 @@ export interface CompareModel {
     pending?: boolean;
 }
 
-export type CompareStrings = Pick<UiStrings, 'compareLevelsAt' | 'compareDiffShow' | 'compareDiffHide' | 'hintDiffToggle' | 'entryBaseGroup' | 'entryBase' | 'entryCount' | 'compareKeyHold' | 'compareKeyBack' | 'comparePlay' | 'compareDelta' | 'compareNotEntry' | 'comparePending' | 'compareBaseEntryRegion' | 'compareReport' | 'reportSaved' | 'compareSelfBase' | 'compareSingleBase' | 'compareRegionDiffers' | 'compareUnitDiffers' | 'hintBaseCard' | 'hintSlotCard' | 'hintRegionMark' | 'hintCompareMark' | 'compareNoSignificant' | 'slotEmpty'>;
+export type CompareStrings = Pick<UiStrings, 'axisUncalibrated' | 'compareLevelsAt' | 'compareDiffShow' | 'compareDiffHide' | 'hintDiffToggle' | 'entryBaseGroup' | 'entryBase' | 'entryCount' | 'compareKeyHold' | 'compareKeyBack' | 'comparePlay' | 'compareDelta' | 'compareNotEntry' | 'comparePending' | 'compareBaseEntryRegion' | 'compareReport' | 'reportSaved' | 'compareSelfBase' | 'compareSingleBase' | 'compareRegionDiffers' | 'compareUnitDiffers' | 'hintBaseCard' | 'hintSlotCard' | 'hintRegionMark' | 'hintCompareMark' | 'compareNoSignificant' | 'slotEmpty'>;
 
 /** A band's |Δ| under this (dB) reads 0.0 at the tenth a level is shown to: no difference to head the list. */
 const SHOWN_ZERO_DB = 0.05;
@@ -114,6 +117,7 @@ function fileSide(result: ScanOk): Omit<CompareSide, 'title' | 'filePaths'> {
             return powerMeanOrNull((result.thirdOctDb ?? []).map(row => row[band]));
         }),
         ...(result.input ? { levelLabel: result.input.levelReferenceLabel } : {}),
+        ...(result.input && result.input.calibrationStatus !== 'calibrated' ? { uncalibrated: true } : {}),
     };
 }
 
@@ -128,39 +132,12 @@ export function levelIdentityOf(input: Pick<LevelInput, 'unit' | 'ref' | 'levelR
 }
 
 /**
- * What a scan's levels are in (levelIdentityOf). Levels are subtracted, and a median taken, only between scans of one
- * such identity (stage_combine._no_delta_reason); null for a scan that read no file.
- */
-export function levelIdentity(result: ScanResult | undefined): string | null {
-    const input = result?.ok ? result.input : undefined;
-    return input ? levelIdentityOf(input) : null;
-}
-
-/**
- * A group's files whose levels are of the level identity (R1: unit, reference value, level reference name; levelIdentityOf) of `like` (the compared file), files still
- * scanning kept; when none is, those of the first measured file's, so a median is always of one unit (and the
- * comparison then withholds its Δ: blocked 'unit').
- */
-export function ofOneUnit<T>(results: ReadonlyMap<string, ScanResult>, members: readonly T[], pathOf: (member: T) => string, like: ScanResult | undefined): T[] {
-    const identityOf = (member: T): string | null => levelIdentity(results.get(pathOf(member)));
-    const target = levelIdentity(like);
-    const measured = members.map(identityOf).filter((identity): identity is string => identity !== null);
-    const keep = target !== null && measured.includes(target) ? target : measured[0];
-    return members.filter(member => { const identity = identityOf(member); return identity === null || identity === keep; });
-}
-
-/** Whether every scan here that read its file has its levels of one level identity (levelIdentityOf). */
-export function oneLevelIdentity(results: ReadonlyArray<ScanResult | undefined>): boolean {
-    return new Set(results.map(levelIdentity).filter((identity): identity is string => identity !== null)).size <= 1;
-}
-
-/**
  * The base a fixed difference is measured against, from these files' results: one file, or their median. None when
  * the files, or the file measured against them (`compared`), have their levels in different units.
  */
 export function baseOf(results: ReadonlyMap<string, ScanResult>, paths: readonly string[], compared?: ScanResult): { leq: number; bands: (number | null)[] } | null {
     const scans = paths.map(path => results.get(path));
-    if (!oneLevelIdentity(compared ? [compared, ...scans] : scans)) return null;
+    if (!oneLevelKey(compared ? [compared, ...scans] : scans)) return null;
     const sides = scans.filter((result): result is ScanOk => !!result?.ok).map(fileSide);
     if (!sides.length || sides.length < paths.length) return null;
     const side = sides.length === 1 ? sides[0] : medianSide(sides);
@@ -194,6 +171,7 @@ function medianSide(sides: Array<Omit<CompareSide, 'title' | 'filePaths'>>): Omi
         ...(spread ? { spread } : {}),
         ...(bins ? { bins } : {}),
         ...(sides[0].levelLabel !== undefined ? { levelLabel: sides[0].levelLabel } : {}),
+        ...(sides.some(side => side.uncalibrated) ? { uncalibrated: true } : {}),
         spectrumDb: sides[0].spectrumDb.map((_, point) => medianOfSome(sides.map(side => side.spectrumDb[point]))),
         leq: medianOfSome(sides.map(side => side.leq)),
         bands: BAND_CENTERS_HZ.map((_, band) => {
@@ -219,7 +197,7 @@ export function buildCompareModel(
     /** How far below the loudest band a band may be and still head the list (Infinity: no limit). */
     headlineWithinDb = HEADLINE_WITHIN_DB,
     /** The base group as the entry table defines it (its grouping, filters and channel), instead of the condition's other files. */
-    group?: { paths: readonly string[]; title: string },
+    group?: { paths: readonly string[]; title: string; pending?: readonly string[] },
 ): CompareModel {
     const ok = (path: string | null): ScanOk | undefined => {
         const result = path ? results.get(path) : undefined;
@@ -234,42 +212,46 @@ export function buildCompareModel(
     let bandSpread: number[] | null = null;
     /** The base group's recordings, measured or not: one still scanning keeps the comparison pending. */
     let candidates: readonly string[] = [];
+    /** Recordings of the base group left out for being of another level identity than the compared one (R1). */
+    let otherReference = false;
     const single = ok(basePath);
     if (single && basePath) {
         base = { title: `${strings.entryBase} · ${baseName(basePath)}`, filePaths: [basePath], ...fileSide(single) };
         // A single base file still belongs to a condition: its other files (not the base, not the compare)
         // tell how far files of that condition differ by chance. Too few of them: the 1.5 dB floor alone.
         const baseRow = model.rows.find(item => item.filePath === basePath);
-        const peers = (baseRow?.group ? model.groups.get(baseRow.group) ?? [] : [])
-            .filter(member => member.filePath !== basePath && member.filePath !== comparePath)
-            .filter(member => levelIdentity(results.get(member.filePath)) === levelIdentity(single))
-            .map(member => ok(member.filePath)).filter((result): result is ScanOk => !!result);
+        const peerPaths = (baseRow?.group ? model.groups.get(baseRow.group) ?? [] : []).map(member => member.filePath).filter(path => path !== basePath && path !== comparePath);
+        const peers = scanSet(results, peerPaths, single).used.map(item => item.value);
         bandSpread = peers.length >= 3 ? spreadOf(peers.map(fileSide).map(side => side.bands)) : BAND_CENTERS_HZ.map(() => MIN_HEADLINE_DB);
     } else if (basePath) {
         // Slot 0's recording failed or is still scanning: there is nothing to measure against (never another base instead).
     } else if (comparePath && group) {
-        const members = ofOneUnit(results, group.paths.filter(path => path !== comparePath), path => path, compared);
-        candidates = members;
-        const sides = members.map(path => ok(path)).filter((result): result is ScanOk => !!result);
-        const middle = groupMedian(results, members);
+        // The figure's set (figureModel.scanSet): the measured recordings of the compared one's level identity and axis.
+        const set = scanSet(results, group.paths.filter(path => path !== comparePath), compared);
+        // The group's recordings still being measured (left out of its set before it came here) keep it pending too.
+        candidates = [...set.excluded.filter(item => item.reason === 'pending').map(item => item.path), ...(group.pending ?? [])];
+        otherReference = set.excluded.some(item => item.reason === 'other-reference');
+        const sides = set.used.map(item => item.value);
+        const middle = groupMedian(results, set.paths);
         if (middle) {
             bandSpread = sides.length >= 3 ? spreadOf(sides.map(fileSide).map(side => side.bands)) : BAND_CENTERS_HZ.map(() => MIN_HEADLINE_DB);
             // The base names the recordings its median is of: those measured, never a failed or still-scanning one.
-            base = { title: group.title, filePaths: members.filter(path => !!ok(path)), ...middle };
-        } else loneGroup = true;
+            base = { title: group.title, filePaths: set.paths, ...middle };
+        } else loneGroup = !otherReference;
     } else if (comparePath) {
         const row = model.rows.find(item => item.filePath === comparePath);
-        const members = ofOneUnit(results, (row?.group ? model.groups.get(row.group) ?? [] : []).filter(member => member.filePath !== comparePath), member => member.filePath, compared);
-        candidates = members.map(member => member.filePath);
-        const sides = members.map(member => ok(member.filePath)).filter((result): result is ScanOk => !!result);
+        const set = scanSet(results, (row?.group ? model.groups.get(row.group) ?? [] : []).map(member => member.filePath).filter(path => path !== comparePath), compared);
+        candidates = set.excluded.filter(item => item.reason === 'pending').map(item => item.path);
+        otherReference = set.excluded.some(item => item.reason === 'other-reference');
+        const sides = set.used.map(item => item.value);
         if (row && sides.length) {
             bandSpread = sides.length >= 3 ? spreadOf(sides.map(fileSide).map(side => side.bands)) : BAND_CENTERS_HZ.map(() => MIN_HEADLINE_DB);
             base = {
-                title: [strings.entryBaseGroup, ...row.conditions, strings.entryCount.replace('{count}', String(sides.length))].join(' · '),
-                filePaths: members.map(member => member.filePath).filter(path => !!ok(path)),
+                title: [strings.entryBaseGroup, ...row.conditions, strings.entryCount.replace('{count}', String(set.n))].join(' · '),
+                filePaths: set.paths,
                 ...medianSide(sides.map(fileSide)),
             };
-        } else if (row?.group) loneGroup = true;
+        } else if (row?.group && !otherReference) loneGroup = true;
     }
     // A member without any result yet is still being scanned; a failed one is simply left out.
     const basePaths = single && basePath ? [basePath] : base?.filePaths ?? [];
@@ -284,7 +266,8 @@ export function buildCompareModel(
                 : !single && entryRegionBase ? 'region' : undefined;
     // Levels in another unit, reference or calibration than the compared file's have no difference (nor a median).
     const baseScans = basePaths.map(path => results.get(path));
-    const otherUnit = !!compared && !!base && !oneLevelIdentity([compared, ...baseScans]);
+    // A group of another level identity only (all left out, otherReference) has no Δ either: blocked 'unit', not 'single'.
+    const otherUnit = !!compared && ((!!base && !oneLevelKey([compared, ...baseScans])) || (!base && otherReference));
     const blocked: CompareModel['blocked'] = sameFile ?? (otherUnit ? 'unit' : undefined);
     const baseSide: CompareSide | null = base;
     const comparable = !blocked && !!baseSide && !!compare && baseSide.spectrumDb.length === compare.spectrumDb.length;
@@ -310,7 +293,7 @@ export function buildCompareModel(
     const topBands = bandDeltas.flatMap((delta, band) => (delta === null || size(band) < SHOWN_ZERO_DB || withinSpread(band) || quiet(band) || size(band) < size(band - 1) || size(band) < size(band + 1) ? [] : [{ band, delta }]))
         .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta)).slice(0, 3);
     // A blocked Δ still shows both levels; only the difference is withheld. A base whose own files mix units has no level.
-    const levels = blocked && base && compare && oneLevelIdentity(baseScans) ? { base: base.leq, compare: compare.leq, delta: Number.NaN } : blocked ? null : leq;
+    const levels = blocked && base && compare && oneLevelKey(baseScans) ? { base: base.leq, compare: compare.leq, delta: Number.NaN } : blocked ? null : leq;
     return { base, compare, diffDb, bins, frequencies, leq: levels, topBands, bandDeltas, ...(blocked ? { blocked } : {}), ...(pending ? { pending } : {}) };
 }
 
@@ -470,9 +453,12 @@ export function levelsHeadline(comparison: CompareModel, strings: CompareStrings
     // Absolute levels name their reference (R4): once after the pair when both sides share it, after each level when not.
     const baseUnit = comparison.base?.levelLabel ?? 'dBFS', compareUnit = comparison.compare?.levelLabel ?? baseUnit;
     const apart = baseUnit !== compareUnit;
-    const shown = (value: number | null | undefined, unit: string): string => (value === null || value === undefined ? '—' : apart ? `${level(value)} ${unit}` : level(value));
+    // Where the two sides differ in calibration status, the uncalibrated one says so itself (R4), as its legend does.
+    const mixed = !!comparison.base && !!comparison.compare && !!comparison.base.uncalibrated !== !!comparison.compare.uncalibrated;
+    const word = (side: CompareSide | null): string => (mixed && side?.uncalibrated ? strings.axisUncalibrated : '');
+    const shown = (value: number | null | undefined, unit: string, side: CompareSide | null): string => (value === null || value === undefined ? '—' : `${level(value)}${apart ? ` ${unit}` : ''}${word(side)}`);
     const pair = (at: string, base: number | null | undefined, compare: number | null | undefined): string => strings.compareLevelsAt
-        .replace('{at}', at).replace('{base}', shown(base, baseUnit)).replace('{compare}', shown(compare, compareUnit)) + (apart ? '' : ` ${baseUnit}`);
+        .replace('{at}', at).replace('{base}', shown(base, baseUnit, comparison.base)).replace('{compare}', shown(compare, compareUnit, comparison.compare)) + (apart ? '' : ` ${baseUnit}`);
     if (!comparison.leq) return '—';
     const leq = pair('Leq', comparison.leq.base, comparison.leq.compare);
     if (comparison.blocked) return [leq, diffHeadline(comparison, strings)].join(' · ');
@@ -537,7 +523,7 @@ export function legendHtml(items: readonly LegendItem[], strings: Pick<UiStrings
 export interface PaneRange { min: number; max: number }
 
 /** The plot's left edge: room for the tick numbers and the level axis' name written up the side. */
-export const PANE_LEFT = 52;
+export { PANE_LEFT } from './paneLayout';
 
 /** Axis names (and the Δ pane's legend), the same on screen, in the report figures and the summary. */
 export interface PaneAxes {
@@ -565,8 +551,9 @@ export function trackLevelInput(channels: ReadonlyArray<ChannelSummary | null | 
     const fullScale = channels.every(channel => !channel || channel.fullScale);
     const measured = channels.map(channel => channel?.measurement);
     const first = measured[0];
-    const shared = !!first && measured.every(measurement => measurement?.referenceUnit === first.referenceUnit
-        && measurement.referenceValue === first.referenceValue && measurement.levelReferenceLabel === first.levelReferenceLabel);
+    // One level identity (figureModel.levelKeyOf: unit, reference value, level reference name) across the channels.
+    const keyOf = (measurement: typeof first): string | null => (measurement ? levelKeyOf({ unit: measurement.referenceUnit, ref: measurement.referenceValue, levelReferenceLabel: measurement.levelReferenceLabel }) : null);
+    const shared = !!first && measured.every(measurement => keyOf(measurement) === keyOf(first));
     if (first && shared) {
         const calibrationStatus = measured.every(measurement => measurement?.calibrationStatus === 'calibrated') ? 'calibrated' : 'uncalibrated';
         return { unit: first.referenceUnit, ref: first.referenceValue, levelReferenceLabel: first.levelReferenceLabel, calibrationStatus, fullScale };

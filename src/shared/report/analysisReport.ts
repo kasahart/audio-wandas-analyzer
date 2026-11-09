@@ -95,7 +95,8 @@ export function buildMarkdownReport(tracks: readonly ReportTrack[], loop: Report
                 lines.push('| ' + markdownTableCell(r.fileName)
                     + ' | ' + markdownTableCell(channelLabel(r, channelIndex))
                     + ' | ' + formatMeasurementNumber(channel.peakAbsolute) + ' ' + markdownTableCell(measurement.linearUnit)
-                    + ' | ' + formatReportDb(channel.peakLevelDb, measurement.levelUnit)
+                    // An absolute level named by its reference as wandas names it (never wandas' bare levelUnit "dB"), uncalibrated said so.
+                    + ' | ' + formatReportDb(channel.peakLevelDb, (measurement.levelReferenceLabel || channel.sourceLevelReferenceLabel || measurement.levelUnit) + (measurement.calibrationStatus === 'uncalibrated' ? ' (uncalibrated)' : ''))
                     + ' | ' + (fullScale ? formatMeasurementNumber(channel.rawPeakFullScale) + ' FS' : '—')
                     + ' | ' + (fullScale ? (channel.clipped ? 'Yes' : 'No') : '—') + ' |');
             });

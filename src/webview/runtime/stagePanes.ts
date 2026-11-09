@@ -10,7 +10,8 @@ import type { FigureNames, FigureRange, FigureTitle } from './figureModel';
 import type { StageView } from '../../shared/protocol/backendProtocol';
 import type { UiStrings } from '../../shared/i18n/strings';
 import { BAND_CENTERS_HZ } from './entryTable';
-import { PANE_LEFT, paneAxes, type LevelInput, type PaneRange } from './comparePanes';
+import { paneAxes, type LevelInput, type PaneRange } from './comparePanes';
+import { PANE_LEFT } from './paneLayout';
 import { uncalibratedUnits } from '../../shared/utils/format';
 import { middleEllipsis } from '../../shared/dataset/datasetTable';
 import type { NormalizedRange } from './waveformInteraction';
@@ -27,7 +28,7 @@ import { cellIndex, NO_FULL_DATA, STEP_AHEAD, type FullPoints, type FullRead, ty
 /** Canvas x the level axis's turned title is centred on, in the gutter left of its tick labels. */
 const AXIS_TITLE_X = 10;
 
-export type StageStrings = Pick<UiStrings, 'axisFrequency' | 'axisTime' | 'axisTriggerTime' | 'axisBand' | 'axisBark' | 'axisQuefrency' | 'axisCepstrum' | 'axisLag' | 'axisCorrelation' | 'axisLevel' | 'axisLevelUncal' | 'axisLevelCal' | 'axisDelta' | 'dsValue' | 'axisGain' | 'axisTransferLevel' | 'axisCoherence' | 'legendHeadline' | 'legendLeak' | 'legendLine' | 'stageNoDelta' | 'stageEventCounts' | 'stageNoEvents' | 'stageMaxDelta' | 'stepNotDrawable' | 'waveRangeAxisAmplitude' | 'stagePairBase' | 'axisLoudness' | 'axisSharpness' | 'axisRoughness' | 'axisSpecificRoughness' | 'axisLevelOf' | 'axisRms' | 'axisRmsTimeWeighted' | 'axisPower' | 'axisUncalibrated' | 'axisUnitUnknown'>;
+export type StageStrings = Pick<UiStrings, 'axisFrequency' | 'axisTime' | 'axisTriggerTime' | 'axisBand' | 'axisBark' | 'axisQuefrency' | 'axisCepstrum' | 'axisLag' | 'axisCorrelation' | 'axisLevelUncal' | 'axisLevelCal' | 'axisDelta' | 'dsValue' | 'axisGain' | 'axisTransferLevel' | 'axisCoherence' | 'legendHeadline' | 'legendLeak' | 'legendLine' | 'stageNoDelta' | 'stageEventCounts' | 'stageNoEvents' | 'stageMaxDelta' | 'stepNotDrawable' | 'waveRangeAxisAmplitude' | 'stagePairBase' | 'axisLoudness' | 'axisSharpness' | 'axisRoughness' | 'axisSpecificRoughness' | 'axisLevelOf' | 'axisRms' | 'axisRmsTimeWeighted' | 'axisPower' | 'axisUncalibrated' | 'axisUnitUnknown'>;
 
 const DB_QUANTITIES = ['level', 'gain'];
 const isDb = (view: StageView | null): boolean => DB_QUANTITIES.includes(view?.quantity ?? '');
@@ -698,6 +699,8 @@ export interface StageLayer {
     label?: string;
     /** The recording the line is of: its reference and calibration name the axis it is read on (C1). */
     recording?: string;
+    /** What a line of no one recording (a base group's median) has its levels in: its recordings' (C1, R1). */
+    levelInput?: LevelInput;
     /** A dash pattern (px) for a line told apart by more than its colour: one read on the second level axis. */
     dash?: readonly number[];
     /** The recording a trigger's events are of, whose events a click leaves out (or puts back), and those left out. */

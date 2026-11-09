@@ -12,7 +12,7 @@ import { baseName } from '../../shared/analysis/entryMetadata';
 import { median } from '../../shared/dataset/distribution';
 import { powerMeanOrNull } from '../../shared/utils/levels';
 import { spacingDecimals } from '../plot/plotText';
-import type { FigureColumns } from './figureModel';
+import { scanLevelKey, type FigureColumns } from './figureModel';
 
 
 /** A group of fewer files says nothing about which band separates them. */
@@ -60,6 +60,8 @@ export interface BaseDefinition {
     /** Recordings of the group left out because their scan failed, or is still running. */
     failed?: number;
     pending?: number;
+    /** Recordings of the group left out because their result is of an earlier recipe, version or calibration. */
+    stale?: number;
 }
 
 /**
@@ -75,7 +77,7 @@ export interface DerivedRow {
     region: string;
     result: ScanResult;
     /** What it was measured against: the slot-0 file or the group's other files (`paths`), named by `label`. */
-    base: { leq: number; bands: (number | null)[]; label?: string; paths?: string[]; definition?: BaseDefinition };
+    base: { leq: number; bands: (number | null)[]; label?: string; paths?: string[]; definition?: BaseDefinition; level?: { levelReference?: string; uncalibrated?: 'full-scale' | 'raw-units' } };
     /** The Recipe it was measured under (recipeKey). */
     recipeKey?: string;
     /** Fixed under another Recipe and not measured again yet: shown as ≠. */
@@ -164,9 +166,10 @@ function fileValues(result: ScanResult, band: number): Record<EntryColumn, numbe
 type MeasuredResult = ScanResult & { input: NonNullable<ScanResult['input']> };
 const isMeasured = (result: ScanResult | undefined): result is MeasuredResult => !!result?.ok && result.input !== undefined;
 
+/** What rows must share to be compared: channels, sample rate, level identity (figureModel.scanLevelKey) and spec. */
 function profile(result: MeasuredResult): string {
     const input = result.input;
-    return JSON.stringify([input.channels.length, input.fs, input.unit, input.ref, result.specVersion]);
+    return JSON.stringify([input.channels.length, input.fs, scanLevelKey(result), result.specVersion]);
 }
 
 function mismatchLabel(result: MeasuredResult, reference: MeasuredResult): string {
@@ -175,7 +178,8 @@ function mismatchLabel(result: MeasuredResult, reference: MeasuredResult): strin
     const parts: string[] = [];
     if (input.channels.length !== base.channels.length) parts.push(`${input.channels.length} ch`);
     if (input.fs !== base.fs) parts.push(`${input.fs % 1000 === 0 ? input.fs / 1000 : (input.fs / 1000).toFixed(1)} kHz`);
-    if (input.unit !== base.unit || input.ref !== base.ref) parts.push(input.unit);
+    // What differs of the level identity: the unit, else the reference value or its name (its level reference).
+    if (scanLevelKey(result) !== scanLevelKey(reference)) parts.push(input.unit !== base.unit ? input.unit : input.levelReferenceLabel);
     if (result.specVersion !== reference.specVersion) parts.push(`v${result.specVersion}`);
     return `≠ ${parts.join(' · ')}`;
 }
@@ -452,10 +456,10 @@ export interface EntryMeasure {
  * the table's order; the same input always gives the same bytes. A file row's Δ columns are `measure`'s: the base the
  * screen, the comparison and the report measure from, so the CSV never has a Δ of its own.
  */
-export function entryCsv(model: EntryModel, labels: { file: string; condition: (n: number) => string; regionStart: string; regionEnd: string; level: FigureColumns; peak: string; band: string; deltaLeq: string; deltaBand: string; groupSize: string; status: string },
+export function entryCsv(model: EntryModel, labels: { file: string; condition: (n: number) => string; regionStart: string; regionEnd: string; level: FigureColumns; peak: string; bandLevel: FigureColumns; deltaLeq: string; deltaBand: string; groupSize: string; status: string },
     measure: (filePath: string) => EntryMeasure | null): string {
     // Every metadata column goes out, checked ones first, so the CSV keeps what the table was read from.
-    const header = [labels.file, ...model.columns.map((column, index) => column.name || labels.condition(index + 1)), labels.regionStart, labels.regionEnd, labels.level.level, labels.level.reference, `${labels.peak} Hz`, `${labels.peak} dB`, labels.band, labels.deltaLeq, labels.deltaBand, labels.groupSize, labels.status];
+    const header = [labels.file, ...model.columns.map((column, index) => column.name || labels.condition(index + 1)), labels.regionStart, labels.regionEnd, labels.level.level, labels.level.reference, `${labels.peak} Hz`, `${labels.peak} dB`, labels.bandLevel.level, labels.bandLevel.reference, labels.deltaLeq, labels.deltaBand, labels.groupSize, labels.status];
     const dB = (value: number | null): string => csvNumber(value, 1);
     const lines = [header.map(csvCell).join(',')];
     for (const row of model.rows) {
@@ -468,7 +472,7 @@ export function entryCsv(model: EntryModel, labels: { file: string; condition: (
             row.derived ? baseName(row.derived.parent) : row.name,
             // The region the numbers were measured over, never blank: the scan skips the file's guarded ends.
             ...row.cells, ...regionCells(ok ? measuredRegion(row.derived?.region, row.durationS) : row.derived?.region),
-            ok ? dB(row.values.leq) : null, ok ? levelReferenceCell(row, labels.level) : null, ok ? bandCentreCell(delta.hz) : null, ok ? dB(delta.peak) : null, ok ? dB(row.values.band) : null,
+            ok ? dB(row.values.leq) : null, ok ? levelReferenceCell(row, labels.level) : null, ok ? bandCentreCell(delta.hz) : null, ok ? dB(delta.peak) : null, ok ? dB(row.values.band) : null, ok ? levelReferenceCell(row, labels.bandLevel) : null,
             dB(delta.leq), dB(delta.band), delta.count ? String(delta.count) : null,
             row.status === 'failed' ? '✕' : row.status === 'mismatch' ? row.mismatch ?? '' : '',
         ].map(csvCell).join(','));

@@ -100,21 +100,24 @@ test('levels in another unit, reference or calibration have no Δ and no shared 
     assert.deepEqual(single.bandDeltas, []);
     assert.equal(single.bins?.diff ?? null, null);
     assert.ok(Number.isNaN(single.leq!.delta));
-    assert.equal(diffHeadline(single, STR), '— · ≠ unit');
+    assert.equal(diffHeadline(single, STR), '— · ≠ level reference');
     // Both levels stay, each named by its own reference (no bare dB).
-    assert.equal(levelsHeadline(single, STR), 'Leq base −20.0 dBFS / compare 62.0 dB SPL re 20 µPa · — · ≠ unit');
+    assert.equal(levelsHeadline(single, STR), 'Leq base −20.0 dBFS, uncalibrated / compare 62.0 dB SPL re 20 µPa · — · ≠ level reference');
     // A group: only its files in the compared file's unit make the median; the rest are left out.
     const group = buildCompareModel(mixedModel, mixed, '/m/L1_900rpm_run4.wav', null, STR, false, undefined,
         { paths: ['/m/L1_900rpm_run1.wav', '/m/L1_900rpm_run2.wav', '/m/L1_900rpm_run3.wav'], title: 'g' });
     assert.deepEqual(group.base!.filePaths, ['/m/L1_900rpm_run3.wav']);
     assert.equal(group.blocked, undefined);
     assert.equal(group.leq!.delta, 2);
-    // A group with none in the compared file's unit: the median of one unit, no Δ.
+    // A group with none in the compared file's level identity: every one left out (another reference, never counted
+    // as the base's), so no median and no Δ, and the comparison says why.
     const other = buildCompareModel(mixedModel, mixed, '/m/L1_900rpm_run4.wav', null, STR, false, undefined,
         { paths: ['/m/L1_900rpm_run1.wav', '/m/L1_900rpm_run2.wav'], title: 'g' });
     assert.equal(other.blocked, 'unit');
-    assert.equal(other.leq!.base, -20.5);
+    assert.equal(other.base, null);
+    assert.equal(other.leq, null);
     assert.equal(other.diffDb, null);
+    assert.equal(diffHeadline(other, STR), '— · ≠ level reference');
     // A fixed difference is never measured against a base of another unit.
     assert.equal(baseOf(mixed, ['/m/L1_900rpm_run1.wav', '/m/L1_900rpm_run3.wav']), null);
     assert.equal(baseOf(mixed, ['/m/L1_900rpm_run1.wav'], mixed.get('/m/L1_900rpm_run3.wav')), null);

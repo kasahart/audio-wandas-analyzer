@@ -21,6 +21,8 @@ export interface DatasetScreenView {
     /** The rows on screen (filtered, sorted) and how many rows there are in all. */
     rows: readonly DatasetRow[];
     results: Results;
+    /** A row's own calibration word for a level value, where the value's axis mixes calibration statuses (R4). */
+    levelWord?: (filePath: string) => string;
     group: GroupId;
     value: ValueId;
     columns: { name: DatasetColumn; ch: DatasetColumn; group?: DatasetColumn; value: DatasetColumn };
@@ -281,6 +283,7 @@ export function datasetRowsHtml(view: DatasetScreenView, first: number, last: nu
         if (shown) classes.push('is-shown');
         if (view.mode === 'excluded') classes.push('is-excluded');
         const value = view.valueReady || valueOf(row, view.value, view.results) !== null ? formatValue(view.value, valueOf(row, view.value, view.results)) : '—';
+        const levelWord = value !== '—' && (view.value === 'leq' || view.value.startsWith('band:')) ? view.levelWord?.(row.filePath) ?? '' : '';
         const group = view.columns.group ? `<td class="entry-col-group" title="${escapeHtml(groupOf(row, view.group))}">${escapeHtml(middleEllipsis(groupOf(row, view.group), 16) || '—')}</td>` : '';
         return `<tr class="${classes.join(' ')}" data-key="${escapeHtml(row.key)}" data-file-path="${escapeHtml(row.filePath)}" aria-selected="${row.key === view.focused}">`
             // ☑ on a track, ☐ not (not ●, a step's output): a click, T, or Enter / Space on it shows or takes off its track.
@@ -288,7 +291,8 @@ export function datasetRowsHtml(view: DatasetScreenView, first: number, last: nu
             + (view.mode === 'excluded' ? '<td class="entry-mark"></td>' : `<td class="entry-mark" data-action="entry-row-track" data-key="${escapeHtml(row.key)}" role="checkbox" tabindex="${row.key === view.focused ? 0 : -1}" aria-checked="${shown}" aria-label="${escapeHtml(`${strings.dsTrackMark}: ${row.name}`)}">${shown ? '☑' : '☐'}</td>`)
             + `<td class="entry-name"><span class="entry-ncell">${nameHtml(row.name, `${row.filePath}${(row.channels ?? 1) > 1 ? ` · ch ${row.ch} / ${row.channels}` : ''}`)}<span class="entry-rowtools">${toolsHtml(row, view, strings)}</span></span></td>`
             + `<td class="entry-num entry-col-ch${(row.channels ?? 1) > 1 ? '' : ' is-single'}">${row.channels === undefined ? '—' : row.ch}</td>${group}`
-            + `<td class="entry-num entry-col-value">${value}</td><td></td></tr>`;
+            // A level read on an axis that mixes calibration statuses says its own (R4): the column's name cannot.
+            + `<td class="entry-num entry-col-value">${value}${levelWord ? `<span class="entry-uncal">${escapeHtml(levelWord)}</span>` : ''}</td><td></td></tr>`;
     }).join('');
     return spacer(first) + rows + spacer(lines.length - last);
 }

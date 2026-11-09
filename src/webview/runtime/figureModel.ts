@@ -1,10 +1,10 @@
 import { HEATMAP_DB_SPAN, heatmapDbRange, niceRange } from '../../shared/utils/ticks';
 import { WAVEFORM_HALF_HEIGHT_RATIO } from '../waveform/waveformLayout';
 import type { Answer, AnswerIdentity } from './answerTypes';
-// stagePanes before comparePanes: the two import each other, and comparePanes' PANE_LEFT is read as stagePanes loads.
+import { scanAnswer } from './answerStore';
 import { stageAxes, stageDiffRange, stageRange, type StageAxes, type StageStrings } from './stagePanes';
 import { levelIdentityOf, paneAxes, type LevelInput, type PaneAxes, type PaneRange } from './comparePanes';
-import type { StageView } from '../../shared/protocol/backendProtocol';
+import type { ScanResult, StageView } from '../../shared/protocol/backendProtocol';
 
 /**
  * The figure model (layers-design.md): what a figure draws of its answers and what it writes. Every figure's axes,
@@ -172,8 +172,9 @@ export function calibrationWordsBy<T>(items: readonly T[], keyOf: (item: T) => s
  * identity (levelIdentityOf: they share an axis) differ in calibration status, each uncalibrated one says so, since
  * the axis they share names only the common quantity, unit and reference (axisInputOf); '' otherwise.
  */
-export function calibrationWords(strings: { axisUncalibrated: string }, allTracks: ReadonlyArray<{ filePath: string; input?: LevelInput }>, paths: readonly (string | null | undefined)[]): (path: string | null | undefined) => string {
-    const inputOf = (path: string | null | undefined): LevelInput | undefined => (path ? allTracks.find(track => track.filePath === path)?.input : undefined);
+export function calibrationWords(strings: { axisUncalibrated: string }, allTracks: ReadonlyArray<{ filePath: string; input?: LevelInput }>, paths: readonly (string | null | undefined)[], levelOf?: (path: string) => LevelInput | undefined): (path: string | null | undefined) => string {
+    // A recording that is no track (a base group's) is known by its scan's input (levelOf).
+    const inputOf = (path: string | null | undefined): LevelInput | undefined => (path ? allTracks.find(track => track.filePath === path)?.input ?? levelOf?.(path) : undefined);
     const known = [...new Set(paths)].filter(path => !!inputOf(path));
     const word = calibrationWordsBy(known, path => levelKeyOf(inputOf(path)), path => inputOf(path)?.calibrationStatus === 'calibrated', uncalibratedWord(strings));
     return path => (inputOf(path) ? word(path) : '');
@@ -190,6 +191,12 @@ export const levelColumns = (strings: { entryColLeq: string; reportLevelReferenc
 /** The base group's level column and its reference column (the report's 基準群). */
 export const baseLevelColumns = (strings: { reportBaseLeq: string; reportBaseLevelReference: string; entryLeqUncalibrated: string }): FigureColumns => columns(strings.reportBaseLeq, strings.reportBaseLevelReference, strings.entryLeqUncalibrated);
 
+/** A band's level column (the chosen 1/3-octave band) and its reference column beside it. */
+export const bandLevelColumns = (strings: { entryColBandLevel: string; reportLevelReference: string; entryLeqUncalibrated: string }, band: string): FigureColumns => {
+    const level = strings.entryColBandLevel.replace('{band}', band);
+    return columns(level, `${level} · ${strings.reportLevelReference}`, strings.entryLeqUncalibrated);
+};
+
 /** The frequency axis' name as a title (the spectrum CSV's frequency columns). */
 export const frequencyTitle = (strings: { axisFrequency: string }): FigureTitle => titled(strings.axisFrequency);
 
@@ -197,8 +204,8 @@ export const frequencyTitle = (strings: { axisFrequency: string }): FigureTitle 
  * The legend words of a stage figure (R1, R4): each recording's calibration word (calibrationWords, over the compared
  * one, the tracks and the base group) and the base group's own, said once when any base recording is uncalibrated.
  */
-export function legendWords(strings: { axisUncalibrated: string }, allTracks: ReadonlyArray<{ filePath: string; input?: LevelInput }>, shownPaths: readonly (string | null | undefined)[], basePaths: readonly string[]): { word: (path: string | null | undefined) => string; baseWord: string } {
-    const word = calibrationWords(strings, allTracks, [...shownPaths, ...basePaths]);
+export function legendWords(strings: { axisUncalibrated: string }, allTracks: ReadonlyArray<{ filePath: string; input?: LevelInput }>, shownPaths: readonly (string | null | undefined)[], basePaths: readonly string[], levelOf?: (path: string) => LevelInput | undefined): { word: (path: string | null | undefined) => string; baseWord: string } {
+    const word = calibrationWords(strings, allTracks, [...shownPaths, ...basePaths], levelOf);
     return { word, baseWord: basePaths.some(path => word(path)) ? uncalibratedWord(strings) : '' };
 }
 
@@ -213,8 +220,22 @@ export function templatedLevelName(strings: { axisUncalibrated: string }, templa
  * its own English name).
  */
 export function gainAxisName(response: { axisLabel?: string; levelReferenceLabel?: string | null } | undefined, strings: { axisGain: string; axisTransferLevel: string }): string {
-    const unit = response?.levelReferenceLabel ?? /\[([^\]]+)\]\s*$/u.exec(response?.axisLabel ?? '')?.[1] ?? 'dB';
+    const unit = transferReferenceOf(response);
     return unit === 'dB' ? strings.axisGain : strings.axisTransferLevel.replace('{unit}', unit);
+}
+
+/** What a pair's gain is in: plain dB for one unit, else dB re the units' ratio (its levelReferenceLabel, else its own name's). */
+function transferReferenceOf(response: { axisLabel?: string; levelReferenceLabel?: string | null } | undefined): string {
+    return response?.levelReferenceLabel ?? /\[([^\]]+)\]\s*$/u.exec(response?.axisLabel ?? '')?.[1] ?? 'dB';
+}
+
+/**
+ * The pair responses one gain axis draws (R1, R4): those of the first one's level reference (its units' ratio), by
+ * that identity, never by the text of their axis names. The others stay in the legend, not drawn on its numbers.
+ */
+export function gainAxisLines<C extends { response: { axisLabel?: string; levelReferenceLabel?: string | null } }>(curves: readonly C[]): C[] {
+    const groups = byLevelKey(curves, curve => levelKeyOf(undefined, transferReferenceOf(curve.response)));
+    return groups[0]?.items ?? [];
 }
 
 /**
@@ -287,27 +308,93 @@ export function levelAxes<L>(lines: readonly L[], spec: LevelAxesSpec<L>): { axe
 
 // ── Which files a figure counts ───────────────────────────────────────────────────────────────────────────────────
 
-export type ExclusionReason = 'pending' | 'stale' | 'failed' | 'empty' | 'missing' | 'other-reference';
+export type ExclusionReason = 'pending' | 'stale' | 'failed' | 'empty' | 'missing' | 'other-reference' | 'other-axis';
 
 /**
- * Which answers a figure's number is of (a median, a Δ, a count n, the CSV's 基準群 n and files): the ready ones of
- * `identity` (the compared file's level key) where given. Every other is excluded with why: still computing, failed,
- * empty, missing, or of another level reference. Nothing pending is ever counted.
+ * What a figure counts its answers against: the level key of the line they are compared with (`level`; null: the
+ * first ready answer's) and, where a median is taken point by point, the axis its values are on (`axisOf`: the
+ * sample rate and spec of a scan's spectrum), so no median is of values at different frequencies.
  */
-export function figureUsed<T>(answers: ReadonlyArray<Answer<T>>, identity?: string | null): {
+export interface FigureOf<T> {
+    level: string | null;
+    axis?: string | null;
+    axisOf?: (value: T) => string;
+}
+
+/** One figure's set: the answers it is of, the ones it leaves out with why, its n and its files. */
+export interface FigureSet<T> {
     used: Array<{ path: string; value: T; identity: AnswerIdentity }>;
     excluded: Array<{ path: string; reason: ExclusionReason }>;
     n: number;
     paths: string[];
-} {
-    const used: Array<{ path: string; value: T; identity: AnswerIdentity }> = [];
-    const excluded: Array<{ path: string; reason: ExclusionReason }> = [];
+}
+
+/**
+ * Which answers a figure's number is of (a median, a Δ, a count n, a heading, the CSV's 基準群 n and files): the ready
+ * ones of `of`'s level identity and axis. Every other is excluded with why: still computing, of an earlier recipe,
+ * version or calibration (stale), failed, empty, missing, of another level reference or on another axis. Nothing
+ * pending or stale is ever counted. Every count of every output takes its set here, with the figure's identity.
+ */
+export function figureUsed<T>(answers: ReadonlyArray<Answer<T>>, of: FigureOf<T>): FigureSet<T> {
+    const used: FigureSet<T>['used'] = [];
+    const excluded: FigureSet<T>['excluded'] = [];
+    const first = answers.find(answer => answer.state === 'ready');
+    const firstReady = first?.state === 'ready' ? first : undefined;
+    const level = of.level ?? (firstReady ? levelKeyOf(firstReady.identity.level) : null);
+    const axis = of.axisOf ? of.axis ?? (firstReady ? of.axisOf(firstReady.value) : null) : null;
     for (const answer of answers) {
         const path = answer.identity.path;
         if (answer.state !== 'ready') { excluded.push({ path, reason: answer.state }); continue; }
-        if (identity != null && levelKeyOf(answer.identity.level) !== identity) { excluded.push({ path, reason: 'other-reference' }); continue; }
+        if (level !== null && levelKeyOf(answer.identity.level) !== level) { excluded.push({ path, reason: 'other-reference' }); continue; }
+        if (axis !== null && of.axisOf && of.axisOf(answer.value) !== axis) { excluded.push({ path, reason: 'other-axis' }); continue; }
         used.push({ path, value: answer.value, identity: answer.identity });
     }
     return { used, excluded, n: used.length, paths: used.map(item => item.path) };
 }
 
+/** How many of a set's answers were left out for `reason`. */
+export const excludedFor = (set: Pick<FigureSet<unknown>, 'excluded'>, ...reasons: ExclusionReason[]): number => set.excluded.filter(item => reasons.includes(item.reason)).length;
+
+// ── Scans as a figure's answers ───────────────────────────────────────────────────────────────────────────────────
+
+/** A scan that read its file. */
+type ReadScan = ScanResult & { ok: true };
+
+/** The level key of a scan's levels (levelIdentityOf); null for a scan that read no file. */
+export function scanLevelKey(result: ScanResult | undefined): string | null {
+    return result?.ok && result.input ? levelKeyOf(result.input) : null;
+}
+
+/** Whether the scans here that read their file are all of one level identity: levels are subtracted only then. */
+export function oneLevelKey(results: ReadonlyArray<ScanResult | undefined>): boolean {
+    return new Set(results.map(scanLevelKey).filter((key): key is string => key !== null)).size <= 1;
+}
+
+/** The axis a scan's spectrum is on: its sample rate, spec and points (a median is taken point by point). */
+export const scanAxis = (result: ReadScan): string => `${result.input?.fs ?? 0}|${result.specVersion ?? ''}|${result.spectrumDb?.[0]?.length ?? 0}`;
+
+/** What a set of scans is counted against: the compared scan's level identity and spectrum axis (none: the first ready one's). */
+export function scanFigureOf(like: ScanResult | undefined): FigureOf<ReadScan> {
+    return { level: scanLevelKey(like), axis: like?.ok ? scanAxis(like as ReadScan) : null, axisOf: scanAxis };
+}
+
+/** The set of `paths` a map of scans gives, counted against `like` (the compared scan). */
+export function scanSet(results: ReadonlyMap<string, ScanResult>, paths: readonly string[], like: ScanResult | undefined): FigureSet<ReadScan> {
+    return figureUsed(paths.map(path => scanAnswer(path, results.get(path))), scanFigureOf(like));
+}
+
+/**
+ * A step figure's base set: of the base recordings (already the comparison's set), those whose step picture is in and
+ * kept its values. A picture on its way is pending, a failed one failed, one without kept values empty, so the
+ * median, the heading's n and the drawn waveforms are of the same recordings.
+ */
+export function pictureSet(paths: readonly string[], viewOf: (path: string) => StageView | null | undefined, levelOf: (path: string) => LevelInput | undefined, like: LevelInput | undefined): FigureSet<StageView> {
+    const answers = paths.map((path): Answer<StageView> => {
+        const view = viewOf(path);
+        const identity: AnswerIdentity = { path, fileVersion: '', calibrationSignature: '', level: levelOf(path) ?? like ?? { unit: '', ref: 1, levelReferenceLabel: '', calibrationStatus: 'uncalibrated', fullScale: true }, recipeKey: '', region: '', conditionId: '' };
+        if (view === undefined) return { state: 'pending', identity };
+        if (view === null) return { state: 'failed', identity };
+        return view.data || view.waveform ? { state: 'ready', value: view, identity } : { state: 'empty', identity };
+    });
+    return figureUsed(answers, { level: like ? levelKeyOf(like) : null });
+}

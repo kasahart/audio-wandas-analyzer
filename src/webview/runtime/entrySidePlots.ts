@@ -10,7 +10,7 @@ import type { ScanResult } from '../../shared/protocol/backendProtocol';
 import { rowKey, type DatasetRow } from '../../shared/dataset/datasetTable';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
 import { commonLevelLabel } from '../../shared/utils/format';
-import { levelKeyOf, templatedLevelName } from './figureModel';
+import { calibrationWordsBy, levelKeyOf, templatedLevelName, uncalibratedWord } from './figureModel';
 import { installRangePopover, linearAxis, openAxisPart, type AxisMapping } from '../rangePopover';
 import type { HeldPicture } from './entryHeldPlot';
 import { OVERVIEW_MARGINS, paintOverview } from './entryPlots';
@@ -58,6 +58,8 @@ export interface SidePlots {
     levelLabel(): string;
     /** A level value's name ("Leq A特性{uncal} [{label}]"): the most common reference, and 未校正 while it is uncalibrated. */
     levelName(template: string): string;
+    /** A recording's own calibration word where its level axis mixes calibration statuses (R1, R4): '' otherwise. */
+    levelWordOf(filePath: string): string;
     /**
      * Whether a recording's levels are of the level identity (R1: unit, reference value, level reference name) `levelLabel` names: the one test every level axis beside the
      * table (the overview's colours, the distribution's value axis) keeps its levels to. A recording not scanned yet is not.
@@ -126,7 +128,8 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
         const files = labelled.filter(([, own]) => own.identity === identity).map(([path]) => path);
         const label = files.length ? levelOf(files[0])?.label ?? 'dBFS' : 'dBFS';
         const keys = new Set(files.flatMap(path => scanned.get(path)?.rows ?? []));
-        shared = { version, identity, label, calibrated: files.length > 0 && files.every(path => !!scanned.get(path)?.calibrated), levels: new Map([...levels.view].filter(([key]) => keys.has(key))) };
+        // The axis says uncalibrated only when every recording on it is (R4, axisInputOf); each uncalibrated one then says so itself.
+        shared = { version, identity, label, calibrated: files.some(path => !!scanned.get(path)?.calibrated), levels: new Map([...levels.view].filter(([key]) => keys.has(key))) };
         return shared;
     }
     const levelLabel = (): string => reference().label;
@@ -246,6 +249,12 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
         keepWindow,
         levelLabel,
         levelName,
+        levelWordOf(filePath) {
+            const own = scanned.get(filePath);
+            if (!own?.level) return '';
+            const files = [...scanned.view].filter(([, item]) => item.level?.identity === own.level?.identity).map(([path]) => path);
+            return calibrationWordsBy(files, path => scanned.get(path)?.level?.identity ?? '', path => !!scanned.get(path)?.calibrated, uncalibratedWord(strings))(filePath);
+        },
         onLevelAxis: filePath => levelOf(filePath)?.identity === reference().identity,
         levels: key => levels.get(key),
         noteResult(filePath: string, result: ScanResult): void {

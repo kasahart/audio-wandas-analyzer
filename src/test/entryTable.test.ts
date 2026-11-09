@@ -11,7 +11,7 @@ import {
 import { buildCompareModel } from '../webview/runtime/comparePanes';
 import { entryMeasure } from '../webview/runtime/compareReport';
 import { getStrings } from '../shared/i18n/strings';
-import { levelColumns } from '../webview/runtime/figureModel';
+import { bandLevelColumns, levelColumns } from '../webview/runtime/figureModel';
 
 /** Each file measured against its condition's other files, as a comparison with no slot 0 measures it here. */
 const byCondition = (model: EntryModel, files: readonly EntryFile[]) => {
@@ -23,7 +23,7 @@ const repoRoot = path.resolve(__dirname, '..', '..');
 const BAND_3150 = BAND_CENTERS_HZ.indexOf(3150);
 const LABELS = {
     file: 'File', condition: (n: number) => ['Line', 'rpm'][n - 1], regionStart: 'Start s', regionEnd: 'End s', level: levelColumns({ entryColLeq: 'Leq dB(A)', reportLevelReference: 'Level reference', entryLeqUncalibrated: 'uncalibrated' }), peak: 'Δ max band',
-    band: '3.15 kHz dB', deltaLeq: 'Δ Leq', deltaBand: 'Δ band', groupSize: 'n', status: 'Reason',
+    bandLevel: bandLevelColumns({ entryColBandLevel: '{band} level', reportLevelReference: 'Level reference', entryLeqUncalibrated: 'uncalibrated' }, '3.15 kHz'), deltaLeq: 'Δ Leq', deltaBand: 'Δ band', groupSize: 'n', status: 'Reason',
 };
 
 function scan(leq: number, band: number, options: { fs?: number; channels?: number; peak?: number } = {}): ScanResult {
@@ -53,7 +53,7 @@ test('a Δ is taken from the full levels and rounded only as written: −9.996 a
         { filePath: '/f/L1_900rpm_run1.wav', result: scan(-9.996, -30) },
     ];
     const model = buildEntryModel(files, null, { band: BAND_CENTERS_HZ.indexOf(3150) });
-    assert.equal(entryCsv(model, LABELS, byCondition(model, files)).split('\r\n')[2].split(',')[10], '0.0');
+    assert.equal(entryCsv(model, LABELS, byCondition(model, files)).split('\r\n')[2].split(',')[11], '0.0');
 });
 
 test('a file row has no Δ of its own: the CSV writes what `measure` (the screen\'s base) gives, the band centre as its column names it', () => {
@@ -67,9 +67,9 @@ test('a file row has no Δ of its own: the CSV writes what `measure` (the screen
     const measure = (filePath: string): EntryMeasure | null => (filePath.endsWith('run4.wav') ? { leq: 1.25, band: 12.05, peak: { hz: 31.5, db: -7.5 }, count: 3 } : null);
     const lines = entryCsv(model, LABELS, measure).slice(1).trimEnd().split('\r\n');
     const run4 = lines.find(line => line.startsWith('L1_900rpm_run4.wav'))!.split(',');
-    assert.deepEqual(run4.slice(7, 13), ['31.5', '-7.5', '-18.0', '1.3', '12.1', '3']);
+    assert.deepEqual(run4.slice(7, 14), ['31.5', '-7.5', '-18.0', 'dBFS uncalibrated', '1.3', '12.1', '3']);
     const free = lines.find(line => line.startsWith('free.wav'))!.split(',');
-    assert.deepEqual(free.slice(7, 13), ['', '', '-35.0', '', '', '']);
+    assert.deepEqual(free.slice(7, 14), ['', '', '-35.0', 'dBFS uncalibrated', '', '', '']);
 });
 
 test('every band centre is written in the CSV as its column header names it, never rounded to a whole Hz', () => {
@@ -121,9 +121,9 @@ test('the CSV has the agreed columns, a BOM, and the same bytes every time', () 
     assert.equal(first, second);
     assert.ok(first.startsWith('\uFEFF'));
     const lines = first.slice(1).trimEnd().split('\r\n');
-    assert.equal(lines[0], 'File,Line,rpm,Start s,End s,Leq dB(A),Level reference,Δ max band Hz,Δ max band dB,3.15 kHz dB,Δ Leq,Δ band,n,Reason');
-    assert.equal(lines[3], 'L1_900rpm_run2.wav,L1,900rpm,0.15,1.85,-20.0,dBFS uncalibrated,3150,12.0,-18.0,0.0,12.0,2,');
-    assert.equal(lines.at(-1), 'broken.wav,,,,,,,,,,,,,✕');
+    assert.equal(lines[0], 'File,Line,rpm,Start s,End s,Leq dB(A),Level reference,Δ max band Hz,Δ max band dB,3.15 kHz level,3.15 kHz level · Level reference,Δ Leq,Δ band,n,Reason');
+    assert.equal(lines[3], 'L1_900rpm_run2.wav,L1,900rpm,0.15,1.85,-20.0,dBFS uncalibrated,3150,12.0,-18.0,dBFS uncalibrated,0.0,12.0,2,');
+    assert.equal(lines.at(-1), 'broken.wav,,,,,,,,,,,,,,✕');
 });
 
 test('one stored scan result stays within about 5 KB', () => {

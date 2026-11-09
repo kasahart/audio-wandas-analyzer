@@ -13,7 +13,7 @@ import type { UiStrings } from '../../shared/i18n/strings';
 import type { CompareCombineMessage, ComparePublication, CompareScanMessage, EntryConditionTable, EntryProbeCancelMessage, EntryProbeMessage, EntryProbePublication, EntryPublication, EntryScanCancelMessage, EntryScanMessage, EntrySaveSessionMessage } from '../../shared/analysis/entryScan';
 import type { ScanResult } from '../../shared/protocol/backendProtocol';
 import { BAND_CENTERS_HZ, bandLabel, buildEntryModel, derivedKey, entryCsv, type BaseDefinition, type DerivedRow, type EntryModel } from './entryTable';
-import { levelColumns } from './figureModel';
+import { bandLevelColumns, levelColumns, type ExclusionReason } from './figureModel';
 import { batchBundle, batchCount } from '../../shared/batch/batchBundle';
 import { baseOf, type CompareModel } from './comparePanes';
 import { compareGroupNames, groupLabels } from '../../shared/dataset/distribution';
@@ -181,9 +181,9 @@ export interface EntryScreen {
     /** What a compared file is measured against: the slot-0 file, or the other files of its condition. */
     basePaths(comparePath: string, group?: boolean): string[];
     /** The base's name: the slot-0 file, or "Base group · rpm 1500 · median of n · ch2 (within ch = 2)". */
-    baseTitle(comparePath: string, group?: boolean): string;
+    baseTitle(comparePath: string, group?: boolean, over?: ReadonlyMap<string, ScanResult>, more?: ReadonlyArray<{ path: string; reason: ExclusionReason }>): string;
     /** What the base is, for the report and a fixed difference. */
-    baseDefinition(comparePath: string, group?: boolean): BaseDefinition;
+    baseDefinition(comparePath: string, group?: boolean, over?: ReadonlyMap<string, ScanResult>): BaseDefinition;
     /** The channel `path` is drawn with when `comparePath` is compared (null: its channels together). */
     stageChannel(path: string, comparePath: string | null, group?: boolean): number | null;
     /** The comparison of a file with its base, as the table defines the base (over `results` when given, e.g. a region's). */
@@ -454,7 +454,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const stale = stalePaths();
         const ready = !isComputed(chosen.value) || shownRows.every(row => results.has(row.filePath) && !stale.has(row.filePath));
         return {
-            rows: shownRows, derived: derived.length ? derivedItems : undefined, results, group: chosen.group, value: chosen.value, filters: chosen.filters, sort: chosen.sort, slots, focused: focus.key, playing: deps.playing?.() ?? null, memo, valueReady: ready, stale, mode: chosen.mode, shown: shownFiles(), tracksAllOff: tracks.tried !== null && tracks.tried === listedFiles().join('\n'),
+            rows: shownRows, derived: derived.length ? derivedItems : undefined, results, group: chosen.group, value: chosen.value, filters: chosen.filters, sort: chosen.sort, slots, focused: focus.key, playing: deps.playing?.() ?? null, memo, valueReady: ready, stale, levelWord: path => sidePlots.levelWordOf(path), mode: chosen.mode, shown: shownFiles(), tracksAllOff: tracks.tried !== null && tracks.tried === listedFiles().join('\n'),
             unmatched: attached.match?.unmatched ?? [], filtered: new Set(chosen.filters.map(filter => filter.column)),
             columns: {
                 name: { id: 'name', label: strings.entryColFile, numeric: false },
@@ -1066,7 +1066,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             regionEnd: strings.reportRegionEnd,
             level: levelColumns(strings),
             peak: strings.entryColPeak,
-            band: `${bandLabel(model.band)} dB`,
+            bandLevel: bandLevelColumns(strings, bandLabel(model.band)),
             deltaLeq: `Δ ${strings.entryColLeq}`,
             deltaBand: `Δ ${bandLabel(model.band)} dB`,
             groupSize: strings.entryCsvGroupSize,
@@ -1523,8 +1523,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             setSlot(slot, key, false);
         },
         basePaths: (comparePath, byGroup = false) => entryBase.resolve(comparePath, byGroup).paths,
-        baseTitle: (comparePath, byGroup = false) => entryBase.resolve(comparePath, byGroup).title,
-        baseDefinition: (comparePath, byGroup = false) => entryBase.resolve(comparePath, byGroup).definition,
+        baseTitle: (comparePath, byGroup = false, over, more) => entryBase.resolve(comparePath, byGroup, undefined, over).titleWith(more ?? []).title,
+        baseDefinition: (comparePath, byGroup = false, over) => entryBase.resolve(comparePath, byGroup, undefined, over).definition,
         stageChannel: (path, comparePath, byGroup = false) => entryBase.stageChannel(path, comparePath, byGroup),
         comparison: (comparePath, byGroup = false, over, entryRegionBase = false) => entryBase.comparison(comparePath, byGroup, over, entryRegionBase),
         rowInfo: path => rowInfo(path),

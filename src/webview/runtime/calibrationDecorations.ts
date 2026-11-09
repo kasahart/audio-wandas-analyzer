@@ -5,6 +5,7 @@ import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { levelText as dbText } from '../plot/plotText';
 import { hintAttr } from './hintFooter';
 import type { ComparisonTrackState } from './types';
+import { levelKeyOf } from './figureModel';
 
 interface CalibrationSummary {
     text: string;
@@ -114,12 +115,8 @@ export function hasIncompatibleLevelReferences(results: ComparisonTrackState[], 
     results.forEach(result => channelsForResult(result).forEach(function (channel: Channel) {
         const measurement = measurementFor(channel);
         if (!measurement) { return; }
-        references.add([
-            measurement.levelUnit,
-            measurement.referenceValue,
-            measurement.referenceUnit,
-            measurement.levelReferenceLabel,
-        ].join('|'));
+        // By level identity (figureModel.levelKeyOf, R1): unit, reference value and level reference name.
+        references.add(levelKeyOf({ unit: measurement.referenceUnit, ref: measurement.referenceValue, levelReferenceLabel: measurement.levelReferenceLabel }));
     }));
     return references.size > levelAxes;
 }

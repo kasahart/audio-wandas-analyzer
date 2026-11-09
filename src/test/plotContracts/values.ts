@@ -107,6 +107,7 @@ export const DRAWN_READERS: Readonly<Record<string, { use: DrawnUse; why: string
     [`${SP}:eventLayers`]: { use: 'draws', why: 'a layer per event drawn; its readout reads the event\'s full samples' },
     [`${SP}:extent`]: { use: 'whole', why: 'the lowest and highest value: the full data\'s valueRange; the drawn points only of a picture the webview holds whole (a band table, a level line)' },
     [`${SP}:fullPoint`]: { use: 'draws', why: 'whether the layer is a signal drawn as itself, to place a full point on its range' },
+    ['src/webview/runtime/figureModel.ts:pictureSet']: { use: 'draws', why: 'whether a stage picture has anything drawn, to leave an empty one out of the base set with why' },
     ['src/webview/runtime/fullRead.ts:wholeBars']: { use: 'whole', why: 'a band table\'s bars, which the backend sends whole (every band), held as their InlineFullSource' },
     [`${SP}:isEventsView`]: { use: 'draws', why: 'whether a picture is a trigger\'s events' },
     [`${SP}:lineRead`]: { use: 'draws', why: 'whether the layer is a signal drawn as itself' },

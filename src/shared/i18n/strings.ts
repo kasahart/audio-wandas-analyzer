@@ -123,6 +123,7 @@ export interface UiStrings {
     entryColFile: string;
     entryColCondition: string;
     entryColLeq: string;
+    entryColBandLevel: string;
     entryColPeak: string;
     entryOpen: string;
     entryBaseGroup: string;
@@ -367,6 +368,8 @@ export interface UiStrings {
     dsBaseOtherUnits: string;
     dsBaseFailed: string;
     dsBasePending: string;
+    dsBaseStale: string;
+    dsBaseOtherBins: string;
     reportMemo: string;
     reportBaseDefinition: string;
     reportDerived: string;
@@ -426,7 +429,6 @@ export interface UiStrings {
     reportChainPrevious: string;
     stepNotDrawable: string;
     stepOpenCompare: string;
-    axisLevel: string;
     axisGain: string;
     /** A transfer function's level where its two channels' units differ: `{unit}` is dB re their ratio. */
     axisTransferLevel: string;
@@ -506,6 +508,7 @@ export interface UiStrings {
     stepNeedValue: string;
     hintSpectrogram: string;
     compareRefuseFix: string;
+    fixBasePending: string;
     compareRefuseSlot: string;
     entryLeqUncalibrated: string;
     hintLeqUncalibrated: string;
@@ -941,6 +944,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         entryColFile: 'File',
         entryColCondition: 'Cond. {n}',
         entryColLeq: 'Leq dB(A)',
+        entryColBandLevel: '{band} level',
         entryColPeak: 'Δ max band',
         entryOpen: 'Open Compare',
         entryBaseGroup: 'Base group',
@@ -1014,7 +1018,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         presetSpectrogramName: 'Time and frequency',
         presetSpectrogramGraph: 'Spectrogram',
         presetLevelName: 'Level over time',
-        presetLevelGraph: 'A-weighted RMS level [dB]',
+        presetLevelGraph: 'A-weighted RMS level (dB re the channel\'s reference)',
         presetLoudnessName: 'Loudness',
         presetLoudnessGraph: 'Loudness [sone]',
         presetRoughnessName: 'Roughness',
@@ -1176,9 +1180,11 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dsDerivedRemove: 'Delete this fixed difference',
         dsBaseNarrowed: ' (within {filters})',
         dsBaseFewer: ' · {n} without ch {ch} left out',
-        dsBaseOtherUnits: ' · {n} in another unit left out',
+        dsBaseOtherUnits: ' · {n} of another level reference left out',
         dsBaseFailed: ' · {n} failed left out',
         dsBasePending: ' · {n} still computing',
+        dsBaseStale: ' · {n} of an earlier recipe left out',
+        dsBaseOtherBins: ' · {n} on another frequency axis left out',
         reportMemo: 'Memo',
         reportBaseDefinition: 'Base definition',
         reportDerived: 'Fixed Δ (D)',
@@ -1238,7 +1244,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         reportChainPrevious: 'previous chain',
         stepNotDrawable: 'This step cannot be shown ({frame})',
         stepOpenCompare: 'Put files in slots 1–3 to compare them at this step.',
-        axisLevel: 'Level [dB]',
         axisGain: 'Gain [dB]',
         axisTransferLevel: 'Transfer level [{unit}]',
         axisCoherence: 'Coherence γ² [–]',
@@ -1311,6 +1316,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepNeedValue: 'Enter a value (the field is empty)',
         hintSpectrogram: 'Average spectrum (n_fft, window): the curves of the comparison; hold to show the spectrograms instead',
         compareRefuseFix: 'D: no Δ to fix ({why}). Put a file in slot 0 on the table, or wait for the scan.',
+        fixBasePending: 'the base group\'s values over the region are still being measured',
         compareRefuseSlot: 'Slot {n} is empty: fill it on the table (1–3 on a row).',
         entryLeqUncalibrated: 'uncalibrated',
         hintLeqUncalibrated: 'Uncalibrated: 0 dB is the file\'s full scale, so levels read below 0. Calibrate to read sound pressure.',
@@ -1332,7 +1338,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintRowStop: 'Stop',
         compareSingleBase: 'n=1',
         compareRegionDiffers: '≠ region',
-        compareUnitDiffers: '≠ unit',
+        compareUnitDiffers: '≠ level reference',
         helpRowStepKeys: 'step bar: press a step to see its Frame in the comparison, hold it to see what it does, ＋ adds a wandas operation, Delete on a step removes it',
         helpRowStepBypass: 'step bar: M on a step bypasses it (kept in place, skipped), M again brings it back',
         helpRowStepUndo: 'step bar: undo and redo its edits (↶ ↷)',
@@ -1736,6 +1742,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         entryColFile: 'ファイル',
         entryColCondition: '条件 {n}',
         entryColLeq: 'Leq dB(A)',
+        entryColBandLevel: '{band} レベル',
         entryColPeak: 'Δ最大帯域',
         entryOpen: '比較解析を開く',
         entryBaseGroup: '基準群',
@@ -1809,7 +1816,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         presetSpectrogramName: '時間と周波数',
         presetSpectrogramGraph: 'スペクトログラム',
         presetLevelName: 'レベルの時間変化',
-        presetLevelGraph: 'A特性 RMS レベル [dB]',
+        presetLevelGraph: 'A特性 RMS レベル（チャンネルの基準の dB）',
         presetLoudnessName: '聞こえの大きさ',
         presetLoudnessGraph: 'ラウドネス [sone]',
         presetRoughnessName: '音の粗さ',
@@ -1971,9 +1978,11 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dsDerivedRemove: 'この固定した差を消す',
         dsBaseNarrowed: '（{filters} に絞った中で）',
         dsBaseFewer: ' · ch {ch} のない {n} 本は除外',
-        dsBaseOtherUnits: ' · 単位の違う {n} 本は除外',
+        dsBaseOtherUnits: ' · 基準の違う {n} 本は除外',
         dsBaseFailed: ' · 失敗した {n} 本は除外',
         dsBasePending: ' · 計算中 {n} 本',
+        dsBaseStale: ' · 前の手順の {n} 本は除外',
+        dsBaseOtherBins: ' · 周波数軸の違う {n} 本は除外',
         reportMemo: 'メモ',
         reportBaseDefinition: '基準の定義',
         reportDerived: '固定した差（D）',
@@ -2033,7 +2042,6 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         reportChainPrevious: '前の手順',
         stepNotDrawable: 'この手順の結果は表示できません（{frame}）',
         stepOpenCompare: '行の 1–3 を押すと、この手順の結果を比べられます',
-        axisLevel: 'レベル [dB]',
         axisGain: '利得 [dB]',
         axisTransferLevel: '伝達レベル [{unit}]',
         axisCoherence: 'コヒーレンス γ² [–]',
@@ -2106,6 +2114,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepNeedValue: '値を入れてください（欄が空）',
         hintSpectrogram: '平均スペクトルの設定（FFT 長・窓）。長押しでスペクトログラム',
         compareRefuseFix: 'D：残せる差がありません（{why}）。一覧でスロット 0 にファイルを入れるか、一括計算が終わるのを待ってください',
+        fixBasePending: '基準群の区間の値がまだ計算中です',
         compareRefuseSlot: 'スロット {n} は空です。一覧の行で 1–3 を押して入れてください',
         entryLeqUncalibrated: '未校正',
         hintLeqUncalibrated: '未校正：0 dB はファイルのフルスケールなので、値は 0 より小さくなる。音圧として読むには校正が要る。',
@@ -2127,7 +2136,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintRowStop: '止める',
         compareSingleBase: 'n=1',
         compareRegionDiffers: '≠ 区間',
-        compareUnitDiffers: '≠ 単位',
+        compareUnitDiffers: '≠ レベル基準',
         helpRowStepKeys: '手順バー: 手順を押すとその結果、長押しでその手順あり／なし、＋ で wandas の操作を足す、手順で Delete で外す',
         helpRowStepBypass: '手順バー: 手順で M を押すとバイパス（残したまま飛ばす）、もう一度で戻す',
         helpRowStepUndo: '手順バー: 編集を元に戻す／やり直す（↶ ↷）',

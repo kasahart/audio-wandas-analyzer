@@ -107,6 +107,10 @@ export interface StageFrame {
     tracks: readonly StageTrack[];
     /** Every track, the base recording measured against included. */
     allTracks: readonly StageTrack[];
+    /** What a recording's levels are in when it is no track (a base group's): its scan's input. */
+    levelOf?: (path: string) => StageTrack['input'];
+    /** What the base's median line's levels are in: its recordings' (axisInputOf), never a track's it is not of. */
+    baseInput?: StageTrack['input'];
     /** The base slot's recording each other is measured against, when a step is. */
     referencePath: string | null;
     comparePath: string | null;
@@ -233,7 +237,7 @@ function eventsOf(frame: Pick<StageFrame, 'excluded'>, path: string, view: Stage
  * draws them by level, the quietest on top (R6, paintOverlay). Each carries its legend name (the base's `baseLabel`), for the
  * readout of the line under the pointer.
  */
-export function overlayLayers(frame: Pick<StageFrame, 'comparePath' | 'role' | 'named' | 'excluded' | 'fullOf'>, plots: StagePlots<StageTrack>, baseLabel?: string, basePath?: string): StageLayer[] {
+export function overlayLayers(frame: Pick<StageFrame, 'comparePath' | 'role' | 'named' | 'excluded' | 'fullOf'> & Partial<Pick<StageFrame, 'baseInput'>>, plots: StagePlots<StageTrack>, baseLabel?: string, basePath?: string): StageLayer[] {
     const roleColor = (path: string, fallback: string): string => colorOf(frame.role, path, fallback);
     const nameOf = (path: string): string => frame.named(path, frame.role(path)).label;
     const { comparePath } = frame;
@@ -242,7 +246,7 @@ export function overlayLayers(frame: Pick<StageFrame, 'comparePath' | 'role' | '
         ...plots.others.filter(item => frame.role(item.track.filePath) === undefined).flatMap(item => (item.view ? [{ view: item.view, color: item.track.color, width: 1.2, label: nameOf(item.track.filePath), recording: item.track.filePath, ...eventsOf(frame, item.track.filePath, item.view) }] : [])),
         // A base group's waveforms, each thin in the base's colour (a group has no median signal).
         ...plots.baseMembers.map(({ path, view }) => ({ view, color: ROLE_COLORS[0], width: 1, recording: path, label: baseLabel !== undefined ? `${baseLabel} · ${baseName(path)}` : baseName(path) })),
-        ...(plots.base && !plots.baseMembers.length ? [{ view: plots.base, color: ROLE_COLORS[0], width: 2, ...(basePath !== undefined ? { recording: basePath } : {}), ...(baseLabel !== undefined ? { label: baseLabel } : {}), ...(basePath !== undefined ? eventsOf(frame, basePath, plots.base) : {}) }] : []),
+        ...(plots.base && !plots.baseMembers.length ? [{ view: plots.base, color: ROLE_COLORS[0], width: 2, ...(basePath !== undefined ? { recording: basePath } : frame.baseInput ? { levelInput: frame.baseInput } : {}), ...(baseLabel !== undefined ? { label: baseLabel } : {}), ...(basePath !== undefined ? eventsOf(frame, basePath, plots.base) : {}) }] : []),
         ...plots.others.filter(item => frame.role(item.track.filePath) !== undefined).flatMap(item => (item.view ? [{ view: item.view, color: roleColor(item.track.filePath, item.track.color), width: 1.8, label: nameOf(item.track.filePath), recording: item.track.filePath, ...eventsOf(frame, item.track.filePath, item.view) }] : [])),
         ...(plots.compare && comparePath ? [{ view: plots.compare, color: roleColor(comparePath, ROLE_COLORS[1]), width: 2.2, label: nameOf(comparePath), recording: comparePath, ...eventsOf(frame, comparePath, plots.compare) }] : []),
     ].map(layer => ({ ...layer, ...fullOf(frame, layer.view) }));
@@ -294,11 +298,14 @@ export function writeStageLegend(legend: HTMLElement, html: string, written: str
  * the left and the other's on the right, its lines dashed; with more, none overlaid (`tooMany`). An axis is named by
  * axisInputOf its lines' inputs. An image keeps one axis; a trigger's events are split as any line (A43).
  */
-export function byReference(frame: Pick<StageFrame, 'strings' | 'picture' | 'allTracks' | 'tracks' | 'role'> & Partial<Pick<StageFrame, 'window'>>, layers: readonly StageLayer[]): {
+export function byReference(frame: Pick<StageFrame, 'strings' | 'picture' | 'allTracks' | 'tracks' | 'role'> & Partial<Pick<StageFrame, 'window' | 'levelOf' | 'comparePath'>>, layers: readonly StageLayer[]): {
     mainLayers: StageLayer[]; secondary?: { layers: StageLayer[]; range: FigureRange; title: FigureTitle }; mainInput: StageTrack['input']; mainNames: FigureNames; tooMany: boolean;
 } {
     const { strings, picture, tracks } = frame;
-    const inputOf = (layer: StageLayer): StageTrack['input'] => frame.allTracks.find(track => track.filePath === layer.recording)?.input ?? tracks[0]?.input;
+    // A line's own recording's input (a track's, else its scan's), the base median's its recordings'; a line of neither
+    // is the compared recording's, whose identity the base set is of, never the first track's (R1).
+    const trackInput = (path: string | null | undefined): StageTrack['input'] => (path ? frame.allTracks.find(track => track.filePath === path)?.input ?? frame.levelOf?.(path) : undefined);
+    const inputOf = (layer: StageLayer): StageTrack['input'] => layer.levelInput ?? trackInput(layer.recording) ?? trackInput(frame.comparePath);
     const base = layers.find(layer => layer.recording !== undefined && frame.role(layer.recording) === 0);
     // An image has one colour bar; a trigger's events are their recordings' lines, split by identity as any line (A43).
     const { axes, tooMany } = levelAxes(layers, {

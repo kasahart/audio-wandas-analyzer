@@ -20,7 +20,7 @@ export const compareDelta: ChartContract = {
         },
         {
             id: 'compare-delta.identity', value: 'identity', what: 'Δ と中央値を出す録音の組（レベルの同一性）',
-            computedIn: ['src/webview/runtime/comparePanes.ts:levelIdentityOf', 'src/webview/runtime/comparePanes.ts:levelIdentity', 'python-backend/level_identity.py:level_identity', 'python-backend/stage_combine.py:_calibration'],
+            computedIn: ['src/webview/runtime/comparePanes.ts:levelIdentityOf', 'src/webview/runtime/figureModel.ts:levelKeyOf', 'src/webview/runtime/figureModel.ts:scanSet', 'python-backend/level_identity.py:level_identity', 'python-backend/stage_combine.py:_calibration'],
             from: 'whole', trace: '単位・基準値・レベル基準の名前の 3 つ（伝達関数は描くペアの単位の比の 3 つ）。webview とバックエンドが同じ表（levelIdentityCases.json）に同じ答えを返す。',
             tests: [
                 t('src/test/levelIdentity.test.ts', 'levels compare only in one unit, reference and its label, whatever their calibration status: the webview answers the table the backend answers (R1, R4, A34)'),

@@ -5,7 +5,7 @@ import type { StageView } from '../../shared/protocol/backendProtocol';
 import type { FrequencyScale } from '../draw/canvasDrawers';
 import { hintAttr } from './hintFooter';
 import { levelBinsOf, type StageLayer } from './stagePanes';
-import { dataRange, gainAxisName, plainNames, plainRange, type FigureNames, type FigureRange } from './figureModel';
+import { dataRange, gainAxisLines, gainAxisName, plainNames, plainRange, type FigureNames, type FigureRange } from './figureModel';
 import { localLine } from './fullRead';
 import { secondsSpanText } from '../plot/plotText';
 import type { TrackId } from './types';
@@ -66,9 +66,7 @@ export function syncReferenceButtons(root: ParentNode, reference: PairReference 
  * A response calibrated to another unit stays in the legend but is not drawn on that axis.
  */
 export function drawnPairCurves(curves: readonly PairCurve[]): PairCurve[] {
-    const ok = curves.filter(curve => curve.response.status === 'ok');
-    const axisLabel = ok[0]?.response.axisLabel;
-    return ok.filter(curve => curve.response.axisLabel === axisLabel);
+    return gainAxisLines(curves.filter(curve => curve.response.status === 'ok'));
 }
 
 export interface PairHeader {
