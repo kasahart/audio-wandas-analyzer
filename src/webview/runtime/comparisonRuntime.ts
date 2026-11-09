@@ -70,6 +70,7 @@ import { attachExclusiveMenus, attachHeightResizeListeners, attachToolbarActions
 import { resultsPaneHtml, trackAudioHtml, type SpectrumBandsSetting } from './resultsPaneHtml';
 import { selectionFolderButton, selectionLayoutHtml } from './selectionLayoutHtml';
 import { ShownSpectrumCursor, SpectrumCommitHold } from './spectrumCommitHold';
+import { createFailureHold, createLatestAnswers, createRequestClock, FAILED_RETRY_MS } from './answerStore';
 import { type AnalysisWindowBand, canvasTimeHit, clampedCanvasNorm, clientToCanvasPixels, CURSOR_LINE_STYLE, drawAnalysisWindowBand, drawDashedTimeLine, drawRectZoomSelection, HOVER_LINE_STYLE, waveformCursorLineStyle } from './canvasOverlays';
 import { applyOverlayCompatibility, calibrationRequest, channelMetricSummaryHtml, ensureCalibrationStyles, hasIncompatibleLevelReferences } from './calibrationDecorations';
 import {
@@ -155,8 +156,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         };
     }
     const TRACK_HEADER_W = 130;
-    // A failed spectrogram is not asked again for this long, so a lane that keeps failing does not loop.
-    const DETAIL_RETRY_MS = 10_000;
+    // A failed spectrogram (the whole file's, a zoom window's) is not asked again until the answer store's pause has
+    // passed, so a lane that keeps failing does not loop and a passing failure does not stay.
+    const detailFailures = createFailureHold();
+    const zoomFailures = createFailureHold();
     const AXIS_W = 64;
     const SIDEBAR_WIDTH_MIN = 160;
     /** The window keeps this much beside a widened side panel. */
@@ -668,7 +671,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         const settingsSignature = currentSettingsSignature();
         const failure = record.detailError;
-        if (failure && failure.settingsSignature === settingsSignature && Date.now() - failure.at < DETAIL_RETRY_MS) {
+        if (failure && failure.settingsSignature === settingsSignature && detailFailures.holds(record.id, settingsSignature)) {
             return;
         }
         const pending = record.requests.pending('detail')?.meta;
@@ -713,8 +716,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const fileView = computeTrackFileView(result, trackIndex);
         return { startNorm: fileView.fileAtZoomStart, endNorm: fileView.fileAtZoomEnd };
     }
-    /** When a zoom window last failed, per track: it is asked again only after a pause, as the whole file's is. */
-    const spectrogramZoomFailedAt = new Map<string, number>();
     /**
      * A lane zoomed past the whole file's spectrogram columns asks for the window it shows (R3): the host sends that
      * window's frames at full resolution, so the lane is drawn again from them instead of the averaged columns stretched.
@@ -742,7 +743,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         const timeWindow = spectrogramZoomWindow(source, view, width);
         const band = bandSource && viewBand ? spectrogramZoomBand(bandSource, viewBand, height) : null;
-        if ((!timeWindow && !band) || Date.now() - (spectrogramZoomFailedAt.get(record.id) ?? -Infinity) < DETAIL_RETRY_MS) {
+        if ((!timeWindow && !band) || zoomFailures.holds(record.id)) {
             return;
         }
         const pending = record.requests.pending('specZoom');
@@ -963,11 +964,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     const updatePlaybackDisplay = createPlaybackDisplay(document, STR.playbackTimePrefix || '▶');
     // ── On-demand range cache ──
     let rangeRequestTimer: number | null = null;
-    /** When each lane's range request on its way was sent; a failed one is never answered, so it is asked again after RANGE_RETRY_MS. */
-    const rangeAskedAt = new Map<string, number>();
-    const RANGE_RETRY_MS = 2000;
+    /** When each lane's range request on its way was sent; a failed one is never answered, so it is asked again after the store's UNANSWERED_RETRY_MS. */
+    const rangeClock = createRequestClock(() => performance.now());
     /** When the range each lane draws was asked for, so an older answer arriving late does not replace a newer one. */
-    const rangeLandedAskedAt = new Map<TrackId, number>();
+    const rangeLandedAskedAt = createLatestAnswers<number>();
     // The full data the lanes' readouts read (R7): each read's answer, on its own requests.
     messaging.onMessage(function (msg) {
         if (msg && laneReads.handle(msg)) testBridge.publishAfterFrame();
@@ -989,9 +989,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         // ...but never over one asked for later that has already landed.
-        const askedAt = rangeAskedAt.get(msg.requestId) ?? -Infinity;
+        const askedAt = rangeClock.landed(msg.requestId);
         record.requests.settle(msg.requestId);
-        rangeAskedAt.delete(msg.requestId);
         if (askedAt < (rangeLandedAskedAt.get(trackId) ?? -Infinity)) {
             return;
         }
@@ -1020,11 +1019,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             record.requests.settle(msg.requestId);
             if (msg.type === 'track-detail-error') {
                 // The lane keeps the whole file's picture; the window is asked again after the pause.
-                spectrogramZoomFailedAt.set(trackId, Date.now());
-                setTimeout(scheduleRangeRequests, DETAIL_RETRY_MS);
+                zoomFailures.fail(trackId);
+                setTimeout(scheduleRangeRequests, FAILED_RETRY_MS);
                 return;
             }
-            spectrogramZoomFailedAt.delete(trackId);
+            zoomFailures.clear(trackId);
             if (state.results[i] && state.results[i].filePath === msg.filePath && Array.isArray(msg.channels)) {
                 record.spectrogramZoom = { startNorm, endNorm, band, analysisId: asked.analysisId,
                     settingsSignature: asked.settingsSignature, spectrograms: msg.channels.map(channel => channel?.spectrogram ?? null) };
@@ -1039,13 +1038,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         record.requests.settle(msg.requestId);
         if (msg.type === 'track-detail-error') {
-            record.detailError = { settingsSignature: pending.settingsSignature, message: msg.error, at: Date.now() };
+            record.detailError = { settingsSignature: pending.settingsSignature, message: msg.error };
+            detailFailures.fail(trackId, pending.settingsSignature);
             scheduleRender();
             // The cause may pass (a restarted backend, memory freed): the lane asks again after the pause.
-            setTimeout(scheduleRender, DETAIL_RETRY_MS);
+            setTimeout(scheduleRender, FAILED_RETRY_MS);
             return;
         }
         record.detailError = null;
+        detailFailures.clear(trackId);
         if (state.results[i] && state.results[i].filePath === msg.filePath && Array.isArray(msg.channels)) {
             mergeDetailSpectrograms(state.results[i].channels, msg.channels);
             scheduleRender();
@@ -1289,7 +1290,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             }
             const pending = record.requests.pending('range');
             // The host answers a failed range with nothing, so a range on its way stops counting after a while and is asked again.
-            const inFlight = pending && performance.now() - (rangeAskedAt.get(pending.requestId) ?? -Infinity) < RANGE_RETRY_MS;
+            const inFlight = pending && rangeClock.waiting(pending.requestId);
             const asked = pending && inFlight ? parseRangeRequestKey(pending.key) : null;
             if (asked && asked.startNorm <= keepStart && asked.endNorm >= keepEnd &&
                 rangeHasDetail(asked.points, asked.startNorm, asked.endNorm, pts, W, fileView.fileAtZoomStart, fileView.fileAtZoomEnd)) {
@@ -1298,11 +1299,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const requestId = nextRequestId('range', record.id);
             // Superseded requests keep their time until answered (an answer may still land); the host cancels most, so
             // the oldest are dropped once many are kept.
-            rangeAskedAt.set(requestId, performance.now());
-            if (rangeAskedAt.size > 256) {
-                const oldest = rangeAskedAt.keys().next().value;
-                if (oldest !== undefined) rangeAskedAt.delete(oldest);
-            }
+            rangeClock.sent(requestId);
             record.requests.ask('range', requestId, `${reqStart}|${reqEnd}|${pts}`, null);
             messaging.post({
                 type: 'request-waveform-range',
@@ -2299,7 +2296,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         };
     }
     /** The bands last drawn, kept while one action's cursor spectra are still arriving so every track's band moves together. */
-    const shownWindowBands = new Map<string, AnalysisWindowBand | null>();
+    const shownWindowBands = createLatestAnswers<AnalysisWindowBand | null>();
     const spectrumCommitHold = new SpectrumCommitHold({
         now: spectrumNow,
         setTimeout: (handler, ms) => window.setTimeout(handler, ms),
@@ -3334,7 +3331,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 const pending = requests?.pending(slot);
                 if (pending) ids.add(pending.requestId);
             });
-            // A redraw asks again for zoom detail only past the range on its way or after RANGE_RETRY_MS: the same span is the same wait.
+            // A redraw asks again for zoom detail only past the range on its way or after UNANSWERED_RETRY_MS: the same span is the same wait.
             const range = requests?.pending('range');
             if (range) ids.add('range:' + i + ':' + range.key);
         });

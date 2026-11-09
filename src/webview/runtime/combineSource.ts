@@ -9,7 +9,7 @@
  */
 import type { CompareCombineMessage, ComparePublication } from '../../shared/analysis/entryScan';
 import type { StageDetail, StageView } from '../../shared/protocol/backendProtocol';
-import { answerKey, createAnswerStore, FAILED_RETRY_MS, type AnswerKey } from './answerStore';
+import { answerKey, createAnswerStore, type AnswerKey } from './answerStore';
 
 /** What a combination gives: the median (of two or more recordings) and the difference. */
 export interface Combined {
@@ -80,12 +80,6 @@ export interface CombineSource {
 }
 
 const CACHED = 64;
-
-/**
- * How long a failed answer stands (ms): until then it is shown as failed rather than asked again on every draw; after
- * it, the next draw asks again, so a passing failure does not stay for good (answerStore decides it for every answer).
- */
-export { FAILED_RETRY_MS as FAILED_HOLD_MS };
 
 /**
  * A combination's key: the data keys it combines (each the backend's hash of the file's version, the Recipe, region,

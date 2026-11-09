@@ -13,6 +13,7 @@
  * localCells); one the backend holds (fetchedSource) asks for the window around the pointer, or the next steps, once,
  * keeps what came, and says when it is in (`ready`): until then the plot shows its marks and no number.
  */
+import { answerKey, createAnswerStore, type AnswerKey } from './answerStore';
 import type { StagePoints, StageRead, StageView } from '../../shared/protocol/backendProtocol';
 
 /** A line's points between two places of its horizontal axis (its own units), with `beyond` more past each end. */
@@ -242,11 +243,10 @@ function seeks(points: FullPoints, x: number, direction: -1 | 1): boolean {
  * asked for meanwhile goes next, so a moving pointer never queues a request per pixel; the latest level asked for
  * meanwhile keeps a place of its own after it, so a moving pointer never starves the line's order (R6).
  */
-/** How long a failed answer is kept before the read is asked again (laneReads' slice, combineSource). */
-export const FAILED_HOLD_MS = 5000;
-
 export function fetchedSource(fetch: (read: StageRead, done: (points: StagePoints | null | undefined) => void) => void, extra: Omit<StageRead, 'x' | 'y' | 'beyond' | 'near' | 'columns' | 'log' | 'level'> = {}, now: () => number = () => Date.now()): FetchedFullSource {
-    const kept: Array<{ key: string; read: StageRead; points: FullPoints | null; at: number }> = [];
+    // The windows read, the latest KEPT: each one's points (ready) or its failure (asked again after the store's pause).
+    const kept = createAnswerStore<{ read: StageRead; points: FullPoints }>({ capacity: KEPT, now });
+    const keyOf = (key: string): AnswerKey => answerKey({ ask: key });
     let busy: string | null = null;
     // Asked for while one is on its way: the pointer's latest read, and the latest level (of the window on screen
     // now). Each keeps its own place, so the line's order is never dropped for a newer read, nor a read for a level;
@@ -255,8 +255,8 @@ export function fetchedSource(fetch: (read: StageRead, done: (points: StagePoint
     let nextLevel: { key: string; read: StageRead } | null = null;
     const waiting = new Set<() => void>();
     const keep = (key: string, read: StageRead, points: FullPoints | null): void => {
-        kept.push({ key, read, points, at: now() });
-        if (kept.length > KEPT) kept.shift();
+        if (points) kept.ready(keyOf(key), { read, points });
+        else kept.fail(keyOf(key));
     };
     const ask = (key: string, read: StageRead): void => {
         busy = key;
@@ -267,7 +267,7 @@ export function fetchedSource(fetch: (read: StageRead, done: (points: StagePoint
             if (points === undefined) { next = null; nextLevel = null; return; }
             keep(key, read, points);
             // The pointer's read first, then the level: the first not answered meanwhile is asked.
-            const unanswered = (item: { key: string } | null): boolean => !!item && !kept.some(done => done.key === item.key);
+            const unanswered = (item: { key: string } | null): boolean => !!item && kept.state(keyOf(item.key)) === 'missing';
             const queued = unanswered(next) ? next : unanswered(nextLevel) ? nextLevel : null;
             if (queued === next || !unanswered(next)) next = null;
             if (queued === nextLevel || !unanswered(nextLevel)) nextLevel = null;
@@ -282,13 +282,12 @@ export function fetchedSource(fetch: (read: StageRead, done: (points: StagePoint
      * come the read is undefined (pending), and the plot shows its marks and no number (R7).
      */
     const answer = (key: string, read: StageRead, ready: () => void, found: (points: FullPoints, asked: StageRead) => boolean): FullAnswer => {
-        for (let index = kept.length - 1; index >= 0; index--) {
-            const item = kept[index];
-            // A failed answer (null) holds for FAILED_HOLD_MS, then is asked again: a passing failure does not stay (C2),
-            // as the cursor spectrum's slice and the combined pictures do.
-            if (item.points === null && now() - item.at >= FAILED_HOLD_MS) { kept.splice(index, 1); continue; }
-            if (item.key === key) return item.points;
-            if (item.points && found(item.points, item.read)) return item.points;
+        // A failed answer (null) holds for the store's pause, then is asked again: a passing failure does not stay (C2),
+        // as the cursor spectrum's slice and the combined pictures do.
+        const own = keyOf(key);
+        for (const [held, item] of kept.newestFirst()) {
+            if (held.id === own.id) return item.state === 'ready' ? item.value.points : null;
+            if (item.state === 'ready' && found(item.value.points, item.value.read)) return item.value.points;
         }
         waiting.add(ready);
         if (busy !== key) {

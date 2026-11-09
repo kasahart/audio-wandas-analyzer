@@ -1,9 +1,6 @@
 /**
  * The collections outside answerStore.ts that outlive a call and hold no answer (answerStoreBoundary.test.ts), each
  * with what it holds instead. The list only shrinks: a cache of answers is never added here, it is moved onto the store.
- *
- * Entries marked MOVE are answers still held outside the store, waiting for the shared-component batch that is editing
- * their files; they are moved onto the store next and taken off.
  */
 export const NOT_ANSWERS: Record<string, string> = {
     // ── Requests on their way (routing: which callback or screen an answer goes to, never the answer) ──
@@ -34,6 +31,7 @@ export const NOT_ANSWERS: Record<string, string> = {
     'src/webview/runtime/entryPlots.ts#overviewCache': 'each overview canvas\'s drawing, redrawn when its rows key changes',
     'src/webview/runtime/entryTableHtml.ts#linesOf': 'a table view\'s lines, keyed by the view object itself',
     'src/webview/runtime/entrySidePlots.ts#windows': 'each side plot\'s zoom window',
+    'src/webview/runtime/entrySidePlots.ts#levels': 'the store\'s levels of the most common reference only, made again on every change to them (version)',
     'src/webview/runtime/entrySidePlots.ts#windowKeys': 'what each side plot\'s zoom window was set for',
     'src/webview/runtime/pairSpectrumPanel.ts#drawn': 'each pair plot\'s last drawing, for the pointer and gestures',
     'src/webview/runtime/pairSpectrumPanel.ts#levelWindow': 'each pair plot\'s level zoom',
@@ -77,24 +75,4 @@ export const NOT_ANSWERS: Record<string, string> = {
     'src/webview/runtime/staticDownloads.ts#entries': 'files of one download being written',
     'src/webview/panels/ComparisonPanel.ts#testSnapshotsByActionId': 'test bridge snapshots by action id',
     'src/webview/panels/ComparisonPanel.ts#resultsByPanel': 'host side: the analysis results each panel was last sent, to send again on reload',
-
-    // ── MOVE: answers still outside the store, in files the shared-component batch is editing ──
-    'src/webview/runtime/fullRead.ts#kept': 'MOVE: full-data windows read (onto createAnswerStore, empty windows as the empty state)',
-    'src/webview/runtime/stageReader.ts#sources': 'MOVE: each combined picture\'s full-data source (onto createAnswerStore.keep)',
-    'src/webview/runtime/comparisonRuntime.ts#spectrogramZoomFailedAt': 'MOVE: when a lane\'s zoom window failed (onto createFailureHold)',
-    'src/webview/runtime/comparisonRuntime.ts#rangeAskedAt': 'MOVE: when each range request was sent (onto createRequestClock)',
-    'src/webview/runtime/comparisonRuntime.ts#rangeLandedAskedAt': 'MOVE: when the range each lane draws was asked for (onto createRequestClock)',
-    'src/webview/runtime/comparisonRuntime.ts#shownWindowBands': 'MOVE: the cursor spectrum\'s bands kept while its slices arrive',
-    'src/webview/runtime/entrySidePlots.ts#levels': 'MOVE: each scanned recording\'s band levels by row, indexed from the entry results',
-    'src/webview/runtime/entrySidePlots.ts#levelRows': 'MOVE: the rows of the levels each recording has',
-    'src/webview/runtime/entrySidePlots.ts#levelLabels': 'MOVE: each recording\'s level identity, indexed from its scan',
-    'src/webview/runtime/entrySidePlots.ts#calibrated': 'MOVE: the recordings scanned with a calibration',
 };
-
-/** Retry and failure-pause names still outside the store, in files the shared-component batch is editing (MOVE). */
-export const RETRY_TO_MOVE: string[] = [
-    'src/webview/runtime/comparisonRuntime.ts#DETAIL_RETRY_MS',
-    'src/webview/runtime/comparisonRuntime.ts#spectrogramZoomFailedAt',
-    'src/webview/runtime/comparisonRuntime.ts#RANGE_RETRY_MS',
-    'src/webview/runtime/fullRead.ts#FAILED_HOLD_MS',
-];

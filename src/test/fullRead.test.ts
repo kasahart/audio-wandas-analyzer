@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { FAILED_HOLD_MS, fetchedSource, localCells, localLine, mappedSource, NO_FULL_DATA, STEP_AHEAD, wholeBars, type FullSource, type LineQuery } from '../webview/runtime/fullRead';
+import { FAILED_RETRY_MS as FAILED_HOLD_MS } from '../webview/runtime/answerStore';
+import { fetchedSource, localCells, localLine, mappedSource, NO_FULL_DATA, STEP_AHEAD, wholeBars, type FullSource, type LineQuery } from '../webview/runtime/fullRead';
 import { declaresFullRead, stageHover, stageStep, type StagePlot, type StageRead } from '../webview/runtime/stagePanes';
 import { HOVER_PICK_RADIUS_PX } from '../webview/runtime/plotHover';
 import { createStageReader } from '../webview/runtime/stageReader';

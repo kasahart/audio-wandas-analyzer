@@ -1,3 +1,4 @@
+import { createLatestAnswers, type LatestAnswers } from './answerStore';
 import type {
     ComparisonTrackState,
     LazyRequestState,
@@ -24,10 +25,11 @@ export interface TrackRecord {
     /** What the track asked the host for: its waveform range ('range'), spectrogram ('detail') and cursor spectrum ('slice'). */
     readonly requests: HostRequests<LazyRequestState | null>;
     /** The host's answer when the spectrogram failed: shown in the lane, and asked again only after a pause. */
-    detailError: { settingsSignature: string; message: string; at: number } | null;
+    detailError: { settingsSignature: string; message: string } | null;
     /** A zoomed lane's spectrogram window, asked again at full resolution (R3); drawn while it covers the view. */
     spectrogramZoom: SpectrogramZoom | null;
-    readonly spectrumSliceCache: Map<number, SpectrumSlice>;
+    /** Each channel's cursor slice last answered (answerStore: one per channel, checked against the cursor by sliceIsCurrentAt). */
+    readonly spectrumSliceCache: LatestAnswers<SpectrumSlice, number>;
 }
 
 export interface SpectrogramZoom {
@@ -269,7 +271,7 @@ export class TrackStore {
             requests: new HostRequests(),
             detailError: null,
             spectrogramZoom: null,
-            spectrumSliceCache: new Map(),
+            spectrumSliceCache: createLatestAnswers<SpectrumSlice, number>(),
         };
         result.trackId = id;
         this.records.set(id, record);
