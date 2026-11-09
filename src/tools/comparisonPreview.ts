@@ -198,6 +198,8 @@ function buildResultsPreviewHtmlInternal(options?: {
                     return {
                         label: channelIndex === 0 ? 'L' : 'R',
                         peakAbsolute: 0.96, fullScale: true,
+                        // As the backend names every channel's level reference.
+                        sourceUnit: 'FS', sourceLevelReferenceLabel: 'dBFS',
                         waveform: buildDummyWaveform(96, phase),
                         spectrogram: includeSpectrogram ? {
                             values: buildDummySpectrogram(64, 32, phase),
