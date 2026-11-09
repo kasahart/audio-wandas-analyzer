@@ -344,7 +344,7 @@ test('the comparison\'s step bar grows the chain with ＋, offers only what take
     // As on the spectrum overlay under the tracks: the line nearest the pointer drawn thicker, the cursor at its
     // point, and its name, where and its value in its colour.
     await expect(page.locator('.track-stage-cursor')).toBeVisible();
-    await expect(page.locator('.track-stage-controls [data-plot-readout]')).toHaveText(/^.+ \/ [\d.]+ k?Hz \/ −?\d+\.\d dB$/);
+    await expect(page.locator('.track-stage-controls [data-plot-readout]')).toHaveText(/^.+ \/ [\d.]+ k?Hz \/ −?\d+\.\d dBFS$/);
     const readoutColor = await page.locator('.track-stage-controls [data-plot-readout]').evaluate(element => (element as HTMLElement).style.color);
     // In the row just above the plots, as the cursor spectrum's readout is in its header (R7).
     await expect(page.locator('.track-stage-controls [data-plot-readout]:not([hidden])')).toHaveCount(1);
@@ -571,7 +571,7 @@ test('the readout row above the comparison keeps the values whole at any width, 
         const before = (await plot.boundingBox())!;
         await page.mouse.move(before.x + 52 + (before.width - 56) / 2, before.y + before.height / 2);
         const readout = page.locator('.track-stage-controls [data-plot-readout]');
-        await expect(readout).toHaveText(/ \/ [\d.]+ k?Hz \/ −?\d+\.\d dB$/);
+        await expect(readout).toHaveText(/ \/ [\d.]+ k?Hz \/ −?\d+\.\d dBFS$/);
         // The values end inside the row and the window (the canvas audit checks this in every test too); the row is above the plot.
         const values = (await readout.locator('.plot-readout-values').boundingBox())!;
         const rowBox = (await row.boundingBox())!;
