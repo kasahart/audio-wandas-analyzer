@@ -45,7 +45,6 @@ export const NOT_ANSWERS: Record<string, string> = {
     'src/webview/runtime/stagePanes.ts#fulls': 'one hover read\'s points per line (within the call; its callback is run at once)',
     'src/webview/runtime/entryRuntime.ts#written': 'the text last written into each element, to skip unchanged writes',
     'src/webview/runtime/trackStageMode.ts#laneDetail': 'one draw\'s detail specs per lane (the pictures are the stage source\'s)',
-    'src/webview/runtime/trackStagePainter.ts#statuses': 'one call\'s calibration statuses per level identity',
     'src/webview/runtime/trackStageMode.ts#drawnOn': 'what each stage element last drew',
     'src/webview/runtime/trackCanvasPainter.ts#laneWaveforms': 'a waveform\'s lane drawing, keyed by the envelope object itself',
     'src/webview/runtime/trackCanvasPainter.ts#laneMatrices': 'a spectrogram\'s matrix for drawing, keyed by the spectrogram object itself',

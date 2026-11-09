@@ -35,12 +35,12 @@ export function byLevelKey<T>(items: readonly T[], keyOf: (item: T) => string): 
  * (axisInputOf); '' elsewhere, where the axis' own name says it.
  */
 export function calibrationWordsBy<T>(items: readonly T[], keyOf: (item: T) => string, calibrated: (item: T) => boolean, word: string): (item: T) => string {
-    const statuses = new Map<string, Set<boolean>>();
-    for (const item of items) {
+    // Read from the items themselves each time: nothing is kept between calls.
+    return item => {
+        if (calibrated(item)) return '';
         const key = keyOf(item);
-        statuses.set(key, (statuses.get(key) ?? new Set()).add(calibrated(item)));
-    }
-    return item => (!calibrated(item) && (statuses.get(keyOf(item))?.size ?? 0) > 1 ? word : '');
+        return items.some(other => calibrated(other) && keyOf(other) === key) ? word : '';
+    };
 }
 
 /**
