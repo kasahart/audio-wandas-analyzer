@@ -11,7 +11,8 @@ import { median } from '../../shared/dataset/distribution';
 import { channelResult } from '../../shared/recipe/channelSelection';
 import { buildCompareModel, groupMedian, ofOneUnit, type CompareModel } from './comparePanes';
 import { comparedKeys, roleKey } from './entrySlots';
-import { figureUsed, scanAnswer } from './figureModel';
+import { scanAnswer, type ScanAnswer } from './answerStore';
+import { figureUsed } from './figureModel';
 import { type BaseDefinition, type EntryModel } from './entryTable';
 
 /** A channel row of a recording of several channels is compared as that channel; otherwise the channels together. */
@@ -41,6 +42,8 @@ export interface EntryBaseDeps {
     groupLabel(id: GroupId): string;
     rowName(key: string): string;
     results: ReadonlyMap<string, ScanResult>;
+    /** A file's scan as the answer store hands it (its state and identity); from `results` when not given. */
+    answerOf?(path: string): ScanAnswer;
     /** Whether a file's result is of an earlier chain. */
     isStale(path: string): boolean;
     entryModel(): EntryModel;
@@ -95,7 +98,7 @@ export function createEntryBase(deps: EntryBaseDeps): EntryBase {
      */
     function measuredOf(paths: readonly string[]): { measured: number; failed: number; pending: number } {
         // From the answers' states (figureModel.figureUsed): only a ready one is counted, never one still computing.
-        const { n, excluded } = figureUsed(paths.map(path => scanAnswer(path, results.get(path))));
+        const { n, excluded } = figureUsed(paths.map(path => deps.answerOf?.(path) ?? scanAnswer(path, results.get(path))));
         return { measured: n, failed: excluded.filter(item => item.reason === 'failed').length, pending: excluded.filter(item => item.reason === 'pending').length };
     }
     /** "median of 3 · 1 failed left out · 1 still computing": the count every base title and its definition say. */

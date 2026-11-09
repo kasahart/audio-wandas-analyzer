@@ -19,7 +19,7 @@ export const entryTable: ChartContract = {
         },
         {
             id: 'entry-table.delta', value: 'delta', what: 'entry-table.csv の Δ・最大の帯・基準群 n（画面の比較と同じ基準に対して）',
-            computedIn: ['src/webview/runtime/entryBase.ts:fileComparison', 'src/webview/runtime/compareReport.ts:entryMeasure', 'src/webview/runtime/entryTable.ts:entryCsv', 'src/webview/runtime/entryTable.ts:maxBandDelta', 'src/webview/runtime/entryTable.ts:mostTellingBand', 'src/webview/runtime/figureModel.ts:figureUsed', 'src/webview/runtime/figureModel.ts:scanAnswer'],
+            computedIn: ['src/webview/runtime/entryBase.ts:fileComparison', 'src/webview/runtime/compareReport.ts:entryMeasure', 'src/webview/runtime/entryTable.ts:entryCsv', 'src/webview/runtime/entryTable.ts:maxBandDelta', 'src/webview/runtime/entryTable.ts:mostTellingBand', 'src/webview/runtime/figureModel.ts:figureUsed', 'src/webview/runtime/answerStore.ts:scanAnswer'],
             from: 'whole', trace: 'スキャンの全データの値と、比較が使う基準（entryBase.resolve: スロット 0、または除外・絞り込み・スロット・単位・チャンネルを考えた群の中央値）。CSV が自分で群を作ることはない。（描くために間引いた形はない）',
             tests: [
                 t('src/test/entryTable.test.ts', 'a file row has no Δ of its own: the CSV writes what `measure` (the screen\'s base) gives, the band centre as its column names it'),

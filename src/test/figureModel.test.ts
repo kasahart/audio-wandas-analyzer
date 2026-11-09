@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
+import { scanAnswer } from '../webview/runtime/answerStore';
 import { getStrings } from '../shared/i18n/strings';
 import type { ScanResult } from '../shared/protocol/backendProtocol';
 import type { Answer } from '../webview/runtime/answerTypes';
@@ -9,7 +10,7 @@ import { buildCompareModel, type LevelInput } from '../webview/runtime/comparePa
 import { baseUsed, reportCsv, reportLevelAxes } from '../webview/runtime/compareReport';
 import { BAND_CENTERS_HZ, buildEntryModel, entryCsv } from '../webview/runtime/entryTable';
 import {
-    byLevelKey, calibrationWords, calibrationWordsBy, figureUsed, levelAxes, levelColumns, levelKeyOf, levelKeyOfReading, plainNames, plainRange, scanAnswer,
+    byLevelKey, calibrationWords, calibrationWordsBy, figureUsed, levelAxes, levelColumns, levelKeyOf, levelKeyOfReading, plainNames, plainRange,
     type FigureColumns, type FigureNames, type FigureRange, type FigureTitle,
 } from '../webview/runtime/figureModel';
 import { buildSpectrumCsv } from '../webview/runtime/runtimeExports';

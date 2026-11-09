@@ -1,6 +1,5 @@
 import { HEATMAP_DB_SPAN, heatmapDbRange, niceRange } from '../../shared/utils/ticks';
 import { WAVEFORM_HALF_HEIGHT_RATIO } from '../waveform/waveformLayout';
-import type { ScanResult } from '../../shared/protocol/backendProtocol';
 import type { Answer, AnswerIdentity } from './answerTypes';
 // stagePanes before comparePanes: the two import each other, and comparePanes' PANE_LEFT is read as stagePanes loads.
 import { stageAxes, stageDiffRange, stageRange, type StageAxes, type StageStrings } from './stagePanes';
@@ -312,18 +311,3 @@ export function figureUsed<T>(answers: ReadonlyArray<Answer<T>>, identity?: stri
     return { used, excluded, n: used.length, paths: used.map(item => item.path) };
 }
 
-// ── Adapters (until the answer store hands Answers) ───────────────────────────────────────────────────────────────
-
-const UNKNOWN = '';
-
-/** An answer's identity from what a scan says of its file: only its path and level are known here. */
-function identityOf(path: string, level: LevelInput | undefined): AnswerIdentity {
-    return { path, fileVersion: UNKNOWN, calibrationSignature: UNKNOWN, level: level ?? { unit: '', ref: 1, levelReferenceLabel: '', calibrationStatus: 'uncalibrated', fullScale: true }, recipeKey: UNKNOWN, region: UNKNOWN, conditionId: UNKNOWN };
-}
-
-/** A scan's result as an answer: none yet is pending, one that did not read its file failed. */
-export function scanAnswer(path: string, result: ScanResult | undefined): Answer<ScanResult & { ok: true }> {
-    if (!result) return { state: 'pending', identity: identityOf(path, undefined) };
-    if (!result.ok) return { state: 'failed', identity: identityOf(path, undefined) };
-    return { state: 'ready', value: result as ScanResult & { ok: true }, identity: identityOf(path, result.input) };
-}

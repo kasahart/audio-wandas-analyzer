@@ -13,6 +13,7 @@
  *
  * What a figure draws of the answers, and which files it counts, is the figure model's (figureModel.ts), never this.
  */
+import type { ScanResult } from '../../shared/protocol/backendProtocol';
 import type { Answer, AnswerIdentity } from './answerTypes';
 
 /** How long a failed answer stands (ms): until then it reads as failed; after it, the next ask sends it again. */
@@ -325,4 +326,41 @@ export function createFailureHold(now: () => number = () => Date.now()): Failure
             else failed.delete(subject);
         },
     };
+}
+
+/** A scan's answer: ready with its result when it read its file, failed when it did not, pending while none is in. */
+export type ScanAnswer = Answer<ScanResult & { ok: true }>;
+
+/** What a scan without a file read says its levels are in: nothing known, so uncalibrated full scale. */
+const UNREAD_LEVEL: AnswerIdentity['level'] = { unit: '', ref: 1, levelReferenceLabel: '', calibrationStatus: 'uncalibrated', fullScale: true };
+
+/**
+ * A file's scan as an answer, with the identity the scan gives it: its file version (input.id), calibration status,
+ * level, condition (conditionId: the backend's hash of the version, calibration, unit and reference) and, when known,
+ * the recipe and region it was measured with. Whether a scan counts is decided here alone: no result yet is pending,
+ * one that did not read its file is failed.
+ */
+export function scanAnswer(path: string, result: ScanResult | undefined, under?: { recipeKey?: string; region?: string }): ScanAnswer {
+    const identity: AnswerIdentity = {
+        path,
+        fileVersion: result?.input?.id ?? '',
+        calibrationSignature: result?.input?.calibrationStatus ?? '',
+        level: result?.ok && result.input ? result.input : UNREAD_LEVEL,
+        recipeKey: under?.recipeKey ?? '',
+        region: under?.region ?? '',
+        conditionId: result?.conditionId ?? '',
+    };
+    if (!result) return { state: 'pending', identity };
+    if (!result.ok) return { state: 'failed', identity };
+    return { state: 'ready', value: result as ScanResult & { ok: true }, identity };
+}
+
+/** The latest scan of each file, handed as answers (scanAnswer) with the recipe each was measured with. */
+export interface ScanAnswers extends LatestAnswers<ScanResult> {
+    answer(path: string): ScanAnswer;
+}
+
+export function createScanAnswers(): ScanAnswers {
+    const latest = createLatestAnswers<ScanResult>();
+    return { ...latest, view: latest.view, failures: latest.failures, answer: path => scanAnswer(path, latest.get(path), latest.under(path)) };
 }

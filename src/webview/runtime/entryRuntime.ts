@@ -6,7 +6,7 @@
  * M (its memo), Enter (open the slotted rows), ↑/↓ (move), Esc (close what is open, then leave). Keys on a
  * button or a field are that element's own.
  */
-import { createLatestAnswers } from './answerStore';
+import { createScanAnswers } from './answerStore';
 import { redrawWhenResized } from './canvasResize';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import type { UiStrings } from '../../shared/i18n/strings';
@@ -283,7 +283,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
 
     let filePaths: string[] = [];
     /** Each file's latest scan, with the Recipe it was measured with (recipeKey of the run): a result of another chain is greyed. */
-    const scans = createLatestAnswers<ScanResult>();
+    const scans = createScanAnswers();
     const results = scans.view;
     function noteResult(filePath: string, result: ScanResult, recipe: string): void {
         scans.set(filePath, result, { recipeKey: recipe });
@@ -664,7 +664,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     const entryBase = createEntryBase({
         strings, slots: () => slots, rows: () => rows, rowOf, pool: () => distributionPool(), group: () => chosen.group, baseGroup: () => chosen.baseGroup,
         narrowedBy: () => chosen.filters.filter(filter => filter.column !== chosen.value).map(chipText),
-        groupLabel, rowName: key => rowName(key), results, isStale, entryModel,
+        groupLabel, rowName: key => rowName(key), results, answerOf: path => scans.answer(path), isStale, entryModel,
     });
     /** A compared file as the comparison names it: its name and channel, the value on show, its memo. */
     function rowInfo(path: string): { label: string; value: string; memo: string } {
