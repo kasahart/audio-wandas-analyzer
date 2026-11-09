@@ -362,7 +362,10 @@ function installCanvasAudit({ settle, measureMs, others, drawnOutside, svgCharts
             .filter(other => other !== canvas && shownBox(other) && (!other.hasAttribute('data-plot') || (!!stack && stack.contains(other))))
             .flatMap(other => (other as Texted).__plotTexts ?? []);
         if (shared.includes(name)) return true;
-        return Array.from(document.querySelectorAll<HTMLElement>('body *')).some(element => element.children.length === 0 && element.checkVisibility() && element.textContent?.trim() === name);
+        // Written as text only in the element the plot names for its axis names (data-plot-names: the cursor
+        // spectrum's legend of its level axes), never anywhere on the page that happens to read the same (C6).
+        const names = canvas.dataset.plotNames ? document.getElementById(canvas.dataset.plotNames) : null;
+        return !!names && Array.from(names.querySelectorAll<HTMLElement>('*')).some(element => element.children.length === 0 && element.checkVisibility() && element.textContent?.trim() === name);
     };
     const samplePlots = (): void => {
         const now = performance.now();

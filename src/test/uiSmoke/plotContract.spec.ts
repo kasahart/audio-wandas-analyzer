@@ -173,7 +173,9 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
         const shown = Array.from(document.querySelectorAll<Texted>('canvas'))
             .filter(other => other !== canvas && other.checkVisibility() && (!other.hasAttribute('data-plot') || (!!stack && stack.contains(other))))
             .flatMap(other => other.__plotTexts ?? []);
-        const pageText = (name: string): boolean => Array.from(document.querySelectorAll<HTMLElement>('body *')).some(element => element.children.length === 0 && element.checkVisibility() && element.textContent?.trim() === name);
+        // As text, only in the element the plot names for its axis names (data-plot-names), never elsewhere on the page (C6).
+        const namesHost = canvas.getAttribute('data-plot-names') ? document.getElementById(canvas.getAttribute('data-plot-names') ?? '') : null;
+        const pageText = (name: string): boolean => !!namesHost && Array.from(namesHost.querySelectorAll<HTMLElement>('*')).some(element => element.children.length === 0 && element.checkVisibility() && element.textContent?.trim() === name);
         return names.map(name => NAME.test(name.trim()) && (fits(own, name) || shown.includes(name) || pageText(name)));
     }, names);
     // Both axes, and a right-hand level axis where there is one.
