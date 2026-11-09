@@ -811,6 +811,7 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
         canvas.dataset.plotAxes = overlay.layers.length ? `${axes.x}|${axes.y}` : '';
         canvas.dataset.plotOrder = '';
         canvas.dataset.plotFull = '';
+        canvas.dataset.plotColour = '';
     }
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
     context.clearRect(0, 0, width, height);
@@ -967,6 +968,8 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
         const low = signedScale ? -edge : range.min, high = signedScale ? edge : range.max;
         const endText = (value: number): string => levelTick(value, high - low);
         // Under the region's corner tag when there is one, as the pending note is.
+        // What the colour measures, named on the canvas: every ui-smoke test fails a colour bar that does not draw it (R4).
+        if (canvas.dataset) canvas.dataset.plotColour = axes.colour ?? '';
         plot.colourBar = paintColourBar(context, { left: left + 4, right: left + plotWidth - 4, top: colourBarTop(top, options.region?.mark === 'tag') }, axes.colour ?? '', endText(low), endText(high), fraction => {
             const [r, g, b] = unpackRgb(colourOfCell(low + fraction * (high - low)));
             return `rgb(${r}, ${g}, ${b})`;
@@ -1094,7 +1097,7 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
     if (options.secondary && !heatmap) paintRightAxis(context, frame, levelTicks.map(tick => tick.fraction), options.secondary.range, options.secondary.title, width, { muted, line, text });
     // Under the region's corner tag when there is one.
     // A heatmap's colour bar holds that corner: the note goes under it.
-    if (options.pending) paintPending(context, options.pending, left + plotWidth - 6, heatmap ? colourBarTop(top, options.region?.mark === 'tag') + 23 : top + (options.region?.mark === 'tag' ? 38 : 12), 'right', pendingColors);
+    if (options.pending) paintPending(context, options.pending, left + plotWidth - 6, heatmap && plot.colourBar ? plot.colourBar.y + plot.colourBar.height + 9 : top + (options.region?.mark === 'tag' ? 38 : 12), 'right', pendingColors);
     return plot;
 }
 
@@ -1143,43 +1146,60 @@ export interface ColourBarBox { x: number; y: number; width: number; height: num
 /**
  * A heatmap's colour bar, for every picture drawn in colours (the comparison's heatmaps, a track's spectrogram): its
  * name, then the low end, a strip of the colours and the high end, on a backing box. Returns the box.
+ * The name is never left out (R4): beside the scale when it fits there whole; else on its own row(s) above the scale,
+ * across the plot's width, fitted as every axis name is (axisTitle.ts fitAxisTitle: smaller, on two lines, then its
+ * quantity shortened, but always its quantity and its unit).
  */
 export function paintColourBar(context: CanvasRenderingContext2D, at: { left: number; right: number; top: number }, fullTitle: string, lowText: string, highText: string, colourAt: (fraction: number) => string, colors: { text: string; back: string; line: string }): ColourBarBox {
-    const strip = 48, height = 6, gap = 4, pad = 3;
-    const lowWidth = context.measureText(lowText).width;
-    const highWidth = context.measureText(highText).width;
+    const strip = 48, height = 6, gap = 4, pad = 3, row = 14, titleRow = 12;
+    const measure = (text: string): number => context.measureText(text).width;
+    const lowWidth = measure(lowText);
+    const highWidth = measure(highText);
     const scale = pad + lowWidth + gap + strip + gap + highWidth + pad;
-    // In a narrow plot the name shortens its quantity and keeps its unit ("Amp… [dBFS]"), then is left out: the bar
-    // stays inside the plot.
     const room = at.right - at.left - scale - gap * 2;
-    const fitted = fullTitle ? fitAxisTitle(fullTitle, room, part => context.measureText(part).width, { minScale: 1 }).lines.join(' ') : '';
-    const title = fitted && context.measureText(fitted).width <= room ? fitted : '';
-    const parts = [context.measureText(title).width, lowWidth];
-    const width = scale + (title ? parts[0] + gap * 2 : 0);
-    const x = at.right - width, y = at.top;
+    const inline = fullTitle && measure(fullTitle) <= room ? fullTitle : '';
+    // Not beside the scale: above it, as wide as the plot is.
+    const above = fullTitle && !inline ? fitAxisTitle(fullTitle, Math.max(1, at.right - at.left - pad * 2), measure, { lines: 2 }) : null;
+    const font = context.font;
+    const titleFont = above ? scaledFont(font, above.scale) : font;
+    context.save();
+    context.font = titleFont;
+    const aboveWidth = above ? Math.max(...above.lines.map(measure)) : 0;
+    context.restore();
+    const inlineWidth = inline ? measure(inline) + gap * 2 : 0;
+    const width = Math.max(scale + inlineWidth, above ? aboveWidth + pad * 2 : 0);
+    const titleHeight = above ? above.lines.length * titleRow : 0;
+    const x = Math.max(at.left, at.right - width), y = at.top;
+    const boxWidth = at.right - x;
     context.save();
     context.globalAlpha = 0.8;
     context.fillStyle = colors.back;
-    context.fillRect(x, y, width, 14);
+    context.fillRect(x, y, boxWidth, titleHeight + row);
     context.globalAlpha = 1;
     context.fillStyle = colors.text;
     context.textBaseline = 'middle';
     context.textAlign = 'left';
-    let cursor = x + pad;
-    if (title) { context.fillText(title, cursor, y + 7); cursor += parts[0] + gap * 2; }
-    context.fillText(lowText, cursor, y + 7);
-    cursor += parts[1] + gap;
+    if (above) {
+        context.font = titleFont;
+        above.lines.forEach((line, index) => context.fillText(line, at.right - pad - measure(line), y + titleRow * index + titleRow / 2 + 1));
+        context.font = font;
+    }
+    const scaleY = y + titleHeight + row / 2;
+    let cursor = at.right - scale - inlineWidth + pad;
+    if (inline) { context.fillText(inline, cursor, scaleY); cursor += inlineWidth; }
+    context.fillText(lowText, cursor, scaleY);
+    cursor += lowWidth + gap;
     const gradient = context.createLinearGradient(cursor, 0, cursor + strip, 0);
     for (let step = 0; step <= 8; step++) gradient.addColorStop(step / 8, colourAt(step / 8));
     context.fillStyle = gradient;
-    context.fillRect(cursor, y + 7 - height / 2, strip, height);
+    context.fillRect(cursor, scaleY - height / 2, strip, height);
     context.strokeStyle = colors.line;
     context.lineWidth = 1;
-    context.strokeRect(cursor, y + 7 - height / 2, strip, height);
+    context.strokeRect(cursor, scaleY - height / 2, strip, height);
     context.fillStyle = colors.text;
-    context.fillText(highText, cursor + strip + gap, y + 7);
+    context.fillText(highText, cursor + strip + gap, scaleY);
     context.restore();
-    return { x, y, width, height: 14 };
+    return { x, y, width: boxWidth, height: titleHeight + row };
 }
 
 /**

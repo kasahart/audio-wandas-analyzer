@@ -3,6 +3,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { spectrumLayer } from '../webview/runtime/overlaySpectrumPainter';
+import { axisNameParts, fontPixels } from '../webview/plot/axisTitle';
 import { axisFractionOf, axisValueAt, byLevel, levelBinsOf, emptyStageText, eventLayers, paintOverlay, stageAxes, paintColourBar, colourBarTop, stageEventCounts, stageDiffRange, stageHeadline, stageRange, stageHover, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
 import type { StageView } from '../shared/protocol/backendProtocol';
 import { fetchedSource, localLine } from '../webview/runtime/fullRead';
@@ -352,30 +353,41 @@ test('a level drawn with no levels from its values before thinning is written as
     assert.match(canvas.dataset.plotOrder ?? '', /\?/u);
 });
 
-test('a colour bar stays inside a narrow plot: its name shortens its quantity and keeps its unit, then is left out', () => {
-    // 10px sans-serif, about 5.6 px a character.
-    const drawn: Array<{ text: string; x: number }> = [];
-    let box = { x: 0, width: 0 };
+test('a colour bar stays inside a narrow plot and never leaves out its name: beside the scale, else above it, shortened only as every axis name is (R4)', () => {
+    // 10px sans-serif, about 5.6 px a character (at the font's own size).
+    const drawn: Array<{ text: string; x: number; y: number; font: string }> = [];
+    let box = { x: 0, width: 0, height: 0 };
     const context = {
-        measureText: (text: string) => ({ width: text.length * 5.6 }),
-        fillText: (text: string, x: number) => drawn.push({ text, x }),
-        fillRect: (x: number, _y: number, width: number) => { if (!box.width) box = { x, width }; },
+        font: '10px sans-serif',
+        measureText(this: { font: string }, text: string) { return { width: text.length * 5.6 * (fontPixels(this.font) / 10) }; },
+        fillText(this: { font: string }, text: string, x: number, y: number) { drawn.push({ text, x, y, font: this.font }); },
+        fillRect: (x: number, _y: number, width: number, height: number) => { if (!box.width) box = { x, width, height }; },
         createLinearGradient: () => ({ addColorStop: () => undefined }),
         strokeRect: () => undefined, save: () => undefined, restore: () => undefined,
     } as unknown as CanvasRenderingContext2D;
+    const name = 'Amplitude, uncalibrated [dBFS]';
     const paint = (left: number, right: number) => {
-        drawn.length = 0; box = { x: 0, width: 0 };
-        paintColourBar(context, { left, right, top: 0 }, 'Amplitude, uncalibrated [dBFS]', '−80', '0', () => '#000', { text: '#000', back: '#fff', line: '#000' });
-        return { titles: drawn.map(item => item.text).filter(text => text !== '−80' && text !== '0'), left: box.x };
+        drawn.length = 0; box = { x: 0, width: 0, height: 0 };
+        const returned = paintColourBar(context, { left, right, top: 0 }, name, '−80', '0', () => '#000', { text: '#000', back: '#fff', line: '#000' });
+        const titles = drawn.filter(item => item.text !== '−80' && item.text !== '0');
+        return { titles: titles.map(item => item.text), drawn: [...drawn], left: box.x, returned };
     };
-    assert.deepEqual(paint(56, 600).titles, ['Amplitude, uncalibrated [dBFS]'], 'a wide plot names it in full');
-    const mid = paint(56, 296);
-    assert.equal(mid.titles.length, 1);
-    assert.match(mid.titles[0], /^Amplitude, unc.*… \[dBFS\]$/u, 'its quantity, shortened, and its unit');
-    assert.ok(mid.left >= 56, 'inside the plot');
-    const narrow = paint(56, 150);
-    assert.deepEqual(narrow.titles, []);
-    assert.ok(narrow.left >= 56);
+    const wide = paint(56, 600);
+    assert.deepEqual(wide.titles, [name], 'a wide plot names it in full, beside the scale');
+    assert.equal(new Set(wide.drawn.map(item => item.y)).size, 1, 'on one row');
+    for (const right of [296, 200, 150, 110]) {
+        const narrow = paint(56, right);
+        assert.ok(narrow.titles.length >= 1, `${right}: its name is drawn`);
+        const joined = narrow.titles.length === 2 ? `${narrow.titles[0]} ${narrow.titles[1]}` : narrow.titles[0];
+        assert.ok(axisNameParts(joined), `${right}: its quantity and its unit: ${narrow.titles.join(' / ')}`);
+        assert.ok(narrow.titles.some(text => text.includes('[dBFS]')), `${right}: its unit`);
+        assert.ok(narrow.titles.some(text => /^Amp/u.test(text)), `${right}: its quantity, whole or shortened`);
+        assert.ok(narrow.left >= 56, `${right}: inside the plot`);
+        const scaleY = narrow.drawn.find(item => item.text === '−80')?.y ?? 0;
+        assert.ok(narrow.drawn.filter(item => narrow.titles.includes(item.text)).every(item => item.y < scaleY), `${right}: above the scale`);
+        assert.ok(narrow.returned.height > 14, `${right}: its box holds the name's row`);
+    }
+    assert.deepEqual(paint(56, 296).titles, [name], 'with the plot\'s width, the name is whole above the scale');
 });
 
 test("a colour bar moves under the region's corner tag, which covers the plot's top right from 4 to 21 px down", () => {
