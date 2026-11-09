@@ -290,7 +290,7 @@ test('the entry table speaks Japanese with few words: value and group, the CSV, 
     await expect(page.locator('[data-entry-head] th').nth(1)).toContainText(STR.entryColFile);
 });
 
-test('a folder of 1000 recordings draws only the rows on screen', async ({ page }) => {
+test('a folder of 1000 recordings draws only the rows on screen, but its head and its filter lists count every row, not the rows drawn', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     const STR = getStrings('ja');
     const many = Array.from({ length: 1000 }, (_, index) => ({ ...scanned![index % 90], filePath: `/many/f${String(index).padStart(4, '0')}.wav` }));
@@ -300,6 +300,10 @@ test('a folder of 1000 recordings draws only the rows on screen', async ({ page 
     if (process.env['AWA_PERF'] === '1') expect(ms).toBeLessThan(3000);
     expect(await page.locator('[data-entry-rows] tr.entry-row').count()).toBeLessThan(80);
     await expect(page.locator('.entry-th-count')).toHaveText(STR.dsRows.replace('{n}', '1,967'));
+    // The ch filter's list counts every row of each channel, the rows drawn or not.
+    await filterBy(page, 'ch');
+    const counts = (await page.locator('[data-entry-flist] .entry-ck-n').allTextContents()).map(text => Number(text.replace(/,/g, '')));
+    expect(counts.reduce((sum, n) => sum + n, 0)).toBe(1967);
 });
 
 test('the step bar (in 比較解析) shows every step of the scan Recipe; an invalid value keeps Apply off and a valid one rescans the table', async ({ page }) => {

@@ -6,6 +6,8 @@ import type { StageView } from '../shared/protocol/backendProtocol';
 import { ROLE_COLORS } from '../shared/gui/roleColors';
 import { FULL_PLOT_WINDOW } from '../webview/runtime/plotInteraction';
 import { plotsOf } from '../webview/runtime/trackStageModel';
+import { localLine } from '../webview/runtime/fullRead';
+import { stageHover, stageStep } from '../webview/runtime/stagePanes';
 import type { Combined } from '../webview/runtime/combineSource';
 import { overlayLayers, overlayLegendItems, paintBaseGate, paintNoPicture, paintStageControls, paintStageLanes, paintStageOverlay, stageDom, stageModeHeadline, writeStageLegend, type Drawn, type StageFrame, type StageTrack } from '../webview/runtime/trackStagePainter';
 
@@ -212,4 +214,59 @@ test('the legend is written only when it changed and no role chip is open, and k
     legend.innerHTML = '<details class="role-chip" open></details>';
     assert.equal(writeStageLegend(legend, play(false), 'x', document), 'x');
     assert.ok(legend.querySelector('details[open]'));
+});
+
+test('side by side, each lane is read at its own full data, never the line thinned to draw it: a bin thinned out under the pointer, and ← / → one bin at a time (R7)', () => {
+    const { document } = page();
+    // Lanes that draw: a context that draws nothing but answers what the plot component asks of it.
+    const anything: object = new Proxy(() => undefined, { get: (_target, prop) => (prop === 'then' ? undefined : () => anything), set: () => true });
+    const context = new Proxy({}, { get: (_target, prop) => (prop === 'measureText' ? (text: string) => ({ width: text.length * 6 }) : () => anything), set: () => true });
+    const lane = (filePath: string): StageTrack => {
+        const canvas = document.createElement('canvas');
+        canvas.getContext = (() => context) as unknown as HTMLCanvasElement['getContext'];
+        Object.defineProperty(canvas, 'clientWidth', { value: 600 });
+        Object.defineProperty(canvas, 'clientHeight', { value: 160 });
+        return { filePath, color: '#888', canvas, axis: null };
+    };
+    // Each recording's spectrum, 8193 bins; each lane draws it thinned to each bucket's lowest and highest bin.
+    const bins = 8193, hz = 24000 / (bins - 1);
+    const xs = Array.from({ length: bins }, (_, bin) => bin * hz);
+    const spectra: Record<string, number[]> = {
+        'base.wav': xs.map((_, bin) => -50 + 15 * Math.sin(bin * 1.37) * Math.cos(bin * 0.11)),
+        'one.wav': xs.map((_, bin) => -40 + 12 * Math.sin(bin * 0.91) * Math.cos(bin * 0.07)),
+    };
+    const thinned = (values: number[]): StageView => {
+        const keep: number[] = [];
+        for (let start = 1; start < bins; start += 64) {
+            const part = values.slice(start, Math.min(bins, start + 64));
+            keep.push(start + part.indexOf(Math.min(...part)), start + part.indexOf(Math.max(...part)));
+        }
+        const at = [...new Set(keep)].sort((a, b) => a - b);
+        return { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'level', xs: at.map(bin => xs[bin]), values: at.map(bin => values[bin]), xLimits: [0, 24000] };
+    };
+    const views = Object.fromEntries(Object.entries(spectra).map(([path, values]) => [path, thinned(values)]));
+    const tracks = [lane('base.wav'), lane('one.wav')];
+    const fullOf = (view: StageView | null | undefined) => {
+        const path = Object.keys(views).find(key => views[key] === view);
+        return path ? localLine(xs, spectra[path]) : undefined;
+    };
+    const frame = frameFor(tracks, views, { fullOf });
+    assert.equal(paintStageLanes(frame), 2);
+    for (const track of tracks) {
+        const plot = frame.drawnOn.get(track.canvas as Element)?.plot;
+        assert.ok(plot, `${track.filePath} drew`);
+        const values = spectra[track.filePath];
+        const drawn = new Set(views[track.filePath].xs);
+        let bin = 4000;
+        while (drawn.has(xs[bin])) bin++;
+        let read = stageHover(plot, plot.xAt(xs[bin]), plot.yAt(values[bin]));
+        assert.equal(read?.full, true, `${track.filePath}: read from its full data`);
+        assert.equal(read?.at, xs[bin]);
+        assert.equal(read?.value, values[bin], `${track.filePath}: the bin thinned out of the line drawn`);
+        for (let step = 1; step <= 10; step++) {
+            read = read ? stageStep(plot, read, 1) ?? null : null;
+            assert.equal(read?.at, xs[bin + step], `${track.filePath}: step ${step} is the next bin`);
+            assert.equal(read?.value, values[bin + step]);
+        }
+    }
 });

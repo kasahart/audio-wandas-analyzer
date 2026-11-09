@@ -32,14 +32,22 @@ def compute_spectrogram(frame: wd.ChannelFrame, n_fft: int, hop_length: int, win
     )
 
 
+def file_version(stat: os.stat_result) -> tuple[int, int, int, int]:
+    """What one version of a file on disk is: its size, its modification and status-change times to the
+    nanosecond, and its inode. A file rewritten within the same millisecond, or replaced by a copy that keeps its
+    modification time (``cp -p``, ``rsync -t``), changes at least one of them; nothing is truncated."""
+    return (stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns, stat.st_ino)
+
+
 @dataclass(slots=True)
 class CachedAnalysis:
     path: Path
     frame: wd.ChannelFrame
-    identity: tuple[int, int]
+    #: What tells this read of the file from another: its full stat locally (file_version), a load count in the browser.
+    identity: tuple[int, ...]
     frame_nbytes: int
     source_peaks: tuple[float, ...] = ()
-    # Names the input in scan condition IDs: path, size and mtime here, the content hash in the browser.
+    # Names the input in scan condition IDs: the path and its file_version here, the content hash in the browser.
     input_id: str = ""
     spectrograms: dict[StftKey, wd.SpectrogramFrame] = field(default_factory=dict)
     spectrogram_nbytes: dict[StftKey, int] = field(default_factory=dict)
@@ -104,8 +112,7 @@ class AnalysisEngine:
         path = Path(file_path).expanduser().resolve()
         if not path.exists():
             raise UnreadableFileError(f"Audio file not found: {path}")
-        stat = path.stat()
-        identity = (stat.st_mtime_ns, stat.st_size)
+        identity = file_version(path.stat())
         with self._single_flight(path):
             with self._lock:
                 cached = self._files.get(path)
@@ -125,7 +132,7 @@ class AnalysisEngine:
                 identity=identity,
                 frame_nbytes=int(np.prod(frame.shape)) * AUDIO_CACHE_DTYPE.itemsize,
                 source_peaks=source_peaks,
-                input_id=json.dumps([str(path), stat.st_size, stat.st_mtime_ns // 1_000_000]),
+                input_id=json.dumps([str(path), *identity]),
             )
             with self._lock:
                 self._files[path] = cached

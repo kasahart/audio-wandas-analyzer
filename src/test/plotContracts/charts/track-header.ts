@@ -1,4 +1,4 @@
-import { RT, t, type ChartContract } from '../model';
+import { RT, t, tt, type ChartContract } from '../model';
 
 /** トラックの見出しとツールバーの数（カーソルの時刻、ずらし、ピーク、解析窓） */
 export const trackHeader: ChartContract = {
@@ -13,17 +13,18 @@ export const trackHeader: ChartContract = {
             computedIn: ['src/webview/runtime/calibrationDecorations.ts:channelMetricSummaryHtml', 'src/webview/runtime/calibrationDecorations.ts:levelText', 'src/webview/runtime/calibrationDecorations.ts:peakText', 'python-backend/analyzer.py:analyze_from_frame'],
             from: 'full', trace: 'バックエンドが全サンプルのピークと wandas のレベルを返し、webview は計算し直さない。',
             tests: [
+                tt('python-backend/test_analyzer.py', 'test_channel_peak_is_every_samples_largest_magnitude_not_the_envelope_drawn'),
                 t('src/test/renderScript.integration.test.ts', 'renderScript: channel peak metrics use backend-provided levels without recalculating dB'),
                 t('src/test/calibrationContracts.test.ts', 'calibration row helpers draw badges, peak text, requests and the overlay guard'),
             ],
-            gap: { severity: 'P2', why: '全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。' },
         },
         {
             id: 'track-header.meta', value: 'summary', what: 'チャンネル数とサンプリング周波数（kHz）',
             computedIn: ['src/webview/runtime/trackLaneHtml.ts:trackRowHtml'],
-            from: 'input', trace: 'ファイルのメタデータ。',
-            tests: [],
-            gap: { severity: 'P3', why: '「48.0kHz」の書き方が読み値の決まり（plotText.ts）と違い、確かめるテストもない。' },
+            from: 'input', trace: 'ファイルのメタデータ。サンプリング周波数は読み値と同じ frequencyText で書く（48 kHz、44.1 kHz）。',
+            tests: [
+                t('src/test/trackLaneHtml.test.ts', 'a track row writes its sample rate as every plot writes a frequency (plotText.frequencyText)'),
+            ],
         },
         {
             id: 'track-header.cursor', value: 'label', what: 'カーソルの時刻、再生の時刻、ループの範囲',
@@ -53,8 +54,5 @@ export const trackHeader: ChartContract = {
             ],
         },
     ],
-    knownGaps: {
-        'track-header.peak': 'P2',
-        'track-header.meta': 'P3',
-    },
+    knownGaps: {},
 };

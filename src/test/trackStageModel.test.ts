@@ -95,6 +95,12 @@ test('the base is one file\'s picture or a group\'s combined median; the differe
     assert.equal(combineRequest(path => views[path], 'a', ['a']), null, 'one base file and nothing compared');
     assert.equal(combineRequest(path => (path === 'c' ? line([1, 2]) : views[path]), 'c', ['a']), null, 'a picture without kept values');
     assert.deepEqual(combineRequest(path => (path === 'c' ? null : views[path]), 'c', ['a', 'b']), { base: ['ka', 'kb'], compare: null }, 'a compared file without an event: the group\'s median still');
+    // A picture whose values the backend refused to keep (stageDataTooLarge, so no key): nothing is asked, nothing
+    // scanned again, and the comparison says it is too large rather than nothing to compare.
+    const unkept = (path: string) => (path === 'b' ? line([1, 2]) : views[path]);
+    assert.equal(combineRequest(unkept, 'c', ['a', 'b'], path => path === 'b'), 'tooLarge');
+    assert.equal(combineRequest(path => views[path], 'c', ['a', 'b'], path => path === 'c'), 'tooLarge', 'the compared file too large');
+    assert.equal(combineRequest(path => (path === 'b' ? undefined : views[path]), 'c', ['a', 'b'], () => true), undefined, 'still waiting for a picture');
 });
 
 test('a picture is summed up by its points with a level and their median', () => {

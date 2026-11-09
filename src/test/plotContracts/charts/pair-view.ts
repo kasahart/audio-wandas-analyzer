@@ -1,4 +1,4 @@
-import { SP, t, type ChartContract } from '../model';
+import { SP, t, tt, type ChartContract } from '../model';
 
 /** ペアの図（利得・位相・γ²） */
 export const pairView: ChartContract = {
@@ -30,8 +30,9 @@ export const pairView: ChartContract = {
             id: 'pair-view.order', value: 'order', what: '利得の線の重ねる順',
             computedIn: ['src/webview/runtime/pairSpectrum.ts:lines', `${SP}:levelBinsOf`],
             from: 'full', trace: '利得の levelBins を見えている周波数の全ビンから作る。',
-            tests: [],
-            gap: { severity: 'P2', why: 'ペアの利得の levelBins が全ビンから作られ、静かな応答が上に来ることを確かめるテストがない（部品の一般のテストだけ）。' },
+            tests: [
+                tt('src/test/pairSpectrum.test.ts', 'the pair view orders its gains by every bin on screen: the quieter response is drawn last, on top (R6)'),
+            ],
         },
         {
             id: 'pair-view.order-unranked', value: 'order', what: '位相と γ² の線の順（渡された順）',
@@ -45,9 +46,10 @@ export const pairView: ChartContract = {
         {
             id: 'pair-view.range', value: 'range', what: '利得の軸の自動の範囲',
             computedIn: ['src/webview/runtime/pairSpectrum.ts:gainRange'],
-            from: 'full', trace: '見えている周波数の全ビンの利得の最小・最大の中心から ±（幅の 1.1 倍の半分、少なくとも 3 dB）。端を切りのよい値に広げない。',
-            tests: [],
-            gap: { severity: 'P2', why: '範囲を確かめるテストがなく、R9（自動の範囲は切りのよい値）を守っていない。' },
+            from: 'full', trace: '見えている周波数の全ビンの利得の最小・最大（幅は少なくとも 6 dB）を niceRange で切りのよい値に広げる（R9）。',
+            tests: [
+                tt('src/test/pairSpectrum.test.ts', 'the pair view\'s gain axis opens at round ends holding every bin on screen, a one-bin notch too, and only those (R9)'),
+            ],
         },
         {
             id: 'pair-view.ticks', value: 'ticks', what: '目盛り',
@@ -86,8 +88,5 @@ export const pairView: ChartContract = {
             ],
         },
     ],
-    knownGaps: {
-        'pair-view.order': 'P2',
-        'pair-view.range': 'P2',
-    },
+    knownGaps: {},
 };

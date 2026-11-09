@@ -368,11 +368,15 @@ def _build_spectrogram(
     if spectrogram.ndim != 2:
         raise ValueError(f"Expected 2D spectrogram data, got shape {spectrogram.shape}")
 
+    # The colour range is every STFT cell's, before the cells are power-averaged to draw: a short loud cell or a narrow
+    # dip averaged away still sets an end. Only a cell of no level at all (-inf) is left out; with none left, the
+    # floor the averaged cells have.
+    finite = spectrogram[np.isfinite(spectrogram)]
+    min_db = float(np.min(finite)) if finite.size else _MEAN_POWER_FLOOR_DB
+    max_db = float(np.max(finite)) if finite.size else _MEAN_POWER_FLOOR_DB
+
     spectrogram = _resample_time_bins(spectrogram, time_bin_limit)
     spectrogram = resample_frequency_bins(spectrogram, frequency_bin_limit)
-
-    min_db = float(np.min(spectrogram))
-    max_db = float(np.max(spectrogram))
 
     payload: SpectrogramPayload = {
         "values": spectrogram.tolist(),

@@ -1,4 +1,5 @@
 import type { SpectrogramData } from '../../shared/analysis/analysisTypes';
+import type { SpectrumStandIn } from '../runtime/types';
 import { spectrogramTimeBinAt, spectrogramTimeBinEdges } from './spectrogramTimeBins';
 
 export interface SpectrumSlice {
@@ -12,6 +13,8 @@ export interface SpectrumSlice {
     originalMaxFrequencyHz?: number;
     settingsSignature?: string;
     bandCentersHz?: number[];
+    /** Drawn in place of the backend's slice, never read as one (types.ts SpectrumStandIn). */
+    standIn?: SpectrumStandIn;
 }
 
 export interface SpectrumSource {
@@ -56,6 +59,7 @@ function makeSilentSpectrumSlice(
         maxDb: Math.max(topDb, floorDb + 1),
         unit: (spec && spec.unit) || (cached && cached.unit) || undefined,
         axisLabel: (spec && spec.axisLabel) || (cached && cached.axisLabel) || undefined,
+        standIn: 'silence',
     });
 }
 
@@ -89,7 +93,7 @@ export function extractSpectrumAtCursor(
     const cachedIsCurrent = !!cached && cached.settingsSignature === context?.settingsSignature;
     if (trackLocalSec >= dur) {
         if (context?.bands) {
-            return cached && cachedIsCurrent ? applySpectrumDisplaySettings({ ...cached, values: cached.values.map(() => cached.minDb) }) : null;
+            return cached && cachedIsCurrent ? applySpectrumDisplaySettings({ ...cached, values: cached.values.map(() => cached.minDb), standIn: 'silence' }) : null;
         }
         return makeSilentSpectrumSlice(result, spec ?? null, cached, applySpectrumDisplaySettings);
     }
@@ -121,5 +125,7 @@ export function extractSpectrumAtCursor(
         maxDb: spec.maxDb,
         unit: spec.unit,
         axisLabel: spec.axisLabel,
+        // The display spectrogram's column, its cells power-averaged to draw: drawn until the slice comes, never read.
+        standIn: 'pending',
     });
 }

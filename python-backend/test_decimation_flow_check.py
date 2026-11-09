@@ -84,8 +84,8 @@ MUTATIONS = {
     ),
     "peak readout from the cut cursor spectrum": (
         "analysis_service",
-        '                    "minDb": float(np.min(row)),\n',
-        '                    "minDb": float(np.min(row)),\n'
+        '                    "minDb": ends[channel_index][0],\n',
+        '                    "minDb": ends[channel_index][0],\n'
         '                    "peakHz": float(frequencies_hz[int(np.argmax(row))]) if bands is None else 0.0,\n',
         "analysis_service:AnalysisService.spectrum_slice: np.argmax(",
     ),
@@ -109,13 +109,9 @@ def test_a_number_made_of_drawn_points_fails(backend: dict[str, str], name: str)
 
 
 def test_a_known_flow_that_is_fixed_must_leave_the_list(backend: dict[str, str]) -> None:
-    fixed = _mutated(
-        backend,
-        "analyzer",
-        "    min_db = float(np.min(spectrogram))\n    max_db = float(np.max(spectrogram))\n",
-        "    min_db = float(np.min(spectrogram_db))\n    max_db = float(np.max(spectrogram_db))\n",
-    )
-    stale = [problem for problem in check.problems(check.find_flows(fixed)) if "KNOWN_FLOWS" in problem]
+    # The spectrogram's colour range was taken of its drawn cells, and is now every cell's: listed still, it fails.
+    known = {**check.KNOWN_FLOWS, "analyzer:_build_spectrogram: np.min(spectrogram)": "fixed"}
+    stale = [problem for problem in check.problems(check.find_flows(backend), known) if "KNOWN_FLOWS" in problem]
     assert any("analyzer:_build_spectrogram: np.min(spectrogram)" in problem for problem in stale), stale
 
 

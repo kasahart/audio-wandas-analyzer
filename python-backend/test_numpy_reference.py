@@ -528,11 +528,6 @@ def test_a_spectrograms_difference_headline_is_the_bursts_own_cell(backend: Back
     assert whole.size and np.asarray(result["diff"]["matrix"]).shape[1] < times.size
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="track-spectrogram.range (P1): analyzer._build_spectrogram takes minDb/maxDb from the cells averaged "
-    "for the screen, not from the STFT",
-)
 def test_the_track_spectrograms_colour_range_ends_are_the_stfts_own_extremes(
     backend: Backend, burst: dict[str, Path]
 ) -> None:

@@ -2,6 +2,7 @@ import type { ChannelSummary } from '../../shared/analysis/analysisTypes';
 import type { UiStrings } from '../../shared/i18n/strings';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { hintAttr } from './hintFooter';
+import { frequencyText } from '../plot/plotText';
 import { calibrationBadgeHtml, calibrationButtonHtml, channelMetricSummaryHtml, isClipped } from './calibrationDecorations';
 import { trackAxisCanvasId, trackCanvasId, trackCanvasWrapId, trackSpecAxisCanvasId, trackSpecCanvasId, trackSpecWrapId, trackSpectrogramOverlayCanvasId, trackWaveformOverlayCanvasId } from './trackCanvasIds';
 
@@ -96,7 +97,7 @@ export function trackRowHtml(spec: TrackRowSpec, strings: TrackRowStrings): stri
         + (isClipped(channels) ? '    <span class="clip-badge"' + hintAttr(strings.clipBadgeTitle) + '>CLIP</span>' : '')
         + '    ' + calibrationBadgeHtml(channels, strings)
         + '  </div>'
-        + '  <div class="track-meta">' + spec.channelCount + ' ch &nbsp;' + (spec.sampleRateHz / 1000).toFixed(1) + 'kHz' + monoSummary + '</div>'
+        + '  <div class="track-meta">' + spec.channelCount + ' ch &nbsp;' + frequencyText(spec.sampleRateHz) + monoSummary + '</div>'
         + '  <div class="track-btns">'
         + '    <button class="track-btn" data-action="toggle-playback" data-track-id="' + trackId + '"' + hintAttr(playHint(strings.trackPlayTitle)) + ' aria-label="' + escapeHtml(strings.ariaTrackPlay) + '"' + disabled + '>▶</button>'
         + '    <button class="track-btn" data-action="stop-playback" data-track-id="' + trackId + '"' + hintAttr(playHint(strings.trackStopTitle)) + ' aria-label="' + escapeHtml(strings.ariaTrackStop) + '"' + disabled + '>■</button>'

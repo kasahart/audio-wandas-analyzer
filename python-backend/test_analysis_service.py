@@ -102,6 +102,31 @@ def test_cursor_spectrum_keeps_a_tone_at_its_frequency_and_level(tmp_path: Path,
     assert abs(values[peak] - np.max(expected)) <= 0.5
 
 
+def test_cursor_spectrum_level_range_is_every_bins_not_the_row_cut_for_display(tmp_path: Path) -> None:
+    # Noise with one narrow notch-deep bin and one tone: the row cut to draw keeps fewer points than the FFT has bins;
+    # the slice's minDb / maxDb are still the ends of every bin of every channel's own row.
+    rate, n_fft = 48000, 16384
+    rng = np.random.default_rng(3)
+    times = np.arange(rate) / rate
+    noise = 0.01 * rng.standard_normal((2, rate))
+    noise[1] += 0.5 * np.sin(2 * np.pi * 3000 * times)
+    audio = tmp_path / "noise.wav"
+    sf.write(audio, noise.T, rate, subtype="FLOAT")
+    options = {"nFft": n_fft, "overlapPercent": 75, "window": "hann"}
+    service = AnalysisService(AnalysisEngine())
+
+    shown = service.spectrum_slice(audio, cursor_norm=0.5, stft_options=options)
+    full = service.spectrum_slice(audio, cursor_norm=0.5, stft_options=options, full_resolution=True)
+
+    assert "frequenciesHz" in shown and shown["frequencyBins"] < full["frequencyBins"]
+    for cut, whole in zip(shown["channels"], full["channels"], strict=True):
+        every = np.asarray(whole["values"])
+        assert cut["minDb"] == pytest.approx(float(every.min()))
+        assert cut["maxDb"] == pytest.approx(float(every.max()))
+        assert whole["minDb"] == pytest.approx(float(every.min()))
+        assert whole["maxDb"] == pytest.approx(float(every.max()))
+
+
 def test_service_exposes_all_use_cases_without_server_loop(tmp_path: Path) -> None:
     audio = tmp_path / "tone.wav"
     _write_sine_wav(audio)

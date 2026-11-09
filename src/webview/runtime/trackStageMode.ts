@@ -22,7 +22,7 @@ import { eventsKey, excludedOf, withDroppedEvents, withEventExcluded, type Event
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { createStepBar, invalidReason, stepChipLabel, stepLimits, INPUT_STAGE } from './stepBar';
 import { createStageSource, type StageSpec } from './stageSource';
-import { createCombineSource, NOTHING_COMBINED, type Combined } from './combineSource';
+import { createCombineSource, NOTHING_COMBINED, TOO_LARGE_COMBINED, type Combined } from './combineSource';
 import { createStageReader } from './stageReader';
 import type { FullRead } from './fullRead';
 import { chosenStage, combineRequest, comparedPath as comparedPathOf, eachBaseTitle, enterStageState, holdStageSpec, initialStageState, liveRegion as liveRegionOf, openStageState, pictureSummary, plotsOf, regionStageSpec, stageSpec, WHOLE_ZOOM } from './trackStageModel';
@@ -676,8 +676,9 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             }
             deps.rerender();
         };
-        const asked = held_ && !picture ? undefined : combineRequest(coarse, comparePath, basePaths);
-        const coarseCombined = asked === null ? NOTHING_COMBINED : asked ? combine.get(combineIdentity, asked, forget) : undefined;
+        const ask = held_ && !picture ? undefined : combineRequest(coarse, comparePath, basePaths, path => !!source.result(specFor(path), path)?.stageDataTooLarge);
+        const asked = ask === 'tooLarge' ? null : ask;
+        const coarseCombined = ask === 'tooLarge' ? TOO_LARGE_COMBINED : asked === null ? NOTHING_COMBINED : asked ? combine.get(combineIdentity, asked, forget) : undefined;
         const fineDetail = fineSpecs.get(groupOf(comparePath ?? basePaths[0] ?? ''))?.message.detail;
         const fineCombined = asked && fineDetail ? combine.get(`${combineIdentity}|${JSON.stringify(fineDetail)}`, { ...asked, detail: fineDetail }, forget) : undefined;
         if (fineCombined) lastFine.set(combineIdentity, fineCombined);
