@@ -74,7 +74,7 @@ export function createDetailPlanner(clock: { now(): number }, timers: Pick<Windo
         return item.spec;
     };
     const detailSpec = (base: { key: string; message: StageSpec['message'] }, detail: StageDetail): StageSpec => ({
-        key: `detail|${base.key}|${[...detail.x, ...(detail.y ?? [])].map(value => value.toPrecision(6)).join(',')}|${detail.points}`,
+        key: detailSpecKey(base.key, detail),
         message: { ...base.message, detail },
     });
     function around(base: { key: string; message: StageSpec['message'] }, coarse: StageView, x: NormalizedRange, width: number): StageSpec | null {
@@ -116,10 +116,24 @@ export function createDetailPlanner(clock: { now(): number }, timers: Pick<Windo
     };
 }
 
+/**
+ * A range asked for, as a key: the very numbers sent to the host (each written so it reads back to the same double,
+ * never rounded), so two ranges share a key only when they ask for the same samples or bins. Rounded, two windows of
+ * a long recording zoomed in deep could share one, and the earlier window's detail would be drawn for the later.
+ */
+function rangeKey(detail: StageDetail): string {
+    return [...detail.x, ...(detail.y ?? [])].map(value => String(value)).join(',');
+}
+
+/** A detail spec's key: its step's picture (`base`), the range asked for exactly as it is sent, and its points. */
+export function detailSpecKey(base: string, detail: StageDetail): string {
+    return `detail|${base}|${rangeKey(detail)}|${detail.points}`;
+}
+
 /** The range a detail spec covers, as a key: the same for every file, channel and step asked over one range. */
 export function detailRangeKey(spec: StageSpec): string {
     const detail = spec.message.detail;
-    return detail ? [...detail.x, ...(detail.y ?? [])].join(',') : '';
+    return detail ? rangeKey(detail) : '';
 }
 
 /**

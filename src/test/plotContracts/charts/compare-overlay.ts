@@ -184,10 +184,12 @@ export const compareOverlay: ChartContract = {
         },
         {
             id: 'compare-overlay.detail-key', value: 'identity', what: '拡大の細部の要求のキー（どの窓の細部か）',
-            computedIn: ['src/webview/runtime/stageDetail.ts:detailSpec'],
-            from: 'axis', trace: '窓の両端（正規化した値）を toPrecision(6) で丸めてキーにする。有効数字 6 桁より細かく違う 2 つの窓（長い録音を深く拡大したとき）は同じキーになり、前の窓の細部が使われうる。',
-            tests: [],
-            gap: { severity: 'P2', why: '細部のキーが窓の端を有効数字 6 桁に丸める。深く拡大した別の窓が同じキーになりうるのに、確かめるテストがない。' },
+            computedIn: ['src/webview/runtime/stageDetail.ts:detailSpecKey', 'src/webview/runtime/stageSource.ts:stageCacheKey'],
+            from: 'axis', trace: 'キーは要求として送る窓の両端の数そのもの（丸めない）と点の数。取得の結果は、そのキーと送った StageDetail そのもので保つので、違うサンプル・ビンを求める 2 つの窓が同じ細部を使うことはない。',
+            tests: [
+                t('src/test/stageDetail.test.ts', "a detail's key is the range asked for exactly as it is sent: two deep windows a few samples apart never share one"),
+                t('src/test/stageDetail.test.ts', "pictures are cached under the range sent, so a spec whose key matches another's never takes its detail"),
+            ],
         },
     ],
     knownGaps: {
@@ -196,6 +198,5 @@ export const compareOverlay: ChartContract = {
         'compare-overlay.range': 'P2',
         'compare-overlay.range-image': 'P1',
         'compare-overlay.axis-metric': 'P2',
-        'compare-overlay.detail-key': 'P2',
     },
 };
