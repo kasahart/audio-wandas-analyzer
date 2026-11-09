@@ -58,7 +58,7 @@ export interface LastFine {
 
 export function createLastFine(): LastFine {
     const kept = createAnswerStore<Combined>({ capacity: KEPT_FINE });
-    const key = (identity: string, asked: CombineRequest): AnswerKey => answerKey({ ask: ['last-fine', asked.base, asked.compare], condition: identity });
+    const key = (identity: string, asked: CombineRequest): AnswerKey => answerKey({ ask: ['last-fine', asked.base, asked.compare], version: { by: 'data-keys' }, condition: identity });
     return {
         keep(identity, asked, combined) { kept.ready(key(identity, asked), combined); },
         of: (identity, asked) => kept.value(key(identity, asked)),
@@ -85,7 +85,7 @@ const CACHED = 64;
  * A combination's key: the data keys it combines (each the backend's hash of the file's version, the Recipe, region,
  * channels, calibration and step, scan_service._data_key) and the part on screen exactly as it is sent.
  */
-const combineKey = (request: CombineRequest): AnswerKey => answerKey({ ask: ['combine', request.base, request.compare], region: JSON.stringify(request.detail ?? null) });
+const combineKey = (request: CombineRequest): AnswerKey => answerKey({ ask: ['combine', request.base, request.compare], version: { by: 'data-keys' }, region: JSON.stringify(request.detail ?? null) });
 
 export function createCombineSource(prefix: string, post: (message: CompareCombineMessage) => void, changed: () => void, now: () => number = () => Date.now()): CombineSource {
     const answers = createAnswerStore<Combined>({ capacity: CACHED, now });
@@ -116,9 +116,11 @@ export function createCombineSource(prefix: string, post: (message: CompareCombi
             if (!request) return true;
             asked.delete(publication.requestId);
             const { result } = publication;
-            if (result.ok) answers.ready(request.key, { base: result.base ?? null, diff: result.diff ?? null, ...(result.noDelta ? { noDelta: result.noDelta } : {}) }, { group: request.identity });
+            if (result.ok) answers.ready(request.key, { base: result.base ?? null, diff: result.diff ?? null, ...(result.noDelta ? { noDelta: result.noDelta } : {}) }, { group: request.key.id });
             else if (!result.missing?.length) answers.fail(request.key);
-            else if (answers.unreached(request.key, request.identity) === 'again') request.forget(result.missing ?? []);
+            // Once per combination: its data keys name the files' versions and calibrations (scan_service._data_key), so a
+            // rescan brings the same keys back and a new version or calibration is a new combination, tried again once itself.
+            else if (answers.unreached(request.key, request.key.id) === 'again') request.forget(result.missing ?? []);
             changed();
             return true;
         },

@@ -30,16 +30,27 @@ export interface AnswerKey {
     readonly [answerKeyBrand]: true;
 }
 
+/**
+ * Where an answer's file version and calibration are in its key, which every key says (never left out by default):
+ * - `fileVersion` and `calibration` given apart;
+ * - `basis`: one string the screen names both by (stageSource.stageBasis: the scan's condition and the track's calibration);
+ * - `by`: the ask itself names them: the backend's data keys (each a hash of the file version, Recipe, region, channels,
+ *   calibration and step), the track's analysis (its id and settings signature, renewed on a new version or
+ *   calibration), the full request as sent, or the source the answer is kept in (made per data key or analysis).
+ */
+export type AnswerVersion =
+    | { fileVersion: string; calibration: string }
+    | { basis: string }
+    | { by: 'data-keys' | 'analysis' | 'request' | 'source' };
+
 /** What an answer is of. Every part a source knows goes in; a part it does not know is left out, never guessed. */
 export interface AnswerKeyParts {
     /** What is asked of the file(s): the source's name and its request (a spec, a window, a read, a combination). */
     ask: unknown;
+    /** Where the file's version and calibration are (AnswerVersion): required, so no key leaves them out unsaid. */
+    version: AnswerVersion;
     /** The file (or subject) answered for. */
     file?: string;
-    /** The file's version (size, ns mtime, ns ctime, inode), or the screen's basis that names it with its calibration. */
-    fileVersion?: string;
-    /** The calibration applied to the file's channels. */
-    calibration?: string;
     /** The full recipe text (recipeKey). */
     recipe?: string;
     /** The measured region, in whole samples, or the part on screen as it is sent. */
@@ -51,7 +62,8 @@ export interface AnswerKeyParts {
 /** The key of an answer: every part, in one order, written exactly (JSON reads each number back to the same double). */
 export function answerKey(parts: AnswerKeyParts): AnswerKey {
     const ask = typeof parts.ask === 'string' ? parts.ask : JSON.stringify(parts.ask ?? null);
-    const id = JSON.stringify([ask, parts.file ?? '', parts.fileVersion ?? '', parts.calibration ?? '', parts.recipe ?? '', parts.region ?? '', parts.condition ?? '']);
+    const version = 'by' in parts.version ? ['by', parts.version.by] : 'basis' in parts.version ? ['basis', parts.version.basis] : [parts.version.fileVersion, parts.version.calibration];
+    const id = JSON.stringify([ask, parts.file ?? '', version, parts.recipe ?? '', parts.region ?? '', parts.condition ?? '']);
     return { id, ask } as AnswerKey;
 }
 
@@ -263,6 +275,9 @@ export function createLatestAnswers<T, K extends string | number = string>(): La
             else unders.delete(subject);
         },
         fail(subject, reason) {
+            // The failure is the subject's answer now: what it had before is not shown for it.
+            values.delete(subject);
+            unders.delete(subject);
             failures.set(subject, reason);
         },
         failure: subject => failures.get(subject),

@@ -10,7 +10,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import ts from 'typescript';
-import { findHeldCollections, findOwnRetryPolicies, type HeldCollection } from './answerBoundary';
+import { findFileKeysWithoutVersion, findHeldCollections, findOwnRetryPolicies, type HeldCollection } from './answerBoundary';
 import { NOT_ANSWERS } from './answerBoundaryAllowlist';
 
 const repoRoot = path.resolve(__dirname, '..', '..');
@@ -75,4 +75,10 @@ test('the boundary check finds a cache of answers added outside the store (mutat
     const source = ts.createSourceFile('mutant.ts', text, ts.ScriptTarget.Latest, true);
     assert.deepEqual(findHeldCollections('mutant.ts', source).map(held => held.name).sort(), ['answers', 'byKey', 'failedAt', 'kept', 'moduleCache']);
     assert.deepEqual(findOwnRetryPolicies('mutant.ts', source).sort(), ['mutant.ts#PAUSE_RETRY_MS', 'mutant.ts#failedAt']);
+});
+
+test('an answer of a file names the file\'s own version and calibration in its key, never leaves them to the ask', () => {
+    assert.deepEqual(sources().flatMap(({ file, source }) => findFileKeysWithoutVersion(file, source)), []);
+    const mutant = ts.createSourceFile('m.ts', "answerKey({ ask: 'spec', file: path, version: { by: 'request' } });", ts.ScriptTarget.Latest, true);
+    assert.deepEqual(findFileKeysWithoutVersion('m.ts', mutant), ['m.ts:1']);
 });

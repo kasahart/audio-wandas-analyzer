@@ -7,7 +7,7 @@
  * pictures come as the steps view's do (stageSource, the Frame's full resolution once zoomed) and are drawn by
  * its painter. Let go, the picture stays 150 ms, so a quick look does not flicker.
  */
-import { answerKey, createLatestAnswers } from './answerStore';
+import { createLatestAnswers } from './answerStore';
 import type { UiStrings } from '../../shared/i18n/strings';
 import type { CompareCombineMessage, CompareScanMessage } from '../../shared/analysis/entryScan';
 import type { ScanResult, StageView } from '../../shared/protocol/backendProtocol';
@@ -246,7 +246,7 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
             const kept = bins.result(spec, file);
             const scanned = deps.results.get(file);
             const own = scanned?.ok ? scanned.conditionId ?? '' : '';
-            const key = answerKey({ ask: spec.key, file }).id;
+            const key = `${spec.key}|${file}`;
             if (kept?.ok && !sameCondition(kept, scanned) && binsAskedFor.get(key) !== own) bins.forget(spec, file);
             if (!kept || bins.result(spec, file) === undefined) binsAskedFor.set(key, own);
         }

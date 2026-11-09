@@ -153,3 +153,26 @@ export function findOwnRetryPolicies(file: string, source: ts.SourceFile): strin
     visit(source);
     return [...found];
 }
+
+/**
+ * Every answerKey call that names a file but says its version is carried by the ask (`version: { by }`): a file's own
+ * answer names its own version and calibration (fileVersion and calibration, or a basis), never leaves it to the ask.
+ */
+export function findFileKeysWithoutVersion(file: string, source: ts.SourceFile): string[] {
+    const found: string[] = [];
+    const visit = (node: ts.Node): void => {
+        if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'answerKey') {
+            const parts = node.arguments[0];
+            if (parts && ts.isObjectLiteralExpression(parts)) {
+                const prop = (name: string) => parts.properties.find(item => item.name && ts.isIdentifier(item.name) && item.name.text === name);
+                const version = prop('version');
+                const by = version && ts.isPropertyAssignment(version) && ts.isObjectLiteralExpression(version.initializer)
+                    && version.initializer.properties.some(item => item.name && ts.isIdentifier(item.name) && item.name.text === 'by');
+                if (prop('file') && (!version || by)) found.push(`${file}:${source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1}`);
+            }
+        }
+        ts.forEachChild(node, visit);
+    };
+    visit(source);
+    return found;
+}

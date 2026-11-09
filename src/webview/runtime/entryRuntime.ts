@@ -295,6 +295,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     /** Whether the chain cannot run (a step that cannot, and so nothing after it): the table then has no values for it. */
     const broken = (): boolean => { const recipe = recipeState.edited ?? recipeState.standard; return !!recipe && !!brokenStep(recipe, limits()); };
     const currentKey = (): string => (broken() ? 'broken' : recipeKey(scanRecipe()));
+    /** A scan that failed for a reason that may pass (not a step that cannot run on the file): 「計算」 tries it again. */
+    const passingFailure = (path: string): boolean => { const result = results.get(path); return !!result && !result.ok && !result.failedStep; };
     const isStale = (path: string): boolean => results.has(path) && scans.under(path)?.recipeKey !== currentKey();
     function stalePaths(): Set<string> {
         const key = currentKey();
@@ -743,7 +745,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const pool = isComputed(chosen.value) ? distributionPool() : chosen.mode === 'all' ? shownRows : visibleRows({ rows, group: chosen.group, value: chosen.value, filters: chosen.filters, sort: chosen.sort, excluded }, results);
         // 「トラックのみ」 computes only the files on a track, as the table shows.
         const onTracks = chosen.tracksOnly && chosen.mode === 'all' ? shownFiles() : null;
-        return [...new Set(pool.map(row => row.filePath))].filter(path => (!onTracks || onTracks.has(path)) && (!results.has(path) || isStale(path)));
+        return [...new Set(pool.map(row => row.filePath))].filter(path => (!onTracks || onTracks.has(path)) && (!results.has(path) || isStale(path) || passingFailure(path)));
     }
     function sampleRate(): number | undefined {
         for (const result of results.values()) if (result.ok && result.input) return recipeState.knownRate = result.input.fs;

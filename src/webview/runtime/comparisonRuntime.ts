@@ -678,6 +678,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (pending && pending.settingsSignature === settingsSignature) {
             return;
         }
+        // Asked again after a failure's pause: the lane says it is loading, not the failure it may no longer have.
+        record.detailError = null;
         const requestId = nextRequestId('detail', i);
         record.requests.ask('detail', requestId, settingsSignature, { trackId: record.id, requestId: requestId, analysisId: analysisId, settingsSignature: settingsSignature });
         messaging.post({

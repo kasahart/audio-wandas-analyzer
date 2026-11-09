@@ -30,7 +30,7 @@ export function createStageReader(prefix: string, post: (message: CompareCombine
     const sources = createAnswerStore<FullSource>({ capacity: 256 });
     let count = 0;
     const source = (base: readonly string[], compare: string | null, of: 'base' | 'diff', event?: number): FullSource =>
-        sources.keep(answerKey({ ask: ['combined-read', base, compare, of, event ?? null] }), () => ({
+        sources.keep(answerKey({ ask: ['combined-read', base, compare, of, event ?? null], version: { by: 'data-keys' } }), () => ({
             ...fetchedSource((read: StageRead, done) => {
                 const requestId = `${prefix}-${++count}`;
                 waiting.set(requestId, done);
