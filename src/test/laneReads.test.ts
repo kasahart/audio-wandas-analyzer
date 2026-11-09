@@ -7,7 +7,7 @@ test('a cursor slice the host failed to give reads nothing a while, then is aske
     let clock = 0;
     const posted: Array<{ requestId: string }> = [];
     const reads = createLaneReads(message => { posted.push(message); }, () => clock);
-    const source = reads.slice({ trackIndex: 0, filePath: 'a.wav', analysisId: 'a', settingsSignature: 's' }, 0.5, 0);
+    const source = reads.slice({ trackIndex: 0, filePath: 'a.wav', sourceVersion: 'v1', calibrationSignature: undefined, analysisId: 'a', settingsSignature: 's' }, 0.5, 0);
     const query = { x0: 0, x1: 1 } as Parameters<NonNullable<typeof source.line>>[0];
     assert.equal(source.line?.(query, () => undefined), undefined, 'asked for');
     assert.equal(posted.length, 1);
@@ -24,9 +24,9 @@ test('a cursor slice the host failed to give reads nothing a while, then is aske
 test('a read answered under other analysis settings (another STFT) reads nothing of it', () => {
     const posted: Array<{ requestId: string }> = [];
     const reads = createLaneReads(message => { posted.push(message); });
-    const source = reads.slice({ trackIndex: 0, filePath: 'a.wav', analysisId: 'a', settingsSignature: 'nfft-4096' }, 0.5, 0);
+    const source = reads.slice({ trackIndex: 0, filePath: 'a.wav', sourceVersion: 'v1', calibrationSignature: undefined, analysisId: 'a', settingsSignature: 'nfft-4096' }, 0.5, 0);
     const query = { x0: 0, x1: 1 } as Parameters<NonNullable<typeof source.line>>[0];
     source.line?.(query, () => undefined);
-    reads.handle({ type: 'spectrum-slice-result', requestId: posted[0].requestId, settingsSignature: 'auto', maxFrequencyHz: 100, channels: [{ channelIndex: 0, values: [1, 2, 3] }] } as { type: string; requestId: string });
+    reads.handle({ type: 'spectrum-slice-result', requestId: posted[0].requestId, settingsSignature: 'auto', sourceVersion: 'v1', maxFrequencyHz: 100, channels: [{ channelIndex: 0, values: [1, 2, 3] }] } as { type: string; requestId: string });
     assert.equal(source.line?.(query, () => undefined), null);
 });

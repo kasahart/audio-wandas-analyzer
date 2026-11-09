@@ -13,7 +13,7 @@ import { fileOfKey } from '../../shared/dataset/datasetTable';
 import { attachOffsetEditing } from './offsetInlineEditor';
 import { dispatchTestMouseEvent, fillSpectrogramDisplayForm, fillSpectrogramSettingsForm, heightDragFromPayload, loopRegionFromPayload, setTestInputValue, testActionTrackId } from './testActionForms';
 import { nextRequestId } from './hostRequests';
-import { DEFAULT_PYTHON_ENVIRONMENT_STATE, isResponseToLazyRequest, mergeDetailSpectrograms, pythonEnvironmentStateFromMessage } from './lazyResponses';
+import { DEFAULT_PYTHON_ENVIRONMENT_STATE, isOfShownVersion, isResponseToLazyRequest, mergeDetailSpectrograms, pythonEnvironmentStateFromMessage } from './lazyResponses';
 import type { DrawTheme } from '../draw/canvasDrawers';
 import { isCacheSufficient, isOverviewSufficient, isRangeCacheDrawable, parseRangeRequestKey, planLaneRange, rangeCacheCoversView, rangeHasDetail } from '../waveform/rangeRequestPolicy';
 import { extractSpectrumAtCursor as extractCursorSpectrum, sliceIsAtCursor } from '../spectrum/cursorSpectrum';
@@ -310,6 +310,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 settingsSignature: request.settingsSignature,
                 trackIndex: request.trackIndex,
                 filePath: request.filePath,
+                sourceVersion: trackStore.require(request.trackId).result.sourceVersion,
                 cursorNorm: request.cursorNorm,
                 ...(request.bandsPerOctave ? { bandsPerOctave: request.bandsPerOctave } : {}),
                 ...(request.fullResolution ? { fullResolution: true as const } : {}),
@@ -501,12 +502,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function trackIdAtIndex(index: number): TrackId | null {
         return trackStore.idAtProtocolIndex(index);
     }
-    function trackIdAtProtocolBoundary(index: number, messageType: string): TrackId | null {
+    /** The track a lane's lazy answer is of: none for an index no track has, or an answer of another file version. */
+    function trackIdAtProtocolBoundary(index: number, answer: { type: string; sourceVersion?: string }): TrackId | null {
         const trackId = trackIdAtIndex(index);
         if (!trackId) {
-            console.warn('Rejected ' + messageType + ' with invalid trackIndex ' + index);
+            console.warn('Rejected ' + answer.type + ' with invalid trackIndex ' + index);
+            return null;
         }
-        return trackId;
+        const record = trackStore.get(trackId);
+        return record && isOfShownVersion(record.result, answer) ? trackId : null;
     }
     function trackRecordAtIndex(index: number) {
         const trackId = trackIdAtIndex(index);
@@ -549,6 +553,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     return {
                         trackId,
                         filePath: record.result.filePath,
+                        sourceVersion: record.result.sourceVersion,
                         channelIndex,
                         offsetSeconds: record.runtime.offsetSeconds,
                         label: spectrumReadoutTrackLabel(record.result, channelIndex),
@@ -688,6 +693,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             settingsSignature: settingsSignature,
             trackIndex: i,
             filePath: result.filePath,
+            sourceVersion: result.sourceVersion,
         });
     }
     /**
@@ -766,6 +772,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             settingsSignature: settingsSignature,
             trackIndex: i,
             filePath: result.filePath,
+            sourceVersion: result.sourceVersion,
             // The whole file's frames along time when only the band needs its own rows.
             ...(timeWindow ? { startNorm: timeWindow.startNorm, endNorm: timeWindow.endNorm } : {}),
             ...(band ? { lowHz: band.lowHz, highHz: band.highHz } : {}),
@@ -981,7 +988,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const i = msg.trackIndex;
-        const trackId = trackIdAtProtocolBoundary(i, msg.type);
+        const trackId = trackIdAtProtocolBoundary(i, msg);
         const record = trackId ? trackStore.get(trackId) : undefined;
         if (!trackId || !record) {
             return;
@@ -1006,7 +1013,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const i = msg.trackIndex;
-        const trackId = trackIdAtProtocolBoundary(i, msg.type);
+        const trackId = trackIdAtProtocolBoundary(i, msg);
         const record = trackId ? trackStore.get(trackId) : undefined;
         if (!trackId || !record) {
             return;
@@ -1061,7 +1068,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const i = msg.trackIndex;
-        const trackId = trackIdAtProtocolBoundary(i, msg.type);
+        const trackId = trackIdAtProtocolBoundary(i, msg);
         const record = trackId ? trackStore.get(trackId) : undefined;
         if (!trackId || !record) {
             spectrumRequests.pump();
@@ -1304,6 +1311,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 requestId: requestId,
                 trackIndex: i,
                 filePath: result.filePath,
+                sourceVersion: result.sourceVersion,
                 startNorm: reqStart,
                 endNorm: reqEnd,
                 points: pts,
@@ -2101,7 +2109,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     /** A track as its lanes' reads name it (R7): its index on the protocol, its file and the analysis drawn. */
     function laneTrack(trackIndex: number): LaneTrack | null {
         const result = state.results[trackIndex];
-        return result ? { trackIndex, filePath: result.filePath, analysisId, settingsSignature: currentSettingsSignature() } : null;
+        return result ? { trackIndex, filePath: result.filePath, sourceVersion: result.sourceVersion, calibrationSignature: result.calibrationSignature,
+            analysisId, settingsSignature: currentSettingsSignature() } : null;
     }
     function laneTrackFull(trackIndex: number, read: (track: LaneTrack) => FullSource): FullSource | undefined {
         const track = laneTrack(trackIndex);
