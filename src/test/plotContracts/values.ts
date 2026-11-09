@@ -51,7 +51,7 @@ export const NOT_CHART_VALUES: Readonly<Record<string, string>> = {
 export const DRAWN_FIELDS: Readonly<Record<string, readonly string[]>> = {
     StageView: ['values', 'matrix', 'waveform', 'events'],
     SpectrumSlice: ['values', 'minDb', 'maxDb'],
-    SpectrogramData: ['values', 'minDb', 'maxDb'],
+    SpectrogramData: ['values'],
     WaveformEnvelope: ['min', 'max'],
 };
 
@@ -102,7 +102,7 @@ export const DRAWN_READERS: Readonly<Record<string, { use: DrawnUse; why: string
     [`${SP}:stageStep`]: { use: 'whole', why: 'an arrow key\'s next drawn point, for bars and \'drawn\' layers only; else the full read\'s' },
     [`${SP}:strokeStageLine`]: { use: 'draws', why: 'draws a line' },
     ['python-backend/analysis_service.py:spectrum_slice']: { use: 'value', why: 'minDb / maxDb of the row min_max_spectrum cut for display (cursor-spectrum.range)' },
-    ['python-backend/analyzer.py:_build_spectrogram']: { use: 'value', why: 'minDb / maxDb of the cells resampled to draw (track-spectrogram.range)' },
+    ['python-backend/analyzer.py:_build_spectrogram']: { use: 'draws', why: 'resamples the cells to draw them; minDb / maxDb are every full cell\'s, taken before (track-spectrogram.range)' },
     ['python-backend/stage_view.py:_spectrogram_view']: { use: 'value', why: 'the heatmap\'s cells, power-averaged per time block, that its colour range is taken from (compare-overlay.range-image)' },
     ['src/shared/protocol/backendProtocol.ts:hasAlignedEnvelopeArrays']: { use: 'draws', why: 'checks an answer\'s envelope arrays line up; shows nothing' },
     ['src/shared/protocol/backendProtocol.ts:hasSpectrogramShape']: { use: 'draws', why: 'checks an answer\'s spectrogram shape; shows nothing' },

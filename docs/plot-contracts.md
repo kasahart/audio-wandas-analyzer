@@ -24,7 +24,7 @@
 | 比較台の横並びのレーン (`compare-lanes`) | `webview/runtime/trackStagePainter.ts:paintStageLanes`<br>`webview/runtime/trackStagePainter.ts:paintNoStage` | 6 | 4 |
 | トリガーのイベント図の下のレーン (`trigger-lanes`) | `webview/runtime/triggerLanes.ts:paintTriggerLanes` | 6 | 2 |
 | トラックの波形レーン (`track-waveform`) | `webview/runtime/comparisonRuntime.ts:drawTrackWaveform` | 7 | 0 |
-| トラックのスペクトログラムのレーン (`track-spectrogram`) | `webview/runtime/trackCanvasPainter.ts:paintTrackSpectrogram`<br>`webview/runtime/comparisonRuntime.ts:drawSpectrogram` | 5 | 1 |
+| トラックのスペクトログラムのレーン (`track-spectrogram`) | `webview/runtime/trackCanvasPainter.ts:paintTrackSpectrogram`<br>`webview/runtime/comparisonRuntime.ts:drawSpectrogram` | 5 | 0 |
 | トラックのレーンの軸（振幅・周波数の軸、上の時間の目盛り） (`track-axes`) | `webview/runtime/comparisonRuntime.ts:renderRuler`<br>`webview/runtime/stagePanes.ts:paintSideAxis`<br>`.track-axis-canvas:not(.track-spec-axis)`<br>`.track-spec-axis`<br>`#ruler-canvas` | 2 | 0 |
 | トラックの見出しとツールバーの数（カーソルの時刻、ずらし、ピーク、解析窓） (`track-header`) | `webview/runtime/calibrationDecorations.ts:channelMetricSummaryHtml`<br>`webview/runtime/comparisonRuntime.ts:updateCursorDisplay` | 5 | 2 |
 | トラック表示の PNG 書き出し (`track-png`) | `webview/runtime/exportDownloads.ts:composeTrackCanvases` | 1 | 0 |
@@ -119,7 +119,7 @@
 | --- | --- | --- | --- | --- | --- |
 | 読み値 | スペクトログラムのレーンの読み値（時刻・周波数・レベル） | `webview/runtime/trackLaneHover.ts:spectrogramReadoutText`<br>`webview/runtime/stagePanes.ts:cellRead`<br>`webview/runtime/laneReads.ts:createLaneReads` | 全データ：laneReads.spectrogram が本当の STFT のマスを取り寄せる。描くための平均したマスは読まない。 | ◆ `trackLaneHover.test.ts` › the pointer on a spectrogram lane reads the real STFT cell under it, not the cell averaged to draw it, and ← / → the next frame (R7)<br>◆ `uiSmoke/spectrogramZoom.spec.ts` › a spectrogram lane boxed to a narrow band asks for that band's own bins and draws and reads them, not the whole range's rows stretched (R3) |  |
 | ← / → | スペクトログラムの ← / →（次のフレーム） | `webview/runtime/stagePanes.ts:imageStep` | 全データ：本当のマスの次の列。 | ◆ `fullRead.test.ts` › a spectrogram is read at its real cells, never the cells averaged to draw it, and stepped a frame at a time (R7) |  |
-| 自動の範囲 | 色の自動の範囲（カラーバーの両端の数） | `webview/runtime/spectrogramRaster.ts:spectrogramDisplayBounds`<br>`analyzer.py:_build_spectrogram` | 間引いた点（平均・切り出し）：spec.minDb / maxDb は _build_spectrogram が時間と周波数をパワー平均して表示用に縮めたマス（_resample_time_bins、resample_frequency_bins）の最小と最大。niceRange で丸めてカラーバーの両端に出す。 | `uiSmoke/colourRangeRounding.spec.ts` › the auto colour scale opens with round dB ends, and typed ends are kept as typed | **P1** カラーバーの両端の数が、表示用に平均したマスから来る。テストは丸めだけを見ていて、全 STFT の最小・最大と比べていない。 |
+| 自動の範囲 | 色の自動の範囲（カラーバーの両端の数） | `webview/runtime/spectrogramRaster.ts:spectrogramDisplayBounds`<br>`analyzer.py:_build_spectrogram` | 全データ：spec.minDb / maxDb は _build_spectrogram が表示用に平均する前の全 STFT のマスの最小と最大（マスは描くマスと同じ -120 dB の床から数える）。niceRange で丸めてカラーバーの両端に出す。 | ◆ `test_analyzer.py` › test_spectrogram_colour_range_is_every_full_cells_not_the_cells_averaged_to_draw<br>`test_analyzer.py` › test_spectrogram_colour_range_counts_digital_silence_at_the_drawn_floor<br>`uiSmoke/colourRangeRounding.spec.ts` › the auto colour scale opens with round dB ends, and typed ends are kept as typed |  |
 | 目盛り | 周波数の目盛り | `webview/runtime/stagePanes.ts:paintPlot`<br>`webview/runtime/stagePanes.ts:valueAxisTicks`<br>`webview/runtime/stagePanes.ts:valueTickTexts`<br>`webview/runtime/stagePanes.ts:alongAxisTicks`<br>`webview/runtime/stagePanes.ts:rowAxisTicks`<br>`webview/runtime/stagePanes.ts:tickText`<br>`webview/runtime/stagePanes.ts:levelTick`<br>`webview/runtime/stagePanes.ts:paintRightAxis` | 軸の範囲・窓：周波数の範囲（ナイキストか入れた範囲）から部品が決める。 | `stagePanes.test.ts` › levels share a range of four round steps; coherence keeps 0 to 1<br>`laneAxes.test.ts` › the lanes take the ticks and their text from the rules every plot uses |  |
 | 軸の名前 | 周波数の軸と色の名前 | `webview/runtime/trackCanvasPainter.ts:paintTrackSpectrogram` | 文字：周波数 [Hz]、色はレベルの名前と基準。 | `trackCanvasPainter.test.ts` › a spectrogram lane is drawn by the plot component over its whole width, with the colour bar every coloured picture draws in its top right (R13)<br>`uiSmoke/plotContract.spec.ts` › the track view's waveform and spectrogram lanes answer the same gestures as every plot: readout in the toolbar above them (R13) |  |
 
@@ -266,12 +266,11 @@
 
 ## 穴の一覧
 
-### P1（5、上限 5）
+### P1（4、上限 4）
 
 - `compare-overlay.range-image`：カラーバーの両端の数が、描くために平均したマスから来る。短く強いマスは平均で下がり、範囲の外に出る。
 - `compare-delta.range-image`：カラーバーの両端の数を、描くために平均した Δ のマスから求めている。
 - `compare-lanes.range-image`：カラーバーの両端の数を、描くために平均したマスから求めている。
-- `track-spectrogram.range`：カラーバーの両端の数が、表示用に平均したマスから来る。テストは丸めだけを見ていて、全 STFT の最小・最大と比べていない。
 - `cursor-spectrum.pending`：スライスが届くまで、表示用に平均したスペクトログラムの列を描き、全ビンのように読み値に出す。
 
 ### P2（25、上限 25）

@@ -234,6 +234,34 @@ def test_spectrogram_time_reduction_averages_linear_power() -> None:
     )
 
 
+def test_spectrogram_colour_range_is_every_full_cells_not_the_cells_averaged_to_draw() -> None:
+    # A long STFT the lane draws averaged in time and frequency: one short loud cell and one narrow deep cell are
+    # averaged away in the drawn cells, but they are the full STFT's ends and the colour bar's.
+    rng = np.random.default_rng(7)
+    full = rng.uniform(-62.0, -58.0, size=(6000, 2049))
+    full[3001, 700] = -3.5
+    full[1200, 1500] = -97.25
+    spec = _build_spectrogram(full, sample_rate_hz=48_000, window_size=4096, hop_size=1024, scale=_SCALE)
+
+    drawn = np.asarray(spec["values"])
+    assert drawn.shape[0] < full.shape[0] and drawn.shape[1] < full.shape[1]
+    # The drawn cells lost both ends, so a range from them would not be the full data's.
+    assert drawn.max() < -20.0 and drawn.min() > -70.0
+    assert spec["maxDb"] == -3.5
+    assert spec["minDb"] == -97.25
+
+
+def test_spectrogram_colour_range_counts_digital_silence_at_the_drawn_floor() -> None:
+    full = np.full((3000, 1025), -50.0)
+    full[:500] = -240.0  # wandas' dB of an all-zero frame
+    full[600, 3] = -np.inf
+    spec = _build_spectrogram(full, sample_rate_hz=48_000, window_size=2048, hop_size=512, scale=_SCALE)
+
+    assert spec["minDb"] == pytest.approx(-120.0)
+    assert spec["maxDb"] == pytest.approx(-50.0)
+    assert min(min(row) for row in spec["values"]) >= spec["minDb"]
+
+
 def test_spectrogram_frequency_reduction_averages_linear_power() -> None:
     spec = _build_spectrogram(
         np.array([[-60.0, 0.0], [-20.0, -40.0]], dtype=np.float64),

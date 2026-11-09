@@ -368,11 +368,15 @@ def _build_spectrogram(
     if spectrogram.ndim != 2:
         raise ValueError(f"Expected 2D spectrogram data, got shape {spectrogram.shape}")
 
+    # The colour range is every STFT cell's, before the cells are power-averaged to draw: a short loud cell or a narrow
+    # dip averaged away still sets an end. Cells count from the floor the averaged cells have (-120 dB), so digital
+    # silence (wandas writes it as -240 dB, or -inf) does not stretch the colours over levels nothing else reaches.
+    full = np.maximum(spectrogram, _MEAN_POWER_FLOOR_DB)
+    min_db = float(np.min(full))
+    max_db = float(np.max(full))
+
     spectrogram = _resample_time_bins(spectrogram, time_bin_limit)
     spectrogram = resample_frequency_bins(spectrogram, frequency_bin_limit)
-
-    min_db = float(np.min(spectrogram))
-    max_db = float(np.max(spectrogram))
 
     payload: SpectrogramPayload = {
         "values": spectrogram.tolist(),
