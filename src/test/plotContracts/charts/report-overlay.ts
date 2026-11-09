@@ -10,10 +10,11 @@ export const reportOverlay: ChartContract = {
     rows: [
         {
             id: 'report-overlay.headline', value: 'headline', what: '図の題（見出しの帯と Leq の両方のレベル）',
-            computedIn: ['src/webview/runtime/comparePanes.ts:levelsHeadline', 'src/webview/runtime/comparePanes.ts:pair', 'src/webview/runtime/comparePanes.ts:buildCompareModel', 'src/webview/runtime/comparePanes.ts:medianSide', 'src/webview/runtime/comparePanes.ts:spreadOf', 'src/webview/runtime/compareReport.ts:reportFiles'],
-            from: 'whole', trace: '帯と Leq はスキャンの全データの値（群は帯ごとの中央値）。（描くために間引いた形はない）',
+            computedIn: ['src/webview/runtime/comparePanes.ts:levelsHeadline', 'src/webview/runtime/comparePanes.ts:pair', 'src/webview/runtime/comparePanes.ts:shown', 'src/webview/runtime/comparePanes.ts:buildCompareModel', 'src/webview/runtime/comparePanes.ts:medianSide', 'src/webview/runtime/comparePanes.ts:spreadOf', 'src/webview/runtime/compareReport.ts:reportFiles'],
+            from: 'whole', trace: '帯と Leq はスキャンの全データの値（群は帯ごとの中央値）。（描くために間引いた形はない）レベルには基準を書く（両方同じなら最後に 1 回、違えばそれぞれに）。',
             tests: [
                 t('src/test/comparePanes.test.ts', 'the headline gives both levels, and a band far below the loudest does not head it however large its Δ'),
+                t('src/test/comparePanes.test.ts', 'levels in another unit, reference or calibration have no Δ and no shared median, whichever way the base is made'),
                 t('src/test/comparePanes.test.ts', 'a tone that leaks into the neighbouring bands heads the list alone: only peaks of |Δ| across bands count'),
             ],
         },

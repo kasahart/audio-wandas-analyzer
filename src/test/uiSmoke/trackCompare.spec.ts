@@ -98,7 +98,7 @@ test('Enter on the entry table compares the slotted files in the track view: ove
     await answer(page);
     // The row above the plots names no difference: its numbers are the pointer's readout (R7).
     await expect(page.locator('[data-stage-headline]')).toHaveText('');
-    await expect(page.locator('[data-stage-legend] .compare-legend-item')).toHaveText([/^Base group/, new RegExp(`^Compare 1 ▾${first.split('/').pop()} ch1 ${STR_EN.dsLeq.replace('{label}', 'dBFS').replace(/[[\]]/g, '\\$&')} −?\\d`), new RegExp(`^Compare 2 ▾${second.split('/').pop()} ch1 `)]);
+    await expect(page.locator('[data-stage-legend] .compare-legend-item')).toHaveText([/^Base group/, new RegExp(`^Compare 1 ▾${first.split('/').pop()} ch1 ${STR_EN.dsLeq.replace('{uncal}', STR_EN.axisUncalibrated).replace('{label}', 'dBFS').replace(/[[\]]/g, '\\$&')} −?\\d`), new RegExp(`^Compare 2 ▾${second.split('/').pop()} ch1 `)]);
     expect(await page.locator('[data-stage-legend] line').evaluateAll(lines => lines.map(line => line.getAttribute('stroke')))).toEqual(['#3b82f6', '#d4b20f', '#a371f7']);
     // The base group's ▾ says how its curve is made; "Show on the list" lists the compared files and their base on the table.
     const STR = getStrings('en');
@@ -255,7 +255,7 @@ test('narrowed to ch 2, the base is the group\'s ch-2 recordings within the filt
     await expect(legend.first()).toContainText(STR.dsBaseNarrowed.replace('{filters}', `${STR.dsCh} = 2`));
     // The compared row: its name with the channel, its value on show, ✎ with its memo.
     await expect(legend.nth(1)).toContainText(`Compare 1 ▾${filePath.split('/').pop()} ch2`);
-    await expect(legend.nth(1).locator('.compare-value')).toHaveText(new RegExp(`^${STR.dsLeq.replace('{label}', 'dBFS').replace(/[[\]]/g, '\\$&')} −\\d+\\.\\d$`));
+    await expect(legend.nth(1).locator('.compare-value')).toHaveText(new RegExp(`^${STR.dsLeq.replace('{uncal}', STR.axisUncalibrated).replace('{label}', 'dBFS').replace(/[[\]]/g, '\\$&')} −\\d+\\.\\d$`));
     await expect(legend.nth(1).locator('[data-memo]')).toHaveAttribute('data-hint', 'rattle at 3 kHz');
 });
 

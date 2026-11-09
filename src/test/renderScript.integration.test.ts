@@ -1335,7 +1335,9 @@ test('renderScript: spectrum at exact track end renders silence instead of the l
     const snapshots = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot') as any[];
     const snap = snapshots[snapshots.length - 1];
     assert.equal(snap.renderedUi.cursorNorm, 1);
-    assert.ok(snap.renderedUi.axisLabels.spectrumOverlay.includes('-90 dB'), 'end cursor should use the silent floor: ' + JSON.stringify(snap.renderedUi.axisLabels.spectrumOverlay));
+    // The silent stand-in spans the spectrogram's floor (−90 dB) to its top, rounded by the dB line rule to −100…0 dB;
+    // the last STFT column (−50…−5 dB) would end at −50 dB.
+    assert.equal(snap.renderedUi.axisLabels.spectrumOverlay[2], '-100 dB', 'end cursor should use the silent floor: ' + JSON.stringify(snap.renderedUi.axisLabels.spectrumOverlay));
     env.dom.window.close();
 });
 

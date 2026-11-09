@@ -29,7 +29,7 @@ export const entryHeld: ChartContract = {
         {
             id: 'entry-held.delta', value: 'delta', what: 'スロットの Δ（全ビン）と手順の有無の Δ',
             computedIn: ['src/webview/runtime/comparePanes.ts:binsOf', 'src/webview/runtime/comparePanes.ts:fileSide', 'src/webview/runtime/comparePanes.ts:deltaViews', 'src/webview/runtime/combineSource.ts:createCombineSource'],
-            from: 'full', trace: 'スロットは押したときに録音と基準の全ビンを取り寄せ、ビンごとに引く（0.01 dB に丸める）。手順の有無はバックエンドが全データで引く。',
+            from: 'full', trace: 'スロットは押したときに録音と基準の全ビンを取り寄せ、丸める前の値をビンごとに引く（binsOf、R1：丸めるのは書くときだけ）。手順の有無はバックエンドが全データで引く。',
             tests: [
                 tt('src/test/entryHeldPlot.test.ts', 'a held slot asks once for every bin of its file and its base, then draws its Δ from them (R1, R3)'),
                 tt('src/test/comparePanes.test.ts', 'the held Δ zoomed in is drawn again from every bin between its ends, not the whole Δ decimated and stretched (R1, R3)'),

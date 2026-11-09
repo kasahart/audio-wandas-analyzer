@@ -5,6 +5,8 @@ export interface LevelMeasurement {
     calibrationStatus?: string;
     linearUnit?: string;
     levelUnit?: string;
+    /** The level's reference as the axes name it ("dB SPL re 20 µPa", "dB re 1 V"): written in place of levelUnit when given (R7). */
+    levelReferenceLabel?: string;
 }
 
 export interface ChannelLabelSource {
@@ -20,10 +22,17 @@ export function uncalibratedUnits(fullScale: boolean): { linear: string; level: 
     return fullScale ? { linear: 'FS', level: 'dBFS' } : { linear: 'input unit', level: 'dB re 1 input unit' };
 }
 
-/** The level reference several files share as wandas names it ("dBFS", "dB SPL re 20 µPa"): plain dB when they differ, dBFS before any. */
-export function sharedLevelLabel(labels: Iterable<string>): string {
-    const distinct = new Set(labels);
-    return distinct.size === 0 ? 'dBFS' : distinct.size === 1 ? [...distinct][0] : 'dB';
+/**
+ * The level reference most of these files have, as wandas names it ("dBFS", "dB SPL re 20 µPa"); dBFS before any. Never
+ * plain dB: an absolute level always names its reference (R4), so files of another reference are shown apart, not
+ * under a common bare "dB" (the entry table compares only files of its most common shape, too).
+ */
+export function commonLevelLabel(labels: Iterable<string>): string {
+    const counts = new Map<string, number>();
+    for (const label of labels) counts.set(label, (counts.get(label) ?? 0) + 1);
+    let best = 'dBFS', most = 0;
+    for (const [label, count] of counts) if (count > most) { best = label; most = count; }
+    return best;
 }
 
 /** Linear measurement values: 0 / 2 / 3 decimals by magnitude, 3 significant digits below 0.01. */
@@ -40,7 +49,8 @@ export function formatMeasurementNumber(value: unknown): string {
 /** "<linear> <unit> / <level> <levelUnit>" for calibrated channels, "<level> <levelUnit>" otherwise; null without a finite level. */
 export function formatMeasuredLevel(linearValue: unknown, levelValue: unknown, measurement: LevelMeasurement | null | undefined): string | null {
     if (!Number.isFinite(levelValue)) { return null; }
-    const level = levelText(Number(levelValue), (measurement && measurement.levelUnit) || 'dB');
+    // An absolute level names its reference as its axis does: wandas' levelUnit is bare "dB" for any reference but FS and SPL.
+    const level = levelText(Number(levelValue), (measurement && (measurement.levelReferenceLabel || measurement.levelUnit)) || 'dB');
     if (!measurement || measurement.calibrationStatus === 'uncalibrated') { return level; }
     return formatMeasurementNumber(linearValue) + ' ' + measurement.linearUnit + ' / ' + level;
 }

@@ -15,11 +15,15 @@ const scanned = (level: number, channels = 1): ScanResult => ({
     spectrumDb: Array.from({ length: channels }, () => [level, level]), thirdOctDb: Array.from({ length: channels }, () => [level, level + 1]), specVersion: 5,
 });
 
-function setup(options: { slots?: (string | null)[]; group?: GroupId; baseGroup?: string | null; channels?: Record<string, number>; narrowedBy?: string[]; stale?: string[] } = {}) {
+function setup(options: { slots?: (string | null)[]; group?: GroupId; baseGroup?: string | null; channels?: Record<string, number>; narrowedBy?: string[]; stale?: string[]; uncalibrated?: string[] } = {}) {
     const attributes = new Map([
         ['/d/a.wav', { rpm: '900' }], ['/d/b.wav', { rpm: '900' }], ['/d/c.wav', { rpm: '900' }], ['/d/d.wav', { rpm: '1500' }],
     ]);
-    const results = new Map<string, ScanResult>([...attributes.keys()].map((path, index) => [path, scanned(40 + index * 2, options.channels?.[path] ?? 1)]));
+    const uncalibrated = (result: ScanResult): ScanResult => ({ ...result, input: { ...result.input!, unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated' } });
+    const results = new Map<string, ScanResult>([...attributes.keys()].map((path, index) => {
+        const result = scanned(40 + index * 2, options.channels?.[path] ?? 1);
+        return [path, options.uncalibrated?.includes(path) ? uncalibrated(result) : result];
+    }));
     const rows: DatasetRow[] = datasetRows([...attributes.keys()], '/d', attributes, results);
     const byKey = new Map(rows.map(row => [row.key, row]));
     const state = { slots: options.slots ?? [null, null, null, null], group: options.group ?? 'csv:rpm', baseGroup: options.baseGroup ?? null };
@@ -86,4 +90,16 @@ test('the comparison comes from the base it resolves', () => {
     const model = base.comparison('/d/a.wav');
     assert.equal(model.compare?.leq, 40);
     assert.ok(model.base, 'the group median of b and c');
+});
+
+test('a group\'s recordings in another unit, reference or calibration than the compared one are left out and said', () => {
+    const { base } = setup({ slots: [null, '/d/a.wav', null, null], uncalibrated: ['/d/b.wav'] });
+    const resolved = base.resolve('/d/a.wav');
+    assert.deepEqual(resolved.paths, ['/d/c.wav']);
+    assert.equal(resolved.definition.count, 1);
+    assert.equal(resolved.definition.otherUnits, 1);
+    assert.ok(resolved.title.includes(strings.dsBaseOtherUnits.replace('{n}', '1')));
+    const comparison = base.comparison('/d/a.wav');
+    assert.deepEqual(comparison.base!.filePaths, ['/d/c.wav']);
+    assert.equal(comparison.blocked, undefined);
 });

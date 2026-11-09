@@ -39,13 +39,21 @@ export class SpectrogramSettingsStore {
         };
     }
 
-    reset(): void {
+    /**
+     * Back to the defaults. True when that changes what the host's spectra are made of (dataSignature): the caller must
+     * then analyse again (as Apply does), or the lanes, the readouts and the cursor spectrum use different STFTs.
+     */
+    reset(): boolean {
+        const before = this.dataSignature;
         this.current = defaultSpectrogramSettings();
+        return this.dataSignature !== before;
     }
 
-    /** New STFT settings from the ⚙ popover; the lower frequency set on the axis survives them. */
-    applyStft(settings: SpectrogramSettings): void {
+    /** New STFT settings from the ⚙ popover; the lower frequency set on the axis survives them. True when the data signature changed. */
+    applyStft(settings: SpectrogramSettings): boolean {
+        const before = this.dataSignature;
         this.current = { ...settings, display: { ...settings.display, minFrequencyHz: this.current.display.minFrequencyHz ?? null } };
+        return this.dataSignature !== before;
     }
 
     setReanalyzeBusy(busy: boolean): void {

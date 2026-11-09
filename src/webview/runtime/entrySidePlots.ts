@@ -8,7 +8,7 @@ import type { UiStrings } from '../../shared/i18n/strings';
 import type { ScanResult } from '../../shared/protocol/backendProtocol';
 import { rowKey, type DatasetRow } from '../../shared/dataset/datasetTable';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
-import { sharedLevelLabel } from '../../shared/utils/format';
+import { commonLevelLabel } from '../../shared/utils/format';
 import { installRangePopover, linearAxis, openAxisPart, type AxisMapping } from '../rangePopover';
 import type { HeldPicture } from './entryHeldPlot';
 import { OVERVIEW_MARGINS, paintOverview } from './entryPlots';
@@ -54,6 +54,8 @@ export interface SidePlots {
     clear(): void;
     /** The level reference the scanned recordings share ("dBFS", "dB SPL re 20 µPa"), plain dB when they differ: the overview's colour scale and the table's level values name it. */
     levelLabel(): string;
+    /** A level value's name ("Leq A特性{uncal} [{label}]"): the most common reference, and 未校正 while it is uncalibrated. */
+    levelName(template: string): string;
     /** The side plots painted on the next frame; `distribution`: the distribution too, not only the strip's window. */
     schedule(distribution?: boolean): void;
     /** The gestures on the plots, and a click on the strip. */
@@ -102,12 +104,23 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
     const calibrated = new Set<string>();
     /** Bumped on every change to them, so the strip knows when to draw its cells again. */
     let version = 0;
-    let shared = { version: -1, label: '' };
-    /** The scanned recordings' level reference as wandas names it, once per change rather than per call. */
-    function levelLabel(): string {
-        if (shared.version !== version) shared = { version, label: sharedLevelLabel(levelLabels.values()) };
-        return shared.label;
+    let shared: { version: number; label: string; calibrated: boolean; levels: Map<string, (number | null)[]> } = { version: -1, label: '', calibrated: false, levels: new Map() };
+    /**
+     * The scanned recordings' level reference as wandas names it (the most common one), whether all of theirs are
+     * calibrated, and the levels of only the recordings in it: a level of another reference is never coloured on the
+     * same scale. Once per change rather than per call.
+     */
+    function reference(): typeof shared {
+        if (shared.version === version) return shared;
+        const label = commonLevelLabel(levelLabels.values());
+        const files = [...levelLabels].filter(([, own]) => own === label).map(([path]) => path);
+        const keys = new Set(files.flatMap(path => levelRows.get(path) ?? []));
+        shared = { version, label, calibrated: files.length > 0 && files.every(path => calibrated.has(path)), levels: new Map([...levels].filter(([key]) => keys.has(key))) };
+        return shared;
     }
+    const levelLabel = (): string => reference().label;
+    /** A level value's name: the template with the reference and, while uncalibrated, the word that says so (R4). */
+    const levelName = (template: string): string => template.replace('{uncal}', reference().calibrated ? '' : strings.axisUncalibrated).replace('{label}', reference().label);
     const pending = { frame: false, distribution: true };
 
     function paint(): void {
@@ -117,8 +130,9 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
         const rows = deps.rows();
         const rowHeight = (body.querySelector('tr') as HTMLElement | null)?.offsetHeight || 22;
         const first = Math.floor(tableWrap.scrollTop / rowHeight);
-        overviewDrawn = paintOverview(overview, strings, rows, levels, { first, last: first + Math.ceil(tableWrap.clientHeight / rowHeight) - 2 }, deps.focusedRow(), keepWindow('overview', String(rows.length)),
-            { label: levelLabel(), calibrated: levelLabels.size > 0 && calibrated.size === levelLabels.size }, version).drawn;
+        const level = reference();
+        overviewDrawn = paintOverview(overview, strings, rows, level.levels, { first, last: first + Math.ceil(tableWrap.clientHeight / rowHeight) - 2 }, deps.focusedRow(), keepWindow('overview', String(rows.length)),
+            { label: level.label, calibrated: level.calibrated }, version).drawn;
         // The zoom on each plot, for tests: "x0-x1|y0-y1".
         for (const [name, canvas] of [['overview', overview], ['held', heldCanvas]] as const) {
             const zoom = plotWindow(name);
@@ -219,6 +233,7 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
         window: plotWindow,
         keepWindow,
         levelLabel,
+        levelName,
         levels: key => levels.get(key),
         noteResult(filePath: string, result: ScanResult): void {
             version++;

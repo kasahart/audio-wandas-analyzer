@@ -58,10 +58,18 @@ export interface CombineSource {
 
 const CACHED = 64;
 
+/**
+ * How long a failed answer stands (ms): until then it is shown as failed rather than asked again on every draw; after
+ * it, the next draw asks again, so a passing failure does not stay for good. The track view's reads keep theirs as long.
+ */
+export const FAILED_HOLD_MS = 5000;
+
 const requestKey = (request: CombineRequest): string => JSON.stringify([request.base, request.compare, request.detail ?? null]);
 
-export function createCombineSource(prefix: string, post: (message: CompareCombineMessage) => void, changed: () => void): CombineSource {
+export function createCombineSource(prefix: string, post: (message: CompareCombineMessage) => void, changed: () => void, now: () => number = () => Date.now()): CombineSource {
     const results = new Map<string, Combined>();
+    /** When each failed answer came (by request key): it is asked again once FAILED_HOLD_MS have passed. */
+    const failedAt = new Map<string, number>();
     const asked = new Map<string, { key: string; identity: string; forget: (keys: readonly string[]) => void }>();
     const retried = new Set<string>();
     let count = 0;
@@ -76,6 +84,11 @@ export function createCombineSource(prefix: string, post: (message: CompareCombi
     return {
         get(identity, request, forget) {
             const key = requestKey(request);
+            const failed = failedAt.get(key);
+            if (failed !== undefined && now() - failed >= FAILED_HOLD_MS) {
+                failedAt.delete(key);
+                results.delete(key);
+            }
             const done = results.get(key);
             if (done) return done;
             if (![...asked.values()].some(item => item.key === key)) {
@@ -98,6 +111,7 @@ export function createCombineSource(prefix: string, post: (message: CompareCombi
                 keep(request.key, { base: result.base ?? null, diff: result.diff ?? null, ...(result.noDelta ? { noDelta: result.noDelta } : {}) });
             } else if (!result.missing?.length) {
                 keep(request.key, FAILED_COMBINED);
+                failedAt.set(request.key, now());
             } else if (!retried.has(request.identity)) {
                 retried.add(request.identity);
                 request.forget(result.missing ?? []);

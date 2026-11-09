@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { frequencyAxisTicks } from '../webview/draw/canvasDrawers';
 import { spectrumLayer } from '../webview/runtime/overlaySpectrumPainter';
-import { spectrumSeriesRange } from '../webview/runtime/spectrumRuntime';
+import { spectrumLevelRange, spectrumSeriesRange } from '../webview/runtime/spectrumRuntime';
+import { stageRange } from '../webview/runtime/stagePanes';
+import type { StageView } from '../shared/protocol/backendProtocol';
 import type { SpectrumSlice } from '../webview/runtime/types';
 
 function slice(values: number[], overrides: Partial<SpectrumSlice> = {}): SpectrumSlice {
@@ -31,7 +33,25 @@ test('spectrumSeriesRange spans every series', () => {
     assert.deepEqual(spectrumSeriesRange([
         { slice: slice([0], { minDb: -80, maxDb: -10, maxFrequencyHz: 8000 }) },
         { slice: slice([0], { minDb: -90, maxDb: -20, maxFrequencyHz: 24_000 }) },
-    ]), { minDb: -90, maxDb: -10, maxFrequencyHz: 24_000 });
+    ]), { minDb: -100, maxDb: 0, maxFrequencyHz: 24_000 });
+});
+
+test('the cursor spectrum\'s level axis follows the dB line rule: round steps, at most 100 dB, a silent line squashes nothing (R9)', () => {
+    // A silent recording (wandas' −300 dB floor) beside one at −20 dB: the axis is the loud one's, 100 dB deep.
+    const range = spectrumSeriesRange([
+        { slice: slice([0], { minDb: -300, maxDb: -300, maxFrequencyHz: 8000 }) },
+        { slice: slice([0], { minDb: -73, maxDb: -21.5, maxFrequencyHz: 8000 }) },
+    ]);
+    assert.deepEqual([range.minDb, range.maxDb], [-120, -20]);
+    // The same as the comparison's dB lines, for any extremes.
+    for (const [low, high] of [[-49.5, -9.5], [-300, 3], [-61, -60.2], [-12, 40]]) {
+        const own = stageRange([{ kind: 'line', quantity: 'level', xs: [], values: [], valueRange: { min: low, max: high } } as unknown as StageView]);
+        assert.deepEqual(spectrumLevelRange(low, high), { minDb: own.min, maxDb: own.max }, `${low}…${high}`);
+        assert.ok(own.max - own.min <= 100);
+    }
+    // A typed end stays exactly as typed; with the top typed the bottom is at most 100 dB under it.
+    assert.deepEqual(spectrumLevelRange(-300, -20, { max: -3 }), { minDb: -103, maxDb: -3 });
+    assert.deepEqual(spectrumLevelRange(-300, -20, { min: -63.3 }), { minDb: -63.3, maxDb: -20 });
 });
 
 test('octave bands become steps on a log frequency axis, one per band centre', () => {

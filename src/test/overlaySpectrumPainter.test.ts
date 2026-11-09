@@ -185,6 +185,18 @@ test('paintOverlaySpectrum: a second reference widens the right margin, names it
     assert.equal(OVERLAY_SPECTRUM_PAD.right, 8, 'one reference gives the margin back');
 });
 
+test('paintOverlaySpectrum: with one level axis a point read still names its reference, never bare dB (R7)', () => {
+    const { ctx } = recordingCtx();
+    for (const [series, unit] of [[mixed[1], ' dB re 1 V'], [mixed[0], ' dB SPL re 20 µPa']] as const) {
+        const paint = paintOverlaySpectrum(canvasOf(ctx), 400, 200, [series], fullView);
+        const plot = paint.plot;
+        assert.ok(plot);
+        const peak = Math.max(...series.slice.values);
+        const read = stageHover(plot, plot.xAt(1000 / 3), plot.yAt(peak));
+        assert.ok(read?.text.endsWith(unit), read?.text);
+    }
+});
+
 test('paintOverlaySpectrum: a line read on the right-hand axis is dashed, so lines of one colour are told apart', () => {
     const grey = mixed.map(s => ({ ...s, color: '#8b949e' }));
     const strokes: Array<{ dash: number[] }> = [];

@@ -87,6 +87,11 @@ export interface TrackStageDeps {
     /** 報告に: the comparison written as a report folder (over the region, from `measured`). */
     report(showDiff: boolean, region: EntryRegion | null, measured: ReadonlyMap<string, ScanResult>, binned: ReadonlyMap<string, ScanResult>): void;
     sampleRate(): number | undefined;
+    /**
+     * What a file's pictures depend on beyond their spec: its version and calibration (stageSource.stageBasis). A
+     * change asks its pictures again, so a picture of an earlier calibration or version is never drawn or read.
+     */
+    basis?(filePath: string): string;
     /** The largest peak of the compared channels' waveforms over the region, in their unit: where a new trigger starts (half of it). */
     peak?(region: EntryRegion | null): number | undefined;
     /**
@@ -162,13 +167,14 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
     const limits = (): StepLimits => stepLimits({ sampleRate: deps.sampleRate(), channels: deps.channels?.(), failed: deps.recipe()?.failed });
     /** The part of the files compared: the region chip's, unless it is bypassed. */
     const liveRegion = (): EntryRegion | null => liveRegionOf(deps.recipe()?.recipe, state.regionSet);
-    const source = createStageSource('track-stage', message => deps.post(message), () => deps.rerender());
+    const basis = (filePath: string): string => deps.basis?.(filePath) ?? '';
+    const source = createStageSource('track-stage', message => deps.post(message), () => deps.rerender(), basis);
     const combine = createCombineSource('track-combine', message => deps.post(message), () => deps.rerender());
     // Every number read off the plots comes from the pictures' full data the backend keeps (R7), not their lines.
     // A read of values the backend let go: their pictures are scanned again, then read anew.
     const reader = createStageReader('read-stage', message => deps.post(message), keys => { source.forgetData(keys); deps.rerender(); });
     // The report's files with every Welch bin, asked for on 報告に only (a stored result keeps the 192 points alone).
-    const reportSource = createStageSource('report-scan', message => deps.post(message), () => writeReport());
+    const reportSource = createStageSource('report-scan', message => deps.post(message), () => writeReport(), basis);
     /** 報告に pressed: the report waits for its files' bins (with Δ shown or not, as when it was pressed). */
     let pendingReport: { showDiff: boolean; region: EntryRegion | null } | null = null;
     /** The last zoomed combination of each comparison, drawn until the next zoom's is in. */

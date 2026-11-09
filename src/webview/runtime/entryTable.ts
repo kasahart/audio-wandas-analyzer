@@ -53,6 +53,8 @@ export interface BaseDefinition {
     filters: string[];
     /** Recordings of the group left out for having fewer channels than `channel`. */
     fewerChannels: number;
+    /** Recordings of the group left out for having their levels in another unit, reference or calibration. */
+    otherUnits?: number;
 }
 
 /**

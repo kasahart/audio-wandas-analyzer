@@ -8,7 +8,7 @@ import type { UiStrings } from '../../shared/i18n/strings';
 import type { ScanResult } from '../../shared/protocol/backendProtocol';
 import { baseGroupMembers, fileOfKey, groupOf, type DatasetRow, type GroupId } from '../../shared/dataset/datasetTable';
 import { channelResult } from '../../shared/recipe/channelSelection';
-import { buildCompareModel, type CompareModel } from './comparePanes';
+import { buildCompareModel, ofOneUnit, type CompareModel } from './comparePanes';
 import { comparedKeys, roleKey } from './entrySlots';
 import { type BaseDefinition, type EntryModel } from './entryTable';
 
@@ -80,13 +80,18 @@ export function createEntryBase(deps: EntryBaseDeps): EntryBase {
         const name = group === 'none' ? '' : deps.baseGroup() ?? (compareRow ? groupOf(compareRow, group) : '');
         // The other compared recordings (slots 1–3) are compared themselves: not part of anyone's base.
         const compared = new Set(comparedKeys(slots).map(fileOfKey));
-        const { paths, fewerChannels } = baseGroupMembers(deps.pool().filter(row => row.filePath === comparePath || !compared.has(row.filePath)), comparePath, group, name, channel);
+        const members = baseGroupMembers(deps.pool().filter(row => row.filePath === comparePath || !compared.has(row.filePath)), comparePath, group, name, channel);
+        const { fewerChannels } = members;
+        // A median is of one unit, reference and calibration: the group's recordings in another than the compared one's are left out and counted.
+        const paths = ofOneUnit(results, members.paths, path => path, results.get(comparePath));
+        const otherUnits = members.paths.length - paths.length;
         const where = group === 'none' ? strings.dsDistAll : `${deps.groupLabel(group)} ${name || '—'}`;
         const title = `${strings.entryBaseGroup} ${where} · ${strings.entryBaseMedian.replace('{count}', String(paths.length))}${channel ? ` · ${strings.dsCh}${channel}` : ''}`
-            + (fewerChannels ? strings.dsBaseFewer.replace('{n}', String(fewerChannels)).replace('{ch}', String(channel)) : '') + within;
+            + (fewerChannels ? strings.dsBaseFewer.replace('{n}', String(fewerChannels)).replace('{ch}', String(channel)) : '')
+            + (otherUnits ? strings.dsBaseOtherUnits.replace('{n}', String(otherUnits)) : '') + within;
         return {
             paths, title, channel,
-            definition: { kind: 'group', group: { column: group === 'none' ? '' : deps.groupLabel(group), name }, count: paths.length, channel, filters: narrowedBy, fewerChannels },
+            definition: { kind: 'group', group: { column: group === 'none' ? '' : deps.groupLabel(group), name }, count: paths.length, channel, filters: narrowedBy, fewerChannels, ...(otherUnits ? { otherUnits } : {}) },
         };
     }
     function groupName(): string | null {
