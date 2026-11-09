@@ -130,7 +130,7 @@ function distributionHtml(strings: EntryStrings): string {
                     </div>
                     <div class="entry-dist-note"><span data-entry-dist-note></span><span class="plot-readout" data-plot-readout hidden><span class="plot-readout-name"></span><span class="plot-readout-values"></span></span></div>
                     <div class="entry-dist-groups" data-entry-dist-groups data-plot-stack></div>
-                    <div class="entry-dist-axis" data-entry-dist-axis><canvas class="entry-dist-axis-canvas" id="entry-dist-axis-canvas" data-entry-dist-axis-canvas hidden></canvas><span class="entry-dist-count-axis" data-entry-dist-count-axis></span></div>
+                    <div class="entry-dist-axis" data-entry-dist-axis><canvas class="entry-dist-axis-canvas" id="entry-dist-axis-canvas" data-plot-names="entry-dist-count-axis" data-entry-dist-axis-canvas hidden></canvas><span class="entry-dist-count-axis" id="entry-dist-count-axis" data-entry-dist-count-axis></span></div>
                     <div class="entry-dist-empty" data-entry-dist-empty hidden></div>
                 </div>`;
 }
