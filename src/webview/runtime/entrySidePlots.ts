@@ -196,7 +196,8 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
             stepFrom(plot, delta, arrived) { return marks.stepFrom(plot, plot === heldCanvas ? deps.heldPicture()?.drawn ?? null : overviewDrawn, delta, arrived); },
             // A press on the strip that stayed put (a drag zooms instead) goes to the row under it.
             tap(plot, event) {
-                if (plot !== overview) return;
+                // The second press of a double click (which resets the zoom) picks nothing: the first already did.
+                if (plot !== overview || event.detail > 1) return;
                 const rows = deps.rows();
                 const box = overview.getBoundingClientRect();
                 // The strip's rows (top first) over the part of it on screen.

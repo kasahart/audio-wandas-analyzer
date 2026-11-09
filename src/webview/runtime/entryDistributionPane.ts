@@ -244,6 +244,8 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
     // once no double-click follows.
     const tap = (canvas: HTMLElement, event: MouseEvent): void => {
         if (!scale || event.altKey) return;
+        // A double click's second press resets the zoom only: it picks no dot again, and the bin waiting on it is dropped.
+        if (event.detail > 1) { if (pendingClick !== null) { clearTimeout(pendingClick); pendingClick = null; } return; }
         const bounds = canvas.getBoundingClientRect();
         const dot = dotAt(canvas, event.clientX - bounds.left, event.clientY - bounds.top);
         if (dot) { deps.dot(dot); return; }

@@ -56,6 +56,9 @@ export interface BaseDefinition {
     fewerChannels: number;
     /** Recordings of the group left out for having their levels in another unit, reference or calibration. */
     otherUnits?: number;
+    /** Recordings of the group left out because their scan failed, or is still running. */
+    failed?: number;
+    pending?: number;
 }
 
 /**
@@ -118,6 +121,8 @@ export interface EntryRow {
     durationS?: number;
     /** Set without calibration: the level is relative to full scale, or to 1 raw input unit for a source without one (CSV). */
     uncalibrated?: 'full-scale' | 'raw-units';
+    /** What the row's levels are relative to: wandas' level reference for its file ("dBFS", "dB SPL re 20 µPa"). */
+    levelReference?: string;
     /** The file's 1/3-octave levels, for Δ against another base (slot 0). */
     levels?: (number | null)[];
     /** Set on a derived row: its parent's path and region. */
@@ -222,6 +227,25 @@ function mostTellingBand(rows: EntryRow[], files: Map<string, MeasuredResult>): 
     return best;
 }
 
+/** A row's level reference and, while its file is uncalibrated, what that is relative to. */
+function levelOfRow(result: ScanResult): Pick<EntryRow, 'uncalibrated' | 'levelReference'> {
+    const input = result.ok ? result.input : undefined;
+    if (!input) return {};
+    return {
+        levelReference: input.levelReferenceLabel,
+        ...(input.calibrationStatus === 'uncalibrated' ? { uncalibrated: input.fullScale ? 'full-scale' as const : 'raw-units' as const } : {}),
+    };
+}
+
+/**
+ * The CSV cell that says what a row's levels are in (R1, R4): its level reference, with the calibration word while
+ * uncalibrated ("dBFS 未校正"). Each row says its own: never one word for the whole table.
+ */
+export function levelReferenceCell(row: Pick<EntryRow, 'uncalibrated' | 'levelReference'> | undefined, uncalibrated: string): string {
+    if (!row?.levelReference) return '';
+    return row.uncalibrated ? `${row.levelReference} ${uncalibrated}` : row.levelReference;
+}
+
 /** Builds the model: a row per file with its values, condition and Δ, in the table's order (else by name). */
 export function buildEntryModel(
     files: readonly EntryFile[],
@@ -257,7 +281,7 @@ export function buildEntryModel(
         }
         row.status = 'ok';
         row.durationS = result.input.durationS;
-        if (result.input.calibrationStatus === 'uncalibrated') row.uncalibrated = result.input.fullScale ? 'full-scale' : 'raw-units';
+        Object.assign(row, levelOfRow(result));
         if (conditions.length) row.group = JSON.stringify(conditions);
         return row;
     });
@@ -324,7 +348,7 @@ function withDerived(rows: EntryRow[], derived: readonly DerivedRow[], band: num
                 filePath: derivedKey(item), name: [item.region === 'all' ? '└ Δ' : `└ Δ ${item.region} s`, ...(item.base.label ? [item.base.label] : [])].join(' · '),
                 // Fixed under an earlier Recipe: kept (only a click removes it), but no longer a number to read.
                 status: item.stale ? 'mismatch' : item.result.ok ? 'ok' : 'failed', ...(item.stale ? { mismatch: '≠' } : {}),
-                conditions: row.conditions, cells: row.cells, values, durationS: row.durationS,
+                conditions: row.conditions, cells: row.cells, values, durationS: row.durationS, ...levelOfRow(item.result),
                 delta: {
                     leq: values.leq === null ? null : levelDelta(values.leq, item.base.leq),
                     peak: max ? max.delta : null,
@@ -427,10 +451,10 @@ export interface EntryMeasure {
  * the table's order; the same input always gives the same bytes. A file row's Δ columns are `measure`'s: the base the
  * screen, the comparison and the report measure from, so the CSV never has a Δ of its own.
  */
-export function entryCsv(model: EntryModel, labels: { file: string; condition: (n: number) => string; regionStart: string; regionEnd: string; leq: string; peak: string; band: string; deltaLeq: string; deltaBand: string; groupSize: string; status: string },
+export function entryCsv(model: EntryModel, labels: { file: string; condition: (n: number) => string; regionStart: string; regionEnd: string; leq: string; levelReference: string; uncalibrated: string; peak: string; band: string; deltaLeq: string; deltaBand: string; groupSize: string; status: string },
     measure: (filePath: string) => EntryMeasure | null): string {
     // Every metadata column goes out, checked ones first, so the CSV keeps what the table was read from.
-    const header = [labels.file, ...model.columns.map((column, index) => column.name || labels.condition(index + 1)), labels.regionStart, labels.regionEnd, labels.leq, `${labels.peak} Hz`, `${labels.peak} dB`, labels.band, labels.deltaLeq, labels.deltaBand, labels.groupSize, labels.status];
+    const header = [labels.file, ...model.columns.map((column, index) => column.name || labels.condition(index + 1)), labels.regionStart, labels.regionEnd, labels.leq, labels.levelReference, `${labels.peak} Hz`, `${labels.peak} dB`, labels.band, labels.deltaLeq, labels.deltaBand, labels.groupSize, labels.status];
     const dB = (value: number | null): string => csvNumber(value, 1);
     const lines = [header.map(csvCell).join(',')];
     for (const row of model.rows) {
@@ -443,7 +467,7 @@ export function entryCsv(model: EntryModel, labels: { file: string; condition: (
             row.derived ? baseName(row.derived.parent) : row.name,
             // The region the numbers were measured over, never blank: the scan skips the file's guarded ends.
             ...row.cells, ...regionCells(ok ? measuredRegion(row.derived?.region, row.durationS) : row.derived?.region),
-            ok ? dB(row.values.leq) : null, ok ? bandCentreCell(delta.hz) : null, ok ? dB(delta.peak) : null, ok ? dB(row.values.band) : null,
+            ok ? dB(row.values.leq) : null, ok ? levelReferenceCell(row, labels.uncalibrated) : null, ok ? bandCentreCell(delta.hz) : null, ok ? dB(delta.peak) : null, ok ? dB(row.values.band) : null,
             dB(delta.leq), dB(delta.band), delta.count ? String(delta.count) : null,
             row.status === 'failed' ? '✕' : row.status === 'mismatch' ? row.mismatch ?? '' : '',
         ].map(csvCell).join(','));

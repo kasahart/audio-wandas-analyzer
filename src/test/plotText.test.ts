@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -262,4 +262,18 @@ test('a level or a difference written as zero is never negative: "0.0 dB" and "+
     assert.equal(signedText(-0.04), '+0.0 dB');
     assert.equal(signedText(0.06), '+0.1 dB');
     assert.equal(signedNumberText(-0.0004, 3), '+0.000');
+});
+
+test('every region shown on screen or in a report is written by secondsSpanText (R7): no span of its own fixed at 10 ms', () => {
+    const webview = path.resolve(__dirname, '..', '..', 'src', 'webview');
+    const files = (dir: string): string[] => readdirSync(dir).flatMap(name => {
+        const full = path.join(dir, name);
+        return statSync(full).isDirectory() ? files(full) : name.endsWith('.ts') ? [full] : [];
+    });
+    // A start and an end each to a fixed number of decimals, joined by the en dash a shown span has (keys use "-").
+    const fixedSpan = /toFixed\(\d\)\}\s*–\s*\$\{[^}]*toFixed\(\d\)/u;
+    const found = files(webview).filter(file => fixedSpan.test(readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/gu, '')));
+    // entryTable.regionLabel is a key (a fixed difference's region, parsed back), never shown as a span.
+    assert.deepEqual(found.map(file => path.relative(webview, file)), [path.join('runtime', 'entryTable.ts')]);
+    assert.equal(secondsSpanText(0.5, 0.503), '0.5000–0.5030 s', 'a short region to a tenth of its length');
 });

@@ -1565,7 +1565,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const result = channel ? channelResult(results.get(comparePath), channel) : results.get(comparePath);
             const comparison = entryScreen.comparison(comparePath, groupBase, results);
             if (!result?.ok || !comparison.base || comparison.blocked) return STR.compareRefuseFix.replace('{why}', diffHeadline(comparison, STR));
-            const definition = entryScreen.baseDefinition(comparePath, groupBase);
+            // The definition counts the recordings this Δ was measured from (over a region, the region's scans).
+            const definition = { ...entryScreen.baseDefinition(comparePath, groupBase), count: comparison.base.filePaths.length };
             const baseLabel = definition.kind === 'file' ? definition.file ?? baseName(data.slots[0] ?? '') : entryScreen.baseTitle(comparePath, groupBase);
             entryScreen.addDerived({
                 parentPath: comparePath, ...(channel ? { ch: channel } : {}), region: regionLabel(region), result, recipeKey: recipeKey(data.runRecipe),

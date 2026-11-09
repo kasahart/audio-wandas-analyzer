@@ -1,11 +1,10 @@
 import type { UiStrings } from '../../shared/i18n/strings';
 import type { PairSpectrumPublication } from '../../shared/session/comparisonSessionController';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
-import { niceRange } from '../../shared/utils/ticks';
 import type { StageView } from '../../shared/protocol/backendProtocol';
 import type { FrequencyScale } from '../draw/canvasDrawers';
 import { hintAttr } from './hintFooter';
-import { levelBinsOf, type StageLayer } from './stagePanes';
+import { levelBinsOf, stageRange, type StageLayer } from './stagePanes';
 import { localLine } from './fullRead';
 import { secondsSpanText } from '../plot/plotText';
 import type { TrackId } from './types';
@@ -131,12 +130,14 @@ function gainRange(curves: readonly PairCurve[], bins: readonly number[]): { min
     if (!isFinite(min)) {
         return { min: -20, max: 20 };
     }
-    // A flat response would otherwise collapse the axis; keep at least 6 dB around it. The ends are widened to round
-    // values (R9), as every automatic range, so every bin on screen is inside them.
-    const center = (min + max) / 2;
-    const half = Math.max(3, (max - min) / 2);
-    const round = niceRange(center - half, center + half);
-    return { min: round.low, max: round.high };
+    // The dB line rule every level and gain axis keeps (R9: 5, 10, 20 or 25 dB steps, at most 100 dB under the top),
+    // the very function the comparison's step of the same transfer function is ranged by, from every bin on screen.
+    return stageRange([gainSpan(min, max)]);
+}
+
+/** A gain line's span as stageRange reads it: every bin's lowest and highest. */
+export function gainSpan(min: number, max: number): StageView {
+    return { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'gain', xs: [], values: [], valueRange: { min, max } };
 }
 
 export interface PairPaintInput {

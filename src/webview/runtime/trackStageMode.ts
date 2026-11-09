@@ -10,6 +10,7 @@
  * answered by the shared plot gestures (plotInteraction.ts); zoomed in, they draw from the Frames' full
  * resolution once it is in (stageDetail.ts), as the waveform lanes do.
  */
+import { secondsSpanText } from '../plot/plotText';
 import { ownColor } from '../../shared/gui/roleColors';
 import { redrawWhenResized } from './canvasResize';
 import type { UiStrings } from '../../shared/i18n/strings';
@@ -539,7 +540,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         // The region on the plots: its part of a whole-file picture (a step before the region's), else a corner tag.
         const sliceAt = steps.findIndex(step => step.operation === TIME_SLICE);
         const shownAt = id === INPUT_STAGE ? -1 : steps.findIndex(step => step.id === id);
-        const regionMark = region ? { start: region.start, end: region.end, mark: shownAt < sliceAt ? 'range' as const : 'tag' as const, label: `${strings.stepRegion} ${region.start.toFixed(2)}–${region.end.toFixed(2)} s` } : undefined;
+        const regionMark = region ? { start: region.start, end: region.end, mark: shownAt < sliceAt ? 'range' as const : 'tag' as const, label: `${strings.stepRegion} ${secondsSpanText(region.start, region.end)}` } : undefined;
         root.dataset.regionMark = regionMark?.mark ?? '';
         const coarse = (path: string) => source.view(specFor(path), path);
         // Each level axis names the reference of the channels drawn, as their step's scan read them: a file

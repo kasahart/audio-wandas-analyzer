@@ -88,6 +88,22 @@ export function createEntryBase(deps: EntryBaseDeps): EntryBase {
         const paths = ofOneUnit(results, members.paths, path => path, comparePath ? results.get(comparePath) : undefined);
         return { paths, fewerChannels: members.fewerChannels, otherUnits: members.paths.length - paths.length };
     }
+    /**
+     * How many of a base group's recordings its median is of (those measured), and how many it leaves out because their
+     * scan failed or is still running (comparePanes.buildCompareModel takes the median of the measured ones only).
+     */
+    function measuredOf(paths: readonly string[]): { measured: number; failed: number; pending: number } {
+        const measured = paths.filter(path => results.get(path)?.ok).length;
+        const pending = paths.filter(path => !results.has(path)).length;
+        return { measured, failed: paths.length - measured - pending, pending };
+    }
+    /** "median of 3 · 1 failed left out · 1 still computing": the count every base title and its definition say. */
+    function medianText(paths: readonly string[]): string {
+        const { measured, failed, pending } = measuredOf(paths);
+        return strings.entryBaseMedian.replace('{count}', String(measured))
+            + (failed ? strings.dsBaseFailed.replace('{n}', String(failed)) : '')
+            + (pending ? strings.dsBasePending.replace('{n}', String(pending)) : '');
+    }
     function resolve(comparePath: string, byGroup = false, asChannel?: number | null): EntryBaseOf {
         const slots = deps.slots();
         const group = deps.group();
@@ -105,13 +121,17 @@ export function createEntryBase(deps: EntryBaseDeps): EntryBase {
         }
         const name = group === 'none' ? '' : deps.baseGroup() ?? (compareRow ? groupOf(compareRow, group) : '');
         const { paths, fewerChannels, otherUnits } = groupMembers(comparePath, name, channel);
+        const { measured, failed, pending } = measuredOf(paths);
         const where = group === 'none' ? strings.dsDistAll : `${deps.groupLabel(group)} ${name || '—'}`;
-        const title = `${strings.entryBaseGroup} ${where} · ${strings.entryBaseMedian.replace('{count}', String(paths.length))}${channel ? ` · ${strings.dsCh}${channel}` : ''}`
+        const title = `${strings.entryBaseGroup} ${where} · ${medianText(paths)}${channel ? ` · ${strings.dsCh}${channel}` : ''}`
             + (fewerChannels ? strings.dsBaseFewer.replace('{n}', String(fewerChannels)).replace('{ch}', String(channel)) : '')
             + (otherUnits ? strings.dsBaseOtherUnits.replace('{n}', String(otherUnits)) : '') + within;
         return {
             paths, title, channel,
-            definition: { kind: 'group', group: { column: group === 'none' ? '' : deps.groupLabel(group), name }, count: paths.length, channel, filters: narrowedBy, fewerChannels, ...(otherUnits ? { otherUnits } : {}) },
+            definition: {
+                kind: 'group', group: { column: group === 'none' ? '' : deps.groupLabel(group), name }, count: measured, channel, filters: narrowedBy, fewerChannels,
+                ...(otherUnits ? { otherUnits } : {}), ...(failed ? { failed } : {}), ...(pending ? { pending } : {}),
+            },
         };
     }
     /** `source`'s results with each of `paths` as `channel` (when one channel is compared). */
@@ -183,7 +203,7 @@ export function createEntryBase(deps: EntryBaseDeps): EntryBase {
             if (name === null) return strings.entryBaseGroup;
             // The group's recordings as a base: the same members a compared row would be measured against.
             const members = groupMembers(null, name, null).paths;
-            return `${deps.groupLabel(deps.group())} ${name || '—'} · ${strings.entryBaseMedian.replace('{count}', String(members.length))}`;
+            return `${deps.groupLabel(deps.group())} ${name || '—'} · ${medianText(members)}`;
         },
         groupName,
     };

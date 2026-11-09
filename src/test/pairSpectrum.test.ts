@@ -3,7 +3,7 @@ import test, { mock } from 'node:test';
 import { JSDOM } from 'jsdom';
 import { getStrings } from '../shared/i18n/strings';
 import { parsePanelMessage } from '../shared/protocol/panelMessages';
-import type { PairSpectrumResult } from '../shared/protocol/backendProtocol';
+import type { PairSpectrumResult, StageView } from '../shared/protocol/backendProtocol';
 import { ComparisonSessionController, type ComparisonSessionPorts, type SessionPublication } from '../shared/session/comparisonSessionController';
 import { isRequestPairSpectrumMessage, type PairSpectrumRequest } from '../shared/utils/audioTarget';
 import { DEFAULT_THEME } from '../webview/draw/canvasDrawers';
@@ -12,7 +12,7 @@ import {
     PAIR_LANES, pairLanes, pairHeader, type PairLaneKey, pairLegendHtml, referenceButtonHtml, syncReferenceButtons,
     type PairCurve, type PairSpectrumResponse, type PairSpectrumResultMessage,
 } from '../webview/runtime/pairSpectrum';
-import { byLevel, STAGE_MARGINS } from '../webview/runtime/stagePanes';
+import { byLevel, stageRange, STAGE_MARGINS } from '../webview/runtime/stagePanes';
 import { pairMargins, PAIR_REQUEST_DELAY_MS, PairSpectrumPanel, type PairChannelSource, type PairPanelHost } from '../webview/runtime/pairSpectrumPanel';
 import type { TrackId } from '../webview/runtime/types';
 
@@ -102,13 +102,13 @@ test('the pair view is three plots on one frequency axis, each named with its qu
     assert.deepEqual(lanes[0].layers[0].view.xs, [0, 500, 1000]);
     assert.deepEqual(lanes[1].layers[0].view.values, [0, 90, -90]);
     assert.deepEqual(lanes[1].layers[0].view.unit, '°');
-    // Phase ±180°, γ² 0 to 1; the gain fits the visible bins with at least 6 dB.
+    // Phase ±180°, γ² 0 to 1; the gain fits the visible bins by the dB line rule (a flat 0 dB: one 5 dB step under it).
     assert.deepEqual(lanes[1].range, { min: -180, max: 180 });
     assert.deepEqual(lanes[2].range, { min: 0, max: 1 });
     const gain = lanes[0].range;
     assert.ok(gain.min <= -12 && gain.max >= 0);
     const near = pairLanes({ frequencyBins: 3, maxFrequencyHz: 1000, curves: [curve()] }, { frequencyMin: 0, frequencyMax: 100 }, en)[0].range;
-    assert.deepEqual(near, { min: -3, max: 3 });
+    assert.deepEqual(near, { min: -5, max: 0 });
 });
 
 test('pair requests and results pass their validators', () => {
@@ -600,16 +600,17 @@ test('a boxed level zoom keeps the values boxed when the frequency zoom refits t
         const fixture = shownFixture();
         const mouse = fixture.doc.defaultView!.MouseEvent;
         const lane = fixture.lane('gain');
-        // The gain (0, −6, −12 dB) opens at the round ends −12 to 0 dB (R9); the box takes its upper half (−6 to 0 dB) up
-        // to 600 Hz, which leaves 0 and −6 dB on screen, so the whole range is refitted to −6 to 0 dB.
+        // The gain (0, −6, −12 dB) opens at the round ends −15 to 0 dB (R9, 5 dB steps); the box takes its upper half
+        // (−7.5 to 0 dB) up to 600 Hz, which leaves 0 and −6 dB on screen, so the whole range is refitted to −10 to 0 dB
+        // and the box is kept inside it.
         lane.dispatchEvent(new mouse('mousedown', { bubbles: true, button: 0, clientX: xOfHz(0), clientY: yOf(1) }));
         fixture.doc.dispatchEvent(new mouse('mousemove', { bubbles: true, clientX: xOfHz(600), clientY: yOf(0.5) }));
         fixture.doc.dispatchEvent(new mouse('mouseup', { bubbles: true, clientX: xOfHz(600), clientY: yOf(0.5) }));
         lane.dispatchEvent(new mouse('dblclick', { bubbles: true, clientX: 2, clientY: yOf(0.5) }));
         const request = fixture.levelRequests.at(-1)!;
         const span = request.max - request.min;
-        assert.ok(Math.abs(request.min - -6) < 0.01 && Math.abs(request.max - 0) < 0.01, JSON.stringify(request));
-        assert.ok(Math.abs(request.min + request.current.start * span - -6) < 0.05, JSON.stringify(request));
+        assert.ok(Math.abs(request.min - -10) < 0.01 && Math.abs(request.max - 0) < 0.01, JSON.stringify(request));
+        assert.ok(Math.abs(request.min + request.current.start * span - -7.5) < 0.05, JSON.stringify(request));
         assert.ok(Math.abs(request.min + request.current.end * span - 0) < 0.05, JSON.stringify(request));
     }
     finally {
@@ -677,8 +678,20 @@ test('the pair view\'s gain axis opens at round ends holding every bin on screen
     const shown = gainDb.filter((_, bin) => bin / (bins - 1) * 24000 <= visible.frequencyMax);
     assert.ok(gain.min <= Math.min(...shown) && gain.max >= Math.max(...shown), `${gain.min}..${gain.max} holds every bin on screen`);
     assert.ok(gain.max < 40, 'a bin off screen does not stretch it');
-    // Round ends: the ones niceRange gives, as every automatic range (R9).
+    // Round ends by the dB line rule (R9): 10 dB steps here.
     assert.deepEqual(gain, { min: -40, max: 10 });
+});
+
+test('the pair view\'s gain axis keeps the dB line rule the comparison\'s transfer-function step keeps: the same range for the same gains, never wider than 100 dB (R9)', () => {
+    const bins = 1025;
+    for (const [low, high] of [[-3.2, 12.7], [-160, 4], [-0.4, 0.3], [-37.3, 8.4], [10, 10], [-61, -2]] as const) {
+        const gainDb = Array.from({ length: bins }, (_, bin) => low + (high - low) * bin / (bins - 1));
+        const range = pairLanes({ frequencyBins: bins, maxFrequencyHz: 24000, curves: [curve({ gainDb, phaseRad: gainDb.map(() => 0), coherence: gainDb.map(() => 1) })] }, { frequencyMin: 0, frequencyMax: 24000 }, en)[0].range;
+        const step: StageView = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'gain', xs: [0, 24000], values: [low, high] };
+        assert.deepEqual({ min: range.min, max: range.max }, stageRange([step]), `${low}..${high}`);
+        assert.ok(range.max - range.min <= 100, `${low}..${high}: at most 100 dB`);
+        assert.ok(range.max >= high, `${low}..${high}: the top holds the loudest bin`);
+    }
 });
 
 test('the pair view orders its gains by every bin on screen: the quieter response is drawn last, on top (R6)', () => {

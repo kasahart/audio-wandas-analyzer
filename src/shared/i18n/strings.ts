@@ -149,6 +149,8 @@ export interface UiStrings {
     reportDiff: string;
     reportCsv: string;
     reportBaseLeq: string;
+    reportLevelReference: string;
+    reportBaseLevelReference: string;
     reportBandDelta: string;
     reportRegion: string;
     reportSummary: string;
@@ -363,6 +365,8 @@ export interface UiStrings {
     dsBaseNarrowed: string;
     dsBaseFewer: string;
     dsBaseOtherUnits: string;
+    dsBaseFailed: string;
+    dsBasePending: string;
     reportMemo: string;
     reportBaseDefinition: string;
     reportDerived: string;
@@ -963,6 +967,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         reportDiff: 'delta',
         reportCsv: 'report',
         reportBaseLeq: 'Base Leq dB(A)',
+        reportLevelReference: 'Level reference',
+        reportBaseLevelReference: 'Base level reference',
         reportBandDelta: 'Δ {band} dB',
         reportRegion: 'Region s',
         reportSummary: 'summary',
@@ -1171,6 +1177,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dsBaseNarrowed: ' (within {filters})',
         dsBaseFewer: ' · {n} without ch {ch} left out',
         dsBaseOtherUnits: ' · {n} in another unit left out',
+        dsBaseFailed: ' · {n} failed left out',
+        dsBasePending: ' · {n} still computing',
         reportMemo: 'Memo',
         reportBaseDefinition: 'Base definition',
         reportDerived: 'Fixed Δ (D)',
@@ -1754,6 +1762,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         reportDiff: '差',
         reportCsv: '報告',
         reportBaseLeq: '基準 Leq dB(A)',
+        reportLevelReference: 'レベル基準',
+        reportBaseLevelReference: '基準 レベル基準',
         reportBandDelta: 'Δ {band} dB',
         reportRegion: '区間 s',
         reportSummary: '要約',
@@ -1962,6 +1972,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dsBaseNarrowed: '（{filters} に絞った中で）',
         dsBaseFewer: ' · ch {ch} のない {n} 本は除外',
         dsBaseOtherUnits: ' · 単位の違う {n} 本は除外',
+        dsBaseFailed: ' · 失敗した {n} 本は除外',
+        dsBasePending: ' · 計算中 {n} 本',
         reportMemo: 'メモ',
         reportBaseDefinition: '基準の定義',
         reportDerived: '固定した差（D）',
