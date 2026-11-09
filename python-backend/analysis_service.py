@@ -25,6 +25,7 @@ from analyzer import (
     normalize_stft_options,
     resolve_stft_params,
     sample_range,
+    stft_signature,
     zoom_window_spectrogram,
 )
 from backend_errors import InputError
@@ -44,6 +45,7 @@ class TrackDetailResult(TypedDict):
     calibrationSignature: str
     analysisRevision: int
     sourceVersion: str
+    stftSignature: str
     #: With a read: the lane's real STFT cells around the pointer (full_read.read_cells), and no channels.
     points: NotRequired[StagePoints]
 
@@ -67,6 +69,7 @@ class SpectrumSliceResult(TypedDict):
     calibrationSignature: str
     analysisRevision: int
     sourceVersion: str
+    stftSignature: str
 
 
 class PairSpectrumResponse(TypedDict):
@@ -104,6 +107,7 @@ class PairSpectrumResult(TypedDict):
     calibrationSignature: str
     analysisRevision: int
     sourceVersion: str
+    stftSignature: str
     responses: list[PairSpectrumResponse]
 
 
@@ -247,6 +251,7 @@ class AnalysisService:
         )
         result["analysisRevision"] = _analysis_revision(analysis_revision)
         result["sourceVersion"] = cached.version
+        result["stftSignature"] = stft_signature(analysis_frame.n_samples, stft_options)
         return result
 
     def track_detail(
@@ -266,6 +271,7 @@ class AnalysisService:
     ) -> TrackDetailResult:
         cached, analysis_frame, resolved = self.engine.get_analysis(file_path, calibration_profile, source_version)
         n_fft, hop_length, window = resolve_stft_params(analysis_frame.n_samples, stft_options)
+        stft = f"{n_fft}/{hop_length}/{window}"
         centers: np.ndarray | None = None
         window_hop: int | None = None
         if time_window is not None and normalize_stft_options(stft_options) is None:
@@ -294,6 +300,7 @@ class AnalysisService:
                 "calibrationSignature": resolved.signature,
                 "analysisRevision": _analysis_revision(analysis_revision),
                 "sourceVersion": cached.version,
+                "stftSignature": stft,
             }
         result = analyze_from_frame(
             analysis_frame,
@@ -318,6 +325,7 @@ class AnalysisService:
             "calibrationSignature": resolved.signature,
             "analysisRevision": _analysis_revision(analysis_revision),
             "sourceVersion": cached.version,
+            "stftSignature": stft,
         }
 
     def spectrum_slice(
@@ -338,6 +346,7 @@ class AnalysisService:
         compute_started = time.perf_counter()
         cached, analysis_frame, resolved = self.engine.get_analysis(file_path, calibration_profile, source_version)
         window_size, hop_size, window_name = resolve_stft_params(analysis_frame.n_samples, stft_options)
+        stft = f"{window_size}/{hop_size}/{window_name}"
         clipped_norm = max(0.0, min(1.0, cursor_norm))
         revision = _analysis_revision(analysis_revision)
         bands = octave_bands(bands_per_octave, analysis_frame.sampling_rate) if bands_per_octave is not None else None
@@ -403,6 +412,7 @@ class AnalysisService:
             "calibrationSignature": resolved.signature,
             "analysisRevision": revision,
             "sourceVersion": cached.version,
+            "stftSignature": stft,
         }
         if bands is not None:
             result.update(
@@ -489,6 +499,8 @@ class AnalysisService:
             "calibrationSignature": x.signature,
             "analysisRevision": x.revision,
             "sourceVersion": x.cached.version,
+            # The STFT the reference track's own analysis is drawn with, which the pair is shown beside.
+            "stftSignature": stft_signature(x.frame.n_samples, stft_options),
             "responses": replies,
         }
 

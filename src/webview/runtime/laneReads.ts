@@ -24,6 +24,8 @@ export interface LaneTrack {
     /** The version of the file the track was analysed from (sourceVersion): every read names it and is kept under it. */
     sourceVersion: string | undefined;
     calibrationSignature: string | undefined;
+    /** The STFT the track's analysis on screen is drawn with (its stftSignature): a spectral read is of it, or reads nothing. */
+    stftSignature: string | undefined;
     analysisId: string;
     settingsSignature: string;
 }
@@ -51,29 +53,29 @@ const PREFIX = 'read-lane';
 
 export function createLaneReads(post: (message: ReadRequest) => void, now: () => number = () => Date.now()): LaneReads {
     let count = 0;
-    /** Each read on its way: what to call with its answer, and the analysis settings and file version it was asked under. */
-    const waiting = new Map<string, { done: (answer: ReadAnswer) => void; settingsSignature?: string; sourceVersion: string | undefined }>();
+    /** Each read on its way: what to call with its answer, and the file version and STFT of the analysis it reads. */
+    const waiting = new Map<string, { done: (answer: ReadAnswer) => void; sourceVersion: string | undefined; stftSignature: string | undefined }>();
     // Each read's source, kept with what it fetched: of the track's file, analysis and settings (LaneTrack).
     const sources = createAnswerStore<FullSource>({ capacity: 128, now });
     const once = (track: LaneTrack, ask: unknown[], make: () => FullSource): FullSource =>
         sources.keep(answerKey({ ask: [...ask, track], file: track.filePath, version: trackVersion(track) }), make);
-    const ask = (message: (requestId: string) => ReadRequest, done: (answer: ReadAnswer) => void): void => {
+    const ask = (track: LaneTrack, message: (requestId: string) => ReadRequest, done: (answer: ReadAnswer) => void): void => {
         const requestId = `${PREFIX}-${++count}`;
         const request = message(requestId);
-        waiting.set(requestId, { done, sourceVersion: request.sourceVersion, ...('settingsSignature' in request ? { settingsSignature: request.settingsSignature } : {}) });
+        waiting.set(requestId, { done, sourceVersion: track.sourceVersion, stftSignature: track.stftSignature });
         post(request);
     };
     /** The full slices asked for: in (values per channel), failed (asked again after the store's pause), or on their way. */
     const slices = createAnswerStore<FullSlice>({ capacity: 32, now });
     return {
         waveform(track, channel) {
-            return once(track, ['wave', channel], () => fetchedSource((read: StageRead, done) => ask(requestId => ({
+            return once(track, ['wave', channel], () => fetchedSource((read: StageRead, done) => ask(track, requestId => ({
                 type: 'request-waveform-range', requestId, trackIndex: track.trackIndex, filePath: track.filePath, sourceVersion: track.sourceVersion,
                 startNorm: Math.max(0, Math.min(...read.x)), endNorm: Math.min(1, Math.max(...read.x)), points: 1, read: { ...read, channel },
             }), answer => done(answer?.points ?? null))));
         },
         spectrogram(track, channel, window) {
-            return once(track, ['spec', channel, window], () => fetchedSource((read: StageRead, done) => ask(requestId => ({
+            return once(track, ['spec', channel, window], () => fetchedSource((read: StageRead, done) => ask(track, requestId => ({
                 type: 'request-track-detail', requestId, analysisId: track.analysisId, settingsSignature: track.settingsSignature,
                 trackIndex: track.trackIndex, filePath: track.filePath, sourceVersion: track.sourceVersion, ...(window ? window : {}), read: { ...read, channel },
             }), answer => done(answer?.points ?? null))));
@@ -96,7 +98,7 @@ export function createLaneReads(post: (message: ReadRequest) => void, now: () =>
             // The slice at every bin, fetched once for every read of it: its points, and its level for the order (R6).
             const full = (ready: () => void): FullSource | null | undefined => {
                 if (slices.ask(key)) {
-                    ask(requestId => ({
+                    ask(track, requestId => ({
                         type: 'request-spectrum-slice', requestId, analysisId: track.analysisId, settingsSignature: track.settingsSignature,
                         trackIndex: track.trackIndex, filePath: track.filePath, sourceVersion: track.sourceVersion, cursorNorm, fullResolution: true, read: true,
                     }), answer => {
@@ -134,11 +136,11 @@ export function createLaneReads(post: (message: ReadRequest) => void, now: () =>
             waiting.delete(requestId);
             if (!asked) return true;
             const { done } = asked;
-            const answer = message as { type: string; settingsSignature?: string; sourceVersion?: string; points?: StagePoints; maxFrequencyHz?: number; channels?: Array<{ channelIndex?: number; values?: number[] }> };
-            // An answer made under other analysis settings (another STFT), or of another version of the file, than the
-            // read was asked under reads nothing.
-            if (answer.settingsSignature !== undefined && asked.settingsSignature !== undefined && answer.settingsSignature !== asked.settingsSignature
-                || !isOfShownVersion(asked, answer)) {
+            const answer = message as { type: string; sourceVersion?: string; stftSignature?: string; points?: StagePoints; maxFrequencyHz?: number; channels?: Array<{ channelIndex?: number; values?: number[] }> };
+            // An answer of another version of the file, or taken with another STFT (the settings changed while the old
+            // analysis is still drawn: the host computes with its settings now), than the track's analysis on screen
+            // reads nothing. The STFT is the backend's own word (stftSignature), not the settingsSignature it echoes.
+            if (!isOfShownVersion(asked, answer)) {
                 done(null);
                 return true;
             }

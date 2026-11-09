@@ -154,3 +154,50 @@ def test_every_lazy_answer_names_the_file_version_and_one_asked_of_another_is_re
         validate_request({**commands[0], "requestId": "r", "sourceVersion": again["sourceVersion"]}), service
     )
     assert reply["sourceVersion"] == again["sourceVersion"]
+
+
+def test_every_spectral_answer_names_the_stft_it_is_taken_with_not_the_one_asked_for(tmp_path: Path) -> None:
+    """The analysis, a lane's spectrogram, a cursor slice and a pair name the STFT they were computed with
+    (stftSignature), derived here from the settings used: a lazy answer under other settings than the analysis
+    drawn names another STFT, whatever settingsSignature the request carried (that one is only echoed)."""
+    from analysis_service import AnalysisService
+    from command_dispatch import dispatch, validate_request
+
+    wav = _write_tone(tmp_path / "a.wav", seconds=1.0)
+    service = AnalysisService(AnalysisEngine(cache_limit_bytes=50_000_000))
+    track = {"filePath": str(wav), "trackIndex": 0, "analysisId": "a1", "settingsSignature": "same"}
+    small = {"nFft": 256, "overlapPercent": 50, "window": "hann"}
+    large = {"nFft": 1024, "overlapPercent": 50, "window": "hann"}
+    source = {"filePath": str(wav), "channelIndex": 0, "offsetSeconds": 0.0}
+
+    def answers(stft: dict[str, object] | None) -> list[object]:
+        options = {"stftOptions": stft} if stft else {}
+        replies = [
+            dispatch(validate_request({"cmd": "analyze", "requestId": "r", "filePath": str(wav), **options}), service),
+            dispatch(validate_request({"cmd": "track-detail", "requestId": "r", **track, **options}), service),
+            dispatch(
+                validate_request({"cmd": "spectrum-slice", "requestId": "r", **track, "cursorNorm": 0.5, **options}),
+                service,
+            ),
+            dispatch(
+                validate_request(
+                    {
+                        "cmd": "pair-spectrum",
+                        "requestId": "r",
+                        "analysisId": "a1",
+                        "settingsSignature": "same",
+                        "reference": source,
+                        "responses": [source],
+                        **options,
+                    }
+                ),
+                service,
+            ),
+        ]
+        return [reply["stftSignature"] for reply in replies]
+
+    for stft in (None, small, large):
+        signatures = answers(stft)
+        assert len(set(signatures)) == 1, (stft, signatures)
+    assert answers(small)[0] == "256/128/hann"
+    assert len({answers(None)[0], answers(small)[0], answers(large)[0]}) == 3

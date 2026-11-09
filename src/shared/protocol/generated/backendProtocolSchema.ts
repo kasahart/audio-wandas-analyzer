@@ -398,6 +398,9 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "sourceVersion": {
                     "type": "string"
                 },
+                "stftSignature": {
+                    "type": "string"
+                },
                 "units": {
                     "$ref": "#/$defs/AnalysisUnits"
                 },
@@ -496,6 +499,9 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                     "$ref": "#/$defs/ResultAnalysisRevision"
                 },
                 "sourceVersion": {
+                    "type": "string"
+                },
+                "stftSignature": {
                     "type": "string"
                 },
                 "points": {
@@ -757,6 +763,9 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 },
                 "sourceVersion": {
                     "type": "string"
+                },
+                "stftSignature": {
+                    "type": "string"
                 }
             },
             "additionalProperties": false
@@ -996,6 +1005,9 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                     "$ref": "#/$defs/ResultAnalysisRevision"
                 },
                 "sourceVersion": {
+                    "type": "string"
+                },
+                "stftSignature": {
                     "type": "string"
                 },
                 "responses": {
@@ -2315,6 +2327,7 @@ export interface AnalysisResult {
     calibrationProfile?: CalibrationProfile;
     analysisRevision?: number;
     sourceVersion?: string;
+    stftSignature?: string;
     units?: AnalysisUnits;
     channels: ChannelSummary[];
 }
@@ -2344,6 +2357,7 @@ export interface TrackDetailResult {
     calibrationSignature?: string;
     analysisRevision?: number;
     sourceVersion?: string;
+    stftSignature?: string;
     points?: StagePoints;
 }
 
@@ -2413,6 +2427,7 @@ export interface SpectrumSliceResult {
     calibrationSignature?: string;
     analysisRevision?: number;
     sourceVersion?: string;
+    stftSignature?: string;
 }
 
 export interface PairSource {
@@ -2469,6 +2484,7 @@ export interface PairSpectrumResult {
     calibrationSignature?: string;
     analysisRevision?: number;
     sourceVersion?: string;
+    stftSignature?: string;
     responses: PairSpectrumResponse[];
 }
 

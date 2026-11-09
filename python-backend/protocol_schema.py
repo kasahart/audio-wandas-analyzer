@@ -238,6 +238,8 @@ DEFINITIONS: dict[str, Schema] = {
             "calibrationProfile": {"$ref": "#/$defs/CalibrationProfile"},
             "analysisRevision": {"$ref": "#/$defs/ResultAnalysisRevision"},
             "sourceVersion": {"type": "string"},
+            # The STFT the answer is taken with (window/hop/window name): not read over an analysis of another.
+            "stftSignature": {"type": "string"},
             # Compatibility metadata for results whose channels share one reference.
             "units": {"$ref": "#/$defs/AnalysisUnits"},
             "channels": {"type": "array", "items": {"$ref": "#/$defs/ChannelSummary"}},
@@ -281,6 +283,8 @@ DEFINITIONS: dict[str, Schema] = {
             "calibrationSignature": {"type": "string"},
             "analysisRevision": {"$ref": "#/$defs/ResultAnalysisRevision"},
             "sourceVersion": {"type": "string"},
+            # The STFT the answer is taken with (window/hop/window name): not read over an analysis of another.
+            "stftSignature": {"type": "string"},
             "points": {"$ref": "#/$defs/StagePoints"},
         },
     },
@@ -385,6 +389,8 @@ DEFINITIONS: dict[str, Schema] = {
             "calibrationSignature": {"type": "string"},
             "analysisRevision": {"$ref": "#/$defs/ResultAnalysisRevision"},
             "sourceVersion": {"type": "string"},
+            # The STFT the answer is taken with (window/hop/window name): not read over an analysis of another.
+            "stftSignature": {"type": "string"},
         },
     },
     "PairSource": {
@@ -483,6 +489,8 @@ DEFINITIONS: dict[str, Schema] = {
             "calibrationSignature": {"type": "string"},
             "analysisRevision": {"$ref": "#/$defs/ResultAnalysisRevision"},
             "sourceVersion": {"type": "string"},
+            # The STFT the answer is taken with (window/hop/window name): not read over an analysis of another.
+            "stftSignature": {"type": "string"},
             "responses": {"type": "array", "items": {"$ref": "#/$defs/PairSpectrumResponse"}},
         },
     },
