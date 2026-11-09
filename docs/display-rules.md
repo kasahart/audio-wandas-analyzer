@@ -19,7 +19,9 @@
 差分、群の中央値、最大差、レポートの Δ、入口の保持図の Δ は、Frame の全ビン・全サンプルから計算します。間引くのは計算した結果を描くときだけです。
 
 - テスト: `python-backend/test_stage_combine.py` › test_a_narrow_difference_is_taken_bin_by_bin_and_kept_when_drawn
-- 丸めるのは画面とレポートに出す数だけです。中央値、Δ、その最大の点、重ね順のレベル、読み値の点選び、チャンネルのパワー平均は、Frame の丸める前の値で計算し、返す値だけを丸めます（`stage_view.floored_db` で計算し、`rounded_db` と `stage_combine._shown` は出す数だけに使う）。丸めると同じになる 2 つの値（−10.004 dB と −9.996 dB）の Δ は 0 ではなく 0.01 です。
+- 丸めるのは画面とレポートに出す数だけです。中央値、Δ、その最大の点、重ね順のレベル、読み値の点選び、チャンネルのパワー平均は、Frame の丸める前の値で計算し、返す値だけを丸めます（`stage_view.floored_db` で計算し、`rounded_db` と `stage_combine._shown` は出す数だけに使う）。丸めると同じになる 2 つの値（−10.004 dB と −9.996 dB）の Δ は 0 ではなく 0.01 です。入口の表・比較台・報告と CSV の Δ（Leq、帯、Δ 最大帯域、ビンごとの差）も、丸めた値どうしを引かず、丸める前の値を引いてから書くときだけ丸めます（`entryTable.levelDelta`）。そのため scan はレベルを画面の桁ではなく 1e−4 dB まで送ります（`analysis_spec.SCAN_DB_DECIMALS`）。数を小数の桁に丸める算術（`Math.round(v * 10) / 10` など）は `toFixed` と同じく数を書くものとして、契約表の検査が登録を求めます。
+- テスト: `src/test/entryTable.test.ts` › a Δ is taken from the full levels and rounded only as written: −9.996 against −10.004 reads 0.0, never the 0.1 of levels rounded first (R7)
+- テスト: `src/test/plotContracts.test.ts` › the detector finds a number written by a primitive, a helper imported under another name, a local alias of one, and rounding to decimals by arithmetic
 - テスト: `python-backend/test_stage_combine.py` › test_a_difference_median_level_and_readout_are_taken_before_rounding_only_their_numbers_are_rounded
 - テスト: `python-backend/test_stage_combine.py` › test_a_dense_readout_picks_its_points_from_unrounded_levels
 - テスト: `python-backend/test_stage_view.py` › test_a_spectrums_channels_are_power_averaged_before_their_level_is_rounded

@@ -6,7 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import type { ScanResult } from '../shared/protocol/backendProtocol';
 import {
-    BAND_CENTERS_HZ, buildEntryModel, entryCsv, filenameConditions, type DerivedRow, type EntryFile,
+    BAND_CENTERS_HZ, buildEntryModel, csvNumber, entryCsv, filenameConditions, levelDelta, type DerivedRow, type EntryFile,
 } from '../webview/runtime/entryTable';
 
 const repoRoot = path.resolve(__dirname, '..', '..');
@@ -34,6 +34,18 @@ test('names give two conditions before the run token, split on _ or -', () => {
     assert.deepEqual(filenameConditions('/data/Rec_0012.wav'), []);
 });
 
+test('a Δ is taken from the full levels and rounded only as written: −9.996 against −10.004 reads 0.0, never the 0.1 of levels rounded first (R7)', () => {
+    assert.ok(Math.abs(levelDelta(-9.996, -10.004) - 0.008) < 1e-12);
+    assert.equal(csvNumber(levelDelta(-9.996, -10.004), 1), '0.0');
+    // A row's Δ against its condition is the same: the full levels' difference.
+    const files: EntryFile[] = [
+        { filePath: '/f/L1_900rpm_run0.wav', result: scan(-10.004, -30) },
+        { filePath: '/f/L1_900rpm_run1.wav', result: scan(-9.996, -30) },
+    ];
+    const row = buildEntryModel(files, null, { band: BAND_CENTERS_HZ.indexOf(3150) }).rows.find(item => item.filePath.endsWith('run1.wav'))!;
+    assert.equal(csvNumber(row.delta.leq, 1), '0.0');
+});
+
 test('rows get Δ from the median of their condition\'s other files, never an outlier mark', () => {
     const files: EntryFile[] = [
         ...[-30, -30.2, -29.8, -30.1, -18].map((band, i) => ({ filePath: `/f/L1_900rpm_run${i}.wav`, result: scan(-20, band) })),
@@ -44,10 +56,10 @@ test('rows get Δ from the median of their condition\'s other files, never an ou
     const model = buildEntryModel(files, null, { band: BAND_3150 });
     const row = (name: string) => model.rows.find(item => item.filePath.endsWith(name))!;
     // A row is not part of its own base: run4 against the median of run0–run3 (−30.05).
-    assert.equal(row('run4.wav').delta.band, 12);
+    assert.ok(Math.abs(row('run4.wav').delta.band! - 12.05) < 1e-9);
     // Its most different band, with that Δ.
     assert.equal(row('run4.wav').values.peak, 3150);
-    assert.equal(row('run4.wav').delta.peak, 12);
+    assert.ok(Math.abs(row('run4.wav').delta.peak! - 12.05) < 1e-9);
     // Two rows: Δ shown.
     assert.equal(row('run9.wav').delta.band, -20);
     // n counts the files a row is measured against: the one other file.
@@ -104,7 +116,7 @@ test('the CSV has the agreed columns, a BOM, and the same bytes every time', () 
 
 test('one stored scan result stays within about 5 KB', () => {
     const twoChannels = scan(-20.12, -30.12, { channels: 2 });
-    twoChannels.spectrumDb = [0, 1].map(() => Array.from({ length: 192 }, (_, i) => Math.round((-40.12 - i / 7) * 100) / 100));
+    twoChannels.spectrumDb = [0, 1].map(() => Array.from({ length: 192 }, (_, i) => Number((-40.1234 - i / 7).toFixed(4))));
     assert.ok(JSON.stringify(twoChannels).length < 5 * 1024, String(JSON.stringify(twoChannels).length));
 });
 

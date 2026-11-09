@@ -199,7 +199,7 @@ export function outsideRecipe(strings: Pick<UiStrings, 'entryColLeq' | 'outside1
         { tag: strings.outside192, text: `spectrum: the SpectralFrame's dB (n_fft ${welch?.['n_fft'] ?? 1024}, ${welch?.['window'] ?? 'hann'}), bins power-averaged into 192 log-spaced points from 20 Hz to Nyquist (narrower than a bin: interpolated), as the table shows it; the report's figures, base median and Δ: every bin, decimated only to be drawn (each of 640 log-spaced buckets' lowest and highest bin); channels: power mean (10·log10 of the mean of 10^(L/10))` },
         { tag: strings.stepOctave, text: '1/3 octave bands (the table\'s band values, Δ max band): noct_spectrum (fmin 20, fmax = the highest nominal centre ≤ 0.88 × Nyquist, n = 3) of the chain\'s time signal over the time slice, beside the chain rather than a step of it; the NOctFrame\'s dB, bands centred outside the Recipe\'s filter passband left empty; channels: power mean' },
         { tag: strings.outsideMedian, text: 'base: the slot-0 file, or the median per bin and band of the compared file\'s condition without it' },
-        { tag: strings.outsideDelta, text: 'Δ = round(compare, 0.1 dB) − round(base, 0.1 dB); Δ max band = the band with the largest |Δ|; headline: see "headline"' },
+        { tag: strings.outsideDelta, text: 'Δ = compare − base at full precision, rounded to 0.1 dB only as written; Δ max band = the band with the largest |Δ|; headline: see "headline"' },
     ];
 }
 

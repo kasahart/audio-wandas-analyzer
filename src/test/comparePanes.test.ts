@@ -33,7 +33,7 @@ const files = new Map<string, ScanResult>([
 ]);
 const model = buildEntryModel([...files].map(([filePath, result]) => ({ filePath, result })), null, { band: BAND_3150 });
 
-test('the base is the median of the compared file\'s condition without it, point by point, and Δ adds up as shown', () => {
+test('the base is the median of the compared file\'s condition without it, point by point, and Δ is taken from the full levels', () => {
     const comparison = buildCompareModel(model, files, '/f/L1_900rpm_run3.wav', null, STR);
     assert.equal(comparison.base!.title, 'Base group · L1 · 900rpm · 2 files');
     assert.deepEqual(comparison.base!.filePaths, ['/f/L1_900rpm_run1.wav', '/f/L1_900rpm_run2.wav']);
@@ -42,7 +42,8 @@ test('the base is the median of the compared file\'s condition without it, point
     // Log-spaced from 20 Hz to Nyquist: each point is the geometric centre of its edges (8 kHz Nyquist, 3 points: ×400^(1/3)).
     assert.deepEqual(comparison.frequencies.map(hz => Math.round(hz)), [54, 400, 2947]);
     const { base, compare, delta } = comparison.leq!;
-    assert.equal(Math.round((base + delta) * 10) / 10, compare);
+    // Δ is the full levels' difference, never that of levels rounded first.
+    assert.equal(delta, compare - base);
     assert.equal(comparison.topBands[0].band, BAND_3150);
     assert.equal(comparison.topBands[0].delta, 20.5);
     assert.ok(diffHeadline(comparison).startsWith('3.15 kHz +20.5 · '));
@@ -65,7 +66,7 @@ test('a Δ that cannot be read is withheld: the file against itself, a group of 
     assert.equal(self.diffDb, null);
     assert.deepEqual(self.topBands, []);
     assert.equal(diffHeadline(self, STR), '— · ≠ same file');
-    assert.equal(self.leq!.compare, -10.1);
+    assert.equal(self.leq!.compare, -10.06);
     const alone = new Map<string, ScanResult>([['/s/L2_1800rpm_run1.wav', scan(-20, [-40, -50, -60], -30)]]);
     const lone = buildEntryModel([...alone].map(([filePath, result]) => ({ filePath, result })), null);
     const single = buildCompareModel(lone, alone, '/s/L2_1800rpm_run1.wav', null, STR);
