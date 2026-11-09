@@ -37,9 +37,10 @@ export const entryTable: ChartContract = {
         {
             id: 'entry-table.count', value: 'count', what: '見出し・フィルタ・チェックの一覧の数',
             computedIn: ['src/webview/runtime/entryTableHtml.ts:datasetHeadHtml', 'src/webview/runtime/entryTableHtml.ts:trackHeadHtml', 'src/webview/runtime/entryTableHtml.ts:filterChipsHtml', 'src/webview/runtime/entryTableHtml.ts:checkListHtml', 'src/webview/runtime/entryTableHtml.ts:say'],
-            from: 'whole', trace: '表のすべての行を数える。（描くために間引いた形はない）',
-            tests: [],
-            gap: { severity: 'P2', why: '見出しやフィルタの数がすべての行を数えていることを確かめるテストがない。' },
+            from: 'whole', trace: '表のすべての行を数える。（描くのは画面に入る行だけだが、数は描かない行も含む）',
+            tests: [
+                t('src/test/uiSmoke/entry.spec.ts', 'a folder of 1000 recordings draws only the rows on screen, but its head and its filter lists count every row, not the rows drawn'),
+            ],
         },
         {
             id: 'entry-table.mismatch', value: 'label', what: '比べられない理由（≠ の kHz など）と区間の名札',
@@ -58,7 +59,5 @@ export const entryTable: ChartContract = {
             ],
         },
     ],
-    knownGaps: {
-        'entry-table.count': 'P2',
-    },
+    knownGaps: {},
 };

@@ -35,7 +35,7 @@
 | 入口の保持図（スロットの Δ、手順の有無の Δ、平均スペクトル） (`entry-held`) | `webview/runtime/entryHeldPlot.ts:paintView` | 8 | 2 |
 | 入口の概観帯 (`entry-overview`) | `webview/runtime/entryPlots.ts:paintOverview` | 5 | 0 |
 | 入口の分布図（群ごとの行と下の値の軸） (`entry-distribution`) | `webview/runtime/entryDistributionPane.ts:paint` | 8 | 0 |
-| 入口の表（値の列、Δ、見出しの数、D の差、表の CSV） (`entry-table`) | `webview/runtime/entryTableHtml.ts:datasetRowsHtml`<br>`webview/runtime/entryTable.ts:entryCsv` | 6 | 1 |
+| 入口の表（値の列、Δ、見出しの数、D の差、表の CSV） (`entry-table`) | `webview/runtime/entryTableHtml.ts:datasetRowsHtml`<br>`webview/runtime/entryTable.ts:entryCsv` | 6 | 0 |
 | レポートの重ね図（比較 n.png、要約.png の上段） (`report-overlay`) | `webview/runtime/compareReport.ts:paintOverlayFigure` | 5 | 1 |
 | レポートの Δ 図（差 n.png、要約.png の下段） (`report-delta`) | `webview/runtime/compareReport.ts:paintDeltaFigure` | 4 | 1 |
 | レポートの 要約.png の頭書き・報告.csv・定義.json (`report-files`) | `webview/runtime/compareReport.ts:summaryPng`<br>`webview/runtime/compareReport.ts:reportCsv` | 2 | 0 |
@@ -228,7 +228,7 @@
 | 要約の値 | 表の値の列（Leq、ピーク周波数、波高率、帯）と凡例の値 | `webview/runtime/entryTableHtml.ts:formatValue`<br>`webview/runtime/entryTableHtml.ts:datasetRowsHtml`<br>`webview/runtime/entryRuntime.ts:formatColumn`<br>`webview/runtime/entryTable.ts:fileValues`<br>`webview/runtime/entryTable.ts:bandLevels`<br>`scan_service.py:measure` | 描く点が全部（間引かない）：スキャンが Frame の全サンプル・全ビンから求めた値（ピークは Welch の全ビン、帯は noct_spectrum）。チャンネルはパワー平均。（描くために間引いた形はない） | `test_scan_service.py` › test_scan_measures_the_analysis_spec_metrics<br>`entryTable.test.ts` › unreadable files and files of another shape show no numbers |  |
 | Δ | 表の Δ（条件の他のファイルの中央値に対して）と最大の帯 | `webview/runtime/entryTable.ts:buildEntryModel`<br>`webview/runtime/entryTable.ts:maxBandDelta`<br>`webview/runtime/entryTable.ts:mostTellingBand` | 描く点が全部（間引かない）：スキャンの全データの値と、その中央値。（描くために間引いた形はない） | `entryTable.test.ts` › rows get Δ from the median of their condition's other files, never an outlier mark<br>`entryTable.test.ts` › on the scanned entry100 fixture the three resonances stand 10 dB above their groups at 3.15 kHz, one ✕ and one ≠ |  |
 | Δ | D で固定した差（行の下の「└ Δ」） | `webview/runtime/entryRuntime.ts:derivedItems` | 描く点が全部（間引かない）：固定したスキャンの Leq・帯（全データ）とその基準の差。（描くために間引いた形はない） | `entryTable.test.ts` › a derived row sits under its parent with the parent's condition and Δ against its own base, and counts toward no group |  |
-| 数 | 見出し・フィルタ・チェックの一覧の数 | `webview/runtime/entryTableHtml.ts:datasetHeadHtml`<br>`webview/runtime/entryTableHtml.ts:trackHeadHtml`<br>`webview/runtime/entryTableHtml.ts:filterChipsHtml`<br>`webview/runtime/entryTableHtml.ts:checkListHtml`<br>`webview/runtime/entryTableHtml.ts:say` | 描く点が全部（間引かない）：表のすべての行を数える。（描くために間引いた形はない） | なし | **P2** 見出しやフィルタの数がすべての行を数えていることを確かめるテストがない。 |
+| 数 | 見出し・フィルタ・チェックの一覧の数 | `webview/runtime/entryTableHtml.ts:datasetHeadHtml`<br>`webview/runtime/entryTableHtml.ts:trackHeadHtml`<br>`webview/runtime/entryTableHtml.ts:filterChipsHtml`<br>`webview/runtime/entryTableHtml.ts:checkListHtml`<br>`webview/runtime/entryTableHtml.ts:say` | 描く点が全部（間引かない）：表のすべての行を数える。（描くのは画面に入る行だけだが、数は描かない行も含む） | `uiSmoke/entry.spec.ts` › a folder of 1000 recordings draws only the rows on screen, but its head and its filter lists count every row, not the rows drawn |  |
 | 入力・設定の表示 | 比べられない理由（≠ の kHz など）と区間の名札 | `webview/runtime/entryTable.ts:mismatchLabel`<br>`webview/runtime/entryTable.ts:regionLabel` | 利用者の値・メタデータ：ファイルのメタデータと利用者の区間。 | `entryTable.test.ts` › on the scanned entry100 fixture the three resonances stand 10 dB above their groups at 3.15 kHz, one ✕ and one ≠ |  |
 | 書き出し | 表の CSV | `webview/runtime/entryTable.ts:entryCsv`<br>`webview/runtime/entryTable.ts:csvCell`<br>`webview/runtime/entryTable.ts:dB`<br>`webview/runtime/entryTable.ts:regionCells` | 描く点が全部（間引かない）：表と同じ全データの値を決まった桁で書く。（描くために間引いた形はない） | `entryTable.test.ts` › the CSV has the agreed columns, a BOM, and the same bytes every time |  |
 
@@ -272,7 +272,7 @@
 - `compare-delta.range-image`：カラーバーの両端の数を、描くために平均した Δ のマスから求めている。
 - `compare-lanes.range-image`：カラーバーの両端の数を、描くために平均したマスから求めている。
 
-### P2（15、上限 15）
+### P2（14、上限 14）
 
 - `compare-overlay.pending`：R7 は届くまで読み値を空にするが、密な窓を別の高さで読むときは前の高さの点を読む。その間の読み値は今のマウスに一番近い点とは限らない。
 - `compare-overlay.readout-events`：イベントの線の読み値と ← / → がそのイベントの全サンプルから来ることを確かめるテストがない（ジェスチャのテストは数字の出どころを見ない）。
@@ -285,7 +285,6 @@
 - `compare-lanes.range`：範囲を間引いた線から求めている。全データの端と一致することを確かめるテストがない。
 - `entry-held.step`：全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。
 - `entry-held.range`：範囲を間引いた点から求めている。全データの端と一致することを確かめるテストがない。
-- `entry-table.count`：見出しやフィルタの数がすべての行を数えていることを確かめるテストがない。
 - `report-overlay.range`：範囲を間引いた線から求めている。全ビンの端と一致することを確かめるテストがない。
 - `report-delta.range`：全ビンがあるときの範囲を間引いた線から求めている。テストは帯だけの場合しか見ていない。
 - `analysis-report.export`：全データと描いた点が違うデータで確かめるテストがない（今のテストは描いた点でも通る）。
