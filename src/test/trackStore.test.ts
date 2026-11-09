@@ -203,11 +203,12 @@ test('a new track without an audio source gets an empty one', () => {
 test('TrackStore lets the remaining tracks ask for a failed spectrogram again when one is taken off', () => {
     const store = new TrackStore([result('/a.wav'), result('/b.wav')], runtime);
     const [aId, bId] = store.activeIds();
-    store.require(bId).detailError = { settingsSignature: 's', message: 'STFT exceeds the memory budget' };
+    store.require(bId).detail.fail('STFT exceeds the memory budget', 's');
 
     store.remove(aId);
 
-    assert.equal(store.require(bId).detailError, null);
+    assert.equal(store.require(bId).detail.holds('s'), false);
+    assert.equal(store.require(bId).detail.failure('s'), undefined);
 });
 
 test('TrackStore gives each new track the own colour least in use: a file swapped in again and again never takes the colour of the one kept', () => {

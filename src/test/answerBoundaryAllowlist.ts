@@ -63,7 +63,7 @@ export const NOT_ANSWERS: Record<string, string> = {
     'src/webview/runtime/entryRuntime.ts#filtered': 'rows the filter keeps, made again on each filter change',
     'src/webview/runtime/selectionSync.ts#hostSelection': 'the files the host has selected',
     'src/webview/runtime/stepHistory.ts#past': 'the step bar\'s undo history',
-    'src/webview/runtime/trackStore.ts#records': 'the tracks open (each track\'s own state; its answers are the stores\')',
+    'src/webview/runtime/trackStore.ts#records': 'the tracks open: each track\'s answers are its answer slots (range, spectrogram, zoom window, cursor slices); its analysis is the one result the host sent (state.results), which mergeDetailSpectrograms completes with the spectrogram sent later for that analysis and settings (isResponseToLazyRequest)',
     'src/webview/runtime/trackStore.ts#locallyRemovedIds': 'tracks the user removed, until the host confirms',
     'src/webview/runtime/trackStore.ts#protocolOrder': 'the tracks\' order on the protocol',
     'src/webview/runtime/trackStore.ts#displayOrder': 'the tracks\' order on screen',
@@ -75,4 +75,17 @@ export const NOT_ANSWERS: Record<string, string> = {
     'src/webview/runtime/staticDownloads.ts#entries': 'files of one download being written',
     'src/webview/panels/ComparisonPanel.ts#testSnapshotsByActionId': 'test bridge snapshots by action id',
     'src/webview/panels/ComparisonPanel.ts#resultsByPanel': 'host side: the analysis results each panel was last sent, to send again on reload',
+};
+
+/** Host answers written into an object's field outside the store, each with why it is not an answer kept there. */
+export const NOT_ANSWER_WRITES: Record<string, string> = {
+    'src/webview/panels/ComparisonPanel.ts#ComparisonPanel.testSnapshot': 'the test bridge\'s last snapshot, read by the tests only',
+    'src/webview/runtime/entryRuntime.ts#recipeState.knownRate': 'the folder\'s sample rate read off the scans, for checking steps (no number shown)',
+    'src/webview/runtime/entryRuntime.ts#recipeState.standard': 'the host\'s entry Recipe document, the chain the scans run (not an answer of one)',
+    'src/webview/runtime/entryTable.ts#row.reason': 'a table row built in one call from the scans as they are',
+    'src/webview/runtime/entryTable.ts#row.mismatch': 'a table row built in one call from the scans as they are',
+    'src/webview/runtime/entryTable.ts#row.durationS': 'a table row built in one call from the scans as they are',
+    'src/webview/runtime/entryTable.ts#row.values': 'a table row built in one call from the scans as they are',
+    'src/webview/runtime/entryTable.ts#row.levels': 'a table row built in one call from the scans as they are',
+    'src/webview/runtime/staticHost.ts#source.result': 'the browser host\'s analysis of a file it opened (the host side, as the extension\'s panel results)',
 };

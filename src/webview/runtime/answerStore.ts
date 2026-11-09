@@ -379,3 +379,33 @@ export function createScanAnswers(): ScanAnswers {
     const latest = createLatestAnswers<ScanResult>();
     return { ...latest, view: latest.view, failures: latest.failures, answer: path => scanAnswer(path, latest.get(path), latest.under(path)) };
 }
+
+/**
+ * One answer held for one subject (a track's range, its zoom window, its spectrogram's failure): its value, or its
+ * failure under the condition it was asked under, standing for FAILED_RETRY_MS and then asked again.
+ */
+export interface AnswerSlot<T> {
+    get(): T | null;
+    set(value: T): void;
+    /** The answer failed under `condition` (and why): what was held is let go. */
+    fail(reason: string, condition?: string): void;
+    /** Why the answer failed under `condition`, while it has not been asked again. */
+    failure(condition?: string): string | undefined;
+    /** Whether a failure under `condition` still stands (it is not asked again until it does not). */
+    holds(condition?: string): boolean;
+    /** Lets go the value and the failure (asked anew, a new analysis). */
+    clear(): void;
+}
+
+export function createAnswerSlot<T>(now: () => number = () => Date.now()): AnswerSlot<T> {
+    let value: T | null = null;
+    let failed: { reason: string; condition: string; until: number } | null = null;
+    return {
+        get: () => value,
+        set(next) { value = next; failed = null; },
+        fail(reason, condition = '') { value = null; failed = { reason, condition, until: now() + FAILED_RETRY_MS }; },
+        failure: (condition = '') => (failed && failed.condition === condition ? failed.reason : undefined),
+        holds: (condition = '') => !!failed && failed.condition === condition && now() < failed.until,
+        clear() { value = null; failed = null; },
+    };
+}

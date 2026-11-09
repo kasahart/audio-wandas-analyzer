@@ -1,4 +1,4 @@
-import { createLatestAnswers, type LatestAnswers } from './answerStore';
+import { createAnswerSlot, createLatestAnswers, type AnswerSlot, type LatestAnswers } from './answerStore';
 import type {
     ComparisonTrackState,
     LazyRequestState,
@@ -21,13 +21,14 @@ export interface TrackRecord {
     active: boolean;
     readonly runtime: TrackRuntimeState;
     waveformCoverage: WaveformCoverage | null;
-    rangeCache: WaveformRangeCache | null;
+    /** The waveform range last answered (answerStore). */
+    readonly rangeCache: AnswerSlot<WaveformRangeCache>;
     /** What the track asked the host for: its waveform range ('range'), spectrogram ('detail') and cursor spectrum ('slice'). */
     readonly requests: HostRequests<LazyRequestState | null>;
-    /** The host's answer when the spectrogram failed: shown in the lane, and asked again only after a pause. */
-    detailError: { settingsSignature: string; message: string } | null;
-    /** A zoomed lane's spectrogram window, asked again at full resolution (R3); drawn while it covers the view. */
-    spectrogramZoom: SpectrogramZoom | null;
+    /** The spectrogram's failure under the settings it was asked with: shown in the lane, asked again after the store's pause. */
+    readonly detail: AnswerSlot<true>;
+    /** A zoomed lane's spectrogram window, asked again at full resolution (R3); drawn while it covers the view; its failure waits the pause. */
+    readonly spectrogramZoom: AnswerSlot<SpectrogramZoom>;
     /** Each channel's cursor slice last answered (answerStore: one per channel, checked against the cursor by sliceIsCurrentAt). */
     readonly spectrumSliceCache: LatestAnswers<SpectrumSlice, number>;
 }
@@ -147,7 +148,7 @@ export class TrackStore {
     }
 
     clearDetailErrors(): void {
-        this.activeIds().forEach((activeId) => { this.require(activeId).detailError = null; });
+        this.activeIds().forEach((activeId) => { this.require(activeId).detail.clear(); });
     }
 
     allowExplicitSelection(filePath: string): void {
@@ -267,10 +268,10 @@ export class TrackStore {
             active: true,
             runtime: this.createRuntime(),
             waveformCoverage: null,
-            rangeCache: null,
+            rangeCache: createAnswerSlot<WaveformRangeCache>(),
             requests: new HostRequests(),
-            detailError: null,
-            spectrogramZoom: null,
+            detail: createAnswerSlot<true>(),
+            spectrogramZoom: createAnswerSlot<SpectrogramZoom>(),
             spectrumSliceCache: createLatestAnswers<SpectrumSlice, number>(),
         };
         result.trackId = id;
@@ -280,14 +281,14 @@ export class TrackStore {
 
     private clearAnalysisState(record: TrackRecord): void {
         record.waveformCoverage = null;
-        record.rangeCache = null;
+        record.rangeCache.clear();
         this.clearAsyncState(record);
     }
 
     private clearAsyncState(record: TrackRecord): void {
         record.requests.clear();
-        record.detailError = null;
-        record.spectrogramZoom = null;
+        record.detail.clear();
+        record.spectrogramZoom.clear();
         record.spectrumSliceCache.clear();
     }
 }

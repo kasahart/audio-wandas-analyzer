@@ -10,8 +10,8 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import ts from 'typescript';
-import { findFileKeysWithoutVersion, findHeldCollections, findOwnRetryPolicies, type HeldCollection } from './answerBoundary';
-import { NOT_ANSWERS } from './answerBoundaryAllowlist';
+import { findAnswerWrites, findFileKeysWithoutVersion, findHeldCollections, findOwnRetryPolicies, type HeldCollection } from './answerBoundary';
+import { NOT_ANSWER_WRITES, NOT_ANSWERS } from './answerBoundaryAllowlist';
 
 const repoRoot = path.resolve(__dirname, '..', '..');
 const STORE = new Set(['src/webview/runtime/answerStore.ts', 'src/webview/runtime/answerTypes.ts']);
@@ -81,4 +81,12 @@ test('an answer of a file names the file\'s own version and calibration in its k
     assert.deepEqual(sources().flatMap(({ file, source }) => findFileKeysWithoutVersion(file, source)), []);
     const mutant = ts.createSourceFile('m.ts', "answerKey({ ask: 'spec', file: path, version: { by: 'request' } });", ts.ScriptTarget.Latest, true);
     assert.deepEqual(findFileKeysWithoutVersion('m.ts', mutant), ['m.ts:1']);
+});
+
+test('outside the answer store, no host answer is written into a field of an object, except those listed with why', () => {
+    const found = sources().flatMap(({ file, source }) => findAnswerWrites(file, source));
+    assert.deepEqual(found.filter(entry => !(entry in NOT_ANSWER_WRITES)), [], 'An answer is kept in answerStore.ts (createAnswerSlot for one per track), not in an object\'s field');
+    assert.deepEqual(Object.keys(NOT_ANSWER_WRITES).filter(entry => !found.includes(entry)), [], 'an entry that matches nothing any more is taken off NOT_ANSWER_WRITES (the list only shrinks)');
+    const mutant = ts.createSourceFile('m.ts', 'onMessage(msg => { record.rangeCache = { channels: msg.channels }; label.textContent = msg.text; });', ts.ScriptTarget.Latest, true);
+    assert.deepEqual(findAnswerWrites('m.ts', mutant), ['m.ts#record.rangeCache']);
 });

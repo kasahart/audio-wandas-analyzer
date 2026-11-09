@@ -176,3 +176,38 @@ export function findFileKeysWithoutVersion(file: string, source: ts.SourceFile):
     visit(source);
     return found;
 }
+
+/** Names an answer from the host goes by where it is taken (a message handler's message, a publication, a reply). */
+const ANSWER_NAMES = /^(msg|message|publication|answer|reply|result|incoming)$/;
+/** Fields of a page element: a text or handler written from a message is shown, not kept. */
+const PAGE_FIELDS = new Set(['textContent', 'innerHTML', 'title', 'className', 'onmessage', 'hidden', 'value']);
+
+function namesAnswer(node: ts.Node): boolean {
+    let found = false;
+    const visit = (inner: ts.Node): void => {
+        if (found) return;
+        if (ts.isIdentifier(inner) && ANSWER_NAMES.test(inner.text) && !(ts.isPropertyAccessExpression(inner.parent) && inner.parent.name === inner)) { found = true; return; }
+        ts.forEachChild(inner, visit);
+    };
+    visit(node);
+    return found;
+}
+
+/**
+ * Every write of a host's answer into a field of an object (`record.range = { … msg … }`): an answer kept so is kept
+ * outside the store, with no key and no state. A class's own fields (`this.x`) are its state and found as collections.
+ */
+export function findAnswerWrites(file: string, source: ts.SourceFile): string[] {
+    const found = new Set<string>();
+    const visit = (node: ts.Node): void => {
+        if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken
+            && (ts.isPropertyAccessExpression(node.left) || ts.isElementAccessExpression(node.left))
+            && node.left.expression.kind !== ts.SyntaxKind.ThisKeyword && namesAnswer(node.right)) {
+            const field = ts.isPropertyAccessExpression(node.left) ? node.left.name.text : '';
+            if (!PAGE_FIELDS.has(field)) found.add(`${file}#${node.left.getText(source)}`);
+        }
+        ts.forEachChild(node, visit);
+    };
+    visit(source);
+    return [...found];
+}

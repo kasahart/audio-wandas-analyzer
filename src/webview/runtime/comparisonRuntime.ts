@@ -70,7 +70,7 @@ import { attachExclusiveMenus, attachHeightResizeListeners, attachToolbarActions
 import { resultsPaneHtml, trackAudioHtml, type SpectrumBandsSetting } from './resultsPaneHtml';
 import { selectionFolderButton, selectionLayoutHtml } from './selectionLayoutHtml';
 import { ShownSpectrumCursor, SpectrumCommitHold } from './spectrumCommitHold';
-import { createFailureHold, createLatestAnswers, createRequestClock, FAILED_RETRY_MS } from './answerStore';
+import { createLatestAnswers, createRequestClock, FAILED_RETRY_MS } from './answerStore';
 import { type AnalysisWindowBand, canvasTimeHit, clampedCanvasNorm, clientToCanvasPixels, CURSOR_LINE_STYLE, drawAnalysisWindowBand, drawDashedTimeLine, drawRectZoomSelection, HOVER_LINE_STYLE, waveformCursorLineStyle } from './canvasOverlays';
 import { applyOverlayCompatibility, calibrationRequest, channelMetricSummaryHtml, ensureCalibrationStyles, hasIncompatibleLevelReferences } from './calibrationDecorations';
 import {
@@ -158,8 +158,6 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     const TRACK_HEADER_W = 130;
     // A failed spectrogram (the whole file's, a zoom window's) is not asked again until the answer store's pause has
     // passed, so a lane that keeps failing does not loop and a passing failure does not stay.
-    const detailFailures = createFailureHold();
-    const zoomFailures = createFailureHold();
     const AXIS_W = 64;
     const SIDEBAR_WIDTH_MIN = 160;
     /** The window keeps this much beside a widened side panel. */
@@ -670,8 +668,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const settingsSignature = currentSettingsSignature();
-        const failure = record.detailError;
-        if (failure && failure.settingsSignature === settingsSignature && detailFailures.holds(record.id, settingsSignature)) {
+        if (record.detail.holds(settingsSignature)) {
             return;
         }
         const pending = record.requests.pending('detail')?.meta;
@@ -679,7 +676,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         // Asked again after a failure's pause: the lane says it is loading, not the failure it may no longer have.
-        record.detailError = null;
+        record.detail.clear();
         const requestId = nextRequestId('detail', i);
         record.requests.ask('detail', requestId, settingsSignature, { trackId: record.id, requestId: requestId, analysisId: analysisId, settingsSignature: settingsSignature });
         messaging.post({
@@ -736,7 +733,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const whole = channelsForResult(result)[0]?.spectrogram;
         const viewBand = whole ? shownSpectrogramBand(whole) : null;
         const settingsSignature = currentSettingsSignature();
-        const zoom = record.spectrogramZoom;
+        const zoom = record.spectrogramZoom.get();
         const serves = (window: SpectrogramWindow | null, band: SpectrogramBand | null): boolean =>
             (window ? spectrogramWindowServes(source, window, view, width) : !spectrogramZoomWindow(source, view, width))
             && (!bandSource || !viewBand || spectrogramBandServes(bandSource, band, viewBand, height));
@@ -745,7 +742,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         const timeWindow = spectrogramZoomWindow(source, view, width);
         const band = bandSource && viewBand ? spectrogramZoomBand(bandSource, viewBand, height) : null;
-        if ((!timeWindow && !band) || zoomFailures.holds(record.id)) {
+        if ((!timeWindow && !band) || record.spectrogramZoom.holds()) {
             return;
         }
         const pending = record.requests.pending('specZoom');
@@ -776,7 +773,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (!whole) {
             return null;
         }
-        const zoom = trackRecordAtIndex(trackIndex)?.spectrogramZoom;
+        const zoom = trackRecordAtIndex(trackIndex)?.spectrogramZoom.get();
         const zoomed = zoom && zoom.analysisId === analysisId && zoom.settingsSignature === currentSettingsSignature() ? zoom.spectrograms[channelIndex] : null;
         if (!zoom || !zoomed) {
             return { spec: whole, window: null };
@@ -806,7 +803,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         record.requests.drop('detail');
         record.requests.drop('specZoom');
-        record.spectrogramZoom = null;
+        record.spectrogramZoom.clear();
         spectrumRequests.drop(spectrumSliceRequestKey(record.id));
         record.requests.drop('slice');
         record.spectrumSliceCache.clear();
@@ -997,7 +994,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         rangeLandedAskedAt.set(trackId, askedAt);
-        record.rangeCache = { startNorm: msg.startNorm, endNorm: msg.endNorm, channels: msg.channels };
+        record.rangeCache.set({ startNorm: msg.startNorm, endNorm: msg.endNorm, channels: msg.channels });
         renderAll();
     });
     messaging.onMessage(function (msg) {
@@ -1021,14 +1018,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             record.requests.settle(msg.requestId);
             if (msg.type === 'track-detail-error') {
                 // The lane keeps the whole file's picture; the window is asked again after the pause.
-                zoomFailures.fail(trackId);
+                record.spectrogramZoom.fail(msg.error);
                 setTimeout(scheduleRangeRequests, FAILED_RETRY_MS);
                 return;
             }
-            zoomFailures.clear(trackId);
             if (state.results[i] && state.results[i].filePath === msg.filePath && Array.isArray(msg.channels)) {
-                record.spectrogramZoom = { startNorm, endNorm, band, analysisId: asked.analysisId,
-                    settingsSignature: asked.settingsSignature, spectrograms: msg.channels.map(channel => channel?.spectrogram ?? null) };
+                record.spectrogramZoom.set({ startNorm, endNorm, band, analysisId: asked.analysisId,
+                    settingsSignature: asked.settingsSignature, spectrograms: msg.channels.map(channel => channel?.spectrogram ?? null) });
                 scheduleRender();
                 testBridge.publishAfterFrame();
             }
@@ -1040,15 +1036,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }
         record.requests.settle(msg.requestId);
         if (msg.type === 'track-detail-error') {
-            record.detailError = { settingsSignature: pending.settingsSignature, message: msg.error };
-            detailFailures.fail(trackId, pending.settingsSignature);
+            record.detail.fail(msg.error, pending.settingsSignature);
             scheduleRender();
             // The cause may pass (a restarted backend, memory freed): the lane asks again after the pause.
             setTimeout(scheduleRender, FAILED_RETRY_MS);
             return;
         }
-        record.detailError = null;
-        detailFailures.clear(trackId);
+        record.detail.set(true);
         if (state.results[i] && state.results[i].filePath === msg.filePath && Array.isArray(msg.channels)) {
             mergeDetailSpectrograms(state.results[i].channels, msg.channels);
             scheduleRender();
@@ -1287,7 +1281,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             // Detail is kept for a couple of screens either side, so a pan draws lines already decimated in full.
             const { reqStart, reqEnd, points: pts, keepStart, keepEnd } = planLaneRange(fileView.fileAtZoomStart, fileView.fileAtZoomEnd, W);
             const channelCount = channelsForResult(result).length;
-            if (isCacheSufficient(record.rangeCache, keepStart, keepEnd, pts, W, fileView.fileAtZoomStart, fileView.fileAtZoomEnd, channelCount)) {
+            if (isCacheSufficient(record.rangeCache.get(), keepStart, keepEnd, pts, W, fileView.fileAtZoomStart, fileView.fileAtZoomEnd, channelCount)) {
                 return;
             }
             const pending = record.requests.pending('range');
@@ -2070,7 +2064,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const ch = channelsForResult(result)[channelIndex];
         const fullWaveform = ch && ch.waveform ? ch.waveform : null;
         const amplitudeScale = fullWaveform ? amplitudeScaleFor(ch) : undefined;
-        const c = trackRecordAtIndex(trackIndex)?.rangeCache ?? null;
+        const c = trackRecordAtIndex(trackIndex)?.rangeCache.get() ?? null;
         const cachedChannel = c && c.channels ? c.channels[channelIndex] : null;
         const canvas = canvasById(document, trackCanvasId(trackIndex, channelIndex));
         const W = (canvas ? canvas.width : 0) || 800;
@@ -2197,9 +2191,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const ch = channelsForResult(result)[channelIndex];
         if (!ch || !ch.spectrogram) {
             requestTrackDetail(trackIndex);
-            const failure = trackRecordAtIndex(trackIndex)?.detailError;
-            const message = failure && failure.settingsSignature === currentSettingsSignature()
-                ? spectrogramFailureText(STR, failure.message)
+            const failure = trackRecordAtIndex(trackIndex)?.detail.failure(currentSettingsSignature());
+            const message = failure !== undefined
+                ? spectrogramFailureText(STR, failure)
                 : STR.spectrogramLoading;
             // An empty plot with its message, drawn by the plot component as an empty pane is: no axes named yet.
             paintOverlay(canvas, { layers: [] }, plainRange(0, 1), plainNames(STR.axisTime, STR.axisFrequency), { axisCanvas: null, empty: message });
