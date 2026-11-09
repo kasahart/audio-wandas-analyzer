@@ -298,11 +298,6 @@ def test_the_drawn_difference_keeps_the_notch_and_every_bump_at_their_own_bins_d
         assert xs[near][np.nanargmax(values[near])] == pytest.approx(freqs[k], abs=1e-9)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="rounding before computing (strategy v3 step 2): stage_combine keeps spectra rounded to 0.01 dB "
-    "(stage_view.rounded_db) before the median and the difference, so a read differs from the Frame's value",
-)
 def test_a_read_of_the_difference_is_the_frames_unrounded_difference_bin_by_bin(
     backend: Backend, notch: dict[str, Path]
 ) -> None:
