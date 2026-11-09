@@ -15,7 +15,7 @@ import type { ScanResult } from '../../shared/protocol/backendProtocol';
 import { BAND_CENTERS_HZ, bandLabel, buildEntryModel, derivedKey, entryCsv, type BaseDefinition, type DerivedRow, type EntryModel } from './entryTable';
 import { bandLevelColumns, levelColumns, type ExclusionReason } from './figureModel';
 import { batchBundle, batchCount } from '../../shared/batch/batchBundle';
-import { remeasuredFrom, type CompareModel } from './comparePanes';
+import { remeasuredFrom, type CompareModel, type LevelInput } from './comparePanes';
 import { compareGroupNames, groupLabels } from '../../shared/dataset/distribution';
 import { createDistributionPane } from './entryDistributionPane';
 import { createFilterPopover } from './entryFilterPopover';
@@ -169,6 +169,8 @@ export interface EntryScreen {
     stepFailed(step: string, reason: string): void;
     /** What the comparison needs of the table: its conditions, results, slots and Recipes. */
     compareData(): CompareData;
+    /** What a file's levels are in, as the table's scan read it (cheap: no model built), for the figures' identity. */
+    levelOf(filePath: string): LevelInput | undefined;
     /** The slots 0–3: the base file (or null for the group median) and the files to compare. */
     slots(): (string | null)[];
     /** Whether the rows are grouped: with slot 0 empty, the base is then the compared file's group median. */
@@ -1518,6 +1520,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             return true;
         },
         compareData: () => compareData(),
+        levelOf: path => { const result = results.get(path); return result?.ok ? result.input : undefined; },
         slots: () => slotFiles(),
         grouped: () => chosen.group !== 'none',
         trackRole(filePath) {

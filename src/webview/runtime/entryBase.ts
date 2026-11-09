@@ -109,12 +109,14 @@ export function createEntryBase(deps: EntryBaseDeps): EntryBase {
      * over results measured now over a region (regionResults), the region's value whatever the table's state (none
      * yet: pending); over the table's own results with more in them (withBins), the table's state with their value.
      */
-    function answerOf(path: string, over?: ReadonlyMap<string, ScanResult>): ScanAnswer {
-        // The answer store's (stale when of an earlier chain or calibration): never judged here.
-        const fresh = answersOf([path])[0];
-        if (over && isRegionResults(over)) return scanAnswer(path, over.get(path), { recipeKey: fresh.identity.recipeKey, region: 'over' });
-        if (!over || fresh.state !== 'ready' || over === deps.results) return fresh;
-        return scanAnswer(path, over.get(path), { recipeKey: fresh.identity.recipeKey, region: 'over' });
+    function answersFor(paths: readonly string[], over?: ReadonlyMap<string, ScanResult>): ScanAnswer[] {
+        // The answer store's, asked once for all of them (stale when of an earlier chain or calibration): never judged here.
+        return answersOf(paths).map((fresh, index) => {
+            const path = paths[index];
+            if (over && isRegionResults(over)) return scanAnswer(path, over.get(path), { recipeKey: fresh.identity.recipeKey, region: 'over' });
+            if (!over || fresh.state !== 'ready' || over === deps.results) return fresh;
+            return scanAnswer(path, over.get(path), { recipeKey: fresh.identity.recipeKey, region: 'over' });
+        });
     }
     /**
      * The base group's set: `name`'s rows of the pool (every row when not grouped), of `channel`, without the compared
@@ -127,8 +129,11 @@ export function createEntryBase(deps: EntryBaseDeps): EntryBase {
         // The other compared recordings (slots 1–3) are compared themselves: not part of anyone's base.
         const compared = new Set(comparedKeys(deps.slots()).map(fileOfKey));
         const members = baseGroupMembers(deps.pool().filter(row => row.filePath === comparePath || !compared.has(row.filePath)), comparePath ?? '', group, name, channel);
-        const like = comparePath ? answerOf(comparePath, over) : undefined;
-        const set = figureUsed(members.paths.filter(path => path !== comparePath).map(path => answerOf(path, over)), scanFigureOf(like?.state === 'ready' ? like.value : undefined));
+        // One ask of the store for the compared recording and every member (its current chain is worked out once).
+        const others = members.paths.filter(path => path !== comparePath);
+        const asked = answersFor(comparePath ? [comparePath, ...others] : others, over);
+        const like = comparePath ? asked[0] : undefined;
+        const set = figureUsed(comparePath ? asked.slice(1) : asked, scanFigureOf(like?.state === 'ready' ? like.value : undefined));
         // What is asked for and drawn: every member but those of another reference or axis, in the table's order.
         const other = new Set(set.excluded.filter(item => item.reason === 'other-reference' || item.reason === 'other-axis').map(item => item.path));
         return { set, fewerChannels: members.fewerChannels, asked: members.paths.filter(path => path !== comparePath && !other.has(path)) };
@@ -151,7 +156,7 @@ export function createEntryBase(deps: EntryBaseDeps): EntryBase {
         if (single && !byGroup) {
             const ch = channelOfRow(deps.rowOf(single));
             const path = fileOfKey(single);
-            const set = figureUsed([answerOf(path, over)], { level: null });
+            const set = figureUsed(answersFor([path], over), { level: null });
             const title = `${strings.entryBase} · ${deps.rowName(single)}`;
             return {
                 paths: [path], members: [path], title, channel: ch, set, titleWith: () => ({ title, n: 1 }),
