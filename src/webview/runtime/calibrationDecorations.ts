@@ -2,6 +2,7 @@ import type { ChannelSummary } from '../../shared/analysis/analysisTypes';
 import type { UiStrings } from '../../shared/i18n/strings';
 import { channelsForResult, formatMeasuredLevel } from '../../shared/utils/format';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
+import { levelText as dbText } from '../plot/plotText';
 import { hintAttr } from './hintFooter';
 import type { ComparisonTrackState } from './types';
 
@@ -27,7 +28,7 @@ export function peakText(channel: Channel, peakLabel: string): string | null {
 
 function levelText(channel: ChannelSummary, levelDb: number | undefined): string {
     if (!Number.isFinite(levelDb)) { return '—'; }
-    return Number(levelDb).toFixed(1) + ' ' + (channel.measurement?.levelUnit ?? 'dB');
+    return dbText(Number(levelDb), channel.measurement?.levelUnit ?? 'dB');
 }
 
 export function channelMetricSummaryHtml(channel: Channel, peakLabel: string): string {

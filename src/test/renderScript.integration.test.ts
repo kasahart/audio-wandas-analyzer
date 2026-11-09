@@ -316,7 +316,7 @@ test('renderScript: monaural tracks keep waveform and spectrogram in one body wi
     assert.equal(row.querySelector('.track-channel-lane-header'), null);
 
     const meta = row.querySelector('.track-meta');
-    assert.match(meta?.textContent || '', /^1 ch.*Peak -6\.0 dB/,
+    assert.match(meta?.textContent || '', /^1 ch.*Peak −6\.0 dB/,
         'mono track の概要値は下部凡例ではなく track meta に表示されること');
 
     const waveWrap = env.dom.window.document.getElementById('track-canvas-wrap-0');
@@ -2450,8 +2450,8 @@ test('renderScript: multichannel track UI renders all channel sublanes without a
 
     const laneTexts = Array.from(env.dom.window.document.querySelectorAll('#track-row-0 .track-channel-lane-header'))
         .map((el) => el.textContent || '');
-    assert.ok(laneTexts.some((text) => /Channel 1 \/ 2 \(Left\).*Peak -6\.0 dB/.test(text)), laneTexts.join('\n'));
-    assert.ok(laneTexts.some((text) => /Channel 2 \/ 2 \(Right\).*Peak -0\.4 dB/.test(text)), laneTexts.join('\n'));
+    assert.ok(laneTexts.some((text) => /Channel 1 \/ 2 \(Left\).*Peak −6\.0 dB/.test(text)), laneTexts.join('\n'));
+    assert.ok(laneTexts.some((text) => /Channel 2 \/ 2 \(Right\).*Peak −0\.4 dB/.test(text)), laneTexts.join('\n'));
 
     assert.equal(env.dom.window.document.getElementById('metrics-bar'), null);
     assert.equal(env.dom.window.document.querySelector('#metrics-item-0'), null);
@@ -2716,8 +2716,8 @@ test('renderScript: multichannel report lists peak metrics for every channel', a
     const msg = env.postedMessages.find((posted: any) => posted.type === 'export-report-options') as any;
     assert.ok(msg, 'report export message が送信されること');
     assert.match(msg.markdownContent, /\| File \| Channel \| Sample Rate \| Duration \| Channels \| Peak \|/);
-    assert.match(msg.markdownContent, /\| stereo\.wav \| Channel 1 \/ 2 \(Left\) \| 44100 Hz \| 1\.000s \| 2 \| -6\.0 dB \|/);
-    assert.match(msg.markdownContent, /\| stereo\.wav \| Channel 2 \/ 2 \(Right\) \| 44100 Hz \| 1\.000s \| 2 \| -0\.4 dB \|/);
+    assert.match(msg.markdownContent, /\| stereo\.wav \| Channel 1 \/ 2 \(Left\) \| 44100 Hz \| 1\.000s \| 2 \| −6\.0 dB \|/);
+    assert.match(msg.markdownContent, /\| stereo\.wav \| Channel 2 \/ 2 \(Right\) \| 44100 Hz \| 1\.000s \| 2 \| −0\.4 dB \|/);
     assert.doesNotMatch(msg.markdownContent, /Spectral Peaks/);
     const notebook = JSON.parse(msg.notebookContent) as { cells: Array<{ id: string; source: string[] }> };
     const loadCell = notebook.cells.find((cell) => cell.id === 'load-files');

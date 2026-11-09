@@ -8,9 +8,9 @@ import { PendingBackendRequests } from '../shared/protocol/backendProtocol';
 
 test('measurement formatting keeps the calibration panel and report wording', () => {
     assert.deepEqual([1234.5, 12.345, 0.1234, 0.001234, Number.NaN].map(formatMeasurementNumber), ['1235', '12.35', '0.123', '0.00123', '—']);
-    assert.equal(formatMeasuredLevel(0.5, -6.02, { calibrationStatus: 'calibrated', linearUnit: 'Pa', levelUnit: 'dB SPL' }), '0.500 Pa / -6.0 dB SPL');
-    assert.equal(formatMeasuredLevel(0.5, -6.02, { calibrationStatus: 'uncalibrated', linearUnit: 'FS', levelUnit: 'dBFS' }), '-6.0 dBFS');
-    assert.equal(formatMeasuredLevel(0.5, -6.02, undefined), '-6.0 dB');
+    assert.equal(formatMeasuredLevel(0.5, -6.02, { calibrationStatus: 'calibrated', linearUnit: 'Pa', levelUnit: 'dB SPL' }), '0.500 Pa / −6.0 dB SPL');
+    assert.equal(formatMeasuredLevel(0.5, -6.02, { calibrationStatus: 'uncalibrated', linearUnit: 'FS', levelUnit: 'dBFS' }), '−6.0 dBFS');
+    assert.equal(formatMeasuredLevel(0.5, -6.02, undefined), '−6.0 dB');
     assert.equal(formatMeasuredLevel(0.5, Number.NaN, undefined), null);
 });
 
