@@ -361,6 +361,22 @@ export function cellIndex(axis: readonly number[], value: number, log: boolean, 
 }
 
 /**
+ * A line query on another axis: its window and the pointer's place (`at`) mapped, and the screen's scale along x
+ * (`pixels[0]`, pixels per unit) per unit of the new axis, so a dense window read through the map still holds the
+ * point nearest the pointer on screen (R7).
+ */
+function mappedLine(query: LineQuery, to: (x: number) => number): LineQuery {
+    const mapped: LineQuery = { ...query, x0: to(query.x0), x1: to(query.x1) };
+    if (query.at !== undefined) mapped.at = to(query.at);
+    if (query.pixels) {
+        const at = query.at ?? query.x0, step = Math.abs(query.x1 - query.x0) || 1;
+        const units = Math.abs(to(at + step) - to(at)) / step;
+        mapped.pixels = [units > 0 ? query.pixels[0] / units : query.pixels[0], query.pixels[1]];
+    }
+    return mapped;
+}
+
+/**
  * `source` read on another axis: `to` takes this axis's values to the source's, `from` back (both increasing), so a
  * lane on the lanes' time axis reads a source over its file's 0..1.
  */
@@ -368,7 +384,7 @@ export function mappedSource(source: FullSource, to: (x: number) => number, from
     const back = (points: FullAnswer): FullAnswer => (points ? { ...points, xs: points.xs.map(from), start: points.start === null ? null : from(points.start), end: points.end === null ? null : from(points.end) } : points);
     return {
         held: source.held,
-        ...(source.line ? { line: (query: LineQuery, ready: () => void) => back(source.line?.({ ...query, x0: to(query.x0), x1: to(query.x1) }, ready)) } : {}),
+        ...(source.line ? { line: (query: LineQuery, ready: () => void) => back(source.line?.(mappedLine(query, to), ready)) } : {}),
         ...(source.cells ? { cells: (query: CellQuery, ready: () => void) => back(source.cells?.({ ...query, x: to(query.x) }, ready)) } : {}),
         ...(source.level ? { level: (query: LevelQuery, ready: () => void) => source.level?.({ ...query, x0: to(query.x0), x1: to(query.x1) }, ready) } : {}),
     };
