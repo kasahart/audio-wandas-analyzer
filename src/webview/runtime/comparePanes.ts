@@ -263,14 +263,22 @@ function binsOf(results: ReadonlyMap<string, ScanResult>, comparePath: string | 
 }
 
 /**
+ * Whether two scans measured the same thing: the same version of the file, region, channels, calibration, unit and
+ * Recipe (the backend's conditionId). Never judged from drawn values: equal 192 points say nothing of the bins.
+ */
+export function sameCondition(a: ScanResult | undefined, b: ScanResult | undefined): boolean {
+    return !!a?.ok && !!b?.ok && typeof a.conditionId === 'string' && a.conditionId === b.conditionId;
+}
+
+/**
  * The table's results with every Welch bin from `binned` (scans of the same files asked for with spectrumBins), where
- * a scan measured the same spectrum as the table's result (its 192 points alike); the rest as they are.
+ * a scan measured the same condition as the table's result (sameCondition); the rest as they are.
  */
 export function withBins(results: ReadonlyMap<string, ScanResult>, binned: ReadonlyMap<string, ScanResult>): Map<string, ScanResult> {
     const out = new Map(results);
     for (const [path, scan] of binned) {
         const own = results.get(path);
-        if (!own?.ok || !scan.ok || !scan.spectrumBinsDb || JSON.stringify(own.spectrumDb) !== JSON.stringify(scan.spectrumDb)) continue;
+        if (!own?.ok || !scan.ok || !scan.spectrumBinsDb || !sameCondition(own, scan)) continue;
         out.set(path, { ...own, spectrumBinsDb: scan.spectrumBinsDb, ...(scan.spectrumBinHz !== undefined ? { spectrumBinHz: scan.spectrumBinHz } : {}) });
     }
     return out;

@@ -1925,6 +1925,9 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "stage": {
                     "$ref": "#/$defs/StageView"
                 },
+                "stageDataTooLarge": {
+                    "type": "boolean"
+                },
                 "failedStep": {
                     "type": "string"
                 }
@@ -2561,6 +2564,7 @@ export interface ScanResult {
     elapsedMs?: number;
     endFrame?: string;
     stage?: StageView;
+    stageDataTooLarge?: boolean;
     failedStep?: string;
 }
 

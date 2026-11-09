@@ -30,6 +30,9 @@ export function noDeltaNote(combined: Pick<Combined, 'tooLarge' | 'noDelta'> | u
 
 export const NOTHING_COMBINED: Combined = { base: null, diff: null };
 
+/** Nothing combined because a picture's values were over what the backend keeps (its scan said stageDataTooLarge). */
+export const TOO_LARGE_COMBINED: Combined = { ...NOTHING_COMBINED, tooLarge: true };
+
 export interface CombineRequest {
     base: readonly string[];
     compare: string | null;
@@ -91,7 +94,7 @@ export function createCombineSource(prefix: string, post: (message: CompareCombi
                 retried.add(request.identity);
                 request.forget(result.missing ?? []);
             } else {
-                keep(request.key, { ...NOTHING_COMBINED, tooLarge: true });
+                keep(request.key, TOO_LARGE_COMBINED);
             }
             changed();
             return true;

@@ -168,14 +168,17 @@ export function plotsOf<T extends { filePath: string }>(views: (path: string) =>
 /**
  * What to ask the backend to combine for a paint: the base's pictures' kept values (`data`) and the compared
  * file's. Undefined while a picture is not in; null when there is nothing to combine (one base file and nothing
- * compared, or a picture without kept values: a step not drawn, a trigger that found no event).
+ * compared, or a picture without kept values: a step not drawn, a trigger that found no event); 'tooLarge' when a
+ * picture's values were over what the backend keeps (`tooLarge`, its scan's stageDataTooLarge): nothing is asked,
+ * and nothing scanned again, for a combination that cannot be made.
  */
-export function combineRequest(views: (path: string) => StageView | null | undefined, comparePath: string | null, basePaths: readonly string[]): { base: string[]; compare: string | null } | null | undefined {
+export function combineRequest(views: (path: string) => StageView | null | undefined, comparePath: string | null, basePaths: readonly string[], tooLarge: (path: string) => boolean = () => false): { base: string[]; compare: string | null } | 'tooLarge' | null | undefined {
     const compared = !!comparePath && !basePaths.includes(comparePath);
     if (!basePaths.length || (basePaths.length === 1 && !compared)) return null;
     const paths = [...basePaths, ...(compared && comparePath ? [comparePath] : [])];
     const pictures = paths.map(views);
     if (pictures.some(view => view === undefined)) return undefined;
+    if (paths.some(tooLarge)) return 'tooLarge';
     const keys = pictures.map(view => view?.data);
     const base = keys.slice(0, basePaths.length);
     if (base.some(key => !key)) return null;
