@@ -1460,7 +1460,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         slots: () => entryScreen.slots(),
         basePaths: (comparePath, group) => entryScreen.basePaths(comparePath, group),
         baseHeading: (comparePath, group, set) => entryScreen.baseHeading(comparePath, group, set),
-        levelOf: path => entryScreen.levelOf(path),
+        levelOf: path => entryScreen.levelOf(path), levelsOf: paths => entryScreen.levelsOf(paths),
         stageChannel: (path, comparePath, group) => entryScreen.stageChannel(path, comparePath, group),
         rowInfo: path => entryScreen.rowInfo(path),
         roleChip(path) {

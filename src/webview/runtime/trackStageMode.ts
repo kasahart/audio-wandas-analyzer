@@ -61,10 +61,15 @@ export interface TrackStageDeps {
     slots(): (string | null)[];
     basePaths(comparePath: string, group?: boolean): string[];
     /** The base's title, with `more` of its recordings left out (a step picture failed, empty or on its way). */
-    /** The base's heading for the step figure's one set (entryBase.heading): its name and n, and who is left out why. */
-    baseHeading(comparePath: string, group: boolean, set: FigureSet<unknown>): string;
+    /**
+     * The base's heading for the step figure's one set (entryBase.heading): its name and n, and who is left out why;
+     * null while the group is not analysed here (gated): the base as the table counts it (its own set).
+     */
+    baseHeading(comparePath: string, group: boolean, set: FigureSet<unknown> | null): string;
     /** What a recording's levels are in (its scan's input): a base recording that is no track has its own reference too. */
     levelOf?(path: string): LevelInput | undefined;
+    /** The same of several files, against one reading of what is current (the store's answers). */
+    levelsOf?(paths: readonly string[]): ReadonlyArray<LevelInput | undefined>;
     /** The channel a file is drawn with when `comparePath` is compared: a slot's channel row, the base's members of that channel. */
     stageChannel?(path: string, comparePath: string | null, group?: boolean): number | null;
     /** How much audio these files are (seconds) and about how long analysing them takes (ms). */
@@ -592,11 +597,15 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         // is in, kept its values and (a median) is on the compared file's axis. The drawn lines, the median asked of the
         // backend, the heading's n and the legend's words are all of this one set; a recording still on its way is
         // pending in it, and no median is asked until none is. A level is the step's own scan's, never a guess.
-        const levelOf = (path: string): LevelInput | undefined => {
-            // The version its picture is of: the picture's own scan, else its track, else the table's current scan.
+        // A recording's levels are those of the version its picture is of: the picture's own scan, else its track, else
+        // the table's current answer (never a stale one's), asked of the store once per drawing for all of them.
+        const levelPaths = [...new Set([...allTracks.map(track => track.filePath), ...allowed, ...(comparePath ? [comparePath] : [])])];
+        const tableLevels = deps.levelsOf?.(levelPaths) ?? [];
+        const levels = levelPaths.map((path, index): LevelInput | undefined => {
             const scanned = source.result(specFor(path), path);
-            return (scanned?.ok ? scanned.input : undefined) ?? allTracks.find(track => track.filePath === path)?.input ?? deps.levelOf?.(path);
-        };
+            return (scanned?.ok ? scanned.input : undefined) ?? allTracks.find(track => track.filePath === path)?.input ?? tableLevels[index];
+        });
+        const levelOf = (path: string): LevelInput | undefined => { const at = levelPaths.indexOf(path); return at < 0 ? deps.levelOf?.(path) : levels[at]; };
         const compareInput = comparePath ? levelOf(comparePath) : undefined;
         const stageSet = pictureSet(allowed, coarse, levelOf, { level: compareInput, view: comparePath ? coarse(comparePath) : undefined }, !each);
         const waitingBase = excludedFor(stageSet, 'pending') > 0;
@@ -757,7 +766,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         // The heading's n is the step figure's set's: the base's recordings left out here (failed, empty) are said so.
         // Drawn each as it is, every waveform says its own calibration (R4: only an uncalibrated line says so), not
         // the group's word on each; one median line says the group's.
-        const baseTitle = (path: string): string => { const heading = deps.baseHeading(path, state.groupBase, stageSet); return each ? eachBaseTitle(heading, strings) : heading + baseWord; };
+        const baseTitle = (path: string): string => { const heading = deps.baseHeading(path, state.groupBase, gated ? null : stageSet); return each ? eachBaseTitle(heading, strings) : heading + baseWord; };
         const aggregate = each ? strings.stageBaseEach : strings.stageBaseAggregate;
         query<HTMLElement>('[data-stage-base-aggregate]').textContent = aggregate;
         const baseLabel = comparePath ? baseTitle(comparePath) : basePaths.length === 1 ? namedHere(basePaths[0], role(basePaths[0])).label : undefined;

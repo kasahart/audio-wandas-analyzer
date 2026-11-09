@@ -188,6 +188,7 @@ export interface EntryScreen {
     /** What the comparison needs of the table: its conditions, results, slots and Recipes. */
     compareData(): CompareData;
     /** What a file's levels are in, as the table's scan read it (cheap: no model built), for the figures' identity. */
+    levelsOf(paths: readonly string[]): Array<LevelInput | undefined>;
     levelOf(filePath: string): LevelInput | undefined;
     /** The slots 0–3: the base file (or null for the group median) and the files to compare. */
     slots(): (string | null)[];
@@ -205,7 +206,7 @@ export interface EntryScreen {
     /** The base's name: the slot-0 file, or "Base group · rpm 1500 · median of n · ch2 (within ch = 2)". */
     baseTitle(comparePath: string, group?: boolean, over?: AnswerSource): string;
     /** The base's heading for another figure's set of its members (a step figure's, of their pictures): its one set's n. */
-    baseHeading(comparePath: string, group: boolean, set: FigureSet<unknown>): string;
+    baseHeading(comparePath: string, group: boolean, set: FigureSet<unknown> | null): string;
     /** What the base is, for the report and a fixed difference. */
     baseDefinition(comparePath: string, group?: boolean, over?: AnswerSource): BaseDefinition;
     /** The channel `path` is drawn with when `comparePath` is compared (null: its channels together). */
@@ -1598,6 +1599,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         compareData: () => compareData(),
         // Only a fresh answer's (the answer store's ready one): a stale scan's reference is of an earlier calibration.
         levelOf: path => { const answer = scans.answer(path); return answer.state === 'ready' ? answer.value.input : undefined; },
+        levelsOf: paths => scans.answers(paths).map(answer => (answer.state === 'ready' ? answer.value.input : undefined)),
         slots: () => slotFiles(),
         grouped: () => chosen.group !== 'none',
         trackRole(filePath) {
@@ -1619,7 +1621,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         },
         basePaths: (comparePath, byGroup = false) => entryBase.resolve(comparePath, byGroup).members,
         baseTitle: (comparePath, byGroup = false, over) => entryBase.resolve(comparePath, byGroup, undefined, over).title,
-        baseHeading: (comparePath, byGroup, set) => entryBase.resolve(comparePath, byGroup).heading(set),
+        baseHeading: (comparePath, byGroup, set) => { const base = entryBase.resolve(comparePath, byGroup); return set ? base.heading(set) : base.title; },
         answersOf: paths => scans.answers(paths),
         baseDefinition: (comparePath, byGroup = false, over) => entryBase.resolve(comparePath, byGroup, undefined, over).definition,
         stageChannel: (path, comparePath, byGroup = false) => entryBase.stageChannel(path, comparePath, byGroup),
