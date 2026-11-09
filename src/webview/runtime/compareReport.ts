@@ -9,8 +9,8 @@ import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { encodeNumber, plainFloats, recipeSteps, timeSignalStep, upToStep, withDefaults, withParam, TIME_SLICE } from '../../shared/recipe/recipeSteps';
 import { BAND_CENTERS_HZ, bandCentreCell, bandLabel, csvNumber, EDGE_GUARD_S, HEADLINE_WITHIN_DB, levelReferenceCell, measuredRegion, regionCells, type BaseDefinition, type DerivedRow, type EntryMeasure, type EntryModel } from './entryTable';
 import { withBaseInput, withChannel } from '../../shared/recipe/channelSelection';
-import { baseLevelColumns, dataRange, diffRange, figureUsed, levelAxes, scanFigureOf, scanSet, levelColumns, paneNames, plainNames, titleOf, withTitle, type FigureColumns, type FigureRange, type FigureTitle } from './figureModel';
-import { bandsSource, binsSource, binsView, deltaViews, diffHeadline, levelsHeadline, sideView, type CompareModel, type CompareStrings, type LevelInput } from './comparePanes';
+import { baseLevelColumns, baseLevelOf, dataRange, diffRange, figureUsed, levelAxes, scanIdentity, setExclusionText, type FigureSet, type ReadScan, type SetStrings, levelColumns, paneNames, plainNames, titleOf, withTitle, type FigureColumns, type FigureRange, type FigureTitle } from './figureModel';
+import { setMedian, bandsSource, binsSource, binsView, deltaViews, diffHeadline, levelsHeadline, sideView, type CompareModel, type CompareStrings, type LevelInput } from './comparePanes';
 import { SECONDARY_AXIS_DASH } from './overlaySpectrumPainter';
 import { paintOverlay } from './stagePanes';
 import type { InlineFullSource } from './fullRead';
@@ -138,14 +138,13 @@ function maxBandCells(comparison: CompareModel): [string, string] {
  * largest-Δ band and base count the comparison, its held picture and 報告.csv show.
  */
 /**
- * The base's recordings the figure's numbers are of (figureModel.scanSet): the comparison's base set, counted against
- * the compared recording's level identity and axis; n is how many. A comparison with its Δ withheld (the file is its
- * own base, another reference, another region) measures from no base: n 0, no files.
+ * The base's recordings the figure's numbers are of: the comparison's one base set (CompareModel.baseSet); n is how
+ * many. A comparison with its Δ withheld (the file is its own base, another reference, another region) measures from
+ * no base: n 0, no files.
  */
-export function baseUsed(comparison: Pick<CompareModel, 'base' | 'compare' | 'blocked'>, results: ReadonlyMap<string, ScanResult>): { n: number; paths: string[] } {
-    if (comparison.blocked) return { n: 0, paths: [] };
-    const compared = comparison.compare?.filePaths[0];
-    return scanSet(results, comparison.base?.filePaths ?? [], compared ? results.get(compared) : undefined);
+export function baseUsed(comparison: Pick<CompareModel, 'baseSet' | 'blocked'>): { n: number; paths: readonly string[] } {
+    if (comparison.blocked || !comparison.baseSet) return { n: 0, paths: [] };
+    return { n: comparison.baseSet.n, paths: comparison.baseSet.paths };
 }
 
 /**
@@ -157,24 +156,32 @@ export function reportStale(stale: ReadonlySet<string>, measuredNow: ReadonlyMap
 }
 
 /**
- * Whether a fixed Δ (D) can be measured again from the table's results: only when its compared recording is ready
- * and every base recording it was fixed with is counted by the figure model now (figureUsed: ready, of the current
- * chain and calibration, of the compared one's reference and axis). One left out (stale, pending, failed, another
- * reference) keeps the row ≠ rather than measuring a Δ of fewer or other files than it was fixed with.
+ * A fixed Δ (D) measured again from the answer store's answers: only when its compared recording is ready and every
+ * base recording it was fixed with is counted by the figure model now (figureUsed: ready, of the current chain and
+ * calibration, of the compared one's reference and axis); else null and the row stays ≠. Its base's median, files
+ * and level reference (the report's 基準 レベル基準 cell) are all taken anew of that one set.
  */
-export function remeasurable(compared: ScanAnswer, base: readonly ScanAnswer[]): boolean {
-    if (compared.state !== 'ready' || !base.length) return false;
-    return figureUsed(base, scanFigureOf(compared.value)).n === base.length;
+export function remeasured(row: DerivedRow, compared: ScanAnswer, base: readonly ScanAnswer[], recipeKey: string): DerivedRow | null {
+    if (compared.state !== 'ready' || !base.length) return null;
+    const set = figureUsed(scanIdentity(compared), base);
+    const middle = set.n === base.length ? setMedian(set) : null;
+    if (!middle) return null;
+    return { ...row, result: compared.value, base: { ...row.base, leq: middle.leq, bands: middle.bands, paths: [...set.paths], level: baseLevelOf(set) }, recipeKey, stale: false };
 }
 
-export function entryMeasure(comparison: CompareModel, band: number, results: ReadonlyMap<string, ScanResult>): EntryMeasure | null {
+/**
+ * A file row of the entry CSV as this comparison measures it (entryBase.fileComparison): the same Δ Leq, band Δ,
+ * largest-Δ band, base count and what the base left out with why that the comparison, its held picture and 報告.csv show.
+ */
+export function entryMeasure(comparison: CompareModel, band: number, strings: Omit<SetStrings, 'entryBaseMedian'>): EntryMeasure | null {
     if (!comparison.base || !comparison.compare) return null;
     const withheld = !!comparison.blocked;
     return {
         leq: withheld ? null : comparison.leq?.delta ?? null,
         band: withheld ? null : comparison.bandDeltas[band] ?? null,
         peak: maxBand(comparison),
-        count: baseUsed(comparison, results).n,
+        count: baseUsed(comparison).n,
+        left: comparison.baseSet ? setExclusionText(comparison.baseSet, strings).replace(/^ · /u, '') : '',
     };
 }
 
@@ -215,7 +222,7 @@ export function reportCsv(input: ReportInput, strings: ReportStrings): string {
             dB(comparison.leq?.base), comparison.leq ? sideReferenceCell(comparison.base, input, base) : '', dB(comparison.leq?.delta),
             ...bands.map(band => dB(bandDelta(comparison, band))),
             // The 基準群 n and files: the base set the Δ is of (none while the Δ is withheld).
-            comparison.base && !comparison.blocked ? String(baseUsed(comparison, input.results).n) : '', baseUsed(comparison, input.results).paths.map(baseName).join(';'),
+            comparison.base && !comparison.blocked ? String(baseUsed(comparison).n) : '', baseUsed(comparison).paths.map(baseName).join(';'),
             result?.ok ? String(result.specVersion) : '',
             // Which chain the row's numbers are of: the Recipe written beside it, or the one before.
             [path, ...(comparison.base?.filePaths ?? [])].some(file => input.stale?.has(file)) ? strings.reportChainPrevious : strings.reportChainCurrent,
@@ -378,13 +385,6 @@ function pngOf(document: Document, paint: (canvas: HTMLCanvasElement) => void): 
 /** A report figure's horizontal axis as the comparison names the same picture (stagePanes.stageAxes): band centres for 1/3-octave bands. */
 function figureXAxis(views: ReadonlyArray<StageView | null>, strings: Pick<UiStrings, 'axisFrequency' | 'axisBand'>): string {
     return views.find(Boolean)?.x === 'band' ? strings.axisBand : strings.axisFrequency;
-}
-
-/** One side of a report figure as its recordings are levelled: their reference, and calibrated only if every one of them is. */
-/** What a base's levels are in, as its reference cell says it: its recordings' reference, uncalibrated while any of them is. */
-export function baseLevelOf(paths: readonly string[], results: ReadonlyMap<string, ScanResult>): { levelReference?: string; uncalibrated?: 'full-scale' } {
-    const level = sideInput({ title: '', filePaths: [...paths], spectrumDb: [], leq: 0, bands: [] }, { results } as ReportInput);
-    return level ? { levelReference: level.levelReferenceLabel, ...(level.calibrationStatus !== 'calibrated' ? { uncalibrated: 'full-scale' as const } : {}) } : {};
 }
 
 function sideInput(side: CompareModel['base'], input: ReportInput): LevelInput | undefined {

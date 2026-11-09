@@ -15,7 +15,7 @@ import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { recipeKey, recipeNodes, recipeSteps, slotReferenced, timeSignalStep, TIME_SLICE, type RecipeStep } from '../../shared/recipe/recipeSteps';
 import { baseName } from '../../shared/analysis/entryMetadata';
 import { DIFF_COLOR } from '../../shared/gui/roleColors';
-import { deltaViews, sameCondition, withBins, type CompareModel, type LevelInput, type PaneRange } from './comparePanes';
+import { deltaViews, sameCondition, type CompareModel, type LevelInput, type PaneRange } from './comparePanes';
 import type { PlotMargins, PlotWindow } from './plotInteraction';
 import { axisFractionOf, axisValueAt, drawnMargins, paintOverlay, type StagePlot } from './stagePanes';
 import { dataRange, diffRange, emptyFigure, narrowedRange, stageNames, type FigureNames, type FigureRange } from './figureModel';
@@ -61,7 +61,8 @@ export interface HeldPlotDeps {
     /** How many times a file's calibration changed while the folder is open: its pictures are asked again after one. */
     calibrationEpoch?(path: string): number;
     /** The comparison of `comparePath` with its base over `over`, each file as the channel it is compared as (entryBase.comparison). */
-    comparison(comparePath: string, over: ReadonlyMap<string, ScanResult>): CompareModel;
+    /** The screen's comparison of a row (of the answer store's answers), with every Welch bin of `binned` where given. */
+    comparison(comparePath: string, binned?: ReadonlyMap<string, ScanResult>): CompareModel;
     /** The recordings `comparePath` is measured against. */
     basePaths(comparePath: string): readonly string[];
     /** The Recipe the table's scans run (undefined: the host's own), which the held Δ's bins are scanned with too. */
@@ -238,10 +239,11 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
      * nothing until they are in (never the table's 192 points). Without a base to measure against there is nothing to ask for.
      */
     function paintSlot(path: string, slot: number): void {
-        const table = deps.comparison(path, deps.results);
+        const table = deps.comparison(path);
         const run = deps.scanRecipe();
         const spec: StageSpec = { key: `held-bins|${recipeKey(run)}`, message: { ...(run ? { recipe: run } : {}), spectrumBins: true } };
-        const files = [path, ...deps.basePaths(path)].filter(file => deps.results.get(file)?.ok);
+        // The bins of the very recordings the comparison counts: the compared one and its base's set.
+        const files = table.compare ? [path, ...(table.baseSet?.paths ?? [])] : [];
         // A file scanned again since (changed on disk, the folder opened anew): its kept bins are of another
         // condition, so they are asked for again, once for each table condition (one that never matches is not asked forever).
         for (const file of files) {
@@ -261,7 +263,7 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
             return;
         }
         const binned = new Map(files.flatMap(file => { const result = bins.result(spec, file); return result ? [[file, result] as [string, ScanResult]] : []; }));
-        paintDelta(binned.size ? deps.comparison(path, withBins(deps.results, binned)) : table, `slot|${slot}`, deps.results.get(path)?.input);
+        paintDelta(binned.size ? deps.comparison(path, binned) : table, `slot|${slot}`, deps.results.get(path)?.input);
     }
 
     return {

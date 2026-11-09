@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { compareOf } from './helpers/compareInput';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
@@ -6,11 +7,11 @@ import { scanAnswer } from '../webview/runtime/answerStore';
 import { getStrings } from '../shared/i18n/strings';
 import type { ScanResult } from '../shared/protocol/backendProtocol';
 import type { Answer } from '../webview/runtime/answerTypes';
-import { buildCompareModel, type LevelInput } from '../webview/runtime/comparePanes';
+import type { LevelInput } from '../webview/runtime/comparePanes';
 import { baseUsed, entryMeasure, reportCsv, reportLevelAxes } from '../webview/runtime/compareReport';
 import { BAND_CENTERS_HZ, buildEntryModel, entryCsv } from '../webview/runtime/entryTable';
 import {
-    bandLevelColumns, baseLevelColumns, byLevelKey, calibrationWords, calibrationWordsBy, figureUsed, levelAxes, levelColumns, levelKeyOf, levelKeyOfReading, plainNames, plainRange, scanAxis, scanFigureOf,
+    bandLevelColumns, baseLevelColumns, byLevelKey, calibrationWords, calibrationWordsBy, figureUsed, levelAxes, levelColumns, levelKeyOf, levelKeyOfReading, plainNames, plainRange, scanIdentity,
     type FigureColumns, type FigureNames, type FigureRange, type FigureTitle,
 } from '../webview/runtime/figureModel';
 import { buildSpectrumCsv } from '../webview/runtime/runtimeExports';
@@ -100,7 +101,7 @@ test('a figure counts only its ready answers of its identity and axis: pending, 
         stale.state === 'ready' ? { state: 'stale', value: stale.value, identity: stale.identity } : stale,
         scanAnswer('/fs44.wav', scan(-20, { fs: 44100 })),
     ];
-    const used = figureUsed(answers, scanFigureOf(scan(0)));
+    const used = figureUsed(scanIdentity(scanAnswer('/c.wav', scan(0))), answers);
     assert.deepEqual(used.paths, ['/a.wav', '/b.wav']);
     assert.equal(used.n, 2);
     assert.deepEqual(used.excluded, [
@@ -108,9 +109,13 @@ test('a figure counts only its ready answers of its identity and axis: pending, 
         { path: '/old.wav', reason: 'stale' }, { path: '/fs44.wav', reason: 'other-axis' },
     ]);
     // Of another compared reference, the other files are the other reference.
-    assert.deepEqual(figureUsed(answers, scanFigureOf(scan(60, SPL))).paths, ['/s.wav']);
-    // No compared answer: the first ready one's identity and axis.
-    assert.deepEqual(figureUsed(answers, { level: null, axisOf: scanAxis }).paths, ['/a.wav', '/b.wav']);
+    assert.deepEqual(figureUsed(scanIdentity(scanAnswer('/c.wav', scan(60, SPL))), answers).paths, ['/s.wav']);
+    // No compared answer: no identity, so nothing is counted (never "the first ready one's"); each ready one waits for it.
+    const none = figureUsed(scanIdentity(undefined), answers);
+    assert.equal(none.n, 0);
+    assert.deepEqual(none.excluded.filter(item => item.reason === 'no-identity').map(item => item.path), ['/a.wav', '/b.wav', '/s.wav', '/fs44.wav']);
+    // A compared file still pending has no identity either.
+    assert.equal(figureUsed(scanIdentity(scanAnswer('/c.wav', undefined)), answers).n, 0);
     // The injected bug: counting the answers asked for (pending and stale ones too) is not the figure's n.
     assert.notEqual(answers.length, used.n);
 });
@@ -134,9 +139,9 @@ test('every figure and every file written of a base group with another reference
     const model = buildEntryModel([...results].map(([filePath, result]) => ({ filePath, result })), null, { band: BAND_3150 });
     // The compared dB SPL file against a group of dBFS, dB SPL, still computing (/p.wav) and failed (/x.wav) recordings.
     const group = { paths: ['/f/a.wav', '/f/b.wav', '/f/spl2.wav', '/f/spl3.wav', '/f/p.wav', '/f/x.wav'], title: '基準群' };
-    const comparison = buildCompareModel(model, results, '/f/spl.wav', null, STR, false, undefined, group);
+    const comparison = compareOf(model, results, '/f/spl.wav', null, STR, false, undefined, group);
     // The set: the measured recordings of the compared one's reference only; the median, its files and n are of it.
-    const used = baseUsed(comparison, results);
+    const used = baseUsed(comparison);
     assert.deepEqual(used.paths, ['/f/spl2.wav', '/f/spl3.wav']);
     assert.deepEqual(comparison.base?.filePaths, used.paths);
     assert.equal(comparison.base?.leq, 60);
@@ -152,20 +157,20 @@ test('every figure and every file written of a base group with another reference
     assert.equal(cell(STR.entryCsvGroupSize), '2');
     assert.equal(cell(STR.reportGroupFiles), 'spl2.wav;spl3.wav');
     // The entry CSV's n is the same set's, and nothing when the Δ is withheld (a file as its own base).
-    assert.equal(entryMeasure(comparison, BAND_3150, results)?.count, 2);
-    const self = buildCompareModel(model, results, '/f/a.wav', '/f/a.wav', STR);
+    assert.equal(entryMeasure(comparison, BAND_3150, STR)?.count, 2);
+    const self = compareOf(model, results, '/f/a.wav', '/f/a.wav', STR);
     assert.equal(self.blocked, 'self');
-    assert.equal(entryMeasure(self, BAND_3150, results)?.count, 0);
+    assert.equal(entryMeasure(self, BAND_3150, STR)?.count, 0);
     // A group all of another reference: no median, no n, the Δ withheld as of another reference.
-    const other = buildCompareModel(model, results, '/f/spl.wav', null, STR, false, undefined, { paths: ['/f/a.wav', '/f/b.wav'], title: 'g' });
+    const other = compareOf(model, results, '/f/spl.wav', null, STR, false, undefined, { paths: ['/f/a.wav', '/f/b.wav'], title: 'g' });
     assert.equal(other.base, null);
     assert.equal(other.blocked, 'unit');
     // Report PNG of a slot-0 file of another reference: two axes, each named with its own reference.
-    const pair = buildCompareModel(model, results, '/f/spl.wav', '/f/a.wav', STR);
+    const pair = compareOf(model, results, '/f/spl.wav', '/f/a.wav', STR);
     const axes = reportLevelAxes(pair, { results }, STR);
     assert.ok(axes.right, 'two references, two axes');
     for (const title of [axes.left, axes.right ?? '']) assert.match(title, /\[(dBFS|dB SPL re 20 µPa)\]$/u, title);
-    assert.equal(baseUsed(pair, results).n, 0, 'a withheld Δ has no base n');
+    assert.equal(baseUsed(pair).n, 0, 'a withheld Δ has no base n');
     // Screen: the same rule (levelAxes) over the lines of the pair.
     const lines = ['/f/a.wav', '/f/b.wav', '/f/spl.wav'].map(file => ({ file, input: results.get(file)?.input }));
     const screen = levelAxes(lines, { inputOf: line => line.input, names: () => plainNames('x', 'y'), range: () => plainRange(0, 1) });
@@ -173,7 +178,7 @@ test('every figure and every file written of a base group with another reference
     assert.equal(screen.axes.length, 2);
     // entry-table.csv: every level column (Leq and the band's) with its row's reference beside it.
     const columns = levelColumns(STR), band = bandLevelColumns(STR, '3.15 kHz');
-    const labels = { file: 'File', condition: (n: number) => `c${n}`, regionStart: 's', regionEnd: 'e', level: columns, peak: STR.entryColPeak, bandLevel: band, deltaLeq: 'dl', deltaBand: 'db', groupSize: 'n', status: 'st' };
+    const labels = { file: 'File', condition: (n: number) => `c${n}`, regionStart: 's', regionEnd: 'e', level: columns, peak: STR.entryColPeak, bandLevel: band, deltaLeq: 'dl', deltaBand: 'db', groupSize: 'n', groupLeft: 'gl', stale: 'sl', status: 'st' };
     const [entryHeader, ...rows] = entryCsv(model, labels, () => null).slice(1).trimEnd().split('\r\n').map(csvColumns);
     for (const pairOf of [columns, band]) assert.equal(csvHeaderProblem(entryHeader, pairOf), null);
     const reference = entryHeader.indexOf(columns.reference), bandReference = entryHeader.indexOf(band.reference);
@@ -189,7 +194,7 @@ test('every figure and every file written of a base group with another reference
     for (const column of csvColumns(spectrum.split('\n')[0]).filter((_, index) => index % 2 === 1)) assert.match(column, /\[(dBFS|dB SPL re 20 µPa)\]$/u, column);
     // The injected bugs: a header without the reference column, and another reference counted in n, are caught.
     assert.match(csvHeaderProblem(entryHeader.filter(name => name !== band.reference), band) ?? '', /no .* column beside it/u);
-    assert.notDeepEqual(figureUsed(group.paths.map(path => scanAnswer(path, results.get(path))), { level: null }).paths, used.paths, 'counting without the compared identity is caught');
+    assert.notDeepEqual(figureUsed(scanIdentity(undefined), group.paths.map(path => scanAnswer(path, results.get(path)))).paths, used.paths, 'counting without the compared identity is caught');
 });
 
 test('paintOverlay and the CSV writers take only the figure model\'s names, ranges, titles and columns', () => {
@@ -205,7 +210,7 @@ test('paintOverlay and the CSV writers take only the figure model\'s names, rang
         // @ts-expect-error a figure's count without the figure's identity
         figureUsed([]);
         // @ts-expect-error CSV level columns made outside the figure model
-        entryCsv(buildEntryModel([], null), { file: '', condition: String, regionStart: '', regionEnd: '', level: { level: 'Leq', reference: '', uncalibrated: '' }, peak: '', bandLevel: bandLevelColumns(STR, ''), deltaLeq: '', deltaBand: '', groupSize: '', status: '' }, () => null);
+        entryCsv(buildEntryModel([], null), { file: '', condition: String, regionStart: '', regionEnd: '', level: { level: 'Leq', reference: '', uncalibrated: '' }, peak: '', bandLevel: bandLevelColumns(STR, ''), deltaLeq: '', deltaBand: '', groupSize: '', groupLeft: '', stale: '', status: '' }, () => null);
     };
     assert.equal(typeof never, 'function');
     const names: FigureNames = plainNames('x', 'y'), range: FigureRange = plainRange(0, 1);
@@ -288,9 +293,8 @@ const ALLOWED: Readonly<Record<string, Readonly<Record<string, number>>>> = {
     // The waveform's range, defined (a lane's amplitude range is figureModel.ts:laneAmplitudeRange).
     'webview/plot/waveformLayer.ts': { 'range-rule': 1 },
     // paneAxes and levelIdentityOf, defined (figureModel.ts paneNames and levelKeyOf wrap them); the Δ headline's
-    // signed "Leq +1.2 dB" (a Δ); a recording's channels read together are calibrated only when every one is;
-    // binsOf's check that every read file's bins arrived (an alignment test, not a shown count).
-    'webview/runtime/comparePanes.ts': { 'axis-name': 4, 'bare-db': 2, 'identity': 1, 'every-calibrated': 1, 'file-count': 1 },
+    // signed "Leq +1.2 dB" (a Δ); a recording's channels read together are calibrated only when every one is.
+    'webview/runtime/comparePanes.ts': { 'axis-name': 4, 'bare-db': 2, 'identity': 1, 'every-calibrated': 1 },
     // "Δ max band dB" (a Δ); a median line's own status (uncalibrated while any of its recordings is); a fixed Δ's
     // base: the files it was measured from, kept as baseUsed gave them when it was fixed.
     'webview/runtime/compareReport.ts': { 'bare-db': 1, 'every-calibrated': 1, 'file-count': 1 },

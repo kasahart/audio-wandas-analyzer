@@ -5,6 +5,9 @@ import { getStrings } from '../shared/i18n/strings';
 import { datasetRows } from '../shared/dataset/datasetTable';
 import { OVERVIEW_MARGINS, overviewPicture, paintOverview } from '../webview/runtime/entryPlots';
 import { createSidePlots, type SidePlotsDeps } from '../webview/runtime/entrySidePlots';
+import { scanAnswer, type ScanAnswer } from '../webview/runtime/answerStore';
+import { folderReference } from '../webview/runtime/figureModel';
+import type { ScanResult } from '../shared/protocol/backendProtocol';
 import { commonLevelLabel } from '../shared/utils/format';
 import { entryScreenHtml } from '../webview/runtime/entryTableHtml';
 import { FULL_PLOT_WINDOW } from '../webview/runtime/plotInteraction';
@@ -41,9 +44,15 @@ function setup(stale: Set<string> = new Set()) {
         rows: () => rows, focusedRow: () => null,
         paintDistribution: () => calls.push('distribution'), paintHeld: () => calls.push('held'), heldPicture: () => null,
         pickRow: key => calls.push(`pick ${key}`),
-        fresh: () => new Map(['/d/a.wav', '/d/b.wav', '/d/c.wav', '/d/d.wav'].filter(path => !stale.has(path)).map(path => [path, true])),
+        // The folder's reference and each recording's answer, as the entry model and the answer store give them: a
+        // stale result is an answer of another chain, never ready.
+        reference: () => folderReference(answers(['/d/a.wav', '/d/b.wav', '/d/c.wav', '/d/d.wav'])),
+        answers: paths => answers(paths),
     };
-    const plots = createSidePlots(deps);
+    const results = new Map<string, ScanResult>();
+    const answers = (paths: readonly string[]): ScanAnswer[] => paths.map(path => (stale.has(path) ? { state: 'stale' as const, identity: scanAnswer(path, undefined).identity, value: scanAnswer(path, results.get(path)) } as unknown as ScanAnswer : scanAnswer(path, results.get(path))));
+    const created = createSidePlots(deps);
+    const plots = { ...created, noteResult: (path: string, result: ScanResult) => { results.set(path, result); created.noteResult(path, result); }, clear: () => { results.clear(); created.clear(); } };
     const flush = (): void => { for (const frame of frames.splice(0)) frame(); };
     return { dom, document, screen, side, overview, heldCanvas, plots, calls, frames, flush };
 }
@@ -70,6 +79,21 @@ test('a recording of an earlier chain is neither coloured on the strip nor sets 
     assert.equal(plots.levelLabel(), 'dB SPL re 20 µPa', 'the stale ones no longer set the reference');
     assert.equal(plots.onLevelAxis('/d/b.wav'), false, 'nor are on its scale');
     assert.equal(plots.onLevelAxis('/d/a.wav'), true);
+});
+
+test('the strip takes the folder\'s one reference, and a cell of an uncalibrated recording on a mixed axis says so itself (R4)', () => {
+    const { plots } = setup();
+    const input = (status: 'calibrated' | 'uncalibrated') => ({ id: 'x', fs: 48000, channels: [0], durationS: 1, unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: status, fullScale: true });
+    plots.noteResult('/d/a.wav', { ok: true, input: input('calibrated'), thirdOctDb: [[-40, -30]] });
+    plots.noteResult('/d/b.wav', { ok: true, input: input('uncalibrated'), thirdOctDb: [[-42, -32]] });
+    assert.equal(plots.levelWordOf('/d/a.wav'), '');
+    assert.match(plots.levelWordOf('/d/b.wav'), /uncalibrated/i);
+    const rows = [{ filePath: '/d/a.wav' }, { filePath: '/d/b.wav' }];
+    const bands = new Map<string, (number | null)[]>([['/d/a.wav', BAND_CENTERS_HZ.map(() => -40)], ['/d/b.wav', BAND_CENTERS_HZ.map(() => -42)]]);
+    const picture = overviewPicture(rows, bands, FULL_PLOT_WINDOW, 100, path => plots.levelWordOf(path));
+    const names = (picture?.names ?? []).flat();
+    assert.ok(names.some(name => /b\.wav.*uncalibrated/i.test(name)), JSON.stringify(names));
+    assert.ok(names.some(name => name === 'a.wav'), 'the calibrated one says nothing');
 });
 
 test('painting waits for the next frame, once however often it is asked; the distribution only when asked for', () => {
@@ -150,11 +174,11 @@ test('the strip marks the focused table row, a channel\'s own row of a recording
     ];
     const bands = new Map<string, (number | null)[]>([['/d/a.wav#ch1', [-40, -30]], ['/d/a.wav#ch2', [-20, -50]]]);
     const mark = document.querySelector<HTMLElement>('[data-entry-overview-focus]')!;
-    paintOverview(canvas, strings, rows, bands, { first: 0, last: 1 }, '/d/a.wav#ch2');
+    paintOverview(canvas, strings, rows, bands, { first: 0, last: 1 }, '/d/a.wav#ch2', FULL_PLOT_WINDOW, { label: 'dBFS', calibrated: false });
     assert.equal(mark.hidden, false);
     // Two rows over 100 px: ch2's row is the lower half.
     assert.equal(mark.style.top, `${OVERVIEW_MARGINS.top + 50}px`);
-    paintOverview(canvas, strings, rows, bands, { first: 0, last: 1 }, '/d/a.wav#ch1');
+    paintOverview(canvas, strings, rows, bands, { first: 0, last: 1 }, '/d/a.wav#ch1', FULL_PLOT_WINDOW, { label: 'dBFS', calibrated: false });
     assert.equal(mark.style.top, `${OVERVIEW_MARGINS.top}px`);
 });
 
@@ -270,7 +294,7 @@ test('the strip is read at the table row under the pointer, never a row its buck
     // 400 rows on a strip about 90 pixels high: each picture line draws the loudest of four or five rows.
     const rows = Array.from({ length: 400 }, (_, index) => ({ filePath: `/d/r${index}.wav` }));
     const bands = new Map<string, (number | null)[]>(rows.map((row, index) => [row.filePath, BAND_CENTERS_HZ.map((_, band) => (index === 201 ? -21.5 - band : -20 - (index % 3) - band))]));
-    const plot = paintOverview(overview, strings, rows, bands, { first: 0, last: 399 }, null).drawn;
+    const plot = paintOverview(overview, strings, rows, bands, { first: 0, last: 399 }, null, FULL_PLOT_WINDOW, { label: 'dBFS', calibrated: false }).drawn;
     assert.ok(plot);
     const view = plot.image?.layer.view ?? plot.lines[0]?.view;
     assert.ok((view?.matrix?.length ?? 0) < rows.length, 'the rows are thinned to be drawn');
@@ -307,7 +331,7 @@ test('the strip\'s row numbers stay clear of its axis name, a table of a thousan
     canvas.getContext = (() => context) as unknown as HTMLCanvasElement['getContext'];
     const rows = Array.from({ length: 1000 }, (_, index) => ({ filePath: `/d/${index}.wav` }));
     const bands = new Map<string, (number | null)[]>(rows.map(row => [row.filePath, [-40, -30]]));
-    paintOverview(canvas, strings, rows, bands, { first: 0, last: 10 }, null);
+    paintOverview(canvas, strings, rows, bands, { first: 0, last: 10 }, null, FULL_PLOT_WINDOW, { label: 'dBFS', calibrated: false });
     const name = texts.filter(item => item.turned);
     const numbers = texts.filter(item => !item.turned && item.align === 'right' && /^\d+$/u.test(item.text));
     assert.ok(name.length >= 1 && numbers.some(item => item.text.length >= 3), JSON.stringify(texts));

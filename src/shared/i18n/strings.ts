@@ -131,6 +131,8 @@ export interface UiStrings {
     entryCount: string;
     trackNoAudio: string;
     entryCsvGroupSize: string;
+    /** The entry CSV's column of what the base group left out of its set, with why. */
+    entryCsvGroupLeft: string;
     entrySourceGone: string;
     entryFolderLevel: string;
     compareKeyHold: string;
@@ -371,6 +373,8 @@ export interface UiStrings {
     /** A base group's recordings left out because their value is of an earlier chain or calibration. */
     dsBaseStale: string;
     dsBaseOtherBins: string;
+    /** A base's recordings not counted while the compared recording has no answer of its own to say their reference. */
+    dsBaseNoIdentity: string;
     reportMemo: string;
     reportBaseDefinition: string;
     reportDerived: string;
@@ -953,6 +957,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         entryCount: '{count} files',
         trackNoAudio: 'No playback: this track has no decoded audio.',
         entryCsvGroupSize: 'Base group n',
+        entryCsvGroupLeft: 'Base group left out',
         entrySourceGone: 'The file is no longer listed',
         entryFolderLevel: 'Folder {n}',
         compareKeyHold: 'hold 1–3 swap',
@@ -1186,6 +1191,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dsBasePending: ' · {n} still computing',
         dsBaseStale: ' · {n} of an earlier chain left out',
         dsBaseOtherBins: ' · {n} on another frequency axis left out',
+        dsBaseNoIdentity: ' · {n} waiting for the compared recording',
         reportMemo: 'Memo',
         reportBaseDefinition: 'Base definition',
         reportDerived: 'Fixed Δ (D)',
@@ -1751,6 +1757,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         entryCount: '{count} 件',
         trackNoAudio: '再生できません: このトラックには復号済みの音声がありません',
         entryCsvGroupSize: '基準群 n',
+        entryCsvGroupLeft: '基準群から除外',
         entrySourceGone: 'ファイルが一覧から外れました',
         entryFolderLevel: 'フォルダ階層{n}',
         compareKeyHold: '1–3 長押しで入れ替え',
@@ -1984,6 +1991,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dsBasePending: ' · 計算中 {n} 本',
         dsBaseStale: ' · 前の手順の {n} 本は除外',
         dsBaseOtherBins: ' · 周波数軸の違う {n} 本は除外',
+        dsBaseNoIdentity: ' · 比較録音を待つ {n} 本',
         reportMemo: 'メモ',
         reportBaseDefinition: '基準の定義',
         reportDerived: '固定した差（D）',

@@ -8,7 +8,7 @@ import type { ScanResult } from '../shared/protocol/backendProtocol';
 import {
     BAND_CENTERS_HZ, buildEntryModel, csvNumber, entryCsv, filenameConditions, levelDelta, type DerivedRow, type EntryFile, type EntryMeasure, type EntryModel,
 } from '../webview/runtime/entryTable';
-import { buildCompareModel } from '../webview/runtime/comparePanes';
+import { compareOf } from './helpers/compareInput';
 import { entryMeasure } from '../webview/runtime/compareReport';
 import { getStrings } from '../shared/i18n/strings';
 import { bandLevelColumns, levelColumns } from '../webview/runtime/figureModel';
@@ -16,14 +16,14 @@ import { bandLevelColumns, levelColumns } from '../webview/runtime/figureModel';
 /** Each file measured against its condition's other files, as a comparison with no slot 0 measures it here. */
 const byCondition = (model: EntryModel, files: readonly EntryFile[]) => {
     const results = new Map(files.flatMap(file => (file.result ? [[file.filePath, file.result] as const] : [])));
-    return (filePath: string): EntryMeasure | null => entryMeasure(buildCompareModel(model, results, filePath, null, getStrings('en')), model.band, results);
+    return (filePath: string): EntryMeasure | null => entryMeasure(compareOf(model, results, filePath, null, getStrings('en')), model.band, getStrings('en'));
 };
 
 const repoRoot = path.resolve(__dirname, '..', '..');
 const BAND_3150 = BAND_CENTERS_HZ.indexOf(3150);
 const LABELS = {
     file: 'File', condition: (n: number) => ['Line', 'rpm'][n - 1], regionStart: 'Start s', regionEnd: 'End s', level: levelColumns({ entryColLeq: 'Leq dB(A)', reportLevelReference: 'Level reference', entryLeqUncalibrated: 'uncalibrated' }), peak: 'Δ max band',
-    bandLevel: bandLevelColumns({ entryColBandLevel: '{band} level', reportLevelReference: 'Level reference', entryLeqUncalibrated: 'uncalibrated' }, '3.15 kHz'), deltaLeq: 'Δ Leq', deltaBand: 'Δ band', groupSize: 'n', status: 'Reason',
+    bandLevel: bandLevelColumns({ entryColBandLevel: '{band} level', reportLevelReference: 'Level reference', entryLeqUncalibrated: 'uncalibrated' }, '3.15 kHz'), deltaLeq: 'Δ Leq', deltaBand: 'Δ band', groupSize: 'n', groupLeft: 'Left out', stale: 'previous chain', status: 'Reason',
 };
 
 function scan(leq: number, band: number, options: { fs?: number; channels?: number; peak?: number } = {}): ScanResult {
@@ -64,7 +64,7 @@ test('a file row has no Δ of its own: the CSV writes what `measure` (the screen
     const model = buildEntryModel(files, null, { band: BAND_3150 });
     assert.ok(model.rows.every(row => Object.values(row.delta).every(value => value === null)), 'no group is made in the model');
     // A base the model knows nothing of (as slot 0 or a filtered group would be): its numbers are the CSV's.
-    const measure = (filePath: string): EntryMeasure | null => (filePath.endsWith('run4.wav') ? { leq: 1.25, band: 12.05, peak: { hz: 31.5, db: -7.5 }, count: 3 } : null);
+    const measure = (filePath: string): EntryMeasure | null => (filePath.endsWith('run4.wav') ? { leq: 1.25, band: 12.05, peak: { hz: 31.5, db: -7.5 }, count: 3, left: '' } : null);
     const lines = entryCsv(model, LABELS, measure).slice(1).trimEnd().split('\r\n');
     const run4 = lines.find(line => line.startsWith('L1_900rpm_run4.wav'))!.split(',');
     assert.deepEqual(run4.slice(7, 14), ['31.5', '-7.5', '-18.0', 'dBFS uncalibrated', '1.3', '12.1', '3']);
@@ -76,7 +76,7 @@ test('every band centre is written in the CSV as its column header names it, nev
     const files: EntryFile[] = [{ filePath: '/f/a.wav', result: scan(-20, -30) }];
     const model = buildEntryModel(files, null, { band: BAND_3150 });
     for (const hz of BAND_CENTERS_HZ) {
-        const line = entryCsv(model, LABELS, () => ({ leq: 0, band: 0, peak: { hz, db: 1 }, count: 1 })).slice(1).split('\r\n')[1];
+        const line = entryCsv(model, LABELS, () => ({ leq: 0, band: 0, peak: { hz, db: 1 }, count: 1, left: '' })).slice(1).split('\r\n')[1];
         assert.equal(line.split(',')[7], String(hz));
     }
 });
@@ -121,8 +121,8 @@ test('the CSV has the agreed columns, a BOM, and the same bytes every time', () 
     assert.equal(first, second);
     assert.ok(first.startsWith('\uFEFF'));
     const lines = first.slice(1).trimEnd().split('\r\n');
-    assert.equal(lines[0], 'File,Line,rpm,Start s,End s,Leq dB(A),Level reference,Δ max band Hz,Δ max band dB,3.15 kHz level,3.15 kHz level · Level reference,Δ Leq,Δ band,n,Reason');
-    assert.equal(lines[3], 'L1_900rpm_run2.wav,L1,900rpm,0.15,1.85,-20.0,dBFS uncalibrated,3150,12.0,-18.0,dBFS uncalibrated,0.0,12.0,2,');
+    assert.equal(lines[0], 'File,Line,rpm,Start s,End s,Leq dB(A),Level reference,Δ max band Hz,Δ max band dB,3.15 kHz level,3.15 kHz level · Level reference,Δ Leq,Δ band,n,Left out,Reason');
+    assert.equal(lines[3], 'L1_900rpm_run2.wav,L1,900rpm,0.15,1.85,-20.0,dBFS uncalibrated,3150,12.0,-18.0,dBFS uncalibrated,0.0,12.0,2,,');
     assert.equal(lines.at(-1), 'broken.wav,,,,,,,,,,,,,,✕');
 });
 

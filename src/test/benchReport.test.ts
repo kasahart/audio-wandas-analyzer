@@ -9,7 +9,7 @@ import type { RecipeDocument } from '../shared/recipe/recipeSelection';
 import { recipeSteps } from '../shared/recipe/recipeSteps';
 import { BAND_CENTERS_HZ, buildEntryModel } from '../webview/runtime/entryTable';
 import { paintOverlayFigure, reportCsv, reportDefinitions, reportLevelAxes, reportFiles, reportFolderName, reportOctaveRecipe, reportRecipe, summaryRegionText } from '../webview/runtime/compareReport';
-import { buildCompareModel } from '../webview/runtime/comparePanes';
+import { compareOf } from './helpers/compareInput';
 import { withChannel } from '../shared/recipe/channelSelection';
 import type { BaseDefinition, DerivedRow, EntryModel } from '../webview/runtime/entryTable';
 
@@ -17,8 +17,8 @@ const repoRoot = path.resolve(__dirname, '..', '..');
 const entry = JSON.parse(readFileSync(path.join(repoRoot, 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8')) as RecipeDocument;
 const BAND_3150 = BAND_CENTERS_HZ.indexOf(3150);
 /** The comparison the entry screen hands the report (entryBase.comparison): here the slot-0 file, else the condition's other files. */
-const compareOf = (model: EntryModel, results: ReadonlyMap<string, ScanResult>, slots: readonly (string | null)[]) =>
-    (path: string) => buildCompareModel(model, results, path, slots[0] ?? null, getStrings('ja'));
+const compareFor = (model: EntryModel, results: ReadonlyMap<string, ScanResult>, slots: readonly (string | null)[]) =>
+    (path: string) => compareOf(model, results, path, slots[0] ?? null, getStrings('ja'));
 
 function scan(leq: number, band: number, durationS = 2): ScanResult {
     return {
@@ -38,7 +38,7 @@ test('報告.csv has one row per slot in the agreed columns: dB to one decimal, 
         ['/f/L1_900rpm_run1.wav', scan(-20.04, -30)], ['/f/L1_900rpm_run2.wav', scan(-20.0, -31)], ['/f/L1_900rpm_run3.wav', scan(-10.06, -10)],
     ]);
     const model = buildEntryModel([...results].map(([filePath, result]) => ({ filePath, result })), null, { band: BAND_3150 });
-    const csv = reportCsv({ model, results, slots: [null, '/f/L1_900rpm_run3.wav', null, null], compare: compareOf(model, results, []), region: { start: 0.5, end: 1.5 }, recipe: entry, recipeName: 'entry-scan', now: new Date(), stale: new Set<string>() }, getStrings('ja'));
+    const csv = reportCsv({ model, results, slots: [null, '/f/L1_900rpm_run3.wav', null, null], compare: compareFor(model, results, []), region: { start: 0.5, end: 1.5 }, recipe: entry, recipeName: 'entry-scan', now: new Date(), stale: new Set<string>() }, getStrings('ja'));
     assert.ok(csv.startsWith('﻿'));
     const [header, row, ...rest] = csv.slice(1).trimEnd().split('\r\n');
     assert.equal(rest.length, 0);
@@ -55,9 +55,9 @@ test('報告.csv has one row per slot in the agreed columns: dB to one decimal, 
     assert.deepEqual([at('基準群 n'), at('基準群ファイル'), at('解析仕様版')], ['2', 'L1_900rpm_run1.wav;L1_900rpm_run2.wav', '2']);
     // Which chain the numbers are of: the Recipe beside the CSV, or the previous one where it was not measured again.
     assert.equal(at('手順'), getStrings('ja').reportChainCurrent);
-    const previous = reportCsv({ model, results, slots: [null, '/f/L1_900rpm_run3.wav', null, null], compare: compareOf(model, results, []), region: null, recipe: entry, recipeName: 'entry-scan', now: new Date(), stale: new Set(['/f/L1_900rpm_run1.wav']) }, getStrings('ja'));
+    const previous = reportCsv({ model, results, slots: [null, '/f/L1_900rpm_run3.wav', null, null], compare: compareFor(model, results, []), region: null, recipe: entry, recipeName: 'entry-scan', now: new Date(), stale: new Set(['/f/L1_900rpm_run1.wav']) }, getStrings('ja'));
     assert.equal(previous.trimEnd().split('\r\n')[1].split(',')[header.split(',').indexOf('手順')], getStrings('ja').reportChainPrevious);
-    const whole = reportCsv({ model, results, slots: [null, '/f/L1_900rpm_run3.wav', null, null], compare: compareOf(model, results, []), region: null, recipe: entry, recipeName: 'entry-scan', now: new Date(), stale: new Set<string>() }, getStrings('ja'));
+    const whole = reportCsv({ model, results, slots: [null, '/f/L1_900rpm_run3.wav', null, null], compare: compareFor(model, results, []), region: null, recipe: entry, recipeName: 'entry-scan', now: new Date(), stale: new Set<string>() }, getStrings('ja'));
     // The whole file is written as the region actually measured: its guarded ends are left out.
     assert.deepEqual(whole.split('\r\n')[1].split(',').slice(5, 7), ['0.15', '1.85']);
 });
@@ -67,7 +67,7 @@ test('each compared file\'s row, Recipe and heading give the region that file wa
     const results = new Map<string, ScanResult>([['/f/base.wav', scan(-20, -30, 10)], ['/f/long.wav', scan(-10, -10, 10)], ['/f/short.wav', scan(-12, -12, 5)]]);
     const model = buildEntryModel([...results].map(([filePath, result]) => ({ filePath, result })), null, { band: BAND_3150 });
     const STR = getStrings('ja');
-    const input = { model, results, slots: ['/f/base.wav', '/f/long.wav', '/f/short.wav', null], compare: compareOf(model, results, ['/f/base.wav']), region: null, recipe: entry, recipeName: 'entry-scan', now: new Date(), stale: new Set<string>() };
+    const input = { model, results, slots: ['/f/base.wav', '/f/long.wav', '/f/short.wav', null], compare: compareFor(model, results, ['/f/base.wav']), region: null, recipe: entry, recipeName: 'entry-scan', now: new Date(), stale: new Set<string>() };
     const [header, ...rows] = reportCsv(input, STR).slice(1).trimEnd().split('\r\n');
     const columns = header.split(',');
     const span = (row: string): string[] => [row.split(',')[columns.indexOf('開始 s')], row.split(',')[columns.indexOf('終了 s')]];
@@ -101,7 +101,7 @@ test('the report Recipe carries the region as its time slice and still loads in 
 
 test('定義.json says what each number is, with the steps\' parameters in decimals', () => {
     const model = buildEntryModel([], null);
-    const definitions = reportDefinitions({ model, results: new Map(), slots: [], compare: compareOf(model, new Map(), []), region: { start: 0.5, end: 1.5 }, recipe: entry, recipeName: 'entry-scan', now: new Date(), stale: new Set<string>() }, 2, getStrings('ja')) as {
+    const definitions = reportDefinitions({ model, results: new Map(), slots: [], compare: compareFor(model, new Map(), []), region: { start: 0.5, end: 1.5 }, recipe: entry, recipeName: 'entry-scan', now: new Date(), stale: new Set<string>() }, 2, getStrings('ja')) as {
         region: unknown; metrics: Record<string, string>; steps: Array<{ operation: string; params: Record<string, unknown> }>;
     };
     assert.deepEqual(definitions.region, { startS: 0.5, endS: 1.5 });
@@ -163,7 +163,7 @@ test('the report says what the comparison was taken from: the value, the filters
     const derived: DerivedRow = { parentPath: '/f/c.wav', ch: 2, region: 'all', result: scan(-10, -10), base: { leq: -20.5, bands: BAND_CENTERS_HZ.map(() => -30), label: '基準群 rpm 1500', paths: ['/f/a.wav', '/f/b.wav'], definition: base } };
     const input = {
         model, results, slots: [null, '/f/c.wav', null, null], region: null, recipe: entry, recipeName: 'entry-scan', now: new Date(), stale: new Set<string>(),
-        compare: (path: string) => buildCompareModel(model, results, path, null, STR, false, undefined, { paths: ['/f/a.wav', '/f/b.wav'], title: '基準群 rpm 1500' }),
+        compare: (path: string) => compareOf(model, results, path, null, STR, false, undefined, { paths: ['/f/a.wav', '/f/b.wav'], title: '基準群 rpm 1500' }),
         rowInfo: () => ({ label: 'c.wav ch2', value: 'Leq A特性 [dBFS] −10.0', memo: 'ベアリングかも', channel: 2, base }),
         selection: { value: 'Leq A特性 [dBFS]', group: 'rpm', filters: ['ch = 2'], excluded: 1 },
         derived: [derived],
@@ -233,7 +233,7 @@ test('a report figure draws levels of another reference on their own axis, each 
     for (const { base, compare, left, right, baseWord, compareWord } of cases) {
         const results = new Map<string, ScanResult>([['/f/base.wav', base], ['/f/cmp.wav', compare]]);
         const model = buildEntryModel([...results].map(([filePath, result]) => ({ filePath, result })), null, { band: BAND_3150 });
-        const comparison = buildCompareModel(model, results, '/f/cmp.wav', '/f/base.wav', strings);
+        const comparison = compareOf(model, results, '/f/cmp.wav', '/f/base.wav', strings);
         const what = `${left} / ${right}`;
         assert.equal(comparison.blocked === 'unit', right !== null, `${what}: the Δ is withheld exactly when the references differ`);
         const axes = reportLevelAxes(comparison, { results }, strings);
@@ -255,7 +255,7 @@ test('the CSVs say each row\'s level reference beside its levels: never one cali
     const strings = getStrings('ja');
     const results = new Map<string, ScanResult>([['/f/L1_900rpm_run1.wav', scan(-20, -30)], ['/f/L1_900rpm_run2.wav', calibrated(60, 50)], ['/f/L1_900rpm_run3.wav', calibrated(62, 52)]]);
     const model = buildEntryModel([...results].map(([filePath, result]) => ({ filePath, result })), null, { band: BAND_3150 });
-    const csv = reportCsv({ model, results, slots: ['/f/L1_900rpm_run2.wav', '/f/L1_900rpm_run3.wav', '/f/L1_900rpm_run1.wav', null], compare: compareOf(model, results, ['/f/L1_900rpm_run2.wav']), region: null, recipe: entry, recipeName: 'entry-scan', now: new Date(), stale: new Set<string>() }, strings);
+    const csv = reportCsv({ model, results, slots: ['/f/L1_900rpm_run2.wav', '/f/L1_900rpm_run3.wav', '/f/L1_900rpm_run1.wav', null], compare: compareFor(model, results, ['/f/L1_900rpm_run2.wav']), region: null, recipe: entry, recipeName: 'entry-scan', now: new Date(), stale: new Set<string>() }, strings);
     const [header, ...rows] = csv.slice(1).trimEnd().split('\r\n');
     const names = header.split(',');
     assert.ok(!names.some(name => name.includes(strings.entryLeqUncalibrated)), 'no heading carries a calibration word');

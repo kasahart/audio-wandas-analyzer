@@ -4,13 +4,12 @@
  * above them. Each keeps its zoom as the lanes do (box zoom, Ctrl+wheel, Shift+wheel, a double click to reset or
  * to type an axis's range); a press that stays put is still a click: a row gone to on the strip.
  */
-import { createLatestAnswers } from './answerStore';
+import { createLatestAnswers, type ScanAnswer } from './answerStore';
 import type { UiStrings } from '../../shared/i18n/strings';
 import type { ScanResult } from '../../shared/protocol/backendProtocol';
 import { rowKey, type DatasetRow } from '../../shared/dataset/datasetTable';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
-import { commonLevelLabel } from '../../shared/utils/format';
-import { calibrationWordsBy, levelKeyOf, templatedLevelName, uncalibratedWord } from './figureModel';
+import { calibrationWordsBy, levelKeyOf, ofReference, templatedLevelName, uncalibratedWord, type FolderReference } from './figureModel';
 import { installRangePopover, linearAxis, openAxisPart, type AxisMapping } from '../rangePopover';
 import type { HeldPicture } from './entryHeldPlot';
 import { OVERVIEW_MARGINS, paintOverview } from './entryPlots';
@@ -21,8 +20,13 @@ import { STAGE_MARGINS, type StagePlot } from './stagePanes';
 import { createPlotHoverLayer } from './plotHoverLayer';
 
 export interface SidePlotsDeps {
-    /** The recordings whose scan is of the current chain and calibration (the answer store's): a stale one is never coloured nor on a scale. */
-    fresh(): ReadonlyMap<string, unknown>;
+    /**
+     * The folder's one level reference (the entry model's figureModel.folderReference, of fresh answers only): the
+     * overview's colour scale, the distribution's axis and the table's columns all take this one choice.
+     */
+    reference(): FolderReference;
+    /** The recordings' answers (answerStore.answers): a recording's calibration word is read from its fresh answer only. */
+    answers(paths: readonly string[]): readonly ScanAnswer[];
     document: Document;
     window: Pick<Window, 'requestAnimationFrame'>;
     strings: UiStrings;
@@ -108,36 +112,34 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
      * wandas names its levels by, kept as results arrive so scrolling does not redo them.
      */
     const levels = createLatestAnswers<(number | null)[]>();
-    /**
-     * Each scanned recording's rows of `levels` (so a result that replaces it takes all of them away), its level identity
-     * (R1: unit, reference value, level reference name) and the name it is written by, and whether it was calibrated.
-     */
-    const scanned = createLatestAnswers<{ rows: string[]; level?: { identity: string; label: string }; calibrated: boolean }>();
-    const levelOf = (filePath: string): { identity: string; label: string } | undefined => scanned.get(filePath)?.level;
+    /** Each scanned recording's rows of `levels`, so a result that replaces it takes all of them away. */
+    const scanned = createLatestAnswers<{ rows: string[] }>();
     /** Bumped on every change to them, so the strip knows when to draw its cells again. */
     let version = 0;
-    let shared: { version: number; stale: string; identity: string; label: string; calibrated: boolean; levels: Map<string, (number | null)[]> } = { version: -1, stale: '', identity: '', label: '', calibrated: false, levels: new Map() };
+    /** Of each fresh recording, whether it is on the folder's reference and its own calibration word: made again with `shared`. */
+    const ownMarks = createLatestAnswers<{ on: boolean; word: string }>();
+    let shared: { version: number; folder: FolderReference | null; label: string; calibrated: boolean; levels: Map<string, (number | null)[]> } = { version: -1, folder: null, label: '', calibrated: false, levels: new Map() };
     /**
-     * The scanned recordings' level reference as wandas names it (the most common one), whether all of theirs are
-     * calibrated, and the levels of only the recordings in it: a level of another reference is never coloured on the
-     * same scale. Once per change rather than per call.
+     * The folder's reference (deps.reference: the most common one of the fresh answers, chosen once for the header,
+     * the overview, the distribution and the table), whether any of its recordings is calibrated, the levels of only
+     * its recordings (a level of another reference or a stale one is never coloured on the same scale), and each
+     * recording's own calibration word, from its fresh answer. Once per change rather than per call.
      */
     function reference(): typeof shared {
-        // A recording of an earlier chain or calibration is left out: its bands are neither drawn nor set the colour scale's ends.
-        const fresh = deps.fresh();
-        const stale = [...scanned.view.keys()].filter(path => !fresh.has(path)).join('\n');
-        if (shared.version === version && shared.stale === stale) return shared;
-        const left = new Set(stale ? stale.split('\n') : []);
-        // The most common level identity (R1, the one the comparison and the backend use), named by its reference's label.
-        const labelled = [...scanned.view].flatMap(([path, own]) => (own.level && !left.has(path) ? [[path, own.level] as const] : []));
-        const identity = commonLevelLabel(labelled.map(([, own]) => own.identity));
-        const files = labelled.filter(([, own]) => own.identity === identity).map(([path]) => path);
-        const label = files.length ? levelOf(files[0])?.label ?? 'dBFS' : 'dBFS';
-        const keys = new Set(files.flatMap(path => scanned.get(path)?.rows ?? []));
-        // The axis says uncalibrated only when every recording on it is (R4, axisInputOf); each uncalibrated one then says so itself.
-        shared = { version, stale, identity, label, calibrated: files.some(path => !!scanned.get(path)?.calibrated), levels: new Map([...levels.view].filter(([key]) => keys.has(key))) };
+        const folder = deps.reference();
+        if (shared.version === version && shared.folder === folder) return shared;
+        const keys = new Set(folder.paths.flatMap(path => scanned.get(path)?.rows ?? []));
+        // Each recording's word where its axis mixes calibration statuses (R1, R4): of fresh answers only.
+        const ready = deps.answers([...scanned.view.keys()]).flatMap(answer => (answer.state === 'ready' ? [answer.identity] : []));
+        const words = calibrationWordsBy(ready, item => levelKeyOf(item.level), item => item.level.calibrationStatus === 'calibrated', uncalibratedWord(strings));
+        ownMarks.clear();
+        for (const item of ready) ownMarks.set(item.path, { on: ofReference(folder, item.level), word: words(item) });
+        // Before any recording is read, the name the scan would give a file of full scale (P3: no level is drawn yet).
+        shared = { version, folder, label: folder.label || 'dBFS', calibrated: folder.calibrated, levels: new Map([...levels.view].filter(([key]) => keys.has(key))) };
         return shared;
     }
+    /** A recording's own calibration word (one function, so the strip's cells are kept while it is the same). */
+    const wordOf = (filePath: string): string => { reference(); return ownMarks.get(filePath)?.word ?? ''; };
     const levelLabel = (): string => reference().label;
     /** A level value's name: the template with the reference and, while uncalibrated, the word that says so (R4). */
     const levelName = (template: string): string => templatedLevelName(strings, template, reference().label, reference().calibrated);
@@ -152,7 +154,7 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
         const first = Math.floor(tableWrap.scrollTop / rowHeight);
         const level = reference();
         overviewDrawn = paintOverview(overview, strings, rows, level.levels, { first, last: first + Math.ceil(tableWrap.clientHeight / rowHeight) - 2 }, deps.focusedRow(), keepWindow('overview', String(rows.length)),
-            { label: level.label, calibrated: level.calibrated }, version).drawn;
+            { label: level.label, calibrated: level.calibrated }, version, wordOf).drawn;
         // The zoom on each plot, for tests: "x0-x1|y0-y1".
         for (const [name, canvas] of [['overview', overview], ['held', heldCanvas]] as const) {
             const zoom = plotWindow(name);
@@ -255,13 +257,8 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
         keepWindow,
         levelLabel,
         levelName,
-        levelWordOf(filePath) {
-            const own = scanned.get(filePath);
-            if (!own?.level) return '';
-            const files = [...scanned.view].filter(([, item]) => item.level?.identity === own.level?.identity).map(([path]) => path);
-            return calibrationWordsBy(files, path => scanned.get(path)?.level?.identity ?? '', path => !!scanned.get(path)?.calibrated, uncalibratedWord(strings))(filePath);
-        },
-        onLevelAxis: filePath => levelOf(filePath)?.identity === reference().identity,
+        levelWordOf: wordOf,
+        onLevelAxis: filePath => { reference(); return !!ownMarks.get(filePath)?.on; },
         levels: key => levels.get(key),
         noteResult(filePath: string, result: ScanResult): void {
             version++;
@@ -269,11 +266,7 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
             for (const key of scanned.get(filePath)?.rows ?? []) levels.delete(key);
             // A row per channel, as the table has: each channel's own levels.
             const rows = result.ok && bands?.length ? bands.map((channel, index) => { const key = rowKey(filePath, index + 1, bands.length); levels.set(key, channel); return key; }) : [];
-            scanned.set(filePath, {
-                rows,
-                ...(result.ok && result.input ? { level: { identity: levelKeyOf(result.input), label: result.input.levelReferenceLabel } } : {}),
-                calibrated: !!(result.ok && result.input?.calibrationStatus === 'calibrated'),
-            });
+            scanned.set(filePath, { rows });
         },
         clear(): void {
             levels.clear();

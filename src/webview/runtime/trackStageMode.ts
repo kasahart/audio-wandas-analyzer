@@ -33,7 +33,7 @@ import { colorOf, overlayLayers, overlayLegendItems, paintBaseGate, paintNoPictu
 
 export type { StageTrack } from './trackStagePainter';
 import { axisValueAt, isEventsView, rowValueAt } from './stagePanes';
-import { axisInputOf, legendWords, pictureSet, stageNames, type ExclusionReason } from './figureModel';
+import { axisInputOf, excludedFor, legendWords, pictureSet, stageNames, type FigureSet } from './figureModel';
 import { clearTriggerLanes, paintTriggerLanes, type TriggerSettings } from './triggerLanes';
 import { zoomNormalizedRange, ZOOM_IN_FACTOR } from './waveformInteraction';
 import { keyRouterFor } from './keyRouter';
@@ -61,7 +61,8 @@ export interface TrackStageDeps {
     slots(): (string | null)[];
     basePaths(comparePath: string, group?: boolean): string[];
     /** The base's title, with `more` of its recordings left out (a step picture failed, empty or on its way). */
-    baseTitle(comparePath: string, group?: boolean, more?: ReadonlyArray<{ path: string; reason: ExclusionReason }>): string;
+    /** The base's heading for the step figure's one set (entryBase.heading): its name and n, and who is left out why. */
+    baseHeading(comparePath: string, group: boolean, set: FigureSet<unknown>): string;
     /** What a recording's levels are in (its scan's input): a base recording that is no track has its own reference too. */
     levelOf?(path: string): LevelInput | undefined;
     /** The channel a file is drawn with when `comparePath` is compared: a slot's channel row, the base's members of that channel. */
@@ -548,14 +549,6 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         const regionMark = region ? { start: region.start, end: region.end, mark: shownAt < sliceAt ? 'range' as const : 'tag' as const, label: `${strings.stepRegion} ${secondsSpanText(region.start, region.end)}` } : undefined;
         root.dataset.regionMark = regionMark?.mark ?? '';
         const coarse = (path: string) => source.view(specFor(path), path);
-        // The step figure's base set (figureModel.pictureSet): of the base's recordings, those whose picture is in and
-        // kept its values. Once every picture is in, a failed or empty one is left out with why, so the median, the
-        // drawn waveforms and the heading's n are of the same recordings; while one is on its way, all are asked.
-        const levelOf = (path: string): LevelInput | undefined => allTracks.find(track => track.filePath === path)?.input ?? deps.levelOf?.(path);
-        const compareInput = comparePath ? levelOf(comparePath) : undefined;
-        const stageSet = pictureSet(allowed, coarse, levelOf, compareInput);
-        const waitingBase = stageSet.excluded.some(item => item.reason === 'pending');
-        const basePaths = waitingBase ? allowed : stageSet.paths;
         // Each level axis names the reference of the channels drawn, as their step's scan read them: a file
         // calibrated on one channel only reads that channel's calibration when it is the one drawn.
         for (const track of tracks) {
@@ -585,6 +578,20 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         // its files rather than naming a median, and no level difference is measured against it.
         // Before any picture is in, the step's Frame says whether it is a time signal (drawn as waveforms).
         const each = (picture ? !!picture.waveform : frameShown === INPUT_FRAME) && allBase.length > 1;
+        // The step figure's base set (figureModel.pictureSet), built once: of the base's recordings, those whose picture
+        // is in, kept its values and (a median) is on the compared file's axis. The drawn lines, the median asked of the
+        // backend, the heading's n and the legend's words are all of this one set; a recording still on its way is
+        // pending in it, and no median is asked until none is. A level is the step's own scan's, never a guess.
+        const levelOf = (path: string): LevelInput | undefined => {
+            const own = allTracks.find(track => track.filePath === path)?.input;
+            if (own) return own;
+            const scanned = source.result(specFor(path), path);
+            return (scanned?.ok ? scanned.input : undefined) ?? deps.levelOf?.(path);
+        };
+        const compareInput = comparePath ? levelOf(comparePath) : undefined;
+        const stageSet = pictureSet(allowed, coarse, levelOf, { level: compareInput, view: comparePath ? coarse(comparePath) : undefined }, !each);
+        const waitingBase = excludedFor(stageSet, 'pending') > 0;
+        const basePaths = stageSet.paths;
         paintStageControls(dom, strings, { overlaid: state.overlaid, images, showDiff: state.showDiff, overlay, measuredAgainstBase: !!referencePath, nothingCompared: !comparedPath(tracks), baseEach: each, events: isEventsView(picture) || /Segments$/.test(frameShown ?? '') });
         // Zoomed, the plots draw from the Frames' full resolution once it is in, the coarse pictures until then.
         const width = (overlay ? query<HTMLCanvasElement>('[data-stage-canvas="overlay"]') : tracks.find(track => track.canvas)?.canvas)?.clientWidth || 600;
@@ -692,7 +699,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
             }
             deps.rerender();
         };
-        const ask = held_ && !picture ? undefined : combineRequest(coarse, comparePath, basePaths, path => !!source.result(specFor(path), path)?.stageDataTooLarge);
+        const ask = (held_ && !picture) || waitingBase ? undefined : combineRequest(coarse, comparePath, basePaths, path => !!source.result(specFor(path), path)?.stageDataTooLarge);
         const asked = ask === 'tooLarge' ? null : ask;
         const coarseCombined = ask === 'tooLarge' ? TOO_LARGE_COMBINED : asked === null ? NOTHING_COMBINED : asked ? combine.get(combineIdentity, asked, forget) : undefined;
         const fineDetail = fineSpecs.get(groupOf(comparePath ?? basePaths[0] ?? ''))?.message.detail;
@@ -739,12 +746,13 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         root.dataset.compared = comparePath ? String(role(comparePath) ?? '') : '';
         root.dataset.base = state.groupBase || !deps.slots()[0] ? 'group' : 'file';
         // The heading's n is the step figure's set's: the base's recordings left out here (failed, empty) are said so.
-        const leftOut = waitingBase ? [] : stageSet.excluded;
-        const baseTitle = (path: string): string => { const title = deps.baseTitle(path, state.groupBase, leftOut) + baseWord; return each ? eachBaseTitle(title, strings) : title; };
+        // Drawn each as it is, every waveform says its own calibration (R4: only an uncalibrated line says so), not
+        // the group's word on each; one median line says the group's.
+        const baseTitle = (path: string): string => { const heading = deps.baseHeading(path, state.groupBase, stageSet); return each ? eachBaseTitle(heading, strings) : heading + baseWord; };
         const aggregate = each ? strings.stageBaseEach : strings.stageBaseAggregate;
         query<HTMLElement>('[data-stage-base-aggregate]').textContent = aggregate;
         const baseLabel = comparePath ? baseTitle(comparePath) : basePaths.length === 1 ? namedHere(basePaths[0], role(basePaths[0])).label : undefined;
-        const layers = overlayLayers(frame, plots, baseLabel, basePaths.length === 1 ? basePaths[0] : undefined);
+        const layers = overlayLayers(frame, plots, baseLabel, basePaths.length === 1 ? basePaths[0] : undefined, word);
         stepBar.element.dataset.drawn = String(layers.length);
         const items = overlayLegendItems(frame, plots, {
             title: comparePath && !referencePath ? baseTitle(comparePath) : '',

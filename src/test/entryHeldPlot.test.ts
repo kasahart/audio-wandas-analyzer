@@ -7,7 +7,8 @@ import type { ScanResult } from '../shared/protocol/backendProtocol';
 import type { RecipeStep } from '../shared/recipe/recipeSteps';
 import { TIME_SLICE } from '../shared/recipe/recipeSteps';
 import { createHeldPlot, DELTA_RELEASE_MS, narrowed, TAP_MS, type HeldPlotDeps } from '../webview/runtime/entryHeldPlot';
-import { buildCompareModel } from '../webview/runtime/comparePanes';
+import { compareOf } from './helpers/compareInput';
+import { withBins } from '../webview/runtime/comparePanes';
 import { buildEntryModel } from '../webview/runtime/entryTable';
 import { FULL_PLOT_WINDOW } from '../webview/runtime/plotInteraction';
 import { stageHover, stageStep } from '../webview/runtime/stagePanes';
@@ -66,7 +67,7 @@ function setup(results = new Map<string, ScanResult>(), options: { recipe?: Reci
         scheduleSide: () => calls.push(['side', null]),
         keepWindow: () => FULL_PLOT_WINDOW,
         results,
-        comparison: (path, over) => { compared.push({ path, over }); return buildCompareModel(buildEntryModel([...over].map(([filePath, result]) => ({ filePath, result })), null), over, path, null, strings, false, undefined, { paths: [...results.keys()].filter(file => file !== path), title: 'base' }); },
+        comparison: (path, binned) => { const over = binned ? withBins(results, binned) : results; compared.push({ path, over }); return compareOf(buildEntryModel([...over].map(([filePath, result]) => ({ filePath, result })), null), over, path, null, strings, false, undefined, { paths: [...results.keys()].filter(file => file !== path), title: 'base' }); },
         basePaths: path => [...results.keys()].filter(file => file !== path),
         scanRecipe: () => undefined,
         focusedFile: () => state.focused, slotFiles: () => state.slots,
@@ -285,7 +286,7 @@ test('a held slot asks once for every bin of its file and its base, then draws i
     plot.paint();
     assert.equal(held.classList.contains('is-pending'), false);
     assert.equal(title.textContent, '1 · a.wav');
-    const comparison = buildCompareModel(buildEntryModel([...compared.at(-1)!.over].map(([filePath, result]) => ({ filePath, result })), null), compared.at(-1)!.over, '/d/a.wav', null, strings, false, undefined, { paths: ['/d/b.wav', '/d/c.wav'], title: 'base' });
+    const comparison = compareOf(buildEntryModel([...compared.at(-1)!.over].map(([filePath, result]) => ({ filePath, result })), null), compared.at(-1)!.over, '/d/a.wav', null, strings, false, undefined, { paths: ['/d/b.wav', '/d/c.wav'], title: 'base' });
     assert.deepEqual(comparison.bins?.diff, [0, 12, 0, 0], 'every bin, so the one bin that differs is there');
     assert.equal(calls.filter(([kind]) => kind === 'post').length, 1, 'held again, nothing is asked anew');
 });

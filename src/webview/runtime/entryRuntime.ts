@@ -6,27 +6,27 @@
  * M (its memo), Enter (open the slotted rows), ↑/↓ (move), Esc (close what is open, then leave). Keys on a
  * button or a field are that element's own.
  */
-import { createLatestAnswers, createScanAnswers } from './answerStore';
+import { createLatestAnswers, createScanAnswers, type ScanAnswer } from './answerStore';
 import { redrawWhenResized } from './canvasResize';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import type { UiStrings } from '../../shared/i18n/strings';
 import type { CompareCombineMessage, ComparePublication, CompareScanMessage, EntryConditionTable, EntryProbeCancelMessage, EntryProbeMessage, EntryProbePublication, EntryPublication, EntryScanCancelMessage, EntryScanMessage, EntrySaveSessionMessage } from '../../shared/analysis/entryScan';
 import type { ScanResult } from '../../shared/protocol/backendProtocol';
 import { BAND_CENTERS_HZ, bandLabel, buildEntryModel, derivedKey, entryCsv, type BaseDefinition, type DerivedRow, type EntryModel } from './entryTable';
-import { bandLevelColumns, levelColumns, type ExclusionReason } from './figureModel';
+import { bandLevelColumns, levelColumns, type FigureSet } from './figureModel';
 import { batchBundle, batchCount } from '../../shared/batch/batchBundle';
-import { remeasuredFrom, type CompareModel, type LevelInput } from './comparePanes';
+import { type CompareModel, type LevelInput } from './comparePanes';
 import { compareGroupNames, groupLabels } from '../../shared/dataset/distribution';
 import { createDistributionPane } from './entryDistributionPane';
 import { createFilterPopover } from './entryFilterPopover';
 import { createHeldPlot } from './entryHeldPlot';
 import { signedNumberText } from '../plot/plotText';
 import { createSidePlots } from './entrySidePlots';
-import { channelOfRow, createEntryBase } from './entryBase';
+import { binnedAnswers, channelOfRow, createEntryBase, regionAnswers, type AnswerSource } from './entryBase';
 import { HostRequests } from './hostRequests';
 import { LARGE_BASE, LARGE_BASE_S } from './trackStageMode';
 import { createStepBar, endsInSpectrum, runnableRecipe, stepLimits, unpairedRecipe } from './stepBar';
-import { entryMeasure, remeasurable } from './compareReport';
+import { entryMeasure, remeasured } from './compareReport';
 import { activeSlotReferenced, brokenStep, chainEnd, endsInEvents, isRecipeChain, recipeKey, recipeNodes } from '../../shared/recipe/recipeSteps';
 import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { baseName, isMetadataCandidate, withFolderColumns } from '../../shared/analysis/entryMetadata';
@@ -185,13 +185,17 @@ export interface EntryScreen {
     /** What a compared file is measured against: the slot-0 file, or the other files of its condition. */
     basePaths(comparePath: string, group?: boolean): string[];
     /** The base's name: the slot-0 file, or "Base group · rpm 1500 · median of n · ch2 (within ch = 2)". */
-    baseTitle(comparePath: string, group?: boolean, over?: ReadonlyMap<string, ScanResult>, more?: ReadonlyArray<{ path: string; reason: ExclusionReason }>): string;
+    baseTitle(comparePath: string, group?: boolean, over?: AnswerSource): string;
+    /** The base's heading for another figure's set of its members (a step figure's, of their pictures): its one set's n. */
+    baseHeading(comparePath: string, group: boolean, set: FigureSet<unknown>): string;
     /** What the base is, for the report and a fixed difference. */
-    baseDefinition(comparePath: string, group?: boolean, over?: ReadonlyMap<string, ScanResult>): BaseDefinition;
+    baseDefinition(comparePath: string, group?: boolean, over?: AnswerSource): BaseDefinition;
     /** The channel `path` is drawn with when `comparePath` is compared (null: its channels together). */
     stageChannel(path: string, comparePath: string | null, group?: boolean): number | null;
     /** The comparison of a file with its base, as the table defines the base (over `results` when given, e.g. a region's). */
-    comparison(comparePath: string, group?: boolean, results?: ReadonlyMap<string, ScanResult>, entryRegionBase?: boolean): CompareModel;
+    comparison(comparePath: string, group?: boolean, over?: AnswerSource, entryRegionBase?: boolean): CompareModel;
+    /** Files' scans as the answer store hands them (stale when of an earlier chain or calibration). */
+    answersOf(paths: readonly string[]): ScanAnswer[];
     /** How much audio these files are and about how long computing them takes, by the files' lengths. */
     cost(paths: readonly string[]): { seconds: number; ms: number };
     /** A compared file's name (with its channel), its value on show and its memo. */
@@ -250,7 +254,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     const side = query<HTMLElement>('.entry-side');
     /** The overview strip and the held plot beside the distribution, each zoomed as the lanes are. */
     const sidePlots = createSidePlots({
-        fresh: () => scans.fresh(),
+        reference: () => entryModel().reference, answers: paths => scans.answers(paths),
         document, window, strings, screen, side, body, tableWrap, overview, heldCanvas,
         rows: () => shownRows, focusedRow: () => focus.key, paintDistribution: () => paintDistribution(),
         paintHeld: () => heldPlot.paint(), heldPicture: () => heldPlot.picture(), pickRow: key => redraw.batch(() => focusRow(key, true)),
@@ -368,7 +372,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const folders = withFolderColumns(own, filePaths, rootPath, level => strings.entryFolderLevel.replace('{n}', String(level)));
         const checked = chosen.group.startsWith('csv:') ? [attributes.indexOf(chosen.group.slice(4))] : chosen.group.startsWith('folder:') ? [attributes.length + Number(chosen.group.slice(7)) - 1] : [];
         const table = folders && { ...folders, checked: checked.filter(index => index >= 0 && index < folders.columns.length) };
-        builtModel = buildEntryModel(filePaths.map(filePath => ({ filePath, result: results.get(filePath) })), table, { derived });
+        // A stale result (of an earlier chain or calibration) is shown greyed, never counted, chosen from or written.
+        builtModel = buildEntryModel(filePaths.map(filePath => ({ filePath, result: results.get(filePath), ...(isStale(filePath) ? { stale: true } : {}) })), table, { derived });
         return builtModel;
     }
     /** The rows through the filters but the value's own (unsorted), kept until the next rebuild. */
@@ -672,10 +677,12 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     }
     const chipText = (filter: DatasetFilter): string => filterChipText(filter, columnLabel, formatColumn, text);
     /** What a compared row is measured against: the slot-0 recording, else a group's median. */
+    /** The answer store's answers as a base's source. */
+    const store: AnswerSource = { answers: paths => scans.answers(paths) };
     const entryBase = createEntryBase({
         strings, slots: () => slots, rows: () => rows, rowOf, pool: () => distributionPool(), group: () => chosen.group, baseGroup: () => chosen.baseGroup,
         narrowedBy: () => chosen.filters.filter(filter => filter.column !== chosen.value).map(chipText),
-        groupLabel, rowName: key => rowName(key), results, answersOf: paths => scans.answers(paths), fresh: () => scans.fresh(), entryModel,
+        groupLabel, rowName: key => rowName(key), answersOf: paths => scans.answers(paths), reference: () => entryModel().reference,
     });
     /** A compared file as the comparison names it: its name and channel, the value on show, its memo. */
     function rowInfo(path: string): { label: string; value: string; memo: string } {
@@ -817,11 +824,10 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             if (!row.stale || !basePaths?.length) return;
             if (row.region !== 'all' && (basePaths.length > LARGE_BASE || progress.seconds(basePaths) > LARGE_BASE_S)) return;
             if (row.region === 'all') {
-                // Measured again only when the figure model counts every file it was fixed with now (compareReport.remeasurable):
+                // Measured again only when the figure model counts every file it was fixed with now (compareReport.remeasured):
                 // one still of an earlier chain or calibration, pending or failed keeps it ≠.
                 const [compared, ...base] = scans.answers([row.parentPath, ...basePaths]);
-                if (!compared || !remeasurable(compared, base)) return;
-                const next = remeasuredFrom(row, scans, recipeKey(scanRecipe()));
+                const next = compared ? remeasured(row, compared, base, recipeKey(scanRecipe())) : null;
                 if (next) derived = derived.map(item => (item === row ? next : item));
                 return;
             }
@@ -838,7 +844,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         keepWindow: (name, key) => sidePlots.keepWindow(name, key), results, calibrationEpoch, focusedFile,
         // The focused row's channel when it is that file's row, else the row the file is compared as (entryBase).
         channelOf: path => (focus.key && fileOfKey(focus.key) === path ? channelOfRow(rowOf(focus.key)) : entryBase.stageChannel(path, null)),
-        comparison: (path, over) => entryBase.comparison(path, false, over), basePaths: path => entryBase.resolve(path).members, scanRecipe: () => scanRecipe(), slotFiles, colorOf: recordingColor, recipe: () => recipeState.edited ?? recipeState.standard, runRecipe: () => runRecipe(), limits, spectral,
+        comparison: (path, binned) => entryBase.comparison(path, false, binned ? binnedAnswers(store, binned) : undefined), basePaths: path => entryBase.resolve(path).members, scanRecipe: () => scanRecipe(), slotFiles, colorOf: recordingColor, recipe: () => recipeState.edited ?? recipeState.standard, runRecipe: () => runRecipe(), limits, spectral,
         tapped(slot) { if (focus.key && rows.some(row => row.key === focus.key)) setSlot(slot, focus.key); },
     });
     function handleRemeasure(publication: ComparePublication): boolean {
@@ -846,7 +852,9 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         if (!pending) return false;
         if (publication.type === 'compare-scan-result') { pending.results.set(publication.filePath, publication.result); return true; }
         remeasuring.settle(publication.requestId);
-        const next = remeasuredFrom(pending.row, { fresh: () => pending.results }, recipeKey(scanRecipe()));
+        // The region's scans made now, under the current chain: their answers, one set as every count takes it.
+        const [compared, ...base] = regionAnswers(pending.results).answers([pending.row.parentPath, ...(pending.row.base.paths ?? [])]);
+        const next = compared ? remeasured(pending.row, compared, base, recipeKey(scanRecipe())) : null;
         if (next) setDerived(derived.map(item => (item === pending.row ? next : item)));
         return true;
     }
@@ -871,9 +879,11 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         distPane.paint({
             pool: distributionPool(), value: chosen.value, group: chosen.group, results, range: valueRange(), usable, slots, rowOf,
             // The base line where the comparison measures its Δ from (one definition: entryBase), of the axis's reference.
-            base: entryBase.groupBase(chosen.value, path => !isLevel(chosen.value) || sidePlots.onLevelAxis(path)),
+            base: entryBase.groupBase(chosen.value, isLevel(chosen.value) ? entryModel().reference.level : undefined),
             onAxis: row => !isLevel(chosen.value) || sidePlots.onLevelAxis(row.filePath),
-            valueLabel: valueLabel(chosen.value), format: (number, step) => plotValueText(chosen.value, number, step), rowName: key => rowName(key),
+            // A level is read with the folder's reference and each recording's own calibration word (R4, R7).
+            valueLabel: valueLabel(chosen.value), format: (number, step) => plotValueText(chosen.value, number, step, entryModel().reference.label),
+            rowName: key => `${rowName(key)}${isLevel(chosen.value) ? sidePlots.levelWordOf(fileOfKey(key)) : ''}`,
         });
     }
     /** The files shown as tracks now (a hidden track is not). */
@@ -1077,8 +1087,10 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             deltaLeq: `Δ ${strings.entryColLeq}`,
             deltaBand: `Δ ${bandLabel(model.band)} dB`,
             groupSize: strings.entryCsvGroupSize,
+            groupLeft: strings.entryCsvGroupLeft,
             status: strings.dsReason,
-        }, filePath => entryMeasure(entryBase.fileComparison(filePath), model.band, results));
+            stale: strings.reportChainPrevious,
+        }, filePath => entryMeasure(entryBase.fileComparison(filePath), model.band, strings));
         deps.download(csvText, 'entry-table.csv');
     }
 
@@ -1520,7 +1532,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             return true;
         },
         compareData: () => compareData(),
-        levelOf: path => { const result = results.get(path); return result?.ok ? result.input : undefined; },
+        // Only a fresh answer's (the answer store's ready one): a stale scan's reference is of an earlier calibration.
+        levelOf: path => { const answer = scans.answer(path); return answer.state === 'ready' ? answer.value.input : undefined; },
         slots: () => slotFiles(),
         grouped: () => chosen.group !== 'none',
         trackRole(filePath) {
@@ -1541,7 +1554,9 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             setSlot(slot, key, false);
         },
         basePaths: (comparePath, byGroup = false) => entryBase.resolve(comparePath, byGroup).members,
-        baseTitle: (comparePath, byGroup = false, over, more) => entryBase.resolve(comparePath, byGroup, undefined, over).titleWith(more ?? []).title,
+        baseTitle: (comparePath, byGroup = false, over) => entryBase.resolve(comparePath, byGroup, undefined, over).title,
+        baseHeading: (comparePath, byGroup, set) => entryBase.resolve(comparePath, byGroup).heading(set),
+        answersOf: paths => scans.answers(paths),
         baseDefinition: (comparePath, byGroup = false, over) => entryBase.resolve(comparePath, byGroup, undefined, over).definition,
         stageChannel: (path, comparePath, byGroup = false) => entryBase.stageChannel(path, comparePath, byGroup),
         comparison: (comparePath, byGroup = false, over, entryRegionBase = false) => entryBase.comparison(comparePath, byGroup, over, entryRegionBase),

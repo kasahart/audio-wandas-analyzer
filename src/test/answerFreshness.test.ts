@@ -10,8 +10,7 @@ import { createCombineSource } from '../webview/runtime/combineSource';
 import { createHeaderProbe } from '../webview/runtime/entryScanQueue';
 import { createStageSource, stageBasis } from '../webview/runtime/stageSource';
 import type { ScanResult } from '../shared/protocol/backendProtocol';
-import { remeasuredFrom } from '../webview/runtime/comparePanes';
-import { reportStale } from '../webview/runtime/compareReport';
+import { remeasured, reportStale } from '../webview/runtime/compareReport';
 import type { DerivedRow } from '../webview/runtime/entryTable';
 
 const stage = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', quantity: 'level', xs: [0], values: [0], data: 'k' };
@@ -140,10 +139,17 @@ test('a fixed difference is measured again only from results of the current chai
     const all = new Map([['/a.wav', ok(40)], ['/b.wav', ok(41)], ['/c.wav', ok(50)], ['/d.wav', ok(42)]]);
     const scans = createScanAnswers(() => ({ recipeKey: 'new', condition: () => '0' }));
     for (const [path, result] of all) scans.set(path, result, { recipeKey: 'new', condition: '0' });
+    const remeasuredFrom = (fixed: DerivedRow, answers: typeof scans, key: string): DerivedRow | null => remeasured(fixed, answers.answer(fixed.parentPath), answers.answers(fixed.base.paths ?? []), key);
     const again = remeasuredFrom(row, scans, 'new');
     assert.equal(again?.stale, false);
     assert.equal(again?.recipeKey, 'new');
     assert.equal(again?.base.leq, 41);
+    // The base's level reference is taken anew of the same set (the report's 基準 レベル基準 cell), never kept from before.
+    assert.equal(again?.base.level?.levelReference, 'dB SPL');
+    // A base recording of another reference now: not every fixed one counts, so no new median.
+    scans.set('/d.wav', { ...ok(42), input: { ...ok(42).input!, unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated' } }, { recipeKey: 'new', condition: '0' });
+    assert.equal(remeasuredFrom(row, scans, 'new'), null, 'a base of another reference is never measured against');
+    scans.set('/d.wav', ok(42), { recipeKey: 'new', condition: '0' });
     // b's result is of the earlier chain: no median of a and d alone, nor marked current.
     scans.set('/b.wav', ok(41), { recipeKey: 'old', condition: '0' });
     assert.equal(remeasuredFrom(row, scans, 'new'), null);

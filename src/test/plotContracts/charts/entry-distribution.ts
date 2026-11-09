@@ -37,8 +37,8 @@ export const entryDistribution: ChartContract = {
         },
         {
             id: 'entry-distribution.median', value: 'median', what: '基準の群の中央値の線',
-            computedIn: ['src/webview/runtime/entryBase.ts:groupBase', 'src/webview/runtime/comparePanes.ts:groupMedian', 'src/webview/runtime/entryDistribution.ts:distributionRows', 'src/webview/runtime/figureModel.ts:figureUsed'],
-            from: 'whole', trace: '比較が Δ を測る基準群（entryBase.resolve と同じ録音: 比較中の行・ほかのスロット・除外・別の単位を除く）の中央値を groupMedian で取り、その値に線を引く。行の点の中央値ではない。（描くために間引いた形はない）',
+            computedIn: ['src/webview/runtime/entryBase.ts:groupBase', 'src/webview/runtime/comparePanes.ts:setMedian', 'src/webview/runtime/entryDistribution.ts:distributionRows', 'src/webview/runtime/figureModel.ts:figureUsed'],
+            from: 'whole', trace: '比較が Δ を測る基準群（entryBase.resolve と同じ録音: 比較中の行・ほかのスロット・除外・別の単位を除く）の中央値を、その一つの FigureSet（figureModel.figureUsed）から setMedian で取り、その値に線を引く。行の点の中央値ではない。（描くために間引いた形はない）',
             tests: [
                 t('src/test/entryBase.test.ts', 'one base group everywhere: the distribution\'s base line, the comparison\'s Δ and the entry CSV\'s Δ are of the same recordings'),
                 t('src/test/entryBase.test.ts', 'only the entry base builds a comparison or a base group: no screen, file or report makes its own'),

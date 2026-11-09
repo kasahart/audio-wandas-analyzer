@@ -17,8 +17,12 @@ export const OVERVIEW_MARGINS: PlotMargins = { left: 44, top: 2, right: 4, botto
 /** A table row as the strip reads it: its recording, and the channel it is (`key`, rowKey) when it is one of several. */
 export type OverviewRow = Pick<EntryRow, 'filePath'> & { key?: string; ch?: number; channels?: number };
 
-/** A row's name in the readout: its file, and its channel when the recording has more than one. */
-const rowName = (row: OverviewRow): string => `${fileName(row.filePath)}${(row.channels ?? 1) > 1 && row.ch ? ` ch${row.ch}` : ''}`;
+/** A recording's own calibration word on the strip's scale (R4: only an uncalibrated row says so), '' otherwise. */
+export type RowWord = (filePath: string) => string;
+
+/** A row's name in the readout: its file, its channel when the recording has more than one, and its own calibration word. */
+const rowName = (row: OverviewRow, wordOf: RowWord): string => `${fileName(row.filePath)}${(row.channels ?? 1) > 1 && row.ch ? ` ch${row.ch}` : ''}${wordOf(row.filePath)}`;
+const NO_WORD: RowWord = () => '';
 
 /**
  * The strip's rows as a heatmap: a column per band and, in the part of the table in `window`, a row per table row, or
@@ -34,6 +38,7 @@ export function overviewPicture(
     bands: ReadonlyMap<string, (number | null)[]>,
     window: PlotWindow,
     lines: number,
+    wordOf: RowWord = NO_WORD,
 ): { view: StageView; whole: StageView; names: string[][]; range: FigureRange } | null {
     const bandCount = BAND_CENTERS_HZ.length;
     const total = rows.length;
@@ -65,7 +70,7 @@ export function overviewPicture(
             if (value < low) low = value;
             if (value > high) high = value;
             if (bucket < 0) continue;
-            if (!binned) { shown[bucket][band] = value; names[bucket][band] = rowName(rows[index]); continue; }
+            if (!binned) { shown[bucket][band] = value; names[bucket][band] = rowName(rows[index], wordOf); continue; }
             const quiet = lowest[bucket][band], loud = highest[bucket][band];
             if (!quiet || value < quiet.value) lowest[bucket][band] = { value, index };
             if (!loud || value > loud.value) highest[bucket][band] = { value, index };
@@ -78,9 +83,9 @@ export function overviewPicture(
             if (!quiet || !loud) continue;
             const [upper, lower] = quiet.index <= loud.index ? [quiet, loud] : [loud, quiet];
             shown[bucket * 2][band] = upper.value;
-            names[bucket * 2][band] = rowName(rows[upper.index]);
+            names[bucket * 2][band] = rowName(rows[upper.index], wordOf);
             shown[bucket * 2 + 1][band] = lower.value;
-            names[bucket * 2 + 1][band] = rowName(rows[lower.index]);
+            names[bucket * 2 + 1][band] = rowName(rows[lower.index], wordOf);
         }
     }
     if (!Number.isFinite(low)) return null;
@@ -105,7 +110,7 @@ const fileName = (filePath: string): string => filePath.split(/[\\/]/).at(-1) ??
  * The strip's every cell, one per table row and band, which the pointer reads (R7): a picture row holding several
  * table rows (their extremes) is only drawn; the readout names the one table row under the pointer and its level.
  */
-export function overviewCells(rows: ReadonlyArray<OverviewRow>, bands: ReadonlyMap<string, (number | null)[]>): InlineFullSource {
+export function overviewCells(rows: ReadonlyArray<OverviewRow>, bands: ReadonlyMap<string, (number | null)[]>, wordOf: RowWord = NO_WORD): InlineFullSource {
     return {
         held: 'inline',
         cells(query) {
@@ -126,7 +131,7 @@ export function overviewCells(rows: ReadonlyArray<OverviewRow>, bands: ReadonlyM
             return {
                 xs: BAND_CENTERS_HZ.slice(c0, c1), ys: indices.map(index => -(index + 0.5)),
                 matrix: indices.map(index => { const levels = bands.get(rows[index].key ?? rows[index].filePath); return BAND_CENTERS_HZ.slice(c0, c1).map((_, band) => levels?.[c0 + band] ?? null); }),
-                rowNames: indices.map(index => rowName(rows[index])),
+                rowNames: indices.map(index => rowName(rows[index], wordOf)),
                 start: c0 > 0 ? BAND_CENTERS_HZ[c0] : null, end: c1 < BAND_CENTERS_HZ.length ? BAND_CENTERS_HZ[c1 - 1] : null, complete: true,
             };
         },
@@ -152,10 +157,12 @@ export function paintOverview(
     focused: string | null,
     /** The part on screen (zoomed): x of the bands, y of the rows (0 at the bottom). */
     window: PlotWindow = FULL_PLOT_WINDOW,
-    /** The colour's name: what the levels are, with their reference. */
-    level: { label: string; calibrated: boolean } = { label: 'dBFS', calibrated: false },
+    /** The colour's name: what the levels are, with their reference (the folder's, never a default). */
+    level: { label: string; calibrated: boolean },
     /** Changes whenever `bands` does: with the same rows, window and size the cells are kept, not drawn again. */
     bandsVersion?: number,
+    /** Each recording's own calibration word, said in the readout of its cells. */
+    wordOf: RowWord = NO_WORD,
 ): OverviewPaint {
     const { left, top, right, bottom } = OVERVIEW_MARGINS;
     const width = canvas.clientWidth || 400, height = canvas.clientHeight || 120;
@@ -168,17 +175,17 @@ export function paintOverview(
     const key = `${bandsVersion}|${width}x${height}@${view?.devicePixelRatio ?? 1}|${window.x.start},${window.x.end},${window.y.start},${window.y.end}|${colour}|${theme}`;
     const cached = overviewCache.get(canvas);
     let drawn: StagePlot | null;
-    if (bandsVersion !== undefined && cached && cached.key === key && cached.rows === rows) drawn = cached.drawn;
+    if (bandsVersion !== undefined && cached && cached.key === key && cached.rows === rows && cached.wordOf === wordOf) drawn = cached.drawn;
     else {
-        const picture = overviewPicture(rows, bands, window, Math.ceil(plotHeight));
-        drawn = paintOverlay(canvas, { layers: picture ? [{ view: picture.view, color: '', rowName: (row, column) => picture.names[row]?.[column] ?? '', full: overviewCells(rows, bands) }] : [] }, picture?.range ?? emptyFigure().range,
+        const picture = overviewPicture(rows, bands, window, Math.ceil(plotHeight), wordOf);
+        drawn = paintOverlay(canvas, { layers: picture ? [{ view: picture.view, color: '', rowName: (row, column) => picture.names[row]?.[column] ?? '', full: overviewCells(rows, bands, wordOf) }] : [] }, picture?.range ?? emptyFigure().range,
             plainNames(strings.axisBand, strings.axisEntryRows, colour), {
                 margins: OVERVIEW_MARGINS,
                 window: { x: window.x, y: window.y }, axisView: picture?.whole ?? null,
                 // The rows are counted down from the top: a row's place is minus its value.
                 yTickText: value => String(Math.round(Math.abs(value))),
             });
-        overviewCache.set(canvas, { key, rows, drawn });
+        overviewCache.set(canvas, { key, rows, wordOf, drawn });
     }
     // The rows on screen framed, the focused one marked, over the plot (clipped to it).
     const rowTop = (index: number): number => top + (index / Math.max(1, rows.length) - (1 - window.y.end)) / (window.y.end - window.y.start || 1) * plotHeight;
@@ -200,4 +207,4 @@ export function paintOverview(
     return { drawn };
 }
 
-const overviewCache = new WeakMap<HTMLCanvasElement, { key: string; rows: ReadonlyArray<OverviewRow>; drawn: StagePlot | null }>();
+const overviewCache = new WeakMap<HTMLCanvasElement, { key: string; rows: ReadonlyArray<OverviewRow>; wordOf: RowWord; drawn: StagePlot | null }>();

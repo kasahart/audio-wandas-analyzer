@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { compareOf } from './helpers/compareInput';
 import { N, R } from './helpers/figure';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -8,7 +9,7 @@ import type { ScanResult } from '../shared/protocol/backendProtocol';
 import { getStrings } from '../shared/i18n/strings';
 import { BAND_CENTERS_HZ, buildEntryModel } from '../webview/runtime/entryTable';
 import { deltaFigure } from '../webview/runtime/compareReport';
-import { baseOf, binsSource, binsView, buildCompareModel, deltaViews, diffHeadline, minMaxLine, sameCondition, withBins, legendHtml, levelsHeadline, paneAxes, trackLevelInput, type LevelInput } from '../webview/runtime/comparePanes';
+import { binsSource, binsView, deltaViews, diffHeadline, minMaxLine, sameCondition, withBins, legendHtml, levelsHeadline, paneAxes, trackLevelInput, type LevelInput } from '../webview/runtime/comparePanes';
 import type { ChannelSummary } from '../shared/analysis/analysisTypes';
 import { byLevel, paintOverlay, stageAxes } from '../webview/runtime/stagePanes';
 import { NO_FULL_DATA } from '../webview/runtime/fullRead';
@@ -35,7 +36,7 @@ const files = new Map<string, ScanResult>([
 const model = buildEntryModel([...files].map(([filePath, result]) => ({ filePath, result })), null, { band: BAND_3150 });
 
 test('the base is the median of the compared file\'s condition without it, point by point, and Δ is taken from the full levels', () => {
-    const comparison = buildCompareModel(model, files, '/f/L1_900rpm_run3.wav', null, STR);
+    const comparison = compareOf(model, files, '/f/L1_900rpm_run3.wav', null, STR);
     assert.equal(comparison.base!.title, 'Base group · L1 · 900rpm · 2 files');
     assert.deepEqual(comparison.base!.filePaths, ['/f/L1_900rpm_run1.wav', '/f/L1_900rpm_run2.wav']);
     assert.deepEqual(comparison.base!.spectrumDb.map(value => Math.round(value * 100) / 100), [-41, -50, -60.5]);
@@ -52,17 +53,17 @@ test('the base is the median of the compared file\'s condition without it, point
 });
 
 test('slot 0 makes one file the base; without a condition or a slot 0 there is no base', () => {
-    const single = buildCompareModel(model, files, '/f/L1_900rpm_run3.wav', '/f/free.wav', STR);
+    const single = compareOf(model, files, '/f/L1_900rpm_run3.wav', '/f/free.wav', STR);
     assert.equal(single.base!.title, 'Base · free.wav');
     assert.deepEqual(single.base!.filePaths, ['/f/free.wav']);
-    const none = buildCompareModel(model, files, '/f/free.wav', null, STR);
+    const none = compareOf(model, files, '/f/free.wav', null, STR);
     assert.equal(none.base, null);
     assert.equal(none.diffDb, null);
     assert.equal(diffHeadline(none), '—');
 });
 
 test('a Δ that cannot be read is withheld: the file against itself, a group of one, a base over another region', () => {
-    const self = buildCompareModel(model, files, '/f/L1_900rpm_run3.wav', '/f/L1_900rpm_run3.wav', STR);
+    const self = compareOf(model, files, '/f/L1_900rpm_run3.wav', '/f/L1_900rpm_run3.wav', STR);
     assert.equal(self.blocked, 'self');
     assert.equal(self.diffDb, null);
     assert.deepEqual(self.topBands, []);
@@ -70,14 +71,14 @@ test('a Δ that cannot be read is withheld: the file against itself, a group of 
     assert.equal(self.leq!.compare, -10.06);
     const alone = new Map<string, ScanResult>([['/s/L2_1800rpm_run1.wav', scan(-20, [-40, -50, -60], -30)]]);
     const lone = buildEntryModel([...alone].map(([filePath, result]) => ({ filePath, result })), null);
-    const single = buildCompareModel(lone, alone, '/s/L2_1800rpm_run1.wav', null, STR);
+    const single = compareOf(lone, alone, '/s/L2_1800rpm_run1.wav', null, STR);
     assert.equal(single.blocked, 'single');
     assert.equal(diffHeadline(single, STR), '— · n=1');
-    const region = buildCompareModel(model, files, '/f/L1_900rpm_run3.wav', null, STR, true);
+    const region = compareOf(model, files, '/f/L1_900rpm_run3.wav', null, STR, true);
     assert.equal(region.blocked, 'region');
     assert.equal(diffHeadline(region, STR), '— · ≠ region');
     // A file in slot 0 is scanned over the region too, so the flag does not apply to it.
-    assert.equal(buildCompareModel(model, files, '/f/L1_900rpm_run3.wav', '/f/free.wav', STR, true).blocked, undefined);
+    assert.equal(compareOf(model, files, '/f/L1_900rpm_run3.wav', '/f/free.wav', STR, true).blocked, undefined);
 });
 
 
@@ -94,7 +95,7 @@ test('levels in another unit, reference or calibration have no Δ and no shared 
     ]);
     const mixedModel = buildEntryModel([...mixed].map(([filePath, result]) => ({ filePath, result })), null, { band: BAND_3150 });
     // Slot 0 in another unit: both levels stay, the Δ is withheld (as the backend's noDelta 'unit').
-    const single = buildCompareModel(mixedModel, mixed, '/m/L1_900rpm_run3.wav', '/m/L1_900rpm_run1.wav', STR);
+    const single = compareOf(mixedModel, mixed, '/m/L1_900rpm_run3.wav', '/m/L1_900rpm_run1.wav', STR);
     assert.equal(single.blocked, 'unit');
     assert.equal(single.diffDb, null);
     assert.deepEqual(single.bandDeltas, []);
@@ -104,24 +105,20 @@ test('levels in another unit, reference or calibration have no Δ and no shared 
     // Both levels stay, each named by its own reference (no bare dB).
     assert.equal(levelsHeadline(single, STR), 'Leq base −20.0 dBFS, uncalibrated / compare 62.0 dB SPL re 20 µPa · — · ≠ level reference');
     // A group: only its files in the compared file's unit make the median; the rest are left out.
-    const group = buildCompareModel(mixedModel, mixed, '/m/L1_900rpm_run4.wav', null, STR, false, undefined,
+    const group = compareOf(mixedModel, mixed, '/m/L1_900rpm_run4.wav', null, STR, false, undefined,
         { paths: ['/m/L1_900rpm_run1.wav', '/m/L1_900rpm_run2.wav', '/m/L1_900rpm_run3.wav'], title: 'g' });
     assert.deepEqual(group.base!.filePaths, ['/m/L1_900rpm_run3.wav']);
     assert.equal(group.blocked, undefined);
     assert.equal(group.leq!.delta, 2);
     // A group with none in the compared file's level identity: every one left out (another reference, never counted
     // as the base's), so no median and no Δ, and the comparison says why.
-    const other = buildCompareModel(mixedModel, mixed, '/m/L1_900rpm_run4.wav', null, STR, false, undefined,
+    const other = compareOf(mixedModel, mixed, '/m/L1_900rpm_run4.wav', null, STR, false, undefined,
         { paths: ['/m/L1_900rpm_run1.wav', '/m/L1_900rpm_run2.wav'], title: 'g' });
     assert.equal(other.blocked, 'unit');
     assert.equal(other.base, null);
     assert.equal(other.leq, null);
     assert.equal(other.diffDb, null);
     assert.equal(diffHeadline(other, STR), '— · ≠ level reference');
-    // A fixed difference is never measured against a base of another unit.
-    assert.equal(baseOf(mixed, ['/m/L1_900rpm_run1.wav', '/m/L1_900rpm_run3.wav']), null);
-    assert.equal(baseOf(mixed, ['/m/L1_900rpm_run1.wav'], mixed.get('/m/L1_900rpm_run3.wav')), null);
-    assert.equal(baseOf(mixed, ['/m/L1_900rpm_run3.wav'], mixed.get('/m/L1_900rpm_run4.wav'))!.leq, 62);
 });
 
 test('a tone that leaks into the neighbouring bands heads the list alone: only peaks of |Δ| across bands count', () => {
@@ -133,7 +130,7 @@ test('a tone that leaks into the neighbouring bands heads the list alone: only p
         ['/l/L1_900rpm_run1.wav', leak(-60, -60)], ['/l/L1_900rpm_run2.wav', leak(-60, -60)], ['/l/L1_900rpm_run3.wav', leak(-40, -56)],
     ]);
     const leakModel = buildEntryModel([...leaking].map(([filePath, result]) => ({ filePath, result })), null);
-    const comparison = buildCompareModel(leakModel, leaking, '/l/L1_900rpm_run3.wav', null, STR);
+    const comparison = compareOf(leakModel, leaking, '/l/L1_900rpm_run3.wav', null, STR);
     assert.deepEqual(comparison.topBands, [{ band: BAND_3150, delta: 20 }]);
     // The neighbours are still drawn as steps.
     assert.equal(Math.round(comparison.bandDeltas[BAND_3150 + 1]!), 4);
@@ -149,10 +146,10 @@ test('against one base file, a band within the chance spread of its condition is
         ['/c/L5_900rpm_far.wav', scan(-20, [-40, -50, -60], -20)],
     ]);
     const model = buildEntryModel([...files].map(([filePath, result]) => ({ filePath, result })), null, { band: BAND_3150 });
-    const near = buildCompareModel(model, files, '/c/L5_900rpm_near.wav', '/c/L5_900rpm_base.wav', STR);
+    const near = compareOf(model, files, '/c/L5_900rpm_near.wav', '/c/L5_900rpm_base.wav', STR);
     assert.deepEqual(near.topBands, []);
     assert.equal(diffHeadline(near, STR), `${STR.compareNoSignificant} · Leq +0.0 dB`);
-    const far = buildCompareModel(model, files, '/c/L5_900rpm_far.wav', '/c/L5_900rpm_base.wav', STR);
+    const far = compareOf(model, files, '/c/L5_900rpm_far.wav', '/c/L5_900rpm_base.wav', STR);
     assert.deepEqual(far.topBands.map(item => item.band), [BAND_3150]);
 });
 
@@ -210,7 +207,7 @@ test('the level axis is named by wandas\' level reference, and says uncalibrated
 });
 
 test('the headline gives both levels, and a band far below the loudest does not head it however large its Δ', () => {
-    const comparison = buildCompareModel(model, files, '/f/L1_900rpm_run3.wav', null, STR);
+    const comparison = compareOf(model, files, '/f/L1_900rpm_run3.wav', null, STR);
     assert.match(levelsHeadline(comparison, STR), /^3\.15 kHz base −30\.5 \/ compare −10\.0 dBFS · Leq base −20\.0 \/ compare −10\.1 dBFS$/);
     // A level that rounds to zero is written without a sign, as levelText writes it (R7).
     const nearZero = { ...comparison, topBands: [], leq: { base: -0.04, compare: 0.04, delta: 0.08 } };
@@ -223,11 +220,11 @@ test('the headline gives both levels, and a band far below the loudest does not 
     };
     const loud = new Map<string, ScanResult>([['/g/L2_1200rpm_run1.wav', level(60, 20)], ['/g/L2_1200rpm_run2.wav', level(60, 20)], ['/g/L2_1200rpm_run3.wav', level(65, 30)]]);
     const loudModel = buildEntryModel([...loud].map(([filePath, result]) => ({ filePath, result })), null, { band: BAND_3150 });
-    const heard = buildCompareModel(loudModel, loud, '/g/L2_1200rpm_run3.wav', null, STR);
+    const heard = compareOf(loudModel, loud, '/g/L2_1200rpm_run3.wav', null, STR);
     assert.deepEqual(heard.topBands.map(item => item.band), [BAND_3150]);
     assert.ok(levelsHeadline(heard, STR).startsWith('3.15 kHz base 60.0 / compare 65.0 dBFS · '));
     // A group of three or more files carries its quartiles for the band under its median.
-    assert.equal(buildCompareModel(model, files, '/f/free.wav', '/f/L1_900rpm_run1.wav', STR).base!.spread, undefined);
+    assert.equal(compareOf(model, files, '/f/free.wav', '/f/L1_900rpm_run1.wav', STR).base!.spread, undefined);
 });
 
 test('a legend item ends with the markup its caller adds (the base group\'s ▾), after its label', () => {
@@ -277,7 +274,7 @@ test('the median and Δ are taken bin by bin from every bin, and only drawing de
         ['/f/L1_900rpm_run2.wav', withBins(files.get('/f/L1_900rpm_run2.wav')!, [flat(-62)])],
         ['/f/L1_900rpm_run3.wav', withBins(files.get('/f/L1_900rpm_run3.wav')!, [flat(-61, 1500, 40)])],
     ]);
-    const comparison = buildCompareModel(model, binned, '/f/L1_900rpm_run3.wav', null, STR);
+    const comparison = compareOf(model, binned, '/f/L1_900rpm_run3.wav', null, STR);
     const bins = comparison.bins!;
     assert.equal(bins.base![1500], -61, 'the median of -60 and -62 at every bin');
     assert.equal(bins.diff![1500], 40);
@@ -336,13 +333,13 @@ test('the webview thins a spectrum exactly as the backend does: the shared cases
 
 test('files whose bins differ (another sample rate or n_fft) have no bins to compare', () => {
     const one = new Map<string, ScanResult>([...files].map(([path, result]) => [path, { ...result, spectrumBinsDb: [[-60, -60]], spectrumBinHz: path.endsWith('run3.wav') ? 4 : 2 }]));
-    assert.equal(buildCompareModel(model, one, '/f/L1_900rpm_run3.wav', null, STR).bins, null);
-    assert.equal(buildCompareModel(model, files, '/f/L1_900rpm_run3.wav', null, STR).bins, null, 'a scan without bins');
+    assert.equal(compareOf(model, one, '/f/L1_900rpm_run3.wav', null, STR).bins, null);
+    assert.equal(compareOf(model, files, '/f/L1_900rpm_run3.wav', null, STR).bins, null, 'a scan without bins');
     // One base file without bins: none, so the figures keep every curve on the 192 points.
     const partly = new Map(files);
     partly.set('/f/L1_900rpm_run3.wav', { ...files.get('/f/L1_900rpm_run3.wav')!, spectrumBinsDb: [[-60, -60]], spectrumBinHz: 2 });
     partly.set('/f/L1_900rpm_run1.wav', { ...files.get('/f/L1_900rpm_run1.wav')!, spectrumBinsDb: [[-60, -60]], spectrumBinHz: 2 });
-    const comparison = buildCompareModel(model, partly, '/f/L1_900rpm_run3.wav', null, STR);
+    const comparison = compareOf(model, partly, '/f/L1_900rpm_run3.wav', null, STR);
     assert.equal(comparison.bins, null);
     assert.ok(comparison.diffDb);
 });

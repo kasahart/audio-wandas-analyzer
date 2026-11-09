@@ -1,10 +1,10 @@
 import { HEATMAP_DB_SPAN, heatmapDbRange, niceRange } from '../../shared/utils/ticks';
 import { WAVEFORM_HALF_HEIGHT_RATIO } from '../waveform/waveformLayout';
 import type { Answer, AnswerIdentity } from './answerTypes';
-import { scanAnswer } from './answerStore';
 import { stageAxes, stageDiffRange, stageRange, type StageAxes, type StageStrings } from './stagePanes';
 import { levelIdentityOf, paneAxes, type LevelInput, type PaneAxes, type PaneRange } from './comparePanes';
 import type { ScanResult, StageView } from '../../shared/protocol/backendProtocol';
+import type { UiStrings } from '../../shared/i18n/strings';
 
 /**
  * The figure model (layers-design.md): what a figure draws of its answers and what it writes. Every figure's axes,
@@ -308,57 +308,116 @@ export function levelAxes<L>(lines: readonly L[], spec: LevelAxesSpec<L>): { axe
 
 // ── Which files a figure counts ───────────────────────────────────────────────────────────────────────────────────
 
-export type ExclusionReason = 'pending' | 'stale' | 'failed' | 'empty' | 'missing' | 'other-reference' | 'other-axis';
+/**
+ * Why an answer is not counted: still computing, of an earlier recipe, version or calibration (stale), failed, empty,
+ * never asked (missing), of another level reference or on another axis than the figure's, or ready while the figure
+ * has no identity yet (its compared recording has no ready answer of its own: 'no-identity').
+ */
+export type ExclusionReason = 'pending' | 'stale' | 'failed' | 'empty' | 'missing' | 'other-reference' | 'other-axis' | 'no-identity';
+
+declare const setBrand: unique symbol;
+declare const identityBrand: unique symbol;
 
 /**
- * What a figure counts its answers against: the level key of the line they are compared with (`level`; null: the
- * first ready answer's) and, where a median is taken point by point, the axis its values are on (`axisOf`: the
- * sample rate and spec of a scan's spectrum), so no median is of values at different frequencies.
+ * What a figure is of, made only here: the level key of its compared recording's ready answer (comparedIdentity,
+ * scanIdentity, levelIdentity), or the folder's one chosen reference where nothing is compared (referenceIdentity).
+ * Never the first ready member's, never a guess for an answer that does not say its own.
  */
-export interface FigureOf<T> {
-    level: string | null;
-    axis?: string | null;
-    axisOf?: (value: T) => string;
+export interface FigureIdentity<T> {
+    readonly level: string;
+    /** The axis its values are on where a median is taken point by point (a scan's sample rate, spec and points). */
+    readonly axis: string | null;
+    readonly axisOf?: (value: T) => string;
+    readonly [identityBrand]: true;
 }
 
-/** One figure's set: the answers it is of, the ones it leaves out with why, its n and its files. */
+/**
+ * One figure's set, made only by figureUsed: the answers it is of, those it leaves out with why, its n and its files.
+ * Every median, drawn member line, n, heading, chip, distribution base line, CSV row and report of a figure takes this
+ * one object (they accept only a FigureSet), so no second set of the same figure can be built beside it.
+ */
 export interface FigureSet<T> {
-    used: Array<{ path: string; value: T; identity: AnswerIdentity }>;
-    excluded: Array<{ path: string; reason: ExclusionReason }>;
-    n: number;
-    paths: string[];
+    readonly used: ReadonlyArray<{ path: string; value: T; identity: AnswerIdentity }>;
+    readonly excluded: ReadonlyArray<{ path: string; reason: ExclusionReason }>;
+    readonly n: number;
+    readonly paths: readonly string[];
+    /** The identity it is of (null: none yet, every ready answer left out as 'no-identity'). */
+    readonly level: string | null;
+    readonly [setBrand]: true;
+}
+
+const identity = <T>(level: string, axis: string | null, axisOf?: (value: T) => string): FigureIdentity<T> => ({ level, axis, ...(axisOf ? { axisOf } : {}) }) as FigureIdentity<T>;
+
+/**
+ * What a set's levels are in, as a base's reference cell says it (報告.csv 基準 レベル基準, a fixed Δ's base): its
+ * identity's reference, uncalibrated while any recording it counts is (each of full scale or of raw input units).
+ */
+export function baseLevelOf(set: FigureSet<unknown>): { levelReference?: string; uncalibrated?: 'full-scale' | 'raw-units' } {
+    const first = set.used[0]?.identity.level;
+    if (!first) return {};
+    const raw = set.used.find(item => item.identity.level.calibrationStatus !== 'calibrated')?.identity.level;
+    return { levelReference: first.levelReferenceLabel, ...(raw ? { uncalibrated: raw.fullScale ? 'full-scale' as const : 'raw-units' as const } : {}) };
+}
+
+/** A figure of a compared recording: its ready answer's level identity (and axis); null while it has none. */
+export function comparedIdentity<T>(compared: Answer<T> | undefined, axisOf?: (value: T) => string): FigureIdentity<T> | null {
+    if (compared?.state !== 'ready') return null;
+    return identity(levelKeyOf(compared.identity.level), axisOf ? axisOf(compared.value) : null, axisOf);
+}
+
+/** A figure of a level identity already known from a fresh answer (a stage picture's compared recording, its track's input). */
+export function levelIdentity<T>(level: LevelOf | null | undefined, axisOf?: (value: T) => string, axis: string | null = null): FigureIdentity<T> | null {
+    return level ? identity(levelKeyOf(level), axis, axisOf) : null;
 }
 
 /**
- * Which answers a figure's number is of (a median, a Δ, a count n, a heading, the CSV's 基準群 n and files): the ready
- * ones of `of`'s level identity and axis. Every other is excluded with why: still computing, of an earlier recipe,
- * version or calibration (stale), failed, empty, missing, of another level reference or on another axis. Nothing
- * pending or stale is ever counted. Every count of every output takes its set here, with the figure's identity.
+ * Which answers a figure's number is of (a median, a Δ, a count n, a heading, the CSV's 基準群 n and files, the drawn
+ * member lines): the ready ones of `of`'s level identity and axis. Every other is excluded with why. Nothing pending
+ * or stale is ever counted, and with no identity (`of` null) nothing is: the figure waits for its compared answer.
  */
-export function figureUsed<T>(answers: ReadonlyArray<Answer<T>>, of: FigureOf<T>): FigureSet<T> {
-    const used: FigureSet<T>['used'] = [];
-    const excluded: FigureSet<T>['excluded'] = [];
-    const first = answers.find(answer => answer.state === 'ready');
-    const firstReady = first?.state === 'ready' ? first : undefined;
-    const level = of.level ?? (firstReady ? levelKeyOf(firstReady.identity.level) : null);
-    const axis = of.axisOf ? of.axis ?? (firstReady ? of.axisOf(firstReady.value) : null) : null;
+export function figureUsed<T>(of: FigureIdentity<T> | null, answers: ReadonlyArray<Answer<T>>): FigureSet<T> {
+    const used: Array<FigureSet<T>['used'][number]> = [];
+    const excluded: Array<FigureSet<T>['excluded'][number]> = [];
     for (const answer of answers) {
         const path = answer.identity.path;
         if (answer.state !== 'ready') { excluded.push({ path, reason: answer.state }); continue; }
-        if (level !== null && levelKeyOf(answer.identity.level) !== level) { excluded.push({ path, reason: 'other-reference' }); continue; }
-        if (axis !== null && of.axisOf && of.axisOf(answer.value) !== axis) { excluded.push({ path, reason: 'other-axis' }); continue; }
+        if (!of) { excluded.push({ path, reason: 'no-identity' }); continue; }
+        if (levelKeyOf(answer.identity.level) !== of.level) { excluded.push({ path, reason: 'other-reference' }); continue; }
+        if (of.axis !== null && of.axisOf && of.axisOf(answer.value) !== of.axis) { excluded.push({ path, reason: 'other-axis' }); continue; }
         used.push({ path, value: answer.value, identity: answer.identity });
     }
-    return { used, excluded, n: used.length, paths: used.map(item => item.path) };
+    return { used, excluded, n: used.length, paths: used.map(item => item.path), level: of?.level ?? null } as unknown as FigureSet<T>;
 }
 
 /** How many of a set's answers were left out for `reason`. */
-export const excludedFor = (set: Pick<FigureSet<unknown>, 'excluded'>, ...reasons: ExclusionReason[]): number => set.excluded.filter(item => reasons.includes(item.reason)).length;
+export const excludedFor = (set: FigureSet<unknown>, ...reasons: ExclusionReason[]): number => set.excluded.filter(item => reasons.includes(item.reason)).length;
+
+/** The paths a set left out for one of `reasons`. */
+export const excludedPaths = (set: FigureSet<unknown>, ...reasons: ExclusionReason[]): string[] => set.excluded.filter(item => reasons.includes(item.reason)).map(item => item.path);
+
+export type SetStrings = Pick<UiStrings, 'entryBaseMedian' | 'dsBaseFailed' | 'dsBasePending' | 'dsBaseStale' | 'dsBaseOtherUnits' | 'dsBaseOtherBins' | 'dsBaseNoIdentity'>;
+
+/** " · 1 failed left out · 1 still computing · …": what a set left out, with why, as every heading and file says it. */
+export function setExclusionText(set: FigureSet<unknown>, strings: Omit<SetStrings, 'entryBaseMedian'>): string {
+    const say = (template: string, n: number): string => (n ? template.replace('{n}', String(n)) : '');
+    return say(strings.dsBaseFailed, excludedFor(set, 'failed', 'empty', 'missing')) + say(strings.dsBasePending, excludedFor(set, 'pending'))
+        + say(strings.dsBaseStale, excludedFor(set, 'stale')) + say(strings.dsBaseOtherUnits, excludedFor(set, 'other-reference')) + say(strings.dsBaseOtherBins, excludedFor(set, 'other-axis'))
+        + say(strings.dsBaseNoIdentity, excludedFor(set, 'no-identity'));
+}
+
+/**
+ * "median of 3 · 1 failed left out · 1 still computing · …": a set's count and what it left out, as every heading,
+ * chip and definition writes it. It takes only a FigureSet: a heading cannot say another count than the set drawn.
+ */
+export function setCountText(set: FigureSet<unknown>, strings: SetStrings, count = strings.entryBaseMedian): string {
+    return count.replace('{count}', String(set.n)) + setExclusionText(set, strings);
+}
 
 // ── Scans as a figure's answers ───────────────────────────────────────────────────────────────────────────────────
 
 /** A scan that read its file. */
-type ReadScan = ScanResult & { ok: true };
+export type ReadScan = ScanResult & { ok: true };
+type ScanAnswerOf = Answer<ReadScan>;
 
 /** The level key of a scan's levels (levelIdentityOf); null for a scan that read no file. */
 export function scanLevelKey(result: ScanResult | undefined): string | null {
@@ -373,28 +432,70 @@ export function oneLevelKey(results: ReadonlyArray<ScanResult | undefined>): boo
 /** The axis a scan's spectrum is on: its sample rate, spec and points (a median is taken point by point). */
 export const scanAxis = (result: ReadScan): string => `${result.input?.fs ?? 0}|${result.specVersion ?? ''}|${result.spectrumDb?.[0]?.length ?? 0}`;
 
-/** What a set of scans is counted against: the compared scan's level identity and spectrum axis (none: the first ready one's). */
-export function scanFigureOf(like: ScanResult | undefined): FigureOf<ReadScan> {
-    return { level: scanLevelKey(like), axis: like?.ok ? scanAxis(like as ReadScan) : null, axisOf: scanAxis };
-}
-
-/** The set of `paths` a map of scans gives, counted against `like` (the compared scan). */
-export function scanSet(results: ReadonlyMap<string, ScanResult>, paths: readonly string[], like: ScanResult | undefined): FigureSet<ReadScan> {
-    return figureUsed(paths.map(path => scanAnswer(path, results.get(path))), scanFigureOf(like));
-}
+/** A scan figure of a compared recording: its ready answer's level identity and spectrum axis; null while it has none. */
+export const scanIdentity = (compared: ScanAnswerOf | undefined): FigureIdentity<ReadScan> | null => comparedIdentity(compared, scanAxis);
 
 /**
- * A step figure's base set: of the base recordings (already the comparison's set), those whose step picture is in and
- * kept its values. A picture on its way is pending, a failed one failed, one without kept values empty, so the
- * median, the heading's n and the drawn waveforms are of the same recordings.
+ * The folder's one level reference (R1): of the fresh ready answers, in the table's order, the most common level
+ * identity, a tie going to the one whose first recording comes first in the table (never to the one answered first).
+ * The entry table's comparable rows, its value columns' heading, the overview strip, the distribution's axis and a
+ * group base with nothing compared all take this one choice.
  */
-export function pictureSet(paths: readonly string[], viewOf: (path: string) => StageView | null | undefined, levelOf: (path: string) => LevelInput | undefined, like: LevelInput | undefined): FigureSet<StageView> {
-    const answers = paths.map((path): Answer<StageView> => {
-        const view = viewOf(path);
-        const identity: AnswerIdentity = { path, fileVersion: '', calibrationSignature: '', level: levelOf(path) ?? like ?? { unit: '', ref: 1, levelReferenceLabel: '', calibrationStatus: 'uncalibrated', fullScale: true }, recipeKey: '', region: '', conditionId: '' };
-        if (view === undefined) return { state: 'pending', identity };
-        if (view === null) return { state: 'failed', identity };
-        return view.data || view.waveform ? { state: 'ready', value: view, identity } : { state: 'empty', identity };
-    });
-    return figureUsed(answers, { level: like ? levelKeyOf(like) : null });
+export interface FolderReference {
+    readonly level: string | null;
+    /** The reference as wandas names it ('' while nothing is read). */
+    readonly label: string;
+    /** Whether any of its recordings is calibrated: the axis says uncalibrated only when none is (R4). */
+    readonly calibrated: boolean;
+    /** Its recordings, in the table's order. */
+    readonly paths: readonly string[];
+    readonly [identityBrand]: 'folder';
 }
+
+export function folderReference(answers: ReadonlyArray<ScanAnswerOf>): FolderReference {
+    const ready = answers.filter((answer): answer is Extract<ScanAnswerOf, { state: 'ready' }> => answer.state === 'ready');
+    const counts = new Map<string, number>();
+    for (const answer of ready) { const key = levelKeyOf(answer.identity.level); counts.set(key, (counts.get(key) ?? 0) + 1); }
+    // Map keeps first-seen order: the sort is stable, so a tie keeps the one first in the table.
+    const level = [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+    const of = ready.filter(answer => levelKeyOf(answer.identity.level) === level);
+    return {
+        level, label: of[0]?.identity.level.levelReferenceLabel ?? '', calibrated: of.some(answer => answer.identity.level.calibrationStatus === 'calibrated'),
+        paths: of.map(answer => answer.identity.path),
+    } as unknown as FolderReference;
+}
+
+/** A figure of the folder's reference (nothing compared): its level identity, no axis; null while nothing is read. */
+export function referenceIdentity<T>(reference: FolderReference): FigureIdentity<T> | null {
+    return reference.level === null ? null : identity<T>(reference.level, null);
+}
+
+/** Whether an answer's levels are of the folder's reference (on its axis). */
+export const ofReference = (reference: FolderReference, level: LevelOf | null | undefined): boolean => !!level && reference.level === levelKeyOf(level);
+
+// ── Step pictures as a figure's answers ─────────────────────────────────────────────────────────────────────────────
+
+/** The axis a step picture is on: its kind, axis and points (a backend median is taken only of aligned pictures). */
+export const pictureAxis = (view: StageView): string => `${view.kind}|${view.x ?? ''}|${view.xs?.length ?? 0}|${view.xs?.[0] ?? ''}|${view.xs?.at(-1) ?? ''}|${view.unit ?? ''}`;
+
+/**
+ * A step figure's base set: the base's members, each counted only when its step picture is in and kept its values
+ * and its own level identity is known from a fresh answer (`levelOf`: its track's input or its fresh scan's; none:
+ * pending, never assumed the compared one's) and is the compared recording's (`compared`). `aligned`: a median is
+ * taken of them, so a picture on another axis is left out too. The median requested, the member lines drawn, the
+ * heading's n and the legend's words are all of this one set.
+ */
+export function pictureSet(members: readonly string[], viewOf: (path: string) => StageView | null | undefined, levelOf: (path: string) => LevelInput | undefined, compared: { level: LevelInput | undefined; view: StageView | null | undefined }, aligned: boolean): FigureSet<StageView> {
+    const answers = members.map((path): Answer<StageView> => {
+        const level = levelOf(path);
+        const view = viewOf(path);
+        const id: AnswerIdentity = { path, fileVersion: '', calibrationSignature: '', level: level ?? UNKNOWN_LEVEL, recipeKey: '', region: '', conditionId: '' };
+        if (view === undefined || !level) return { state: 'pending', identity: id };
+        if (view === null) return { state: 'failed', identity: id };
+        return view.data || view.waveform ? { state: 'ready', value: view, identity: id } : { state: 'empty', identity: id };
+    });
+    const axis = aligned && compared.view ? pictureAxis(compared.view) : null;
+    return figureUsed(levelIdentity<StageView>(compared.level, aligned ? pictureAxis : undefined, axis), answers);
+}
+
+const UNKNOWN_LEVEL: LevelInput = { unit: '', ref: 1, levelReferenceLabel: '', calibrationStatus: 'uncalibrated', fullScale: false };

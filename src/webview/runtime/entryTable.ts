@@ -12,7 +12,8 @@ import { baseName } from '../../shared/analysis/entryMetadata';
 import { median } from '../../shared/dataset/distribution';
 import { powerMeanOrNull } from '../../shared/utils/levels';
 import { spacingDecimals } from '../plot/plotText';
-import { scanLevelKey, type FigureColumns } from './figureModel';
+import { folderReference, scanLevelKey, type FigureColumns, type FolderReference } from './figureModel';
+import { scanAnswer, type ScanAnswer } from './answerStore';
 
 
 /** A group of fewer files says nothing about which band separates them. */
@@ -99,6 +100,8 @@ export function regionLabel(region: { start: number; end: number } | null): stri
 export interface EntryFile {
     filePath: string;
     result?: ScanResult;
+    /** Its result is of an earlier recipe, version or calibration (the answer store's stale): shown greyed, never counted or written. */
+    stale?: boolean;
 }
 
 export interface EntryRow {
@@ -130,6 +133,8 @@ export interface EntryRow {
     levels?: (number | null)[];
     /** Set on a derived row: its parent's path and region. */
     derived?: { parent: string; region: string };
+    /** Its values are of an earlier recipe, version or calibration: shown greyed, never in a group, a choice or the CSV. */
+    stale?: boolean;
 }
 
 export interface EntryModel {
@@ -138,6 +143,8 @@ export interface EntryModel {
     /** Checked columns first, then the rest of the metadata table's columns. */
     columns: EntryConditionColumn[];
     groups: Map<string, EntryRow[]>;
+    /** The folder's one level reference (figureModel.folderReference), of its fresh results: the one choice everything takes. */
+    reference: FolderReference;
 }
 
 /**
@@ -179,7 +186,8 @@ function mismatchLabel(result: MeasuredResult, reference: MeasuredResult): strin
     if (input.channels.length !== base.channels.length) parts.push(`${input.channels.length} ch`);
     if (input.fs !== base.fs) parts.push(`${input.fs % 1000 === 0 ? input.fs / 1000 : (input.fs / 1000).toFixed(1)} kHz`);
     // What differs of the level identity: the unit, else the reference value or its name (its level reference).
-    if (scanLevelKey(result) !== scanLevelKey(reference)) parts.push(input.unit !== base.unit ? input.unit : input.levelReferenceLabel);
+    // A unit is named only when it has one (a raw input of no unit says its level reference: "dB re 1 input unit").
+    if (scanLevelKey(result) !== scanLevelKey(reference)) parts.push(input.unit && input.unit !== base.unit ? input.unit : input.levelReferenceLabel);
     if (result.specVersion !== reference.specVersion) parts.push(`v${result.specVersion}`);
     return `≠ ${parts.join(' · ')}`;
 }
@@ -260,11 +268,18 @@ export function buildEntryModel(
     const columns = conditionColumns(table);
     const results = new Map<string, MeasuredResult>();
     files.forEach(file => { if (isMeasured(file.result)) results.set(file.filePath, file.result); });
-    // Rows are compared only with files of the most common shape (channels, rate, unit, spec version).
+    const fresh = new Set(files.filter(file => !file.stale && isMeasured(file.result)).map(file => file.filePath));
+    // The folder's one level reference (figureModel.folderReference: the value columns' heading, the overview, the
+    // distribution and a group base with nothing compared take the same), of the fresh results in the table's order.
+    const folder = folderReference(files.map(file => (fresh.has(file.filePath) ? scanAnswer(file.filePath, file.result) : { state: 'stale' as const, identity: scanAnswer(file.filePath, undefined).identity })) as ScanAnswer[]);
+    // Rows are compared only with files of that reference and the most common shape among them (channels, rate, spec),
+    // a tie going to the shape first in the table; a stale result is never counted.
     const counts = new Map<string, { count: number; result: MeasuredResult }>();
-    results.forEach(result => {
+    files.forEach(file => {
+        const result = results.get(file.filePath);
+        if (!result || !fresh.has(file.filePath) || scanLevelKey(result) !== folder.level) return;
         const key = profile(result);
-        counts.set(key, { count: (counts.get(key)?.count ?? 0) + 1, result });
+        counts.set(key, { count: (counts.get(key)?.count ?? 0) + 1, result: counts.get(key)?.result ?? result });
     });
     const reference = [...counts.values()].sort((a, b) => b.count - a.count)[0]?.result;
     const rows: EntryRow[] = files.map(file => {
@@ -279,6 +294,7 @@ export function buildEntryModel(
         if (!result) return row;
         if (!result.ok) { row.status = 'failed'; row.reason = result.reason; return row; }
         if (!isMeasured(result)) return row;
+        if (file.stale) row.stale = true;
         if (reference && profile(result) !== profile(reference)) {
             row.status = 'mismatch';
             row.mismatch = mismatchLabel(result, reference);
@@ -290,16 +306,17 @@ export function buildEntryModel(
         if (conditions.length) row.group = JSON.stringify(conditions);
         return row;
     });
-    const band = options.band ?? mostTellingBand(rows.filter(row => row.status === 'ok'), results);
+    const band = options.band ?? mostTellingBand(rows.filter(row => row.status === 'ok' && !row.stale), results);
     const groups = new Map<string, EntryRow[]>();
     for (const row of rows) {
         const result = results.get(row.filePath);
         if (row.status !== 'ok' || !result) continue;
+        // A stale row keeps its values to be shown greyed; it is in no group.
         row.values = fileValues(result, band);
         row.levels = bandLevels(result);
-        if (row.group) groups.set(row.group, [...(groups.get(row.group) ?? []), row]);
+        if (row.group && !row.stale) groups.set(row.group, [...(groups.get(row.group) ?? []), row]);
     }
-    return { rows: withDerived(fileOrder(rows, table), options.derived ?? [], band), band, columns, groups };
+    return { rows: withDerived(fileOrder(rows, table), options.derived ?? [], band), band, columns, groups, reference: folder };
 }
 
 /**
@@ -449,6 +466,8 @@ export interface EntryMeasure {
     band: number | null;
     peak: { hz: number; db: number } | null;
     count: number;
+    /** What the base left out of its set, with why ("1 still computing"): written beside its n. */
+    left: string;
 }
 
 /**
@@ -456,25 +475,26 @@ export interface EntryMeasure {
  * the table's order; the same input always gives the same bytes. A file row's Δ columns are `measure`'s: the base the
  * screen, the comparison and the report measure from, so the CSV never has a Δ of its own.
  */
-export function entryCsv(model: EntryModel, labels: { file: string; condition: (n: number) => string; regionStart: string; regionEnd: string; level: FigureColumns; peak: string; bandLevel: FigureColumns; deltaLeq: string; deltaBand: string; groupSize: string; status: string },
+export function entryCsv(model: EntryModel, labels: { file: string; condition: (n: number) => string; regionStart: string; regionEnd: string; level: FigureColumns; peak: string; bandLevel: FigureColumns; deltaLeq: string; deltaBand: string; groupSize: string; groupLeft: string; status: string; stale: string },
     measure: (filePath: string) => EntryMeasure | null): string {
     // Every metadata column goes out, checked ones first, so the CSV keeps what the table was read from.
-    const header = [labels.file, ...model.columns.map((column, index) => column.name || labels.condition(index + 1)), labels.regionStart, labels.regionEnd, labels.level.level, labels.level.reference, `${labels.peak} Hz`, `${labels.peak} dB`, labels.bandLevel.level, labels.bandLevel.reference, labels.deltaLeq, labels.deltaBand, labels.groupSize, labels.status];
+    const header = [labels.file, ...model.columns.map((column, index) => column.name || labels.condition(index + 1)), labels.regionStart, labels.regionEnd, labels.level.level, labels.level.reference, `${labels.peak} Hz`, `${labels.peak} dB`, labels.bandLevel.level, labels.bandLevel.reference, labels.deltaLeq, labels.deltaBand, labels.groupSize, labels.groupLeft, labels.status];
     const dB = (value: number | null): string => csvNumber(value, 1);
     const lines = [header.map(csvCell).join(',')];
     for (const row of model.rows) {
-        const ok = row.status === 'ok';
+        // A row of an earlier recipe, version or calibration writes none of its numbers, and says so.
+        const ok = row.status === 'ok' && !row.stale;
         // A derived row keeps the Δ it was fixed with; a file row is measured against the base it has now.
         const now = ok && !row.derived ? measure(row.filePath) : null;
-        const delta = row.derived ? { leq: row.delta.leq, band: row.delta.band, hz: row.values.peak, peak: row.delta.peak, count: null }
-            : { leq: now?.leq ?? null, band: now?.band ?? null, hz: now?.peak?.hz ?? null, peak: now?.peak?.db ?? null, count: now?.count || null };
+        const delta = row.derived ? { leq: row.delta.leq, band: row.delta.band, hz: row.values.peak, peak: row.delta.peak, count: null, left: '' }
+            : { leq: now?.leq ?? null, band: now?.band ?? null, hz: now?.peak?.hz ?? null, peak: now?.peak?.db ?? null, count: now?.count || null, left: now?.left ?? '' };
         lines.push([
             row.derived ? baseName(row.derived.parent) : row.name,
             // The region the numbers were measured over, never blank: the scan skips the file's guarded ends.
             ...row.cells, ...regionCells(ok ? measuredRegion(row.derived?.region, row.durationS) : row.derived?.region),
             ok ? dB(row.values.leq) : null, ok ? levelReferenceCell(row, labels.level) : null, ok ? bandCentreCell(delta.hz) : null, ok ? dB(delta.peak) : null, ok ? dB(row.values.band) : null, ok ? levelReferenceCell(row, labels.bandLevel) : null,
-            dB(delta.leq), dB(delta.band), delta.count ? String(delta.count) : null,
-            row.status === 'failed' ? '✕' : row.status === 'mismatch' ? row.mismatch ?? '' : '',
+            dB(delta.leq), dB(delta.band), delta.count ? String(delta.count) : null, delta.left || null,
+            row.stale && !row.derived ? labels.stale : row.status === 'failed' ? '✕' : row.status === 'mismatch' ? row.mismatch ?? '' : '',
         ].map(csvCell).join(','));
     }
     return '﻿' + lines.join('\r\n') + '\r\n';

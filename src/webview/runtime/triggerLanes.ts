@@ -7,6 +7,7 @@ import type { StageView } from '../../shared/protocol/backendProtocol';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { clearSideAxis, paintOverlay } from './stagePanes';
 import { withMinus } from '../plot/plotText';
+import { uncalibratedUnits } from '../../shared/utils/format';
 import { byLevelKey, dataRange, levelKeyOf, membersOf, narrowedRange, rangeWith, roundedRange, type FigureNames, type FigureRange } from './figureModel';
 import type { Drawn, StageTrack } from './trackStagePainter';
 import type { PlotWindow } from './plotInteraction';
@@ -80,10 +81,11 @@ export function paintTriggerLanes(frame: TriggerLanesFrame): number {
         const events = frame.events(track.filePath) ?? [];
         const out = new Set(frame.excluded(track.filePath));
         // Where each event used was cut (its pre-trigger part and the rest of its length), and the level the trigger
-        // fires at, named with its value and unit: guides the plot component draws over the signal.
+        // fires at, named with its value and unit (a signal of no unit: the axis's own, "input unit"): guides the
+        // plot component draws over the signal.
         const guides = view ? {
             spans: events.filter(event => !out.has(event.id)).map(event => ({ start: event.time - trigger.pre, end: event.time - trigger.pre + trigger.duration })),
-            level: { value: trigger.threshold, label: strings.stageThreshold.replace('{value}', withMinus(String(trigger.threshold))).replace('{unit}', view.unit ?? '').trim() },
+            level: { value: trigger.threshold, label: strings.stageThreshold.replace('{value}', withMinus(String(trigger.threshold))).replace('{unit}', view.unit || uncalibratedUnits(!track.input || track.input.fullScale).linear).trim() },
         } : undefined;
         // The lanes' own zoom (their time is the recording's): the vertical part narrows the level range.
         const { x, y } = frame.window;

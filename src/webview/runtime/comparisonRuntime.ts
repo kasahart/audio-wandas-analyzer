@@ -81,7 +81,7 @@ import {
     spectrumSlicesFromResult,
     withCalibrationWords,
 } from './spectrumRuntime';
-import { emptyFigure, frequencyTitle, laneAmplitudeRange, levelKeyOfReading, levelTitle as figureLevelTitle, paneNames, plainNames, plainRange, shownLevelOf, titleOf, uncalibratedWord, type FigureTitle } from './figureModel';
+import { baseLevelOf, emptyFigure, frequencyTitle, laneAmplitudeRange, levelKeyOfReading, levelTitle as figureLevelTitle, paneNames, plainNames, plainRange, shownLevelOf, titleOf, uncalibratedWord, type FigureTitle } from './figureModel';
 import { normalizeRuntimeState, PersistedStateStore } from './stateStore';
 import { ComparisonTestBridge } from './testBridge';
 import { RuntimeEventFeed } from './runtimeEvents';
@@ -92,11 +92,11 @@ import { installSpectrogramSettingsPopover } from './spectrogramSettingsPopover'
 import { installReanalyzeOverlay } from './reanalyzeOverlay';
 import { SpectrogramSettingsStore } from './spectrogramSettingsStore';
 import { createEntryScreen } from './entryRuntime';
-import { regionResults } from './entryBase';
+import { binnedAnswers, regionAnswers } from './entryBase';
 import { diffHeadline, trackLevelInput, withBins } from './comparePanes';
 import { baseName } from '../../shared/analysis/entryMetadata';
 import { channelResult } from '../../shared/recipe/channelSelection';
-import { baseLevelOf, baseUsed, reportFiles, reportStale } from './compareReport';
+import { baseUsed, reportFiles, reportStale } from './compareReport';
 import { regionLabel } from './entryTable';
 import { activeSlotReferenced, recipeKey } from '../../shared/recipe/recipeSteps';
 import { openedRecipe } from '../../shared/recipe/recipeOpen';
@@ -1459,7 +1459,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         recipe: () => entryScreen.recipes(comparedChannels()),
         slots: () => entryScreen.slots(),
         basePaths: (comparePath, group) => entryScreen.basePaths(comparePath, group),
-        baseTitle: (comparePath, group, more) => entryScreen.baseTitle(comparePath, group, undefined, more),
+        baseHeading: (comparePath, group, set) => entryScreen.baseHeading(comparePath, group, set),
         levelOf: path => entryScreen.levelOf(path),
         stageChannel: (path, comparePath, group) => entryScreen.stageChannel(path, comparePath, group),
         rowInfo: path => entryScreen.rowInfo(path),
@@ -1494,7 +1494,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 // the step reads), so the level axis names its reference (C1), never a bare dB for channels calibrated apart.
                 const channels = channelsForResult(result);
                 const read = entryScreen.stageChannel(result.filePath, result.filePath);
-                const input = trackLevelInput(read !== null && read !== undefined && channels[read] ? [channels[read]] : channels, entryResults.get(result.filePath)?.input);
+                // Only a fresh scan's (the answer store's ready answer): a stale one's reference is of an earlier calibration.
+                const input = trackLevelInput(read !== null && read !== undefined && channels[read] ? [channels[read]] : channels, entryScreen.levelOf(result.filePath));
                 tracks.push({ filePath: result.filePath, color: trackColor(i), canvas: canvasById(document, trackCanvasId(i, 0)), axis: canvasById(document, trackAxisCanvasId(i, 0)), input });
             });
             return tracks;
@@ -1558,21 +1559,22 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const data = entryScreen.compareData();
             // Over a region, the files' results over it take the entry table's place: only those (a base recording
             // whose region value is not in yet is pending, never measured by its whole file instead).
-            const results = region ? regionResults(measured) : data.results;
-            // The compared file as the channel it is compared as, against its base as the table defines it.
+            // Of the answers the comparison is of: the store's (a stale compared or slot-0 recording has none ready), or the
+            // region's scans made now. The compared file as the channel it is compared as, against its base as the table defines it.
+            const source = region ? regionAnswers(measured) : undefined;
             const channel = entryScreen.stageChannel(comparePath, comparePath, groupBase);
-            const result = channel ? channelResult(results.get(comparePath), channel) : results.get(comparePath);
-            const comparison = entryScreen.comparison(comparePath, groupBase, results);
-            if (!result?.ok || !comparison.base || comparison.blocked) return STR.compareRefuseFix.replace('{why}', diffHeadline(comparison, STR));
-            // The base's set, its definition and its name are of the same results the Δ is (over a region, the region's
-            // scans); a base recording still being measured there leaves nothing to fix yet.
-            const definition = entryScreen.baseDefinition(comparePath, groupBase, results);
-            if (definition.pending) return STR.compareRefuseFix.replace('{why}', STR.fixBasePending);
-            const used = baseUsed(comparison, results);
-            const baseLabel = definition.kind === 'file' ? definition.file ?? baseName(data.slots[0] ?? '') : entryScreen.baseTitle(comparePath, groupBase, results);
+            const comparison = entryScreen.comparison(comparePath, groupBase, source);
+            const result = comparison.compareResult;
+            if (!result || !comparison.base || !comparison.baseSet || comparison.blocked) return STR.compareRefuseFix.replace('{why}', diffHeadline(comparison, STR));
+            // The base's set, its definition and its name are of the same answers the Δ is; a base recording still being
+            // measured there leaves nothing to fix yet.
+            const definition = entryScreen.baseDefinition(comparePath, groupBase, source);
+            if (definition.pending || comparison.pending) return STR.compareRefuseFix.replace('{why}', STR.fixBasePending);
+            const used = baseUsed(comparison);
+            const baseLabel = definition.kind === 'file' ? definition.file ?? baseName(data.slots[0] ?? '') : entryScreen.baseTitle(comparePath, groupBase, source);
             entryScreen.addDerived({
                 parentPath: comparePath, ...(channel ? { ch: channel } : {}), region: regionLabel(region), result, recipeKey: recipeKey(data.runRecipe),
-                base: { leq: comparison.base.leq, bands: comparison.base.bands, label: baseLabel, paths: used.paths, definition, level: baseLevelOf(used.paths, results) },
+                base: { leq: comparison.base.leq, bands: comparison.base.bands, label: baseLabel, paths: [...used.paths], definition, level: baseLevelOf(comparison.baseSet) },
             });
             return null;
         },
@@ -1580,12 +1582,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const data = entryScreen.compareData();
             // Every bin of the files' spectra, for the figures' median and Δ: over a region, the region's metrics carry
             // them; without one, the whole files' scans give them to the table's results of the same spectrum.
-            const results = region ? regionResults(measured) : withBins(data.results, binned);
+            const results = region ? new Map(measured) : withBins(data.results, binned);
+            // Every count, median and Δ of the report is of the answers: the store's with the bins, or the region's made now.
+            const source = region ? regionAnswers(measured) : binnedAnswers({ answers: paths => entryScreen.answersOf(paths) }, binned);
             const { folder, files } = reportFiles(document, {
                 model: data.model, results, slots: data.slots, region, recipe: entryScreen.recipes(comparedChannels())?.runRecipe ?? data.recipe ?? null, recipeName: STR.stepRecipeName, now: new Date(), showDiff,
                 // The comparisons as the table defines their bases (grouping, filters, channel), and what it was narrowed to.
-                compare: path => entryScreen.comparison(path, false, results),
-                rowInfo: path => ({ ...entryScreen.rowInfo(path), channel: entryScreen.stageChannel(path, path), base: entryScreen.baseDefinition(path, false, results) }),
+                compare: path => entryScreen.comparison(path, false, source),
+                rowInfo: path => ({ ...entryScreen.rowInfo(path), channel: entryScreen.stageChannel(path, path), base: entryScreen.baseDefinition(path, false, source) }),
                 selection: entryScreen.selection(),
                 derived: entryScreen.derivedRows(),
                 slotReference: activeSlotReferenced(data.recipe),

@@ -15,7 +15,8 @@ import { powerMeanDb, powerMeanOrNull } from '../../shared/utils/levels';
 import { axisValueAt, levelBinsOf } from './stagePanes';
 import { localLine, type InlineFullSource } from './fullRead';
 import { noNegativeZero, signedNumberText, withMinus } from '../plot/plotText';
-import { levelKeyOf, oneLevelKey, scanSet } from './figureModel';
+import { excludedFor, levelKeyOf, type FigureSet } from './figureModel';
+import type { Answer } from './answerTypes';
 
 type ScanOk = ScanResult & { ok: true };
 
@@ -64,6 +65,10 @@ export interface CompareModel {
     blocked?: 'self' | 'single' | 'region' | 'unit';
     /** A file of the compare or its base has no result yet (a scan is running): nothing here is settled. */
     pending?: boolean;
+    /** The base's one figure set: its n, files and what it left out with why (null: no base asked). */
+    baseSet: FigureSet<ScanOk> | null;
+    /** The compared recording's value as compared (its ready answer's). */
+    compareResult?: ScanOk;
 }
 
 export type CompareStrings = Pick<UiStrings, 'axisUncalibrated' | 'compareLevelsAt' | 'compareDiffShow' | 'compareDiffHide' | 'hintDiffToggle' | 'entryBaseGroup' | 'entryBase' | 'entryCount' | 'compareKeyHold' | 'compareKeyBack' | 'comparePlay' | 'compareDelta' | 'compareNotEntry' | 'comparePending' | 'compareBaseEntryRegion' | 'compareReport' | 'reportSaved' | 'compareSelfBase' | 'compareSingleBase' | 'compareRegionDiffers' | 'compareUnitDiffers' | 'hintBaseCard' | 'hintSlotCard' | 'hintRegionMark' | 'hintCompareMark' | 'compareNoSignificant' | 'slotEmpty'>;
@@ -132,39 +137,13 @@ export function levelIdentityOf(input: Pick<LevelInput, 'unit' | 'ref' | 'levelR
 }
 
 /**
- * A fixed difference (D) measured again from `scans.fresh()`: the answer store's results of the current chain and
- * calibration (or a region's scans just made under it). Taken from the store, never from a map of every result: a
- * file or base recording whose result is of an earlier chain has none there, so the D row stays ≠ (baseOf needs them all).
+ * The median of a figure set's recordings as a base: each one spectrum, Leq and band row (channels power-averaged),
+ * and the median of those; null when the set has none. It takes only a FigureSet, so the median is of the very
+ * recordings the set counts, names and writes: the comparison's base, the distribution's base line and a fixed Δ.
  */
-export function remeasuredFrom(row: DerivedRow, scans: { fresh(): ReadonlyMap<string, ScanResult> }, recipeKey: string): DerivedRow | null {
-    const fresh = scans.fresh();
-    const result = fresh.get(row.parentPath);
-    const base = baseOf(fresh, row.base.paths ?? [], result);
-    if (!result?.ok || !base) return null;
-    return { ...row, result, base: { ...row.base, ...base }, recipeKey, stale: false };
-}
-
-/**
- * The base a fixed difference is measured against, from these files' results: one file, or their median. None when
- * the files, or the file measured against them (`compared`), have their levels in different units.
- */
-export function baseOf(results: ReadonlyMap<string, ScanResult>, paths: readonly string[], compared?: ScanResult): { leq: number; bands: (number | null)[] } | null {
-    const scans = paths.map(path => results.get(path));
-    if (!oneLevelKey(compared ? [compared, ...scans] : scans)) return null;
-    const sides = scans.filter((result): result is ScanOk => !!result?.ok).map(fileSide);
-    if (!sides.length || sides.length < paths.length) return null;
-    const side = sides.length === 1 ? sides[0] : medianSide(sides);
-    return { leq: side.leq, bands: side.bands };
-}
-
-/**
- * The median of a group's files as a base: their scans that read their file, each one spectrum, Leq and band row
- * (channels power-averaged), and the median of those; null when none has been read yet. The comparison's base group
- * and the distribution's base line both take it here, so the line sits where the Δ is measured from.
- */
-export function groupMedian(results: ReadonlyMap<string, ScanResult>, paths: readonly string[]): Omit<CompareSide, 'title' | 'filePaths'> | null {
-    const sides = paths.map(path => results.get(path)).filter((result): result is ScanOk => !!result?.ok).map(fileSide);
-    return sides.length ? medianSide(sides) : null;
+export function setMedian(set: FigureSet<ScanOk>): Omit<CompareSide, 'title' | 'filePaths'> | null {
+    const sides = set.used.map(item => fileSide(item.value));
+    return sides.length ? sides.length === 1 ? sides[0] : medianSide(sides) : null;
 }
 
 function medianSide(sides: Array<Omit<CompareSide, 'title' | 'filePaths'>>): Omit<CompareSide, 'title' | 'filePaths'> {
@@ -195,97 +174,79 @@ function medianSide(sides: Array<Omit<CompareSide, 'title' | 'filePaths'>>): Omi
 }
 
 /**
- * The comparison for one compared file. The base is the file in slot 0 when there is one, otherwise the
- * median of the other files of the compared file's condition (as in the entry table, a file is never
- * part of its own base).
+ * What a comparison is of, each part one figure set (figureModel.figureUsed) of the compared recording's identity:
+ * the compared recording's answer, and its base: one file (slot 0: its own answer, the set it is counted in and the
+ * set of its condition's other recordings, which tell how far files differ by chance), or a group's set.
+ */
+export interface CompareInput {
+    compared: Answer<ScanOk> | undefined;
+    base:
+        | { kind: 'file'; answer: Answer<ScanOk>; set: FigureSet<ScanOk>; peers: FigureSet<ScanOk> }
+        | { kind: 'group'; set: FigureSet<ScanOk>; title: string }
+        | null;
+}
+
+/**
+ * The comparison for one compared file against its base. Every number of it (the base's median, its n and files,
+ * the band spread that picks the headline bands, the bins) is of the sets it is given: none is gathered here.
  */
 export function buildCompareModel(
-    model: EntryModel,
-    results: ReadonlyMap<string, ScanResult>,
-    comparePath: string | null,
-    basePath: string | null,
+    input: CompareInput,
     strings: CompareStrings,
     /** The base group kept the entry table's region while the compared file has the comparison's. */
     entryRegionBase = false,
     /** How far below the loudest band a band may be and still head the list (Infinity: no limit). */
     headlineWithinDb = HEADLINE_WITHIN_DB,
-    /** The base group as the entry table defines it (its grouping, filters and channel), instead of the condition's other files. */
-    group?: { paths: readonly string[]; title: string; pending?: readonly string[] },
 ): CompareModel {
-    const ok = (path: string | null): ScanOk | undefined => {
-        const result = path ? results.get(path) : undefined;
-        return result?.ok ? result as ScanOk : undefined;
-    };
-    const compared = ok(comparePath);
+    const comparedAnswer = input.compared;
+    const comparePath = comparedAnswer?.identity.path ?? null;
+    const compared = comparedAnswer?.state === 'ready' ? comparedAnswer.value : undefined;
     const compare: CompareSide | null = compared && comparePath ? { title: baseName(comparePath), filePaths: [comparePath], ...fileSide(compared) } : null;
     let base: CompareSide | null = null;
+    let baseSet: FigureSet<ScanOk> | null = null;
     /** The compared file is the only one of its condition: there is nothing to measure it against. */
     let loneGroup = false;
     /** Per band, how far a file of the base's condition typically sits from it by chance (3 MAD, at least 1.5 dB). */
     let bandSpread: number[] | null = null;
-    /** The base group's recordings, measured or not: one still scanning keeps the comparison pending. */
-    let candidates: readonly string[] = [];
-    /** Recordings of the base group left out for being of another level identity than the compared one (R1). */
-    let otherReference = false;
-    const single = ok(basePath);
-    if (single && basePath) {
-        base = { title: `${strings.entryBase} · ${baseName(basePath)}`, filePaths: [basePath], ...fileSide(single) };
-        // A single base file still belongs to a condition: its other files (not the base, not the compare)
-        // tell how far files of that condition differ by chance. Too few of them: the 1.5 dB floor alone.
-        const baseRow = model.rows.find(item => item.filePath === basePath);
-        const peerPaths = (baseRow?.group ? model.groups.get(baseRow.group) ?? [] : []).map(member => member.filePath).filter(path => path !== basePath && path !== comparePath);
-        const peers = scanSet(results, peerPaths, single).used.map(item => item.value);
-        bandSpread = peers.length >= 3 ? spreadOf(peers.map(fileSide).map(side => side.bands)) : BAND_CENTERS_HZ.map(() => MIN_HEADLINE_DB);
-    } else if (basePath) {
-        // Slot 0's recording failed or is still scanning: there is nothing to measure against (never another base instead).
-    } else if (comparePath && group) {
-        // The figure's set (figureModel.scanSet): the measured recordings of the compared one's level identity and axis.
-        const set = scanSet(results, group.paths.filter(path => path !== comparePath), compared);
-        // The group's recordings still being measured (left out of its set before it came here) keep it pending too.
-        candidates = [...set.excluded.filter(item => item.reason === 'pending').map(item => item.path), ...(group.pending ?? [])];
-        otherReference = set.excluded.some(item => item.reason === 'other-reference');
-        const sides = set.used.map(item => item.value);
-        const middle = groupMedian(results, set.paths);
+    const spreadFrom = (set: FigureSet<ScanOk>): number[] => (set.n >= 3 ? spreadOf(set.used.map(item => fileSide(item.value).bands)) : BAND_CENTERS_HZ.map(() => MIN_HEADLINE_DB));
+    let single: ScanOk | undefined;
+    let basePath: string | null = null;
+    const of = input.base;
+    if (of?.kind === 'file') {
+        basePath = of.answer.identity.path;
+        baseSet = of.set;
+        // Slot 0's own value is shown even when its reference differs (a blocked Δ still shows both levels), never counted then.
+        single = of.answer.state === 'ready' ? of.answer.value : undefined;
+        // Its file is named (its reference too, on its own axis); what it counts is its set's (n 0 when withheld).
+        if (single) base = { title: `${strings.entryBase} · ${baseName(basePath)}`, filePaths: [basePath], ...fileSide(single) };
+        if (single) bandSpread = spreadFrom(of.peers);
+    } else if (of?.kind === 'group' && comparePath) {
+        baseSet = of.set;
+        const middle = setMedian(of.set);
         if (middle) {
-            bandSpread = sides.length >= 3 ? spreadOf(sides.map(fileSide).map(side => side.bands)) : BAND_CENTERS_HZ.map(() => MIN_HEADLINE_DB);
-            // The base names the recordings its median is of: those measured, never a failed or still-scanning one.
-            base = { title: group.title, filePaths: set.paths, ...middle };
-        } else loneGroup = !otherReference;
-    } else if (comparePath) {
-        const row = model.rows.find(item => item.filePath === comparePath);
-        const set = scanSet(results, (row?.group ? model.groups.get(row.group) ?? [] : []).map(member => member.filePath).filter(path => path !== comparePath), compared);
-        candidates = set.excluded.filter(item => item.reason === 'pending').map(item => item.path);
-        otherReference = set.excluded.some(item => item.reason === 'other-reference');
-        const sides = set.used.map(item => item.value);
-        if (row && sides.length) {
-            bandSpread = sides.length >= 3 ? spreadOf(sides.map(fileSide).map(side => side.bands)) : BAND_CENTERS_HZ.map(() => MIN_HEADLINE_DB);
-            base = {
-                title: [strings.entryBaseGroup, ...row.conditions, strings.entryCount.replace('{count}', String(set.n))].join(' · '),
-                filePaths: set.paths,
-                ...medianSide(sides.map(fileSide)),
-            };
-        } else if (row?.group && !otherReference) loneGroup = true;
+            bandSpread = spreadFrom(of.set);
+            // The base names the recordings its median is of: its set's, never a failed, stale or still-scanning one.
+            base = { title: of.title, filePaths: [...of.set.paths], ...middle };
+        } else loneGroup = !excludedFor(of.set, 'other-reference');
     }
-    // A member without any result yet is still being scanned; a failed one is simply left out.
-    const basePaths = single && basePath ? [basePath] : base?.filePaths ?? [];
-    const pending = !!comparePath && [comparePath, ...(basePath ? [basePath] : candidates)].some(path => !results.has(path));
+    const otherReference = !!baseSet && excludedFor(baseSet, 'other-reference') > 0 && (of?.kind === 'file' || !baseSet.n);
+    // Nothing settled while the compared recording or a base recording is still being asked for.
+    const waiting = (state: string | undefined): boolean => state === 'pending' || state === 'missing';
+    const pending = !!comparePath && (waiting(comparedAnswer?.state) || (!!baseSet && excludedFor(baseSet, 'pending', 'missing') > 0));
     const fs = (compared ?? single)?.input?.fs ?? 0;
     const points = (compare ?? base)?.spectrumDb.length ?? 0;
     const frequencies = spectrumFrequencies(fs / 2, points);
-    // A base of another length (another sample rate) has no common axis; the entry table marks such rows ≠.
     const sameFile: CompareModel['blocked'] = loneGroup && compare ? 'single'
         : !base || !compare ? undefined
             : single && basePath === comparePath ? 'self'
                 : !single && entryRegionBase ? 'region' : undefined;
-    // Levels in another unit, reference or calibration than the compared file's have no difference (nor a median).
-    const baseScans = basePaths.map(path => results.get(path));
-    // A group of another level identity only (all left out, otherReference) has no Δ either: blocked 'unit', not 'single'.
-    const otherUnit = !!compared && ((!!base && !oneLevelKey([compared, ...baseScans])) || (!base && otherReference));
-    const blocked: CompareModel['blocked'] = sameFile ?? (otherUnit ? 'unit' : undefined);
+    // Levels of another level identity than the compared file's have no difference (nor a median): blocked 'unit'.
+    const blocked: CompareModel['blocked'] = sameFile ?? (compared && otherReference ? 'unit' : undefined);
     const baseSide: CompareSide | null = base;
     const comparable = !blocked && !!baseSide && !!compare && baseSide.spectrumDb.length === compare.spectrumDb.length;
     const diffDb = comparable ? compare.spectrumDb.map((level, index) => level - baseSide.spectrumDb[index]) : null;
-    const bins = binsOf(results, comparePath, basePaths, base, compare, comparable, fs / 2);
+    const baseValues = single ? [single] : baseSet ? baseSet.used.map(item => item.value) : [];
+    const bins = binsOf(compared, baseValues, base, compare, comparable, fs / 2);
     const leq = comparable ? { base: baseSide.leq, compare: compare.leq, delta: levelDelta(compare.leq, baseSide.leq) } : null;
     const bandDeltas = comparable
         ? compare.bands.map((level, band) => {
@@ -305,23 +266,23 @@ export function buildCompareModel(
     const withinSpread = (band: number): boolean => !!bandSpread && size(band) <= bandSpread[band];
     const topBands = bandDeltas.flatMap((delta, band) => (delta === null || size(band) < SHOWN_ZERO_DB || withinSpread(band) || quiet(band) || size(band) < size(band - 1) || size(band) < size(band + 1) ? [] : [{ band, delta }]))
         .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta)).slice(0, 3);
-    // A blocked Δ still shows both levels; only the difference is withheld. A base whose own files mix units has no level.
-    const levels = blocked && base && compare && oneLevelKey(baseScans) ? { base: base.leq, compare: compare.leq, delta: Number.NaN } : blocked ? null : leq;
-    return { base, compare, diffDb, bins, frequencies, leq: levels, topBands, bandDeltas, ...(blocked ? { blocked } : {}), ...(pending ? { pending } : {}) };
+    // A blocked Δ still shows both levels; only the difference is withheld.
+    const levels = blocked && base && compare ? { base: base.leq, compare: compare.leq, delta: Number.NaN } : blocked ? null : leq;
+    return {
+        base, compare, diffDb, bins, frequencies, leq: levels, topBands, bandDeltas, baseSet, ...(compared ? { compareResult: compared } : {}),
+        ...(blocked ? { blocked } : {}), ...(pending ? { pending } : {}),
+    };
 }
 
 /**
  * The comparison's bins: the base's and the compared file's, and their difference bin by bin. Every file's bins must
  * be in and alike (one spacing, one count), else there are none, and the 192 points are drawn instead.
  */
-function binsOf(results: ReadonlyMap<string, ScanResult>, comparePath: string | null, basePaths: readonly string[], base: CompareSide | null, compare: CompareSide | null, comparable: boolean, nyquist: number): CompareModel['bins'] {
-    const spacings = [comparePath, ...basePaths].flatMap(path => {
-        const result = path ? results.get(path) : undefined;
-        return result?.ok && result.spectrumBinsDb ? [result.spectrumBinHz ?? 0] : [];
-    });
+function binsOf(compared: ScanOk | undefined, baseValues: readonly ScanOk[], base: CompareSide | null, compare: CompareSide | null, comparable: boolean, nyquist: number): CompareModel['bins'] {
+    const read = [...(compared ? [compared] : []), ...baseValues];
+    const spacings = read.flatMap(result => (result.spectrumBinsDb ? [result.spectrumBinHz ?? 0] : []));
     const hz = spacings[0];
-    const files = [comparePath, ...basePaths].filter(path => results.get(path ?? '')?.ok).length;
-    if (!hz || spacings.length < files || !(nyquist > SPECTRUM_MIN_HZ) || spacings.some(spacing => Math.abs(spacing - hz) > 1e-9 * hz)) return null;
+    if (!hz || spacings.length < read.length || !(nyquist > SPECTRUM_MIN_HZ) || spacings.some(spacing => Math.abs(spacing - hz) > 1e-9 * hz)) return null;
     const baseBins = base?.bins ?? null, compareBins = compare?.bins ?? null;
     if ((base && !baseBins) || (compare && !compareBins) || (baseBins && compareBins && baseBins.length !== compareBins.length)) return null;
     const diff = comparable && baseBins && compareBins ? compareBins.map((level, bin) => level - baseBins[bin]) : null;

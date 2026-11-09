@@ -236,9 +236,9 @@ function eventsOf(frame: Pick<StageFrame, 'excluded'>, path: string, view: Stage
 /**
  * The overlaid plot's lines: those without a role (each its own colour), the base, the other tracks, the compared file. The plot
  * draws them by level, the quietest on top (R6, paintOverlay). Each carries its legend name (the base's `baseLabel`), for the
- * readout of the line under the pointer.
+ * readout of the line under the pointer; a base group's waveform drawn each as it is says its own calibration (memberWord, R4).
  */
-export function overlayLayers(frame: Pick<StageFrame, 'comparePath' | 'role' | 'named' | 'excluded' | 'fullOf'> & Partial<Pick<StageFrame, 'baseInput'>>, plots: StagePlots<StageTrack>, baseLabel?: string, basePath?: string): StageLayer[] {
+export function overlayLayers(frame: Pick<StageFrame, 'comparePath' | 'role' | 'named' | 'excluded' | 'fullOf'> & Partial<Pick<StageFrame, 'baseInput'>>, plots: StagePlots<StageTrack>, baseLabel?: string, basePath?: string, memberWord: (path: string) => string = () => ''): StageLayer[] {
     const roleColor = (path: string, fallback: string): string => colorOf(frame.role, path, fallback);
     const nameOf = (path: string): string => frame.named(path, frame.role(path)).label;
     const { comparePath } = frame;
@@ -246,7 +246,7 @@ export function overlayLayers(frame: Pick<StageFrame, 'comparePath' | 'role' | '
         // The lines without a role, each in its recording's own colour, under the roles' ones.
         ...plots.others.filter(item => frame.role(item.track.filePath) === undefined).flatMap(item => (item.view ? [{ view: item.view, color: item.track.color, width: 1.2, label: nameOf(item.track.filePath), recording: item.track.filePath, ...eventsOf(frame, item.track.filePath, item.view) }] : [])),
         // A base group's waveforms, each thin in the base's colour (a group has no median signal).
-        ...plots.baseMembers.map(({ path, view }) => ({ view, color: ROLE_COLORS[0], width: 1, recording: path, label: baseLabel !== undefined ? `${baseLabel} · ${baseName(path)}` : baseName(path) })),
+        ...plots.baseMembers.map(({ path, view }) => ({ view, color: ROLE_COLORS[0], width: 1, recording: path, label: `${baseLabel !== undefined ? `${baseLabel} · ` : ''}${baseName(path)}${memberWord(path)}` })),
         ...(plots.base && !plots.baseMembers.length ? [{ view: plots.base, color: ROLE_COLORS[0], width: 2, ...(basePath !== undefined ? { recording: basePath } : frame.baseInput ? { levelInput: frame.baseInput } : {}), ...(baseLabel !== undefined ? { label: baseLabel } : {}), ...(basePath !== undefined ? eventsOf(frame, basePath, plots.base) : {}) }] : []),
         ...plots.others.filter(item => frame.role(item.track.filePath) !== undefined).flatMap(item => (item.view ? [{ view: item.view, color: roleColor(item.track.filePath, item.track.color), width: 1.8, label: nameOf(item.track.filePath), recording: item.track.filePath, ...eventsOf(frame, item.track.filePath, item.view) }] : [])),
         ...(plots.compare && comparePath ? [{ view: plots.compare, color: roleColor(comparePath, ROLE_COLORS[1]), width: 2.2, label: nameOf(comparePath), recording: comparePath, ...eventsOf(frame, comparePath, plots.compare) }] : []),

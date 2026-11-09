@@ -3,10 +3,12 @@ import test from 'node:test';
 import { getStrings } from '../shared/i18n/strings';
 import type { ScanResult } from '../shared/protocol/backendProtocol';
 import { datasetRows, type DatasetRow, type GroupId } from '../shared/dataset/datasetTable';
-import { channelOfRow, createEntryBase, regionResults, type EntryBaseDeps } from '../webview/runtime/entryBase';
+import { channelOfRow, createEntryBase, regionAnswers, type EntryBaseDeps } from '../webview/runtime/entryBase';
 import { buildEntryModel } from '../webview/runtime/entryTable';
-import { entryMeasure, remeasurable, reportCsv, reportStale } from '../webview/runtime/compareReport';
-import { scanAnswer } from '../webview/runtime/answerStore';
+import { entryMeasure, remeasured, reportCsv, reportStale } from '../webview/runtime/compareReport';
+import type { DerivedRow } from '../webview/runtime/entryTable';
+import { scanAnswer, type ScanAnswer } from '../webview/runtime/answerStore';
+import { folderReference } from '../webview/runtime/figureModel';
 
 const strings = getStrings('en');
 
@@ -32,15 +34,15 @@ function setup(options: { slots?: (string | null)[]; group?: GroupId; baseGroup?
     const rows: DatasetRow[] = datasetRows([...attributes.keys()], '/d', attributes, results);
     for (const path of options.pending ?? []) results.delete(path);
     const byKey = new Map(rows.map(row => [row.key, row]));
+    const answersOf = (paths: readonly string[]): ScanAnswer[] => paths.map(path => { const answer = scanAnswer(path, results.get(path)); return answer.state === 'ready' && options.stale?.includes(path) ? { ...answer, state: 'stale' } : answer; });
     const state = { slots: options.slots ?? [null, null, null, null], group: options.group ?? 'csv:rpm', baseGroup: options.baseGroup ?? null };
     const deps: EntryBaseDeps = {
         strings, slots: () => state.slots, rows: () => rows, rowOf: key => (key ? byKey.get(key) : undefined), pool: () => rows,
         group: () => state.group, baseGroup: () => state.baseGroup, narrowedBy: () => options.narrowedBy ?? [],
-        groupLabel: id => id.replace(/^csv:/, ''), rowName: key => (byKey.get(key)?.name ?? key), results,
+        groupLabel: id => id.replace(/^csv:/, ''), rowName: key => (byKey.get(key)?.name ?? key),
         // The answer store's answer: a result of an earlier chain is stale (shown greyed, never counted).
-        answersOf: paths => paths.map(path => { const answer = scanAnswer(path, results.get(path)); return answer.state === 'ready' && options.stale?.includes(path) ? { ...answer, state: 'stale' } : answer; }),
-        fresh: () => new Map([...results].filter(([path]) => !options.stale?.includes(path))),
-        entryModel: () => buildEntryModel([...results].map(([filePath, result]) => ({ filePath, result })), null),
+        answersOf: paths => answersOf(paths),
+        reference: () => folderReference(answersOf([...attributes.keys()])),
     };
     return { base: createEntryBase(deps), state, rows, results };
 }
@@ -148,7 +150,7 @@ test('one base group everywhere: the distribution\'s base line, the comparison\'
     const base = createEntryBase({
         strings, slots: () => state.slots, rows: () => rows, rowOf: key => (key ? byKey.get(key) : undefined), pool: () => rows.filter(row => row.filePath !== '/d/c.wav'),
         group: () => 'csv:line', baseGroup: () => state.baseGroup, narrowedBy: () => [], groupLabel: id => id.replace(/^csv:/, ''), rowName: key => key,
-        results, answersOf: paths => paths.map(path => scanAnswer(path, results.get(path))), fresh: () => results, entryModel: () => buildEntryModel([...results].map(([filePath, result]) => ({ filePath, result })), null),
+        answersOf: paths => paths.map(path => scanAnswer(path, results.get(path))), reference: () => folderReference(paths.map(path => scanAnswer(path, results.get(path)))),
     });
     const comparison = base.comparison('/d/e.wav');
     assert.deepEqual(comparison.base?.filePaths, ['/d/a.wav', '/d/b.wav'], 'not e itself, not d (compared), not c (excluded)');
@@ -157,8 +159,9 @@ test('one base group everywhere: the distribution\'s base line, the comparison\'
     assert.deepEqual(base.groupBase('band:0'), { group: 'L3', value: comparison.base?.bands[0] ?? null });
     assert.equal(base.fileComparison('/d/e.wav').leq?.delta, comparison.leq?.delta, 'the CSV\'s Δ is the comparison\'s');
     assert.equal(base.text(), base.resolve('/d/e.wav').title);
-    // A level of another reference than the axis's is not part of the line.
-    assert.deepEqual(base.groupBase('leq', path => path !== '/d/a.wav'), { group: 'L3', value: -25 });
+    // A level is drawn only on an axis of the set's own identity: on another reference's axis there is no line.
+    assert.deepEqual(base.groupBase('leq', folderReference(paths.map(path => scanAnswer(path, results.get(path)))).level), { group: 'L3', value: -27.5 });
+    assert.deepEqual(base.groupBase('leq', 'another reference'), { group: 'L3', value: null });
     // No compared row, a group chosen: the group's recordings but the compared slots, as the chip counts them.
     state.slots = [null, null, '/d/d.wav', null];
     state.baseGroup = 'L3';
@@ -181,7 +184,7 @@ test('only the entry base builds a comparison or a base group: no screen, file o
     const allowed: Record<string, string[]> = {
         'buildCompareModel(': ['webview/runtime/entryBase.ts', 'webview/runtime/comparePanes.ts'],
         'baseGroupMembers(': ['webview/runtime/entryBase.ts', 'shared/dataset/datasetTable.ts'],
-        'groupMedian(': ['webview/runtime/entryBase.ts', 'webview/runtime/comparePanes.ts'],
+        'setMedian(': ['webview/runtime/entryBase.ts', 'webview/runtime/comparePanes.ts', 'webview/runtime/compareReport.ts'],
     };
     for (const file of files(root)) {
         const text = readFileSync(file, 'utf8');
@@ -214,7 +217,7 @@ test('a base group counts, names and measures only the recordings its median is 
         // Every reader of the base (the comparison, the entry CSV, 報告.csv) sees the same recordings the median is of.
         for (const comparison of [base.comparison('/d/a.wav'), base.fileComparison('/d/a.wav')]) {
             assert.deepEqual(comparison.base?.filePaths, measured, what);
-            assert.equal(entryMeasure(comparison, 0, results)?.count, measured.length, what);
+            assert.equal(entryMeasure(comparison, 0, strings)?.count, measured.length, what);
             assert.equal(!!comparison.pending, pending > 0, `${what}: still computing keeps the comparison pending`);
         }
     }
@@ -232,22 +235,23 @@ test('a slot-0 recording that failed or is still computing leaves no base: never
 test('over a region the base counts what was measured there now: a recording stale in the table is in its median, one without a region value is pending, and the report\'s rows are of the current chain', () => {
     const { base, results } = setup({ slots: [null, '/d/a.wav', null, null], stale: ['/d/c.wav'] });
     const measured: Array<[string, ScanResult]> = [['/d/a.wav', scanned(30)], ['/d/b.wav', scanned(32)], ['/d/c.wav', scanned(36)]];
-    const region = regionResults(measured);
+    const region = regionAnswers(new Map(measured));
+    const regionMap = new Map(measured);
     const over = base.comparison('/d/a.wav', false, region);
     assert.deepEqual(over.base?.filePaths, ['/d/b.wav', '/d/c.wav'], 'c measured over the region now is counted');
     assert.equal(base.resolve('/d/a.wav', false, undefined, region).definition.count, 2);
     assert.ok(!base.resolve('/d/a.wav', false, undefined, region).title.includes(strings.dsBaseStale.replace('{n}', '1')));
-    // The same values as the table's own (with more in them, withBins): the table's state stands, c is stale.
-    assert.deepEqual(base.comparison('/d/a.wav', false, new Map(measured)).base?.filePaths, ['/d/b.wav']);
+    // The table's own answers (binnedAnswers keeps each one's state): the table's state stands, c is stale.
+    assert.deepEqual(base.comparison('/d/a.wav').base?.filePaths, ['/d/b.wav']);
     // A base recording the region has no value of yet is pending there, never its whole file's value instead.
-    const partial = regionResults(measured.slice(0, 2));
+    const partial = regionAnswers(new Map(measured.slice(0, 2)));
     const pending = base.resolve('/d/a.wav', false, undefined, partial);
     assert.equal(pending.definition.pending, 1);
     assert.deepEqual(base.comparison('/d/a.wav', false, partial).base?.filePaths, ['/d/b.wav']);
     // The report over the region (its stale set empty: every number is measured now) writes c's base as current: n 2.
-    const report = (stale: ReadonlySet<string>): string[][] => reportCsv({ model: buildEntryModel([...results].map(([filePath, result]) => ({ filePath, result })), null), results: region, slots: [null, '/d/a.wav', null, null],
+    const report = (stale: ReadonlySet<string>): string[][] => reportCsv({ model: buildEntryModel([...results].map(([filePath, result]) => ({ filePath, result })), null), results: regionMap, slots: [null, '/d/a.wav', null, null],
         compare: path => base.comparison(path, false, region), region: { start: 0, end: 1 }, recipe: null, recipeName: 'r', now: new Date(), stale }, strings).slice(1).trimEnd().split('\r\n').map(line => line.split(','));
-    const [header, row] = report(reportStale(new Set(['/d/c.wav']), region));
+    const [header, row] = report(reportStale(new Set(['/d/c.wav']), regionMap));
     assert.equal(row[header.indexOf(strings.entryCsvGroupSize)], '2');
     assert.ok(row.includes(strings.reportChainCurrent) && !row.includes(strings.reportChainPrevious), row.join(','));
     // Not measured afresh (no region's scans), the table's stale file marks the row of an earlier chain.
@@ -256,6 +260,8 @@ test('over a region the base counts what was measured there now: a recording sta
 
 test('a fixed Δ is measured again only when every file it was fixed with is counted now: one stale, pending, failed or of another reference keeps it ≠', () => {
     const ready = (path: string, result = scanned(40)) => scanAnswer(path, result);
+    const row: DerivedRow = { parentPath: '/d/a.wav', region: 'all', result: scanned(40), recipeKey: 'old', stale: true, base: { leq: 0, bands: [], paths: ['/d/b.wav', '/d/c.wav'] } };
+    const remeasurable = (compared: ScanAnswer, base: ScanAnswer[]): boolean => remeasured(row, compared, base, 'new') !== null;
     const compared = ready('/d/a.wav');
     assert.equal(remeasurable(compared, [ready('/d/b.wav'), ready('/d/c.wav')]), true);
     const b = ready('/d/b.wav');

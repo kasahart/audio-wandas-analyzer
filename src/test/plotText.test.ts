@@ -122,24 +122,25 @@ test('the same frequency and level read the same on the comparison, the cursor s
 
 test('the distribution reads a value as a plot does, not as the table column writes it (R7)', () => {
     assert.equal(formatValue('peak', 3150), '3150');
-    assert.equal(plotValueText('peak', 3150), '3.15 kHz');
-    assert.equal(plotValueText('peak', 250), '250 Hz');
-    assert.equal(plotValueText('leq', -12.34), '−12.3');
-    assert.equal(plotValueText('band:1000', 61), '61.0');
-    assert.equal(plotValueText('crest', 4.567), '4.57');
-    assert.equal(plotValueText('csv:score', 1234.5), '1230');
+    assert.equal(plotValueText('peak', 3150, undefined, 'dBFS'), '3.15 kHz');
+    assert.equal(plotValueText('peak', 250, undefined, 'dBFS'), '250 Hz');
+    // A level says its reference, as its axis does (R7): never a bare number.
+    assert.equal(plotValueText('leq', -12.34, undefined, 'dBFS'), '−12.3 dBFS');
+    assert.equal(plotValueText('band:1000', 61, undefined, 'dB SPL re 20 µPa'), '61.0 dB SPL re 20 µPa');
+    assert.equal(plotValueText('crest', 4.567, undefined, 'dBFS'), '4.57');
+    assert.equal(plotValueText('csv:score', 1234.5, undefined, 'dBFS'), '1230');
 });
 
 test('neighbouring distribution bins never read the same: the bins\' width adds the digits it needs (R7)', () => {
     const width = 1;
-    const edges = [3000, 3001, 3002, 3003].map(edge => plotValueText('csv:rpm', edge, width));
+    const edges = [3000, 3001, 3002, 3003].map(edge => plotValueText('csv:rpm', edge, width, ''));
     assert.deepEqual(edges, ['3000', '3001', '3002', '3003']);
-    assert.equal(plotValueText('csv:score', 0.1234, 0.001), '0.123');
-    assert.equal(plotValueText('csv:score', 12.3456, 0.01), '12.35');
-    assert.equal(plotValueText('leq', 61.234, 0.05), '61.23');
-    assert.equal(plotValueText('peak', 3150.4, 0.5), '3.1504 kHz');
+    assert.equal(plotValueText('csv:score', 0.1234, 0.001, ''), '0.123');
+    assert.equal(plotValueText('csv:score', 12.3456, 0.01, ''), '12.35');
+    assert.equal(plotValueText('leq', 61.234, 0.05, 'dBFS'), '61.23 dBFS');
+    assert.equal(plotValueText('peak', 3150.4, 0.5, ''), '3.1504 kHz');
     // Bins wider than three figures resolve: the value's own three figures.
-    assert.equal(plotValueText('csv:rpm', 3001, 100), '3000');
+    assert.equal(plotValueText('csv:rpm', 3001, 100, ''), '3000');
 });
 
 test('the lint stops a minus sign picked by hand, as a lone string or a replaced hyphen (R7)', () => {

@@ -2,38 +2,69 @@
  * What a compared row of the entry table is measured against: the slot-0 recording, else the median of a group
  * (the one chosen on the base chip, else the compared row's) over the table's filters (not the value's own range),
  * of the compared row's channel. The comparison, a fixed difference, the report and the slot chips all ask here,
- * so they name and measure the same base.
+ * so they name and measure the same base. Every base is one figure set (figureModel.figureUsed) of the answer
+ * store's answers: nothing here reads a map of results, so no stale or unjudged value is ever counted.
  */
 import type { UiStrings } from '../../shared/i18n/strings';
 import type { ScanResult } from '../../shared/protocol/backendProtocol';
 import { baseGroupMembers, fileOfKey, groupOf, isComputed, valueOf, type DatasetRow, type GroupId, type ValueId } from '../../shared/dataset/datasetTable';
 import { median } from '../../shared/dataset/distribution';
 import { channelResult } from '../../shared/recipe/channelSelection';
-import { buildCompareModel, groupMedian, type CompareModel } from './comparePanes';
+import { buildCompareModel, sameCondition, setMedian, type CompareInput, type CompareModel } from './comparePanes';
 import { comparedKeys, roleKey } from './entrySlots';
 import { scanAnswer, type ScanAnswer } from './answerStore';
-import { excludedFor, figureUsed, scanFigureOf, type ExclusionReason, type FigureSet } from './figureModel';
-import { type BaseDefinition, type EntryModel } from './entryTable';
+import { excludedFor, figureUsed, referenceIdentity, scanIdentity, setCountText, setExclusionText, type FigureSet, type FolderReference, type ReadScan } from './figureModel';
+import { type BaseDefinition } from './entryTable';
 
 /** A channel row of a recording of several channels is compared as that channel; otherwise the channels together. */
 export const channelOfRow = (row: DatasetRow | undefined): number | null => (row && (row.channels ?? 1) > 1 ? row.ch : null);
 
-/** A base: its recordings, its name, what it is (for the report and a fixed difference) and the channel it is of. */
+/** Where a base's answers come from: the answer store's (default), a region's scans made now, or the store's with bins. */
+export interface AnswerSource {
+    answers(paths: readonly string[]): ScanAnswer[];
+}
+
+/**
+ * The answers of scans the comparison made now over a region, under the current chain (its own compare-scan): a
+ * file's answer is its value there (none yet: pending), never the table's state.
+ */
+export function regionAnswers(measured: ReadonlyMap<string, ScanResult>): AnswerSource {
+    return { answers: paths => paths.map(path => scanAnswer(path, measured.get(path), { region: 'over' })) };
+}
+
+/**
+ * The store's answers with every Welch bin of `binned` (scans of the same files asked for with spectrumBins) where a
+ * scan measured the same condition as the answer's value: its state stays the store's (a stale one stays stale).
+ */
+export function binnedAnswers(source: AnswerSource, binned: ReadonlyMap<string, ScanResult>): AnswerSource {
+    return {
+        answers: paths => source.answers(paths).map(answer => {
+            if (answer.state !== 'ready' && answer.state !== 'stale') return answer;
+            const scan = binned.get(answer.identity.path);
+            if (!scan?.ok || !scan.spectrumBinsDb || !sameCondition(answer.value, scan)) return answer;
+            return { ...answer, value: { ...answer.value, spectrumBinsDb: scan.spectrumBinsDb, ...(scan.spectrumBinHz !== undefined ? { spectrumBinHz: scan.spectrumBinHz } : {}) } };
+        }),
+    };
+}
+
+/** A base: its one figure set, the recordings it asks for, its name, what it is and the channel it is of. */
 export interface EntryBaseOf {
-    /** The recordings its median is of: its figure set's (figureModel.figureUsed), never one pending, stale, failed or of another reference. */
-    paths: string[];
+    /** The figure set every count, median, file list and heading of this base is of. */
+    set: FigureSet<ReadScan>;
+    /** Its files: the set's. */
+    paths: readonly string[];
     /**
-     * The recordings the base asks for and draws with its channel: its members of the compared one's reference, those
-     * still pending, stale or failed too (a scan or a step picture comes of them). Never what is counted: `paths` is.
+     * The recordings the base asks for and draws with its channel: its members not known to be of another reference
+     * or axis (those still pending, stale or failed too: a scan or a step picture comes of them). Never counted: `set` is.
      */
     members: string[];
     title: string;
+    /** This base's heading for another figure's set of its members (a step figure's, of their pictures). */
+    heading(set: FigureSet<unknown>): string;
     definition: BaseDefinition;
     channel: number | null;
-    /** The figure set every count of this base is of: its n, its files and what it left out with why. */
-    set: FigureSet<ScanResult & { ok: true }>;
-    /** The title and n with more left out (a step figure's recordings whose picture failed or is on its way). */
-    titleWith(more: ReadonlyArray<{ path: string; reason: ExclusionReason }>): { title: string; n: number };
+    /** What the comparison is measured against, as its sets. */
+    compareBase: CompareInput['base'];
 }
 
 export interface EntryBaseDeps {
@@ -51,12 +82,10 @@ export interface EntryBaseDeps {
     narrowedBy(): string[];
     groupLabel(id: GroupId): string;
     rowName(key: string): string;
-    results: ReadonlyMap<string, ScanResult>;
-    /** Files' scans as the answer store hands them (state and identity: stale when of an earlier chain); the answer store's alone, so no base is measured from results it has not judged. */
+    /** Files' scans as the answer store hands them (state and identity: stale when of an earlier chain or calibration). */
     answersOf(paths: readonly string[]): ScanAnswer[];
-    /** The results of the current chain and calibration (the answer store's). */
-    fresh(): ReadonlyMap<string, ScanResult>;
-    entryModel(): EntryModel;
+    /** The folder's one level reference (figureModel.folderReference): a group base with nothing compared is of it. */
+    reference(): FolderReference;
 }
 
 export interface EntryBase {
@@ -66,86 +95,59 @@ export interface EntryBase {
      * What `comparePath` is measured against; `byGroup`: a group's median even with slot 0 filled; `asChannel`: the
      * channel it is compared as (null: its channels together, as the entry CSV's per-file rows are), else its row's.
      */
-    resolve(comparePath: string, byGroup?: boolean, asChannel?: number | null, over?: ReadonlyMap<string, ScanResult>): EntryBaseOf;
+    resolve(comparePath: string, byGroup?: boolean, asChannel?: number | null, over?: AnswerSource): EntryBaseOf;
     /** The channel a file is drawn and measured with in the comparison of `comparePath`. */
     stageChannel(path: string, comparePath: string | null, byGroup?: boolean): number | null;
-    /** The comparison of `comparePath` with its base (over `over` when given), each file as the channel it is compared as. */
-    comparison(comparePath: string, byGroup?: boolean, over?: ReadonlyMap<string, ScanResult>, entryRegionBase?: boolean): CompareModel;
+    /** The comparison of `comparePath` with its base (of `over`'s answers when given), each file as the channel it is compared as. */
+    comparison(comparePath: string, byGroup?: boolean, over?: AnswerSource, entryRegionBase?: boolean): CompareModel;
     /** The comparison of a whole recording (its channels together) with the base it has now: the entry CSV's Δ columns. */
     fileComparison(comparePath: string): CompareModel;
     /**
      * The base group's value of `value` where the comparison measures from it (slot 0 empty, a group chosen or slot 1's):
-     * the median of the very recordings `resolve` names, of their levels as the Δ takes them; null otherwise. The
-     * distribution draws its base line here. `onAxis` keeps a level only when the axis it is drawn on is its reference.
+     * the median of its one set; null otherwise. The distribution draws its base line here. A level is given only
+     * when the axis it is drawn on (`onLevel`, the distribution's reference) is the set's identity.
      */
-    groupBase(value: ValueId, onAxis?: (path: string) => boolean): { group: string; value: number | null } | null;
+    groupBase(value: ValueId, onLevel?: string | null): { group: string; value: number | null } | null;
     /** The base chip's text: slot 0's row, else the group whose median is the base. */
     text(): string;
     /** The group whose median is the base: the one chosen, else slot 1's (slot 0 empty, a grouping chosen). */
     groupName(): string | null;
 }
 
-/**
- * Results the comparison measured now over a region, under the current chain (its own compare-scan): a file's answer
- * over them is its value there, never the table's state (a table result of an earlier chain does not make it stale).
- */
-export type RegionResults = ReadonlyMap<string, ScanResult> & { readonly measuredNow: true };
-export function regionResults(measured: Iterable<readonly [string, ScanResult]>): RegionResults {
-    return Object.assign(new Map(measured), { measuredNow: true as const });
+/** An answer as one channel of its recording (when one channel is compared): its state and identity kept. */
+function pick(answer: ScanAnswer, channel: number | null): ScanAnswer {
+    if (!channel || (answer.state !== 'ready' && answer.state !== 'stale')) return answer;
+    const one = channelResult(answer.value, channel);
+    return one?.ok ? { ...answer, value: one as ReadScan } : answer;
 }
-const isRegionResults = (over: ReadonlyMap<string, ScanResult>): over is RegionResults => (over as Partial<RegionResults>).measuredNow === true;
 
 export function createEntryBase(deps: EntryBaseDeps): EntryBase {
     const { strings } = deps;
-    const answersOf = (paths: readonly string[]): ScanAnswer[] => deps.answersOf(paths);
-    /**
-     * The results a base is measured from: the table's, without those of an earlier chain or calibration (stale: shown
-     * greyed, never in a median, an n or a Δ). Every median, count and Δ here is taken over these alone.
-     */
-    const current = (): ReadonlyMap<string, ScanResult> => deps.fresh();
+    const store: AnswerSource = { answers: paths => deps.answersOf(paths) };
     const slotRowOf = (filePath: string): DatasetRow | undefined => deps.rowOf(roleKey(deps.slots(), filePath) ?? null);
     /**
-     * A file's answer for a figure: the table's (the answer store's state and identity), stale when of an earlier chain;
-     * over results measured now over a region (regionResults), the region's value whatever the table's state (none
-     * yet: pending); over the table's own results with more in them (withBins), the table's state with their value.
+     * The base group: `name`'s rows of the pool (every row when not grouped), of `channel`, without the compared
+     * recording and the other compared slots (1–3); its set is counted against the compared recording's ready answer
+     * (none compared: the folder's reference). The one set every base group, its heading, n, files, median and Δ are of.
      */
-    function answersFor(paths: readonly string[], over?: ReadonlyMap<string, ScanResult>): ScanAnswer[] {
-        // The answer store's, asked once for all of them (stale when of an earlier chain or calibration): never judged here.
-        return answersOf(paths).map((fresh, index) => {
-            const path = paths[index];
-            if (over && isRegionResults(over)) return scanAnswer(path, over.get(path), { recipeKey: fresh.identity.recipeKey, region: 'over' });
-            if (!over || fresh.state !== 'ready' || over === deps.results) return fresh;
-            return scanAnswer(path, over.get(path), { recipeKey: fresh.identity.recipeKey, region: 'over' });
-        });
-    }
-    /**
-     * The base group's set: `name`'s rows of the pool (every row when not grouped), of `channel`, without the compared
-     * recording and the other compared slots (1–3), counted by the figure model against the compared recording's level
-     * identity and spectrum axis (`comparePath` null: the first measured one's). The one set every base group, its
-     * heading, n, files, median and Δ are of.
-     */
-    function groupSet(comparePath: string | null, name: string, channel: number | null, over?: ReadonlyMap<string, ScanResult>): { set: FigureSet<ScanResult & { ok: true }>; fewerChannels: number; asked: string[] } {
+    function groupSet(comparePath: string | null, name: string, channel: number | null, over: AnswerSource): { set: FigureSet<ReadScan>; fewerChannels: number; asked: string[] } {
         const group = deps.group();
-        // The other compared recordings (slots 1–3) are compared themselves: not part of anyone's base.
         const compared = new Set(comparedKeys(deps.slots()).map(fileOfKey));
         const members = baseGroupMembers(deps.pool().filter(row => row.filePath === comparePath || !compared.has(row.filePath)), comparePath ?? '', group, name, channel);
-        // One ask of the store for the compared recording and every member (its current chain is worked out once).
         const others = members.paths.filter(path => path !== comparePath);
-        const asked = answersFor(comparePath ? [comparePath, ...others] : others, over);
-        const like = comparePath ? asked[0] : undefined;
-        const set = figureUsed(comparePath ? asked.slice(1) : asked, scanFigureOf(like?.state === 'ready' ? like.value : undefined));
+        // One ask for the compared recording and every member (the current chain is worked out once).
+        const asked = over.answers(comparePath ? [comparePath, ...others] : others).map(answer => pick(answer, channel));
+        const of = comparePath ? scanIdentity(asked[0]) : referenceIdentity<ReadScan>(deps.reference());
+        const set = figureUsed(of, comparePath ? asked.slice(1) : asked);
         // What is asked for and drawn: every member but those of another reference or axis, in the table's order.
         const other = new Set(set.excluded.filter(item => item.reason === 'other-reference' || item.reason === 'other-axis').map(item => item.path));
-        return { set, fewerChannels: members.fewerChannels, asked: members.paths.filter(path => path !== comparePath && !other.has(path)) };
+        return { set, fewerChannels: members.fewerChannels, asked: others.filter(path => !other.has(path)) };
     }
-    /** "median of 3 · 1 failed left out · 1 still computing · …": the count every base title and its definition say. */
-    function medianText(set: Pick<FigureSet<unknown>, 'n' | 'excluded'>): string {
-        const say = (template: string, n: number): string => (n ? template.replace('{n}', String(n)) : '');
-        return strings.entryBaseMedian.replace('{count}', String(set.n))
-            + say(strings.dsBaseFailed, excludedFor(set, 'failed', 'empty', 'missing')) + say(strings.dsBasePending, excludedFor(set, 'pending'))
-            + say(strings.dsBaseStale, excludedFor(set, 'stale')) + say(strings.dsBaseOtherUnits, excludedFor(set, 'other-reference')) + say(strings.dsBaseOtherBins, excludedFor(set, 'other-axis'));
+    function definitionOf(set: FigureSet<ReadScan>): Pick<BaseDefinition, 'count' | 'otherUnits' | 'failed' | 'pending' | 'stale'> {
+        const otherUnits = excludedFor(set, 'other-reference', 'other-axis'), failed = excludedFor(set, 'failed', 'empty', 'missing'), pending = excludedFor(set, 'pending', 'no-identity'), stale = excludedFor(set, 'stale');
+        return { count: set.n, ...(otherUnits ? { otherUnits } : {}), ...(failed ? { failed } : {}), ...(pending ? { pending } : {}), ...(stale ? { stale } : {}) };
     }
-    function resolve(comparePath: string, byGroup = false, asChannel?: number | null, over?: ReadonlyMap<string, ScanResult>): EntryBaseOf {
+    function resolve(comparePath: string, byGroup = false, asChannel?: number | null, over: AnswerSource = store): EntryBaseOf {
         const slots = deps.slots();
         const group = deps.group();
         const compareRow = slotRowOf(comparePath) ?? deps.rows().find(row => row.filePath === comparePath);
@@ -156,48 +158,37 @@ export function createEntryBase(deps: EntryBaseDeps): EntryBase {
         if (single && !byGroup) {
             const ch = channelOfRow(deps.rowOf(single));
             const path = fileOfKey(single);
-            const set = figureUsed(answersFor([path], over), { level: null });
-            const title = `${strings.entryBase} · ${deps.rowName(single)}`;
+            const [compared, answer] = over.answers([comparePath, path]);
+            const own = pick(answer, ch);
+            // Slot 0 is counted (n 1) only when it is ready and of the compared recording's identity: never "n=1" blindly.
+            const set = figureUsed(scanIdentity(pick(compared, channel)), [own]);
+            // Its condition's other recordings, of its own identity: how far files of it differ by chance (the headline bands).
+            const baseRow = deps.rowOf(single);
+            const peerPaths = group === 'none' || !baseRow ? [] : baseGroupMembers(deps.pool(), path, group, groupOf(baseRow, group), ch).paths.filter(other => other !== comparePath);
+            const peers = figureUsed(scanIdentity(own), over.answers(peerPaths).map(peer => pick(peer, ch)));
+            const name = `${strings.entryBase} · ${deps.rowName(single)}`;
+            const heading = (of: FigureSet<unknown>): string => name + setExclusionText(of, strings);
             return {
-                paths: [path], members: [path], title, channel: ch, set, titleWith: () => ({ title, n: 1 }),
-                definition: { kind: 'file', file: deps.rowName(single), count: 1, channel: ch, filters: narrowedBy, fewerChannels: 0 },
+                set, paths: set.paths, members: [path], title: heading(set), heading, channel: ch,
+                compareBase: { kind: 'file', answer: own, set, peers },
+                definition: { kind: 'file', file: deps.rowName(single), channel: ch, filters: narrowedBy, fewerChannels: 0, ...definitionOf(set) },
             };
         }
         const name = group === 'none' ? '' : deps.baseGroup() ?? (compareRow ? groupOf(compareRow, group) : '');
         const { set, fewerChannels, asked } = groupSet(comparePath, name, channel, over);
         const where = group === 'none' ? strings.dsDistAll : `${deps.groupLabel(group)} ${name || '—'}`;
-        const titleOf = (of: Pick<FigureSet<unknown>, 'n' | 'excluded'>): string => `${strings.entryBaseGroup} ${where} · ${medianText(of)}${channel ? ` · ${strings.dsCh}${channel}` : ''}`
+        const heading = (of: FigureSet<unknown>): string => `${strings.entryBaseGroup} ${where} · ${setCountText(of, strings)}${channel ? ` · ${strings.dsCh}${channel}` : ''}`
             + (fewerChannels ? strings.dsBaseFewer.replace('{n}', String(fewerChannels)).replace('{ch}', String(channel)) : '') + within;
-        const otherUnits = excludedFor(set, 'other-reference', 'other-axis'), failed = excludedFor(set, 'failed', 'empty', 'missing'), pending = excludedFor(set, 'pending'), stale = excludedFor(set, 'stale');
+        const title = heading(set);
         return {
-            paths: set.paths, members: asked, title: titleOf(set), channel, set,
-            titleWith(more) {
-                const gone = new Set(more.map(item => item.path));
-                const of = { n: set.paths.filter(path => !gone.has(path)).length, excluded: [...set.excluded, ...more.filter(item => set.paths.includes(item.path))] };
-                return { title: titleOf(of), n: of.n };
-            },
-            definition: {
-                kind: 'group', group: { column: group === 'none' ? '' : deps.groupLabel(group), name }, count: set.n, channel, filters: narrowedBy, fewerChannels,
-                ...(otherUnits ? { otherUnits } : {}), ...(failed ? { failed } : {}), ...(pending ? { pending } : {}), ...(stale ? { stale } : {}),
-            },
+            set, paths: set.paths, members: asked, title, heading, channel,
+            compareBase: { kind: 'group', set, title },
+            definition: { kind: 'group', group: { column: group === 'none' ? '' : deps.groupLabel(group), name }, channel, filters: narrowedBy, fewerChannels, ...definitionOf(set) },
         };
     }
-    /** `source`'s results with each of `paths` as `channel` (when one channel is compared). */
-    function picked(source: ReadonlyMap<string, ScanResult>, paths: readonly string[], channel: number | null): Map<string, ScanResult> {
-        const out = new Map(source);
-        if (!channel) return out;
-        for (const path of paths) {
-            const result = channelResult(source.get(path), channel);
-            if (result) out.set(path, result);
-        }
-        return out;
-    }
-    function compareWith(comparePath: string, base: EntryBaseOf, compareChannel: number | null, byGroup: boolean, over?: ReadonlyMap<string, ScanResult>, entryRegionBase = false): CompareModel {
-        const source = over ?? current();
-        const chosen = picked(picked(source, base.paths, base.channel), [comparePath], compareChannel);
-        const slot0 = deps.slots()[0];
-        const single = slot0 && !byGroup ? fileOfKey(slot0) : null;
-        return buildCompareModel(deps.entryModel(), chosen, comparePath, single, strings, entryRegionBase, undefined, single ? undefined : { paths: base.paths, title: base.title, pending: base.set.excluded.filter(item => item.reason === 'pending').map(item => item.path) });
+    function compareWith(comparePath: string, base: EntryBaseOf, compareChannel: number | null, over: AnswerSource = store, entryRegionBase = false): CompareModel {
+        const compared = pick(over.answers([comparePath])[0], compareChannel);
+        return buildCompareModel({ compared, base: base.compareBase }, strings, entryRegionBase);
     }
     function groupName(): string | null {
         const slots = deps.slots();
@@ -207,6 +198,12 @@ export function createEntryBase(deps: EntryBaseDeps): EntryBase {
         if (chosen !== null) return chosen;
         const anchor = deps.rowOf(slots[1]);
         return anchor ? groupOf(anchor, group) : null;
+    }
+    /** The group base's set: slot 1's base, else the chosen group's of the folder's reference. */
+    function groupBaseOf(name: string): { set: FigureSet<ReadScan>; channel: number | null } {
+        const anchor = deps.slots()[1];
+        if (anchor) { const base = resolve(fileOfKey(anchor)); return { set: base.set, channel: base.channel }; }
+        return { set: groupSet(null, name, null, store).set, channel: null };
     }
 
     return {
@@ -220,27 +217,26 @@ export function createEntryBase(deps: EntryBaseDeps): EntryBase {
             // A recording without a role is drawn as the row its legend names (the table's first of that file).
             return channelOfRow(slotRowOf(path) ?? deps.rows().find(row => row.filePath === path));
         },
-        comparison(comparePath: string, byGroup = false, over?: ReadonlyMap<string, ScanResult>, entryRegionBase = false): CompareModel {
-            return compareWith(comparePath, resolve(comparePath, byGroup, undefined, over), channelOfRow(slotRowOf(comparePath)), byGroup, over, entryRegionBase);
+        comparison(comparePath: string, byGroup = false, over: AnswerSource = store, entryRegionBase = false): CompareModel {
+            return compareWith(comparePath, resolve(comparePath, byGroup, undefined, over), channelOfRow(slotRowOf(comparePath)), over, entryRegionBase);
         },
         fileComparison(comparePath: string): CompareModel {
-            return compareWith(comparePath, resolve(comparePath, false, null), null, false);
+            return compareWith(comparePath, resolve(comparePath, false, null), null);
         },
-        groupBase(value: ValueId, onAxis: (path: string) => boolean = () => true): { group: string; value: number | null } | null {
+        groupBase(value: ValueId, onLevel?: string | null): { group: string; value: number | null } | null {
             const name = groupName();
             if (name === null) return null;
-            const anchor = deps.slots()[1];
-            const comparePath = anchor ? fileOfKey(anchor) : null;
-            const base = comparePath ? resolve(comparePath) : { paths: groupSet(null, name, null).set.paths, channel: null };
-            const results = current();
+            const { set, channel } = groupBaseOf(name);
             if (!isComputed(value) || value === 'peak' || value === 'crest') {
-                // Not a level: the median of the members' own values (a CSV value once per recording, else per channel row).
-                const members = deps.pool().filter(row => base.paths.includes(row.filePath) && (!base.channel || row.ch === base.channel));
+                // Not a level: the median of the set's own values (a CSV value once per recording, else per channel row).
+                const results = new Map(set.used.map(item => [item.path, item.value]));
+                const members = deps.pool().filter(row => results.has(row.filePath) && (!channel || row.ch === channel));
                 const once = isComputed(value) ? members : members.filter((row, index) => members.findIndex(other => other.filePath === row.filePath) === index);
                 return { group: name, value: median(once.map(row => valueOf(row, value, results)).filter((number): number is number => number !== null)) };
             }
-            // A level: the median the comparison measures its Δ from, of the members whose reference the axis is.
-            const levels = groupMedian(picked(results, base.paths, base.channel), base.paths.filter(onAxis));
+            // A level: the median the comparison measures its Δ from, drawn only on an axis of the set's own identity.
+            if (onLevel !== undefined && onLevel !== set.level) return { group: name, value: null };
+            const levels = setMedian(set);
             const level = !levels ? null : value === 'leq' ? levels.leq : levels.bands[Number(value.slice(5))] ?? null;
             return { group: name, value: level };
         },
@@ -250,8 +246,8 @@ export function createEntryBase(deps: EntryBaseDeps): EntryBase {
             if (slots[1]) return resolve(fileOfKey(slots[1])).title;
             const name = groupName();
             if (name === null) return strings.entryBaseGroup;
-            // The group's recordings as a base: the same members a compared row would be measured against.
-            return `${deps.groupLabel(deps.group())} ${name || '—'} · ${medianText(groupSet(null, name, null).set)}`;
+            // The group's recordings as a base: the same set the distribution's base line is of.
+            return `${deps.groupLabel(deps.group())} ${name || '—'} · ${setCountText(groupBaseOf(name).set, strings)}`;
         },
         groupName,
     };
