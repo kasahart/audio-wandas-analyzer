@@ -248,14 +248,14 @@ def _stage_data(frame: object, view: StageView, signal_s: float | None) -> Stage
         nyquist = float(frame.sampling_rate) / 2
         if quantity == "coherence":
             return StageData("coherence", template, freqs, rows[0], nyquist=nyquist)
-        levels = sv.rounded_db(sv._power_mean(sv.rounded_db(rows)))
+        levels = sv._power_mean(sv.floored_db(rows))
         return StageData("spectrum", template, freqs, levels, nyquist=nyquist)
     if isinstance(frame, NOctFrame):
-        levels = sv.rounded_db(sv._power_mean(sv.rounded_db(sv._rows(frame.dB, frame.n_channels))))
+        levels = sv._power_mean(sv.floored_db(sv._rows(frame.dB, frame.n_channels)))
         return StageData("bands", template, _f64(frame.freqs), levels)
     if isinstance(frame, SpectrogramFrame):
         db = _f64(frame.dB)
-        plane = sv._power_mean(sv.rounded_db(db.reshape(-1, db.shape[-2], db.shape[-1]))).astype(np.float32)
+        plane = sv._power_mean(sv.floored_db(db.reshape(-1, db.shape[-2], db.shape[-1]))).astype(np.float32)
         times = _f64(frame.times)[: plane.shape[1]] + sv._offset(frame)
         whole = _column_whole(frame, plane.shape[1], signal_s)
         nyquist = float(frame.sampling_rate) / 2
@@ -524,7 +524,7 @@ def _image(data: StageData, detail: StageDetail | None, diff: bool) -> StageView
                     out_ys, matrix = np.sqrt(band_edges[:-1] * band_edges[1:]), _band_peaks(columned, ys, band_edges)
             else:
                 out_ys, matrix = sv._log_rows(columned, ys, limits, sv.DETAIL_ROWS)
-        matrix = _rounded(matrix, "level", True) if diff else np.round(sv.rounded_db(matrix), 1)
+        matrix = _rounded(matrix, "level", True) if diff else np.round(sv.floored_db(matrix), 1)
     elif data.mode == "cepstrogram":
         keep = sv._inside(ys, rows_bounds) if rows_bounds is not None else np.ones(ys.size, dtype=bool)
         rows = sv.DETAIL_ROWS if bounds is not None else sv.HEATMAP_FREQUENCIES
@@ -553,7 +553,7 @@ def draw(data: StageData, detail: StageDetail | None = None, *, diff: bool = Fal
     else:
         xs, values = _line(data, detail, diff)
         view = dict(data.view)  # type: ignore[assignment]
-        view.update({"xs": sv._axis(xs), "values": sv._json(_rounded(_f64(values), data.view.get("quantity"), diff))})
+        view.update({"xs": sv._axis(xs), "values": sv._json(_shown(data, values, diff))})
         if data.mode == "signal":
             # Drawn as the recordings are: a waveform, by the lanes' own decimation, over the range on screen.
             bounds, points = _bounds(detail)
@@ -781,7 +781,9 @@ def difference_peak(data: StageData, values: np.ndarray, detail: StageDetail | N
 
 
 def _shown(data: StageData, values: np.ndarray, diff: bool) -> np.ndarray:
-    """Full-resolution values as the plot's picture writes them (rounded as ``draw`` rounds them), never thinned."""
+    """Values as the plot writes them, rounded only here, at the end: everything is computed from the unrounded
+    values (a median, a difference, its peak, a level, the point a read picks) and only the numbers sent are
+    rounded."""
     values = _f64(values)
     if diff:
         return _rounded(values, data.view.get("quantity"), True)
@@ -792,7 +794,9 @@ def _shown(data: StageData, values: np.ndarray, diff: bool) -> np.ndarray:
     if data.mode == "correlation":
         return np.round(values, sv.CORRELATION_DECIMALS)
     if data.mode == "spectrogram":
-        return np.round(sv.rounded_db(values), 1)
+        return np.round(sv.floored_db(values), 1)
+    if data.mode in ("spectrum", "bands"):
+        return sv.rounded_db(values)
     return values
 
 
@@ -834,21 +838,26 @@ def read_points(base: list[StageData], compare: StageData | None, read: StageRea
         return read_cells(
             first.xs,
             ys,
-            lambda rows, columns: _shown(first, combined(lambda item: item.values[rows, columns]), diff),
+            lambda rows, columns: combined(lambda item: item.values[rows, columns]),
             read,
+            lambda values: _shown(first, values, diff),
         )
     if first.mode == "events" and "event" in read:
         # One event's own line: a recording's, as the plot draws each event of it.
         if len(group) != 1 or diff or first.rows is None or int(read["event"]) not in first.event_ids:
             return None
         row = first.rows[first.event_ids.index(int(read["event"]))]
-        return read_line(sorted_axis(first.xs), lambda a, b: _shown(first, row[a:b], False), read)
+        return read_line(
+            sorted_axis(first.xs), lambda a, b: row[a:b], read, lambda values: _shown(first, values, False)
+        )
     if first.mode == "signal":
         count = min(item.values.size for item in aligned)
         axis = uniform_axis(count, first.start, 1.0 / first.rate if first.rate > 0 else 0.0)
     else:
         axis = sorted_axis(first.xs)
-    return read_line(axis, lambda a, b: _shown(first, combined(lambda item: item.values[a:b]), diff), read)
+    return read_line(
+        axis, lambda a, b: combined(lambda item: item.values[a:b]), read, lambda values: _shown(first, values, diff)
+    )
 
 
 def combine_keys(

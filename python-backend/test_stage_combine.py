@@ -23,6 +23,7 @@ from stage_combine import (
     difference_peak,
     draw,
     level_bins,
+    read_points,
     stage_data,
 )
 from stage_view import stage_view
@@ -118,6 +119,101 @@ def test_a_narrow_difference_is_taken_bin_by_bin_and_kept_when_drawn(signal: wd.
     zoomed = combine([base_data], replace(base_data, values=raised), {"x": [2500.0, 3500.0], "points": 200})
     assert zoomed["diff"]["detail"] is True
     assert max(zoomed["diff"]["values"]) == pytest.approx(rise, abs=0.01)
+
+
+def _at_levels(frame: wd.SpectralFrame, levels: dict[int, float]) -> wd.SpectralFrame:
+    """``frame`` with the bins ``levels`` names set to those dB (as wandas reads them), the rest as they are."""
+    import dask.array as da
+
+    data = np.array(frame.data, dtype=np.complex128).reshape(1, -1)
+    db = np.asarray(frame.dB, dtype=np.float64).reshape(-1)
+    for bin_at, level in levels.items():
+        data[0, bin_at] *= 10 ** ((level - db[bin_at]) / 20)
+    made = wd.SpectralFrame(
+        data=da.from_array(data),
+        sampling_rate=frame.sampling_rate,
+        n_fft=frame.n_fft,
+        window=frame.window,
+        label=frame.label,
+        metadata=dict(frame.metadata),
+        channel_metadata=list(frame.channels),
+    )
+    assert np.asarray(made.dB).reshape(-1)[list(levels)] == pytest.approx(list(levels.values()), abs=1e-9)
+    return made
+
+
+def test_a_difference_median_level_and_readout_are_taken_before_rounding_only_their_numbers_are_rounded(
+    signal: wd.ChannelFrame,
+) -> None:
+    """Levels that round alike still differ (R1): −10.004 and −9.996 dB both write −10.00, but their Δ is 0.008,
+    written 0.01, and a group's median, the Δ's headline, the readout and a level are all taken from the Frame's
+    unrounded dB; only the numbers sent are rounded. Checked against numpy over the Frames' own dB."""
+    plain = signal.fft()
+    xs = np.asarray(plain.freqs, dtype=np.float64)
+    at = int(np.argmin(np.abs(xs - 3000)))
+    # A base of one recording, compared with one 0.008 dB louder at one bin.
+    base_frame, compare_frame = _at_levels(plain, {at: -10.004}), _at_levels(plain, {at: -9.996})
+    view = dict(stage_view(plain))
+    base, compare = stage_data(base_frame, view), stage_data(compare_frame, view)
+    assert base is not None and compare is not None
+    raw = {
+        name: np.asarray(frame.dB, dtype=np.float64).reshape(-1)
+        for name, frame in (("b", base_frame), ("c", compare_frame))
+    }
+    delta = raw["c"] - raw["b"]
+    assert np.flatnonzero(delta).tolist() == [at]
+    result = combine([base], compare)
+    peak = result["diff"]["peak"]
+    assert peak["x"] == pytest.approx(xs[at])
+    assert peak["value"] == pytest.approx(round(float(delta[at]), 2)) == pytest.approx(0.01)
+    assert max(abs(v) for v in result["diff"]["values"] if v is not None) == pytest.approx(0.01)
+    read = read_points([base], compare, {"x": [float(xs[at])], "beyond": 0, "of": "diff"})
+    assert read is not None and read["values"] == pytest.approx([0.01])
+    # The level the overlay orders lines by: every bin's power, from the unrounded dB.
+    window = [float(xs[at - 3]), float(xs[at + 3])]
+    level = read_points([base], None, {"x": window, "level": "db"})
+    assert level is not None
+    expected = np.mean(10 ** (raw["b"][at - 3 : at + 4] / 10))
+    assert level["level"]["power"] == pytest.approx(expected, rel=1e-12)
+    # A group of three, its median −10.004 (written −10.01, −10.00, −10.00), against −9.9951 (written −10.00).
+    members = [stage_data(_at_levels(plain, {at: level}), view) for level in (-10.006, -10.004, -9.996)]
+    louder_frame = _at_levels(plain, {at: -9.9951})
+    louder = stage_data(louder_frame, view)
+    assert all(member is not None for member in members) and louder is not None
+    member_db = np.stack(
+        [
+            np.asarray(_at_levels(plain, {at: level}).dB, dtype=np.float64).reshape(-1)
+            for level in (-10.006, -10.004, -9.996)
+        ]
+    )
+    median = np.median(member_db, axis=0)
+    expected_delta = np.asarray(louder_frame.dB, dtype=np.float64).reshape(-1) - median
+    grouped = combine(members, louder)  # type: ignore[arg-type]
+    assert grouped["diff"]["peak"]["x"] == pytest.approx(xs[at])
+    assert grouped["diff"]["peak"]["value"] == pytest.approx(round(float(expected_delta[at]), 2)) == pytest.approx(0.01)
+    read = read_points(members, louder, {"x": [float(xs[at])], "beyond": 0, "of": "base"})  # type: ignore[arg-type]
+    assert read is not None and read["values"] == pytest.approx([round(float(median[at]), 2)])
+
+
+def test_a_dense_readout_picks_its_points_from_unrounded_levels(signal: wd.ChannelFrame) -> None:
+    """A window too dense to send whole sends each pixel column's lowest point: the lowest of the Frame's own dB,
+    not the first of two that round alike (−200.001 and −200.004 both write −200.00)."""
+    plain = signal.fft()
+    xs = np.asarray(plain.freqs, dtype=np.float64)
+    first, lowest = int(np.argmin(np.abs(xs - 2000))), int(np.argmin(np.abs(xs - 6000)))
+    frame = _at_levels(plain, {first: -200.001, lowest: -200.004})
+    data = stage_data(frame, dict(stage_view(plain)))
+    assert data is not None
+    raw = np.asarray(frame.dB, dtype=np.float64).reshape(-1)
+    window = [float(xs[1]), float(xs[-1])]
+    read = read_points([data], None, {"x": window, "near": 0.0, "columns": 1, "beyond": 0})
+    assert read is not None and not read["complete"]
+    inside = np.flatnonzero((xs >= window[0]) & (xs <= window[1]))
+    true_low = int(inside[np.argmin(raw[inside])])
+    assert true_low == lowest
+    low_at = int(np.argmin([v if v is not None else np.inf for v in read["values"]]))
+    assert read["xs"][low_at] == pytest.approx(xs[lowest])
+    assert read["values"][low_at] == pytest.approx(round(float(raw[lowest]), 2))
 
 
 def test_a_groups_median_is_taken_bin_by_bin_before_it_is_drawn(signal: wd.ChannelFrame) -> None:

@@ -182,10 +182,16 @@ class StageDetail(TypedDict):
 DETAIL_ROWS = 256
 
 
-def rounded_db(values: np.ndarray) -> np.ndarray:
-    """Levels as the app shows them: no lower than MIN_LEVEL_DB (silence, an undefined level), to DB_DECIMALS."""
+def floored_db(values: np.ndarray) -> np.ndarray:
+    """Levels no lower than MIN_LEVEL_DB (silence, an undefined level), unrounded: what every level is computed
+    from (a power mean, a median, a difference, the point a read picks), so a rounding never moves a result."""
     floored = np.nan_to_num(values, nan=spec.MIN_LEVEL_DB, neginf=spec.MIN_LEVEL_DB, posinf=-spec.MIN_LEVEL_DB)
-    return np.round(np.maximum(floored, spec.MIN_LEVEL_DB), spec.DB_DECIMALS)
+    return np.maximum(floored, spec.MIN_LEVEL_DB)
+
+
+def rounded_db(values: np.ndarray) -> np.ndarray:
+    """Levels as the app shows them (floored_db to DB_DECIMALS): only for the values sent, never computed with."""
+    return np.round(floored_db(values), spec.DB_DECIMALS)
 
 
 def band_levels(levels_db: np.ndarray, freqs: np.ndarray, edges: np.ndarray) -> np.ndarray:
@@ -575,9 +581,11 @@ def _spectral_view(frame: Any) -> StageView:
         centres, line = spectrum_line(freqs, values[0], [spec.SPECTRUM_MIN_HZ, nyquist], SPECTRUM_LINE_BUCKETS)
         line = np.round(line, 4)
     else:
+        # The bins kept are picked from the unrounded levels; only the levels sent are rounded.
         centres, line = spectrum_line(
-            freqs, rounded_db(_power_mean(rounded_db(values))), [spec.SPECTRUM_MIN_HZ, nyquist], SPECTRUM_LINE_BUCKETS
+            freqs, _power_mean(floored_db(values)), [spec.SPECTRUM_MIN_HZ, nyquist], SPECTRUM_LINE_BUCKETS
         )
+        line = rounded_db(line)
     view: StageView = {
         "frame": type(frame).__name__,
         "kind": "line",
@@ -601,7 +609,7 @@ def _noct_view(frame: NOctFrame) -> StageView:
         "xScale": "log",
         "quantity": "level",
         "xs": _axis(np.asarray(frame.freqs, dtype=np.float64)),
-        "values": _json(rounded_db(_power_mean(rounded_db(_rows(frame.dB, frame.n_channels))))),
+        "values": _json(rounded_db(_power_mean(floored_db(_rows(frame.dB, frame.n_channels))))),
     }
 
 
@@ -639,7 +647,7 @@ def _spectrogram_view(frame: SpectrogramFrame, signal_s: float | None = None) ->
     nyquist = float(frame.sampling_rate) / 2
     if nyquist <= spec.SPECTRUM_MIN_HZ or freqs.size < 2:
         return {"frame": type(frame).__name__, "kind": "none"}
-    level = _power_mean(rounded_db(planes))  # (freq, time)
+    level = _power_mean(floored_db(planes))  # (freq, time)
     blocks = _time_blocks(level.shape[1])
     columns = np.stack([_power_mean(level[:, block].T) for block in blocks], axis=1)
     centres, matrix = _log_points(columns.T, freqs, HEATMAP_FREQUENCIES, nyquist)
@@ -653,7 +661,7 @@ def _spectrogram_view(frame: SpectrogramFrame, signal_s: float | None = None) ->
         "ys": _axis(centres),
         "yAxis": "frequency",
         # One decimal: an image of a dB level needs no more, and a base sends one per file.
-        "matrix": [_json(row) for row in np.round(rounded_db(matrix).T, 1)],
+        "matrix": [_json(row) for row in np.round(floored_db(matrix).T, 1)],
         **_whole_columns(frame, blocks, signal_s),
     }
 
@@ -835,7 +843,7 @@ def _detail_view(frame: object, coarse: StageView, detail: StageDetail) -> Stage
             row = _cross_pair(frame)
             rows = rows[row : row + 1] if row is not None else rows
         # As the whole picture: each two pixels' lowest and highest bin.
-        drawn = rows[0] if coarse.get("quantity") == "coherence" else rounded_db(_power_mean(rounded_db(rows)))
+        drawn = rows[0] if coarse.get("quantity") == "coherence" else _power_mean(floored_db(rows))
         xs, values = spectrum_line(freqs, drawn, bounds, points // 2)
         view.update(
             {
@@ -880,7 +888,7 @@ def _detail_view(frame: object, coarse: StageView, detail: StageDetail) -> Stage
         offset = _offset(frame)
         if isinstance(frame, SpectrogramFrame):
             planes = np.asarray(frame.dB, dtype=np.float64)
-            plane = _power_mean(rounded_db(planes.reshape(-1, planes.shape[-2], planes.shape[-1])))
+            plane = _power_mean(floored_db(planes.reshape(-1, planes.shape[-2], planes.shape[-1])))
             times = np.asarray(frame.times, dtype=np.float64)[: plane.shape[1]] + offset
         elif isinstance(frame, CepstrogramFrame):
             data = np.asarray(frame.data, dtype=np.float64)
@@ -912,7 +920,7 @@ def _detail_view(frame: object, coarse: StageView, detail: StageDetail) -> Stage
                 else [spec.SPECTRUM_MIN_HZ, float(frame.sampling_rate) / 2],
                 DETAIL_ROWS,
             )
-            matrix = np.round(rounded_db(matrix), 1)
+            matrix = np.round(floored_db(matrix), 1)
         elif isinstance(frame, CepstrogramFrame):
             columned = (
                 np.stack([np.mean(plane[:, block], axis=1) for block in blocks], axis=1) if blocks else plane[:, :0]
