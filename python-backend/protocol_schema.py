@@ -237,6 +237,7 @@ DEFINITIONS: dict[str, Schema] = {
             "calibrationSignature": {"type": "string"},
             "calibrationProfile": {"$ref": "#/$defs/CalibrationProfile"},
             "analysisRevision": {"$ref": "#/$defs/ResultAnalysisRevision"},
+            "sourceVersion": {"type": "string"},
             # Compatibility metadata for results whose channels share one reference.
             "units": {"$ref": "#/$defs/AnalysisUnits"},
             "channels": {"type": "array", "items": {"$ref": "#/$defs/ChannelSummary"}},
@@ -253,6 +254,8 @@ DEFINITIONS: dict[str, Schema] = {
             "stftOptions": {"$ref": "#/$defs/StftOptions"},
             "calibrationProfile": {"$ref": "#/$defs/CalibrationProfile"},
             "analysisRevision": {"$ref": "#/$defs/AnalysisRevision"},
+            # The version of the file the asking track was drawn from: a file changed since is refused (stale-source).
+            "sourceVersion": {"type": "string"},
             # A zoomed lane's time window (fractions of the file): its spectrogram from the frames in it, at full
             # resolution up to the display limits (R3); absent for the whole file.
             "startNorm": _NUMBER,
@@ -277,6 +280,7 @@ DEFINITIONS: dict[str, Schema] = {
             "channels": {"type": "array", "items": {"$ref": "#/$defs/ChannelSummary"}},
             "calibrationSignature": {"type": "string"},
             "analysisRevision": {"$ref": "#/$defs/ResultAnalysisRevision"},
+            "sourceVersion": {"type": "string"},
             "points": {"$ref": "#/$defs/StagePoints"},
         },
     },
@@ -290,6 +294,8 @@ DEFINITIONS: dict[str, Schema] = {
             "points": {"type": "integer", "minimum": 1, "maximum": MAX_WAVEFORM_POINTS},
             "calibrationProfile": {"$ref": "#/$defs/CalibrationProfile"},
             "analysisRevision": {"$ref": "#/$defs/AnalysisRevision"},
+            # The version of the file the asking track was drawn from: a file changed since is refused (stale-source).
+            "sourceVersion": {"type": "string"},
             # Only the samples the lane reads (StageRead, x the file's 0..1, channel), never its envelope.
             "read": {"$ref": "#/$defs/StageRead"},
         },
@@ -310,6 +316,8 @@ DEFINITIONS: dict[str, Schema] = {
             "stftOptions": {"$ref": "#/$defs/StftOptions"},
             "calibrationProfile": {"$ref": "#/$defs/CalibrationProfile"},
             "analysisRevision": {"$ref": "#/$defs/AnalysisRevision"},
+            # The version of the file the asking track was drawn from: a file changed since is refused (stale-source).
+            "sourceVersion": {"type": "string"},
         },
     },
     "RangeResult": {
@@ -321,6 +329,7 @@ DEFINITIONS: dict[str, Schema] = {
             "channels": {"type": "array", "items": {"$ref": "#/$defs/WaveformEnvelope"}},
             "calibrationSignature": {"type": "string"},
             "analysisRevision": {"$ref": "#/$defs/ResultAnalysisRevision"},
+            "sourceVersion": {"type": "string"},
             "points": {"$ref": "#/$defs/StagePoints"},
         },
     },
@@ -375,6 +384,7 @@ DEFINITIONS: dict[str, Schema] = {
             "computeMs": _NUMBER,
             "calibrationSignature": {"type": "string"},
             "analysisRevision": {"$ref": "#/$defs/ResultAnalysisRevision"},
+            "sourceVersion": {"type": "string"},
         },
     },
     "PairSource": {
@@ -386,6 +396,8 @@ DEFINITIONS: dict[str, Schema] = {
             "offsetSeconds": _NUMBER,
             "calibrationProfile": {"$ref": "#/$defs/CalibrationProfile"},
             "analysisRevision": {"$ref": "#/$defs/AnalysisRevision"},
+            # The version of the file the asking track was drawn from: a file changed since is refused (stale-source).
+            "sourceVersion": {"type": "string"},
         },
     },
     # Averages the reference against each response over their overlap on the global timeline,
@@ -439,6 +451,7 @@ DEFINITIONS: dict[str, Schema] = {
             "levelReferenceLabel": {"type": "string"},
             "calibrationSignature": {"type": "string"},
             "analysisRevision": {"$ref": "#/$defs/ResultAnalysisRevision"},
+            "sourceVersion": {"type": "string"},
         },
     },
     "PairSpectrumResult": {
@@ -469,6 +482,7 @@ DEFINITIONS: dict[str, Schema] = {
             "computeMs": _NUMBER,
             "calibrationSignature": {"type": "string"},
             "analysisRevision": {"$ref": "#/$defs/ResultAnalysisRevision"},
+            "sourceVersion": {"type": "string"},
             "responses": {"type": "array", "items": {"$ref": "#/$defs/PairSpectrumResponse"}},
         },
     },
@@ -808,7 +822,7 @@ DEFINITIONS: dict[str, Schema] = {
         "type": "object",
         "required": ["code", "kind", "message"],
         "properties": {
-            "code": {"type": "string", "enum": ["input-error", "stale-calibration", "internal-error"]},
+            "code": {"type": "string", "enum": ["input-error", "stale-calibration", "stale-source", "internal-error"]},
             "kind": {
                 "type": "string",
                 "enum": ["analysis-settings", "unreadable-file", "out-of-memory", "invalid-input", "analysis-failed"],

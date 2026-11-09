@@ -13,7 +13,7 @@ import { fileOfKey } from '../../shared/dataset/datasetTable';
 import { attachOffsetEditing } from './offsetInlineEditor';
 import { dispatchTestMouseEvent, fillSpectrogramDisplayForm, fillSpectrogramSettingsForm, heightDragFromPayload, loopRegionFromPayload, setTestInputValue, testActionTrackId } from './testActionForms';
 import { nextRequestId } from './hostRequests';
-import { DEFAULT_PYTHON_ENVIRONMENT_STATE, isResponseToLazyRequest, mergeDetailSpectrograms, pythonEnvironmentStateFromMessage } from './lazyResponses';
+import { DEFAULT_PYTHON_ENVIRONMENT_STATE, isOfShownVersion, isResponseToLazyRequest, mergeDetailSpectrograms, pythonEnvironmentStateFromMessage } from './lazyResponses';
 import type { DrawTheme } from '../draw/canvasDrawers';
 import { isCacheSufficient, isOverviewSufficient, isRangeCacheDrawable, parseRangeRequestKey, planLaneRange, rangeCacheCoversView, rangeHasDetail } from '../waveform/rangeRequestPolicy';
 import { extractSpectrumAtCursor as extractCursorSpectrum, sliceIsAtCursor } from '../spectrum/cursorSpectrum';
@@ -300,7 +300,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return !!record && currentTrackIndex !== null && currentTrackIndex === request.trackIndex
                 && request.analysisId === analysisId
                 && request.settingsSignature === currentSpectrumDataSignature()
-                && !record.runtime.hidden && !record.result.error;
+                && !record.runtime.hidden && !record.result.error && !record.sourceChanged;
         },
         send(request) {
             trackStore.require(request.trackId).requests.ask('slice', request.requestId, String(request.cursorNorm), request);
@@ -311,6 +311,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 settingsSignature: request.settingsSignature,
                 trackIndex: request.trackIndex,
                 filePath: request.filePath,
+                sourceVersion: trackStore.require(request.trackId).result.sourceVersion,
                 cursorNorm: request.cursorNorm,
                 ...(request.bandsPerOctave ? { bandsPerOctave: request.bandsPerOctave } : {}),
                 ...(request.fullResolution ? { fullResolution: true as const } : {}),
@@ -502,10 +503,21 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function trackIdAtIndex(index: number): TrackId | null {
         return trackStore.idAtProtocolIndex(index);
     }
-    function trackIdAtProtocolBoundary(index: number, messageType: string): TrackId | null {
+    /** The track a lane's lazy answer is of: none for an index no track has, or an answer of another file version. */
+    function trackIdAtProtocolBoundary(index: number, answer: { type: string; sourceVersion?: string; staleSource?: true }): TrackId | null {
         const trackId = trackIdAtIndex(index);
         if (!trackId) {
-            console.warn('Rejected ' + messageType + ' with invalid trackIndex ' + index);
+            console.warn('Rejected ' + answer.type + ' with invalid trackIndex ' + index);
+            return null;
+        }
+        const record = trackStore.get(trackId);
+        if (!record || !isOfShownVersion(record.result, answer)) return null;
+        if (answer.staleSource) {
+            // The file changed on disk since: no lane of the track asks again; it says so and offers to analyse again.
+            record.sourceChanged = true;
+            scheduleRender();
+            testBridge.publishAfterFrame();
+            return null;
         }
         return trackId;
     }
@@ -550,6 +562,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                     return {
                         trackId,
                         filePath: record.result.filePath,
+                        sourceVersion: record.result.sourceVersion,
                         channelIndex,
                         offsetSeconds: record.runtime.offsetSeconds,
                         label: spectrumReadoutTrackLabel(record.result, channelIndex),
@@ -663,7 +676,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function requestTrackDetail(i: number) {
         const result = state.results[i];
         const record = trackRecordAtIndex(i);
-        if (!record || !result || result.error || record.runtime.hidden) {
+        if (!record || !result || result.error || record.runtime.hidden || record.sourceChanged) {
             return;
         }
         const channels = channelsForResult(result);
@@ -689,6 +702,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             settingsSignature: settingsSignature,
             trackIndex: i,
             filePath: result.filePath,
+            sourceVersion: result.sourceVersion,
         });
     }
     /**
@@ -767,6 +781,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             settingsSignature: settingsSignature,
             trackIndex: i,
             filePath: result.filePath,
+            sourceVersion: result.sourceVersion,
             // The whole file's frames along time when only the band needs its own rows.
             ...(timeWindow ? { startNorm: timeWindow.startNorm, endNorm: timeWindow.endNorm } : {}),
             ...(band ? { lowHz: band.lowHz, highHz: band.highHz } : {}),
@@ -974,6 +989,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     const rangeLandedAskedAt = createLatestAnswers<number>();
     // The full data the lanes' readouts read (R7): each read's answer, on its own requests.
     messaging.onMessage(function (msg) {
+        // A read of a file changed since its track was analysed stops the track's lanes as any lane answer does.
+        if (msg && 'trackIndex' in msg && 'staleSource' in msg && msg.staleSource) trackIdAtProtocolBoundary(msg.trackIndex, msg);
         if (msg && laneReads.handle(msg)) testBridge.publishAfterFrame();
     });
     // Receive high-res range data from Extension Host
@@ -982,7 +999,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const i = msg.trackIndex;
-        const trackId = trackIdAtProtocolBoundary(i, msg.type);
+        const trackId = trackIdAtProtocolBoundary(i, msg);
         const record = trackId ? trackStore.get(trackId) : undefined;
         if (!trackId || !record) {
             return;
@@ -1007,7 +1024,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const i = msg.trackIndex;
-        const trackId = trackIdAtProtocolBoundary(i, msg.type);
+        const trackId = trackIdAtProtocolBoundary(i, msg);
         const record = trackId ? trackStore.get(trackId) : undefined;
         if (!trackId || !record) {
             return;
@@ -1062,7 +1079,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const i = msg.trackIndex;
-        const trackId = trackIdAtProtocolBoundary(i, msg.type);
+        const trackId = trackIdAtProtocolBoundary(i, msg);
         const record = trackId ? trackStore.get(trackId) : undefined;
         if (!trackId || !record) {
             spectrumRequests.pump();
@@ -1271,7 +1288,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function checkAndRequestRanges() {
         state.results.forEach(function (result: ComparisonTrackState, i: number) {
             const record = trackRecordAtIndex(i);
-            if (!record || record.runtime.hidden || result.error || !laneInView(i)) {
+            if (!record || record.runtime.hidden || result.error || record.sourceChanged || !laneInView(i)) {
                 return;
             }
             requestSpectrogramZoom(i, result, record);
@@ -1305,6 +1322,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 requestId: requestId,
                 trackIndex: i,
                 filePath: result.filePath,
+                sourceVersion: result.sourceVersion,
                 startNorm: reqStart,
                 endNorm: reqEnd,
                 points: pts,
@@ -1879,6 +1897,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         }, STR);
     }
     // ── Rendering ──
+    /** Each track whose file changed after it was analysed shows its "analyse again" button; the others hide it. */
+    function syncSourceChanged(): void {
+        trackStore.displayOrder.forEach(trackId => {
+            const button = buttonMatching(document, '[data-action="reanalyze-changed"][data-track-id="' + trackId + '"]');
+            if (button) button.hidden = !trackStore.require(trackId).sourceChanged;
+        });
+    }
     function renderAll() {
         playWhenReady();
         pairPanel.sync();
@@ -1890,6 +1915,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         // Back from the comparison: the spectra are drawn from what is held, and the cursor's slices asked for if missing.
         if (spectraHidden && contentType !== 'stage') { spectraHidden = false; refreshSpectrumViews(); scheduleSpectrumRefresh('interactive'); }
         syncRoleChips();
+        syncSourceChanged();
         updateVisibility();
         updateOffsetDisplays();
         emitWaveformZoom();
@@ -2099,9 +2125,14 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     /** A track as its lanes' reads name it (R7): its index on the protocol, its file and the analysis drawn. */
     function laneTrack(trackIndex: number): LaneTrack | null {
         const result = state.results[trackIndex];
-        return result ? { trackIndex, filePath: result.filePath, analysisId, settingsSignature: currentSettingsSignature() } : null;
+        // A file changed since it was analysed is read no more (its answers would be of another version).
+        return result && !trackRecordAtIndex(trackIndex)?.sourceChanged ? { trackIndex, filePath: result.filePath, sourceVersion: result.sourceVersion, calibrationSignature: result.calibrationSignature,
+            analysisId, settingsSignature: currentSettingsSignature() } : null;
     }
+    /** The full data of a lane whose file changed after it was analysed: every read gives no number (R7), none is asked. */
+    const changedSource: FullSource = Object.freeze({ held: 'fetched' as const, line: () => null, level: () => null, cells: () => null });
     function laneTrackFull(trackIndex: number, read: (track: LaneTrack) => FullSource): FullSource | undefined {
+        if (trackRecordAtIndex(trackIndex)?.sourceChanged) return changedSource;
         const track = laneTrack(trackIndex);
         return track ? read(track) : undefined;
     }
@@ -2204,7 +2235,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (!ch || !ch.spectrogram) {
             requestTrackDetail(trackIndex);
             const failure = trackRecordAtIndex(trackIndex)?.detail.failure(currentSettingsSignature());
-            const message = failure !== undefined
+            const message = trackRecordAtIndex(trackIndex)?.sourceChanged ? STR.sourceChangedLane : failure !== undefined
                 ? spectrogramFailureText(STR, failure)
                 : STR.spectrogramLoading;
             // An empty plot with its message, drawn by the plot component as an empty pane is: no axes named yet.
@@ -2650,6 +2681,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             'toggle-playback': ({ trackId }) => playback.toggle(trackId),
             'stop-playback': ({ trackId }) => playback.stop(trackId),
             'remove-track': ({ trackId }) => removeTrack(trackId),
+            // The file changed on disk after it was analysed: every track is analysed again (unchanged ones keep their version).
+            'reanalyze-changed': () => reanalyzeSpectrogram(STR.reanalyzingChanged),
             'configure-calibration': ({ trackId, trackIndex, event }) => {
                 if (trackIndex === null) {
                     return;
@@ -4271,12 +4304,13 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     /**
      * The STFT the spectra are made of changed (⚙ Apply, or Reset back from another): every track is analysed again
      * with it, and spectra and reads asked for under the old one are stale, so lanes, readouts and the cursor spectrum
-     * stay of one STFT. The only way the settings' data signature changes.
+     * stay of one STFT. The only way the settings' data signature changes. A file changed on disk after it was
+     * analysed is analysed again the same way (its "analyse again" button).
      */
-    function reanalyzeSpectrogram(): void {
+    function reanalyzeSpectrogram(busy: string = STR.reanalyzingStft): void {
         invalidateDesiredSpectrumSliceRequests();
         laneReads.clear();
-        setReanalyzeBusy(true, STR.reanalyzingStft);
+        setReanalyzeBusy(true, busy);
         messaging.post({ type: 'request-reanalyze', settings: spectrogramSettings.settings });
     }
     const specSettingsPopover = installSpectrogramSettingsPopover(document, {

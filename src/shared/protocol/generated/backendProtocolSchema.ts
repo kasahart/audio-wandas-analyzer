@@ -395,6 +395,9 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "analysisRevision": {
                     "$ref": "#/$defs/ResultAnalysisRevision"
                 },
+                "sourceVersion": {
+                    "type": "string"
+                },
                 "units": {
                     "$ref": "#/$defs/AnalysisUnits"
                 },
@@ -436,6 +439,9 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 },
                 "analysisRevision": {
                     "$ref": "#/$defs/AnalysisRevision"
+                },
+                "sourceVersion": {
+                    "type": "string"
                 },
                 "startNorm": {
                     "type": "number"
@@ -489,6 +495,9 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "analysisRevision": {
                     "$ref": "#/$defs/ResultAnalysisRevision"
                 },
+                "sourceVersion": {
+                    "type": "string"
+                },
                 "points": {
                     "$ref": "#/$defs/StagePoints"
                 }
@@ -523,6 +532,9 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 },
                 "analysisRevision": {
                     "$ref": "#/$defs/AnalysisRevision"
+                },
+                "sourceVersion": {
+                    "type": "string"
                 },
                 "read": {
                     "$ref": "#/$defs/StageRead"
@@ -573,6 +585,9 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 },
                 "analysisRevision": {
                     "$ref": "#/$defs/AnalysisRevision"
+                },
+                "sourceVersion": {
+                    "type": "string"
                 }
             },
             "additionalProperties": false
@@ -602,6 +617,9 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 },
                 "analysisRevision": {
                     "$ref": "#/$defs/ResultAnalysisRevision"
+                },
+                "sourceVersion": {
+                    "type": "string"
                 },
                 "points": {
                     "$ref": "#/$defs/StagePoints"
@@ -736,6 +754,9 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 },
                 "analysisRevision": {
                     "$ref": "#/$defs/ResultAnalysisRevision"
+                },
+                "sourceVersion": {
+                    "type": "string"
                 }
             },
             "additionalProperties": false
@@ -763,6 +784,9 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 },
                 "analysisRevision": {
                     "$ref": "#/$defs/AnalysisRevision"
+                },
+                "sourceVersion": {
+                    "type": "string"
                 }
             },
             "additionalProperties": false
@@ -906,6 +930,9 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 },
                 "analysisRevision": {
                     "$ref": "#/$defs/ResultAnalysisRevision"
+                },
+                "sourceVersion": {
+                    "type": "string"
                 }
             },
             "additionalProperties": false
@@ -967,6 +994,9 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 },
                 "analysisRevision": {
                     "$ref": "#/$defs/ResultAnalysisRevision"
+                },
+                "sourceVersion": {
+                    "type": "string"
                 },
                 "responses": {
                     "type": "array",
@@ -2004,6 +2034,7 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                     "enum": [
                         "input-error",
                         "stale-calibration",
+                        "stale-source",
                         "internal-error"
                     ]
                 },
@@ -2283,6 +2314,7 @@ export interface AnalysisResult {
     calibrationSignature?: string;
     calibrationProfile?: CalibrationProfile;
     analysisRevision?: number;
+    sourceVersion?: string;
     units?: AnalysisUnits;
     channels: ChannelSummary[];
 }
@@ -2295,6 +2327,7 @@ export interface TrackDetailPayload {
     stftOptions?: StftOptions;
     calibrationProfile?: CalibrationProfile;
     analysisRevision?: number;
+    sourceVersion?: string;
     startNorm?: number;
     endNorm?: number;
     lowHz?: number;
@@ -2310,6 +2343,7 @@ export interface TrackDetailResult {
     channels: ChannelSummary[];
     calibrationSignature?: string;
     analysisRevision?: number;
+    sourceVersion?: string;
     points?: StagePoints;
 }
 
@@ -2320,6 +2354,7 @@ export interface RangePayload {
     points: number;
     calibrationProfile?: CalibrationProfile;
     analysisRevision?: number;
+    sourceVersion?: string;
     read?: StageRead;
 }
 
@@ -2334,6 +2369,7 @@ export interface SpectrumSlicePayload {
     stftOptions?: StftOptions;
     calibrationProfile?: CalibrationProfile;
     analysisRevision?: number;
+    sourceVersion?: string;
 }
 
 export interface RangeResult {
@@ -2342,6 +2378,7 @@ export interface RangeResult {
     channels: WaveformEnvelope[];
     calibrationSignature?: string;
     analysisRevision?: number;
+    sourceVersion?: string;
     points?: StagePoints;
 }
 
@@ -2375,6 +2412,7 @@ export interface SpectrumSliceResult {
     computeMs: number;
     calibrationSignature?: string;
     analysisRevision?: number;
+    sourceVersion?: string;
 }
 
 export interface PairSource {
@@ -2383,6 +2421,7 @@ export interface PairSource {
     offsetSeconds: number;
     calibrationProfile?: CalibrationProfile;
     analysisRevision?: number;
+    sourceVersion?: string;
 }
 
 export interface PairSpectrumPayload {
@@ -2413,6 +2452,7 @@ export interface PairSpectrumResponse {
     levelReferenceLabel?: string;
     calibrationSignature?: string;
     analysisRevision?: number;
+    sourceVersion?: string;
 }
 
 export interface PairSpectrumResult {
@@ -2428,6 +2468,7 @@ export interface PairSpectrumResult {
     computeMs: number;
     calibrationSignature?: string;
     analysisRevision?: number;
+    sourceVersion?: string;
     responses: PairSpectrumResponse[];
 }
 
@@ -2638,7 +2679,7 @@ export interface ScanResult {
 }
 
 export interface BackendErrorPayload {
-    code: "input-error" | "stale-calibration" | "internal-error";
+    code: "input-error" | "stale-calibration" | "stale-source" | "internal-error";
     kind: "analysis-settings" | "unreadable-file" | "out-of-memory" | "invalid-input" | "analysis-failed";
     message: string;
 }

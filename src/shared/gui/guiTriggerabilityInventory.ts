@@ -85,6 +85,7 @@ export const GUI_TRIGGERABILITY_WEBVIEW_ACTION_IDS = [
     'export-wav',
     'export-report',
     'configure-calibration',
+    'reanalyze-changed',
     'toggle-playback',
     'stop-playback',
     'remove-track',
@@ -451,7 +452,7 @@ export const GUI_TRIGGERABILITY_FEATURES: readonly GuiTriggerabilityFeature[] = 
         id: 'track-visual-controls',
         label: 'Take a track off (its colour is its role\'s)',
         entryPoints: ['track-control'],
-        triggers: ['remove-track'],
+        triggers: ['remove-track', 'reanalyze-changed'],
         regressionLayers: ['node:test', 'ui-smoke'],
     },
     {

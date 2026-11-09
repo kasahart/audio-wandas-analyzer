@@ -74,6 +74,12 @@ export interface WaveformRangeRequest {
     startNorm: number;
     endNorm: number;
     points: number;
+    /**
+     * The version of the file the asking track was drawn from (its analysis's sourceVersion). The backend refuses a
+     * file changed since (stale-source), so an answer is never of another version than the picture it is drawn over.
+     * Named by every request (undefined only for a host that gives no version).
+     */
+    sourceVersion: string | undefined;
     /** A plot's readout (R7): only the samples it reads (full_read.py), never an envelope. */
     read?: StageRead;
 }
@@ -98,6 +104,7 @@ export function isRequestWaveformRangeMessage(message: unknown): message is Wave
         typeof m['startNorm'] === 'number' &&
         typeof m['endNorm'] === 'number' &&
         typeof m['points'] === 'number' &&
+        (m['sourceVersion'] === undefined || typeof m['sourceVersion'] === 'string') &&
         (m['read'] === undefined || isStageReadLike(m['read']))
     );
 }
@@ -109,6 +116,12 @@ export interface TrackDetailRequest {
     settingsSignature: string;
     trackIndex: number;
     filePath: string;
+    /**
+     * The version of the file the asking track was drawn from (its analysis's sourceVersion). The backend refuses a
+     * file changed since (stale-source), so an answer is never of another version than the picture it is drawn over.
+     * Named by every request (undefined only for a host that gives no version).
+     */
+    sourceVersion: string | undefined;
     /** A zoomed lane's time window (fractions of the file): its spectrogram from the frames in it (R3). Absent for the whole file. */
     startNorm?: number;
     endNorm?: number;
@@ -135,6 +148,7 @@ export function isRequestTrackDetailMessage(message: unknown): message is TrackD
             || typeof m['startNorm'] === 'number' && typeof m['endNorm'] === 'number' && m['startNorm'] < m['endNorm']) &&
         (m['lowHz'] === undefined && m['highHz'] === undefined
             || typeof m['lowHz'] === 'number' && typeof m['highHz'] === 'number' && m['lowHz'] >= 0 && m['lowHz'] < m['highHz']) &&
+        (m['sourceVersion'] === undefined || typeof m['sourceVersion'] === 'string') &&
         (m['read'] === undefined || isStageReadLike(m['read']))
     );
 }
@@ -147,6 +161,12 @@ export interface SpectrumSliceRequest {
     trackIndex: number;
     filePath: string;
     cursorNorm: number;
+    /**
+     * The version of the file the asking track was drawn from (its analysis's sourceVersion). The backend refuses a
+     * file changed since (stale-source), so an answer is never of another version than the picture it is drawn over.
+     * Named by every request (undefined only for a host that gives no version).
+     */
+    sourceVersion: string | undefined;
     /** Absent for the FFT spectrum. */
     bandsPerOctave?: SpectrumBandsPerOctave;
     /** Every FFT bin (the CSV export) instead of a row cut for display. */
@@ -172,6 +192,7 @@ export function isRequestSpectrumSliceMessage(message: unknown): message is Spec
         typeof m['cursorNorm'] === 'number' &&
         (m['bandsPerOctave'] === undefined || m['bandsPerOctave'] === 1 || m['bandsPerOctave'] === 3) &&
         (m['fullResolution'] === undefined || m['fullResolution'] === true) &&
+        (m['sourceVersion'] === undefined || typeof m['sourceVersion'] === 'string') &&
         (m['read'] === undefined || m['read'] === true)
     );
 }
@@ -181,6 +202,12 @@ export interface PairSourceRef {
     filePath: string;
     channelIndex: number;
     offsetSeconds: number;
+    /**
+     * The version of the file the asking track was drawn from (its analysis's sourceVersion). The backend refuses a
+     * file changed since (stale-source), so an answer is never of another version than the picture it is drawn over.
+     * Named by every request (undefined only for a host that gives no version).
+     */
+    sourceVersion: string | undefined;
 }
 
 export interface PairSpectrumRequest {
@@ -202,7 +229,8 @@ function isPairSourceRef(value: unknown): value is PairSourceRef {
     const m = value as Record<string, unknown>;
     return typeof m['filePath'] === 'string' && m['filePath'].length > 0
         && Number.isInteger(m['channelIndex']) && (m['channelIndex'] as number) >= 0
-        && typeof m['offsetSeconds'] === 'number' && Number.isFinite(m['offsetSeconds']);
+        && typeof m['offsetSeconds'] === 'number' && Number.isFinite(m['offsetSeconds'])
+        && (m['sourceVersion'] === undefined || typeof m['sourceVersion'] === 'string');
 }
 
 function isOptionalFinite(value: unknown): boolean {

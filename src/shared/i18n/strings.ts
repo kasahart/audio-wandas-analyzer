@@ -105,6 +105,11 @@ export interface UiStrings {
     errorAnalysisFailed: string;
     settingsApplyHint: string;
     reanalyzingStft: string;
+    /** A lane whose file changed on disk after it was analysed: nothing more is asked of it until it is analysed again. */
+    sourceChangedLane: string;
+    reanalyzeChanged: string;
+    reanalyzeChangedHint: string;
+    reanalyzingChanged: string;
     reanalyzingDefault: string;
     reanalyzingFiles: string;
     configurePython: string;
@@ -929,6 +934,10 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         errorAnalysisFailed: 'The analysis failed unexpectedly. Try again; if it keeps failing, report the details.',
         settingsApplyHint: 'These recompute when you press Apply; the display below changes as you type.',
         reanalyzingStft: 'Recomputing STFT…',
+        sourceChangedLane: 'The file changed after it was analysed',
+        reanalyzeChanged: 'Analyse again',
+        reanalyzeChangedHint: 'The file changed on disk after it was analysed: analyse the tracks again',
+        reanalyzingChanged: 'Analysing again…',
         reanalyzingDefault: 'Recomputing…',
         reanalyzingFiles: 'Recomputing STFT… ({count} files)',
         configurePython: 'Configure Python environment',
@@ -1728,6 +1737,10 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         errorAnalysisFailed: '解析が予期せず失敗しました。もう一度試し、繰り返す場合は詳細を添えて報告してください。',
         settingsApplyHint: 'ここは「適用」で再計算します。下の表示は入力するとすぐ変わります',
         reanalyzingStft: 'STFT を再計算中…',
+        sourceChangedLane: 'ファイルが解析の後に変わりました',
+        reanalyzeChanged: '解析し直す',
+        reanalyzeChangedHint: 'ファイルが解析の後に書き換えられました。トラックを解析し直します',
+        reanalyzingChanged: '解析し直しています…',
         reanalyzingDefault: '再計算中…',
         reanalyzingFiles: 'STFT を再計算中… ({count} ファイル)',
         configurePython: 'Python 環境を設定する',

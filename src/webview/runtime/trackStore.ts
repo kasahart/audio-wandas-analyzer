@@ -31,6 +31,11 @@ export interface TrackRecord {
     readonly spectrogramZoom: AnswerSlot<SpectrogramZoom>;
     /** Each channel's cursor slice last answered (answerStore: one per channel, checked against the cursor by sliceIsCurrentAt). */
     readonly spectrumSliceCache: LatestAnswers<SpectrumSlice, number>;
+    /**
+     * The file changed on disk after this analysis (a lazy answer came back stale-source): asking again cannot mend it,
+     * so the lanes ask nothing more and say so until the track is analysed again (cleared with the analysis state).
+     */
+    sourceChanged: boolean;
 }
 
 export interface SpectrogramZoom {
@@ -275,6 +280,7 @@ export class TrackStore {
             detail: createAnswerSlot<true>(undefined, this.retried),
             spectrogramZoom: createAnswerSlot<SpectrogramZoom>(undefined, this.retried),
             spectrumSliceCache: createLatestAnswers<SpectrumSlice, number>(),
+            sourceChanged: false,
         };
         result.trackId = id;
         this.records.set(id, record);
@@ -283,6 +289,7 @@ export class TrackStore {
 
     private clearAnalysisState(record: TrackRecord): void {
         record.waveformCoverage = null;
+        record.sourceChanged = false;
         record.rangeCache.clear();
         this.clearAsyncState(record);
     }

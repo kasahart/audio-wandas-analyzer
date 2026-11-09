@@ -35,13 +35,14 @@ export interface AnswerKey {
  * - `fileVersion` and `calibration` given apart;
  * - `basis`: one string the screen names both by (stageSource.stageBasis: the scan's condition and the track's calibration);
  * - `by`: the ask itself names them: the backend's data keys (each a hash of the file version, Recipe, region, channels,
- *   calibration and step), the track's analysis (its id and settings signature, renewed on a new version or
- *   calibration), the full request as sent, or the source the answer is kept in (made per data key or analysis).
+ *   calibration and step), the full request as sent (a pair request names each file's sourceVersion), or the source
+ *   the answer is kept in (itself kept under its track's file version and calibration). A track's analysis is no
+ *   version: the file can be rewritten under it, so a lane's answers name the track's sourceVersion instead.
  */
 export type AnswerVersion =
     | { fileVersion: string; calibration: string }
     | { basis: string }
-    | { by: 'data-keys' | 'analysis' | 'request' | 'source' };
+    | { by: 'data-keys' | 'request' | 'source' };
 
 /** What an answer is of. Every part a source knows goes in; a part it does not know is left out, never guessed. */
 export interface AnswerKeyParts {
@@ -111,8 +112,12 @@ export interface AnswerStore<T> {
     ready(key: AnswerKey, value: T, options?: { identity?: AnswerIdentity; group?: string }): void;
     /** The answer came with nothing to show (an empty window, a step that gives no picture). */
     empty(key: AnswerKey, identity?: AnswerIdentity): void;
-    /** The answer failed (and why, when the host said): it reads as failed until FAILED_RETRY_MS have passed, then is asked again. */
-    fail(key: AnswerKey, reason?: string): void;
+    /**
+     * The answer failed (and why, when the host said): it reads as failed until FAILED_RETRY_MS have passed, then is
+     * asked again; `lasting` (asking again cannot mend it: the file changed since its track was analysed) keeps the
+     * failure until the key is forgotten or the store cleared, and nobody is told to ask again.
+     */
+    fail(key: AnswerKey, reason?: string, lasting?: boolean): void;
     /** Why a failed answer failed, while its failure stands. */
     reason(key: AnswerKey): string | undefined;
     /**
@@ -194,7 +199,10 @@ export function createAnswerStore<T>(options: AnswerStoreOptions): AnswerStore<T
             put(key, { state: 'ready', value, ...(extra?.identity ? { identity: extra.identity } : {}) });
         },
         empty(key, identity) { put(key, { state: 'empty', ...(identity ? { identity } : {}) }); },
-        fail(key, reason) { put(key, { state: 'failed', retryAt: now() + FAILED_RETRY_MS, ...(reason !== undefined ? { reason } : {}) }); afterPause(options.retried); },
+        fail(key, reason, lasting) {
+            put(key, { state: 'failed', retryAt: lasting ? Infinity : now() + FAILED_RETRY_MS, ...(reason !== undefined ? { reason } : {}) });
+            if (!lasting) afterPause(options.retried);
+        },
         reason(key) {
             const found = held(key);
             return found?.state === 'failed' ? found.reason : undefined;

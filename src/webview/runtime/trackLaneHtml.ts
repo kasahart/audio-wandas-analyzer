@@ -74,7 +74,7 @@ export interface TrackRowSpec {
 export type TrackRowStrings = Pick<UiStrings,
     | 'ariaDragHandle' | 'clipBadgeTitle' | 'trackMoreHint' | 'offsetStepUp' | 'offsetStepDown' | 'offsetEdit' | 'offsetReset'
     | 'trackPlayTitle' | 'trackNoAudio' | 'ariaTrackPlay' | 'trackStopTitle' | 'ariaTrackStop' | 'ariaRemoveTrack'
-    | 'calibrationButtonLabel' | 'calibrationButtonTitle' | 'calibrationButtonAria'
+    | 'calibrationButtonLabel' | 'calibrationButtonTitle' | 'calibrationButtonAria' | 'reanalyzeChanged' | 'reanalyzeChangedHint'
     | 'trackOffsetResetHint' | 'ariaOffsetValue' | 'ariaOffsetUp' | 'ariaOffsetDown' | 'ariaResizeTrackHeight'
     | 'hintRemoveTrack' | 'hintOffsetUp' | 'hintOffsetDown' | 'hintTrackHeightResizer'
     | 'peakLabel' | 'calibrationBadgeUncalibratedHint' | 'calibrationBadgeRawHint' | 'calibrationBadgePartialHint' | 'calibrationFactorLabel'>;
@@ -103,6 +103,8 @@ export function trackRowHtml(spec: TrackRowSpec, strings: TrackRowStrings): stri
         + '    <button class="track-btn" data-action="stop-playback" data-track-id="' + trackId + '"' + hintAttr(playHint(strings.trackStopTitle)) + ' aria-label="' + escapeHtml(strings.ariaTrackStop) + '"' + disabled + '>■</button>'
         + '    <button class="track-btn" data-action="remove-track" data-track-id="' + trackId + '"' + hintAttr(strings.hintRemoveTrack) + ' aria-label="' + escapeHtml(strings.ariaRemoveTrack) + '">✕</button>'
         + '    ' + calibrationButtonHtml(trackId, strings)
+        // Shown only once the file changed on disk after it was analysed (the runtime unhides it): its one way on.
+        + '    <button class="track-btn" data-action="reanalyze-changed" data-track-id="' + trackId + '"' + hintAttr(strings.reanalyzeChangedHint) + ' hidden>' + escapeHtml(strings.reanalyzeChanged) + '</button>'
         + (spec.referenceButtonHtml ? '    ' + spec.referenceButtonHtml : '')
         // The time offset: its steps live in the track's … menu; the value shows only while the track is shifted.
         + '    <details class="track-more"><summary class="track-btn"' + hintAttr(strings.trackMoreHint) + ' aria-label="' + escapeHtml(strings.trackMoreHint) + '">…</summary><div class="track-more-menu">'
