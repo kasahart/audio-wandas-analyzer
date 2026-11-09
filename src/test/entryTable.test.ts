@@ -11,6 +11,7 @@ import {
 import { buildCompareModel } from '../webview/runtime/comparePanes';
 import { entryMeasure } from '../webview/runtime/compareReport';
 import { getStrings } from '../shared/i18n/strings';
+import { levelColumns } from '../webview/runtime/figureModel';
 
 /** Each file measured against its condition's other files, as a comparison with no slot 0 measures it here. */
 const byCondition = (model: EntryModel, files: readonly EntryFile[]) => {
@@ -21,7 +22,7 @@ const byCondition = (model: EntryModel, files: readonly EntryFile[]) => {
 const repoRoot = path.resolve(__dirname, '..', '..');
 const BAND_3150 = BAND_CENTERS_HZ.indexOf(3150);
 const LABELS = {
-    file: 'File', condition: (n: number) => ['Line', 'rpm'][n - 1], regionStart: 'Start s', regionEnd: 'End s', leq: 'Leq dB(A)', levelReference: 'Level reference', uncalibrated: 'uncalibrated', peak: 'Δ max band',
+    file: 'File', condition: (n: number) => ['Line', 'rpm'][n - 1], regionStart: 'Start s', regionEnd: 'End s', level: levelColumns({ entryColLeq: 'Leq dB(A)', reportLevelReference: 'Level reference', entryLeqUncalibrated: 'uncalibrated' }), peak: 'Δ max band',
     band: '3.15 kHz dB', deltaLeq: 'Δ Leq', deltaBand: 'Δ band', groupSize: 'n', status: 'Reason',
 };
 

@@ -58,7 +58,7 @@ export const entryHeld: ChartContract = {
         },
         {
             id: 'entry-held.range', value: 'range', what: '保持図の値の軸の範囲',
-            computedIn: ['src/webview/runtime/entryHeldPlot.ts:paintStep', 'src/webview/runtime/entryHeldPlot.ts:paintDelta', `${SP}:stageRange`, `${SP}:stageDiffRange`, 'src/webview/runtime/comparePanes.ts:binsView'],
+            computedIn: ['src/webview/runtime/entryHeldPlot.ts:paintStep', 'src/webview/runtime/entryHeldPlot.ts:paintDelta', `${SP}:stageRange`, `${SP}:stageDiffRange`, 'src/webview/runtime/comparePanes.ts:binsView', 'src/webview/runtime/figureModel.ts:dataRange', 'src/webview/runtime/figureModel.ts:diffRange', 'src/webview/runtime/figureModel.ts:narrowedRange'],
             from: 'full', trace: '手順の絵はバックエンドが付けた全データの valueRange、スロットの Δ と手順の有無の Δ は binsView が全ビンから求めた valueRange（範囲内のすべてのビンの最小・最大）から決める。',
             tests: [
                 tt('src/test/stagePanes.test.ts', 'every range is set from the full data\'s lowest and highest value (valueRange), never the points drawn or the cells averaged to draw an image (R1, R9)'),
@@ -76,7 +76,7 @@ export const entryHeld: ChartContract = {
         },
         {
             id: 'entry-held.axis', value: 'axis', what: '保持図の軸の名前（Δ は「Δ [dB]」）',
-            computedIn: [`${SP}:stageAxes`],
+            computedIn: [`${SP}:stageAxes`, 'src/webview/runtime/figureModel.ts:stageNames'],
             from: 'words', trace: 'dB の Δ は axisDelta（「差 Δ [dB]」）。量（差）と単位を書く。同じ基準の 2 つのレベルの差なので、差そのものの基準はない（基準は凡例と重ね図の軸）。dB でない量は「Δ 量 [単位]」。',
             tests: [
                 t('src/test/axisNames.test.ts', 'every axis a picture is drawn on names its quantity and unit, whatever it measures, with or without a unit, Δ or not (R4)'),

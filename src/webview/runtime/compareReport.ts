@@ -9,7 +9,7 @@ import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { encodeNumber, plainFloats, recipeSteps, timeSignalStep, upToStep, withDefaults, withParam, TIME_SLICE } from '../../shared/recipe/recipeSteps';
 import { BAND_CENTERS_HZ, bandCentreCell, bandLabel, csvNumber, EDGE_GUARD_S, HEADLINE_WITHIN_DB, levelReferenceCell, measuredRegion, regionCells, type BaseDefinition, type DerivedRow, type EntryMeasure, type EntryModel } from './entryTable';
 import { withBaseInput, withChannel } from '../../shared/recipe/channelSelection';
-import { dataRange, diffRange, figureUsed, levelAxes, scanAnswer, paneNames, plainNames, titleOf, withTitle, type FigureRange, type FigureTitle } from './figureModel';
+import { baseLevelColumns, dataRange, diffRange, figureUsed, levelAxes, levelColumns, scanAnswer, paneNames, plainNames, titleOf, withTitle, type FigureColumns, type FigureRange, type FigureTitle } from './figureModel';
 import { bandsSource, binsSource, binsView, deltaViews, diffHeadline, levelsHeadline, sideView, type CompareModel, type CompareStrings, type LevelInput } from './comparePanes';
 import { SECONDARY_AXIS_DASH } from './overlaySpectrumPainter';
 import { paintOverlay } from './stagePanes';
@@ -112,9 +112,9 @@ function levelRowOf(result: ScanResult): { levelReference?: string; uncalibrated
 }
 
 /** What a side's levels are in, as the CSV writes it beside them ("dBFS 未校正", "dB SPL re 20 µPa"): its own, never the table's. */
-function sideReferenceCell(side: CompareModel['base'], input: ReportInput, strings: Pick<UiStrings, 'entryLeqUncalibrated'>): string {
+function sideReferenceCell(side: CompareModel['base'], input: ReportInput, cols: FigureColumns): string {
     const level = sideInput(side, input);
-    return level ? levelReferenceCell({ levelReference: level.levelReferenceLabel, ...(level.calibrationStatus !== 'calibrated' ? { uncalibrated: 'full-scale' as const } : {}) }, strings.entryLeqUncalibrated) : '';
+    return level ? levelReferenceCell({ levelReference: level.levelReferenceLabel, ...(level.calibrationStatus !== 'calibrated' ? { uncalibrated: 'full-scale' as const } : {}) }, cols) : '';
 }
 
 /** The band with the largest |Δ| against this comparison's base: its centre and Δ; none while the Δ is withheld. */
@@ -167,10 +167,12 @@ export function reportCsv(input: ReportInput, strings: ReportStrings): string {
         return comparison.blocked || level === null || level === undefined || reference === null || reference === undefined ? null : level - reference;
     };
     const bands = BAND_CENTERS_HZ.map((_, band) => band).filter(band => comparisons.some(({ comparison }) => bandDelta(comparison, band) !== null));
+    // Every level column goes out beside its per-row reference column (C5): the file's own and the base group's.
+    const own = levelColumns(strings), base = baseLevelColumns(strings);
     const header = [
         strings.entryColFile, `${strings.entryColPeak} Hz`, `${strings.entryColPeak} dB`,
         ...columns.map((column, index) => column.name || strings.entryColCondition.replace('{n}', String(index + 1))),
-        strings.reportRegionStart, strings.reportRegionEnd, strings.entryColLeq, strings.reportLevelReference, strings.reportBaseLeq, strings.reportBaseLevelReference, `Δ ${strings.entryColLeq}`,
+        strings.reportRegionStart, strings.reportRegionEnd, own.level, own.reference, base.level, base.reference, `Δ ${own.level}`,
         ...bands.map(band => strings.reportBandDelta.replace('{band}', bandLabel(band))),
         strings.entryCsvGroupSize, strings.reportGroupFiles, strings.reportSpecVersion, strings.reportChain,
         strings.dsCh, ...(input.selection ? [input.selection.value] : []), strings.reportMemo, strings.reportBaseDefinition,
@@ -182,8 +184,8 @@ export function reportCsv(input: ReportInput, strings: ReportStrings): string {
         lines.push([
             // What a reader looks for first: where the file differs most from its base, and by how much.
             input.rowInfo?.(path).label ?? baseName(path), ...maxBandCells(comparison), ...(row?.cells ?? columns.map(() => '')), ...regionCells(measuredRegion(input.region, fileDuration(input, path))),
-            dB(comparison.leq?.compare ?? comparison.compare?.leq), sideReferenceCell(comparison.compare, input, strings),
-            dB(comparison.leq?.base), comparison.leq ? sideReferenceCell(comparison.base, input, strings) : '', dB(comparison.leq?.delta),
+            dB(comparison.leq?.compare ?? comparison.compare?.leq), sideReferenceCell(comparison.compare, input, own),
+            dB(comparison.leq?.base), comparison.leq ? sideReferenceCell(comparison.base, input, base) : '', dB(comparison.leq?.delta),
             ...bands.map(band => dB(bandDelta(comparison, band))),
             comparison.base ? String(baseUsed(comparison, input.results).n) : '', baseUsed(comparison, input.results).paths.map(baseName).join(';'),
             result?.ok ? String(result.specVersion) : '',
@@ -202,7 +204,7 @@ export function reportCsv(input: ReportInput, strings: ReportStrings): string {
             `${strings.reportDerived} · ${baseName(item.parentPath)}${item.ch ? ` ch${item.ch}` : ''} · ${item.region}`, '', '', ...columns.map(() => ''),
             ...regionCells(measuredRegion(item.region === 'all' ? null : parseRegion(item.region), item.result.input?.durationS)),
             // Fixed only when both are of one level reference (no Δ across references): the base is in the row's.
-            dB(leq), levelReferenceCell(levelRowOf(item.result), strings.entryLeqUncalibrated), dB(item.base.leq), item.result.input?.levelReferenceLabel ?? '', dB(leq - item.base.leq),
+            dB(leq), levelReferenceCell(levelRowOf(item.result), own), dB(item.base.leq), item.result.input?.levelReferenceLabel ?? '', dB(leq - item.base.leq),
             ...bands.map(band => { const level = bandLevel(band), reference = item.base.bands[band]; return dB(level === null || reference === null || reference === undefined ? null : level - reference); }),
             String(item.base.paths?.length ?? ''), (item.base.paths ?? []).map(baseName).join(';'), String(item.result.specVersion ?? ''),
             item.stale ? strings.reportChainPrevious : strings.reportChainCurrent,

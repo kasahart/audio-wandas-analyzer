@@ -5,7 +5,7 @@ import type { StageView } from '../../shared/protocol/backendProtocol';
 import type { FrequencyScale } from '../draw/canvasDrawers';
 import { hintAttr } from './hintFooter';
 import { levelBinsOf, type StageLayer } from './stagePanes';
-import { dataRange, plainNames, plainRange, type FigureNames, type FigureRange } from './figureModel';
+import { dataRange, gainAxisName, plainNames, plainRange, type FigureNames, type FigureRange } from './figureModel';
 import { localLine } from './fullRead';
 import { secondsSpanText } from '../plot/plotText';
 import type { TrackId } from './types';
@@ -31,16 +31,6 @@ export type PairStrings = Pick<UiStrings,
     | 'pairReferenceHint' | 'pairReferenceClearHint' | 'pairReferenceBadge' | 'pairAverages' | 'pairFewAveragesHint'
     | 'pairResampledHint' | 'pairNoOverlapHint' | 'pairTooShortHint' | 'pairOtherUnitHint' | 'pairPhaseLabel' | 'pairCoherenceLabel' | 'axisFrequency'
     | 'axisGain' | 'axisTransferLevel'>;
-
-/**
- * The gain plot's axis name, in the UI's language (R4): a gain in plain dB where the two channels share a unit, else
- * the transfer level in dB re the units' ratio, as the backend measured it (its levelReferenceLabel, else the unit of
- * its own English name).
- */
-export function gainAxisName(response: Pick<PairSpectrumResponse, 'axisLabel'> & { levelReferenceLabel?: string | null } | undefined, strings: Pick<UiStrings, 'axisGain' | 'axisTransferLevel'>): string {
-    const unit = response?.levelReferenceLabel ?? /\[([^\]]+)\]\s*$/u.exec(response?.axisLabel ?? '')?.[1] ?? 'dB';
-    return unit === 'dB' ? strings.axisGain : strings.axisTransferLevel.replace('{unit}', unit);
-}
 
 /** Below this many averages the γ² estimate is biased high enough to mislead. */
 export const PAIR_FEW_AVERAGES = 8;

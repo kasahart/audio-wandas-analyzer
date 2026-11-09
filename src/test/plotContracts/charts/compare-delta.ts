@@ -64,7 +64,7 @@ export const compareDelta: ChartContract = {
         },
         {
             id: 'compare-delta.range', value: 'range', what: 'Δ の軸の自動の範囲（線）',
-            computedIn: [`${SP}:stageDiffRange`, `${SP}:roundEdge`, 'python-backend/stage_combine.py:value_range'],
+            computedIn: [`${SP}:stageDiffRange`, `${SP}:roundEdge`, 'python-backend/stage_combine.py:value_range', 'src/webview/runtime/figureModel.ts:diffRange'],
             from: 'full', trace: 'バックエンドが全データの Δ（間引く前）の最小と最大を valueRange として Δ の絵に付け、stageDiffRange はその端から ± を決める。',
             tests: [
                 tt('src/test/stagePanes.test.ts', 'every range is set from the full data\'s lowest and highest value (valueRange), never the points drawn or the cells averaged to draw an image (R1, R9)'),
@@ -73,7 +73,7 @@ export const compareDelta: ChartContract = {
         },
         {
             id: 'compare-delta.range-image', value: 'range', what: 'Δ の熱図の色の範囲（カラーバーの両端）',
-            computedIn: [`${SP}:stageDiffRange`, 'python-backend/stage_combine.py:value_range'],
+            computedIn: [`${SP}:stageDiffRange`, 'python-backend/stage_combine.py:value_range', 'src/webview/runtime/figureModel.ts:diffRange'],
             from: 'full', trace: 'Δ の熱図の matrix はブロックごとに平均したマスだが、両端の数は平均する前の全マスの Δ の valueRange から決める。',
             tests: [
                 tt('src/test/stagePanes.test.ts', 'every range is set from the full data\'s lowest and highest value (valueRange), never the points drawn or the cells averaged to draw an image (R1, R9)'),
@@ -91,7 +91,7 @@ export const compareDelta: ChartContract = {
         },
         {
             id: 'compare-delta.axis', value: 'axis', what: 'Δ の軸の名前（「Δ [dB]」）',
-            computedIn: [`${SP}:stageAxes`],
+            computedIn: [`${SP}:stageAxes`, 'src/webview/runtime/figureModel.ts:stageNames'],
             from: 'words', trace: 'dB の Δ は axisDelta（「差 Δ [dB]」）。量（差）と単位を書く。同じ基準の 2 つのレベルの差なので、差そのものの基準はない（基準は凡例と重ね図の軸）。dB でない量は「Δ 量 [単位]」。',
             tests: [
                 t('src/test/axisNames.test.ts', 'every axis a picture is drawn on names its quantity and unit, whatever it measures, with or without a unit, Δ or not (R4)'),

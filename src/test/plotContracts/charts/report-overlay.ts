@@ -28,7 +28,7 @@ export const reportOverlay: ChartContract = {
         },
         {
             id: 'report-overlay.range', value: 'range', what: 'レベルの軸の範囲',
-            computedIn: ['src/webview/runtime/compareReport.ts:paintOverlayFigure', `${SP}:stageRange`, 'src/webview/runtime/comparePanes.ts:binsView'],
+            computedIn: ['src/webview/runtime/compareReport.ts:paintOverlayFigure', `${SP}:stageRange`, 'src/webview/runtime/comparePanes.ts:binsView', 'src/webview/runtime/figureModel.ts:dataRange', 'src/webview/runtime/figureModel.ts:levelAxes'],
             from: 'full', trace: 'binsView が 20 Hz〜ナイキストのすべてのビンの最小・最大を valueRange として付け（間引いた線ではなく）、stageRange はその端から決める。',
             tests: [
                 tt('src/test/comparePanes.test.ts', 'a spectrum drawn from its bins carries every bin\'s lowest and highest value in its span as its range, the silent floor left out (R1)'),
@@ -45,7 +45,7 @@ export const reportOverlay: ChartContract = {
         },
         {
             id: 'report-overlay.axis', value: 'axis', what: '軸の名前',
-            computedIn: ['src/webview/runtime/comparePanes.ts:paneAxes', 'src/webview/runtime/compareReport.ts:reportLevelAxes', 'src/webview/runtime/compareReport.ts:sideInput'],
+            computedIn: ['src/webview/runtime/comparePanes.ts:paneAxes', 'src/webview/runtime/compareReport.ts:reportLevelAxes', 'src/webview/runtime/compareReport.ts:sideInput', 'src/webview/runtime/figureModel.ts:levelAxes', 'src/webview/runtime/figureModel.ts:paneNames'],
             from: 'words', trace: 'レベル（基準・未校正）と周波数。基準と比較のレベルの同一性が違えば、基準を左、比較を右の軸に分け、それぞれの録音で名付ける。未校正の線は凡例に自分で書く（R1）。',
             tests: [
                 t('src/test/comparePanes.test.ts', 'every pane names its axes: level and frequency, Δ with its legend, in the language and calibration of the files'),

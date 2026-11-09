@@ -37,7 +37,7 @@ export const entryDistribution: ChartContract = {
         },
         {
             id: 'entry-distribution.median', value: 'median', what: '基準の群の中央値の線',
-            computedIn: ['src/webview/runtime/entryBase.ts:groupBase', 'src/webview/runtime/comparePanes.ts:groupMedian', 'src/webview/runtime/entryDistribution.ts:distributionRows'],
+            computedIn: ['src/webview/runtime/entryBase.ts:groupBase', 'src/webview/runtime/comparePanes.ts:groupMedian', 'src/webview/runtime/entryDistribution.ts:distributionRows', 'src/webview/runtime/figureModel.ts:figureUsed'],
             from: 'whole', trace: '比較が Δ を測る基準群（entryBase.resolve と同じ録音: 比較中の行・ほかのスロット・除外・別の単位を除く）の中央値を groupMedian で取り、その値に線を引く。行の点の中央値ではない。（描くために間引いた形はない）',
             tests: [
                 t('src/test/entryBase.test.ts', 'one base group everywhere: the distribution\'s base line, the comparison\'s Δ and the entry CSV\'s Δ are of the same recordings'),
@@ -46,7 +46,7 @@ export const entryDistribution: ChartContract = {
         },
         {
             id: 'entry-distribution.range', value: 'range', what: '値の軸の範囲',
-            computedIn: ['src/shared/dataset/distribution.ts:distribution'],
+            computedIn: ['src/shared/dataset/distribution.ts:distribution', 'src/webview/runtime/figureModel.ts:plainRange'],
             from: 'whole', trace: '軸の基準のすべての値の端を niceRange で広げる。別の基準のレベルは軸に置かず数える（onLevelAxis）。（描くために間引いた形はない）',
             tests: [
                 t('src/test/distribution.test.ts', 'the distribution\'s value axis opens at round ends, as every automatic range does (R9)'),
@@ -64,7 +64,7 @@ export const entryDistribution: ChartContract = {
         },
         {
             id: 'entry-distribution.axis', value: 'axis', what: '値の軸と縦の名前',
-            computedIn: ['src/webview/runtime/entryDistributionPane.ts:paint', 'src/webview/runtime/entrySidePlots.ts:createSidePlots', 'src/shared/utils/format.ts:commonLevelLabel'],
+            computedIn: ['src/webview/runtime/entryDistributionPane.ts:paint', 'src/webview/runtime/entrySidePlots.ts:createSidePlots', 'src/shared/utils/format.ts:commonLevelLabel', 'src/webview/runtime/figureModel.ts:plainNames', 'src/webview/runtime/figureModel.ts:templatedLevelName'],
             from: 'words', trace: '値の名前（「Leq A特性 [基準]」、未校正なら「Leq A特性 未校正 [dBFS]」）と「縦：{単位}数（群ごと）」。基準は録音に最も多いもので、素の dB にしない（levelName）。',
             tests: [
                 t('src/test/entrySidePlots.test.ts', 'the overview colour scale and the dataset table name the recordings\' most common level reference, never plain dB, and say uncalibrated (R4)'),
@@ -74,7 +74,7 @@ export const entryDistribution: ChartContract = {
         },
         {
             id: 'entry-distribution.axis-csv', value: 'axis', what: 'CSV の列の値の軸（「{列}（CSV の列）」）',
-            computedIn: ['src/webview/runtime/entryDistributionPane.ts:paint'],
+            computedIn: ['src/webview/runtime/entryDistributionPane.ts:paint', 'src/webview/runtime/figureModel.ts:plainNames'],
             from: 'words', trace: 'csvAxisName は列の名前に書いた単位（「温度 [°C]」「温度 (°C)」）を軸の単位にし、書いていなければ「[単位不明]」と書く（R4）。',
             tests: [
                 t('src/test/axisNames.test.ts', 'a CSV column\'s value axis names the unit its header gives, and says when it gives none'),

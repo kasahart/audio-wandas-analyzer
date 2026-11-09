@@ -56,7 +56,7 @@ export const trackWaveform: ChartContract = {
         },
         {
             id: 'track-waveform.axis', value: 'axis', what: '振幅の軸の名前',
-            computedIn: [`${SP}:amplitudeAxisTitle`, `${RT}:laneAmplitudeAxis`],
+            computedIn: [`${SP}:amplitudeAxisTitle`, `${RT}:laneAmplitudeAxis`, 'src/webview/runtime/figureModel.ts:plainNames'],
             from: 'words', trace: '量・単位・校正を比較台の波形と同じく書く。',
             tests: [
                 t('src/test/laneAxes.test.ts', 'a lane axis names its quantity, unit and calibration as Compare\'s waveform axis does'),

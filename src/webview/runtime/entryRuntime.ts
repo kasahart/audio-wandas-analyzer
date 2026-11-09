@@ -13,6 +13,7 @@ import type { UiStrings } from '../../shared/i18n/strings';
 import type { CompareCombineMessage, ComparePublication, CompareScanMessage, EntryConditionTable, EntryProbeCancelMessage, EntryProbeMessage, EntryProbePublication, EntryPublication, EntryScanCancelMessage, EntryScanMessage, EntrySaveSessionMessage } from '../../shared/analysis/entryScan';
 import type { ScanResult } from '../../shared/protocol/backendProtocol';
 import { BAND_CENTERS_HZ, bandLabel, buildEntryModel, derivedKey, entryCsv, type BaseDefinition, type DerivedRow, type EntryModel } from './entryTable';
+import { levelColumns } from './figureModel';
 import { batchBundle, batchCount } from '../../shared/batch/batchBundle';
 import { baseOf, type CompareModel } from './comparePanes';
 import { compareGroupNames, groupLabels } from '../../shared/dataset/distribution';
@@ -1063,9 +1064,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             condition: n => strings.entryColCondition.replace('{n}', String(n)),
             regionStart: strings.reportRegionStart,
             regionEnd: strings.reportRegionEnd,
-            leq: strings.entryColLeq,
-            levelReference: strings.reportLevelReference,
-            uncalibrated: strings.entryLeqUncalibrated,
+            level: levelColumns(strings),
             peak: strings.entryColPeak,
             band: `${bandLabel(model.band)} dB`,
             deltaLeq: `Δ ${strings.entryColLeq}`,

@@ -10,7 +10,7 @@ export const reportFiles: ChartContract = {
     rows: [
         {
             id: 'report-files.csv', value: 'export', what: '報告.csv（最大の帯、Leq、基準の Leq、帯ごとの Δ、群の数、D の行）',
-            computedIn: ['src/webview/runtime/compareReport.ts:reportCsv', 'src/webview/runtime/compareReport.ts:maxBandCells', 'src/webview/runtime/compareReport.ts:dB', 'src/webview/runtime/compareReport.ts:bandLevel', 'src/webview/runtime/compareReport.ts:sideReferenceCell', 'src/webview/runtime/entryTable.ts:levelReferenceCell'],
+            computedIn: ['src/webview/runtime/compareReport.ts:reportCsv', 'src/webview/runtime/compareReport.ts:maxBandCells', 'src/webview/runtime/compareReport.ts:dB', 'src/webview/runtime/compareReport.ts:bandLevel', 'src/webview/runtime/compareReport.ts:sideReferenceCell', 'src/webview/runtime/figureModel.ts:levelColumns', 'src/webview/runtime/figureModel.ts:baseLevelColumns', 'src/webview/runtime/entryTable.ts:levelReferenceCell', 'src/webview/runtime/figureModel.ts:figureUsed'],
             from: 'whole', trace: 'スキャンの全データの帯と Leq（群は中央値）、dB は 0.1 まで。（描くために間引いた形はない）',
             tests: [
                 t('src/test/benchReport.test.ts', '報告.csv has one row per slot in the agreed columns: dB to one decimal, Hz whole, missing values empty'),

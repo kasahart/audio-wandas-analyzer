@@ -169,7 +169,7 @@ test('no absolute level falls back to a bare "dB" unit anywhere in src (a defaul
     for (const name of readdirSync(root)) if (name !== 'test' && statSync(path.join(root, name)).isDirectory()) walk(path.join(root, name));
     // Where a bare dB is a ratio or a difference, not an absolute level: said here with why.
     const RATIOS: Record<string, string> = {
-        'webview/runtime/pairSpectrum.ts': 'a transfer level is dB re the units\' ratio',
+        'webview/runtime/figureModel.ts': 'the gain axis (gainAxisName): a transfer level is dB re the units\' ratio',
     };
     const found = files.flatMap(file => {
         const rel = path.relative(root, file).split(path.sep).join('/');

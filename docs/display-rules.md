@@ -116,13 +116,16 @@
 
 - テスト: `src/test/comparePanes.test.ts` › every pane names its axes: level and frequency, Δ with its legend, in the language and calibration of the files
 - テスト: `src/test/comparePanes.test.ts` › the level axis is named by wandas' level reference, and says uncalibrated from the calibration status, not the unit
-- 1 つの軸に載る線は、R1 のレベルの同一性（単位・基準値・レベル基準の名前）が同じ録音のものだけです。並べた表示のレーンも、範囲を共有するのは同じ基準のレーンどうしだけです。重ねた線を軸に分けるのはこの同一性で、軸の名前の文字ではありません（`trackStagePainter.ts` の `byReference`）。同一性が 3 つ以上なら重ねません。1 本の軸に校正状態の違う線が載るとき、軸の名前は量・単位・基準で書き、未校正はその軸の線がすべて未校正のときだけ書きます。未校正の線は、凡例と読み値に自分で「未校正」と書きます（`calibrationWords`）。
+- 1 つの軸に載る線は、R1 のレベルの同一性（単位・基準値・レベル基準の名前）が同じ録音のものだけです。並べた表示のレーンも、範囲を共有するのは同じ基準のレーンどうしだけです。重ねた線を軸に分けるのはこの同一性で、軸の名前の文字ではありません（`figureModel.ts` の `levelAxes`。画面は `trackStagePainter.ts` の `byReference`、報告の図は `compareReport.ts` の `reportLevelAxes` がこれを使います）。同一性が 3 つ以上なら重ねません。1 本の軸に校正状態の違う線が載るとき、軸の名前は量・単位・基準で書き、未校正はその軸の線がすべて未校正のときだけ書きます。未校正の線は、凡例と読み値に自分で「未校正」と書きます（`figureModel.ts` の `calibrationWords`）。
 - テスト: `src/test/trackStagePainter.test.ts` › overlaid, lines share an axis by their level identity, not their axis name: a gain-corrected FS file and a raw one are one axis, and only the raw one says uncalibrated (R1, R4)
 - トリガーのイベントの重ね図も同じで、イベントは録音の線として同一性で軸に分けます。トリガーの下のレーンも、範囲を共有するのは同じ同一性のレーンどうしだけです（`triggerLanes.ts`）。右の 2 本目の軸は、縦の拡大で左の軸と同じ割合だけ狭めます。カーソルスペクトルも、軸は線がすべて未校正のときだけ未校正と書き、校正状態が混ざる軸では未校正の線が凡例と読み値に自分で書きます（`spectrumRuntime.ts` の `withCalibrationWords`）。
 - テスト: `src/test/trackStagePainter.test.ts` › overlaid, a trigger's events are split by level identity as any line, and a vertical zoom narrows the right-hand axis as the left (A43, A45, R13)
 - テスト: `src/test/triggerLanes.test.ts` › trigger lanes of another level identity never share a range: a lane in Pa is not on a full-scale lane's scale (A43, R1, R4)
 - テスト: `src/test/overlaySpectrumPainter.test.ts` › on one level axis mixing calibration statuses, each uncalibrated line says so in its legend and readout; on its own the axis says it (A49, R1, R4)
-- テスト: `src/test/levelGrouping.test.ts` › every place that groups lines onto a level axis, range or colour scale goes through levelGrouping (A43, A49, R1, R4)
+- テスト: `src/test/figureModel.test.ts` › every place that groups lines onto a level axis, range or colour scale goes through figureModel (A43, A49, R1, R4)
+- 軸の名前・範囲・レベルの同一性・未校正の言葉と、図と CSV が数えるファイル（中央値・Δ・n・CSV の基準群 n とファイル）は、図の層（`src/webview/runtime/figureModel.ts`）だけが決めます。画面の重ね図・Δ・トリガー・カーソルスペクトル・ペア表示・入口の図・報告の図と CSV は、どれもここから受け取ります。`paintOverlay` と CSV の書き手は、この層が作った名前・範囲・列（`FigureNames`・`FigureRange`・`FigureTitle`・`FigureColumns`）しか受け取りません。数えるのは答えが出た録音だけで、計算中・失敗・別の基準の録音は理由とともに除きます（`figureUsed`）。CSV のレベルの列には、いつもその行のレベル基準の列が隣に付きます。
+- テスト: `src/test/figureModel.test.ts` › outside figureModel.ts nothing builds an axis name, calls an axis builder, keys by level identity, applies a range rule or counts files for n, but the exact list (layers-design)
+- テスト: `src/test/figureModel.test.ts` › every figure and every file written of a mixed-reference pair with pending and failed base files: one identity per axis, each row its own reference, n of the measured only (R1, R4, C5)
 - テスト: `src/test/axisNames.test.ts` › no absolute level falls back to a bare "dB" unit anywhere in src (a default, ?? / || / ternary, or return): it names its reference, or says full scale (R4, R7, A50)
 - テスト: `src/test/trackStagePainter.test.ts` › side by side, lanes share a range only with the lanes in their own reference: a dB SPL lane is never on a dBFS lane's scale (A32, C1)
 - テスト: `src/test/stagePanes.test.ts` › a metric or level over time names what it measures on its value axis, never a bare value or an amplitude in dB (R4)

@@ -31,7 +31,7 @@ export const compareLanes: ChartContract = {
         },
         {
             id: 'compare-lanes.range', value: 'range', what: 'レーンが共有する値の軸の範囲（線）',
-            computedIn: [`${SP}:stageRange`, 'src/webview/runtime/trackStagePainter.ts:paintStageLanes', 'src/webview/runtime/trackStagePainter.ts:rangeOf', 'python-backend/stage_combine.py:value_range'],
+            computedIn: [`${SP}:stageRange`, 'src/webview/runtime/trackStagePainter.ts:paintStageLanes', 'src/webview/runtime/trackStagePainter.ts:rangeOf', 'python-backend/stage_combine.py:value_range', 'src/webview/runtime/figureModel.ts:dataRange', 'src/webview/runtime/figureModel.ts:narrowedRange', 'src/webview/runtime/figureModel.ts:byLevelKey'],
             from: 'full', trace: '各レーンの絵がバックエンドの付けた全データの valueRange を持ち、同じレベルの同一性（R1）のレーンのその端から 1 つの範囲を決める（rangeOf）。',
             tests: [
                 tt('src/test/stagePanes.test.ts', 'every range is set from the full data\'s lowest and highest value (valueRange), never the points drawn or the cells averaged to draw an image (R1, R9)'),
@@ -41,7 +41,7 @@ export const compareLanes: ChartContract = {
         },
         {
             id: 'compare-lanes.range-image', value: 'range', what: '熱図のレーンの色の範囲（カラーバーの両端）',
-            computedIn: [`${SP}:stageRange`, 'python-backend/stage_combine.py:value_range'],
+            computedIn: [`${SP}:stageRange`, 'python-backend/stage_combine.py:value_range', 'src/webview/runtime/figureModel.ts:dataRange'],
             from: 'full', trace: '重ね図の熱図と同じく、平均する前の全マスの valueRange から決め、dB は上 − 100 dB より下にしない（R9）。',
             tests: [
                 tt('src/test/stagePanes.test.ts', 'every range is set from the full data\'s lowest and highest value (valueRange), never the points drawn or the cells averaged to draw an image (R1, R9)'),
@@ -60,7 +60,7 @@ export const compareLanes: ChartContract = {
         },
         {
             id: 'compare-lanes.axis', value: 'axis', what: '各レーンの両軸の名前',
-            computedIn: [`${SP}:stageAxes`],
+            computedIn: [`${SP}:stageAxes`, 'src/webview/runtime/figureModel.ts:stageNames'],
             from: 'words', trace: '重ね図と同じ stageAxes。',
             tests: [
                 t('src/test/comparePanes.test.ts', 'every pane names its axes: level and frequency, Δ with its legend, in the language and calibration of the files'),

@@ -11,7 +11,7 @@ import { alongAxisTicks, axisFractionOf, colourEndText, drawnLevelsText, type St
 import type { StageView } from '../shared/protocol/backendProtocol';
 import { getStrings } from '../shared/i18n/strings';
 import { fetchedSource, localCells, localLine, NO_FULL_DATA } from '../webview/runtime/fullRead';
-import { gainAxisName } from '../webview/runtime/pairSpectrum';
+import { gainAxisName } from '../webview/runtime/figureModel';
 
 const line = (values: number[], quantity: StageView['quantity'] = 'level'): StageView => ({ frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity, xs: [100, 1000, 10000], values });
 const strings = { stageNoDelta: 'none', stageMaxDelta: '{at} {delta}' };

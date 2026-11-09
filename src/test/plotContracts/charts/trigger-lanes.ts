@@ -29,7 +29,7 @@ export const triggerLanes: ChartContract = {
         },
         {
             id: 'trigger-lanes.range', value: 'range', what: 'レーンの振幅の範囲（しきい値を含む）',
-            computedIn: ['src/webview/runtime/triggerLanes.ts:paintTriggerLanes', 'src/webview/runtime/triggerLanes.ts:rangeOf', 'src/webview/plot/waveformLayer.ts:waveformRange', 'src/webview/runtime/comparePanes.ts:levelIdentityOf'],
+            computedIn: ['src/webview/runtime/triggerLanes.ts:paintTriggerLanes', 'src/webview/runtime/triggerLanes.ts:rangeOf', 'src/webview/plot/waveformLayer.ts:waveformRange', 'src/webview/runtime/figureModel.ts:dataRange', 'src/webview/runtime/figureModel.ts:roundedRange', 'src/webview/runtime/figureModel.ts:byLevelKey', 'src/webview/runtime/figureModel.ts:membersOf'],
             from: 'full', trace: '同じレベルの同一性（levelIdentityOf）のレーンどうしで、時間信号は absolutePeak（全サンプルの絶対値の最大）の ±1.05 倍に、しきい値が入るよう広げ、端を切りのよい値に広げる（niceRange、R9）。別の同一性のレーンは範囲を共有しない。',
             tests: [
                 t('src/test/triggerLanes.test.ts', 'trigger lanes of another level identity never share a range: a lane in Pa is not on a full-scale lane\'s scale (A43, R1, R4)'),
@@ -47,7 +47,7 @@ export const triggerLanes: ChartContract = {
         },
         {
             id: 'trigger-lanes.axis', value: 'axis', what: 'レーンの両軸の名前',
-            computedIn: [`${SP}:stageAxes`, `${SP}:amplitudeAxisTitle`],
+            computedIn: [`${SP}:stageAxes`, `${SP}:amplitudeAxisTitle`, 'src/webview/runtime/figureModel.ts:stageNames'],
             from: 'words', trace: '振幅（単位、未校正）と時間。',
             tests: [
                 t('src/test/uiSmoke/plotContract.spec.ts', 'a trigger\'s events plot and the lanes under it answer the same gestures as every plot (R13)'),

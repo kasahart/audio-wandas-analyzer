@@ -19,7 +19,7 @@ export const reportDelta: ChartContract = {
         },
         {
             id: 'report-delta.range', value: 'range', what: 'Δ の軸の範囲',
-            computedIn: ['src/webview/runtime/compareReport.ts:deltaFigure', `${SP}:stageDiffRange`, 'src/webview/runtime/comparePanes.ts:binsView'],
+            computedIn: ['src/webview/runtime/compareReport.ts:deltaFigure', `${SP}:stageDiffRange`, 'src/webview/runtime/comparePanes.ts:binsView', 'src/webview/runtime/figureModel.ts:diffRange'],
             from: 'full', trace: '全ビンがあるときは binsView がすべてのビンの Δ の最小・最大を valueRange として付け、それから決める。帯だけのときは全帯。',
             tests: [
                 t('src/test/comparePanes.test.ts', 'the report\'s Δ figure without bins draws the 1/3-octave Δ, its range holding every band (R1)'),
@@ -37,7 +37,7 @@ export const reportDelta: ChartContract = {
         },
         {
             id: 'report-delta.axis', value: 'axis', what: 'Δ の軸の名前（「Δ [dB]」）',
-            computedIn: ['src/webview/runtime/comparePanes.ts:paneAxes'],
+            computedIn: ['src/webview/runtime/comparePanes.ts:paneAxes', 'src/webview/runtime/figureModel.ts:paneNames'],
             from: 'words', trace: 'dB の Δ は axisDelta（「差 Δ [dB]」）。量（差）と単位を書く。同じ基準の 2 つのレベルの差なので、差そのものの基準はない（基準は凡例と重ね図の軸）。dB でない量は「Δ 量 [単位]」。',
             tests: [
                 t('src/test/axisNames.test.ts', 'every axis a picture is drawn on names its quantity and unit, whatever it measures, with or without a unit, Δ or not (R4)'),

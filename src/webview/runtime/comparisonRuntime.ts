@@ -82,7 +82,7 @@ import {
     spectrumSlicesFromResult,
     withCalibrationWords,
 } from './spectrumRuntime';
-import { emptyFigure, laneAmplitudeRange, levelKeyOfReading, levelTitle as figureLevelTitle, paneNames, plainNames, plainRange, shownLevelOf, uncalibratedWord } from './figureModel';
+import { emptyFigure, frequencyTitle, laneAmplitudeRange, levelKeyOfReading, levelTitle as figureLevelTitle, paneNames, plainNames, plainRange, shownLevelOf, titleOf, uncalibratedWord, type FigureTitle } from './figureModel';
 import { normalizeRuntimeState, PersistedStateStore } from './stateStore';
 import { ComparisonTestBridge } from './testBridge';
 import { RuntimeEventFeed } from './runtimeEvents';
@@ -96,7 +96,7 @@ import { createEntryScreen } from './entryRuntime';
 import { diffHeadline, trackLevelInput, withBins } from './comparePanes';
 import { baseName } from '../../shared/analysis/entryMetadata';
 import { channelResult } from '../../shared/recipe/channelSelection';
-import { reportFiles } from './compareReport';
+import { baseUsed, reportFiles } from './compareReport';
 import { regionLabel } from './entryTable';
 import { activeSlotReferenced, recipeKey } from '../../shared/recipe/recipeSteps';
 import { openedRecipe } from '../../shared/recipe/recipeOpen';
@@ -1565,11 +1565,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const comparison = entryScreen.comparison(comparePath, groupBase, results);
             if (!result?.ok || !comparison.base || comparison.blocked) return STR.compareRefuseFix.replace('{why}', diffHeadline(comparison, STR));
             // The definition counts the recordings this Δ was measured from (over a region, the region's scans).
-            const definition = { ...entryScreen.baseDefinition(comparePath, groupBase), count: comparison.base.filePaths.length };
+            const used = baseUsed(comparison, results);
+            const definition = { ...entryScreen.baseDefinition(comparePath, groupBase), count: used.n };
             const baseLabel = definition.kind === 'file' ? definition.file ?? baseName(data.slots[0] ?? '') : entryScreen.baseTitle(comparePath, groupBase);
             entryScreen.addDerived({
                 parentPath: comparePath, ...(channel ? { ch: channel } : {}), region: regionLabel(region), result, recipeKey: recipeKey(data.runRecipe),
-                base: { leq: comparison.base.leq, bands: comparison.base.bands, label: baseLabel, paths: comparison.base.filePaths, definition },
+                base: { leq: comparison.base.leq, bands: comparison.base.bands, label: baseLabel, paths: used.paths, definition },
             });
             return null;
         },
@@ -1623,8 +1624,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     }
 
     /** A spectrogram lane's colour bar name, as the comparison's heatmaps name their colour: the level, with the channel's reference. */
-    function spectrogramLevelTitle(ch: ChannelSummary | null | undefined): string {
-        return paneNames(STR, trackLevelInput([ch], undefined)).level.y;
+    function spectrogramLevelTitle(ch: ChannelSummary | null | undefined): FigureTitle {
+        return titleOf(paneNames(STR, trackLevelInput([ch], undefined)).level);
     }
     /** A waveform lane's amplitude axis: what it shows from bottom to top (as the waveform is drawn), its ticks and its title. */
     function laneAmplitudeAxis(result: ComparisonTrackState, channelIndex: number) {
@@ -3458,7 +3459,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             taskStatus(STR.announceExportCsvFailed, 'failed');
             return;
         }
-        const csv = buildSpectrumCsv(tracks, STR.axisFrequency);
+        const csv = buildSpectrumCsv(tracks, frequencyTitle(STR));
         // A spectrum the backend failed (or never answered) is left out rather than written from the row cut for display.
         const left = omitted.length > 0 ? STR.exportCsvOmitted.replace('{count}', String(omitted.length)).replace('{names}', omitted.join(', ')) : '';
         if (left) messaging.post({ type: 'show-info', message: left });

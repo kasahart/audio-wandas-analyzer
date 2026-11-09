@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildSpectrumCsv, wavLoopRegions } from '../webview/runtime/runtimeExports';
 import type { SpectrumSlice } from '../webview/runtime/types';
+import { T } from './helpers/figure';
 
 const slice = (values: number[], extra: Partial<SpectrumSlice> = {}): SpectrumSlice => ({
     values, frequencyBins: values.length, maxFrequencyHz: 1000, minDb: -100, maxDb: 0, ...extra,
@@ -9,9 +10,9 @@ const slice = (values: number[], extra: Partial<SpectrumSlice> = {}): SpectrumSl
 
 test('spectrum CSV pairs a frequency and a level column per track, each named as its axis is (C5), and pads shorter tracks', () => {
     const csv = buildSpectrumCsv([
-        { name: 'a.wav ch1', slice: slice([-10, -20, -30], { axisLabel: 'Level [dB SPL]' }), levelTitle: 'Level [dB SPL re 20 µPa]' },
-        { name: 'b,"x".wav', slice: slice([-1.5], { originalMaxFrequencyHz: 500 }), levelTitle: 'Level, uncalibrated [dBFS]' },
-    ], 'Frequency [Hz]');
+        { name: 'a.wav ch1', slice: slice([-10, -20, -30], { axisLabel: 'Level [dB SPL]' }), levelTitle: T('Level [dB SPL re 20 µPa]') },
+        { name: 'b,"x".wav', slice: slice([-1.5], { originalMaxFrequencyHz: 500 }), levelTitle: T('Level, uncalibrated [dBFS]') },
+    ], T('Frequency [Hz]'));
     assert.deepEqual(csv.split('\n'), [
         'a.wav ch1 Frequency [Hz],a.wav ch1 Level [dB SPL re 20 µPa],"b,""x"".wav Frequency [Hz]","b,""x"".wav Level, uncalibrated [dBFS]"',
         '0.0000,-10.000000,0.0000,-1.500000',
@@ -21,7 +22,7 @@ test('spectrum CSV pairs a frequency and a level column per track, each named as
 });
 
 test('spectrum CSV lists the band centres of an octave-band slice', () => {
-    const csv = buildSpectrumCsv([{ name: 'a', slice: slice([-10, -20], { bandsPerOctave: 3, bandCentersHz: [31.5, 40], axisLabel: 'Band level [dBFS]' }), levelTitle: 'Level, uncalibrated [dBFS]' }], 'Frequency [Hz]');
+    const csv = buildSpectrumCsv([{ name: 'a', slice: slice([-10, -20], { bandsPerOctave: 3, bandCentersHz: [31.5, 40], axisLabel: 'Band level [dBFS]' }), levelTitle: T('Level, uncalibrated [dBFS]') }], T('Frequency [Hz]'));
     assert.deepEqual(csv.split('\n').slice(1), ['31.5000,-10.000000', '40.0000,-20.000000']);
 });
 
@@ -43,7 +44,7 @@ test('spectrum CSV writes every FFT bin of a whole row at fs / n_fft spacing', (
     const nFft = 8192;
     const values = Array.from({ length: nFft / 2 + 1 }, (_, bin) => -1 - bin / 100);
     // The display may cap the plotted range; the file still lists every bin up to Nyquist.
-    const csv = buildSpectrumCsv([{ name: 'a', slice: slice(values, { maxFrequencyHz: 2000, originalMaxFrequencyHz: sampleRateHz / 2 }), levelTitle: 'Level, uncalibrated [dBFS]' }], 'Frequency [Hz]');
+    const csv = buildSpectrumCsv([{ name: 'a', slice: slice(values, { maxFrequencyHz: 2000, originalMaxFrequencyHz: sampleRateHz / 2 }), levelTitle: T('Level, uncalibrated [dBFS]') }], T('Frequency [Hz]'));
     const rows = csv.split('\n').slice(1).map(row => row.split(',').map(Number));
     assert.equal(rows.length, nFft / 2 + 1);
     rows.forEach(([frequencyHz, level], bin) => {

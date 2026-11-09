@@ -29,7 +29,7 @@ export const entryOverview: ChartContract = {
         },
         {
             id: 'entry-overview.range', value: 'range', what: '色の範囲（カラーバーの両端）',
-            computedIn: ['src/webview/runtime/entryPlots.ts:overviewPicture', 'src/shared/utils/ticks.ts:heatmapDbRange'],
+            computedIn: ['src/webview/runtime/entryPlots.ts:overviewPicture', 'src/shared/utils/ticks.ts:heatmapDbRange', 'src/webview/runtime/figureModel.ts:heatmapRange'],
             from: 'full', trace: '表のすべての行のすべての帯のレベル（区間ごとに最小と最大だけを描くが、描かない行も）の最大を上、max(最小, 最大 − 100 dB) を下にして（heatmapDbRange）切りのよい値に広げる（R9）。',
             tests: [
                 tt('src/test/entrySidePlots.test.ts', 'the strip\'s colour range holds every table row\'s level, not only the rows the window draws, and opens at round ends (R9)'),
@@ -46,7 +46,7 @@ export const entryOverview: ChartContract = {
         },
         {
             id: 'entry-overview.axis', value: 'axis', what: '帯・行・色の名前',
-            computedIn: ['src/webview/runtime/entryPlots.ts:paintOverview'],
+            computedIn: ['src/webview/runtime/entryPlots.ts:paintOverview', 'src/webview/runtime/figureModel.ts:plainNames', 'src/webview/runtime/figureModel.ts:levelTitle'],
             from: 'words', trace: '帯域中心 [Hz]、行（表の順）、色はレベルと録音に最も多い基準（素の dB にしない。未校正なら未校正と書く）。その基準の録音の帯だけを塗る（commonLevelLabel、entrySidePlots の reference）。',
             tests: [
                 t('src/test/entrySidePlots.test.ts', 'the overview colour scale and the dataset table name the recordings\' most common level reference, never plain dB, and say uncalibrated (R4)'),

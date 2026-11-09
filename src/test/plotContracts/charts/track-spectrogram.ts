@@ -27,7 +27,7 @@ export const trackSpectrogram: ChartContract = {
         },
         {
             id: 'track-spectrogram.range', value: 'range', what: '色の自動の範囲（カラーバーの両端の数）',
-            computedIn: ['src/webview/runtime/spectrogramRaster.ts:spectrogramDisplayBounds', 'python-backend/analyzer.py:_build_spectrogram'],
+            computedIn: ['src/webview/runtime/spectrogramRaster.ts:spectrogramDisplayBounds', 'python-backend/analyzer.py:_build_spectrogram', 'src/webview/runtime/figureModel.ts:roundedRange'],
             from: 'full', trace: 'spec.minDb / maxDb は _build_spectrogram が表示用に平均する前の全 STFT のマスの最小と最大（-inf のマスだけ除く。無音の -240 dB も数える）。上は全マスの最大、下は max(全マスの最小, 上 − 100 dB)（R9：デジタル無音が下端を決めない）を niceRange で丸めてカラーバーの両端に出す。',
             tests: [
                 tt('python-backend/test_analyzer.py', 'test_spectrogram_colour_range_is_every_full_cells_not_the_cells_averaged_to_draw'),
@@ -47,7 +47,7 @@ export const trackSpectrogram: ChartContract = {
         },
         {
             id: 'track-spectrogram.axis', value: 'axis', what: '周波数の軸と色の名前',
-            computedIn: ['src/webview/runtime/trackCanvasPainter.ts:paintTrackSpectrogram'],
+            computedIn: ['src/webview/runtime/trackCanvasPainter.ts:paintTrackSpectrogram', 'src/webview/runtime/figureModel.ts:plainNames'],
             from: 'words', trace: '周波数 [Hz]、色はレベルの名前と基準。',
             tests: [
                 t('src/test/trackCanvasPainter.test.ts', 'a spectrogram lane is drawn by the plot component over its whole width, with the colour bar every coloured picture draws in its top right (R13)'),

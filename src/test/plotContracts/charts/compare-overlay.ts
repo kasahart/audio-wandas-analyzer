@@ -116,7 +116,7 @@ export const compareOverlay: ChartContract = {
         },
         {
             id: 'compare-overlay.range', value: 'range', what: '線の値の軸の自動の範囲',
-            computedIn: [`${SP}:stageRange`, `${SP}:roundEdge`, 'src/webview/runtime/trackStagePainter.ts:paintStageOverlay', 'src/webview/runtime/trackStagePainter.ts:byReference', 'src/webview/plot/waveformLayer.ts:waveformRange', 'python-backend/stage_combine.py:value_range'],
+            computedIn: [`${SP}:stageRange`, `${SP}:roundEdge`, 'src/webview/runtime/trackStagePainter.ts:paintStageOverlay', 'src/webview/runtime/trackStagePainter.ts:byReference', 'src/webview/plot/waveformLayer.ts:waveformRange', 'python-backend/stage_combine.py:value_range', 'src/webview/runtime/figureModel.ts:dataRange', 'src/webview/runtime/figureModel.ts:levelAxes'],
             from: 'full', trace: 'バックエンドが全データ（StageData：間引く前の全点・全マス）の最小と最大を valueRange として絵に付け（value_range。無音の −300 dB の床は除く）、stageRange はその端から決める。時間信号は absolutePeak の ±1.05 倍を切りのよい端に広げる（waveformRange、R9）。webview が全部を持つ絵（帯の表・レベルの線）は描く値が全部。',
             tests: [
                 t('src/test/stagePanes.test.ts', 'levels share a range of four round steps; coherence keeps 0 to 1'),
@@ -126,7 +126,7 @@ export const compareOverlay: ChartContract = {
         },
         {
             id: 'compare-overlay.range-image', value: 'range', what: '熱図の色の自動の範囲（カラーバーの両端の数）',
-            computedIn: [`${SP}:stageRange`, `${SP}:points`, `${SP}:robustEdge`, 'python-backend/stage_view.py:_spectrogram_view', 'python-backend/stage_combine.py:value_range'],
+            computedIn: [`${SP}:stageRange`, `${SP}:points`, `${SP}:robustEdge`, 'python-backend/stage_view.py:_spectrogram_view', 'python-backend/stage_combine.py:value_range', 'src/webview/runtime/figureModel.ts:dataRange'],
             from: 'full', trace: '熱図の matrix は時間のブロックごとに平均したマスだが、色の範囲はバックエンドが平均する前の全マスから求めた valueRange（ケプストログラムは全係数の絶対値の 99 パーセント点 robust）から決める。dB の熱図は上を全データの最大、下を max(全データの最小, 上 − 100 dB) にする（heatmapDbRange、R9）。',
             tests: [
                 tt('src/test/stagePanes.test.ts', 'every range is set from the full data\'s lowest and highest value (valueRange), never the points drawn or the cells averaged to draw an image (R1, R9)'),
@@ -146,7 +146,7 @@ export const compareOverlay: ChartContract = {
         },
         {
             id: 'compare-overlay.axis', value: 'axis', what: '両軸の名前（レベル・振幅・周波数・時間・帯・ラグ・ケフレンシー）',
-            computedIn: [`${SP}:stageAxes`, `${SP}:amplitudeAxisTitle`, 'src/webview/runtime/comparePanes.ts:paneAxes'],
+            computedIn: [`${SP}:stageAxes`, `${SP}:amplitudeAxisTitle`, 'src/webview/runtime/comparePanes.ts:paneAxes', 'src/webview/runtime/figureModel.ts:stageNames', 'src/webview/runtime/figureModel.ts:paneNames'],
             from: 'words', trace: 'stageAxes が Frame の種類と単位と校正から名前を作る。dB は wandas のレベル基準で書く。',
             tests: [
                 t('src/test/comparePanes.test.ts', 'every pane names its axes: level and frequency, Δ with its legend, in the language and calibration of the files'),
@@ -157,7 +157,7 @@ export const compareOverlay: ChartContract = {
         },
         {
             id: 'compare-overlay.axis-identity', value: 'axis', what: '重ねた線をどの値の軸に載せるか（左・右・重ねない）と、その軸の名前の校正の語',
-            computedIn: ['src/webview/runtime/trackStagePainter.ts:byReference', 'src/webview/runtime/figureModel.ts:levelAxes', 'src/webview/runtime/figureModel.ts:axisInputOf', 'src/webview/runtime/figureModel.ts:byLevelKey', 'src/webview/runtime/figureModel.ts:calibrationWordsBy', 'src/webview/runtime/figureModel.ts:calibrationWords', 'src/webview/runtime/comparePanes.ts:levelIdentityOf'],
+            computedIn: ['src/webview/runtime/trackStagePainter.ts:byReference', 'src/webview/runtime/figureModel.ts:levelAxes', 'src/webview/runtime/figureModel.ts:axisInputOf', 'src/webview/runtime/figureModel.ts:byLevelKey', 'src/webview/runtime/figureModel.ts:calibrationWordsBy', 'src/webview/runtime/figureModel.ts:calibrationWords', 'src/webview/runtime/comparePanes.ts:levelIdentityOf', 'src/webview/runtime/figureModel.ts:legendWords'],
             from: 'words', trace: '線は録音のレベルの同一性（levelIdentityOf）で軸に分ける。軸の名前の文字では分けない。同一性が 3 つ以上なら重ねない。軸の名前は、その軸の線に校正済みが 1 本でもあればその録音の入力で書き、全部が未校正のときだけ未校正と書く。校正状態が混ざる軸では、未校正の線が凡例と読み値に自分で未校正と書く（calibrationWords）。',
             tests: [
                 t('src/test/trackStagePainter.test.ts', 'overlaid, lines share an axis by their level identity, not their axis name: a gain-corrected FS file and a raw one are one axis, and only the raw one says uncalibrated (R1, R4)'),
@@ -168,7 +168,7 @@ export const compareOverlay: ChartContract = {
         },
         {
             id: 'compare-overlay.axis-metric', value: 'axis', what: '指標・手順が作った量・dB の時間変化の値の軸',
-            computedIn: [`${SP}:stageAxes`, `${SP}:metricName`, `${SP}:timeLevelTitle`, `${SP}:amplitudeAxisTitle`, 'python-backend/stage_view.py:signal_measure'],
+            computedIn: [`${SP}:stageAxes`, `${SP}:metricName`, `${SP}:timeLevelTitle`, `${SP}:amplitudeAxisTitle`, 'python-backend/stage_view.py:signal_measure', 'src/webview/runtime/figureModel.ts:stageNames'],
             from: 'words', trace: '単位で決まる指標（sone・acum・asper）はその名前、手順の量（view.measure）は実効値・時間重み付き実効値・パワー、ほかは信号の単位の振幅（amplitudeAxisTitle）。dB の時間変化は何のレベルか（timeLevelTitle、measure はバックエンドが dB でも送る）をファイルの基準で書く。「値」とは書かない。',
             tests: [
                 t('src/test/axisNames.test.ts', 'every axis a picture is drawn on names its quantity and unit, whatever it measures, with or without a unit, Δ or not (R4)'),
@@ -179,7 +179,7 @@ export const compareOverlay: ChartContract = {
         },
         {
             id: 'compare-overlay.axis-cepstrum', value: 'axis', what: 'ケプストラムの値の軸（「実ケプストラム」）',
-            computedIn: [`${SP}:stageAxes`],
+            computedIn: [`${SP}:stageAxes`, 'src/webview/runtime/figureModel.ts:stageNames'],
             from: 'words', trace: 'axisCepstrum は「実ケプストラム [–]」：無次元の量を [–] と書く（R4）。',
             tests: [
                 t('src/test/axisNames.test.ts', 'every axis-name string, in every language, names its quantity and its unit (R4)'),

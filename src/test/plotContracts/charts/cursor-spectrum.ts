@@ -48,7 +48,7 @@ export const cursorSpectrum: ChartContract = {
         },
         {
             id: 'cursor-spectrum.range', value: 'range', what: 'レベルの軸の自動の範囲（左右の軸）',
-            computedIn: ['src/webview/runtime/spectrumRuntime.ts:spectrumSeriesRange', 'src/webview/runtime/spectrumRuntime.ts:spectrumLevelRange', `${SP}:stageRange`, 'src/webview/runtime/spectrumRuntime.ts:overlayLevelAxes', `${RT}:applySpectrumDisplaySettings`, 'python-backend/analysis_service.py:spectrum_slice'],
+            computedIn: ['src/webview/runtime/spectrumRuntime.ts:spectrumSeriesRange', 'src/webview/runtime/spectrumRuntime.ts:spectrumLevelRange', `${SP}:stageRange`, 'src/webview/runtime/spectrumRuntime.ts:overlayLevelAxes', `${RT}:applySpectrumDisplaySettings`, 'python-backend/analysis_service.py:spectrum_slice', 'src/webview/runtime/figureModel.ts:levelLineRange', 'src/webview/runtime/figureModel.ts:byLevelKey'],
             from: 'full', trace: 'slice.minDb / maxDb はバックエンドが行を表示用に切る（min_max_spectrum）前の全ビンの最小と最大。スライスが届くまでの代わりの列は表示用スペクトログラムの minDb / maxDb（全 STFT のマスの端）。全部の線の端を比較台の dB の線と同じ規則（stageRange: 5/10/20/25 dB 刻み、幅は 100 dB まで）で丸める。入力した端はそのまま。',
             tests: [
                 t('src/test/spectrumPath.test.ts', 'the cursor spectrum\'s level axis follows the dB line rule: round steps, at most 100 dB, a silent line squashes nothing (R9)'),
@@ -67,7 +67,7 @@ export const cursorSpectrum: ChartContract = {
         },
         {
             id: 'cursor-spectrum.axis', value: 'axis', what: '周波数とレベルの軸の名前、凡例の頭のレベルの名前',
-            computedIn: ['src/webview/runtime/overlaySpectrumPainter.ts:paintOverlaySpectrum', 'src/webview/runtime/overlaySpectrumPainter.ts:renderSpectrumAxisLegend'],
+            computedIn: ['src/webview/runtime/overlaySpectrumPainter.ts:paintOverlaySpectrum', 'src/webview/runtime/overlaySpectrumPainter.ts:renderSpectrumAxisLegend', 'src/webview/runtime/figureModel.ts:plainNames', 'src/webview/runtime/figureModel.ts:withTitle', 'src/webview/runtime/figureModel.ts:levelTitle', 'src/webview/runtime/figureModel.ts:backendTitle'],
             from: 'words', trace: 'レベルは比較台と同じ名前（基準・未校正）、周波数 [Hz]。',
             tests: [
                 t('src/test/uiSmoke/spectrumOctaveBands.spec.ts', 'the cursor spectrum names its level axis as Compare does, uncalibrated, and its lines in a legend'),

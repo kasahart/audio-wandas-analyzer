@@ -12,6 +12,7 @@ import { baseName } from '../../shared/analysis/entryMetadata';
 import { median } from '../../shared/dataset/distribution';
 import { powerMeanOrNull } from '../../shared/utils/levels';
 import { spacingDecimals } from '../plot/plotText';
+import type { FigureColumns } from './figureModel';
 
 
 /** A group of fewer files says nothing about which band separates them. */
@@ -241,9 +242,9 @@ function levelOfRow(result: ScanResult): Pick<EntryRow, 'uncalibrated' | 'levelR
  * The CSV cell that says what a row's levels are in (R1, R4): its level reference, with the calibration word while
  * uncalibrated ("dBFS 未校正"). Each row says its own: never one word for the whole table.
  */
-export function levelReferenceCell(row: Pick<EntryRow, 'uncalibrated' | 'levelReference'> | undefined, uncalibrated: string): string {
+export function levelReferenceCell(row: Pick<EntryRow, 'uncalibrated' | 'levelReference'> | undefined, cols: FigureColumns): string {
     if (!row?.levelReference) return '';
-    return row.uncalibrated ? `${row.levelReference} ${uncalibrated}` : row.levelReference;
+    return row.uncalibrated ? `${row.levelReference} ${cols.uncalibrated}` : row.levelReference;
 }
 
 /** Builds the model: a row per file with its values, condition and Δ, in the table's order (else by name). */
@@ -451,10 +452,10 @@ export interface EntryMeasure {
  * the table's order; the same input always gives the same bytes. A file row's Δ columns are `measure`'s: the base the
  * screen, the comparison and the report measure from, so the CSV never has a Δ of its own.
  */
-export function entryCsv(model: EntryModel, labels: { file: string; condition: (n: number) => string; regionStart: string; regionEnd: string; leq: string; levelReference: string; uncalibrated: string; peak: string; band: string; deltaLeq: string; deltaBand: string; groupSize: string; status: string },
+export function entryCsv(model: EntryModel, labels: { file: string; condition: (n: number) => string; regionStart: string; regionEnd: string; level: FigureColumns; peak: string; band: string; deltaLeq: string; deltaBand: string; groupSize: string; status: string },
     measure: (filePath: string) => EntryMeasure | null): string {
     // Every metadata column goes out, checked ones first, so the CSV keeps what the table was read from.
-    const header = [labels.file, ...model.columns.map((column, index) => column.name || labels.condition(index + 1)), labels.regionStart, labels.regionEnd, labels.leq, labels.levelReference, `${labels.peak} Hz`, `${labels.peak} dB`, labels.band, labels.deltaLeq, labels.deltaBand, labels.groupSize, labels.status];
+    const header = [labels.file, ...model.columns.map((column, index) => column.name || labels.condition(index + 1)), labels.regionStart, labels.regionEnd, labels.level.level, labels.level.reference, `${labels.peak} Hz`, `${labels.peak} dB`, labels.band, labels.deltaLeq, labels.deltaBand, labels.groupSize, labels.status];
     const dB = (value: number | null): string => csvNumber(value, 1);
     const lines = [header.map(csvCell).join(',')];
     for (const row of model.rows) {
@@ -467,7 +468,7 @@ export function entryCsv(model: EntryModel, labels: { file: string; condition: (
             row.derived ? baseName(row.derived.parent) : row.name,
             // The region the numbers were measured over, never blank: the scan skips the file's guarded ends.
             ...row.cells, ...regionCells(ok ? measuredRegion(row.derived?.region, row.durationS) : row.derived?.region),
-            ok ? dB(row.values.leq) : null, ok ? levelReferenceCell(row, labels.uncalibrated) : null, ok ? bandCentreCell(delta.hz) : null, ok ? dB(delta.peak) : null, ok ? dB(row.values.band) : null,
+            ok ? dB(row.values.leq) : null, ok ? levelReferenceCell(row, labels.level) : null, ok ? bandCentreCell(delta.hz) : null, ok ? dB(delta.peak) : null, ok ? dB(row.values.band) : null,
             dB(delta.leq), dB(delta.band), delta.count ? String(delta.count) : null,
             row.status === 'failed' ? '✕' : row.status === 'mismatch' ? row.mismatch ?? '' : '',
         ].map(csvCell).join(','));

@@ -2,8 +2,9 @@ import { HEATMAP_DB_SPAN, heatmapDbRange, niceRange } from '../../shared/utils/t
 import { WAVEFORM_HALF_HEIGHT_RATIO } from '../waveform/waveformLayout';
 import type { ScanResult } from '../../shared/protocol/backendProtocol';
 import type { Answer, AnswerIdentity } from './answerTypes';
-import { levelIdentityOf, paneAxes, type LevelInput, type PaneAxes, type PaneRange } from './comparePanes';
+// stagePanes before comparePanes: the two import each other, and comparePanes' PANE_LEFT is read as stagePanes loads.
 import { stageAxes, stageDiffRange, stageRange, type StageAxes, type StageStrings } from './stagePanes';
+import { levelIdentityOf, paneAxes, type LevelInput, type PaneAxes, type PaneRange } from './comparePanes';
 import type { StageView } from '../../shared/protocol/backendProtocol';
 
 /**
@@ -124,8 +125,6 @@ export function rangeWith<R extends PaneRange>(range: R, min: number, max: numbe
     return { ...range, min, max } as R & FigureRange;
 }
 
-/** A range made here from one made elsewhere by R9's rule inside this layer's callers (a lane's waveform range). */
-export const asFigureRange = <R extends PaneRange>(range: R): R & FigureRange => range as R & FigureRange;
 
 // ── Level identity ────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -179,6 +178,44 @@ export function calibrationWords(strings: { axisUncalibrated: string }, allTrack
     const known = [...new Set(paths)].filter(path => !!inputOf(path));
     const word = calibrationWordsBy(known, path => levelKeyOf(inputOf(path)), path => inputOf(path)?.calibrationStatus === 'calibrated', uncalibratedWord(strings));
     return path => (inputOf(path) ? word(path) : '');
+}
+
+/**
+ * A CSV's level column and the per-row level-reference column beside it (C5, R1, R4), made only here: the CSV writers
+ * take no other, so no level column goes out without the column that says what its dB are re.
+ */
+export type FigureColumns = { readonly level: string; readonly reference: string; readonly uncalibrated: string } & { readonly [figureBrand]: 'columns' };
+const columns = (level: string, reference: string, uncalibrated: string): FigureColumns => ({ level, reference, uncalibrated }) as FigureColumns;
+/** A file's own level column (Leq) and its reference column. */
+export const levelColumns = (strings: { entryColLeq: string; reportLevelReference: string; entryLeqUncalibrated: string }): FigureColumns => columns(strings.entryColLeq, strings.reportLevelReference, strings.entryLeqUncalibrated);
+/** The base group's level column and its reference column (the report's 基準群). */
+export const baseLevelColumns = (strings: { reportBaseLeq: string; reportBaseLevelReference: string; entryLeqUncalibrated: string }): FigureColumns => columns(strings.reportBaseLeq, strings.reportBaseLevelReference, strings.entryLeqUncalibrated);
+
+/** The frequency axis' name as a title (the spectrum CSV's frequency columns). */
+export const frequencyTitle = (strings: { axisFrequency: string }): FigureTitle => titled(strings.axisFrequency);
+
+/**
+ * The legend words of a stage figure (R1, R4): each recording's calibration word (calibrationWords, over the compared
+ * one, the tracks and the base group) and the base group's own, said once when any base recording is uncalibrated.
+ */
+export function legendWords(strings: { axisUncalibrated: string }, allTracks: ReadonlyArray<{ filePath: string; input?: LevelInput }>, shownPaths: readonly (string | null | undefined)[], basePaths: readonly string[]): { word: (path: string | null | undefined) => string; baseWord: string } {
+    const word = calibrationWords(strings, allTracks, [...shownPaths, ...basePaths]);
+    return { word, baseWord: basePaths.some(path => word(path)) ? uncalibratedWord(strings) : '' };
+}
+
+/** A level value's name from a template with {label} (its reference) and {uncal} (said while uncalibrated, R4). */
+export function templatedLevelName(strings: { axisUncalibrated: string }, template: string, label: string, calibrated: boolean): string {
+    return template.replace('{uncal}', calibrated ? '' : uncalibratedWord(strings)).replace('{label}', label);
+}
+
+/**
+ * The gain plot's axis name, in the UI's language (R4): a gain in plain dB where the two channels share a unit, else
+ * the transfer level in dB re the units' ratio, as the backend measured it (its levelReferenceLabel, else the unit of
+ * its own English name).
+ */
+export function gainAxisName(response: { axisLabel?: string; levelReferenceLabel?: string | null } | undefined, strings: { axisGain: string; axisTransferLevel: string }): string {
+    const unit = response?.levelReferenceLabel ?? /\[([^\]]+)\]\s*$/u.exec(response?.axisLabel ?? '')?.[1] ?? 'dB';
+    return unit === 'dB' ? strings.axisGain : strings.axisTransferLevel.replace('{unit}', unit);
 }
 
 /**

@@ -10,7 +10,7 @@ import type { ScanResult } from '../../shared/protocol/backendProtocol';
 import { rowKey, type DatasetRow } from '../../shared/dataset/datasetTable';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
 import { commonLevelLabel } from '../../shared/utils/format';
-import { levelKeyOf } from './figureModel';
+import { levelKeyOf, templatedLevelName } from './figureModel';
 import { installRangePopover, linearAxis, openAxisPart, type AxisMapping } from '../rangePopover';
 import type { HeldPicture } from './entryHeldPlot';
 import { OVERVIEW_MARGINS, paintOverview } from './entryPlots';
@@ -131,7 +131,7 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
     }
     const levelLabel = (): string => reference().label;
     /** A level value's name: the template with the reference and, while uncalibrated, the word that says so (R4). */
-    const levelName = (template: string): string => template.replace('{uncal}', reference().calibrated ? '' : strings.axisUncalibrated).replace('{label}', reference().label);
+    const levelName = (template: string): string => templatedLevelName(strings, template, reference().label, reference().calibrated);
     const pending = { frame: false, distribution: true };
 
     function paint(): void {

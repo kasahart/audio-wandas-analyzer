@@ -1,11 +1,12 @@
 import { binFrequencyHz } from '../draw/canvasDrawers';
+import type { FigureTitle } from './figureModel';
 import type { SpectrumSlice } from './types';
 
 export interface CsvSpectrumTrack {
     name: string;
     slice: SpectrumSlice;
     /** Its level column's name as its level axis names it: the quantity and its unit with the channel's reference (C5). */
-    levelTitle: string;
+    levelTitle: FigureTitle;
 }
 
 export interface WavLoopTrack {
@@ -28,7 +29,7 @@ function csvCell(s: string): string {
  * The spectra at the cursor as CSV: per track a frequency and a level column, each named as its axis is ("Quantity
  * [unit]", the level with its reference: never a bare dB), `frequencyTitle` the frequency axis's name.
  */
-export function buildSpectrumCsv(tracks: CsvSpectrumTrack[], frequencyTitle: string): string {
+export function buildSpectrumCsv(tracks: CsvSpectrumTrack[], frequencyTitle: FigureTitle): string {
     const headers: string[] = [];
     tracks.forEach(function (t) {
         headers.push(csvCell(t.name + ' ' + frequencyTitle));

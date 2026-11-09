@@ -44,7 +44,7 @@ export const pairView: ChartContract = {
         },
         {
             id: 'pair-view.range', value: 'range', what: '利得の軸の自動の範囲',
-            computedIn: ['src/webview/runtime/pairSpectrum.ts:gainRange', 'src/webview/runtime/pairSpectrum.ts:gainSpan', 'src/webview/runtime/pairSpectrumPanel.ts:wholeHolding', 'src/webview/runtime/stagePanes.ts:stageRange'],
+            computedIn: ['src/webview/runtime/pairSpectrum.ts:gainRange', 'src/webview/runtime/pairSpectrum.ts:gainSpan', 'src/webview/runtime/pairSpectrumPanel.ts:wholeHolding', 'src/webview/runtime/stagePanes.ts:stageRange', 'src/webview/runtime/figureModel.ts:dataRange', 'src/webview/runtime/figureModel.ts:plainRange'],
             from: 'full', trace: '見えている周波数の全ビンの利得の最小・最大を、比較台の段と同じ dB の線の規則（stageRange: 5・10・20・25 dB の刻み、上から 100 dB まで）で切りのよい値に広げる（R9）。縦に拡大した値が画面のビンの外なら、同じ規則でそれを含むまで広げる。',
             tests: [
                 tt('src/test/pairSpectrum.test.ts', 'the pair view\'s gain axis opens at round ends holding every bin on screen, a one-bin notch too, and only those (R9)'),
@@ -62,7 +62,7 @@ export const pairView: ChartContract = {
         },
         {
             id: 'pair-view.axis', value: 'axis', what: '周波数・利得・位相の軸の名前',
-            computedIn: ['src/webview/runtime/pairSpectrum.ts:pairLanes'],
+            computedIn: ['src/webview/runtime/pairSpectrum.ts:pairLanes', 'src/webview/runtime/figureModel.ts:gainAxisName', 'src/webview/runtime/figureModel.ts:plainNames'],
             from: 'words', trace: '利得はバックエンドの axisLabel、位相 [°]、周波数 [Hz]。',
             tests: [
                 t('src/test/pairSpectrum.test.ts', 'the pair view is three plots on one frequency axis, each named with its quantity and unit, drawing ok responses only'),
@@ -71,7 +71,7 @@ export const pairView: ChartContract = {
         },
         {
             id: 'pair-view.axis-coherence', value: 'axis', what: 'コヒーレンスの軸の名前（「γ²」）',
-            computedIn: ['src/webview/runtime/pairSpectrum.ts:pairLanes'],
+            computedIn: ['src/webview/runtime/pairSpectrum.ts:pairLanes', 'src/webview/runtime/figureModel.ts:plainNames'],
             from: 'words', trace: 'pairCoherenceLabel は「コヒーレンス γ² [–]」。狭いと記号「γ² [–]」に縮めるが単位は残す（axisTitle.ts）。',
             tests: [
                 t('src/test/axisNames.test.ts', 'every axis a picture is drawn on names its quantity and unit, whatever it measures, with or without a unit, Δ or not (R4)'),
