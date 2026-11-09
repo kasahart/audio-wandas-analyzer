@@ -78,8 +78,8 @@ export class PairSpectrumPanel {
     private observedKey: string | null = null;
     /** The response spectra asked for ('pair'), as every on-demand request is kept. */
     private readonly requests = new HostRequests<undefined>();
-    private result: PairSpectrumResultMessage | null = null;
-    private error: string | null = null;
+    /** The last answer, and the request (its sources, offsets, range, settings) it answered. */
+    private answer: { result: PairSpectrumResultMessage | null; error: string | null; key: string } | null = null;
     private timer: ReturnType<typeof setTimeout> | null = null;
     /** The pointer over one of the pair plots, while it is. */
     private pointer: { lane: PairLaneKey; clientX: number; clientY: number } | null = null;
@@ -117,8 +117,7 @@ export class PairSpectrumPanel {
         this.sentKey = null;
         this.observedKey = null;
         this.requests.drop('pair');
-        this.result = null;
-        this.error = null;
+        this.answer = null;
         this.pointer = null;
         this.levelWindow.clear();
         this.ownWindow = FULL_PLOT_WINDOW.x;
@@ -209,11 +208,27 @@ export class PairSpectrumPanel {
         if (sources.responses.length === 0) {
             this.sentKey = null;
             this.requests.drop('pair');
-            this.result = null;
-            this.error = null;
+            this.answer = null;
             this.render();
             return;
         }
+        const asked = this.requestNow();
+        if (!asked || asked.key === this.sentKey) {
+            return;
+        }
+        const { request, key } = asked;
+        this.sentKey = key;
+        this.requests.ask('pair', this.host.nextRequestId(), key, undefined, ({ requestId }) => this.host.post({ ...request, requestId }));
+        this.render();
+    }
+
+    /**
+     * The request the sources, their offsets, the range and the settings ask for now, and its key; null without a
+     * reference lane or responses. An answer is shown only while it answers this very request.
+     */
+    private requestNow(): { request: Omit<PairSpectrumRequest, 'requestId'>; key: string } | null {
+        const sources = this.sources();
+        if (!sources || sources.responses.length === 0) return null;
         const ref = (source: PairChannelSource) => ({ filePath: source.filePath, channelIndex: source.channelIndex, offsetSeconds: source.offsetSeconds });
         const range = this.host.range();
         const request: Omit<PairSpectrumRequest, 'requestId'> = {
@@ -224,14 +239,24 @@ export class PairSpectrumPanel {
             responses: sources.responses.map(ref),
             ...(range ? { startSeconds: range.startSeconds, endSeconds: range.endSeconds } : {}),
         };
-        const key = JSON.stringify(request);
-        if (key === this.sentKey) {
-            return;
-        }
-        this.sentKey = key;
-        this.error = null;
-        this.requests.ask('pair', this.host.nextRequestId(), key, undefined, ({ requestId }) => this.host.post({ ...request, requestId }));
-        this.render();
+        return { request, key: JSON.stringify(request) };
+    }
+
+    /**
+     * The answer to what is asked now: one computed for other sources, offsets, a range or settings since changed is
+     * not drawn or read under today's names (R7: no numbers until they arrive), while its successor is waited for.
+     */
+    private current(): { result: PairSpectrumResultMessage | null; error: string | null } | null {
+        const answer = this.answer;
+        return answer && answer.key === this.requestNow()?.key ? answer : null;
+    }
+
+    private get result(): PairSpectrumResultMessage | null {
+        return this.current()?.result ?? null;
+    }
+
+    private get error(): string | null {
+        return this.current()?.error ?? null;
     }
 
     /** Returns whether the message belonged to the pair view. */
@@ -243,14 +268,9 @@ export class PairSpectrumPanel {
             return true;
         }
         this.requests.settle(message.requestId);
-        if (message.type === 'pair-spectrum-error') {
-            this.error = message.error;
-            this.result = null;
-        }
-        else {
-            this.result = message;
-            this.error = null;
-        }
+        // The answer is to the request last asked (requests.answering): that request's key.
+        const key = this.sentKey ?? '';
+        this.answer = message.type === 'pair-spectrum-error' ? { result: null, error: message.error, key } : { result: message, error: null, key };
         this.render();
         if (this.pointer) {
             this.syncHostHover();
@@ -304,7 +324,6 @@ export class PairSpectrumPanel {
         if (!plot) {
             return;
         }
-        this.doc.getElementById('pair-spectrum-wrap')?.classList.toggle('is-stale', this.waiting && !!this.result);
         const curves = this.curves();
         const header = pairHeader(curves, this.strings);
         if (summary) {
@@ -323,7 +342,7 @@ export class PairSpectrumPanel {
         const sources = this.sources();
         const text = this.error !== null ? this.strings.pairFailed.replace('{error}', this.error)
             : sources && sources.responses.length === 0 ? this.strings.pairNoResponses
-                : this.waiting && !this.result ? this.strings.pairWaiting
+                : !this.result ? this.strings.pairWaiting
                     : '';
         if (message) {
             message.textContent = text;
