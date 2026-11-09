@@ -6,7 +6,9 @@
  *
  * The script defines `uiSmokeReadAnswer(message)`: the answer to a lane's read ('request-waveform-range' or
  * 'request-track-detail' with `read`, or a line's level read), or null for anything else or when the test answers them
- * (`window.__uiSmokeTestAnswersReads`); and `uiSmokeReadPoints(view, read)` for a picture's.
+ * (`window.__uiSmokeTestAnswersReads`); `uiSmokeSliceAnswer(message)`: the cursor spectrum's slice (an FFT's every bin)
+ * at the cursor asked for, which for these pages is the lane spectrogram's column there, or null for octave bands, a
+ * read, or when the test answers them; and `uiSmokeReadPoints(view, read)` for a picture's.
  */
 export const UI_SMOKE_READS = `
 function uiSmokeReadLine(xs, values, read) {
@@ -104,5 +106,29 @@ function uiSmokeReadAnswer(message) {
     var rows = Array.from({ length: spec.frequencyBins }, function(_, bin) { return lowHz + (spec.frequencyBins > 1 ? bin / (spec.frequencyBins - 1) : 0) * (highHz - lowHz); });
     var matrix = rows.map(function(_, bin) { return times.map(function(_, column) { return spec.values[column] ? spec.values[column][bin] : null; }); });
     return Object.assign({ type: 'track-detail-result', channels: [], points: uiSmokeReadCells(times, rows, matrix, message.read) }, identity);
+}
+function uiSmokeSliceAnswer(message) {
+    if (window.__uiSmokeTestAnswersReads || !message || message.type !== 'request-spectrum-slice' || message.read || message.bandsPerOctave) return null;
+    var result = uiSmokeResults().find(function(item) { return item && item.filePath === message.filePath; });
+    if (!result || !result.channels) return null;
+    var duration = result.durationSeconds || 1;
+    var channels = result.channels.map(function(channel, channelIndex) {
+        var spec = channel && channel.spectrogram;
+        if (!spec || !spec.timeBins || !spec.values) return null;
+        var at = 0, best = Infinity;
+        for (var column = 0; column < spec.timeBins; column++) {
+            var time = spec.timeCentersSec ? spec.timeCentersSec[column] : (column + 0.5) / spec.timeBins * duration;
+            var away = Math.abs(time - message.cursorNorm * duration);
+            if (away < best) { best = away; at = column; }
+        }
+        return { channelIndex: channelIndex, values: spec.values[at], minDb: spec.minDb, maxDb: spec.maxDb, unit: spec.unit, axisLabel: spec.axisLabel };
+    });
+    if (channels.some(function(channel) { return !channel; })) return null;
+    var first = result.channels[0].spectrogram;
+    return {
+        type: 'spectrum-slice-result', requestId: message.requestId, analysisId: message.analysisId, settingsSignature: message.settingsSignature,
+        trackIndex: message.trackIndex, filePath: message.filePath, channels: channels, frequencyBins: first.frequencyBins, maxFrequencyHz: first.maxFrequencyHz,
+        windowStartNorm: message.cursorNorm - 0.01, windowEndNorm: message.cursorNorm + 0.01, window: 'hann',
+    };
 }
 `;
