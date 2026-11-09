@@ -5,6 +5,7 @@
  */
 import type { ComparePublication, CompareScanMessage } from '../../shared/analysis/entryScan';
 import type { ScanResult, StageView } from '../../shared/protocol/backendProtocol';
+import { answerKey, createAnswerStore, createLatestAnswers, type AnswerKey } from './answerStore';
 import { HostRequests } from './hostRequests';
 
 export interface StageSpec {
@@ -40,7 +41,7 @@ export function stageBasis(
     scanOf: (filePath: string) => ScanResult | undefined,
     analysisOf: (filePath: string) => { calibrationSignature?: string; analysisRevision?: number } | null | undefined = () => undefined,
 ): (filePath: string) => string {
-    const known = new Map<string, string>();
+    const known = createLatestAnswers<string>();
     return filePath => {
         const scan = scanOf(filePath);
         const condition = scan?.ok ? scan.conditionId ?? scan.input?.id ?? '' : known.get(filePath) ?? '';
@@ -60,8 +61,8 @@ export function stageCacheKey(spec: StageSpec): string {
     return detail ? `${spec.key}|${JSON.stringify([detail.x, detail.y ?? null, detail.points])}` : spec.key;
 }
 
-/** A file's answer as kept: the result, and the file's basis (its version and calibration) when it was asked for. */
-interface Kept { result: ScanResult; basis: string }
+/** A file's answer to a spec, under the file's basis (its version and calibration) when it was asked for. */
+const fileKey = (cacheKey: string, filePath: string, basis: string): AnswerKey => answerKey({ ask: cacheKey, file: filePath, fileVersion: basis });
 
 /**
  * `basisOf` names what a file's pictures depend on beyond the spec: the version of the file and its calibration, as
@@ -69,27 +70,13 @@ interface Kept { result: ScanResult; basis: string }
  * not drawn, and asked for again. A file the screen knows nothing of has the basis ''.
  */
 export function createStageSource(prefix: string, post: (message: CompareScanMessage) => void, changed: () => void, basisOf: (filePath: string) => string = () => ''): StageSource {
-    const cache = new Map<string, Map<string, Kept>>();
+    // The CACHED_SPECS specs last answered, each with every file's answer to it.
+    const answers = createAnswerStore<ScanResult>({ capacity: CACHED_SPECS, evictBy: 'ask' });
     // One slot: the pictures being asked for. A superseded request's answers are still kept, under its own spec.
     const requests = new HostRequests<{ key: string; bases: ReadonlyMap<string, string> }>();
     let count = 0;
     /** A file's answer for this cache key, while it is of the file's current basis. */
-    const current = (key: string, filePath: string): ScanResult | undefined => {
-        const kept = cache.get(key)?.get(filePath);
-        return kept && kept.basis === basisOf(filePath) ? kept.result : undefined;
-    };
-    function cacheFor(key: string): Map<string, Kept> {
-        let results = cache.get(key);
-        if (!results) {
-            results = new Map();
-            cache.set(key, results);
-            for (const oldest of cache.keys()) {
-                if (cache.size <= CACHED_SPECS) break;
-                cache.delete(oldest);
-            }
-        }
-        return results;
-    }
+    const current = (key: string, filePath: string): ScanResult | undefined => answers.value(fileKey(key, filePath, basisOf(filePath)));
     return {
         ensure(spec, files) {
             const key = stageCacheKey(spec);
@@ -99,16 +86,13 @@ export function createStageSource(prefix: string, post: (message: CompareScanMes
             // The same request is in flight only when it asks for these files under the same bases.
             const asked = `${key}|${JSON.stringify([...bases])}`;
             if (requests.pending('pictures')?.key === asked) return true;
-            cacheFor(key);
             requests.ask('pictures', `${prefix}-${++count}`, asked, { key, bases }, ({ requestId }) => post({ type: 'compare-scan', requestId, filePaths: need, ...spec.message }));
             return true;
         },
         result: (spec, filePath) => current(stageCacheKey(spec), filePath),
-        forget(spec, filePath) { cache.get(stageCacheKey(spec))?.delete(filePath); },
+        forget(spec, filePath) { answers.forget(fileKey(stageCacheKey(spec), filePath, basisOf(filePath))); },
         forgetData(keys) {
-            for (const results of cache.values()) {
-                for (const [path, { result }] of results) if (result.ok && result.stage?.data && keys.includes(result.stage.data)) results.delete(path);
-            }
+            answers.forgetWhere(result => !!(result.ok && result.stage?.data && keys.includes(result.stage.data)));
         },
         view(spec, filePath) {
             const result = current(stageCacheKey(spec), filePath);
@@ -120,7 +104,7 @@ export function createStageSource(prefix: string, post: (message: CompareScanMes
             const request = requests.find(publication.requestId);
             if (publication.type === 'compare-scan-result' && request) {
                 const { key, bases } = request.meta;
-                cacheFor(key).set(publication.filePath, { result: publication.result, basis: bases.get(publication.filePath) ?? basisOf(publication.filePath) });
+                answers.ready(fileKey(key, publication.filePath, bases.get(publication.filePath) ?? basisOf(publication.filePath)), publication.result);
             }
             if (publication.type === 'compare-scan-done') requests.settle(publication.requestId);
             changed();

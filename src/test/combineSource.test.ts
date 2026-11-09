@@ -151,8 +151,11 @@ test('stageBasis follows the screen\'s scan (version, calibration) and the track
     scans.set('/a.wav', { ok: true, conditionId: 'c2' });
     assert.notEqual(basisOf('/a.wav'), first, 'another version or calibration of the file');
     const second = basisOf('/a.wav');
+    analyses.set('/a.wav', { calibrationSignature: 's2', analysisRevision: 1 });
+    assert.notEqual(basisOf('/a.wav'), second, 'the track calibrated anew, its analysis not run again');
+    const third = basisOf('/a.wav');
     analyses.set('/a.wav', { calibrationSignature: 's2', analysisRevision: 2 });
-    assert.notEqual(basisOf('/a.wav'), second, 'the track calibrated anew');
+    assert.notEqual(basisOf('/a.wav'), third, 'the track analysed again');
 });
 
 test('the last zoomed answer kept on screen is of the pictures it was taken of: a rescan, a calibration or a file\'s new version is not it (A35, C2)', () => {

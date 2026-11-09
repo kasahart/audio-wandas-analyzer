@@ -6,6 +6,7 @@
  * M (its memo), Enter (open the slotted rows), ↑/↓ (move), Esc (close what is open, then leave). Keys on a
  * button or a field are that element's own.
  */
+import { createLatestAnswers } from './answerStore';
 import { redrawWhenResized } from './canvasResize';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import type { UiStrings } from '../../shared/i18n/strings';
@@ -280,23 +281,23 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     } = { standard: null, edited: null, failed: {} };
 
     let filePaths: string[] = [];
-    const results = new Map<string, ScanResult>();
-    function noteResult(filePath: string, result: ScanResult): void {
-        results.set(filePath, result);
+    /** Each file's latest scan, with the Recipe it was measured with (recipeKey of the run): a result of another chain is greyed. */
+    const scans = createLatestAnswers<ScanResult>();
+    const results = scans.view;
+    function noteResult(filePath: string, result: ScanResult, recipe: string): void {
+        scans.set(filePath, result, { recipeKey: recipe });
         sidePlots.noteResult(filePath, result);
     }
-    /** The Recipe each result was measured with (recipeKey of the run): a result of another chain is greyed. */
-    const resultKeys = new Map<string, string>();
     /** What the table asked the host for: the folder's stored results or a computation ('scan'), a fixed difference measured again. */
     const requests = new HostRequests<undefined>();
     const remeasuring = new HostRequests<{ row: DerivedRow; results: Map<string, ScanResult> }>();
     /** Whether the chain cannot run (a step that cannot, and so nothing after it): the table then has no values for it. */
     const broken = (): boolean => { const recipe = recipeState.edited ?? recipeState.standard; return !!recipe && !!brokenStep(recipe, limits()); };
     const currentKey = (): string => (broken() ? 'broken' : recipeKey(scanRecipe()));
-    const isStale = (path: string): boolean => results.has(path) && resultKeys.get(path) !== currentKey();
+    const isStale = (path: string): boolean => results.has(path) && scans.under(path)?.recipeKey !== currentKey();
     function stalePaths(): Set<string> {
         const key = currentKey();
-        return new Set(filePaths.filter(path => results.has(path) && resultKeys.get(path) !== key));
+        return new Set(filePaths.filter(path => results.has(path) && scans.under(path)?.recipeKey !== key));
     }
     /** The files' headers (channels, lengths), read at open; then the computation the user started, and what one costs. */
     const headers = createHeaderProbe();
@@ -1388,9 +1389,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             filePaths = paths.filter(path => !isMetadataCandidate(path));
             rootPath = root;
             recipeState.knownShortest = undefined;
-            results.clear();
+            scans.clear();
             sidePlots.clear();
-            resultKeys.clear();
             rowsDirty = true;
             recipeState.knownRate = undefined;
             excluded.clear();
@@ -1486,8 +1486,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
                 // What the table settled on at open is what is stored: only a change after it is saved.
                 if (loading) session.markLoaded();
             } else if (publication.type === 'entry-scan-result') {
-                noteResult(publication.filePath, publication.result);
-                resultKeys.set(publication.filePath, requests.find(publication.requestId)?.key ?? currentKey());
+                noteResult(publication.filePath, publication.result, requests.find(publication.requestId)?.key ?? currentKey());
                 rowsDirty = true;
                 progress.fileDone(publication.filePath);
                 const { failedStep, reason } = publication.result;
