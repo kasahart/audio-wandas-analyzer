@@ -639,15 +639,21 @@ def test_a_median_and_a_difference_carry_their_full_datas_value_range(signal: wd
     base_frame, compare_frame = _at_levels(plain, {at: -10.004}), _at_levels(plain, {at: 7.25, dip: -95.5})
     base, compare = stage_data(base_frame, view), stage_data(compare_frame, view)
     assert base is not None and compare is not None
-    delta = np.asarray(compare_frame.dB, dtype=np.float64).reshape(-1) - np.asarray(base_frame.dB, dtype=np.float64).reshape(-1)
+
+    def db(frame: object) -> np.ndarray:
+        return np.asarray(frame.dB, dtype=np.float64).reshape(-1)  # type: ignore[attr-defined]
+
+    delta = db(compare_frame) - db(base_frame)
     drawn = (xs >= 20) & (xs <= RATE / 2) & (xs > 0)
     result = combine([base], compare)
-    assert result["diff"]["valueRange"] == pytest.approx({"min": float(delta[drawn].min()), "max": float(delta[drawn].max())})
+    expected = {"min": float(delta[drawn].min()), "max": float(delta[drawn].max())}
+    assert result["diff"]["valueRange"] == pytest.approx(expected)
     zoomed = combine([base], compare, {"x": [2500.0, 3500.0], "points": 200})
     inside = (xs >= 2500.0) & (xs <= 3500.0)
     assert zoomed["diff"]["valueRange"]["max"] == pytest.approx(float(delta[inside].max()))
     members = [stage_data(_at_levels(plain, {at: level}), view) for level in (-12.0, -10.0, 4.5)]
     grouped = combine(members, None)  # type: ignore[arg-type]
-    median = np.median(np.stack([np.asarray(_at_levels(plain, {at: level}).dB, dtype=np.float64).reshape(-1) for level in (-12.0, -10.0, 4.5)]), axis=0)
+    median = np.median(np.stack([db(_at_levels(plain, {at: level})) for level in (-12.0, -10.0, 4.5)]), axis=0)
     shown = median[drawn]
-    assert grouped["base"]["valueRange"] == pytest.approx({"min": float(shown[shown > -250].min()), "max": float(shown.max())})
+    expected = {"min": float(shown[shown > -250].min()), "max": float(shown.max())}
+    assert grouped["base"]["valueRange"] == pytest.approx(expected)

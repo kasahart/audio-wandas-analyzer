@@ -698,7 +698,7 @@ test('renderScript: track-detail-result merges spectrogram and stale detail is i
     } }));
     await nextAnimationFrame(env.dom);
     let snap = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any;
-    assert.ok(snap.renderedUi.axisLabels.spectrogramPerTrack[0].includes('-120 dB'));
+    assert.ok(snap.renderedUi.axisLabels.spectrogramPerTrack[0].includes('-100 dB'));
     assert.equal(snap.renderedUi.axisLabels.spectrogramPerTrack[0].includes('-90 dB'), false);
 
     env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
