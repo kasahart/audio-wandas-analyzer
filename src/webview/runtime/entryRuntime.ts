@@ -1072,7 +1072,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             deltaBand: `Δ ${bandLabel(model.band)} dB`,
             groupSize: strings.entryCsvGroupSize,
             status: strings.dsReason,
-        }, filePath => entryMeasure(entryBase.fileComparison(filePath), model.band));
+        }, filePath => entryMeasure(entryBase.fileComparison(filePath), model.band, results));
         deps.download(csvText, 'entry-table.csv');
     }
 

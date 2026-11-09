@@ -9,7 +9,7 @@ import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { encodeNumber, plainFloats, recipeSteps, timeSignalStep, upToStep, withDefaults, withParam, TIME_SLICE } from '../../shared/recipe/recipeSteps';
 import { BAND_CENTERS_HZ, bandCentreCell, bandLabel, csvNumber, EDGE_GUARD_S, HEADLINE_WITHIN_DB, levelReferenceCell, measuredRegion, regionCells, type BaseDefinition, type DerivedRow, type EntryMeasure, type EntryModel } from './entryTable';
 import { withBaseInput, withChannel } from '../../shared/recipe/channelSelection';
-import { dataRange, diffRange, levelAxes, paneNames, plainNames, titleOf, withTitle, type FigureRange, type FigureTitle } from './figureModel';
+import { dataRange, diffRange, figureUsed, levelAxes, scanAnswer, paneNames, plainNames, titleOf, withTitle, type FigureRange, type FigureTitle } from './figureModel';
 import { bandsSource, binsSource, binsView, deltaViews, diffHeadline, levelsHeadline, sideView, type CompareModel, type CompareStrings, type LevelInput } from './comparePanes';
 import { SECONDARY_AXIS_DASH } from './overlaySpectrumPainter';
 import { paintOverlay } from './stagePanes';
@@ -135,14 +135,19 @@ function maxBandCells(comparison: CompareModel): [string, string] {
  * A file row of the entry CSV as this comparison measures it (entryBase.fileComparison): the same Δ Leq, band Δ,
  * largest-Δ band and base count the comparison, its held picture and 報告.csv show.
  */
-export function entryMeasure(comparison: CompareModel, band: number): EntryMeasure | null {
+/** The base's recordings the figure's numbers are of (figureModel.figureUsed): the ready ones; n is how many. */
+export function baseUsed(comparison: Pick<CompareModel, 'base'>, results: ReadonlyMap<string, ScanResult>): { n: number; paths: string[] } {
+    return figureUsed((comparison.base?.filePaths ?? []).map(path => scanAnswer(path, results.get(path))));
+}
+
+export function entryMeasure(comparison: CompareModel, band: number, results: ReadonlyMap<string, ScanResult>): EntryMeasure | null {
     if (!comparison.base || !comparison.compare) return null;
     const withheld = !!comparison.blocked;
     return {
         leq: withheld ? null : comparison.leq?.delta ?? null,
         band: withheld ? null : comparison.bandDeltas[band] ?? null,
         peak: maxBand(comparison),
-        count: comparison.base.filePaths.length,
+        count: baseUsed(comparison, results).n,
     };
 }
 
@@ -180,7 +185,7 @@ export function reportCsv(input: ReportInput, strings: ReportStrings): string {
             dB(comparison.leq?.compare ?? comparison.compare?.leq), sideReferenceCell(comparison.compare, input, strings),
             dB(comparison.leq?.base), comparison.leq ? sideReferenceCell(comparison.base, input, strings) : '', dB(comparison.leq?.delta),
             ...bands.map(band => dB(bandDelta(comparison, band))),
-            comparison.base ? String(comparison.base.filePaths.length) : '', (comparison.base?.filePaths ?? []).map(baseName).join(';'),
+            comparison.base ? String(baseUsed(comparison, input.results).n) : '', baseUsed(comparison, input.results).paths.map(baseName).join(';'),
             result?.ok ? String(result.specVersion) : '',
             // Which chain the row's numbers are of: the Recipe written beside it, or the one before.
             [path, ...(comparison.base?.filePaths ?? [])].some(file => input.stale?.has(file)) ? strings.reportChainPrevious : strings.reportChainCurrent,

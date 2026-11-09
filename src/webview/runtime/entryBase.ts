@@ -11,6 +11,7 @@ import { median } from '../../shared/dataset/distribution';
 import { channelResult } from '../../shared/recipe/channelSelection';
 import { buildCompareModel, groupMedian, ofOneUnit, type CompareModel } from './comparePanes';
 import { comparedKeys, roleKey } from './entrySlots';
+import { figureUsed, scanAnswer } from './figureModel';
 import { type BaseDefinition, type EntryModel } from './entryTable';
 
 /** A channel row of a recording of several channels is compared as that channel; otherwise the channels together. */
@@ -93,9 +94,9 @@ export function createEntryBase(deps: EntryBaseDeps): EntryBase {
      * scan failed or is still running (comparePanes.buildCompareModel takes the median of the measured ones only).
      */
     function measuredOf(paths: readonly string[]): { measured: number; failed: number; pending: number } {
-        const measured = paths.filter(path => results.get(path)?.ok).length;
-        const pending = paths.filter(path => !results.has(path)).length;
-        return { measured, failed: paths.length - measured - pending, pending };
+        // From the answers' states (figureModel.figureUsed): only a ready one is counted, never one still computing.
+        const { n, excluded } = figureUsed(paths.map(path => scanAnswer(path, results.get(path))));
+        return { measured: n, failed: excluded.filter(item => item.reason === 'failed').length, pending: excluded.filter(item => item.reason === 'pending').length };
     }
     /** "median of 3 · 1 failed left out · 1 still computing": the count every base title and its definition say. */
     function medianText(paths: readonly string[]): string {

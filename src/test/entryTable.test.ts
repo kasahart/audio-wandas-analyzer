@@ -15,7 +15,7 @@ import { getStrings } from '../shared/i18n/strings';
 /** Each file measured against its condition's other files, as a comparison with no slot 0 measures it here. */
 const byCondition = (model: EntryModel, files: readonly EntryFile[]) => {
     const results = new Map(files.flatMap(file => (file.result ? [[file.filePath, file.result] as const] : [])));
-    return (filePath: string): EntryMeasure | null => entryMeasure(buildCompareModel(model, results, filePath, null, getStrings('en')), model.band);
+    return (filePath: string): EntryMeasure | null => entryMeasure(buildCompareModel(model, results, filePath, null, getStrings('en')), model.band, results);
 };
 
 const repoRoot = path.resolve(__dirname, '..', '..');

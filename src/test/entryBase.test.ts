@@ -183,7 +183,7 @@ test('a base group counts, names and measures only the recordings its median is 
         { options: { slots: [null, '/d/a.wav', null, null], group: 'none', failed: ['/d/b.wav'], pending: ['/d/d.wav'] }, measured: ['/d/c.wav'], failed: 1, pending: 1 },
     ];
     for (const { options, measured, failed, pending } of cases) {
-        const { base } = setup(options);
+        const { base, results } = setup(options);
         const resolved = base.resolve('/d/a.wav');
         const what = JSON.stringify(options);
         assert.equal(resolved.definition.count, measured.length, what);
@@ -195,7 +195,7 @@ test('a base group counts, names and measures only the recordings its median is 
         // Every reader of the base (the comparison, the entry CSV, 報告.csv) sees the same recordings the median is of.
         for (const comparison of [base.comparison('/d/a.wav'), base.fileComparison('/d/a.wav')]) {
             assert.deepEqual(comparison.base?.filePaths, measured, what);
-            assert.equal(entryMeasure(comparison, 0)?.count, measured.length, what);
+            assert.equal(entryMeasure(comparison, 0, results)?.count, measured.length, what);
             assert.equal(!!comparison.pending, pending > 0, `${what}: still computing keeps the comparison pending`);
         }
     }
