@@ -175,3 +175,16 @@ test('Ctrl+wheel on an axis drawn on its own canvas zooms about the middle, as o
     wheel('header', { ctrlKey: true, deltaY: -100 });
     assert.deepEqual(calls, ['window:a:0.075-0.925']);
 });
+
+test('a drag under way reads nothing, and let go (a box zoom, Alt+drag, Shift+drag) the readout is the pointer\'s where it was let go, never where it was pressed (R7)', () => {
+    for (const init of [{}, { altKey: true }, { shiftKey: true }] as MouseEventInit[]) {
+        const calls: string[] = [];
+        const { drag } = surface({
+            hover: (event, hit) => { calls.push(`hover:${hit?.plot.id ?? 'none'}:${event.clientX}`); },
+            clearHover: () => { calls.push('clear'); },
+            altDrag: recorder([], 'alt'), shiftDrag: recorder([], 'shift'),
+        });
+        drag('a', 20, 60, init);
+        assert.deepEqual(calls, ['clear', 'hover:a:60'], JSON.stringify(init));
+    }
+});

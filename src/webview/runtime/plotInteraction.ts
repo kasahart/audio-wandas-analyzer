@@ -194,6 +194,9 @@ export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 
     const view = surface.ownerDocument.defaultView;
     attachTrackPointerListeners(surface, doc, view ? keyRouterFor(view) : { add: () => () => undefined }, {
         step(plot, delta) {
+            // A plot these gestures do not answer now (locate finds none there: the steps' view off, the lanes in it): not theirs.
+            const box = plot.getBoundingClientRect();
+            if (!deps.locate(plot, box.left + box.width / 2, box.top + box.height / 2)) return null;
             if (press?.isDrag) return false;
             const hoverAt = (at: PlotPlace): void => deps.hover({ ...at, target: plot }, deps.locate(plot, at.clientX, at.clientY));
             const at = deps.stepFrom(plot as HTMLElement, delta, hoverAt);
@@ -239,7 +242,11 @@ export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 
         },
         drag(event) {
             if (!press) return;
-            if (!press.isDrag && exceedsDragThreshold(event.clientX - press.clientX, event.clientY - press.clientY)) press.isDrag = true;
+            if (!press.isDrag && exceedsDragThreshold(event.clientX - press.clientX, event.clientY - press.clientY)) {
+                press.isDrag = true;
+                // A drag under way reads nothing: the readout of the place it was pressed at goes (R7).
+                deps.clearHover();
+            }
             if (!press.isDrag) return;
             if (press.drag) { press.drag.move(event); return; }
             press.to = deps.pointOn(press.plot, event.clientX, event.clientY);
@@ -255,11 +262,23 @@ export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 
                 return;
             }
             draggedAt = event.timeStamp;
-            if (done.drag) return;
-            deps.hideBox();
-            if (deps.zoomToBox) { deps.zoomToBox(done.plot, done.from, done.to, event); return; }
-            const next = windowFromBox(deps.window(done.plot), done.from, done.to, deps.verticalAxis);
-            if (next) setWindow(done.plot, next);
+            if (!done.drag) {
+                deps.hideBox();
+                if (deps.zoomToBox) deps.zoomToBox(done.plot, done.from, done.to, event);
+                else {
+                    const next = windowFromBox(deps.window(done.plot), done.from, done.to, deps.verticalAxis);
+                    if (next) setWindow(done.plot, next);
+                }
+            }
+            // Let go, the readout is the pointer's where it is now, on what the drag left (a box zoom's view, a
+            // stretch picked), never the place it was pressed at (R7): every owner reads its hover there again as it redraws.
+            // What is under the pointer now: a plot drawn anew by the gesture (the distribution's rows) is another element.
+            const released = event.target as Partial<Element> | null;
+            const under = released?.isConnected === false ? surface.ownerDocument.elementFromPoint?.(event.clientX, event.clientY) : null;
+            const target = under ?? (released?.closest ? event.target : done.plot);
+            const hit = deps.locate(target, event.clientX, event.clientY);
+            if (hit) hit.plot.dataset.plotYAxis = vertical;
+            deps.hover({ clientX: event.clientX, clientY: event.clientY, target }, hit);
         },
         zoomWheel(event) {
             const hit = wheelAt(event, 'zoom');

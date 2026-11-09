@@ -141,3 +141,48 @@ test('a double-click on the value axis strip opens its range through the plot co
     axis.dispatchEvent(new dom.window.MouseEvent('dblclick', { bubbles: true, clientX: 40, clientY: 5 }));
     assert.equal(dom.window.document.getElementById('entry-dist-range-popover')?.style.display, 'block');
 });
+
+test('the readout off a bar says where on the value axis the pointer is, and keeps saying it after a redraw; a scroll under a still pointer reads the row now under it (R7)', () => {
+    const { dom, screen, pane, inputs } = setup();
+    const context = new Proxy({}, {
+        get: (_target, key) => key === 'font' ? '10px sans-serif' : key === 'measureText' ? (text: string) => ({ width: text.length * 6 })
+            : key.toString().startsWith('create') ? () => ({ addColorStop: () => undefined }) : key === 'getImageData' || key === 'createImageData' ? (w: number, h: number) => ({ width: w, height: h, data: new Uint8ClampedArray(Math.max(1, w * h * 4)) }) : () => undefined,
+        set: () => true,
+    });
+    dom.window.HTMLCanvasElement.prototype.getContext = (() => context) as unknown as HTMLCanvasElement['getContext'];
+    // The pane finds the row under the pointer as a canvas of the page (instanceof HTMLCanvasElement).
+    const globals = globalThis as { HTMLCanvasElement?: unknown };
+    const before = globals.HTMLCanvasElement;
+    globals.HTMLCanvasElement = dom.window.HTMLCanvasElement;
+    pane.place(true);
+    // Each row 40 px tall, 400 wide, one under the other; the groups' list scrolls them by `scrolled`.
+    let scrolled = 0;
+    const rowRect = (index: number) => ({ left: 100, top: index * 40 - scrolled, width: 300, height: 34, right: 400, bottom: index * 40 - scrolled + 34, x: 100, y: index * 40 - scrolled, toJSON: () => ({}) });
+    // Every row's canvas, as painted now (a paint makes them anew), placed by its index.
+    const rows = (): HTMLCanvasElement[] => [...screen.querySelectorAll<HTMLCanvasElement>('[data-dist-canvas]')];
+    const proto = dom.window.HTMLCanvasElement.prototype;
+    proto.getBoundingClientRect = function (this: HTMLCanvasElement) { const index = rows().indexOf(this); return rowRect(Math.max(0, index)); };
+    Object.defineProperty(proto, 'clientWidth', { get: () => 300, configurable: true });
+    Object.defineProperty(proto, 'clientHeight', { get: () => 34, configurable: true });
+    const { document } = dom.window;
+    (document as unknown as { elementFromPoint: (x: number, y: number) => Element | null }).elementFromPoint = (_x, y) => rows().find((_c, index) => y >= rowRect(index).top && y < rowRect(index).bottom) ?? null;
+    pane.paint(inputs);
+    let canvases = rows();
+    assert.equal(canvases.length, 2);
+    const readout = screen.querySelector<HTMLElement>('.entry-dist-note > [data-plot-readout]');
+    const shown = (): string => (readout && !readout.hidden ? readout.textContent ?? '' : '');
+    const pointer = { clientX: 395, clientY: 5 };
+    canvases[0].dispatchEvent(new dom.window.MouseEvent('mousemove', { bubbles: true, ...pointer }));
+    const said = shown();
+    assert.match(said, /score/, `off a bar: where on the value axis (${said})`);
+    // Drawn again (a scan's results, a zoom) under the still pointer: still said.
+    pane.paint(inputs);
+    assert.equal(shown(), said, 'after a redraw, still where on the value axis');
+    // Scrolled by a row: the second row is under the pointer, and it is the one read.
+    canvases = rows();
+    assert.equal(canvases[1].dataset.plotRead, undefined, 'the second row not read before');
+    scrolled = 40;
+    screen.querySelector<HTMLElement>('[data-entry-dist-groups]')?.dispatchEvent(new dom.window.Event('scroll'));
+    assert.notEqual(canvases[1].dataset.plotRead, undefined, 'the row now under the pointer is read');
+    globals.HTMLCanvasElement = before;
+});

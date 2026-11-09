@@ -5,7 +5,7 @@
 import type { UiStrings } from '../../shared/i18n/strings';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
 import { attachPlotInteraction, FULL_PLOT_WINDOW, type PlotHit, type PlotWindow } from './plotInteraction';
-import { axisFractionOf, axisValueAt, rowFractionOf, rowValueAt, STAGE_MARGINS, stageHover, stagePlotPoint } from './stagePanes';
+import { axisFractionOf, axisValueAt, drawnMargins, rowFractionOf, rowValueAt, stageHover, stagePlotPoint, type StagePlot } from './stagePanes';
 import { createPlotHoverLayer } from './plotHoverLayer';
 import { installRangePopover, linearAxis, openAxisPart, type AxisMapping } from '../rangePopover';
 import { positionPopover } from './settingsPopover';
@@ -72,22 +72,24 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
         return row?.querySelector<HTMLElement>('[data-plot-readout]') ?? null;
     };
     const rangePopover = installRangePopover(document, { rootId: 'track-stage-range-popover', badgeId: 'track-stage-range-axis-badge', idPrefix: 'track-stage-range', strings: rangePopoverStrings(strings), position: positionPopover });
-    /** The plot's rectangle on screen (inside its canvas's axis margins). */
+    /** What `plot` last drew (its frame: a second level axis widens its right margin), so a gesture is placed on it as drawn. */
+    const drawnPlot = (plot: HTMLElement): StagePlot | null => drawnOn.get(plot)?.plot ?? null;
+    /** The plot's rectangle on screen (inside the margins it was drawn with). */
     const plotBox = (plot: HTMLElement): { left: number; top: number; width: number; height: number } => {
-        const rect = plot.getBoundingClientRect();
-        return { left: rect.left + STAGE_MARGINS.left, top: rect.top + STAGE_MARGINS.top, width: Math.max(1, rect.width - STAGE_MARGINS.left - STAGE_MARGINS.right), height: Math.max(1, rect.height - STAGE_MARGINS.top - STAGE_MARGINS.bottom) };
+        const rect = plot.getBoundingClientRect(), margins = drawnMargins(plot, drawnPlot(plot));
+        return { left: rect.left + margins.left, top: rect.top + margins.top, width: Math.max(1, rect.width - margins.left - margins.right), height: Math.max(1, rect.height - margins.top - margins.bottom) };
     };
     /**
      * The trigger's event whose line is under the pointer (within a few pixels), if any. Read from the events' full
      * data (R7): undefined while it is fetched (`ready` is called once it is in).
      */
-    const eventAt = (plot: HTMLElement, clientX: number, clientY: number, ready?: () => void): { id: number; source: string; out: boolean } | null | undefined => {
-        const drawn = drawnOn.get(plot);
-        if (!drawn?.plot || !plot.isConnected) return null;
+    const eventAt = (plot: HTMLElement, clientX: number, clientY: number, ready?: () => void, on?: StagePlot): { id: number; source: string; out: boolean } | null | undefined => {
+        const drawn = on ?? drawnOn.get(plot)?.plot;
+        if (!drawn || !plot.isConnected) return null;
         const rect = plot.getBoundingClientRect();
-        const hit = stageHover(drawn.plot, clientX - rect.left, clientY - rect.top, ready);
+        const hit = stageHover(drawn, clientX - rect.left, clientY - rect.top, ready);
         if (hit?.pending) return undefined;
-        return hit && hit.layer.event && Math.abs(hit.y - (clientY - rect.top)) <= EVENT_PICK_PX ? hit.layer.event : null;
+        return hit && !hit.failed && hit.layer.event && Math.abs(hit.y - (clientY - rect.top)) <= EVENT_PICK_PX ? hit.layer.event : null;
     };
     /** On an event's line the pointer says it can be clicked; said again once the line's full data is in. */
     const hintAt = (plot: HTMLElement, clientX: number, clientY: number, late = false): void => {
@@ -122,9 +124,12 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
         const mine = ++taps;
         if (event.detail > 1) return;
         const { clientX, clientY } = event;
+        // Decided on the plot as it was clicked: a redraw meanwhile (a zoom by the wheel, which is no press) draws other
+        // lines under that pixel, and the click is of the line it was on (R7).
+        const clicked = drawnPlot(plot) ?? undefined;
         const decide = (): void => {
             if (mine !== taps || !state.on) return;
-            const line = eventAt(plot, clientX, clientY, decide);
+            const line = eventAt(plot, clientX, clientY, decide, clicked);
             if (line === undefined) return;
             const edit = line ? toggle(line) : undefined;
             if (edit) pending = view.setTimeout(() => { pending = undefined; edit(); }, DOUBLE_CLICK_MS);
@@ -135,10 +140,10 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
         locate(target, clientX, clientY): PlotHit | null {
             const plot = (target as HTMLElement | null)?.closest?.<HTMLElement>(selector);
             if (!state.on || !plot || !deps.painted() || plot.closest('[hidden]')) return null;
-            const { fx, fy, axis } = stagePlotPoint(plot, clientX, clientY);
+            const { fx, fy, axis } = stagePlotPoint(plot, clientX, clientY, drawnPlot(plot));
             return { plot, point: { fx, fy }, axis };
         },
-        pointOn(plot, clientX, clientY) { const { fx, fy } = stagePlotPoint(plot, clientX, clientY); return { fx, fy }; },
+        pointOn(plot, clientX, clientY) { const { fx, fy } = stagePlotPoint(plot, clientX, clientY, drawnPlot(plot)); return { fx, fy }; },
         window: windowOf,
         setWindow(plot, next) { setWindowOf(plot, next ?? FULL_PLOT_WINDOW); },
         hover(event, hit) {
@@ -168,9 +173,12 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
             if (!drawn?.picture) return false;
             const picture = drawn.picture;
             const heat = picture.kind === 'heatmap';
+            // The right-hand level axis of a plot with two answers a double-click too (R13): its own levels.
+            const right = hit.axis === 'y' && !!stagePlotPoint(hit.plot, clientX, clientY, drawnPlot(hit.plot)).right && drawn.second;
             // An axis's values for a part of it (0–1), and the part for typed values: the picture's own axes.
             const mapping: AxisMapping = hit.axis === 'x'
                 ? { at: f => axisValueAt(picture, f), of: v => axisFractionOf(picture, v), label: drawn.axes.x }
+                : right ? linearAxis(right.range.min, right.range.max, right.title)
                 : heat ? { at: f => rowValueAt(picture, f), of: v => rowFractionOf(picture, v), label: drawn.axes.y }
                     : linearAxis(drawn.range.min, drawn.range.max, drawn.axes.y);
             openAxisPart(rangePopover, {

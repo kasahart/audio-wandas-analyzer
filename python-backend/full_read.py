@@ -48,6 +48,9 @@ class StageRead(TypedDict):
     #: An arrow key's read (with ``x`` = [x]): the first point with a value to read strictly past x, toward larger
     #: (1) or smaller (-1) x, however far (a long silence is crossed in one read), with ``beyond`` past it.
     seek: NotRequired[Literal[-1, 1]]
+    #: A line of plain values (a signal, a metric over time, their difference): SILENT_DB and below is a value to
+    #: read, not the silent floor, for the seek and a dense window's nearest point alike (the webview's ``floorless``).
+    plain: NotRequired[bool]
     #: A trigger's event (its id): that event's own line.
     event: NotRequired[int]
     #: Which combined picture: the base (its median, or a recording's own) or the difference.
@@ -142,8 +145,9 @@ def read_line(
         }
     beyond = _limited(read, "beyond", 1, READ_BEYOND_LIMIT)
     seek = read.get("seek")
+    plain = bool(read.get("plain"))
     if seek in (-1, 1):
-        return _seek_line(axis, values_in, x0, int(seek), beyond, shown)
+        return _seek_line(axis, values_in, x0, int(seek), beyond, shown, plain)
     first, after = max(0, low - beyond), min(count, max(high, low) + beyond)
     if high - low <= READ_POINT_LIMIT or "near" not in read:
         # Few enough to send whole (a read with no level asked for is a step's, which never spans a window).
@@ -174,7 +178,7 @@ def read_line(
                 start + int(index)
                 for index in (np.nanargmin(masked), np.nanargmax(masked), np.nanargmin(np.abs(masked - near)))
             )
-        nearest = _nearest_on_screen(read, window, x_at, low, high, near, log)
+        nearest = _nearest_on_screen(read, window, x_at, low, high, near, log, plain)
         if nearest is not None:
             chosen.append(nearest)
         inside = np.unique(np.asarray(chosen, dtype=np.int64))
@@ -194,10 +198,12 @@ def read_line(
 SEEK_CHUNK = 1 << 16
 
 
-def _readable(values: np.ndarray) -> np.ndarray:
-    """Which values a plot reads: finite and above the silent floor (drawn as a gap)."""
+def _readable(values: np.ndarray, plain: bool = False) -> np.ndarray:
+    """Which values a plot reads: finite and, unless ``plain`` (StageRead ``plain``), above the silent floor
+    (drawn as a gap)."""
     block = np.asarray(values, dtype=np.float64)
-    return np.isfinite(block) & (block > SILENT_DB)
+    finite = np.isfinite(block)
+    return finite if plain else finite & (block > SILENT_DB)
 
 
 def _seek_line(
@@ -207,6 +213,7 @@ def _seek_line(
     direction: int,
     beyond: int,
     shown: Callable[[np.ndarray], np.ndarray],
+    plain: bool = False,
 ) -> StagePoints:
     """An arrow key's read (StageRead ``seek``): the first point with a value strictly past ``x`` toward
     ``direction``, found a chunk at a time however long the silence before it, sent with the point before it and
@@ -217,7 +224,7 @@ def _seek_line(
         start = index_of(x, "right")
         while start < count and found is None:
             end = min(count, start + SEEK_CHUNK)
-            hits = np.flatnonzero(_readable(values_in(start, end)))
+            hits = np.flatnonzero(_readable(values_in(start, end), plain))
             if hits.size:
                 found = start + int(hits[0])
             start = end
@@ -225,7 +232,7 @@ def _seek_line(
         end = index_of(x, "left")
         while end > 0 and found is None:
             start = max(0, end - SEEK_CHUNK)
-            hits = np.flatnonzero(_readable(values_in(start, end)))
+            hits = np.flatnonzero(_readable(values_in(start, end), plain))
             if hits.size:
                 found = start + int(hits[-1])
             end = start
@@ -245,11 +252,12 @@ def _seek_line(
 
 
 def _nearest_on_screen(
-    read: StageRead, window: np.ndarray, x_at: XAt, low: int, high: int, near: float, log: bool
+    read: StageRead, window: np.ndarray, x_at: XAt, low: int, high: int, near: float, log: bool, plain: bool = False
 ) -> int | None:
     """The index of the point of ``window`` (indices [low, high)) nearest the pointer (``at``, ``near``) by its true
     distance on screen (``pixels``: per axis unit, or per natural-log unit on a log axis, and per value unit), of
-    those with a value to read (finite, above the silent floor); None without the pointer's place or scale."""
+    those with a value to read (finite and, unless ``plain``, above the silent floor); None without the pointer's
+    place or scale."""
     if "at" not in read or "pixels" not in read or high <= low:
         return None
     scale = [float(value) for value in read["pixels"]]
@@ -260,7 +268,7 @@ def _nearest_on_screen(
     along = (np.log(np.maximum(xs, 1e-300)) - math.log(at)) * scale[0] if log else (xs - at) * scale[0]
     across = (window - near) * scale[1]
     away = np.hypot(along, across)
-    readable = np.isfinite(window) & (window > SILENT_DB) & np.isfinite(away)
+    readable = _readable(window, plain) & np.isfinite(away)
     if not readable.any():
         return None
     return low + int(np.argmin(np.where(readable, away, np.inf)))

@@ -288,3 +288,37 @@ def test_a_medians_read_stops_where_its_picture_was_aligned_with_the_compared_on
     points = read_points([data, data], shorter, {"x": [0.75 * data.values.size / RATE], "beyond": 2, "of": "base"})
     assert points is not None
     assert max(points["xs"]) < half / RATE
+
+
+def test_a_seek_on_plain_values_reads_every_value_below_minus_250_and_left_and_right_agree() -> None:
+    # A signal in raw counts: −300 for four samples is a value, not the silent floor of a level (StageRead ``plain``).
+    values = np.array([1.0, 2.0, -300.0, -300.0, -300.0, -300.0, 10.0, 11.0])
+    axis = uniform_axis(values.size, 0.0, 1.0)
+
+    def values_in(a: int, b: int) -> np.ndarray:
+        return values[a:b]
+
+    def seek(x: float, direction: int, plain: bool) -> float:
+        read = {"x": [x], "beyond": 0, "seek": direction, **({"plain": True} if plain else {})}
+        assert first_violation(DEFINITIONS["StageRead"], read) is None
+        points = read_line(axis, values_in, read)
+        sent = [(at, value) for at, value in zip(points["xs"], points["values"], strict=True) if value is not None]
+        ahead = [at for at, value in sent if (at > x if direction > 0 else at < x) and (plain or value > -250.0)]
+        return min(ahead) if direction > 0 else max(ahead)
+
+    # Plain: one sample at a time, either way.
+    assert [seek(x, 1, True) for x in range(1, 6)] == [2.0, 3.0, 4.0, 5.0, 6.0]
+    assert [seek(x, -1, True) for x in range(6, 1, -1)] == [5.0, 4.0, 3.0, 2.0, 1.0]
+    # A level's floor is crossed in one seek, either way.
+    assert seek(1, 1, False) == 6.0
+    assert seek(6, -1, False) == 1.0
+
+
+def test_the_point_nearest_the_pointer_on_screen_is_a_value_below_minus_250_on_plain_values_only() -> None:
+    from full_read import _nearest_on_screen
+
+    window = np.array([0.0, -400.0, 0.0])
+    axis = uniform_axis(3, 0.0, 1.0)
+    read = {"x": [0.0, 2.0], "at": 1.0, "pixels": [1.0, 1.0]}
+    assert _nearest_on_screen(read, window, axis[1], 0, 3, -400.0, False, True) == 1
+    assert _nearest_on_screen(read, window, axis[1], 0, 3, -400.0, False, False) != 1

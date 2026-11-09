@@ -17,7 +17,7 @@ import { baseName } from '../../shared/analysis/entryMetadata';
 import { DIFF_COLOR } from '../../shared/gui/roleColors';
 import { deltaViews, sameCondition, withBins, type CompareModel, type LevelInput, type PaneRange } from './comparePanes';
 import type { PlotMargins, PlotWindow } from './plotInteraction';
-import { axisFractionOf, axisValueAt, paintOverlay, STAGE_MARGINS, type StagePlot } from './stagePanes';
+import { axisFractionOf, axisValueAt, drawnMargins, paintOverlay, type StagePlot } from './stagePanes';
 import { dataRange, diffRange, emptyFigure, narrowedRange, stageNames, type FigureNames, type FigureRange } from './figureModel';
 import { createDetailPlanner } from './stageDetail';
 import { createCombineSource, createLastFine, noDeltaNote, TOO_LARGE_COMBINED } from './combineSource';
@@ -160,7 +160,7 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
     function paintView(view: StageView | null, picture: StageView | null, range: FigureRange, axes: FigureNames, zoom: PlotWindow, options: { diff?: boolean; color: string; empty?: string; full?: FullRead }): void {
         const drawn = paintOverlay(canvas, { layers: view ? [{ view, color: options.color, width: 2, full: options.full ?? NO_FULL_DATA }] : [] }, narrowed(range, zoom), axes,
             { diff: options.diff, empty: options.empty ?? '', window: { x: zoom.x }, axisView: picture });
-        hold.plot = picture ? { margins: STAGE_MARGINS, x: f => axisValueAt(picture, f), ofX: number => axisFractionOf(picture, number), range, xLabel: axes.x, yLabel: axes.y, drawn: view ? drawn : null } : null;
+        hold.plot = picture ? { margins: drawnMargins(canvas, drawn), x: f => axisValueAt(picture, f), ofX: number => axisFractionOf(picture, number), range, xLabel: axes.x, yLabel: axes.y, drawn: view ? drawn : null } : null;
     }
     function paintStep({ step, path, ch }: { step: RecipeStep; path: string; ch: number | null }): void {
         held.hidden = false;

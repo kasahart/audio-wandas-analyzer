@@ -1306,6 +1306,9 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                         1
                     ]
                 },
+                "plain": {
+                    "type": "boolean"
+                },
                 "event": {
                     "type": "integer",
                     "minimum": 0
@@ -2508,6 +2511,7 @@ export interface StageRead {
     at?: number;
     pixels?: number[];
     seek?: -1 | 1;
+    plain?: boolean;
     event?: number;
     of?: "base" | "diff";
     channel?: number;

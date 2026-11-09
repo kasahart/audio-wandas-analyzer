@@ -35,7 +35,8 @@ export interface OverlaySpectrumPaint {
  */
 const STAND_IN_READ: Record<NonNullable<SpectrumSeries['slice']['standIn']>, FullSource> = {
     pending: { held: 'fetched', line: () => undefined, level: () => undefined },
-    silence: { held: 'fetched', line: () => null, level: () => ({ power: 0, count: 0 }) },
+    // No point to read there: an empty window (null would be a read that failed, which no other line stands in for).
+    silence: { held: 'fetched', line: () => ({ xs: [], values: [], start: null, end: null, complete: true }), level: () => ({ power: 0, count: 0 }) },
 };
 
 /** Marks the right-hand axis in the legend. */

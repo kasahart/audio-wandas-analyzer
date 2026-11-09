@@ -84,8 +84,15 @@ export function eventLayers(layer: StageLayer): StageLayer[] {
     });
 }
 
-/** A silent stretch at the floor (−300 dB) is drawn as a gap; a plain value (a trigger's events' amplitudes) has no floor. */
-const silent = (view: StageView, value: number): boolean => value <= -250 && view.quantity !== 'value';
+/**
+ * Whether a line's values have no silent floor: a plain value (a signal's samples, a metric over time and their Δ, a
+ * trigger's events' amplitudes) reads −250 and below as the value it is. A level's floor (−300 dB) is silence. The
+ * pointer, the arrow keys' seek (fullRead.ts, full_read.py: LineQuery.plain) and the drawing take this one definition.
+ */
+export const floorless = (view: Pick<StageView, 'quantity' | 'waveform'>): boolean => view.quantity === 'value' || !!view.waveform;
+
+/** A silent stretch at the floor (−300 dB) is drawn as a gap; a plain value has no floor (floorless). */
+const silent = (view: StageView, value: number): boolean => value <= -250 && !floorless(view);
 
 /**
  * The lowest and highest value of the pictures: each one's every full-resolution value (`valueRange`, which the
@@ -1632,6 +1639,11 @@ export interface StageRead {
     step?: number;
     /** The full data around the pointer is still being fetched: the marks are shown, no number until it is in. */
     pending?: boolean;
+    /**
+     * A line's full data near the pointer could not be read (the backend failed): no number, as while pending, and
+     * never another line's in its place; read again once the failure's pause is over (fullRead.ts).
+     */
+    failed?: boolean;
 }
 
 /** A point a plot reads: where it is drawn, its value, where it is along its axis and its index in the drawn line. */
@@ -1665,7 +1677,7 @@ function fullPoint(plot: StagePlot, layer: StageLayer, points: FullPoints, index
  * A line's full-resolution points (R7) near the pointer at (`x`, `y`): those within `radius` and on the plot, and
  * the one nearest across to it (with none that near: zoomed past single points). undefined while they are fetched.
  */
-function fullLineNear(plot: StagePlot, layer: StageLayer, source: FullSource, x: number, y: number, radius: number, ready: () => void): { near: ReadPoint[]; at: ReadPoint | null } | undefined {
+function fullLineNear(plot: StagePlot, layer: StageLayer, source: FullSource, x: number, y: number, radius: number, ready: () => void): { near: ReadPoint[]; at: ReadPoint | null } | null | undefined {
     if (!source.line || !plot.xOf) return { near: [], at: null };
     // The pointer's place and the screen's scale there, so a window too dense to send whole holds the point nearest
     // the pointer by its true distance on screen (R7), not only each column's nearest in height.
@@ -1673,8 +1685,10 @@ function fullLineNear(plot: StagePlot, layer: StageLayer, source: FullSource, x:
     const lineY = plot.lineYAt ?? plot.yAt;
     const pixels: [number, number] | undefined = level === undefined ? undefined
         : [Math.abs(plot.xLog ? plot.xAt(place * Math.E) - plot.xAt(place) : plot.xAt(place + 1) - plot.xAt(place)), Math.abs(lineY(level + 1) - lineY(level))];
-    const got = source.line({ x0: plot.xOf(x - radius), x1: plot.xOf(x + radius), beyond: 1, near: level, columns: 2 * radius + 1, log: !!plot.xLog, ...(pixels ? { at: place, pixels } : {}) }, ready);
+    const got = source.line({ x0: plot.xOf(x - radius), x1: plot.xOf(x + radius), beyond: 1, near: level, columns: 2 * radius + 1, log: !!plot.xLog, ...(pixels ? { at: place, pixels } : {}), ...(floorless(layer.view) ? { plain: true } : {}) }, ready);
     if (got === undefined) return undefined;
+    // A read the backend failed is not a line with no points there: nothing is known of it (null), and the read waits.
+    if (got === null && source.held === 'fetched') return null;
     if (!got?.xs.length) return { near: [], at: null };
     const near: ReadPoint[] = [];
     let at: ReadPoint | null = null;
@@ -1709,9 +1723,9 @@ function lineRead(plot: StagePlot, layer: StageLayer, point: ReadPoint, away?: n
     return { ...readoutOf(layer, point, layer.label || (plot.diff ? 'Δ' : ''), [where, amount]), index: point.index, away, ...full };
 }
 
-/** What a read waiting for its layer's full data shows: the marks at the pointer, no number (R7). */
-function pendingRead(layer: StageLayer, x: number, y: number, image = false): StageRead {
-    return { layer, x, y, text: '', name: '', values: '', pending: true, ...(image ? { image: true } : {}) };
+/** What a read waiting for its layer's full data shows: the marks at the pointer, no number (R7); `failed`: its read failed. */
+function pendingRead(layer: StageLayer, x: number, y: number, image = false, failed = false): StageRead {
+    return { layer, x, y, text: '', name: '', values: '', ...(failed ? { failed: true } : { pending: true }), ...(image ? { image: true } : {}) };
 }
 
 /**
@@ -1728,6 +1742,8 @@ export function stageHover(plot: StagePlot, x: number, y: number, ready: () => v
     for (const layer of plot.lines) {
         const got = fullLineNear(plot, layer, layer.full, x, y, HOVER_PICK_RADIUS_PX, ready);
         if (got === undefined) return pendingRead(layer, x, y);
+        // A line whose read failed may be the one nearest: no other line is read in its place (R7).
+        if (got === null) return pendingRead(layer, x, y, false, true);
         fulls.set(layer, got);
     }
     // The point nearest the pointer within a few pixels, so a narrow peak beside it is read at its top (R7).
@@ -1742,7 +1758,8 @@ export function stageHover(plot: StagePlot, x: number, y: number, ready: () => v
  * null where the plot no longer draws it.
  */
 export function stageReadAgain(plot: StagePlot, read: StageRead, ready: () => void = () => undefined): StageRead | null | undefined {
-    if (read.pending || read.image || !read.full || read.at === undefined) return null;
+    if (read.pending || read.failed || !read.full || read.at === undefined) return null;
+    if (read.image) return imageReadAgain(plot, read, ready);
     const layer = plot.lines.find(line => line === read.layer) ?? plot.lines.find(line => line.full === read.layer.full)
         ?? plot.lines.find(line => line.label === read.layer.label && line.color === read.layer.color);
     if (!layer?.full.line) return null;
@@ -1762,7 +1779,7 @@ export function stageReadAgain(plot: StagePlot, read: StageRead, ready: () => vo
  * undefined while the next points are fetched (`ready` is called once they are in).
  */
 export function stageStep(plot: StagePlot, read: StageRead, delta: -1 | 1, ready: () => void = () => undefined): StageRead | null | undefined {
-    if (read.pending) return null;
+    if (read.pending || read.failed) return null;
     if (read.image) {
         const source = read.layer.full;
         return plot.image && source.cells && read.full && read.at !== undefined && read.row !== undefined ? imageStep(plot, plot.image, source, read, delta, ready) : null;
@@ -1773,7 +1790,7 @@ export function stageStep(plot: StagePlot, read: StageRead, delta: -1 | 1, ready
         // silence before it: one read finds it (`seek`, full_read._seek_line) and brings STEP_AHEAD more past it, so
         // the next keys need none. Past the plot's side, or the data's end, there is nothing further to read.
         const at = read.at;
-        const got = source.line?.({ x0: at, x1: at, beyond: STEP_AHEAD, seek: delta }, ready);
+        const got = source.line?.({ x0: at, x1: at, beyond: STEP_AHEAD, seek: delta, ...(floorless(read.layer.view) ? { plain: true } : {}) }, ready);
         if (got === undefined) return undefined;
         if (!got) return null;
         let index = -1;
@@ -1818,10 +1835,26 @@ function imageHover(plot: StagePlot, image: NonNullable<StagePlot['image']>, x: 
     if (!place) return null;
     const got = source.cells({ x: place.x, y: place.y, beyond: 1 }, ready);
     if (got === undefined) return pendingRead(layer, x, y, true);
+    if (got === null && source.held === 'fetched') return pendingRead(layer, x, y, true, true);
     if (!got?.xs.length || !got.ys?.length) return null;
     const column = cellIndex(got.xs, place.x, false, { low: got.start === null, high: got.end === null });
     const row = cellIndex(got.ys, place.y, image.rowLog, { low: true, high: true });
     return column < 0 || row < 0 ? null : cellRead(plot, layer, got, column, row, x, y);
+}
+
+/** The very cell `read` reads, on an image drawn anew: its column and row by their values, at its new place; null off the plot. */
+function imageReadAgain(plot: StagePlot, read: StageRead, ready: () => void): StageRead | null | undefined {
+    const image = plot.image;
+    const source = image?.layer.full;
+    if (!image || !source?.cells || read.at === undefined || read.row === undefined) return null;
+    const got = source.cells({ x: read.at, y: read.row, beyond: 1 }, ready);
+    if (got === undefined) return undefined;
+    if (!got?.xs.length || !got.ys?.length) return null;
+    const column = got.xs.indexOf(read.at), row = got.ys.indexOf(read.row);
+    if (column < 0 || row < 0) return null;
+    const placed = image.placeOf(read.at, read.row);
+    if (placed.x < plot.frame.left || placed.x > plot.frame.left + plot.frame.width) return null;
+    return cellRead(plot, image.layer, got, column, row, placed.x, placed.y);
 }
 
 /** An arrow key on an image with full data: the next real column (time frame) on the row read. */
@@ -1963,7 +1996,24 @@ function paintGuides(context: CanvasRenderingContext2D, guides: NonNullable<Stag
 /** The plot's margins on a pane (as paintOverlay leaves them without labels). */
 export const STAGE_MARGINS: PlotMargins = { left: PANE_LEFT, top: 4, right: 4, bottom: 16 };
 
-/** The pointer on a pane: its place on the plot, or which axis it is over. */
-export function stagePlotPoint(canvas: Pick<HTMLCanvasElement, 'getBoundingClientRect'>, clientX: number, clientY: number): { fx: number; fy: number; axis: 'x' | 'y' | null } {
-    return plotPointIn(canvas, STAGE_MARGINS, clientX, clientY);
+/**
+ * The margins `plot` was drawn with on `canvas` (its frame: paintOverlay widens the right one for a second level
+ * axis), so a gesture is placed on the plot as it is drawn; STAGE_MARGINS where nothing is drawn.
+ */
+export function drawnMargins(canvas: Pick<HTMLCanvasElement, 'getBoundingClientRect'>, plot: Pick<StagePlot, 'frame'> | null | undefined): PlotMargins {
+    if (!plot) return STAGE_MARGINS;
+    const rect = canvas.getBoundingClientRect(), { frame } = plot;
+    return { left: frame.left, top: frame.top, right: Math.max(0, rect.width - frame.left - frame.width), bottom: Math.max(0, rect.height - frame.top - frame.height) };
+}
+
+/**
+ * The pointer on a pane: its place on the plot as `drawn` (the frame it was painted in, its right-hand level axis
+ * too), or which axis it is over; the right-hand axis of a plot with two answers as a value axis ('y').
+ */
+export function stagePlotPoint(canvas: Pick<HTMLCanvasElement, 'getBoundingClientRect'>, clientX: number, clientY: number, drawn?: Pick<StagePlot, 'frame' | 'secondary'> | null): { fx: number; fy: number; axis: 'x' | 'y' | null; right?: boolean } {
+    const margins = drawnMargins(canvas, drawn);
+    const point = plotPointIn(canvas, margins, clientX, clientY);
+    const rect = canvas.getBoundingClientRect();
+    const right = !!drawn?.secondary && margins.right > 0 && clientX - rect.left > rect.width - margins.right;
+    return right && !point.axis ? { ...point, axis: 'y', right: true } : point;
 }

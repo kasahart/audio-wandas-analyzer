@@ -231,7 +231,22 @@
 - テスト: `src/test/plotHoverLayer.test.ts` › an arrow key steps to a point above or below the level axis as the pointer reads it there, held at the plot's edge (R7)
 - テスト: `src/test/plotHoverLayer.test.ts` › with two level axes a point is read on either, and the level guide runs only to the axis it is read on
 - テスト: `src/test/plotHoverLayer.test.ts` › with two level axes a line a level zoom clips off the plot is not read over a point on it within the pick radius
-- テスト: `src/test/trackPointerEvents.test.ts` › ← / → step the readout of the plot under the pointer, or of a focused one, and go on when it reads nothing (R7)
+- テスト: `src/test/trackPointerEvents.test.ts` › ← / → step the readout of the plot under the pointer, or of a focused one; off every plot they go on (R7)
+
+読み値の状態遷移は、どのグラフでも 1 つの状態機械（`plotHoverLayer.ts`）が決めます。トラックのレーン（波形もスペクトログラムも）も同じ部品で読み、進み、待ちます（レーンだけの読み値の状態は持ちません）。全データが手元にある・取り寄せ中・取り寄せに失敗した・点がない、の 4 つの状態で、次のように動きます。取り寄せ中と失敗のあいだは、カーソルだけを出して読み値は空にし、ほかの線（別の録音）を代わりに読みません。失敗は待つ時間（`FAILED_RETRY_MS`）が過ぎると、マウスを動かさなくても読み直します。取り寄せ中や失敗のあいだに押した ← / → は捨てず、点が届いてから、そこで読む点から押した回数だけ進みます（その前にマウスが動けば捨てます）。← / → がデータの端・拡大した窓の端で進めないときも、キーはそのグラフのもので、別の面（フォーカスしたレーンの時刻カーソルなど）へは流れません。値が「値」（波形、指標の時系列、その Δ）の線は −250 以下も値として 1 点ずつ進み、→ と ← は同じ点を通ります。レベルの床（−300 dB）は 1 回で越えます。再描画・大きさの変更・＋ / − / 0 のあとも、← / → で選んだ点を読み続けますが、その点が窓の外に出たら選んだ点を捨て、マウスの下を読みます。描いた枠の外の点を読むことはありません。スクロールでグラフがマウスの下から動いたときも、マウスの下を読み直します。矩形ズーム・Alt+ドラッグ・Shift+ドラッグの間は読み値を消し、離したらその位置で読みます。フォーカスが外れて消えるのはフォーカスで出した読み値だけで、マウスの下のグラフの読み値は残ります。段のジェスチャ（矩形ズーム、Ctrl+ホイール、軸のダブルクリック）は、描いた枠の余白（右の 2 本目のレベル軸も含む）で位置を決め、右の軸の上は軸として答えます。データの届く前のイベント線のクリックは、クリックしたときの絵で決めます。
+- テスト: `src/test/readoutTransitions.test.ts` › every chart reads through the one readout: outside plotHoverLayer no runtime code reads or steps a point itself (the lanes keep no readout of their own); a trigger's event click is decided on the clicked plot only (R7)
+- テスト: `src/test/readoutTransitions.test.ts` › the transitions table runs every Frame kind on every chart in every state of its full data, and every line through a silence (R7)
+- テスト: `src/test/plotHoverLayer.test.ts` › an arrow key pressed while the readout waits for its points is taken once they are in: the point it steps to, never lost and never an empty readout; two keys, two points (A42, R7)
+- テスト: `src/test/trackPointerEvents.test.ts` › an arrow over a plot that cannot step (nothing read, an end, the edge of the window) is the plot's all the same: it never goes on to another surface's cursor (R7)
+- テスト: `src/test/trackPointerEvents.test.ts` › the focus leaving a plot takes away only a readout the focus gave: the pointer on another plot of the surface keeps its readout (R7)
+- テスト: `src/test/plotInteraction.test.ts` › a drag under way reads nothing, and let go (a box zoom, Alt+drag, Shift+drag) the readout is the pointer's where it was let go, never where it was pressed (R7)
+- テスト: `src/test/fullRead.test.ts` › a read the backend failed is no line read: the readout reads nothing, never the line beside it, and is read again once the failure's pause is over (R7, C2)
+- テスト: `src/test/fullRead.test.ts` › a seek on plain values (a signal, a metric over time) reads −250 and below as values, one point at a time, and → and ← agree; a level crosses its floor in one (R7)
+- テスト: `python-backend/test_full_read.py` › test_a_seek_on_plain_values_reads_every_value_below_minus_250_and_left_and_right_agree
+- テスト: `python-backend/test_full_read.py` › test_the_point_nearest_the_pointer_on_screen_is_a_value_below_minus_250_on_plain_values_only
+- テスト: `src/test/trackStageGestures.test.ts` › the steps' gestures place the pointer on the plot as it was drawn: with a second level axis on the right its margin is the drawn one, and over that axis is an axis (R13)
+- テスト: `src/test/trackStageGestures.test.ts` › a click on an event line waiting for its data is decided on the plot it was clicked on: a zoom by the wheel meanwhile does not move it onto another line or none (R7)
+- テスト: `src/test/entryDistributionPane.test.ts` › the readout off a bar says where on the value axis the pointer is, and keeps saying it after a redraw; a scroll under a still pointer reads the row now under it (R7)
 - テスト: `src/test/trackPointerEvents.test.ts` › a lane with the keyboard focus keeps ← / → for its time cursor, even with the pointer on it; the pointer on another lane steps that one's readout (R7)
 - テスト: `src/test/overlaySpectrumPainter.test.ts` › an arrow key reads the next bin the cursor spectrum drew, from the one the pointer read (R7)
 - テスト: `src/test/trackLaneHover.test.ts` › the pointer on a track lane reads the file's own sample nearest it, not the envelope drawn, and ← / → every sample in turn (R7)

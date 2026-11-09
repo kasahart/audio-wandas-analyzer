@@ -16,7 +16,6 @@ import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { DIST_MARGINS, DIST_ROW_MAX, DIST_ROW_MIN, DIST_ROW_PAD, DIST_STRIP_ROW, distributionAxisView, distributionLegendHtml, distributionRows, distributionScale, pickedRange, type DistributionRow, type DistributionScale } from './entryDistribution';
 import { attachPlotInteraction, FULL_PLOT_WINDOW, notePlotWindow, plotPointIn, type PlotMargins, type PlotWindow, type VerticalAxis } from './plotInteraction';
 import { createPlotHoverLayer } from './plotHoverLayer';
-import { showPlotReadout } from './plotHover';
 import { paintOverlay, type StagePlot } from './stagePanes';
 import { plainNames, plainRange } from './figureModel';
 import { localLine } from './fullRead';
@@ -222,6 +221,18 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
     const repaint = (): void => { if (last) paint(last); };
     /** Where the pointer reads a row now: a redraw makes the rows anew, and the marks and readout follow it there (A26). */
     let hovered: { x: number; y: number } | null = null;
+    /**
+     * The marks and readout at (x, y) on a row's plot, through the one readout (plotHoverLayer): a bar, a dot or a
+     * tick read there, else where on the value axis the pointer is. A hover, a redraw and a scroll all show it so.
+     */
+    const words = {
+        none(x: number): { name: string; values: string } | null {
+            return scale && last ? { name: last.valueLabel, values: last.format(scale.at(DIST_MARGINS.left + x)) } : null;
+        },
+    };
+    function showAt(canvas: HTMLElement, plot: StagePlot, x: number, y: number): void {
+        marks.show(canvas, plot, x, y, readout, words);
+    }
     function showMarksAgain(): void {
         if (!hovered) return;
         const doc = groups.ownerDocument;
@@ -229,8 +240,10 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
         const canvas = under instanceof HTMLCanvasElement && under.hasAttribute('data-dist-canvas') ? under : null;
         const plot = canvas ? plots.get(canvas) : undefined;
         if (!canvas || !plot) { marks.hide(); return; }
-        if (marks.show(canvas, plot, hovered.x, hovered.y, readout) === null) marks.hide();
+        showAt(canvas, plot, hovered.x, hovered.y);
     }
+    // The rows scroll under a still pointer: the row now under it is read there, never the one that was (R7).
+    groups.addEventListener('scroll', () => showMarksAgain());
     /** The dot under (x, y) on a row's canvas (its own CSS pixels), within its radius and a little. */
     function dotAt(canvas: HTMLElement, x: number, y: number): string | null {
         for (const line of (canvas.dataset.dots ?? '').split('\n')) {
@@ -289,11 +302,8 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
             const plot = hit ? plots.get(hit.plot) : undefined;
             hovered = hit && plot ? { x: event.clientX, y: event.clientY } : null;
             if (!hit || !plot) { marks.hide(); return; }
-            // Off any bar, dot or tick the readout says where on the value axis the pointer is.
-            if (marks.show(hit.plot, plot, event.clientX, event.clientY, readout) === null && scale && last) {
-                const bounds = hit.plot.getBoundingClientRect();
-                showPlotReadout(readout, last.valueLabel, last.format(scale.at(DIST_MARGINS.left + event.clientX - bounds.left)), "");
-            }
+            // Off any bar, dot or tick the readout says where on the value axis the pointer is (words.none).
+            showAt(hit.plot, plot, event.clientX, event.clientY);
             document.getElementById('hint-footer')?.replaceChildren(`${strings.dsDistDrag} · ${strings.compareHintPlot}`);
         },
         clearHover() { hovered = null; marks.hide(); },

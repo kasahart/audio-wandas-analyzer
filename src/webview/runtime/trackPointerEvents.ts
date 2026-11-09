@@ -15,9 +15,12 @@ export interface TrackPointerHandlers {
     panWheel(e: WheelEvent, swipe: boolean): void;
     /**
      * ← / → over a plot (or on a focused one): its readout steps to the next point that way (0, a plot given the focus
-     * with the pointer elsewhere: it reads where it starts). False when the plot reads nothing, so the key goes on.
+     * with the pointer elsewhere: it reads where it starts). False when it could not step (nothing read, the data's
+     * end, the edge of the window on screen, a drag under way): the key is the plot's all the same and goes to no
+     * other surface's cursor (R7). Null when these gestures do not answer the plot now (another mode's gestures on the
+     * same surface do: the lanes' and the steps' view share it), so the key goes on to them.
      */
-    step(plot: Element, delta: -1 | 0 | 1): boolean;
+    step(plot: Element, delta: -1 | 0 | 1): boolean | null;
     /** + / − / 0 over a plot: its horizontal axis zoomed in or out around its middle, or shown whole. False when the plot shows nothing, so the key goes on. */
     zoomKey(plot: Element, action: 'in' | 'out' | 'reset'): boolean;
 }
@@ -94,7 +97,8 @@ export function attachTrackPointerListeners(tracksWrapper: PointerSurface, doc: 
     // A plot given the focus from the keyboard reads where it starts, so the arrows have a point to step from;
     // let go of the focus with the pointer elsewhere, its readout goes.
     tracksWrapper.addEventListener('focusin', function (e) { const plot = plotOf(e.target); if (plot && !over && !selectors.focusKeepsArrows) handlers.step(plot, 0); });
-    tracksWrapper.addEventListener('focusout', function (e) { const plot = plotOf(e.target); if (plot && plot !== over) handlers.clearHover(); });
+    // Only a readout the focus gave goes: with the pointer over a plot of this surface, its readout is the pointer's.
+    tracksWrapper.addEventListener('focusout', function (e) { const plot = plotOf(e.target); if (plot && !over) handlers.clearHover(); });
     keys.add({
         layer: 'plot',
         keydown(e) {
@@ -116,7 +120,10 @@ export function attachTrackPointerListeners(tracksWrapper: PointerSurface, doc: 
             const plot = underPointer() ?? (elsewhere ? null : plotOf(e.target));
             if (plot && plot !== over && pointer) over = plot;
             // A key goes to the focused element: a lane with the focus moves its cursor, as its arrows always have.
-            if (!plot || (selectors.focusKeepsArrows && plot === e.target) || !handlers.step(plot, delta)) return false;
+            if (!plot || (selectors.focusKeepsArrows && plot === e.target)) return false;
+            // The plot's readout steps; one that cannot (nothing read, an end, the edge of what is on screen) keeps the
+            // key all the same: it never moves another surface's cursor, a focused lane's time (R7).
+            if (handlers.step(plot, delta) === null) return false;
             e.preventDefault();
             return true;
         },

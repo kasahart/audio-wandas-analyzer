@@ -87,7 +87,10 @@ export function createLaneReads(post: (message: ReadRequest) => void, now: () =>
                 if (state === 'pending') { slices.whenSettled(key, ready); return undefined; }
                 const slice = slices.value(key);
                 const values = slice?.values.get(channel);
-                if (!slice || !values?.length) return null;
+                // A slice that failed is not read (null: no number, no other line in its place, R7); one with no bins
+                // for the channel has nothing to read.
+                if (!slice) return null;
+                if (!values?.length) return localLine([], []);
                 const step = slice.maxHz / Math.max(1, values.length - 1);
                 return localLine(values.map((_, bin) => bin * step), values);
             };
