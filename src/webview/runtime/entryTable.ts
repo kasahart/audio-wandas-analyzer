@@ -13,7 +13,7 @@ import { median } from '../../shared/dataset/distribution';
 import { powerMeanOrNull } from '../../shared/utils/levels';
 import { spacingDecimals } from '../plot/plotText';
 import { folderReference, type ExclusionReason, scanLevelKey, type FigureColumns, type FolderReference } from './figureModel';
-import { scanAnswer, type ScanAnswer } from './answerStore';
+import { scanAnswer } from './answerStore';
 
 
 /** A group of fewer files says nothing about which band separates them. */
@@ -281,7 +281,7 @@ export function buildEntryModel(
     const fresh = new Set(files.filter(file => !file.stale && isMeasured(file.result)).map(file => file.filePath));
     // The folder's one level reference (figureModel.folderReference: the value columns' heading, the overview, the
     // distribution and a group base with nothing compared take the same), of the fresh results in the table's order.
-    const folder = folderReference(files.map(file => (fresh.has(file.filePath) ? scanAnswer(file.filePath, file.result) : { state: 'stale' as const, identity: scanAnswer(file.filePath, undefined).identity })) as ScanAnswer[]);
+    const folder = folderReference(files.map(file => (fresh.has(file.filePath) ? scanAnswer(file.filePath, file.result) : { state: 'stale' as const, identity: scanAnswer(file.filePath, undefined).identity })));
     // Rows are compared only with files of that reference and the most common shape among them (channels, rate, spec),
     // a tie going to the shape first in the table; a stale result is never counted.
     const counts = new Map<string, { count: number; result: MeasuredResult }>();

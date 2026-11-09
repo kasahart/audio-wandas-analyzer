@@ -1326,6 +1326,38 @@ test('renderScript: lazy spectrum keeps previous drawing while a new cursor slic
     env.dom.window.close();
 });
 
+test('renderScript: the last cursor spectrum is held only for a cursor action, never over a change of bands, STFT or offset (V6)', async () => {
+    const state = JSON.parse(makeLazySpectrogramState());
+    state.results = state.results.slice(0, 1);
+    const env = setupEnvWithState(JSON.stringify(state));
+    await nextAnimationFrame(env.dom);
+    const answer = (request: any) => env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'spectrum-slice-result', requestId: request.requestId, analysisId: request.analysisId, settingsSignature: request.settingsSignature,
+        trackIndex: 0, filePath: '/tmp/a.wav', channels: [{ channelIndex: 0, values: [-120, -20, 10], minDb: -120, maxDb: 10 }], frequencyBins: 3, maxFrequencyHz: 22050,
+    } }));
+    const latest = () => (env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice' && msg.trackIndex === 0) as any[]).at(-1);
+    answer(latest());
+    await nextAnimationFrame(env.dom);
+    const overlay = env.domCanvasContexts.get('spectrum-overlay-canvas');
+    assert.ok(overlay, 'overlay canvas spy should exist');
+    // A cursor action: the picture before stays a moment while the new one comes (SpectrumCommitHold).
+    const beforeCursor = overlay.clearRectCalls;
+    env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
+        type: 'comparison-panel-test-action', actionId: 'hold-cursor', actions: [{ action: 'set-cursor', payload: { cursorNorm: 0.5 } }],
+    } }));
+    await nextAnimationFrame(env.dom);
+    assert.equal(overlay.clearRectCalls, beforeCursor, 'held over a cursor move');
+    answer(latest());
+    await nextAnimationFrame(env.dom);
+    // Another band setting: the old picture is of other conditions, so it is not kept on screen.
+    const beforeBands = overlay.clearRectCalls;
+    env.dom.window.document.querySelector<HTMLElement>('[data-action="spectrum-octave-3"]')?.click();
+    await nextAnimationFrame(env.dom);
+    assert.ok(latest().bandsPerOctave === 3, 'the band setting asks again');
+    assert.ok(overlay.clearRectCalls > beforeBands, 'drawn anew (its pending state), not held');
+    env.dom.window.close();
+});
+
 test('renderScript: spectrum at exact track end renders silence instead of the last STFT bin', async () => {
     const env = setupSpectrumEnv();
     await nextAnimationFrame(env.dom);

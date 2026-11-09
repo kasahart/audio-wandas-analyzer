@@ -422,7 +422,7 @@ export interface ScanAnswers {
     current(): CurrentAnswers;
     /** Every file's latest scan, for the table to show: an earlier chain's is there greyed. */
     shown(): ShownAnswers;
-    /** Why a file's scan failed, and the step that cannot run on it if that is why; undefined when it did not fail. */
+    /** Why a file's scan failed under the current chain and condition, and the step that cannot run on it if that is why; undefined otherwise. */
     failure(path: string): { reason: string; failedStep?: string } | undefined;
     /** These files are asked for now, each under what is current as it is asked: until it answers or the asking ends, it is pending. */
     asking(paths: readonly string[]): void;
@@ -464,7 +464,9 @@ export function createScanAnswers(currentOf: () => ScanCurrent = () => ({ recipe
         const found = scanAnswer(path, result, under);
         const identity = { ...found.identity, calibrationSignature: `${found.identity.calibrationSignature}|${under?.condition ?? ''}` };
         if (!result) return asked.has(path) ? { state: 'pending', identity } : { state: 'missing', identity };
-        if (found.state === 'ready') return staleUnder(path, now) ? { state: 'stale', value: found.value, identity } : { ...found, identity };
+        // Measured, or failed, under another chain or condition than the current one: stale either way (its failure is
+        // of the earlier chain, not a reason about the file now).
+        if (staleUnder(path, now)) return found.state === 'ready' ? { state: 'stale', value: found.value, identity } : { state: 'stale', identity };
         return { ...found, identity };
     };
     let revision = 0;
@@ -487,7 +489,8 @@ export function createScanAnswers(currentOf: () => ScanCurrent = () => ({ recipe
         shown: () => latest.view as unknown as ShownAnswers,
         failure(path) {
             const result = latest.get(path);
-            return result && !result.ok ? { reason: result.reason ?? '', ...(result.failedStep ? { failedStep: result.failedStep } : {}) } : undefined;
+            // A failure under an earlier chain or condition is stale, no failure of the file now.
+            return result && !result.ok && !staleUnder(path, currentOf()) ? { reason: result.reason ?? '', ...(result.failedStep ? { failedStep: result.failedStep } : {}) } : undefined;
         },
         asking(paths) {
             const now = currentOf();

@@ -224,6 +224,27 @@ test('D fixes the compared file\'s difference; 報告に hands the host one fold
     await expect(derived).toHaveCount(0);
 });
 
+test('a report whose slots change while its files are measured is not written: it says so, and nothing of other slots is saved (V7)', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    const STR = getStrings('en');
+    await openComparison(page);
+    await page.locator('#tb-export-menu > summary').click();
+    await page.locator('[data-action="stage-report"]').click();
+    await expect(page.locator('#task-status')).toContainText(STR.reportMeasuring.split('{count}')[1].trim());
+    // Back on the table, another recording goes into the compared slot before the measuring is in.
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#entry-screen')).toHaveClass(/is-max/);
+    const slotted = () => page.locator('[data-entry-rows] tr.entry-row').evaluateAll(rows => rows.filter(row => row.querySelector('.entry-rbtn-slot.slot-2')).map(row => row.getAttribute('data-file-path')));
+    const slotsBefore = await slotted();
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('2');
+    await expect.poll(slotted).not.toEqual(slotsBefore);
+    await answerReport(page);
+    await expect(page.locator('#task-status')).toContainText(STR.reportChanged.trim());
+    expect((await posted(page)).some(message => message.type === 'save-report-folder')).toBe(false);
+});
+
 test('narrowed to ch 2, the base is the group\'s ch-2 recordings within the filter, and the compared row shows its channel, value and memo', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     const STR = getStrings('en');

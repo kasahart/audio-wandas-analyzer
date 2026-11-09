@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import test, { mock } from 'node:test';
+import ts from 'typescript';
 import { compareScanAsker } from '../shared/analysis/entryScan';
 import type { ScanResult } from '../shared/protocol/backendProtocol';
 import { answerKey, createAnswerSlot, createAnswerStore, createFailureHold, createScanAnswers, FAILED_RETRY_MS, type CurrentAnswers, type ScanAnswers } from '../webview/runtime/answerStore';
@@ -136,4 +137,50 @@ test('the entry table stops a computation in one place, which settles its asking
     const start = text.indexOf('function stopScan');
     const stop = text.slice(start, text.indexOf('\n    }\n', start));
     assert.match(stop, /entry-scan-cancel[\s\S]*requests\.settle[\s\S]*scans\.settled\(\)/);
+});
+
+/** Every write of `derived` in a source, by the function it is in, and whether each place that loads fixed differences hands them to keepDerived. */
+function derivedWrites(text: string): { writers: string[]; judged: boolean; loads: string[] } {
+    const source = ts.createSourceFile('entryRuntime.ts', text, ts.ScriptTarget.Latest, true);
+    const writers: string[] = [];
+    let judged = false;
+    const loads: string[] = [];
+    const nameOf = (node: ts.Node): string => {
+        for (let at: ts.Node | undefined = node; at; at = at.parent) if (ts.isFunctionDeclaration(at) && at.name) return at.name.text;
+        return '(top)';
+    };
+    const inKeepDerived = (node: ts.Node): boolean => {
+        for (let at: ts.Node | undefined = node.parent; at; at = at.parent) if (ts.isCallExpression(at) && ts.isIdentifier(at.expression) && at.expression.text === 'keepDerived') return true;
+        return false;
+    };
+    const visit = (node: ts.Node): void => {
+        if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isIdentifier(node.left) && node.left.text === 'derived') {
+            writers.push(nameOf(node));
+            if (nameOf(node) === 'keepDerived' && /derivedStale\(/.test(node.right.getText(source))) judged = true;
+        }
+        // The fixed differences come back from the session (kept.derived) and from the folder's store (loadDerived).
+        if (ts.isPropertyAccessExpression(node) && ((ts.isIdentifier(node.expression) && node.expression.text === 'kept' && node.name.text === 'derived') || node.name.text === 'loadDerived')) {
+            if (!ts.isPropertyAccessExpression(node.parent) || node.parent.expression !== node) loads.push(`${node.getText(source)}:${inKeepDerived(node) || ts.isIfStatement(node.parent) ? 'kept' : 'raw'}`);
+        }
+        ts.forEachChild(node, visit);
+    };
+    visit(source);
+    return { writers, judged, loads };
+}
+
+test('the fixed differences are kept one way only, judged against the files as they are now, on the folder opened and a session restored too (V5)', () => {
+    const text = readFileSync(path.join(path.resolve(__dirname, '..', '..'), 'src/webview/runtime/entryRuntime.ts'), 'utf8');
+    const found = derivedWrites(text);
+    assert.deepEqual([...new Set(found.writers)], ['keepDerived'], 'every write of `derived` is keepDerived\'s');
+    assert.equal(found.judged, true, 'keepDerived judges each row (derivedStale), never trusting the stale it was stored with');
+    assert.ok(found.loads.length >= 2, `the session and the folder's store are both read: ${found.loads.join(', ')}`);
+    assert.deepEqual(found.loads.filter(item => item.endsWith(':raw')), [], 'what is loaded goes through keepDerived');
+    // Mutation: a restore that keeps the rows as they were stored, and a load that skips the judgement.
+    const mutant = derivedWrites(`
+        function keepDerived(rows) { derived = rows.map(row => ({ ...row, stale: derivedStale(row) })); }
+        function applySession(kept) { if (kept.derived) { derived = kept.derived; } }
+        function open() { const rows = deps.loadDerived?.() ?? []; keepDerived(rows); }
+    `);
+    assert.deepEqual([...new Set(mutant.writers)], ['keepDerived', 'applySession']);
+    assert.ok(mutant.loads.some(item => item.endsWith(':raw')), JSON.stringify(mutant.loads));
 });

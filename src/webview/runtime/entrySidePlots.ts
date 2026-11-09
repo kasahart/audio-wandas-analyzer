@@ -54,7 +54,7 @@ export interface SidePlots {
     window(name: string): PlotWindow;
     /** A plot's zoom while it shows the same thing (`key`); for something else it starts whole again. */
     keepWindow(name: string, key: string): PlotWindow;
-    /** A table row's 1/3-octave levels as the strip draws them (its key: rowKey), once its recording is scanned. */
+    /** A table row's 1/3-octave levels as the strip draws them (its key: rowKey), while its recording's answer is fresh and of the folder's reference. */
     levels(key: string): readonly (number | null)[] | undefined;
     /** A result arrived: its recording's bands (each channel's, a row per channel as the table has) are kept for the strip. */
     noteResult(filePath: string, result: ScanResult): void;
@@ -268,7 +268,9 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
         levelWordOf: wordOf,
         levelMarkOf: filePath => { reference(); const own = ownMarks.get(filePath); return own?.mark || own?.word || ''; },
         onLevelAxis: filePath => { reference(); return !!ownMarks.get(filePath)?.on; },
-        levels: key => levels.get(key),
+        // Only of a recording whose answer is fresh now (reference(): of the folder's ready answers): one kept from
+        // before its file was written over, or of another chain, is not read as a level (B4).
+        levels: key => reference().levels.get(key),
         noteResult(filePath: string, result: ScanResult): void {
             version++;
             const bands = result.thirdOctDb;

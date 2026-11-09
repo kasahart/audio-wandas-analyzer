@@ -28,7 +28,8 @@ export interface AnswerIdentity {
  */
 export type Answer<T> =
     | { state: 'ready'; value: T; identity: AnswerIdentity }
-    | { state: 'stale'; value: T; identity: AnswerIdentity }
+    // Measured (value: shown greyed, never counted) or failed (no value) under an earlier chain or condition.
+    | { state: 'stale'; value?: T; identity: AnswerIdentity }
     | { state: 'pending' | 'empty' | 'failed' | 'missing'; identity: AnswerIdentity; retryAt?: number };
 
 export function isReady<T>(answer: Answer<T> | undefined): answer is Extract<Answer<T>, { state: 'ready' }> {

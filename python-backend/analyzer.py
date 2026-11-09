@@ -113,6 +113,7 @@ class AnalysisResult(TypedDict):
     units: NotRequired[AnalysisUnits]
     analysisRevision: NotRequired[int]
     sourceVersion: NotRequired[str]
+    stftSignature: NotRequired[str]
 
 
 def sample_range(start_norm: float, end_norm: float, sample_count: int) -> tuple[int, int]:
@@ -431,6 +432,13 @@ def normalize_stft_options(stft_options: Mapping[str, object] | None) -> StftOpt
         raise InputError(f"window must be one of {sorted(_ALLOWED_WINDOWS)}, got {window!r}")
     hop_size = max(1, round(n_fft * (1 - overlap_percent / 100)))
     return {"n_fft": n_fft, "hop_size": hop_size, "window": window}
+
+
+def stft_signature(sample_count: int, stft_options: Mapping[str, object] | None) -> str:
+    """The STFT a file's spectrogram and spectra are taken with (window length, hop, window), as every answer of it
+    names it (stftSignature): an answer of another STFT than the analysis drawn is not read over it."""
+    n_fft, hop, window = resolve_stft_params(sample_count, stft_options)
+    return f"{n_fft}/{hop}/{window}"
 
 
 def resolve_stft_params(

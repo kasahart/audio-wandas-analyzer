@@ -109,7 +109,7 @@ export interface CompareData {
     /** Files whose entry-table results are of an earlier chain or calibration. */
     stale: ReadonlySet<string>;
     /** How many times a file's calibration changed while the folder is open: part of what its pictures are of (stageBasis). */
-    calibrationEpoch?(path: string): number;
+    fileEpoch?(path: string): string;
 }
 
 export interface EntryScreenDeps {
@@ -314,7 +314,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
 
     let filePaths: string[] = [];
     /** Each file's latest scan, with the Recipe it was measured with (recipeKey of the run): a result of another chain is greyed. */
-    const scans = createScanAnswers(() => ({ recipeKey: currentKey(), condition: path => String(calibrationEpoch(path)), conditions: calibrationChanges }));
+    const scans = createScanAnswers(() => ({ recipeKey: currentKey(), condition: fileEpoch, conditions: calibrationChanges }));
     /** Every file's latest scan, for showing (a stale one greyed); what is counted is `scans.current()`. */
     const results = scans.shown();
     /** A scan asked for came in, kept under what it was asked under (answerStore); one of an asking already ended is not. */
@@ -345,6 +345,11 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     /** How many calibration changes the folder has heard of: the current scans are taken again after each. */
     let calibrationChanges = 0;
     const calibrationEpoch = (path: string): number => calibrations.get(path) ?? 0;
+    /** How many times each file was written on disk while the folder is open (the host's watcher says so). */
+    const sources = createLatestAnswers<number>();
+    const sourceEpoch = (path: string): number => sources.get(path) ?? 0;
+    /** What a file's scans and pictures are asked under beyond the chain: its calibration's and its own changes. */
+    const fileEpoch = (path: string): string => `${calibrationEpoch(path)}.${sourceEpoch(path)}`;
     const passingFailure = (path: string): boolean => { const failed = scans.failure(path); return !!failed && !failed.failedStep; };
     /** Whether a file's result is of another chain or calibration than the current one (the answer store decides). */
     const isStale = (path: string): boolean => scans.stale(path);
@@ -465,7 +470,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         tellCompare();
     }
     /** A file's condition as its scan now has it (the backend's conditionId: its version, calibration, unit and reference). */
-    const conditionOf = (path: string): string => { const answer = scans.answer(path); return answer.state === 'ready' || answer.state === 'stale' ? answer.value.conditionId ?? '' : ''; };
+    const conditionOf = (path: string): string => { const answer = scans.answer(path); return answer.state === 'ready' || answer.state === 'stale' ? answer.value?.conditionId ?? '' : ''; };
     /**
      * Whether a fixed difference is of what the files are now: the current Recipe, and each file's version and
      * calibration as it was fixed (its scan stale, or of another condition since, makes it ≠, never a current number).
@@ -474,13 +479,22 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     /** A difference just measured (D, or measured again): of the files' conditions now. */
     const fixedNow = (row: DerivedRow): DerivedRow => ({ ...row, conditions: Object.fromEntries(derivedFilesOf(row).map(path => [path, conditionOf(path)])), stale: false });
     /** Every fixed difference marked ≠ or not by what the files are now. */
+    /**
+     * The one way the fixed differences are kept: each judged against what the files are now (the chain, each file's
+     * version and calibration), never trusting a `stale` stored with it (a session saved before the file changed).
+     */
+    function keepDerived(rows: readonly DerivedRow[], only?: DerivedRow): void {
+        // `only`: the one row judged anew (measured again); the others keep their objects, so a remeasure on its way
+        // for one of them still answers it (handleRemeasure matches by the row).
+        derived = rows.map(row => (only && row !== only ? row : { ...row, stale: derivedStale(row) }));
+    }
     function markDerived(): void {
-        derived = derived.map(row => ({ ...row, stale: derivedStale(row) }));
+        keepDerived(derived);
         deps.saveDerived?.(derived);
     }
     /** The differences fixed with D changed: kept, and their rows drawn. */
     function setDerived(next: DerivedRow[]): void {
-        derived = next.map(row => ({ ...row, stale: derivedStale(row) }));
+        keepDerived(next);
         deps.saveDerived?.(derived);
         rebuild();
     }
@@ -555,7 +569,9 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             const result = results.get(filePath);
             const headerError = headers.errors.get(filePath);
             if (headerError !== undefined && !result?.ok) return [{ filePath, reason: headerError }];
-            return result && !result.ok && !result.failedStep ? [{ filePath, reason: result.reason ?? '' }] : [];
+            // Unreadable now: a failure of an earlier chain or condition (stale) is no reason about the file as it is.
+            const failure = scans.failure(filePath);
+            return result && !result.ok && failure && !failure.failedStep ? [{ filePath, reason: failure.reason }] : [];
         });
     }
     /** The CSV rows and recordings that did not match; an unreadable recording is listed once, as unreadable. */
@@ -740,7 +756,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         for (const [key, note] of kept.memo) memo.set(key, note);
         excluded.clear();
         for (const key of kept.excluded) excluded.add(key);
-        if (kept.derived) { derived = kept.derived; deps.saveDerived?.(derived); }
+        if (kept.derived) { keepDerived(kept.derived); deps.saveDerived?.(derived); }
         // A chain saved with the session is the one its stored values are of: they are asked for again under it.
         const recipe = kept.recipe;
         if (recipe && recipeKey(recipe) !== recipeKey(recipeState.edited ?? undefined)) { recipeState.edited = recipe; deps.saveRecipe?.(recipe); loadStored(); }
@@ -832,8 +848,9 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         // 「トラックのみ」 computes only the files on a track, as the table shows.
         const onTracks = chosen.tracksOnly && chosen.mode === 'all' ? shownFiles() : null;
         // A file whose scan failed for a reason that may pass has no row to be on screen by (its row is left out, its
-        // name listed as unreadable): it is asked again with every 「計算」, as a file never scanned is.
-        const failedFiles = filePaths.filter(passingFailure);
+        // name listed as unreadable): it is asked again with every 「計算」, as a file never scanned is. A failure under
+        // an earlier chain or version (stale) is of that chain: under this one it is asked again, whatever it was.
+        const failedFiles = filePaths.filter(path => passingFailure(path) || (isStale(path) && results.get(path)?.ok === false));
         return [...new Set([...pool.map(row => row.filePath), ...failedFiles])].filter(path => (!onTracks || onTracks.has(path)) && (!results.has(path) || isStale(path) || passingFailure(path)));
     }
     function sampleRate(): number | undefined {
@@ -869,7 +886,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         return unpairedRecipe(runRecipe(), recipeState.edited);
     }
     function compareData(stage?: string): CompareData {
-        return { model: entryModel(), results: scans.current(), slots: slotFiles(), recipe: recipeState.edited ?? recipeState.standard, runRecipe: scanRecipe(), failed: recipeState.failed, stale: stalePaths(), calibrationEpoch, ...(stage ? { stage } : {}) };
+        return { model: entryModel(), results: scans.current(), slots: slotFiles(), recipe: recipeState.edited ?? recipeState.standard, runRecipe: scanRecipe(), failed: recipeState.failed, stale: stalePaths(), fileEpoch, ...(stage ? { stage } : {}) };
     }
     /**
      * A step that failed on a file breaks the chain (⚠ on its chip and on every step after it): the computation
@@ -901,7 +918,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
                 // one still of an earlier chain or calibration, pending or failed keeps it ≠.
                 const [compared, ...base] = scans.answers([row.parentPath, ...basePaths]);
                 const next = compared ? remeasured(row, compared, base, recipeKey(scanRecipe())) : null;
-                if (next) derived = derived.map(item => (item === row ? fixedNow(next) : item));
+                if (next) { const fixed = fixedNow(next); keepDerived(derived.map(item => (item === row ? fixed : item)), fixed); }
                 return;
             }
             const [start, end] = row.region.split('–').map(Number);
@@ -915,7 +932,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     /** The held plot: a slot key or chip held shows its row's Δ, a step chip held what the step does to one row. */
     const heldPlot = createHeldPlot({
         document, window, strings, held, title: heldTitle, canvas: heldCanvas, post: message => deps.post(message), scheduleSide: () => sidePlots.schedule(),
-        keepWindow: (name, key) => sidePlots.keepWindow(name, key), shown: results, current: () => scans.current(), calibrationEpoch, focusedFile,
+        keepWindow: (name, key) => sidePlots.keepWindow(name, key), shown: results, current: () => scans.current(), fileEpoch, focusedFile,
         // The focused row's channel when it is that file's row, else the row the file is compared as (entryBase).
         channelOf: path => (focus.key && fileOfKey(focus.key) === path ? channelOfRow(rowOf(focus.key)) : entryBase.stageChannel(path, null)),
         comparison: (path, binned) => entryBase.comparison(path, false, binned ? binnedAnswers(store, binned) : undefined), basePaths: path => entryBase.resolve(path).members, scanRecipe: () => scanRecipe(), slotFiles, colorOf: recordingColor, recipe: () => recipeState.edited ?? recipeState.standard, runRecipe: () => runRecipe(), limits, spectral,
@@ -1506,7 +1523,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             session.reset();
             slots = restoredSlots(deps.loadSlots() ?? [], path => filePaths.includes(path));
             focus.key = null; focus.picked = false;
-            derived = (deps.loadDerived?.() ?? []).filter(row => filePaths.includes(row.parentPath));
+            // Judged now: until the stored results come back no file is known to be as it was fixed, so each is ≠.
+            keepDerived((deps.loadDerived?.() ?? []).filter(row => filePaths.includes(row.parentPath)));
             const savedRecipe = deps.loadRecipe?.();
             recipeState.edited = isRecipeChain(savedRecipe) ? savedRecipe : null;
             if (savedRecipe !== undefined && savedRecipe !== null && !recipeState.edited) { deps.saveRecipe?.(undefined); deps.announce(strings.stepRecipeWarning); }
@@ -1575,6 +1593,20 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
                 resultsRedraw.schedule();
                 return true;
             }
+            if (message.type === 'entry-source-changed') {
+                const { filePath } = message as Extract<EntryPublication, { type: 'entry-source-changed' }>;
+                if (!filePaths.includes(filePath)) return true;
+                // The file was written on disk: its scans, header and the differences fixed of it are of the old version,
+                // stale until 「計算」 asks them again (computeTargets takes stale files).
+                sources.set(filePath, sourceEpoch(filePath) + 1);
+                calibrationChanges++;
+                headers.forget(filePath);
+                probe(filePaths);
+                markDerived();
+                rowsDirty = true;
+                resultsRedraw.schedule();
+                return true;
+            }
             if (message.type === 'entry-probe-result' || message.type === 'entry-probe-done') {
                 const taken = headers.take(message as EntryProbePublication);
                 if (taken === 'stale') return true;
@@ -1583,7 +1615,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
                 resultsRedraw.schedule();
                 return true;
             }
-            const publication = message as Exclude<EntryPublication, { type: 'entry-calibration-changed' }>;
+            const publication = message as Exclude<EntryPublication, { type: 'entry-calibration-changed' | 'entry-source-changed' }>;
             // A computation stopped with 中止 sends nothing more that counts.
             if (!requests.answering('scan', publication.requestId)) return true;
             if (publication.type === 'entry-conditions') {

@@ -72,6 +72,27 @@ test('a folder opens with only what is stored; nothing is computed until 計算,
     await expect(page.locator('[data-entry-dist-count]')).toHaveText(new RegExp(`^6 ch(?:${leftOut})\\d+`, 'u'));
 });
 
+test('a file written over on disk while the folder is open is greyed until 計算 measures it again; the others keep their values (V1)', async ({ page }) => {
+    test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+    const STR = getStrings('en');
+    await openEntry(page, scanned!);
+    const changed = scanned!.find(file => file.result.ok)!.filePath;
+    const ofFile = page.locator(`[data-entry-rows] tr.entry-row[data-file-path="${changed}"]`);
+    await expect(ofFile.first()).toBeVisible();
+    await expect(page.locator('[data-entry-rows] tr.entry-row.is-stale')).toHaveCount(0);
+    // The host saw the file change in its folder.
+    await page.evaluate(filePath => window.postMessage({ type: 'entry-source-changed', filePath }, '*'), changed);
+    await expect(ofFile.first()).toHaveClass(/is-stale/);
+    expect(await page.locator('[data-entry-rows] tr.entry-row.is-stale').evaluateAll(items => [...new Set(items.map(row => row.getAttribute('data-file-path')))])).toEqual([changed]);
+    const compute = page.locator('[data-action="entry-compute"]');
+    await expect(compute).toHaveText(new RegExp(`^${STR.dsComputeRest.replace('{time}', '.+')}$`));
+    await compute.click();
+    // Only it is measured again (and a recording that could not be read, whose failure may have passed).
+    const asked = (await entryScans(page)).at(-1)!.filePaths;
+    expect(asked).toContain(changed);
+    expect(asked.filter(filePath => filePath !== changed && scanned!.find(file => file.filePath === filePath)?.result.ok)).toEqual([]);
+});
+
 test('a picked CSV attaches its attributes by asd-insight\'s rules and lists what did not match with why (I5)', async ({ page }) => {
     test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
     const STR = getStrings('ja');

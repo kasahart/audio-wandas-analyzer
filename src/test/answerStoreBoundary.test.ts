@@ -10,7 +10,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import ts from 'typescript';
-import { findAnswerWrites, findFileKeysWithoutVersion, findHeldCollections, findOwnRetryPolicies, type HeldCollection } from './answerBoundary';
+import { ANSWER_DECLARATIONS, answerProgram, findAnswerWrites, findFileKeysWithoutVersion, findHeldCollections, findOwnRetryPolicies, type HeldCollection } from './answerBoundary';
 import { NOT_ANSWER_WRITES, NOT_ANSWERS } from './answerBoundaryAllowlist';
 
 const repoRoot = path.resolve(__dirname, '..', '..');
@@ -83,10 +83,48 @@ test('an answer of a file names the file\'s own version and calibration in its k
     assert.deepEqual(findFileKeysWithoutVersion('m.ts', mutant), ['m.ts:1']);
 });
 
-test('outside the answer store, no host answer is written into a field of an object, except those listed with why', () => {
-    const found = sources().flatMap(({ file, source }) => findAnswerWrites(file, source));
-    assert.deepEqual(found.filter(entry => !(entry in NOT_ANSWER_WRITES)), [], 'An answer is kept in answerStore.ts (createAnswerSlot for one per track), not in an object\'s field');
+/** The webview's sources with a type checker: an answer is known by its type, not by what its variable is called. */
+const ANSWER_FILES = new Set(ANSWER_DECLARATIONS.map(file => ts.sys.resolvePath(path.join(repoRoot, file))));
+let typed: ts.Program | null = null;
+const program = (): ts.Program => (typed ??= answerProgram(repoRoot, webviewSources()));
+const writesIn = (checked: ts.Program, files: readonly string[]): string[] => files.flatMap(file => {
+    const source = checked.getSourceFile(path.join(repoRoot, file));
+    assert.ok(source, file);
+    return findAnswerWrites(file, source, checked.getTypeChecker(), ANSWER_FILES);
+});
+
+test('outside the answer store, no host answer is written into a field of an object or a lasting let, except those listed with why', () => {
+    const found = writesIn(program(), webviewSources());
+    assert.deepEqual(found.filter(entry => !(entry in NOT_ANSWER_WRITES)), [], 'An answer is kept in answerStore.ts (createAnswerSlot for one per track), not in an object\'s field or a let');
     assert.deepEqual(Object.keys(NOT_ANSWER_WRITES).filter(entry => !found.includes(entry)), [], 'an entry that matches nothing any more is taken off NOT_ANSWER_WRITES (the list only shrinks)');
-    const mutant = ts.createSourceFile('m.ts', 'onMessage(msg => { record.rangeCache = { channels: msg.channels }; label.textContent = msg.text; });', ts.ScriptTarget.Latest, true);
-    assert.deepEqual(findAnswerWrites('m.ts', mutant), ['m.ts#record.rangeCache']);
+    for (const [entry, reason] of Object.entries(NOT_ANSWER_WRITES)) assert.ok(reason.trim().length >= 12, `${entry} says why`);
+});
+
+test('the write check knows an answer by its type, whatever it is called: a field, an element\'s field, an object kept as a cache, a lasting let (mutation)', () => {
+    const file = 'src/webview/runtime/__answerWriteMutant.ts';
+    const text = `
+        import type { HostInboundMessage } from './hostMessaging';
+        import type { ChannelSummary } from '../../shared/analysis/analysisTypes';
+        export function createKeeper(target: ChannelSummary[], label: { textContent: string }, record: { kept?: unknown; size?: number }) {
+            let last: ChannelSummary | null = null;
+            let count = 0;
+            const byPath: Record<string, unknown> = {};
+            return {
+                take(event: HostInboundMessage) {
+                    if (event.type !== 'track-detail-result') return;
+                    event.channels.forEach((channel, index) => { if (target[index]) target[index].spectrogram = channel.spectrogram; });
+                    last = event.channels[0] ?? null;
+                    record.kept = { x: event.requestId };
+                    record.size = 3;
+                    count = count + 1;
+                    byPath[event.filePath] = event.channels;
+                    label.textContent = event.filePath;
+                },
+                last: () => last, count: () => count,
+            };
+        }
+        export function local(event: HostInboundMessage) { let seen = event.type; return seen; }
+    `;
+    const checked = answerProgram(repoRoot, [], { [file]: text });
+    assert.deepEqual(writesIn(checked, [file]).sort(), [`${file}#byPath[event.filePath]`, `${file}#let last`, `${file}#record.kept`, `${file}#target[index].spectrogram`]);
 });

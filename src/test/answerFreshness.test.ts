@@ -103,13 +103,13 @@ test('a step measured against the base slot\'s recording is of that recording\'s
 test('a file calibrated anew while the folder is open is another basis, track or not', () => {
     const scans = new Map<string, ScanResult>([['/b.wav', { ok: true, conditionId: 'c1' }]]);
     let epoch = 0;
-    const basisOf = stageBasis(path => scans.get(path), undefined, () => epoch);
+    const basisOf = stageBasis(path => scans.get(path), undefined, () => String(epoch));
     const first = basisOf('/b.wav');
     epoch = 1;
     assert.notEqual(basisOf('/b.wav'), first, 'the old pictures are not the file\'s');
 });
 
-test('a file\'s scan is stale once the chain or its calibration is another, pending only while asked, missing when never asked', () => {
+test('a file\'s scan is stale once the chain, its calibration or its version on disk is another, pending only while asked, missing when never asked', () => {
     const current = { recipeKey: 'r1', condition: '0' };
     const scans = createScanAnswers(() => ({ recipeKey: current.recipeKey, condition: () => current.condition }));
     assert.equal(scans.answer('/a.wav').state, 'missing', 'never asked: not "still computing"');
@@ -128,9 +128,17 @@ test('a file\'s scan is stale once the chain or its calibration is another, pend
     assert.equal(scans.answer('/a.wav').state, 'stale', 'the file calibrated anew');
     current.condition = '0';
     assert.deepEqual([...scans.current().keys()], ['/a.wav']);
+    current.condition = '0.1';
+    assert.equal(scans.answer('/a.wav').state, 'stale', 'the file written over on disk (the screen\'s source epoch of it)');
+    assert.equal(scans.current().size, 0, 'nothing of the file as it is now to measure from');
+    current.condition = '0';
     scans.set('/b.wav', { ok: false, reason: 'busy' }, { recipeKey: 'r0', condition: '0' });
-    assert.equal(scans.answer('/b.wav').state, 'failed', 'a failure stays a failure, of whichever chain');
-    assert.equal(scans.stale('/b.wav'), true, 'but it is asked again under the current chain');
+    assert.equal(scans.answer('/b.wav').state, 'stale', 'a failure under an earlier chain is of that chain: stale, not a failure of this one (V4)');
+    assert.equal(scans.failure('/b.wav'), undefined, 'so the table says no reason of this chain for it');
+    assert.equal(scans.stale('/b.wav'), true, 'and it is asked again under the current chain');
+    scans.set('/b.wav', { ok: false, reason: 'busy' }, { recipeKey: 'r1', condition: '0' });
+    assert.equal(scans.answer('/b.wav').state, 'failed', 'a failure under the current chain is a failure');
+    assert.equal(scans.failure('/b.wav')?.reason, 'busy');
 });
 
 test('a fixed difference is measured again only from results of the current chain: a stale or missing file or base keeps it ≠', () => {

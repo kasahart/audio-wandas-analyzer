@@ -159,6 +159,21 @@ test('stageBasis follows the screen\'s scan (version, calibration) and the track
     assert.notEqual(basisOf('/a.wav'), third, 'the track analysed again');
 });
 
+test('stageBasis names the version of the file its track was analysed from and the screen\'s own epoch of the file: written over on disk, it is another basis (V2)', () => {
+    // The screen's scan says nothing new (the same condition, no rescan yet): the file's version alone tells.
+    const scans = new Map<string, ScanResult>([['/a.wav', { ok: true, conditionId: 'c1' }]]);
+    const analyses = new Map<string, { sourceVersion?: string; calibrationSignature?: string; analysisRevision?: number }>([['/a.wav', { sourceVersion: 'v1', calibrationSignature: 's', analysisRevision: 1 }]]);
+    let epoch = '0.0';
+    const basisOf = stageBasis(path => scans.get(path), path => analyses.get(path), () => epoch);
+    const first = basisOf('/a.wav');
+    analyses.set('/a.wav', { sourceVersion: 'v2', calibrationSignature: 's', analysisRevision: 1 });
+    assert.notEqual(basisOf('/a.wav'), first, 'the track analysed from the file as written over');
+    const second = basisOf('/a.wav');
+    epoch = '0.1';
+    assert.notEqual(basisOf('/a.wav'), second, 'the screen told the file changed on disk, before anything is analysed again');
+    assert.equal(basisOf('/a.wav'), basisOf('/a.wav'), 'the same file, version and epoch: the same basis');
+});
+
 test('the last zoomed answer kept on screen is of the pictures it was taken of: a rescan, a calibration or a file\'s new version is not it (A35, C2)', () => {
     const last = createLastFine();
     const zoomed = { base: null, diff: null } as Combined;

@@ -183,6 +183,8 @@ export interface UiStrings {
     reportMeasuring: string;
     /** A report not written because some of its files could not be measured: which, and why. */
     reportCannotMeasure: string;
+    /** The recordings or the chain changed while a report was measured: it is not written of what was not asked. */
+    reportChanged: string;
     stepRegion: string;
     stepAll: string;
     stepMetrics: string;
@@ -1017,6 +1019,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         reportSaved: 'Report saved: ',
         reportMeasuring: 'Measuring {count} files for the report…',
         reportCannotMeasure: 'No report: {files} could not be measured ({why})',
+        reportChanged: 'No report: the recordings or the steps changed while it was measured. Press Report again',
         stepRegion: 'Region',
         stepAll: 'all',
         stepMetrics: 'Metrics',
@@ -1825,6 +1828,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         reportSaved: '報告を保存しました: ',
         reportMeasuring: '報告のために {count} ファイルを計算しています…',
         reportCannotMeasure: '報告できません: {files} を計算できませんでした（{why}）',
+        reportChanged: '報告していません: 測定中に録音か手順が変わりました。もう一度「報告に」を押してください',
         stepRegion: '区間',
         stepAll: '全体',
         stepMetrics: '指標',

@@ -81,6 +81,20 @@ test('a recording of an earlier chain is neither coloured on the strip nor sets 
     assert.equal(plots.onLevelAxis('/d/a.wav'), true);
 });
 
+test('a recording whose answer is no longer fresh (its file written over, another chain) gives the strip no level, though its result is kept (B4)', () => {
+    const stale = new Set<string>();
+    const { plots } = setup(stale);
+    const input = { id: 'x', fs: 48000, channels: [0], durationS: 1, unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated' as const, fullScale: true };
+    plots.noteResult('/d/a.wav', { ok: true, input, thirdOctDb: [[-40, -30]] });
+    plots.noteResult('/d/b.wav', { ok: true, input, thirdOctDb: [[-42, -32]] });
+    assert.deepEqual(plots.levels('/d/b.wav'), [-42, -32]);
+    stale.add('/d/b.wav');
+    assert.equal(plots.levels('/d/b.wav'), undefined, 'a stale answer\'s levels are not read');
+    assert.deepEqual(plots.levels('/d/a.wav'), [-40, -30]);
+    stale.delete('/d/b.wav');
+    assert.deepEqual(plots.levels('/d/b.wav'), [-42, -32], 'fresh again, it is read again');
+});
+
 test('the strip takes the folder\'s one reference, and a cell of an uncalibrated recording on a mixed axis says so itself (R4)', () => {
     const { plots } = setup();
     const input = (status: 'calibrated' | 'uncalibrated') => ({ id: 'x', fs: 48000, channels: [0], durationS: 1, unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: status, fullScale: true });

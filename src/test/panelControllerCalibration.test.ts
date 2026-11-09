@@ -432,3 +432,76 @@ test('a calibration change refreshes every lane that shows the file, under each 
         fs.rmSync(directory, { recursive: true, force: true });
     }
 });
+
+test('a file written over on disk is told to the webview under each path it is open by, and its folder is watched until the panel goes (V1)', async () => {
+    const { PanelController } = loadModules();
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'controller-watch-'));
+    try {
+        const first = path.join(directory, 'a.wav');
+        const second = path.join(directory, 'b.wav');
+        fs.writeFileSync(first, '');
+        fs.writeFileSync(second, '');
+        const notices: string[] = [];
+        const watched = new Map<string, (filePath: string) => void>();
+        const disposed: string[] = [];
+        let displayed: AnalysisResultWithError[] = [];
+        const panel: PanelHandle = {
+            webview: {
+                onDidReceiveMessage: () => ({ dispose: () => undefined }),
+                postMessage: async (message) => {
+                    if ((message as { type?: unknown }).type === 'entry-source-changed') { notices.push((message as { filePath: string }).filePath); }
+                    return true;
+                },
+            },
+            onDidDispose: () => ({ dispose: () => undefined }),
+        };
+        const panelFactory: PanelFactory = {
+            getResults: () => [...displayed],
+            updateResults: (_target, results) => { displayed = [...results]; },
+            replaceResult: (_target, replacement) => [...displayed.map((entry) => (entry.filePath === replacement.filePath ? replacement : entry))],
+            updateDirectoryResults: async () => true,
+            showResults: (_extensionUri, results) => { displayed = [...results]; return panel; },
+            showDirectory: () => panel,
+        };
+        const host: PanelControllerHost = {
+            fileSystem: {} as PanelControllerHost['fileSystem'],
+            showOpenDialog: async () => undefined,
+            executeCommand: async () => undefined,
+            showInformation: () => undefined,
+            showError: (message) => { throw new Error(message); },
+            language: () => 'en',
+            withProgress: (_options, task) => task({ report() {} }, { isCancellationRequested: false } as vscode.CancellationToken),
+            watchFolder: (folder, changed) => {
+                watched.set(folder, changed);
+                return { dispose: () => { disposed.push(folder); } };
+            },
+        };
+        const context = {
+            extensionUri: { fsPath: '/extension' } as vscode.Uri,
+            workspaceState: { get: <T>(_key: string, fallback: T): T => fallback, update: async (): Promise<void> => undefined, keys: (): readonly string[] => [] },
+        } as unknown as SpectrogramSettingsContext & { extensionUri: vscode.Uri };
+        const controller = new PanelController(
+            context,
+            {} as PanelBackend,
+            { analyzeFiles: async (filePaths) => filePaths.map((filePath) => result(filePath, 0, 0)), warmup: () => undefined },
+            {} as ExportFlows,
+            { analysisRevision: () => 0, onDidChange: () => ({ dispose: () => undefined }), configureTrack: async () => undefined },
+            {
+                getCurrentPythonEnvironmentState: () => ({ pythonCommand: 'python3', status: 'normal', tooltip: 'python3' }),
+                onDidChangePythonEnvironmentState: () => ({ dispose: () => undefined }),
+            },
+            panelFactory,
+            host,
+        );
+        await controller.analyzeFiles([first]);
+        assert.deepEqual([...watched.keys()], [directory], 'the folder of the file open');
+        watched.get(directory)?.(first);
+        watched.get(directory)?.(second);
+        for (let attempt = 0; attempt < 10; attempt++) await new Promise((resolve) => setImmediate(resolve));
+        assert.deepEqual(notices, [first], 'only a file the panel has open');
+        controller.dispose();
+        assert.deepEqual(disposed, [directory], 'the watcher goes with the panel');
+    } finally {
+        fs.rmSync(directory, { recursive: true, force: true });
+    }
+});

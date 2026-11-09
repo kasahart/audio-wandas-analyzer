@@ -196,7 +196,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         cursorNorm: () => viewState.cursor,
         moveCursor,
         centerOn: norm => waveformView.centerOn(norm),
-        invalidateSpectrumRequests: invalidateDesiredSpectrumSliceRequests,
+        // Playback's (a pause, a seek, the loop's wrap) move the cursor: a cursor action, whose answers are held together.
+        invalidateSpectrumRequests: () => invalidateDesiredSpectrumSliceRequests(true),
         scheduleRender,
         refreshSpectrum: scheduleSpectrumRefresh,
         showTime: seconds => updatePlaybackDisplay(seconds),
@@ -449,7 +450,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
      * place are stale, except while playing, whose own requests keep up with it.
      */
     function moveCursor(norm: number, playing = false): void {
-        if (!playing) invalidateDesiredSpectrumSliceRequests();
+        if (!playing) invalidateDesiredSpectrumSliceRequests(true);
         viewState.setCursor(norm, playing ? 'cursor' : 'all');
     }
     /** The cursor spectrum's pointer marks and readout, as every plot's (plotHoverLayer.ts, R7). */
@@ -503,7 +504,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         return trackStore.idAtProtocolIndex(index);
     }
     /** The track a lane's lazy answer is of: none for an index no track has, or an answer of another file version. */
-    function trackIdAtProtocolBoundary(index: number, answer: { type: string; sourceVersion?: string; staleSource?: true }): TrackId | null {
+    function trackIdAtProtocolBoundary(index: number, answer: { type: string; sourceVersion?: string; stftSignature?: string; staleSource?: true }): TrackId | null {
         const trackId = trackIdAtIndex(index);
         if (!trackId) {
             console.warn('Rejected ' + answer.type + ' with invalid trackIndex ' + index);
@@ -643,8 +644,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     function spectrumSliceRequestKey(trackId: TrackId) {
         return trackId;
     }
-    function invalidateDesiredSpectrumSliceRequests() {
+    /**
+     * The generation whose spectra may not hold the last picture: one started by a change of what the spectra are
+     * (the STFT, the bands, an offset, a new analysis), not by a cursor action. Holding there would keep a picture of
+     * the old conditions on screen (SpectrumCommitHold is for one cursor action's answers arriving together).
+     */
+    let unheldSpectrumGeneration: number | null = null;
+    function invalidateDesiredSpectrumSliceRequests(cursorAction = false) {
         spectrumRequests.invalidate();
+        unheldSpectrumGeneration = cursorAction ? null : spectrumRequests.generation;
     }
     function spectrumReadoutTrackLabel(result: ComparisonTrackState, channelIndex: number) {
         const channels = channelsForResult(result);
@@ -1119,6 +1127,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         testBridge.publishAfterFrame();
         spectrumRequests.pump();
     });
+    // A track's file was written on disk (the host's watcher): its lanes are of the old version, so they stop and
+    // offer to analyse again, as when a lazy answer comes back stale-source.
+    messaging.onMessage(function (msg) {
+        if (!msg || msg.type !== 'entry-source-changed') return;
+        trackStore.displayOrder.map(trackId => trackStore.require(trackId)).filter(record => record.result.filePath === msg.filePath)
+            .forEach(record => { record.sourceChanged = true; });
+        scheduleRender();
+        testBridge.publishAfterFrame();
+    });
     messaging.onMessage(function (msg) {
         if (msg && pairPanel.handleMessage(msg)) {
             testBridge.publishAfterFrame();
@@ -1520,7 +1537,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         },
         sampleRate: () => state.results.find(result => !result.error)?.sampleRateHz,
         // A file's pictures are of its version (the table's scan) and calibration (the track's analysis): a change asks them again.
-        basis: stageBasis(path => entryScreen.compareData().results.get(path), path => state.results.find(result => result.filePath === path && !result.error), path => entryScreen.compareData().calibrationEpoch?.(path) ?? 0),
+        basis: stageBasis(path => entryScreen.compareData().results.get(path), path => state.results.find(result => result.filePath === path && !result.error), path => entryScreen.compareData().fileEpoch?.(path) ?? ''),
         // What a trigger sees: the compared slots' channels (a channel row, its own) of the shown tracks, over the region.
         peak: region => {
             const shown = trackStore.displayOrder.map(trackId => trackStore.require(trackId)).filter(record => !record.runtime.hidden && !record.result.error);
@@ -2130,6 +2147,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const result = state.results[trackIndex];
         // A file changed since it was analysed is read no more (its answers would be of another version).
         return result && !trackRecordAtIndex(trackIndex)?.sourceChanged ? { trackIndex, filePath: result.filePath, sourceVersion: result.sourceVersion, calibrationSignature: result.calibrationSignature,
+            stftSignature: result.stftSignature,
             analysisId, settingsSignature: currentSettingsSignature() } : null;
     }
     /** The full data of a lane whose file changed after it was analysed: every read gives no number (R7), none is asked. */
@@ -2359,7 +2377,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const record = trackStore.require(trackId);
             return !record.runtime.hidden && isSpectrumSliceRequestPendingForCursor(record.protocolIndex, spectrumCursorNorm);
         });
-        holdingThisPass = spectrumCommitHold.holds(pending, spectrumRequests.generation);
+        holdingThisPass = spectrumCommitHold.holds(pending && spectrumRequests.generation !== unheldSpectrumGeneration, spectrumRequests.generation);
         // Every lane drawn in this pass sees the same answer, so the cap never splits a frame.
         queueMicrotask(function () { holdingThisPass = null; });
         return holdingThisPass;
