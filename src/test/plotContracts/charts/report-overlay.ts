@@ -27,10 +27,11 @@ export const reportOverlay: ChartContract = {
         },
         {
             id: 'report-overlay.range', value: 'range', what: 'レベルの軸の範囲',
-            computedIn: ['src/webview/runtime/compareReport.ts:paintOverlayFigure', `${SP}:stageRange`],
-            from: 'extremes', trace: 'binsView で 640 区間の最小・最大に間引いた線から stageRange で決める。',
-            tests: [],
-            gap: { severity: 'P2', why: '範囲を間引いた線から求めている。全ビンの端と一致することを確かめるテストがない。' },
+            computedIn: ['src/webview/runtime/compareReport.ts:paintOverlayFigure', `${SP}:stageRange`, 'src/webview/runtime/comparePanes.ts:binsView'],
+            from: 'full', trace: 'binsView が 20 Hz〜ナイキストのすべてのビンの最小・最大を valueRange として付け（間引いた線ではなく）、stageRange はその端から決める。',
+            tests: [
+                tt('src/test/comparePanes.test.ts', 'a spectrum drawn from its bins carries every bin\'s lowest and highest value in its span as its range, the silent floor left out (R1)'),
+            ],
         },
         {
             id: 'report-overlay.ticks', value: 'ticks', what: '目盛り',
@@ -52,6 +53,5 @@ export const reportOverlay: ChartContract = {
         },
     ],
     knownGaps: {
-        'report-overlay.range': 'P2',
     },
 };

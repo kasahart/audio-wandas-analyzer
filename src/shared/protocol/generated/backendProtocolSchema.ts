@@ -1649,6 +1649,25 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                     },
                     "additionalProperties": false
                 },
+                "valueRange": {
+                    "type": "object",
+                    "required": [
+                        "min",
+                        "max"
+                    ],
+                    "properties": {
+                        "min": {
+                            "type": "number"
+                        },
+                        "max": {
+                            "type": "number"
+                        },
+                        "robust": {
+                            "type": "number"
+                        }
+                    },
+                    "additionalProperties": false
+                },
                 "peak": {
                     "type": "object",
                     "required": [
@@ -2504,6 +2523,11 @@ export interface StageView {
     edges: number[];
     power: number[];
     count: number[];
+};
+    valueRange?: {
+    min: number;
+    max: number;
+    robust?: number;
 };
     peak?: {
     x: number;

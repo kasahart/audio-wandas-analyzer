@@ -42,3 +42,17 @@ export function niceRange(low: number, high: number): { low: number; high: numbe
         power /= 10;
     }
 }
+
+/** How far below its loudest value a heatmap's colours reach, as a spectrum's level axis spans at most 100 dB. */
+export const HEATMAP_DB_SPAN = 100;
+
+/**
+ * A heatmap's automatic colour range in dB (R9), from its full data's lowest and highest value: the top is the
+ * highest, the bottom the lowest but no more than HEATMAP_DB_SPAN under the top (digital silence, −240 dB, would
+ * leave every sound in a few colours), both widened to round values.
+ */
+export function heatmapDbRange(low: number, high: number): { min: number; max: number } {
+    const bottom = Math.max(low, high - HEATMAP_DB_SPAN);
+    const { low: min, high: max } = niceRange(bottom, high > bottom ? high : bottom + 1);
+    return { min, max };
+}

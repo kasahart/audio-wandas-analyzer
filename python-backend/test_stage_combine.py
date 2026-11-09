@@ -627,3 +627,27 @@ def test_an_images_headline_copies_only_the_part_on_screen() -> None:
         assert peak is not None
         assert used < plane.nbytes * 0.1, f"{used / plane.nbytes:.2f} planes"
     assert difference_peak(data, plane)["x"] == pytest.approx(43.21)  # type: ignore[index]
+
+
+def test_a_median_and_a_difference_carry_their_full_datas_value_range(signal: wd.ChannelFrame) -> None:
+    """The Δ pane's ± and the base median's axis are set from every bin's value (R1, R9): the valueRange of the
+    unrounded Δ over the part drawn, checked against numpy over the Frames' own dB."""
+    plain = signal.fft()
+    xs = np.asarray(plain.freqs, dtype=np.float64)
+    at, dip = int(np.argmin(np.abs(xs - 3000))), int(np.argmin(np.abs(xs - 5000)))
+    view = dict(stage_view(plain))
+    base_frame, compare_frame = _at_levels(plain, {at: -10.004}), _at_levels(plain, {at: 7.25, dip: -95.5})
+    base, compare = stage_data(base_frame, view), stage_data(compare_frame, view)
+    assert base is not None and compare is not None
+    delta = np.asarray(compare_frame.dB, dtype=np.float64).reshape(-1) - np.asarray(base_frame.dB, dtype=np.float64).reshape(-1)
+    drawn = (xs >= 20) & (xs <= RATE / 2) & (xs > 0)
+    result = combine([base], compare)
+    assert result["diff"]["valueRange"] == pytest.approx({"min": float(delta[drawn].min()), "max": float(delta[drawn].max())})
+    zoomed = combine([base], compare, {"x": [2500.0, 3500.0], "points": 200})
+    inside = (xs >= 2500.0) & (xs <= 3500.0)
+    assert zoomed["diff"]["valueRange"]["max"] == pytest.approx(float(delta[inside].max()))
+    members = [stage_data(_at_levels(plain, {at: level}), view) for level in (-12.0, -10.0, 4.5)]
+    grouped = combine(members, None)  # type: ignore[arg-type]
+    median = np.median(np.stack([np.asarray(_at_levels(plain, {at: level}).dB, dtype=np.float64).reshape(-1) for level in (-12.0, -10.0, 4.5)]), axis=0)
+    shown = median[drawn]
+    assert grouped["base"]["valueRange"] == pytest.approx({"min": float(shown[shown > -250].min()), "max": float(shown.max())})

@@ -51,17 +51,21 @@ export const compareDelta: ChartContract = {
         },
         {
             id: 'compare-delta.range', value: 'range', what: 'Δ の軸の自動の範囲（線）',
-            computedIn: [`${SP}:stageDiffRange`, `${SP}:roundEdge`],
-            from: 'extremes', trace: 'stageDiffRange は粗い Δ の絵（各区間の最小と最大）の端から ± を決める。',
-            tests: [],
-            gap: { severity: 'P2', why: '範囲を間引いた Δ から求めている。全データの Δ の端と一致することを確かめるテストがない。' },
+            computedIn: [`${SP}:stageDiffRange`, `${SP}:roundEdge`, 'python-backend/stage_combine.py:value_range'],
+            from: 'full', trace: 'バックエンドが全データの Δ（間引く前）の最小と最大を valueRange として Δ の絵に付け、stageDiffRange はその端から ± を決める。',
+            tests: [
+                tt('src/test/stagePanes.test.ts', 'every range is set from the full data\'s lowest and highest value (valueRange), never the points drawn or the cells averaged to draw an image (R1, R9)'),
+                tt('python-backend/test_stage_combine.py', 'test_a_median_and_a_difference_carry_their_full_datas_value_range'),
+            ],
         },
         {
             id: 'compare-delta.range-image', value: 'range', what: 'Δ の熱図の色の範囲（カラーバーの両端）',
-            computedIn: [`${SP}:stageDiffRange`],
-            from: 'thinned', trace: 'Δ の熱図の matrix はブロックごとに平均したマスで、その端を両端の数にする。',
-            tests: [],
-            gap: { severity: 'P1', why: 'カラーバーの両端の数を、描くために平均した Δ のマスから求めている。' },
+            computedIn: [`${SP}:stageDiffRange`, 'python-backend/stage_combine.py:value_range'],
+            from: 'full', trace: 'Δ の熱図の matrix はブロックごとに平均したマスだが、両端の数は平均する前の全マスの Δ の valueRange から決める。',
+            tests: [
+                tt('src/test/stagePanes.test.ts', 'every range is set from the full data\'s lowest and highest value (valueRange), never the points drawn or the cells averaged to draw an image (R1, R9)'),
+                tt('python-backend/test_stage_combine.py', 'test_a_median_and_a_difference_carry_their_full_datas_value_range'),
+            ],
         },
         {
             id: 'compare-delta.ticks', value: 'ticks', what: 'Δ の軸の目盛り',
@@ -94,7 +98,5 @@ export const compareDelta: ChartContract = {
         },
     ],
     knownGaps: {
-        'compare-delta.range': 'P2',
-        'compare-delta.range-image': 'P1',
     },
 };

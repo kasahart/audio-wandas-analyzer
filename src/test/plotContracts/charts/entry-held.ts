@@ -58,10 +58,12 @@ export const entryHeld: ChartContract = {
         },
         {
             id: 'entry-held.range', value: 'range', what: '保持図の値の軸の範囲',
-            computedIn: ['src/webview/runtime/entryHeldPlot.ts:paintStep', 'src/webview/runtime/entryHeldPlot.ts:paintDelta', `${SP}:stageRange`, `${SP}:stageDiffRange`],
-            from: 'extremes', trace: '手順の絵は粗い絵（stageRange）、スロットの Δ は binsView で間引いた Δ（stageDiffRange）、手順の有無の Δ は全体の Δ の絵から決める。どれも各区間の最小・最大を残した点。',
-            tests: [],
-            gap: { severity: 'P2', why: '範囲を間引いた点から求めている。全データの端と一致することを確かめるテストがない。' },
+            computedIn: ['src/webview/runtime/entryHeldPlot.ts:paintStep', 'src/webview/runtime/entryHeldPlot.ts:paintDelta', `${SP}:stageRange`, `${SP}:stageDiffRange`, 'src/webview/runtime/comparePanes.ts:binsView'],
+            from: 'full', trace: '手順の絵はバックエンドが付けた全データの valueRange、スロットの Δ と手順の有無の Δ は binsView が全ビンから求めた valueRange（範囲内のすべてのビンの最小・最大）から決める。',
+            tests: [
+                tt('src/test/stagePanes.test.ts', 'every range is set from the full data\'s lowest and highest value (valueRange), never the points drawn or the cells averaged to draw an image (R1, R9)'),
+                tt('src/test/comparePanes.test.ts', 'a spectrum drawn from its bins carries every bin\'s lowest and highest value in its span as its range, the silent floor left out (R1)'),
+            ],
         },
         {
             id: 'entry-held.ticks', value: 'ticks', what: '保持図の目盛り',
@@ -84,6 +86,5 @@ export const entryHeld: ChartContract = {
         },
     ],
     knownGaps: {
-        'entry-held.range': 'P2',
     },
 };

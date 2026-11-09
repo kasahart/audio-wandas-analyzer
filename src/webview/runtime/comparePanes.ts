@@ -325,9 +325,18 @@ export function binsView(bins: NonNullable<CompareModel['bins']>, which: 'base' 
         : [SPECTRUM_MIN_HZ, bins.nyquist];
     const xs = values.map((_, bin) => bin * bins.hz);
     const line = minMaxLine(xs, values, buckets, span);
+    // The range is every bin's in the span (R1), not the drawn line's; a silent bin (the −300 dB floor) is a gap.
+    let min = Infinity, max = -Infinity;
+    for (let bin = 0; bin < values.length; bin++) {
+        const x = xs[bin], value = values[bin];
+        if (!(x > 0) || x < span[0] || x > span[1] || !Number.isFinite(value) || (which !== 'diff' && value <= -250)) continue;
+        if (value < min) min = value;
+        if (value > max) max = value;
+    }
     return {
         frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity: 'level',
         xs: line.xs, xLimits: [SPECTRUM_MIN_HZ, bins.nyquist], values: line.values,
+        ...(max >= min ? { valueRange: { min, max } } : {}),
         // Ordered among overlaid lines by every bin's power, not the drawn ones (R6); a Δ is not ordered.
         ...(which !== 'diff' ? { levelBins: levelBinsOf(xs, values, span, true) } : {}),
         ...(bounds ? { detail: true } : {}),

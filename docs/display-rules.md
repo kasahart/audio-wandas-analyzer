@@ -224,6 +224,17 @@
 
 カラースケールや dB 軸を自動で決めるときは、端を切りのよい値に広げます。dB でない量（ラフネス、ケプストラム、係数など）の色と値の範囲も、入口の分布図の値軸も同じです。手で入れた値はそのままです。
 
+自動の範囲の端は、描くために間引いた点や平均したマスではなく、全データ（間引く前のすべての点・すべてのマス）の最小と最大から決めます。dB の熱図（トラックのスペクトログラム、比較の熱図、入口の一覧の帯）の色は、上を全データの最大、下を max(全データの最小, 上 − 100 dB) とします。デジタル無音（−240 dB や −300 dB）があっても、下の端はそこまで下がりません。
+
+- テスト: `src/test/stagePanes.test.ts` › every range is set from the full data's lowest and highest value (valueRange), never the points drawn or the cells averaged to draw an image (R1, R9)
+- テスト: `src/test/stagePanes.test.ts` › a heatmap's colours reach no more than 100 dB under its loudest value: digital silence (−240 dB) does not set the bottom (R9)
+- テスト: `src/test/spectrogramDisplayBounds.test.ts` › a track spectrogram's auto colours reach no more than 100 dB under its loudest STFT cell: digital silence (−240 dB) does not set the bottom (R9)
+- テスト: `src/test/entrySidePlots.test.ts` › the strip's colours reach no more than 100 dB under its loudest level: a digitally silent recording (−300 dB) does not set the bottom (R9)
+- テスト: `src/test/comparePanes.test.ts` › a spectrum drawn from its bins carries every bin's lowest and highest value in its span as its range, the silent floor left out (R1)
+- テスト: `python-backend/test_stage_view.py` › test_every_pictures_value_range_is_its_full_datas_not_the_points_or_cells_drawn
+- テスト: `python-backend/test_stage_view.py` › test_a_cepstrograms_colour_edge_is_its_full_coefficients_99th_percentile
+- テスト: `python-backend/test_stage_combine.py` › test_a_median_and_a_difference_carry_their_full_datas_value_range
+
 - テスト: `src/test/uiSmoke/colourRangeRounding.spec.ts` › the auto colour scale opens with round dB ends, and typed ends are kept as typed
 - テスト: `src/test/stagePanes.test.ts` › a colour or value range not in dB is widened to round ends, as a dB range is
 - テスト: `src/test/distribution.test.ts` › the distribution's value axis opens at round ends, as every automatic range does (R9)

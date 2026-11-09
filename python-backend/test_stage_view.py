@@ -398,3 +398,43 @@ def test_a_spectrums_channels_are_power_averaged_before_their_level_is_rounded(s
     view = stage_view(frame)
     drawn = dict(zip(view["xs"], view["values"], strict=True))
     assert drawn.get(float(xs[at])) == pytest.approx(expected) == pytest.approx(50.0)
+
+
+def test_every_pictures_value_range_is_its_full_datas_not_the_points_or_cells_drawn() -> None:
+    """A click 2 ms long among a quiet tone: power-averaged into a cell of the 192-column picture it reads far less,
+    yet the picture's valueRange (its colour range's source, R9) is the loudest STFT cell; a digital silence before
+    it is the lowest. Checked against numpy over the Frame's own dB, over the part drawn (20 Hz to Nyquist)."""
+    from stage_combine import SILENT_DB
+
+    t = np.arange(RATE * 4) / RATE
+    sound = 0.01 * np.sin(2 * np.pi * 1000 * t)
+    sound[: RATE // 2] = 0.0
+    sound[RATE * 2 : RATE * 2 + 32] = 0.9
+    frame = wd.from_numpy(sound[np.newaxis], sampling_rate=RATE).stft(n_fft=256, hop_length=64)
+    view = _checked(frame)
+    db = np.asarray(frame.dB, dtype=np.float64).reshape(-1, *np.asarray(frame.dB).shape[-2:])[0]
+    freqs = np.asarray(frame.freqs, dtype=np.float64)
+    rows = (freqs >= spec.SPECTRUM_MIN_HZ) & (freqs <= RATE / 2) & (freqs > 0)
+    part = np.maximum(np.nan_to_num(db[rows], nan=spec.MIN_LEVEL_DB, neginf=spec.MIN_LEVEL_DB), spec.MIN_LEVEL_DB)
+    shown = part[part > SILENT_DB]
+    assert view["valueRange"]["max"] == pytest.approx(float(shown.max()))
+    assert view["valueRange"]["min"] == pytest.approx(float(shown.min()))
+    drawn = np.array([[v for v in row if v is not None] for row in view["matrix"]], dtype=object)
+    drawn_max = max(max(row) for row in drawn if len(row))
+    assert view["valueRange"]["max"] - drawn_max > 3, "the click is averaged down where it is drawn"
+    # Zoomed onto the click, the part on screen: its own cells.
+    zoomed = stage_view(frame, None, {"x": [1.9, 2.1], "y": [100.0, 4000.0], "points": 400})
+    times = np.asarray(frame.times, dtype=np.float64)
+    inside = (times >= 1.9) & (times <= 2.1)
+    band = (freqs >= 100.0) & (freqs <= 4000.0) & (freqs > 0)
+    assert zoomed["valueRange"]["max"] == pytest.approx(float(db[np.ix_(band, inside)].max()))
+
+
+def test_a_cepstrograms_colour_edge_is_its_full_coefficients_99th_percentile(signal: wd.ChannelFrame) -> None:
+    frame = signal.stft().cepstrum()
+    view = _checked(frame)
+    data = np.asarray(frame.data, dtype=np.float64)
+    plane = np.mean(data.reshape(-1, data.shape[-2], data.shape[-1]), axis=0)
+    quefrencies = np.asarray(frame.quefrencies, dtype=np.float64)
+    coefficients = plane[quefrencies > 0]
+    assert view["valueRange"]["robust"] == pytest.approx(float(np.quantile(np.abs(coefficients), 0.99, method="lower")))

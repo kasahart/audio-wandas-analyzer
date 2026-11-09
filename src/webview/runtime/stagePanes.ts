@@ -18,7 +18,7 @@ import { paintWaveformLayer, waveformRange, type SignalPointSink } from '../plot
 import { packRgb, paletteColour, rasterizeHeatmap, unpackRgb } from '../plot/heatmapRaster';
 import { drawValueAxis, readoutText, type AxisTick, type Palette } from '../../shared/gui-core/index';
 import { axisName, axisNameParts, fitAxisTitle, fontPixels, scaledFont } from '../plot/axisTitle';
-import { niceRange, niceTicks } from '../../shared/utils/ticks';
+import { heatmapDbRange, niceRange, niceTicks } from '../../shared/utils/ticks';
 import { amountText, barkText, frequencyText, lagText, levelText, quefrencyText, secondsText, signedText, withMinus } from '../plot/plotText';
 import { cellIndex, levelOfValues, STEP_AHEAD, type FullPoints, type FullRead, type FullSource, type LevelAnswer } from './fullRead';
 
@@ -84,10 +84,16 @@ export function eventLayers(layer: StageLayer): StageLayer[] {
 /** A silent stretch at the floor (−300 dB) is drawn as a gap; a plain value (a trigger's events' amplitudes) has no floor. */
 const silent = (view: StageView, value: number): boolean => value <= -250 && view.quantity !== 'value';
 
+/**
+ * The lowest and highest value of the pictures: each one's every full-resolution value (`valueRange`, which the
+ * backend takes before any is thinned or averaged into a cell, R1), or for a picture the webview made whole (a band
+ * table, a level line) the values it draws, which are all of them.
+ */
 function extent(views: ReadonlyArray<StageView | null>): { low: number; high: number } {
     let low = Infinity, high = -Infinity;
     for (const view of views) {
         if (!view) continue;
+        if (view.valueRange) { low = Math.min(low, view.valueRange.min); high = Math.max(high, view.valueRange.max); continue; }
         for (const value of points(view)) {
             // Silent stretches sit at the floor (−300 dB): they would squash every other level into one line.
             if (value === null || !Number.isFinite(value) || silent(view, value)) continue;
@@ -97,8 +103,14 @@ function extent(views: ReadonlyArray<StageView | null>): { low: number; high: nu
     return { low, high };
 }
 
-/** The 99th percentile of the points' magnitudes, as wandas' cepstrogram plot sets its colour range. */
+/**
+ * The 99th percentile of the coefficients' magnitudes, as wandas' cepstrogram plot sets its colour range: of every
+ * full-resolution coefficient (`valueRange.robust`), the largest of the pictures'; of the points drawn only for a
+ * picture without it.
+ */
 function robustEdge(views: ReadonlyArray<StageView | null>): number {
+    const full = views.map(view => view?.valueRange?.robust).filter((edge): edge is number => edge !== undefined && Number.isFinite(edge));
+    if (full.length && full.length === views.filter(Boolean).length) return Math.max(...full);
     const magnitudes = views.flatMap(view => (view ? points(view) : [])).filter((value): value is number => value !== null && Number.isFinite(value)).map(Math.abs).sort((a, b) => a - b);
     return magnitudes.length ? magnitudes[Math.min(magnitudes.length - 1, Math.floor(0.99 * (magnitudes.length - 1)))] : 0;
 }
@@ -119,6 +131,7 @@ export function stageRange(views: ReadonlyArray<StageView | null>): PaneRange {
         const edge = roundEdge((first?.kind === 'heatmap' ? robustEdge(views) : Math.max(Math.abs(low), Math.abs(high)) * 1.05) || 1);
         return { min: -edge, max: edge };
     }
+    if (DB_QUANTITIES.includes(quantity ?? '') && first?.kind === 'heatmap') return heatmapDbRange(low, high);
     if (DB_QUANTITIES.includes(quantity ?? '')) {
         // Four equal steps of a round size, as the spectra's.
         const step = [5, 10, 20, 25].find(size => 4 * size >= Math.min(100, high - low)) ?? 25;

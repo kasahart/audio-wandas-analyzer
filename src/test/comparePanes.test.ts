@@ -241,6 +241,22 @@ test('the median and Δ are taken bin by bin from every bin, and only drawing de
     assert.equal(zoomed.detail, true);
 });
 
+test('a spectrum drawn from its bins carries every bin\'s lowest and highest value in its span as its range, the silent floor left out (R1)', () => {
+    const base = Array.from({ length: 4097 }, (_, bin) => -60 + Math.sin(bin) * 3);
+    base[700] = -11; base[701] = -300; base[5] = -95;
+    const diff = base.map((value, bin) => (bin === 2100 ? -27 : bin === 3000 ? 14 : 0));
+    const bins = { hz: 2, nyquist: 8192, base, compare: base, diff };
+    const inSpan = (values: number[], low: number, high: number, silent: boolean): { min: number; max: number } => {
+        const kept = values.filter((value, bin) => bin * 2 >= low && bin * 2 <= high && bin > 0 && !(silent && value <= -250));
+        return { min: Math.min(...kept), max: Math.max(...kept) };
+    };
+    assert.deepEqual(binsView(bins, 'base', undefined, 8)!.valueRange, inSpan(base, 20, 8192, true));
+    assert.deepEqual(binsView(bins, 'diff', undefined, 8)!.valueRange, inSpan(diff, 20, 8192, false));
+    // Zoomed: the bins between the ends and one beyond each, not the whole spectrum's.
+    assert.deepEqual(binsView(bins, 'diff', [4000, 5000], 8)!.valueRange, inSpan(diff, 3998, 5002, false));
+    assert.deepEqual(binsView(bins, 'base', [1000, 1500], 8)!.valueRange, inSpan(base, 998, 1502, true));
+});
+
 test('a line decimated for drawing keeps each bucket\'s lowest and highest value at their own places', () => {
     const xs = Array.from({ length: 1000 }, (_, index) => index + 1);
     const values = xs.map(() => 0);
@@ -338,6 +354,10 @@ test('the report\'s Δ figure without bins draws the 1/3-octave Δ, its range ho
     assert.equal(binned.binned, true);
     assert.equal(binned.view?.kind, 'line');
     assert.ok(binned.range.max >= 14, 'the band steps stay inside the range');
+    // A narrow dip in one bin, among 8192 drawn in 640 buckets, sets the range's other end.
+    diff[3001] = -31;
+    const dipped = deltaFigure({ bins: { hz: 1, nyquist: 8191, base: null, compare: null, diff }, bandDeltas, frequencies });
+    assert.ok(dipped.range.min <= -31 && dipped.range.max >= 14, `range ${JSON.stringify(dipped.range)}`);
 });
 
 /** A 2D context that records each call by name, with its arguments. */

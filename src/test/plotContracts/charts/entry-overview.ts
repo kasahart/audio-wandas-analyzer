@@ -29,10 +29,11 @@ export const entryOverview: ChartContract = {
         },
         {
             id: 'entry-overview.range', value: 'range', what: '色の範囲（カラーバーの両端）',
-            computedIn: ['src/webview/runtime/entryPlots.ts:overviewPicture'],
-            from: 'full', trace: '表のすべての行のすべての帯のレベル（線ごとに一番大きいものだけを描くが、描かない行も）の最小と最大を niceRange で切りのよい値に広げる（R9）。',
+            computedIn: ['src/webview/runtime/entryPlots.ts:overviewPicture', 'src/shared/utils/ticks.ts:heatmapDbRange'],
+            from: 'full', trace: '表のすべての行のすべての帯のレベル（線ごとに一番大きいものだけを描くが、描かない行も）の最大を上、max(最小, 最大 − 100 dB) を下にして（heatmapDbRange）切りのよい値に広げる（R9）。',
             tests: [
                 tt('src/test/entrySidePlots.test.ts', 'the strip\'s colour range holds every table row\'s level, not only the loudest drawn per line, and opens at round ends (R9)'),
+                t('src/test/entrySidePlots.test.ts', 'the strip\'s colours reach no more than 100 dB under its loudest level: a digitally silent recording (−300 dB) does not set the bottom (R9)'),
             ],
         },
         {

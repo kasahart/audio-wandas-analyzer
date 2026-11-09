@@ -31,17 +31,22 @@ export const compareLanes: ChartContract = {
         },
         {
             id: 'compare-lanes.range', value: 'range', what: 'レーンが共有する値の軸の範囲（線）',
-            computedIn: [`${SP}:stageRange`, 'src/webview/runtime/trackStagePainter.ts:paintStageLanes'],
-            from: 'extremes', trace: '全レーンの粗い絵（各区間の最小と最大）から 1 つの範囲を決める。',
-            tests: [],
-            gap: { severity: 'P2', why: '範囲を間引いた線から求めている。全データの端と一致することを確かめるテストがない。' },
+            computedIn: [`${SP}:stageRange`, 'src/webview/runtime/trackStagePainter.ts:paintStageLanes', 'python-backend/stage_combine.py:value_range'],
+            from: 'full', trace: '各レーンの絵がバックエンドの付けた全データの valueRange を持ち、全レーンのその端から 1 つの範囲を決める。',
+            tests: [
+                tt('src/test/stagePanes.test.ts', 'every range is set from the full data\'s lowest and highest value (valueRange), never the points drawn or the cells averaged to draw an image (R1, R9)'),
+                tt('python-backend/test_stage_view.py', 'test_every_pictures_value_range_is_its_full_datas_not_the_points_or_cells_drawn'),
+            ],
         },
         {
             id: 'compare-lanes.range-image', value: 'range', what: '熱図のレーンの色の範囲（カラーバーの両端）',
-            computedIn: [`${SP}:stageRange`],
-            from: 'thinned', trace: '重ね図の熱図と同じく、ブロックごとに平均したマスから求める。',
-            tests: [],
-            gap: { severity: 'P1', why: 'カラーバーの両端の数を、描くために平均したマスから求めている。' },
+            computedIn: [`${SP}:stageRange`, 'python-backend/stage_combine.py:value_range'],
+            from: 'full', trace: '重ね図の熱図と同じく、平均する前の全マスの valueRange から決め、dB は上 − 100 dB より下にしない（R9）。',
+            tests: [
+                tt('src/test/stagePanes.test.ts', 'every range is set from the full data\'s lowest and highest value (valueRange), never the points drawn or the cells averaged to draw an image (R1, R9)'),
+                tt('python-backend/test_stage_view.py', 'test_every_pictures_value_range_is_its_full_datas_not_the_points_or_cells_drawn'),
+                t('src/test/stagePanes.test.ts', 'a heatmap\'s colours reach no more than 100 dB under its loudest value: digital silence (−240 dB) does not set the bottom (R9)'),
+            ],
         },
         {
             id: 'compare-lanes.ticks', value: 'ticks', what: '各レーンの目盛り',
@@ -63,7 +68,5 @@ export const compareLanes: ChartContract = {
         },
     ],
     knownGaps: {
-        'compare-lanes.range': 'P2',
-        'compare-lanes.range-image': 'P1',
     },
 };

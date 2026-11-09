@@ -111,19 +111,24 @@ export const compareOverlay: ChartContract = {
         },
         {
             id: 'compare-overlay.range', value: 'range', what: '線の値の軸の自動の範囲',
-            computedIn: [`${SP}:stageRange`, `${SP}:roundEdge`, 'src/webview/runtime/trackStagePainter.ts:paintStageOverlay', 'src/webview/plot/waveformLayer.ts:waveformRange'],
-            from: 'extremes', trace: 'stageRange は粗い絵（coarsePlots：各区間の最小と最大に間引いた線）の値の端から決める。最小・最大は全データと同じだが、時間信号以外では全データから求めていない（時間信号は absolutePeak）。',
+            computedIn: [`${SP}:stageRange`, `${SP}:roundEdge`, 'src/webview/runtime/trackStagePainter.ts:paintStageOverlay', 'src/webview/plot/waveformLayer.ts:waveformRange', 'python-backend/stage_combine.py:value_range'],
+            from: 'full', trace: 'バックエンドが全データ（StageData：間引く前の全点・全マス）の最小と最大を valueRange として絵に付け（value_range。無音の −300 dB の床は除く）、stageRange はその端から決める。時間信号は absolutePeak。webview が全部を持つ絵（帯の表・レベルの線）は描く値が全部。',
             tests: [
                 t('src/test/stagePanes.test.ts', 'levels share a range of four round steps; coherence keeps 0 to 1'),
+                tt('src/test/stagePanes.test.ts', 'every range is set from the full data\'s lowest and highest value (valueRange), never the points drawn or the cells averaged to draw an image (R1, R9)'),
+                tt('python-backend/test_stage_view.py', 'test_every_pictures_value_range_is_its_full_datas_not_the_points_or_cells_drawn'),
             ],
-            gap: { severity: 'P2', why: '範囲の端を間引いた線から求めている。間引きが端を残すので同じ値のはずだが、範囲が全データの端と一致することを確かめるテストがない。' },
         },
         {
             id: 'compare-overlay.range-image', value: 'range', what: '熱図の色の自動の範囲（カラーバーの両端の数）',
-            computedIn: [`${SP}:stageRange`, `${SP}:points`, `${SP}:robustEdge`, 'python-backend/stage_view.py:_spectrogram_view'],
-            from: 'thinned', trace: '熱図の matrix は時間のブロックごとにパワー平均したマス（_spectrogram_view、_roughness_view、_cepstrogram_view）。stageRange（ケプストログラムは robustEdge の 99 パーセント点）はその平均したマスから求め、カラーバーの両端に数として出る。',
-            tests: [],
-            gap: { severity: 'P1', why: 'カラーバーの両端の数が、描くために平均したマスから来る。短く強いマスは平均で下がり、範囲の外に出る。' },
+            computedIn: [`${SP}:stageRange`, `${SP}:points`, `${SP}:robustEdge`, 'python-backend/stage_view.py:_spectrogram_view', 'python-backend/stage_combine.py:value_range'],
+            from: 'full', trace: '熱図の matrix は時間のブロックごとに平均したマスだが、色の範囲はバックエンドが平均する前の全マスから求めた valueRange（ケプストログラムは全係数の絶対値の 99 パーセント点 robust）から決める。dB の熱図は上を全データの最大、下を max(全データの最小, 上 − 100 dB) にする（heatmapDbRange、R9）。',
+            tests: [
+                tt('src/test/stagePanes.test.ts', 'every range is set from the full data\'s lowest and highest value (valueRange), never the points drawn or the cells averaged to draw an image (R1, R9)'),
+                tt('python-backend/test_stage_view.py', 'test_every_pictures_value_range_is_its_full_datas_not_the_points_or_cells_drawn'),
+                tt('python-backend/test_stage_view.py', 'test_a_cepstrograms_colour_edge_is_its_full_coefficients_99th_percentile'),
+                t('src/test/stagePanes.test.ts', 'a heatmap\'s colours reach no more than 100 dB under its loudest value: digital silence (−240 dB) does not set the bottom (R9)'),
+            ],
         },
         {
             id: 'compare-overlay.ticks', value: 'ticks', what: '両軸の目盛りの値',
@@ -195,8 +200,6 @@ export const compareOverlay: ChartContract = {
     ],
     knownGaps: {
         'compare-overlay.pending': 'P2',
-        'compare-overlay.range': 'P2',
-        'compare-overlay.range-image': 'P1',
         'compare-overlay.axis-metric': 'P2',
     },
 };

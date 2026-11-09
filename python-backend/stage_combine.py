@@ -40,7 +40,7 @@ import analysis_spec as spec
 import stage_view as sv
 from decimator import bucket_edges
 from full_read import SILENT_DB, StagePoints, StageRead, read_cells, read_line, sorted_axis, uniform_axis
-from stage_view import StageDetail, StageLevelBins, StagePeak, StageView
+from stage_view import StageDetail, StageLevelBins, StagePeak, StageValueRange, StageView
 
 #: How much of the Frames' values the backend keeps for the comparison's medians and differences. The least
 #: recently used go first; a picture asked for again (zooming, another compared recording) uses what is kept.
@@ -571,6 +571,7 @@ def draw(data: StageData, detail: StageDetail | None = None, *, diff: bool = Fal
         view["detail"] = True
     if not diff:
         with_level_bins(view, data, detail)
+    with_value_range(view, data, detail)
     return view  # type: ignore[return-value]
 
 
@@ -581,6 +582,79 @@ def with_level_bins(view: StageView | dict, data: StageData | None, detail: Stag
     bins = level_bins(data, detail)
     if bins is not None:
         view["levelBins"] = bins  # type: ignore[typeddict-unknown-key]
+
+
+def _drawn_part(data: StageData, detail: StageDetail | None) -> np.ndarray | None:
+    """Every full-resolution value of the part ``draw`` draws (the whole picture, or ``detail``'s window): a line's
+    values over its x window (a spectrum's from SPECTRUM_MIN_HZ to Nyquist, a cepstrum's without its zero quefrency),
+    every event's samples, an image's cells in its time window and rows. None for a signal with no samples there."""
+    bounds, _ = _bounds(detail)
+    mode = data.mode
+    if mode == "signal":
+        first, last = _signal_range(data, bounds)
+        return data.values[first:last] if last > first else None
+    xs = data.xs
+    columns = np.ones(xs.size, dtype=bool) if bounds is None or mode == "bands" else sv._inside(xs, bounds)
+    if mode in ("spectrogram", "roughness", "cepstrogram"):
+        ys = data.ys if data.ys is not None else np.empty(0)
+        rows_bounds = [float(value) for value in detail.get("y", [-np.inf, np.inf])] if detail else None
+        if mode == "spectrogram":
+            limits = (
+                rows_bounds
+                if rows_bounds is not None and np.all(np.isfinite(rows_bounds))
+                else [spec.SPECTRUM_MIN_HZ, data.nyquist]
+            )
+            rows = sv._inside(ys, limits) & (ys > 0)
+        else:
+            rows = sv._inside(ys, rows_bounds) if rows_bounds is not None else np.ones(ys.size, dtype=bool)
+            if mode == "cepstrogram":
+                rows &= ys > 0
+        return np.asarray(data.values)[np.ix_(np.flatnonzero(rows), np.flatnonzero(columns))]
+    if mode in ("spectrum", "coherence"):
+        columns &= xs > 0
+        if bounds is None:
+            columns &= (xs >= spec.SPECTRUM_MIN_HZ) & (xs <= data.nyquist)
+    if mode == "cepstrum":
+        columns &= xs > 0
+    if mode == "events" and data.rows is not None:
+        return np.asarray(data.rows)[:, columns]
+    return np.asarray(data.values)[..., columns]
+
+
+def value_range(data: StageData | None, detail: StageDetail | None = None) -> StageValueRange | None:
+    """The lowest and highest of every full-resolution value ``draw`` draws of ``data`` (the part ``detail`` names),
+    silence (a level at the floor) and undefined values left out as the plot leaves them out; a cepstrogram's colour
+    edge too (the 99th percentile of its magnitudes). From these, never from the thinned line or the cells averaged to
+    draw an image, the plot sets its axis and colour ranges (R1, R9). None with no value to range over."""
+    if data is None:
+        return None
+    part = _drawn_part(data, detail)
+    if part is None or not part.size:
+        return None
+    if data.mode == "signal":
+        # Every sample, with no float64 copy of them (half an hour of samples): only their lowest and highest.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            low, high = float(np.nanmin(part)), float(np.nanmax(part))
+        return {"min": low, "max": high} if np.isfinite(low) and np.isfinite(high) else None
+    values = _f64(part).ravel()
+    keep = np.isfinite(values)
+    if data.view.get("quantity") != "value":
+        keep &= values > SILENT_DB
+    values = values[keep]
+    if not values.size:
+        return None
+    found: StageValueRange = {"min": float(values.min()), "max": float(values.max())}
+    if data.mode == "cepstrogram":
+        found["robust"] = float(np.quantile(np.abs(values), 0.99, method="lower"))
+    return found
+
+
+def with_value_range(view: StageView | dict, data: StageData | None, detail: StageDetail | None = None) -> None:
+    """``view`` with its valueRange (value_range) when it has values to range over."""
+    found = value_range(data, detail)
+    if found is not None:
+        view["valueRange"] = found  # type: ignore[typeddict-unknown-key]
 
 
 # --- Combining ---------------------------------------------------------------------------------------------

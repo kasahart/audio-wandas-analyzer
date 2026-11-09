@@ -9,7 +9,7 @@ import { BAND_CENTERS_HZ, type EntryRow } from './entryTable';
 import { FULL_PLOT_WINDOW, type PlotMargins, type PlotWindow } from './plotInteraction';
 import { paintOverlay, type StagePlot } from './stagePanes';
 import type { FullSource } from './fullRead';
-import { niceRange } from '../../shared/utils/ticks';
+import { heatmapDbRange } from '../../shared/utils/ticks';
 
 /** The strip's margins: its row axis at the left, the frequency axis below, the colour bar inside the plot's top right. */
 export const OVERVIEW_MARGINS: PlotMargins = { left: 30, top: 2, right: 4, bottom: 16 };
@@ -74,8 +74,8 @@ export function overviewPicture(
     // The whole table's axes: a zoomed strip places its part on them.
     const whole: StageView = { ...view, ys: [-total, 0], matrix: [] };
     // The colours span every table row's every band (not only the loudest each line draws), widened to round ends (R9).
-    const round = niceRange(low, high > low ? high : low + 1);
-    return { view, whole, names: order.map(cell => names[cell]), range: { min: round.low, max: round.high } };
+    // As every heatmap's colours (R9): to the loudest level, no more than 100 dB under it.
+    return { view, whole, names: order.map(cell => names[cell]), range: heatmapDbRange(low, high) };
 }
 
 const fileName = (filePath: string): string => filePath.split(/[\\/]/).at(-1) ?? filePath;

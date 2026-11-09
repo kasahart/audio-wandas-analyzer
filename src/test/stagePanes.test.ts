@@ -4,6 +4,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { spectrumLayer } from '../webview/runtime/overlaySpectrumPainter';
 import { axisNameParts, fontPixels } from '../webview/plot/axisTitle';
+import { heatmapDbRange, niceRange } from '../shared/utils/ticks';
 import { axisFractionOf, axisValueAt, byLevel, levelBinsOf, emptyStageText, eventLayers, paintOverlay, stageAxes, paintColourBar, colourBarTop, stageEventCounts, stageDiffRange, stageHeadline, stageRange, stageHover, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
 import type { StageView } from '../shared/protocol/backendProtocol';
 import { fetchedSource, localLine } from '../webview/runtime/fullRead';
@@ -34,6 +35,30 @@ test('the Δ pane\'s headline writes the backend\'s largest difference, found be
 test('levels share a range of four round steps; coherence keeps 0 to 1', () => {
     assert.deepEqual(stageRange([line([-43, -12, -30])]), { min: -50, max: -10 });
     assert.deepEqual(stageRange([line([0.2, 0.5, 0.9], 'coherence')]), { min: 0, max: 1 });
+});
+
+test('every range is set from the full data\'s lowest and highest value (valueRange), never the points drawn or the cells averaged to draw an image (R1, R9)', () => {
+    // A line thinned to points whose extremes were averaged away: its range holds every value.
+    assert.deepEqual(stageRange([{ ...line([-43, -12, -30]), valueRange: { min: -61, max: -2 } }]), stageRange([line([-61, -2])]));
+    // A heatmap's colours: the full STFT's loudest cell (a short loud one, averaged down to −20 dB to draw), not the cells.
+    const heat = (matrix: number[][], valueRange?: StageView['valueRange']): StageView => ({ frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity: 'level', yAxis: 'frequency', xs: [0, 1], ys: [100, 1000], matrix, ...(valueRange ? { valueRange } : {}) });
+    const drawn = [[-40, -20], [-60, -30]];
+    assert.deepEqual(stageRange([heat(drawn, { min: -64, max: -3 })]), heatmapDbRange(-64, -3));
+    assert.notDeepEqual(stageRange([heat(drawn, { min: -64, max: -3 })]), stageRange([heat(drawn)]));
+    // A cepstrogram's colour edge: the full coefficients' 99th percentile.
+    const cep = (robust?: number): StageView => ({ frame: 'CepstrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity: 'cepstrum', yAxis: 'quefrency', xs: [0, 1], ys: [0, 0.001, 0.002], matrix: [[9, 9], [0.1, -0.1], [0.2, 0.05]], ...(robust !== undefined ? { valueRange: { min: -0.9, max: 0.9, robust } } : {}) });
+    assert.equal(stageRange([cep(0.71)]).max, niceRange(-0.71, 0.71).high);
+    // A difference's ± from the full Δ.
+    assert.deepEqual(stageDiffRange({ ...line([-2, 3]), valueRange: { min: -19, max: 7 } }), stageDiffRange(line([-19, 7])));
+});
+
+test('a heatmap\'s colours reach no more than 100 dB under its loudest value: digital silence (−240 dB) does not set the bottom (R9)', () => {
+    assert.deepEqual(heatmapDbRange(-240, -3), { min: niceRange(-103, -3).low, max: niceRange(-103, -3).high });
+    assert.ok(heatmapDbRange(-240, -3).min >= -120 && heatmapDbRange(-240, -3).min <= -103);
+    // A range under 100 dB keeps its own lowest value.
+    assert.deepEqual(heatmapDbRange(-64, -3), { min: niceRange(-64, -3).low, max: niceRange(-64, -3).high });
+    const heat: StageView = { frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity: 'level', yAxis: 'frequency', xs: [0, 1], ys: [100, 1000], matrix: [[-240, -10]], valueRange: { min: -240, max: -3 } };
+    assert.deepEqual(stageRange([heat]), heatmapDbRange(-240, -3));
 });
 
 test('a cross-channel picture names its pair on the value axis: the channel over its reference, before the unit', () => {

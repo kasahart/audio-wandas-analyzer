@@ -27,7 +27,7 @@ test('spectrogramDisplayBounds: 連動中は共通の自動範囲を使い、ナ
     const shared = { minDb: -110, maxDb: 0, maxFrequencyHz: 24000 };
     assert.deepEqual(
         spectrogramDisplayBounds(spec, { dbMin: null, dbMax: null, maxFrequencyHz: null }, shared),
-        { dbLo: -110, dbHi: 0, maxFrequencyHz: 24000, minFrequencyHz: 0 },
+        { dbLo: -100, dbHi: 0, maxFrequencyHz: 24000, minFrequencyHz: 0 },
     );
 });
 
@@ -73,4 +73,13 @@ test('spectrogramDisplayBounds: 片方の端を入力したときは、表示す
     const raw = { minDb: -120, maxDb: -29, maxFrequencyHz: 8000 };
     // Over -40…-29 dB the top stays at -29 (1 dB steps), not -25 from the 5 dB steps of the whole 91 dB range.
     assert.equal(spectrogramDisplayBounds(raw, { dbMin: -40, dbMax: null, maxFrequencyHz: null }).dbHi, -29);
+});
+
+test('a track spectrogram\'s auto colours reach no more than 100 dB under its loudest STFT cell: digital silence (−240 dB) does not set the bottom (R9)', () => {
+    const silent = { minDb: -240, maxDb: -3.2, maxFrequencyHz: 8000 };
+    const bounds = spectrogramDisplayBounds(silent, { dbMin: null, dbMax: null, maxFrequencyHz: null });
+    assert.ok(bounds.dbLo <= -103.2 && bounds.dbLo >= -120, `bottom ${bounds.dbLo}`);
+    assert.ok(bounds.dbHi >= -3.2 && bounds.dbHi <= 0, `top ${bounds.dbHi}`);
+    // A typed bottom stays as typed.
+    assert.equal(spectrogramDisplayBounds(silent, { dbMin: -200, dbMax: null, maxFrequencyHz: null }).dbLo, -200);
 });

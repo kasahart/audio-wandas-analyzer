@@ -123,6 +123,9 @@ class StageView(TypedDict):
     #: A difference's largest magnitude over the part on screen, from every value before thinning
     #: (stage_combine.difference_peak): where the Δ pane's headline says it is.
     peak: NotRequired[StagePeak]
+    #: The lowest and highest value of every one of the picture's full-resolution values in the part drawn, before
+    #: any is thinned or averaged into a cell (stage_combine.value_range): what its axis or colour range is set from.
+    valueRange: NotRequired[StageValueRange]
 
 
 class StagePeak(TypedDict):
@@ -134,6 +137,13 @@ class StagePeak(TypedDict):
     #: The gap to the nearer neighbouring point on each axis, for the digits the headline writes.
     xStep: NotRequired[float]
     yStep: NotRequired[float]
+
+
+class StageValueRange(TypedDict):
+    min: float
+    max: float
+    #: A cepstrogram's colour edge: the 99th percentile of its coefficients' magnitudes (as wandas plots it).
+    robust: NotRequired[float]
 
 
 class StageLevelBins(TypedDict):
@@ -955,11 +965,15 @@ def stage_view(frame: object, signal_s: float | None = None, detail: StageDetail
     """
     coarse = _stage_view(frame, signal_s)
     view = coarse if detail is None or coarse["kind"] in ("none", "bar") else _detail_view(frame, coarse, detail)
-    if view["kind"] in ("line", "bar"):
-        # The order overlaid lines are drawn in comes from every value, not the drawn points (R2, R6).
-        from stage_combine import stage_data, with_level_bins
+    if view["kind"] in ("line", "bar", "heatmap"):
+        # The order overlaid lines are drawn in, and every axis and colour range, come from every value, not the
+        # drawn points or the cells averaged to draw them (R1, R2, R6, R9).
+        from stage_combine import stage_data, with_level_bins, with_value_range
 
-        with_level_bins(view, stage_data(frame, coarse, signal_s), detail if view is not coarse else None)
+        data = stage_data(frame, coarse, signal_s)
+        part = detail if view is not coarse else None
+        with_level_bins(view, data, part)
+        with_value_range(view, data, part)
     return view
 
 

@@ -1,4 +1,4 @@
-import { SP, t, type ChartContract } from '../model';
+import { SP, t, tt, type ChartContract } from '../model';
 
 /** レポートの Δ 図（差 n.png、要約.png の下段） */
 export const reportDelta: ChartContract = {
@@ -19,12 +19,12 @@ export const reportDelta: ChartContract = {
         },
         {
             id: 'report-delta.range', value: 'range', what: 'Δ の軸の範囲',
-            computedIn: ['src/webview/runtime/compareReport.ts:deltaFigure', `${SP}:stageDiffRange`],
-            from: 'extremes', trace: '全ビンの Δ を binsView で間引いた線と帯の Δ から決める。帯だけのときは全帯。',
+            computedIn: ['src/webview/runtime/compareReport.ts:deltaFigure', `${SP}:stageDiffRange`, 'src/webview/runtime/comparePanes.ts:binsView'],
+            from: 'full', trace: '全ビンがあるときは binsView がすべてのビンの Δ の最小・最大を valueRange として付け、それから決める。帯だけのときは全帯。',
             tests: [
                 t('src/test/comparePanes.test.ts', 'the report\'s Δ figure without bins draws the 1/3-octave Δ, its range holding every band (R1)'),
+                tt('src/test/comparePanes.test.ts', 'a spectrum drawn from its bins carries every bin\'s lowest and highest value in its span as its range, the silent floor left out (R1)'),
             ],
-            gap: { severity: 'P2', why: '全ビンがあるときの範囲を間引いた線から求めている。テストは帯だけの場合しか見ていない。' },
         },
         {
             id: 'report-delta.ticks', value: 'ticks', what: '目盛り',
@@ -47,6 +47,5 @@ export const reportDelta: ChartContract = {
         },
     ],
     knownGaps: {
-        'report-delta.range': 'P2',
     },
 };

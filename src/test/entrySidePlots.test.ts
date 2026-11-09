@@ -215,6 +215,15 @@ test('the strip\'s colour range holds every table row\'s level, not only the lou
     assert.deepEqual(zoomed?.range, { min: -100, max: 0 });
 });
 
+test('the strip\'s colours reach no more than 100 dB under its loudest level: a digitally silent recording (−300 dB) does not set the bottom (R9)', () => {
+    const rows = Array.from({ length: 20 }, (_, index) => ({ filePath: `/d/${index}.wav` }));
+    const bands = new Map<string, (number | null)[]>(rows.map((row, index) => [row.filePath, [-50 + index, -40]]));
+    bands.set('/d/3.wav', [-300, -300]);
+    bands.set('/d/9.wav', [-4.2, -40]);
+    const picture = overviewPicture(rows, bands, FULL_PLOT_WINDOW, 10);
+    assert.deepEqual(picture?.range, { min: -110, max: 0 });
+});
+
 test('the strip is read at the table row under the pointer, never the loudest row its line draws, and ← / → step that row\'s bands (R7)', () => {
     const { document, overview } = setup();
     // A context that draws nothing but answers what the plot component asks of it.

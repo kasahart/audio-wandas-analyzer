@@ -672,6 +672,13 @@ DEFINITIONS: dict[str, Schema] = {
                     "count": {"type": "array", "items": {"type": "integer", "minimum": 0}},
                 },
             },
+            # The lowest and highest of every full-resolution value in the part drawn (a cepstrogram's 99th percentile
+            # magnitude too), before thinning or averaging into cells: what the axis and colour ranges are set from.
+            "valueRange": {
+                "type": "object",
+                "required": ["min", "max"],
+                "properties": {"min": _NUMBER, "max": _NUMBER, "robust": _NUMBER},
+            },
             # A difference's largest magnitude over the part on screen, from every value before thinning (headline).
             "peak": {
                 "type": "object",
