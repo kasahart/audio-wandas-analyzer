@@ -541,7 +541,9 @@ test('a step added between two chips measures every file again; one that fails o
     await bar.locator('.step-chip', { hasText: STR.stepAverage }).locator('[data-action="step-settings"]').click();
     await bar.locator('[data-action="step-remove"]').click();
     await expect(values.filter({ hasText: STR.dsPeak })).toHaveCount(0);
-    await expect(values).toHaveText([STR.dsLeq.replace('{uncal}', STR.axisUncalibrated).replace('{label}', 'dBFS'), STR.dsCrest]);
+    // Under the new chain no recording has a fresh answer yet: the value names no reference rather than a guessed
+    // dBFS (class sweep 3, reference V9); once one is read again it names the folder's.
+    await expect(values).toHaveText([new RegExp(`^${STR.dsLeq.replace('{uncal}', '').replace(' [{label}]', '')}(?:${STR.axisUncalibrated.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')} \\[dBFS\\])?$`, 'u'), STR.dsCrest]);
 });
 
 test('a step\'s ⚙ offers every value wandas describes: sound_level\'s weighting and dB, welch\'s average under "more", written into the Recipe', async ({ page }) => {
