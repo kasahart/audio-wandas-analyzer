@@ -170,7 +170,7 @@ test('a window too dense to send whole is read where the pointer is: the point n
         const read = first?.pending ? stageHover(lane, x, y) : first;
         assert.equal(read?.full, true);
         assert.equal(read?.at, nearest(50, x, y), `the true nearest sample at (${x}, ${y})`);
-        assert.equal(signal[read?.at as number], read?.value, 'a real sample');
+        assert.equal(signal[read?.at], read?.value, 'a real sample');
     }
     const before = asked.length;
     assert.equal(stageHover(lane, 215, 22)?.full, true);
