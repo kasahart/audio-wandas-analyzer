@@ -1377,16 +1377,23 @@ export function declaresFullRead(layer: StageLayer): boolean {
     return (!!layer.full && layer.full !== NO_FULL_DATA) || layer.view.kind === 'none';
 }
 
-/** A point of the full data on the plot: null where it has no value, or is silent, or is clipped off the level axis. */
-function fullPoint(plot: StagePlot, layer: StageLayer, points: FullPoints, index: number): ReadPoint | null {
+/**
+ * A point of the full data on the plot: null where it has no value, or is silent. A signal's sample clipped off its
+ * zoomed level axis is not picked by the pointer (null), but an arrow key steps to it all the same (`clipped` 'edge'),
+ * held at the plot's edge as a line's value past its axis is: the keys step one sample at a time however it is zoomed.
+ */
+function fullPoint(plot: StagePlot, layer: StageLayer, points: FullPoints, index: number, clipped: 'skip' | 'edge' = 'skip'): ReadPoint | null {
     const value = points.values?.[index];
     const at = points.xs[index];
     if (value === null || value === undefined || at === undefined || silent(layer.view, value)) return null;
     const shown = layer.view.waveform ? plot.signal?.range : undefined;
-    if (shown && (value < shown.min || value > shown.max)) return null;
+    const off = !!shown && (value < shown.min || value > shown.max);
+    if (off && clipped === 'skip') return null;
     const gaps = [at - points.xs[index - 1], points.xs[index + 1] - at].map(Math.abs).filter(gap => Number.isFinite(gap) && gap > 0);
     // Of a source the webview holds, the point's index in its every value (a histogram's bin, for its readout).
-    return { index: points.offset !== undefined ? points.offset + index : -1, at, x: plot.xAt(at), y: plot.yAt(value), value, full: true, ...(layer.view.waveform ? { time: at } : {}), ...(gaps.length ? { step: Math.min(...gaps) } : {}) };
+    const { top, height } = plot.frame;
+    const y = off ? Math.min(top + height, Math.max(top, plot.yAt(value))) : plot.yAt(value);
+    return { index: points.offset !== undefined ? points.offset + index : -1, at, x: plot.xAt(at), y, value, full: true, ...(layer.view.waveform ? { time: at } : {}), ...(gaps.length ? { step: Math.min(...gaps) } : {}) };
 }
 
 /**
@@ -1488,12 +1495,8 @@ export function stageStep(plot: StagePlot, read: StageRead, delta: -1 | 1, ready
         if (delta > 0) index = got.xs.findIndex(x => x > at);
         else for (let back = got.xs.length - 1; back >= 0 && index < 0; back--) if (got.xs[back] < at) index = back;
         for (; index >= 0 && index < got.xs.length; index += delta) {
-            const point = fullPoint(plot, read.layer, got, index);
-            if (!point) {
-                // Past the level axis of a clipped signal there is nothing on screen to read.
-                if (read.layer.view.waveform && got.values?.[index] !== null) return null;
-                continue;
-            }
+            const point = fullPoint(plot, read.layer, got, index, 'edge');
+            if (!point) continue;
             // Past the plot's side there is nothing further to read; a value above or below the level axis is read at
             // the plot's edge, where yAt holds it, as the pointer reads it there.
             if (point.x < plot.frame.left || point.x > plot.frame.left + plot.frame.width) return null;
