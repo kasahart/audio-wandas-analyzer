@@ -557,14 +557,15 @@ def test_each_event_of_a_trigger_is_its_own_line_with_its_extremes_at_their_own_
     assert not np.array_equal(first, second)
 
 
-
 def test_a_triggers_events_carry_their_samples_power_so_a_quiet_recordings_events_are_drawn_over_a_loud_ones() -> None:
     """A44, R6: a trigger's events are ordered among the overlaid recordings by their samples' mean square, as a
     signal is: their view has levelBins, the quieter recording's lower."""
     rng = np.random.default_rng(4)
 
     def events(scale: float) -> dict:
-        frame = wd.from_numpy(scale * rng.standard_normal((1, RATE)), sampling_rate=RATE).segment([0.1, 0.6], duration=0.3)
+        frame = wd.from_numpy(scale * rng.standard_normal((1, RATE)), sampling_rate=RATE).segment(
+            [0.1, 0.6], duration=0.3
+        )
         return dict(stage_view(frame, None))
 
     quiet, loud = events(0.01), events(0.5)
@@ -574,6 +575,7 @@ def test_a_triggers_events_carry_their_samples_power_so_a_quiet_recordings_event
         mean_square = float(np.sum(power * count) / np.sum(count))
         assert 10 * np.log10(mean_square) == pytest.approx(20 * np.log10(scale), abs=0.5)
     assert sum(quiet["levelBins"]["power"]) < sum(loud["levelBins"]["power"])
+
 
 @pytest.mark.parametrize(
     "name", ["series", "spectrum", "fft", "coherence", "bands", "spectrogram", "cepstrum", "cepstrogram", "correlation"]

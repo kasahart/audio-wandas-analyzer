@@ -142,3 +142,30 @@ test('an arrow key pressed while the readout waits for its points reads them onc
     assert.equal(layer.reading()?.at, 3, 'read once the points are in');
     assert.ok(slot?.textContent?.includes('3.5'), `the readout shows it: ${slot?.textContent}`);
 });
+
+test('a point stepped to above the level axis stays read when the plot is drawn again there, never the neighbour on the plot (A46, R7)', () => {
+    const { plot, slot, layer } = setup();
+    // Levels 0–10 on the plot; a narrow peak at the fourth point is far above it, its neighbours on it.
+    const values = [5, 5, 9, 100, 9, 5, 5, 5, 5, 5];
+    const draw = (): StagePlot => {
+        const drawn = plotWith([line('a', '#f00', values)]);
+        drawn.lineYAt = drawn.yAt;
+        drawn.yAt = (v: number) => Math.max(10, Math.min(110, 110 - v * 10));
+        return drawn;
+    };
+    const first = draw();
+    layer.show(plot, first, 70, 20, slot);
+    assert.equal(layer.reading()?.at, 2);
+    const at = layer.stepFrom(plot, first, 1);
+    assert.deepEqual(at, { clientX: 80, clientY: 10 });
+    layer.show(plot, first, 80, 10, slot);
+    assert.equal(layer.reading()?.at, 3, 'the peak, held at the top edge');
+    // The cursor spectrum draws itself again after a hover: the same place, a new drawing.
+    const again = draw();
+    layer.show(plot, again, 80, 10, slot);
+    assert.equal(layer.reading()?.at, 3, 'still the peak after the redraw');
+    assert.deepEqual(layer.stepFrom(plot, again, 1), { clientX: 90, clientY: 20 }, 'and the next key goes past it');
+    // A pointer move reads where it is again.
+    layer.show(plot, again, 60, 60, slot);
+    assert.equal(layer.reading()?.at, 1);
+});

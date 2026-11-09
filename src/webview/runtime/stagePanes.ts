@@ -1729,6 +1729,26 @@ export function stageHover(plot: StagePlot, x: number, y: number, ready: () => v
 }
 
 /**
+ * The very point `read` reads, on `plot` drawn anew (its layer by its full data, else its name and colour): where an
+ * arrow key stepped to stays read after a redraw, a value above or below the level axis at the plot's edge as the
+ * step read it, never the neighbour the pointer would pick there (A46, R7). Undefined while its points are fetched;
+ * null where the plot no longer draws it.
+ */
+export function stageReadAgain(plot: StagePlot, read: StageRead, ready: () => void = () => undefined): StageRead | null | undefined {
+    if (read.pending || read.image || !read.full || read.at === undefined) return null;
+    const layer = plot.lines.find(line => line === read.layer) ?? plot.lines.find(line => line.full === read.layer.full)
+        ?? plot.lines.find(line => line.label === read.layer.label && line.color === read.layer.color);
+    if (!layer?.full.line) return null;
+    const at = read.at;
+    const got = layer.full.line({ x0: at, x1: at, beyond: 1 }, ready);
+    if (got === undefined) return undefined;
+    const index = got?.xs.indexOf(at) ?? -1;
+    const point = got && index >= 0 ? fullPoint(plot, layer, got, index, 'edge') : null;
+    if (!point || point.x < plot.frame.left || point.x > plot.frame.left + plot.frame.width) return null;
+    return lineRead(plot, layer, point);
+}
+
+/**
  * What an arrow key reads `delta` along from `read` (R7), as the pointer on it would: of a line with full data, its
  * next full-resolution point (bin, sample, frame), however many share a pixel, at every zoom; of a line drawn whole,
  * its next value (a bar, a dot); of an image, the next column on the same row. Null past the end or off the plot;
