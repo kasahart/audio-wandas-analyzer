@@ -174,7 +174,7 @@ test('the overview colour scale and the dataset table name the recordings\' shar
     assert.equal(plots.levelLabel(), 'dBFS');
 });
 
-test('the strip is a heatmap of the table: a row per table row counted down from the top, the loudest per line when they outnumber its lines', () => {
+test('the strip is a heatmap of the table: a row per table row counted down from the top, each bucket\'s quietest and loudest when they outnumber its lines (R2)', () => {
     const rows = ['/d/a.wav', '/d/b.wav', '/d/c.wav', '/d/d.wav'].map(filePath => ({ filePath }));
     const bands = new Map<string, (number | null)[]>([['/d/a.wav', [-40.4, -30]], ['/d/b.wav', [-20, null]], ['/d/d.wav', [-60, -10.2]]]);
     const whole = overviewPicture(rows, bands, FULL_PLOT_WINDOW, 100);
@@ -186,12 +186,19 @@ test('the strip is a heatmap of the table: a row per table row counted down from
     assert.ok(whole.view.matrix?.[1].every(value => value === null), 'a row not scanned yet has no cells');
     assert.deepEqual(whole.whole.ys, [-4, 0], 'the whole table\'s axis, for a zoomed strip');
     assert.deepEqual(whole.range, { min: -60, max: -10 });
-    // Two lines for four rows: each holds the loudest of its two rows per band.
+    // Two lines for four rows: one bucket, its quietest and loudest per band, the one from the earlier row above.
     const binned = overviewPicture(rows, bands, FULL_PLOT_WINDOW, 2);
     assert.deepEqual(binned?.view.ys, [-3, -1]);
     assert.deepEqual(binned?.view.matrix?.map(row => row.slice(0, 2)), [[-60, -10.2], [-20, -30]]);
     // The readout names the recording each value is from: b's −20 dB and a's −30 dB share a line.
     assert.deepEqual(binned?.names.map(row => row.slice(0, 2)), [['d.wav', 'd.wav'], ['b.wav', 'a.wav']]);
+    // A quiet row among loud ones is drawn, not left out for its bucket's loudest (R2): four lines, two buckets of four.
+    const many = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map(name => ({ filePath: `/d/${name}.wav` }));
+    const levels = new Map<string, (number | null)[]>([-10, -50, -12, -14, -20, -21, -90, -22].map((value, index) => [many[index].filePath, [value]]));
+    const extremes = overviewPicture(many, levels, FULL_PLOT_WINDOW, 4);
+    assert.deepEqual(extremes?.view.ys, [-7, -5, -3, -1]);
+    assert.deepEqual(extremes?.view.matrix?.map(row => row[0]), [-90, -20, -50, -10]);
+    assert.deepEqual(extremes?.names.map(row => row[0]), ['g.wav', 'e.wav', 'b.wav', 'a.wav']);
     // Zoomed to the top half: only its rows, on the whole table's axis; the shades keep every row's range.
     const top = overviewPicture(rows, bands, { x: FULL_PLOT_WINDOW.x, y: { start: 0.5, end: 1 } }, 100);
     assert.deepEqual(top?.view.ys, [-1.5, -0.5]);
@@ -199,8 +206,8 @@ test('the strip is a heatmap of the table: a row per table row counted down from
     assert.equal(overviewPicture(rows, new Map(), FULL_PLOT_WINDOW, 100), null, 'no levels, nothing to draw');
 });
 
-test('the strip\'s colour range holds every table row\'s level, not only the loudest drawn per line, and opens at round ends (R9)', () => {
-    // 300 rows on 10 lines: each line draws the loudest of its 30 rows, so a quiet row's level is never drawn.
+test('the strip\'s colour range holds every table row\'s level, not only the rows the window draws, and opens at round ends (R9)', () => {
+    // 300 rows on 10 lines: each bucket of 60 rows draws its quietest and its loudest.
     const rows = Array.from({ length: 300 }, (_, index) => ({ filePath: `/d/${index}.wav` }));
     const bands = new Map<string, (number | null)[]>(rows.map((row, index) => [row.filePath, [-50 + (index % 7), -40 + (index % 5)]]));
     bands.set('/d/151.wav', [-97.3, -40]);
@@ -208,7 +215,7 @@ test('the strip\'s colour range holds every table row\'s level, not only the lou
     const picture = overviewPicture(rows, bands, FULL_PLOT_WINDOW, 10);
     assert.ok(picture);
     const drawn = (picture.view.matrix ?? []).flat().filter((value): value is number => value !== null);
-    assert.ok(Math.min(...drawn) > -60, 'the quiet row is not drawn: a range from the drawn cells would miss it');
+    assert.ok(drawn.includes(-97.3), 'the quiet row is drawn, its bucket\'s quietest (R2)');
     assert.deepEqual(picture.range, { min: -100, max: 0 });
     // Zoomed to rows that hold neither end, the colours still span every row.
     const zoomed = overviewPicture(rows, bands, { x: FULL_PLOT_WINDOW.x, y: { start: 0, end: 0.1 } }, 10);
@@ -224,7 +231,7 @@ test('the strip\'s colours reach no more than 100 dB under its loudest level: a 
     assert.deepEqual(picture?.range, { min: -110, max: 0 });
 });
 
-test('the strip is read at the table row under the pointer, never the loudest row its line draws, and ← / → step that row\'s bands (R7)', () => {
+test('the strip is read at the table row under the pointer, never a row its bucket draws, and ← / → step that row\'s bands (R7)', () => {
     const { document, overview } = setup();
     // A context that draws nothing but answers what the plot component asks of it.
     const image = (width: number, height: number) => ({ width, height, data: new Uint8ClampedArray(Math.max(1, width * height * 4)) });
@@ -236,21 +243,21 @@ test('the strip is read at the table row under the pointer, never the loudest ro
     })) as unknown as HTMLCanvasElement['getContext'];
     // 400 rows on a strip about 90 pixels high: each picture line draws the loudest of four or five rows.
     const rows = Array.from({ length: 400 }, (_, index) => ({ filePath: `/d/r${index}.wav` }));
-    const bands = new Map<string, (number | null)[]>(rows.map((row, index) => [row.filePath, BAND_CENTERS_HZ.map((_, band) => (index === 201 ? -80 - band : -20 - (index % 3) - band))]));
+    const bands = new Map<string, (number | null)[]>(rows.map((row, index) => [row.filePath, BAND_CENTERS_HZ.map((_, band) => (index === 201 ? -21.5 - band : -20 - (index % 3) - band))]));
     const plot = paintOverview(overview, strings, rows, bands, { first: 0, last: 399 }, null).drawn;
     assert.ok(plot);
     const view = plot.image?.layer.view ?? plot.lines[0]?.view;
     assert.ok((view?.matrix?.length ?? 0) < rows.length, 'the rows are thinned to be drawn');
-    assert.ok(!(view?.matrix ?? []).some(line => line.includes(-80)), 'row 201 is quieter than its line\'s loudest, so it is not drawn');
+    assert.ok(!(view?.matrix ?? []).some(line => line.includes(-21.5)), 'row 201 is neither its bucket\'s quietest nor its loudest, so it is not drawn');
     // The pointer on row 201's place, at band 0.
     const heat = plot.image;
     assert.ok(heat, 'a heatmap');
     const at = heat.placeOf(BAND_CENTERS_HZ[0], -(201 + 0.5));
     const read = stageHover(plot, at.x, at.y);
-    assert.equal(read?.value, -80);
+    assert.equal(read?.value, -21.5);
     assert.match(read?.text ?? '', /r201\.wav/);
     const next = read ? stageStep(plot, read, 1) : null;
-    assert.equal(next?.value, -81, '→ is the same row\'s next band');
+    assert.equal(next?.value, -22.5, '→ is the same row\'s next band');
     assert.match(next?.text ?? '', /r201\.wav/);
     void document;
 });

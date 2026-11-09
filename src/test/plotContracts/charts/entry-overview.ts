@@ -11,9 +11,9 @@ export const entryOverview: ChartContract = {
         {
             id: 'entry-overview.readout', value: 'readout', what: '概観帯の読み値（録音・帯・レベル）',
             computedIn: ['src/webview/runtime/entryPlots.ts:overviewCells', `${SP}:cellRead`],
-            from: 'full', trace: '描く絵は行が多いと画素の行ごとに一番大きい帯のレベルにするが、読み値は表の本当の行（overviewCells）を読む。',
+            from: 'full', trace: '描く絵は行が多いと行の区間ごとに帯の最小と最大の 2 本にするが（R2）、読み値は表の本当の行（overviewCells）を読む。',
             tests: [
-                tt('src/test/entrySidePlots.test.ts', 'the strip is read at the table row under the pointer, never the loudest row its line draws, and ← / → step that row\'s bands (R7)'),
+                tt('src/test/entrySidePlots.test.ts', 'the strip is read at the table row under the pointer, never a row its bucket draws, and ← / → step that row\'s bands (R7)'),
                 t('src/test/uiSmoke/entry.spec.ts', 'the overview strip has a row per channel, as the table does: its readout names the channel of a recording of several'),
                 t('src/test/uiSmoke/plotContract.spec.ts', 'the entry\'s overview strip answers the same gestures as every plot (R13)'),
             ],
@@ -23,16 +23,16 @@ export const entryOverview: ChartContract = {
             computedIn: [`${SP}:imageStep`],
             from: 'full', trace: '表の本当の行の次の帯。',
             tests: [
-                tt('src/test/entrySidePlots.test.ts', 'the strip is read at the table row under the pointer, never the loudest row its line draws, and ← / → step that row\'s bands (R7)'),
+                tt('src/test/entrySidePlots.test.ts', 'the strip is read at the table row under the pointer, never a row its bucket draws, and ← / → step that row\'s bands (R7)'),
                 t('src/test/uiSmoke/plotContract.spec.ts', 'the entry\'s overview strip answers the same gestures as every plot (R13)'),
             ],
         },
         {
             id: 'entry-overview.range', value: 'range', what: '色の範囲（カラーバーの両端）',
             computedIn: ['src/webview/runtime/entryPlots.ts:overviewPicture', 'src/shared/utils/ticks.ts:heatmapDbRange'],
-            from: 'full', trace: '表のすべての行のすべての帯のレベル（線ごとに一番大きいものだけを描くが、描かない行も）の最大を上、max(最小, 最大 − 100 dB) を下にして（heatmapDbRange）切りのよい値に広げる（R9）。',
+            from: 'full', trace: '表のすべての行のすべての帯のレベル（区間ごとに最小と最大だけを描くが、描かない行も）の最大を上、max(最小, 最大 − 100 dB) を下にして（heatmapDbRange）切りのよい値に広げる（R9）。',
             tests: [
-                tt('src/test/entrySidePlots.test.ts', 'the strip\'s colour range holds every table row\'s level, not only the loudest drawn per line, and opens at round ends (R9)'),
+                tt('src/test/entrySidePlots.test.ts', 'the strip\'s colour range holds every table row\'s level, not only the rows the window draws, and opens at round ends (R9)'),
                 t('src/test/entrySidePlots.test.ts', 'the strip\'s colours reach no more than 100 dB under its loudest level: a digitally silent recording (−300 dB) does not set the bottom (R9)'),
             ],
         },
@@ -41,7 +41,7 @@ export const entryOverview: ChartContract = {
             computedIn: [`${SP}:paintPlot`, `${SP}:valueAxisTicks`, `${SP}:valueTickTexts`, `${SP}:alongAxisTicks`, `${SP}:rowAxisTicks`, `${SP}:tickText`, `${SP}:levelTick`, `${SP}:paintRightAxis`],
             from: 'axis', trace: '行は表の上からの番号（yTickText）。',
             tests: [
-                t('src/test/entrySidePlots.test.ts', 'the strip is a heatmap of the table: a row per table row counted down from the top, the loudest per line when they outnumber its lines'),
+                t('src/test/entrySidePlots.test.ts', 'the strip is a heatmap of the table: a row per table row counted down from the top, each bucket\'s quietest and loudest when they outnumber its lines (R2)'),
             ],
         },
         {

@@ -14,19 +14,21 @@ import { heatmapDbRange } from '../../shared/utils/ticks';
 /** The strip's margins: its row axis at the left, the frequency axis below, the colour bar inside the plot's top right. */
 export const OVERVIEW_MARGINS: PlotMargins = { left: 30, top: 2, right: 4, bottom: 16 };
 
-/**
- * The strip's rows as a heatmap: a column per band and, in the part of the table in `window`, a row per table row, or
- * where there are more rows than the plot has pixel lines, a row per line holding each band's loudest level there
- * (100,000 rows would otherwise be millions of cells). Rows are placed at minus their place in the table (the
- * picture's rows run up from its bottom), so the axis counts the table's rows down from the top. The colour range is
- * every row's, not only the window's: zooming does not change what a shade means.
- */
 /** A table row as the strip reads it: its recording, and the channel it is (`key`, rowKey) when it is one of several. */
 export type OverviewRow = Pick<EntryRow, 'filePath'> & { key?: string; ch?: number; channels?: number };
 
 /** A row's name in the readout: its file, and its channel when the recording has more than one. */
 const rowName = (row: OverviewRow): string => `${fileName(row.filePath)}${(row.channels ?? 1) > 1 && row.ch ? ` ch${row.ch}` : ''}`;
 
+/**
+ * The strip's rows as a heatmap: a column per band and, in the part of the table in `window`, a row per table row, or
+ * where there are more rows than the plot has pixel lines, the table cut into buckets of rows, two lines each, that
+ * hold each band's quietest and loudest level in the bucket (R2: a bucket's extremes, never its loudest alone, so a
+ * quiet recording among loud ones stays in sight; 100,000 rows would otherwise be millions of cells). Of the two, the
+ * one from the earlier table row is the upper line, so each stays on the side of its own place. Rows are placed at minus their place in the table (the
+ * picture's rows run up from its bottom), so the axis counts the table's rows down from the top. The colour range is
+ * every row's, not only the window's: zooming does not change what a shade means.
+ */
 export function overviewPicture(
     rows: ReadonlyArray<OverviewRow>,
     bands: ReadonlyMap<string, (number | null)[]>,
@@ -39,41 +41,64 @@ export function overviewPicture(
     const lastRow = Math.min(total, Math.ceil((1 - window.y.start) * total));
     const count = Math.max(0, lastRow - firstRow);
     const binned = count > lines;
-    const cellsTotal = binned ? lines : count;
-    const loudest: (number | null)[][] = Array.from({ length: cellsTotal }, () => new Array<number | null>(bandCount).fill(null));
-    // Per cell and band, the file whose level it shows (the loudest of a line's rows), so the readout names the
-    // recording its value is from; a cell with no level names the line's first row.
+    // Binned: buckets of rows, each drawn as two lines (its extremes, R2).
+    const buckets = binned ? Math.max(1, Math.floor(lines / 2)) : count;
+    const cellsTotal = binned ? buckets * 2 : count;
+    const shown: (number | null)[][] = Array.from({ length: cellsTotal }, () => new Array<number | null>(bandCount).fill(null));
+    // Per cell and band, the file whose level it shows, so the readout names the recording its value is from; a cell
+    // with no level names its bucket's first row.
     const names: string[][] = Array.from({ length: cellsTotal }, () => new Array<string>(bandCount).fill(''));
+    // Per bucket and band, its quietest and loudest level, with the table row each is from.
+    type Extreme = { value: number; index: number } | null;
+    const lowest: Extreme[][] = binned ? Array.from({ length: buckets }, () => new Array<Extreme>(bandCount).fill(null)) : [];
+    const highest: Extreme[][] = binned ? Array.from({ length: buckets }, () => new Array<Extreme>(bandCount).fill(null)) : [];
     let low = Infinity, high = -Infinity;
     // One pass, loops not spreads (a large folder has more levels than a call can take as arguments).
     for (let index = 0; index < total; index++) {
         const levels = bands.get(rows[index].key ?? rows[index].filePath);
-        const cell = index >= firstRow && index < lastRow ? (binned ? Math.min(lines - 1, Math.floor((index - firstRow) * lines / count)) : index - firstRow) : -1;
-        if (cell >= 0 && !names[cell][0]) names[cell].fill(rowName(rows[index]));
+        const inWindow = index >= firstRow && index < lastRow;
+        const bucket = inWindow ? (binned ? Math.min(buckets - 1, Math.floor((index - firstRow) * buckets / count)) : index - firstRow) : -1;
+        if (bucket >= 0) {
+            const cells = binned ? [bucket * 2, bucket * 2 + 1] : [bucket];
+            for (const cell of cells) if (!names[cell][0]) names[cell].fill(rowName(rows[index]));
+        }
         if (!levels) continue;
         for (let band = 0; band < Math.min(bandCount, levels.length); band++) {
             const value = levels[band];
             if (value === null || value === undefined) continue;
             if (value < low) low = value;
             if (value > high) high = value;
-            if (cell >= 0) {
-                const was = loudest[cell][band];
-                if (was === null || value > was) { loudest[cell][band] = value; names[cell][band] = rowName(rows[index]); }
-            }
+            if (bucket < 0) continue;
+            if (!binned) { shown[bucket][band] = value; names[bucket][band] = rowName(rows[index]); continue; }
+            const quiet = lowest[bucket][band], loud = highest[bucket][band];
+            if (!quiet || value < quiet.value) lowest[bucket][band] = { value, index };
+            if (!loud || value > loud.value) highest[bucket][band] = { value, index };
+        }
+    }
+    // Each bucket's two lines: the extreme from the earlier table row above, the other below (one row: the same twice).
+    for (let bucket = 0; bucket < (binned ? buckets : 0); bucket++) {
+        for (let band = 0; band < bandCount; band++) {
+            const quiet = lowest[bucket][band], loud = highest[bucket][band];
+            if (!quiet || !loud) continue;
+            const [upper, lower] = quiet.index <= loud.index ? [quiet, loud] : [loud, quiet];
+            shown[bucket * 2][band] = upper.value;
+            names[bucket * 2][band] = rowName(rows[upper.index]);
+            shown[bucket * 2 + 1][band] = lower.value;
+            names[bucket * 2 + 1][band] = rowName(rows[lower.index]);
         }
     }
     if (!Number.isFinite(low)) return null;
     // Each picture row's centre, in table rows (negative: down from the top); bottom first, as the axis runs.
-    const centres = loudest.map((_, cell) => -(firstRow + (binned ? (cell + 0.5) * count / lines : cell + 0.5)));
+    const centres = shown.map((_, cell) => -(firstRow + (binned ? (cell + 0.5) * count / cellsTotal : cell + 0.5)));
     const order = centres.map((_, cell) => cellsTotal - 1 - cell);
     const xs = [...BAND_CENTERS_HZ];
     const view: StageView = {
         kind: 'heatmap', x: 'frequency', xScale: 'log', quantity: 'level', xs,
-        ys: order.map(cell => centres[cell]), matrix: order.map(cell => loudest[cell]),
+        ys: order.map(cell => centres[cell]), matrix: order.map(cell => shown[cell]),
     } as StageView;
     // The whole table's axes: a zoomed strip places its part on them.
     const whole: StageView = { ...view, ys: [-total, 0], matrix: [] };
-    // The colours span every table row's every band (not only the loudest each line draws), widened to round ends (R9).
+    // The colours span every table row's every band (not only the extremes each bucket draws), widened to round ends (R9).
     // As every heatmap's colours (R9): to the loudest level, no more than 100 dB under it.
     return { view, whole, names: order.map(cell => names[cell]), range: heatmapDbRange(low, high) };
 }
@@ -82,7 +107,7 @@ const fileName = (filePath: string): string => filePath.split(/[\\/]/).at(-1) ??
 
 /**
  * The strip's every cell, one per table row and band, which the pointer reads (R7): a picture row holding several
- * table rows (their loudest) is only drawn; the readout names the one table row under the pointer and its level.
+ * table rows (their extremes) is only drawn; the readout names the one table row under the pointer and its level.
  */
 export function overviewCells(rows: ReadonlyArray<OverviewRow>, bands: ReadonlyMap<string, (number | null)[]>): InlineFullSource {
     return {

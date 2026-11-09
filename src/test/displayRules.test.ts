@@ -11,7 +11,7 @@ const rulesPath = path.join(repoRoot, 'docs', 'display-rules.md');
  * Rules that still list a screen or a Frame kind their tests do not reach ("未"). A PR that covers the rest removes
  * the 未 line from docs/display-rules.md and the rule from here; adding one is a change review should stop.
  */
-const PENDING = ['R2', 'R5', 'R7'];
+const PENDING = ['R5', 'R7'];
 
 interface Rule { id: string; tests: Array<{ file: string; name: string }>; pending: boolean }
 

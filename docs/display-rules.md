@@ -76,7 +76,8 @@
 - テスト: `python-backend/test_stage_combine.py` › test_the_headlines_largest_difference_is_found_among_every_value_at_its_own_place
 - テスト: `python-backend/test_stage_combine.py` › test_the_headline_leaves_out_padding_columns_the_zero_quefrency_and_whatever_is_off_screen
 - テスト: `src/test/stagePanes.test.ts` › the Δ pane's headline writes the backend's largest difference, found before thinning, never the largest point drawn
-- 未: 入口の概観帯
+- 入口の概観帯（表の行ごとの 1/3 オクターブのレベルの熱図）も、行が画素の行より多いときは、表を行の区間に分けて、区間ごとに帯の最小と最大のレベルを 2 本の行に残します（先の行から来た方が上）。一番大きいものだけを残すと、大きな録音の間の静かな録音が見えなくなるからです。読み値は描いた区間ではなく、マウスの下の表の本当の行を読みます（R7）。
+- テスト: `src/test/entrySidePlots.test.ts` › the strip is a heatmap of the table: a row per table row counted down from the top, each bucket's quietest and loudest when they outnumber its lines (R2)
 
 ## R3 拡大しても同じ規則で、範囲の中を全解像度で作り直す
 
