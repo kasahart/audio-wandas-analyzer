@@ -134,19 +134,23 @@ export function stageRange(views: ReadonlyArray<StageView | null>): PaneRange {
     if (DB_QUANTITIES.includes(quantity ?? '') && first?.kind === 'heatmap') return heatmapDbRange(low, high);
     if (DB_QUANTITIES.includes(quantity ?? '')) {
         // Every value from the loudest down to at most 100 dB under it (as a heatmap's colours): never a value of the
-        // full data off the axis. Four equal steps of a round size, as the spectra's, where four hold it; else more.
+        // full data off the axis, each end rounded outward to the step, so at most a step of slack on each side. The
+        // step is the finest round one that gives at most six steps (−49.5…−9.5 dB: 10 dB, −50…0).
         const bottom = Math.max(low, high - HEATMAP_DB_SPAN);
-        for (const step of [5, 10, 20, 25]) {
-            const max = Math.ceil(high / step) * step || 0;
-            if (max - 4 * step <= bottom) return { min: max - 4 * step, max };
-        }
-        return { min: Math.floor(bottom / 25) * 25, max: Math.ceil(high / 25) * 25 || 0 };
+        const edges = (step: number): { min: number; max: number } => ({ min: Math.floor(bottom / step) * step || 0, max: Math.ceil(high / step) * step || 0 });
+        const step = DB_STEPS.find(size => { const { min, max } = edges(size); return (max - min) / size <= DB_MAX_STEPS; }) ?? DB_STEPS[DB_STEPS.length - 1];
+        const { min, max } = edges(step);
+        return max > min ? { min, max } : { min: min - step, max };
     }
     // Any other quantity (a loudness, a roughness, an amplitude): its extent padded, to round ends, as a dB range has.
     const pad = (high - low) * 0.05 || Math.abs(high) * 0.1 || 1;
     const { low: min, high: max } = niceRange(low - pad, high + pad);
     return { min, max };
 }
+
+/** A dB axis's round steps, and the most steps it takes (stageRange). */
+const DB_STEPS = [5, 10, 20, 25] as const;
+const DB_MAX_STEPS = 6;
 
 /** A symmetric range's edge, widened to a round value (±0.021 → ±0.022), as niceRange widens a range's ends. */
 function roundEdge(edge: number): number {

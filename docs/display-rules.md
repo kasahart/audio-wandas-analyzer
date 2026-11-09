@@ -238,8 +238,8 @@
 
 カラースケールや dB 軸を自動で決めるときは、端を切りのよい値に広げます。dB でない量（ラフネス、ケプストラム、係数など）の色と値の範囲も、入口の分布図の値軸も同じです。手で入れた値はそのままです。
 
-自動の範囲の端は、描くために間引いた点や平均したマスではなく、全データ（間引く前のすべての点・すべてのマス）の最小と最大から決めます。dB の熱図（トラックのスペクトログラム、比較の熱図、入口の一覧の帯）の色は、上を全データの最大、下を max(全データの最小, 上 − 100 dB) とします。デジタル無音（−240 dB や −300 dB）があっても、下の端はそこまで下がりません。dB の線の軸も同じく、上を全データの最大、下を max(全データの最小, 上 − 100 dB) として、その両方が入る切りのよい 4 目盛り（5・10・20・25 dB 刻み、入らなければ 25 dB 刻みで必要なだけ）にします。全データの最小が軸の外に出ることはありません（−49.5〜−9.5 dB は −80〜0 dB）。
-- テスト: `src/test/stagePanes.test.ts` › a dB line's automatic range holds every value of its full data down to 100 dB under its loudest, on round steps (R9)
+自動の範囲の端は、描くために間引いた点や平均したマスではなく、全データ（間引く前のすべての点・すべてのマス）の最小と最大から決めます。dB の熱図（トラックのスペクトログラム、比較の熱図、入口の一覧の帯）の色は、上を全データの最大、下を max(全データの最小, 上 − 100 dB) とします。デジタル無音（−240 dB や −300 dB）があっても、下の端はそこまで下がりません。dB の線の軸も同じく、上を全データの最大、下を max(全データの最小, 上 − 100 dB) として、両端をそれぞれ外へ切りのよい刻みに丸めます。刻みは 5・10・20・25 dB のうち 6 目盛り以下になる一番細かいもので、両端の余りは 1 刻みまでです。全データの最小が軸の外に出ることはなく、余白で図の半分を使うこともありません（−49.5〜−9.5 dB は −50〜0 dB）。
+- テスト: `src/test/stagePanes.test.ts` › a dB line's automatic range encloses every value of its full data down to 100 dB under its loudest, rounded out to round steps with at most a step of slack on each side (R9)
 
 - テスト: `src/test/stagePanes.test.ts` › every range is set from the full data's lowest and highest value (valueRange), never the points drawn or the cells averaged to draw an image (R1, R9)
 - テスト: `src/test/stagePanes.test.ts` › a heatmap's colours reach no more than 100 dB under its loudest value: digital silence (−240 dB) does not set the bottom (R9)

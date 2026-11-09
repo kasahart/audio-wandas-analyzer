@@ -38,14 +38,23 @@ test('levels share a range of four round steps; coherence keeps 0 to 1', () => {
     assert.deepEqual(stageRange([line([0.2, 0.5, 0.9], 'coherence')]), { min: 0, max: 1 });
 });
 
-test('a dB line\'s automatic range holds every value of its full data down to 100 dB under its loudest, on round steps (R9)', () => {
-    // −49.5 to −9.5 dB: 40 dB wide, but four 10 dB steps from 0 would cut −49.5 off; 20 dB steps hold it.
-    assert.deepEqual(stageRange([{ ...line([-30, -20]), valueRange: { min: -49.5, max: -9.5 } }]), { min: -80, max: 0 });
-    for (const [min, max] of [[-49.5, -9.5], [-41, -1], [-109.5, -9.5], [-61, -2], [-12.3, -12.1], [-300, -20]]) {
-        const range = stageRange([{ ...line([min, max]), valueRange: { min, max } }]);
-        assert.ok(range.max >= max && range.min <= Math.max(min, max - 100), `${min}…${max} dB drawn on ${range.min}…${range.max}`);
-        // Never wider than it needs: its bottom is at most a step under 100 dB below the loudest.
-        assert.ok(range.min >= max - 100 - 25, `${min}…${max} dB drawn on ${range.min}…${range.max}`);
+test('a dB line\'s automatic range encloses every value of its full data down to 100 dB under its loudest, rounded out to round steps with at most a step of slack on each side (R9)', () => {
+    const range = (min: number, max: number): { min: number; max: number } => stageRange([{ ...line([min, max]), valueRange: { min, max } }]);
+    // 40 dB: 10 dB steps, each end rounded out to the next step (−9.5 up to 0).
+    assert.deepEqual(range(-49.5, -9.5), { min: -50, max: 0 });
+    // 100 dB: 20 dB steps.
+    assert.deepEqual(range(-109.5, -9.5), { min: -120, max: 0 });
+    // 140 dB (a silent stretch): held to 100 dB under the loudest, as a heatmap's colours are.
+    assert.deepEqual(range(-149.5, -9.5), { min: -120, max: 0 });
+    for (const [min, max] of [[-49.5, -9.5], [-41, -1], [-109.5, -9.5], [-149.5, -9.5], [-61, -2], [-12.3, -12.1], [-300, -20], [-20, -20], [3, 47]]) {
+        const got = range(min, max);
+        const bottom = Math.max(min, max - 100);
+        // Its steps: the finest round step both ends are on that divides it into at most six.
+        const ticks = [5, 10, 20, 25].filter(step => got.min % step === 0 && got.max % step === 0 && (got.max - got.min) / step <= 6);
+        const step = Math.min(...ticks);
+        assert.ok(ticks.length, `${min}…${max} dB: ${got.min}…${got.max} is on round steps`);
+        assert.ok(got.max >= max && got.min <= bottom, `${min}…${max} dB: ${got.min}…${got.max} encloses it`);
+        assert.ok(got.max - max <= step && bottom - got.min <= step, `${min}…${max} dB: ${got.min}…${got.max} has at most a ${step} dB step of slack on each side`);
     }
 });
 
