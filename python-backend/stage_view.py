@@ -625,6 +625,10 @@ def _spectral_view(frame: Any) -> StageView:
         if row is None:
             return {"frame": type(frame).__name__, "kind": "none"}
         values, pair, unit = values[row : row + 1], _pair_of(frame, row), _transfer_unit(frame, row)
+        if isinstance(frame, CrossSpectralFrame) and frame.pair_domains[row].unit != "1":
+            # A cross spectrum of two units (a recording against the base slot's) is re its pair's reference
+            # (wandas' pair domain), never either channel's.
+            unit = str(frame.channels[row].level_reference.label)
     if quantity == "coherence":
         # As a spectrum's line: each bucket's lowest and highest bin at its own frequency, so a dip stays.
         centres, line = spectrum_line(freqs, values[0], [spec.SPECTRUM_MIN_HZ, nyquist], SPECTRUM_LINE_BUCKETS)

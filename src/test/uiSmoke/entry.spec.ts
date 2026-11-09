@@ -67,7 +67,9 @@ test('a folder opens with only what is stored; nothing is computed until 計算,
     await expect(page.locator('[data-entry-rows] tr.entry-row .entry-col-value:not(:text("—"))')).toHaveCount(6);
     // The distribution draws the 6 computed channels only and counts the rest (I14).
     expect((await snapshot(page))?.dist).toMatchObject({ missing: 19, unit: 'ch' });
-    await expect(page.locator('[data-entry-dist-count]')).toHaveText('6 ch');
+    // Its heading says the recordings its set left out, with why (class sweep 3, aggregation V11).
+    const leftOut = [STR.dsBaseMissing, STR.dsBasePending].map(template => template.split('{n}')[0].replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')).join('|');
+    await expect(page.locator('[data-entry-dist-count]')).toHaveText(new RegExp(`^6 ch(?:${leftOut})\\d+`, 'u'));
 });
 
 test('a picked CSV attaches its attributes by asd-insight\'s rules and lists what did not match with why (I5)', async ({ page }) => {

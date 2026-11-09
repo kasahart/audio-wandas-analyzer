@@ -36,14 +36,14 @@ const BYPASSES: Record<string, RegExp> = {
     // A set made by hand (a cast) instead of by figureUsed.
     'cast-set': /as (?:unknown as )?FigureSet\b/gu,
     // The base's heading count written outside figureModel (setCountText / setExclusionText).
-    'heading-count': /\b(?:entryBaseMedian|entryCount|dsBase(?:Failed|Pending|Stale|OtherUnits|OtherBins|NoIdentity))\.replace\(/gu,
+    'heading-count': /\b(?:entryBaseMedian|entryBaseCount|entryCount|dsBase(?:Failed|Missing|Pending|Stale|OtherUnits|OtherBins|NoIdentity|Fewer)|dsDistApart)\.replace\(|\$\{[\w.?]*members\??\.length\}|\bmembers\??\.toLocaleString\(/gu,
     // An identity taken from "the first ready one" or the compared file's level assumed for a member (`?? like`).
-    'first-ready': /\.find\(\(?\w+\)? => \w+\.state === 'ready'\)/gu,
+    'first-ready': /\.find\(\(?\w+\)? => \w+\.state === 'ready'\)|\.filter\(isReady\)\[0\]|\.find\(isReady\)/gu,
     'assumed-level': /\?\?\s*like\b/gu,
     // A one-recording n written as a literal rather than counted by the set (slot 0's n).
-    'literal-n': /\b(?:count|n):\s*1\b/gu,
+    'literal-n': /\b(?:count|n):\s*1\b|[`'][^`'\n]*\bn=1\b[^`'\n]*[`']/gu,
     // A level read off a raw results map (a stale scan's calibration) for an axis, identity or set.
-    'raw-level': /\b(?:results|entryResults|data\.results|deps\.results)\.get\([^)]*\)\??\.input\b(?!\??\.durationS)/gu,
+    'raw-level': /\b(?:results|entryResults|shown|scans|data\.results|deps\.results|input\.results)\.get\([^)]*\)\??\.input\b(?!\??\.durationS)/gu,
     // While a member is pending the figure is drawn of every member asked for, not of its set.
     'all-asked': /\?\s*allowed\s*:\s*stageSet\.paths/gu,
 };
@@ -100,6 +100,15 @@ test('each class-sweep-2 bypass injected into a real source is caught', () => {
         // reference V2: a second most-common-reference choice beside the entry model's.
         ['webview/runtime/entrySidePlots.ts', 'const folder = folderReference(deps.answers(paths));', 'folderReference'],
         ['webview/runtime/entryHeldPlot.ts', 'const own = scanAnswer(path, binned.get(path));', 'scanAnswer'],
+        // Class sweep 3: counts outside the set (the distribution's heading, the waveform heading, the channel-less
+        // members), the first ready one by another spelling, a level read off another raw map, a literal n=1.
+        ['webview/runtime/entryDistributionPane.ts', 'count.textContent = `${group.members.length} ${unit}`;', 'heading-count'],
+        ['webview/runtime/entryDistributionPane.ts', 'count.textContent = members.toLocaleString();', 'heading-count'],
+        ['webview/runtime/entryBase.ts', 'const without = strings.dsBaseFewer.replace(\'{n}\', String(fewer));', 'heading-count'],
+        ['webview/runtime/trackStageMode.ts', 'const title = strings.entryBaseCount.replace(\'{count}\', String(paths.length));', 'heading-count'],
+        ['webview/runtime/entryBase.ts', 'const first = answers.filter(isReady)[0];', 'first-ready'],
+        ['webview/runtime/trackStageMode.ts', 'const input = shown.get(path)?.input;', 'raw-level'],
+        ['webview/runtime/compareReport.ts', 'const text = `n=1`;', 'literal-n'],
     ];
     for (const [name, line, kind] of injected) {
         const problems = figureSetProblems(name, `${read(name)}\n${line}\n`);

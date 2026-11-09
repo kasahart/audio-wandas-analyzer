@@ -4,7 +4,6 @@
  */
 import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import type { StageView } from '../../shared/protocol/backendProtocol';
-import type { UiStrings } from '../../shared/i18n/strings';
 import type { EntryRegion } from '../../shared/analysis/entryScan';
 import { activeSlotReferenced, recipeKey, recipeSteps, slotReferenced, TIME_SLICE, type RecipeStep, type StepLimits } from '../../shared/recipe/recipeSteps';
 import { withChannel } from '../../shared/recipe/channelSelection';
@@ -188,18 +187,3 @@ export function combineRequest(views: (path: string) => StageView | null | undef
     return { base: base as string[], compare };
 }
 
-/**
- * A base group's title with its waveforms drawn each: "n files" rather than "median of n", n the title's own (its
- * figure set's, as the base resolved it), so the heading never says another count than the set it names.
- */
-export function eachBaseTitle(title: string, strings: Pick<UiStrings, 'entryBaseMedian' | 'entryBaseCount'>): string {
-    const [before, after = ''] = strings.entryBaseMedian.split('{count}');
-    // Found by hand, not by a built pattern: the webview's script is inlined into its page by a string replace.
-    for (let at = title.indexOf(before); at >= 0; at = title.indexOf(before, at + 1)) {
-        let end = at + before.length;
-        while (end < title.length && title[end] >= '0' && title[end] <= '9') end++;
-        if (end === at + before.length || !title.startsWith(after, end)) continue;
-        return title.slice(0, at) + strings.entryBaseCount.replace('{count}', title.slice(at + before.length, end)) + title.slice(end + after.length);
-    }
-    return title;
-}

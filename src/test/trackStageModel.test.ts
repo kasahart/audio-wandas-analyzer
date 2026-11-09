@@ -8,7 +8,7 @@ import type { StageView } from '../shared/protocol/backendProtocol';
 import { INPUT_STAGE, runnableRecipe } from '../webview/runtime/stepBarModel';
 import { FULL_PLOT_WINDOW } from '../webview/runtime/plotInteraction';
 import { stageCacheKey } from '../webview/runtime/stageSource';
-import { channelRecipe, chosenStage, comparedPath, eachBaseTitle, enterStageState, holdStageSpec, initialStageState, liveRegion, openStageState, pictureSummary, plotsOf, combineRequest, regionStageSpec, stageSpec } from '../webview/runtime/trackStageModel';
+import { channelRecipe, chosenStage, comparedPath, enterStageState, holdStageSpec, initialStageState, liveRegion, openStageState, pictureSummary, plotsOf, combineRequest, regionStageSpec, stageSpec } from '../webview/runtime/trackStageModel';
 
 const entry = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8')) as RecipeDocument;
 const limits = { sampleRate: 16000 };
@@ -167,10 +167,4 @@ test('a base group of waveforms is drawn each as it is: no median signal, its ti
     assert.equal(plots.base?.waveform, undefined);
     assert.deepEqual(plotsOf(path => views[path], [{ filePath: 'c' }], 'c', ['a'], undefined).baseMembers, [], 'one base file is the base itself');
     assert.deepEqual(plotsOf(path => line([views[path].values?.[0] ?? 0]), [{ filePath: 'c' }], 'c', ['a', 'b'], undefined).baseMembers, [], 'levels have a median');
-    const strings = { entryBaseMedian: '{count} 件の中央値', entryBaseCount: '{count} 件' };
-    assert.equal(eachBaseTitle('基準群 全体 · 12 件の中央値 · ch1', strings), '基準群 全体 · 12 件 · ch1');
-    // The count is the title's own (its figure set's), whatever else the title holds: never another number put in.
-    const en = { entryBaseMedian: 'median of {count}', entryBaseCount: '{count} files' };
-    assert.equal(eachBaseTitle('Base group rpm 900 · median of 33 · 2 failed left out · ch1', en), 'Base group rpm 900 · 33 files · 2 failed left out · ch1');
-    assert.equal(eachBaseTitle('Base · a.wav', en), 'Base · a.wav', 'a file, not a median: unchanged');
 });

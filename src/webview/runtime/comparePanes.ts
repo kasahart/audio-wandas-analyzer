@@ -15,7 +15,7 @@ import { powerMeanDb, powerMeanOrNull } from '../../shared/utils/levels';
 import { axisValueAt, levelBinsOf } from './stagePanes';
 import { localLine, type InlineFullSource } from './fullRead';
 import { noNegativeZero, signedNumberText, withMinus } from '../plot/plotText';
-import { excludedFor, levelKeyOf, type FigureSet } from './figureModel';
+import { excludedFor, levelKeyOf, medianInputOf, setExclusionText, type FigureSet } from './figureModel';
 import type { Answer } from './answerTypes';
 
 type ScanOk = ScanResult & { ok: true };
@@ -62,7 +62,8 @@ export interface CompareModel {
      * level reference or calibration than the compared file (levels of two units have no difference, as the
      * backend's noDelta 'unit'). D and the report are off while it is set.
      */
-    blocked?: 'self' | 'single' | 'region' | 'unit';
+    /** 'empty': the base's set counts no recording, each one left out with why (never said as a group of one). */
+    blocked?: 'self' | 'single' | 'region' | 'unit' | 'empty';
     /** A file of the compare or its base has no result yet (a scan is running): nothing here is settled. */
     pending?: boolean;
     /** The base's one figure set: its n, files and what it left out with why (null: no base asked). */
@@ -71,7 +72,7 @@ export interface CompareModel {
     compareResult?: ScanOk;
 }
 
-export type CompareStrings = Pick<UiStrings, 'axisUncalibrated' | 'compareLevelsAt' | 'compareDiffShow' | 'compareDiffHide' | 'hintDiffToggle' | 'entryBaseGroup' | 'entryBase' | 'entryCount' | 'compareKeyHold' | 'compareKeyBack' | 'comparePlay' | 'compareDelta' | 'compareNotEntry' | 'comparePending' | 'compareBaseEntryRegion' | 'compareReport' | 'reportSaved' | 'compareSelfBase' | 'compareSingleBase' | 'compareRegionDiffers' | 'compareUnitDiffers' | 'hintBaseCard' | 'hintSlotCard' | 'hintRegionMark' | 'hintCompareMark' | 'compareNoSignificant' | 'slotEmpty'>;
+export type CompareStrings = Pick<UiStrings, 'axisUncalibrated' | 'compareLevelsAt' | 'compareDiffShow' | 'compareDiffHide' | 'hintDiffToggle' | 'entryBaseGroup' | 'entryBase' | 'entryCount' | 'compareKeyHold' | 'compareKeyBack' | 'comparePlay' | 'compareDelta' | 'compareNotEntry' | 'comparePending' | 'compareBaseEntryRegion' | 'compareReport' | 'reportSaved' | 'compareSelfBase' | 'compareSingleBase' | 'compareEmptyBase' | 'dsBaseFailed' | 'dsBaseMissing' | 'dsBasePending' | 'dsBaseStale' | 'dsBaseOtherUnits' | 'dsBaseOtherBins' | 'dsBaseNoIdentity' | 'compareRegionDiffers' | 'compareUnitDiffers' | 'hintBaseCard' | 'hintSlotCard' | 'hintRegionMark' | 'hintCompareMark' | 'compareNoSignificant' | 'slotEmpty'>;
 
 /** A band's |Δ| under this (dB) reads 0.0 at the tenth a level is shown to: no difference to head the list. */
 const SHOWN_ZERO_DB = 0.05;
@@ -227,7 +228,8 @@ export function buildCompareModel(
             bandSpread = spreadFrom(of.set);
             // The base names the recordings its median is of: its set's, never a failed, stale or still-scanning one.
             base = { title: of.title, filePaths: [...of.set.paths], ...middle };
-        } else loneGroup = !excludedFor(of.set, 'other-reference');
+        // n=1 only when the compared recording is truly the only one of its group: none left out for any reason.
+        } else loneGroup = !of.set.excluded.length;
     }
     const otherReference = !!baseSet && excludedFor(baseSet, 'other-reference') > 0 && (of?.kind === 'file' || !baseSet.n);
     // Nothing settled while the compared recording or a base recording is still being asked for.
@@ -241,7 +243,9 @@ export function buildCompareModel(
             : single && basePath === comparePath ? 'self'
                 : !single && entryRegionBase ? 'region' : undefined;
     // Levels of another level identity than the compared file's have no difference (nor a median): blocked 'unit'.
-    const blocked: CompareModel['blocked'] = sameFile ?? (compared && otherReference ? 'unit' : undefined);
+    // A group whose set counts none, each left out with why (failed, another axis, stale …): no base, said so.
+    const emptyGroup = of?.kind === 'group' && !base && !loneGroup && !otherReference && !pending && !!compare;
+    const blocked: CompareModel['blocked'] = sameFile ?? (compared && otherReference ? 'unit' : emptyGroup ? 'empty' : undefined);
     const baseSide: CompareSide | null = base;
     const comparable = !blocked && !!baseSide && !!compare && baseSide.spectrumDb.length === compare.spectrumDb.length;
     const diffDb = comparable ? compare.spectrumDb.map((level, index) => level - baseSide.spectrumDb[index]) : null;
@@ -398,7 +402,9 @@ export function diffHeadline(comparison: CompareModel, strings?: CompareStrings)
         return [strings.compareNoSignificant, `Leq ${signed(comparison.leq.delta)} dB`].join(' · ');
     }
     if (comparison.blocked) {
+        const baseSet = comparison.baseSet;
         const why = comparison.blocked === 'self' ? strings?.compareSelfBase : comparison.blocked === 'single' ? strings?.compareSingleBase
+            : comparison.blocked === 'empty' ? (strings && baseSet ? strings.compareEmptyBase.replace('{left}', () => setExclusionText(baseSet, strings)) : undefined)
             : comparison.blocked === 'unit' ? strings?.compareUnitDiffers : strings?.compareRegionDiffers;
         return why ? `— · ${why}` : '—';
     }
@@ -412,7 +418,7 @@ export function diffHeadline(comparison: CompareModel, strings?: CompareStrings)
  */
 export function levelsHeadline(comparison: CompareModel, strings: CompareStrings): string {
     // Absolute levels name their reference (R4): once after the pair when both sides share it, after each level when not.
-    const baseUnit = comparison.base?.levelLabel ?? 'dBFS', compareUnit = comparison.compare?.levelLabel ?? baseUnit;
+    const baseUnit = comparison.base?.levelLabel ?? '', compareUnit = comparison.compare?.levelLabel ?? baseUnit;
     const apart = baseUnit !== compareUnit;
     // Where the two sides differ in calibration status, the uncalibrated one says so itself (R4), as its legend does.
     const mixed = !!comparison.base && !!comparison.compare && !!comparison.base.uncalibrated !== !!comparison.compare.uncalibrated;
@@ -516,7 +522,7 @@ export function trackLevelInput(channels: ReadonlyArray<ChannelSummary | null | 
     const keyOf = (measurement: typeof first): string | null => (measurement ? levelKeyOf({ unit: measurement.referenceUnit, ref: measurement.referenceValue, levelReferenceLabel: measurement.levelReferenceLabel }) : null);
     const shared = !!first && measured.every(measurement => keyOf(measurement) === keyOf(first));
     if (first && shared) {
-        const calibrationStatus = measured.every(measurement => measurement?.calibrationStatus === 'calibrated') ? 'calibrated' : 'uncalibrated';
+        const calibrationStatus = medianInputOf(measured)?.calibrationStatus === 'calibrated' ? 'calibrated' : 'uncalibrated';
         return { unit: first.referenceUnit, ref: first.referenceValue, levelReferenceLabel: first.levelReferenceLabel, calibrationStatus, fullScale };
     }
     // Channels of other references read together: named by the first one's, never a bare "dB" (C1). (A picture is
@@ -531,9 +537,10 @@ export function trackLevelInput(channels: ReadonlyArray<ChannelSummary | null | 
  * The comparison's axis names. The level axis is named by wandas' level reference for the file: "uncalibrated"
  * while it is (dBFS, or dB re 1 input unit for a source without a full scale), its calibration's reference otherwise.
  */
-export function paneAxes(strings: Pick<UiStrings, 'axisFrequency' | 'axisLevelUncal' | 'axisLevelCal' | 'axisDelta' | 'legendHeadline' | 'legendLeak' | 'legendLine'>, input: LevelInput | undefined): { level: PaneAxes; delta: PaneAxes } {
-    const reference = input ?? uncalibratedLevelInput(true);
-    const y = (reference.calibrationStatus === 'calibrated' ? strings.axisLevelCal : strings.axisLevelUncal).replace('{label}', reference.levelReferenceLabel);
+export function paneAxes(strings: Pick<UiStrings, 'axisFrequency' | 'axisLevelUncal' | 'axisLevelCal' | 'axisDelta' | 'legendHeadline' | 'legendLeak' | 'legendLine' | 'axisUnitUnknown'>, input: LevelInput | undefined): { level: PaneAxes; delta: PaneAxes } {
+    // Without an input no reference is known: the level says so, never a default dBFS (R4).
+    const y = input ? (input.calibrationStatus === 'calibrated' ? strings.axisLevelCal : strings.axisLevelUncal).replace('{label}', input.levelReferenceLabel)
+        : strings.axisLevelCal.replace('{label}', strings.axisUnitUnknown);
     return {
         level: { x: strings.axisFrequency, y },
         delta: { x: strings.axisFrequency, y: strings.axisDelta, legend: { headline: strings.legendHeadline, leak: strings.legendLeak, line: strings.legendLine } },

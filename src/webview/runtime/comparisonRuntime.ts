@@ -60,7 +60,7 @@ import { syncPanelToggle, syncSpectrumMaximize } from './panelCollapse';
 import { SpectrumView } from './spectrumView';
 import { WaveformView } from './waveformView';
 import { OVERLAY_LEVEL_AXES, paintOverlaySpectrum, renderSpectrumAxisLegend } from './overlaySpectrumPainter';
-import { amplitudeAxisTitle, clearSideAxis, paintOverlay, paintTimeAxis, type StagePlot, type StageRead } from './stagePanes';
+import { clearSideAxis, paintOverlay, paintTimeAxis, type StagePlot, type StageRead } from './stagePanes';
 import { referenceButtonHtml } from './pairSpectrum';
 import { noteCursorHz, PAIR_SPLIT_MAX, PAIR_SPLIT_MIN, PairSpectrumPanel } from './pairSpectrumPanel';
 import { collectSpectrumSeries, type CollectedSpectrumSeries, type SpectrumSeriesSource } from './spectrumSeriesCollector';
@@ -81,7 +81,7 @@ import {
     spectrumSlicesFromResult,
     withCalibrationWords,
 } from './spectrumRuntime';
-import { baseLevelOf, emptyFigure, frequencyTitle, laneAmplitudeRange, levelKeyOfReading, levelTitle as figureLevelTitle, paneNames, plainNames, plainRange, shownLevelOf, titleOf, uncalibratedWord, type FigureTitle } from './figureModel';
+import { amplitudeTitle, unknownLevelTitle, baseLevelOf, emptyFigure, plainTitle, frequencyTitle, laneAmplitudeRange, levelKeyOfReading, levelTitle as figureLevelTitle, paneNames, plainNames, plainRange, shownLevelOf, titleOf, uncalibratedWord, type FigureTitle } from './figureModel';
 import { normalizeRuntimeState, PersistedStateStore } from './stateStore';
 import { ComparisonTestBridge } from './testBridge';
 import { RuntimeEventFeed } from './runtimeEvents';
@@ -1477,7 +1477,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         recipe: () => entryScreen.recipes(comparedChannels()),
         slots: () => entryScreen.slots(),
         basePaths: (comparePath, group) => entryScreen.basePaths(comparePath, group),
-        baseHeading: (comparePath, group, set) => entryScreen.baseHeading(comparePath, group, set),
+        baseHeading: (comparePath, group, set, each) => entryScreen.baseHeading(comparePath, group, set, each),
+        baseLeft: (comparePath, group) => entryScreen.baseLeft(comparePath, group),
         levelOf: path => entryScreen.levelOf(path), levelsOf: paths => entryScreen.levelsOf(paths),
         stageChannel: (path, comparePath, group) => entryScreen.stageChannel(path, comparePath, group),
         rowInfo: path => entryScreen.rowInfo(path),
@@ -1587,7 +1588,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             // The base's set, its definition and its name are of the same answers the Δ is; a base recording still being
             // measured there leaves nothing to fix yet.
             const definition = entryScreen.baseDefinition(comparePath, groupBase, source);
-            if (definition.pending || comparison.pending) return STR.compareRefuseFix.replace('{why}', STR.fixBasePending);
+            if (definition.left?.pending || definition.left?.['no-identity'] || comparison.pending) return STR.compareRefuseFix.replace('{why}', STR.fixBasePending);
             const used = baseUsed(comparison);
             const baseLabel = definition.kind === 'file' ? definition.file ?? baseName(data.slots[0] ?? '') : entryScreen.baseTitle(comparePath, groupBase, source);
             entryScreen.addDerived({
@@ -1660,7 +1661,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const ch = channelsForResult(result)[channelIndex];
         const range = laneAmplitudeRange(amplitudeScaleFor(ch), waveformView.isAmplitudeZoomed() ? { minNorm: waveformView.amplitudeMin, maxNorm: waveformView.amplitudeMax } : undefined);
         const unit = ch && typeof ch.unit === 'string' && ch.unit.trim() ? ch.unit.trim() : undefined;
-        return { range, ticks: laneAmplitudeTicks(range), title: amplitudeAxisTitle(STR, unit, trackLevelInput([ch], undefined)) };
+        return { range, ticks: laneAmplitudeTicks(range), title: amplitudeTitle(STR, unit, trackLevelInput([ch], undefined)) };
     }
     /** The lanes' visible time span in seconds (the ruler's and every lane's time axis). */
     function laneVisibleSeconds() {
@@ -2159,7 +2160,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const lane = laneWaveformOverlay(src, { ...trackStore.globalSpan(), ...placement }, color, unit, laneTrackFull(trackIndex, track => laneReads.waveform(track, channelIndex)));
         const ratio = W / (canvas.clientWidth || W);
         let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-        const lanePlot = paintOverlay(canvas, lane.overlay, axis.range, plainNames(STR.axisTime, axis.title), {
+        const lanePlot = paintOverlay(canvas, lane.overlay, axis.range, plainNames(plainTitle(STR, 'axisTime'), axis.title), {
             axisCanvas: options.drawAxis === false ? null : canvasById(document, trackAxisCanvasId(trackIndex, channelIndex)),
             axisView: lane.axisView,
             window: { x: { start: waveformView.start, end: waveformView.end } },
@@ -2241,7 +2242,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 ? spectrogramFailureText(STR, failure)
                 : STR.spectrogramLoading;
             // An empty plot with its message, drawn by the plot component as an empty pane is: no axes named yet.
-            paintOverlay(canvas, { layers: [] }, plainRange(0, 1), plainNames(STR.axisTime, STR.axisFrequency), { axisCanvas: null, empty: message });
+            paintOverlay(canvas, { layers: [] }, plainRange(0, 1), plainNames(plainTitle(STR, 'axisTime'), plainTitle(STR, 'axisFrequency')), { axisCanvas: null, empty: message });
             delete canvas.dataset.plotAxis;
             delete canvas.dataset.plotWindow;
             return;
@@ -2262,7 +2263,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const painted = paintTrackSpectrogram(canvas, axisCanvas, spec, { ...trackStore.globalSpan(), offsetNorm: trackStart, trackDurRatio }, {
             window: { start: waveformView.start, end: waveformView.end }, dbLo, dbHi, maxFrequencyHz: maxFreq, minFrequencyHz: minFreq,
             durationSec: result.durationSeconds,
-        }, spectrogramRasterCache.get(cacheId), { colour: title, frequency: STR.axisFrequency, time: STR.axisTime }, [text, theme.bgColor, theme.lineColor].join(':'),
+        }, spectrogramRasterCache.get(cacheId), { colour: title, frequency: plainTitle(STR, 'axisFrequency'), time: plainTitle(STR, 'axisTime') }, [text, theme.bgColor, theme.lineColor].join(':'),
         laneTrackFull(trackIndex, track => laneReads.spectrogram(track, channelIndex, shown?.window ?? null)));
         spectrogramRasterCache.set(cacheId, painted);
         if (painted.plot) spectrogramPlots.set(canvas, painted.plot); else spectrogramPlots.delete(canvas);
@@ -3643,7 +3644,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (axis === 'db') {
             spectrumRangePopover.open({
                 // The popover names the axis as the plot does (R4): its level axis' own name, never a bracketless "(dB)".
-                axisLabel: spectrumLevelAxisTitle || figureLevelTitle(STR, 'dBFS', false),
+                axisLabel: spectrumLevelAxisTitle || unknownLevelTitle(STR),
                 horizontal: false,
                 ...spectrumView.dbRangeFields(),
                 clientX, clientY,
@@ -3724,6 +3725,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const field = (value: number) => String(Number(value.toPrecision(4)));
         // An edge left as shown keeps its setting (auto, or a top clamped to this lane's Nyquist), so the clicked lane's
         // own range is not set on every lane.
+        // The dB ends are typed for this lane's level identity: another identity's setting is not this lane's (R1).
+        const key = levelUnitKey(spec), ownLevels = typedLevelKey() === key;
         const typed = (value: number | null, shown: number, setting: number | null | undefined) =>
             value !== null && field(value) === field(shown) ? setting ?? null : value;
         if (axis === 'level') {
@@ -3734,10 +3737,10 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 max: field(bounds.dbHi),
                 clientX, clientY,
                 apply(min, max) {
-                    setSpectrogramDisplay({ ...display, dbMin: typed(min, bounds.dbLo, display.dbMin), dbMax: typed(max, bounds.dbHi, display.dbMax) });
+                    setSpectrogramDisplay({ ...display, dbMin: typed(min, bounds.dbLo, ownLevels ? display.dbMin : null), dbMax: typed(max, bounds.dbHi, ownLevels ? display.dbMax : null), dbLevelKey: key });
                 },
                 auto() {
-                    setSpectrogramDisplay({ ...display, dbMin: null, dbMax: null });
+                    setSpectrogramDisplay({ ...display, dbMin: null, dbMax: null, dbLevelKey: null });
                 },
             });
             return true;
@@ -3815,8 +3818,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         return canvas.classList.contains('track-spec-canvas') ? point.fy : waveformView.canvasYToAmplitude((1 - point.fy) * canvas.height, canvas.height);
     }
     /** The frequency band a spectrogram lane shows: its display settings' band, or the box zoom's band (the same Hz on every lane). */
+    /** The level identity the typed dB ends are of: as set, else (saved before, typed in ⚙) the first lane's shown. */
+    function typedLevelKey(): string | null {
+        const given = spectrogramSettings.display.dbLevelKey;
+        if (given) return given;
+        const first = displayedLanes().find(lane => lane.ch.spectrogram)?.ch.spectrogram;
+        return first ? levelUnitKey(first) : null;
+    }
     function shownSpectrogramBounds(whole: SpectrogramData) {
-        const bounds = spectrogramDisplayBounds(whole, spectrogramSettings.display, spectrogramAutoBounds(whole));
+        const bounds = spectrogramDisplayBounds(whole, spectrogramSettings.display, spectrogramAutoBounds(whole), { lane: levelUnitKey(whole), typed: typedLevelKey() });
         return spectrogramFrequencyView ? { ...bounds, minFrequencyHz: spectrogramFrequencyView.lowHz, maxFrequencyHz: spectrogramFrequencyView.highHz } : bounds;
     }
     /** The lane under the pointer, while the lanes are not the steps mode's; a spectrogram's colour bar is its level axis. */
@@ -4193,7 +4203,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             const track = series.slice.frequenciesHz && !series.slice.bandCentersHz && series.slice.cursorNorm !== undefined ? laneTrack(series.index) : null;
             return track && series.slice.cursorNorm !== undefined ? { ...series, full: laneReads.slice(track, series.slice.cursorNorm, series.channelIndex) } : series;
         });
-        const paint = paintOverlaySpectrum(canvas, W, H, read, spectrumView.state(), STR.axisFrequency, levelTitle);
+        const paint = paintOverlaySpectrum(canvas, W, H, read, spectrumView.state(), frequencyTitle(STR), levelTitle);
         spectrumDrawn = paint.plot;
         spectrumLevelAxisTitle = paint.levelAxes[0]?.title ?? '';
         spectrumView.recordPaint(paint);
@@ -4291,8 +4301,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             gear.style.display = contentType === 'stage' ? 'none' : '';
         }
     }
-    function setSpectrogramDisplay(display: SpectrogramDisplaySettings): void {
+    function setSpectrogramDisplay(given: SpectrogramDisplaySettings): void {
         const before = spectrogramSettings.display;
+        // dB ends typed in ⚙ (no identity given) are of the identity they were shown for: kept while unchanged, else the first lane's (R1).
+        const sameEnds = given.dbMin === before.dbMin && given.dbMax === before.dbMax;
+        const display: SpectrogramDisplaySettings = given.dbLevelKey !== undefined ? given
+            : { ...given, dbLevelKey: given.dbMin == null && given.dbMax == null ? null : sameEnds ? before.dbLevelKey ?? typedLevelKey() : typedLevelKey() };
         // A frequency range set (here, the axis' popover or ⚙) replaces the box zoom's band; a level range keeps it.
         if (display.minFrequencyHz !== before.minFrequencyHz || display.maxFrequencyHz !== before.maxFrequencyHz) spectrogramFrequencyView = null;
         spectrogramSettings.setDisplay(display);

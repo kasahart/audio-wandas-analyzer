@@ -123,7 +123,7 @@ test('a group\'s recordings in another unit, reference or calibration than the c
     const resolved = base.resolve('/d/a.wav');
     assert.deepEqual(resolved.paths, ['/d/c.wav']);
     assert.equal(resolved.definition.count, 1);
-    assert.equal(resolved.definition.otherUnits, 1);
+    assert.equal(resolved.definition.left?.['other-reference'], 1);
     assert.ok(resolved.title.includes(strings.dsBaseOtherUnits.replace('{n}', '1')));
     const comparison = base.comparison('/d/a.wav');
     assert.deepEqual(comparison.base!.filePaths, ['/d/c.wav']);
@@ -134,7 +134,7 @@ test('a base group keeps to the one level identity the backend uses: a gain-corr
     const { base } = setup({ slots: [null, '/d/a.wav', null, null], uncalibrated: ['/d/a.wav', '/d/b.wav'], gainCorrected: ['/d/c.wav'] });
     const resolved = base.resolve('/d/a.wav');
     assert.deepEqual(resolved.paths, ['/d/b.wav', '/d/c.wav']);
-    assert.equal(resolved.definition.otherUnits, undefined);
+    assert.equal(resolved.definition.left?.['other-reference'], undefined);
     assert.equal(base.comparison('/d/a.wav').blocked, undefined);
 });
 
@@ -209,8 +209,8 @@ test('a base group counts, names and measures only the recordings its median is 
         const resolved = base.resolve('/d/a.wav');
         const what = JSON.stringify(options);
         assert.equal(resolved.definition.count, measured.length, what);
-        assert.equal(resolved.definition.failed ?? 0, failed, what);
-        assert.equal(resolved.definition.pending ?? 0, pending, what);
+        assert.equal((resolved.definition.left?.failed ?? 0) + (resolved.definition.left?.empty ?? 0), failed, what);
+        assert.equal(resolved.definition.left?.pending ?? 0, pending, what);
         assert.ok(resolved.title.includes(strings.entryBaseMedian.replace('{count}', String(measured.length))), `${what}: ${resolved.title}`);
         assert.equal(resolved.title.includes(strings.dsBaseFailed.replace('{n}', String(failed))), failed > 0, what);
         assert.equal(resolved.title.includes(strings.dsBasePending.replace('{n}', String(pending))), pending > 0, what);
@@ -246,7 +246,7 @@ test('over a region the base counts what was measured there now: a recording sta
     // A base recording the region has no value of yet is pending there, never its whole file's value instead.
     const partial = regionAnswers(new Map(measured.slice(0, 2)));
     const pending = base.resolve('/d/a.wav', false, undefined, partial);
-    assert.equal(pending.definition.pending, 1);
+    assert.equal(pending.definition.left?.pending, 1);
     assert.deepEqual(base.comparison('/d/a.wav', false, partial).base?.filePaths, ['/d/b.wav']);
     // The report over the region (its stale set empty: every number is measured now) writes c's base as current: n 2.
     const report = (stale: ReadonlySet<string>): string[][] => reportCsv({ model: buildEntryModel([...results].map(([filePath, result]) => ({ filePath, result })), null), results: regionMap, slots: [null, '/d/a.wav', null, null],

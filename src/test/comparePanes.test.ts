@@ -191,7 +191,9 @@ test('the level axis is named by wandas\' level reference, and says uncalibrated
         assert.equal(paneAxes(strings, { ...SPL, fullScale: false }).level.y, splAxis, 'a calibrated CSV names its calibration');
         // A calibration to 1 V is calibrated even with a reference of 1.
         assert.equal(paneAxes(strings, { unit: 'V', ref: 1, levelReferenceLabel: 'dB re 1 V', calibrationStatus: 'calibrated', fullScale: true }).level.y, splAxis.replace('dB SPL re 20 µPa', 'dB re 1 V'));
-        assert.equal(paneAxes(strings, undefined).level.y, fullScaleAxis);
+        // No input: no reference is known, and the axis says so rather than a guessed dBFS (R4, V8).
+        assert.equal(paneAxes(strings, undefined).level.y, strings.axisLevelCal.replace('{label}', strings.axisUnitUnknown));
+        assert.notEqual(paneAxes(strings, undefined).level.y, fullScaleAxis);
     }
     const waveform = { min: [0], max: [1], minT: [0], maxT: [0], absolutePeak: 1, ref: 1 };
     const view = (unit: string): StageView => ({ frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs: [0], values: [0], waveform: { ...waveform, unit } });

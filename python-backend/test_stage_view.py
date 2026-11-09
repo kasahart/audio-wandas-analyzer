@@ -457,3 +457,17 @@ def test_a_cepstrograms_colour_edge_is_its_full_coefficients_99th_percentile(sig
     quefrencies = np.asarray(frame.quefrencies, dtype=np.float64)
     coefficients = plane[quefrencies > 0]
     assert view["valueRange"]["robust"] == pytest.approx(float(np.quantile(np.abs(coefficients), 0.99, method="lower")))
+
+
+def test_a_cross_spectrum_of_two_units_is_named_by_its_pairs_reference_never_a_channels() -> None:
+    # Reference V7: a recording against the base slot's is a pair of two units: its level is re the pair's reference
+    # (wandas' pair domain), so the stage names that, not the compared channel's dB SPL.
+    # Unitless pairs keep the channel's.
+    noise = np.random.default_rng(5).standard_normal(48_000)
+    mixed = wd.from_numpy(np.vstack([noise, 0.5 * noise]), sampling_rate=48_000, ch_units=["V", "Pa"])
+    view = _checked(mixed.csd(n_fft=1024))
+    assert view["quantity"] == "level"
+    assert view["unit"] == mixed.csd(n_fft=1024).select_pair(1, 0).channels[0].level_reference.label
+    assert "SPL" not in view["unit"]
+    plain = wd.from_numpy(np.vstack([noise, 0.5 * noise]), sampling_rate=48_000)
+    assert "unit" not in _checked(plain.csd(n_fft=1024))

@@ -9,7 +9,7 @@ import { BAND_CENTERS_HZ, type EntryRow } from './entryTable';
 import { FULL_PLOT_WINDOW, type PlotMargins, type PlotWindow } from './plotInteraction';
 import { paintOverlay, type StagePlot } from './stagePanes';
 import type { InlineFullSource } from './fullRead';
-import { emptyFigure, heatmapRange, levelTitle, plainNames, type FigureRange } from './figureModel';
+import { emptyFigure, heatmapRange, levelTitle, plainNames, plainTitle, type FigureRange } from './figureModel';
 
 /** The strip's margins: its row axis at the left, the frequency axis below, the colour bar inside the plot's top right. */
 export const OVERVIEW_MARGINS: PlotMargins = { left: 44, top: 2, right: 4, bottom: 16 };
@@ -179,7 +179,7 @@ export function paintOverview(
     else {
         const picture = overviewPicture(rows, bands, window, Math.ceil(plotHeight), wordOf);
         drawn = paintOverlay(canvas, { layers: picture ? [{ view: picture.view, color: '', rowName: (row, column) => picture.names[row]?.[column] ?? '', full: overviewCells(rows, bands, wordOf) }] : [] }, picture?.range ?? emptyFigure().range,
-            plainNames(strings.axisBand, strings.axisEntryRows, colour), {
+            plainNames(plainTitle(strings, 'axisBand'), plainTitle(strings, 'axisEntryRows'), colour), {
                 margins: OVERVIEW_MARGINS,
                 window: { x: window.x, y: window.y }, axisView: picture?.whole ?? null,
                 // The rows are counted down from the top: a row's place is minus its value.

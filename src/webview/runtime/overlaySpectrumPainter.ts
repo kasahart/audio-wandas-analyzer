@@ -1,4 +1,4 @@
-import { plainNames, plainRange, withTitle, type FigureTitle } from './figureModel';
+import { plainNames, plainRange, withTitle, type FigureTitle, type PlainTitle } from './figureModel';
 import { binFrequencyHz } from '../draw/canvasDrawers';
 import { levelBinsOf, paintOverlay, type StageLayer, type StagePlot } from './stagePanes';
 import type { StageView } from '../../shared/protocol/backendProtocol';
@@ -110,7 +110,7 @@ export function paintOverlaySpectrum(
     H: number,
     slices: SpectrumSeries[],
     view: SpectrumViewState,
-    frequencyTitle = '',
+    frequencyTitle: PlainTitle | '' = '',
     /** Names a level axis from its reference and the lines read on it (the UI's words, calibrated or not); the slice's own label otherwise. */
     levelTitle?: (reference: string, series: readonly SpectrumSeries[]) => FigureTitle,
 ): OverlaySpectrumPaint {

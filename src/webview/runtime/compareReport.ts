@@ -7,9 +7,9 @@
 import type { UiStrings } from '../../shared/i18n/strings';
 import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { encodeNumber, plainFloats, recipeSteps, timeSignalStep, upToStep, withDefaults, withParam, TIME_SLICE } from '../../shared/recipe/recipeSteps';
-import { BAND_CENTERS_HZ, bandCentreCell, bandLabel, csvNumber, EDGE_GUARD_S, HEADLINE_WITHIN_DB, levelReferenceCell, measuredRegion, regionCells, type BaseDefinition, type DerivedRow, type EntryMeasure, type EntryModel } from './entryTable';
+import { BAND_CENTERS_HZ, bandCentreCell, bandLabel, csvNumber, EDGE_GUARD_S, HEADLINE_WITHIN_DB, leftOf, leftText, levelReferenceCell, measuredRegion, regionCells, type BaseDefinition, type DerivedRow, type EntryMeasure, type EntryModel } from './entryTable';
 import { withBaseInput, withChannel } from '../../shared/recipe/channelSelection';
-import { baseLevelColumns, baseLevelOf, dataRange, diffRange, figureUsed, levelAxes, scanIdentity, setExclusionText, type SetStrings, levelColumns, paneNames, plainNames, titleOf, withTitle, type FigureColumns, type FigureRange, type FigureTitle } from './figureModel';
+import { baseLevelColumns, baseLevelOf, channelAnswer, medianInputOf, dataRange, diffRange, figureUsed, levelAxes, scanIdentity, setExclusionText, type SetStrings, levelColumns, paneNames, plainNames, plainTitle, titleOf, withTitle, type FigureColumns, type FigureRange, type FigureTitle, type PlainTitle } from './figureModel';
 import { setMedian, bandsSource, binsSource, binsView, deltaViews, diffHeadline, levelsHeadline, sideView, type CompareModel, type CompareStrings, type LevelInput } from './comparePanes';
 import { SECONDARY_AXIS_DASH } from './overlaySpectrumPainter';
 import { paintOverlay } from './stagePanes';
@@ -31,7 +31,7 @@ export interface ReportFile {
 
 export type ReportStrings = CompareStrings & Pick<UiStrings,
     | 'entryColFile' | 'entryColCondition' | 'stepRegion' | 'entryColLeq' | 'entryColPeak' | 'entryCsvGroupSize' | 'entryBase' | 'entryBaseGroup'
-    | 'reportBase' | 'reportCompare' | 'reportDiff' | 'reportCsv' | 'reportBaseLeq' | 'reportLevelReference' | 'reportBaseLevelReference' | 'reportBandDelta' | 'reportGroupFiles' | 'reportSpecVersion' | 'entryLeqUncalibrated' | 'reportSummary' | 'reportStepsLegend' | 'axisFrequency' | 'axisBand' | 'axisLevelUncal' | 'axisLevelCal' | 'axisDelta' | 'legendHeadline' | 'legendLeak' | 'legendLine' | 'hintLeqUncalibrated' | 'hintLeqUncalibratedRaw' | 'reportRegion' | 'reportRegionStart' | 'reportRegionEnd' | 'reportWhole' | 'reportDefinitions' | 'compareDelta' | 'defLeq' | 'defSpectrum' | 'defThirdOct' | 'defChannels' | 'defBase' | 'defDelta' | 'defRegion' | 'defHeadline' | 'defHeadlineEdges' | 'outside192' | 'outsideMedian' | 'outsideDelta' | 'outsideOutliers' | 'stepOctave' | 'reportChain' | 'reportChainCurrent' | 'reportChainPrevious' | 'reportMemo' | 'dsCh' | 'reportBaseDefinition' | 'reportDerived'>;
+    | 'reportBase' | 'reportCompare' | 'reportDiff' | 'reportCsv' | 'reportBaseLeq' | 'reportLevelReference' | 'reportBaseLevelReference' | 'reportBandDelta' | 'reportGroupFiles' | 'reportSpecVersion' | 'entryLeqUncalibrated' | 'reportSummary' | 'reportStepsLegend' | 'axisFrequency' | 'axisBand' | 'axisLevelUncal' | 'axisLevelCal' | 'axisUnitUnknown' | 'axisDelta' | 'legendHeadline' | 'legendLeak' | 'legendLine' | 'hintLeqUncalibrated' | 'hintLeqUncalibratedRaw' | 'reportRegion' | 'reportRegionStart' | 'reportRegionEnd' | 'reportWhole' | 'reportDefinitions' | 'compareDelta' | 'defLeq' | 'defSpectrum' | 'defThirdOct' | 'defChannels' | 'defBase' | 'defDelta' | 'defRegion' | 'defHeadline' | 'defHeadlineEdges' | 'outside192' | 'outsideMedian' | 'outsideDelta' | 'outsideOutliers' | 'stepOctave' | 'reportChain' | 'reportChainCurrent' | 'reportChainPrevious' | 'reportMemo' | 'reportShownValue' | 'dsCh' | 'reportBaseDefinition' | 'reportDerived'>;
 
 export interface ReportInput {
     model: EntryModel;
@@ -67,10 +67,10 @@ export function baseDefinitionText(definition: BaseDefinition, strings: Pick<UiS
     const what = definition.kind === 'file' ? `${strings.entryBase} ${definition.file ?? ''}` : `${strings.entryBaseGroup} ${[definition.group?.column, definition.group?.name].filter(Boolean).join(' ')}`.trim();
     return [
         what, `n=${definition.count}`, ...(definition.channel ? [`ch${definition.channel}`] : []),
-        ...(definition.fewerChannels ? [`-${definition.fewerChannels} (< ch${definition.channel})`] : []),
-        ...(definition.otherUnits ? [`-${definition.otherUnits} (≠ unit)`] : []),
-        ...(definition.failed ? [`-${definition.failed} (failed)`] : []), ...(definition.pending ? [`-${definition.pending} (pending)`] : []),
-        ...(definition.stale ? [`-${definition.stale} (stale)`] : []), ...definition.filters,
+        // Every recording the set left out, each reason apart, as the heading says them (a base fixed before the
+        // channel's members were in the set says them by its own count).
+        ...(leftText(leftOf(definition), definition.channel) ? [leftText(leftOf(definition), definition.channel)] : []),
+        ...definition.filters,
     ].join(' · ');
 }
 
@@ -161,7 +161,9 @@ export function reportStale(stale: ReadonlySet<string>, measuredNow: ReadonlyMap
  * calibration, of the compared one's reference and axis); else null and the row stays ≠. Its base's median, files
  * and level reference (the report's 基準 レベル基準 cell) are all taken anew of that one set.
  */
-export function remeasured(row: DerivedRow, compared: ScanAnswer, base: readonly ScanAnswer[], recipeKey: string): DerivedRow | null {
+export function remeasured(row: DerivedRow, whole: ScanAnswer, wholeBase: readonly ScanAnswer[], recipeKey: string): DerivedRow | null {
+    // A channel's row is measured again as that channel, its base's recordings as the same channel (as it was fixed).
+    const compared = channelAnswer(whole, row.ch), base = wholeBase.map(answer => channelAnswer(answer, row.ch));
     if (compared.state !== 'ready' || !base.length) return null;
     const set = figureUsed(scanIdentity(compared), base);
     const middle = set.n === base.length ? setMedian(set) : null;
@@ -174,14 +176,17 @@ export function remeasured(row: DerivedRow, compared: ScanAnswer, base: readonly
  * largest-Δ band, base count and what the base left out with why that the comparison, its held picture and 報告.csv show.
  */
 export function entryMeasure(comparison: CompareModel, band: number, strings: Omit<SetStrings, 'entryBaseMedian'>): EntryMeasure | null {
-    if (!comparison.base || !comparison.compare) return null;
+    if (!comparison.compare) return null;
+    const left = comparison.baseSet ? setExclusionText(comparison.baseSet, strings).replace(/^ · /u, '') : '';
+    // A base whose set counts none: no Δ, its n 0 and every recording it left out with why.
+    if (!comparison.base) return comparison.baseSet ? { leq: null, band: null, peak: null, count: 0, left } : null;
     const withheld = !!comparison.blocked;
     return {
         leq: withheld ? null : comparison.leq?.delta ?? null,
         band: withheld ? null : comparison.bandDeltas[band] ?? null,
         peak: maxBand(comparison),
         count: baseUsed(comparison).n,
-        left: comparison.baseSet ? setExclusionText(comparison.baseSet, strings).replace(/^ · /u, '') : '',
+        left,
     };
 }
 
@@ -209,7 +214,7 @@ export function reportCsv(input: ReportInput, strings: ReportStrings): string {
         strings.reportRegionStart, strings.reportRegionEnd, own.level, own.reference, base.level, base.reference, `Δ ${own.level}`,
         ...bands.map(band => strings.reportBandDelta.replace('{band}', bandLabel(band))),
         strings.entryCsvGroupSize, strings.reportGroupFiles, strings.reportSpecVersion, strings.reportChain,
-        strings.dsCh, ...(input.selection ? [input.selection.value] : []), strings.reportMemo, strings.reportBaseDefinition,
+        strings.dsCh, ...(input.selection ? [strings.reportShownValue.replace('{value}', () => input.selection?.value ?? '')] : []), strings.reportMemo, strings.reportBaseDefinition,
     ];
     const lines = [header.map(cell).join(',')];
     for (const { path, comparison } of comparisons) {
@@ -244,7 +249,8 @@ export function reportCsv(input: ReportInput, strings: ReportStrings): string {
             // The base's own reference and calibration, as fixed with it (never the compared row's).
             dB(leq), levelReferenceCell(levelRowOf(item.result), own), dB(numbers ? item.base.leq : null), levelReferenceCell(item.base.level, base), dB(leq === null ? null : leq - item.base.leq),
             ...bands.map(band => { const level = bandLevel(band), reference = item.base.bands[band]; return dB(level === null || reference === null || reference === undefined ? null : level - reference); }),
-            String(item.base.paths?.length ?? ''), (item.base.paths ?? []).map(baseName).join(';'), String(item.result.specVersion ?? ''),
+            // n as the base's set counted it when fixed (its definition), not a count of its files.
+            definition ? String(definition.count) : '', (item.base.paths ?? []).map(baseName).join(';'), String(item.result.specVersion ?? ''),
             item.stale ? strings.reportChainPrevious : strings.reportChainCurrent,
             item.ch ? String(item.ch) : '', ...(input.selection ? [''] : []), '', definition ? baseDefinitionText(definition, strings) : item.base.label ?? '',
         ].map(cell).join(','));
@@ -272,7 +278,7 @@ const PNG_SIZE = { width: 1200, height: 400 };
  */
 export function outsideRecipe(strings: Pick<UiStrings, 'entryColLeq' | 'outside192' | 'stepOctave' | 'outsideMedian' | 'outsideDelta' | 'outsideOutliers'>, welch?: Record<string, unknown>): Array<{ tag: string; text: string }> {
     return [
-        { tag: strings.entryColLeq, text: 'Leq dB(A) = 20·log10(rms / ref) of the time slice\'s frame.a_weighting(): an RMS is an array, not a frame, so it is not a Recipe step' },
+        { tag: strings.entryColLeq, text: 'Leq A-weighted, in dB re each channel\'s own level reference = 20·log10(rms / ref) of the time slice\'s frame.a_weighting(): an RMS is an array, not a frame, so it is not a Recipe step' },
         // eslint-disable-next-line @typescript-eslint/no-base-to-string, @typescript-eslint/restrict-template-expressions -- Recipe params are JSON scalars
         { tag: strings.outside192, text: `spectrum: the SpectralFrame's dB (n_fft ${welch?.['n_fft'] ?? 1024}, ${welch?.['window'] ?? 'hann'}), bins power-averaged into 192 log-spaced points from 20 Hz to Nyquist (narrower than a bin: interpolated), as the table shows it; the report's figures, base median and Δ: every bin, decimated only to be drawn (each of 640 log-spaced buckets' lowest and highest bin); channels: power mean (10·log10 of the mean of 10^(L/10))` },
         { tag: strings.stepOctave, text: '1/3 octave bands (the table\'s band values, Δ max band): noct_spectrum (fmin 20, fmax = the highest nominal centre ≤ 0.88 × Nyquist, n = 3) of the chain\'s time signal over the time slice, beside the chain rather than a step of it; the NOctFrame\'s dB, bands centred outside the Recipe\'s filter passband left empty; channels: power mean' },
@@ -337,7 +343,7 @@ export function reportDefinitions(input: ReportInput, specVersion: number | unde
         specVersion: specVersion ?? null,
         region: input.region ? { startS: input.region.start, endS: input.region.end } : null,
         metrics: {
-            'Leq dB(A)': strings.defLeq,
+            'Leq A-weighted': strings.defLeq,
             spectrum: strings.defSpectrum.replace('{n_fft}', String(welch?.params['n_fft'] ?? 1024)).replace('{window}', String(welch?.params['window'] ?? 'hann')),
             '1/3 octave': strings.defThirdOct,
             region: strings.defRegion,
@@ -383,15 +389,14 @@ function pngOf(document: Document, paint: (canvas: HTMLCanvasElement) => void): 
 }
 
 /** A report figure's horizontal axis as the comparison names the same picture (stagePanes.stageAxes): band centres for 1/3-octave bands. */
-function figureXAxis(views: ReadonlyArray<StageView | null>, strings: Pick<UiStrings, 'axisFrequency' | 'axisBand'>): string {
-    return views.find(Boolean)?.x === 'band' ? strings.axisBand : strings.axisFrequency;
+function figureXAxis(views: ReadonlyArray<StageView | null>, strings: Pick<UiStrings, 'axisFrequency' | 'axisBand'>): PlainTitle {
+    return plainTitle(strings, views.find(Boolean)?.x === 'band' ? 'axisBand' : 'axisFrequency');
 }
 
 function sideInput(side: CompareModel['base'], input: ReportInput): LevelInput | undefined {
     const inputs = (side?.filePaths ?? []).map(path => input.results.get(path)).flatMap(result => (result?.ok && result.input ? [result.input] : []));
-    const first = inputs[0];
-    if (!first) return undefined;
-    return { ...first, calibrationStatus: inputs.every(item => item.calibrationStatus === 'calibrated') ? 'calibrated' : 'uncalibrated' };
+    // One definition of a median line's calibration (figureModel.medianInputOf), as the screen's.
+    return medianInputOf(inputs);
 }
 
 /**

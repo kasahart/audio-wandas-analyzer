@@ -155,11 +155,11 @@ test('a long name keeps its start and its end', () => {
 test('a base group is the group\'s other recordings in the pool, of the compared channel; recordings without it are left out and counted', () => {
     const attributes = new Map([['/d/a.wav', { rpm: '900' }], ['/d/b.wav', { rpm: '900' }], ['/d/m.wav', { rpm: '900' }], ['/d/c.wav', { rpm: '1500' }]]);
     const rows = datasetRows(['/d/a.wav', '/d/b.wav', '/d/m.wav', '/d/c.wav'], '/d', attributes, new Map(), new Map([['/d/a.wav', 2], ['/d/b.wav', 2], ['/d/m.wav', 1], ['/d/c.wav', 2]]));
-    assert.deepEqual(baseGroupMembers(rows, '/d/a.wav', 'csv:rpm', '900', 2), { paths: ['/d/b.wav'], fewerChannels: 1 });
-    assert.deepEqual(baseGroupMembers(rows, '/d/a.wav', 'csv:rpm', '900', null), { paths: ['/d/b.wav', '/d/m.wav'], fewerChannels: 0 });
+    assert.deepEqual(baseGroupMembers(rows, '/d/a.wav', 'csv:rpm', '900', 2), { paths: ['/d/b.wav'], fewerChannels: 1, fewerPaths: ['/d/m.wav'] });
+    assert.deepEqual(baseGroupMembers(rows, '/d/a.wav', 'csv:rpm', '900', null), { paths: ['/d/b.wav', '/d/m.wav'], fewerChannels: 0, fewerPaths: [] });
     // The pool is what the filters left: ch = 2 only leaves the mono recording out before any channel is asked for.
     const ch2 = rows.filter(row => row.ch === 2);
-    assert.deepEqual(baseGroupMembers(ch2, '/d/a.wav', 'csv:rpm', '900', 2), { paths: ['/d/b.wav'], fewerChannels: 0 });
+    assert.deepEqual(baseGroupMembers(ch2, '/d/a.wav', 'csv:rpm', '900', 2), { paths: ['/d/b.wav'], fewerChannels: 0, fewerPaths: [] });
     assert.deepEqual(baseGroupMembers(rows, '/d/a.wav', 'none', '', 2).paths, ['/d/b.wav', '/d/c.wav']);
 });
 

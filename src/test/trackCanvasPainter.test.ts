@@ -3,6 +3,7 @@ import test from 'node:test';
 import type { SpectrogramData, WaveformEnvelope } from '../shared/analysis/analysisTypes';
 import { hexToRgba, laneSpectrogramView, laneWaveformOverlay, onColourBar, paintTrackSpectrogram } from '../webview/runtime/trackCanvasPainter';
 import { normalizedColor, viridis } from '../shared/gui-core/index';
+import { P, T } from './helpers/figure';
 
 test('hexToRgba converts a #rrggbb color', () => {
     assert.equal(hexToRgba('#ff8000', 0.25), 'rgba(255,128,0,0.25)');
@@ -49,7 +50,7 @@ const spec: SpectrogramData = {
     timeBins: 2, frequencyBins: 2, windowSize: 1024, hopSize: 256,
     maxFrequencyHz: 1000, minDb: -80, maxDb: -20, unit: 'dB',
 };
-const TITLES = { colour: 'Level [dBFS]', frequency: 'Frequency [Hz]', time: 'Time [s]' };
+const TITLES = { colour: T('Level [dBFS]'), frequency: P('Frequency [Hz]'), time: P('Time [s]') };
 // One 2 s file filling the lanes' axis.
 const wholePlace = { startSec: 0, spanSec: 2, offsetNorm: 0, trackDurRatio: 1 };
 const laneView = { window: { start: 0, end: 1 }, dbLo: -80, dbHi: -20, maxFrequencyHz: 1000, minFrequencyHz: 0, durationSec: 2 };
@@ -109,7 +110,7 @@ test('a spectrogram lane is drawn by the plot component over its whole width, wi
     assert.deepEqual([entry.ticks[0]?.text, entry.ticks.at(-1)?.text], ['0', '1000']);
     // A new name is a new look: the lane is painted again.
     const renamed = laneCanvas(400, 60);
-    assert.notEqual(paintTrackSpectrogram(renamed.canvas, null, spec, wholePlace, laneView, entry, { ...TITLES, colour: 'Level [dB SPL]' }, ''), entry);
+    assert.notEqual(paintTrackSpectrogram(renamed.canvas, null, spec, wholePlace, laneView, entry, { ...TITLES, colour: T('Level [dB SPL]') }, ''), entry);
 });
 
 test('each pixel of a spectrogram lane shows the loudest of the cells it covers, in the lanes\' viridis colours (R2)', () => {

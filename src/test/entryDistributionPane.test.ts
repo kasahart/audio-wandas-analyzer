@@ -7,6 +7,9 @@ import { DISTRIBUTION_BINS } from '../shared/dataset/distribution';
 import { distributionLegendHtml, distributionScale, pickedRange } from '../webview/runtime/entryDistribution';
 import { createDistributionPane, type DistributionInputs } from '../webview/runtime/entryDistributionPane';
 import { entryScreenHtml } from '../webview/runtime/entryTableHtml';
+import { P } from './helpers/figure';
+import { scanAnswer, type ScanAnswer } from '../webview/runtime/answerStore';
+import { figureUsed, folderReference, referenceIdentity } from '../webview/runtime/figureModel';
 
 const strings = getStrings('en');
 
@@ -48,10 +51,22 @@ function setup() {
     const byKey = new Map(rows.map(row => [row.key, row]));
     const inputs: DistributionInputs = {
         pool: rows, value: 'csv:score', group: 'csv:rpm', results: new Map(), range: null, usable: () => true, slots: [null, '/d/b.wav', null, null],
-        rowOf: key => (key ? byKey.get(key) : undefined), base: { group: '900', value: 0.2 }, onAxis: () => true, valueLabel: 'score', format: String, rowName: key => key,
+        rowOf: key => (key ? byKey.get(key) : undefined), base: { group: '900', value: 0.2 }, onAxis: () => true, valueLabel: P('score'), format: String, rowName: key => key,
     };
     return { dom, screen, pane, calls, inputs };
 }
+
+test('a level\'s heading counts its set and says what it left out, with why (aggregation V11)', () => {
+    const { screen, pane, inputs } = setup();
+    const ready = (path: string): ScanAnswer => scanAnswer(path, { ok: true, input: { id: 'x', fs: 48000, channels: [0], durationS: 1, unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true }, leqDbA: [-20], peakHz: [1], crest: [1], spectrumDb: [[0]], thirdOctDb: [[0]], specVersion: 5 });
+    const answers = [ready('/d/a.wav'), ready('/d/b.wav'), ready('/d/c.wav'), scanAnswer('/d/p.wav', undefined), scanAnswer('/d/x.wav', { ok: false, reason: 'unreadable' })];
+    const set = figureUsed(referenceIdentity(folderReference(answers)), answers);
+    pane.paint({ ...inputs, set });
+    const heading = screen.querySelector('[data-entry-dist-count]')?.textContent ?? '';
+    assert.ok(heading.startsWith(`3 ${strings.dsUnitRecording}`), heading);
+    assert.ok(heading.includes(strings.dsBasePending.replace('{n}', '1')), heading);
+    assert.ok(heading.includes(strings.dsBaseFailed.replace('{n}', '1')), heading);
+});
 
 test('the pane draws the groups, folds above the table beside the tracks and spreads on the right maximized', () => {
     const { screen, pane, inputs } = setup();

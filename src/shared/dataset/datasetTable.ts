@@ -230,11 +230,11 @@ export function middleEllipsis(name: string, max = 34): string {
  * recordings (`name` under `group`; every row when not grouped), of `channel` when one channel is compared.
  * Recordings without that channel cannot be a member: they are left out and counted.
  */
-export function baseGroupMembers(pool: readonly DatasetRow[], comparePath: string, group: GroupId, name: string, channel: number | null): { paths: string[]; fewerChannels: number } {
+export function baseGroupMembers(pool: readonly DatasetRow[], comparePath: string, group: GroupId, name: string, channel: number | null): { paths: string[]; fewerChannels: number; fewerPaths: string[] } {
     const others = pool.filter(row => row.filePath !== comparePath && (group === 'none' || groupOf(row, group) === name));
     const members = channel ? others.filter(row => row.ch === channel) : others;
-    const fewerChannels = channel ? new Set(others.filter(row => (row.channels ?? 1) < channel).map(row => row.filePath)).size : 0;
-    return { paths: [...new Set(members.map(row => row.filePath))], fewerChannels };
+    const fewerPaths = channel ? [...new Set(others.filter(row => (row.channels ?? 1) < channel).map(row => row.filePath))] : [];
+    return { paths: [...new Set(members.map(row => row.filePath))], fewerChannels: fewerPaths.length, fewerPaths };
 }
 
 /**

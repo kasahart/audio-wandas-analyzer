@@ -330,6 +330,13 @@ test('overlaid, lines share an axis by their level identity, not their axis name
     assert.equal(three.result.tooMany, false);
     assert.equal(three.result.mainLayers.length, 2);
     assert.ok(three.result.secondary?.title.endsWith('[dB SPL re 20 µPa]'), three.result.secondary?.title);
+    // Three identities: nothing overlaid, and the empty axis names no line's reference, never the first track's (V8).
+    const volts = { unit: 'V', ref: 1, levelReferenceLabel: 'dB re 1 V', calibrationStatus: 'calibrated', fullScale: false } as const;
+    const many = split({ 'base.wav': raw, 'one.wav': volts, 'two.wav': spl }, ['base.wav', 'one.wav', 'two.wav']);
+    assert.equal(many.result.tooMany, true);
+    assert.equal(many.result.mainInput, undefined);
+    assert.ok(!many.result.mainNames.y.includes('dBFS'), many.result.mainNames.y);
+    assert.ok(many.result.mainNames.y.includes(strings.axisUnitUnknown), many.result.mainNames.y);
 });
 
 test('overlaid, a trigger\'s events are split by level identity as any line, and a vertical zoom narrows the right-hand axis as the left (A43, A45, R13)', () => {

@@ -26,14 +26,14 @@ import { createStageSource, type StageSpec } from './stageSource';
 import { createCombineSource, createLastFine, NOTHING_COMBINED, TOO_LARGE_COMBINED } from './combineSource';
 import { createStageReader } from './stageReader';
 import type { FullRead } from './fullRead';
-import { chosenStage, combineRequest, comparedPath as comparedPathOf, eachBaseTitle, enterStageState, holdStageSpec, initialStageState, liveRegion as liveRegionOf, openStageState, pictureSummary, plotsOf, regionStageSpec, stageSpec, WHOLE_ZOOM } from './trackStageModel';
+import { chosenStage, combineRequest, comparedPath as comparedPathOf, enterStageState, holdStageSpec, initialStageState, liveRegion as liveRegionOf, openStageState, pictureSummary, plotsOf, regionStageSpec, stageSpec, WHOLE_ZOOM } from './trackStageModel';
 import { createDetailPlanner, onOneRange } from './stageDetail';
 import { attachStageGestures, type StageGestures } from './trackStageGestures';
 import { colorOf, overlayLayers, overlayLegendItems, paintBaseGate, paintNoPicture, paintNoStage, paintStageControls, paintStageLanes, paintStageOverlay, stageDom, stageModeHeadline, writeStageLegend, type Drawn, type StageFrame, type StageTrack } from './trackStagePainter';
 
 export type { StageTrack } from './trackStagePainter';
 import { axisValueAt, isEventsView, rowValueAt } from './stagePanes';
-import { axisInputOf, excludedFor, legendWords, pictureSet, stageNames, type FigureSet } from './figureModel';
+import { axisInputOf, excludedFor, legendWords, medianInputOf, pictureLevelOf, pictureSet, stageNames, type ExclusionReason, type FigureSet } from './figureModel';
 import { clearTriggerLanes, paintTriggerLanes, type TriggerSettings } from './triggerLanes';
 import { zoomNormalizedRange, ZOOM_IN_FACTOR } from './waveformInteraction';
 import { keyRouterFor } from './keyRouter';
@@ -60,12 +60,14 @@ export interface TrackStageDeps {
     /** The entry table's slots 0–3, the base of a compared file and its name. */
     slots(): (string | null)[];
     basePaths(comparePath: string, group?: boolean): string[];
+    /** The base group's recordings left out by the table's answers (another reference or axis), with why. */
+    baseLeft?(comparePath: string, group: boolean): ReadonlyArray<{ path: string; reason: ExclusionReason }>;
     /** The base's title, with `more` of its recordings left out (a step picture failed, empty or on its way). */
     /**
      * The base's heading for the step figure's one set (entryBase.heading): its name and n, and who is left out why;
      * null while the group is not analysed here (gated): the base as the table counts it (its own set).
      */
-    baseHeading(comparePath: string, group: boolean, set: FigureSet<unknown> | null): string;
+    baseHeading(comparePath: string, group: boolean, set: FigureSet<unknown> | null, each?: boolean): string;
     /** What a recording's levels are in (its scan's input): a base recording that is no track has its own reference too. */
     levelOf?(path: string): LevelInput | undefined;
     /** The same of several files, against one reading of what is current (the store's answers). */
@@ -569,6 +571,8 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         for (const track of tracks) {
             const scanned = source.result(specFor(track.filePath), track.filePath);
             if (scanned?.ok && scanned.input) track.input = scanned.input;
+            // The picture's own values are what its axis is grouped and named by (a gain: its pair's unit ratio, R1).
+            track.input = pictureLevelOf(coarse(track.filePath), track.input);
         }
         const picture = tracks.map(track => coarse(track.filePath)).find((view): view is StageView => !!view) ?? null;
         // Before any picture is in, the step's Frame says whether it is an image: the comparison is shown at once,
@@ -603,11 +607,15 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         const tableLevels = deps.levelsOf?.(levelPaths) ?? [];
         const levels = levelPaths.map((path, index): LevelInput | undefined => {
             const scanned = source.result(specFor(path), path);
-            return (scanned?.ok ? scanned.input : undefined) ?? allTracks.find(track => track.filePath === path)?.input ?? tableLevels[index];
+            // A gain is re its pair's unit ratio, a cross spectrum against the base slot re the pair's reference (R1).
+            return pictureLevelOf(coarse(path), (scanned?.ok ? scanned.input : undefined) ?? allTracks.find(track => track.filePath === path)?.input ?? tableLevels[index]);
         });
         const levelOf = (path: string): LevelInput | undefined => { const at = levelPaths.indexOf(path); return at < 0 ? deps.levelOf?.(path) : levels[at]; };
         const compareInput = comparePath ? levelOf(comparePath) : undefined;
-        const stageSet = pictureSet(allowed, coarse, levelOf, { level: compareInput, view: comparePath ? coarse(comparePath) : undefined }, !each);
+        // The group's recordings the table's answers already put on another reference or axis are not asked for here,
+        // but stay in the set's left-out list, so the heading says them as the entry table's does.
+        const left = comparePath && !referencePath ? deps.baseLeft?.(comparePath, state.groupBase) ?? [] : [];
+        const stageSet = pictureSet(allowed, coarse, levelOf, { level: compareInput, view: comparePath ? coarse(comparePath) : undefined }, !each, left);
         const waitingBase = excludedFor(stageSet, 'pending') > 0;
         const basePaths = stageSet.paths;
         paintStageControls(dom, strings, { overlaid: state.overlaid, images, showDiff: state.showDiff, overlay, measuredAgainstBase: !!referencePath, nothingCompared: !comparedPath(tracks), baseEach: each, events: isEventsView(picture) || /Segments$/.test(frameShown ?? '') });
@@ -750,7 +758,9 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         // Each recording's legend name and readout say uncalibrated where its axis does not (R1, R4: legendWords).
         const { word, baseWord } = legendWords(strings, allTracks, [comparePath, ...tracks.map(track => track.filePath)], basePaths, levelOf);
         // The base's line is on the axis of its own recordings' reference (R1): never a track's it is not of.
-        const baseInput = axisInputOf(basePaths.map(levelOf)) ?? compareInput;
+        // A median line is calibrated only when every recording it is of is (figureModel.medianInputOf), as the report
+        // and the legend say it; waveforms drawn each are each their own.
+        const baseInput = (each ? axisInputOf(basePaths.map(levelOf)) : medianInputOf(basePaths.map(levelOf))) ?? compareInput;
         const namedHere = (path: string, slot: number | undefined): ReturnType<typeof named> => { const name = named(path, slot); const said = word(path); return said ? { ...name, label: `${name.label}${said}` } : name; };
         const frame: StageFrame = { strings, tracks, allTracks, referencePath, comparePath, coarse, shown, picture, coarsePlots, fullOf, window: state.window, diffY: state.diffY, diffOfWindow: !!fineCombined && !!peakWindow, regionMark, pending, waiting: waiting || combining, role, named: namedHere, drawnOn, baseEach: each, excluded, levelOf, ...(baseInput ? { baseInput } : {}), ...(coarseCombined?.tooLarge ? { tooLarge: true } : {}), ...(coarseCombined?.noDelta ? { noDelta: coarseCombined.noDelta } : {}), ...(coarseCombined?.failed ? { failed: true } : {}) };
         const bypassed = steps.filter(step => step.bypassed).map(step => stepChipLabel(step, strings, state.regionSet));
@@ -766,7 +776,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         // The heading's n is the step figure's set's: the base's recordings left out here (failed, empty) are said so.
         // Drawn each as it is, every waveform says its own calibration (R4: only an uncalibrated line says so), not
         // the group's word on each; one median line says the group's.
-        const baseTitle = (path: string): string => { const heading = deps.baseHeading(path, state.groupBase, gated ? null : stageSet); return each ? eachBaseTitle(heading, strings) : heading + baseWord; };
+        const baseTitle = (path: string): string => (each ? deps.baseHeading(path, state.groupBase, gated ? null : stageSet, true) : deps.baseHeading(path, state.groupBase, gated ? null : stageSet) + baseWord);
         const aggregate = each ? strings.stageBaseEach : strings.stageBaseAggregate;
         query<HTMLElement>('[data-stage-base-aggregate]').textContent = aggregate;
         const baseLabel = comparePath ? baseTitle(comparePath) : basePaths.length === 1 ? namedHere(basePaths[0], role(basePaths[0])).label : undefined;

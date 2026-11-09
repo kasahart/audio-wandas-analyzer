@@ -302,7 +302,7 @@ export function writeStageLegend(legend: HTMLElement, html: string, written: str
 export function byReference(frame: Pick<StageFrame, 'strings' | 'picture' | 'allTracks' | 'tracks' | 'role'> & Partial<Pick<StageFrame, 'window' | 'levelOf' | 'comparePath'>>, layers: readonly StageLayer[]): {
     mainLayers: StageLayer[]; secondary?: { layers: StageLayer[]; range: FigureRange; title: FigureTitle }; secondWhole?: FigureRange; mainInput: StageTrack['input']; mainNames: FigureNames; tooMany: boolean;
 } {
-    const { strings, picture, tracks } = frame;
+    const { strings, picture } = frame;
     // A line's own recording's input (a track's, else its scan's), the base median's its recordings'; a line of neither
     // is the compared recording's, whose identity the base set is of, never the first track's (R1).
     const trackInput = (path: string | null | undefined): StageTrack['input'] => (path ? frame.allTracks.find(track => track.filePath === path)?.input ?? frame.levelOf?.(path) : undefined);
@@ -310,13 +310,14 @@ export function byReference(frame: Pick<StageFrame, 'strings' | 'picture' | 'all
     const base = layers.find(layer => layer.recording !== undefined && frame.role(layer.recording) === 0);
     // An image has one colour bar; a trigger's events are their recordings' lines, split by identity as any line (A43).
     const { axes, tooMany } = levelAxes(layers, {
-        inputOf, ...(base ? { first: base } : {}), one: picture?.kind === 'heatmap', fallback: tracks[0]?.input,
+        inputOf, ...(base ? { first: base } : {}), one: picture?.kind === 'heatmap',
         names: input => stageNames(strings, picture, input),
         range: members => dataRange(members.map(layer => layer.view)),
     });
-    if (tooMany) return { mainLayers: [], mainInput: tracks[0]?.input, mainNames: stageNames(strings, picture, tracks[0]?.input), tooMany: true };
+    // No line drawn (too many references, or none): the axis names no reference, since it holds no line's (R4).
+    if (tooMany) return { mainLayers: [], mainInput: undefined, mainNames: stageNames(strings, picture, undefined), tooMany: true };
     const [main, second] = axes;
-    if (!main) return { mainLayers: [], mainInput: tracks[0]?.input, mainNames: stageNames(strings, picture, tracks[0]?.input), tooMany: false };
+    if (!main) return { mainLayers: [], mainInput: undefined, mainNames: stageNames(strings, picture, undefined), tooMany: false };
     if (!second) return { mainLayers: main.lines, mainInput: main.input, mainNames: main.names, tooMany: false };
     // A vertical zoom narrows the right-hand axis by the same part of it as the left (A45, R13), as the cursor spectrum's.
     return {
@@ -327,7 +328,7 @@ export function byReference(frame: Pick<StageFrame, 'strings' | 'picture' | 'all
 
 /** Overlaid: the base, the other tracks and the compared one on one plot, then their difference under it on request. */
 export function paintStageOverlay(dom: StageDom, frame: StageFrame, plots: StagePlots<StageTrack>, layers: StageLayer[], showDiff: boolean): void {
-    const { strings, tracks, picture, coarsePlots, window, regionMark, pending, waiting, comparePath, referencePath } = frame;
+    const { strings, picture, coarsePlots, window, regionMark, pending, waiting, comparePath, referencePath } = frame;
     const range = dataRange([coarsePlots.base, ...coarsePlots.baseMembers.map(item => item.view), coarsePlots.compare, ...coarsePlots.others.map(item => item.view)]);
     const { mainLayers, secondary, secondWhole, mainNames: axes, tooMany } = byReference(frame, layers);
     const empty = tooMany ? strings.stageTooManyReferences : waiting ? '' : emptyStageText(strings, picture);
@@ -345,7 +346,7 @@ export function paintStageOverlay(dom: StageDom, frame: StageFrame, plots: Stage
     const zoomed = window.x.start > 0 || window.x.end < 1 || (plots.diff?.kind === 'heatmap' && (window.y.start > 0 || window.y.end < 1));
     dom.query<HTMLElement>('[data-stage-diff-headline]').textContent = waiting ? '' : plots.diff ? stageHeadline(plots.diff, strings, !zoomed || !!frame.diffOfWindow) : noDeltaNote(frame, strings);
     // A Δ is only of recordings of one reference (stage_combine._no_delta_reason): the compared one's names it.
-    const diffAxes = stageNames(strings, coarsePlots.diff, frame.allTracks.find(track => track.filePath === comparePath)?.input ?? tracks[0]?.input, true);
+    const diffAxes = stageNames(strings, coarsePlots.diff, frame.allTracks.find(track => track.filePath === comparePath)?.input ?? (comparePath ? frame.levelOf?.(comparePath) : undefined), true);
     const diffCanvas = dom.query<HTMLCanvasElement>('[data-stage-canvas="diff"]');
     const diffRange = figureDiffRange(coarsePlots.diff);
     const diffPlot = paintStage(diffCanvas, plots.diff, narrowedRange(diffRange, frame.diffY), DIFF_COLOR, diffAxes,
