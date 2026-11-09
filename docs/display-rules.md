@@ -241,6 +241,8 @@
 
 自動の範囲の端は、描くために間引いた点や平均したマスではなく、全データ（間引く前のすべての点・すべてのマス）の最小と最大から決めます。dB の熱図（トラックのスペクトログラム、比較の熱図、入口の一覧の帯）の色は、上を全データの最大、下を max(全データの最小, 上 − 100 dB) とします。デジタル無音（−240 dB や −300 dB）があっても、下の端はそこまで下がりません。dB の線の軸も同じく、上を全データの最大、下を max(全データの最小, 上 − 100 dB) として、両端をそれぞれ外へ切りのよい刻みに丸めます。刻みは 5・10・20・25 dB のうち 6 目盛り以下になる一番細かいもので、両端の余りは 1 刻みまでです。全データの最小が軸の外に出ることはなく、余白で図の半分を使うこともありません（−49.5〜−9.5 dB は −50〜0 dB）。
 - テスト: `src/test/stagePanes.test.ts` › a dB line's automatic range encloses every value of its full data down to 100 dB under its loudest, rounded out to round steps with at most a step of slack on each side (R9)
+- 右の第 2 のレベル軸（カーソルスペクトル）は、自分の範囲の切りのよい目盛りを、その値の位置に書きます。左の軸の目盛りの位置に右の範囲の値を丸めて書くと、数がその位置の値と違うからです。
+- テスト: `src/test/stagePanes.test.ts` › the right-hand level axis writes its own round ticks, each at the place of its own value, never the left axis's places relabelled (R4, R9)
 
 - テスト: `src/test/stagePanes.test.ts` › every range is set from the full data's lowest and highest value (valueRange), never the points drawn or the cells averaged to draw an image (R1, R9)
 - テスト: `src/test/stagePanes.test.ts` › a heatmap's colours reach no more than 100 dB under its loudest value: digital silence (−240 dB) does not set the bottom (R9)

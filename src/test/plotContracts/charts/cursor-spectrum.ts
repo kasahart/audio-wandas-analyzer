@@ -57,9 +57,10 @@ export const cursorSpectrum: ChartContract = {
         {
             id: 'cursor-spectrum.ticks', value: 'ticks', what: '周波数とレベルの目盛り',
             computedIn: [`${SP}:paintPlot`, `${SP}:valueAxisTicks`, `${SP}:valueTickTexts`, `${SP}:alongAxisTicks`, `${SP}:rowAxisTicks`, `${SP}:tickText`, `${SP}:levelTick`, `${SP}:paintRightAxis`],
-            from: 'axis', trace: '範囲から部品が決める。',
+            from: 'axis', trace: '範囲から部品が決める。右の第 2 のレベル軸は自分の範囲の目盛り（valueAxisTicks）をその値の位置に書く。',
             tests: [
                 t('src/test/overlaySpectrumPainter.test.ts', 'zoomed between two log ticks, the frequency axis still labels where it is'),
+                t('src/test/stagePanes.test.ts', 'the right-hand level axis writes its own round ticks, each at the place of its own value, never the left axis\'s places relabelled (R4, R9)'),
             ],
         },
         {

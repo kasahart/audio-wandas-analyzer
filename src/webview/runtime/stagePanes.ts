@@ -1175,7 +1175,9 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
         drawValueAxis(context, frame, levelTicks, '', { color: muted, font: context.font, titleX: AXIS_TITLE_X });
         paintValueTitle(context, frame, axes.y, text, AXIS_TITLE_X);
     }
-    if (options.secondary && !heatmap) paintRightAxis(context, frame, levelTicks.map(tick => tick.fraction), options.secondary.range, options.secondary.title, width, { muted, line, text });
+    // The right-hand axis has its own round ticks, each written where its own value is (never the left axis's places
+    // labelled with the right range's values there, rounded to a number that is not where it is drawn).
+    if (options.secondary && !heatmap) paintRightAxis(context, frame, valueAxisTicks(options.secondary.range, plotHeight), options.secondary.range, options.secondary.title, width, { muted, line, text });
     // Under the region's corner tag when there is one.
     // A heatmap's colour bar holds that corner: the note goes under it.
     if (options.pending) paintPending(context, options.pending, left + plotWidth - 6, heatmap && plot.colourBar ? plot.colourBar.y + plot.colourBar.height + 9 : top + (options.region?.mark === 'tag' ? 38 : 12), 'right', pendingColors);
@@ -1287,19 +1289,19 @@ export function paintColourBar(context: CanvasRenderingContext2D, at: { left: nu
  * The right-hand level axis: its edge, its values at the left axis' gridlines (`fractions` up the plot), so a
  * gridline reads on either side, and its name up the canvas' right side.
  */
-function paintRightAxis(context: CanvasRenderingContext2D, frame: { left: number; top: number; width: number; height: number }, fractions: readonly number[], range: PaneRange, title: string, width: number, colors: { muted: string; line: string; text: string }): void {
+function paintRightAxis(context: CanvasRenderingContext2D, frame: { left: number; top: number; width: number; height: number }, ticks: readonly AxisTick[], range: PaneRange, title: string, width: number, colors: { muted: string; line: string; text: string }): void {
     const x = frame.left + frame.width;
-    const span = range.max - range.min;
     context.save();
     context.strokeStyle = colors.line;
     context.lineWidth = 1;
     context.beginPath(); context.moveTo(x, frame.top); context.lineTo(x, frame.top + frame.height); context.stroke();
     context.fillStyle = colors.muted;
     context.textAlign = 'left';
-    for (const fraction of span > 0 ? fractions : []) {
-        const value = range.min + fraction * span;
-        context.textBaseline = fraction >= 1 ? 'top' : fraction <= 0 ? 'bottom' : 'middle';
-        context.fillText(levelTick(value, span), x + 2, frame.top + (1 - fraction) * frame.height);
+    for (const tick of range.max > range.min ? ticks : []) {
+        const y = frame.top + (1 - tick.fraction) * frame.height;
+        context.beginPath(); context.moveTo(x, y); context.lineTo(x + 3, y); context.stroke();
+        context.textBaseline = tick.fraction >= 1 ? 'top' : tick.fraction <= 0 ? 'bottom' : 'middle';
+        context.fillText(tick.text, x + 4, y);
     }
     context.restore();
     paintValueTitle(context, frame, title, colors.text, width - AXIS_TITLE_X);

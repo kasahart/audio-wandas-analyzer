@@ -623,3 +623,29 @@ test('a level is read in its axis\'s own unit and reference, on the main axis, t
     const diff = paintOverlay(strokingCanvas().canvas, { layers: [main] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Δ level [dB]' }, { diff: true });
     assert.match(stageHover(diff!, diff!.xAt(1000), diff!.yAt(-20))!.text, /−20\.0 dB$/u);
 });
+
+test('the right-hand level axis writes its own round ticks, each at the place of its own value, never the left axis\'s places relabelled (R4, R9)', () => {
+    const texts: Array<{ text: string; x: number; y: number }> = [];
+    const context = new Proxy({}, {
+        get: (_target, key) => (key === 'measureText' ? (text: string) => ({ width: text.length * 6 })
+            : key === 'fillText' ? (text: string, x: number, y: number) => { texts.push({ text, x, y }); } : () => undefined),
+        set: () => true,
+    });
+    const canvas = { width: 0, height: 0, clientWidth: 600, clientHeight: 300, ownerDocument: {}, dataset: {} as DOMStringMap, getContext: () => context } as unknown as HTMLCanvasElement;
+    const flat = (level: number): StageView => measured(line([level, level, level]));
+    // The right-hand range is not the left's shifted by a round number: its values at the left's ticks are not round.
+    const right = { min: -93.7, max: -13.7 };
+    const plot = paintOverlay(canvas, { layers: [{ view: flat(-20), color: 'a', full: held(flat(-20)) }] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dBFS]' },
+        { secondary: { layers: [{ view: flat(-50), color: 'b', full: held(flat(-50)) }], range: right, title: 'Level [dB SPL re 20 µPa]' } });
+    assert.ok(plot);
+    const edge = plot.frame.left + plot.frame.width;
+    const ticks = texts.filter(item => item.x > edge && /^−?\d+$/u.test(item.text));
+    assert.ok(ticks.length >= 3, `the right axis has ticks: ${JSON.stringify(texts.filter(item => item.x > edge))}`);
+    for (const tick of ticks) {
+        const value = Number(tick.text.replace('−', '-'));
+        // Its number is the right range's value where it is written, to the pixel.
+        const at = plot.frame.top + (1 - (value - right.min) / (right.max - right.min)) * plot.frame.height;
+        assert.ok(Math.abs(at - tick.y) < 0.5, `${tick.text} is written at ${tick.y}, its value is at ${at}`);
+        assert.ok(Math.abs(value % 10) === 0, `${tick.text} is a round value`);
+    }
+});
