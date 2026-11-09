@@ -147,8 +147,8 @@ export const OVERLAY_LEVEL_AXES = 2;
 
 /**
  * The panel's legend: the level's name, then each line's colour and name, so overlaid lines are named without a hover
- * ("Amplitude, uncalibrated [dBFS] ■ A ■ B"). With two level axes the lines are grouped by the side they are read on
- * ("◀ Amplitude [dB SPL re 20 µPa] ■ A   Amplitude, uncalibrated [dB re 1 V] ┄ C ▶"), the right-hand side's swatches dashed as its lines are.
+ * ("Level, uncalibrated [dBFS] ■ A ■ B"). With two level axes the lines are grouped by the side they are read on
+ * ("◀ Level [dB SPL re 20 µPa] ■ A   Level, uncalibrated [dB re 1 V] ┄ C ▶"), the right-hand side's swatches dashed as its lines are.
  */
 export function renderSpectrumAxisLegend(el: HTMLElement | null, levelAxes: OverlaySpectrumPaint['levelAxes']): void {
     if (!el) {

@@ -7,12 +7,6 @@ import { namedTest, testProblem } from './namedTest';
 const repoRoot = path.resolve(__dirname, '..', '..');
 const rulesPath = path.join(repoRoot, 'docs', 'display-rules.md');
 
-/**
- * Rules that still list a screen or a Frame kind their tests do not reach ("未"). A PR that covers the rest removes
- * the 未 line from docs/display-rules.md and the rule from here; adding one is a change review should stop.
- */
-const PENDING: string[] = [];
-
 interface Rule { id: string; tests: Array<{ file: string; name: string }>; pending: boolean }
 
 function rules(): Rule[] {
@@ -72,6 +66,7 @@ test('a named test\'s body ends where its own call or def does, at any indent, s
     assert.match(namedTest('test_a.py', py, 'test_checks')!.body, /assert 1 == 1/);
 });
 
-test('the rules still marked 未 are exactly the pending list', () => {
-    assert.deepEqual(rules().filter(rule => rule.pending).map(rule => rule.id), PENDING);
+/** Every rule's screens and Frame kinds are reached by its tests: a rule is never left marked 未 (not yet checked). */
+test('no display rule is marked 未: each is checked on every screen and Frame kind it names', () => {
+    assert.deepEqual(rules().filter(rule => rule.pending).map(rule => rule.id), [], 'docs/display-rules.md marks these rules 未');
 });

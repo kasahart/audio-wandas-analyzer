@@ -7,6 +7,7 @@ import type { FrequencyScale } from '../draw/canvasDrawers';
 import { hintAttr } from './hintFooter';
 import { levelBinsOf, type StageLayer } from './stagePanes';
 import { localLine } from './fullRead';
+import { secondsSpanText } from '../plot/plotText';
 import type { TrackId } from './types';
 
 export type PairSpectrumResultMessage = Extract<PairSpectrumPublication, { type: 'pair-spectrum-result' }>;
@@ -80,10 +81,6 @@ export function drawnPairCurves(curves: readonly PairCurve[]): PairCurve[] {
     return ok.filter(curve => curve.response.axisLabel === axisLabel);
 }
 
-function formatSeconds(seconds: number): string {
-    return seconds.toFixed(2);
-}
-
 export interface PairHeader {
     text: string;
     fewAverages: boolean;
@@ -99,7 +96,7 @@ export function pairHeader(curves: readonly PairCurve[], strings: PairStrings): 
     const start = Math.min(...ok.map(response => response.startSeconds));
     const end = Math.max(...ok.map(response => response.endSeconds));
     return {
-        text: 'H1 · ' + strings.pairAverages.replace('{n}', String(averages)) + ' · ' + formatSeconds(start) + '–' + formatSeconds(end) + ' s',
+        text: 'H1 · ' + strings.pairAverages.replace('{n}', String(averages)) + ' · ' + secondsSpanText(start, end),
         fewAverages: averages < PAIR_FEW_AVERAGES,
     };
 }

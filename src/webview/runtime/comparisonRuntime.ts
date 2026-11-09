@@ -2442,7 +2442,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         if (viewState.hover === null || Math.abs(viewState.hover - norm) > 1e-9) viewState.setHover(norm);
         if (!read || read.pending) { hidePlotReadout(slot); return; }
         const label = spectrumReadoutTrackLabel(result, channelIndex);
-        if (!read.full || read.at === undefined || read.row === undefined || read.value === undefined) { showPlotReadout(slot, label, read.values, trackColor(trackIndex)); return; }
+        // A number only of the full data (R7): until its cell is read there, the readout stays empty, never the drawn picture's.
+        if (!read.full || read.at === undefined || read.row === undefined || read.value === undefined) { hidePlotReadout(slot); return; }
         const secondsPerPixel = (view.end - view.start) * span.spanSec / rect.width;
         // The level in the reference its colour bar names (dB re 1 V, dB SPL re 20 µPa, dBFS), never bare dB (R7).
         const levelUnit = trackLevelInput([channelsForResult(result)[channelIndex]], undefined).levelReferenceLabel;

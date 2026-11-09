@@ -175,12 +175,12 @@ const FS_INPUT = { unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationS
 const RAW_INPUT = { unit: '', ref: 1, levelReferenceLabel: 'dB re 1 input unit', calibrationStatus: 'uncalibrated', fullScale: false };
 const SPL_INPUT = { unit: 'Pa', ref: 2e-5, levelReferenceLabel: 'dB SPL re 20 µPa', calibrationStatus: 'calibrated', fullScale: true };
 for (const [source, tableInput, stepInput, standalone, axis, badge, other] of [
-    ['WAV', FS_INPUT, FS_INPUT, false, 'Amplitude, uncalibrated [dBFS]', 'FS', 'Amplitude, uncalibrated [dB re 1 input unit]'],
-    ['CSV', RAW_INPUT, RAW_INPUT, false, 'Amplitude, uncalibrated [dB re 1 input unit]', 'RAW', 'Amplitude, uncalibrated [dBFS]'],
+    ['WAV', FS_INPUT, FS_INPUT, false, 'Level, uncalibrated [dBFS]', 'FS', 'Level, uncalibrated [dB re 1 input unit]'],
+    ['CSV', RAW_INPUT, RAW_INPUT, false, 'Level, uncalibrated [dB re 1 input unit]', 'RAW', 'Level, uncalibrated [dBFS]'],
     // Opened on its own (or before the folder's rescan): the entry table has no result for it, so its step's scan says.
-    ['CSV opened on its own', RAW_INPUT, RAW_INPUT, true, 'Amplitude, uncalibrated [dB re 1 input unit]', 'RAW', 'Amplitude, uncalibrated [dBFS]'],
+    ['CSV opened on its own', RAW_INPUT, RAW_INPUT, true, 'Level, uncalibrated [dB re 1 input unit]', 'RAW', 'Level, uncalibrated [dBFS]'],
     // Calibrated on the drawn channel only: the whole file reads uncalibrated in the table, the drawn channel's step scan in Pa.
-    ['WAV calibrated on the drawn channel only', FS_INPUT, SPL_INPUT, false, 'Amplitude [dB SPL re 20 µPa]', 'FS', 'Amplitude, uncalibrated [dBFS]'],
+    ['WAV calibrated on the drawn channel only', FS_INPUT, SPL_INPUT, false, 'Level [dB SPL re 20 µPa]', 'FS', 'Level, uncalibrated [dBFS]'],
 ] as const) {
     const fullScale = tableInput.fullScale;
     test(`a ${source} track names its level axis by wandas' reference for the channel drawn, and its badge by whether its source has a full scale`, async ({ page }) => {

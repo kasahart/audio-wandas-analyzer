@@ -58,6 +58,15 @@ export function frequencyText(hz: number, stepHz?: number): string {
     return `${withMinus(trimmed((hz / 1000).toFixed(3 + needed)))} kHz`;
 }
 
+/**
+ * A stretch of time, "1.00–3.00 s": to 10 ms, and finer where it is so short its ends would read alike (to a
+ * tenth of its length, spacingDecimals); with a true minus.
+ */
+export function secondsSpanText(start: number, end: number): string {
+    const digits = spacingDecimals(Math.abs(end - start) / 10, 2, 9);
+    return `${withMinus(start.toFixed(digits))}–${withMinus(end.toFixed(digits))} s`;
+}
+
 /** A time in seconds to `digits` decimals (2 by default: 10 ms). */
 export function secondsText(seconds: number, digits = 2): string {
     return `${withMinus(seconds.toFixed(digits))} s`;

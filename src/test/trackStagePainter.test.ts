@@ -221,7 +221,7 @@ test('side by side, each lane is read at its own full data, never the line thinn
     const { document } = page();
     // Lanes that draw: a context that draws nothing but answers what the plot component asks of it.
     const anything: object = new Proxy(() => undefined, { get: (_target, prop) => (prop === 'then' ? undefined : () => anything), set: () => true });
-    const context = new Proxy({}, { get: (_target, prop) => (prop === 'measureText' ? (text: string) => ({ width: text.length * 6 }) : () => anything), set: () => true });
+    const context = new Proxy({}, { get: (_target, prop) => (prop === 'measureText' ? (text: string) => ({ width: text.length * 6 }) : prop === 'font' ? '10px sans-serif' : () => anything), set: () => true });
     const lane = (filePath: string): StageTrack => {
         const canvas = document.createElement('canvas');
         canvas.getContext = (() => context) as unknown as HTMLCanvasElement['getContext'];

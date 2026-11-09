@@ -1847,6 +1847,28 @@ function colourBarClientPoint(canvas: HTMLCanvasElement, left: number): { client
     return { clientX: left + x + width / 2, clientY: y + height / 2 };
 }
 
+test('the pointer over a spectrogram lane reads no number until the full data under it is in: never the drawn picture\'s cell (R7, C6)', async () => {
+    const env = setupSpectrumEnv();
+    await nextAnimationFrame(env.dom);
+    env.dom.window.document.querySelector<HTMLButtonElement>('[data-action="content-waveform"]')?.click();
+    await nextAnimationFrame(env.dom);
+    const canvas = env.dom.window.document.getElementById('track-spec-canvas-0') as HTMLCanvasElement | null;
+    assert.ok(canvas);
+    canvas.width = 800;
+    canvas.height = 100;
+    canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 800, bottom: 100, width: 800, height: 100 } as DOMRect);
+    env.dom.window.dispatchEvent(new env.dom.window.Event('resize'));
+    await nextAnimationFrame(env.dom);
+    await nextAnimationFrame(env.dom);
+    canvas.dispatchEvent(new env.dom.window.MouseEvent('mousemove', { bubbles: true, clientX: 300, clientY: 60 }));
+    await nextAnimationFrame(env.dom);
+    // No backend answers the lane's full reads here: its cell is never read, so no number is shown.
+    const slot = env.dom.window.document.getElementById('plot-readout');
+    const shown = slot && !slot.hidden ? slot.textContent ?? '' : '';
+    assert.doesNotMatch(shown, /\d/u, `the readout shows a number of the drawn picture: "${shown}"`);
+    env.dom.window.close();
+});
+
 test('spectrogram hit testing maps pointer positions to the whole lane width and ignores the colour bar', async () => {
     const env = setupSpectrumEnv();
     await nextAnimationFrame(env.dom);
@@ -2544,7 +2566,7 @@ test('renderScript: multichannel CSV includes all spectrum channels', async () =
         const anchor = created.find((a) => a.download === 'spectrum-export.csv');
         assert.ok(anchor, 'CSV download anchor が作られること');
         const csv = decodeDataUriPayload(anchor.href);
-        assert.equal(csv.split('\n')[0], 'stereo.wav Channel 1 / 2 (Left) Frequency [Hz],"stereo.wav Channel 1 / 2 (Left) Amplitude, uncalibrated [dB re 1 input unit]",stereo.wav Channel 2 / 2 (Right) Frequency [Hz],"stereo.wav Channel 2 / 2 (Right) Amplitude, uncalibrated [dB re 1 input unit]"');
+        assert.equal(csv.split('\n')[0], 'stereo.wav Channel 1 / 2 (Left) Frequency [Hz],"stereo.wav Channel 1 / 2 (Left) Level, uncalibrated [dB re 1 input unit]",stereo.wav Channel 2 / 2 (Right) Frequency [Hz],"stereo.wav Channel 2 / 2 (Right) Level, uncalibrated [dB re 1 input unit]"');
     } finally {
         env.dom.window.document.createElement = origCreate;
         env.dom.window.close();
@@ -2662,7 +2684,7 @@ test('renderScript: export-csv preserves each track frequency axis', async () =>
         const anchor = created.find((a) => a.download === 'spectrum-export.csv');
         assert.ok(anchor, 'CSV download anchor が作られること');
         const rows = decodeDataUriPayload(anchor.href).split('\n');
-        assert.equal(rows[0], 'coarse.wav Channel 1 (L) Frequency [Hz],"coarse.wav Channel 1 (L) Amplitude, uncalibrated [dB re 1 input unit]",fine.wav Channel 1 (L) Frequency [Hz],"fine.wav Channel 1 (L) Amplitude, uncalibrated [dB re 1 input unit]"');
+        assert.equal(rows[0], 'coarse.wav Channel 1 (L) Frequency [Hz],"coarse.wav Channel 1 (L) Level, uncalibrated [dB re 1 input unit]",fine.wav Channel 1 (L) Frequency [Hz],"fine.wav Channel 1 (L) Level, uncalibrated [dB re 1 input unit]"');
         assert.equal(rows[1], '0.0000,-80.000000,0.0000,-20.000000');
         assert.equal(rows[4], '600.0000,-20.000000,540.0000,-65.000000');
         assert.equal(rows[5], ',,720.0000,-80.000000');

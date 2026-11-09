@@ -244,9 +244,9 @@ test('renderSpectrumAxisLegend names every line by its colour, grouped by the si
     renderSpectrumAxisLegend(host as unknown as HTMLElement, two);
     assert.equal(children.length, 3);
     // Calibrated with the same reference (FS, ref 1: still dBFS), only the level's name changes: the legend follows it.
-    renderSpectrumAxisLegend(host as unknown as HTMLElement, [{ ...two[0], title: 'Amplitude [dB SPL re 20 µPa]' }, two[1]]);
+    renderSpectrumAxisLegend(host as unknown as HTMLElement, [{ ...two[0], title: 'Level [dB SPL re 20 µPa]' }, two[1]]);
     assert.equal(children.length, 2);
-    assert.equal(children[0].parts[1], 'Amplitude [dB SPL re 20 µPa]');
+    assert.equal(children[0].parts[1], 'Level [dB SPL re 20 µPa]');
     // One axis: the level's name and the lines'. Grey lines without a role are told apart by their names.
     renderSpectrumAxisLegend(host as unknown as HTMLElement, [{ title: SPL, reference: 'dB SPL re 20 µPa', colors: ['#8b949e'], lines: [{ color: '#8b949e', label: 'A' }, { color: '#8b949e', label: 'C' }] }]);
     assert.equal(host.hidden, false);
@@ -266,11 +266,11 @@ test('paintOverlaySpectrum names a level axis as the caller says, from its refer
     const named: Array<[string, string[]]> = [];
     const paint = paintOverlaySpectrum(canvasOf(recording), 400, 200, mixed, fullView, '', (reference, series) => {
         named.push([reference, series.map(s => s.label)]);
-        return `Amplitude, uncalibrated [${reference}]`;
+        return `Level, uncalibrated [${reference}]`;
     });
     assert.deepEqual(named, [['dB SPL re 20 µPa', ['A']], ['dB re 1 V', ['B']]]);
-    assert.deepEqual(paint.levelAxes.map(axis => axis.title), ['Amplitude, uncalibrated [dB SPL re 20 µPa]', 'Amplitude, uncalibrated [dB re 1 V]']);
-    assert.ok(texts.some(text => text.startsWith('Amplitude, uncalibrated')), JSON.stringify(texts));
+    assert.deepEqual(paint.levelAxes.map(axis => axis.title), ['Level, uncalibrated [dB SPL re 20 µPa]', 'Level, uncalibrated [dB re 1 V]']);
+    assert.ok(texts.some(text => text.startsWith('Level, uncalibrated')), JSON.stringify(texts));
 });
 
 test('reordering a Pa track and a V track clears a dB zoom kept in the old left axis\' dB', () => {

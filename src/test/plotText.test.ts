@@ -6,7 +6,8 @@ import path from 'node:path';
 import test from 'node:test';
 import { held } from './helpers/heldSource';
 import type { StageView } from '../shared/protocol/backendProtocol';
-import { amountText, barkText, fieldNumberText, frequencyText, lagText, levelText, quefrencyText, secondsText, signedNumberText, signedText, withMinus } from '../webview/plot/plotText';
+import { amountText, barkText, fieldNumberText, frequencyText, lagText, levelText, quefrencyText, secondsSpanText, secondsText, signedNumberText, signedText, withMinus } from '../webview/plot/plotText';
+import { pairHeader, type PairCurve, type PairStrings } from '../webview/runtime/pairSpectrum';
 import { formatValue, plotValueText } from '../webview/runtime/entryTableHtml';
 import { spectrumReadoutText } from '../webview/runtime/spectrumRuntime';
 import { alongAxisTicks, rowAxisTicks, stageHover, type StagePlot } from '../webview/runtime/stagePanes';
@@ -190,4 +191,14 @@ test('every tick and readout takes its digits from the spacing of its neighbours
     // Without a finer spacing, the usual digits.
     assert.equal(quefrencyText(0.0025), '2.50 ms');
     assert.equal(lagText(-0.0005), '−0.50 ms');
+});
+
+test('a stretch of time is written to 10 ms, finer where its ends would read alike, with a true minus: the pair header and the report write it so (C3)', () => {
+    assert.equal(secondsSpanText(1, 3), '1.00–3.00 s');
+    assert.equal(secondsSpanText(-0.5, 3), '−0.50–3.00 s');
+    const [start, end] = secondsSpanText(1.2341, 1.2346).replace(' s', '').split('–');
+    assert.notEqual(start, end, 'a short stretch reads two ends');
+    assert.equal(Number(start), 1.2341);
+    const fixture = { averages: 32, startSeconds: 1.2341, endSeconds: 1.2346 };
+    assert.match(pairHeader([{ response: { status: 'ok', axisLabel: 'a', ...fixture } } as unknown as PairCurve], { pairAverages: '{n} avg' } as PairStrings)?.text ?? '', / 1\.23410–1\.23460 s$/u);
 });

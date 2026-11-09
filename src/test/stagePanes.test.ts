@@ -8,6 +8,7 @@ import { axisNameParts, fontPixels } from '../webview/plot/axisTitle';
 import { heatmapDbRange, niceRange } from '../shared/utils/ticks';
 import { alongAxisTicks, axisFractionOf, axisValueAt, byLevel, levelBinsOf, emptyStageText, eventLayers, paintOverlay, stageAxes, paintColourBar, colourBarTop, stageEventCounts, stageDiffRange, stageHeadline, stageRange, stageHover, stageStep, wrapLines, type StagePlot, type StageStrings } from '../webview/runtime/stagePanes';
 import type { StageView } from '../shared/protocol/backendProtocol';
+import { getStrings } from '../shared/i18n/strings';
 import { fetchedSource, localCells, localLine, NO_FULL_DATA } from '../webview/runtime/fullRead';
 
 const line = (values: number[], quantity: StageView['quantity'] = 'level'): StageView => ({ frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity, xs: [100, 1000, 10000], values });
@@ -101,7 +102,7 @@ test('a cross-channel picture names its pair on the value axis: the channel over
 });
 
 test('a metric or level over time names what it measures on its value axis, never a bare value or an amplitude in dB (R4)', () => {
-    const names = { axisTime: 'Time [s]', dsValue: 'Value', axisLoudness: 'Loudness', axisSharpness: 'Sharpness', axisRoughness: 'Roughness', axisLevelOf: 'Level', waveRangeAxisAmplitude: 'Amplitude', axisUncalibrated: ', uncalibrated', axisRms: 'RMS', axisRmsTimeWeighted: 'Time-weighted RMS' } as unknown as StageStrings;
+    const names = getStrings('en');
     const series = (unit: string): StageView => ({ frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', unit, xs: [0, 1], values: [1, 2] });
     assert.deepEqual(stageAxes(names, series('sone'), undefined), { x: 'Time [s]', y: 'Loudness [sone]' });
     assert.equal(stageAxes(names, series('asper'), undefined).y, 'Roughness [asper]');
@@ -117,7 +118,7 @@ test('a metric or level over time names what it measures on its value axis, neve
 });
 
 test('a heatmap names what its colour measures, with its unit and reference, for its colour bar', () => {
-    const names = { axisTime: 'Time [s]', axisFrequency: 'Frequency [Hz]', axisBark: 'Critical band [Bark]', axisQuefrency: 'Quefrency [ms]', axisCepstrum: 'Real cepstrum', axisRoughness: 'Roughness', axisSpecificRoughness: 'Specific roughness', axisDelta: 'Δ level [dB]', axisLevelUncal: 'Level [dBFS, uncalibrated]', axisLevelCal: 'Level [{ref}]' } as unknown as StageStrings;
+    const names = getStrings('en');
     const heat = (quantity: StageView['quantity'], extra: Partial<StageView> = {}): StageView => ({ frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity, yAxis: 'frequency', xs: [0, 1], ys: [100, 1000], matrix: [[-40, -40], [-30, -30]], ...extra });
     const spectrogram = stageAxes(names, heat('level'), undefined);
     assert.equal(spectrogram.y, 'Frequency [Hz]');
@@ -126,8 +127,8 @@ test('a heatmap names what its colour measures, with its unit and reference, for
     assert.equal(stageAxes(names, heat('roughness', { unit: 'asper', yAxis: 'bark' }), undefined).colour, 'Roughness [asper]');
     // roughness_dw_spec's bands are each a specific roughness, per Bark (A29): named so, never the total's name.
     assert.equal(stageAxes(names, heat('roughness', { unit: 'asper/Bark', yAxis: 'bark' }), undefined).colour, 'Specific roughness [asper/Bark]');
-    assert.equal(stageAxes(names, heat('cepstrum', { yAxis: 'quefrency' }), undefined).colour, 'Real cepstrum');
-    assert.equal(stageAxes(names, heat('level'), undefined, true).colour, 'Δ level [dB]');
+    assert.equal(stageAxes(names, heat('cepstrum', { yAxis: 'quefrency' }), undefined).colour, 'Real cepstrum [–]');
+    assert.equal(stageAxes(names, heat('level'), undefined, true).colour, names.axisDelta);
 });
 
 const cepstrum = (values: number[]): StageView => ({ frame: 'CepstralFrame', kind: 'line', x: 'quefrency', xScale: 'linear', quantity: 'cepstrum', xs: [0, 0.001, 0.002, 0.003], values });
@@ -508,7 +509,7 @@ test('a colour bar stays inside a narrow plot and never leaves out its name: bes
         createLinearGradient: () => ({ addColorStop: () => undefined }),
         strokeRect: () => undefined, save: () => undefined, restore: () => undefined,
     } as unknown as CanvasRenderingContext2D;
-    const name = 'Amplitude, uncalibrated [dBFS]';
+    const name = 'Level, uncalibrated [dBFS]';
     const paint = (left: number, right: number) => {
         drawn.length = 0; box = { x: 0, width: 0, height: 0 };
         const returned = paintColourBar(context, { left, right, top: 0 }, name, '−80', '0', () => '#000', { text: '#000', back: '#fff', line: '#000' });
@@ -518,13 +519,13 @@ test('a colour bar stays inside a narrow plot and never leaves out its name: bes
     const wide = paint(56, 600);
     assert.deepEqual(wide.titles, [name], 'a wide plot names it in full, beside the scale');
     assert.equal(new Set(wide.drawn.map(item => item.y)).size, 1, 'on one row');
-    for (const right of [296, 200, 150, 110]) {
+    for (const right of [280, 200, 150, 110]) {
         const narrow = paint(56, right);
         assert.ok(narrow.titles.length >= 1, `${right}: its name is drawn`);
         const joined = narrow.titles.length === 2 ? `${narrow.titles[0]} ${narrow.titles[1]}` : narrow.titles[0];
         assert.ok(axisNameParts(joined), `${right}: its quantity and its unit: ${narrow.titles.join(' / ')}`);
         assert.ok(narrow.titles.some(text => text.includes('[dBFS]')), `${right}: its unit`);
-        assert.ok(narrow.titles.some(text => /^Amp/u.test(text)), `${right}: its quantity, whole or shortened`);
+        assert.ok(narrow.titles.some(text => /^Lev/u.test(text)), `${right}: its quantity, whole or shortened`);
         assert.ok(narrow.left >= 56, `${right}: inside the plot`);
         const scaleY = narrow.drawn.find(item => item.text === '−80')?.y ?? 0;
         assert.ok(narrow.drawn.filter(item => narrow.titles.includes(item.text)).every(item => item.y < scaleY), `${right}: above the scale`);

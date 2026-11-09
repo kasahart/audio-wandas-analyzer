@@ -23,11 +23,16 @@ const NAMED_ELSEWHERE: Array<keyof UiStrings> = ['pairPhaseLabel', 'pairCoherenc
 /** Words that name no quantity: an axis called "Value [Pa]" says only its unit (R4). */
 const NO_QUANTITY = new Set(LOCALES.flatMap(locale => [getStrings(locale).dsValue, 'Value', '値']));
 
+/** The words for an amplitude, in each language (the waveform's axis, in its signal's unit). */
+const AMPLITUDE = LOCALES.map(locale => getStrings(locale).waveRangeAxisAmplitude);
+
 const named = (where: string, name: string | undefined): void => {
     const parts = axisNameParts(name ?? '');
     assert.ok(parts && parts.quantity.trim() && parts.unit.trim(), `${where}: "${name}" names no quantity and unit in closing brackets`);
     const quantity = parts.quantity.replace(/^Δ\s*/u, '').trim();
     assert.ok(!NO_QUANTITY.has(quantity), `${where}: "${name}" names no quantity, only that it is a value`);
+    // A quantity in dB is a level (of what, where that is known), never an amplitude (R4, C5).
+    if (/^dB/u.test(parts.unit.trim())) assert.ok(!AMPLITUDE.some(word => quantity.includes(word)), `${where}: "${name}" is in dB, so it is a level, not an amplitude`);
 };
 
 test('every axis-name string, in every language, names its quantity and its unit (R4)', () => {

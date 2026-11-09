@@ -163,13 +163,13 @@ test('every pane names its axes: level and frequency, Δ with its legend, in the
     const uncal = paneAxes(ja, { unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true });
     const view = (values: number[]): StageView => ({ frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity: 'level', xs: [100, 1000], values });
     paintOverlay(canvas, { layers: [{ view: view([-40, -50]), color: '#00f', full: held(view([-40, -50])) }] }, { min: -80, max: 0 }, uncal.level);
-    assert.ok(texts.includes('振幅 未校正 [dBFS]') && texts.includes('周波数 [Hz]'));
+    assert.ok(texts.includes('レベル 未校正 [dBFS]') && texts.includes('周波数 [Hz]'));
     // The top tick is a number only: the unit is in the axis name.
     assert.ok(!texts.some(text => /^0 dB$/.test(text)));
     texts.length = 0;
     paintOverlay(canvas, { layers: [{ view: view([1, 2]), color: '#0f0', full: held(view([1, 2])) }] }, { min: -8, max: 8 }, uncal.delta, { diff: true, bandSteps: { deltas: [], headline: [], color: '#0f0', legend: uncal.delta.legend } });
     assert.ok(['差 Δ [dB]', '1/3 oct 見出し', '漏れ', '点ごとの差'].every(text => texts.includes(text)));
-    assert.equal(paneAxes(ja, { unit: 'Pa', ref: 2e-5, levelReferenceLabel: 'dB SPL re 20 µPa', calibrationStatus: 'calibrated', fullScale: true }).level.y, '振幅 [dB SPL re 20 µPa]');
+    assert.equal(paneAxes(ja, { unit: 'Pa', ref: 2e-5, levelReferenceLabel: 'dB SPL re 20 µPa', calibrationStatus: 'calibrated', fullScale: true }).level.y, 'レベル [dB SPL re 20 µPa]');
 });
 
 const FS: LevelInput = { unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true };
@@ -178,8 +178,8 @@ const SPL: LevelInput = { unit: 'Pa', ref: 2e-5, levelReferenceLabel: 'dB SPL re
 
 test('the level axis is named by wandas\' level reference, and says uncalibrated from the calibration status, not the unit', () => {
     for (const [language, fullScaleAxis, rawAxis, splAxis] of [
-        ['en', 'Amplitude, uncalibrated [dBFS]', 'Amplitude, uncalibrated [dB re 1 input unit]', 'Amplitude [dB SPL re 20 µPa]'],
-        ['ja', '振幅 未校正 [dBFS]', '振幅 未校正 [dB re 1 input unit]', '振幅 [dB SPL re 20 µPa]'],
+        ['en', 'Level, uncalibrated [dBFS]', 'Level, uncalibrated [dB re 1 input unit]', 'Level [dB SPL re 20 µPa]'],
+        ['ja', 'レベル 未校正 [dBFS]', 'レベル 未校正 [dB re 1 input unit]', 'レベル [dB SPL re 20 µPa]'],
     ] as const) {
         const strings = getStrings(language);
         assert.equal(paneAxes(strings, FS).level.y, fullScaleAxis);
@@ -254,11 +254,11 @@ test('a track with no entry result takes its level reference from its own analys
     // A gain correction in FS keeps dBFS: it shares the uncalibrated channel's reference, as the scan judges it.
     const gain = { ...fs, calibrationStatus: 'calibrated', calibrationSource: 'manual', factor: 2 } as const;
     assert.deepEqual(trackLevelInput([channel(true, gain), channel(true, fs)], undefined), FS);
-    assert.equal(paneAxes(STR, trackLevelInput([channel(true, gain), channel(true, fs)], undefined)).level.y, 'Amplitude, uncalibrated [dBFS]');
+    assert.equal(paneAxes(STR, trackLevelInput([channel(true, gain), channel(true, fs)], undefined)).level.y, 'Level, uncalibrated [dBFS]');
     assert.deepEqual(trackLevelInput([channel(true, gain), channel(true, gain)], undefined), { ...FS, calibrationStatus: 'calibrated' });
-    assert.equal(paneAxes(STR, plain as LevelInput).level.y, 'Amplitude [dB]');
-    assert.equal(paneAxes(STR, trackLevelInput([channel(false)], undefined)).level.y, 'Amplitude, uncalibrated [dB re 1 input unit]');
-    assert.equal(paneAxes(STR, trackLevelInput([channel(true)], undefined)).level.y, 'Amplitude, uncalibrated [dBFS]');
+    assert.equal(paneAxes(STR, plain as LevelInput).level.y, 'Level [dB]');
+    assert.equal(paneAxes(STR, trackLevelInput([channel(false)], undefined)).level.y, 'Level, uncalibrated [dB re 1 input unit]');
+    assert.equal(paneAxes(STR, trackLevelInput([channel(true)], undefined)).level.y, 'Level, uncalibrated [dBFS]');
 });
 
 test('the median and Δ are taken bin by bin from every bin, and only drawing decimates them', () => {

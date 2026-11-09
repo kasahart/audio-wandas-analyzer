@@ -399,9 +399,8 @@ test('every function that reads drawn points says what it does with them, and a 
     assert.deepEqual(DRAWN_ACCESSORS.filter(accessor => !scanned.has(accessor)), [], 'a drawn accessor reads no drawn field itself');
     const python = pythonDrawn();
     assert.deepEqual(PY_DECIMATORS.filter(entry => !exists(entry)), [], 'a decimator the scan looks for does not exist');
-    const named = new Set(ROWS.flatMap(row => row.computedIn));
-    // The backend's defs are classified where a row names them; the webview's wherever they are.
-    const found = new Map([...scanned, ...[...python].filter(([def]) => named.has(def))]);
+    // Every def that reads drawn points is classified, the backend's as the webview's, whether a row names it or not.
+    const found = new Map([...scanned, ...python]);
     const unclassified = [...found].filter(([where]) => !Object.hasOwn(DRAWN_READERS, where)).map(([where, reads]) => `${where} (${[...reads].sort().join(', ')})`).sort();
     assert.deepEqual(unclassified, [], 'these read drawn points: add each to DRAWN_READERS with what it does with them');
     assert.deepEqual(Object.keys(DRAWN_READERS).filter(where => !found.has(where) && !python.has(where)).sort(), [], 'DRAWN_READERS lists a function that reads no drawn points');

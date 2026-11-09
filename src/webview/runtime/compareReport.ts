@@ -12,6 +12,7 @@ import { withBaseInput, withChannel } from '../../shared/recipe/channelSelection
 import { bandsSource, binsSource, binsView, buildCompareModel, deltaViews, diffHeadline, levelsHeadline, paneAxes, sideView, type CompareModel, type CompareStrings } from './comparePanes';
 import { paintOverlay, stageDiffRange, stageRange } from './stagePanes';
 import type { InlineFullSource } from './fullRead';
+import { secondsSpanText } from '../plot/plotText';
 import type { EntryRegion } from '../../shared/analysis/entryScan';
 import type { ScanResult, StageView } from '../../shared/protocol/backendProtocol';
 import { baseName } from '../../shared/analysis/entryMetadata';
@@ -251,7 +252,7 @@ function slotRegions(input: ReportInput): Array<{ slot: number; path: string; me
     });
 }
 
-const regionSeconds = (region: { start: number; end: number }): string => `${region.start.toFixed(2)}–${region.end.toFixed(2)} s`;
+const regionSeconds = (region: { start: number; end: number }): string => secondsSpanText(region.start, region.end);
 
 /** What the scan computes, in words and decimals, beside the Recipe (whose own floats are hex). */
 export function reportDefinitions(input: ReportInput, specVersion: number | undefined, strings: Pick<UiStrings, 'defLeq' | 'defSpectrum' | 'defThirdOct' | 'defChannels' | 'defBase' | 'defDelta' | 'defRegion' | 'defHeadline' | 'defHeadlineEdges' | 'entryColLeq' | 'outside192' | 'outsideMedian' | 'outsideDelta' | 'outsideOutliers' | 'stepOctave'>): Record<string, unknown> {

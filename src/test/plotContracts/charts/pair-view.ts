@@ -80,7 +80,7 @@ export const pairView: ChartContract = {
         },
         {
             id: 'pair-view.summary', value: 'summary', what: '見出し（H1・平均回数・時間の範囲）',
-            computedIn: ['src/webview/runtime/pairSpectrum.ts:pairHeader', 'src/webview/runtime/pairSpectrum.ts:formatSeconds'],
+            computedIn: ['src/webview/runtime/pairSpectrum.ts:pairHeader', 'src/webview/plot/plotText.ts:secondsSpanText'],
             from: 'whole', trace: 'バックエンドが返した各応答の平均回数（最少）と範囲。（描くために間引いた形はない）',
             tests: [
                 t('src/test/pairSpectrum.test.ts', 'the header shows the fewest averages and the whole averaged range, warning below 8'),
