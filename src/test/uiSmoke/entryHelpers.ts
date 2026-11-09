@@ -16,11 +16,22 @@ export function entry100Metadata(): string {
     return metadataText;
 }
 
+/**
+ * Whether a test that needs the Python backend must fail rather than skip without it: where it is required (CI,
+ * AWA_REQUIRE_BACKEND=1), and wherever the repo's own environment is set up (.venv), so a local run cannot pass a
+ * real-backend contract unseen either (C6). AWA_REQUIRE_BACKEND=0 lets such a run skip on purpose.
+ */
+export function backendRequired(): boolean {
+    if (process.env.AWA_REQUIRE_BACKEND === '1') return true;
+    if (process.env.AWA_REQUIRE_BACKEND === '0') return false;
+    return existsSync(path.join(repoRoot, '.venv', 'bin', 'python')) || existsSync(path.join(repoRoot, '.venv', 'Scripts', 'python.exe'));
+}
+
 /** Real scan results for the entry100 fixture, from the Python backend (generated once per worker, never committed). */
 export function entry100Results(): ScannedFile[] | undefined {
     if (cached === undefined) cached = scanEntry100() ?? null;
     // Where the backend is required (CI), a test that needs it fails instead of skipping, so it cannot pass unseen.
-    if (cached === null && process.env.AWA_REQUIRE_BACKEND === '1') throw new Error(`AWA_REQUIRE_BACKEND=1 but the entry100 fixture could not be scanned: ${scanError}`);
+    if (cached === null && backendRequired()) throw new Error(`the Python backend is required here (AWA_REQUIRE_BACKEND, or the repo's .venv) but the entry100 fixture could not be scanned: ${scanError}`);
     return cached ?? undefined;
 }
 

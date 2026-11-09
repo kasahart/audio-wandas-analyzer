@@ -735,3 +735,39 @@ test('a time is written to the digits that tell it from the next point: frames 5
     assert.equal(at(1.25), '1.25 s', 'without a spacing, to 10 ms');
     assert.equal(at(0.5, 1 / 48000), '0.50000 s', 'sample by sample at 48 kHz');
 });
+
+test('a plot notes every text it draws, as it draws it, for a test to read: never a text made again from its data (A27, C6)', () => {
+    const drawn: string[] = [];
+    const context: Record<string, unknown> = {};
+    const noop = (): void => undefined;
+    for (const key of ['clearRect', 'fillRect', 'strokeRect', 'beginPath', 'moveTo', 'lineTo', 'stroke', 'fill', 'save', 'restore', 'setTransform', 'rect', 'clip', 'setLineDash', 'translate', 'rotate', 'scale', 'arc', 'closePath', 'drawImage', 'putImageData']) context[key] = noop;
+    Object.assign(context, {
+        font: '10px sans-serif',
+        measureText: (text: string) => ({ width: text.length * 6 }),
+        createLinearGradient: () => ({ addColorStop: noop }),
+        createImageData: (width: number, height: number) => ({ width, height, data: new Uint8ClampedArray(width * height * 4) }),
+        fillText: (text: string) => { drawn.push(text); },
+    });
+    const canvas = { width: 0, height: 0, clientWidth: 600, clientHeight: 300, ownerDocument: {}, dataset: {} as DOMStringMap, getContext: () => context } as unknown as HTMLCanvasElement;
+    const view = measured(line([-20, -40, -60]));
+    const plot = paintOverlay(canvas, { layers: [{ view, color: 'a', full: held(view) }] }, { min: -80, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dBFS]' });
+    assert.ok(plot && drawn.length > 4, JSON.stringify(drawn));
+    assert.deepEqual(plot.drawnTexts, drawn, 'the texts noted are the texts drawn, in order');
+    assert.ok(drawn.includes('−80') && drawn.includes('Level [dBFS]'), JSON.stringify(drawn));
+    // Drawn again, it notes that drawing's texts alone.
+    const again = paintOverlay(canvas, { layers: [{ view, color: 'a', full: held(view) }] }, { min: -60, max: 0 }, { x: 'Frequency [Hz]', y: 'Level [dBFS]' });
+    assert.ok(again?.drawnTexts?.includes('−60') && !again.drawnTexts.includes('−80'), JSON.stringify(again?.drawnTexts));
+});
+
+test('a horizontal axis name too long for a narrow plot, even fitted, starts at the plot and never runs into the value axis\'s side (A28)', () => {
+    const name = 'Frequency from a very long named trigger, uncalibrated [Hz]';
+    for (const width of [600, 160, 90, 75, 66]) {
+        const { canvas, texts } = textCanvas(width, 120);
+        const view = measured(line([-20, -40, -60]));
+        const plot = paintOverlay(canvas, { layers: [{ view, color: 'a', full: held(view) }] }, { min: -80, max: 0 }, { x: name, y: 'Level [dBFS]' });
+        assert.ok(plot);
+        const drawn = texts.filter(item => !item.turned && (item.text === name || name.startsWith(item.text.replace(/…$/u, '')) || item.text.endsWith('[Hz]')));
+        assert.ok(drawn.length > 0, `${width}: the name is drawn: ${JSON.stringify(texts.map(item => item.text))}`);
+        for (const item of drawn) assert.ok(item.x >= plot.frame.left - 0.5, `${width}: "${item.text}" at ${item.x}, the plot starts at ${plot.frame.left}`);
+    }
+});

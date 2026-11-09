@@ -235,14 +235,26 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
     // picture is drawn again and differs from the one before (reset need not be the very first picture: a plot may
     // have taken finer data while zoomed).
     const picture = (): Promise<string> => plot.evaluate(canvas => (canvas as HTMLCanvasElement).toDataURL());
+    // Where a pixel is on the plot's axes, as fractions of what it shows (0 at its left and bottom, 1 at its right and
+    // top), from the plot's frame on the canvas alone (data-plot-frame): what a gesture there should show (C6).
+    const frameOf = async (): Promise<number[]> => ((await plot.getAttribute('data-plot-frame')) ?? '').split(' ').map(Number);
+    const fractionAt = (frame: number[], clientX: number, clientY: number): { x: number; y: number } | null => (frame.length === 4 && frame.every(Number.isFinite) && frame[2] > 0 && frame[3] > 0
+        ? { x: (clientX - box.x - frame[0]) / frame[2], y: 1 - (clientY - box.y - frame[1]) / frame[3] } : null);
     const whole = await picture();
+    // Ctrl+wheel zooms about the pointer (R13): the place under it stays under it, on a plot showing its whole.
+    const wheelAt = { x: box.x + box.width * 0.7, y: middle.y };
+    await page.mouse.move(wheelAt.x, wheelAt.y);
+    const wheelFrom = await plot.getAttribute('data-plot-window');
+    const wheelFraction = fractionAt(await frameOf(), wheelAt.x, wheelAt.y);
     await page.keyboard.down('Control');
     await page.mouse.wheel(0, -240);
     await page.keyboard.up('Control');
     await page.waitForTimeout(80);
     const zoomed = await plot.getAttribute('data-plot-window');
     const zoomedPicture = await picture();
-    if (zoomed && zoomed !== FULL && zoomedPicture !== whole) passed.add('zoom');
+    const [w0, w1] = (zoomed ?? '').split(' ').map(Number);
+    const aboutPointer = (wheelFrom ?? FULL) === FULL && !!wheelFraction && w1 - w0 < 0.99 && Math.abs(w0 + wheelFraction.x * (w1 - w0) - wheelFraction.x) < 0.01;
+    if (zoomed && zoomed !== FULL && aboutPointer && zoomedPicture !== whole) passed.add('zoom');
     await page.mouse.dblclick(middle.x, middle.y);
     await page.waitForTimeout(80);
     if (zoomed && (await plot.getAttribute('data-plot-window')) === FULL && await picture() !== zoomedPicture) passed.add('reset');
@@ -287,6 +299,10 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
     // for a vertical axis defined to show every count always (data-plot-y-axis "all-counts", plotInteraction.ts
     // VerticalAxis), which stays whole and must be the plot's count axis. A double-click gives the whole back.
     const beforeBox = await picture();
+    const boxFrom = await plot.getAttribute('data-plot-window'), boxFrame = await frameOf();
+    // The box's corners on the plot's axes: what it should show (C6), from the pixels dragged alone.
+    const corner0 = fractionAt(boxFrame, box.x + box.width * 0.3, box.y + box.height * 0.3);
+    const corner1 = fractionAt(boxFrame, box.x + box.width * 0.7, box.y + box.height * 0.6);
     await page.mouse.move(box.x + box.width * 0.3, box.y + box.height * 0.3);
     await page.mouse.down();
     await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.45, { steps: 4 });
@@ -297,7 +313,11 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
     const vertical = await plot.getAttribute('data-plot-y-axis');
     if (boxed.length === 4 && boxed.every(Number.isFinite) && (vertical === 'zoom' || vertical === 'all-counts')) {
         const [x0, x1, y0, y1] = boxed;
-        const across = x0 > 0.001 && x1 < 0.999 && x1 > x0;
+        // It shows what the box enclosed along the horizontal axis (clamped to the whole where the box ran past an
+        // edge). The vertical window is a part of a whole range that may itself refit to the frequencies on screen
+        // (the pair view's gain, R9), so its fractions are not the pixels' and only its narrowing is checked.
+        const near = (value: number, expected: number | undefined): boolean => expected !== undefined && Math.abs(value - Math.min(1, Math.max(0, expected))) < 0.02;
+        const across = (boxFrom ?? FULL) === FULL && x0 > 0.001 && x1 < 0.999 && x1 > x0 && near(x0, corner0?.x) && near(x1, corner1?.x);
         // A count axis is one that shows every count (display-rules R13), and only a count axis may: named as the
         // distribution names its count axis in either language (a word like 周波数 holds 数 and is no count).
         const counts = COUNT_QUANTITIES.includes(/^(.*\S)\s*\[/su.exec((names[1] ?? '').trim())?.[1] ?? '');

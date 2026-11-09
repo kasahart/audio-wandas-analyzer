@@ -698,8 +698,8 @@ test('renderScript: track-detail-result merges spectrogram and stale detail is i
     } }));
     await nextAnimationFrame(env.dom);
     let snap = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any;
-    assert.ok(snap.renderedUi.axisLabels.spectrogramPerTrack[0].includes('-100 dB'));
-    assert.equal(snap.renderedUi.axisLabels.spectrogramPerTrack[0].includes('-90 dB'), false);
+    // The stale detail is not drawn: the lane still says it loads, and draws no axis (its texts as drawn, A27).
+    assert.deepEqual(Array.from(snap.renderedUi.axisLabels.spectrogramPerTrack[0]), [], JSON.stringify(snap.renderedUi.axisLabels.spectrogramPerTrack));
 
     env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
         type: 'track-detail-result',
@@ -712,7 +712,8 @@ test('renderScript: track-detail-result merges spectrogram and stale detail is i
     } }));
     await nextAnimationFrame(env.dom);
     snap = env.postedMessages.filter((msg: any) => msg.type === 'comparison-panel-test-snapshot').at(-1) as any;
-    assert.ok(snap.renderedUi.axisLabels.spectrogramPerTrack[0].includes('-90 dB'));
+    // Drawn now, with the detail's level range: its colour bar's low end as the lane drew it, with a true minus.
+    assert.ok(snap.renderedUi.axisLabels.spectrogramPerTrack[0].includes('−90'), JSON.stringify(snap.renderedUi.axisLabels.spectrogramPerTrack));
 });
 
 test('renderScript: removing a detailed track releases its spectrogram detail', () => {
@@ -913,7 +914,7 @@ test('lazy detail response cannot attach to a replacement at the same protocol i
         .filter((message: any) => message.type === 'comparison-panel-test-snapshot')
         .at(-1) as any;
     assert.equal(snapshot.renderedUi.tracks[0].trackId, 'track-3');
-    assert.equal(snapshot.renderedUi.axisLabels.spectrogramPerTrack[0].includes('-90 dB'), false);
+    assert.equal(snapshot.renderedUi.axisLabels.spectrogramPerTrack[0].includes('−90'), false, JSON.stringify(snapshot.renderedUi.axisLabels.spectrogramPerTrack));
     env.dom.window.close();
 });
 
@@ -1216,9 +1217,9 @@ test('renderScript: lazy spectrum slices apply display range settings', async ()
     }
     assert.ok(snap, 'a spectrum snapshot with overlay labels should be published');
     const overlay = snap.renderedUi.axisLabels.spectrumOverlay as string[];
-    assert.ok(overlay.includes('0 dB'), `overlay should use configured max dB with wandas slice unit: ${JSON.stringify(overlay)}`);
-    assert.ok(overlay.includes('-60 dB'), `overlay should use configured min dB with wandas slice unit: ${JSON.stringify(overlay)}`);
-    assert.ok(overlay.some((label) => label === '1.0 kHz'), `overlay should use configured max frequency: ${JSON.stringify(overlay)}`);
+    // The texts the overlay drew (A27): its level ticks run from the configured −60 to 0 dB, its frequency ticks to 1 kHz.
+    assert.ok(overlay.includes('0') && overlay.includes('−60') && !overlay.includes('−75'), `overlay should draw the configured dB range: ${JSON.stringify(overlay)}`);
+    assert.ok(overlay.includes('1000') && !overlay.includes('5000'), `overlay should draw to the configured max frequency: ${JSON.stringify(overlay)}`);
 });
 
 test('renderScript: lazy spectrum cache is scoped to the current cursor: an earlier cursor\'s slice is never this one\'s', async () => {
@@ -1337,7 +1338,8 @@ test('renderScript: spectrum at exact track end renders silence instead of the l
     assert.equal(snap.renderedUi.cursorNorm, 1);
     // The silent stand-in spans the spectrogram's floor (−90 dB) to its top, rounded by the dB line rule to −100…0 dB;
     // the last STFT column (−50…−5 dB) would end at −50 dB.
-    assert.equal(snap.renderedUi.axisLabels.spectrumOverlay[2], '-100 dB', 'end cursor should use the silent floor: ' + JSON.stringify(snap.renderedUi.axisLabels.spectrumOverlay));
+    // As drawn (A27): its level axis reaches −100, with a true minus.
+    assert.ok(snap.renderedUi.axisLabels.spectrumOverlay.includes('−100'), 'end cursor should use the silent floor: ' + JSON.stringify(snap.renderedUi.axisLabels.spectrumOverlay));
     env.dom.window.close();
 });
 
@@ -3405,11 +3407,22 @@ test('renderScript: 波形の振幅軸 dblclick → popover で振幅レンジ�
 // NOTE: jsdom テスト env (createWebviewEnv) は __APP_STRINGS__ を注入しないため
 // STR={} となり badge/error の textContent は空になる。そのため文字列ではなく
 // popover の表示状態・入力プリフィル・Apply による state 反映（snapshot の
-// axisLabels.spectrumOverlay = [maxDb,midDb,minDb,fMin,fMid,fMax]）で検証する。
+// axisLabels.spectrumOverlay: overlay が描いた文字そのもの、drawnSpectrumAxes）で検証する。
 function latestSpectrumOverlayLabels(env: ReturnType<typeof setupEnv>): string[] | null {
     const snaps = env.postedMessages.filter((m: any) => m.type === 'comparison-panel-test-snapshot');
     const ui = (snaps[snaps.length - 1] as any)?.renderedUi;
     return ui?.axisLabels?.spectrumOverlay ?? null;
+}
+/**
+ * The cursor spectrum's axes as it drew them (A27): its frequency ticks (before the frequency axis's name), its level
+ * axis's name, and its level ticks (after it), each number read with its true minus.
+ */
+function drawnSpectrumAxes(labels: readonly string[] | null): { frequency: number[]; levelTitle: string; level: number[] } {
+    const texts = Array.from(labels ?? []);
+    const named = texts.findIndex(text => text.startsWith('Frequency'));
+    const number = (text: string): number => Number(text.replace('−', '-'));
+    const numbers = (part: string[]): number[] => part.map(number).filter(Number.isFinite);
+    return { frequency: numbers(texts.slice(0, Math.max(0, named))), levelTitle: texts[named + 1] ?? '', level: numbers(texts.slice(named + 2)) };
 }
 function requestSpectrumSnapshot(env: ReturnType<typeof setupEnv>, actionId: string): void {
     env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', {
@@ -3429,7 +3442,7 @@ test('spectrum overlay preserves a compatible calibrated level unit', async () =
     await nextAnimationFrame(env.dom);
 
     const labels = latestSpectrumOverlayLabels(env);
-    assert.ok(labels?.slice(0, 3).every((label) => label.endsWith('dB SPL')), JSON.stringify(labels));
+    assert.match(drawnSpectrumAxes(labels).levelTitle, /\[dB SPL/u, JSON.stringify(labels));
     env.dom.window.close();
 });
 
@@ -3450,10 +3463,10 @@ test('spectrum overlay: Y軸(dB) dblclick → popover が開き dB レンジを�
     assert.strictEqual(pop.style.display, 'none', 'Apply 後に popover が閉じること');
     requestSpectrumSnapshot(env, 'after-db-apply');
     await nextAnimationFrame(env.dom);
-    const labels = latestSpectrumOverlayLabels(env);
-    assert.ok(labels && labels.length >= 3, 'overlay 軸ラベルが存在すること');
-    assert.strictEqual(labels[0], '-20 dB', 'dB Max ラベルが適用値になること');
-    assert.strictEqual(labels[2], '-80 dB', 'dB Min ラベルが適用値になること');
+    const { level } = drawnSpectrumAxes(latestSpectrumOverlayLabels(env));
+    assert.ok(level.length >= 2, 'overlay の dB 軸の目盛りが描かれていること');
+    assert.strictEqual(Math.max(...level), -20, 'dB Max が適用値になること');
+    assert.strictEqual(Math.min(...level), -80, 'dB Min が適用値になること');
     env.dom.window.close();
 });
 
@@ -3476,10 +3489,10 @@ test('spectrum overlay: X軸(周波数) dblclick → popover が開き Hz レン
     (env.dom.window.document.getElementById('spec-range-apply') as HTMLElement).click();
     requestSpectrumSnapshot(env, 'after-freq-apply');
     await nextAnimationFrame(env.dom);
-    const labels = latestSpectrumOverlayLabels(env);
-    assert.ok(labels && labels.length >= 6, 'overlay 軸ラベルが存在すること');
-    assert.strictEqual(labels[3], '100 Hz', 'freq Min ラベルが適用値になること');
-    assert.strictEqual(labels[5], '900 Hz', 'freq Max ラベルが適用値になること');
+    const { frequency } = drawnSpectrumAxes(latestSpectrumOverlayLabels(env));
+    assert.ok(frequency.length >= 2, 'overlay の周波数軸の目盛りが描かれていること');
+    // The ticks drawn lie in the applied 100–900 Hz and span it.
+    assert.ok(frequency.every(hz => hz >= 100 && hz <= 900) && Math.min(...frequency) <= 300 && Math.max(...frequency) >= 700, JSON.stringify(frequency));
     env.dom.window.close();
 });
 
@@ -3498,16 +3511,16 @@ test('spectrum overlay: プロット内部 dblclick で specZoomReset される'
     (env.dom.window.document.getElementById('spec-range-apply') as HTMLElement).click();
     requestSpectrumSnapshot(env, 'pre-spec-reset');
     await nextAnimationFrame(env.dom);
-    const before = latestSpectrumOverlayLabels(env);
-    assert.strictEqual(before![0], '-20 dB', 'reset 前は適用した dB レンジであること');
+    const before = drawnSpectrumAxes(latestSpectrumOverlayLabels(env));
+    assert.strictEqual(Math.max(...before.level), -20, 'reset 前は適用した dB レンジであること');
     // 内部 dblclick で reset → dB/freq が auto に戻る
     overlay.dispatchEvent(new env.dom.window.MouseEvent('dblclick', { bubbles: true, clientX: Math.floor(W / 2), clientY: Math.floor(H / 2) }));
     requestSpectrumSnapshot(env, 'post-spec-reset');
     await nextAnimationFrame(env.dom);
-    const after = latestSpectrumOverlayLabels(env);
-    assert.ok(after && after.length >= 6, 'reset 後スナップショットの軸ラベルが存在すること');
-    assert.notStrictEqual(after[0], '-20 dB', 'reset 後 dB Max が auto（適用値でない）に戻ること');
-    assert.strictEqual(after[3], '0 Hz', 'reset 後 freq Min が 0 Hz（全域）に戻ること');
+    const after = drawnSpectrumAxes(latestSpectrumOverlayLabels(env));
+    assert.ok(after.level.length >= 2 && after.frequency.length >= 2, 'reset 後の軸の目盛りが描かれていること');
+    assert.notStrictEqual(Math.max(...after.level), -20, 'reset 後 dB Max が auto（適用値でない）に戻ること');
+    assert.strictEqual(Math.min(...after.frequency), 0, 'reset 後 freq Min が 0 Hz（全域）に戻ること');
     env.dom.window.close();
 });
 

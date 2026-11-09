@@ -105,14 +105,12 @@ function extent(views: ReadonlyArray<StageView | null>): { low: number; high: nu
 
 /**
  * The 99th percentile of the coefficients' magnitudes, as wandas' cepstrogram plot sets its colour range: of every
- * full-resolution coefficient (`valueRange.robust`), the largest of the pictures'; of the points drawn only for a
- * picture without it.
+ * full-resolution coefficient (`valueRange.robust`, which the backend sends with every cepstrogram), the largest of
+ * the pictures'. Never of the cells drawn, which are block averages (A28, R1): with none sent there is no edge (0).
  */
 function robustEdge(views: ReadonlyArray<StageView | null>): number {
     const full = views.map(view => view?.valueRange?.robust).filter((edge): edge is number => edge !== undefined && Number.isFinite(edge));
-    if (full.length && full.length === views.filter(Boolean).length) return Math.max(...full);
-    const magnitudes = views.flatMap(view => (view ? points(view) : [])).filter((value): value is number => value !== null && Number.isFinite(value)).map(Math.abs).sort((a, b) => a - b);
-    return magnitudes.length ? magnitudes[Math.min(magnitudes.length - 1, Math.floor(0.99 * (magnitudes.length - 1)))] : 0;
+    return full.length ? Math.max(...full) : 0;
 }
 
 /** One range for the base and compare panes, so their pictures compare at a glance. */
@@ -767,6 +765,8 @@ export interface StagePlot {
     colourBar?: ColourBarBox;
     /** The value axis' ticks as drawn (a heatmap's rows, a line's levels): a lane kept as painted draws its side axis again from them. */
     levelTicks?: AxisTick[];
+    /** Every text drawn for the plot (its ticks' numbers, its axes' names, its colour bar's ends), as drawn: what a test reads of it. */
+    drawnTexts?: string[];
 }
 
 /** Several pictures of one Frame type on one set of axes, as solid lines (or steps) told apart by colour. */
@@ -904,12 +904,33 @@ export function paintOverlay(canvas: HTMLCanvasElement, overlay: StageOverlay, r
             if (plot && redrawn) Object.assign(plot, redrawn);
         });
     };
+    const texts: string[] = [];
+    const outer = drawing;
+    drawing = texts;
     try {
         plot = paintPlot(canvas, overlay, range, axes, options, ready);
+        if (plot) plot.drawnTexts = texts;
         return plot;
     } finally {
+        drawing = outer;
         scope.__plotPainting -= 1;
     }
+}
+
+/** The texts the plot being painted has drawn so far (paintOverlay), or null between paints. */
+let drawing: string[] | null = null;
+const recorded = new WeakSet<CanvasRenderingContext2D>();
+/** A plot's context (its canvas's, its side axis's) notes each text it draws while a plot is painted on it. */
+function recording(context: CanvasRenderingContext2D): CanvasRenderingContext2D {
+    if (recorded.has(context) || typeof context.fillText !== 'function') return context;
+    recorded.add(context);
+    const fill = context.fillText.bind(context);
+    context.fillText = (text: string, x: number, y: number, maxWidth?: number): void => {
+        drawing?.push(String(text));
+        if (maxWidth === undefined) fill(text, x, y);
+        else fill(text, x, y, maxWidth);
+    };
+    return context;
 }
 
 /** How many times each canvas was drawn by paintOverlay: a redraw for a fetched level is for the latest only. */
@@ -924,7 +945,8 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
         canvas.width = Math.round(width * ratio);
         canvas.height = Math.round(height * ratio);
     }
-    const context = canvas.getContext('2d');
+    const drawn = canvas.getContext('2d');
+    const context = drawn && recording(drawn);
     if (!context) return null;
     // Drawn by the one plot component (R13): every ui-smoke test fails a plot on screen without this mark, and the
     // plot contract test gives each one marked the same gestures. Its axes are named on it for that test.
@@ -1017,6 +1039,9 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
     const levelOf = (axis: PaneRange) => (y: number): number => axis.min + (1 - (y - top) / plotHeight) * (axis.max - axis.min);
     const plot: StagePlot = { frame: { left, top, width: plotWidth, height: plotHeight }, xAt, yAt, xOf: x => xAxis.at((x - left) / plotWidth), xLog: xAxis.log, levelOf: levelOf(range),
         lineYAt: looseAt(range), ratioStep: 1.12, lines: [], diff: !!options.diff, ...(options.readout === false ? { noReadout: true } : {}), ...levelUnitOf(heatmap ? axes.colour : axes.y) };
+    // Where its data is drawn on the canvas (CSS pixels: left, top, width, height), so a gesture test can tell what a
+    // drag or a wheel at a pixel should show from the pixel alone, not from the plot's own answer (C6).
+    if (canvas.dataset) canvas.dataset.plotFrame = [left, top, plotWidth, plotHeight].map(String).join(' ');
     // Every picture drawn says where its numbers are read (R7): a plot drawing one that does not is marked, and every
     // ui-smoke test fails it (canvasAudit.ts). A figure no pointer reads needs none.
     if (canvas.dataset) {
@@ -1190,7 +1215,8 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
     // overlap is left out (its gridline stays).
     const xFitted = fitAxisTitle(axes.x, plotWidth / 2, title => context.measureText(title).width);
     const xTitle = xFitted.lines.join(' ');
-    const xTitleLeft = left + plotWidth - context.measureText(xTitle).width * xFitted.scale;
+    // At the right end; never left of the plot, into the value axis's side, where it does not fit even fitted (A28).
+    const xTitleLeft = Math.max(left, left + plotWidth - context.measureText(xTitle).width * xFitted.scale);
     context.fillStyle = muted;
     context.strokeStyle = line;
     context.lineWidth = 1;
@@ -1235,7 +1261,8 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
  * muted colour and the name up its left in the text colour, as every plot writes its value axis.
  */
 export function paintSideAxis(canvas: HTMLCanvasElement, ticks: readonly AxisTick[], title: string, colors: { muted: string; text: string }): void {
-    const context = canvas.getContext('2d');
+    const drawn = canvas.getContext('2d');
+    const context = drawn && recording(drawn);
     if (!context) return;
     paintingAxis(canvas, () => {
         context.setTransform(1, 0, 0, 1, 0, 0);
@@ -1266,7 +1293,8 @@ export function clearSideAxis(canvas: HTMLCanvasElement): void {
  * a number the name would cover is left out.
  */
 export function paintTimeAxis(canvas: HTMLCanvasElement, ticks: ReadonlyArray<{ x: number; text: string }>, title: string, width: number, colors: { muted: string; line: string; text: string }): void {
-    const context = canvas.getContext('2d');
+    const drawn = canvas.getContext('2d');
+    const context = drawn && recording(drawn);
     if (!context) return;
     paintingAxis(canvas, () => {
         const height = canvas.height;
