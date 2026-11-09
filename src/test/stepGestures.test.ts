@@ -4,7 +4,6 @@ import { JSDOM } from 'jsdom';
 import type { RecipeStep } from '../shared/recipe/recipeSteps';
 import { attachStepDrag, attachStepHold, STEP_TAP_MS } from '../webview/runtime/stepGestures';
 
-type View = Pick<Window, 'setTimeout' | 'clearTimeout' | 'addEventListener'>;
 const step = (id: string): RecipeStep => ({ id, operation: `wandas.x.${id}`, name: id, params: {}, editable: [], input: 'ChannelFrame', output: 'ChannelFrame' });
 const chipsHtml = (ids: string[]): string => `<span data-step-input></span>`
     + ids.map(id => `<span class="step-chip" data-step-id="${id}" draggable="true"><button class="step-body" data-step-hold="${id}"></button></span>`).join('');
@@ -21,7 +20,7 @@ function setup(ids: string[]) {
         setTimeout: (run: () => void, ms: number) => { timers.set(nextTimer, { run, ms }); return nextTimer++; },
         clearTimeout: (id: number) => { timers.delete(id); },
         addEventListener: (type: string, listener: (event: { timeStamp: number }) => void) => { listeners.set(type, [...(listeners.get(type) ?? []), listener]); },
-    } as unknown as View;
+    };
     const elapse = (): void => { const due = [...timers.values()]; timers.clear(); due.forEach(timer => timer.run()); };
     /** `type` on the window, `after` ms after the last press (a hold's release is after the tap time by default). */
     const fire = (type: string, after = STEP_TAP_MS + 50): void => (listeners.get(type) ?? []).forEach(listener => listener({ timeStamp: pressedAt + after }));
