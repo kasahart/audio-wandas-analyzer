@@ -137,7 +137,7 @@ export function levelIdentity(result: ScanResult | undefined): string | null {
 }
 
 /**
- * A group's files whose levels are in the unit, reference and calibration of `like` (the compared file), files still
+ * A group's files whose levels are of the level identity (R1: unit, reference value, level reference name; levelIdentityOf) of `like` (the compared file), files still
  * scanning kept; when none is, those of the first measured file's, so a median is always of one unit (and the
  * comparison then withholds its Δ: blocked 'unit').
  */
@@ -149,7 +149,7 @@ export function ofOneUnit<T>(results: ReadonlyMap<string, ScanResult>, members: 
     return members.filter(member => { const identity = identityOf(member); return identity === null || identity === keep; });
 }
 
-/** Whether every scan here that read its file has its levels in one unit, reference and calibration. */
+/** Whether every scan here that read its file has its levels of one level identity (levelIdentityOf). */
 export function oneLevelIdentity(results: ReadonlyArray<ScanResult | undefined>): boolean {
     return new Set(results.map(levelIdentity).filter((identity): identity is string => identity !== null)).size <= 1;
 }
@@ -165,6 +165,16 @@ export function baseOf(results: ReadonlyMap<string, ScanResult>, paths: readonly
     if (!sides.length || sides.length < paths.length) return null;
     const side = sides.length === 1 ? sides[0] : medianSide(sides);
     return { leq: side.leq, bands: side.bands };
+}
+
+/**
+ * The median of a group's files as a base: their scans that read their file, each one spectrum, Leq and band row
+ * (channels power-averaged), and the median of those; null when none has been read yet. The comparison's base group
+ * and the distribution's base line both take it here, so the line sits where the Δ is measured from.
+ */
+export function groupMedian(results: ReadonlyMap<string, ScanResult>, paths: readonly string[]): Omit<CompareSide, 'title' | 'filePaths'> | null {
+    const sides = paths.map(path => results.get(path)).filter((result): result is ScanOk => !!result?.ok).map(fileSide);
+    return sides.length ? medianSide(sides) : null;
 }
 
 function medianSide(sides: Array<Omit<CompareSide, 'title' | 'filePaths'>>): Omit<CompareSide, 'title' | 'filePaths'> {
@@ -236,9 +246,10 @@ export function buildCompareModel(
     } else if (comparePath && group) {
         const members = ofOneUnit(results, group.paths.filter(path => path !== comparePath), path => path, compared);
         const sides = members.map(path => ok(path)).filter((result): result is ScanOk => !!result);
-        if (sides.length) {
+        const middle = groupMedian(results, members);
+        if (middle) {
             bandSpread = sides.length >= 3 ? spreadOf(sides.map(fileSide).map(side => side.bands)) : BAND_CENTERS_HZ.map(() => MIN_HEADLINE_DB);
-            base = { title: group.title, filePaths: members, ...medianSide(sides.map(fileSide)) };
+            base = { title: group.title, filePaths: members, ...middle };
         } else loneGroup = true;
     } else if (comparePath) {
         const row = model.rows.find(item => item.filePath === comparePath);

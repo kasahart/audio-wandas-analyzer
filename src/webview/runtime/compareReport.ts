@@ -7,9 +7,9 @@
 import type { UiStrings } from '../../shared/i18n/strings';
 import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { encodeNumber, plainFloats, recipeSteps, timeSignalStep, upToStep, withDefaults, withParam, TIME_SLICE } from '../../shared/recipe/recipeSteps';
-import { BAND_CENTERS_HZ, bandLabel, csvNumber, EDGE_GUARD_S, HEADLINE_WITHIN_DB, measuredRegion, regionCells, type BaseDefinition, type DerivedRow, type EntryModel } from './entryTable';
+import { BAND_CENTERS_HZ, bandCentreCell, bandLabel, csvNumber, EDGE_GUARD_S, HEADLINE_WITHIN_DB, measuredRegion, regionCells, type BaseDefinition, type DerivedRow, type EntryMeasure, type EntryModel } from './entryTable';
 import { withBaseInput, withChannel } from '../../shared/recipe/channelSelection';
-import { bandsSource, binsSource, binsView, buildCompareModel, deltaViews, diffHeadline, levelsHeadline, paneAxes, sideView, type CompareModel, type CompareStrings } from './comparePanes';
+import { bandsSource, binsSource, binsView, deltaViews, diffHeadline, levelsHeadline, paneAxes, sideView, type CompareModel, type CompareStrings } from './comparePanes';
 import { paintOverlay, stageDiffRange, stageRange } from './stagePanes';
 import type { InlineFullSource } from './fullRead';
 import { secondsSpanText } from '../plot/plotText';
@@ -44,8 +44,11 @@ export interface ReportInput {
     stale?: ReadonlySet<string>;
     /** The comparison shows the difference pane: the report has its Δ figures too. */
     showDiff?: boolean;
-    /** A compared file's comparison as the entry table defines its base (its grouping, filters and channel). */
-    compare?(path: string): CompareModel;
+    /**
+     * A compared file's comparison as the entry table defines its base (entryBase.comparison: its grouping, filters,
+     * slots and channel). Required: the report never builds a base of its own.
+     */
+    compare(path: string): CompareModel;
     /** A compared file as the table has it: its name with its channel, its value on show, its memo, and its base. */
     rowInfo?: (path: string) => { label: string; value: string; memo: string; channel: number | null; base: BaseDefinition };
     /** What the table was narrowed to. */
@@ -66,8 +69,7 @@ export function baseDefinitionText(definition: BaseDefinition, strings: Pick<UiS
     ].join(' · ');
 }
 
-const comparisonOf = (input: ReportInput, path: string, strings: CompareStrings): CompareModel =>
-    input.compare?.(path) ?? buildCompareModel(input.model, input.results, path, input.slots[0] ?? null, strings, input.entryRegionBase?.(path));
+const comparisonOf = (input: ReportInput, path: string): CompareModel => input.compare(path);
 
 const dB = (value: number | null | undefined): string => csvNumber(value, 1);
 
@@ -105,11 +107,33 @@ export function leqLabel(model: EntryModel, strings: Pick<UiStrings, 'entryColLe
     return model.rows.some(row => row.uncalibrated) ? `${name} ${strings.entryLeqUncalibrated}` : name;
 }
 
-/** The band with the largest |Δ| against this comparison's base, as "3150", "14.1". */
-function maxBandCells(comparison: CompareModel): [string, string] {
+/** The band with the largest |Δ| against this comparison's base: its centre and Δ; none while the Δ is withheld. */
+function maxBand(comparison: CompareModel): { hz: number; db: number } | null {
     let best = -1;
     comparison.bandDeltas.forEach((delta, band) => { if (delta !== null && (best < 0 || Math.abs(delta) > Math.abs(comparison.bandDeltas[best] ?? 0))) best = band; });
-    return best < 0 || comparison.blocked ? ['', ''] : [csvNumber(BAND_CENTERS_HZ[best], 0), csvNumber(comparison.bandDeltas[best], 1)];
+    const db = best < 0 ? null : comparison.bandDeltas[best];
+    return db === null || db === undefined || comparison.blocked ? null : { hz: BAND_CENTERS_HZ[best], db };
+}
+
+/** The band with the largest |Δ| against this comparison's base, as "31.5", "14.1" (the centre as its column names it). */
+function maxBandCells(comparison: CompareModel): [string, string] {
+    const best = maxBand(comparison);
+    return best ? [bandCentreCell(best.hz), csvNumber(best.db, 1)] : ['', ''];
+}
+
+/**
+ * A file row of the entry CSV as this comparison measures it (entryBase.fileComparison): the same Δ Leq, band Δ,
+ * largest-Δ band and base count the comparison, its held picture and 報告.csv show.
+ */
+export function entryMeasure(comparison: CompareModel, band: number): EntryMeasure | null {
+    if (!comparison.base || !comparison.compare) return null;
+    const withheld = !!comparison.blocked;
+    return {
+        leq: withheld ? null : comparison.leq?.delta ?? null,
+        band: withheld ? null : comparison.bandDeltas[band] ?? null,
+        peak: maxBand(comparison),
+        count: comparison.base.filePaths.length,
+    };
 }
 
 /** The region in seconds, as the CSV and the figures write it. */
@@ -126,7 +150,7 @@ export function reportCsv(input: ReportInput, strings: ReportStrings): string {
     const columns = input.model.columns;
     const comparisons = [1, 2, 3].flatMap(slot => {
         const path = input.slots[slot];
-        return path ? [{ path, comparison: comparisonOf(input, path, strings) }] : [];
+        return path ? [{ path, comparison: comparisonOf(input, path) }] : [];
     });
     const bandDelta = (comparison: CompareModel, band: number): number | null => {
         const level = comparison.compare?.bands[band], reference = comparison.base?.bands[band];
@@ -407,7 +431,7 @@ export function reportFiles(document: Document, input: ReportInput, strings: Rep
     const files: ReportFile[] = [];
     const comparisons: Array<{ slot: number; path: string; comparison: CompareModel }> = [1, 2, 3].flatMap(slot => {
         const path = input.slots[slot];
-        return path ? [{ slot, path, comparison: comparisonOf(input, path, strings) }] : [];
+        return path ? [{ slot, path, comparison: comparisonOf(input, path) }] : [];
     });
     const region = `${regionText(input.region, strings)}${input.region ? ' s' : ''}`;
     // Each figure says on its own what it is: role, file, region, and the base it is against.

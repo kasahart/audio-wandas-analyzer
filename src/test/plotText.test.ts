@@ -10,7 +10,8 @@ import { amountText, barkText, fieldNumberText, frequencyText, lagText, levelTex
 import { pairHeader, type PairCurve, type PairStrings } from '../webview/runtime/pairSpectrum';
 import { formatValue, plotValueText } from '../webview/runtime/entryTableHtml';
 import { spectrumReadoutText } from '../webview/runtime/spectrumRuntime';
-import { alongAxisTicks, rowAxisTicks, stageHover, type StagePlot } from '../webview/runtime/stagePanes';
+import { alongAxisTicks, rowAxisTicks, stageHover, valueAxisTicks, type StagePlot } from '../webview/runtime/stagePanes';
+import { regionCells } from '../webview/runtime/entryTable';
 import { laneReadoutText, spectrogramReadoutText } from '../webview/runtime/trackLaneHover';
 
 test('a frequency reads in Hz below 1 kHz and in kHz to the hertz from there, so neighbouring bins never read the same (R7)', () => {
@@ -191,6 +192,48 @@ test('every tick and readout takes its digits from the spacing of its neighbours
     // Without a finer spacing, the usual digits.
     assert.equal(quefrencyText(0.0025), '2.50 ms');
     assert.equal(lagText(-0.0005), '−0.50 ms');
+});
+
+test('over every axis kind and zoom level, neighbouring ticks and neighbouring points never write the same number (C3)', () => {
+    // A grid, not examples: a formatter that takes its digits from anything but the spacing (the pixel width, fixed
+    // figures, a fixed cap) writes two neighbours alike somewhere on it.
+    const centres = [-7.3, 0.0897, 0.5, 3.27, 60.2, 1000.5, 15997.3];
+    const spans = [1e-7, 1e-6, 1e-5, 1e-4, 1e-3, 0.01, 0.1, 1, 10, 100, 1000];
+    const alike = (texts: readonly string[]): boolean => new Set(texts).size !== texts.length;
+    for (const centre of centres) {
+        for (const relative of spans) {
+            const span = Math.abs(centre) * relative || relative, low = centre - span / 2, high = centre + span / 2;
+            const where = `${low}–${high}`;
+            if (span >= 1e-8) {
+                for (const ticks of [alongAxisTicks(low, high), rowAxisTicks(low, high, false, 300)]) {
+                    assert.ok(ticks.length > 1 && !alike(ticks.map(tick => tick.text)), `linear ${where}: ${ticks.map(tick => tick.text).join(' ')}`);
+                }
+            }
+            const levels = valueAxisTicks({ min: low, max: high }, 300).map(tick => tick.text);
+            assert.ok(levels.length > 1 && !alike(levels), `value axis ${where}: ${levels.join(' ')}`);
+            if (low > 1 && high < 24000) {
+                for (const ticks of [alongAxisTicks(low, high, true), rowAxisTicks(low, high, true, 300)]) {
+                    assert.ok(!alike(ticks.map(tick => tick.text)), `log ${where}: ${ticks.map(tick => tick.text).join(' ')}`);
+                }
+            }
+            const fields = [fieldNumberText(low, span), fieldNumberText(high, span)];
+            assert.ok(Number(fields[1]) > Number(fields[0]), `range field ${where}: ${fields.join('–')}`);
+            if (low >= 0 && span >= 1e-5) assert.notEqual(...regionCells({ start: low, end: high }), `region cells ${where}`);
+        }
+    }
+    // Finer than the digits' cap (a window under a nanosecond typed into the range field): each number written once.
+    const capped = alongAxisTicks(0.0159449045, 0.0159449069).map(tick => tick.text);
+    assert.ok(!alike(capped), capped.join(' '));
+    for (const step of [1 / 8000, 1 / 48000, 1 / 192000, 1e-6]) {
+        for (const at of [0.0125, 3.27, 599.99]) {
+            for (const [name, base, text] of [['time', at, (x: number) => laneReadoutText('', x, 0.01, 0.5, 'FS', step)], ['quefrency', at / 100, (x: number) => quefrencyText(x, step)], ['lag', at / 100 - 1, (x: number) => lagText(x, step)]] as const) {
+                assert.notEqual(text(base), text(base + step), `${name} ${step} s apart at ${base}`);
+            }
+        }
+    }
+    for (const stepHz of [0.05, 0.73, 1.95, 12.5]) {
+        for (const at of [15.6, 999.9, 1000.5, 12345.6]) assert.notEqual(frequencyText(at, stepHz), frequencyText(at + stepHz, stepHz), `bins ${stepHz} Hz apart at ${at} Hz`);
+    }
 });
 
 test('a stretch of time is written to 10 ms, finer where its ends would read alike, with a true minus: the pair header and the report write it so (C3)', () => {

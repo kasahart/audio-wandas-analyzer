@@ -69,7 +69,7 @@ import { toolbarHtml } from './toolbarHtml';
 import { attachExclusiveMenus, attachHeightResizeListeners, attachToolbarActions } from './toolbarEvents';
 import { resultsPaneHtml, trackAudioHtml, type SpectrumBandsSetting } from './resultsPaneHtml';
 import { selectionFolderButton, selectionLayoutHtml } from './selectionLayoutHtml';
-import { SpectrumCommitHold } from './spectrumCommitHold';
+import { ShownSpectrumCursor, SpectrumCommitHold } from './spectrumCommitHold';
 import { type AnalysisWindowBand, canvasTimeHit, clampedCanvasNorm, clientToCanvasPixels, CURSOR_LINE_STYLE, drawAnalysisWindowBand, drawDashedTimeLine, drawRectZoomSelection, HOVER_LINE_STYLE, waveformCursorLineStyle } from './canvasOverlays';
 import { applyOverlayCompatibility, calibrationRequest, channelMetricSummaryHtml, ensureCalibrationStyles, hasIncompatibleLevelReferences } from './calibrationDecorations';
 import {
@@ -613,6 +613,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         },
     }, STR);
     let overlaySpectrumPainted = false;
+    /** The cursor the cursor spectrum's picture is of, which its header names. */
+    const shownSpectrumCursor = new ShownSpectrumCursor();
     function currentSettingsSignature() {
         return spectrogramSettings.dataSignature;
     }
@@ -4139,8 +4141,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const W = canvas.width, H = canvas.height;
         const { series: slices, pending: pendingVisibleSlice } = spectrumSeriesAt(spectrumCursorNorm);
         if (holdingSpectrumCommit() && overlaySpectrumPainted && pendingVisibleSlice) {
+            // The last picture stays: its header keeps that picture's time (ShownSpectrumCursor).
+            shownSpectrumCursor.keep();
             return;
         }
+        shownSpectrumCursor.drawn(spectrumCursorNorm);
         if (slices.length === 0) {
             // Empty, the plot component says why in its middle, as every plot does (R13).
             paintOverlay(canvas, { layers: [] }, { min: 0, max: 1 }, { x: '', y: '' }, { size: { width: W, height: H }, empty: STR.spectrumNoData });
@@ -4184,7 +4189,9 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const el = document.getElementById('spectrum-cursor-time');
         if (el) {
             const gs = trackStore.globalSpan();
-            el.textContent = '@ ' + formatClockTime(gs.startSec + spectrumCursorNorm * gs.spanSec) + analysisWindowCaption();
+            // While the last picture is kept, its time: the lines, readouts and window caption are of that picture.
+            const shownNorm = contentType !== 'stage' ? shownSpectrumCursor.at(spectrumCursorNorm) : spectrumCursorNorm;
+            el.textContent = '@ ' + formatClockTime(gs.startSec + shownNorm * gs.spanSec) + analysisWindowCaption();
         }
     }
     function analysisWindowCaption() {

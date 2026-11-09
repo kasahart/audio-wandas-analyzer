@@ -18,11 +18,13 @@ export const entryTable: ChartContract = {
             ],
         },
         {
-            id: 'entry-table.delta', value: 'delta', what: '表の Δ（条件の他のファイルの中央値に対して）と最大の帯',
-            computedIn: ['src/webview/runtime/entryTable.ts:buildEntryModel', 'src/webview/runtime/entryTable.ts:maxBandDelta', 'src/webview/runtime/entryTable.ts:mostTellingBand'],
-            from: 'whole', trace: 'スキャンの全データの値と、その中央値。（描くために間引いた形はない）',
+            id: 'entry-table.delta', value: 'delta', what: 'entry-table.csv の Δ・最大の帯・基準群 n（画面の比較と同じ基準に対して）',
+            computedIn: ['src/webview/runtime/entryBase.ts:fileComparison', 'src/webview/runtime/compareReport.ts:entryMeasure', 'src/webview/runtime/entryTable.ts:entryCsv', 'src/webview/runtime/entryTable.ts:maxBandDelta', 'src/webview/runtime/entryTable.ts:mostTellingBand'],
+            from: 'whole', trace: 'スキャンの全データの値と、比較が使う基準（entryBase.resolve: スロット 0、または除外・絞り込み・スロット・単位・チャンネルを考えた群の中央値）。CSV が自分で群を作ることはない。（描くために間引いた形はない）',
             tests: [
-                t('src/test/entryTable.test.ts', 'rows get Δ from the median of their condition\'s other files, never an outlier mark'),
+                t('src/test/entryTable.test.ts', 'a file row has no Δ of its own: the CSV writes what `measure` (the screen\'s base) gives, the band centre as its column names it'),
+                t('src/test/entryBase.test.ts', 'one base group everywhere: the distribution\'s base line, the comparison\'s Δ and the entry CSV\'s Δ are of the same recordings'),
+                t('src/test/entryTable.test.ts', 'every band centre is written in the CSV as its column header names it, never rounded to a whole Hz'),
                 t('src/test/entryTable.test.ts', 'on the scanned entry100 fixture the three resonances stand 10 dB above their groups at 3.15 kHz, one ✕ and one ≠'),
             ],
         },

@@ -37,19 +37,21 @@ export const entryDistribution: ChartContract = {
         },
         {
             id: 'entry-distribution.median', value: 'median', what: '基準の群の中央値の線',
-            computedIn: ['src/webview/runtime/entryDistribution.ts:distributionRows', 'src/shared/dataset/distribution.ts:median'],
-            from: 'whole', trace: '群のすべての値の中央値。（描くために間引いた形はない）',
+            computedIn: ['src/webview/runtime/entryBase.ts:groupBase', 'src/webview/runtime/comparePanes.ts:groupMedian', 'src/webview/runtime/entryDistribution.ts:distributionRows'],
+            from: 'whole', trace: '比較が Δ を測る基準群（entryBase.resolve と同じ録音: 比較中の行・ほかのスロット・除外・別の単位を除く）の中央値を groupMedian で取り、その値に線を引く。行の点の中央値ではない。（描くために間引いた形はない）',
             tests: [
-                t('src/test/distribution.test.ts', 'groups sort by number when numeric, as text otherwise, the blank last; the median of an even count is the mean of the middle two'),
+                t('src/test/entryBase.test.ts', 'one base group everywhere: the distribution\'s base line, the comparison\'s Δ and the entry CSV\'s Δ are of the same recordings'),
+                t('src/test/entryBase.test.ts', 'only the entry base builds a comparison or a base group: no screen, file or report makes its own'),
             ],
         },
         {
             id: 'entry-distribution.range', value: 'range', what: '値の軸の範囲',
             computedIn: ['src/shared/dataset/distribution.ts:distribution'],
-            from: 'whole', trace: 'すべての値の端を niceRange で広げる。（描くために間引いた形はない）',
+            from: 'whole', trace: '軸の基準のすべての値の端を niceRange で広げる。別の基準のレベルは軸に置かず数える（onLevelAxis）。（描くために間引いた形はない）',
             tests: [
                 t('src/test/distribution.test.ts', 'the distribution\'s value axis opens at round ends, as every automatic range does (R9)'),
                 t('src/test/distribution.test.ts', 'a range far narrower than its values keeps ends that hold every value, never rounded inward past them (R9)'),
+                t('src/test/distribution.test.ts', 'levels of another reference than the value axis\'s are never placed on it: they are left off its range and counted apart'),
             ],
         },
         {

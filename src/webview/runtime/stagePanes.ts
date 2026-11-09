@@ -626,7 +626,11 @@ export function valueTickTexts(values: readonly number[]): (value: number) => st
     let decimals = step > 0 && Number.isFinite(step) ? Math.max(0, Math.floor(-Math.log10(step))) : 0;
     while (decimals < 20 && step > 0 && !whole(step * 10 ** decimals)) decimals++;
     const minus = withMinus;
-    if (decimals > 5) return value => (value === 0 ? '0' : minus((+value.toPrecision(6)).toExponential()));
+    // In powers of ten, to the figures that tell ticks a step apart (a window of a few millionths around 0.0897:
+    // "8.96728e−2", "8.96730e−2"), at most 15 (as many as a double holds).
+    const largest = Math.max(...values.map(Math.abs));
+    const figures = Math.min(15, Math.max(6, Math.ceil(Math.log10(largest / step) - 1e-9) + 1));
+    if (decimals > 5) return value => (value === 0 ? '0' : minus((+value.toPrecision(figures)).toExponential()));
     return value => minus(decimals ? value.toFixed(decimals) : String(Math.round(value)));
 }
 
@@ -647,7 +651,8 @@ export function rowAxisTicks(low: number, high: number, log: boolean, height: nu
 export function alongAxisTicks(low: number, high: number, log = false): Array<{ value: number; text: string }> {
     const values = ticks(low, high, log);
     const texts = tickTexts(values, log);
-    return values.map((value, index) => ({ value, text: texts[index] }));
+    // A window finer than the digits' cap (under a nanosecond) writes each number once, as rowAxisTicks does (C3).
+    return values.map((value, index) => ({ value, text: texts[index] })).filter((tick, index) => texts.indexOf(tick.text) === index);
 }
 
 // A negative tick (a lag, the time from a trigger) with a true minus, as every number a plot writes (plotText.ts).
@@ -670,7 +675,7 @@ export function tickTexts(values: readonly number[], log: boolean): string[] {
  * never fewer than the end itself has, so a range typed as −23.5 to 0 reads −23.5, not −23 (A31, C5).
  */
 export function colourEndText(value: number, span: number): string {
-    const spanDecimals = span >= 8 ? 0 : Math.max(1, Math.min(6, Math.ceil(-Math.log10(span / 8))));
+    const spanDecimals = span >= 8 ? 0 : spacingDecimals(span / 8, 1, 12);
     let own = 0;
     while (own < 6 && Math.abs(value * 10 ** own - Math.round(value * 10 ** own)) > 1e-6 * Math.max(1, Math.abs(value * 10 ** own))) own++;
     const text = value.toFixed(Math.max(spanDecimals, own));

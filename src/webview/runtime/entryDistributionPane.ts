@@ -37,8 +37,13 @@ export interface DistributionInputs {
     usable: (row: DatasetRow) => boolean;
     slots: readonly (string | null)[];
     rowOf: (key: string | null) => DatasetRow | undefined;
-    /** The group whose median is the base (slot 0 empty, a grouping chosen), or null. */
-    baseGroup: string | null;
+    /** The group whose median is the base (slot 0 empty, a grouping chosen) and that median (entryBase.groupBase), or null. */
+    base: { group: string; value: number | null } | null;
+    /**
+     * Whether a row's level is of the value axis's reference (a level of another is not drawn on it, but counted);
+     * always true for a value that is not a level. Required: whoever draws a level here says which reference its axis is.
+     */
+    onAxis: (row: DatasetRow) => boolean;
     valueLabel: string;
     format: (value: number, step?: number) => string;
     rowName: (key: string) => string;
@@ -126,8 +131,10 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
     function paint(inputs: DistributionInputs): void {
         if (screen.hidden) return;
         last = inputs;
-        const { pool, value, group, results, range, usable, slots, rowOf, baseGroup } = inputs;
-        const dist = distribution(pool, value, group, results, range, usable);
+        const { pool, value, group, results, range, usable, slots, rowOf, base } = inputs;
+        const { onAxis } = inputs;
+        const dist = distribution(pool, value, group, results, range, usable, onAxis);
+        const baseGroup = base?.group ?? null;
         drawn = dist;
         // Another value or grouping is another axis: its zoom starts whole.
         const key = `${value}|${group}`;
@@ -140,12 +147,14 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
         count.textContent = members
             ? `${members.toLocaleString()} ${unit}${dist.groups.length > 4 ? ` · ${strings.dsDistGroups.replace('{n}', String(dist.groups.length))}` : ''}`
             : strings.dsRows.replace('{n}', pool.length.toLocaleString());
+        if (dist.apart) count.textContent += ` · ${strings.dsDistApart.replace('{n}', dist.apart.toLocaleString())}`;
         const legendHtml = members ? distributionLegendHtml(slots, baseGroup !== null ? `${prefix}${labels.get(baseGroup) ?? baseGroup}` : null, strings) : '';
         if (legend.innerHTML !== legendHtml) legend.innerHTML = legendHtml;
         note.textContent = members && !range && !strip ? strings.dsDistDrag : '';
         box.dataset.groups = String(dist.groups.length);
         box.dataset.drawn = String(members);
         box.dataset.missing = String(dist.missing);
+        box.dataset.apart = String(dist.apart);
         box.dataset.unit = dist.unit;
         plots.clear();
         if (!members) {
@@ -166,12 +175,12 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
         const keys = new Set(pool.map(row => row.key));
         const slotted = slots.flatMap((key, slot) => {
             const row = rowOf(key);
-            const number = row && keys.has(row.key) && usable(row) ? valueOf(row, value, results) : null;
+            const number = row && keys.has(row.key) && usable(row) && onAxis(row) ? valueOf(row, value, results) : null;
             return row && number !== null ? [{ slot, key: row.key, group: groupOf(row, group), value: number }] : [];
         });
         const axisLabel = value.startsWith('csv:') ? csvAxisName(value.slice(4), strings) : inputs.valueLabel;
         rows = distributionRows(dist, {
-            width, rowHeight, strip, range, slots: slotted, baseGroup, labels, groupPrefix: prefix, unitLabel: unit, axisLabel,
+            width, rowHeight, strip, range, slots: slotted, base, labels, groupPrefix: prefix, unitLabel: unit, axisLabel,
             format: inputs.format, name: inputs.rowName,
         }, {
             bar: colourOf('--dist-bar', '#5b6470'), barIn: colourOf('--dist-bar-in', '#aab3be'),

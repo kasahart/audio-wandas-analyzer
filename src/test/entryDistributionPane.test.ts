@@ -48,7 +48,7 @@ function setup() {
     const byKey = new Map(rows.map(row => [row.key, row]));
     const inputs: DistributionInputs = {
         pool: rows, value: 'csv:score', group: 'csv:rpm', results: new Map(), range: null, usable: () => true, slots: [null, '/d/b.wav', null, null],
-        rowOf: key => (key ? byKey.get(key) : undefined), baseGroup: '900', valueLabel: 'score', format: String, rowName: key => key,
+        rowOf: key => (key ? byKey.get(key) : undefined), base: { group: '900', value: 0.2 }, onAxis: () => true, valueLabel: 'score', format: String, rowName: key => key,
     };
     return { dom, screen, pane, calls, inputs };
 }

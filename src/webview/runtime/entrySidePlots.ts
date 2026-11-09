@@ -9,6 +9,7 @@ import type { ScanResult } from '../../shared/protocol/backendProtocol';
 import { rowKey, type DatasetRow } from '../../shared/dataset/datasetTable';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
 import { commonLevelLabel } from '../../shared/utils/format';
+import { levelIdentityOf } from './comparePanes';
 import { installRangePopover, linearAxis, openAxisPart, type AxisMapping } from '../rangePopover';
 import type { HeldPicture } from './entryHeldPlot';
 import { OVERVIEW_MARGINS, paintOverview } from './entryPlots';
@@ -56,6 +57,11 @@ export interface SidePlots {
     levelLabel(): string;
     /** A level value's name ("Leq A特性{uncal} [{label}]"): the most common reference, and 未校正 while it is uncalibrated. */
     levelName(template: string): string;
+    /**
+     * Whether a recording's levels are of the level identity (R1: unit, reference value, level reference name) `levelLabel` names: the one test every level axis beside the
+     * table (the overview's colours, the distribution's value axis) keeps its levels to. A recording not scanned yet is not.
+     */
+    onLevelAxis(filePath: string): boolean;
     /** The side plots painted on the next frame; `distribution`: the distribution too, not only the strip's window. */
     schedule(distribution?: boolean): void;
     /** The gestures on the plots, and a click on the strip. */
@@ -99,12 +105,13 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
     const levels = new Map<string, (number | null)[]>();
     /** The rows of `levels` each recording has, so a result that replaces it takes all of them away. */
     const levelRows = new Map<string, string[]>();
-    const levelLabels = new Map<string, string>();
+    /** Each recording's level identity (R1: unit, reference value, level reference name) and the name it is written by. */
+    const levelLabels = new Map<string, { identity: string; label: string }>();
     /** The recordings scanned with a calibration (their levels are not relative to full scale). */
     const calibrated = new Set<string>();
     /** Bumped on every change to them, so the strip knows when to draw its cells again. */
     let version = 0;
-    let shared: { version: number; label: string; calibrated: boolean; levels: Map<string, (number | null)[]> } = { version: -1, label: '', calibrated: false, levels: new Map() };
+    let shared: { version: number; identity: string; label: string; calibrated: boolean; levels: Map<string, (number | null)[]> } = { version: -1, identity: '', label: '', calibrated: false, levels: new Map() };
     /**
      * The scanned recordings' level reference as wandas names it (the most common one), whether all of theirs are
      * calibrated, and the levels of only the recordings in it: a level of another reference is never coloured on the
@@ -112,10 +119,12 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
      */
     function reference(): typeof shared {
         if (shared.version === version) return shared;
-        const label = commonLevelLabel(levelLabels.values());
-        const files = [...levelLabels].filter(([, own]) => own === label).map(([path]) => path);
+        // The most common level identity (R1, the one the comparison and the backend use), named by its reference's label.
+        const identity = commonLevelLabel([...levelLabels.values()].map(own => own.identity));
+        const files = [...levelLabels].filter(([, own]) => own.identity === identity).map(([path]) => path);
+        const label = files.length ? levelLabels.get(files[0])?.label ?? 'dBFS' : 'dBFS';
         const keys = new Set(files.flatMap(path => levelRows.get(path) ?? []));
-        shared = { version, label, calibrated: files.length > 0 && files.every(path => calibrated.has(path)), levels: new Map([...levels].filter(([key]) => keys.has(key))) };
+        shared = { version, identity, label, calibrated: files.length > 0 && files.every(path => calibrated.has(path)), levels: new Map([...levels].filter(([key]) => keys.has(key))) };
         return shared;
     }
     const levelLabel = (): string => reference().label;
@@ -234,6 +243,7 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
         keepWindow,
         levelLabel,
         levelName,
+        onLevelAxis: filePath => levelLabels.get(filePath)?.identity === reference().identity,
         levels: key => levels.get(key),
         noteResult(filePath: string, result: ScanResult): void {
             version++;
@@ -245,7 +255,7 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
                 const keys = bands.map((channel, index) => { const key = rowKey(filePath, index + 1, bands.length); levels.set(key, channel); return key; });
                 levelRows.set(filePath, keys);
             }
-            if (result.ok && result.input) levelLabels.set(filePath, result.input.levelReferenceLabel);
+            if (result.ok && result.input) levelLabels.set(filePath, { identity: levelIdentityOf(result.input), label: result.input.levelReferenceLabel });
             else levelLabels.delete(filePath);
             if (result.ok && result.input?.calibrationStatus === 'calibrated') calibrated.add(filePath);
             else calibrated.delete(filePath);

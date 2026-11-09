@@ -15,14 +15,16 @@ const scanned = (level: number, channels = 1): ScanResult => ({
     spectrumDb: Array.from({ length: channels }, () => [level, level]), thirdOctDb: Array.from({ length: channels }, () => [level, level + 1]), specVersion: 5,
 });
 
-function setup(options: { slots?: (string | null)[]; group?: GroupId; baseGroup?: string | null; channels?: Record<string, number>; narrowedBy?: string[]; stale?: string[]; uncalibrated?: string[] } = {}) {
+function setup(options: { slots?: (string | null)[]; group?: GroupId; baseGroup?: string | null; channels?: Record<string, number>; narrowedBy?: string[]; stale?: string[]; uncalibrated?: string[]; gainCorrected?: string[] } = {}) {
     const attributes = new Map([
         ['/d/a.wav', { rpm: '900' }], ['/d/b.wav', { rpm: '900' }], ['/d/c.wav', { rpm: '900' }], ['/d/d.wav', { rpm: '1500' }],
     ]);
     const uncalibrated = (result: ScanResult): ScanResult => ({ ...result, input: { ...result.input!, unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated' } });
     const results = new Map<string, ScanResult>([...attributes.keys()].map((path, index) => {
         const result = scanned(40 + index * 2, options.channels?.[path] ?? 1);
-        return [path, options.uncalibrated?.includes(path) ? uncalibrated(result) : result];
+        // A gain-corrected FS file: dBFS as a raw one is, only its calibration status differs.
+        const corrected = (raw: ScanResult): ScanResult => ({ ...raw, input: { ...raw.input!, calibrationStatus: 'calibrated' } });
+        return [path, options.gainCorrected?.includes(path) ? corrected(uncalibrated(result)) : options.uncalibrated?.includes(path) ? uncalibrated(result) : result];
     }));
     const rows: DatasetRow[] = datasetRows([...attributes.keys()], '/d', attributes, results);
     const byKey = new Map(rows.map(row => [row.key, row]));
@@ -102,4 +104,70 @@ test('a group\'s recordings in another unit, reference or calibration than the c
     const comparison = base.comparison('/d/a.wav');
     assert.deepEqual(comparison.base!.filePaths, ['/d/c.wav']);
     assert.equal(comparison.blocked, undefined);
+});
+
+test('a base group keeps to the one level identity the backend uses: a gain-corrected FS file and a raw one are both dBFS and are one group (A34, R1)', () => {
+    const { base } = setup({ slots: [null, '/d/a.wav', null, null], uncalibrated: ['/d/a.wav', '/d/b.wav'], gainCorrected: ['/d/c.wav'] });
+    const resolved = base.resolve('/d/a.wav');
+    assert.deepEqual(resolved.paths, ['/d/b.wav', '/d/c.wav']);
+    assert.equal(resolved.definition.otherUnits, undefined);
+    assert.equal(base.comparison('/d/a.wav').blocked, undefined);
+});
+
+test('one base group everywhere: the distribution\'s base line, the comparison\'s Δ and the entry CSV\'s Δ are of the same recordings', () => {
+    // Group L3: a −30, b −25, c −20, d −15, e −10 dB; e compared in slot 1, d in slot 2, c excluded (out of the pool).
+    const levels: Record<string, number> = { a: -30, b: -25, c: -20, d: -15, e: -10 };
+    const paths = Object.keys(levels).map(name => `/d/${name}.wav`);
+    const attributes = new Map(paths.map(path => [path, { line: 'L3' }]));
+    const results = new Map<string, ScanResult>(paths.map(path => [path, scanned(levels[path.slice(3, 4)])]));
+    const rows: DatasetRow[] = datasetRows(paths, '/d', attributes, results);
+    const byKey = new Map(rows.map(row => [row.key, row]));
+    const state = { slots: [null, '/d/e.wav', '/d/d.wav', null] as (string | null)[], baseGroup: null as string | null };
+    const base = createEntryBase({
+        strings, slots: () => state.slots, rows: () => rows, rowOf: key => (key ? byKey.get(key) : undefined), pool: () => rows.filter(row => row.filePath !== '/d/c.wav'),
+        group: () => 'csv:line', baseGroup: () => state.baseGroup, narrowedBy: () => [], groupLabel: id => id.replace(/^csv:/, ''), rowName: key => key,
+        results, isStale: () => false, entryModel: () => buildEntryModel([...results].map(([filePath, result]) => ({ filePath, result })), null),
+    });
+    const comparison = base.comparison('/d/e.wav');
+    assert.deepEqual(comparison.base?.filePaths, ['/d/a.wav', '/d/b.wav'], 'not e itself, not d (compared), not c (excluded)');
+    assert.equal(comparison.leq?.base, -27.5);
+    assert.deepEqual(base.groupBase('leq'), { group: 'L3', value: -27.5 }, 'the line sits where the Δ is measured from');
+    assert.deepEqual(base.groupBase('band:0'), { group: 'L3', value: comparison.base?.bands[0] ?? null });
+    assert.equal(base.fileComparison('/d/e.wav').leq?.delta, comparison.leq?.delta, 'the CSV\'s Δ is the comparison\'s');
+    assert.equal(base.text(), base.resolve('/d/e.wav').title);
+    // A level of another reference than the axis's is not part of the line.
+    assert.deepEqual(base.groupBase('leq', path => path !== '/d/a.wav'), { group: 'L3', value: -25 });
+    // No compared row, a group chosen: the group's recordings but the compared slots, as the chip counts them.
+    state.slots = [null, null, '/d/d.wav', null];
+    state.baseGroup = 'L3';
+    assert.deepEqual(base.groupBase('leq'), { group: 'L3', value: -25 }, 'median of a, b, e');
+    assert.equal(base.text(), `line L3 · ${strings.entryBaseMedian.replace('{count}', '3')}`);
+    // Slot 0 filled: the base is that recording, no group line.
+    state.slots = ['/d/a.wav', '/d/e.wav', null, null];
+    assert.equal(base.groupBase('leq'), null);
+    assert.equal(base.fileComparison('/d/e.wav').leq?.delta, 20);
+});
+
+test('only the entry base builds a comparison or a base group: no screen, file or report makes its own', async () => {
+    const { readFileSync, readdirSync } = await import('node:fs');
+    const path = await import('node:path');
+    const root = path.resolve(__dirname, '..', '..', 'src');
+    const files = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
+        const full = path.join(dir, entry.name);
+        return entry.isDirectory() ? (entry.name === 'test' ? [] : files(full)) : full.endsWith('.ts') ? [full] : [];
+    });
+    const allowed: Record<string, string[]> = {
+        'buildCompareModel(': ['webview/runtime/entryBase.ts', 'webview/runtime/comparePanes.ts'],
+        'baseGroupMembers(': ['webview/runtime/entryBase.ts', 'shared/dataset/datasetTable.ts'],
+        'groupMedian(': ['webview/runtime/entryBase.ts', 'webview/runtime/comparePanes.ts'],
+    };
+    for (const file of files(root)) {
+        const text = readFileSync(file, 'utf8');
+        const name = path.relative(root, file).split(path.sep).join('/');
+        for (const [call, places] of Object.entries(allowed)) {
+            assert.ok(!text.includes(call) || places.includes(name), `${name} calls ${call}: a base is resolved only in entryBase.ts`);
+        }
+    }
+    // The distribution draws the base it is given; it takes no median of its own rows.
+    assert.doesNotMatch(readFileSync(path.join(root, 'webview/runtime/entryDistribution.ts'), 'utf8'), /\bmedian\(/);
 });

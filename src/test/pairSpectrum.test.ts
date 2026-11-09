@@ -315,14 +315,18 @@ test('the pair panel requests once per change of sources or range, never for a r
         assert.equal(fixture.posted.length, 1);
 
         fixture.panel.handleMessage(resultFor('pair-1'));
-        assert.equal(fixture.doc.getElementById('pair-spectrum-wrap')?.classList.contains('is-stale'), false);
+        assert.equal(fixture.panel.curves().length, 1);
 
         fixture.setRange({ startSeconds: 1, endSeconds: 3 });
+        // From the moment the range changes (before the request even goes out) the first range's answer is not drawn
+        // or read under it: the plots say they wait (R7).
+        fixture.panel.render();
+        assert.equal(fixture.panel.curves().length, 0);
+        assert.equal(fixture.doc.getElementById('pair-spectrum-message')?.textContent, en.pairWaiting);
         fixture.panel.sync();
         mock.timers.tick(PAIR_REQUEST_DELAY_MS);
         assert.equal(fixture.posted.length, 2);
-        // The first range's plot stays up, dimmed, until the new one arrives.
-        assert.equal(fixture.doc.getElementById('pair-spectrum-wrap')?.classList.contains('is-stale'), true);
+        assert.equal(fixture.panel.curves().length, 0);
         assert.equal(fixture.posted[1].startSeconds, 1);
         assert.equal(fixture.posted[1].endSeconds, 3);
 
@@ -331,7 +335,7 @@ test('the pair panel requests once per change of sources or range, never for a r
         assert.equal(fixture.panel.waiting, true);
         fixture.panel.handleMessage(resultFor('pair-2'));
         assert.equal(fixture.panel.lastResult?.requestId, 'pair-2');
-        assert.equal(fixture.doc.getElementById('pair-spectrum-wrap')?.classList.contains('is-stale'), false);
+        assert.equal(fixture.panel.curves().length, 1);
         assert.equal(fixture.doc.getElementById('pair-spectrum-summary')?.textContent, 'H1 · 32 avg · 1.00–3.00 s');
         assert.equal(fixture.doc.getElementById('pair-spectrum-message')?.textContent, '');
     }
@@ -359,6 +363,32 @@ test('the pair panel waits for a dragged offset to rest before it requests', () 
         mock.timers.tick(50);
         assert.equal(fixture.posted.length, 2);
         assert.equal(fixture.posted[1].responses[0].offsetSeconds, 0.6);
+    }
+    finally {
+        mock.timers.reset();
+    }
+});
+
+test('an answer computed for another time offset is never drawn under the shifted lane\'s name', () => {
+    mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+        const fixture = panelFixture();
+        fixture.panel.toggleReference('t1' as TrackId, 0);
+        mock.timers.tick(0);
+        fixture.panel.handleMessage(resultFor('pair-1'));
+        assert.equal(fixture.panel.curves().length, 1);
+        // The response track is shifted by 0.5 s: the same file and channel, another pairing in time.
+        fixture.setChannels([
+            { trackId: 't1' as TrackId, filePath: '/a.wav', channelIndex: 0, offsetSeconds: 0, label: 'a.wav', color: '#0f0' },
+            { trackId: 't2' as TrackId, filePath: '/b.wav', channelIndex: 0, offsetSeconds: 1, label: 'b.wav', color: '#f00' },
+        ]);
+        fixture.panel.render();
+        assert.equal(fixture.panel.curves().length, 0, 'the 0.5 s answer is not the 1 s pairing');
+        assert.equal(fixture.doc.getElementById('pair-spectrum-message')?.textContent, en.pairWaiting);
+        fixture.panel.sync();
+        mock.timers.tick(PAIR_REQUEST_DELAY_MS);
+        fixture.panel.handleMessage(resultFor('pair-2'));
+        assert.equal(fixture.panel.curves().length, 1);
     }
     finally {
         mock.timers.reset();
