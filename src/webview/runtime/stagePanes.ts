@@ -1391,8 +1391,11 @@ function paintValueTitle(context: CanvasRenderingContext2D, frame: { top: number
     return x + ((fitted.lines.length - 1) / 2) * step + (fontPixels(font) * fitted.scale) / 2;
 }
 
-/** The least a value axis's numbers are shrunk to keep clear of its name; past it they are written at this size. */
-const MIN_TICK_SCALE = 0.6;
+/**
+ * How much a value axis's numbers are shrunk to keep clear of its name (R4): as far as the widest needs, with no floor,
+ * since a number over the name is never drawn (A-P3); `room` at or under nothing leaves them unwritten.
+ */
+const tickScale = (room: number, widest: number): number => (widest > room && widest > 0 ? Math.max(0, room) / widest : 1);
 /** `text` as it fits `room` px: whole, or cut in the middle ("start…end"); '' where not even "…" fits. */
 export function fitToWidth(text: string, room: number, measure: (text: string) => number): string {
     if (measure(text) <= room) return text;
@@ -1419,7 +1422,7 @@ function paintValueTicks(context: CanvasRenderingContext2D, frame: { left: numbe
     const font = context.font;
     const room = frame.left - 2 - clearOf - 1;
     const widest = ticks.reduce((most, tick) => Math.max(most, context.measureText(tick.text).width), 0);
-    context.font = scaledFont(font, widest > room && widest > 0 ? Math.max(MIN_TICK_SCALE, room / widest) : 1);
+    context.font = scaledFont(font, tickScale(room, widest));
     context.textAlign = 'right';
     for (const tick of ticks) {
         context.textBaseline = tick.fraction >= 1 ? 'top' : tick.fraction <= 0 ? 'bottom' : 'middle';
@@ -1513,7 +1516,7 @@ function paintRightAxis(context: CanvasRenderingContext2D, frame: { left: number
     const shown = range.max > range.min ? ticks : [];
     const room = titleLeft - 1 - (x + 4);
     const widest = shown.reduce((most, tick) => Math.max(most, context.measureText(tick.text).width), 0);
-    context.font = scaledFont(typeof context.font === 'string' ? context.font : PLOT_TEXT_FONT, widest > room && widest > 0 ? Math.max(MIN_TICK_SCALE, room / widest) : 1);
+    context.font = scaledFont(typeof context.font === 'string' ? context.font : PLOT_TEXT_FONT, tickScale(room, widest));
     for (const tick of shown) {
         const y = frame.top + (1 - tick.fraction) * frame.height;
         context.beginPath(); context.moveTo(x, y); context.lineTo(x + 3, y); context.stroke();

@@ -721,9 +721,11 @@ test('no two numbers along a horizontal axis touch, a log frequency axis on a na
 });
 
 test('a value axis\'s numbers never cover its name in the gutter: a long one is written smaller to keep clear of it (R4)', () => {
+  // However long the numbers: a window of a few millionths needs as many digits, and is shrunk as far as it takes (A-P3).
+  for (const [low, high] of [[-0.0012, 0.0012], [-1234567.89, -1234567.81]]) {
     const { canvas, texts } = textCanvas(400, 400);
-    const view: StageView = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', unit: 'Pa', xs: [0, 1, 2], values: [-0.001, 0.0005, 0.001] };
-    paintOverlay(canvas, { layers: [{ view, color: 'a', full: held(view) }] }, { min: -0.0012, max: 0.0012 }, { x: 'Time [s]', y: 'Sound pressure, uncalibrated [Pa]' });
+    const view: StageView = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', unit: 'Pa', xs: [0, 1, 2], values: [low, (low + high) / 2, high] };
+    paintOverlay(canvas, { layers: [{ view, color: 'a', full: held(view) }] }, { min: low, max: high }, { x: 'Time [s]', y: 'Sound pressure, uncalibrated [Pa]' });
     const name = texts.filter(item => item.turned);
     const numbers = texts.filter(item => !item.turned && item.align === 'right' && /^−?\d/u.test(item.text));
     assert.ok(name.length >= 1 && numbers.length >= 2, JSON.stringify(texts));
@@ -735,6 +737,7 @@ test('a value axis\'s numbers never cover its name in the gutter: a long one is 
         const left = item.x - item.text.length * 6 * fontPixels(item.font) / 10;
         assert.ok(left >= nameRight, `"${item.text}" starts at ${left.toFixed(1)} px, the name ends at ${nameRight.toFixed(1)} px`);
     }
+  }
 });
 
 test('a time is written to the digits that tell it from the next point: frames 5.3 ms apart never read the same (R7)', () => {
