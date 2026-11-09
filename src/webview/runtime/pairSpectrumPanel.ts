@@ -18,6 +18,8 @@ import { HostRequests } from './hostRequests';
 export interface PairChannelSource {
     trackId: TrackId;
     filePath: string;
+    /** The version of the file the track was analysed from: part of the request, so of its answer's key. */
+    sourceVersion: string | undefined;
     channelIndex: number;
     offsetSeconds: number;
     label: string;
@@ -236,7 +238,7 @@ export class PairSpectrumPanel {
     private requestNow(): { request: Omit<PairSpectrumRequest, 'requestId'>; key: string } | null {
         const sources = this.sources();
         if (!sources || sources.responses.length === 0) return null;
-        const ref = (source: PairChannelSource) => ({ filePath: source.filePath, channelIndex: source.channelIndex, offsetSeconds: source.offsetSeconds });
+        const ref = (source: PairChannelSource) => ({ filePath: source.filePath, sourceVersion: source.sourceVersion, channelIndex: source.channelIndex, offsetSeconds: source.offsetSeconds });
         const range = this.host.range();
         const request: Omit<PairSpectrumRequest, 'requestId'> = {
             type: 'request-pair-spectrum',
