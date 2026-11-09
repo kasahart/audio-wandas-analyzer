@@ -81,7 +81,7 @@ import {
     spectrumSlicesFromResult,
     withCalibrationWords,
 } from './spectrumRuntime';
-import { levelKeyOfReading } from './levelGrouping';
+import { levelKeyOfReading, shownLevelOf } from './levelGrouping';
 import { normalizeRuntimeState, PersistedStateStore } from './stateStore';
 import { ComparisonTestBridge } from './testBridge';
 import { RuntimeEventFeed } from './runtimeEvents';
@@ -4143,9 +4143,15 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
         const W = canvas.width, H = canvas.height;
         const { series: collected, pending: pendingVisibleSlice } = spectrumSeriesAt(spectrumCursorNorm);
         // Each line carries its recording's level identity: lines share a level axis only by it (levelGrouping, R1).
+        // A slice that names no reference of its own is in its channel's, as wandas named it (never a bare dB, R4, A50).
         const slices = collected.map(series => {
-            const measurement = channelsForResult(state.results[series.index])[series.channelIndex]?.measurement;
-            return measurement ? { ...series, level: { unit: measurement.referenceUnit, ref: measurement.referenceValue, levelReferenceLabel: measurement.levelReferenceLabel } } : series;
+            const channel = channelsForResult(state.results[series.index])[series.channelIndex];
+            const measurement = channel?.measurement;
+            const level = measurement ? { unit: measurement.referenceUnit, ref: measurement.referenceValue, levelReferenceLabel: measurement.levelReferenceLabel }
+                : channel?.sourceLevelReferenceLabel ? { levelReferenceLabel: channel.sourceLevelReferenceLabel } : undefined;
+            if (!level) return series;
+            const slice = shownLevelOf(series.slice) ? series.slice : { ...series.slice, unit: level.levelReferenceLabel };
+            return { ...series, slice, level };
         });
         if (holdingSpectrumCommit() && overlaySpectrumPainted && pendingVisibleSlice) {
             // The last picture stays: its header keeps that picture's time (ShownSpectrumCursor).

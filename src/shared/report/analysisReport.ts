@@ -25,7 +25,9 @@ function markdownTableCell(value: unknown): string {
 }
 
 function reportLevel(channel: ChannelSummary, linearValue: number, levelValue: number | undefined): string {
-    return formatMeasuredLevel(linearValue, levelValue, channel.measurement) ?? '—';
+    // As the lane's header writes it: in the channel's measured reference, else its source's as wandas named it.
+    const named = channel.measurement ?? (channel.sourceLevelReferenceLabel ? { calibrationStatus: 'uncalibrated', levelReferenceLabel: channel.sourceLevelReferenceLabel } : undefined);
+    return formatMeasuredLevel(linearValue, levelValue, named) ?? '—';
 }
 
 function formatReportDb(value: number | undefined, unit: string): string {

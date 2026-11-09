@@ -44,6 +44,7 @@ const DUMMY_APP_STATE = JSON.stringify({
                 label: 'L',
                 peakAbsolute: 0.5,
                 peakLevelDb: -6.0206,
+                sourceLevelReferenceLabel: 'dBFS',
                 waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
                 spectrogram: {
                     values: [[0]], timeBins: 1, frequencyBins: 1,
@@ -65,6 +66,7 @@ const DUMMY_APP_STATE = JSON.stringify({
                 label: 'L',
                 peakAbsolute: 0.7,
                 peakLevelDb: -3.098,
+                sourceLevelReferenceLabel: 'dBFS',
                 waveform: { min: [-0.7], max: [0.7], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.7 },
                 spectrogram: {
                     values: [[0]], timeBins: 1, frequencyBins: 1,
@@ -93,6 +95,7 @@ const MULTICHANNEL_APP_STATE = JSON.stringify({
                     label: 'Left',
                     peakAbsolute: 0.5,
                     peakLevelDb: -6.0206,
+                    sourceLevelReferenceLabel: 'dBFS',
                     waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
                     spectrogram: {
                         values: [[-12, -48, -72]], timeBins: 1, frequencyBins: 3,
@@ -104,6 +107,7 @@ const MULTICHANNEL_APP_STATE = JSON.stringify({
                     label: 'Right',
                     peakAbsolute: 0.95,
                     peakLevelDb: -0.4455,
+                    sourceLevelReferenceLabel: 'dBFS',
                     waveform: { min: [-0.95], max: [0.95], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.95 },
                     spectrogram: {
                         values: [[-72, -48, -3]], timeBins: 1, frequencyBins: 3,
@@ -1455,6 +1459,8 @@ const SPECTRUM_APP_STATE = JSON.stringify({
         channels: [{
             label: 'L',
             peakAbsolute: 0.5,
+            // The backend names every channel's level reference (an uncalibrated recording's dBFS).
+            sourceLevelReferenceLabel: 'dBFS',
             waveform: { min: [-0.5], max: [0.5], minT: [0.0], maxT: [1.0], samples: [0.0], absolutePeak: 0.5 },
             spectrogram: {
                 values: [
@@ -2052,7 +2058,8 @@ async function answerSpectrumSlices(env: ReturnType<typeof setupEnv>, stateJson:
             const channels = (result?.channels ?? []).map((channel: any, channelIndex: number) => {
                 const spec = channel.spectrogram;
                 const at = Math.max(0, Math.min(spec.timeBins - 1, Math.floor(request.cursorNorm * spec.timeBins)));
-                return { channelIndex, values: spec.values[at], minDb: spec.minDb, maxDb: spec.maxDb, unit: spec.unit };
+                // The backend's slice always names its level (an uncalibrated recording's in dBFS).
+                return { channelIndex, values: spec.values[at], minDb: spec.minDb, maxDb: spec.maxDb, unit: spec.unit ?? 'dBFS' };
             });
             const first = result.channels[0].spectrogram;
             env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
@@ -2076,7 +2083,7 @@ test('spectrum cursor: overlay readout formats focused frequency as every plot d
 
     const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
     assert.ok(readout, 'spectrum-freq-readout が存在すること');
-    assert.match(readout.textContent || '', /^high\.wav \/ Channel 1 \(L\) \/ 1\.2 kHz \/ −60\.0 dB$/,
+    assert.match(readout.textContent || '', /^high\.wav \/ Channel 1 \(L\) \/ 1\.2 kHz \/ −60\.0 dBFS$/,
         'overlay のカーソル読み値も file/channel 付きで、ほかのグラフと同じ書き方 (1 kHz 以上は kHz) で表示すること');
     env.dom.window.close();
 });
@@ -2094,7 +2101,7 @@ test('spectrum cursor: overlay readout identifies the hovered file and channel',
 
     const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
     assert.ok(readout, 'spectrum-freq-readout が存在すること');
-    assert.equal(readout.textContent, 'stereo.wav / Channel 2 / 2 (Right) / 22.05 kHz / −3.0 dB',
+    assert.equal(readout.textContent, 'stereo.wav / Channel 2 / 2 (Right) / 22.05 kHz / −3.0 dBFS',
         'overlay hover readout は最寄り系列の fileName と channelLabel を含むこと');
     env.dom.window.close();
 });
@@ -2112,7 +2119,7 @@ test('spectrum cursor: overlay keyboard focus updates the header readout', async
     await nextAnimationFrame(env.dom);
 
     const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
-    assert.match(readout!.textContent || '', /^high\.wav \/ Channel 1 \(L\) \/ 1\.2 kHz \/ −60\.0 dB$/,
+    assert.match(readout!.textContent || '', /^high\.wav \/ Channel 1 \(L\) \/ 1\.2 kHz \/ −60\.0 dBFS$/,
         'overlay もマウス hover なしの focus と矢印キーでヘッダー readout が更新されること');
     env.dom.window.close();
 });
@@ -2153,7 +2160,7 @@ test('spectrum cursor: overlay snaps to the nearest visible series bin when delt
 
     const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
     assert.ok(readout, 'spectrum-freq-readout が存在すること');
-    assert.match(readout.textContent || '', /^fine\.wav \/ Channel 1 \(L\) \/ 180 Hz \/ −35\.0 dB$/,
+    assert.match(readout.textContent || '', /^fine\.wav \/ Channel 1 \(L\) \/ 180 Hz \/ −35\.0 dBFS$/,
         'fine track ΔF=180 Hz の最寄りbinへ吸着すること');
     env.dom.window.close();
 });
@@ -2179,7 +2186,7 @@ test('spectrum cursor: overlay remains snapped after frequency zoom changes the 
 
     const readout = env.dom.window.document.getElementById('spectrum-freq-readout');
     assert.ok(readout, 'spectrum-freq-readout が存在すること');
-    assert.match(readout.textContent || '', /^fine\.wav \/ Channel 1 \(L\) \/ 180 Hz \/ −35\.0 dB$/,
+    assert.match(readout.textContent || '', /^fine\.wav \/ Channel 1 \(L\) \/ 180 Hz \/ −35\.0 dBFS$/,
         '周波数ズーム後もfine trackの実binへ吸着すること');
     env.dom.window.close();
 });
@@ -2503,7 +2510,7 @@ test('renderScript: channel peak metrics use backend-provided levels without rec
         new env.dom.window.MouseEvent('click', { bubbles: true }),
     );
     const msg = env.postedMessages.find((posted: any) => posted.type === 'export-report-options') as any;
-    assert.match(msg.markdownContent, /\| 45\.6 dB \|/);
+    assert.match(msg.markdownContent, /\| 45\.6 dBFS \|/);
     env.dom.window.close();
 });
 
@@ -2746,8 +2753,8 @@ test('renderScript: multichannel report lists peak metrics for every channel', a
     const msg = env.postedMessages.find((posted: any) => posted.type === 'export-report-options') as any;
     assert.ok(msg, 'report export message が送信されること');
     assert.match(msg.markdownContent, /\| File \| Channel \| Sample Rate \| Duration \| Channels \| Peak \|/);
-    assert.match(msg.markdownContent, /\| stereo\.wav \| Channel 1 \/ 2 \(Left\) \| 44100 Hz \| 1\.000s \| 2 \| −6\.0 dB \|/);
-    assert.match(msg.markdownContent, /\| stereo\.wav \| Channel 2 \/ 2 \(Right\) \| 44100 Hz \| 1\.000s \| 2 \| −0\.4 dB \|/);
+    assert.match(msg.markdownContent, /\| stereo\.wav \| Channel 1 \/ 2 \(Left\) \| 44100 Hz \| 1\.000s \| 2 \| −6\.0 dBFS \|/);
+    assert.match(msg.markdownContent, /\| stereo\.wav \| Channel 2 \/ 2 \(Right\) \| 44100 Hz \| 1\.000s \| 2 \| −0\.4 dBFS \|/);
     assert.doesNotMatch(msg.markdownContent, /Spectral Peaks/);
     const notebook = JSON.parse(msg.notebookContent) as { cells: Array<{ id: string; source: string[] }> };
     const loadCell = notebook.cells.find((cell) => cell.id === 'load-files');
