@@ -70,6 +70,23 @@ test('other pictures keep the view\'s own range with a 5 % margin, and draw noth
     assert.deepEqual(detail.drawn(base, spectrum, { start: 0.4, end: 0.5 }), []);
 });
 
+test('zoomed in past a range asked for on the way, the window is asked for again at its own density, not drawn from the wider one (R3)', () => {
+    const { detail, advance } = planner();
+    advance(DETAIL_SETTLE_MS);
+    // A zoom that paused on the way in: its wider window was asked for.
+    const wider = detail.spec(base, spectrum, { start: 0.3, end: 0.6 }, null, WIDTH)!;
+    detail.moved();
+    advance(DETAIL_SETTLE_MS);
+    // Zoomed in further, inside it: the wider one holds a third of the points per pixel here, so it is asked anew.
+    const inner = detail.spec(base, spectrum, { start: 0.4, end: 0.5 }, null, WIDTH)!;
+    assert.notEqual(inner.key, wider.key);
+    const [from, to] = inner.message.detail!.x;
+    assert.ok(Math.abs(from - 39.5) < 1e-9 && Math.abs(to - 50.5) < 1e-9, `${from}–${to}`);
+    // Panned a little at the same zoom, or zoomed back out to the wider window, the one asked for is drawn again.
+    assert.equal(detail.spec(base, spectrum, { start: 0.401, end: 0.501 }, null, WIDTH)!.key, inner.key);
+    assert.equal(detail.spec(base, spectrum, { start: 0.3, end: 0.6 }, null, WIDTH)!.key, wider.key);
+});
+
 test('a median or a difference takes every member over one range: the newest range all have, else none', () => {
     const at = (x: number[]) => ({ key: `detail|${x.join(',')}`, message: { stage: 'step', detail: { x, points: 10 } } });
     const older = at([20, 70]), newer = at([35, 85]);

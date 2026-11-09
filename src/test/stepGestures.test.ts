@@ -15,16 +15,20 @@ function setup(ids: string[]) {
     const element = dom.window.document.querySelector('nav') as HTMLElement;
     const timers = new Map<number, { run: () => void; ms: number }>();
     let nextTimer = 1;
-    const listeners = new Map<string, Array<() => void>>();
+    const listeners = new Map<string, Array<(event: { timeStamp: number }) => void>>();
+    let pressedAt = 0;
     const view = {
         setTimeout: (run: () => void, ms: number) => { timers.set(nextTimer, { run, ms }); return nextTimer++; },
         clearTimeout: (id: number) => { timers.delete(id); },
-        addEventListener: (type: string, listener: () => void) => { listeners.set(type, [...(listeners.get(type) ?? []), listener]); },
+        addEventListener: (type: string, listener: (event: { timeStamp: number }) => void) => { listeners.set(type, [...(listeners.get(type) ?? []), listener]); },
     } as unknown as View;
     const elapse = (): void => { const due = [...timers.values()]; timers.clear(); due.forEach(timer => timer.run()); };
-    const fire = (type: string): void => (listeners.get(type) ?? []).forEach(listener => listener());
+    /** `type` on the window, `after` ms after the last press (a hold's release is after the tap time by default). */
+    const fire = (type: string, after = STEP_TAP_MS + 50): void => (listeners.get(type) ?? []).forEach(listener => listener({ timeStamp: pressedAt + after }));
     const press = (id: string, button = 0): void => {
-        element.querySelector(`[data-step-hold="${id}"]`)?.dispatchEvent(new dom.window.MouseEvent('pointerdown', { bubbles: true, button }));
+        const event = new dom.window.MouseEvent('pointerdown', { bubbles: true, button });
+        pressedAt = event.timeStamp;
+        element.querySelector(`[data-step-hold="${id}"]`)?.dispatchEvent(event);
     };
     return { dom, element, view, timers, elapse, fire, press };
 }
@@ -54,6 +58,18 @@ test('a tap is released before the hold starts: nothing is held and its click is
     assert.equal(timers.size, 0);
     assert.deepEqual(holds, []);
     assert.equal(hold.swallowed(), false);
+});
+
+test('a short press let go before a late timer (a busy page) is still a tap: the timer\'s hold ends and its click is not swallowed', () => {
+    const { element, view, elapse, fire, press } = setup(['a']);
+    const holds: Array<string | null> = [];
+    const hold = attachStepHold(element, view, { stepAt: id => (id ? step(id) : undefined), canHold: () => true, onHold: held => holds.push(held?.id ?? null) });
+    press('a');
+    // The timer runs only now, though the release (queued behind it) came 80 ms after the press.
+    elapse();
+    fire('pointerup', 80);
+    assert.deepEqual(holds, ['a', null]);
+    assert.equal(hold.swallowed(), false, 'the click that follows shows the step');
 });
 
 test('a hold that ends without a pointer up (focus lost) lets the next click through; only steps that can be held are', () => {

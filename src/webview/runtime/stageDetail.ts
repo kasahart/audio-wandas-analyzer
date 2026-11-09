@@ -99,10 +99,14 @@ export function createDetailPlanner(clock: { now(): number }, timers: Pick<Windo
             if (prefetchesAround(coarse)) return around(base, coarse, x, width);
             const done = asked.get(base.key) ?? [];
             const points = rangeRequestPointCount(width);
-            const reuse = done.find(item => covers(item.x, x) && (!rows || (!!item.y && covers(item.y, rows))) && rangeHasDetail(item.points, item.x.start, item.x.end, points, width, x.start, x.end));
+            const xs = computeReqBounds(x.start, x.end), ys = rows ? computeReqBounds(rows.start, rows.end) : null;
+            // A range asked for before is drawn again only as finely as this zoom's own would be (R3): a wider one,
+            // asked for on the way in by a zoom that paused past the settle time, holds fewer points per pixel here.
+            // (Per span of the view each was asked for: a range cut at the axis's end is no finer for it.)
+            const reuse = done.find(item => covers(item.x, x) && (!rows || (!!item.y && covers(item.y, rows))) && item.points / item.span >= points / spanOf(x) * (1 - 1e-9)
+                && rangeHasDetail(item.points, item.x.start, item.x.end, points, width, x.start, x.end));
             if (reuse) return reuse.spec;
             if (settling()) return null;
-            const xs = computeReqBounds(x.start, x.end), ys = rows ? computeReqBounds(rows.start, rows.end) : null;
             const detail: StageDetail = { x: [axisValueAt(coarse, xs.reqStart), axisValueAt(coarse, xs.reqEnd)], points, ...(ys ? { y: [rowValueAt(coarse, ys.reqStart), rowValueAt(coarse, ys.reqEnd)] } : {}) };
             return keep(base.key, { x: { start: xs.reqStart, end: xs.reqEnd }, y: ys ? { start: ys.reqStart, end: ys.reqEnd } : null, points, span: spanOf(x), spec: detailSpec(base, detail) });
         },

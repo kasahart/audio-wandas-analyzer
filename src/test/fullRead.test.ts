@@ -79,6 +79,22 @@ test('a dense waveform is read at its real samples: a sample not drawn, and ever
     assert.ok(backend.asked.length - before <= Math.ceil(120 / STEP_AHEAD) + 1, `${backend.asked.length - before} requests`);
 });
 
+test('a level asked for while a read is on its way is never dropped for a newer read: the pointer\'s latest goes next, then the latest level (R6, R7)', () => {
+    const backend = heldBackend(samples, signal);
+    const none = (): void => undefined;
+    assert.equal(backend.source.line?.({ x0: 10, x1: 20, beyond: 1 }, none), undefined);
+    // While it is on its way: the level of one window, then of the next (zoomed on), then the pointer moving on twice.
+    assert.equal(backend.source.level?.({ x0: 0, x1: 5000, square: true }, none), undefined);
+    assert.equal(backend.source.level?.({ x0: 5000, x1: 9000, square: true }, none), undefined);
+    backend.source.line?.({ x0: 30, x1: 40, beyond: 1 }, none);
+    backend.source.line?.({ x0: 50, x1: 60, beyond: 1 }, none);
+    backend.flush();
+    const sent = backend.asked.map(read => (read.level ? `level ${read.x.join('-')}` : `read ${read.x.map(Math.round).join('-')}`));
+    assert.equal(sent.length, 3, sent.join(', '));
+    assert.equal(sent[1], 'read 35-75', 'the pointer\'s latest read goes next; the one it moved on from is not sent');
+    assert.deepEqual(sent.slice(2), ['level 5000-9000'], 'then the level of the window on screen now, not one zoomed past');
+});
+
 test('a window read is asked for once and kept: the pointer moving inside it asks for nothing more (R7)', () => {
     const backend = heldBackend(samples, signal);
     const plot: StagePlot = {

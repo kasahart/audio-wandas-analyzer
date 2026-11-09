@@ -164,13 +164,18 @@ function holdsDense(read: StageRead, x0: number, x1: number, columns: number, lo
 
 /**
  * A layer's full data held by the backend: `fetch` asks it for `read` (full_read.py) and answers with its points
- * (null: none). Each window is asked for once and kept; one request is on its way at a time, and the latest one
- * asked for meanwhile goes next, so a moving pointer never queues a request per pixel.
+ * (null: none). Each window is asked for once and kept; one request is on its way at a time, and the latest read
+ * asked for meanwhile goes next, so a moving pointer never queues a request per pixel; the latest level asked for
+ * meanwhile keeps a place of its own after it, so a moving pointer never starves the line's order (R6).
  */
 export function fetchedSource(fetch: (read: StageRead, done: (points: StagePoints | null | undefined) => void) => void, extra: Omit<StageRead, 'x' | 'y' | 'beyond' | 'near' | 'columns' | 'log' | 'level'> = {}): FullSource {
     const kept: Array<{ key: string; read: StageRead; points: FullPoints | null }> = [];
     let busy: string | null = null;
+    // Asked for while one is on its way: the pointer's latest read, and the latest level (of the window on screen
+    // now). Each keeps its own place, so the line's order is never dropped for a newer read, nor a read for a level;
+    // an older one of either kind is no longer wanted.
     let next: { key: string; read: StageRead } | null = null;
+    let nextLevel: { key: string; read: StageRead } | null = null;
     const waiting = new Set<() => void>();
     const keep = (key: string, read: StageRead, points: FullPoints | null): void => {
         kept.push({ key, read, points });
@@ -182,11 +187,14 @@ export function fetchedSource(fetch: (read: StageRead, done: (points: StagePoint
             busy = null;
             // undefined: no answer (the backend let the data go and the picture is scanned again): nothing is kept and
             // nothing is asked again until the plot reads anew, once its picture is back.
-            if (points === undefined) { next = null; return; }
+            if (points === undefined) { next = null; nextLevel = null; return; }
             keep(key, read, points);
-            const queued = next;
-            next = null;
-            if (queued && !kept.some(item => item.key === queued.key)) ask(queued.key, queued.read);
+            // The pointer's read first, then the level: the first not answered meanwhile is asked.
+            const unanswered = (item: { key: string } | null): boolean => !!item && !kept.some(done => done.key === item.key);
+            const queued = unanswered(next) ? next : unanswered(nextLevel) ? nextLevel : null;
+            if (queued === next || !unanswered(next)) next = null;
+            if (queued === nextLevel || !unanswered(nextLevel)) nextLevel = null;
+            if (queued) ask(queued.key, queued.read);
             const calls = [...waiting];
             waiting.clear();
             for (const call of calls) call();
@@ -204,8 +212,9 @@ export function fetchedSource(fetch: (read: StageRead, done: (points: StagePoint
         }
         waiting.add(ready);
         if (busy !== key) {
-            if (busy !== null) next = { key, read };
-            else ask(key, read);
+            if (busy === null) ask(key, read);
+            else if (read.level) nextLevel = { key, read };
+            else next = { key, read };
         }
         return meanwhile;
     };
