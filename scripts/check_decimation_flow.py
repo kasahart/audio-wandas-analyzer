@@ -131,11 +131,6 @@ KNOWN_FLOWS: dict[str, str] = {
     "analyzer:_build_spectrogram: np.max(spectrogram)": "track-spectrogram.range",
     "analyzer:_build_spectrogram: field 'minDb' = drawn points": "track-spectrogram.range",
     "analyzer:_build_spectrogram: field 'maxDb' = drawn points": "track-spectrogram.range",
-    # Not a number shown: whether an operation's drawn picture is flat, for the catalog's probe (a step whose output
-    # draws as one value is greyed). Thinning keeps a line's extremes, but an image's block averages can be flat
-    # where its cells are not.
-    "operation_probe:_flat: max(numbers)": "not shown: the probe's flat picture",
-    "operation_probe:_flat: min(numbers)": "not shown: the probe's flat picture",
 }
 
 Pair = tuple[str, str]  # (field, origin): origin is "source|kind"; a parameter's source is "@index:kind"
