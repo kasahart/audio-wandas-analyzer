@@ -157,26 +157,24 @@ test('a range popover names its axis as the plot does: the plot\'s own axis name
     assert.ok(opens >= 5, `the popovers are walked (${opens})`);
 });
 
-test('no absolute level falls back to a bare "dB" unit: it names its reference, or says full scale (R4, R7)', () => {
+test('no absolute level falls back to a bare "dB" unit anywhere in src (a default, ?? / || / ternary, or return): it names its reference, or says full scale (R4, R7, A50)', () => {
     const root = path.join(__dirname, '..', '..', 'src');
     const files: string[] = [];
     const walk = (dir: string): void => {
         for (const name of readdirSync(dir)) {
             const full = path.join(dir, name);
-            if (statSync(full).isDirectory()) { if (name !== 'test') walk(full); } else if (name.endsWith('.ts')) files.push(full);
+            if (statSync(full).isDirectory()) { if (name !== 'test' && name !== 'generated') walk(full); } else if (name.endsWith('.ts')) files.push(full);
         }
     };
-    walk(path.join(root, 'webview'));
-    walk(path.join(root, 'shared'));
+    for (const name of readdirSync(root)) if (name !== 'test' && statSync(path.join(root, name)).isDirectory()) walk(path.join(root, name));
     // Where a bare dB is a ratio or a difference, not an absolute level: said here with why.
     const RATIOS: Record<string, string> = {
         'webview/runtime/pairSpectrum.ts': 'a transfer level is dB re the units\' ratio',
-        'webview/draw/canvasDrawers.ts': 'dbLevelUnitFor: a slice without a unit (each caller passes its axis reference)',
-        'shared/utils/format.ts': 'formatMeasuredLevel: a measurement with neither a reference nor a unit',
     };
     const found = files.flatMap(file => {
         const rel = path.relative(root, file).split(path.sep).join('/');
-        return /(\?\?|\|\||\?)\s*'dB'(?![\w ])/u.test(readFileSync(file, 'utf8')) && !RATIOS[rel] ? [rel] : [];
+        return /(=|:|\?\?|\|\||\?|\breturn)\s*(['"`])dB\2(?![\w ])/u.test(readFileSync(file, 'utf8')) && !RATIOS[rel] ? [rel] : [];
     });
+    assert.ok(files.some(file => file.includes(`${path.sep}shared${path.sep}utils${path.sep}`)) && files.some(file => file.includes(`${path.sep}extension${path.sep}`)), 'shared utils and the extension are walked');
     assert.deepEqual(found, []);
 });

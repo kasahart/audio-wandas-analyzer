@@ -117,8 +117,9 @@ export function barkText(bark: number): string {
 }
 
 /** A level to a tenth of a decibel, in its unit ("−42.3 dB", "61.0 dB SPL"). */
-export function levelText(db: number, unit = 'dB'): string {
-    return `${noNegativeZero(withMinus(db.toFixed(1)))} ${unit}`;
+/** A level and the reference it is in: the caller names it (R4); there is no bare "dB" default. */
+export function levelText(db: number, unit: string): string {
+    return `${noNegativeZero(withMinus(db.toFixed(1)))}${unit ? ` ${unit}` : ''}`;
 }
 
 /** A number written as zero has no sign ("−0.0" is "0.0", A36): a level just below zero is not negative as written. */

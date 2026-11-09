@@ -9,7 +9,7 @@ import type { ScanResult } from '../../shared/protocol/backendProtocol';
 import { rowKey, type DatasetRow } from '../../shared/dataset/datasetTable';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
 import { commonLevelLabel } from '../../shared/utils/format';
-import { levelIdentityOf } from './comparePanes';
+import { levelKeyOf } from './levelGrouping';
 import { installRangePopover, linearAxis, openAxisPart, type AxisMapping } from '../rangePopover';
 import type { HeldPicture } from './entryHeldPlot';
 import { OVERVIEW_MARGINS, paintOverview } from './entryPlots';
@@ -255,7 +255,7 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
                 const keys = bands.map((channel, index) => { const key = rowKey(filePath, index + 1, bands.length); levels.set(key, channel); return key; });
                 levelRows.set(filePath, keys);
             }
-            if (result.ok && result.input) levelLabels.set(filePath, { identity: levelIdentityOf(result.input), label: result.input.levelReferenceLabel });
+            if (result.ok && result.input) levelLabels.set(filePath, { identity: levelKeyOf(result.input), label: result.input.levelReferenceLabel });
             else levelLabels.delete(filePath);
             if (result.ok && result.input?.calibrationStatus === 'calibrated') calibrated.add(filePath);
             else calibrated.delete(filePath);

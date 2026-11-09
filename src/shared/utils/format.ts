@@ -46,11 +46,15 @@ export function formatMeasurementNumber(value: unknown): string {
     return withMinus(numberValue.toPrecision(3));
 }
 
-/** "<linear> <unit> / <level> <levelUnit>" for calibrated channels, "<level> <levelUnit>" otherwise; null without a finite level. */
+/**
+ * "<linear> <unit> / <level> <levelUnit>" for calibrated channels, "<level> <levelUnit>" otherwise; null without a
+ * finite level, and null without a reference to name: a level is never written in a bare "dB" (R4, A50).
+ */
 export function formatMeasuredLevel(linearValue: unknown, levelValue: unknown, measurement: LevelMeasurement | null | undefined): string | null {
-    if (!Number.isFinite(levelValue)) { return null; }
     // An absolute level names its reference as its axis does: wandas' levelUnit is bare "dB" for any reference but FS and SPL.
-    const level = levelText(Number(levelValue), (measurement && (measurement.levelReferenceLabel || measurement.levelUnit)) || 'dB');
+    const reference = measurement?.levelReferenceLabel || measurement?.levelUnit;
+    if (!Number.isFinite(levelValue) || !measurement || !reference) { return null; }
+    const level = levelText(Number(levelValue), reference);
     if (!measurement || measurement.calibrationStatus === 'uncalibrated') { return level; }
     return formatMeasurementNumber(linearValue) + ' ' + measurement.linearUnit + ' / ' + level;
 }

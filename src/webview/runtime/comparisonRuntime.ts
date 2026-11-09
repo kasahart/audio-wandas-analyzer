@@ -81,6 +81,7 @@ import {
     spectrumSlicesFromResult,
     withCalibrationWords,
 } from './spectrumRuntime';
+import { levelKeyOfReading } from './levelGrouping';
 import { normalizeRuntimeState, PersistedStateStore } from './stateStore';
 import { ComparisonTestBridge } from './testBridge';
 import { RuntimeEventFeed } from './runtimeEvents';
@@ -350,8 +351,8 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
     type LinkedScale = { peaks: Map<string, number>; levels: Map<string, { minDb: number; maxDb: number }>; maxFrequencyHz: number };
     let linkedScaleMemo: LinkedScale | null = null;
     const amplitudeUnitKey = (ch: ChannelSummary | undefined) => (ch && typeof ch.unit === 'string' ? ch.unit.trim() : '');
-    const levelUnitKey = (level: { unit?: string; axisLabel?: string; referenceValue?: number; referenceUnit?: string }) =>
-        [level.unit ?? '', level.axisLabel ?? '', level.referenceValue ?? '', level.referenceUnit ?? ''].join('|');
+    // Spectrograms share a colour scale only by level identity (levelGrouping, R1).
+    const levelUnitKey = levelKeyOfReading;
     function displayedLanes(): { record: ReturnType<typeof trackStore.require>; channelIndex: number; ch: ChannelSummary }[] {
         const lanes: { record: ReturnType<typeof trackStore.require>; channelIndex: number; ch: ChannelSummary }[] = [];
         trackStore.displayOrder.forEach(function (trackId) {
@@ -4140,7 +4141,12 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             return;
         }
         const W = canvas.width, H = canvas.height;
-        const { series: slices, pending: pendingVisibleSlice } = spectrumSeriesAt(spectrumCursorNorm);
+        const { series: collected, pending: pendingVisibleSlice } = spectrumSeriesAt(spectrumCursorNorm);
+        // Each line carries its recording's level identity: lines share a level axis only by it (levelGrouping, R1).
+        const slices = collected.map(series => {
+            const measurement = channelsForResult(state.results[series.index])[series.channelIndex]?.measurement;
+            return measurement ? { ...series, level: { unit: measurement.referenceUnit, ref: measurement.referenceValue, levelReferenceLabel: measurement.levelReferenceLabel } } : series;
+        });
         if (holdingSpectrumCommit() && overlaySpectrumPainted && pendingVisibleSlice) {
             // The last picture stays: its header keeps that picture's time (ShownSpectrumCursor).
             shownSpectrumCursor.keep();

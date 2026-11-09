@@ -156,13 +156,6 @@ export function dbToRgb(norm: number) {
     return normalizedColor(norm, viridis);
 }
 
-export function dbLevelUnitFor(value: { unit?: string } | null): string {
-    return value && value.unit ? value.unit : 'dB';
-}
-
-export function formatDbLevel(value: number, source: { unit?: string } | null): string {
-    return value.toFixed(0) + ' ' + dbLevelUnitFor(source);
-}
 
 export interface SpectrumPlotFrame {
     padLeft: number;

@@ -45,7 +45,9 @@ test('a frequency read among points finer than 1 Hz apart gets the digits that t
 });
 
 test('a level reads to a tenth of a decibel in its unit, a time in seconds, other values to three figures (R7)', () => {
-    assert.equal(levelText(-42.31), '−42.3 dB');
+    assert.equal(levelText(-42.31, 'dBFS'), '−42.3 dBFS');
+    // A level whose reference nobody gave is written without one, never in a bare "dB" (R4, A50).
+    assert.equal(levelText(-42.31, ''), '−42.3');
     assert.equal(levelText(61, 'dB SPL'), '61.0 dB SPL');
     assert.equal(secondsText(1.234), '1.23 s');
     assert.equal(secondsText(-0.5, 3), '−0.500 s');
@@ -95,14 +97,14 @@ test('a negative number is written with a true minus sign, its exponent too, nev
     assert.equal(withMinus('-3.2'), '−3.2');
     assert.equal(withMinus('1.5e-7'), '1.5e−7');
     assert.equal(withMinus('1.5e+7'), '1.5e7');
-    for (const text of [levelText(-1), secondsText(-1), amountText(-1), amountText(-1e-9), frequencyText(-2000), signedText(-1), lagText(-0.001), quefrencyText(-0.001), barkText(-1), signedNumberText(-1)]) {
+    for (const text of [levelText(-1, 'dBFS'), secondsText(-1), amountText(-1), amountText(-1e-9), frequencyText(-2000), signedText(-1), lagText(-0.001), quefrencyText(-0.001), barkText(-1), signedNumberText(-1)]) {
         assert.ok(!text.includes('-'), `${text} has no hyphen`);
     }
 });
 
 test('the same frequency and level read the same on the comparison, the cursor spectrum and a spectrogram lane (R7)', () => {
     const view: StageView = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'level', xs: [1015.625], values: [-42.3] };
-    const plot: StagePlot = { frame: { left: 0, top: 0, width: 200, height: 100 }, xAt: () => 100, xOf: () => 1015.625, yAt: () => 50, ratioStep: 1.12, lines: [{ view, color: 'blue', label: 'a.wav', full: held(view) }], diff: false };
+    const plot: StagePlot = { frame: { left: 0, top: 0, width: 200, height: 100 }, xAt: () => 100, xOf: () => 1015.625, yAt: () => 50, ratioStep: 1.12, levelUnit: 'dB', lines: [{ view, color: 'blue', label: 'a.wav', full: held(view) }], diff: false };
     const comparison = stageHover(plot, 100, 50)!.text;
     const spectrum = spectrumReadoutText('a.wav', { values: [], frequencyBins: 0, maxFrequencyHz: 0, minDb: 0, maxDb: 0, unit: 'dB' }, 1015.625, -42.3);
     const lane = spectrogramReadoutText('a.wav', 1, 0.01, { frequencyHz: 1015.625, level: -42.3 }, 'dB');
@@ -256,8 +258,8 @@ test('a stretch of time is written to 10 ms, finer where its ends would read ali
 });
 
 test('a level or a difference written as zero is never negative: "0.0 dB" and "+0.0", not "−0.0" (A36, C5)', () => {
-    assert.equal(levelText(-0.04), '0.0 dB');
-    assert.equal(levelText(-0.06), '−0.1 dB');
+    assert.equal(levelText(-0.04, 'dB'), '0.0 dB');
+    assert.equal(levelText(-0.06, 'dB'), '−0.1 dB');
     assert.equal(signedNumberText(-0.04), '+0.0');
     assert.equal(signedText(-0.04), '+0.0 dB');
     assert.equal(signedText(0.06), '+0.1 dB');

@@ -8,7 +8,8 @@ import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { niceRange } from '../../shared/utils/ticks';
 import { clearSideAxis, paintOverlay, stageRange, type StageAxes } from './stagePanes';
 import { withMinus } from '../plot/plotText';
-import { levelIdentityOf, type PaneRange } from './comparePanes';
+import { type PaneRange } from './comparePanes';
+import { byLevelKey, levelKeyOf } from './levelGrouping';
 import type { Drawn, StageTrack } from './trackStagePainter';
 import type { PlotWindow } from './plotInteraction';
 import { NO_FULL_DATA, type FullRead } from './fullRead';
@@ -59,14 +60,15 @@ export function paintTriggerLanes(frame: TriggerLanesFrame): number {
     const views = frame.tracks.map(track => frame.signal(track.filePath) ?? null);
     // Lanes share a range only with the lanes of their own level identity (R1, R4, A43: levelIdentityOf), as the
     // compare lanes do: a lane in Pa is never on a full-scale lane's scale.
-    const identityOf = (track: StageTrack): string => (track.input ? levelIdentityOf(track.input) : '');
+    const identityOf = (track: StageTrack): string => levelKeyOf(track.input);
+    const lanesOf = byLevelKey(frame.tracks.map((track, index) => ({ track, view: views[index] })), ({ track }) => identityOf(track));
     const ranges = new Map<string, PaneRange>();
     const rangeOf = (track: StageTrack): PaneRange => {
         const key = identityOf(track);
         const known = ranges.get(key);
         if (known) return known;
         // The level stays in sight above or below every signal (a waveform's range leaves other views out).
-        const base = stageRange([...views.filter((_, index) => identityOf(frame.tracks[index]) === key), levelView(trigger.threshold)]);
+        const base = stageRange([...(lanesOf.get(key) ?? []).map(lane => lane.view), levelView(trigger.threshold)]);
         const margin = Math.abs(trigger.threshold) * 0.05;
         // Widened again to round ends once the level is in (R9): the waveform's range alone is round already.
         const held = niceRange(Math.min(base.min, trigger.threshold - margin), Math.max(base.max, trigger.threshold + margin));

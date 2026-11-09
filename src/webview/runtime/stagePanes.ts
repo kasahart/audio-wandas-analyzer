@@ -1700,7 +1700,7 @@ function lineRead(plot: StagePlot, layer: StageLayer, point: ReadPoint, away?: n
     if (layer.readout) return { ...readoutOf(layer, point, layer.label ?? '', layer.readout(point.index, { x: point.at, value: point.value, ...(point.full && point.step !== undefined ? { step: point.step } : {}) })), index: point.index, away, ...full };
     const amount = plot.diff ? signed(point.value, isDb(view))
         // Levels to 0.1 dB, as the spectrum overlay reads them; other quantities (a coherence) to 3 figures.
-        : isDb(view) ? levelText(point.value, plot.levelUnit) : amountText(point.value, view.unit);
+        : isDb(view) ? levelText(point.value, plot.levelUnit ?? view.unit ?? '') : amountText(point.value, view.unit);
     const where = point.full ? atValue(view, point.at, undefined, point.step) : atText(view, point.index);
     return { ...readoutOf(layer, point, layer.label || (plot.diff ? 'Δ' : ''), [where, amount]), index: point.index, away, ...full };
 }
@@ -1794,7 +1794,7 @@ function cellRead(plot: StagePlot, layer: StageLayer, got: FullPoints, column: n
     const value = got.matrix?.[row]?.[column];
     const at = got.xs[column], place = got.ys?.[row];
     if (value === null || value === undefined || at === undefined || place === undefined) return null;
-    const amount = plot.diff ? signed(value, isDb(view)) : isDb(view) ? levelText(value, plot.levelUnit) : amountText(value);
+    const amount = plot.diff ? signed(value, isDb(view)) : isDb(view) ? levelText(value, plot.levelUnit ?? view.unit ?? '') : amountText(value);
     const where = layer.rowName ? atValue(view, at) : atValue(view, at, place, spacingAt(got.xs, column), spacingAt(got.ys, row));
     const name = got.rowNames?.[row] ?? layer.label ?? (plot.diff ? 'Δ' : '');
     const rowStep = spacingAt(got.ys, row), step = spacingAt(got.xs, column);

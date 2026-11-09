@@ -122,6 +122,8 @@
 - テスト: `src/test/trackStagePainter.test.ts` › overlaid, a trigger's events are split by level identity as any line, and a vertical zoom narrows the right-hand axis as the left (A43, A45, R13)
 - テスト: `src/test/triggerLanes.test.ts` › trigger lanes of another level identity never share a range: a lane in Pa is not on a full-scale lane's scale (A43, R1, R4)
 - テスト: `src/test/overlaySpectrumPainter.test.ts` › on one level axis mixing calibration statuses, each uncalibrated line says so in its legend and readout; on its own the axis says it (A49, R1, R4)
+- テスト: `src/test/levelGrouping.test.ts` › every place that groups lines onto a level axis, range or colour scale goes through levelGrouping (A43, A49, R1, R4)
+- テスト: `src/test/axisNames.test.ts` › no absolute level falls back to a bare "dB" unit anywhere in src (a default, ?? / || / ternary, or return): it names its reference, or says full scale (R4, R7, A50)
 - テスト: `src/test/trackStagePainter.test.ts` › side by side, lanes share a range only with the lanes in their own reference: a dB SPL lane is never on a dBFS lane's scale (A32, C1)
 - テスト: `src/test/stagePanes.test.ts` › a metric or level over time names what it measures on its value axis, never a bare value or an amplitude in dB (R4)
 - テスト: `src/test/stagePanes.test.ts` › a heatmap names what its colour measures, with its unit and reference, for its colour bar

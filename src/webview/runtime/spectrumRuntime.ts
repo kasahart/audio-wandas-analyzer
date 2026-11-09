@@ -1,11 +1,12 @@
 import { readoutText } from '../../shared/gui-core/index';
-import { dbLevelUnitFor, frequencyAtFraction, type SpectrumPlotFrame } from '../draw/canvasDrawers';
+import { frequencyAtFraction, type SpectrumPlotFrame } from '../draw/canvasDrawers';
 import { frequencyText, levelText } from '../plot/plotText';
 import { HEATMAP_DB_SPAN } from '../../shared/utils/ticks';
 import type { StageView } from '../../shared/protocol/backendProtocol';
 import { stageRange } from './stagePanes';
 import type { HostInboundMessage } from './hostMessaging';
-import type { DragPoint, SpectrumSlice } from './types';
+import type { DragPoint, SpectrumSeries, SpectrumSlice } from './types';
+import { byLevelKey, calibrationWordsBy, levelKeyOf, shownLevelOf } from './levelGrouping';
 import { type NormalizedRange, zoomNormalizedRange } from './waveformInteraction';
 
 export function zoomSpectrumRange(range: NormalizedRange, factor: number): NormalizedRange {
@@ -76,7 +77,7 @@ export function spectrumReadoutText(label: string, slice: SpectrumSlice, freqHz:
 /** Where and how loud a spectrum's point reads: its frequency to the digits its bins need, its level in the slice's unit. */
 /** `stepHz`: the spacing of the real bins around a point read at full resolution, in place of the slice's drawn points'. */
 export function spectrumReadoutValues(slice: SpectrumSlice, freqHz: number, dbVal: number, stepHz?: number): string[] {
-    return [frequencyText(freqHz, stepHz ?? sliceStepHz(slice, freqHz)), levelText(dbVal, dbLevelUnitFor(slice))];
+    return [frequencyText(freqHz, stepHz ?? sliceStepHz(slice, freqHz)), levelText(dbVal, slice.unit || spectrumLevelReference(slice))];
 }
 
 /** The spacing of a slice's points around `freqHz` (its drawn points', else its even bins'), for the readout's digits. */
@@ -131,22 +132,22 @@ export function setOverlaySecondaryLevelAxis(shown: boolean): void {
  * ("Spectrum amplitude level [...]") and one cut from the spectrogram ("STFT amplitude level [...]") agree.
  */
 export function spectrumLevelReference(slice: SpectrumSlice): string {
-    const bracket = slice.axisLabel ? /\[([^\]]+)\]\s*$/.exec(slice.axisLabel) : null;
-    return bracket ? bracket[1] : dbLevelUnitFor(slice);
+    return shownLevelOf(slice);
 }
+
+/** What a line's levels are in, for sharing an axis (levelGrouping): its recording's identity and its slice's reference. */
+type LevelKeyed = { slice: SpectrumSlice; level?: SpectrumSeries['level'] };
+const levelOf = (level: SpectrumSeries['level']) => (level ? { unit: level.unit ?? '', ref: level.ref ?? 1, levelReferenceLabel: level.levelReferenceLabel ?? '' } : undefined);
+const spectrumLevelKey = (s: LevelKeyed): string => levelKeyOf(levelOf(s.level), spectrumLevelReference(s.slice));
 
 /**
  * The series with each uncalibrated one's label saying so where it shares a level axis (spectrumLevelReference) with
  * a calibrated one (R1, R4, A49): that axis is named calibrated, so the line says it is not, in its legend and its
  * readout (both read the label). Elsewhere the axis's own name says it, and no label repeats it.
  */
-export function withCalibrationWords<S extends { slice: SpectrumSlice; label: string }>(series: readonly S[], calibrated: (series: S) => boolean, word: string): S[] {
-    const statuses = new Map<string, Set<boolean>>();
-    for (const s of series) {
-        const key = spectrumLevelReference(s.slice);
-        statuses.set(key, (statuses.get(key) ?? new Set()).add(calibrated(s)));
-    }
-    return series.map(s => (!calibrated(s) && (statuses.get(spectrumLevelReference(s.slice))?.size ?? 0) > 1 ? { ...s, label: `${s.label}${word}` } : s));
+export function withCalibrationWords<S extends LevelKeyed & { label: string }>(series: readonly S[], calibrated: (series: S) => boolean, word: string): S[] {
+    const said = calibrationWordsBy(series, spectrumLevelKey, calibrated, word);
+    return series.map(s => { const extra = said(s); return extra ? { ...s, label: `${s.label}${extra}` } : s; });
 }
 
 export interface OverlayLevelAxis<S> {
@@ -173,17 +174,13 @@ function autoDbRange(series: ReadonlyArray<{ slice: SpectrumSlice }>): { minDb: 
  * the left axis' zoom as the same fraction of that range. With three or more only the first reference's lines are
  * drawn, so no line is read against another reference's axis (the panel is hidden behind a warning then).
  */
-export function overlayLevelAxes<S extends { slice: SpectrumSlice }>(series: readonly S[], view: SpectrumViewState): OverlayLevelAxis<S>[] {
+export function overlayLevelAxes<S extends LevelKeyed>(series: readonly S[], view: SpectrumViewState): OverlayLevelAxis<S>[] {
     const all = spectrumSeriesRange(series);
-    const groups = new Map<string, S[]>();
-    series.forEach(s => {
-        const key = spectrumLevelReference(s.slice);
-        const group = groups.get(key);
-        if (group) { group.push(s); } else { groups.set(key, [s]); }
-    });
-    const entries = [...groups.entries()];
-    const axisFor = (reference: string, members: S[], visible: SpectrumVisibleWindow): OverlayLevelAxis<S> =>
-        ({ series: members, title: members[0].slice.axisLabel || reference, reference, visible });
+    const entries = [...byLevelKey(series, spectrumLevelKey).entries()];
+    const axisFor = (_key: string, members: S[], visible: SpectrumVisibleWindow): OverlayLevelAxis<S> => {
+        const reference = spectrumLevelReference(members[0].slice);
+        return { series: members, title: members[0].slice.axisLabel || reference, reference, visible };
+    };
     if (entries.length < 2) {
         const visible = spectrumVisibleWindow(all.maxFrequencyHz, all.minDb, all.maxDb, view, all.logMinFrequencyHz);
         return entries.length === 0 ? [{ series: [], title: '', reference: '', visible }] : [axisFor(entries[0][0], entries[0][1], visible)];

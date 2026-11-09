@@ -8,7 +8,8 @@ import type { StageView } from '../../shared/protocol/backendProtocol';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { baseName } from '../../shared/analysis/entryMetadata';
 import { DIFF_COLOR, ROLE_COLORS } from '../../shared/gui/roleColors';
-import { levelIdentityOf, type LegendItem, type LevelInput, type PaneRange } from './comparePanes';
+import { axisInputOf, byLevelKey, calibrationWordsBy, levelKeyOf } from './levelGrouping';
+import { type LegendItem, type LevelInput, type PaneRange } from './comparePanes';
 import { clearSideAxis, emptyStageText, isEventsView, paintOverlay, paintStage, stageAxes, stageDiffRange, stageEventCounts, stageHeadline, stageRange, type StageAxes, type StageLayer, type StagePlot } from './stagePanes';
 import type { PlotWindow } from './plotInteraction';
 import { noDeltaNote } from './combineSource';
@@ -171,8 +172,8 @@ export function stageModeHeadline(frame: Pick<StageFrame, 'strings' | 'waiting' 
 export const colorOf = (role: StageFrame['role'], path: string, fallback: string): string => ROLE_COLORS[role(path) ?? -1] ?? fallback;
 const widthOf = (role: StageFrame['role'], path: string, width: number): number => (role(path) === undefined ? 1.2 : width);
 
-/** What a lane's levels are in (comparePanes.levelIdentityOf). */
-const referenceOf = (track: StageTrack): string => (track.input ? levelIdentityOf(track.input) : '');
+/** What a lane's levels are in (levelGrouping.levelKeyOf). */
+const referenceOf = (track: StageTrack): string => levelKeyOf(track.input);
 
 /**
  * Side by side: every track's lane, on one range with the lanes in its reference so they compare at a glance, and a
@@ -296,26 +297,9 @@ export function writeStageLegend(legend: HTMLElement, html: string, written: str
  */
 export function calibrationWords(strings: Pick<StageFrame['strings'], 'axisUncalibrated'>, allTracks: readonly Pick<StageTrack, 'filePath' | 'input'>[], paths: readonly (string | null | undefined)[]): (path: string | null | undefined) => string {
     const inputOf = (path: string | null | undefined): StageTrack['input'] => (path ? allTracks.find(track => track.filePath === path)?.input : undefined);
-    const statuses = new Map<string, Set<boolean>>();
-    for (const path of new Set(paths)) {
-        const input = inputOf(path);
-        if (!input) continue;
-        const key = levelIdentityOf(input);
-        statuses.set(key, (statuses.get(key) ?? new Set()).add(input.calibrationStatus === 'calibrated'));
-    }
-    return path => {
-        const input = inputOf(path);
-        return input && input.calibrationStatus !== 'calibrated' && (statuses.get(levelIdentityOf(input))?.size ?? 0) > 1 ? strings.axisUncalibrated : '';
-    };
-}
-
-/**
- * The input an axis shared by `inputs` (all of one level identity) is named by: a calibrated one's where any is, so
- * the axis says uncalibrated only when every line on it is (R4); each uncalibrated line then says so itself
- * (calibrationWords).
- */
-export function axisInputOf(inputs: readonly StageTrack['input'][]): StageTrack['input'] {
-    return inputs.find(input => input?.calibrationStatus === 'calibrated') ?? inputs.find(input => !!input);
+    const known = [...new Set(paths)].filter(path => !!inputOf(path));
+    const word = calibrationWordsBy(known, path => levelKeyOf(inputOf(path)), path => inputOf(path)?.calibrationStatus === 'calibrated', strings.axisUncalibrated);
+    return path => (inputOf(path) ? word(path) : '');
 }
 
 /**
@@ -329,11 +313,11 @@ export function byReference(frame: Pick<StageFrame, 'strings' | 'picture' | 'all
 } {
     const { strings, picture, tracks } = frame;
     const inputOf = (layer: StageLayer): StageTrack['input'] => frame.allTracks.find(track => track.filePath === layer.recording)?.input ?? tracks[0]?.input;
-    const keyOf = (layer: StageLayer): string => { const input = inputOf(layer); return input ? levelIdentityOf(input) : ''; };
+    const keyOf = (layer: StageLayer): string => levelKeyOf(inputOf(layer));
     const inputFor = (members: readonly StageLayer[]): StageTrack['input'] => axisInputOf(members.map(inputOf)) ?? tracks[0]?.input;
     // An image has one colour bar; a trigger's events are their recordings' lines, split by identity as any line (A43).
     const one = picture?.kind === 'heatmap';
-    const keys = [...new Set(layers.map(keyOf))];
+    const keys = [...byLevelKey(layers, keyOf).keys()];
     if (one || keys.length < 2) return { mainLayers: [...layers], mainInput: layers.length ? inputFor(layers) : tracks[0]?.input, tooMany: false };
     if (keys.length > 2) return { mainLayers: [], mainInput: tracks[0]?.input, tooMany: true };
     const base = layers.find(layer => layer.recording !== undefined && frame.role(layer.recording) === 0);
