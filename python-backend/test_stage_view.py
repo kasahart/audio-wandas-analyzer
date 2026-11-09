@@ -56,7 +56,7 @@ def test_a_level_set_to_db_in_its_step_is_drawn_as_its_db_values(signal: wd.Chan
         # A level (the headline's audible floor and the dB ranges apply), with no waveform to take a level of.
         assert (view["kind"], view["quantity"]) == ("line", "level")
         assert view["unit"].startswith("dB")
-        assert "measure" not in view and "waveform" not in view
+        assert "waveform" not in view
         # A 0.5 sine is 3 dB below its peak: −9 dB re 1 (as the level over time of the plain signal reads).
         assert np.nanmedian([v for v in view["values"] if v is not None]) == pytest.approx(-9.0, abs=0.5)
 
@@ -339,9 +339,9 @@ def test_a_time_signal_names_the_measure_a_step_made_of_it() -> None:
     assert stage_view(tone.rms_trend())["measure"] == "rms"
     assert stage_view(tone.sound_level())["measure"] == "timeWeightedRms"
     assert stage_view(tone.power())["measure"] == "power"
-    # In dB they give a level, which the axis names from its unit.
-    assert "measure" not in stage_view(tone.rms_trend(dB=True))
-    assert "measure" not in stage_view(tone.sound_level(dB=True))
+    # In dB they give the level of what they measured: the axis names it (never the amplitude of a level).
+    assert stage_view(tone.rms_trend(dB=True))["measure"] == "rms"
+    assert stage_view(tone.sound_level(dB=True))["measure"] == "timeWeightedRms"
     # A power other than the square, or an RMS of a power, is in neither's unit: drawn as an amplitude.
     assert "measure" not in stage_view(tone.power(exponent=3))
     assert "measure" not in stage_view(tone.power().rms_trend())

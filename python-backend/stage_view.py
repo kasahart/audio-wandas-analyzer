@@ -402,12 +402,12 @@ SIGNAL_MEASURES: dict[str, Measure] = {
 }
 
 
-def signal_measure(frame: ChannelFrame) -> Measure | None:
+def signal_measure(frame: ChannelFrame, in_db: bool = False) -> Measure | None:
     """What rms_trend, sound_level or power made `frame`'s values (SIGNAL_MEASURES), or None.
 
-    None where the name would be wrong: in dB they give a level (named from its unit, as a metric's is); a power
-    other than the square is not in the unit squared; and one of them after another (an RMS of a power) is in
-    neither's unit. Those are drawn as an amplitude, as before.
+    None where the name would be wrong: a power other than the square is not in the unit squared; and one of them
+    after another (an RMS of a power) is in neither's unit. Those are drawn as an amplitude, as before. A level in dB
+    (`in_db`) is the level of the RMS it was made from: named by it, its unit the level's (a power in dB is not one).
     """
     found: list[tuple[str, dict]] = []
     for item in reversed(frame.operation_history):
@@ -421,7 +421,9 @@ def signal_measure(frame: ChannelFrame) -> Measure | None:
     if len(found) != 1:
         return None
     operation, params = found[0]
-    if params.get("dB") or (operation == "wandas.audio.power" and params.get("exponent", 2.0) != 2.0):
+    if bool(params.get("dB")) != in_db or (
+        operation == "wandas.audio.power" and (in_db or params.get("exponent", 2.0) != 2.0)
+    ):
         return None
     return SIGNAL_MEASURES[operation]
 
@@ -450,7 +452,7 @@ def _channel_view(frame: ChannelFrame) -> StageView:
         # A level already in dB (sound_level or rms_trend with dB=True): a level, drawn and compared as one (the
         # headline's audible floor, the dB ranges), from its own values: channels power-averaged, never a level of them.
         xs, values = _envelope(times, _power_mean(data), LEVEL_SERIES_MIN_SAMPLES)
-        return {
+        level: StageView = {
             "frame": type(frame).__name__,
             "kind": "line",
             "x": "time",
@@ -460,6 +462,11 @@ def _channel_view(frame: ChannelFrame) -> StageView:
             "xs": _axis(xs),
             "values": _json(rounded_db(values)),
         }
+        # The level of what: an RMS over a window, or a time-weighted one, for its axis to name (never "amplitude").
+        level_of = signal_measure(frame, in_db=True)
+        if level_of:
+            level["measure"] = level_of
+        return level
     if metric is not None:
         # A metric (loudness at 500 Hz, …) is its own values however long or short the region: never a level of them.
         xs, values = _envelope(times, np.mean(data, axis=0), LEVEL_SERIES_MIN_SAMPLES)
