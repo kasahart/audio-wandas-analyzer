@@ -14,11 +14,14 @@ import { groupOf, isComputed, valueOf, type DatasetRow, type GroupId, type Value
 import { installRangePopover, linearAxis, openAxisPart } from '../rangePopover';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { DIST_MARGINS, DIST_ROW_MAX, DIST_ROW_MIN, DIST_ROW_PAD, DIST_STRIP_ROW, distributionAxisView, distributionLegendHtml, distributionRows, distributionScale, pickedRange, type DistributionRow, type DistributionScale } from './entryDistribution';
-import { attachPlotInteraction, FULL_PLOT_WINDOW, plotPointIn, type PlotMargins, type PlotWindow } from './plotInteraction';
+import { attachPlotInteraction, FULL_PLOT_WINDOW, notePlotWindow, plotPointIn, type PlotMargins, type PlotWindow, type VerticalAxis } from './plotInteraction';
 import { createPlotHoverLayer } from './plotHoverLayer';
 import { showPlotReadout } from './plotHover';
 import { paintOverlay, type StagePlot } from './stagePanes';
 import { positionPopover } from './settingsPopover';
+
+/** The rows' vertical axis is the count per group, defined to show every count always (R13). */
+const DIST_VERTICAL: VerticalAxis = 'all-counts';
 
 /** What the table gives the distribution each time it is drawn. */
 export interface DistributionInputs {
@@ -181,13 +184,12 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
             + `<canvas class="entry-dist-canvas" data-dist-canvas data-plot-axis="entry-dist-axis-canvas" style="width:${plotWidth}px;height:${plotHeight}px"></canvas></div>`).join('')}<div class="entry-dist-brush" data-dist-brush hidden></div></div>`;
         const axisView = distributionAxisView(dist);
         const zoom = { x: zoomWindow.x };
-        const windowText = [zoomWindow.x.start, zoomWindow.x.end, 0, 1].map(part => part.toFixed(3)).join(' ');
         groups.querySelectorAll<HTMLCanvasElement>('[data-dist-canvas]').forEach((canvas, index) => {
             const row = rows[index];
             const plot = paintOverlay(canvas, { layers: row.layers }, row.range, { x: axisLabel, y: strings.dsDistCountAxis.replace('{unit}', unit) },
                 { axisView, window: zoom, margins: ROW_MARGINS, xAxisLabels: false, yAxisLabels: false, ...(range ? { highlight: { start: range.low, end: range.high } } : {}) });
             if (plot) plots.set(canvas, plot);
-            canvas.dataset.plotWindow = windowText;
+            notePlotWindow(canvas, { x: zoomWindow.x, y: FULL_PLOT_WINDOW.y }, DIST_VERTICAL);
             // Its dots, where they are drawn (CSS pixels on the canvas), for a press on one and for tests.
             canvas.dataset.dots = row.dots.map(dot => `${dot.key}\t${plot ? plot.xAt(dot.value).toFixed(1) : ''}\t${plot ? plot.yAt(dot.level + 0.5).toFixed(1) : ''}`).join('\n');
         });
@@ -320,7 +322,8 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
                 if (range) deps.pick(range);
             },
         },
-        horizontalOnly: true,
+        // Its vertical axis is the count per group, defined to show every count always (R13): a box zooms the value axis.
+        verticalAxis: DIST_VERTICAL,
     });
     return { place, paint, last: () => drawn };
 }
