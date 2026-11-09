@@ -186,3 +186,29 @@ test('a zoom key over a plot that shows nothing goes on to the keys behind it', 
     doc.body.dispatchEvent(event);
     assert.equal(event.defaultPrevented, false);
 });
+
+test('a plot of another surface with only the focus never takes ← / → from the plot under the pointer: the cursor spectrum focused, the pointer on a lane, the lane steps (A47, R7)', () => {
+    const { window } = new JSDOM('<!doctype html><body><div id="lanes"><canvas class="track-canvas" id="lane"></canvas></div><div id="spectrum"><canvas class="spectrum-canvas" id="spec" tabindex="0"></canvas></div></body>');
+    const doc = window.document;
+    const calls: string[] = [];
+    const handlers = (name: string) => ({
+        step: (plot: Element, delta: -1 | 0 | 1) => { calls.push(`${name}:${plot.id}:${delta}`); return true; },
+        resetZoom: () => undefined, openAxisRange: () => false, hover: () => undefined, clearHover: () => undefined,
+        press: () => undefined, drag: () => undefined, release: () => undefined, zoomWheel: () => undefined, panWheel: () => undefined, zoomKey: () => false,
+    });
+    const keys = keyRouterFor(window);
+    // The lanes' surface is attached first, the spectrum's after it (so the spectrum's keys are tried first), as the comparison does.
+    attachTrackPointerListeners(doc.getElementById('lanes') as HTMLElement, doc, keys, handlers('lanes'));
+    attachTrackPointerListeners(doc.getElementById('spectrum') as HTMLElement, doc, keys, handlers('spectrum'), { plot: '.spectrum-canvas' });
+    const spec = doc.getElementById('spec') as HTMLElement;
+    spec.focus();
+    calls.length = 0;
+    (doc.getElementById('lane') as HTMLElement).dispatchEvent(new window.MouseEvent('mousemove', { bubbles: true, clientX: 10, clientY: 10 }));
+    spec.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'ArrowRight', key: 'ArrowRight', bubbles: true }));
+    assert.deepEqual(calls, ['lanes:lane:1'], 'the lane under the pointer steps');
+    // With the pointer off every plot, the focused spectrum takes them.
+    (doc.getElementById('lanes') as HTMLElement).dispatchEvent(new window.MouseEvent('mouseleave'));
+    calls.length = 0;
+    spec.dispatchEvent(new window.KeyboardEvent('keydown', { code: 'ArrowRight', key: 'ArrowRight', bubbles: true }));
+    assert.deepEqual(calls, ['spectrum:spec:1']);
+});

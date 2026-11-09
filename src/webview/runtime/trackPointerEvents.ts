@@ -32,6 +32,18 @@ export interface PlotSelectors {
     focusKeepsArrows?: boolean;
 }
 
+/**
+ * The plot the pointer is over on any surface of the page, shared by every surface's listeners (on the document, as
+ * the key router is on the window): a key the pointer's plot would take is never taken first by a plot of another
+ * surface that only has the focus (A47, R7).
+ */
+const POINTER_PLOT = Symbol.for('audio-wandas-analyzer.pointerPlot');
+type PointerPlotHolder = { [POINTER_PLOT]?: { plot: Element | null } };
+function pointerPlotOf(doc: object): { plot: Element | null } {
+    const holder = doc as PointerPlotHolder;
+    return holder[POINTER_PLOT] ??= { plot: null };
+}
+
 /** Wheel events further apart than this start a new swipe. */
 const SWIPE_PAUSE_MS = 150;
 
@@ -76,8 +88,9 @@ export function attachTrackPointerListeners(tracksWrapper: PointerSurface, doc: 
         const doc = (tracksWrapper as Partial<HTMLElement>).ownerDocument;
         return pointer && doc && typeof doc.elementFromPoint === 'function' ? plotOf(doc.elementFromPoint(pointer.x, pointer.y)) : null;
     };
-    tracksWrapper.addEventListener('mousemove', function (e) { over = plotOf(e.target); pointer = { x: e.clientX, y: e.clientY }; handlers.hover(e); });
-    tracksWrapper.addEventListener('mouseleave', function () { over = null; pointer = null; handlers.clearHover(); });
+    const shared = pointerPlotOf(doc);
+    tracksWrapper.addEventListener('mousemove', function (e) { over = plotOf(e.target); shared.plot = over; pointer = { x: e.clientX, y: e.clientY }; handlers.hover(e); });
+    tracksWrapper.addEventListener('mouseleave', function () { if (shared.plot && shared.plot === over) shared.plot = null; over = null; pointer = null; handlers.clearHover(); });
     // A plot given the focus from the keyboard reads where it starts, so the arrows have a point to step from;
     // let go of the focus with the pointer elsewhere, its readout goes.
     tracksWrapper.addEventListener('focusin', function (e) { const plot = plotOf(e.target); if (plot && !over && !selectors.focusKeepsArrows) handlers.step(plot, 0); });
@@ -97,7 +110,10 @@ export function attachTrackPointerListeners(tracksWrapper: PointerSurface, doc: 
             if (!delta || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || isTextEntryTarget(e.target)) return false;
             // The plot under the pointer, found again where the one it was over was made anew (a redrawn
             // distribution row), as + / − / 0 find it: the arrows step the plot the pointer is on (A26).
-            const plot = underPointer() ?? plotOf(e.target);
+            // A plot that only has the focus takes the arrows only while the pointer is over no other plot (A47): the
+            // plot under the pointer, on another surface too, is the one they step.
+            const elsewhere = shared.plot && shared.plot.isConnected && !tracksWrapper.contains(shared.plot);
+            const plot = underPointer() ?? (elsewhere ? null : plotOf(e.target));
             if (plot && plot !== over && pointer) over = plot;
             // A key goes to the focused element: a lane with the focus moves its cursor, as its arrows always have.
             if (!plot || (selectors.focusKeepsArrows && plot === e.target) || !handlers.step(plot, delta)) return false;
