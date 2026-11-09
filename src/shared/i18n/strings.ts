@@ -378,6 +378,7 @@ export interface UiStrings {
     dsBaseFewer: string;
     dsBaseOtherUnits: string;
     dsBaseFailed: string;
+    dsBaseMissing: string;
     dsBasePending: string;
     /** A base group's recordings left out because their value is of an earlier chain or calibration. */
     dsBaseStale: string;
@@ -385,6 +386,8 @@ export interface UiStrings {
     /** A base's recordings not counted while the compared recording has no answer of its own to say their reference. */
     dsBaseNoIdentity: string;
     reportMemo: string;
+    /** The report's column of the value the table shows (`{value}`: its name, no reference: each cell names its row's own). */
+    reportShownValue: string;
     reportBaseDefinition: string;
     reportDerived: string;
     dsExportNotes: string;
@@ -545,6 +548,8 @@ export interface UiStrings {
     hintRowPlay: string;
     hintRowStop: string;
     compareSingleBase: string;
+    /** No recording counted in the base group, each left out with why ({left}: " · 1 failed …"). */
+    compareEmptyBase: string;
     compareRegionDiffers: string;
     /** The base's levels are in another unit, reference or calibration than the compared file's: no Δ. */
     compareUnitDiffers: string;
@@ -961,7 +966,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpRowEsc: 'close popover / help, restore a maximized spectrum',
         entryColFile: 'File',
         entryColCondition: 'Cond. {n}',
-        entryColLeq: 'Leq dB(A)',
+        entryColLeq: 'Leq A-weighted',
         entryColBandLevel: '{band} level',
         entryColPeak: 'Δ max band',
         entryOpen: 'Open Compare',
@@ -989,7 +994,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         reportCompare: 'compare',
         reportDiff: 'delta',
         reportCsv: 'report',
-        reportBaseLeq: 'Base Leq dB(A)',
+        reportBaseLeq: 'Base Leq A-weighted',
         reportLevelReference: 'Level reference',
         reportBaseLevelReference: 'Base level reference',
         reportBandDelta: 'Δ {band} dB',
@@ -1203,11 +1208,13 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dsBaseFewer: ' · {n} without ch {ch} left out',
         dsBaseOtherUnits: ' · {n} of another level reference left out',
         dsBaseFailed: ' · {n} failed left out',
+        dsBaseMissing: ' · {n} not computed yet',
         dsBasePending: ' · {n} still computing',
         dsBaseStale: ' · {n} of an earlier chain left out',
         dsBaseOtherBins: ' · {n} on another frequency axis left out',
         dsBaseNoIdentity: ' · {n} waiting for the compared recording',
         reportMemo: 'Memo',
+        reportShownValue: 'Shown: {value}',
         reportBaseDefinition: 'Base definition',
         reportDerived: 'Fixed Δ (D)',
         dsExportNotes: 'Memos and exclusions as CSV',
@@ -1359,6 +1366,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintRowPlay: 'Play this file alone (shown as a track)',
         hintRowStop: 'Stop',
         compareSingleBase: 'n=1',
+        compareEmptyBase: 'no base{left}',
         compareRegionDiffers: '≠ region',
         compareUnitDiffers: '≠ level reference',
         helpRowStepKeys: 'step bar: press a step to see its Frame in the comparison, hold it to see what it does, ＋ adds a wandas operation, Delete on a step removes it',
@@ -1767,7 +1775,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         helpRowEsc: 'ポップオーバー / ヘルプを閉じる、最大化を戻す',
         entryColFile: 'ファイル',
         entryColCondition: '条件 {n}',
-        entryColLeq: 'Leq dB(A)',
+        entryColLeq: 'Leq A特性',
         entryColBandLevel: '{band} レベル',
         entryColPeak: 'Δ最大帯域',
         entryOpen: '比較解析を開く',
@@ -1795,7 +1803,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         reportCompare: '比較',
         reportDiff: '差',
         reportCsv: '報告',
-        reportBaseLeq: '基準 Leq dB(A)',
+        reportBaseLeq: '基準 Leq A特性',
         reportLevelReference: 'レベル基準',
         reportBaseLevelReference: '基準 レベル基準',
         reportBandDelta: 'Δ {band} dB',
@@ -2009,11 +2017,13 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dsBaseFewer: ' · ch {ch} のない {n} 本は除外',
         dsBaseOtherUnits: ' · 基準の違う {n} 本は除外',
         dsBaseFailed: ' · 失敗した {n} 本は除外',
+        dsBaseMissing: ' · 未計算 {n} 本',
         dsBasePending: ' · 計算中 {n} 本',
         dsBaseStale: ' · 前の手順の {n} 本は除外',
         dsBaseOtherBins: ' · 周波数軸の違う {n} 本は除外',
         dsBaseNoIdentity: ' · 比較録音を待つ {n} 本',
         reportMemo: 'メモ',
+        reportShownValue: '表示中の値: {value}',
         reportBaseDefinition: '基準の定義',
         reportDerived: '固定した差（D）',
         dsExportNotes: 'メモと除外を CSV に書き出す',
@@ -2165,6 +2175,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         hintRowPlay: 'このファイルだけを再生（トラックにも表示）',
         hintRowStop: '止める',
         compareSingleBase: 'n=1',
+        compareEmptyBase: '基準なし{left}',
         compareRegionDiffers: '≠ 区間',
         compareUnitDiffers: '≠ レベル基準',
         helpRowStepKeys: '手順バー: 手順を押すとその結果、長押しでその手順あり／なし、＋ で wandas の操作を足す、手順で Delete で外す',

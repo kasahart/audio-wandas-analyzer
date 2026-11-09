@@ -5,7 +5,7 @@ import type { StageView } from '../../shared/protocol/backendProtocol';
 import type { FrequencyScale } from '../draw/canvasDrawers';
 import { hintAttr } from './hintFooter';
 import { levelBinsOf, type StageLayer } from './stagePanes';
-import { dataRange, gainAxisLines, gainAxisName, plainNames, plainRange, type FigureNames, type FigureRange } from './figureModel';
+import { dataRange, gainAxisLines, gainAxisName, gainUnit, plainNames, plainRange, plainTitle, type FigureNames, type FigureRange } from './figureModel';
 import { localLine } from './fullRead';
 import { secondsSpanText } from '../plot/plotText';
 import type { TrackId } from './types';
@@ -175,8 +175,8 @@ export function pairLanes(input: PairPaintInput, visible: FrequencyScale, string
             ...(curve.dashed ? { dash: [4, 2] } : {}),
         }));
     return [
-        { key: 'gain', axes: plainNames(strings.axisFrequency, gainAxisName(drawn[0]?.response, strings)), range: gainRange(drawn, shown), layers: lines(response => response.gainDb, 'gain', 'dB') },
-        { key: 'phase', axes: plainNames(strings.axisFrequency, strings.pairPhaseLabel), range: plainRange(-180, 180), layers: lines(response => response.phaseRad.map(value => (value === null ? null : value * DEGREES)), 'value', '°') },
-        { key: 'coherence', axes: plainNames(strings.axisFrequency, strings.pairCoherenceLabel), range: plainRange(0, 1), layers: lines(response => response.coherence, 'coherence', 'γ²') },
+        { key: 'gain', axes: plainNames(plainTitle(strings, 'axisFrequency'), gainAxisName(drawn[0]?.response, strings)), range: gainRange(drawn, shown), layers: lines(response => response.gainDb, 'gain', gainUnit(drawn[0]?.response)) },
+        { key: 'phase', axes: plainNames(plainTitle(strings, 'axisFrequency'), plainTitle(strings, 'pairPhaseLabel')), range: plainRange(-180, 180), layers: lines(response => response.phaseRad.map(value => (value === null ? null : value * DEGREES)), 'value', '°') },
+        { key: 'coherence', axes: plainNames(plainTitle(strings, 'axisFrequency'), plainTitle(strings, 'pairCoherenceLabel')), range: plainRange(0, 1), layers: lines(response => response.coherence, 'coherence', 'γ²') },
     ];
 }

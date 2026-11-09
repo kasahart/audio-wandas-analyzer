@@ -67,7 +67,9 @@ test('a folder opens with only what is stored; nothing is computed until 計算,
     await expect(page.locator('[data-entry-rows] tr.entry-row .entry-col-value:not(:text("—"))')).toHaveCount(6);
     // The distribution draws the 6 computed channels only and counts the rest (I14).
     expect((await snapshot(page))?.dist).toMatchObject({ missing: 19, unit: 'ch' });
-    await expect(page.locator('[data-entry-dist-count]')).toHaveText('6 ch');
+    // Its heading says the recordings its set left out, with why (class sweep 3, aggregation V11).
+    const leftOut = [STR.dsBaseMissing, STR.dsBasePending].map(template => template.split('{n}')[0].replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')).join('|');
+    await expect(page.locator('[data-entry-dist-count]')).toHaveText(new RegExp(`^6 ch(?:${leftOut})\\d+`, 'u'));
 });
 
 test('a file written over on disk while the folder is open is greyed until 計算 measures it again; the others keep their values (V1)', async ({ page }) => {
@@ -539,7 +541,9 @@ test('a step added between two chips measures every file again; one that fails o
     await bar.locator('.step-chip', { hasText: STR.stepAverage }).locator('[data-action="step-settings"]').click();
     await bar.locator('[data-action="step-remove"]').click();
     await expect(values.filter({ hasText: STR.dsPeak })).toHaveCount(0);
-    await expect(values).toHaveText([STR.dsLeq.replace('{uncal}', STR.axisUncalibrated).replace('{label}', 'dBFS'), STR.dsCrest]);
+    // Under the new chain no recording has a fresh answer yet: the value names no reference rather than a guessed
+    // dBFS (class sweep 3, reference V9); once one is read again it names the folder's.
+    await expect(values).toHaveText([new RegExp(`^${STR.dsLeq.replace('{uncal}', '').replace(' [{label}]', '')}(?:${STR.axisUncalibrated.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')} \\[dBFS\\])?$`, 'u'), STR.dsCrest]);
 });
 
 test('a step\'s ⚙ offers every value wandas describes: sound_level\'s weighting and dB, welch\'s average under "more", written into the Recipe', async ({ page }) => {

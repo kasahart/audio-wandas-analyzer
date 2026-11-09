@@ -1,4 +1,4 @@
-import { T } from './helpers/figure';
+import { P, T } from './helpers/figure';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { frequencyFraction, type CanvasDrawCtx } from '../webview/draw/canvasDrawers';
@@ -293,7 +293,7 @@ test('paintOverlaySpectrum names the frequency axis at the right end of its tick
     const texts: Array<{ text: string; x: number; y: number }> = [];
     const { ctx } = recordingCtx();
     const recording = new Proxy(ctx, { get(target, prop) { return prop === 'fillText' ? (text: string, x: number, y: number) => { texts.push({ text, x, y }); } : Reflect.get(target, prop); } });
-    paintOverlaySpectrum(canvasOf(recording), 400, 200, series, fullView, 'Frequency [Hz]');
+    paintOverlaySpectrum(canvasOf(recording), 400, 200, series, fullView, P('Frequency [Hz]'));
     const title = texts.find(t => t.text === 'Frequency [Hz]');
     assert.equal(title?.y, 197, 'in the bottom row');
     const ticks = texts.filter(t => t.y === 197 && t !== title);
@@ -317,7 +317,7 @@ test('zoomed between two log ticks, the frequency axis still labels where it is'
     const texts: Array<{ text: string; y: number }> = [];
     const { ctx } = recordingCtx();
     const recording = new Proxy(ctx, { get(target, prop) { return prop === 'fillText' ? (text: string, _x: number, y: number) => { texts.push({ text, y }); } : Reflect.get(target, prop); } });
-    paintOverlaySpectrum(canvasOf(recording), 600, 200, bands, view, 'Frequency [Hz]');
+    paintOverlaySpectrum(canvasOf(recording), 600, 200, bands, view, P('Frequency [Hz]'));
     const labels = texts.filter(t => t.y === 197 && t.text !== 'Frequency [Hz]').map(t => t.text);
     assert.ok(labels.length >= 2 && labels.every(text => /^\d+(\.\d+)?k?$/.test(text)), JSON.stringify(labels));
 });

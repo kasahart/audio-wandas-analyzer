@@ -17,7 +17,7 @@ import { DIST_MARGINS, DIST_ROW_MAX, DIST_ROW_MIN, DIST_ROW_PAD, DIST_STRIP_ROW,
 import { attachPlotInteraction, FULL_PLOT_WINDOW, notePlotWindow, plotPointIn, type PlotMargins, type PlotWindow, type VerticalAxis } from './plotInteraction';
 import { createPlotHoverLayer } from './plotHoverLayer';
 import { paintOverlay, type StagePlot } from './stagePanes';
-import { plainNames, plainRange } from './figureModel';
+import { countTitle, csvColumnTitle, plainNames, plainRange, setExclusionText, setOver, type FigureSet, type FigureTitle, type PlainTitle } from './figureModel';
 import { localLine } from './fullRead';
 import { positionPopover } from './settingsPopover';
 
@@ -33,6 +33,11 @@ export interface DistributionInputs {
     results: ReadonlyMap<string, ScanResult>;
     /** The range picked on the value. */
     range: { low: number; high: number } | null;
+    /**
+     * A level's recordings as one set of the folder's reference (entryBase.folderSet): the heading counts its n and
+     * says what it left out, with why (computing, failed, stale, another reference); null for a value that is not a level.
+     */
+    set?: FigureSet<unknown> | null;
     /** Whether a row's value counts (a computed one only when it is of the current chain). */
     usable: (row: DatasetRow) => boolean;
     slots: readonly (string | null)[];
@@ -44,7 +49,8 @@ export interface DistributionInputs {
      * always true for a value that is not a level. Required: whoever draws a level here says which reference its axis is.
      */
     onAxis: (row: DatasetRow) => boolean;
-    valueLabel: string;
+    /** The value axis' name: a level's named by its reference (figureModel), else a non-level's. */
+    valueLabel: FigureTitle | PlainTitle;
     format: (value: number, step?: number) => string;
     rowName: (key: string) => string;
 }
@@ -53,11 +59,8 @@ export interface DistributionInputs {
  * A CSV column's value axis: its name and the unit its header gives ("temp [°C]", "temp (°C)"), or that the unit is not
  * known (R4: every axis names its unit).
  */
-export function csvAxisName(column: string, strings: Pick<UiStrings, 'dsDistCsvAxis' | 'axisUnitUnknown'>): string {
-    const given = /^(.*\S)\s*(?:\[([^\]]+)\]|\(([^)]+)\))$/su.exec(column.trim());
-    const unit = given ? (given[2] ?? given[3]).trim() : '';
-    const name = given && unit ? given[1] : column;
-    return strings.dsDistCsvAxis.replace('{col}', () => name).replace('{unit}', () => unit || strings.axisUnitUnknown);
+export function csvAxisName(column: string, strings: Pick<UiStrings, 'dsDistCsvAxis' | 'axisUnitUnknown'>): PlainTitle {
+    return csvColumnTitle(column, strings);
 }
 
 export interface DistributionPaneDeps {
@@ -141,10 +144,14 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
         const labels = groupLabels(dist.groups.map(item => item.name));
         if (group === 'none') labels.set('', strings.dsDistAll);
         const prefix = group === 'ch' ? `${strings.dsCh} ` : '';
+        // A level's heading is its set's: its n (of recordings; channels are counted as drawn) and what it left out, with why.
+        const set = inputs.set ?? null;
+        const shown = set && dist.unit !== 'ch' ? set.n : members;
         count.textContent = members
-            ? `${members.toLocaleString()} ${unit}${dist.groups.length > 4 ? ` · ${strings.dsDistGroups.replace('{n}', String(dist.groups.length))}` : ''}`
+            ? `${shown.toLocaleString()} ${unit}${dist.groups.length > 4 ? ` · ${strings.dsDistGroups.replace('{n}', String(dist.groups.length))}` : ''}`
             : strings.dsRows.replace('{n}', pool.length.toLocaleString());
-        if (dist.apart) count.textContent += ` · ${strings.dsDistApart.replace('{n}', dist.apart.toLocaleString())}`;
+        // (A level of another reference is only ever drawn apart with its set given, which says it with the rest.)
+        if (set) count.textContent += setExclusionText(set, strings);
         const legendHtml = members ? distributionLegendHtml(slots, baseGroup !== null ? `${prefix}${labels.get(baseGroup) ?? baseGroup}` : null, strings) : '';
         if (legend.innerHTML !== legendHtml) legend.innerHTML = legendHtml;
         note.textContent = members && !range && !strip ? strings.dsDistDrag : '';
@@ -179,6 +186,12 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
         rows = distributionRows(dist, {
             width, rowHeight, strip, range, slots: slotted, base, labels, groupPrefix: prefix, unitLabel: unit, axisLabel,
             format: inputs.format, name: inputs.rowName,
+            countOf: (name, drawn) => {
+                if (!set || dist.unit === 'ch') return `${drawn} ${unit}`;
+                const paths = [...new Set(pool.filter(row => groupOf(row, group) === name).map(row => row.filePath))];
+                // Its n of the one set (what the set left out is said once, in the heading above the groups).
+                return `${setOver(set, paths).n} ${unit}`;
+            },
         }, {
             bar: colourOf('--dist-bar', '#5b6470'), barIn: colourOf('--dist-bar-in', '#aab3be'),
             slots: ['--entry-base', '--entry-compare', '--entry-slot-2', '--entry-slot-3'].map(name => colourOf(name, '#888')),
@@ -193,7 +206,7 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
         const zoom = { x: zoomWindow.x };
         groups.querySelectorAll<HTMLCanvasElement>('[data-dist-canvas]').forEach((canvas, index) => {
             const row = rows[index];
-            const plot = paintOverlay(canvas, { layers: row.layers }, row.range, plainNames(axisLabel, strings.dsDistCountAxis.replace('{unit}', unit)),
+            const plot = paintOverlay(canvas, { layers: row.layers }, row.range, plainNames(axisLabel, countTitle(strings, unit)),
                 { axisView, window: zoom, margins: ROW_MARGINS, xAxisLabels: false, yAxisLabels: false, ...(range ? { highlight: { start: range.low, end: range.high } } : {}) });
             if (plot) plots.set(canvas, plot);
             notePlotWindow(canvas, { x: zoomWindow.x, y: FULL_PLOT_WINDOW.y }, DIST_VERTICAL);
@@ -203,7 +216,7 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
         // The value axis below them, drawn by the same component: its numbers and name; what a bar's height counts beside it.
         // It holds no values: nothing to read.
         axisCanvas.style.width = `${width}px`;
-        paintOverlay(axisCanvas, { layers: [{ view: axisView, color: '', full: localLine([], []) }] }, plainRange(0, 1), plainNames(axisLabel, strings.dsDistCountAxis.replace('{unit}', unit)),
+        paintOverlay(axisCanvas, { layers: [{ view: axisView, color: '', full: localLine([], []) }] }, plainRange(0, 1), plainNames(axisLabel, countTitle(strings, unit)),
             { window: zoom, margins: { left: DIST_MARGINS.left, right: DIST_MARGINS.right, top: 0, bottom: 19 }, yAxisLabels: false });
         countAxis.textContent = strings.dsDistCountAxis.replace('{unit}', unit);
         if (strip && scrollToSlot) {

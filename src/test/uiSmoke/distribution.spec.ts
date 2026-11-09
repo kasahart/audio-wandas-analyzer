@@ -115,7 +115,8 @@ test('a value not computed yet says so and offers 計算 in its header; computed
     const STR = getStrings('ja');
     await openEntry(page, scanned!, { language: 'ja', answered: 0 });
     // No CSV: Leq is the value, the whole folder one group; nothing is computed by itself.
-    await expect(page.locator('[data-entry-dist-empty]')).toHaveText(STR.dsDistNotComputed.replace('{value}', STR.dsLeq.replace('{uncal}', STR.axisUncalibrated).replace('{label}', 'dBFS')));
+    // Nothing read yet: the value names no reference, never a guessed dBFS (class sweep 3, reference V9).
+    await expect(page.locator('[data-entry-dist-empty]')).toHaveText(STR.dsDistNotComputed.replace('{value}', STR.dsLeq.replace('{uncal}', '').replace(' [{label}]', '')));
     const compute = page.locator('[data-entry-dist] [data-action="entry-compute"]');
     await expect(compute).toHaveText(new RegExp(`^${STR.dsCompute.replace('{n}', '100').replace(' · 約 {time}', '')}`));
     await compute.click();

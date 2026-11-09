@@ -9,7 +9,7 @@ import type { UiStrings } from '../../shared/i18n/strings';
 import type { ScanResult } from '../../shared/protocol/backendProtocol';
 import { rowKey, type DatasetRow } from '../../shared/dataset/datasetTable';
 import { rangePopoverStrings } from '../../shared/i18n/strings';
-import { calibrationWordsBy, levelKeyOf, ofReference, templatedLevelName, uncalibratedWord, type FolderReference } from './figureModel';
+import { calibrationWordsBy, levelKeyOf, ofReference, ownReferenceMark, templatedLevelName, unreferencedName, uncalibratedWord, type FigureTitle, type FolderReference } from './figureModel';
 import { installRangePopover, linearAxis, openAxisPart, type AxisMapping } from '../rangePopover';
 import type { HeldPicture } from './entryHeldPlot';
 import { OVERVIEW_MARGINS, paintOverview } from './entryPlots';
@@ -63,9 +63,11 @@ export interface SidePlots {
     /** The level reference the scanned recordings share ("dBFS", "dB SPL re 20 µPa"), plain dB when they differ: the overview's colour scale and the table's level values name it. */
     levelLabel(): string;
     /** A level value's name ("Leq A特性{uncal} [{label}]"): the most common reference, and 未校正 while it is uncalibrated. */
-    levelName(template: string): string;
+    levelName(template: string): FigureTitle;
     /** A recording's own calibration word where its level axis mixes calibration statuses (R1, R4): '' otherwise. */
     levelWordOf(filePath: string): string;
+    /** What a recording's value says beside a heading of the folder's reference (R1): '' on it, else its own reference (ownReferenceMark). */
+    levelMarkOf(filePath: string): string;
     /**
      * Whether a recording's levels are of the level identity (R1: unit, reference value, level reference name) `levelLabel` names: the one test every level axis beside the
      * table (the overview's colours, the distribution's value axis) keeps its levels to. A recording not scanned yet is not.
@@ -117,7 +119,7 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
     /** Bumped on every change to them, so the strip knows when to draw its cells again. */
     let version = 0;
     /** Of each fresh recording, whether it is on the folder's reference and its own calibration word: made again with `shared`. */
-    const ownMarks = createLatestAnswers<{ on: boolean; word: string }>();
+    const ownMarks = createLatestAnswers<{ on: boolean; word: string; mark: string }>();
     let shared: { version: number; folder: FolderReference | null; label: string; calibrated: boolean; levels: Map<string, (number | null)[]> } = { version: -1, folder: null, label: '', calibrated: false, levels: new Map() };
     /**
      * The folder's reference (deps.reference: the most common one of the fresh answers, chosen once for the header,
@@ -130,19 +132,25 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
         if (shared.version === version && shared.folder === folder) return shared;
         const keys = new Set(folder.paths.flatMap(path => scanned.get(path)?.rows ?? []));
         // Each recording's word where its axis mixes calibration statuses (R1, R4): of fresh answers only.
-        const ready = deps.answers([...scanned.view.keys()]).flatMap(answer => (answer.state === 'ready' ? [answer.identity] : []));
+        const known = deps.answers([...scanned.view.keys()]);
+        const ready = known.flatMap(answer => (answer.state === 'ready' ? [answer.identity] : []));
         const words = calibrationWordsBy(ready, item => levelKeyOf(item.level), item => item.level.calibrationStatus === 'calibrated', uncalibratedWord(strings));
         ownMarks.clear();
-        for (const item of ready) ownMarks.set(item.path, { on: ofReference(folder, item.level), word: words(item) });
-        // Before any recording is read, the name the scan would give a file of full scale (P3: no level is drawn yet).
-        shared = { version, folder, label: folder.label || 'dBFS', calibrated: folder.calibrated, levels: new Map([...levels.view].filter(([key]) => keys.has(key))) };
+        // A value of another reference or a stale one names its own reference, whatever the heading names (R1).
+        for (const answer of known) {
+            if (answer.state !== 'ready' && answer.state !== 'stale') continue;
+            const ready = answer.state === 'ready';
+            ownMarks.set(answer.identity.path, { on: ready && ofReference(folder, answer.identity.level), word: ready ? words(answer.identity) : '', mark: ownReferenceMark(strings, folder, answer) });
+        }
+        // Before any recording is read, no reference is named (none is known yet, R4).
+        shared = { version, folder, label: folder.label, calibrated: folder.calibrated, levels: new Map([...levels.view].filter(([key]) => keys.has(key))) };
         return shared;
     }
     /** A recording's own calibration word (one function, so the strip's cells are kept while it is the same). */
     const wordOf = (filePath: string): string => { reference(); return ownMarks.get(filePath)?.word ?? ''; };
     const levelLabel = (): string => reference().label;
     /** A level value's name: the template with the reference and, while uncalibrated, the word that says so (R4). */
-    const levelName = (template: string): string => templatedLevelName(strings, template, reference().label, reference().calibrated);
+    const levelName = (template: string): FigureTitle => { const level = reference(); return level.label ? templatedLevelName(strings, template, level.label, level.calibrated) : unreferencedName(template); };
     const pending = { frame: false, distribution: true };
 
     function paint(): void {
@@ -258,6 +266,7 @@ export function createSidePlots(deps: SidePlotsDeps): SidePlots {
         levelLabel,
         levelName,
         levelWordOf: wordOf,
+        levelMarkOf: filePath => { reference(); const own = ownMarks.get(filePath); return own?.mark || own?.word || ''; },
         onLevelAxis: filePath => { reference(); return !!ownMarks.get(filePath)?.on; },
         // Only of a recording whose answer is fresh now (reference(): of the folder's ready answers): one kept from
         // before its file was written over, or of another chain, is not read as a level (B4).

@@ -35,7 +35,13 @@ export function spectrogramDisplayBounds(
     spec: SpectrogramAutoBounds,
     display: SpectrogramDisplaySettings,
     auto: SpectrogramAutoBounds = spec,
+    /**
+     * This lane's level identity and the one the typed dB ends are of: a lane of another identity keeps its own auto
+     * range, never numbers typed for another reference (R1). Absent: the ends are this lane's.
+     */
+    levels?: { lane: string; typed: string | null },
 ): SpectrogramDisplayBounds {
+    if (levels && levels.typed !== null && levels.typed !== levels.lane && (display.dbMin != null || display.dbMax != null)) display = { ...display, dbMin: null, dbMax: null };
     const lower = display.minFrequencyHz;
     const min = lower != null && lower > 0 && (display.maxFrequencyHz == null || lower < display.maxFrequencyHz) ? lower : 0;
     // An auto top at or below the lower bound leaves an empty band there, never the frequencies under it.

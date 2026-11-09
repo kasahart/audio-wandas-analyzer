@@ -42,7 +42,7 @@ test('報告.csv has one row per slot in the agreed columns: dB to one decimal, 
     assert.ok(csv.startsWith('﻿'));
     const [header, row, ...rest] = csv.slice(1).trimEnd().split('\r\n');
     assert.equal(rest.length, 0);
-    assert.equal(header, `ファイル,Δ最大帯域 Hz,Δ最大帯域 dB,条件 1,条件 2,開始 s,終了 s,Leq dB(A),レベル基準,基準 Leq dB(A),基準 レベル基準,Δ Leq dB(A),${header.split(',').filter(name => /^Δ [\d.]+ k?Hz dB$/.test(name)).join(',')},基準群 n,基準群ファイル,解析仕様版,手順,ch,メモ,基準の定義`);
+    assert.equal(header, `ファイル,Δ最大帯域 Hz,Δ最大帯域 dB,条件 1,条件 2,開始 s,終了 s,Leq A特性,レベル基準,基準 Leq A特性,基準 レベル基準,Δ Leq A特性,${header.split(',').filter(name => /^Δ [\d.]+ k?Hz dB$/.test(name)).join(',')},基準群 n,基準群ファイル,解析仕様版,手順,ch,メモ,基準の定義`);
     assert.ok(header.includes(',Δ 3.15 kHz dB,'));
     const cells = row.split(',');
     // Where the file differs most comes first.
@@ -105,7 +105,7 @@ test('定義.json says what each number is, with the steps\' parameters in decim
         region: unknown; metrics: Record<string, string>; steps: Array<{ operation: string; params: Record<string, unknown> }>;
     };
     assert.deepEqual(definitions.region, { startS: 0.5, endS: 1.5 });
-    assert.match(definitions.metrics['Leq dB(A)'], /A 特性/);
+    assert.match(definitions.metrics['Leq A-weighted'], /A 特性/);
     assert.match(definitions.metrics.spectrum, /n_fft 1024/);
     assert.deepEqual(definitions.steps.find(step => step.operation.endsWith('time_slice'))!.params, { end: 1.5, start: 0.5 });
     assert.equal(typeof definitions.steps.find(step => step.operation.endsWith('highpass_filter'))!.params['cutoff'], 'number');
@@ -165,7 +165,7 @@ test('the report says what the comparison was taken from: the value, the filters
         model, results, slots: [null, '/f/c.wav', null, null], region: null, recipe: entry, recipeName: 'entry-scan', now: new Date(), stale: new Set<string>(),
         compare: (path: string) => compareOf(model, results, path, null, STR, false, undefined, { paths: ['/f/a.wav', '/f/b.wav'], title: '基準群 rpm 1500' }),
         rowInfo: () => ({ label: 'c.wav ch2', value: 'Leq A特性 [dBFS] −10.0', memo: 'ベアリングかも', channel: 2, base }),
-        selection: { value: 'Leq A特性 [dBFS]', group: 'rpm', filters: ['ch = 2'], excluded: 1 },
+        selection: { value: 'Leq A特性', group: 'rpm', filters: ['ch = 2'], excluded: 1 },
         derived: [derived],
     };
     const [header, row, d] = reportCsv(input, STR).slice(1).trimEnd().split('\r\n');
@@ -173,16 +173,16 @@ test('the report says what the comparison was taken from: the value, the filters
     assert.ok(!columns.includes('外れ値'));
     const cell = (line: string, name: string): string => line.split(',')[columns.indexOf(name)];
     assert.equal(row.split(',')[0], 'c.wav ch2');
-    assert.deepEqual([cell(row, 'ch'), cell(row, 'Leq A特性 [dBFS]'), cell(row, 'メモ')], ['2', 'Leq A特性 [dBFS] −10.0', 'ベアリングかも']);
+    assert.deepEqual([cell(row, 'ch'), cell(row, '表示中の値: Leq A特性'), cell(row, 'メモ')], ['2', 'Leq A特性 [dBFS] −10.0', 'ベアリングかも']);
     assert.equal(cell(row, '基準の定義'), '基準群 rpm 1500 · n=2 · ch2 · -1 (< ch2) · ch = 2');
     assert.equal(cell(row, '基準群 n'), '2');
     // A difference fixed with D: under the comparisons, against the base it was fixed with.
     assert.match(d.split(',')[0], /^固定した差（D） · c\.wav ch2 · all$/);
-    assert.equal(cell(d, 'Δ Leq dB(A)'), '10.5');
+    assert.equal(cell(d, 'Δ Leq A特性'), '10.5');
     assert.equal(cell(d, '基準の定義'), '基準群 rpm 1500 · n=2 · ch2 · -1 (< ch2) · ch = 2');
     // Fixed under an earlier chain (≠): the table has no number to read, and the report writes none either.
     const [, , previous] = reportCsv({ ...input, derived: [{ ...derived, stale: true }] }, STR).slice(1).trimEnd().split('\r\n');
-    assert.deepEqual([cell(previous, 'Leq A特性 [dBFS]'), cell(previous, 'Δ Leq dB(A)')].filter(Boolean), [], previous);
+    assert.deepEqual([cell(previous, '表示中の値: Leq A特性'), cell(previous, 'Δ Leq A特性')].filter(Boolean), [], previous);
     assert.equal(cell(previous, STR.reportChain), STR.reportChainPrevious);
     const definitions = reportDefinitions(input, 2, STR) as { selection: unknown; comparisons: Array<{ slot: number; file: string; channel: number; base: BaseDefinition }> };
     assert.deepEqual(definitions.selection, input.selection);

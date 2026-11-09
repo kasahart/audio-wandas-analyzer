@@ -275,7 +275,7 @@ flowchart LR
 
 対象: [src/webview/runtime/benchReport.ts](../src/webview/runtime/benchReport.ts)
 
-比較台の「報告に」で、`<レシピ名>_<YYYYMMDD-HHMMSS>/` の 1 フォルダに、基準.png、スロットごとの 比較 n.png・差 n.png（1200×360、白地）、報告.csv、`<レシピ名>.recipe.json` を書き出す。報告.csv は 1 行 1 スロットで、列は ファイル・条件（列ごと）・区間・Leq dB(A)・基準 Leq dB(A)（どちらも未校正の録音があれば「未校正」付き）・Δ Leq・帯域1〜3 Hz と Δ1〜3 dB・基準群 n・基準群ファイル（`;` 区切り）・解析仕様版・外れ値（UTF-8 BOM、dB は小数 1 桁、Hz は整数、欠損は空）。.recipe.json は scan のレシピの time_slice に比較台の区間を書き込んだもので、wandas の `RecipePlan.from_dict` でそのまま読める。ファイル名・見出しは UI の言語。Webview が中身を作り、`save-report-folder` でホストに渡す: VS Code は選んだフォルダの下にフォルダを作って書き、Web はフォルダ名の zip を 1 つダウンロードさせる。
+比較台の「報告に」で、`<レシピ名>_<YYYYMMDD-HHMMSS>/` の 1 フォルダに、基準.png、スロットごとの 比較 n.png・差 n.png（1200×360、白地）、報告.csv、`<レシピ名>.recipe.json` を書き出す。報告.csv は 1 行 1 スロットで、列は ファイル・条件（列ごと）・区間・Leq A特性・基準 Leq A特性（どちらも隣の列がその行のレベル基準を書く。どちらも未校正の録音があれば「未校正」付き）・Δ Leq・帯域1〜3 Hz と Δ1〜3 dB・基準群 n・基準群ファイル（`;` 区切り）・解析仕様版・外れ値（UTF-8 BOM、dB は小数 1 桁、Hz は整数、欠損は空）。.recipe.json は scan のレシピの time_slice に比較台の区間を書き込んだもので、wandas の `RecipePlan.from_dict` でそのまま読める。ファイル名・見出しは UI の言語。Webview が中身を作り、`save-report-folder` でホストに渡す: VS Code は選んだフォルダの下にフォルダを作って書き、Web はフォルダ名の zip を 1 つダウンロードさせる。
 
 ### 8. Waveform Renderer
 

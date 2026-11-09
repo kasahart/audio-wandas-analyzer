@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { N, R } from './helpers/figure';
+import { N, P, R, T } from './helpers/figure';
 import test from 'node:test';
 import type { SpectrogramData } from '../shared/analysis/analysisTypes';
 import { localCells, localLine } from '../webview/runtime/fullRead';
@@ -88,7 +88,7 @@ test('the pointer on a spectrogram lane reads the real STFT cell under it, not t
     };
     const entry = paintTrackSpectrogram(laneCanvas(400, 90), null, spec, place,
         { window: { start: 0, end: 1 }, dbLo: -80, dbHi: -40, maxFrequencyHz: 4000, minFrequencyHz: 0, durationSec: 2 }, undefined,
-        { colour: 'Level [dBFS]', frequency: 'Frequency [Hz]', time: 'Time [s]' }, '', localCells(frames, bins, raw));
+        { colour: T('Level [dBFS]'), frequency: P('Frequency [Hz]'), time: P('Time [s]') }, '', localCells(frames, bins, raw));
     const plot = entry.plot;
     assert.ok(plot?.image);
     let frame = 41;

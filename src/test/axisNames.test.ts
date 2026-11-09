@@ -167,14 +167,25 @@ test('no absolute level falls back to a bare "dB" unit anywhere in src (a defaul
         }
     };
     for (const name of readdirSync(root)) if (name !== 'test' && statSync(path.join(root, name)).isDirectory()) walk(path.join(root, name));
-    // Where a bare dB is a ratio or a difference, not an absolute level: said here with why.
+    // Where a bare dB is a ratio, not an absolute level: the one line, said here with why (never a whole file).
     const RATIOS: Record<string, string> = {
-        'webview/runtime/figureModel.ts': 'the gain axis (gainAxisName): a transfer level is dB re the units\' ratio',
+        "webview/runtime/figureModel.ts: const GAIN_DB = 'dB';": 'a plain gain: one unit over itself, a ratio (R7)',
     };
+    // A bare 'dB' anywhere (a default, an argument, a value), a reference defaulted to dBFS, or a level in "dB(A)".
+    // (A prefix test, `unit.startsWith('dB')`, asks whether a unit is a level; it gives none.)
+    const BARE = /(?<!(?:startsWith|endsWith|includes)\()(['"`])dB\1|(?:\?\?|\|\|)\s*(['"`])dBFS\2|(['"`])(?![^'"`\n]*Δ)[^'"`\n]*\bdB\(A\)[^'"`\n]*\3/u;
+    // The class sweep 3 loopholes, caught: an argument, a dBFS default, a dB(A) column; a Δ and a prefix test are not.
+    for (const bad of ["lines(values, 'gain', 'dB')", "label: folder.label || 'dBFS'", "entryColLeq: 'Leq dB(A)'"]) assert.ok(BARE.test(bad), bad);
+    for (const fine of ["reportDeltaLeq: 'Δ Leq dB(A)'", "unit?.startsWith('dB')"]) assert.ok(!BARE.test(fine), fine);
     const found = files.flatMap(file => {
         const rel = path.relative(root, file).split(path.sep).join('/');
-        return /(=|:|\?\?|\|\||\?|\breturn)\s*(['"`])dB\2(?![\w ])/u.test(readFileSync(file, 'utf8')) && !RATIOS[rel] ? [rel] : [];
+        if (rel.startsWith('e2e/')) return [];
+        return readFileSync(file, 'utf8').split('\n').flatMap(line => {
+            const code = line.replace(/\/\/.*$|^\s*\/?\*.*$/u, '');
+            return BARE.test(code) && !RATIOS[`${rel}: ${line.trim()}`] ? [`${rel}: ${line.trim()}`] : [];
+        });
     });
+    for (const site of Object.keys(RATIOS)) assert.ok(files.some(file => readFileSync(file, 'utf8').includes(site.slice(site.indexOf(': ') + 2))), `RATIOS lists a line that is gone: ${site}`);
     assert.ok(files.some(file => file.includes(`${path.sep}shared${path.sep}utils${path.sep}`)) && files.some(file => file.includes(`${path.sep}extension${path.sep}`)), 'shared utils and the extension are walked');
     assert.deepEqual(found, []);
 });

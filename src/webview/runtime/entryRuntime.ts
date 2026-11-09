@@ -14,7 +14,7 @@ import { compareScanId } from '../../shared/analysis/entryScan';
 import type { CompareCombineMessage, ComparePublication, CompareScanMessage, EntryConditionTable, EntryProbeCancelMessage, EntryProbeMessage, EntryProbePublication, EntryPublication, EntryScanCancelMessage, EntryScanMessage, EntrySaveSessionMessage } from '../../shared/analysis/entryScan';
 import type { ScanResult } from '../../shared/protocol/backendProtocol';
 import { BAND_CENTERS_HZ, bandLabel, buildEntryModel, derivedKey, entryCsv, type BaseDefinition, type DerivedRow, type EntryModel } from './entryTable';
-import { bandLevelColumns, levelColumns, type FigureSet } from './figureModel';
+import { bandLevelColumns, levelColumns, ownLevelName, plainTitle, unreferencedName, type ExclusionReason, type FigureSet, type FigureTitle, type PlainTitle } from './figureModel';
 import { batchBundle, batchCount } from '../../shared/batch/batchBundle';
 import { type CompareModel, type LevelInput } from './comparePanes';
 import { compareGroupNames, groupLabels } from '../../shared/dataset/distribution';
@@ -206,7 +206,10 @@ export interface EntryScreen {
     /** The base's name: the slot-0 file, or "Base group · rpm 1500 · median of n · ch2 (within ch = 2)". */
     baseTitle(comparePath: string, group?: boolean, over?: AnswerSource): string;
     /** The base's heading for another figure's set of its members (a step figure's, of their pictures): its one set's n. */
-    baseHeading(comparePath: string, group: boolean, set: FigureSet<unknown> | null): string;
+    /** `each`: its waveforms drawn each, so the set's n is said as "n files" (entryBaseCount), not a median's. */
+    baseHeading(comparePath: string, group: boolean, set: FigureSet<unknown> | null, each?: boolean): string;
+    /** The base group's recordings the table's answers leave out for another reference or axis, with why. */
+    baseLeft(comparePath: string, group: boolean): Array<{ path: string; reason: ExclusionReason }>;
     /** What the base is, for the report and a fixed difference. */
     baseDefinition(comparePath: string, group?: boolean, over?: AnswerSource): BaseDefinition;
     /** The channel `path` is drawn with when `comparePath` is compared (null: its channels together). */
@@ -523,6 +526,24 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         ];
     }
     const valueLabel = (id: ValueId): string => valueOptions().find(option => option.id === id)?.label ?? id;
+    /** A computed level value's template ("Leq A特性{uncal} [{label}]"); null for a value that is not a level. */
+    const levelTemplate = (id: ValueId): string | null => (id === 'leq' ? strings.dsLeq : id.startsWith('band:') ? strings.dsBand.replace('{band}', bandLabel(Number(id.slice(5)))) : null);
+    /** The distribution's value axis: a level named by the folder's reference, else a non-level's own name. */
+    const valueTitle = (id: ValueId): FigureTitle | PlainTitle => {
+        const template = levelTemplate(id);
+        return template ? sidePlots.levelName(template) : plainTitle(strings, id === 'peak' ? 'dsPeak' : 'dsCrest');
+    };
+    /**
+     * A row's value as it names itself (R1, R4): a level by its own fresh answer's reference and calibration, never
+     * the folder's; '' while its level is not known.
+     */
+    function ownValueText(id: ValueId, path: string, number: number): string {
+        const template = levelTemplate(id);
+        if (!template) return `${valueLabel(id)} ${formatColumn(id, number)}`;
+        const answer = scans.answers([path])[0];
+        const name = ownLevelName(strings, template, answer?.state === 'ready' ? answer.identity.level : null);
+        return name ? `${name} ${formatColumn(id, number)}` : '';
+    }
     const groupLabel = (id: GroupId): string => groupOptions().find(option => option.id === id)?.label ?? id;
     const columnLabel = (column: ColumnId): string => (column === 'name' ? strings.entryColFile : column === 'ch' ? strings.dsCh
         : column === 'none' ? strings.dsGroupNone : column.startsWith('csv:') || column.startsWith('folder:') ? (valueOptions().find(option => option.id === column)?.label ?? groupLabel(column as GroupId)) : valueLabel(column as ValueId));
@@ -533,7 +554,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const stale = stalePaths();
         const ready = !isComputed(chosen.value) || shownRows.every(row => results.has(row.filePath) && !stale.has(row.filePath));
         return {
-            rows: shownRows, derived: derived.length ? derivedItems : undefined, results, group: chosen.group, value: chosen.value, filters: chosen.filters, sort: chosen.sort, slots, focused: focus.key, playing: deps.playing?.() ?? null, memo, valueReady: ready, stale, levelWord: path => sidePlots.levelWordOf(path), mode: chosen.mode, shown: shownFiles(), tracksAllOff: tracks.tried !== null && tracks.tried === listedFiles().join('\n'),
+            rows: shownRows, derived: derived.length ? derivedItems : undefined, results, group: chosen.group, value: chosen.value, filters: chosen.filters, sort: chosen.sort, slots, focused: focus.key, playing: deps.playing?.() ?? null, memo, valueReady: ready, stale, levelWord: path => sidePlots.levelMarkOf(path), mode: chosen.mode, shown: shownFiles(), tracksAllOff: tracks.tried !== null && tracks.tried === listedFiles().join('\n'),
             unmatched: attached.match?.unmatched ?? [], filtered: new Set(chosen.filters.map(filter => filter.column)),
             columns: {
                 name: { id: 'name', label: strings.entryColFile, numeric: false },
@@ -754,7 +775,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         const row = entryBase.slotRowOf(path) ?? rows.find(item => item.filePath === path);
         if (!row) return { label: baseName(path), value: '', memo: '' };
         const number = usable(row) ? valueOf(row, chosen.value, results) : null;
-        return { label: rowName(row.key), value: number === null ? '' : `${valueLabel(chosen.value)} ${formatColumn(chosen.value, number)}`, memo: memo.get(row.key) ?? '' };
+        return { label: rowName(row.key), value: number === null ? '' : ownValueText(chosen.value, row.filePath, number), memo: memo.get(row.key) ?? '' };
     }
     function removeDerived(parentPath: string, region: string, baseLabel?: string): void {
         setDerived(derived.filter(item => item.parentPath !== parentPath || item.region !== region || (baseLabel !== undefined && (item.base.label ?? '') !== baseLabel)));
@@ -946,11 +967,13 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     function paintDistribution(): void {
         distPane.paint({
             pool: distributionPool(), value: chosen.value, group: chosen.group, results, range: valueRange(), usable, slots, rowOf,
+            // A level's recordings as one set of the folder's reference: its heading's n and what it left out, with why.
+            set: isLevel(chosen.value) ? entryBase.folderSet(distributionPool().map(row => row.filePath)) : null,
             // The base line where the comparison measures its Δ from (one definition: entryBase), of the axis's reference.
             base: entryBase.groupBase(chosen.value, isLevel(chosen.value) ? entryModel().reference.level : undefined),
             onAxis: row => !isLevel(chosen.value) || sidePlots.onLevelAxis(row.filePath),
             // A level is read with the folder's reference and each recording's own calibration word (R4, R7).
-            valueLabel: valueLabel(chosen.value), format: (number, step) => plotValueText(chosen.value, number, step, entryModel().reference.label),
+            valueLabel: valueTitle(chosen.value), format: (number, step) => plotValueText(chosen.value, number, step, entryModel().reference.label),
             rowName: key => `${rowName(key)}${isLevel(chosen.value) ? sidePlots.levelWordOf(fileOfKey(key)) : ''}`,
         });
     }
@@ -1653,7 +1676,11 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         },
         basePaths: (comparePath, byGroup = false) => entryBase.resolve(comparePath, byGroup).members,
         baseTitle: (comparePath, byGroup = false, over) => entryBase.resolve(comparePath, byGroup, undefined, over).title,
-        baseHeading: (comparePath, byGroup, set) => { const base = entryBase.resolve(comparePath, byGroup); return set ? base.heading(set) : base.title; },
+        baseLeft: (comparePath, byGroup) => entryBase.resolve(comparePath, byGroup).set.excluded.filter(item => item.reason === 'other-reference' || item.reason === 'other-axis'),
+        baseHeading: (comparePath, byGroup, set, each = false) => {
+            const base = entryBase.resolve(comparePath, byGroup);
+            return set || each ? base.heading(set ?? base.set, each ? strings.entryBaseCount : undefined) : base.title;
+        },
         answersOf: paths => scans.answers(paths),
         baseDefinition: (comparePath, byGroup = false, over) => entryBase.resolve(comparePath, byGroup, undefined, over).definition,
         stageChannel: (path, comparePath, byGroup = false) => entryBase.stageChannel(path, comparePath, byGroup),
@@ -1661,7 +1688,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         rowInfo: path => rowInfo(path),
         cost: paths => ({ seconds: progress.seconds(paths), ms: progress.estimateMs(paths) }),
         selection: () => ({
-            value: valueLabel(chosen.value), group: chosen.group === 'none' ? strings.dsGroupNone : groupLabel(chosen.group),
+            // Over rows of several references: each value names its own (rowInfo), the heading none.
+            value: levelTemplate(chosen.value) ? unreferencedName(levelTemplate(chosen.value) ?? '') : valueLabel(chosen.value), group: chosen.group === 'none' ? strings.dsGroupNone : groupLabel(chosen.group),
             filters: chosen.filters.map(filter => chipText(filter)), excluded: excluded.size,
         }),
         derivedRows: () => derived.slice(),

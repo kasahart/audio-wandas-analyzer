@@ -223,7 +223,7 @@ test('the side plots keep each channel\'s own levels, as the table\'s rows are k
 });
 
 test('the overview colour scale and the dataset table name the recordings\' most common level reference, never plain dB, and say uncalibrated (R4)', () => {
-    assert.equal(commonLevelLabel([]), 'dBFS');
+    assert.equal(commonLevelLabel([]), '', 'none before any: never a guessed dBFS');
     assert.equal(commonLevelLabel(['dBFS', 'dBFS']), 'dBFS');
     assert.equal(commonLevelLabel(['dB re 1 input unit']), 'dB re 1 input unit');
     assert.equal(commonLevelLabel(['dB SPL re 20 µPa']), 'dB SPL re 20 µPa');
@@ -231,7 +231,9 @@ test('the overview colour scale and the dataset table name the recordings\' most
     const { plots } = setup();
     const input = (levelReferenceLabel: string, calibrationStatus: 'calibrated' | 'uncalibrated') => ({ id: 'x', fs: 48000, channels: [0], durationS: 1, unit: 'Pa', ref: 2e-5, levelReferenceLabel, calibrationStatus, fullScale: true });
     const leq = strings.dsLeq;
-    assert.equal(plots.levelLabel(), 'dBFS');
+    // Before any recording is read no reference is named (V9): the value is named without one.
+    assert.equal(plots.levelLabel(), '');
+    assert.equal(plots.levelName(leq), 'Leq A-weighted');
     plots.noteResult('/d/a.wav', { ok: true, input: input('dB SPL re 20 µPa', 'calibrated'), thirdOctDb: [[60, 61]] });
     assert.equal(plots.levelLabel(), 'dB SPL re 20 µPa');
     assert.equal(plots.levelName(leq), 'Leq A-weighted [dB SPL re 20 µPa]');
@@ -239,11 +241,14 @@ test('the overview colour scale and the dataset table name the recordings\' most
     plots.noteResult('/d/c.wav', { ok: true, input: input('dBFS', 'uncalibrated'), thirdOctDb: [[-32, -33]] });
     assert.equal(plots.levelLabel(), 'dBFS', 'the most common reference, not a bare dB');
     assert.equal(plots.levelName(leq), 'Leq A-weighted, uncalibrated [dBFS]', 'uncalibrated says so');
+    // V2: under a heading of the folder's dBFS, the dB SPL row's value names its own reference; a row of it says nothing.
+    assert.equal(plots.levelMarkOf('/d/a.wav'), ' [dB SPL re 20 µPa]');
+    assert.equal(plots.levelMarkOf('/d/b.wav'), '');
     plots.noteResult('/d/b.wav', { ok: false, reason: 'unreadable' });
     plots.noteResult('/d/c.wav', { ok: false, reason: 'unreadable' });
     assert.equal(plots.levelLabel(), 'dB SPL re 20 µPa', 'a file that cannot be read has no reference');
     plots.clear();
-    assert.equal(plots.levelLabel(), 'dBFS');
+    assert.equal(plots.levelLabel(), '', 'nothing read: no reference named (V9)');
 });
 
 test('the strip is a heatmap of the table: a row per table row counted down from the top, each bucket\'s quietest and loudest when they outnumber its lines (R2)', () => {

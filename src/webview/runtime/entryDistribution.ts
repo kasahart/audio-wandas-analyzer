@@ -41,6 +41,11 @@ export interface DistributionPicture {
     /** A value's text; `step`, the bins' width, adds the digits that tell neighbouring bins apart. */
     format(value: number, step?: number): string;
     name(key: string): string;
+    /**
+     * A group's count beside its name: a level's of the figure's set over the group (its n and what it left out, with
+     * why); else the rows it draws (`drawn`).
+     */
+    countOf(group: string, drawn: number): string;
 }
 
 /** The colours the rows are drawn in (resolved from the entry screen's CSS): neutral bars, the slots' role colours. */
@@ -177,7 +182,7 @@ export function distributionRows(dist: Distribution, picture: DistributionPictur
         }
         return {
             group: group.name, label: label.length > 11 ? `${label.slice(0, 10)}…` : label, title: group.name || strings.dsFilterBlank,
-            count: picture.strip ? '' : `${group.members.length} ${unit}`, max, layers, range, slots, base, dots,
+            count: picture.strip ? '' : picture.countOf(group.name, group.members.length), max, layers, range, slots, base, dots,
         };
     });
 }

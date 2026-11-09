@@ -1,6 +1,6 @@
 import type { ChannelSummary } from '../../shared/analysis/analysisTypes';
 import type { UiStrings } from '../../shared/i18n/strings';
-import { channelsForResult, formatMeasuredLevel } from '../../shared/utils/format';
+import { channelsForResult, formatMeasuredLevel, uncalibratedUnits } from '../../shared/utils/format';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { levelText as dbText } from '../plot/plotText';
 import { hintAttr } from './hintFooter';
@@ -30,7 +30,9 @@ export function peakText(channel: Channel, peakLabel: string): string | null {
 function levelText(channel: ChannelSummary, levelDb: number | undefined): string {
     if (!Number.isFinite(levelDb)) { return '—'; }
     // Named by its reference, as the level axes are (R7): never bare dB for an absolute level.
-    return dbText(Number(levelDb), channel.measurement?.levelReferenceLabel ?? channel.sourceLevelReferenceLabel ?? 'dBFS');
+    // Without a reference sent, an uncalibrated channel's is known by its source (full scale or raw units), never guessed.
+    const reference = channel.measurement?.levelReferenceLabel ?? channel.sourceLevelReferenceLabel ?? (typeof channel.fullScale === 'boolean' ? uncalibratedUnits(channel.fullScale).level : undefined);
+    return reference ? dbText(Number(levelDb), reference) : '—';
 }
 
 export function channelMetricSummaryHtml(channel: Channel, peakLabel: string): string {

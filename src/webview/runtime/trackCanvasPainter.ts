@@ -3,7 +3,7 @@ import type { SpectrogramData, WaveformEnvelope } from '../../shared/analysis/an
 import { viridis, type AxisTick } from '../../shared/gui-core/index';
 import { spectrogramTimeBinEdges } from '../spectrum/spectrogramTimeBins';
 import { spectrogramRowSpan } from '../spectrum/spectrogramZoom';
-import { plainNames, plainRange } from './figureModel';
+import { plainNames, plainRange, type FigureTitle, type PlainTitle } from './figureModel';
 import { paintOverlay, paintSideAxis, type ColourBarBox, type StageLayer, type StagePlot, type StageOverlay } from './stagePanes';
 import type { NormalizedRange } from './waveformInteraction';
 import type { StageView } from '../../shared/protocol/backendProtocol';
@@ -124,9 +124,9 @@ export interface LaneSpectrogramView {
 
 /** The names on a spectrogram lane: what the colour measures (as the comparison's heatmaps name it), its frequency axis, and the time axis. */
 export interface LaneSpectrogramTitles {
-    colour: string;
-    frequency: string;
-    time: string;
+    colour: FigureTitle;
+    frequency: PlainTitle;
+    time: PlainTitle;
 }
 
 const laneMatrices = new WeakMap<SpectrogramData, number[][]>();
@@ -149,7 +149,7 @@ export function laneSpectrogramView(spec: SpectrogramData, place: LanePlacement,
         laneMatrices.set(spec, matrix);
     }
     // No yAxis: the rows are frequencies, but up a linear axis (a frequency yAxis is a log one).
-    return { frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity: 'level', unit: spec.levelReferenceLabel ?? spec.unit ?? 'dBFS', xs, ys, matrix };
+    return { frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity: 'level', unit: spec.levelReferenceLabel ?? spec.unit ?? '', xs, ys, matrix };
 }
 
 /**

@@ -1,9 +1,10 @@
 import { HEATMAP_DB_SPAN, heatmapDbRange, niceRange } from '../../shared/utils/ticks';
 import { WAVEFORM_HALF_HEIGHT_RATIO } from '../waveform/waveformLayout';
 import type { Answer, AnswerIdentity } from './answerTypes';
-import { stageAxes, stageDiffRange, stageRange, type StageAxes, type StageStrings } from './stagePanes';
+import { amplitudeAxisTitle, stageAxes, stageDiffRange, stageRange, type StageAxes, type StageStrings } from './stagePanes';
 import { levelIdentityOf, paneAxes, type LevelInput, type PaneAxes, type PaneRange } from './comparePanes';
 import type { ScanResult, StageView } from '../../shared/protocol/backendProtocol';
+import { channelResult } from '../../shared/recipe/channelSelection';
 import type { UiStrings } from '../../shared/i18n/strings';
 
 /**
@@ -28,10 +29,38 @@ const titled = (title: string): FigureTitle => title as FigureTitle;
 
 // ── Names ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-/** Names of axes that are not levels (time, frequency, a count, a row's name): written as given. */
-export function plainNames(x: string, y: string, colour?: string): FigureNames {
+/**
+ * A name of an axis that is not a level (time, frequency, bands, rows, a count, a phase, a coherence, a CSV column),
+ * made only here from the strings that name such axes: no level's name can be one, so no level axis is named
+ * outside this layer's level names (FigureTitle).
+ */
+export type PlainTitle = string & { readonly [figureBrand]: 'plain' };
+/** The strings that name an axis that is not a level. */
+export type PlainKey = 'axisTime' | 'axisFrequency' | 'axisBand' | 'axisEntryRows' | 'pairPhaseLabel' | 'pairCoherenceLabel' | 'dsPeak' | 'dsCrest';
+export const plainTitle = <K extends PlainKey>(strings: Readonly<Record<K, string>>, key: K): PlainTitle => strings[key] as PlainTitle;
+/** A distribution's count axis (files or channels). */
+export const countTitle = (strings: { dsDistCountAxis: string }, unit: string): PlainTitle => strings.dsDistCountAxis.replace('{unit}', unit) as PlainTitle;
+/**
+ * A CSV column's value axis: its name and the unit its header gives ("temp [°C]", "temp (°C)"), or that the unit is not
+ * known (R4: every axis names its unit). A CSV's own column is never one of the levels the scan measured.
+ */
+export function csvColumnTitle(column: string, strings: { dsDistCsvAxis: string; axisUnitUnknown: string }): PlainTitle {
+    const given = /^(.*\S)\s*(?:\[([^\]]+)\]|\(([^)]+)\))$/su.exec(column.trim());
+    const unit = given ? (given[2] ?? given[3]).trim() : '';
+    const name = given && unit ? given[1] : column;
+    return strings.dsDistCsvAxis.replace('{col}', () => name).replace('{unit}', () => unit || strings.axisUnitUnknown) as PlainTitle;
+}
+
+/**
+ * Names of axes made of titles made here: a non-level axis' (PlainTitle) or a level's (FigureTitle), never a string
+ * written elsewhere, so a bare 'Level [dB]' cannot be wrapped into names (the type refuses it).
+ */
+export function plainNames(x: PlainTitle | FigureTitle | '', y: PlainTitle | FigureTitle | '', colour?: FigureTitle): FigureNames {
     return names({ x, y, ...(colour !== undefined ? { colour } : {}) });
 }
+
+/** An amplitude axis' title (stagePanes.amplitudeAxisTitle: the unit, or the level by `input`'s reference). */
+export const amplitudeTitle = (...args: Parameters<typeof amplitudeAxisTitle>): FigureTitle => titled(amplitudeAxisTitle(...args));
 
 /** What each axis of a picture measures (stagePanes.stageAxes): its level axis named by `input`'s reference. */
 export function stageNames(strings: StageStrings, view: StageView | null, input: LevelInput | undefined, diff = false): FigureNames {
@@ -48,6 +77,9 @@ export function paneNames(strings: Parameters<typeof paneAxes>[0], input: LevelI
 export function levelTitle(strings: { axisLevelCal: string; axisLevelUncal: string }, reference: string, calibrated: boolean): FigureTitle {
     return titled((calibrated ? strings.axisLevelCal : strings.axisLevelUncal).replace('{label}', reference));
 }
+
+/** A level axis' title while no reference is known (nothing drawn yet): it says so, never a guessed dBFS (R4). */
+export const unknownLevelTitle = (strings: { axisLevelCal: string; axisUnitUnknown: string }): FigureTitle => titled(strings.axisLevelCal.replace('{label}', strings.axisUnitUnknown));
 
 /** A level axis' title as the backend wrote it (wandas' axis label of a slice), or its reference. */
 export const backendTitle = (axisLabel: string): FigureTitle => titled(axisLabel);
@@ -198,7 +230,7 @@ export const bandLevelColumns = (strings: { entryColBandLevel: string; reportLev
 };
 
 /** The frequency axis' name as a title (the spectrum CSV's frequency columns). */
-export const frequencyTitle = (strings: { axisFrequency: string }): FigureTitle => titled(strings.axisFrequency);
+export const frequencyTitle = (strings: { axisFrequency: string }): PlainTitle => plainTitle(strings, 'axisFrequency');
 
 /**
  * The legend words of a stage figure (R1, R4): each recording's calibration word (calibrationWords, over the compared
@@ -210,8 +242,32 @@ export function legendWords(strings: { axisUncalibrated: string }, allTracks: Re
 }
 
 /** A level value's name from a template with {label} (its reference) and {uncal} (said while uncalibrated, R4). */
-export function templatedLevelName(strings: { axisUncalibrated: string }, template: string, label: string, calibrated: boolean): string {
-    return template.replace('{uncal}', calibrated ? '' : uncalibratedWord(strings)).replace('{label}', label);
+export function templatedLevelName(strings: { axisUncalibrated: string }, template: string, label: string, calibrated: boolean): FigureTitle {
+    return titled(template.replace('{uncal}', calibrated ? '' : uncalibratedWord(strings)).replace('{label}', label));
+}
+
+/**
+ * A value's name by its own row's level (R1, R4): the template with that row's own reference and, while it is
+ * uncalibrated, the word that says so; null while its level is not known (never another row's reference).
+ */
+export function ownLevelName(strings: { axisUncalibrated: string }, template: string, level: Pick<LevelInput, 'levelReferenceLabel' | 'calibrationStatus'> | null | undefined): FigureTitle | null {
+    return level?.levelReferenceLabel ? templatedLevelName(strings, template, level.levelReferenceLabel, level.calibrationStatus === 'calibrated') : null;
+}
+
+/** A heading over values whose rows may differ in reference: the template with no reference, each value names its own. */
+export function unreferencedName(template: string): FigureTitle {
+    return titled(template.replace('{uncal}', '').replace(/\s*\[\{label\}\]/u, '').trim());
+}
+
+/**
+ * The mark a value carries beside a heading that names the folder's reference (R1, R4): '' for a fresh value of that
+ * reference, else its own reference and calibration word (another reference's, or a stale value's, whatever it is).
+ */
+export function ownReferenceMark(strings: { axisUncalibrated: string }, reference: FolderReference, answer: Answer<unknown> | undefined): string {
+    if (!answer || (answer.state !== 'ready' && answer.state !== 'stale')) return '';
+    const level = answer.identity.level;
+    if (answer.state === 'ready' && ofReference(reference, level)) return '';
+    return level.levelReferenceLabel ? templatedLevelName(strings, '{uncal} [{label}]', level.levelReferenceLabel, level.calibrationStatus === 'calibrated') : '';
 }
 
 /**
@@ -219,14 +275,24 @@ export function templatedLevelName(strings: { axisUncalibrated: string }, templa
  * the transfer level in dB re the units' ratio, as the backend measured it (its levelReferenceLabel, else the unit of
  * its own English name).
  */
-export function gainAxisName(response: { axisLabel?: string; levelReferenceLabel?: string | null } | undefined, strings: { axisGain: string; axisTransferLevel: string }): string {
+export function gainAxisName(response: { axisLabel?: string; levelReferenceLabel?: string | null } | undefined, strings: { axisGain: string; axisTransferLevel: string }): FigureTitle {
     const unit = transferReferenceOf(response);
-    return unit === 'dB' ? strings.axisGain : strings.axisTransferLevel.replace('{unit}', unit);
+    return titled(unit === null ? strings.axisGain : strings.axisTransferLevel.replace('{unit}', unit));
 }
 
-/** What a pair's gain is in: plain dB for one unit, else dB re the units' ratio (its levelReferenceLabel, else its own name's). */
-function transferReferenceOf(response: { axisLabel?: string; levelReferenceLabel?: string | null } | undefined): string {
-    return response?.levelReferenceLabel ?? /\[([^\]]+)\]\s*$/u.exec(response?.axisLabel ?? '')?.[1] ?? 'dB';
+/** A plain gain's unit: a ratio of one unit to itself, the one place a bare dB is not an absolute level (R7). */
+const GAIN_DB = 'dB';
+
+/** What a pair's gain is read in: dB re the units' ratio, or a plain gain's dB (GAIN_DB). */
+export const gainUnit = (response: { axisLabel?: string; levelReferenceLabel?: string | null } | undefined): string => transferReferenceOf(response) ?? GAIN_DB;
+
+/**
+ * What a pair's gain is re: null for a gain of one unit (a plain ratio, written as a gain), else the units' ratio (its
+ * levelReferenceLabel, else its own name's bracket). A gain is a difference of levels, never an absolute dB (R7).
+ */
+function transferReferenceOf(response: { axisLabel?: string; levelReferenceLabel?: string | null } | undefined): string | null {
+    const given = response?.levelReferenceLabel ?? /\[([^\]]+)\]\s*$/u.exec(response?.axisLabel ?? '')?.[1] ?? null;
+    return given === GAIN_DB ? null : given;
 }
 
 /**
@@ -234,7 +300,7 @@ function transferReferenceOf(response: { axisLabel?: string; levelReferenceLabel
  * that identity, never by the text of their axis names. The others stay in the legend, not drawn on its numbers.
  */
 export function gainAxisLines<C extends { response: { axisLabel?: string; levelReferenceLabel?: string | null } }>(curves: readonly C[]): C[] {
-    const groups = byLevelKey(curves, curve => levelKeyOf(undefined, transferReferenceOf(curve.response)));
+    const groups = byLevelKey(curves, curve => levelKeyOf(undefined, transferReferenceOf(curve.response) ?? ''));
     return groups[0]?.items ?? [];
 }
 
@@ -244,6 +310,29 @@ export function gainAxisLines<C extends { response: { axisLabel?: string; levelR
  */
 export function axisInputOf<I extends { calibrationStatus?: string } | null | undefined>(inputs: readonly I[]): I | undefined {
     return inputs.find(input => input?.calibrationStatus === 'calibrated') ?? inputs.find(input => !!input);
+}
+
+/**
+ * The input one line made of several recordings (a base group's median, a recording's channels read together) is of:
+ * their reference, calibrated only when every one of them is, so the line says uncalibrated while any of its own
+ * recordings is (R4). The screen's axis and legend, the report's axis and the comparison's sides all take it here.
+ */
+export function medianInputOf<I extends { calibrationStatus?: string }>(inputs: ReadonlyArray<I | null | undefined>): I | undefined {
+    const known = inputs.filter((input): input is I => !!input);
+    const first = known[0];
+    if (!first) return undefined;
+    return { ...first, calibrationStatus: known.every(input => input.calibrationStatus === 'calibrated') ? 'calibrated' : 'uncalibrated' };
+}
+
+/**
+ * What a step picture's values are re (R1): a transfer function's gain is re its pair's unit ratio (plain dB for one
+ * unit), so two recordings' gains compare whatever their channels are calibrated in; a cross spectrum against the
+ * base slot is re the pair's reference (its unit, as the backend names it); anything else is its channel's level.
+ */
+export function pictureLevelOf(view: StageView | null | undefined, own: LevelInput | undefined): LevelInput | undefined {
+    if (view?.quantity === 'gain') return { unit: view.unit || '1', ref: 1, levelReferenceLabel: view.unit || GAIN_DB, calibrationStatus: 'calibrated', fullScale: false };
+    if (view?.quantity === 'level' && view.pair && view.unit) return { unit: view.unit, ref: 1, levelReferenceLabel: view.unit, calibrationStatus: own?.calibrationStatus ?? 'uncalibrated', fullScale: false };
+    return own;
 }
 
 /**
@@ -313,7 +402,9 @@ export function levelAxes<L>(lines: readonly L[], spec: LevelAxesSpec<L>): { axe
  * never asked (missing), of another level reference or on another axis than the figure's, or ready while the figure
  * has no identity yet (its compared recording has no ready answer of its own: 'no-identity').
  */
-export type ExclusionReason = 'pending' | 'stale' | 'failed' | 'empty' | 'missing' | 'other-reference' | 'other-axis' | 'no-identity';
+export type ExclusionReason = 'pending' | 'stale' | 'failed' | 'empty' | 'missing' | 'other-reference' | 'other-axis' | 'no-identity' | 'no-channel';
+/** Every reason, in the order a heading, CSV and report say them ('no-channel': a group member without the channel compared). */
+export const EXCLUSION_REASONS: readonly ExclusionReason[] = ['failed', 'empty', 'missing', 'pending', 'stale', 'other-reference', 'other-axis', 'no-identity', 'no-channel'];
 
 declare const setBrand: unique symbol;
 declare const identityBrand: unique symbol;
@@ -375,9 +466,11 @@ export function levelIdentity<T>(level: LevelOf | null | undefined, axisOf?: (va
  * member lines): the ready ones of `of`'s level identity and axis. Every other is excluded with why. Nothing pending
  * or stale is ever counted, and with no identity (`of` null) nothing is: the figure waits for its compared answer.
  */
-export function figureUsed<T>(of: FigureIdentity<T> | null, answers: ReadonlyArray<Answer<T>>): FigureSet<T> {
+export function figureUsed<T>(of: FigureIdentity<T> | null, answers: ReadonlyArray<Answer<T>>, left: FigureSet<T>['excluded'] = []): FigureSet<T> {
     const used: Array<FigureSet<T>['used'][number]> = [];
-    const excluded: Array<FigureSet<T>['excluded'][number]> = [];
+    // `left`: recordings of the figure's group already known left out with why (another reference or axis by their
+    // fresh answers), so its heading, CSV and report list them though they are not asked for here.
+    const excluded: Array<FigureSet<T>['excluded'][number]> = [...left];
     for (const answer of answers) {
         const path = answer.identity.path;
         if (answer.state !== 'ready') { excluded.push({ path, reason: answer.state }); continue; }
@@ -389,28 +482,42 @@ export function figureUsed<T>(of: FigureIdentity<T> | null, answers: ReadonlyArr
     return { used, excluded, n: used.length, paths: used.map(item => item.path), level: of?.level ?? null } as unknown as FigureSet<T>;
 }
 
+/**
+ * The part of a set over `paths` (one group of a distribution): its counted and left-out members among them, with why,
+ * as one set, so a group's heading says its own n and left-out recordings of the one set the figure counts.
+ */
+export function setOver<T>(set: FigureSet<T>, paths: readonly string[]): FigureSet<T> {
+    const used = set.used.filter(item => paths.includes(item.path));
+    return { used, excluded: set.excluded.filter(item => paths.includes(item.path)), n: used.length, paths: used.map(item => item.path), level: set.level } as unknown as FigureSet<T>;
+}
+
 /** How many of a set's answers were left out for `reason`. */
 export const excludedFor = (set: FigureSet<unknown>, ...reasons: ExclusionReason[]): number => set.excluded.filter(item => reasons.includes(item.reason)).length;
 
 /** The paths a set left out for one of `reasons`. */
 export const excludedPaths = (set: FigureSet<unknown>, ...reasons: ExclusionReason[]): string[] => set.excluded.filter(item => reasons.includes(item.reason)).map(item => item.path);
 
-export type SetStrings = Pick<UiStrings, 'entryBaseMedian' | 'dsBaseFailed' | 'dsBasePending' | 'dsBaseStale' | 'dsBaseOtherUnits' | 'dsBaseOtherBins' | 'dsBaseNoIdentity'>;
+export type SetStrings = Pick<UiStrings, 'entryBaseMedian' | 'dsBaseFailed' | 'dsBaseMissing' | 'dsBasePending' | 'dsBaseStale' | 'dsBaseOtherUnits' | 'dsBaseOtherBins' | 'dsBaseNoIdentity'> & Partial<Pick<UiStrings, 'dsBaseFewer'>>;
 
-/** " · 1 failed left out · 1 still computing · …": what a set left out, with why, as every heading and file says it. */
-export function setExclusionText(set: FigureSet<unknown>, strings: Omit<SetStrings, 'entryBaseMedian'>): string {
+/**
+ * " · 1 failed left out · 1 still computing · …": what a set left out, with why, as every heading and file says it.
+ * `channel`: the channel a group's members are compared as, named where members without it were left out.
+ */
+export function setExclusionText(set: FigureSet<unknown>, strings: Omit<SetStrings, 'entryBaseMedian'>, channel?: number | null): string {
+    const fewer = excludedFor(set, 'no-channel');
+    const without = fewer && strings.dsBaseFewer ? strings.dsBaseFewer.replace('{n}', String(fewer)).replace('{ch}', String(channel ?? '')) : '';
     const say = (template: string, n: number): string => (n ? template.replace('{n}', String(n)) : '');
-    return say(strings.dsBaseFailed, excludedFor(set, 'failed', 'empty', 'missing')) + say(strings.dsBasePending, excludedFor(set, 'pending'))
+    return say(strings.dsBaseFailed, excludedFor(set, 'failed', 'empty')) + say(strings.dsBaseMissing, excludedFor(set, 'missing')) + say(strings.dsBasePending, excludedFor(set, 'pending'))
         + say(strings.dsBaseStale, excludedFor(set, 'stale')) + say(strings.dsBaseOtherUnits, excludedFor(set, 'other-reference')) + say(strings.dsBaseOtherBins, excludedFor(set, 'other-axis'))
-        + say(strings.dsBaseNoIdentity, excludedFor(set, 'no-identity'));
+        + say(strings.dsBaseNoIdentity, excludedFor(set, 'no-identity')) + without;
 }
 
 /**
  * "median of 3 · 1 failed left out · 1 still computing · …": a set's count and what it left out, as every heading,
  * chip and definition writes it. It takes only a FigureSet: a heading cannot say another count than the set drawn.
  */
-export function setCountText(set: FigureSet<unknown>, strings: SetStrings, count = strings.entryBaseMedian): string {
-    return count.replace('{count}', String(set.n)) + setExclusionText(set, strings);
+export function setCountText(set: FigureSet<unknown>, strings: SetStrings, count = strings.entryBaseMedian, channel?: number | null): string {
+    return count.replace('{count}', String(set.n)) + setExclusionText(set, strings, channel);
 }
 
 // ── Scans as a figure's answers ───────────────────────────────────────────────────────────────────────────────────
@@ -476,7 +583,13 @@ export const ofReference = (reference: FolderReference, level: LevelOf | null | 
 // ── Step pictures as a figure's answers ─────────────────────────────────────────────────────────────────────────────
 
 /** The axis a step picture is on: its kind, axis and points (a backend median is taken only of aligned pictures). */
-export const pictureAxis = (view: StageView): string => `${view.kind}|${view.x ?? ''}|${view.xs?.length ?? 0}|${view.xs?.[0] ?? ''}|${view.xs?.at(-1) ?? ''}|${view.unit ?? ''}`;
+export function pictureAxis(view: StageView): string {
+    // Over time, recordings of other lengths share the axis: a median and a Δ are taken over their common part (R1).
+    const xs = view.x === 'time' ? '' : `${view.xs?.length ?? 0}|${view.xs?.[0] ?? ''}|${view.xs?.at(-1) ?? ''}`;
+    // A heatmap's rows are an axis too (its frequencies or bands).
+    const ys = view.kind === 'heatmap' ? `|${view.ys?.length ?? 0}|${view.ys?.[0] ?? ''}|${view.ys?.at(-1) ?? ''}|${view.yAxis ?? ''}` : '';
+    return `${view.kind}|${view.x ?? ''}|${xs}|${view.quantity ?? ''}|${view.unit ?? ''}${ys}`;
+}
 
 /**
  * A step figure's base set: the base's members, each counted only when its step picture is in and kept its values
@@ -485,17 +598,30 @@ export const pictureAxis = (view: StageView): string => `${view.kind}|${view.x ?
  * taken of them, so a picture on another axis is left out too. The median requested, the member lines drawn, the
  * heading's n and the legend's words are all of this one set.
  */
-export function pictureSet(members: readonly string[], viewOf: (path: string) => StageView | null | undefined, levelOf: (path: string) => LevelInput | undefined, compared: { level: LevelInput | undefined; view: StageView | null | undefined }, aligned: boolean): FigureSet<StageView> {
-    const answers = members.map((path): Answer<StageView> => {
+export function pictureSet(members: readonly string[], viewOf: (path: string) => StageView | null | undefined, levelOf: (path: string) => LevelInput | undefined, compared: { level: LevelInput | undefined; view: StageView | null | undefined }, aligned: boolean, left: FigureSet<StageView>['excluded'] = []): FigureSet<StageView> {
+    // The compared recording's identity is its picture's, once it is in and kept its values: while it is on its way
+    // or failed there is none, and nothing is counted (no-identity).
+    const comparedIn = !!compared.view && !!(compared.view.data || compared.view.waveform) && !!compared.level;
+    const of = comparedIn ? levelIdentity<StageView>(compared.level, aligned ? pictureAxis : undefined, aligned && compared.view ? pictureAxis(compared.view) : null) : null;
+    const known: Array<FigureSet<StageView>['excluded'][number]> = [...left];
+    const answers = members.flatMap((path): Array<Answer<StageView>> => {
         const level = levelOf(path);
+        // A member whose fresh level is of another reference is that, whether its picture is in or not.
+        if (of && level && levelKeyOf(level) !== of.level) { known.push({ path, reason: 'other-reference' }); return []; }
         const view = viewOf(path);
         const id: AnswerIdentity = { path, fileVersion: '', calibrationSignature: '', level: level ?? UNKNOWN_LEVEL, recipeKey: '', region: '', conditionId: '' };
-        if (view === undefined || !level) return { state: 'pending', identity: id };
-        if (view === null) return { state: 'failed', identity: id };
-        return view.data || view.waveform ? { state: 'ready', value: view, identity: id } : { state: 'empty', identity: id };
+        if (view === undefined || !level) return [{ state: 'pending', identity: id }];
+        if (view === null) return [{ state: 'failed', identity: id }];
+        return [view.data || view.waveform ? { state: 'ready', value: view, identity: id } : { state: 'empty', identity: id }];
     });
-    const axis = aligned && compared.view ? pictureAxis(compared.view) : null;
-    return figureUsed(levelIdentity<StageView>(compared.level, aligned ? pictureAxis : undefined, axis), answers);
+    return figureUsed(of, answers, known);
+}
+
+/** A scan's answer as one channel of its recording (the channel it is compared as): its state and identity kept. */
+export function channelAnswer<A extends Answer<ReadScan>>(answer: A, channel: number | null | undefined): A {
+    if (!channel || (answer.state !== 'ready' && answer.state !== 'stale')) return answer;
+    const one = channelResult(answer.value, channel);
+    return one?.ok ? { ...answer, value: one as ReadScan } : answer;
 }
 
 const UNKNOWN_LEVEL: LevelInput = { unit: '', ref: 1, levelReferenceLabel: '', calibrationStatus: 'uncalibrated', fullScale: false };

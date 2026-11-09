@@ -12,7 +12,7 @@ import { baseName } from '../../shared/analysis/entryMetadata';
 import { median } from '../../shared/dataset/distribution';
 import { powerMeanOrNull } from '../../shared/utils/levels';
 import { spacingDecimals } from '../plot/plotText';
-import { folderReference, scanLevelKey, type FigureColumns, type FolderReference } from './figureModel';
+import { folderReference, type ExclusionReason, scanLevelKey, type FigureColumns, type FolderReference } from './figureModel';
 import { scanAnswer } from './answerStore';
 
 
@@ -43,6 +43,18 @@ export interface EntryConditionColumn {
  * or the median of a group's recordings over the table's filters (the value's own range not applied), of one
  * channel when the compared row is a channel; recordings without that channel are left out and counted.
  */
+/** A left-out reason as the CSVs, 報告.csv and 定義.json write it (each apart: another axis is not another unit). */
+export const LEFT_WORDS: Record<ExclusionReason, string> = { failed: 'failed', empty: 'empty', missing: 'not scanned', pending: 'pending', stale: 'stale', 'other-reference': '≠ reference', 'other-axis': '≠ axis', 'no-identity': 'waiting for compared', 'no-channel': 'no such channel' };
+
+/** What a base left out, each reason apart; members without its channel by its own count where its set did not list them. */
+export const leftOf = (definition: BaseDefinition): BaseDefinition['left'] => (definition.fewerChannels && !definition.left?.['no-channel'] ? { ...definition.left, 'no-channel': definition.fewerChannels } : definition.left);
+
+/** "-1 (failed) · -2 (≠ axis) · -1 (< ch2)": a base's left-out recordings, each reason apart; `channel`: the one compared. */
+export function leftText(left: BaseDefinition['left'], channel?: number | null): string {
+    const word = (reason: ExclusionReason): string => (reason === 'no-channel' && channel ? `< ch${channel}` : LEFT_WORDS[reason]);
+    return Object.entries(left ?? {}).flatMap(([reason, n]) => (n ? [`-${n} (${word(reason as ExclusionReason)})`] : [])).join(' · ');
+}
+
 export interface BaseDefinition {
     kind: 'file' | 'group';
     /** The slot-0 recording ("name ch2"), for a file base. */
@@ -56,13 +68,8 @@ export interface BaseDefinition {
     filters: string[];
     /** Recordings of the group left out for having fewer channels than `channel`. */
     fewerChannels: number;
-    /** Recordings of the group left out for having their levels in another unit, reference or calibration. */
-    otherUnits?: number;
-    /** Recordings of the group left out because their scan failed, or is still running. */
-    failed?: number;
-    pending?: number;
-    /** Recordings of the group left out because their result is of an earlier recipe, version or calibration. */
-    stale?: number;
+    /** The group's recordings left out of its set, by reason (figureModel's: failed, pending, stale, another reference or axis, …). */
+    left?: Partial<Record<ExclusionReason, number>>;
 }
 
 /**
@@ -134,7 +141,8 @@ export interface EntryRow {
     /** The file's 1/3-octave levels, for Δ against another base (slot 0). */
     levels?: (number | null)[];
     /** Set on a derived row: its parent's path and region. */
-    derived?: { parent: string; region: string };
+    /** Set on a derived row: its parent's path and region, and its base's n and left-out recordings as it was fixed. */
+    derived?: { parent: string; region: string; count?: number; left?: string };
     /** Its values are of an earlier recipe, version or calibration: shown greyed, never in a group, a choice or the CSV. */
     stale?: boolean;
 }
@@ -378,7 +386,7 @@ function withDerived(rows: EntryRow[], derived: readonly DerivedRow[], band: num
                     peak: max ? max.delta : null,
                     band: values.band === null || reference === null ? null : levelDelta(values.band, reference),
                 },
-                derived: { parent: row.filePath, region: item.region },
+                derived: { parent: row.filePath, region: item.region, ...(item.base.definition ? { count: item.base.definition.count, left: leftText(leftOf(item.base.definition), item.base.definition.channel) } : {}) },
             });
         });
     }
@@ -488,14 +496,15 @@ export function entryCsv(model: EntryModel, labels: { file: string; condition: (
         const ok = row.status === 'ok' && !row.stale;
         // A derived row keeps the Δ it was fixed with; a file row is measured against the base it has now.
         const now = ok && !row.derived ? measure(row.filePath) : null;
-        const delta = row.derived ? { leq: row.delta.leq, band: row.delta.band, hz: row.values.peak, peak: row.delta.peak, count: null, left: '' }
-            : { leq: now?.leq ?? null, band: now?.band ?? null, hz: now?.peak?.hz ?? null, peak: now?.peak?.db ?? null, count: now?.count || null, left: now?.left ?? '' };
+        const delta = row.derived ? { leq: row.delta.leq, band: row.delta.band, hz: row.values.peak, peak: row.delta.peak, count: row.derived.count ?? null, left: row.derived.left ?? '' }
+            : { leq: now?.leq ?? null, band: now?.band ?? null, hz: now?.peak?.hz ?? null, peak: now?.peak?.db ?? null, count: now?.count ?? null, left: now?.left ?? '' };
         lines.push([
             row.derived ? baseName(row.derived.parent) : row.name,
             // The region the numbers were measured over, never blank: the scan skips the file's guarded ends.
             ...row.cells, ...regionCells(ok ? measuredRegion(row.derived?.region, row.durationS) : row.derived?.region),
             ok ? dB(row.values.leq) : null, ok ? levelReferenceCell(row, labels.level) : null, ok ? bandCentreCell(delta.hz) : null, ok ? dB(delta.peak) : null, ok ? dB(row.values.band) : null, ok ? levelReferenceCell(row, labels.bandLevel) : null,
-            dB(delta.leq), dB(delta.band), delta.count ? String(delta.count) : null, delta.left || null,
+            // n is the set's, 0 too (a base whose every recording was left out says so, with why), never blank or 1.
+            dB(delta.leq), dB(delta.band), delta.count === null ? null : String(delta.count), delta.left || null,
             row.stale && !row.derived ? labels.stale : row.status === 'failed' ? '✕' : row.status === 'mismatch' ? row.mismatch ?? '' : '',
         ].map(csvCell).join(','));
     }

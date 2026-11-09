@@ -72,6 +72,11 @@ export interface SpectrogramDisplaySettings {
     maxFrequencyHz: number | null;
     /** Bottom of the spectrogram's frequency axis; absent or null is 0 Hz. */
     minFrequencyHz?: number | null;
+    /**
+     * The level identity (figureModel.levelKeyOfReading) the typed dbMin/dbMax are of: only lanes of it take them, every
+     * other lane keeps its own auto range (R1). Absent or null (saved before, or typed in ⚙): the first lane's shown.
+     */
+    dbLevelKey?: string | null;
 }
 
 export interface SpectrogramSettings {

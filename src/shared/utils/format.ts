@@ -23,14 +23,14 @@ export function uncalibratedUnits(fullScale: boolean): { linear: string; level: 
 }
 
 /**
- * The level reference most of these files have, as wandas names it ("dBFS", "dB SPL re 20 µPa"); dBFS before any. Never
+ * The level reference most of these files have, as wandas names it ("dBFS", "dB SPL re 20 µPa"); none ('') before any. Never
  * plain dB: an absolute level always names its reference (R4), so files of another reference are shown apart, not
  * under a common bare "dB" (the entry table compares only files of its most common shape, too).
  */
 export function commonLevelLabel(labels: Iterable<string>): string {
     const counts = new Map<string, number>();
     for (const label of labels) counts.set(label, (counts.get(label) ?? 0) + 1);
-    let best = 'dBFS', most = 0;
+    let best = '', most = 0;
     for (const [label, count] of counts) if (count > most) { best = label; most = count; }
     return best;
 }

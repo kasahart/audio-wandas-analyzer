@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { compareOf } from './helpers/compareInput';
+import { P } from './helpers/figure';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
@@ -67,7 +68,7 @@ function axisProblem<L>(axes: ReadonlyArray<{ lines: L[] }>, inputOf: (line: L) 
 }
 
 test('a figure has one level axis per identity: never two identities on one axis, at most two axes, the first line\'s on the left (R1, C1)', () => {
-    const spec = { inputOf: (side: Side) => input(side), names: () => plainNames('x', 'y'), range: () => plainRange(0, 1) };
+    const spec = { inputOf: (side: Side) => input(side), names: () => plainNames(P('x'), P('y')), range: () => plainRange(0, 1) };
     for (const item of CASES) {
         const { axes, tooMany } = levelAxes([item.a, item.b], { ...spec, first: item.b });
         assert.equal(tooMany, false, item.why);
@@ -129,6 +130,9 @@ const csvColumns = (line: string): string[] => (line.match(/("([^"]|"")*"|[^,]*)
 function csvHeaderProblem(header: string[], columns: FigureColumns): string | null {
     const level = header.indexOf(columns.level);
     if (level < 0) return `no ${columns.level} column`;
+    // An absolute level's column never says a bare dB, dB(A) or a reference of its own: its rows' references are beside it.
+    const bare = header.find(name => !/Δ/u.test(name) && /\bdB\b(?:\(A\))?(?!\s*re\b|FS|\s*SPL)/u.test(name));
+    if (bare) return `${bare} names an absolute level in bare dB`;
     return header[level + 1] === columns.reference ? null : `${columns.level} has no ${columns.reference} column beside it`;
 }
 
@@ -173,7 +177,7 @@ test('every figure and every file written of a base group with another reference
     assert.equal(baseUsed(pair).n, 0, 'a withheld Δ has no base n');
     // Screen: the same rule (levelAxes) over the lines of the pair.
     const lines = ['/f/a.wav', '/f/b.wav', '/f/spl.wav'].map(file => ({ file, input: results.get(file)?.input }));
-    const screen = levelAxes(lines, { inputOf: line => line.input, names: () => plainNames('x', 'y'), range: () => plainRange(0, 1) });
+    const screen = levelAxes(lines, { inputOf: line => line.input, names: () => plainNames(P('x'), P('y')), range: () => plainRange(0, 1) });
     assert.equal(axisProblem(screen.axes, line => line.input), null);
     assert.equal(screen.axes.length, 2);
     // entry-table.csv: every level column (Leq and the band's) with its row's reference beside it.
@@ -190,10 +194,13 @@ test('every figure and every file written of a base group with another reference
     for (const name of entryHeader.filter(header => /dB$/u.test(header))) assert.match(name, /Δ/u, name);
     // The spectrum CSV: every level column named with its reference, as its axis is.
     const title = (text: string) => axes.left.replace(/\[[^\]]*\]$/u, `[${text}]`) as FigureTitle;
-    const spectrum = buildSpectrumCsv([{ name: 'a', slice: { values: [-1], frequencyBins: 1, maxFrequencyHz: 1, minDb: -1, maxDb: 0 }, levelTitle: title('dBFS') }, { name: 's', slice: { values: [60], frequencyBins: 1, maxFrequencyHz: 1, minDb: 0, maxDb: 60 }, levelTitle: title('dB SPL re 20 µPa') }], 'Hz' as FigureTitle);
+    const spectrum = buildSpectrumCsv([{ name: 'a', slice: { values: [-1], frequencyBins: 1, maxFrequencyHz: 1, minDb: -1, maxDb: 0 }, levelTitle: title('dBFS') }, { name: 's', slice: { values: [60], frequencyBins: 1, maxFrequencyHz: 1, minDb: 0, maxDb: 60 }, levelTitle: title('dB SPL re 20 µPa') }], P('Hz'));
     for (const column of csvColumns(spectrum.split('\n')[0]).filter((_, index) => index % 2 === 1)) assert.match(column, /\[(dBFS|dB SPL re 20 µPa)\]$/u, column);
     // The injected bugs: a header without the reference column, and another reference counted in n, are caught.
     assert.match(csvHeaderProblem(entryHeader.filter(name => name !== band.reference), band) ?? '', /no .* column beside it/u);
+    // V6: a level column in bare dB(A) is caught, its reference column beside it or not.
+    const bareColumns = levelColumns({ ...STR, entryColLeq: 'Leq dB(A)' });
+    assert.match(csvHeaderProblem(entryHeader.map(name => (name === columns.level ? bareColumns.level : name)), bareColumns) ?? '', /bare dB/u);
     assert.notDeepEqual(figureUsed(scanIdentity(undefined), group.paths.map(path => scanAnswer(path, results.get(path)))).paths, used.paths, 'counting without the compared identity is caught');
 });
 
@@ -213,7 +220,7 @@ test('paintOverlay and the CSV writers take only the figure model\'s names, rang
         entryCsv(buildEntryModel([], null), { file: '', condition: String, regionStart: '', regionEnd: '', level: { level: 'Leq', reference: '', uncalibrated: '' }, peak: '', bandLevel: bandLevelColumns(STR, ''), deltaLeq: '', deltaBand: '', groupSize: '', groupLeft: '', stale: '', status: '' }, () => null);
     };
     assert.equal(typeof never, 'function');
-    const names: FigureNames = plainNames('x', 'y'), range: FigureRange = plainRange(0, 1);
+    const names: FigureNames = plainNames(P('x'), P('y')), range: FigureRange = plainRange(0, 1);
     assert.deepEqual([names.x, range.max], ['x', 1]);
 });
 
@@ -271,6 +278,11 @@ const PATTERNS: Readonly<Record<string, RegExp>> = {
     'range-rule': /\b(?:niceRange|stageRange|stageDiffRange|heatmapDbRange)\(/gu,
     /** A figure's n, a heading's count or a CSV's 基準群 n written from the files asked for, not the figure's set. */
     'file-count': /(?:String\(|count:\s*|eachBaseTitle\([^,\n]+,\s*)[\w.?]*(?:filePaths|basePaths|allBase|paths|members|sides)\??\.length\b|\.filter\([^\n]*?\.ok\b\)\.length\b/gu,
+    /**
+     * An absolute level given a reference nobody sent: a default of bare dB or dBFS (`?? 'dB'`, `|| 'dBFS'`), or a
+     * column or name in "dB(A)" (an A-weighted level is in dB re its channel's reference, R4, R7), not a Δ.
+     */
+    'default-reference': /(?:\?\?|\|\|)\s*(['"`])dB(?:FS)?\1|(['"`])(?![^'"`\n]*Δ)[^'"`\n]*\bdB\(A\)[^'"`\n]*\2/gu,
     /** A CSV level column or reference column named outside the layer. */
     'csv-column': /\b(?:STR|strings)\.(?:reportLevelReference|reportBaseLevelReference|reportBaseLeq|entryColBandLevel)\b/gu,
 };
@@ -294,10 +306,9 @@ const ALLOWED: Readonly<Record<string, Readonly<Record<string, number>>>> = {
     'webview/plot/waveformLayer.ts': { 'range-rule': 1 },
     // paneAxes and levelIdentityOf, defined (figureModel.ts paneNames and levelKeyOf wrap them); the Δ headline's
     // signed "Leq +1.2 dB" (a Δ); a recording's channels read together are calibrated only when every one is.
-    'webview/runtime/comparePanes.ts': { 'axis-name': 4, 'bare-db': 2, 'identity': 1, 'every-calibrated': 1 },
-    // "Δ max band dB" (a Δ); a median line's own status (uncalibrated while any of its recordings is); a fixed Δ's
-    // base: the files it was measured from, kept as baseUsed gave them when it was fixed.
-    'webview/runtime/compareReport.ts': { 'bare-db': 1, 'every-calibrated': 1, 'file-count': 1 },
+    'webview/runtime/comparePanes.ts': { 'axis-name': 5, 'bare-db': 2, 'identity': 1 },
+    // "Δ max band dB" (a Δ).
+    'webview/runtime/compareReport.ts': { 'bare-db': 1 },
     // The CSV match's "{matched} of {total}" files (the folder's count) and the test snapshot's scanned count.
     'webview/runtime/entryRuntime.ts': { 'file-count': 3 },
     // "Δ max band dB" (a Δ); which part of a ≠ row's identity differs, said once figureModel.scanLevelKey found it differs.
@@ -306,15 +317,18 @@ const ALLOWED: Readonly<Record<string, Readonly<Record<string, number>>>> = {
     'webview/runtime/stagePanes.ts': { 'axis-builder': 2, 'axis-name': 8, 'range-rule': 3 },
     // The gate's "analyse the base group's n recordings": how many would be scanned, not a figure's n.
     'webview/runtime/trackStageMode.ts': { 'file-count': 2 },
-    // A figure's names with no line to take them from (nothing drawn, too many references): the first track's input.
-    'webview/runtime/trackStagePainter.ts': { 'first-track-input': 6 },
+    // figureModel.ts itself, looked at too: the rules it defines and wraps (its own builders, keys and range rules),
+    // and never a default reference ('default-reference'): a guessed reference here would be every figure's.
+    // Its definitions: stageAxes/paneAxes/calibrationWords wrapped; the level strings its titles are made of; its CSV
+    // columns; medianInputOf, the one place a line of several recordings is calibrated only when every one is; R9's
+    // rules wrapped; levelIdentityOf wrapped by levelKeyOf.
+    'webview/runtime/figureModel.ts': { 'axis-builder': 3, 'axis-name': 6, 'csv-column': 5, 'every-calibrated': 1, 'range-rule': 5, 'identity': 1 },
 };
 
 /** Each file's matches of each pattern, a definition (`function name(`) not counted. */
 function figureSites(files: ReadonlyArray<{ rel: string; source: string }>): Record<string, Record<string, number>> {
     const sites: Record<string, Record<string, number>> = {};
     for (const { rel, source } of files) {
-        if (rel === 'webview/runtime/figureModel.ts') continue;
         // Comments say what the code does; only the code is looked at.
         const code = source.replace(/^\s*(?:\/\/|\/?\*).*$/gmu, '');
         for (const [name, pattern] of Object.entries(PATTERNS)) {
@@ -338,7 +352,7 @@ function sources(): Array<{ rel: string; source: string }> {
     return files;
 }
 
-test('outside figureModel.ts nothing builds an axis name, calls an axis builder, keys by level identity, applies a range rule or counts files for n, but the exact list (layers-design)', () => {
+test('outside figureModel.ts nothing builds an axis name, calls an axis builder, keys by level identity, applies a range rule, counts files for n or defaults a reference, but the exact list; figureModel.ts only its own definitions (layers-design)', () => {
     const files = sources();
     assert.ok(files.length > 100, String(files.length));
     assert.deepEqual(figureSites(files), ALLOWED);
@@ -378,6 +392,13 @@ test('the structural check fails on each injected bug: every violation of class 
         // A4, A5: a region's results mixed with the whole files'.
         ['webview/runtime/comparisonRuntime.ts', 'const results = new Map([...data.results, ...measured]);', 'mixed-results'],
         ['webview/runtime/pairSpectrum.ts', 'const range = stageRange([view]);', 'range-rule'],
+        // Class sweep 3: a CSV column in "dB(A)" (V6), a reference defaulted before anything is read (V9), in the layer too.
+        ['shared/i18n/strings.ts', "const columns = { entryColLeq: 'Leq dB(A)' };", 'default-reference'],
+        ['webview/runtime/entrySidePlots.ts', "const label = folder.label || 'dBFS';", 'default-reference'],
+        ['webview/runtime/figureModel.ts', "const unit = response?.levelReferenceLabel ?? 'dB';", 'default-reference'],
+        // V4: a median line calibrated when any one is, outside medianInputOf; V8: empty axes named by the first track.
+        ['webview/runtime/trackStageMode.ts', "const calibrated = inputs.every(input => input?.calibrationStatus === 'calibrated');", 'every-calibrated'],
+        ['webview/runtime/trackStagePainter.ts', 'const mainNames = stageNames(strings, picture, tracks[0]?.input);', 'first-track-input'],
     ];
     for (const [rel, code, pattern] of injected) {
         const sites = inject(rel, code);
