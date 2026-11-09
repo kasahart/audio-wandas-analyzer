@@ -57,7 +57,7 @@ test('spectrogramAxisLabelTexts applies display overrides and caps the max frequ
 test('spectrogramAxisLabelTexts falls back to the sample-rate limit without spectrogram data', () => {
     assert.deepEqual(
         spectrogramAxisLabelTexts(null, { dbMin: null, dbMax: null, maxFrequencyHz: null }, 4000),
-        ['0 Hz', '2.0 kHz', '4.0 kHz', '-120 dB', '0 dB', 'Freq'],
+        ['0 Hz', '2.0 kHz', '4.0 kHz', '-100 dB', '0 dB', 'Freq'],
     );
     assert.deepEqual(spectrogramAxisLabelTexts(null, { dbMin: null, dbMax: null, maxFrequencyHz: null }, 0), []);
 });
