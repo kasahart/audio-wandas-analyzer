@@ -60,7 +60,6 @@ SOURCES: dict[str, tuple[str, frozenset[str]]] = {
             "_block_peaks",
             "_signed_peaks",
             "_envelope",
-            "_shared_envelope",
             "_cepstrum_envelope",
         )
     },
