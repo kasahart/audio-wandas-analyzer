@@ -98,8 +98,8 @@ export interface AnswerStore<T> {
     unreached(key: AnswerKey, group: string): 'again' | 'given-up';
     /** Lets the answer go: it is asked for anew. */
     forget(key: AnswerKey): void;
-    /** Lets go every ready answer `drop` names (the values the backend no longer keeps). */
-    forgetWhere(drop: (value: T, key: AnswerKey) => boolean): void;
+    /** Lets go every ready answer `gone` names (the values the backend no longer keeps). */
+    forgetWhere(gone: (value: T, key: AnswerKey) => boolean): void;
     clear(): void;
     /** The answer in the shared form the figure model reads, of `identity`. */
     answer(key: AnswerKey, identity: AnswerIdentity): Answer<T>;
@@ -185,8 +185,8 @@ export function createAnswerStore<T>(options: AnswerStoreOptions): AnswerStore<T
             return 'given-up';
         },
         forget(key) { slots.delete(key.id); },
-        forgetWhere(drop) {
-            for (const [id, item] of slots) if (item.slot.state === 'ready' && drop(item.slot.value, item.key)) slots.delete(id);
+        forgetWhere(gone) {
+            for (const [id, item] of slots) if (item.slot.state === 'ready' && gone(item.slot.value, item.key)) slots.delete(id);
         },
         clear() { slots.clear(); retried.clear(); },
         answer(key, identity) {
