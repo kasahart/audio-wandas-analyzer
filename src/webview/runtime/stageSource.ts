@@ -5,7 +5,9 @@
  */
 import type { ComparePublication, CompareScanMessage } from '../../shared/analysis/entryScan';
 import type { ScanResult, StageView } from '../../shared/protocol/backendProtocol';
-import { answerKey, createAnswerStore, createLatestAnswers, type AnswerKey } from './answerStore';
+import { recipeKey } from '../../shared/recipe/recipeSteps';
+import { answerKey, createAnswerStore, createLatestAnswers, pictureIdentity, type AnswerKey } from './answerStore';
+import type { Answer, AnswerIdentity } from './answerTypes';
 import { HostRequests } from './hostRequests';
 
 export interface StageSpec {
@@ -26,8 +28,20 @@ export interface StageSource {
     forget(spec: StageSpec, filePath: string): void;
     /** Drops every picture whose values the backend kept under one of `keys` and has let go (`missing`). */
     forgetData(keys: readonly string[]): void;
+    /**
+     * A file's picture for `spec` as an answer, with the identity it was answered under (the file's version and
+     * calibration status its scan read, the full recipe, the region, the condition and the basis it was asked under):
+     * ready with its picture, failed while a failure stands or for a step that cannot run on the file, pending while
+     * asked. The figure model reads the identity here, never makes one.
+     */
+    answer(spec: StageSpec, filePath: string): Answer<StageView>;
     /** Takes the host's answers to this source's requests; false for anything else. */
     handle(message: { type: string }): boolean;
+}
+
+/** What a file's picture for `spec` is of (pictureIdentity): the full recipe, the region, the spec and the basis it was asked under. */
+export function stageIdentity(spec: StageSpec, filePath: string, result: ScanResult | undefined, basis: string): AnswerIdentity {
+    return pictureIdentity(filePath, result, { recipeKey: recipeKey(spec.message.recipe), region: JSON.stringify(spec.message.region ?? null), asked: JSON.stringify([stageCacheKey(spec), basis]) });
 }
 
 const CACHED_SPECS = 48;
@@ -82,7 +96,7 @@ export function createStageSource(prefix: string, post: (message: CompareScanMes
     // A failure's pause over, the screen draws again and the picture is asked for anew (the store keeps the time).
     const answers = createAnswerStore<ScanResult>({ capacity: CACHED_SPECS, evictBy: 'ask', now, retried: () => changed() });
     // One slot: the pictures being asked for. A superseded request's answers are still kept, under its own spec.
-    const requests = new HostRequests<{ key: string; bases: ReadonlyMap<string, string> }>();
+    const requests = new HostRequests<{ key: string; spec: StageSpec; bases: ReadonlyMap<string, string> }>();
     let count = 0;
     /** A file's answer for this cache key, while it is of the file's current basis. */
     /**
@@ -106,7 +120,7 @@ export function createStageSource(prefix: string, post: (message: CompareScanMes
             // The same request is in flight only when it asks for these files under the same bases.
             const asked = `${key}|${JSON.stringify([...bases])}`;
             if (requests.pending('pictures')?.key === asked) return true;
-            requests.ask('pictures', `${prefix}-${++count}`, asked, { key, bases }, ({ requestId }) => post({ type: 'compare-scan', requestId, filePaths: need, ...spec.message }));
+            requests.ask('pictures', `${prefix}-${++count}`, asked, { key, spec, bases }, ({ requestId }) => post({ type: 'compare-scan', requestId, filePaths: need, ...spec.message }));
             return true;
         },
         result: (spec, filePath) => current(spec, filePath),
@@ -124,16 +138,30 @@ export function createStageSource(prefix: string, post: (message: CompareScanMes
             const result = current(spec, filePath);
             return result === undefined ? undefined : result.ok ? result.stage ?? null : null;
         },
+        answer(spec, filePath) {
+            const basis = basisFor(spec, filePath);
+            const found = answers.answer(fileKey(stageCacheKey(spec), filePath, basis), stageIdentity(spec, filePath, undefined, basis));
+            if (found.state === 'missing') {
+                // Asked for and on its way, under this spec and basis: pending.
+                const asked = requests.pending('pictures')?.meta;
+                return asked?.key === stageCacheKey(spec) && asked.bases.get(filePath) === basis ? { state: 'pending', identity: found.identity } : found;
+            }
+            if (found.state !== 'ready') return found.state === 'stale' ? { state: 'stale', identity: found.identity } : found;
+            // Whether a picture has values to count is the figure model's (pictureSet), not decided here.
+            const view = found.value.ok ? found.value.stage : undefined;
+            return view ? { state: 'ready', value: view, identity: found.identity } : { state: 'failed', identity: found.identity };
+        },
         handle(message) {
             const publication = message as ComparePublication;
             if (!message.type.startsWith('compare-') || !('requestId' in publication) || !publication.requestId.startsWith(`${prefix}-`)) return false;
             const request = requests.find(publication.requestId);
             if (publication.type === 'compare-scan-result' && request) {
-                const { key, bases } = request.meta;
-                const answer = fileKey(key, publication.filePath, bases.get(publication.filePath) ?? basisOf(publication.filePath));
+                const { key, spec, bases } = request.meta;
+                const basis = bases.get(publication.filePath) ?? basisOf(publication.filePath);
+                const answer = fileKey(key, publication.filePath, basis);
                 // A step that cannot run on the file (failedStep) is its answer; any other failure (the file unreadable
                 // for now, the backend restarted) may pass: it stands for the store's pause and is then asked again.
-                if (publication.result.ok || publication.result.failedStep) answers.ready(answer, publication.result);
+                if (publication.result.ok || publication.result.failedStep) answers.ready(answer, publication.result, { identity: stageIdentity(spec, publication.filePath, publication.result, basis) });
                 else answers.fail(answer, publication.result.reason);
             }
             if (publication.type === 'compare-scan-done') requests.settle(publication.requestId);
