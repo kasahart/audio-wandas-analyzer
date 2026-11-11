@@ -47,7 +47,8 @@ class StageRead(TypedDict):
     at: NotRequired[float]
     pixels: NotRequired[list[float]]
     #: The values the plot shows ([low, high], its level or amplitude axis zoomed): a dense window's point nearest the
-    #: pointer, and the one under it, are of the points on screen, never one past the axis the plot then cannot read.
+    #: pointer is one of the points on screen. The point under the pointer (``under``) is not held to it (display
+    #: rules R7: it is the line's point at the pointer's place, whatever its value).
     shown: NotRequired[list[float]]
     #: An arrow key's read (with ``x`` = [x]): the first point with a value to read strictly past x, toward larger
     #: (1) or smaller (-1) x, however far (a long silence is crossed in one read), with ``beyond`` past it.
@@ -89,8 +90,12 @@ class StagePoints(TypedDict):
     level: NotRequired[StageLevel]
     #: Of a window too dense to send whole, read with the pointer's place (``at``): the index in ``xs`` of the point
     #: with a value nearest the pointer along the axis, the one under it, which the plot reads when no point is near
-    #: the pointer on screen.
+    #: the pointer on screen. On screen or past the value axis alike (display rules R7).
     under: NotRequired[int]
+    #: A line's points only: for each of ``xs``, how far it is from its nearer neighbour in the source data (null for
+    #: a line of one point). The digits a readout writes come of this, never of the gaps between the points sent,
+    #: which in a dense window are only the few picked for each pixel column.
+    steps: NotRequired[list[float | None]]
 
 
 #: A level at or below this is silence (the webview's `silent`): no power.
@@ -120,6 +125,21 @@ def uniform_axis(count: int, start: float, step: float) -> tuple[int, XAt, Index
         return max(0, min(count, index))
 
     return count, lambda index: start + np.asarray(index, dtype=np.float64) * step, index_of
+
+
+def source_steps(axis: tuple[int, XAt, IndexOf], picked: np.ndarray) -> list[float | None]:
+    """For each index of ``picked``: the distance from that point to its nearer neighbour on ``axis``, the source
+    data's own (StagePoints ``steps``); None where it has no neighbour."""
+    count, x_at, _index_of = axis
+    index = np.asarray(picked, dtype=np.int64)
+    if not index.size:
+        return []
+    here = np.asarray(x_at(index), dtype=np.float64)
+    before = np.abs(here - np.asarray(x_at(np.maximum(index - 1, 0)), dtype=np.float64))
+    after = np.abs(np.asarray(x_at(np.minimum(index + 1, count - 1)), dtype=np.float64) - here)
+    # A point at the data's end has one neighbour only: the gap to itself (0) is no step.
+    gaps = np.minimum(np.where(index > 0, before, np.inf), np.where(index < count - 1, after, np.inf))
+    return [float(gap) if math.isfinite(gap) and gap > 0 else None for gap in gaps.tolist()]
 
 
 def _limited(read: StageRead, key: Literal["beyond", "columns", "rows"], default: int, limit: int) -> int:
@@ -201,6 +221,7 @@ def read_line(
         "start": float(x_at(np.asarray(first))) if first > 0 and complete else None,
         "end": float(x_at(np.asarray(after - 1))) if after < count and complete else None,
         "complete": complete,
+        "steps": source_steps(axis, picked),
     }
     if under is not None:
         points["under"] = under
@@ -270,6 +291,7 @@ def _seek_line(
         "start": float(x_at(np.asarray(first))) if first > 0 else None,
         "end": float(x_at(np.asarray(after - 1))) if after < count else None,
         "complete": True,
+        "steps": source_steps(axis, picked),
     }
 
 
@@ -309,7 +331,8 @@ def _nearest_along(
         return None
     xs = np.asarray(x_at(np.arange(low, high)), dtype=np.float64)
     along = np.abs(np.log(np.maximum(xs, 1e-300)) - math.log(at)) if log else np.abs(xs - at)
-    readable = _readable(window, plain) & _on_screen(read, window) & np.isfinite(along)
+    # Not held to the values on screen (``shown``): the point under the pointer is the line's point there (R7).
+    readable = _readable(window, plain) & np.isfinite(along)
     if not readable.any():
         return None
     return low + int(np.argmin(np.where(readable, along, np.inf)))

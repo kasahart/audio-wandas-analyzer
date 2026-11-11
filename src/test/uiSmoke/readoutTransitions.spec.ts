@@ -865,6 +865,48 @@ const ROWS: Row[] = [
         },
     },
     {
+        // docs/display-rules.md R7, "同じ値の点": recordings of one value are each stepped onto once, in one order.
+        chart: 'entry distribution', event: '← / → over recordings of the same value: each is read once, and back through the same ones', backend: true,
+        async run(page) {
+            await page.setViewportSize({ width: 1280, height: 900 });
+            await openEntry(page, scanned!, { language: 'en' });
+            await pickCsv(page, 'motor.csv', entry100Metadata());
+            // The value and the group are both the CSV's rpm: every recording of a group has the very same value.
+            await page.locator('[data-action="entry-value"]').selectOption('csv:rpm');
+            await page.locator('[data-action="entry-group"]').selectOption('csv:rpm');
+            const dotCanvas = page.locator('[data-dist-group="1800"] [data-dist-canvas]');
+            const dots = async (): Promise<Array<{ key: string; x: number; y: number }>> => ((await dotCanvas.getAttribute('data-dots')) ?? '').split('\n').filter(Boolean)
+                .map(line => { const [key, x, y] = line.split('\t'); return { key, x: Number(x), y: Number(y) }; });
+            await expect.poll(async () => (await dots()).length, { message: 'the 1800 rpm group is drawn as dots' }).toBeGreaterThan(1);
+            const drawn = await dots();
+            expect(new Set(drawn.map(dot => dot.x)).size, 'this row needs recordings of one value (dots at one x): the fixture or the grouping changed, pick another tied group').toBe(1);
+            // What the plot reads now: the readout's own text, which names the recording.
+            const text = (): Promise<string> => dotCanvas.evaluate(canvas => (canvas as HTMLElement & { __plotRead?: { text?: string } | null }).__plotRead?.text ?? '');
+            const at = (await dotCanvas.boundingBox())!;
+            await page.mouse.move(at.x + drawn[0].x, at.y + drawn[0].y);
+            await readFull(dotCanvas);
+            const fix = 'Recordings of the same value must each be stepped onto once (docs/display-rules.md R7; stagePanes.ts stepStart, fullRead.ts LineQuery.from).';
+            const forward = [await text()];
+            for (let step = 1; step < drawn.length; step++) {
+                await page.keyboard.press('ArrowRight');
+                await expect.poll(text, { message: `→ from "${forward.at(-1)}" reads no other recording of the same value. ${fix}` }).not.toBe(forward.at(-1));
+                forward.push(await text());
+            }
+            expect(new Set(forward).size, `→ read a recording twice: ${forward.join(' | ')}. ${fix}`).toBe(drawn.length);
+            // Past the last one there is no further recording: the key reads nothing else.
+            await page.keyboard.press('ArrowRight');
+            await settled(page);
+            expect(await text(), `→ past the last recording must stay on it. ${fix}`).toBe(forward.at(-1));
+            const backward = [await text()];
+            for (let step = 1; step < drawn.length; step++) {
+                await page.keyboard.press('ArrowLeft');
+                await expect.poll(text, { message: `← from "${backward.at(-1)}" reads no other recording of the same value. ${fix}` }).not.toBe(backward.at(-1));
+                backward.push(await text());
+            }
+            expect(backward, `← must pass the recordings → passed, in reverse. ${fix}`).toEqual([...forward].reverse());
+        },
+    },
+    {
         chart: 'entry distribution', event: 'a double click on a dot resets the zoom only: the table stays on its row', backend: true,
         async run(page) {
             await page.setViewportSize({ width: 1280, height: 900 });
@@ -925,5 +967,5 @@ test('the browser table holds a row for each chart the readout runs on, by its f
     // Each chart is stepped (→) or zoomed (+) under a still pointer in at least one of its rows.
     for (const chart of CHARTS) expect(ROWS.some(row => row.chart === chart && /→|\+/u.test(row.event)), `${chart}: a step or a zoom`).toBe(true);
     const events = ROWS.map(row => row.event).join(' | ');
-    for (const path of ['scroll', 'Tab', 'then +', 'pending', 'failed', '(a redraw)', 'add up', 'off the window', 'seek', 'double click', 'drag', 'the surface from under', 'double-click wait', 'event-line click', 'header', 'resize', 'no slice drawn yet', 'drag threshold', 'picture is made anew', 'on a dot', 'let go there']) expect(events, path).toContain(path);
+    for (const path of ['scroll', 'Tab', 'then +', 'pending', 'failed', '(a redraw)', 'add up', 'off the window', 'seek', 'double click', 'drag', 'the surface from under', 'double-click wait', 'event-line click', 'header', 'resize', 'no slice drawn yet', 'drag threshold', 'picture is made anew', 'on a dot', 'let go there', 'recordings of the same value']) expect(events, path).toContain(path);
 });

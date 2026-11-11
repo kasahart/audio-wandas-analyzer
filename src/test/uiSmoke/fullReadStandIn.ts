@@ -30,7 +30,13 @@ function uiSmokeReadLine(xs, values, read) {
     var high = low;
     while (high < xs.length && xs[high] <= x1) high++;
     var first = Math.max(0, low - beyond), after = Math.min(xs.length, high + beyond);
-    return { xs: xs.slice(first, after), values: values.slice(first, after), start: first > 0 ? xs[first] : null, end: after < xs.length ? xs[after - 1] : null, complete: true };
+    // Each point's step in the whole data (full_read.source_steps): the readout's digits come of it (display rules R7).
+    var steps = [];
+    for (var index = first; index < after; index++) {
+        var gaps = [xs[index] - xs[index - 1], xs[index + 1] - xs[index]].filter(function(gap) { return isFinite(gap) && gap > 0; });
+        steps.push(gaps.length ? Math.min.apply(null, gaps) : null);
+    }
+    return { xs: xs.slice(first, after), values: values.slice(first, after), start: first > 0 ? xs[first] : null, end: after < xs.length ? xs[after - 1] : null, complete: true, steps: steps };
 }
 function uiSmokeNearest(axis, value) {
     var best = 0;

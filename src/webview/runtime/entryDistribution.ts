@@ -127,7 +127,9 @@ export function distributionRows(dist: Distribution, picture: DistributionPictur
     const unit = picture.unitLabel;
     return dist.groups.map(group => {
         const label = `${picture.groupPrefix}${picture.labels.get(group.name) ?? group.name}` || strings.dsFilterBlank;
-        const members = [...group.members].sort((a, b) => a.value - b.value);
+        // By value, then by key: recordings of one value keep one order whatever order the table gave them in, so
+        // ← / → pass them in the same order every time (R7).
+        const members = [...group.members].sort((a, b) => a.value - b.value || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
         const memberText = (index: number): string[] => [picture.name(members[index].key), picture.format(members[index].value, binWidth)];
         const layers: StageLayer[] = [];
         const dots: DistributionRow['dots'] = [];

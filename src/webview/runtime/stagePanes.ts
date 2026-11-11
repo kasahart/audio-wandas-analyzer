@@ -373,12 +373,22 @@ export function byLevel(layers: StageLayer[], axisView: Pick<StageView, 'xs' | '
 }
 
 /**
- * A compared line's level over the part of the axis on screen (dB; −Infinity for none): 'exact' from every value
- * inside it, 'pending' while those are being fetched (`level` is then the stretches' share on screen, until they are
- * in), 'unmeasured' for a level or signal with no values before thinning to measure, 'none' for a line that is not a
- * level (it keeps its place).
+ * A compared line's level over the part of the axis on screen (dB; −Infinity for none), and how it is known:
+ *
+ * - 'exact': from every value inside the part on screen. Only these settle the order (settledOrder).
+ * - 'pending': those values are being fetched. `level` is an estimate (the stretches' share on screen), never used to
+ *   settle the order.
+ * - 'failed': the read of those values failed. Nothing is known of the level (−Infinity, no estimate): the order
+ *   stays unsettled, exactly as while pending, and the read is asked again after the answer store's pause
+ *   (fetchedSource, answerStore FAILED_RETRY_MS), which draws the plot again.
+ * - 'unmeasured': a level or signal with no values before thinning to measure at all (a caller's mistake, which the
+ *   ui-smoke audit fails).
+ * - 'none': a line that is not a level; it keeps its place.
  */
-export interface ScreenLevel { level: number; state: 'exact' | 'pending' | 'unmeasured' | 'none' }
+export interface ScreenLevel { level: number; state: 'exact' | 'pending' | 'failed' | 'unmeasured' | 'none' }
+
+/** Whether a line's level is not known yet (being fetched, or its read failed): the plot's order is then not settled. */
+const levelUnsettled = (level: ScreenLevel): boolean => level.state === 'pending' || level.state === 'failed';
 
 /**
  * Each line's ScreenLevel. A line's `levelBins` (the backend's, or levelBinsOf) give it at once while every stretch
@@ -428,7 +438,12 @@ export function screenLevels(layers: readonly StageLayer[], axisView: Pick<Stage
         const full = layer.full;
         let sum: LevelAnswer = null;
         if (ends && full.level) sum = full.level({ x0: ends[0], x1: ends[1], square: signal }, context.ready ?? (() => undefined));
-        levels.set(layer, sum === undefined ? { level: estimate, state: 'pending' } : sum === null ? { level: estimate, state: 'unmeasured' } : { level: dB(sum), state: 'exact' });
+        // null from data the backend holds is a read that failed (as a line's read, fullLineNear): not a level of 0 and
+        // not the estimate. From a source with no level to give, there is nothing to measure.
+        const failed = sum === null && full.held === 'fetched' && !!full.level && !!ends;
+        levels.set(layer, sum === undefined ? { level: estimate, state: 'pending' }
+            : failed ? { level: -Infinity, state: 'failed' }
+            : sum === null ? { level: estimate, state: 'unmeasured' } : { level: dB(sum), state: 'exact' });
     }
     return levels;
 }
@@ -484,13 +499,14 @@ function lineKey(layer: StageLayer): string {
 const settledOrders = new WeakMap<object, { main?: string[]; secondary?: string[] }>();
 
 /**
- * The order a plot draws in (R6) while a line's level is still being fetched: never one guessed from part of it. The
- * order last judged on every value (its lines in those places, a line it did not hold after them, in the caller's
- * order), else the caller's own until the levels are in; once every level is in, `exact`, and that is kept.
+ * The order a plot draws in (R6) while a line's level is not known (still being fetched, or its read failed): never
+ * one guessed from part of it. The order last judged on every value (its lines in those places, a line it did not
+ * hold after them, in the caller's order), else the caller's own until the levels are in; once every level is in,
+ * `exact`, and that is kept.
  */
 function settledOrder(canvas: object, axis: 'main' | 'secondary', layers: readonly StageLayer[], exact: StageLayer[], levels: ReadonlyMap<StageLayer, ScreenLevel>): StageLayer[] {
     const kept = settledOrders.get(canvas) ?? {};
-    if (![...levels.values()].some(level => level.state === 'pending')) {
+    if (![...levels.values()].some(levelUnsettled)) {
         settledOrders.set(canvas, { ...kept, [axis]: exact.filter(comparedLine).map(lineKey) });
         return exact;
     }
@@ -514,11 +530,12 @@ export function drawnLevelsText(drawn: readonly StageLayer[], axisView: Pick<Sta
     const measured = levels ?? screenLevels(lines, axisView, window);
     // A level (or a signal) with no values before thinning to measure could only be ordered by its drawn points:
     // written as '?', which the audit fails on every plot shown (R2, R6). One whose values are still being fetched is
-    // written as '…': the audit waits for it, and fails a plot that stays so.
+    // written as '…', one whose read failed as '!': the audit waits for both, and fails a plot that stays so.
     return lines.map(layer => {
         const level = measured.get(layer) ?? { level: -Infinity, state: 'none' };
         if (level.state === 'unmeasured') return '?';
         if (level.state === 'pending') return '…';
+        if (level.state === 'failed') return '!';
         return Number.isFinite(level.level) ? level.level.toFixed(2) : '-inf';
     }).join(',');
 }
@@ -1270,7 +1287,7 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
     plot.levelTicks = levelTicks;
     if (options.axisCanvas) paintSideAxis(options.axisCanvas, levelTicks, axes.y, { muted, text });
     else if (!lane && options.yAxisLabels !== false) {
-        const titleRight = paintValueTitle(context, frame, axes.y, text, AXIS_TITLE_X);
+        const titleRight = paintValueTitle(context, frame, axes.y, text, AXIS_TITLE_X, { min: 0, max: frame.left })?.right ?? 0;
         paintValueTicks(context, frame, levelTicks, muted, titleRight);
     }
     // The right-hand axis has its own round ticks, each written where its own value is (never the left axis's places
@@ -1295,7 +1312,7 @@ export function paintSideAxis(canvas: HTMLCanvasElement, ticks: readonly AxisTic
         context.clearRect(0, 0, canvas.width, canvas.height);
         const frame = { left: canvas.width, top: 0, width: 0, height: canvas.height };
         context.font = PLOT_TEXT_FONT;
-        const titleRight = paintValueTitle(context, frame, title, colors.text, AXIS_TITLE_X);
+        const titleRight = paintValueTitle(context, frame, title, colors.text, AXIS_TITLE_X, { min: 0, max: frame.left })?.right ?? 0;
         paintValueTicks(context, frame, spacedTicks(ticks, canvas.height), colors.muted, titleRight);
     });
 }
@@ -1373,24 +1390,33 @@ function paintingAxis(canvas: HTMLCanvasElement, paint: () => void): void {
 /**
  * A value axis's name up the gutter at canvas x `x`, in `color`, fitted to the frame's height: smaller, on two lines
  * or with its quantity shortened, but always its quantity and its unit (R4).
+ * The name is always drawn inside its canvas (R4): along the axis it is fitted to the frame's height (fitAxisTitle
+ * never returns a name longer than the room it is given), and across the gutter its centre is moved in from `x` as far
+ * as its lines need to stay between `gutter.min` and `gutter.max` (the canvas's edge and the plot's side; two lines at
+ * the full font are wider than the gutter's usual centre allows). Returns its sides across the gutter; null with no name.
  */
-function paintValueTitle(context: CanvasRenderingContext2D, frame: { top: number; height: number }, title: string, color: string, x: number): number {
-    if (!title) return 0;
+function paintValueTitle(context: CanvasRenderingContext2D, frame: { top: number; height: number }, title: string, color: string, x: number, gutter: { min: number; max: number }): { left: number; right: number } | null {
+    if (!title) return null;
     const font = context.font;
     const fitted = fitAxisTitle(title, frame.height, part => context.measureText(part).width, { lines: 2 });
+    const size = fontPixels(font) * fitted.scale;
+    const step = size * 1.1;
+    // Half of what the lines take across the gutter: from the first line's far side to the last line's.
+    const half = ((fitted.lines.length - 1) * step + size) / 2;
+    // The canvas's edge wins where the gutter is narrower than the name (min for a left gutter, max for a right one).
+    const centre = gutter.min === 0 ? Math.max(gutter.min + half, Math.min(gutter.max - half, x)) : Math.min(gutter.max - half, Math.max(gutter.min + half, x));
     context.save();
     context.fillStyle = color;
     context.font = scaledFont(font, fitted.scale);
-    context.translate(x, frame.top + frame.height / 2);
+    context.translate(centre, frame.top + frame.height / 2);
     context.rotate(-Math.PI / 2);
     context.textAlign = 'center';
     context.textBaseline = 'middle';
     // Two lines side by side across the gutter, read as one: the quantity on the left, then the unit.
-    const step = fontPixels(font) * fitted.scale * 1.1;
     fitted.lines.forEach((line, index) => context.fillText(line, 0, (index - (fitted.lines.length - 1) / 2) * step));
     context.restore();
-    // Its right edge: the last line's centre and half a line (turned, a line's height runs across the gutter).
-    return x + ((fitted.lines.length - 1) / 2) * step + (fontPixels(font) * fitted.scale) / 2;
+    // Its sides across the gutter (turned, a line's height runs across it): the numbers are written clear of them.
+    return { left: centre - half, right: centre + half };
 }
 
 /**
@@ -1511,8 +1537,7 @@ function paintRightAxis(context: CanvasRenderingContext2D, frame: { left: number
     // Its name first, so its numbers are written clear of it: all smaller where the widest would reach it (A36, R4),
     // as the left axis's are.
     const centre = width - AXIS_TITLE_X;
-    const titleRight = paintValueTitle(context, frame, title, colors.text, centre);
-    const titleLeft = title ? 2 * centre - titleRight : width;
+    const titleLeft = paintValueTitle(context, frame, title, colors.text, centre, { min: x, max: width })?.left ?? width;
     context.fillStyle = colors.muted;
     context.textAlign = 'left';
     const shown = range.max > range.min ? ticks : [];
@@ -1651,22 +1676,32 @@ export function declaresFullRead(layer: StageLayer): boolean {
 }
 
 /**
- * A point of the full data on the plot: null where it has no value, or is silent. A signal's sample clipped off its
- * zoomed level axis is not picked by the pointer (null), but an arrow key steps to it all the same (`clipped` 'edge'),
- * held at the plot's edge as a line's value past its axis is: the keys step one sample at a time however it is zoomed.
+ * A point of the full data on the plot, for every kind of line alike (display rules R7): null where it has no value,
+ * or is silent. A value past the value axis (zoomed) is still the line's point there: its mark is held at the plot's
+ * edge and its readout writes its true value. Whether the pointer may pick it as its nearest point is not decided
+ * here (valueOnScreen, in fullLineNear).
+ *
+ * `step` is the point's distance to its nearer neighbour in the source data, as the source says (FullPoints.steps):
+ * never the gap between the points sent, which in a dense window are only a few per pixel column.
  */
-function fullPoint(plot: StagePlot, layer: StageLayer, points: FullPoints, index: number, clipped: 'skip' | 'edge' = 'skip'): ReadPoint | null {
+function fullPoint(plot: StagePlot, layer: StageLayer, points: FullPoints, index: number): ReadPoint | null {
     const value = points.values?.[index];
     const at = points.xs[index];
     if (value === null || value === undefined || at === undefined || silent(layer.view, value, plot.diff)) return null;
-    const shown = layer.view.waveform ? plot.signal?.range : undefined;
-    const off = !!shown && (value < shown.min || value > shown.max);
-    if (off && clipped === 'skip') return null;
-    const gaps = [at - points.xs[index - 1], points.xs[index + 1] - at].map(Math.abs).filter(gap => Number.isFinite(gap) && gap > 0);
-    // Of a source the webview holds, the point's index in its every value (a histogram's bin, for its readout).
     const { top, height } = plot.frame;
-    const y = off ? Math.min(top + height, Math.max(top, plot.yAt(value))) : plot.yAt(value);
-    return { index: points.offset !== undefined ? points.offset + index : -1, at, x: plot.xAt(at), y, value, full: true, ...(layer.view.waveform ? { time: at } : {}), ...(gaps.length ? { step: Math.min(...gaps) } : {}) };
+    const y = valueOnScreen(plot, layer, value) ? plot.yAt(value) : Math.min(top + height, Math.max(top, plot.yAt(value)));
+    const step = points.steps?.[index];
+    // Of a source the webview holds, the point's index in its every value (a histogram's bin, for its readout).
+    return { index: points.offset !== undefined ? points.offset + index : -1, at, x: plot.xAt(at), y, value, full: true, ...(layer.view.waveform ? { time: at } : {}), ...(step !== null && step !== undefined && step > 0 ? { step } : {}) };
+}
+
+/** Whether `value` of `layer` is within the values the plot shows (shownValues); true where the plot names none. */
+function valueOnScreen(plot: StagePlot, layer: StageLayer, value: number): boolean {
+    const shown = shownValues(plot, layer);
+    if (!shown) return true;
+    // A value on the axis's very end is on screen: the ends come back through the pixel scale, a rounding apart.
+    const slack = (shown[1] - shown[0]) * 1e-9;
+    return value >= shown[0] - slack && value <= shown[1] + slack;
 }
 
 /** The values a plot shows of `layer` (low, high): a signal's amplitude range, else its level axis between the plot's edges. */
@@ -1681,8 +1716,17 @@ function shownValues(plot: StagePlot, layer: StageLayer): [number, number] | und
 }
 
 /**
- * A line's full-resolution points (R7) near the pointer at (`x`, `y`): those within `radius` and on the plot, and
- * the one nearest across to it (with none that near: zoomed past single points). undefined while they are fetched.
+ * A line's full-resolution points (R7) for the pointer at (`x`, `y`). The one rule for every kind of line (a signal,
+ * a spectrum, a level over time, a difference), written in docs/display-rules.md R7:
+ *
+ * - `near`: the points the pointer may pick as its nearest, within `radius` of it along x AND on screen (their value
+ *   within the value axis shown). A point past a zoomed value axis is not drawn, so it is never picked.
+ * - `at`: the point under the pointer, read when none is within the radius: the point with a value whose x is nearest
+ *   the pointer's, WHATEVER its value. Past the value axis it is still the line's point there (its mark held at the
+ *   plot's edge, its true value written), as an arrow key reads it.
+ *
+ * The backend follows the same rule for a window too dense to send whole (full_read._nearest_on_screen for `near`,
+ * full_read._nearest_along for `at`, sent as `under`). undefined while the points are fetched.
  */
 function fullLineNear(plot: StagePlot, layer: StageLayer, source: FullSource, x: number, y: number, radius: number, ready: () => void): { near: ReadPoint[]; at: ReadPoint | null } | null | undefined {
     if (!source.line || !plot.xOf) return { near: [], at: null };
@@ -1705,7 +1749,7 @@ function fullLineNear(plot: StagePlot, layer: StageLayer, source: FullSource, x:
     for (let index = 0; index < got.xs.length; index++) {
         const point = fullPoint(plot, layer, got, index);
         if (!point) continue;
-        if (Math.abs(point.x - x) <= radius && onPlot(plot, point.x, (plot.lineYAt ?? plot.yAt)(point.value))) near.push(point);
+        if (Math.abs(point.x - x) <= radius && valueOnScreen(plot, layer, point.value) && onPlot(plot, point.x, (plot.lineYAt ?? plot.yAt)(point.value))) near.push(point);
         if (!at || Math.abs(point.x - x) < Math.abs(at.x - x)) at = point;
     }
     // A window too dense to send whole names the real point under the pointer (`under`, full_read._nearest_along): the
@@ -1781,10 +1825,29 @@ export function stageReadAgain(plot: StagePlot, read: StageRead, ready: () => vo
     // Its read failed on the new drawing (the backend's passing failure): the point is kept, read as failed until it is
     // asked again (`ready`, once the store's pause is over), never let go for a point that is not drawn.
     if (got === null && layer.full.held === 'fetched') return { ...read, layer, failed: true };
-    const index = got?.xs.indexOf(at) ?? -1;
-    const point = got && index >= 0 ? fullPoint(plot, layer, got, index, 'edge') : null;
+    // Of points sharing this x (two recordings of one value), the very one read, by its place in the data.
+    const place = read.index ?? -1;
+    const placed = got?.offset !== undefined && place >= 0 && got.xs[place - got.offset] === at ? place - got.offset : -1;
+    const index = placed >= 0 ? placed : got?.xs.indexOf(at) ?? -1;
+    const point = got && index >= 0 ? fullPoint(plot, layer, got, index) : null;
     if (!point || point.x < plot.frame.left || point.x > plot.frame.left + plot.frame.width) return null;
     return lineRead(plot, layer, point);
+}
+
+/**
+ * Where in `got` an arrow key's step from the point at `at` starts looking (R7). By place when the point's place among
+ * the source's every point is known (`from`) and the answer is numbered (`offset`): the neighbour in the data's order,
+ * one at the same x too, so recordings of one value are each stepped onto once. Otherwise by x: the first point
+ * strictly past `at` (a backend line's x never repeats). −1 with none.
+ */
+export function stepStart(got: Pick<FullPoints, 'xs' | 'offset'>, at: number, delta: -1 | 1, from?: number): number {
+    if (from !== undefined && got.offset !== undefined && got.xs[from - got.offset] === at) {
+        const next = from - got.offset + delta;
+        return next >= 0 && next < got.xs.length ? next : -1;
+    }
+    if (delta > 0) return got.xs.findIndex(x => x > at);
+    for (let back = got.xs.length - 1; back >= 0; back--) if (got.xs[back] < at) return back;
+    return -1;
 }
 
 /**
@@ -1805,17 +1868,18 @@ export function stageStep(plot: StagePlot, read: StageRead, delta: -1 | 1, ready
         // silence before it: one read finds it (`seek`, full_read._seek_line) and brings STEP_AHEAD more past it, so
         // the next keys need none. Past the plot's side, or the data's end, there is nothing further to read.
         const at = read.at;
-        const got = source.line?.({ x0: at, x1: at, beyond: STEP_AHEAD, seek: delta, ...(floorless(read.layer.view, plot.diff) ? { plain: true } : {}) }, ready);
+        // A source that numbers its points (FullPoints.offset: one the webview holds whole) is stepped by place, so
+        // points sharing one x are each visited once, in the data's order (LineQuery.from); see stepStart.
+        const from = read.index !== undefined && read.index >= 0 && source.held === 'inline' ? read.index : undefined;
+        const got = source.line?.({ x0: at, x1: at, beyond: STEP_AHEAD, seek: delta, ...(from !== undefined ? { from } : {}), ...(floorless(read.layer.view, plot.diff) ? { plain: true } : {}) }, ready);
         if (got === undefined) return undefined;
         // The seek failed (not the data's end): the step waits for it to be asked again once the store's pause is over
         // (`ready`), and the keys pressed meanwhile with it (R7).
         if (got === null && source.held === 'fetched') return undefined;
         if (!got) return null;
-        let index = -1;
-        if (delta > 0) index = got.xs.findIndex(x => x > at);
-        else for (let back = got.xs.length - 1; back >= 0 && index < 0; back--) if (got.xs[back] < at) index = back;
+        let index = stepStart(got, at, delta, from);
         for (; index >= 0 && index < got.xs.length; index += delta) {
-            const point = fullPoint(plot, read.layer, got, index, 'edge');
+            const point = fullPoint(plot, read.layer, got, index);
             if (!point) continue;
             // Past the plot's side there is nothing further to read; a value above or below the level axis is read at
             // the plot's edge, where yAt holds it, as the pointer reads it there.

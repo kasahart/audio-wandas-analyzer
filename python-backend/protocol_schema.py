@@ -652,6 +652,8 @@ DEFINITIONS: dict[str, Schema] = {
             "complete": {"type": "boolean"},
             # Of a dense window read at the pointer's place: the index in ``xs`` of the point under the pointer.
             "under": {"type": "integer", "minimum": 0},
+            # A line's points: each one's distance to its nearer neighbour in the source data (the readout's digits).
+            "steps": _NULLABLE_NUMBERS,
             # A level read's answer: the mean power of the window's ``count`` finite values.
             "level": {
                 "type": "object",

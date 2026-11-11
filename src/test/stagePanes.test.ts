@@ -13,7 +13,9 @@ import { alongAxisTicks, axisFractionOf, colourEndText, drawnLevelsText, type St
 import type { StageView } from '../shared/protocol/backendProtocol';
 import { getStrings } from '../shared/i18n/strings';
 import { fetchedSource, localCells, localLine, NO_FULL_DATA } from '../webview/runtime/fullRead';
+import { FAILED_RETRY_MS } from '../webview/runtime/answerStore';
 import { gainAxisName } from '../webview/runtime/figureModel';
+import { distributionRows, type DistributionPicture } from '../webview/runtime/entryDistribution';
 
 const line = (values: number[], quantity: StageView['quantity'] = 'level'): StageView => ranged({ frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity, xs: [100, 1000, 10000], values });
 const strings = { stageNoDelta: 'none', stageMaxDelta: '{at} {delta}' };
@@ -450,6 +452,51 @@ test('while a line\'s level on screen is on its way, the plot keeps the order it
     while (held.length) held.shift()?.();
     await new Promise(resolve => setTimeout(resolve, 0));
     assert.deepEqual(lines(strokes).slice(-2), expectedOrder([{ color: 'peaked', xs, values: peaked }, { color: 'flat', xs, values: flat }], x0, x1));
+    assert.deepEqual(lines(strokes).slice(-2), ['flat', 'peaked']);
+    assert.equal(canvas.dataset.plotOrder, '-35.00,-40.00');
+});
+
+test('a level read that failed leaves the order unsettled and written "!": never the order of the estimate, and it is asked again after the answer store\'s pause (R6)', async () => {
+    // The same two spectra as above, zoomed to 5–10 kHz. The stretch the right edge cuts holds the peaked line's
+    // off-screen peak, so an estimate from the stretches would call the peaked line the louder; on screen it is the quieter.
+    const xs = Array.from({ length: 2049 }, (_, i) => i * 24000 / 2048);
+    const x0 = 5000, x1 = 10000, peakBin = 854;
+    const peaked = xs.map((_, i) => (i === peakBin ? 0 : -40)), flat = xs.map(() => -35);
+    // The backend fails every level read while `failing`, and the store's clock is this test's.
+    let failing = true, clock = 1_000_000, asked = 0;
+    const backend = (values: readonly number[]) => fetchedSource((read, done) => {
+        asked++;
+        const inside = values.filter((_, index) => xs[index] >= read.x[0] && xs[index] <= read.x[1]);
+        const answer = failing ? null : { xs: [], start: null, end: null, complete: false, level: { power: inside.reduce((sum, value) => sum + 10 ** (value / 10), 0) / inside.length, count: inside.length } };
+        setTimeout(() => { done(answer); }, 0);
+    }, {}, () => clock);
+    const sources = { flat: backend(flat), peaked: backend(peaked) };
+    const layer = (color: 'flat' | 'peaked', values: number[]) => ({ color, width: 2, full: sources[color],
+        view: { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'level', xs: xs.filter((_, i) => i % 16 === 0), values: values.filter((_, i) => i % 16 === 0),
+            levelBins: levelBinsOf(xs, values, [0, 24000], false) } as StageView });
+    const axis: StageView = { frame: 'spectrum', kind: 'line', xs: [0, 24000], xLimits: [0, 24000], xScale: 'linear' };
+    const lines = (strokes: string[]) => strokes.filter(color => color === 'flat' || color === 'peaked');
+    const zoomed = { axisView: axis, window: { x: { start: x0 / 24000, end: x1 / 24000 } } };
+    const paint = (): void => { paintOverlay(canvas, { layers: [layer('flat', flat), layer('peaked', peaked)] }, R({ min: -80, max: 0 }), N({ x: 'Frequency [Hz]', y: 'Level [dB]' }), zoomed); };
+    const { canvas, strokes } = strokingCanvas();
+    paint();
+    await new Promise(resolve => setTimeout(resolve, 10));
+    // Both reads failed. The order is the caller's (flat, peaked), not the estimate's (peaked under), and says so.
+    assert.equal(asked, 2, 'each line\'s level asked for once');
+    assert.deepEqual(lines(strokes).slice(-2), ['flat', 'peaked'], 'a failed level read must not settle the order: screenLevels gave an estimate for a failed read (see ScreenLevel \'failed\')');
+    assert.equal(canvas.dataset.plotOrder, '!,!', 'a failed level read is written "!" in data-plot-order (drawnLevelsText)');
+    // Within the store's pause a repaint asks nothing again.
+    failing = false;
+    clock += FAILED_RETRY_MS - 1;
+    paint();
+    await new Promise(resolve => setTimeout(resolve, 10));
+    assert.equal(asked, 2, 'not asked again before the answer store\'s pause is over');
+    assert.equal(canvas.dataset.plotOrder, '!,!');
+    // Past it the same reads are asked again, by the store's rule alone, and the order is judged on every value.
+    clock += 2;
+    paint();
+    await new Promise(resolve => setTimeout(resolve, 10));
+    assert.equal(asked, 4, 'asked again once the pause is over');
     assert.deepEqual(lines(strokes).slice(-2), ['flat', 'peaked']);
     assert.equal(canvas.dataset.plotOrder, '-35.00,-40.00');
 });
@@ -893,4 +940,40 @@ test('a trigger\'s events overlaid are ordered by their samples\' power: without
     const measured = [events(0.5, bins(0.25)), events(0.01, bins(0.0001))].flatMap(eventLayers);
     const texts = drawnLevelsText(measured, { xs: [0, 1], xScale: 'linear' }).split(',').map(Number);
     assert.ok(texts[0] > texts[1], texts.join(','));
+});
+
+/**
+ * docs/display-rules.md R7, "同じ値の点": points that share one x (two recordings of the same value on the entry
+ * distribution) are each stepped onto exactly once by ← / →, in one stable order, and back through the same ones.
+ * Run on the distribution's two pictures of members (dots for a small group, the rug for a large one), built by the
+ * real distributionRows, and stepped by the shared stageStep every chart steps with.
+ */
+test('← / → visit every point sharing one x exactly once, in one order both ways: recordings of the same value on the distribution\'s dots and rug (R7)', () => {
+    const fix = 'Fix: a source that numbers its points must be stepped by place, not by x alone: stagePanes.ts stepStart / stageStep pass LineQuery.from, fullRead.ts seekIn honours it, and entryDistribution.ts distributionRows sorts ties by key. See docs/display-rules.md R7.';
+    const picture: DistributionPicture = {
+        width: 400, rowHeight: 40, strip: false, range: null, slots: [], base: null, labels: new Map(), groupPrefix: '', axisLabel: 'score', unitLabel: 'recordings',
+        format: value => String(value), name: key => key, countOf: (_group, drawn) => String(drawn),
+    };
+    for (const [kind, count] of [['dots', 6], ['rug', 16]] as const) {
+        // Three recordings at 5, given out of key order; the rest spread on both sides.
+        const tied = ['t-b', 't-c', 't-a'].map(key => ({ key, filePath: `/${key}.wav`, value: 5, inRange: false }));
+        const others = Array.from({ length: count - 3 }, (_, index) => ({ key: `o-${String(index).padStart(2, '0')}`, filePath: `/o-${index}.wav`, value: index < (count - 3) / 2 ? 1 + index * 0.25 : 6 + index * 0.25, inRange: false }));
+        const members = [...tied, ...others];
+        const row = distributionRows({ groups: [{ name: 'g', members }], low: 0, high: 12, missing: 0, apart: 0, unit: 'recording' }, picture, { bar: 'grey', barIn: 'silver', slots: [] }, getStrings('en'))[0];
+        const layer = row.layers.find(candidate => candidate.marks === kind);
+        assert.ok(layer, `the distribution draws no ${kind} layer for a group of ${count}: this test steps the ${kind}; update it if the picture changed`);
+        const plot: StagePlot = { frame: { left: 0, top: 0, width: 240, height: 100 }, xAt: value => value * 20, xOf: x => x / 20, yAt: value => 100 - value * 10, ratioStep: 1.12, lines: [layer], diff: false };
+        // The recording a readout names (its key, which this test's picture.name writes as it is).
+        const names = (read: NonNullable<ReturnType<typeof stageHover>>): string => /\b[to]-[\w]+/u.exec(read.text)?.[0] ?? read.text;
+        const expected = [...members].sort((a, b) => a.value - b.value || (a.key < b.key ? -1 : 1)).map(member => member.key);
+        // From the first member, → to the end, then ← back to the start.
+        let read = stageHover(plot, plot.xAt(expected.length ? Math.min(...members.map(member => member.value)) : 0), plot.yAt(kind === 'dots' ? 0.5 : 0));
+        assert.ok(read?.full, `${kind}: the pointer on the first recording reads nothing`);
+        const forward = [names(read)];
+        for (let next = stageStep(plot, read, 1); next; next = stageStep(plot, read, 1)) { read = next; forward.push(names(read)); assert.ok(forward.length <= count, `${kind}: → never reaches the end (it visits a recording twice). ${fix}`); }
+        assert.deepEqual(forward, expected, `${kind}: → must visit every recording once, by value then key; recordings of the same value (t-a, t-b, t-c at 5) were skipped or out of order. ${fix}`);
+        const backward = [names(read)];
+        for (let next = stageStep(plot, read, -1); next; next = stageStep(plot, read, -1)) { read = next; backward.push(names(read)); assert.ok(backward.length <= count, `${kind}: ← never reaches the start. ${fix}`); }
+        assert.deepEqual(backward, [...expected].reverse(), `${kind}: ← must pass the same recordings → passed, in reverse. ${fix}`);
+    }
 });

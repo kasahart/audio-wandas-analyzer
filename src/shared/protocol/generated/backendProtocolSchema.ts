@@ -1495,6 +1495,19 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                     "type": "integer",
                     "minimum": 0
                 },
+                "steps": {
+                    "type": "array",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    }
+                },
                 "level": {
                     "type": "object",
                     "required": [
@@ -2686,6 +2699,7 @@ export interface StagePoints {
     end: number | null;
     complete: boolean;
     under?: number;
+    steps?: (number | null)[];
     level?: {
     power: number;
     count: number;
