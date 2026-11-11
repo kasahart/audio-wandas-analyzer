@@ -141,7 +141,7 @@ for (const [kind, view] of Object.entries(KINDS)) {
 type State = 'held' | 'fetched' | 'failed' | 'empty';
 const STATES: State[] = ['held', 'fetched', 'failed', 'empty'];
 type Draw = (canvas: HTMLCanvasElement, view: StageView, full: FullSource, options: { window?: { start: number; end: number }; size: { width: number; height: number }; other?: { view: StageView; full: FullSource } }) => StagePlot | null;
-interface ChartKind { name: string; images: boolean; draw: Draw; mapped?: boolean; later?: boolean }
+interface ChartKind { name: string; images: boolean; draw: Draw; mapped?: boolean; later?: boolean; /** Draws a difference: a Δ has no silent floor. */ diff?: boolean }
 const names = (view: StageView) => N({ x: 'x', y: 'y', ...(view.kind === 'heatmap' ? { colour: 'Level [dBFS]' } : {}) });
 const CHARTS: ChartKind[] = [
     {
@@ -149,7 +149,7 @@ const CHARTS: ChartKind[] = [
         draw: (canvas, view, full, { window, size, other }) => paintOverlay(canvas, { layers: [{ view, color: '#36c', label: 'a.wav', full }, ...(other ? [{ view: other.view, color: '#c63', label: 'b.wav', full: other.full }] : [])] }, R(stageRange([view])), names(view), { size, ...(window ? { window: { x: window } } : {}) }),
     },
     {
-        name: 'difference', images: true,
+        name: 'difference', images: true, diff: true,
         draw: (canvas, view, full, { window, size }) => paintStage(canvas, view, R(stageRange([view])), '#c33', names(view), { diff: true, size, ...(window ? { window: { x: window } } : {}) }, full),
     },
     {
@@ -415,7 +415,8 @@ for (const [kind, view] of Object.entries(KINDS)) {
                         layer.show(canvas, drawn, next.clientX, next.clientY, null);
                     }
                     assert.equal(layer.reading()?.at, xs[k], `${kind}: at the point before the run`);
-                    const plain = floorless(silent.view);
+                    // A Δ has no silent floor (−300 dB is a Δ): its points step one at a time, as plain values do.
+                    const plain = floorless(silent.view, !!chart.diff);
                     const step = (delta: -1 | 1): number | undefined => {
                         const next = layer.stepFrom(canvas, drawn, delta);
                         assert.ok(next, 'a key steps');

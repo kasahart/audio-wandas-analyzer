@@ -13,7 +13,9 @@ from __future__ import annotations
 # v4: the spectrum's 192 points are log-spaced from SPECTRUM_MIN_HZ to Nyquist, so the low bands are as
 # wide on screen as the high ones.
 # v5: the 20 Hz 1/3-octave band is measured (wandas 0.10 computes it; 0.9 could not).
-ANALYSIS_SPEC_VERSION = 5
+# v6: levels, crest factors and peak frequencies are sent as wandas measures them, never rounded (v5: 1e-4 dB,
+# 0.001 and 1 Hz), so a median or a Δ of them is of the unrounded values (display rules R1).
+ANALYSIS_SPEC_VERSION = 6
 
 # wandas filters zero-phase (filtfilt), so a Recipe's filters ring at both ends of the file: left in, the
 # entry Recipe's 20 Hz high-pass raises a pure tone's crest factor from 1.41 to 2.08. Metrics skip this
@@ -34,10 +36,10 @@ THIRD_OCTAVE_CENTERS_HZ: tuple[float, ...] = (
 )  # fmt: skip
 # MoSQITo rejects band centres above 0.88 × Nyquist.
 THIRD_OCTAVE_NYQUIST_FRACTION = 0.88
-# Levels are sent to the webview unrounded, except a scan's (below): only the text it writes rounds them (R1, R7).
-# A scan's levels, which the webview takes channel means, medians and every Δ from: kept to 1e-4 dB, so each is off
-# by at most 5e-5 dB, a thousandth of the 0.1 dB a level or Δ is shown to (never rounded to what is shown first).
-SCAN_DB_DECIMALS = 4
-CREST_DECIMALS = 3
+# Levels are sent to the webview unrounded, a scan's too (its Leq, bands, bins, crest factor and peak frequency):
+# the webview takes channel means, medians and every Δ from them, and only the text it writes rounds them (R1, R7).
+# The 192-point spectrum alone is a picture (drawn points, of no number: scan_service.log_spectrum), kept small in a
+# stored result: to 0.01 dB, far under a pixel of any level axis.
+SPECTRUM_DRAWN_DECIMALS = 2
 # Floor for levels of silent channels, which would otherwise be -inf and not JSON.
 MIN_LEVEL_DB = -300.0

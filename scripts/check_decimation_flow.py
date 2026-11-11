@@ -80,6 +80,8 @@ SOURCES: dict[str, tuple[str, frozenset[str]]] = {
         f"analyzer:{name}": (DRAWN, frozenset({WHOLE}))
         for name in ("resample_frequency_bins", "_resample_time_bins", "min_max_spectrum")
     },
+    # A scan's 192-point spectrum: every Welch bin power-averaged into log-spaced points, to draw.
+    "scan_service:log_spectrum": (DRAWN, frozenset({WHOLE})),
 }
 #: The bucket rule's own functions (decimator.py): positions only, which the contract table does not list.
 BUCKET_RULE = frozenset({"decimator:bucket_starts", "decimator:bucket_edges"})
@@ -102,6 +104,8 @@ DRAWN_KEYS = frozenset(
         # The cursor spectrum's slice and the lanes' spectrogram (analysis_service.py, analyzer.py)
         "frequenciesHz",
         "timeCentersSec",
+        # A scan's 192-point spectrum (scan_service.py)
+        "spectrumDb",
     }
 )
 

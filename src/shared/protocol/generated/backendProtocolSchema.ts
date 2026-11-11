@@ -1477,6 +1477,10 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "complete": {
                     "type": "boolean"
                 },
+                "under": {
+                    "type": "integer",
+                    "minimum": 0
+                },
                 "level": {
                     "type": "object",
                     "required": [
@@ -2023,7 +2027,7 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "peakHz": {
                     "type": "array",
                     "items": {
-                        "type": "integer"
+                        "type": "number"
                     }
                 },
                 "spectrumDb": {
@@ -2658,6 +2662,7 @@ export interface StagePoints {
     start: number | null;
     end: number | null;
     complete: boolean;
+    under?: number;
     level?: {
     power: number;
     count: number;

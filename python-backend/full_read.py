@@ -6,7 +6,8 @@ several frames or bins. Every number it shows comes from here instead: the point
 around the pointer, or the next ones along for a key. A read is small whatever the data: the points inside the
 pick window when there are few enough of them (and ``beyond`` more past each end, for the nearest point beside an
 empty window and for the next steps), else, per pixel column across the window, that column's lowest, highest and
-the point nearest the level under the pointer (``near``), each a real point at its own x.
+the point nearest the level under the pointer (``near``), with the point nearest the pointer on screen and the
+point under it along the axis (``under``), each a real point at its own x.
 """
 
 from __future__ import annotations
@@ -83,6 +84,10 @@ class StagePoints(TypedDict):
     complete: bool
     #: A level read's answer (StageRead ``level``), with no points.
     level: NotRequired[StageLevel]
+    #: Of a window too dense to send whole, read with the pointer's place (``at``): the index in ``xs`` of the point
+    #: with a value nearest the pointer along the axis, the one under it, which the plot reads when no point is near
+    #: the pointer on screen.
+    under: NotRequired[int]
 
 
 #: A level at or below this is silence (the webview's `silent`): no power.
@@ -140,6 +145,7 @@ def read_line(
             "level": read_level(values_in(low, max(low, high)), read["level"]),
         }
     beyond = _limited(read, "beyond", 1, READ_BEYOND_LIMIT)
+    under: int | None = None
     seek = read.get("seek")
     plain = bool(read.get("plain"))
     if seek in (-1, 1):
@@ -177,17 +183,25 @@ def read_line(
         nearest = _nearest_on_screen(read, window, x_at, low, high, near, log, plain)
         if nearest is not None:
             chosen.append(nearest)
+        across = _nearest_along(read, window, x_at, low, high, log, plain)
+        if across is not None:
+            chosen.append(across)
         inside = np.unique(np.asarray(chosen, dtype=np.int64))
         picked = np.concatenate([np.arange(first, low), inside, np.arange(high, after)]).astype(np.int64)
         picked_values = np.concatenate([values_in(first, low), window[inside - low], values_in(high, after)])
         complete = False
-    return {
+        if across is not None:
+            under = int(np.flatnonzero(picked == across)[0])
+    points: StagePoints = {
         "xs": [float(value) for value in np.asarray(x_at(picked), dtype=np.float64).tolist()],
         "values": json_values(np.asarray(picked_values, dtype=np.float64)),
         "start": float(x_at(np.asarray(first))) if first > 0 and complete else None,
         "end": float(x_at(np.asarray(after - 1))) if after < count and complete else None,
         "complete": complete,
     }
+    if under is not None:
+        points["under"] = under
+    return points
 
 
 #: How many values an arrow key's seek takes at a time while it crosses a silence.
@@ -267,6 +281,25 @@ def _nearest_on_screen(
     if not readable.any():
         return None
     return low + int(np.argmin(np.where(readable, away, np.inf)))
+
+
+def _nearest_along(
+    read: StageRead, window: np.ndarray, x_at: XAt, low: int, high: int, log: bool, plain: bool = False
+) -> int | None:
+    """The index of the point of ``window`` (indices [low, high)) with a value to read whose x is nearest the pointer's
+    (``at``, on a log axis by ratio): the point under the pointer, which it reads when no point is near it on screen
+    (beyond the pick radius, StagePoints ``under``). None without the pointer's place or a point to read."""
+    if "at" not in read or high <= low:
+        return None
+    at = float(read["at"])
+    if not math.isfinite(at) or (log and at <= 0):
+        return None
+    xs = np.asarray(x_at(np.arange(low, high)), dtype=np.float64)
+    along = np.abs(np.log(np.maximum(xs, 1e-300)) - math.log(at)) if log else np.abs(xs - at)
+    readable = _readable(window, plain) & np.isfinite(along)
+    if not readable.any():
+        return None
+    return low + int(np.argmin(np.where(readable, along, np.inf)))
 
 
 def read_level(values: np.ndarray, kind: Literal["db", "square"]) -> StageLevel:

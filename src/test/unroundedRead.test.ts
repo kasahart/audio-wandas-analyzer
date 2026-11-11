@@ -4,7 +4,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { fetchedSource } from '../webview/runtime/fullRead';
-import { stageHover, stageStep, type StagePlot, type StageRead } from '../webview/runtime/stagePanes';
+import { stageDiffRange, stageHover, stageStep, strokeStageLine, type StagePlot, type StageRead } from '../webview/runtime/stagePanes';
 import type { StagePoints, StageView } from '../shared/protocol/backendProtocol';
 import { backendPython } from './uiSmoke/realBackend';
 
@@ -73,4 +73,67 @@ test('the backend\'s read is unrounded end to end: of −10.004 and −9.996 dB 
     const after = next ? step(drawn, next, 1) : null;
     assert.equal(after?.at, 800, 'then past the silent bins');
     assert.equal(after ? step(drawn, after, -1)?.at : undefined, 500, 'and back onto it');
+});
+
+test('a Δ of −260 dB is a Δ, not silence: the backend\'s difference is read, stepped onto, drawn and ranged at −260 dB (R1, R7)', { timeout: 120_000 }, t => {
+    if (!backendReady()) { t.skip('no Python backend'); return; }
+    // The difference of answer.py's compared recording (−269.996 dB at 300 Hz) and its base (−9.996 dB): 0 dB at every
+    // bin but −260 dB at 300 Hz. A level of the same picture at −260 dB would be silence; its Δ is not.
+    const xs = [100, 200, 300, 400, 500, 600, 700, 800];
+    const values = xs.map(hz => (hz === 300 ? -260 : 0));
+    const view = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'level', unit: 'Pa', xs, values, valueRange: { min: -260, max: 0 } } as unknown as StageView;
+    const full = fetchedSource((read, done) => { done(backendAnswer({ ...read, of: 'diff' })); }, { of: 'diff' });
+    const drawn: StagePlot = {
+        frame: { left: 0, top: 0, width: 100, height: 100 }, xAt: hz => hz / 10, xOf: x => x * 10,
+        yAt: value => -value / 3, levelOf: y => -y * 3, ratioStep: 1.12, diff: true, levelUnit: 'dB',
+        lines: [{ view, color: 'red', full }],
+    };
+    const read = hover(drawn, 30, 86);
+    assert.equal(read?.at, 300, 'the Δ under the pointer');
+    assert.equal(read?.value, -260);
+    // → from 200 Hz onto it, and on past it.
+    const from = hover(drawn, 20, 0);
+    assert.equal(from?.at, 200);
+    const onto = from ? step(drawn, from, 1) : null;
+    assert.equal(onto?.at, 300, 'stepped onto the Δ of −260 dB, not past it');
+    assert.equal(onto?.value, -260);
+    // Drawn as a point of the line, not a gap.
+    const points: Array<[number, number]> = [];
+    const context = new Proxy({}, { get: (_target, key) => (key === 'lineTo' || key === 'moveTo' ? (x: number, y: number) => { points.push([x, y]); } : () => undefined), set: () => true }) as unknown as CanvasRenderingContext2D;
+    strokeStageLine(context, drawn, drawn.lines[0], 1);
+    assert.ok(points.some(([x, y]) => Math.abs(x - 30) < 1e-9 && Math.abs(y - drawn.yAt(-260)) < 1e-9), `drawn at −260 dB: ${JSON.stringify(points)}`);
+    // And the Δ's range holds it, as the backend's valueRange of the difference does.
+    assert.ok(stageDiffRange({ ...view, valueRange: undefined }).min <= -260);
+});
+
+test('a median and a difference are taken in float64 end to end: of 0.5 and 0.5 + 2⁻²⁴ the median reads 0.5 + 2⁻²⁵, and the Δ of 0.5 + 2⁻²⁴ from it 2⁻²⁵, never 0 (R1)', { timeout: 120_000 }, t => {
+    if (!backendReady()) { t.skip('no Python backend'); return; }
+    const xs = Array.from({ length: 8 }, (_, i) => i / 1000);
+    const plot = (of: 'base' | 'diff'): StagePlot => {
+        const view = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs, values: xs.map(() => 0) } as unknown as StageView;
+        const full = fetchedSource((read, done) => { done(backendAnswer({ ...read, of, fixture: 'signal' })); }, { of });
+        // 2⁻²⁵ a pixel about the value read, so the line's points are where the pointer is.
+        const centre = of === 'base' ? 0.5 : 0;
+        return { frame: { left: 0, top: 0, width: 100, height: 100 }, xAt: x => x * 10000, xOf: x => x / 10000, yAt: value => 50 - (value - centre) * 2 ** 25, levelOf: y => centre + (50 - y) / 2 ** 25, ratioStep: 1.12, diff: of === 'diff', lines: [{ view, color: 'blue', full }] };
+    };
+    assert.equal(hover(plot('base'), 30, 49)?.value, 0.5 + 2 ** -25, 'the median of 0.5 and 0.5 + 2⁻²⁴, which float32 rounds to one of them');
+    assert.equal(hover(plot('diff'), 30, 49)?.value, 2 ** -25, 'the Δ of 0.5 + 2⁻²⁴ from that median');
+});
+
+test('a dense window read beyond the pick radius of every point reads the real sample under the pointer, which the backend sends (R7)', { timeout: 120_000 }, t => {
+    if (!backendReady()) { t.skip('no Python backend'); return; }
+    const count = 20_000;
+    const signal = Array.from({ length: count }, (_, n) => Math.sin(n * 0.37) * Math.cos(n * 0.011) * 0.9);
+    // 50 samples a pixel, the pointer 60 pixels above the plot's top: no sample is within the pick radius.
+    const view = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs: [0, (count - 1) / 1000], values: [0, 0] } as unknown as StageView;
+    const asked: unknown[] = [];
+    const full = fetchedSource((read, done) => { asked.push(read); done(backendAnswer({ ...read, fixture: 'dense' })); });
+    const drawn: StagePlot = { frame: { left: 0, top: 0, width: 400, height: 100 }, xAt: s => s * 1000 / 50, xOf: x => x * 50 / 1000, yAt: value => 50 - value * 40, levelOf: y => (50 - y) / 40, ratioStep: 1.12, diff: false, lines: [{ view, color: 'blue', full }] };
+    for (const x of [100, 100.3, 257.7]) {
+        const read = hover(drawn, x, -60);
+        const under = Math.round(x * 50);
+        assert.equal(Math.round((read?.at ?? NaN) * 1000), under, `the sample under the pointer at x = ${x}`);
+        assert.equal(read?.value, signal[under]);
+    }
+    assert.ok(asked.some(read => (read as { columns?: number }).columns), 'read as a dense window, not whole');
 });

@@ -73,8 +73,9 @@ class StageData:
     """One recording's step at full resolution, channels combined as its picture combines them.
 
     ``values`` is a line over ``xs`` or an image (rows over ``ys``, columns over ``xs``). For ``signal`` (the sound
-    itself) it is every sample, channels averaged, at ``start + n / rate``, kept as float32 with no ``xs`` (half an
-    hour at 48 kHz fits the budget).
+    itself) it is every sample, channels averaged, at ``start + n / rate``, with no ``xs`` (half an hour at 48 kHz
+    fits the budget). Every value is kept float64, as wandas computes it: a median or a difference of float32 values
+    would round away a difference of a float32 step (0.5 against 0.5 + 2⁻²⁴).
     """
 
     mode: Mode
@@ -228,7 +229,7 @@ def _stage_data(frame: object, view: StageView, signal_s: float | None) -> Stage
         return StageData("cepstrum", template, _f64(frame.quefrencies), coefficients)
     if isinstance(frame, CepstrogramFrame):
         data = _f64(frame.data)
-        plane = np.mean(data.reshape(-1, data.shape[-2], data.shape[-1]), axis=0).astype(np.float32)
+        plane = np.mean(data.reshape(-1, data.shape[-2], data.shape[-1]), axis=0)
         times = _f64(frame.times)[: plane.shape[1]] + sv._offset(frame)
         whole = _column_whole(frame, plane.shape[1], signal_s)
         return StageData("cepstrogram", template, times, plane, _f64(frame.quefrencies), whole)
@@ -252,7 +253,7 @@ def _stage_data(frame: object, view: StageView, signal_s: float | None) -> Stage
         # The sound itself: a difference is compare − base sample by sample (a ChannelFrame subtraction), never a
         # level the comparison would make of it.
         start = float(times[0]) if times.size else 0.0
-        samples = np.mean(data, axis=0).astype(np.float32)
+        samples = np.mean(_f64(data), axis=0)
         ref = float(frame.channels[0].ref)
         return StageData(
             "signal", template, np.empty(0), samples, start=start, rate=float(frame.sampling_rate), ref=ref
@@ -275,14 +276,14 @@ def _stage_data(frame: object, view: StageView, signal_s: float | None) -> Stage
         return StageData("bands", template, _f64(frame.freqs), levels)
     if isinstance(frame, SpectrogramFrame):
         db = _f64(frame.dB)
-        plane = sv._power_mean(sv.floored_db(db.reshape(-1, db.shape[-2], db.shape[-1]))).astype(np.float32)
+        plane = _f64(sv._power_mean(sv.floored_db(db.reshape(-1, db.shape[-2], db.shape[-1]))))
         times = _f64(frame.times)[: plane.shape[1]] + sv._offset(frame)
         whole = _column_whole(frame, plane.shape[1], signal_s)
         nyquist = float(frame.sampling_rate) / 2
         return StageData("spectrogram", template, times, plane, _f64(frame.freqs), whole, nyquist=nyquist)
     if isinstance(frame, RoughnessFrame):
         data = _f64(frame.data)
-        plane = np.mean(data.reshape(-1, data.shape[-2], data.shape[-1]), axis=0).astype(np.float32)
+        plane = np.mean(data.reshape(-1, data.shape[-2], data.shape[-1]), axis=0)
         times = _f64(frame.time)[: plane.shape[1]] + sv._offset(frame)
         return StageData("roughness", template, times, plane, _f64(frame.bark_axis)[: plane.shape[0]])
     return None
@@ -414,7 +415,7 @@ def _signal_line(
     data: StageData, bounds: Sequence[float] | None, points: int, diff: bool
 ) -> tuple[np.ndarray, np.ndarray]:
     """A signal's line as a series over time is drawn (sv._envelope; a difference by difference_line's buckets),
-    taken by index from the float32 samples inside ``bounds``: only the points drawn get a time and float64."""
+    taken by index from the samples inside ``bounds``: only the points drawn get a time."""
     first, last = _signal_range(data, bounds)
     values = data.values[first:last]
     if diff:
@@ -613,7 +614,7 @@ def draw(data: StageData, detail: StageDetail | None = None, *, diff: bool = Fal
         view["detail"] = True
     if not diff:
         with_level_bins(view, data, detail)
-    with_value_range(view, data, detail)
+    with_value_range(view, data, detail, diff=diff)
     return view  # type: ignore[return-value]
 
 
@@ -663,7 +664,17 @@ def _drawn_part(data: StageData, detail: StageDetail | None) -> np.ndarray | Non
     return np.asarray(data.values)[..., columns]
 
 
-def value_range(data: StageData | None, detail: StageDetail | None = None) -> StageValueRange | None:
+def floored(view: StageView | dict, diff: bool = False) -> bool:
+    """Whether a picture's values have a silent floor (SILENT_DB and below is silence, left out of its range): only a
+    level or a gain in dB, which the backend floors at MIN_LEVEL_DB (stage_view.floored_db). A difference has none
+    (a Δ of −260 dB is a Δ), nor any other quantity (a plain value, a coherence, a cepstrum): the webview's
+    ``floorless``."""
+    return not diff and view.get("quantity", "level") in DB_QUANTITIES
+
+
+def value_range(
+    data: StageData | None, detail: StageDetail | None = None, *, diff: bool = False
+) -> StageValueRange | None:
     """The lowest and highest of every full-resolution value ``draw`` draws of ``data`` (the part ``detail`` names),
     silence (a level at the floor) and undefined values left out as the plot leaves them out; a cepstrogram's colour
     edge too (the 99th percentile of its magnitudes). From these, never from the thinned line or the cells averaged to
@@ -681,7 +692,7 @@ def value_range(data: StageData | None, detail: StageDetail | None = None) -> St
         return {"min": low, "max": high} if np.isfinite(low) and np.isfinite(high) else None
     values = _f64(part).ravel()
     keep = np.isfinite(values)
-    if data.view.get("quantity") != "value":
+    if floored(data.view, diff):
         keep &= values > SILENT_DB
     values = values[keep]
     if not values.size:
@@ -692,9 +703,11 @@ def value_range(data: StageData | None, detail: StageDetail | None = None) -> St
     return found
 
 
-def with_value_range(view: StageView | dict, data: StageData | None, detail: StageDetail | None = None) -> None:
-    """``view`` with its valueRange (value_range) when it has values to range over."""
-    found = value_range(data, detail)
+def with_value_range(
+    view: StageView | dict, data: StageData | None, detail: StageDetail | None = None, *, diff: bool = False
+) -> None:
+    """``view`` with its valueRange (value_range) when it has values to range over (``diff``: of a difference)."""
+    found = value_range(data, detail, diff=diff)
     if found is not None:
         view["valueRange"] = found  # type: ignore[typeddict-unknown-key]
 
@@ -752,9 +765,8 @@ def time_axis(item: StageData) -> StageTimeAxis | None:
 
 def _median(items: list[StageData]) -> np.ndarray:
     """Point by point; a point where any recording has no value has none (NaN)."""
-    # A signal's samples stay float32 (as kept, half the memory over a long recording); other values float64.
-    cast = (lambda values: np.asarray(values, dtype=np.float32)) if items[0].mode == "signal" else _f64
-    stacked = np.stack([cast(item.values) for item in items])
+    # In float64 (as kept), never float32: a median of two values a float32 step apart lies between them.
+    stacked = np.stack([_f64(item.values) for item in items])
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)
         return np.median(stacked, axis=0)
@@ -791,18 +803,14 @@ def combine(base: list[StageData], compare: StageData | None, detail: StageDetai
         return {"ok": True, "noDelta": reason} if reason else {"ok": True}
     base, compare = aligned[: len(base)], (aligned[-1] if compare is not None else None)
     first = base[0]
-    median = _median(base) if len(base) > 1 else (first.values if first.mode == "signal" else _f64(first.values))
+    median = _median(base) if len(base) > 1 else _f64(first.values)
     result: CombineResult = {"ok": True}
     if len(base) > 1:
         result["base"] = draw(replace(first, values=median, whole=_whole_of(base)), detail)
     # Two recordings' events are not one another's: they are compared overlaid, with no difference.
     if compare is None or first.mode == "events":
         return result
-    difference = (
-        np.subtract(compare.values, median, dtype=np.float32)
-        if first.mode == "signal"
-        else _f64(compare.values) - median
-    )
+    difference = _f64(compare.values) - median
     whole = _whole_of([*base, compare])
     drawn = replace(first, values=difference, whole=whole)
     result["diff"] = draw(drawn, detail, diff=True)
@@ -954,14 +962,11 @@ def read_points(base: list[StageData], compare: StageData | None, read: StageRea
         if len(parts) == 1:
             middle = parts[0]
         else:
-            cast = (lambda values: np.asarray(values, dtype=np.float32)) if first.mode == "signal" else _f64
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", RuntimeWarning)
-                middle = np.median(np.stack([cast(values) for values in parts]), axis=0)
+                middle = np.median(np.stack([_f64(values) for values in parts]), axis=0)
         if other is None:
             return middle
-        if first.mode == "signal":
-            return np.subtract(part(other), middle, dtype=np.float32)
         return _f64(part(other)) - middle
 
     if first.mode in ("spectrogram", "roughness", "cepstrogram"):

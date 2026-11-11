@@ -11,7 +11,7 @@ import type { ScanResult } from '../shared/protocol/backendProtocol';
 import { getStrings } from '../shared/i18n/strings';
 import { BAND_CENTERS_HZ, buildEntryModel } from '../webview/runtime/entryTable';
 import { deltaFigure } from '../webview/runtime/compareReport';
-import { binsSource, binsView, deltaViews, diffHeadline, minMaxLine, sameCondition, legendHtml, levelsHeadline, paneAxes, trackLevelInput, type LevelInput } from '../webview/runtime/comparePanes';
+import { SPECTRUM_POINTS, binsSource, binsView, deltaViews, diffHeadline, minMaxLine, sameCondition, legendHtml, levelsHeadline, paneAxes, trackLevelInput, type LevelInput } from '../webview/runtime/comparePanes';
 import type { ChannelSummary } from '../shared/analysis/analysisTypes';
 import { byLevel, paintOverlay, stageAxes } from '../webview/runtime/stagePanes';
 import { NO_FULL_DATA } from '../webview/runtime/fullRead';
@@ -41,10 +41,13 @@ test('the base is the median of the compared file\'s condition without it, point
     const comparison = compareOf(model, files, '/f/L1_900rpm_run3.wav', null, STR);
     assert.equal(comparison.base!.title, 'Base group · L1 · 900rpm · 2 files');
     assert.deepEqual(comparison.base!.filePaths, ['/f/L1_900rpm_run1.wav', '/f/L1_900rpm_run2.wav']);
-    assert.deepEqual(comparison.base!.spectrumDb.map(value => Math.round(value * 100) / 100), [-41, -50, -60.5]);
-    assert.deepEqual(comparison.diffDb!.map(value => Math.round(value * 100) / 100), [21, 0, 20.5]);
-    // Log-spaced from 20 Hz to Nyquist: each point is the geometric centre of its edges (8 kHz Nyquist, 3 points: ×400^(1/3)).
-    assert.deepEqual(comparison.frequencies.map(hz => Math.round(hz)), [54, 400, 2947]);
+    // The scans' 192 points are drawn points (scan_service.log_spectrum): no median and no Δ is taken of them (R1).
+    assert.equal(Object.hasOwn(comparison.base!, 'spectrumDb'), false);
+    assert.equal(Object.hasOwn(comparison, 'diffDb'), false);
+    assert.equal(comparison.comparable, true);
+    // Log-spaced from 20 Hz to Nyquist: each of the scan's points is the geometric centre of its edges (8 kHz Nyquist).
+    assert.equal(comparison.frequencies.length, SPECTRUM_POINTS);
+    assert.ok(Math.abs(comparison.frequencies[0] - 20 * 400 ** (0.5 / SPECTRUM_POINTS)) < 1e-9);
     const { base, compare, delta } = comparison.leq!;
     // Δ is the full levels' difference, never that of levels rounded first.
     assert.equal(delta, compare - base);
@@ -60,14 +63,14 @@ test('slot 0 makes one file the base; without a condition or a slot 0 there is n
     assert.deepEqual(single.base!.filePaths, ['/f/free.wav']);
     const none = compareOf(model, files, '/f/free.wav', null, STR);
     assert.equal(none.base, null);
-    assert.equal(none.diffDb, null);
+    assert.equal(none.comparable, false);
     assert.equal(diffHeadline(none), '—');
 });
 
 test('a Δ that cannot be read is withheld: the file against itself, a group of one, a base over another region', () => {
     const self = compareOf(model, files, '/f/L1_900rpm_run3.wav', '/f/L1_900rpm_run3.wav', STR);
     assert.equal(self.blocked, 'self');
-    assert.equal(self.diffDb, null);
+    assert.equal(self.comparable, false);
     assert.deepEqual(self.topBands, []);
     assert.equal(diffHeadline(self, STR), '— · ≠ same file');
     assert.equal(self.leq!.compare, -10.06);
@@ -99,7 +102,7 @@ test('levels in another unit, reference or calibration have no Δ and no shared 
     // Slot 0 in another unit: both levels stay, the Δ is withheld (as the backend's noDelta 'unit').
     const single = compareOf(mixedModel, mixed, '/m/L1_900rpm_run3.wav', '/m/L1_900rpm_run1.wav', STR);
     assert.equal(single.blocked, 'unit');
-    assert.equal(single.diffDb, null);
+    assert.equal(single.comparable, false);
     assert.deepEqual(single.bandDeltas, []);
     assert.equal(single.bins?.diff ?? null, null);
     assert.ok(Number.isNaN(single.leq!.delta));
@@ -119,7 +122,7 @@ test('levels in another unit, reference or calibration have no Δ and no shared 
     assert.equal(other.blocked, 'unit');
     assert.equal(other.base, null);
     assert.equal(other.leq, null);
-    assert.equal(other.diffDb, null);
+    assert.equal(other.comparable, false);
     assert.equal(diffHeadline(other, STR), '— · ≠ level reference');
 });
 
@@ -335,17 +338,37 @@ test('the webview thins a spectrum exactly as the backend does: the shared cases
     }
 });
 
+test('a comparison takes no number of the scans\' 192 drawn points: its base, Δ and figures are the same whatever they hold (R1)', () => {
+    // The bins and bands of every file, with 192 drawn points that disagree with them wildly, file by file.
+    const binned = new Map<string, ScanResult>([...files].map(([path, result], index) => [path, { ...result, spectrumBinsDb: [[-60 - index, -50, -40 + index]], spectrumBinHz: 2 }]));
+    const drawn = new Map<string, ScanResult>([...binned].map(([path, result], index) => [path, { ...result, spectrumDb: [[100 * (index + 1), -200, 7 * index]] }]));
+    const of = (results: Map<string, ScanResult>) => compareOf(model, results, '/f/L1_900rpm_run3.wav', null, STR);
+    const full = of(binned), other = of(drawn);
+    // The base is the median of every bin of runs 1 and 2 (-60, -61 → -60.5); its Δ is run 3's bins less it.
+    assert.deepEqual(full.bins?.base, [-60.5, -50, -39.5]);
+    assert.deepEqual(full.bins?.diff, [-1.5, 0, 1.5]);
+    assert.deepEqual(other.bins, full.bins);
+    assert.deepEqual([other.leq, other.bandDeltas, other.topBands], [full.leq, full.bandDeltas, full.topBands]);
+    assert.deepEqual(other.base, full.base);
+    assert.deepEqual(diffHeadline(other, STR), diffHeadline(full, STR));
+    // Without bins, the figures are the bands (each the scan's own level, from every bin), never the drawn points.
+    const bandsOnly = of(new Map([...drawn].map(([path, { spectrumBinsDb: _bins, spectrumBinHz: _hz, ...result }]) => [path, result as ScanResult])));
+    assert.equal(bandsOnly.bins, null);
+    assert.equal(deltaFigure(bandsOnly).view?.frame, 'NOctFrame');
+    assert.deepEqual(bandsOnly.bandDeltas, full.bandDeltas);
+});
+
 test('files whose bins differ (another sample rate or n_fft) have no bins to compare', () => {
     const one = new Map<string, ScanResult>([...files].map(([path, result]) => [path, { ...result, spectrumBinsDb: [[-60, -60]], spectrumBinHz: path.endsWith('run3.wav') ? 4 : 2 }]));
     assert.equal(compareOf(model, one, '/f/L1_900rpm_run3.wav', null, STR).bins, null);
     assert.equal(compareOf(model, files, '/f/L1_900rpm_run3.wav', null, STR).bins, null, 'a scan without bins');
-    // One base file without bins: none, so the figures keep every curve on the 192 points.
+    // One base file without bins: none, so the figures draw the 1/3-octave bands (never the 192 drawn points).
     const partly = new Map(files);
     partly.set('/f/L1_900rpm_run3.wav', { ...files.get('/f/L1_900rpm_run3.wav')!, spectrumBinsDb: [[-60, -60]], spectrumBinHz: 2 });
     partly.set('/f/L1_900rpm_run1.wav', { ...files.get('/f/L1_900rpm_run1.wav')!, spectrumBinsDb: [[-60, -60]], spectrumBinHz: 2 });
     const comparison = compareOf(model, partly, '/f/L1_900rpm_run3.wav', null, STR);
     assert.equal(comparison.bins, null);
-    assert.ok(comparison.diffDb);
+    assert.equal(comparison.comparable, true);
 });
 
 test('the table\'s results take the bins of a scan of the same condition only, never judged by its 192 drawn points', () => {

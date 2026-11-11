@@ -140,8 +140,11 @@ test('a window too dense to send whole is read where the pointer is: the point n
             for (let index = Math.max(0, Math.ceil(low)); index <= Math.min(count - 1, Math.floor(high)); index++) if (best < 0 || away(index) < away(best)) best = index;
             if (best >= 0) keep.add(best);
         }
+        // And the sample under the pointer (full_read._nearest_along), named by its place among those sent.
+        const under = read.at !== undefined ? Math.max(0, Math.min(count - 1, Math.round(read.at))) : -1;
+        if (under >= 0) keep.add(under);
         const xs = [...keep].sort((p, q) => p - q);
-        done({ xs, values: xs.map(index => signal[index]), start: null, end: null, complete: false });
+        done({ xs, values: xs.map(index => signal[index]), start: null, end: null, complete: false, ...(under >= 0 ? { under: xs.indexOf(under) } : {}) });
     });
     // 50 samples a pixel: a hover window of 41 columns holds 2050 samples, padded to 8200, more than the backend sends whole.
     const plot = (perPixel: number): StagePlot => ({
@@ -172,6 +175,16 @@ test('a window too dense to send whole is read where the pointer is: the point n
         assert.equal(read?.full, true);
         assert.equal(read?.at, nearest(50, x, y), `the true nearest sample at (${x}, ${y})`);
         assert.equal(signal[read?.at], read?.value, 'a real sample');
+    }
+    // Beyond the pick radius of every sample (the pointer far above the line): the sample under the pointer, not
+    // the nearest along of the few points sent for its columns (each column's lowest, highest, nearest in height).
+    for (const x of [100, 100.3, 257.7]) {
+        const y = -60;
+        assert.equal(nearest(50, x, y), null, 'no sample within the radius');
+        const first = stageHover(lane, x, y);
+        const read = first?.pending ? stageHover(lane, x, y) : first;
+        assert.equal(read?.at, Math.round(x * 50), `the sample under the pointer at ${x}`);
+        assert.equal(read?.value, signal[Math.round(x * 50)]);
     }
     const before = asked.length;
     assert.equal(stageHover(lane, 215, 22)?.full, true);

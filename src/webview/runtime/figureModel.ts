@@ -578,8 +578,11 @@ export function oneLevelKey(results: ReadonlyArray<ScanResult | undefined>): boo
     return new Set(results.map(scanLevelKey).filter((key): key is string => key !== null)).size <= 1;
 }
 
-/** The axis a scan's spectrum is on: its sample rate, spec and points (a median is taken point by point). */
-export const scanAxis = (result: ReadScan): string => `${result.input?.fs ?? 0}|${result.specVersion ?? ''}|${result.spectrumDb?.[0]?.length ?? 0}`;
+/**
+ * The axis a scan's levels are on: its sample rate and spec (which fixes its bands and its spectrum's points). Never of
+ * its 192 drawn points (R1): a median is taken of the bands and of every bin, whose spacing binsOf checks.
+ */
+export const scanAxis = (result: ReadScan): string => `${result.input?.fs ?? 0}|${result.specVersion ?? ''}`;
 
 /** A scan figure of a compared recording: its ready answer's level identity and spectrum axis; null while it has none. */
 export const scanIdentity = (compared: ScanAnswerOf | undefined): FigureIdentity<ReadScan> | null => comparedIdentity(compared, scanAxis, scanChannels);

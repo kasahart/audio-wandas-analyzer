@@ -24,7 +24,6 @@ export interface CompareSide {
     /** Card and pane title: the file name, or "Base group · L3 · 900rpm · 7 files". */
     title: string;
     filePaths: string[];
-    spectrumDb: number[];
     /** The Welch spectrum's every bin (channels power-averaged), when the scan gave them: the median and Δ are taken of these. */
     bins?: number[];
     leq: number;
@@ -35,22 +34,25 @@ export interface CompareSide {
     levelKey?: string;
     /** Uncalibrated: its scan's (a group: any of its recordings') calibration status is not calibrated (R4). */
     uncalibrated?: boolean;
-    /** A group of three or more files: its lower and upper quartiles, point by point and band by band. */
-    spread?: { spectrumDb: [number[], number[]]; bands: [(number | null)[], (number | null)[]] };
+    /** A group of three or more files: its lower and upper quartiles, band by band. */
+    spread?: { bands: [(number | null)[], (number | null)[]] };
 }
 
 export interface CompareModel {
     base: CompareSide | null;
     compare: CompareSide | null;
-    /** compare − base, point by point. */
-    diffDb: number[] | null;
+    /**
+     * Whether the two sides have a difference: both are there and nothing blocks it. The scans' 192-point spectra are
+     * drawn points (scan_service.log_spectrum), so no median or Δ is ever taken of them: only of `bins` and the bands.
+     */
+    comparable: boolean;
     /**
      * The same at full resolution, bin by bin (bin k at k × hz): the base (one file, or the median per bin of a group),
      * the compared file and their difference. Drawn by `binsView`, which decimates only the result. Null where a
      * scan did not give its bins or the files' bins differ (another sample rate or n_fft).
      */
     bins: { hz: number; nyquist: number; base: number[] | null; compare: number[] | null; diff: number[] | null } | null;
-    /** Frequency of each spectrum point: log-spaced from 20 Hz to Nyquist (analysis spec v4). */
+    /** Frequency of each of the scan's SPECTRUM_POINTS spectrum points: log-spaced from 20 Hz to Nyquist (analysis spec v4). */
     frequencies: number[];
     /** Both levels and their difference, taken of the levels before any rounding (R1: only writing rounds). */
     leq: { base: number; compare: number; delta: number } | null;
@@ -97,6 +99,8 @@ function spreadOf(memberBands: ReadonlyArray<readonly (number | null)[]>): numbe
 
 /** The spectrum's lowest edge (analysis_spec.SPECTRUM_MIN_HZ); its points are log-spaced up to Nyquist. */
 export const SPECTRUM_MIN_HZ = 20;
+/** How many log-spaced points a scan's spectrum has (analysis_spec.SPECTRUM_POINTS). */
+export const SPECTRUM_POINTS = 192;
 
 /** Each spectrum point's frequency: the geometric centre of its log-spaced edges. */
 export function spectrumFrequencies(nyquist: number, points: number): number[] {
@@ -114,11 +118,10 @@ function topEdge(frequencies: readonly number[]): number {
 
 /** One spectrum, Leq and band row per file: channels are power-averaged, as in the entry table. */
 function fileSide(result: ScanOk): Omit<CompareSide, 'title' | 'filePaths'> {
-    // A scan that succeeded carries its metrics; one without them has no levels to give.
-    const channels = result.spectrumDb ?? [];
+    // A scan that succeeded carries its metrics; one without them has no levels to give. Its 192-point spectrum is
+    // drawn points (scan_service.log_spectrum) and is never read: every level here is of full data (R1).
     const binRows = result.spectrumBinsDb;
     return {
-        spectrumDb: (channels[0] ?? []).map((_, point) => powerMeanDb(channels.map(row => row[point]))),
         ...(binRows?.length ? { bins: (binRows[0] ?? []).map((_, bin) => powerMeanDb(binRows.map(row => row[bin]))) } : {}),
         leq: powerMeanDb(result.leqDbA ?? []),
         bands: BAND_CENTERS_HZ.map((_, band) => {
@@ -157,7 +160,6 @@ function medianSide(sides: Array<Omit<CompareSide, 'title' | 'filePaths'>>, inpu
         return levels.some(level => level === null) ? null : quantile(levels as number[], p);
     });
     const spread = sides.length >= 3 ? {
-        spectrumDb: [0.25, 0.75].map(p => sides[0].spectrumDb.map((_, point) => quantile(sides.map(side => side.spectrumDb[point]), p))) as [number[], number[]],
         bands: [bandsAt(0.25), bandsAt(0.75)] as [(number | null)[], (number | null)[]],
     } : undefined;
     // Every bin's median, where every file has the same bins (the same sample rate and n_fft).
@@ -169,7 +171,6 @@ function medianSide(sides: Array<Omit<CompareSide, 'title' | 'filePaths'>>, inpu
         ...(bins ? { bins } : {}),
         ...(input ? { levelLabel: input.levelReferenceLabel, levelKey: levelKeyOf(input) } : {}),
         ...(input?.calibrationStatus !== 'calibrated' ? { uncalibrated: true } : {}),
-        spectrumDb: sides[0].spectrumDb.map((_, point) => medianOfSome(sides.map(side => side.spectrumDb[point]))),
         leq: medianOfSome(sides.map(side => side.leq)),
         bands: BAND_CENTERS_HZ.map((_, band) => {
             const levels = sides.map(side => side.bands[band]);
@@ -240,8 +241,7 @@ export function buildCompareModel(
     const waiting = (state: string | undefined): boolean => state === 'pending' || state === 'missing';
     const pending = !!comparePath && (waiting(comparedAnswer?.state) || (!!baseSet && excludedFor(baseSet, 'pending', 'missing') > 0));
     const fs = (compared ?? single)?.input?.fs ?? 0;
-    const points = (compare ?? base)?.spectrumDb.length ?? 0;
-    const frequencies = spectrumFrequencies(fs / 2, points);
+    const frequencies = spectrumFrequencies(fs / 2, SPECTRUM_POINTS);
     const sameFile: CompareModel['blocked'] = loneGroup && compare ? 'single'
         : !base || !compare ? undefined
             : single && basePath === comparePath ? 'self'
@@ -254,8 +254,7 @@ export function buildCompareModel(
     const withheldFile = of?.kind === 'file' && !!single && !!baseSet && !baseSet.n && !otherReference && !pending && !!compare;
     const blocked: CompareModel['blocked'] = sameFile ?? (compared && otherReference ? 'unit' : emptyGroup || withheldFile ? 'empty' : undefined);
     const baseSide: CompareSide | null = base;
-    const comparable = !blocked && !!baseSide && !!compare && baseSide.spectrumDb.length === compare.spectrumDb.length;
-    const diffDb = comparable ? compare.spectrumDb.map((level, index) => level - baseSide.spectrumDb[index]) : null;
+    const comparable = !blocked && !!baseSide && !!compare;
     const baseValues = single ? [single] : baseSet ? baseSet.used.map(item => item.value) : [];
     const bins = binsOf(compared, baseValues, base, compare, comparable, fs / 2);
     const leq = comparable ? { base: baseSide.leq, compare: compare.leq, delta: levelDelta(compare.leq, baseSide.leq) } : null;
@@ -280,7 +279,7 @@ export function buildCompareModel(
     // A blocked Δ still shows both levels; only the difference is withheld.
     const levels = blocked && base && compare ? { base: base.leq, compare: compare.leq, delta: Number.NaN } : blocked ? null : leq;
     return {
-        base, compare, diffDb, bins, frequencies, leq: levels, topBands, bandDeltas, baseSet, ...(compared ? { compareResult: compared } : {}),
+        base, compare, comparable, bins, frequencies, leq: levels, topBands, bandDeltas, baseSet, ...(compared ? { compareResult: compared } : {}),
         ...(blocked ? { blocked } : {}), ...(pending ? { pending } : {}),
     };
 }
@@ -443,20 +442,16 @@ export function levelsHeadline(comparison: CompareModel, strings: CompareStrings
     return [...comparison.topBands.map(item => pair(bandLabel(item.band), comparison.base?.bands[item.band], comparison.compare?.bands[item.band])), leq].join(' · ');
 }
 
-/** A side's spectrum (or 1/3-octave levels) as a picture on the comparison's axes, for drawing it over others. */
-export function sideView(side: Pick<CompareSide, 'spectrumDb' | 'bands'> | null | undefined, frequencies: number[], bands = false): StageView | null {
+/**
+ * A side's 1/3-octave levels (each the scan's own, from every bin) as a picture on the comparison's axes, for drawing
+ * it over others where the scans gave no bins. Never the scan's 192 points: they are drawn points, of no number (R1).
+ */
+export function sideView(side: Pick<CompareSide, 'bands'> | null | undefined, frequencies: number[]): StageView | null {
     if (!side) return null;
-    if (bands) {
-        // Only the bands up to Nyquist: the rest are empty for every file.
-        const count = bandCount(frequencies);
-        const xs = BAND_CENTERS_HZ.slice(0, count), values = side.bands.slice(0, count);
-        return { frame: 'NOctFrame', kind: 'bar', x: 'band', xScale: 'log', quantity: 'level', xs, values, levelBins: levelBinsOf(xs, values, [xs[0] ?? 1, xs[xs.length - 1] ?? 1], true) };
-    }
-    if (!frequencies.length || side.spectrumDb.length !== frequencies.length) return null;
-    return {
-        frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity: 'level', xs: frequencies, values: side.spectrumDb,
-        levelBins: levelBinsOf(frequencies, side.spectrumDb, [frequencies[0], frequencies[frequencies.length - 1]], true),
-    };
+    // Only the bands up to Nyquist: the rest are empty for every file.
+    const count = bandCount(frequencies);
+    const xs = BAND_CENTERS_HZ.slice(0, count), values = side.bands.slice(0, count);
+    return { frame: 'NOctFrame', kind: 'bar', x: 'band', xScale: 'log', quantity: 'level', xs, values, levelBins: levelBinsOf(xs, values, [xs[0] ?? 1, xs[xs.length - 1] ?? 1], true) };
 }
 
 /** How many 1/3-octave bands lie below the spectra's top edge (Nyquist). */

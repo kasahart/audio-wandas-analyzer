@@ -27,6 +27,7 @@ from stage_combine import (
     read_points,
     stage_data,
     time_axis,
+    value_range,
 )
 from stage_view import stage_view
 
@@ -404,14 +405,15 @@ def test_a_small_signal_difference_keeps_its_significant_figures() -> None:
 
 
 def test_a_long_signals_difference_needs_no_array_of_times_or_float64_copy() -> None:
-    # A minute at 48 kHz: the Δ is a float32 subtraction, and drawing it (whole or zoomed) takes each bucket's
-    # extremes by index, so the memory beyond the kept samples stays near the difference's own 4 bytes a sample.
+    # A minute at 48 kHz, kept float64 (stage_data): the Δ is one float64 subtraction, and drawing it (whole or zoomed)
+    # takes each bucket's extremes by index, so the memory beyond the kept samples stays near the difference's own 8
+    # bytes a sample: no copy of the samples, no array of their times.
     count, rate = 48_000 * 60, 48_000.0
     view = {"frame": "ChannelFrame", "kind": "line", "x": "time", "xScale": "linear", "quantity": "value", "unit": "Pa"}
     rng = np.random.default_rng(5)
 
     def recording() -> StageData:
-        samples = rng.standard_normal(count).astype(np.float32)
+        samples = rng.standard_normal(count)
         return StageData("signal", view, np.empty(0), samples, start=0.0, rate=rate)  # type: ignore[arg-type]
 
     base, compare = recording(), recording()
@@ -420,7 +422,7 @@ def test_a_long_signals_difference_needs_no_array_of_times_or_float64_copy() -> 
         result = combine([base], compare, detail)  # type: ignore[arg-type]
         peak = tracemalloc.get_traced_memory()[1]
         tracemalloc.stop()
-        assert peak < 8 * count, f"{peak / count:.1f} bytes a sample"
+        assert peak < 12 * count, f"{peak / count:.1f} bytes a sample"
         assert result["diff"]["xs"]
 
 
@@ -771,3 +773,47 @@ def test_a_time_axis_key_agrees_with_what_aligned_combines() -> None:
         assert time_axis(same[0]) != time_axis(other)
     signal = StageData("signal", view, np.empty(0), np.zeros(4), start=0.0, rate=48_000.0)  # type: ignore[arg-type]
     assert time_axis(signal) == {"start": 0.0, "step": 1 / 48_000}
+
+
+def test_a_difference_has_no_silent_floor_its_range_and_reads_hold_a_delta_of_minus_260_db() -> None:
+    """Only a level has a silent floor (SILENT_DB and below): a Δ of −260 dB is a Δ, in its range and its readout,
+    while a level's silence (−300 dB) stays out of the level's range."""
+    xs = np.arange(1.0, 9.0) * 100.0
+    base_levels = np.array([-300.0, -10.0, -9.996, -300.0, -20.0, -30.0, -40.0, -50.0])
+    compared = base_levels.copy()
+    compared[2] = -269.996
+    view = {"frame": "SpectralFrame", "kind": "line", "x": "frequency", "xScale": "linear", "quantity": "level"}
+    base = StageData(mode="spectrum", view=view, xs=xs, values=base_levels, nyquist=float(xs[-1]))  # type: ignore[arg-type]
+    compare = StageData(mode="spectrum", view=view, xs=xs, values=compared, nyquist=float(xs[-1]))  # type: ignore[arg-type]
+    result = combine([base], compare, {"x": [100.0, 800.0], "points": 64})
+    assert result["diff"]["valueRange"]["min"] == pytest.approx(-260.0)
+    # A level's own range leaves out its silence (−300 dB, and −269.996 dB too): the floor is a level's only.
+    assert value_range(compare, {"x": [100.0, 800.0], "points": 64})["min"] == pytest.approx(-50.0)  # type: ignore[index]
+    seek = read_points([base], compare, {"x": [100.0], "seek": 1, "beyond": 1, "of": "diff", "plain": True})
+    assert seek is not None and seek["values"][seek["xs"].index(300.0)] == pytest.approx(-260.0)
+
+
+def test_a_median_and_a_difference_are_taken_and_kept_in_float64() -> None:
+    """Values a float32 step apart (0.5 and 0.5 + 2⁻²⁴) have a median between them (0.5 + 2⁻²⁵, no float32) and a Δ
+    from it of 2⁻²⁵: computed and kept in float64, in the picture's range and peak and in a read alike."""
+    view = {"frame": "ChannelFrame", "kind": "line", "x": "time", "xScale": "linear", "quantity": "value"}
+    step = 2.0**-24
+
+    def samples(value: float) -> StageData:
+        return StageData(mode="signal", view=view, xs=np.empty(0), values=np.full(8, value), rate=1000.0)  # type: ignore[arg-type]
+
+    base, compare = [samples(0.5), samples(0.5 + step)], samples(0.5 + step)
+    result = combine(base, compare)
+    assert result["base"]["valueRange"] == {"min": 0.5 + step / 2, "max": 0.5 + step / 2}
+    assert result["diff"]["peak"]["value"] == step / 2
+    assert result["diff"]["valueRange"] == {"min": step / 2, "max": step / 2}
+    read = read_points(base, compare, {"x": [0.0, 0.007], "beyond": 0, "of": "diff"})
+    assert read is not None and read["values"] == [step / 2] * 8
+
+
+def test_every_full_resolution_picture_is_kept_in_float64(signal: wd.ChannelFrame) -> None:
+    """The kept values (stage_data) are float64 whatever the Frame's dtype: a signal's channel mean, a spectrogram's
+    power-averaged plane, a cepstrogram's and a roughness plane alike."""
+    for frame in (signal, signal.stft(n_fft=512, hop_length=256)):
+        data = stage_data(frame, dict(stage_view(frame)))
+        assert data is not None and data.values.dtype == np.float64, type(frame).__name__

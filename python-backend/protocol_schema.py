@@ -640,6 +640,8 @@ DEFINITIONS: dict[str, Schema] = {
             "start": {"anyOf": [_NUMBER, _NULL]},
             "end": {"anyOf": [_NUMBER, _NULL]},
             "complete": {"type": "boolean"},
+            # Of a dense window read at the pointer's place: the index in ``xs`` of the point under the pointer.
+            "under": {"type": "integer", "minimum": 0},
             # A level read's answer: the mean power of the window's ``count`` finite values.
             "level": {
                 "type": "object",
@@ -829,7 +831,7 @@ DEFINITIONS: dict[str, Schema] = {
             "conditionId": {"type": "string"},
             "input": {"$ref": "#/$defs/ScanInput"},
             "leqDbA": _NUMBERS,
-            "peakHz": {"type": "array", "items": {"type": "integer"}},
+            "peakHz": _NUMBERS,
             "spectrumDb": {"type": "array", "items": _NUMBERS},
             # Every Welch bin per channel (bin k at k × spectrumBinHz), for medians and differences.
             "spectrumBinsDb": {"type": "array", "items": _NUMBERS},

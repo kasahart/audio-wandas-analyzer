@@ -106,7 +106,7 @@ def test_a_dense_window_sends_the_point_nearest_the_pointer_on_screen_as_brute_f
         nearest = int(np.argmin(np.where(readable, sent_away, np.inf)))
         assert sent[nearest] == pytest.approx(xs_all[best]), f"trial {trial}"
         assert sent_values[nearest] == pytest.approx(values[best])
-        assert len(sent) <= 3 * 41 + 3 < READ_POINT_LIMIT
+        assert len(sent) <= 3 * 41 + 4 < READ_POINT_LIMIT
 
 
 def test_an_arrow_keys_seek_crosses_a_silence_of_any_length_to_the_next_value_as_brute_force_finds_it() -> None:
@@ -346,3 +346,22 @@ def test_a_read_sends_the_values_unrounded_so_the_webview_picks_tells_silence_an
 
 def stage_data_of(xs: np.ndarray, values: np.ndarray, view: dict) -> StageData:
     return StageData(mode="spectrum", view=view, xs=xs, values=values, nyquist=float(xs[-1]))  # type: ignore[arg-type]
+
+
+def test_a_dense_window_sends_the_point_under_the_pointer_and_names_it() -> None:
+    """A window too dense to send whole sends, besides each column's picks, the point with a value nearest the
+    pointer along the axis (``under``): the one read when no point is within the pick radius (R7)."""
+    values = _values(20_000)
+    at = 5003.4
+    read = {"x": [0.0, 19_999.0], "near": 5.0, "columns": 41, "at": at, "pixels": [0.02, 40.0]}
+    points = read_line(uniform_axis(20_000, 0.0, 1.0), lambda a, b: values[a:b], read)  # type: ignore[arg-type]
+    assert not points["complete"]
+    assert points["xs"][points["under"]] == 5003.0
+    assert points["values"][points["under"]] == pytest.approx(values[5003])
+    assert first_violation(DEFINITIONS["StagePoints"], points) is None
+    # On a log axis, nearest by ratio; a silent point is passed over for the nearest with a value.
+    levels = np.full(20_000, -20.0)
+    levels[5002] = -300.0  # at x = 5003
+    log = {**read, "x": [1.0, 20_000.0], "near": -20.0, "log": True}
+    points = read_line(uniform_axis(20_000, 1.0, 1.0), lambda a, b: levels[a:b], log)  # type: ignore[arg-type]
+    assert points["xs"][points["under"]] == 5004.0

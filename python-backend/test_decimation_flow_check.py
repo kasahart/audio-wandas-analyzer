@@ -63,8 +63,8 @@ MUTATIONS = {
     ),
     "Δ of two drawn lines": (
         "stage_combine",
-        "        else _f64(compare.values) - median\n",
-        '        else np.asarray(compare.view["values"]) - np.asarray(first.view["values"])\n',
+        "    difference = _f64(compare.values) - median\n",
+        '    difference = np.asarray(compare.view["values"]) - np.asarray(first.view["values"])\n',
         "stage_combine:combine: Δ ",
     ),
     "overlay order from the drawn line": (
