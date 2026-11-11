@@ -59,7 +59,7 @@
 - 時間軸の線は、始まりと刻みが同じものだけを 1 つの軸として数えます（バックエンドが送る `timeAxis`。`_aligned` と同じ定義）。長さが違うだけなら共通の部分で比べます。チャンネル数の違う録音（全チャンネルをまとめて比べるとき）は、理由を付けて除きます（「チャンネル数の違う n 本は除外」）。値のない答え（イベントのないトリガー、ナイキストを超える帯）は「値のない n 本は除外」と言います。「失敗」とは言いません。
 - テスト: `src/test/figureSweep3.test.ts` › a transfer function is of its pair's unit ratio and a cross spectrum of its pair's reference (reference V3, V7, R1)
 - テスト: `python-backend/test_stage_view.py` › test_a_cross_spectrum_of_two_units_is_named_by_its_pairs_reference_never_a_channels
-- 入口でスロットのキーを押し続けて出す保持図の Δ は、押したときに、その録音と基準の録音の全ビンを取り寄せて計算します。届くまでは何も描かず、題に「計算中」と出します。表の 192 点の Δ は描きません。全ビンが取れない録音（スキャンがビンを返さないとき）は、1/3 オクターブ帯の Δ を棒で描きます。帯のレベルは、スキャンが全ビンから求めた値です。レポートの図も同じで、全ビンがないときは、重ね図は 1/3 オクターブ帯のレベルを、Δ の図は帯の Δ の段だけを描きます。
+- 入口でスロットのキーを押し続けて出す保持図の Δ は、押したときに、その録音と基準の録音の全ビンを取り寄せて計算します。届くまでは何も描かず、題に「計算中」と出します。表の 192 点の Δ は描きません。scan の 192 点（`spectrumDb`、全ビンを対数間隔の点にまとめた `scan_service.log_spectrum`）は描くために間引いた点として扱い（契約表の `DRAWN_FIELDS` と `PY_DECIMATORS`）、比較台と報告の中央値・Δ・広がり・重ね順のどれにも使いません（`comparePanes.fileSide`）。全ビンが取れない録音（スキャンがビンを返さないとき）は、1/3 オクターブ帯の Δ を棒で描きます。帯のレベルは、スキャンが全ビンから求めた値です。レポートの図も同じで、全ビンがないときは、重ね図は 1/3 オクターブ帯のレベルを、Δ の図は帯の Δ の段だけを描きます。
 - テスト: `src/test/entryHeldPlot.test.ts` › a held slot asks once for every bin of its file and its base, then draws its Δ from them (R1, R3)
 - テスト: `src/test/uiSmoke/heldDelta.spec.ts` › a held slot draws its own channel's Δ against its base from every bin the hold asks for (R1, R3, R11)
 

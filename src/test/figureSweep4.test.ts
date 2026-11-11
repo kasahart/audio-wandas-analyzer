@@ -114,7 +114,7 @@ test('slot 0 on another frequency axis gives no Δ beside its n of 0, and nothin
     const comparison = base.comparison('/d/b.wav');
     assert.equal(comparison.baseSet?.n, 0);
     assert.equal(comparison.blocked, 'empty');
-    assert.equal(comparison.diffDb, null);
+    assert.equal(comparison.comparable, false);
     assert.ok(!comparison.leq || Number.isNaN(comparison.leq.delta), 'no Leq Δ');
 });
 

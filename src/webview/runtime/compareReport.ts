@@ -439,8 +439,8 @@ export function paintOverlayFigure(canvas: HTMLCanvasElement, comparison: Compar
     // Every bin, decimated only to be drawn, as the comparison draws a spectrum. Where a scan gave no bins, the
     // 1/3-octave levels (each the scan's own, from every bin; a group's median band by band): never the 192 points.
     const { bins } = comparison;
-    const base = bins?.base ? binsView(bins, 'base') : sideView(comparison.base, comparison.frequencies, true);
-    const compare = bins?.compare ? binsView(bins, 'compare') : sideView(comparison.compare, comparison.frequencies, true);
+    const base = bins?.base ? binsView(bins, 'base') : sideView(comparison.base, comparison.frequencies);
+    const compare = bins?.compare ? binsView(bins, 'compare') : sideView(comparison.compare, comparison.frequencies);
     const color = ROLE_COLORS[slot] ?? ROLE_COLORS[1];
     const level = reportLevelAxes(comparison, input, strings, { base, compare });
     // Ordered by every bin (or every band, which the figure draws whole), never the points thinned to draw (R6).

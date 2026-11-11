@@ -260,7 +260,7 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
             if (kept?.ok && !sameCondition(kept, scanned) && binsAskedFor.get(key) !== own) bins.forget(spec, file);
             if (!kept || bins.result(spec, file) === undefined) binsAskedFor.set(key, own);
         }
-        const waiting = !!table.diffDb && bins.ensure(spec, files);
+        const waiting = table.comparable && bins.ensure(spec, files);
         if (waiting) {
             // Nothing of the table's 192 points is drawn meanwhile: the Δ is taken only of every bin (R1, R2).
             held.classList.add('is-pending');
@@ -270,7 +270,7 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
         }
         // A file whose every bin failed (and may pass: asked again after the pause) leaves the Δ unmeasured, and the plot
         // says so: never the table's band bars in its place, which are only for scans that give no bins (R1, V7).
-        const failed = table.diffDb ? files.filter(file => bins.result(spec, file) === undefined && bins.failure(spec, file) !== undefined) : [];
+        const failed = table.comparable ? files.filter(file => bins.result(spec, file) === undefined && bins.failure(spec, file) !== undefined) : [];
         if (failed.length) {
             held.classList.add('is-failed');
             const why = strings.heldBinsFailed.replace('{files}', failed.map(baseName).join(', ')).replace('{why}', bins.failure(spec, failed[0]) || '—');

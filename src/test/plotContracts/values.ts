@@ -81,6 +81,8 @@ export const DRAWN_FIELDS: Readonly<Record<string, readonly string[]>> = {
     WaveformEnvelope: ['min', 'max'],
     // A signal's envelope as a picture carries it (StageView['waveform'], named so where a lane draws it).
     LaneWaveform: ['min', 'max'],
+    // A scan's 192-point spectrum: every Welch bin power-averaged into log-spaced points (scan_service.log_spectrum), to draw.
+    ScanResult: ['spectrumDb'],
 };
 
 /** Functions whose result is drawn points: a call of one is a read of drawn points too. Each reads DRAWN_FIELDS itself. */
@@ -91,6 +93,7 @@ export const PY_DECIMATORS: readonly string[] = [
     ...['decimated_waveform'].map(name => `python-backend/decimator.py:${name}`),
     ...['min_max_indices', 'min_max_line', 'min_max_rows', 'spectrum_line', 'samples_waveform', '_time_blocks', '_block_peaks', '_signed_peaks', '_envelope', '_cepstrum_envelope'].map(name => `python-backend/stage_view.py:${name}`),
     ...['resample_frequency_bins', '_resample_time_bins', 'min_max_spectrum'].map(name => `python-backend/analyzer.py:${name}`),
+    ...['log_spectrum'].map(name => `python-backend/scan_service.py:${name}`),
 ];
 
 export type DrawnUse =
@@ -165,6 +168,9 @@ export const DRAWN_READERS: Readonly<Record<string, DrawnReader>> = {
     ['python-backend/analyzer.py:_build_spectrogram']: { use: 'draws', why: 'resamples the cells to draw them; minDb / maxDb are every full cell\'s, taken before (track-spectrogram.range)' },
     ['python-backend/stage_view.py:_spectrogram_view']: { use: 'draws', why: 'power-averages the cells per time block to draw them; the colour range is every full cell\'s (valueRange, compare-overlay.range-image)' },
     ['src/shared/protocol/backendProtocol.ts:hasAlignedEnvelopeArrays']: { use: 'draws', why: 'checks an answer\'s envelope arrays line up; shows nothing' },
+    ['src/shared/protocol/backendProtocol.ts:isScanResult']: { use: 'draws', why: 'checks a scan\'s per-channel arrays line up with its channels; shows nothing' },
+    ['src/shared/recipe/channelSelection.ts:channelResult']: { use: 'draws', why: 'keeps one channel\'s row of a scan\'s 192 drawn points, still a ScanResult to draw; no number of it' },
+    ['python-backend/scan_service.py:measure']: { use: 'draws', why: "a scan's 192-point spectrum, to draw (log_spectrum); every level, median and Δ is of every Welch bin (spectrumBinsDb) or the scan's own band levels" },
     ['src/shared/protocol/backendProtocol.ts:hasSpectrogramShape']: { use: 'draws', why: 'checks an answer\'s spectrogram shape; shows nothing' },
     ['src/webview/runtime/compareReport.ts:deltaFigure']: { use: 'whole', why: 'the report Δ figure\'s range: every bin\'s Δ (binsView\'s valueRange) and every band\'s (report-delta.range)', proof: { file: 'src/test/comparePanes.test.ts', name: 'the report\'s Δ figure without bins draws the 1/3-octave Δ, its range holding every band (R1)' } },
     ['src/webview/runtime/comparisonRuntime.ts:exportCsv']: { use: 'whole', why: 'starts writeCsvWhenDetailed', proof: { file: 'src/test/renderScript.integration.test.ts', name: 'renderScript: export-csv replaces a cursor spectrum cut for display with every FFT bin', via: 'export-csv' } },
