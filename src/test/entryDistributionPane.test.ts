@@ -98,7 +98,7 @@ test('Alt+drag on a row picks a range, as Alt+drag is on every plot (plotInterac
     const canvas = groups?.querySelector('[data-dist-canvas]');
     assert.ok(groups && canvas);
     const { document } = dom.window;
-    const fire = (target: EventTarget, type: string, clientX: number, altKey = false): void => { target.dispatchEvent(new dom.window.MouseEvent(type, { bubbles: true, button: 0, clientX, altKey })); };
+    const fire = (target: EventTarget, type: string, clientX: number, altKey = false): void => { target.dispatchEvent(new dom.window.MouseEvent(type, { bubbles: true, button: 0, ...(type === 'mousemove' ? { buttons: 1 } : {}), clientX, altKey })); };
     fire(canvas, 'mousedown', 120, true);
     fire(document, 'mousemove', 300, true);
     assert.equal(groups.querySelector<HTMLElement>('[data-dist-brush]')?.hidden, false);

@@ -19,7 +19,7 @@ const STR_EN = getStrings('en');
  * A plot that does not pass one yet is listed in KNOWN_GAPS with the deviation of the unified plot spec it waits
  * for; a gap that is fixed fails here until it is taken off, so the list only shrinks.
  */
-type Check = 'readout' | 'step' | 'zoom' | 'reset' | 'zoom keys' | 'axis wheel' | 'box zoom' | 'axis range' | 'x range' | 'axes';
+type Check = 'readout' | 'step' | 'zoom' | 'reset' | 'zoom keys' | 'axis wheel' | 'box zoom' | 'lost release' | 'axis range' | 'x range' | 'axes';
 const KNOWN_GAPS: Record<string, readonly Check[]> = {};
 
 const FULL = '0.000 1.000 0.000 1.000';
@@ -432,6 +432,34 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
     }
     await page.mouse.dblclick(middle.x, middle.y);
     await settled(page);
+    // A drag whose release never reaches the page ends there with nothing done (R7): the window loses the focus
+    // mid-drag, or the button is let go outside the page (the next move finds it up). The plot reads and steps again
+    // under the pointer, and shows what it showed before the press (no box zoomed into).
+    let lostEnds = true;
+    for (const lose of ['blur', 'move with the button up'] as const) {
+        const windowBefore = await plot.getAttribute('data-plot-window');
+        await page.mouse.move(box.x + box.width * 0.3, middle.y);
+        await page.mouse.down();
+        await page.mouse.move(box.x + box.width * 0.5, middle.y + 6, { steps: 4 });
+        if (lose === 'blur') await page.evaluate(() => window.dispatchEvent(new FocusEvent('blur')));
+        else await plot.evaluate((canvas, at) => canvas.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: at.x, clientY: at.y, buttons: 0 })), { x: box.x + box.width * 0.5, y: middle.y + 6 });
+        // Playwright's button is still down: its moves now are no drag, the press having ended.
+        await page.mouse.move(middle.x - 3, middle.y);
+        await page.mouse.move(middle.x, middle.y);
+        await settled(page);
+        const reads = await pointRead(plot);
+        // The press gave a lane the keyboard's focus, where ← / → move its time cursor (A47): the readout's step is asked
+        // with the focus elsewhere, as every other plot's is.
+        await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.());
+        await page.keyboard.press('ArrowRight');
+        await settled(page);
+        const steps = reads ? await pointRead(plot, reads) : null;
+        await page.mouse.up();
+        await settled(page);
+        const kept = (await plot.getAttribute('data-plot-window')) === windowBefore;
+        if (!reads || !steps || (steps.at === reads.at && steps.row === reads.row) || !kept) lostEnds = false;
+    }
+    if (lostEnds) passed.add('lost release');
     // A double-click on an axis opens its range. The range is applied, not only offered: bounds narrowed to the middle
     // half of the ones it shows are typed in and applied, and the plot shows another part (its picture changes; the
     // window attribute is only the gestures'), then Auto gives the whole back (the picture changes again).
@@ -569,7 +597,7 @@ async function expectContract(page: Page, name: string, plot: Locator): Promise<
     checkedPlots.add(await plot.evaluate(plotName));
     const passed = await contract(page, plot);
     const gaps = KNOWN_GAPS[name] ?? [];
-    const checks: Check[] = ['readout', 'step', 'zoom', 'reset', 'zoom keys', 'axis wheel', 'box zoom', 'axis range', 'x range', 'axes'];
+    const checks: Check[] = ['readout', 'step', 'zoom', 'reset', 'zoom keys', 'axis wheel', 'box zoom', 'lost release', 'axis range', 'x range', 'axes'];
     expect.soft(checks.filter(check => !passed.has(check) && !gaps.includes(check)), `${name}: fails the plot contract (R13)`).toEqual([]);
     expect.soft(gaps.filter(check => passed.has(check)), `${name}: now passes; take it off KNOWN_GAPS`).toEqual([]);
 }

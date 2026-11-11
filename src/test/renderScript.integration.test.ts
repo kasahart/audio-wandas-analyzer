@@ -3289,7 +3289,7 @@ test('renderScript: on a lane Shift+drag shifts the track\'s time, Alt+drag on t
     canvas.height = 100;
     canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 400, bottom: 100, width: 400, height: 100, x: 0, y: 0, toJSON: () => ({}) });
     const mouse = (target: EventTarget, type: string, clientX: number, init: MouseEventInit = {}): void => {
-        target.dispatchEvent(new env.dom.window.MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX, clientY: 50, ...init }));
+        target.dispatchEvent(new env.dom.window.MouseEvent(type, { bubbles: true, cancelable: true, button: 0, ...(type === 'mousemove' ? { buttons: 1 } : {}), clientX, clientY: 50, ...init }));
     };
     const snapshot = async (actionId: string): Promise<any> => {
         env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: { type: 'comparison-panel-test-action', actions: [], actionId } }));

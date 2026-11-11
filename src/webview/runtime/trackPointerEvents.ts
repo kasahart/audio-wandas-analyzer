@@ -10,6 +10,13 @@ export interface TrackPointerHandlers {
     press(e: MouseEvent): void;
     drag(e: MouseEvent): void;
     release(e: MouseEvent): void;
+    /**
+     * The end of a press was lost (its release never reached the page: the pointer let go outside it, the window lost
+     * the focus or was hidden, the pointer was cancelled or its capture lost): the press and any drag end there, with
+     * nothing done, so the readout and the keys answer again on every plot (R7). `e` is the move that found the
+     * button up, where the pointer is now; none for the window's blur or hiding.
+     */
+    abandon?(e?: MouseEvent): void;
     zoomWheel(e: WheelEvent): void;
     /** `swipe`: a sideways swipe, moved as far as the fingers went; else a Shift+wheel notch, by the lanes' step. */
     panWheel(e: WheelEvent, swipe: boolean): void;
@@ -185,8 +192,15 @@ export function attachTrackPointerListeners(tracksWrapper: PointerSurface, doc: 
         },
     });
     tracksWrapper.addEventListener('mousedown', function (e) { handlers.press(e); });
-    doc.addEventListener('mousemove', function (e) { handlers.drag(e); });
+    // A move with no button down is a press whose release was lost (let go outside the page): it ends there.
+    doc.addEventListener('mousemove', function (e) { if (e.buttons === 0 && handlers.abandon) handlers.abandon(e); else handlers.drag(e); });
     doc.addEventListener('mouseup', function (e) { handlers.release(e); });
+    // Every other way a press ends without its release reaching the page ends it too, with nothing done.
+    const lost = (): void => handlers.abandon?.();
+    doc.addEventListener('pointercancel', lost, true);
+    doc.addEventListener('lostpointercapture', lost, true);
+    doc.addEventListener('visibilitychange', function () { if ((doc as Partial<Document>).hidden) lost(); });
+    (doc as Partial<Document>).defaultView?.addEventListener('blur', lost);
     // A swipe keeps the direction its first events took until it pauses, so a diagonal one does not
     // alternate between panning the time and scrolling the lanes.
     let swipe: { sideways: boolean; at: number } | null = null;

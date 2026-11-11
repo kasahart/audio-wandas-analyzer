@@ -547,7 +547,7 @@ test('the pair plots lie on the power spectrum\'s frequency axis past the refere
         // A box on the pair view zooms the power spectrum in its own Hz.
         const lane = fixture.lane('gain'), mouse = fixture.doc.defaultView!.MouseEvent;
         lane.dispatchEvent(new mouse('mousedown', { bubbles: true, button: 0, clientX: xOfHz(1000, 4000), clientY: yOf(1) }));
-        fixture.doc.dispatchEvent(new mouse('mousemove', { bubbles: true, clientX: xOfHz(3000, 4000), clientY: yOf(0) }));
+        fixture.doc.dispatchEvent(new mouse('mousemove', { bubbles: true, buttons: 1, clientX: xOfHz(3000, 4000), clientY: yOf(0) }));
         fixture.doc.dispatchEvent(new mouse('mouseup', { bubbles: true, clientX: xOfHz(3000, 4000), clientY: yOf(0) }));
         const zoomed = fixture.windows.at(-1)!;
         assert.ok(Math.abs(zoomed.min - 1000) < 5 && Math.abs(zoomed.max - 3000) < 5, JSON.stringify(zoomed));
@@ -601,7 +601,7 @@ test('the pair plots zoom with every plot\'s gestures: the frequency shared with
         const lane = fixture.lane('gain');
         // A box from 250 to 750 Hz over the gain plot's upper half.
         lane.dispatchEvent(new mouse('mousedown', { bubbles: true, button: 0, clientX: xOfHz(250), clientY: yOf(1) }));
-        fixture.doc.dispatchEvent(new mouse('mousemove', { bubbles: true, clientX: xOfHz(750), clientY: yOf(0.5) }));
+        fixture.doc.dispatchEvent(new mouse('mousemove', { bubbles: true, buttons: 1, clientX: xOfHz(750), clientY: yOf(0.5) }));
         fixture.doc.dispatchEvent(new mouse('mouseup', { bubbles: true, clientX: xOfHz(750), clientY: yOf(0.5) }));
         const zoomed = fixture.windows.at(-1)!;
         assert.ok(Math.abs(zoomed.min - 250) < 1 && Math.abs(zoomed.max - 750) < 1, JSON.stringify(zoomed));
@@ -631,7 +631,7 @@ test('a boxed level zoom keeps the values boxed when the frequency zoom refits t
         // (−7.5 to 0 dB) up to 600 Hz, which leaves 0 and −6 dB on screen, so the whole range is refitted to −10 to 0 dB
         // and the box is kept inside it.
         lane.dispatchEvent(new mouse('mousedown', { bubbles: true, button: 0, clientX: xOfHz(0), clientY: yOf(1) }));
-        fixture.doc.dispatchEvent(new mouse('mousemove', { bubbles: true, clientX: xOfHz(600), clientY: yOf(0.5) }));
+        fixture.doc.dispatchEvent(new mouse('mousemove', { bubbles: true, buttons: 1, clientX: xOfHz(600), clientY: yOf(0.5) }));
         fixture.doc.dispatchEvent(new mouse('mouseup', { bubbles: true, clientX: xOfHz(600), clientY: yOf(0.5) }));
         lane.dispatchEvent(new mouse('dblclick', { bubbles: true, clientX: 2, clientY: yOf(0.5) }));
         const request = fixture.levelRequests.at(-1)!;

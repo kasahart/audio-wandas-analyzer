@@ -43,7 +43,7 @@ function surface(extra: Partial<PlotInteractionDeps> = {}) {
         ...extra,
     });
     const mouse = (target: EventTarget, type: string, clientX: number, init: MouseEventInit = {}): void => {
-        target.dispatchEvent(new window.MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX, clientY: 50, ...init }));
+        target.dispatchEvent(new window.MouseEvent(type, { bubbles: true, cancelable: true, button: 0, ...(type === 'mousemove' ? { buttons: 1 } : {}), clientX, clientY: 50, ...init }));
     };
     const drag = (id: string, from: number, to: number, init: MouseEventInit = {}): void => {
         mouse(element(id), 'mousedown', from, init);
@@ -218,7 +218,7 @@ function twoSurfaces() {
         });
     }
     const mouse = (target: EventTarget, type: string, clientX: number, init: MouseEventInit = {}): void => {
-        target.dispatchEvent(new window.MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX, clientY: 50, ...init }));
+        target.dispatchEvent(new window.MouseEvent(type, { bubbles: true, cancelable: true, button: 0, ...(type === 'mousemove' ? { buttons: 1 } : {}), clientX, clientY: 50, ...init }));
     };
     const click = (id: string, clientX: number, detail = 1): void => { mouse(element(id), 'mousedown', clientX, { detail }); mouse(doc, 'mouseup', clientX, { detail }); };
     const wait = (): Promise<void> => new Promise(resolve => { setTimeout(resolve, PLOT_DOUBLE_CLICK_MS + 60); });
@@ -268,7 +268,7 @@ test('during a drag on one surface the keys over another plot step and zoom noth
     mouse(element('a'), 'mousedown', 20);
     mouse(doc, 'mousemove', 70);
     // The pointer over b (a drag carried across): its hover is not read meanwhile.
-    element('b').dispatchEvent(new (doc.defaultView as Window & typeof globalThis).MouseEvent('mousemove', { bubbles: true, clientX: 60, clientY: 50 }));
+    element('b').dispatchEvent(new (doc.defaultView as Window & typeof globalThis).MouseEvent('mousemove', { bubbles: true, buttons: 1, clientX: 60, clientY: 50 }));
     done.length = 0;
     key('ArrowRight');
     key('Equal', '=');
