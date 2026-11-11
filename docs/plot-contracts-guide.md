@@ -47,6 +47,23 @@ A row says what its value is computed from (`from`). `from: 'full'` needs a proo
 'thinned'` or `'extremes'` is recorded as a gap, and the number of gaps (`GAP_CEILING`) only goes down: compute from
 the full data instead.
 
+### The value's type says where it came from
+
+A readout, a headline and the point an arrow key steps to take only `Whole` (`src/shared/provenance.ts`): a number
+of the full data. A plain `number` is not a `Whole`, so this does not compile:
+
+```ts
+layer.readout?.(index, { x: view.xs[index], value: view.values[index] });  // error: number is not Whole
+```
+
+Read the value through the layer's `FullSource` instead (`layer.full.line(...)` answers `FullPoints`, whose values
+are `Whole`). A difference or a mean of whole values is whole: `wholeOf((a, b) => a - b, first, second)`.
+
+A number becomes a `Whole` only in `fullRead.ts` (a full read's points; arrays the caller holds every value of,
+through `localLine` / `localCells` / `fullPointsOf`) and in `wholeAnswers.ts` (a backend field the protocol says is
+taken of every value, one named function per field). `src/test/provenanceBoundary.test.ts` fails on a mint, a cast
+to `Whole` or a `value is Whole` predicate anywhere else, and says which of these to use.
+
 ## Proof tests
 
 A row computed from the full data names at least one test with `tt(file, name)`. That test must:
