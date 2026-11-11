@@ -445,7 +445,7 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
         if (await popover.count()) {
             const min = popover.locator('input[id$="-min"]'), max = popover.locator('input[id$="-max"]');
             const low = Number(await min.inputValue()), high = Number(await max.inputValue());
-            opened = { name: ((await popover.locator('[id$="-axis-badge"]').first().textContent().catch(() => '')) ?? '').trim(), low, high };
+            opened = { name: (await popover.first().evaluate(element => element.querySelector('[id$="-axis-badge"]')?.textContent ?? '')).trim(), low, high };
             const pictureBefore = await picture();
             if (Number.isFinite(low) && Number.isFinite(high) && high > low) {
                 await min.fill(String(low + (high - low) / 4));
