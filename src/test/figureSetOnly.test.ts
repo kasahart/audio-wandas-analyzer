@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
-import type { AnswerIdentity } from '../webview/runtime/answerTypes';
+import type { Answer, AnswerIdentity } from '../webview/runtime/answerTypes';
 import { getStrings } from '../shared/i18n/strings';
 import type { ScanResult, StageView } from '../shared/protocol/backendProtocol';
 import { scanAnswer, type ScanAnswer } from '../webview/runtime/answerStore';
@@ -17,8 +17,12 @@ import {
     baseLevelOf, bandLevelColumns, figureUsed, folderReference, levelColumns, pictureSet, referenceIdentity, scanIdentity, setCountText, setExclusionText, type FigureSet,
 } from '../webview/runtime/figureModel';
 
-/** The identity the answer store keeps for a picture (stageSource.identity): the tests' fixed version. */
-const asked = (path: string): AnswerIdentity => ({ path, fileVersion: 'v', calibrationSignature: 'c', level: { unit: '', ref: 1, levelReferenceLabel: '', calibrationStatus: 'uncalibrated', fullScale: false }, recipeKey: 'r', region: '', conditionId: '' });
+/** A picture as the answer store answers it (stageSource.answer): pending until in, failed as null, under a fixed version. */
+const identity = (path: string): AnswerIdentity => ({ path, fileVersion: 'v', calibrationSignature: 'c', level: { unit: '', ref: 1, levelReferenceLabel: '', calibrationStatus: 'uncalibrated', fullScale: false }, recipeKey: 'r', region: '', conditionId: '' });
+const answered = (views: Record<string, StageView | null | undefined>) => (path: string): Answer<StageView> => {
+    const view = views[path];
+    return view === undefined ? { state: 'pending', identity: identity(path) } : view === null ? { state: 'failed', identity: identity(path) } : { state: 'ready', value: view, identity: identity(path) };
+};
 
 const STR = getStrings('en');
 const root = path.resolve(__dirname, '..', '..', 'src');
@@ -187,11 +191,11 @@ test('the step figure\'s set: a member of unknown level or picture still coming 
     const level = scan(0).input!;
     const views: Record<string, StageView | undefined> = { '/a.wav': view([1, 2]), '/b.wav': view([1, 2]), '/c.wav': view([1, 2, 3]), '/u.wav': view([1, 2]) };
     const levels: Record<string, typeof level | undefined> = { '/a.wav': level, '/b.wav': level, '/c.wav': level, '/p.wav': level };
-    const set: FigureSet<StageView> = pictureSet(['/a.wav', '/b.wav', '/c.wav', '/p.wav', '/u.wav'], path => views[path], path => levels[path], { level, view: view([1, 2]) }, true, asked);
+    const set: FigureSet<StageView> = pictureSet(['/a.wav', '/b.wav', '/c.wav', '/p.wav', '/u.wav'], answered(views), path => levels[path], { level, view: view([1, 2]) }, true);
     assert.deepEqual(set.paths, ['/a.wav', '/b.wav']);
     assert.deepEqual(set.excluded.map(item => `${item.path}:${item.reason}`), ['/c.wav:other-axis', '/p.wav:pending', '/u.wav:pending']);
     // Drawn each as it is, another axis is drawn too: no median is taken of them.
-    assert.equal(pictureSet(['/a.wav', '/c.wav'], path => views[path], path => levels[path], { level, view: view([1, 2]) }, false, asked).n, 2);
+    assert.equal(pictureSet(['/a.wav', '/c.wav'], answered(views), path => levels[path], { level, view: view([1, 2]) }, false).n, 2);
 });
 
 test('the step figure\'s set reads each picture\'s identity from the answer store: figureModel never makes an empty one (class sweep 4, B2)', () => {
@@ -201,5 +205,5 @@ test('the step figure\'s set reads each picture\'s identity from the answer stor
     // The check fails on the identity sweep 4 took out of pictureSet.
     assert.ok(made.test(`${source}\nconst id = { path, fileVersion: '', calibrationSignature: '', recipeKey: '' };\n`));
     const body = /export function pictureSet\([\s\S]*?\n\}/u.exec(source)?.[0] ?? '';
-    assert.match(body, /identityOf\(path\)/u, 'pictureSet takes each member\'s identity from identityOf (stageSource.identity)');
+    assert.match(body, /answerOf\(path\)/u, 'pictureSet takes each member\'s answer and identity from answerOf (stageSource.answer)');
 });

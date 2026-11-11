@@ -633,7 +633,7 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         // Only those not asked for here: a member drawn (slot 0 itself, or one re-counted by its picture) is counted by
         // the set from its picture, never also left out by the table's answer.
         const left = tableLeft.filter(item => !allowed.includes(item.path) && !relevel.includes(item.path));
-        const stageSet = pictureSet(allowed, coarse, levelOf, { level: compareInput, view: comparePath ? coarse(comparePath) : undefined }, !each, path => source.identity(specFor(path), path), left);
+        const stageSet = pictureSet(allowed, path => source.answer(specFor(path), path), levelOf, { level: compareInput, view: comparePath ? coarse(comparePath) : undefined }, !each, left);
         const waitingBase = excludedFor(stageSet, 'pending') > 0;
         const basePaths = stageSet.paths;
         paintStageControls(dom, strings, { overlaid: state.overlaid, images, showDiff: state.showDiff, overlay, measuredAgainstBase: !!referencePath, nothingCompared: !comparedPath(tracks), baseEach: each, events: isEventsView(picture) || /Segments$/.test(frameShown ?? '') });

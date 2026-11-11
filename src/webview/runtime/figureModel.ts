@@ -645,7 +645,7 @@ export function pictureAxis(view: StageView): string {
  * taken of them, so a picture on another axis is left out too. The median requested, the member lines drawn, the
  * heading's n and the legend's words are all of this one set.
  */
-export function pictureSet(members: readonly string[], viewOf: (path: string) => StageView | null | undefined, levelOf: (path: string) => LevelInput | undefined, compared: { level: LevelInput | undefined; view: StageView | null | undefined }, aligned: boolean, identityOf: (path: string) => AnswerIdentity, left: FigureSet<StageView>['excluded'] = []): FigureSet<StageView> {
+export function pictureSet(members: readonly string[], answerOf: (path: string) => Answer<StageView>, levelOf: (path: string) => LevelInput | undefined, compared: { level: LevelInput | undefined; view: StageView | null | undefined }, aligned: boolean, left: FigureSet<StageView>['excluded'] = []): FigureSet<StageView> {
     // The compared recording's identity is its picture's, once it is in and kept its values: while it is on its way
     // or failed there is none, and nothing is counted (no-identity).
     const comparedIn = !!compared.view && !!(compared.view.data || compared.view.waveform) && !!compared.level;
@@ -655,16 +655,17 @@ export function pictureSet(members: readonly string[], viewOf: (path: string) =>
         const level = levelOf(path);
         // A member whose fresh level is of another reference is that, whether its picture is in or not.
         if (of && level && levelKeyOf(level) !== of.level) { known.push({ path, reason: 'other-reference' }); return []; }
-        const view = viewOf(path);
-        // The identity the answer store keeps with the picture (its basis, recipe, condition; while it is on its way,
-        // the one it is asked under), counted by the level the figure reads it in (a pair's unit ratio or reference,
-        // else its channel's). None is made up here.
-        const kept = identityOf(path);
-        const id: AnswerIdentity = { ...kept, level: level ?? kept.level };
-        if (view === undefined) return [{ state: 'pending', identity: id }];
-        if (view === null) return [{ state: 'failed', identity: id }];
+        // The answer store's answer (stageSource.answer) with the identity it was answered or asked under, counted by
+        // the level the figure reads it in (a pair's unit ratio or reference, else its channel's). None is made here.
+        const answer = answerOf(path);
+        const id: AnswerIdentity = { ...answer.identity, level: level ?? answer.identity.level };
+        // Not asked yet (it is asked with this figure) or on its way: pending.
+        if (answer.state === 'pending' || answer.state === 'missing') return [{ state: 'pending', identity: id }];
+        if (answer.state !== 'ready') return [answer.state === 'stale' ? { state: 'stale', identity: id } : { state: answer.state, identity: id }];
         // Its level not known yet (a pair's picture without its identity): not counted, still on its way.
         if (!level) return [{ state: 'pending', identity: id }];
+        // Whether a picture has values to count is decided here: one without (a trigger that found no event) is empty.
+        const view = answer.value;
         return [view.data || view.waveform ? { state: 'ready', value: view, identity: id } : { state: 'empty', identity: id }];
     });
     return figureUsed(of, answers, known);

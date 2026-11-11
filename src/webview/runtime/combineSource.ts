@@ -9,7 +9,8 @@
  */
 import type { CompareCombineMessage, ComparePublication } from '../../shared/analysis/entryScan';
 import type { StageDetail, StageView } from '../../shared/protocol/backendProtocol';
-import { answerKey, createAnswerStore, type AnswerKey } from './answerStore';
+import { answerKey, createAnswerStore, UNREAD_LEVEL, type AnswerKey } from './answerStore';
+import type { Answer, AnswerIdentity } from './answerTypes';
 
 /** What a combination gives: the median (of two or more recordings) and the difference. */
 export interface Combined {
@@ -75,6 +76,8 @@ export interface CombineSource {
      * keys the backend no longer has.
      */
     get(identity: string, request: CombineRequest, forget: (keys: readonly string[]) => void): Combined | undefined;
+    /** The combination as an answer, with the identity it was answered under (combineIdentity); asks nothing. */
+    answer(identity: string, request: CombineRequest): Answer<Combined>;
     /** Takes the host's answers to this source's requests; false for anything else. */
     handle(message: { type: string }): boolean;
 }
@@ -87,11 +90,20 @@ const CACHED = 64;
  */
 const combineKey = (request: CombineRequest): AnswerKey => answerKey({ ask: ['combine', request.base, request.compare], version: { by: 'data-keys' }, region: JSON.stringify(request.detail ?? null) });
 
+/**
+ * What a combination is of: the recording compared, the data keys combined (each the backend's hash of the file's
+ * version, Recipe, region, channels, calibration and step: they stand for those parts), the part on screen and what
+ * the screen names it by. Its levels are the pictures' (read off them by the figure model), so none is claimed here.
+ */
+export function combineIdentity(identity: string, request: CombineRequest): AnswerIdentity {
+    return { path: request.compare ?? '', fileVersion: JSON.stringify([request.base, request.compare]), calibrationSignature: '', level: UNREAD_LEVEL, recipeKey: '', region: JSON.stringify(request.detail ?? null), conditionId: identity };
+}
+
 export function createCombineSource(prefix: string, post: (message: CompareCombineMessage) => void, changed: () => void, now: () => number = () => Date.now()): CombineSource {
     // A failed combination is asked again once its pause is over: the screen draws again then (the store keeps the time).
     const answers = createAnswerStore<Combined>({ capacity: CACHED, now, retried: () => changed() });
     /** The requests on their way, by id: what each asks, of what, and how to drop pictures the backend let go. */
-    const asked = new Map<string, { key: AnswerKey; identity: string; forget: (keys: readonly string[]) => void }>();
+    const asked = new Map<string, { key: AnswerKey; identity: AnswerIdentity; forget: (keys: readonly string[]) => void }>();
     let count = 0;
     return {
         get(identity, request, forget) {
@@ -104,11 +116,12 @@ export function createCombineSource(prefix: string, post: (message: CompareCombi
             // Asked just now (a pending one is on its way).
             if (state === 'missing') {
                 const requestId = `${prefix}-${++count}`;
-                asked.set(requestId, { key, identity, forget });
+                asked.set(requestId, { key, identity: combineIdentity(identity, request), forget });
                 post({ type: 'compare-combine', requestId, base: [...request.base], ...(request.compare ? { compare: request.compare } : {}), ...(request.detail ? { detail: request.detail } : {}) });
             }
             return undefined;
         },
+        answer: (identity, request) => answers.answer(combineKey(request), combineIdentity(identity, request)),
         handle(message) {
             if (message.type !== 'compare-combine-result') return false;
             const publication = message as Extract<ComparePublication, { type: 'compare-combine-result' }>;
@@ -117,7 +130,7 @@ export function createCombineSource(prefix: string, post: (message: CompareCombi
             if (!request) return true;
             asked.delete(publication.requestId);
             const { result } = publication;
-            if (result.ok) answers.ready(request.key, { base: result.base ?? null, diff: result.diff ?? null, ...(result.noDelta ? { noDelta: result.noDelta } : {}) }, { group: request.key.id });
+            if (result.ok) answers.ready(request.key, { base: result.base ?? null, diff: result.diff ?? null, ...(result.noDelta ? { noDelta: result.noDelta } : {}) }, { group: request.key.id, identity: request.identity });
             else if (!result.missing?.length) answers.fail(request.key);
             // Once per combination: its data keys name the files' versions and calibrations (scan_service._data_key), so a
             // rescan brings the same keys back and a new version or calibration is a new combination, tried again once itself.

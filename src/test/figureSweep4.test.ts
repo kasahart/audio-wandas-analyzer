@@ -5,7 +5,7 @@
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { AnswerIdentity } from '../webview/runtime/answerTypes';
+import type { Answer, AnswerIdentity } from '../webview/runtime/answerTypes';
 import { getStrings } from '../shared/i18n/strings';
 import type { ScanResult, StageView } from '../shared/protocol/backendProtocol';
 import { channelResult } from '../shared/recipe/channelSelection';
@@ -18,8 +18,12 @@ import {
 } from '../webview/runtime/figureModel';
 import { stageAxes } from '../webview/runtime/stagePanes';
 
-/** The identity the answer store keeps for a picture (stageSource.identity): the tests' fixed version. */
-const asked = (path: string): AnswerIdentity => ({ path, fileVersion: 'v', calibrationSignature: 'c', level: { unit: '', ref: 1, levelReferenceLabel: '', calibrationStatus: 'uncalibrated', fullScale: false }, recipeKey: 'r', region: '', conditionId: '' });
+/** A picture as the answer store answers it (stageSource.answer): pending until in, failed as null, under a fixed version. */
+const identity = (path: string): AnswerIdentity => ({ path, fileVersion: 'v', calibrationSignature: 'c', level: { unit: '', ref: 1, levelReferenceLabel: '', calibrationStatus: 'uncalibrated', fullScale: false }, recipeKey: 'r', region: '', conditionId: '' });
+const answered = (views: Record<string, StageView | null | undefined>) => (path: string): Answer<StageView> => {
+    const view = views[path];
+    return view === undefined ? { state: 'pending', identity: identity(path) } : view === null ? { state: 'failed', identity: identity(path) } : { state: 'ready', value: view, identity: identity(path) };
+};
 
 const strings = getStrings('en');
 const FS: LevelInput = { unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true };
@@ -56,14 +60,15 @@ test('a pair step\'s member whose picture is not in is pending, and one the tabl
     const own: Record<string, LevelInput> = { '/c.wav': FS, '/a.wav': { ...FS, unit: 'Pa', ref: 2e-5, levelReferenceLabel: 'dB SPL re 20 µPa' }, '/p.wav': FS };
     const levelOf = (path: string): LevelInput | undefined => pictureLevelOf(views[path], own[path], true);
     // /a.wav was other-reference by the table's channel level; as a gain it is of one unit: counted, never also left out.
-    const set = pictureSet(['/a.wav', '/p.wav'], path => views[path], levelOf, { level: levelOf('/c.wav'), view: views['/c.wav'] }, true, asked, []);
+    const set = pictureSet(['/a.wav', '/p.wav'], answered(views), levelOf, { level: levelOf('/c.wav'), view: views['/c.wav'] }, true, []);
     assert.deepEqual(set.paths, ['/a.wav']);
     assert.deepEqual(set.excluded, [{ path: '/p.wav', reason: 'pending' }]);
     // A member also in `left` and drawn would be said twice: the caller passes only those not asked for.
-    const twice = pictureSet(['/a.wav'], path => views[path], levelOf, { level: levelOf('/c.wav'), view: views['/c.wav'] }, true, asked, [{ path: '/b.wav', reason: 'other-reference' }]);
+    const twice = pictureSet(['/a.wav'], answered(views), levelOf, { level: levelOf('/c.wav'), view: views['/c.wav'] }, true, [{ path: '/b.wav', reason: 'other-reference' }]);
     assert.equal(twice.excluded.length, 1);
     // The store's identity is the one counted (never one rebuilt with an empty version).
-    const kept = pictureSet(['/a.wav'], path => views[path], levelOf, { level: levelOf('/c.wav'), view: views['/c.wav'] }, true, path => ({ path, fileVersion: 'v1', calibrationSignature: 'c', level: FS, recipeKey: 'r', region: '', conditionId: 'k' }));
+    const stored = (path: string): Answer<StageView> => ({ state: 'ready', value: views[path] as StageView, identity: { path, fileVersion: 'v1', calibrationSignature: 'c', level: FS, recipeKey: 'r', region: '', conditionId: 'k' } });
+    const kept = pictureSet(['/a.wav'], stored, levelOf, { level: levelOf('/c.wav'), view: views['/c.wav'] }, true);
     assert.equal(kept.used[0]?.identity.fileVersion, 'v1');
     assert.equal(kept.used[0]?.identity.level.unit, '1', 'counted in the gain\'s identity');
 });
@@ -73,7 +78,7 @@ test('time lines of another step are on another axis, as the backend\'s _aligned
     assert.equal(pictureAxis(line(0, 1 / 48000 * 512, 10)), pictureAxis(line(0, 1 / 48000 * 512, 12)), 'other lengths share the axis');
     assert.notEqual(pictureAxis(line(0, 1 / 48000 * 512, 10)), pictureAxis(line(0, 1 / 44100 * 512, 10)), 'another step does not');
     const views: Record<string, StageView> = { '/a.wav': line(0, 512 / 48000, 10), '/b.wav': line(0, 512 / 44100, 10) };
-    const set = pictureSet(['/b.wav'], path => views[path], () => FS, { level: FS, view: views['/a.wav'] }, true, asked);
+    const set = pictureSet(['/b.wav'], answered(views), () => FS, { level: FS, view: views['/a.wav'] }, true);
     assert.deepEqual(set.excluded, [{ path: '/b.wav', reason: 'other-axis' }]);
 });
 
