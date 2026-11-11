@@ -44,7 +44,7 @@ export interface EntryConditionColumn {
  * channel when the compared row is a channel; recordings without that channel are left out and counted.
  */
 /** A left-out reason as the CSVs, 報告.csv and 定義.json write it (each apart: another axis is not another unit). */
-export const LEFT_WORDS: Record<ExclusionReason, string> = { failed: 'failed', empty: 'empty', missing: 'not scanned', pending: 'pending', stale: 'stale', 'other-reference': '≠ reference', 'other-axis': '≠ axis', 'no-identity': 'waiting for compared', 'no-channel': 'no such channel' };
+export const LEFT_WORDS: Record<ExclusionReason, string> = { failed: 'failed', empty: 'empty', missing: 'not scanned', pending: 'pending', stale: 'stale', 'other-reference': '≠ reference', 'other-channels': '≠ channels', 'other-axis': '≠ axis', 'no-identity': 'waiting for compared', 'no-channel': 'no such channel' };
 
 /** What a base left out, each reason apart; members without its channel by its own count where its set did not list them. */
 export const leftOf = (definition: BaseDefinition): BaseDefinition['left'] => (definition.fewerChannels && !definition.left?.['no-channel'] ? { ...definition.left, 'no-channel': definition.fewerChannels } : definition.left);
@@ -496,7 +496,9 @@ export function entryCsv(model: EntryModel, labels: { file: string; condition: (
         const ok = row.status === 'ok' && !row.stale;
         // A derived row keeps the Δ it was fixed with; a file row is measured against the base it has now.
         const now = ok && !row.derived ? measure(row.filePath) : null;
-        const delta = row.derived ? { leq: row.delta.leq, band: row.delta.band, hz: row.values.peak, peak: row.delta.peak, count: row.derived.count ?? null, left: row.derived.left ?? '' }
+        // A ≠ (stale) fixed row writes no number at all: neither its Δ nor its base's n and left-out files (R4).
+        const delta = row.derived && row.stale ? { leq: null, band: null, hz: null, peak: null, count: null, left: '' }
+            : row.derived ? { leq: row.delta.leq, band: row.delta.band, hz: row.values.peak, peak: row.delta.peak, count: row.derived.count ?? null, left: row.derived.left ?? '' }
             : { leq: now?.leq ?? null, band: now?.band ?? null, hz: now?.peak?.hz ?? null, peak: now?.peak?.db ?? null, count: now?.count ?? null, left: now?.left ?? '' };
         lines.push([
             row.derived ? baseName(row.derived.parent) : row.name,

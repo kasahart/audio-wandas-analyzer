@@ -265,9 +265,9 @@ const PATTERNS: Readonly<Record<string, RegExp>> = {
     /** A line read on the first track's reference rather than its own recording's. */
     'first-track-input': /tracks\[0\]\??\.input/gu,
     /** An axis named calibrated only when every one is: the rule is any (axisInputOf), each uncalibrated one saying so. */
-    'every-calibrated': /\.every\([^\n]*?calibrat/gu,
+    'every-calibrated': /\.(?:every|some)\([^;\n]*?calibrat(?!edWord)|calibrationStatus:\s*'calibrated'/gu,
     /** An absolute level written in wandas' levelUnit (bare "dB" for every reference but FS and SPL), not its reference's name. */
-    'bare-level-unit': /(?<!levelReferenceLabel[^\n]*)measurement\??\.levelUnit\b/gu,
+    'bare-level-unit': /measurement\??\.levelUnit\b/gu,
     /** A level named "[dB]" in a UI string: only a gain and a Δ are in plain dB. */
     'bracket-db': /:\s*'[^'\n]*\[dB\]'/gu,
     /** A page's calibration note taken from the table's rows, which a ≠ row leaves without one, not the recordings' scans. */
@@ -282,7 +282,7 @@ const PATTERNS: Readonly<Record<string, RegExp>> = {
      * An absolute level given a reference nobody sent: a default of bare dB or dBFS (`?? 'dB'`, `|| 'dBFS'`), or a
      * column or name in "dB(A)" (an A-weighted level is in dB re its channel's reference, R4, R7), not a Δ.
      */
-    'default-reference': /(?:\?\?|\|\|)\s*(['"`])dB(?:FS)?\1|(['"`])(?![^'"`\n]*Δ)[^'"`\n]*\bdB\(A\)[^'"`\n]*\2/gu,
+    'default-reference': /(?:\?\?|\|\|)\s*(['"`])dB(?:FS)?\1|\buncalibratedUnits\(true\)\.level\b|(['"`])(?![^'"`\n]*Δ)[^'"`\n]*\bdB\(A\)[^'"`\n]*\2/gu,
     /** A CSV level column or reference column named outside the layer. */
     'csv-column': /\b(?:STR|strings)\.(?:reportLevelReference|reportBaseLevelReference|reportBaseLeq|entryColBandLevel)\b/gu,
 };
@@ -294,6 +294,8 @@ const PATTERNS: Readonly<Record<string, RegExp>> = {
 const ALLOWED: Readonly<Record<string, Readonly<Record<string, number>>>> = {
     // A calibration profile's own equality (its channels' factors and units): which profile applies, not a level identity.
     'shared/analysis/calibrationModel.ts': { 'identity': 1 },
+    // Which saved profile is the latest that calibrates anything: a profile's choice, not a line's calibration.
+    'extension/calibrationStore.ts': { 'every-calibrated': 1 },
     // A gain (one unit's ratio) and a Δ are plain dB: 'Gain [dB]', 'Difference Δ [dB]' in each language.
     'shared/i18n/strings.ts': { 'bracket-db': 4 },
     // R9's rule and its rounding, defined (figureModel.ts roundedRange / heatmapRange wrap them).
@@ -322,7 +324,9 @@ const ALLOWED: Readonly<Record<string, Readonly<Record<string, number>>>> = {
     // Its definitions: stageAxes/paneAxes/calibrationWords wrapped; the level strings its titles are made of; its CSV
     // columns; medianInputOf, the one place a line of several recordings is calibrated only when every one is; R9's
     // rules wrapped; levelIdentityOf wrapped by levelKeyOf.
-    'webview/runtime/figureModel.ts': { 'axis-builder': 3, 'axis-name': 6, 'csv-column': 5, 'every-calibrated': 1, 'range-rule': 5, 'identity': 1 },
+    // Its calibration rules (sweep 4: `.some(` counted too): medianInputOf's every, calibrationWordsBy's and a folder
+    // reference's any.
+    'webview/runtime/figureModel.ts': { 'axis-builder': 3, 'axis-name': 6, 'csv-column': 5, 'every-calibrated': 3, 'range-rule': 5, 'identity': 1 },
 };
 
 /** Each file's matches of each pattern, a definition (`function name(`) not counted. */
@@ -399,6 +403,12 @@ test('the structural check fails on each injected bug: every violation of class 
         // V4: a median line calibrated when any one is, outside medianInputOf; V8: empty axes named by the first track.
         ['webview/runtime/trackStageMode.ts', "const calibrated = inputs.every(input => input?.calibrationStatus === 'calibrated');", 'every-calibrated'],
         ['webview/runtime/trackStagePainter.ts', 'const mainNames = stageNames(strings, picture, tracks[0]?.input);', 'first-track-input'],
+        // Class sweep 4: a median's calibration by `.some(`, a gain fixed as calibrated, a bare levelUnit after a label,
+        // a dBFS assumed for an input nobody gave.
+        ['webview/runtime/comparePanes.ts', 'const uncalibrated = sides.some(side => side.uncalibrated);', 'every-calibrated'],
+        ['webview/runtime/figureModel.ts', "const gain = { unit: '1', calibrationStatus: 'calibrated' };", 'every-calibrated'],
+        ['shared/report/analysisReport.ts', 'const text = measurement.levelReferenceLabel || measurement.levelUnit;', 'bare-level-unit'],
+        ['webview/runtime/stagePanes.ts', 'const reference = input ?? { levelReferenceLabel: uncalibratedUnits(true).level };', 'default-reference'],
     ];
     for (const [rel, code, pattern] of injected) {
         const sites = inject(rel, code);

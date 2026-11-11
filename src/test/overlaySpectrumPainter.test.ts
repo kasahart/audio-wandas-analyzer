@@ -278,7 +278,7 @@ test('reordering a Pa track and a V track clears a dB zoom kept in the old left 
     // As the overlay does before each paint: the left axis' reference first, then the axes from the view.
     const view = new SpectrumView();
     const leftAxes = (series: SpectrumSeries[]) => {
-        view.followLevelReference(overlayLevelAxes(series, view.state())[0].reference);
+        view.followLevelReference(overlayLevelAxes(series, view.state())[0].key);
         return overlayLevelAxes(series, view.state());
     };
     leftAxes(mixed);

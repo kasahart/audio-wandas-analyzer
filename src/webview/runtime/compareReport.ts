@@ -9,7 +9,7 @@ import type { RecipeDocument } from '../../shared/recipe/recipeSelection';
 import { encodeNumber, plainFloats, recipeSteps, timeSignalStep, upToStep, withDefaults, withParam, TIME_SLICE } from '../../shared/recipe/recipeSteps';
 import { BAND_CENTERS_HZ, bandCentreCell, bandLabel, csvNumber, EDGE_GUARD_S, HEADLINE_WITHIN_DB, leftOf, leftText, levelReferenceCell, measuredRegion, regionCells, type BaseDefinition, type DerivedRow, type EntryMeasure, type EntryModel } from './entryTable';
 import { withBaseInput, withChannel } from '../../shared/recipe/channelSelection';
-import { baseLevelColumns, baseLevelOf, channelAnswer, medianInputOf, dataRange, diffRange, figureUsed, levelAxes, scanIdentity, setExclusionText, type SetStrings, levelColumns, paneNames, plainNames, plainTitle, titleOf, withTitle, type FigureColumns, type FigureRange, type FigureTitle, type PlainTitle } from './figureModel';
+import { baseLevelColumns, baseLevelOf, calibrationWordsBy, channelAnswer, levelKeyOf, medianInputOf, dataRange, diffRange, figureUsed, levelAxes, scanIdentity, setExclusionText, type SetStrings, levelColumns, paneNames, plainNames, plainTitle, titleOf, withTitle, type FigureColumns, type FigureRange, type FigureTitle, type PlainTitle } from './figureModel';
 import { setMedian, bandsSource, binsSource, binsView, deltaViews, diffHeadline, levelsHeadline, sideView, type CompareModel, type CompareStrings, type LevelInput } from './comparePanes';
 import { SECONDARY_AXIS_DASH } from './overlaySpectrumPainter';
 import { paintOverlay } from './stagePanes';
@@ -250,7 +250,8 @@ export function reportCsv(input: ReportInput, strings: ReportStrings): string {
             dB(leq), levelReferenceCell(levelRowOf(item.result), own), dB(numbers ? item.base.leq : null), levelReferenceCell(item.base.level, base), dB(leq === null ? null : leq - item.base.leq),
             ...bands.map(band => { const level = bandLevel(band), reference = item.base.bands[band]; return dB(level === null || reference === null || reference === undefined ? null : level - reference); }),
             // n as the base's set counted it when fixed (its definition), not a count of its files.
-            definition ? String(definition.count) : '', (item.base.paths ?? []).map(baseName).join(';'), String(item.result.specVersion ?? ''),
+            // A ≠ row writes no base n nor files either: they are numbers of the chain it was fixed under (R4).
+            definition && numbers ? String(definition.count) : '', numbers ? (item.base.paths ?? []).map(baseName).join(';') : '', String(item.result.specVersion ?? ''),
             item.stale ? strings.reportChainPrevious : strings.reportChainCurrent,
             item.ch ? String(item.ch) : '', ...(input.selection ? [''] : []), '', definition ? baseDefinitionText(definition, strings) : item.base.label ?? '',
         ].map(cell).join(','));
@@ -413,13 +414,17 @@ export function reportLevelAxes(comparison: Pick<CompareModel, 'base' | 'compare
     // As every figure's level axes (figureModel.levelAxes): one per level identity, the base's on the left.
     const { axes } = levelAxes(sides, {
         inputOf: item => item.input, first: sides[0],
-        names: axisInput => paneNames(strings, axisInput ?? compare).level,
+        // An axis is named by its own lines' input, never the compared recording's (R4).
+        names: axisInput => paneNames(strings, axisInput).level,
         range: members => dataRange(members.map(item => item.view)),
     });
     const [left, right] = axes;
-    const leftTitle = titleOf(left?.names ?? paneNames(strings, compare).level);
+    const leftTitle = titleOf(left?.names ?? paneNames(strings, undefined).level);
     const rightTitle = right ? titleOf(right.names) : null;
-    const word = (item: LevelInput | undefined): string => (item && item.calibrationStatus !== 'calibrated' ? ` · ${strings.entryLeqUncalibrated}` : '');
+    // The figure model's calibration words (calibrationWordsBy, as every legend's): an uncalibrated side says so where
+    // it shares an axis with a calibrated one; on its own axis, the axis' name already says it.
+    const said = calibrationWordsBy(sides, item => levelKeyOf(item.input), item => item.input?.calibrationStatus === 'calibrated', ` · ${strings.entryLeqUncalibrated}`);
+    const word = (item: LevelInput | undefined): string => { const side = sides.find(entry => entry.input === item); return item && side ? said(side) : ''; };
     return {
         left: leftTitle, right: rightTitle, leftRange: left?.range ?? dataRange([]), rightRange: right?.range ?? null,
         legend: {

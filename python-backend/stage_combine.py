@@ -41,7 +41,7 @@ import stage_view as sv
 from decimator import bucket_edges
 from full_read import SILENT_DB, StagePoints, StageRead, read_cells, read_line, sorted_axis, uniform_axis
 from level_identity import LevelIdentity, level_identity
-from stage_view import StageDetail, StageLevelBins, StagePeak, StageValueRange, StageView
+from stage_view import StageDetail, StageLevelBins, StagePeak, StageTimeAxis, StageValueRange, StageView
 
 #: How much of the Frames' values the backend keeps for the comparison's medians and differences. The least
 #: recently used go first; a picture asked for again (zooming, another compared recording) uses what is kept.
@@ -185,20 +185,28 @@ def _column_whole(frame: Any, columns: int, signal_s: float | None) -> np.ndarra
 
 def _calibration(frame: object) -> LevelIdentity:
     """What ``frame``'s values are in (level_identity: unit, reference, its label; a trigger's events: their first
-    event's; a transfer function: its drawn pair's unit ratio)."""
+    event's; a transfer function or a cross spectrum: its drawn pair's)."""
     if isinstance(frame, ChannelFrameSegments):
         frame = frame[0] if len(frame) else None
-    if isinstance(frame, TransferFunctionFrame):
-        # A transfer function's values are re its pair's unit ratio (a gain of one unit is re 1), not either
-        # channel's level: two recordings' transfer functions compare when their drawn pairs' ratios are alike.
+    if isinstance(frame, (TransferFunctionFrame, CrossSpectralFrame)):
+        # A transfer function's values are re its pair's unit ratio (a gain of one unit is re 1), a cross spectrum's
+        # re its drawn pair's reference, not either channel's level (nor row 0's, which against the base slot is the
+        # base's own auto-spectrum): two recordings' pictures compare when their drawn pairs' identities are alike.
         row = sv._cross_pair(frame)
         if row is not None:
             domain = frame.pair_domains[row]
-            return level_identity(domain.unit, domain.reference, frame.channels[row].level_reference.label)
+            if isinstance(frame, TransferFunctionFrame) or domain.unit != "1":
+                return level_identity(domain.unit, domain.reference, frame.channels[row].level_reference.label)
+            # A cross spectrum of one unit is in its drawn row's level (stage_view names it so).
+            return _channel_identity(frame.channels[row])
     channels = getattr(frame, "channels", None)
     if not channels:
         return level_identity("", 1.0, "")
-    first = channels[0]
+    return _channel_identity(channels[0])
+
+
+def _channel_identity(first: object) -> LevelIdentity:
+    """One channel's level identity: its unit, reference value and level reference's label."""
     reference = getattr(first, "level_reference", None)
     return level_identity(
         getattr(first, "unit", ""), getattr(first, "ref", 1.0) or 1.0, getattr(reference, "label", "")
@@ -732,6 +740,16 @@ def _aligned(items: list[StageData]) -> list[StageData] | None:
         return replace(item, xs=item.xs[:n], values=item.values[..., :n], whole=whole)
 
     return [cut(item) for item in items]
+
+
+def time_axis(item: StageData) -> StageTimeAxis | None:
+    """Where a line over time starts and its spacing, as _aligned compares them: a signal's start and sample
+    period, else its first value's time and the step to the next; None for a line of one point."""
+    if item.mode == "signal":
+        return {"start": float(item.start), "step": 1.0 / float(item.rate)} if item.rate > 0 else None
+    if item.xs.size < 2:
+        return None
+    return {"start": float(item.xs[0]), "step": float(item.xs[1] - item.xs[0])}
 
 
 def _median(items: list[StageData]) -> np.ndarray:

@@ -36,6 +36,7 @@ export const NOT_CHART_VALUES: Readonly<Record<string, string>> = {
     'src/webview/runtime/plotInteraction.ts:notePlotWindow': 'a plot\'s data-plot-window attribute for the plot contract test, not shown',
     'src/webview/runtime/entrySidePlots.ts:paint': 'the side plots\' data-window attribute for tests, not shown',
     'src/webview/runtime/trackStageMode.ts:span': 'a zoom window in a data attribute and a request key, not shown',
+    'src/webview/runtime/figureModel.ts:pictureAxis': 'a time axis\'s start and step in the key pictures are counted on one axis by, not shown',
     'src/webview/runtime/pairSpectrumPanel.ts:applySplit': 'the pair pane\'s CSS height, not a value',
     'src/webview/runtime/stepBarModel.ts:startValues': 'a new step\'s starting parameter (the trigger level, two figures of the tracks\' peak), a setting the user edits',
     'src/webview/runtime/stepForm.ts:field': 'a step parameter\'s field, the user\'s own setting',

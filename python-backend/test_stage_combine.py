@@ -17,6 +17,7 @@ from protocol_schema import DEFINITIONS, first_violation
 from stage_combine import (
     STORE,
     StageData,
+    _aligned,
     _Store,
     combine,
     difference_line,
@@ -25,6 +26,7 @@ from stage_combine import (
     level_bins,
     read_points,
     stage_data,
+    time_axis,
 )
 from stage_view import stage_view
 
@@ -749,3 +751,22 @@ def test_zoomed_the_headlines_peak_is_looked_for_in_the_window_on_screen_alone_n
     assert shown["diff"]["peak"]["value"] == pytest.approx(-0.03)
     # The line drawn is still the whole detail's.
     assert shown["diff"]["xs"] == margin["diff"]["xs"]
+
+
+def test_a_time_axis_key_agrees_with_what_aligned_combines() -> None:
+    """The webview counts time lines on one axis by ``timeAxis`` (pictureAxis): exactly those ``_aligned`` combines,
+    other lengths alike, another step or start apart (class sweep 4, aggregation V6)."""
+    view = {"frame": "ChannelFrame", "kind": "line", "x": "time", "xScale": "linear", "quantity": "level"}
+
+    def line(step: float, n: int, start: float = 0.0) -> StageData:
+        return StageData("line", view, start + np.arange(n) * step, np.zeros(n))  # type: ignore[arg-type]
+
+    hop48, hop44 = 512 / 48_000, 512 / 44_100
+    same = [line(hop48, 10), line(hop48, 12)]
+    assert _aligned(same) is not None
+    assert time_axis(same[0]) == time_axis(same[1])
+    for other in (line(hop44, 10), line(hop48, 10, start=hop48 / 2)):
+        assert _aligned([same[0], other]) is None
+        assert time_axis(same[0]) != time_axis(other)
+    signal = StageData("signal", view, np.empty(0), np.zeros(4), start=0.0, rate=48_000.0)  # type: ignore[arg-type]
+    assert time_axis(signal) == {"start": 0.0, "step": 1 / 48_000}

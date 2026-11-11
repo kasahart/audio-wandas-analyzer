@@ -88,6 +88,7 @@ class PairSpectrumResponse(TypedDict):
     referenceValue: NotRequired[float]
     referenceUnit: NotRequired[str]
     levelReferenceLabel: NotRequired[str]
+    calibrationStatus: str
     calibrationSignature: str
     analysisRevision: int
     sourceVersion: str
@@ -123,6 +124,8 @@ class _PairSource(NamedTuple):
     channel: int
     offset: float
     revision: int
+    # The channel's own calibration (a pair is calibrated only when both of its channels are, R4).
+    status: str = "uncalibrated"
 
 
 class _PairSpectrum(NamedTuple):
@@ -480,6 +483,9 @@ class AnalysisService:
                     "phaseRad": _finite_values(pair.rows[1]),
                     "coherence": _finite_values(pair.rows[2]),
                     **pair.level,  # type: ignore[typeddict-item]
+                    "calibrationStatus": (
+                        "calibrated" if x.status == "calibrated" and y.status == "calibrated" else "uncalibrated"
+                    ),
                     "calibrationSignature": y.signature,
                     "analysisRevision": y.revision,
                     "sourceVersion": y.cached.version,
@@ -520,6 +526,7 @@ class AnalysisService:
             channel,
             float(source["offsetSeconds"]),  # type: ignore[arg-type]
             _analysis_revision(source.get("analysisRevision", 0)),
+            resolved.channels[channel].status if channel < len(resolved.channels) else "uncalibrated",
         )
 
     def waveform_range(

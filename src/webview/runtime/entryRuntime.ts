@@ -421,6 +421,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     }
     /** The rows through the filters but the value's own (unsorted), kept until the next rebuild. */
     let pool: DatasetRow[] | null = null;
+    /** Whether a recording was read (or failed only at a step): an unreadable one is no row of the table. */
+    const readable = (path: string): boolean => !(headers.errors.has(path) && !results.get(path)?.ok) && (results.get(path)?.ok !== false || !!results.get(path)?.failedStep);
     /** The rows are made again only when the files, their results, their headers or the CSV change, not on every redraw. */
     let rowsDirty = true;
     const focusedFile = (): string | null => (focus.key ? fileOfKey(focus.key) : null);
@@ -595,7 +597,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         if (rowsDirty) {
             rowsDirty = false;
             rows = datasetRows(filePaths, rootPath, attached.match?.attributes ?? new Map(), results, headers.channels)
-                .filter(row => !(headers.errors.has(row.filePath) && !results.get(row.filePath)?.ok) && (results.get(row.filePath)?.ok !== false || !!results.get(row.filePath)?.failedStep));
+                .filter(row => readable(row.filePath));
             byKey = new Map(rows.map(row => [row.key, row]));
             followChannels();
         }
@@ -766,7 +768,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     /** The answer store's answers as a base's source. */
     const store: AnswerSource = { answers: paths => scans.answers(paths) };
     const entryBase = createEntryBase({
-        strings, slots: () => slots, rows: () => rows, rowOf, pool: () => distributionPool(), group: () => chosen.group, baseGroup: () => chosen.baseGroup,
+        strings, slots: () => slots, rows: () => rows, rowOf, pool: () => basePool(), group: () => chosen.group, baseGroup: () => chosen.baseGroup,
         narrowedBy: () => chosen.filters.filter(filter => filter.column !== chosen.value).map(chipText),
         groupLabel, rowName: key => rowName(key), answersOf: paths => scans.answers(paths), reference: () => entryModel().reference,
     });
@@ -803,6 +805,15 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     function distributionPool(): DatasetRow[] {
         pool ??= filteredRows({ rows, filters: chosen.filters.filter(filter => filter.column !== chosen.value), excluded }, results);
         return pool;
+    }
+    /** A base group's pool: the distribution's, and the unreadable recordings of its filters (each counted failed). */
+    function basePool(): DatasetRow[] {
+        // A recording that could not be read is no row of the table, but still a member of its base group: its set
+        // says it failed, with the rest (R4), never leaves it out unsaid. Its rows are made here, held nowhere.
+        const unread = filePaths.filter(path => !readable(path));
+        if (!unread.length) return distributionPool();
+        const failed = filteredRows({ rows: datasetRows(unread, rootPath, attached.match?.attributes ?? new Map(), results, headers.channels), filters: chosen.filters.filter(filter => filter.column.startsWith('csv:')), excluded }, results);
+        return failed.length ? [...distributionPool(), ...failed] : distributionPool();
     }
     /** The range picked on the value drawn: it marks the distribution and narrows the table. */
     function valueRange(): { low: number; high: number } | null {
@@ -968,7 +979,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         distPane.paint({
             pool: distributionPool(), value: chosen.value, group: chosen.group, results, range: valueRange(), usable, slots, rowOf,
             // A level's recordings as one set of the folder's reference: its heading's n and what it left out, with why.
-            set: isLevel(chosen.value) ? entryBase.folderSet(distributionPool().map(row => row.filePath)) : null,
+            // A recording whose value is not there (a band beyond its Nyquist) is in the set as empty, said with why.
+            set: isLevel(chosen.value) ? entryBase.folderSet(distributionPool().map(row => row.filePath), path => distributionPool().some(row => row.filePath === path && valueOf(row, chosen.value, results) !== null)) : null,
             // The base line where the comparison measures its Δ from (one definition: entryBase), of the axis's reference.
             base: entryBase.groupBase(chosen.value, isLevel(chosen.value) ? entryModel().reference.level : undefined),
             onAxis: row => !isLevel(chosen.value) || sidePlots.onLevelAxis(row.filePath),
@@ -1676,7 +1688,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         },
         basePaths: (comparePath, byGroup = false) => entryBase.resolve(comparePath, byGroup).members,
         baseTitle: (comparePath, byGroup = false, over) => entryBase.resolve(comparePath, byGroup, undefined, over).title,
-        baseLeft: (comparePath, byGroup) => entryBase.resolve(comparePath, byGroup).set.excluded.filter(item => item.reason === 'other-reference' || item.reason === 'other-axis'),
+        baseLeft: (comparePath, byGroup) => entryBase.resolve(comparePath, byGroup).set.excluded.filter(item => item.reason === 'other-reference' || item.reason === 'other-channels' || item.reason === 'other-axis' || item.reason === 'no-channel'),
         baseHeading: (comparePath, byGroup, set, each = false) => {
             const base = entryBase.resolve(comparePath, byGroup);
             return set || each ? base.heading(set ?? base.set, each ? strings.entryBaseCount : undefined) : base.title;

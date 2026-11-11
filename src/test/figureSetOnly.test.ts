@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
+import type { AnswerIdentity } from '../webview/runtime/answerTypes';
 import { getStrings } from '../shared/i18n/strings';
 import type { ScanResult, StageView } from '../shared/protocol/backendProtocol';
 import { scanAnswer, type ScanAnswer } from '../webview/runtime/answerStore';
@@ -15,6 +16,9 @@ import { buildEntryModel, entryCsv } from '../webview/runtime/entryTable';
 import {
     baseLevelOf, bandLevelColumns, figureUsed, folderReference, levelColumns, pictureSet, referenceIdentity, scanIdentity, setCountText, setExclusionText, type FigureSet,
 } from '../webview/runtime/figureModel';
+
+/** The identity the answer store keeps for a picture (stageSource.identity): the tests' fixed version. */
+const asked = (path: string): AnswerIdentity => ({ path, fileVersion: 'v', calibrationSignature: 'c', level: { unit: '', ref: 1, levelReferenceLabel: '', calibrationStatus: 'uncalibrated', fullScale: false }, recipeKey: 'r', region: '', conditionId: '' });
 
 const STR = getStrings('en');
 const root = path.resolve(__dirname, '..', '..', 'src');
@@ -36,7 +40,7 @@ const BYPASSES: Record<string, RegExp> = {
     // A set made by hand (a cast) instead of by figureUsed.
     'cast-set': /as (?:unknown as )?FigureSet\b/gu,
     // The base's heading count written outside figureModel (setCountText / setExclusionText).
-    'heading-count': /\b(?:entryBaseMedian|entryBaseCount|entryCount|dsBase(?:Failed|Missing|Pending|Stale|OtherUnits|OtherBins|NoIdentity|Fewer)|dsDistApart)\.replace\(|\$\{[\w.?]*members\??\.length\}|\bmembers\??\.toLocaleString\(/gu,
+    'heading-count': /\b(?:entryBaseMedian|entryBaseCount|entryCount|dsBase(?:Failed|Empty|Missing|Pending|Stale|OtherUnits|OtherChannels|OtherBins|NoIdentity|Fewer)|dsDistApart)\.replace\(|\$\{[\w.?]*members\??\.length\}|\b(?:members|shown|drawn|counted)\??\.toLocaleString\(/gu,
     // An identity taken from "the first ready one" or the compared file's level assumed for a member (`?? like`).
     'first-ready': /\.find\(\(?\w+\)? => \w+\.state === 'ready'\)|\.filter\(isReady\)\[0\]|\.find\(isReady\)/gu,
     'assumed-level': /\?\?\s*like\b/gu,
@@ -109,6 +113,9 @@ test('each class-sweep-2 bypass injected into a real source is caught', () => {
         ['webview/runtime/entryBase.ts', 'const first = answers.filter(isReady)[0];', 'first-ready'],
         ['webview/runtime/trackStageMode.ts', 'const input = shown.get(path)?.input;', 'raw-level'],
         ['webview/runtime/compareReport.ts', 'const text = `n=1`;', 'literal-n'],
+        // Class sweep 4: the distribution heading's n by another name, an empty answer's reason written by hand.
+        ['webview/runtime/entryDistributionPane.ts', 'count.textContent = shown.toLocaleString();', 'heading-count'],
+        ['webview/runtime/trackStageMode.ts', 'const left = strings.dsBaseEmpty.replace(\'{n}\', String(empty));', 'heading-count'],
     ];
     for (const [name, line, kind] of injected) {
         const problems = figureSetProblems(name, `${read(name)}\n${line}\n`);
@@ -180,9 +187,19 @@ test('the step figure\'s set: a member of unknown level or picture still coming 
     const level = scan(0).input!;
     const views: Record<string, StageView | undefined> = { '/a.wav': view([1, 2]), '/b.wav': view([1, 2]), '/c.wav': view([1, 2, 3]), '/u.wav': view([1, 2]) };
     const levels: Record<string, typeof level | undefined> = { '/a.wav': level, '/b.wav': level, '/c.wav': level, '/p.wav': level };
-    const set: FigureSet<StageView> = pictureSet(['/a.wav', '/b.wav', '/c.wav', '/p.wav', '/u.wav'], path => views[path], path => levels[path], { level, view: view([1, 2]) }, true);
+    const set: FigureSet<StageView> = pictureSet(['/a.wav', '/b.wav', '/c.wav', '/p.wav', '/u.wav'], path => views[path], path => levels[path], { level, view: view([1, 2]) }, true, asked);
     assert.deepEqual(set.paths, ['/a.wav', '/b.wav']);
     assert.deepEqual(set.excluded.map(item => `${item.path}:${item.reason}`), ['/c.wav:other-axis', '/p.wav:pending', '/u.wav:pending']);
     // Drawn each as it is, another axis is drawn too: no median is taken of them.
-    assert.equal(pictureSet(['/a.wav', '/c.wav'], path => views[path], path => levels[path], { level, view: view([1, 2]) }, false).n, 2);
+    assert.equal(pictureSet(['/a.wav', '/c.wav'], path => views[path], path => levels[path], { level, view: view([1, 2]) }, false, asked).n, 2);
+});
+
+test('the step figure\'s set reads each picture\'s identity from the answer store: figureModel never makes an empty one (class sweep 4, B2)', () => {
+    const source = readFileSync(path.join(root, 'webview/runtime/figureModel.ts'), 'utf8');
+    const made = /\bfileVersion:\s*(['"`])\1|\brecipeKey:\s*(['"`])\2/u;
+    assert.ok(!made.test(source), 'an AnswerIdentity with an empty version or recipe is built in figureModel.ts');
+    // The check fails on the identity sweep 4 took out of pictureSet.
+    assert.ok(made.test(`${source}\nconst id = { path, fileVersion: '', calibrationSignature: '', recipeKey: '' };\n`));
+    const body = /export function pictureSet\([\s\S]*?\n\}/u.exec(source)?.[0] ?? '';
+    assert.match(body, /identityOf\(path\)/u, 'pictureSet takes each member\'s identity from identityOf (stageSource.identity)');
 });

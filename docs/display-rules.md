@@ -47,6 +47,8 @@
 - 伝達関数の値は、描くペア（ch2 / ch1）の単位の比を基準にしているので、その Δ と中央値はチャンネルのレベルではなくその比の同一性で分けます（同じ単位どうしの利得は Pa の録音でも V の録音でも比べ、Pa/V と V/V は比べません。`stage_combine.py` の `_calibration`）。
 - テスト: `python-backend/test_stage_combine.py` › test_a_transfer_functions_difference_is_gated_by_its_pairs_unit_ratio_not_its_channels_level
 - webview も同じ定義で分けます。比較台の段の集合（`figureModel.ts` の `pictureSet`）と軸（`byReference`）は、伝達関数の線をペアの単位の比の同一性で、基準スロットに対するクロススペクトルの線をペアの基準（wandas の pair domain。バックエンドが `unit` に書く）で数えて名乗ります（`pictureLevelOf`）。
+- ペアの段（伝達関数・クロススペクトル）で、絵がまだ届いていない録音は計算中です。チャンネルのレベルで「別の基準」とは決めません。表の答えが別の基準・別の軸で外した基準群の録音も、ペアの段では問い合わせて、その絵の同一性で数えます（`trackStageMode.ts`）。段の集合の各録音の同一性は、答えの置き場が絵と一緒に持つものです（`stageSource.identity`）。`pictureSet` は自分で作りません。
+- 時間軸の線は、始まりと刻みが同じものだけを 1 つの軸として数えます（バックエンドが送る `timeAxis`。`_aligned` と同じ定義）。長さが違うだけなら共通の部分で比べます。チャンネル数の違う録音（全チャンネルをまとめて比べるとき）は、理由を付けて除きます（「チャンネル数の違う n 本は除外」）。値のない答え（イベントのないトリガー、ナイキストを超える帯）は「値のない n 本は除外」と言います。「失敗」とは言いません。
 - テスト: `src/test/figureSweep3.test.ts` › a transfer function is of its pair's unit ratio and a cross spectrum of its pair's reference (reference V3, V7, R1)
 - テスト: `python-backend/test_stage_view.py` › test_a_cross_spectrum_of_two_units_is_named_by_its_pairs_reference_never_a_channels
 - 入口でスロットのキーを押し続けて出す保持図の Δ は、押したときに、その録音と基準の録音の全ビンを取り寄せて計算します。届くまでは何も描かず、題に「計算中」と出します。表の 192 点の Δ は描きません。全ビンが取れない録音（スキャンがビンを返さないとき）は、1/3 オクターブ帯の Δ を棒で描きます。帯のレベルは、スキャンが全ビンから求めた値です。レポートの図も同じで、全ビンがないときは、重ね図は 1/3 オクターブ帯のレベルを、Δ の図は帯の Δ の段だけを描きます。
@@ -166,6 +168,7 @@
 - テスト: `src/test/laneAxes.test.ts` › the lanes take the ticks and their text from the rules every plot uses
 - テスト: `src/test/laneAxes.test.ts` › a lane axis names its quantity, unit and calibration as Compare's waveform axis does
 - 伝達関数は、2 つのチャンネルの単位が同じなら利得（「利得 [dB]」）、違えば単位の比を基準にした伝達レベル（「伝達レベル [dB re 2e-05 Pa/V]」）で描きます。比較台の段もペアの図と同じ決め方です（`stage_view.py` の `_transfer_rows`）。
+- ペアの値は、両側が校正済みのときだけ校正済みです。1 つの録音の 2 チャンネルなら両方のチャンネル、基準スロットに対するペアなら録音と基準スロットの側で決めます。片方でも未校正なら、軸は「利得 未校正 [dB]」のように書きます（比較台の段もペアの図も同じ。`figureModel.ts` の `pairCalibration`、ペアの図はバックエンドの `calibrationStatus`）。ファイルから取り出した 1 チャンネルは、そのチャンネル自身の校正状態を名乗ります（`channelCalibration`）。入力がまだないとき、軸は「[単位不明]」と書きます。dBFS や FS を仮定しません。
 - テスト: `python-backend/test_stage_view.py` › test_a_transfer_function_of_two_units_is_drawn_as_its_transfer_level_named_by_its_reference
 - テスト: `src/test/stagePanes.test.ts` › a cross-channel picture names its pair on the value axis: the channel over its reference, before the unit
 - 右の 2 本目のレベル軸の数字も、軸の名前に重ねません。入らなければ全部を小さく書きます。時間軸の帯の名前も、ほかの軸の名前と同じく `fitAxisTitle` で合わせます。

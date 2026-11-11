@@ -312,6 +312,8 @@ def test_pair_spectrum_recovers_a_known_filter(tmp_path: Path) -> None:
     phase_error = np.angle(np.exp(1j * (phase[reliable] - np.angle(expected[reliable]))))
     assert np.degrees(np.max(np.abs(phase_error))) < 1.0
     assert response["axisLabel"] == "Gain [dB]"
+    # Neither channel is calibrated: the pair says so (calibrated only when both sides are, R4).
+    assert response["calibrationStatus"] == "uncalibrated"
     assert result["nFft"] == 1024 and result["hopLength"] == 512
 
 

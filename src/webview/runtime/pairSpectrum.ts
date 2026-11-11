@@ -30,7 +30,7 @@ export interface PairCurve {
 export type PairStrings = Pick<UiStrings,
     | 'pairReferenceHint' | 'pairReferenceClearHint' | 'pairReferenceBadge' | 'pairAverages' | 'pairFewAveragesHint'
     | 'pairResampledHint' | 'pairNoOverlapHint' | 'pairTooShortHint' | 'pairOtherUnitHint' | 'pairPhaseLabel' | 'pairCoherenceLabel' | 'axisFrequency'
-    | 'axisGain' | 'axisTransferLevel'>;
+    | 'axisGain' | 'axisTransferLevel' | 'axisUncalibrated'>;
 
 /** Below this many averages the γ² estimate is biased high enough to mislead. */
 export const PAIR_FEW_AVERAGES = 8;

@@ -304,9 +304,9 @@ export function byReference(frame: Pick<StageFrame, 'strings' | 'picture' | 'all
 } {
     const { strings, picture } = frame;
     // A line's own recording's input (a track's, else its scan's), the base median's its recordings'; a line of neither
-    // is the compared recording's, whose identity the base set is of, never the first track's (R1).
+    // has none, and its axis names no reference: never the compared recording's or the first track's (R1, R4).
     const trackInput = (path: string | null | undefined): StageTrack['input'] => (path ? frame.allTracks.find(track => track.filePath === path)?.input ?? frame.levelOf?.(path) : undefined);
-    const inputOf = (layer: StageLayer): StageTrack['input'] => layer.levelInput ?? trackInput(layer.recording) ?? trackInput(frame.comparePath);
+    const inputOf = (layer: StageLayer): StageTrack['input'] => layer.levelInput ?? trackInput(layer.recording);
     const base = layers.find(layer => layer.recording !== undefined && frame.role(layer.recording) === 0);
     // An image has one colour bar; a trigger's events are their recordings' lines, split by identity as any line (A43).
     const { axes, tooMany } = levelAxes(layers, {

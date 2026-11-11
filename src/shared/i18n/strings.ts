@@ -383,6 +383,8 @@ export interface UiStrings {
     /** A base group's recordings left out because their value is of an earlier chain or calibration. */
     dsBaseStale: string;
     dsBaseOtherBins: string;
+    dsBaseOtherChannels: string;
+    dsBaseEmpty: string;
     /** A base's recordings not counted while the compared recording has no answer of its own to say their reference. */
     dsBaseNoIdentity: string;
     reportMemo: string;
@@ -1212,6 +1214,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dsBasePending: ' · {n} still computing',
         dsBaseStale: ' · {n} of an earlier chain left out',
         dsBaseOtherBins: ' · {n} on another frequency axis left out',
+        dsBaseOtherChannels: ' · {n} of another channel count left out',
+        dsBaseEmpty: ' · {n} with nothing to show left out',
         dsBaseNoIdentity: ' · {n} waiting for the compared recording',
         reportMemo: 'Memo',
         reportShownValue: 'Shown: {value}',
@@ -2021,6 +2025,8 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         dsBasePending: ' · 計算中 {n} 本',
         dsBaseStale: ' · 前の手順の {n} 本は除外',
         dsBaseOtherBins: ' · 周波数軸の違う {n} 本は除外',
+        dsBaseOtherChannels: ' · チャンネル数の違う {n} 本は除外',
+        dsBaseEmpty: ' · 値のない {n} 本は除外',
         dsBaseNoIdentity: ' · 比較録音を待つ {n} 本',
         reportMemo: 'メモ',
         reportShownValue: '表示中の値: {value}',

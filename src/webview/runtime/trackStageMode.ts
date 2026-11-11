@@ -33,7 +33,7 @@ import { colorOf, overlayLayers, overlayLegendItems, paintBaseGate, paintNoPictu
 
 export type { StageTrack } from './trackStagePainter';
 import { axisValueAt, isEventsView, rowValueAt } from './stagePanes';
-import { axisInputOf, excludedFor, legendWords, medianInputOf, pictureLevelOf, pictureSet, stageNames, type ExclusionReason, type FigureSet } from './figureModel';
+import { axisInputOf, excludedFor, legendWords, medianInputOf, pairLevelFrame, pictureLevelOf, pictureSet, stageNames, type ExclusionReason, type FigureSet } from './figureModel';
 import { clearTriggerLanes, paintTriggerLanes, type TriggerSettings } from './triggerLanes';
 import { zoomNormalizedRange, ZOOM_IN_FACTOR } from './waveformInteraction';
 import { keyRouterFor } from './keyRouter';
@@ -493,7 +493,13 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         const tracks = referencePath ? allTracks.filter(track => track.filePath !== referencePath) : allTracks;
         // The compared file (the slot tapped or held); its base: slot 0, or the others of its condition (0 switches).
         const comparePath = comparedPath(tracks);
-        const allBase = comparePath && !referencePath ? deps.basePaths(comparePath, state.groupBase) : [];
+        // A pair's step (a transfer function, a cross spectrum) is counted by its pictures' own identity, the pair's
+        // unit ratio or reference (R1): the table's answers, of the channels' levels and the scan's axis, say nothing of
+        // it, so every member the table left out on another reference or axis is asked for and counted by its picture.
+        const pairStage = pairLevelFrame(id === INPUT_STAGE ? INPUT_FRAME : steps.find(step => step.id === id)?.output);
+        const tableLeft = comparePath && !referencePath ? deps.baseLeft?.(comparePath, state.groupBase) ?? [] : [];
+        const relevel = pairStage ? tableLeft.filter(item => item.reason === 'other-reference' || item.reason === 'other-axis').map(item => item.path) : [];
+        const allBase = comparePath && !referencePath ? [...new Set([...deps.basePaths(comparePath, state.groupBase), ...relevel])] : [];
         // A base group of more than LARGE_BASE recordings is not scanned until 「基準の群 n 本を解析する」.
         const gateKey = comparePath ? `${comparePath}|${state.groupBase}|${allBase.length}|${allBase[0] ?? ''}|${allBase.at(-1) ?? ''}` : null;
         state.gateKey = gateKey;
@@ -617,14 +623,17 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         const levels = levelPaths.map((path, index): LevelInput | undefined => {
             const scanned = source.result(specFor(path), path);
             // A gain is re its pair's unit ratio, a cross spectrum against the base slot re the pair's reference (R1).
-            return pictureLevelOf(coarse(path), (scanned?.ok ? scanned.input : undefined) ?? allTracks.find(track => track.filePath === path)?.input ?? tableLevels[index]);
+            // A pair's step: its identity is its picture's, unknown (pending) until the picture is in, never its channels'.
+            return pictureLevelOf(coarse(path), (scanned?.ok ? scanned.input : undefined) ?? allTracks.find(track => track.filePath === path)?.input ?? tableLevels[index], pairStage);
         });
         const levelOf = (path: string): LevelInput | undefined => { const at = levelPaths.indexOf(path); return at < 0 ? deps.levelOf?.(path) : levels[at]; };
         const compareInput = comparePath ? levelOf(comparePath) : undefined;
         // The group's recordings the table's answers already put on another reference or axis are not asked for here,
         // but stay in the set's left-out list, so the heading says them as the entry table's does.
-        const left = comparePath && !referencePath ? deps.baseLeft?.(comparePath, state.groupBase) ?? [] : [];
-        const stageSet = pictureSet(allowed, coarse, levelOf, { level: compareInput, view: comparePath ? coarse(comparePath) : undefined }, !each, left);
+        // Only those not asked for here: a member drawn (slot 0 itself, or one re-counted by its picture) is counted by
+        // the set from its picture, never also left out by the table's answer.
+        const left = tableLeft.filter(item => !allowed.includes(item.path) && !relevel.includes(item.path));
+        const stageSet = pictureSet(allowed, coarse, levelOf, { level: compareInput, view: comparePath ? coarse(comparePath) : undefined }, !each, path => source.identity(specFor(path), path), left);
         const waitingBase = excludedFor(stageSet, 'pending') > 0;
         const basePaths = stageSet.paths;
         paintStageControls(dom, strings, { overlaid: state.overlaid, images, showDiff: state.showDiff, overlay, measuredAgainstBase: !!referencePath, nothingCompared: !comparedPath(tracks), baseEach: each, events: isEventsView(picture) || /Segments$/.test(frameShown ?? '') });
@@ -769,7 +778,8 @@ export function createTrackStageMode(deps: TrackStageDeps): TrackStageMode {
         // The base's line is on the axis of its own recordings' reference (R1): never a track's it is not of.
         // A median line is calibrated only when every recording it is of is (figureModel.medianInputOf), as the report
         // and the legend say it; waveforms drawn each are each their own.
-        const baseInput = (each ? axisInputOf(basePaths.map(levelOf)) : medianInputOf(basePaths.map(levelOf))) ?? compareInput;
+        // A base whose recordings' levels are not known yet has none: never the compared recording's (R4).
+        const baseInput = each ? axisInputOf(basePaths.map(levelOf)) : medianInputOf(basePaths.map(levelOf));
         const namedHere = (path: string, slot: number | undefined): ReturnType<typeof named> => { const name = named(path, slot); const said = word(path); return said ? { ...name, label: `${name.label}${said}` } : name; };
         const frame: StageFrame = { strings, tracks, allTracks, referencePath, comparePath, coarse, shown, picture, coarsePlots, fullOf, window: state.window, diffY: state.diffY, diffOfWindow: !!fineCombined && !!peakWindow, regionMark, pending, waiting: waiting || combining, role, named: namedHere, drawnOn, baseEach: each, excluded, levelOf, ...(baseInput ? { baseInput } : {}), ...(coarseCombined?.tooLarge ? { tooLarge: true } : {}), ...(coarseCombined?.noDelta ? { noDelta: coarseCombined.noDelta } : {}), ...(coarseCombined?.failed ? { failed: true } : {}) };
         const bypassed = steps.filter(step => step.bypassed).map(step => stepChipLabel(step, strings, state.regionSet));

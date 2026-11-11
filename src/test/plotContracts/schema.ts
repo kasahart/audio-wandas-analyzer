@@ -13,6 +13,8 @@ export const SCHEMA_FIELDS: Readonly<Record<string, readonly string[] | string>>
     'WaveformEnvelope.max': ['track-waveform.readout'],
     'WaveformEnvelope.minT': ['track-waveform.readout'],
     'WaveformEnvelope.maxT': ['track-waveform.readout'],
+    'StageView.timeAxis.start': 'where a time line\'s first value is, at full resolution: which pictures share one axis (pictureAxis), not shown',
+    'StageView.timeAxis.step': 'a time line\'s step at full resolution: which pictures share one axis (pictureAxis), not shown',
     'WaveformEnvelope.samples': 'how many samples the envelope was cut from, to place its buckets; not shown',
     'WaveformEnvelope.absolutePeak': ['track-waveform.range'],
     'DbScaleMetadata.referenceValue': ['compare-overlay.axis', 'colour-bar.axis'],

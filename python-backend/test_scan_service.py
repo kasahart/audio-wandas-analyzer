@@ -63,6 +63,8 @@ def test_scan_measures_the_analysis_spec_metrics(tmp_path: Path) -> None:
         "levelReferenceLabel": "dBFS",
         "calibrationStatus": "uncalibrated",
         "fullScale": True,
+        # Each channel's own status, in channels' order (a channel taken alone names its own, R4).
+        "channelCalibration": ["uncalibrated", "uncalibrated"],
     }
     rms_db = [20 * np.log10(0.5 / np.sqrt(2)), 20 * np.log10(0.1 / np.sqrt(2))]
     # A-weighting is 0 dB at 1 kHz and +1.2 dB at 3.15 kHz.
@@ -812,8 +814,11 @@ def test_a_cross_channel_step_pairs_the_scanned_recording_with_the_reference_rec
     coherence["nodes"][2]["params"] = {"$type": "map", "entries": []}
     reference = {"filePath": base, "step": "node-2", "recipe": coherence}
 
-    near = _scan(service, alike, recipe=coherence, stage="node-2", reference=reference)["stage"]
+    paired = _scan(service, alike, recipe=coherence, stage="node-2", reference=reference)
+    near = paired["stage"]
     far = _scan(service, other, recipe=coherence, stage="node-2", reference=reference)["stage"]
+    # The base side's own calibration goes with the scan: a pair is calibrated only when both sides are (R4).
+    assert paired["input"]["baseCalibrationStatus"] == "uncalibrated"
 
     # The pair is the recording over the base one, said so (not two channels of one recording).
     assert near["pair"] == far["pair"] == {"output": 2, "input": 1, "base": True}

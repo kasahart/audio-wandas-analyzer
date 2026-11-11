@@ -81,7 +81,7 @@ import {
     spectrumSlicesFromResult,
     withCalibrationWords,
 } from './spectrumRuntime';
-import { amplitudeTitle, unknownLevelTitle, baseLevelOf, emptyFigure, plainTitle, frequencyTitle, laneAmplitudeRange, levelKeyOfReading, levelTitle as figureLevelTitle, paneNames, plainNames, plainRange, shownLevelOf, titleOf, uncalibratedWord, type FigureTitle } from './figureModel';
+import { amplitudeTitle, axisInputOf, unknownLevelTitle, baseLevelOf, emptyFigure, plainTitle, frequencyTitle, laneAmplitudeRange, levelKeyOfReading, levelTitle as figureLevelTitle, paneNames, plainNames, plainRange, shownLevelOf, titleOf, uncalibratedWord, type FigureTitle } from './figureModel';
 import { normalizeRuntimeState, PersistedStateStore } from './stateStore';
 import { ComparisonTestBridge } from './testBridge';
 import { RuntimeEventFeed } from './runtimeEvents';
@@ -1530,7 +1530,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                 const channels = channelsForResult(result);
                 const read = entryScreen.stageChannel(result.filePath, result.filePath);
                 // Only a fresh scan's (the answer store's ready answer): a stale one's reference is of an earlier calibration.
-                const input = trackLevelInput(read !== null && read !== undefined && channels[read] ? [channels[read]] : channels, entryScreen.levelOf(result.filePath));
+                const input = trackLevelInput(read && channels[read - 1] ? [channels[read - 1]] : channels, entryScreen.levelOf(result.filePath), read);
                 tracks.push({ filePath: result.filePath, color: trackColor(i), canvas: canvasById(document, trackCanvasId(i, 0)), axis: canvasById(document, trackAxisCanvasId(i, 0)), input });
             });
             return tracks;
@@ -4216,11 +4216,11 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
             overlaySpectrumPainted = false;
             return;
         }
-        spectrumView.followLevelReference(overlayLevelAxes(slices, spectrumView.state())[0].reference);
+        spectrumView.followLevelReference(overlayLevelAxes(slices, spectrumView.state())[0].key);
         // A level axis says uncalibrated only when every line read on it is (R4, as the comparison's overlay); on one
         // that mixes them, each uncalibrated line says so in its legend and readout (withCalibrationWords, A49).
         const calibratedSeries = (s: SpectrumSeries): boolean => channelsForResult(state.results[s.index])[s.channelIndex]?.measurement?.calibrationStatus === 'calibrated';
-        const levelTitle = (reference: string, series: readonly SpectrumSeries[]) => figureLevelTitle(STR, reference, series.some(calibratedSeries));
+        const levelTitle = (reference: string, series: readonly SpectrumSeries[]) => figureLevelTitle(STR, reference, axisInputOf(series.map(s => ({ calibrationStatus: calibratedSeries(s) ? 'calibrated' : 'uncalibrated' })))?.calibrationStatus === 'calibrated');
         // A slice cut for display is read at every bin (R7): the same slice asked for again at full resolution.
         const read = withCalibrationWords(slices, calibratedSeries, uncalibratedWord(STR)).map(series => {
             const track = series.slice.frequenciesHz && !series.slice.bandCentersHz && series.slice.cursorNorm !== undefined ? laneTrack(series.index) : null;

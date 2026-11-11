@@ -121,9 +121,11 @@ test('a metric or level over time names what it measures on its value axis, neve
     assert.equal(stageAxes(names, series('Pa'), undefined).y, 'Amplitude, uncalibrated [Pa]');
     // A level over time (sound_level, rms_trend in dB) is the level of what it measured, in the files' reference: never an amplitude.
     const level = (measure?: StageView['measure']): StageView => ({ ...series('dB re 1 input unit'), quantity: 'level', ...(measure ? { measure } : {}) });
-    assert.equal(stageAxes(names, level('timeWeightedRms'), undefined).y, 'Time-weighted RMS, uncalibrated [dBFS]');
+    // With no input nothing says what it is re: the unit is not known, never an assumed dBFS (R4).
+    assert.equal(stageAxes(names, level('timeWeightedRms'), undefined).y, 'Time-weighted RMS [unit unknown]');
+    assert.equal(stageAxes(names, level('timeWeightedRms'), { unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true }).y, 'Time-weighted RMS, uncalibrated [dBFS]');
     assert.equal(stageAxes(names, level('rms'), { unit: 'Pa', ref: 2e-5, levelReferenceLabel: 'dB SPL re 20 µPa', calibrationStatus: 'calibrated', fullScale: false }).y, 'RMS [dB SPL re 20 µPa]');
-    assert.equal(stageAxes(names, level(), undefined).y, 'Level, uncalibrated [dBFS]');
+    assert.equal(stageAxes(names, level(), undefined).y, 'Level [unit unknown]');
 });
 
 test('a heatmap names what its colour measures, with its unit and reference, for its colour bar', () => {

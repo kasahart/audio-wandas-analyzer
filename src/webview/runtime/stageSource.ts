@@ -7,6 +7,8 @@ import type { ComparePublication, CompareScanMessage } from '../../shared/analys
 import type { ScanResult, StageView } from '../../shared/protocol/backendProtocol';
 import { answerKey, createAnswerStore, createLatestAnswers, type AnswerKey } from './answerStore';
 import { HostRequests } from './hostRequests';
+import type { AnswerIdentity } from './answerTypes';
+import type { LevelInput } from './comparePanes';
 
 export interface StageSpec {
     key: string;
@@ -26,11 +28,33 @@ export interface StageSource {
     forget(spec: StageSpec, filePath: string): void;
     /** Drops every picture whose values the backend kept under one of `keys` and has let go (`missing`). */
     forgetData(keys: readonly string[]): void;
+    /**
+     * The identity the store keeps with a file's answer for `spec` (its basis, the spec's key, its condition and the
+     * levels it is in) once it is in; before that, the one it is asked under (its basis and key, its levels not known).
+     * What the figure model counts it as: it never makes one up.
+     */
+    identity(spec: StageSpec, filePath: string): AnswerIdentity;
     /** Takes the host's answers to this source's requests; false for anything else. */
     handle(message: { type: string }): boolean;
 }
 
 const CACHED_SPECS = 48;
+
+const NO_LEVEL: LevelInput = { unit: '', ref: 1, levelReferenceLabel: '', calibrationStatus: 'uncalibrated', fullScale: false };
+
+/**
+ * What a picture is of, as the store keeps it with the answer: the file's basis when asked for (its version and its
+ * calibration, stageBasis), the spec's cache key (recipe, region, step, detail), the scan's condition and the levels
+ * its input is in. The figure model reads it from here and never makes one up.
+ */
+function identityOf(path: string, key: string, basis: string, result: ScanResult): AnswerIdentity {
+    const input = result.ok ? result.input : undefined;
+    const level: LevelInput = input ? { unit: input.unit, ref: input.ref, levelReferenceLabel: input.levelReferenceLabel, calibrationStatus: input.calibrationStatus, fullScale: input.fullScale } : NO_LEVEL;
+    return { ...askedIdentity(path, key, basis), level, conditionId: (result.ok ? result.conditionId : undefined) ?? '' };
+}
+
+/** What a file's picture is asked under, before its answer is in: its basis and the spec's key; its levels not known. */
+const askedIdentity = (path: string, key: string, basis: string): AnswerIdentity => ({ path, fileVersion: basis, calibrationSignature: basis, level: NO_LEVEL, recipeKey: key, region: key, conditionId: '' });
 
 /**
  * What a file's pictures depend on beyond their spec (Recipe, region, step, detail): the version of the file and its
@@ -110,6 +134,10 @@ export function createStageSource(prefix: string, post: (message: CompareScanMes
             return true;
         },
         result: (spec, filePath) => current(spec, filePath),
+        identity(spec, filePath) {
+            const key = stageCacheKey(spec), basis = basisFor(spec, filePath);
+            return answers.answer(fileKey(key, filePath, basis), askedIdentity(filePath, key, basis)).identity;
+        },
         failure(spec, filePath) {
             const key = fileKey(stageCacheKey(spec), filePath, basisFor(spec, filePath));
             return answers.state(key) === 'failed' ? answers.reason(key) ?? '' : undefined;
@@ -133,7 +161,7 @@ export function createStageSource(prefix: string, post: (message: CompareScanMes
                 const answer = fileKey(key, publication.filePath, bases.get(publication.filePath) ?? basisOf(publication.filePath));
                 // A step that cannot run on the file (failedStep) is its answer; any other failure (the file unreadable
                 // for now, the backend restarted) may pass: it stands for the store's pause and is then asked again.
-                if (publication.result.ok || publication.result.failedStep) answers.ready(answer, publication.result);
+                if (publication.result.ok || publication.result.failedStep) answers.ready(answer, publication.result, { identity: identityOf(publication.filePath, key, bases.get(publication.filePath) ?? basisOf(publication.filePath), publication.result) });
                 else answers.fail(answer, publication.result.reason);
             }
             if (publication.type === 'compare-scan-done') requests.settle(publication.requestId);

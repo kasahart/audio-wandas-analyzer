@@ -5,6 +5,7 @@
  */
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import type { AnswerIdentity } from '../webview/runtime/answerTypes';
 import { getStrings } from '../shared/i18n/strings';
 import type { ScanResult, StageView } from '../shared/protocol/backendProtocol';
 import { datasetRows, type DatasetRow, type GroupId } from '../shared/dataset/datasetTable';
@@ -20,6 +21,9 @@ import {
 import { spectrogramDisplayBounds } from '../webview/runtime/spectrogramRaster';
 import { compareOf } from './helpers/compareInput';
 import { buildEntryModel } from '../webview/runtime/entryTable';
+
+/** The identity the answer store keeps for a picture (stageSource.identity): the tests' fixed version. */
+const asked = (path: string): AnswerIdentity => ({ path, fileVersion: 'v', calibrationSignature: 'c', level: { unit: '', ref: 1, levelReferenceLabel: '', calibrationStatus: 'uncalibrated', fullScale: false }, recipeKey: 'r', region: '', conditionId: '' });
 
 const strings = getStrings('en');
 const FS: LevelInput = { unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true };
@@ -60,9 +64,12 @@ test('a transfer function is of its pair\'s unit ratio and a cross spectrum of i
     assert.equal(levelKeyOf(pictureLevelOf(gain([0, 1]), SPL)), levelKeyOf(pictureLevelOf(gain([0, 1]), FS)));
     const views: Record<string, StageView> = { '/a.wav': gain([1, 2]), '/c.wav': gain([3, 4]) };
     const own: Record<string, LevelInput> = { '/a.wav': SPL, '/c.wav': FS, '/b.wav': FS };
-    const levelOf = (path: string): LevelInput | undefined => pictureLevelOf(views[path] ?? gain([0, 0]), own[path]);
-    const set = pictureSet(['/a.wav', '/c.wav'], path => views[path], levelOf, { level: levelOf('/b.wav'), view: gain([0, 0]) }, true);
+    views['/b.wav'] = gain([0, 0]);
+    // A member whose picture is not in yet (/p.wav) has no identity: never its channels' level (sweep 4, V7).
+    const levelOf = (path: string): LevelInput | undefined => pictureLevelOf(views[path], own[path] ?? FS, true);
+    const set = pictureSet(['/a.wav', '/c.wav', '/p.wav'], path => views[path], levelOf, { level: levelOf('/b.wav'), view: views['/b.wav'] }, true, asked);
     assert.deepEqual(set.paths, ['/a.wav', '/c.wav'], 'the Pa recording\'s gain is counted beside the full-scale one\'s');
+    assert.deepEqual(set.excluded, [{ path: '/p.wav', reason: 'pending' }], 'a member on its way is pending, never of another reference');
     // Gains of another unit ratio are not.
     const ratio = { ...gain([1, 2]), unit: 'dB re 1 Pa/V' };
     assert.notEqual(levelKeyOf(pictureLevelOf(ratio, SPL)), levelKeyOf(pictureLevelOf(gain([1, 2]), SPL)));
@@ -73,6 +80,10 @@ test('a transfer function is of its pair\'s unit ratio and a cross spectrum of i
     const named = stageNames(strings, csd, pictureLevelOf(csd, SPL)).y;
     assert.ok(named.includes('dB re 20 µPa·1 FS'), named);
     assert.ok(!named.includes('dB SPL re 20 µPa'), named);
+    // Its full-scale side is uncalibrated, so the pair is (sweep 4, reference #3): its name says so.
+    const pairInput = pictureLevelOf(csd, { ...SPL, baseCalibrationStatus: 'uncalibrated' });
+    assert.equal(pairInput?.calibrationStatus, 'uncalibrated');
+    assert.ok(stageNames(strings, csd, pairInput).y.includes(strings.axisUncalibrated), stageNames(strings, csd, pairInput).y);
 });
 
 test('a median line of mixed calibration is uncalibrated on the screen and in the report alike (reference V4)', () => {
@@ -102,11 +113,11 @@ test('a step picture set has no identity while the compared picture is pending o
     assert.equal(pictureAxis(view(48000)), pictureAxis(view(48001)), 'recordings a sample apart share the time axis');
     const views: Record<string, StageView> = { '/a.wav': view(10), '/b.wav': view(11) };
     for (const compared of [undefined, null]) {
-        const set = pictureSet(['/a.wav', '/b.wav'], path => views[path], () => FS, { level: FS, view: compared }, true);
+        const set = pictureSet(['/a.wav', '/b.wav'], path => views[path], () => FS, { level: FS, view: compared }, true, asked);
         assert.equal(set.n, 0, String(compared));
         assert.deepEqual(set.excluded.map(item => item.reason), ['no-identity', 'no-identity']);
     }
-    assert.equal(pictureSet(['/a.wav', '/b.wav'], path => views[path], () => FS, { level: FS, view: view(10) }, true).n, 2);
+    assert.equal(pictureSet(['/a.wav', '/b.wav'], path => views[path], () => FS, { level: FS, view: view(10) }, true, asked).n, 2);
 });
 
 function setup(options: { slots?: (string | null)[]; group?: GroupId; channels?: Record<string, number[]>; pending?: string[] } = {}) {

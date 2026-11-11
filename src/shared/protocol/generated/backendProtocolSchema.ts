@@ -934,6 +934,13 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "levelReferenceLabel": {
                     "type": "string"
                 },
+                "calibrationStatus": {
+                    "type": "string",
+                    "enum": [
+                        "uncalibrated",
+                        "calibrated"
+                    ]
+                },
                 "calibrationSignature": {
                     "type": "string"
                 },
@@ -1741,6 +1748,22 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                     },
                     "additionalProperties": false
                 },
+                "timeAxis": {
+                    "type": "object",
+                    "required": [
+                        "start",
+                        "step"
+                    ],
+                    "properties": {
+                        "start": {
+                            "type": "number"
+                        },
+                        "step": {
+                            "type": "number"
+                        }
+                    },
+                    "additionalProperties": false
+                },
                 "peak": {
                     "type": "object",
                     "required": [
@@ -1931,6 +1954,23 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 },
                 "fullScale": {
                     "type": "boolean"
+                },
+                "channelCalibration": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "enum": [
+                            "uncalibrated",
+                            "calibrated"
+                        ]
+                    }
+                },
+                "baseCalibrationStatus": {
+                    "type": "string",
+                    "enum": [
+                        "uncalibrated",
+                        "calibrated"
+                    ]
                 }
             },
             "additionalProperties": false
@@ -2465,6 +2505,7 @@ export interface PairSpectrumResponse {
     referenceValue?: number;
     referenceUnit?: string;
     levelReferenceLabel?: string;
+    calibrationStatus?: "uncalibrated" | "calibrated";
     calibrationSignature?: string;
     analysisRevision?: number;
     sourceVersion?: string;
@@ -2630,6 +2671,10 @@ export interface StageView {
     max: number;
     robust?: number;
 };
+    timeAxis?: {
+    start: number;
+    step: number;
+};
     peak?: {
     x: number;
     y?: number;
@@ -2671,6 +2716,8 @@ export interface ScanInput {
     levelReferenceLabel: string;
     calibrationStatus: "uncalibrated" | "calibrated";
     fullScale: boolean;
+    channelCalibration?: ("uncalibrated" | "calibrated")[];
+    baseCalibrationStatus?: "uncalibrated" | "calibrated";
 }
 
 export interface ScanResult {

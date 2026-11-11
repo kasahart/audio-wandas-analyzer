@@ -163,6 +163,8 @@ export interface OverlayLevelAxis<S> {
     /** The axis' title: the first series' level axis label, or its reference when it has none. */
     title: FigureTitle;
     reference: string;
+    /** The axis' level identity (spectrumLevelKey): what a dB zoom on it is kept by, never its reference's text. */
+    key: string;
     visible: SpectrumVisibleWindow;
 }
 
@@ -185,15 +187,15 @@ function autoDbRange(series: ReadonlyArray<{ slice: SpectrumSlice }>): { minDb: 
 export function overlayLevelAxes<S extends LevelKeyed>(series: readonly S[], view: SpectrumViewState): OverlayLevelAxis<S>[] {
     const all = spectrumSeriesRange(series);
     const entries = byLevelKey(series, spectrumLevelKey).map(group => [group.key, group.items] as const);
-    const axisFor = (_key: string, members: S[], visible: SpectrumVisibleWindow): OverlayLevelAxis<S> => {
+    const axisFor = (key: string, members: S[], visible: SpectrumVisibleWindow): OverlayLevelAxis<S> => {
         // Named by a series of the cursor where it is, when one has come.
         const named = levelRangeSeries(members)[0];
         const reference = spectrumLevelReference(named.slice);
-        return { series: members, title: backendTitle(named.slice.axisLabel || reference), reference, visible };
+        return { series: members, title: backendTitle(named.slice.axisLabel || reference), reference, key, visible };
     };
     if (entries.length < 2) {
         const visible = spectrumVisibleWindow(all.maxFrequencyHz, all.minDb, all.maxDb, view, all.logMinFrequencyHz);
-        return entries.length === 0 ? [{ series: [], title: backendTitle(''), reference: '', visible }] : [axisFor(entries[0][0], [...entries[0][1]], visible)];
+        return entries.length === 0 ? [{ series: [], title: backendTitle(''), reference: '', key: '', visible }] : [axisFor(entries[0][0], [...entries[0][1]], visible)];
     }
     const [[firstReference, firstOnes], [secondReference, secondOnes]] = entries;
     const first = [...firstOnes], second = [...secondOnes];

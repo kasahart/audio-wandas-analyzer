@@ -125,6 +125,14 @@ class StageView(TypedDict):
     #: The lowest and highest value of every one of the picture's full-resolution values in the part drawn, before
     #: any is thinned or averaged into a cell (stage_combine.value_range): what its axis or colour range is set from.
     valueRange: NotRequired[StageValueRange]
+    #: A line over time: where its full-resolution values start and their spacing (s), as the median aligns them
+    #: (stage_combine._aligned): pictures of another start or step are on another axis, whatever their length.
+    timeAxis: NotRequired[StageTimeAxis]
+
+
+class StageTimeAxis(TypedDict):
+    start: float
+    step: float
 
 
 class StagePeak(TypedDict):
@@ -997,12 +1005,16 @@ def stage_view(frame: object, signal_s: float | None = None, detail: StageDetail
     if view["kind"] in ("line", "bar", "heatmap"):
         # The order overlaid lines are drawn in, and every axis and colour range, come from every value, not the
         # drawn points or the cells averaged to draw them (R1, R2, R6, R9).
-        from stage_combine import stage_data, with_level_bins, with_value_range
+        from stage_combine import stage_data, time_axis, with_level_bins, with_value_range
 
         data = stage_data(frame, coarse, signal_s)
         part = detail if view is not coarse else None
         with_level_bins(view, data, part)
         with_value_range(view, data, part)
+        if data is not None and coarse.get("x") == "time" and view["kind"] == "line":
+            axis = time_axis(data)
+            if axis is not None:
+                view["timeAxis"] = axis
     return view
 
 

@@ -78,6 +78,10 @@ class ScanInput(TypedDict):
     levelReferenceLabel: str
     calibrationStatus: CalibrationStatus
     fullScale: bool
+    #: Each channel's own status (in ``channels``' order): a channel taken alone names its own calibration.
+    channelCalibration: NotRequired[list[CalibrationStatus]]
+    #: Scanned against the base slot's recording: the status of the base channel the pair is made with.
+    baseCalibrationStatus: NotRequired[CalibrationStatus]
 
 
 class ScanResult(TypedDict):
@@ -620,7 +624,10 @@ def scan_cached(
         "levelReferenceLabel": level_label,
         "calibrationStatus": status,
         "fullScale": full_scale,
+        "channelCalibration": [resolved.channels[index].status for index in selected],
     }
+    if reference is not None:
+        described["baseCalibrationStatus"] = _reference_status(reference)
     known = {*plans["upstream"], plans["region"].output, *(step for step, _ in plans["steps"])}
     # The step's full-resolution values are kept under this key for the comparison's medians and differences.
     data_key = _data_key(cached, recipe, region, selected, calibration_profile, stage, reference)
@@ -752,6 +759,18 @@ def scan_cached(
         "wandasVersion": wd.__version__,
         "endFrame": type(current).__name__,
     }
+
+
+def _reference_status(reference: tuple[CachedAnalysis, ScanReference]) -> CalibrationStatus:
+    """The calibration status of the base slot's channel a pair is made with (its Recipe's get_channel, else ch1)."""
+    cached, described = reference
+    resolved = resolve_calibration_profile(described.get("calibration"), cached.frame, source_peaks=cached.source_peaks)
+    try:
+        index = int(_node_params(described["recipe"], CHANNEL_NODE).get("channel_idx", 0))  # type: ignore[call-overload]
+    except Exception:  # noqa: BLE001 - a Recipe that names no channel pairs the base's first.
+        index = 0
+    channels = resolved.channels
+    return channels[index].status if 0 <= index < len(channels) else "uncalibrated"
 
 
 def _reference_region(

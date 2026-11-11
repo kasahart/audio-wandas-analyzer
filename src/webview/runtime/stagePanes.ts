@@ -6,7 +6,7 @@
  * (combineSource.ts) and drawn here like any picture; without one the Δ pane says why it is empty. Pure apart
  * from `paintStage`, which only draws.
  */
-import type { FigureNames, FigureRange, FigureTitle } from './figureModel';
+import { uncalibratedWord, type FigureNames, type FigureRange, type FigureTitle } from './figureModel';
 import type { StageView } from '../../shared/protocol/backendProtocol';
 import type { UiStrings } from '../../shared/i18n/strings';
 import { BAND_CENTERS_HZ } from './entryTable';
@@ -228,8 +228,11 @@ export function stageAxes(strings: StageStrings, view: StageView | null, input: 
     // A cross-channel Frame names its pair, after its quantity and before its unit: which channel over which
     // reference, or the recording over the base slot's.
     const pair = view?.pair?.base ? ` · ${strings.stagePairBase}` : view?.pair ? ` · ch${view.pair.output} / ch${view.pair.input}` : '';
+    // A gain or transfer level is calibrated only when both sides of its pair are (figureModel.pictureLevelOf): an
+    // uncalibrated pair says so, as every level does (R4).
+    const uncal = view?.quantity === 'gain' && input && input.calibrationStatus !== 'calibrated' ? uncalibratedWord(strings) : '';
     const parts = axisNameParts(y);
-    const named = parts ? axisName(`${parts.quantity}${pair}`, parts.unit) : `${y}${pair}`;
+    const named = parts ? axisName(`${parts.quantity}${uncal}${pair}`, parts.unit) : `${y}${uncal}${pair}`;
     return { x, y: diff ? `Δ ${named}` : named };
 }
 
@@ -238,8 +241,10 @@ export function stageAxes(strings: StageStrings, view: StageView | null, input: 
  * calibrated as the level axis does; after rms_trend, sound_level or power it names that measure. Compare's waveform
  * panes and the track lanes name their amplitude axis by it.
  */
-export function amplitudeAxisTitle(strings: Pick<StageStrings, 'axisRms' | 'axisRmsTimeWeighted' | 'axisPower' | 'waveRangeAxisAmplitude' | 'axisUncalibrated'>, unit: string | undefined, input: LevelInput | undefined, measure?: StageView['measure']): string {
+export function amplitudeAxisTitle(strings: Pick<StageStrings, 'axisRms' | 'axisRmsTimeWeighted' | 'axisPower' | 'waveRangeAxisAmplitude' | 'axisUncalibrated' | 'axisUnitUnknown'>, unit: string | undefined, input: LevelInput | undefined, measure?: StageView['measure']): string {
     const name = measure === 'rms' ? strings.axisRms : measure === 'timeWeightedRms' ? strings.axisRmsTimeWeighted : measure === 'power' ? strings.axisPower : strings.waveRangeAxisAmplitude;
+    // Without an input nothing says what the values are relative to: the unit is not known, never a guessed FS (R4).
+    if (!unit && !input) return `${name} [${strings.axisUnitUnknown}]`;
     const base = unit || uncalibratedUnits(!input || input.fullScale).linear;
     return `${name}${input?.calibrationStatus === 'calibrated' ? '' : strings.axisUncalibrated} [${measure === 'power' ? `${base}²` : base}]`;
 }
@@ -254,9 +259,10 @@ function namedByUnit(unit: string | undefined): boolean {
  * reference, saying it is uncalibrated as every level axis does ("Time-weighted RMS, uncalibrated [dBFS]").
  */
 function timeLevelTitle(strings: StageStrings, input: LevelInput | undefined, measure: StageView['measure']): string {
-    const reference = input ?? { levelReferenceLabel: uncalibratedUnits(true).level, calibrationStatus: 'uncalibrated' };
     const name = measure === 'rms' ? strings.axisRms : measure === 'timeWeightedRms' ? strings.axisRmsTimeWeighted : strings.axisLevelOf;
-    return `${name}${reference.calibrationStatus === 'calibrated' ? '' : strings.axisUncalibrated} [${reference.levelReferenceLabel}]`;
+    // Without an input no reference is known: the axis says so, never a guessed dBFS (R4).
+    if (!input) return `${name} [${strings.axisUnitUnknown}]`;
+    return `${name}${input.calibrationStatus === 'calibrated' ? '' : strings.axisUncalibrated} [${input.levelReferenceLabel}]`;
 }
 
 /** A metric's axis name: what it measures and its unit, or that its unit is not known. */

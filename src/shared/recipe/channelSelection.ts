@@ -52,7 +52,11 @@ export function channelResult(result: ScanResult | undefined, ch: number): ScanR
         const values = result[key];
         if (Array.isArray(values)) Object.assign(picked, { [key]: [values[index]] });
     }
-    if (result.input) picked.input = { ...result.input, channels: [result.input.channels[index] ?? index] };
+    // The channel names its own calibration (a file calibrated channel by channel), not the whole file's (R4).
+    if (result.input) {
+        const own = result.input.channelCalibration?.[index];
+        picked.input = { ...result.input, channels: [result.input.channels[index] ?? index], ...(own ? { calibrationStatus: own, channelCalibration: [own] } : {}) };
+    }
     return picked;
 }
 

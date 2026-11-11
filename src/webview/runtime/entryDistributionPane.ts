@@ -17,7 +17,7 @@ import { DIST_MARGINS, DIST_ROW_MAX, DIST_ROW_MIN, DIST_ROW_PAD, DIST_STRIP_ROW,
 import { attachPlotInteraction, FULL_PLOT_WINDOW, notePlotWindow, plotPointIn, type PlotMargins, type PlotWindow, type VerticalAxis } from './plotInteraction';
 import { createPlotHoverLayer } from './plotHoverLayer';
 import { paintOverlay, type StagePlot } from './stagePanes';
-import { countTitle, csvColumnTitle, plainNames, plainRange, setExclusionText, setOver, type FigureSet, type FigureTitle, type PlainTitle } from './figureModel';
+import { countTitle, csvColumnTitle, plainNames, plainRange, setDrawnCount, setExclusionText, setOver, type FigureSet, type FigureTitle, type PlainTitle } from './figureModel';
 import { localLine } from './fullRead';
 import { positionPopover } from './settingsPopover';
 
@@ -146,9 +146,10 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
         const prefix = group === 'ch' ? `${strings.dsCh} ` : '';
         // A level's heading is its set's: its n (of recordings; channels are counted as drawn) and what it left out, with why.
         const set = inputs.set ?? null;
-        const shown = set && dist.unit !== 'ch' ? set.n : members;
+        // Of the set's recordings alone, in the unit drawn (a level's channels: the drawn channels of its recordings).
+        const drawnMembers = dist.groups.flatMap(item => item.members);
         count.textContent = members
-            ? `${shown.toLocaleString()} ${unit}${dist.groups.length > 4 ? ` · ${strings.dsDistGroups.replace('{n}', String(dist.groups.length))}` : ''}`
+            ? `${(set ? setDrawnCount(set, drawnMembers, dist.unit === 'ch') : members).toLocaleString()} ${unit}${dist.groups.length > 4 ? ` · ${strings.dsDistGroups.replace('{n}', String(dist.groups.length))}` : ''}`
             : strings.dsRows.replace('{n}', pool.length.toLocaleString());
         // (A level of another reference is only ever drawn apart with its set given, which says it with the rest.)
         if (set) count.textContent += setExclusionText(set, strings);
@@ -187,8 +188,10 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
             width, rowHeight, strip, range, slots: slotted, base, labels, groupPrefix: prefix, unitLabel: unit, axisLabel,
             format: inputs.format, name: inputs.rowName,
             countOf: (name, drawn) => {
-                if (!set || dist.unit === 'ch') return `${drawn} ${unit}`;
+                if (!set) return `${drawn} ${unit}`;
                 const paths = [...new Set(pool.filter(row => groupOf(row, group) === name).map(row => row.filePath))];
+                // A level's channels: those drawn of the set's recordings in the group.
+                if (dist.unit === 'ch') return `${setDrawnCount(set, dist.groups.find(item => item.name === name)?.members ?? [], true)} ${unit}`;
                 // Its n of the one set (what the set left out is said once, in the heading above the groups).
                 return `${setOver(set, paths).n} ${unit}`;
             },

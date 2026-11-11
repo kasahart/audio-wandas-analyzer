@@ -8,8 +8,10 @@ import { PendingBackendRequests } from '../shared/protocol/backendProtocol';
 
 test('measurement formatting keeps the calibration panel and report wording', () => {
     assert.deepEqual([1234.5, 12.345, 0.1234, 0.001234, Number.NaN].map(formatMeasurementNumber), ['1235', '12.35', '0.123', '0.00123', '—']);
-    assert.equal(formatMeasuredLevel(0.5, -6.02, { calibrationStatus: 'calibrated', linearUnit: 'Pa', levelUnit: 'dB SPL' }), '0.500 Pa / −6.0 dB SPL');
-    assert.equal(formatMeasuredLevel(0.5, -6.02, { calibrationStatus: 'uncalibrated', linearUnit: 'FS', levelUnit: 'dBFS' }), '−6.0 dBFS');
+    assert.equal(formatMeasuredLevel(0.5, -6.02, { calibrationStatus: 'calibrated', linearUnit: 'Pa', levelUnit: 'dB SPL', levelReferenceLabel: 'dB SPL' }), '0.500 Pa / −6.0 dB SPL');
+    assert.equal(formatMeasuredLevel(0.5, -6.02, { calibrationStatus: 'uncalibrated', linearUnit: 'FS', levelUnit: 'dBFS', levelReferenceLabel: 'dBFS' }), '−6.0 dBFS');
+    // Its reference is its levelReferenceLabel alone: wandas' levelUnit is never read as one (sweep 4).
+    assert.equal(formatMeasuredLevel(0.5, -6.02, { calibrationStatus: 'calibrated', linearUnit: 'Pa', levelUnit: 'dB SPL' }), null);
     // Without a reference to name no level is written: never in a bare "dB" (R4, A50).
     assert.equal(formatMeasuredLevel(0.5, -6.02, undefined), null);
     assert.equal(formatMeasuredLevel(0.5, -6.02, { calibrationStatus: 'calibrated', linearUnit: 'Pa' }), null);

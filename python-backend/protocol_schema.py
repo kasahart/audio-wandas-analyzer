@@ -455,6 +455,8 @@ DEFINITIONS: dict[str, Schema] = {
             "referenceValue": {"$ref": "#/$defs/SafeCalibrationValue"},
             "referenceUnit": {"type": "string"},
             "levelReferenceLabel": {"type": "string"},
+            # The pair's calibration: calibrated only when both the reference channel and the response channel are.
+            "calibrationStatus": {"type": "string", "enum": ["uncalibrated", "calibrated"]},
             "calibrationSignature": {"type": "string"},
             "analysisRevision": {"$ref": "#/$defs/ResultAnalysisRevision"},
             "sourceVersion": {"type": "string"},
@@ -710,6 +712,12 @@ DEFINITIONS: dict[str, Schema] = {
                 "required": ["min", "max"],
                 "properties": {"min": _NUMBER, "max": _NUMBER, "robust": _NUMBER},
             },
+            # A line over time: its full-resolution values' start and spacing (s), as the median aligns them.
+            "timeAxis": {
+                "type": "object",
+                "required": ["start", "step"],
+                "properties": {"start": _NUMBER, "step": _NUMBER},
+            },
             # A difference's largest magnitude over the part on screen, from every value before thinning (headline).
             "peak": {
                 "type": "object",
@@ -792,6 +800,14 @@ DEFINITIONS: dict[str, Schema] = {
             "calibrationStatus": {"type": "string", "enum": ["uncalibrated", "calibrated"]},
             # false: the source (a CSV) holds raw input units, so an uncalibrated level is dB re 1 input unit.
             "fullScale": {"type": "boolean"},
+            # Each channel's own calibration status, in ``channels``' order: a channel taken alone names its own.
+            "channelCalibration": {
+                "type": "array",
+                "items": {"type": "string", "enum": ["uncalibrated", "calibrated"]},
+            },
+            # Scanned against the base slot's recording: the status of the base channel it is paired with, since
+            # a pair's values are calibrated only when both of its sides are.
+            "baseCalibrationStatus": {"type": "string", "enum": ["uncalibrated", "calibrated"]},
         },
     },
     # A file that cannot be scanned answers ``ok: false`` with a one-line ``reason`` and nothing else;

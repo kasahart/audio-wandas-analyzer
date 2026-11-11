@@ -17,7 +17,7 @@ export class SpectrumView {
     dbMin: number | null = null;
     dbMax: number | null = null;
     private painted: SpectrumPaintedRange | null = null;
-    /** The level reference the left axis was last drawn in; a dB zoom is in its dB. */
+    /** The level identity (levelKeyOf) the left axis was last drawn in; a dB zoom is in its dB. */
     private levelReference: string | null = null;
 
     state(): SpectrumViewState {
@@ -25,14 +25,15 @@ export class SpectrumView {
     }
 
     /**
-     * Called with the left axis' level reference before each paint. When another reference takes the left axis
+     * Called with the left axis' level identity (its key, never its name's text) before each paint. When another
+     * identity takes the left axis
      * (a track hidden, shown or moved), a dB zoom kept in the old reference's dB no longer applies, so it is cleared.
      */
-    followLevelReference(reference: string): void {
-        if (this.levelReference !== null && reference !== this.levelReference) {
+    followLevelReference(key: string): void {
+        if (this.levelReference !== null && key !== this.levelReference) {
             this.setDbRange(null, null);
         }
-        this.levelReference = reference;
+        this.levelReference = key;
     }
 
     recordPaint(painted: SpectrumPaintedRange): void {

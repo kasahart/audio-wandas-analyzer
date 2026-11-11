@@ -31,6 +31,8 @@ export interface CompareSide {
     bands: (number | null)[];
     /** Its levels' reference as wandas names it ("dBFS", "dB SPL re 20 µPa"): one for a group, whose median is of one unit. */
     levelLabel?: string;
+    /** Its levels' identity (levelIdentityOf: unit, reference value, label): two sides share a reference only by this. */
+    levelKey?: string;
     /** Uncalibrated: its scan's (a group: any of its recordings') calibration status is not calibrated (R4). */
     uncalibrated?: boolean;
     /** A group of three or more files: its lower and upper quartiles, point by point and band by band. */
@@ -72,7 +74,7 @@ export interface CompareModel {
     compareResult?: ScanOk;
 }
 
-export type CompareStrings = Pick<UiStrings, 'axisUncalibrated' | 'compareLevelsAt' | 'compareDiffShow' | 'compareDiffHide' | 'hintDiffToggle' | 'entryBaseGroup' | 'entryBase' | 'entryCount' | 'compareKeyHold' | 'compareKeyBack' | 'comparePlay' | 'compareDelta' | 'compareNotEntry' | 'comparePending' | 'compareBaseEntryRegion' | 'compareReport' | 'reportSaved' | 'compareSelfBase' | 'compareSingleBase' | 'compareEmptyBase' | 'dsBaseFailed' | 'dsBaseMissing' | 'dsBasePending' | 'dsBaseStale' | 'dsBaseOtherUnits' | 'dsBaseOtherBins' | 'dsBaseNoIdentity' | 'compareRegionDiffers' | 'compareUnitDiffers' | 'hintBaseCard' | 'hintSlotCard' | 'hintRegionMark' | 'hintCompareMark' | 'compareNoSignificant' | 'slotEmpty'>;
+export type CompareStrings = Pick<UiStrings, 'axisUncalibrated' | 'axisUnitUnknown' | 'compareLevelsAt' | 'compareDiffShow' | 'compareDiffHide' | 'hintDiffToggle' | 'entryBaseGroup' | 'entryBase' | 'entryCount' | 'compareKeyHold' | 'compareKeyBack' | 'comparePlay' | 'compareDelta' | 'compareNotEntry' | 'comparePending' | 'compareBaseEntryRegion' | 'compareReport' | 'reportSaved' | 'compareSelfBase' | 'compareSingleBase' | 'compareEmptyBase' | 'dsBaseFailed' | 'dsBaseEmpty' | 'dsBaseOtherChannels' | 'dsBaseMissing' | 'dsBasePending' | 'dsBaseStale' | 'dsBaseOtherUnits' | 'dsBaseOtherBins' | 'dsBaseNoIdentity' | 'compareRegionDiffers' | 'compareUnitDiffers' | 'hintBaseCard' | 'hintSlotCard' | 'hintRegionMark' | 'hintCompareMark' | 'compareNoSignificant' | 'slotEmpty'>;
 
 /** A band's |Δ| under this (dB) reads 0.0 at the tenth a level is shown to: no difference to head the list. */
 const SHOWN_ZERO_DB = 0.05;
@@ -122,7 +124,7 @@ function fileSide(result: ScanOk): Omit<CompareSide, 'title' | 'filePaths'> {
         bands: BAND_CENTERS_HZ.map((_, band) => {
             return powerMeanOrNull((result.thirdOctDb ?? []).map(row => row[band]));
         }),
-        ...(result.input ? { levelLabel: result.input.levelReferenceLabel } : {}),
+        ...(result.input ? { levelLabel: result.input.levelReferenceLabel, levelKey: levelKeyOf(result.input) } : {}),
         ...(result.input && result.input.calibrationStatus !== 'calibrated' ? { uncalibrated: true } : {}),
     };
 }
@@ -144,10 +146,12 @@ export function levelIdentityOf(input: Pick<LevelInput, 'unit' | 'ref' | 'levelR
  */
 export function setMedian(set: FigureSet<ScanOk>): Omit<CompareSide, 'title' | 'filePaths'> | null {
     const sides = set.used.map(item => fileSide(item.value));
-    return sides.length ? sides.length === 1 ? sides[0] : medianSide(sides) : null;
+    // What the median is in, and whether it is calibrated, is the figure model's (medianInputOf: calibrated only when
+    // every recording it is of is), never decided here.
+    return sides.length ? sides.length === 1 ? sides[0] : medianSide(sides, medianInputOf(set.used.map(item => item.value.input))) : null;
 }
 
-function medianSide(sides: Array<Omit<CompareSide, 'title' | 'filePaths'>>): Omit<CompareSide, 'title' | 'filePaths'> {
+function medianSide(sides: Array<Omit<CompareSide, 'title' | 'filePaths'>>, input: LevelInput | undefined): Omit<CompareSide, 'title' | 'filePaths'> {
     const bandsAt = (p: number): (number | null)[] => BAND_CENTERS_HZ.map((_, band) => {
         const levels = sides.map(side => side.bands[band]);
         return levels.some(level => level === null) ? null : quantile(levels as number[], p);
@@ -163,8 +167,8 @@ function medianSide(sides: Array<Omit<CompareSide, 'title' | 'filePaths'>>): Omi
     return {
         ...(spread ? { spread } : {}),
         ...(bins ? { bins } : {}),
-        ...(sides[0].levelLabel !== undefined ? { levelLabel: sides[0].levelLabel } : {}),
-        ...(sides.some(side => side.uncalibrated) ? { uncalibrated: true } : {}),
+        ...(input ? { levelLabel: input.levelReferenceLabel, levelKey: levelKeyOf(input) } : {}),
+        ...(input?.calibrationStatus !== 'calibrated' ? { uncalibrated: true } : {}),
         spectrumDb: sides[0].spectrumDb.map((_, point) => medianOfSome(sides.map(side => side.spectrumDb[point]))),
         leq: medianOfSome(sides.map(side => side.leq)),
         bands: BAND_CENTERS_HZ.map((_, band) => {
@@ -245,7 +249,10 @@ export function buildCompareModel(
     // Levels of another level identity than the compared file's have no difference (nor a median): blocked 'unit'.
     // A group whose set counts none, each left out with why (failed, another axis, stale …): no base, said so.
     const emptyGroup = of?.kind === 'group' && !base && !loneGroup && !otherReference && !pending && !!compare;
-    const blocked: CompareModel['blocked'] = sameFile ?? (compared && otherReference ? 'unit' : emptyGroup ? 'empty' : undefined);
+    // Slot 0 shown but not counted for any other reason (another frequency axis, R1): its set's n is 0, so there is no
+    // Δ of it either, said with why, as a group's empty set is; never a Δ beside an n of 0.
+    const withheldFile = of?.kind === 'file' && !!single && !!baseSet && !baseSet.n && !otherReference && !pending && !!compare;
+    const blocked: CompareModel['blocked'] = sameFile ?? (compared && otherReference ? 'unit' : emptyGroup || withheldFile ? 'empty' : undefined);
     const baseSide: CompareSide | null = base;
     const comparable = !blocked && !!baseSide && !!compare && baseSide.spectrumDb.length === compare.spectrumDb.length;
     const diffDb = comparable ? compare.spectrumDb.map((level, index) => level - baseSide.spectrumDb[index]) : null;
@@ -418,8 +425,11 @@ export function diffHeadline(comparison: CompareModel, strings?: CompareStrings)
  */
 export function levelsHeadline(comparison: CompareModel, strings: CompareStrings): string {
     // Absolute levels name their reference (R4): once after the pair when both sides share it, after each level when not.
-    const baseUnit = comparison.base?.levelLabel ?? '', compareUnit = comparison.compare?.levelLabel ?? baseUnit;
-    const apart = baseUnit !== compareUnit;
+    // By the levels' identity (levelIdentityOf), never by their names' text; a side whose reference is not known says
+    // so, never a bare number (R4).
+    const unitOf = (side: CompareSide | null): string => side?.levelLabel || `[${strings.axisUnitUnknown}]`;
+    const baseUnit = unitOf(comparison.base), compareUnit = comparison.compare ? unitOf(comparison.compare) : baseUnit;
+    const apart = !!comparison.compare && (comparison.base?.levelKey ?? '') !== (comparison.compare.levelKey ?? '') || !comparison.base?.levelKey;
     // Where the two sides differ in calibration status, the uncalibrated one says so itself (R4), as its legend does.
     const mixed = !!comparison.base && !!comparison.compare && !!comparison.base.uncalibrated !== !!comparison.compare.uncalibrated;
     const word = (side: CompareSide | null): string => (mixed && side?.uncalibrated ? strings.axisUncalibrated : '');
@@ -513,8 +523,10 @@ export function uncalibratedLevelInput(fullScale: boolean): LevelInput {
  * judges it (calibrated only if every channel is: a gain correction in FS shares dBFS with an uncalibrated channel),
  * else plain dB (channels calibrated apart share no reference).
  */
-export function trackLevelInput(channels: ReadonlyArray<ChannelSummary | null | undefined>, scanned: LevelInput | undefined): LevelInput {
-    if (scanned) return { unit: scanned.unit, ref: scanned.ref, levelReferenceLabel: scanned.levelReferenceLabel, calibrationStatus: scanned.calibrationStatus, fullScale: scanned.fullScale };
+export function trackLevelInput(channels: ReadonlyArray<ChannelSummary | null | undefined>, scanned: (LevelInput & { channelCalibration?: ReadonlyArray<LevelInput['calibrationStatus']> }) | undefined, channel: number | null = null): LevelInput {
+    // A channel read on its own names that channel's calibration (a file calibrated channel by channel), R4.
+    const own = channel ? scanned?.channelCalibration?.[channel - 1] : undefined;
+    if (scanned) return { unit: scanned.unit, ref: scanned.ref, levelReferenceLabel: scanned.levelReferenceLabel, calibrationStatus: own ?? scanned.calibrationStatus, fullScale: scanned.fullScale };
     const fullScale = channels.every(channel => !channel || channel.fullScale);
     const measured = channels.map(channel => channel?.measurement);
     const first = measured[0];
@@ -529,7 +541,7 @@ export function trackLevelInput(channels: ReadonlyArray<ChannelSummary | null | 
     // of one channel: its caller passes that one.)
     const calibrated = measured.find(measurement => measurement?.calibrationStatus === 'calibrated');
     return calibrated
-        ? { unit: calibrated.referenceUnit, ref: calibrated.referenceValue, levelReferenceLabel: calibrated.levelReferenceLabel, calibrationStatus: 'calibrated', fullScale }
+        ? { unit: calibrated.referenceUnit, ref: calibrated.referenceValue, levelReferenceLabel: calibrated.levelReferenceLabel, calibrationStatus: calibrated.calibrationStatus, fullScale }
         : uncalibratedLevelInput(fullScale);
 }
 

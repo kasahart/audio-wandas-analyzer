@@ -80,8 +80,10 @@ test('every axis a picture is drawn on names its quantity and unit, whatever it 
                 }
             }
         }
-        // A series with no unit is in the files' own unit (full scale), never with no unit at all.
-        assert.equal(axisNameParts(stageAxes(strings, { frame: 'ChannelFrame', kind: 'line', x: 'time', quantity: 'value', xs: [0, 1], values: [1, 2] }, undefined).y)?.unit, 'FS');
+        // A series with no unit and no input says its unit is not known, never an assumed full scale (R4); with an
+        // input it is in the files' own unit.
+        assert.equal(axisNameParts(stageAxes(strings, { frame: 'ChannelFrame', kind: 'line', x: 'time', quantity: 'value', xs: [0, 1], values: [1, 2] }, undefined).y)?.unit, strings.axisUnitUnknown);
+        assert.equal(axisNameParts(stageAxes(strings, { frame: 'ChannelFrame', kind: 'line', x: 'time', quantity: 'value', xs: [0, 1], values: [1, 2] }, { ...calibrated, unit: '', fullScale: true, calibrationStatus: 'uncalibrated' }).y)?.unit, 'FS');
         for (const measure of [undefined, 'rms', 'timeWeightedRms', 'power'] as const) {
             for (const input of [undefined, calibrated]) named(`${locale} amplitude ${measure}`, amplitudeAxisTitle(strings, input?.unit, input, measure));
         }
@@ -173,9 +175,10 @@ test('no absolute level falls back to a bare "dB" unit anywhere in src (a defaul
     };
     // A bare 'dB' anywhere (a default, an argument, a value), a reference defaulted to dBFS, or a level in "dB(A)".
     // (A prefix test, `unit.startsWith('dB')`, asks whether a unit is a level; it gives none.)
-    const BARE = /(?<!(?:startsWith|endsWith|includes)\()(['"`])dB\1|(?:\?\?|\|\|)\s*(['"`])dBFS\2|(['"`])(?![^'"`\n]*Δ)[^'"`\n]*\bdB\(A\)[^'"`\n]*\3/u;
+    const BARE = /(?<!(?:startsWith|endsWith|includes)\()(['"`])dB\1|(?:\?\?|\|\|)\s*(['"`])dBFS\2|(['"`])(?![^'"`\n]*Δ)[^'"`\n]*\bdB\(A\)[^'"`\n]*\3|(?:\?\?|\|\||:)\s*uncalibratedUnits\(true\)\.level\b/u;
     // The class sweep 3 loopholes, caught: an argument, a dBFS default, a dB(A) column; a Δ and a prefix test are not.
-    for (const bad of ["lines(values, 'gain', 'dB')", "label: folder.label || 'dBFS'", "entryColLeq: 'Leq dB(A)'"]) assert.ok(BARE.test(bad), bad);
+    // Sweep 4: a dBFS assumed by its name's maker (`?? uncalibratedUnits(true).level` as a default input's reference).
+    for (const bad of ["lines(values, 'gain', 'dB')", "label: folder.label || 'dBFS'", "entryColLeq: 'Leq dB(A)'", "const reference = input ?? { levelReferenceLabel: uncalibratedUnits(true).level };"]) assert.ok(BARE.test(bad), bad);
     for (const fine of ["reportDeltaLeq: 'Δ Leq dB(A)'", "unit?.startsWith('dB')"]) assert.ok(!BARE.test(fine), fine);
     const found = files.flatMap(file => {
         const rel = path.relative(root, file).split(path.sep).join('/');

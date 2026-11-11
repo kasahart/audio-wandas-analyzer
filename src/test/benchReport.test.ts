@@ -223,11 +223,13 @@ test('a report figure draws levels of another reference on their own axis, each 
     const strings = getStrings('ja');
     const cases: Array<{ base: ScanResult; compare: ScanResult; left: string; right: string | null; baseWord: boolean; compareWord: boolean }> = [
         // Slot 0 in dB SPL, slot 1 uncalibrated dBFS: Δ withheld, and never one read on the other's numbers.
+        // Each on its own axis, which says uncalibrated itself: the legend names that axis, once (calibrationWords).
         { base: calibrated(60, 50), compare: scan(-20, -30), left: 'レベル [dB SPL re 20 µPa]', right: 'レベル 未校正 [dBFS]', baseWord: false, compareWord: true },
         { base: scan(-20, -30), compare: calibrated(60, 50), left: 'レベル 未校正 [dBFS]', right: 'レベル [dB SPL re 20 µPa]', baseWord: true, compareWord: false },
         // One reference (dBFS), calibrated apart: one axis, the uncalibrated line names itself.
         { base: scan(-20, -30), compare: calibrated(-18, -28, true), left: 'レベル [dBFS]', right: null, baseWord: true, compareWord: false },
-        { base: scan(-20, -30), compare: scan(-18, -28), left: 'レベル 未校正 [dBFS]', right: null, baseWord: true, compareWord: true },
+        // Both uncalibrated on one axis named so: neither line repeats it.
+        { base: scan(-20, -30), compare: scan(-18, -28), left: 'レベル 未校正 [dBFS]', right: null, baseWord: false, compareWord: false },
         { base: calibrated(60, 50), compare: calibrated(62, 52), left: 'レベル [dB SPL re 20 µPa]', right: null, baseWord: false, compareWord: false },
     ];
     for (const { base, compare, left, right, baseWord, compareWord } of cases) {
@@ -240,6 +242,8 @@ test('a report figure draws levels of another reference on their own axis, each 
         assert.deepEqual([axes.left, axes.right], [left, right], what);
         assert.equal(axes.legend.base.includes(strings.entryLeqUncalibrated), baseWord, what);
         assert.equal(axes.legend.compare.includes(strings.entryLeqUncalibrated), compareWord, what);
+        // Said once: never a word of its own and its axis' name both.
+        for (const said of [axes.legend.base, axes.legend.compare]) assert.ok(said.split(strings.entryLeqUncalibrated).length <= 2, `${what}: ${said}`);
         // The painted figure (off screen, so no canvas audit sees it) names both axes and writes each line's word.
         const { canvas, texts } = recordingCanvas();
         const input = { model, results, slots: ['/f/base.wav', '/f/cmp.wav', null, null], compare: () => comparison, region: null, recipe: null, recipeName: 'r', now: new Date(), stale: new Set<string>() };
