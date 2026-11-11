@@ -217,3 +217,51 @@ def test_drawn_points_are_followed_across_functions_modules_and_decisions(backen
     sources = {**backend, **{module: backend[module] + text for module, text in added.items()}}
     found = _new_problems(sources)
     assert any(expected in problem for problem in found), f"{name}: {found}"
+
+
+def _draws(sources: dict[str, str], readers: set[str]) -> list[str]:
+    return check.draws_problems(sources, readers)
+
+
+def test_every_reader_the_contract_table_calls_draws_only_draws(backend: dict[str, str]) -> None:
+    readers = check.contract_draws(check.VALUES_TS.read_text(encoding="utf-8"))
+    assert "stage_view:floored_db" in readers, "the table's backend 'draws' readers are read"
+    assert _draws(backend, readers) == []
+
+
+DRAWS_CALLER = (
+    "\n\nfrom stage_combine import _floor_drawn\n\n\ndef _send_floor(frame):\n"
+    '    return {"FIELD": _floor_drawn(stage_view(frame)["values"])}\n'
+)
+DRAWS_HELPER = "\n\ndef _floor_drawn(values):\n    return np.maximum(np.asarray(values), -120.0)\n"
+
+
+def test_a_draws_reader_that_returns_a_max_into_a_headline_fails(backend: dict[str, str]) -> None:
+    added = (
+        "\n\ndef _drawn_headline(frame):\n    view = stage_view(frame)\n"
+        '    return {"values": view["values"], "headline": float(np.max(view["values"]))}\n'
+    )
+    sources = {**backend, "scan_service": backend["scan_service"] + added}
+    found = _draws(sources, {"scan_service:_drawn_headline"})
+    assert any("scan_service.py:_drawn_headline: 'draws', but np.max(" in problem for problem in found), found
+
+
+def test_a_draws_reader_whose_result_its_caller_sends_in_another_field_fails(backend: dict[str, str]) -> None:
+    def sources(field: str) -> dict[str, str]:
+        return {
+            **backend,
+            "stage_combine": backend["stage_combine"] + DRAWS_HELPER,
+            "scan_service": backend["scan_service"] + DRAWS_CALLER.replace("FIELD", field),
+        }
+
+    found = _draws(sources("headline"), {"stage_combine:_floor_drawn"})
+    expected = "stage_combine.py:_floor_drawn: 'draws', but its result becomes field 'headline' = drawn points"
+    assert any(expected in problem for problem in found), found
+    # The same result sent as the picture's drawn values is drawing.
+    assert _draws(sources("values"), {"stage_combine:_floor_drawn"}) == []
+
+
+def test_a_draws_reader_that_does_not_exist_fails(backend: dict[str, str]) -> None:
+    assert _draws(backend, {"stage_view:no_such_reader"}) == [
+        "python-backend/stage_view.py:no_such_reader: 'draws', but there is no such function"
+    ]

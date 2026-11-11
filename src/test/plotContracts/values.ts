@@ -165,7 +165,6 @@ export const DRAWN_READERS: Readonly<Record<string, DrawnReader>> = {
     ['python-backend/analyzer.py:_build_spectrogram']: { use: 'draws', why: 'resamples the cells to draw them; minDb / maxDb are every full cell\'s, taken before (track-spectrogram.range)' },
     // Found by check_decimation_flow.py's data flow (not by a decimator called by name): each computes with drawn
     // points it is handed only to make the picture, which the flow check holds (no number of them is sent).
-    ['python-backend/stage_combine.py:_aligned']: { use: 'draws', why: "compares the pictures' kind, axis, quantity and unit to decide whether they combine; it returns the full data cut to their common part, never a number of drawn points" },
     ['python-backend/stage_combine.py:_band_peaks']: { use: 'draws', why: "thins a difference image's rows to its bands (each band's largest magnitude) to draw it; the headline peak is of the full difference" },
     ['python-backend/stage_combine.py:_significant']: { use: 'draws', why: 'rounds the drawn difference values to significant figures to send them; computes no number of its own' },
     ['python-backend/stage_view.py:_linear_extremes']: { use: 'draws', why: "picks each bucket's lowest and highest index (min_max_indices on a linear axis) to draw a line; positions, not a value" },
