@@ -948,9 +948,7 @@ def read_points(base: list[StageData], compare: StageData | None, read: StageRea
 
     if first.mode in ("spectrogram", "roughness", "cepstrogram"):
         ys = first.ys if first.ys is not None else np.empty(0)
-        return read_cells(
-            first.xs, ys, lambda rows, columns: combined(lambda item: item.values[rows, columns]), read
-        )
+        return read_cells(first.xs, ys, lambda rows, columns: combined(lambda item: item.values[rows, columns]), read)
     if first.mode == "events" and "event" in read:
         # One event's own line: a recording's, as the plot draws each event of it.
         if len(group) != 1 or diff or first.rows is None or int(read["event"]) not in first.event_ids:

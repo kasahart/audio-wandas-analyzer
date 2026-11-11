@@ -376,7 +376,7 @@ function drawnScan(within: ts.Program = typed(), files: readonly string[] = sour
     const keysOf = (node: ts.Node): string[] => {
         if (ts.isStringLiteralLike(node) || ts.isNumericLiteral(node)) return [node.text];
         const type = checker.getTypeAtLocation(node);
-        return (type.isUnion() ? type.types : [type]).filter(part => part.isStringLiteral()).map(part => (part as ts.StringLiteralType).value);
+        return (type.isUnion() ? type.types : [type]).filter(part => part.isStringLiteral()).map(part => (part).value);
     };
     const nameOf = (name: ts.PropertyName | ts.BindingName): string[] => (ts.isIdentifier(name) || ts.isStringLiteralLike(name) || ts.isNumericLiteral(name) ? [name.text] : ts.isComputedPropertyName(name) ? keysOf(name.expression) : []);
 
@@ -389,7 +389,7 @@ function drawnScan(within: ts.Program = typed(), files: readonly string[] = sour
             const name = functionName(node);
             if (!name || !ts.isFunctionLike(node) || !('body' in node)) return;
             const key = `${file}:${name}`;
-            if (!functions.has(key)) functions.set(key, node as ts.FunctionLikeDeclaration);
+            if (!functions.has(key)) functions.set(key, node);
             byNode.set(node, key);
             if (ts.isVariableDeclaration(node.parent) || ts.isPropertyAssignment(node.parent)) byNode.set(node.parent, key);
         });
@@ -762,7 +762,7 @@ function drawsFlowProblems(scan: DrawnScan, readers: Readonly<Record<string, Dra
                 else taint(outer);
             } else if (ts.isArrayLiteralExpression(parent)) taint(parent);
             else if ((ts.isPropertyAssignment(parent) && parent.initializer === node) || ts.isShorthandPropertyAssignment(parent) || ts.isSpreadAssignment(parent)) {
-                if (!picture(parent.parent as ts.ObjectLiteralExpression)) taint(parent.parent);
+                if (!picture(parent.parent)) taint(parent.parent);
             } else if (ts.isVariableDeclaration(parent) && parent.initializer === node) {
                 if (count(node) && ts.isIdentifier(parent.name)) { const symbol = checker.getSymbolAtLocation(parent.name); if (symbol) counts.add(symbol); }
                 bind(parent.name);
@@ -1023,7 +1023,7 @@ function distinguishes(file: string, name: string, reach: ReadonlySet<string> | 
         const method = ts.isPropertyAccessExpression(callee) ? callee.name.text : ts.isIdentifier(callee) ? callee.text : '';
         // expect(x).not.toBe(y): negated; expect(x).toBe(y): outright.
         const negated = ts.isPropertyAccessExpression(callee) && ts.isPropertyAccessExpression(callee.expression) && callee.expression.name.text === 'not';
-        const subject = (negated ? ((callee as ts.PropertyAccessExpression).expression as ts.PropertyAccessExpression).expression : ts.isPropertyAccessExpression(callee) ? callee.expression : undefined);
+        const subject = (negated ? ((callee).expression as ts.PropertyAccessExpression).expression : ts.isPropertyAccessExpression(callee) ? callee.expression : undefined);
         const expectArgs = subject && ts.isCallExpression(subject) && ts.isIdentifier(subject.expression) && subject.expression.text === 'expect' ? subject.arguments : undefined;
         const args = [...node.arguments, ...(expectArgs ?? [])];
         const asserting = (ts.isPropertyAccessExpression(callee) && ts.isIdentifier(callee.expression) && callee.expression.text === 'assert') || !!expectArgs || (ts.isIdentifier(callee) && callee.text === 'assert');
