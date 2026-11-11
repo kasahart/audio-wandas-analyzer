@@ -78,10 +78,12 @@ export const DRAWN_FIELDS: Readonly<Record<string, readonly string[]>> = {
     SpectrumSlice: ['values'],
     SpectrogramData: ['values'],
     WaveformEnvelope: ['min', 'max'],
+    // A signal's envelope as a picture carries it (StageView['waveform'], named so where a lane draws it).
+    LaneWaveform: ['min', 'max'],
 };
 
 /** Functions whose result is drawn points: a call of one is a read of drawn points too. Each reads DRAWN_FIELDS itself. */
-export const DRAWN_ACCESSORS: readonly string[] = [`${SP}:points`];
+export const DRAWN_ACCESSORS: readonly string[] = [`${SP}:points`, 'src/webview/runtime/trackStageMode.ts:events', 'src/webview/plot/waveformLayer.ts:envelopeOn'];
 
 /** The backend's functions that thin data to draw it: a def that calls one reads (or makes) drawn points. */
 export const PY_DECIMATORS: readonly string[] = [
@@ -168,12 +170,14 @@ export const DRAWN_READERS: Readonly<Record<string, DrawnReader>> = {
     ['src/webview/runtime/comparisonRuntime.ts:writeCsvWhenDetailed']: { use: 'whole', why: 'writes a slice only when it holds every bin, else waits or leaves it out (spectrum-csv.export)', proof: { file: 'src/test/renderScript.integration.test.ts', name: 'renderScript: export-csv replaces a cursor spectrum cut for display with every FFT bin', via: 'export-csv' } },
     ['src/webview/runtime/overlaySpectrumPainter.ts:spectrumLayer']: { use: 'whole', why: 'reads a slice\'s values as every bin when it has no frequenciesHz, and a cut one from laneReads; a stand-in (the lane spectrogram\'s column meanwhile, the floor past the end) is drawn and never read or measured (cursor-spectrum.pending)', proof: { file: 'src/test/overlaySpectrumPainter.test.ts', name: 'the cursor spectrum orders a slice cut for display by every bin on screen, not by the points kept to draw it (R6, R2)' } },
     ['src/webview/runtime/runtimeExports.ts:buildSpectrumCsv']: { use: 'whole', why: 'writes a slice that holds every bin (spectrum-csv.export)', proof: { file: 'src/test/runtimeExports.test.ts', name: 'spectrum CSV writes every FFT bin of a whole row at fs / n_fft spacing' } },
+    ['src/webview/plot/waveformLayer.ts:envelopeOn']: { use: 'draws', why: 'a signal\'s envelope placed on screen (a drawn accessor), kept per picture to draw it again' },
+    ['src/webview/plot/waveformLayer.ts:paintWaveformLayer']: { use: 'draws', why: 'draws a signal\'s envelope' },
     ['src/webview/runtime/trackCanvasPainter.ts:laneSpectrogramView']: { use: 'draws', why: 'the lane\'s picture of its display spectrogram' },
     ['src/webview/runtime/trackCanvasPainter.ts:laneWaveform']: { use: 'draws', why: 'the lane\'s picture of its envelope' },
     ['src/webview/runtime/trackStageMode.ts:events']: { use: 'draws', why: 'the events drawn, for the exclusion marks' },
     ['src/webview/runtime/trackStageMode.ts:paintNow']: { use: 'draws', why: 'whether a picture is a signal, to paint it' },
-    ['src/webview/runtime/trackStageMode.ts:snapshot']: { use: 'draws', why: 'a test hook\'s summary of what is drawn' },
-    ['src/webview/runtime/trackStageModel.ts:pictureSummary']: { use: 'draws', why: 'a test hook\'s count and median of the drawn points, not shown' },
+    ['src/webview/runtime/trackStageMode.ts:snapshot']: { use: 'value', why: 'a test hook\'s summary of what is drawn (pictureSummary), which no plot or readout shows (no row names it)' },
+    ['src/webview/runtime/trackStageModel.ts:pictureSummary']: { use: 'value', why: 'a test hook\'s count and median of the drawn points, which no plot or readout shows (no row names it)' },
     ['src/webview/runtime/trackStageModel.ts:plotsOf']: { use: 'draws', why: 'whether pictures are signals, to choose how to draw them' },
     ['src/webview/runtime/trackStagePainter.ts:eventsOf']: { use: 'draws', why: 'the events drawn, as layers' },
     ['src/webview/spectrum/cursorSpectrum.ts:extractSpectrumAtCursor']: { use: 'draws', why: 'until the backend\'s slice at this cursor is in (a cached slice of an earlier cursor is not it: sliceIsAtCursor), the lane\'s display spectrogram column is drawn, marked a stand-in that is never read (cursor-spectrum.pending)' },

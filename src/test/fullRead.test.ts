@@ -269,6 +269,12 @@ test('every layer a plot draws is given its full data, held or fetched: one give
     const plot = (full: FullSource): StagePlot => ({ frame: { left: 0, top: 0, width: 100, height: 100 }, xAt: x => (x - 1) * 100, yAt: v => 100 - v * 100, xOf: x => 1 + x / 100, ratioStep: 1.12, lines: [{ view: bars, color: '', full }], diff: false });
     assert.equal(stageHover(plot(NO_FULL_DATA), 0, 100), null);
     assert.equal(stageHover(plot(wholeBars(bars) ?? NO_FULL_DATA), 0, 100)?.value, 0);
+    // A line thinned to be drawn (its 1.5 peak left out) is never taken whole: its full data is read, not its points.
+    const thinned: StageView = { ...line, values: [0, 0] };
+    const over = (full: FullSource): number | undefined => stageHover({ ...plot(full), lines: [{ view: thinned, color: '', full }] }, 50, 0)?.value;
+    const full = wholeBars(thinned) ?? localLine([1, 1.5, 2], [0, 1, 0]);
+    assert.equal(over(full), 1);
+    assert.notEqual(over(wholeBars(thinned) ?? full), over(localLine([1, 2], [0, 0])), 'not the value of the points drawn');
 });
 
 test('a picture\'s full data is held or fetched, never its drawn points: a band table without a key reads its every band at once, a line without one has none (R7)', () => {

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import ts from 'typescript';
@@ -382,7 +382,8 @@ function drawnScan(within: ts.Program = typed(), files: readonly string[] = sour
 
     const functions = new Map<string, ts.FunctionLikeDeclaration>();
     const byNode = new Map<ts.Node, string>();
-    for (const source of sources) {
+    const known = within.getSourceFiles().filter(source => !source.isDeclarationFile && /^src\/(?:webview|shared)\//u.test(relative(source)));
+    for (const source of new Set([...sources, ...known])) {
         const file = relative(source);
         each(source, node => {
             const name = functionName(node);
@@ -589,6 +590,267 @@ test('every function that reads drawn points says what it does with them, and a 
     }
 });
 
+// ── What a 'draws' reader does with drawn points ──
+
+/** Canvas and path calls: drawn points given to one of these are drawn. */
+const CANVAS_TYPES = new Set(['CanvasRenderingContext2D', 'OffscreenCanvasRenderingContext2D', 'Path2D', 'CanvasDrawCtx', 'ImageData']);
+/** Calls that only say whether a value is there to draw: a decision, not a number of it. */
+const PRESENCE_CALLS = new Set(['isFinite', 'isNaN', 'isArray', 'isInteger']);
+/** Number methods that write a number as text. */
+const TEXT_METHODS = new Set([...NUMBER_TEXT, 'toString', 'join']);
+const COMPARISONS = new Set([ts.SyntaxKind.LessThanToken, ts.SyntaxKind.GreaterThanToken, ts.SyntaxKind.LessThanEqualsToken, ts.SyntaxKind.GreaterThanEqualsToken, ts.SyntaxKind.EqualsEqualsToken, ts.SyntaxKind.EqualsEqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsToken, ts.SyntaxKind.ExclamationEqualsEqualsToken]);
+const ASSIGNMENTS = new Set([ts.SyntaxKind.EqualsToken, ts.SyntaxKind.PlusEqualsToken, ts.SyntaxKind.MinusEqualsToken, ts.SyntaxKind.AsteriskEqualsToken, ts.SyntaxKind.SlashEqualsToken, ts.SyntaxKind.BarBarEqualsToken, ts.SyntaxKind.QuestionQuestionEqualsToken]);
+
+/**
+ * Why each reader classified 'draws' does more than draw, by following the drawn points it reads (drawnScan's reads)
+ * through its code with the type checker: through locals, destructuring, loops, array methods and their callbacks,
+ * arithmetic and the functions of the scanned files it hands them to (each followed in turn). Drawn points may reach
+ * canvas and path calls, a picture handed on to be drawn (an object of a DRAWN_FIELDS type), and decisions of whether
+ * there is anything to draw (a field's presence, a null or finite check). A 'draws' reader fails when they, or a value
+ * or decision made of them, are returned, written as text (a template, String(), toFixed, a value helper), or kept
+ * outside the function: then a number of drawn points leaves the drawing, and the reader is 'value' (or 'whole', with
+ * its proof). Python's defs are not followed (they make the drawn points: their numbers are checked by
+ * check_decimation_flow.py).
+ */
+function drawsFlowProblems(scan: DrawnScan, readers: Readonly<Record<string, DrawnReader>> = DRAWN_READERS): string[] {
+    const checker = scan.program.getTypeChecker();
+    const helpers = new Set(VALUE_HELPERS);
+    const problems: string[] = [];
+    const primitive = (node: ts.Node): boolean => {
+        const type = checker.getNonNullableType(checker.getTypeAtLocation(node));
+        return (type.isUnion() ? type.types : [type]).every(part => !!(part.flags & (ts.TypeFlags.NumberLike | ts.TypeFlags.BooleanLike | ts.TypeFlags.StringLike | ts.TypeFlags.BigIntLike | ts.TypeFlags.EnumLike)));
+    };
+    const isNullish = (node: ts.Node): boolean => node.kind === ts.SyntaxKind.NullKeyword || (ts.isIdentifier(node) && node.text === 'undefined') || ts.isVoidExpression(node);
+    const typeName = (node: ts.Node): string | undefined => {
+        const type = checker.getNonNullableType(checker.getTypeAtLocation(node));
+        return (type.aliasSymbol ?? type.getSymbol())?.getName();
+    };
+    /** Whether an object literal is a picture handed on to be drawn: its type (or contextual type) is a DRAWN_FIELDS type. */
+    const drawnTypes: ts.Type[] = [];
+    for (const source of scan.program.getSourceFiles()) {
+        if (source.isDeclarationFile || !relative(source).startsWith('src/')) continue;
+        for (const statement of source.statements) {
+            if (!(ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement)) || !Object.hasOwn(DRAWN_FIELDS, statement.name.text)) continue;
+            const symbol = checker.getSymbolAtLocation(statement.name);
+            if (symbol) drawnTypes.push(checker.getDeclaredTypeOfSymbol(symbol));
+        }
+    }
+    const picture = (literal: ts.ObjectLiteralExpression): boolean => {
+        const types = [checker.getContextualType(literal), checker.getTypeAtLocation(literal)].filter((type): type is ts.Type => !!type);
+        return types.some(type => (type.isUnion() ? type.types : [type]).some(part => Object.hasOwn(DRAWN_FIELDS, (part.aliasSymbol ?? part.getSymbol())?.getName() ?? '') || drawnTypes.some(drawn => checker.isTypeAssignableTo(part, drawn))));
+    };
+    const memo = new Map<string, { returns: boolean; returnedAt: string; problems: string[] }>();
+
+    /** Follows `seeds` (drawn expressions) through `fn`: whether a value of them is returned, and what else is done with them. */
+    function follow(key: string, fn: ts.FunctionLikeDeclaration, seeds: ts.Node[], stack: ReadonlySet<string>): { returns: boolean; returnedAt: string; problems: string[] } {
+        const found: string[] = [];
+        let returns = false;
+        let returnedAt = '';
+        const inside = (node: ts.Node): boolean => node.pos >= fn.pos && node.end <= fn.end;
+        const own = (node: ts.Node): boolean => {
+            for (let at: ts.Node | undefined = node.parent; at; at = at.parent) if (ts.isFunctionLike(at)) return at === fn;
+            return false;
+        };
+        // Every reference to each local of the function, to follow a value kept in one.
+        const refs = new Map<ts.Symbol, ts.Node[]>();
+        each(fn, node => {
+            if (!ts.isIdentifier(node)) return;
+            const symbol = ts.isShorthandPropertyAssignment(node.parent) && node.parent.name === node ? checker.getShorthandAssignmentValueSymbol(node.parent) : checker.getSymbolAtLocation(node);
+            if (symbol) refs.set(symbol, [...(refs.get(symbol) ?? []), node]);
+        });
+        const done = new Set<ts.Node>();
+        const queue: ts.Node[] = [];
+        const taint = (node: ts.Node): void => { if (!done.has(node)) { done.add(node); queue.push(node); } };
+        const local = (symbol: ts.Symbol | undefined): boolean => !!symbol?.declarations?.some(inside);
+        const bind = (name: ts.Node): void => {
+            if (ts.isIdentifier(name)) {
+                const symbol = checker.getSymbolAtLocation(name);
+                for (const ref of (symbol && refs.get(symbol)) ?? []) if (ref !== name) taint(ref);
+            } else if (ts.isObjectBindingPattern(name) || ts.isArrayBindingPattern(name)) {
+                for (const element of name.elements) if (ts.isBindingElement(element)) bind(element.name);
+            }
+        };
+        const where = (node: ts.Node): string => `${relative(node.getSourceFile())}:${node.getSourceFile().getLineAndCharacterOfPosition(node.getStart()).line + 1} ${node.getText().replace(/\s+/gu, ' ').slice(0, 60)}`;
+        const problem = (node: ts.Node, what: string): void => { found.push(`${what} (${where(node)})`); };
+        /**
+         * The value leaves the function it is in as its result (a return, an arrow's body): this function's own result,
+         * or a callback's, whose method (map, reduce, find) then makes a value of it.
+         */
+        const returned = (node: ts.Node): void => {
+            if (own(node)) { if (!returns) returnedAt = where(node); returns = true; return; }
+            let at: ts.Node | undefined = node.parent;
+            while (at && !ts.isFunctionLike(at)) at = at.parent;
+            if (!at || !inside(at) || !(ts.isArrowFunction(at) || ts.isFunctionExpression(at)) || !ts.isCallExpression(at.parent) || !at.parent.arguments.includes(at)) return;
+            // A test of a field's presence (`views.every(view => view.waveform)`) is no value; map's result is what it returns.
+            const method = ts.isPropertyAccessExpression(at.parent.expression) ? at.parent.expression.name.text : '';
+            if (primitive(node) || ['map', 'flatMap', 'reduce', 'reduceRight'].includes(method)) taint(at.parent);
+        };
+        /** Counts of drawn points (`values.length`, and locals holding one): compared, they check an answer's shape. */
+        const counts = new Set<ts.Symbol>();
+        const count = (node: ts.Node): boolean => (ts.isPropertyAccessExpression(node) && node.name.text === 'length') || (ts.isIdentifier(node) && counts.has(checker.getSymbolAtLocation(node)!));
+        const store = (target: ts.Expression, node: ts.Node): void => {
+            let base: ts.Expression = target;
+            while (ts.isPropertyAccessExpression(base) || ts.isElementAccessExpression(base) || ts.isParenthesizedExpression(base) || ts.isNonNullExpression(base)) {
+                // Into a picture's drawn field, or a canvas's pixels: drawn.
+                if ((ts.isPropertyAccessExpression(base) || ts.isElementAccessExpression(base)) && CANVAS_TYPES.has(typeName(base.expression) ?? '')) return;
+                if (typeName(base) === 'Uint8ClampedArray') return;
+                base = base.expression;
+            }
+            const symbol = ts.isIdentifier(base) ? checker.getSymbolAtLocation(base) : undefined;
+            if (local(symbol)) { for (const ref of refs.get(symbol!) ?? []) taint(ref); return; }
+            problem(node, 'keeps it outside the function');
+        };
+        const call = (node: ts.CallExpression | ts.NewExpression, index: number): void => {
+            const callee = node.expression;
+            const name = ts.isPropertyAccessExpression(callee) ? callee.name.text : ts.isIdentifier(callee) ? callee.text : '';
+            if (ts.isPropertyAccessExpression(callee)) {
+                if (CANVAS_TYPES.has(typeName(callee.expression) ?? '')) return;
+                if (ts.isIdentifier(callee.expression) && ['Number', 'Array', 'Object'].includes(callee.expression.text) && PRESENCE_CALLS.has(name)) return;
+                // A WeakMap keyed by the drawn picture is a memo of its drawing (an envelope on screen), read back by it.
+                if (['set', 'get', 'has'].includes(name) && typeName(callee.expression) === 'WeakMap') return;
+                if (['push', 'unshift', 'set', 'add', 'splice', 'fill'].includes(name)) { store(callee.expression, node); return; }
+            }
+            if (name === 'String' || (ts.isIdentifier(callee) && PRESENCE_CALLS.has(name))) { if (name === 'String') problem(node, 'writes it as text'); return; }
+            const called = scan.target(callee);
+            if (called && helpers.has(called)) { problem(node, `writes it as text (${called})`); return; }
+            const fn2 = called ? scan.functions.get(called) : undefined;
+            if (called && fn2 && !stack.has(called)) {
+                const parameter = fn2.parameters[Math.min(index, fn2.parameters.length - 1)];
+                if (!parameter) return;
+                const memoKey = `${called}#${index}`;
+                let result = memo.get(memoKey);
+                if (!result) {
+                    const seeds2: ts.Node[] = [];
+                    const collect = (name: ts.BindingName): void => {
+                        if (ts.isIdentifier(name)) { const symbol = checker.getSymbolAtLocation(name); each(fn2, ref => { if (ts.isIdentifier(ref) && ref !== name && checker.getSymbolAtLocation(ref) === symbol) seeds2.push(ref); }); }
+                        else for (const element of name.elements) if (ts.isBindingElement(element)) collect(element.name);
+                    };
+                    collect(parameter.name);
+                    result = follow(called, fn2, seeds2, new Set([...stack, called]));
+                    memo.set(memoKey, result);
+                }
+                for (const inner of result.problems) found.push(`passes it to ${called}, which ${inner}`);
+                if (result.returns) taint(node);
+                return;
+            }
+            // Anything else (Math.max, a library): what it makes of them is made of drawn points too.
+            taint(node);
+        };
+        seeds.forEach(taint);
+        while (queue.length) {
+            const node = queue.pop()!;
+            const parent = node.parent;
+            if (!parent) continue;
+            if (ts.isBindingElement(parent) && parent.name === node) bind(node);
+            else if (ts.isParenthesizedExpression(parent) || ts.isNonNullExpression(parent) || ts.isAsExpression(parent) || ts.isSatisfiesExpression(parent) || ts.isTypeAssertionExpression(parent)) taint(parent);
+            else if (ts.isPropertyAccessExpression(parent) && parent.expression === node) {
+                const name = parent.name.text;
+                if (ts.isCallExpression(parent.parent) && parent.parent.expression === parent) {
+                    // A method of the drawn points: its callbacks are given them, and what it makes is made of them.
+                    if (TEXT_METHODS.has(name)) { problem(parent.parent, 'writes it as text'); continue; }
+                    for (const argument of parent.parent.arguments) if (ts.isArrowFunction(argument) || ts.isFunctionExpression(argument)) argument.parameters.slice(0, name === 'reduce' ? 2 : 1).forEach(parameter => bind(parameter.name));
+                    // map, flatMap and reduce make what their callbacks return (followed there); the rest are of the points.
+                    if (!['forEach', 'map', 'flatMap', 'reduce', 'reduceRight', 'every', 'some', 'findIndex', 'findLastIndex'].includes(name)) taint(parent.parent);
+                } else if (name === 'length' || !primitive(parent) || ts.isArrayTypeNode(parent)) taint(parent);
+                else if (checker.isArrayLikeType(checker.getNonNullableType(checker.getTypeAtLocation(node)))) taint(parent);
+                // A primitive field of an object among them (an event's id, a unit) is not a drawn value.
+            } else if (ts.isElementAccessExpression(parent) && parent.expression === node) taint(parent);
+            else if ((ts.isCallExpression(parent) || ts.isNewExpression(parent)) && parent.arguments?.includes(node as ts.Expression)) call(parent, parent.arguments.indexOf(node as ts.Expression));
+            else if (ts.isSpreadElement(parent)) {
+                const outer = parent.parent;
+                if ((ts.isCallExpression(outer) || ts.isNewExpression(outer)) && outer.arguments) call(outer, outer.arguments.indexOf(parent));
+                else taint(outer);
+            } else if (ts.isArrayLiteralExpression(parent)) taint(parent);
+            else if ((ts.isPropertyAssignment(parent) && parent.initializer === node) || ts.isShorthandPropertyAssignment(parent) || ts.isSpreadAssignment(parent)) {
+                if (!picture(parent.parent as ts.ObjectLiteralExpression)) taint(parent.parent);
+            } else if (ts.isVariableDeclaration(parent) && parent.initializer === node) {
+                if (count(node) && ts.isIdentifier(parent.name)) { const symbol = checker.getSymbolAtLocation(parent.name); if (symbol) counts.add(symbol); }
+                bind(parent.name);
+            }
+            else if (ts.isForOfStatement(parent) && parent.expression === node) {
+                const declared = parent.initializer;
+                if (ts.isVariableDeclarationList(declared)) declared.declarations.forEach(declaration => bind(declaration.name));
+            } else if (ts.isBinaryExpression(parent)) {
+                const kind = parent.operatorToken.kind;
+                const other = parent.left === node ? parent.right : parent.left;
+                if (ASSIGNMENTS.has(kind) && parent.right === node) store(parent.left, parent);
+                else if (COMPARISONS.has(kind)) { if (!isNullish(other) && !count(node)) taint(parent); }
+                else if (kind === ts.SyntaxKind.PlusToken && checker.getTypeAtLocation(other).flags & ts.TypeFlags.StringLike) problem(parent, 'writes it as text');
+                else if (kind === ts.SyntaxKind.AmpersandAmpersandToken && parent.left === node && !primitive(node)) { /* present: the right is not of them */ }
+                else if (kind === ts.SyntaxKind.CommaToken) { if (parent.right === node) taint(parent); }
+                else if (kind !== ts.SyntaxKind.InKeyword && kind !== ts.SyntaxKind.InstanceOfKeyword) taint(parent);
+            } else if (ts.isPrefixUnaryExpression(parent)) {
+                // `!picture.events` says only whether there are any; `!value` and `-value` are of the value.
+                if (parent.operator !== ts.SyntaxKind.ExclamationToken || primitive(node)) taint(parent);
+            } else if (ts.isPostfixUnaryExpression(parent)) taint(parent);
+            else if (ts.isConditionalExpression(parent)) {
+                // A value chosen by one of them is of them; by a field's presence, it is not.
+                if (parent.condition !== node || primitive(node)) taint(parent);
+            } else if (ts.isIfStatement(parent) && parent.expression === node && primitive(node)) {
+                // A branch taken on a value of them that returns: the result is chosen by drawn points.
+                let chooses = false;
+                const look = (inner: ts.Node): void => { if (ts.isReturnStatement(inner) && inner.expression && own(inner)) chooses = true; if (!ts.isFunctionLike(inner)) ts.forEachChild(inner, look); };
+                look(parent.thenStatement);
+                if (parent.elseStatement) look(parent.elseStatement);
+                if (chooses) returned(parent);
+            } else if (ts.isReturnStatement(parent)) returned(parent);
+            else if (ts.isArrowFunction(parent) && parent.body === node) returned(node);
+            else if (ts.isTemplateSpan(parent)) problem(parent.parent, 'writes it as text (a template)');
+        }
+        void key;
+        return { returns, returnedAt, problems: [...new Set(found)] };
+    }
+
+    for (const [where, entry] of Object.entries(readers)) {
+        if (entry.use !== 'draws' || where.endsWith('.py') || where.startsWith(`${PYTHON}/`)) continue;
+        const fn = scan.functions.get(where);
+        const seeds = scan.reads.get(where) ?? [];
+        if (!fn) { if (scan.found.has(where)) problems.push(`${where}: no function to follow`); continue; }
+        const result = follow(where, fn, seeds, new Set([where]));
+        // An accessor hands its drawn points on: its callers are scanned as readers of them.
+        if (result.returns && !DRAWN_ACCESSORS.includes(where)) problems.push(`${where}: 'draws', but returns a value made of drawn points, or chosen by one (${result.returnedAt})`);
+        for (const inner of result.problems) problems.push(`${where}: 'draws', but ${inner}`);
+    }
+    return problems;
+}
+
+test('every reader classified \'draws\' only draws: no value of its drawn points is returned, written or kept', () => {
+    assert.deepEqual(drawsFlowProblems(drawnScan()), []);
+});
+
+test('the draws check fails on a reader that computes a number of drawn points while said to draw', () => {
+    const a = 'src/webview/runtime/fakeDraws.ts';
+    const overlay = new Map([[a, [
+        "import type { StageView } from '../../shared/protocol/backendProtocol';",
+        "import { levelText } from '../plot/plotText';",
+        'export function peak(view: StageView): number { return Math.max(...(view.values ?? []).map(value => value ?? -Infinity)); }',
+        'export function loud(view: StageView): string { const { values } = view; let top = -Infinity; for (const value of values ?? []) if (value !== null && value > top) top = value; return levelText(top, "dB"); }',
+        'export function label(view: StageView): string { return `${view.values?.[0]}`; }',
+        'export function chosen(view: StageView): string { return (view.values?.[0] ?? 0) > 0 ? "loud" : "quiet"; }',
+        'const kept: number[] = [];',
+        'export function keeps(view: StageView): void { for (const value of view.values ?? []) if (value !== null) kept.push(value); }',
+        'function largest(values: readonly (number | null)[]): number { return Math.max(...values.map(value => value ?? -Infinity)); }',
+        "export function handsOn(view: StageView): number { return largest(view['values'] ?? []); }",
+        'export function strokes(context: CanvasRenderingContext2D, view: StageView): boolean {',
+        '    const values = view.values ?? [];',
+        '    values.forEach((value, index) => { if (value === null || !Number.isFinite(value)) return; context.lineTo(index, value * 2); });',
+        '    return !!view.events;',
+        '}',
+    ].join('\n')]]);
+    const program = typedWith(overlay);
+    const names = ['peak', 'loud', 'label', 'chosen', 'keeps', 'handsOn', 'strokes'];
+    const readers = Object.fromEntries(names.map(name => [`${a}:${name}`, { use: 'draws' as const, why: 'x' }]));
+    const problems = drawsFlowProblems(drawnScan(program, [a], readers), readers).join('\n');
+    assert.match(problems, /fakeDraws\.ts:peak: 'draws', but returns/u, problems);
+    assert.match(problems, /fakeDraws\.ts:loud: 'draws', but writes it as text/u);
+    assert.match(problems, /fakeDraws\.ts:label: 'draws', but writes it as text \(a template\)/u);
+    assert.match(problems, /fakeDraws\.ts:chosen: 'draws', but returns/u);
+    assert.match(problems, /fakeDraws\.ts:keeps: 'draws', but keeps it outside the function/u);
+    assert.match(problems, /fakeDraws\.ts:handsOn: 'draws', but returns/u);
+    // Drawing them, and saying whether there are events, is drawing.
+    assert.doesNotMatch(problems, /fakeDraws\.ts:strokes/u);
+});
+
 test('every number the backend\'s protocol sends back is a value of a row, or says why it is not shown', () => {
     const file = 'src/shared/protocol/generated/backendProtocolSchema.ts';
     const fields: string[] = [];
@@ -710,8 +972,67 @@ function wholeProofProblems(readers: Readonly<Record<string, DrawnReader>>): str
         const mapped = proof.via ? new RegExp(`['"]${escapeRe(proof.via)}['"]\\s*:\\s*(\\w+)\\b`).exec(read(file))?.[1] : undefined;
         const commanded = !!proof.via && body.includes(proof.via) && !!mapped && reach.has(mapped);
         if (!called && !commanded) problems.push(`${where}: "${proof.name}" never reaches it`);
+        else if (!distinguishes(proof.file, proof.name, commanded ? null : reach)) problems.push(`${where}: "${proof.name}" asserts no case where the full data and the drawn points give different answers`);
     }
     return problems;
+}
+
+const NEGATIVE_ASSERTS = new Set(['notEqual', 'notDeepEqual', 'notStrictEqual', 'notDeepStrictEqual', 'doesNotMatch']);
+const POSITIVE_ASSERTS = new Set(['equal', 'deepEqual', 'strictEqual', 'deepStrictEqual', 'match', 'toEqual', 'toBe', 'toBeCloseTo', 'toStrictEqual', 'toHaveText', 'toContain', 'toMatch']);
+
+/**
+ * Whether the test `name` of `file` tells the full data from the drawn points by what it asserts, not its words: it
+ * asserts the answer of the code under test (a call of one of `reach`, or of anything for a test that sends a
+ * command) is not what another case gives (notEqual, notDeepEqual, doesNotMatch, `.not.`, `ok(a !== b)`: the drawn
+ * points' answer), and asserts an answer outright (equal, deepEqual, toBe…: the full data's).
+ */
+function distinguishes(file: string, name: string, reach: ReadonlySet<string> | null): boolean {
+    let body: ts.Node | undefined;
+    each(parse(file), node => {
+        if (body || !ts.isCallExpression(node)) return;
+        const callee = node.expression;
+        const isTest = (ts.isIdentifier(callee) && callee.text === 'test') || (ts.isPropertyAccessExpression(callee) && ts.isIdentifier(callee.expression) && callee.expression.text === 'test');
+        const title = node.arguments[0];
+        if (isTest && title && ts.isStringLiteralLike(title) && title.text === name) body = node.arguments.find(argument => ts.isFunctionLike(argument));
+    });
+    if (!body) return false;
+    // The locals of the test made of the code under test (`const range = stageRange(...)`).
+    const answers = new Set<string>();
+    const answer = (node: ts.Node): boolean => {
+        let found = reach === null;
+        each(node, inner => {
+            if (ts.isCallExpression(inner) && reach?.has((ts.isPropertyAccessExpression(inner.expression) ? inner.expression.name : inner.expression).getText())) found = true;
+            if (ts.isIdentifier(inner) && answers.has(inner.text)) found = true;
+        });
+        return found;
+    };
+    // A canvas (or a recorder) given to the code under test holds its answer too (`canvas.dataset.plotOrder`).
+    each(body, node => {
+        if (ts.isCallExpression(node) && reach?.has((ts.isPropertyAccessExpression(node.expression) ? node.expression.name : node.expression).getText())) for (const argument of node.arguments) if (ts.isIdentifier(argument)) answers.add(argument.text);
+    });
+    for (let grown = true; grown;) {
+        grown = false;
+        each(body, node => {
+            if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer && !answers.has(node.name.text) && answer(node.initializer)) { answers.add(node.name.text); grown = true; }
+        });
+    }
+    let negative = false, positive = false;
+    each(body, node => {
+        if (!ts.isCallExpression(node)) return;
+        const callee = node.expression;
+        const method = ts.isPropertyAccessExpression(callee) ? callee.name.text : ts.isIdentifier(callee) ? callee.text : '';
+        // expect(x).not.toBe(y): negated; expect(x).toBe(y): outright.
+        const negated = ts.isPropertyAccessExpression(callee) && ts.isPropertyAccessExpression(callee.expression) && callee.expression.name.text === 'not';
+        const subject = (negated ? ((callee as ts.PropertyAccessExpression).expression as ts.PropertyAccessExpression).expression : ts.isPropertyAccessExpression(callee) ? callee.expression : undefined);
+        const expectArgs = subject && ts.isCallExpression(subject) && ts.isIdentifier(subject.expression) && subject.expression.text === 'expect' ? subject.arguments : undefined;
+        const args = [...node.arguments, ...(expectArgs ?? [])];
+        const asserting = (ts.isPropertyAccessExpression(callee) && ts.isIdentifier(callee.expression) && callee.expression.text === 'assert') || !!expectArgs || (ts.isIdentifier(callee) && callee.text === 'assert');
+        if (!asserting || !args.some(answer)) return;
+        const inequality = (method === 'ok' || method === 'assert') && node.arguments[0] && ts.isBinaryExpression(node.arguments[0]) && [ts.SyntaxKind.ExclamationEqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsToken].includes(node.arguments[0].operatorToken.kind);
+        if (NEGATIVE_ASSERTS.has(method) || negated || inequality) negative = true;
+        else if (POSITIVE_ASSERTS.has(method)) positive = true;
+    });
+    return negative && positive;
 }
 
 test('every reader classified \'whole\' names a test that gives it full data where the drawn points differ, and reaches it', () => {
@@ -720,7 +1041,7 @@ test('every reader classified \'whole\' names a test that gives it full data whe
 
 test('the whole-reader check fails on a misclassified reader: one that makes a number of drawn points called \'whole\'', () => {
     const summary = 'src/webview/runtime/trackStageModel.ts:pictureSummary';
-    assert.equal(DRAWN_READERS[summary]?.use, 'draws', 'the injection starts from a reader the table calls draws');
+    assert.equal(DRAWN_READERS[summary]?.use, 'value', 'the injection starts from a reader the table says makes a number of drawn points');
     const range = DRAWN_READERS[`src/webview/runtime/stagePanes.ts:stageRange`];
     const inject = (entry: DrawnReader): string[] => wholeProofProblems({ ...DRAWN_READERS, [summary]: entry });
     // pictureSummary takes a count and median of the drawn points: called 'whole' with no proof, or with another
@@ -732,6 +1053,44 @@ test('the whole-reader check fails on a misclassified reader: one that makes a n
     // A command named that the reader's file does not map to it is no proof either.
     const csv = DRAWN_READERS['src/webview/runtime/comparisonRuntime.ts:writeCsvWhenDetailed'];
     assert.match(wholeProofProblems({ ...DRAWN_READERS, 'src/webview/runtime/comparisonRuntime.ts:writeCsvWhenDetailed': { ...csv, proof: { ...csv.proof!, via: 'export-png' } } }).join('\n'), /writeCsvWhenDetailed: .* never reaches it/u);
+});
+
+test('the whole-reader check fails on a proof that reaches its reader and speaks of thinning, but asserts no case where full and drawn differ', () => {
+    // A proof written here for the injection (removed after): it gives the same answer for full and drawn data.
+    const file = 'src/test/injectedWholeProof.test.ts';
+    const name = 'a range is the full data\'s, never the points drawn';
+    const write = (assertions: string[]): void => writeFileSync(path.join(repoRoot, file), [
+        "import assert from 'node:assert/strict';",
+        "import test from 'node:test';",
+        "import type { StageView } from '../shared/protocol/backendProtocol';",
+        "import { stageRange } from '../webview/runtime/stagePanes';",
+        "const line = (values: number[], valueRange?: StageView['valueRange']): StageView => ({ frame: 'SpectralFrame', kind: 'line', xs: values.map((_, i) => i), values, ...(valueRange ? { valueRange } : {}) });",
+        `test('${name.replace(/'/gu, "\\'")}', () => {`,
+        ...assertions,
+        '});',
+    ].join('\n'));
+    const range = 'src/webview/runtime/stagePanes.ts:stageRange';
+    const check = (): string[] => {
+        parsed.delete(file);
+        return wholeProofProblems({ [range]: { use: 'whole', why: 'x', proof: { file, name } } });
+    };
+    try {
+        // Full and drawn data that give one answer: it says nothing of which one the reader takes.
+        write(["    assert.deepEqual(stageRange([line([-61, -2], { min: -61, max: -2 })]), stageRange([line([-61, -2])]));"]);
+        assert.match(check().join('\n'), /stageRange: .* asserts no case where the full data and the drawn points give different answers/u);
+        // Words of a difference without asserting one are no better.
+        write(["    // the drawn points differ from the full data", "    assert.ok(stageRange([line([-61, -2])]).max >= -2);"]);
+        assert.match(check().join('\n'), /asserts no case/u);
+        // A drawn line whose extremes were thinned away, its full range asserted and told from the drawn points': proven.
+        write([
+            "    assert.deepEqual(stageRange([line([-43, -12], { min: -61, max: -2 })]), stageRange([line([-61, -2])]));",
+            "    assert.notDeepEqual(stageRange([line([-43, -12], { min: -61, max: -2 })]), stageRange([line([-43, -12])]));",
+        ]);
+        assert.deepEqual(check(), []);
+    } finally {
+        rmSync(path.join(repoRoot, file), { force: true });
+        parsed.delete(file);
+    }
 });
 
 test('every gap is in its chart\'s knownGaps at its severity, and a row is a gap until a test holds it from full data', () => {

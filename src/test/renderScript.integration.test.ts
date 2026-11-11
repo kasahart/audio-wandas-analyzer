@@ -2656,6 +2656,7 @@ test('renderScript: export-csv replaces a cursor spectrum cut for display with e
         const rows = decodeDataUriPayload(anchor.href).split('\n');
         // Four evenly spaced bins per track from the every-bin answer; the cut row's 123.25 Hz point is not written.
         assert.equal(rows.length, 1 + 4);
+        assert.notEqual(rows.length, 1 + 3, 'not the three points of the row cut for display');
         assert.equal(rows[2].split(',')[0], '7350.0000');
         assert.ok(!rows.some(row => row.includes('123.2500')));
     } finally {
