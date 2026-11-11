@@ -193,6 +193,12 @@ def handle_scan(service: AnalysisService, command: Command) -> Mapping[str, obje
     )
 
 
+def handle_scan_spec(_service: AnalysisService, _command: Command) -> Mapping[str, object]:
+    from scan_service import scan_spec
+
+    return scan_spec()
+
+
 def handle_stage_combine(_service: AnalysisService, command: Command) -> Mapping[str, object]:
     from stage_combine import combine_keys
 
@@ -215,6 +221,7 @@ COMMANDS: dict[str, CommandHandler] = {
     "export-wav-loop": handle_export_wav_loop,
     "build-recipe": handle_build_recipe,
     "scan": handle_scan,
+    "scan-spec": handle_scan_spec,
     "stage-combine": handle_stage_combine,
 }
 

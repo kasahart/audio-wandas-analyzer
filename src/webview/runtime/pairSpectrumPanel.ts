@@ -20,6 +20,8 @@ export interface PairChannelSource {
     filePath: string;
     /** The version of the file the track was analysed from: part of the request, so of its answer's key. */
     sourceVersion: string | undefined;
+    /** The calibration the track was analysed under: part of the answer's key (not of the request, which the host calibrates). */
+    calibrationSignature?: string;
     channelIndex: number;
     offsetSeconds: number;
     label: string;
@@ -250,7 +252,8 @@ export class PairSpectrumPanel {
             responses: sources.responses.map(ref),
             ...(range ? { startSeconds: range.startSeconds, endSeconds: range.endSeconds } : {}),
         };
-        return { request, key: JSON.stringify(request) };
+        // The key holds each source's file version (in the request) and calibration: an answer of either before is not this one.
+        return { request, key: JSON.stringify({ request, calibration: [sources.reference, ...sources.responses].map(source => source.calibrationSignature ?? '') }) };
     }
 
     /**

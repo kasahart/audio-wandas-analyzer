@@ -81,6 +81,7 @@ export class PythonBackendServer extends AnalysisClient {
         'export-wav-loop': 300_000,
         'build-recipe': 120_000,
         scan: 300_000,
+        'scan-spec': 60_000,
         'stage-combine': 120_000,
     };
 

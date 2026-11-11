@@ -1,6 +1,7 @@
 /**
- * The answer store's boundary (layers-design: 答えの置き場): answers are kept in answerStore.ts alone. Outside it no
- * code keeps a Map, WeakMap, Set or array that outlives a call (a closure's, a class's or a module's) unless it is listed
+ * The answer store's boundary (layers-design: 答えの置き場): answers are kept in answerStore.ts alone. The webview and the
+ * host's side (src/extension, src/shared) are both read: a host's cache of answers (a stored scan, a track's analysis)
+ * is an answer kept too. Outside the store no code keeps a Map, WeakMap, Set or array that outlives a call (a closure's, a class's or a module's) unless it is listed
  * in NOT_ANSWERS with what it holds instead (a request's callbacks, a canvas's drawing, a gesture's state); and no code
  * names a failure's pause or retry of its own. The list only shrinks: an entry that no longer matches fails too, so a
  * cache moved onto the store is taken off it.
@@ -10,8 +11,8 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import ts from 'typescript';
-import { ANSWER_DECLARATIONS, answerProgram, findAnswerWrites, findFileKeysWithoutVersion, findHeldCollections, findOwnRetryPolicies, type HeldCollection } from './answerBoundary';
-import { NOT_ANSWER_WRITES, NOT_ANSWERS } from './answerBoundaryAllowlist';
+import { ANSWER_DECLARATIONS, answerProgram, findAnswerWrites, findFileKeysWithoutVersion, findFilelessKeys, findHeldCollections, findLatestAnswers, findOwnRetryPolicies, type HeldCollection } from './answerBoundary';
+import { FILELESS_KEYS, LATEST_ANSWERS, NOT_ANSWER_WRITES, NOT_ANSWERS } from './answerBoundaryAllowlist';
 
 const repoRoot = path.resolve(__dirname, '..', '..');
 const STORE = new Set(['src/webview/runtime/answerStore.ts', 'src/webview/runtime/answerTypes.ts']);
@@ -25,7 +26,8 @@ function webviewSources(): string[] {
             else if (rel.endsWith('.ts') && !rel.endsWith('.d.ts') && !STORE.has(rel)) found.push(rel);
         }
     };
-    walk('src/webview');
+    // The webview, and the host's side, whose caches of answers (stored scans, a track's analysis) are answers kept too.
+    for (const dir of ['src/webview', 'src/extension', 'src/shared']) walk(dir);
     return found;
 }
 
@@ -127,4 +129,46 @@ test('the write check knows an answer by its type, whatever it is called: a fiel
     `;
     const checked = answerProgram(repoRoot, [], { [file]: text });
     assert.deepEqual(writesIn(checked, [file]).sort(), [`${file}#byPath[event.filePath]`, `${file}#let last`, `${file}#record.kept`, `${file}#target[index].spectrogram`]);
+});
+
+const listed = (found: readonly string[], list: Record<string, string>, what: string): void => {
+    assert.deepEqual(found.filter(entry => !(entry in list)), [], what);
+    assert.deepEqual(Object.keys(list).filter(entry => !found.includes(entry)), [], 'an entry that matches nothing any more is taken off the list (it only shrinks)');
+    for (const [entry, reason] of Object.entries(list)) assert.ok(reason.trim().length >= 12, `${entry} says why`);
+};
+
+test('an answer of no one file says where its versions are, each such key listed with how', () => {
+    listed(sources().flatMap(({ file, source }) => findFilelessKeys(file, source)), FILELESS_KEYS,
+        'An answerKey with no `file` keeps an answer of no one file: list it in FILELESS_KEYS with where the file versions and calibration are (the data keys, the request, the source)');
+    const mutant = ts.createSourceFile('m.ts', "const pairKey = (request: string) => answerKey({ ask: request, version: { by: 'request' } });", ts.ScriptTarget.Latest, true);
+    assert.deepEqual(findFilelessKeys('m.ts', mutant), ['m.ts#pairKey']);
+});
+
+test('every latest-answer place outside the store is listed with what keys it and what makes a value of it old', () => {
+    listed(sources().flatMap(({ file, source }) => findLatestAnswers(file, source)), LATEST_ANSWERS,
+        'createLatestAnswers keeps one value per subject with no file version or Recipe of its own: list it in LATEST_ANSWERS with what keys it and what keeps it current');
+});
+
+test('the boundary check finds a Map handed to a call, a parameter property\'s Map and an answer put with .set (mutation)', () => {
+    const held = ts.createSourceFile('m.ts', `
+        export function create(requests: { ask(meta: unknown): void }) {
+            return { ask() { requests.ask({ row: 1, results: new Map<string, number>() }); } };
+        }
+        export class Session { constructor(private records = new Map<string, number>()) {} }
+    `, ts.ScriptTarget.Latest, true);
+    assert.deepEqual(findHeldCollections('m.ts', held).map(item => item.name).sort(), ['records', 'results']);
+    const file = 'src/webview/runtime/__answerSetMutant.ts';
+    const text = `
+        import type { HostInboundMessage } from './hostMessaging';
+        export function createKeeper() {
+            const pending = { results: new Map<string, unknown>() };
+            const local = (event: HostInboundMessage) => { const seen = new Map<string, unknown>(); seen.set('x', event); return seen.size; };
+            return {
+                take(event: HostInboundMessage) { pending.results.set(event.type, event); return local(event); },
+                size: () => pending.results.size,
+            };
+        }
+    `;
+    const checked = answerProgram(repoRoot, [], { [file]: text });
+    assert.deepEqual(writesIn(checked, [file]), [`${file}#pending.results.set`]);
 });

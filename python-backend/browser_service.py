@@ -183,18 +183,20 @@ class BrowserEngine(AnalysisEngine):
                 break
             self.discard_spectrograms(path)
 
-    def get_spectrogram(self, file_path, n_fft, hop_length, window, calibration_profile=None):
+    def get_spectrogram(self, file_path, n_fft, hop_length, window, calibration_profile=None, source_version=None):
         cached = self.get_file(file_path)
         length, channels = cached.frame.n_samples, cached.frame.n_channels
         key = (n_fft, hop_length, window)
         if any(old[1:] != key for old in cached.spectrograms):
             self.discard_spectrograms(file_path)
-        existing = self.get_cached_spectrogram(file_path, n_fft, hop_length, window, calibration_profile)
+        existing = self.get_cached_spectrogram(
+            file_path, n_fft, hop_length, window, calibration_profile, source_version
+        )
         if existing is not None:
             return existing
         if self.estimated_bytes(stft_working_bytes(length, channels, n_fft, hop_length)) > MAX_ESTIMATED_BYTES:
             raise MemoryBudgetError("STFT exceeds prototype estimated memory budget; lower the overlap")
-        return super().get_spectrogram(file_path, n_fft, hop_length, window, calibration_profile)
+        return super().get_spectrogram(file_path, n_fft, hop_length, window, calibration_profile, source_version)
 
 
 class BrowserService(AnalysisService):

@@ -278,12 +278,14 @@ class AnalysisService:
             # Automatic settings: the window gets an STFT of its own, as finely hopped as its length allows (R3).
             spectrogram, centers, window_hop = zoom_window_spectrogram(analysis_frame, n_fft, window, time_window)
         else:
+            # Of the version checked above (V8): a file written since is refused (stale-source), never answered as it.
             spectrogram = self.engine.get_spectrogram(
                 cached.path,
                 n_fft,
                 hop_length,
                 window,
                 calibration_profile,
+                source_version=cached.version,
             )
         identity = {
             "trackIndex": track_index,

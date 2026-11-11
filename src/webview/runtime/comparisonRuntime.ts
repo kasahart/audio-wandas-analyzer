@@ -566,6 +566,7 @@ export function startComparisonRuntime(bootstrap: ComparisonBootstrap): void {
                         trackId,
                         filePath: record.result.filePath,
                         sourceVersion: record.result.sourceVersion,
+                        calibrationSignature: record.result.calibrationSignature,
                         channelIndex,
                         offsetSeconds: record.runtime.offsetSeconds,
                         label: spectrumReadoutTrackLabel(record.result, channelIndex),

@@ -61,9 +61,10 @@ test('PanelSession replaces directory cache entries with successful reanalysis r
         cachedResultsByFilePath,
     });
 
-    session.cacheResults([updated]);
+    session.cacheResults([updated], () => 'u');
 
     assert.equal(cachedResultsByFilePath.get(stale.filePath), updated);
+    assert.equal(session.hasCachedResult(stale.filePath, 1, 'u'), true);
 });
 
 test('PanelSession evicts directory results from an older analysis revision', () => {
@@ -87,7 +88,8 @@ test('PanelSession evicts directory results from an older analysis revision', ()
         cachedResultsByFilePath,
     });
 
-    assert.equal(session.hasCachedResult(stale.filePath, 2), false);
+    session.cacheResults([stale], () => 'u');
+    assert.equal(session.hasCachedResult(stale.filePath, 2, 'u'), false);
     assert.equal(cachedResultsByFilePath.has(stale.filePath), false);
 });
 
@@ -112,7 +114,8 @@ test('PanelSession retains directory results from the current analysis revision'
         cachedResultsByFilePath,
     });
 
-    assert.equal(session.hasCachedResult(current.filePath, 2), true);
+    session.cacheResults([current], () => 'u');
+    assert.equal(session.hasCachedResult(current.filePath, 2, 'u'), true);
     assert.equal(cachedResultsByFilePath.get(current.filePath), current);
 });
 
@@ -155,8 +158,9 @@ test('native unselection, directory detach and panel disposal retain borrowed ca
     const selection = { rootPath: '/', tree: [], allFilePaths: [result.filePath], selectedFilePaths: [result.filePath], cachedResultsByFilePath: cache };
     const session = new PanelSession(createPanel([]));
     session.setDirectorySelection(selection);
+    session.cacheResults([result], () => 'u');
     selection.selectedFilePaths = [];
-    assert.equal(session.hasCachedResult(result.filePath, 2), true);
+    assert.equal(session.hasCachedResult(result.filePath, 2, 'u'), true);
     const beforeDetach = session.beginStateRequest('before-detach');
     session.clearDirectorySelection();
     assert.equal(session.isCurrent(beforeDetach), false);
@@ -168,5 +172,27 @@ test('native unselection, directory detach and panel disposal retain borrowed ca
     assert.equal(cache.get(result.filePath), result);
     const recreated = new PanelSession(createPanel([]));
     recreated.setDirectorySelection(selection);
-    assert.equal(recreated.hasCachedResult(result.filePath, 2), true);
+    assert.equal(recreated.hasCachedResult(result.filePath, 2, 'u'), true);
+});
+
+test('a cached analysis is shown again only under what it was made under: another STFT or file version analyses again (V3)', () => {
+    const result = { filePath: '/a.wav', fileName: 'a.wav', sampleRateHz: 8000, durationSeconds: 1,
+        channelCount: 0, sampleCount: 8000, channels: [], analysisRevision: 2 };
+    const cache = new Map<string, typeof result>();
+    const session = new PanelSession(createPanel([]));
+    session.setDirectorySelection({ rootPath: '/', tree: [], allFilePaths: [result.filePath], selectedFilePaths: [result.filePath], cachedResultsByFilePath: cache });
+    session.cacheResults([result], () => JSON.stringify(['{"nFft":1024}', '/a.wav|4|1|1|7']));
+    assert.equal(session.hasCachedResult(result.filePath, 2, JSON.stringify(['{"nFft":1024}', '/a.wav|4|1|1|7'])), true);
+    assert.equal(session.hasCachedResult(result.filePath, 2, JSON.stringify(['{"nFft":8192}', '/a.wav|4|1|1|7'])), false, 'another STFT');
+    assert.equal(cache.has(result.filePath), false, 'and it is let go');
+    session.cacheResults([result], () => 'v1');
+    assert.equal(session.hasCachedResult(result.filePath, 2, 'v2'), false, 'the file written since');
+    session.cacheResults([result], () => 'v1');
+    session.forgetCached(result.filePath);
+    assert.equal(session.hasCachedResult(result.filePath, 2, 'v1'), false, 'told the file changed');
+    // One kept in the folder's map before (no record of what it was made under) is not trusted.
+    cache.set(result.filePath, result);
+    const other = new PanelSession(createPanel([]));
+    other.setDirectorySelection({ rootPath: '/', tree: [], allFilePaths: [result.filePath], selectedFilePaths: [result.filePath], cachedResultsByFilePath: cache });
+    assert.equal(other.hasCachedResult(result.filePath, 2, 'v1'), false);
 });

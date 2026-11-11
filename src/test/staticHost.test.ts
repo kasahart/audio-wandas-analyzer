@@ -94,7 +94,7 @@ function harness(storage = new Map<string, string>(), language = 'en', denied = 
                 queueMicrotask(() => this.reply(command, {}, 'Source is not loaded'));
                 return;
             }
-            if (['load','unload','export-plan'].includes(String(command.cmd)) || (command.cmd === 'analyze' && firstAnalysis.has(String(command.filePath)))) {
+            if (['load','unload','export-plan','scan-spec'].includes(String(command.cmd)) || (command.cmd === 'analyze' && firstAnalysis.has(String(command.filePath)))) {
                 if (command.cmd === 'analyze') firstAnalysis.delete(String(command.filePath));
                 queueMicrotask(() => this.reply(command, command.cmd === 'load' ? { filePath: `/sources/${String(command.sourceId)}` } : {}));
             }
@@ -766,7 +766,8 @@ test('an entry scan loads each listed file only for its scan, reuses unchanged f
     const first = await scanFolder('e1');
     assert.deepEqual(first.map(message => [message.filePath, (message.result as { ok: boolean }).ok]), filePaths.map(path => [path, true]));
     const scanWorker = app.workers[0];
-    assert.deepEqual(scanWorker.commands.map(command => command.cmd).filter(cmd => cmd !== 'limits'), ['load', 'scan', 'unload', 'load', 'scan', 'unload']);
+    // The backend's analysis spec first: a stored result of another is not reused.
+    assert.deepEqual(scanWorker.commands.map(command => command.cmd).filter(cmd => cmd !== 'limits'), ['scan-spec', 'load', 'scan', 'unload', 'load', 'scan', 'unload']);
     assert.deepEqual(scanWorker.commands.filter(command => command.cmd === 'scan').map(command => command.filePath), filePaths);
     for (const until = Date.now() + 5000; Date.now() < until && app.workers.length < 2;) await new Promise(resolve => setTimeout(resolve, 2));
     assert.equal(scanWorker.terminated, true, 'the scan Worker is replaced so Pyodide gives its heap back');

@@ -74,6 +74,8 @@ test('directory selection uses live result updates with resource URIs, cache reu
         showOpenDialog: async () => picked as vscode.Uri[] | undefined, executeCommand: async () => undefined,
         showInformation() {}, showError: message => { errors.push(message); },
         language: () => 'ja',
+        // The files are not on disk: one version each, so the cache is reused as long as the STFT is the same.
+        fileVersion: async () => 'v1',
         withProgress: (_options, task) => task({ report() {} }, { isCancellationRequested: false } as vscode.CancellationToken),
     };
     const pythonEnvironment: PanelPythonEnvironment = {

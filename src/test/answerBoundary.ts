@@ -114,8 +114,13 @@ export function findHeldCollections(file: string, source: ts.SourceFile): HeldCo
                 // A field of an object kept past the call (a record a store holds, a factory's state).
                 let holder: ts.Node = parent.parent.parent;
                 while (ts.isPropertyAssignment(holder) || ts.isObjectLiteralExpression(holder) || ts.isParenthesizedExpression(holder) || ts.isAsExpression(holder)) holder = holder.parent;
-                const kept = ts.isVariableDeclaration(holder) && ts.isIdentifier(holder.name) ? persists(holder, holder.name.text) : ts.isReturnStatement(holder) || ts.isPropertyDeclaration(holder) || ts.isBinaryExpression(holder);
+                // An object handed to a call is kept by it as far as the source tells (a request's meta, a store's record).
+                const kept = ts.isVariableDeclaration(holder) && ts.isIdentifier(holder.name) ? persists(holder, holder.name.text)
+                    : ts.isReturnStatement(holder) || ts.isPropertyDeclaration(holder) || ts.isBinaryExpression(holder) || ts.isCallExpression(holder) || ts.isNewExpression(holder) || ts.isArrayLiteralExpression(holder);
                 if (kept) found.push({ file, name: parent.name.getText(source), kind, line: at(node) });
+            } else if (ts.isParameter(parent) && ts.isIdentifier(parent.name)) {
+                // A constructor's parameter property's default (`private records = new Map()`), or any default kept by a closure.
+                if (parent.modifiers?.length || persists(parent, parent.name.text)) found.push({ file, name: parent.name.text, kind, line: at(node) });
             } else if (ts.isBinaryExpression(parent) && parent.operatorToken.kind === ts.SyntaxKind.EqualsToken && parent.right === node) {
                 const target = parent.left;
                 if (ts.isPropertyAccessExpression(target) && target.expression.kind === ts.SyntaxKind.ThisKeyword) found.push({ file, name: target.name.text, kind, line: at(node) });
@@ -148,6 +153,44 @@ export function findOwnRetryPolicies(file: string, source: ts.SourceFile): strin
     const visit = (node: ts.Node): void => {
         const name = (ts.isVariableDeclaration(node) || ts.isPropertyDeclaration(node) || ts.isPropertySignature(node) || ts.isPropertyAssignment(node)) && (ts.isIdentifier(node.name) || ts.isPrivateIdentifier(node.name)) ? node.name.text : undefined;
         if (name && RETRY_NAME.test(name)) found.add(`${file}#${name}`);
+        ts.forEachChild(node, visit);
+    };
+    visit(source);
+    return [...found];
+}
+
+/** The name a node goes by in its source: the variable, property or function it is in (for an entry of a list). */
+function placeName(node: ts.Node): string {
+    for (let at: ts.Node | undefined = node.parent; at; at = at.parent) {
+        if ((ts.isVariableDeclaration(at) || ts.isPropertyAssignment(at) || ts.isPropertyDeclaration(at) || ts.isMethodDeclaration(at) || ts.isFunctionDeclaration(at)) && at.name && (ts.isIdentifier(at.name) || ts.isPrivateIdentifier(at.name))) return at.name.text;
+    }
+    return '(module)';
+}
+
+/**
+ * Every answerKey call that names no file, as `file#place`: an answer of no one file says by its ask where its
+ * versions are (the backend's data keys, a request that names them, a read of a source kept per track), and each such
+ * place is listed with how (FILELESS_KEYS).
+ */
+export function findFilelessKeys(file: string, source: ts.SourceFile): string[] {
+    const found = new Set<string>();
+    const visit = (node: ts.Node): void => {
+        if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'answerKey') {
+            const parts = node.arguments[0];
+            const named = parts && ts.isObjectLiteralExpression(parts) && parts.properties.some(item => item.name && ts.isIdentifier(item.name) && item.name.text === 'file');
+            if (!named) found.add(`${file}#${placeName(node)}`);
+        }
+        ts.forEachChild(node, visit);
+    };
+    visit(source);
+    return [...found];
+}
+
+/** Every place that makes a createLatestAnswers outside the store, as `file#place`: a latest answer per subject, keyed by its caller (LATEST_ANSWERS). */
+export function findLatestAnswers(file: string, source: ts.SourceFile): string[] {
+    const found = new Set<string>();
+    const visit = (node: ts.Node): void => {
+        if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'createLatestAnswers') found.add(`${file}#${placeName(node)}`);
         ts.forEachChild(node, visit);
     };
     visit(source);
@@ -190,6 +233,8 @@ export const ANSWER_DECLARATIONS = [
     'src/shared/analysis/entryScan.ts',
     'src/shared/session/comparisonSessionController.ts',
 ];
+/** Calls that put a value into a collection: Map/Set/array. */
+const PUTS = new Set(['set', 'add', 'push', 'unshift', 'splice']);
 /** Fields of a page element: a text or handler written from a message is shown, not kept. */
 const PAGE_FIELDS = new Set(['textContent', 'innerHTML', 'title', 'className', 'onmessage', 'hidden', 'value', 'checked']);
 /** An element's data attribute (`el.dataset.x`): written for the page and the tests to read, not kept. */
@@ -257,7 +302,24 @@ export function findAnswerWrites(file: string, source: ts.SourceFile, checker: t
         ts.forEachChild(node, visitLets);
     };
     visitLets(source);
+    /** Whether a collection a value is put into outlives the call: a field of an object, or a variable kept (persists). */
+    const keptReceiver = (receiver: ts.Expression): boolean => {
+        // The store's own (createAnswerStore, createLatestAnswers): that is where answers go.
+        const type = checker.getTypeAtLocation(receiver);
+        const symbol = type.aliasSymbol ?? type.getSymbol();
+        if (symbol?.declarations?.some(item => /answer(Store|Types)\.ts$/.test(item.getSourceFile().fileName))) return false;
+        // A field of an object (a class's own `this.x` too): kept with the object.
+        if (ts.isPropertyAccessExpression(receiver) || ts.isElementAccessExpression(receiver)) return true;
+        if (!ts.isIdentifier(receiver)) return false;
+        const declaration = checker.getSymbolAtLocation(receiver)?.valueDeclaration;
+        return !!declaration && (ts.isVariableDeclaration(declaration) || ts.isParameter(declaration)) && ts.isIdentifier(declaration.name) && persists(declaration, declaration.name.text);
+    };
     const visit = (node: ts.Node): void => {
+        // A collection kept past the call that is given an answer (`pending.results.set(path, result)`, `kept.push(msg)`).
+        if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && PUTS.has(node.expression.name.text)
+            && node.arguments.some(arg => readsAnswer(arg, checker, answerFiles)) && keptReceiver(node.expression.expression)) {
+            found.add(`${file}#${node.expression.expression.getText(source)}.${node.expression.name.text}`);
+        }
         if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken && readsAnswer(node.right, checker, answerFiles)) {
             const left = node.left;
             if ((ts.isPropertyAccessExpression(left) || ts.isElementAccessExpression(left)) && left.expression.kind !== ts.SyntaxKind.ThisKeyword) {

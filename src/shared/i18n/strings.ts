@@ -194,6 +194,8 @@ export interface UiStrings {
     stepRecipeWarning: string;
     compareNotEntry: string;
     comparePending: string;
+    /** A held Δ whose files' every bin could not be measured (a failure that may pass: asked again after the pause). */
+    heldBinsFailed: string;
     compareBaseEntryRegion: string;
     compareSelfBase: string;
     stepRecipeName: string;
@@ -1029,6 +1031,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepRecipeWarning: 'The saved recipe could not be read; the standard one is used.',
         compareNotEntry: '≠ table',
         comparePending: 'computing…',
+        heldBinsFailed: 'could not be measured: {files} ({why}); asked again shortly',
         compareBaseEntryRegion: 'base = table region',
         compareSelfBase: '≠ same file',
         stepRecipeName: 'Standard',
@@ -1838,6 +1841,7 @@ const STRINGS: Record<SupportedLocale, UiStrings> = {
         stepRecipeWarning: '保存していたレシピを読めないため、標準のレシピを使います。',
         compareNotEntry: '≠ 一覧',
         comparePending: '計算中…',
+        heldBinsFailed: '計算できませんでした: {files}（{why}）。少し後でもう一度計算します',
         compareBaseEntryRegion: '基準 = 一覧の区間',
         compareSelfBase: '≠ 同じファイル',
         stepRecipeName: '標準',

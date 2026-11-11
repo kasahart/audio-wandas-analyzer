@@ -171,7 +171,7 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
         held.hidden = false;
         const name = step.name === 'welch' ? strings.stepAverage : strings.stepHeldWithout.replace('{step}', stepChipLabel(step, strings));
         title.textContent = strings.stepHeldRow.replace('{what}', name).replace('{file}', baseName(path));
-        held.classList.remove('is-pending');
+        held.classList.remove('is-pending', 'is-failed');
         const zoom = deps.keepWindow('held', step.id);
         const specs = heldSpecs(step, ch);
         // The axis names the version the picture is of: the step's own scan of it, else the table's current one (never a stale one's).
@@ -268,6 +268,16 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
             paintView(null, null, emptyFigure().range, stageNames(strings, null, current.get(path)?.input), deps.keepWindow('held', `delta|slot|${slot}`), { color: DIFF_COLOR, empty: '' });
             return;
         }
+        // A file whose every bin failed (and may pass: asked again after the pause) leaves the Δ unmeasured, and the plot
+        // says so: never the table's band bars in its place, which are only for scans that give no bins (R1, V7).
+        const failed = table.diffDb ? files.filter(file => bins.result(spec, file) === undefined && bins.failure(spec, file) !== undefined) : [];
+        if (failed.length) {
+            held.classList.add('is-failed');
+            const why = strings.heldBinsFailed.replace('{files}', failed.map(baseName).join(', ')).replace('{why}', bins.failure(spec, failed[0]) || '—');
+            title.textContent += ` · ${why}`;
+            paintView(null, null, emptyFigure().range, stageNames(strings, null, current.get(path)?.input), deps.keepWindow('held', `delta|slot|${slot}`), { color: DIFF_COLOR, empty: why });
+            return;
+        }
         const binned = new Map(files.flatMap(file => { const result = bins.result(spec, file); return result ? [[file, result] as [string, ScanResult]] : []; }));
         paintDelta(binned.size ? deps.comparison(path, binned) : table, `slot|${slot}`, (binned.get(path) ?? current.get(path))?.input);
     }
@@ -316,7 +326,7 @@ export function createHeldPlot(deps: HeldPlotDeps): HeldPlot {
         paint(): void {
             if (hold.step) { paintStep(hold.step); return; }
             held.hidden = hold.slot === null;
-            held.classList.remove('is-pending');
+            held.classList.remove('is-pending', 'is-failed');
             if (hold.slot !== null) {
                 const path = deps.slotFiles()[hold.slot] ?? deps.focusedFile();
                 title.textContent = path ? `${hold.slot} · ${baseName(path)}` : '';
