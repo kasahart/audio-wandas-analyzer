@@ -23,6 +23,8 @@ import { readoutText, type AxisTick, type Palette } from '../../shared/gui-core/
 import { axisName, axisNameParts, fitAxisTitle, fontPixels, scaledFont } from '../plot/axisTitle';
 import { HEATMAP_DB_SPAN, heatmapDbRange, niceRange, niceTicks } from '../../shared/utils/ticks';
 import { amountText, barkText, frequencyText, lagText, levelText, quefrencyText, secondsText, signedText, spacingDecimals, stepText, withMinus } from '../plot/plotText';
+import type { Whole } from '../../shared/provenance';
+import { backendPeak } from './wholeAnswers';
 import { axisMeasure, cellEdgeValues, cellEdges, cellIndex, NO_FULL_DATA, STEP_AHEAD, type FullPoints, type FullRead, type FullSource, type LevelAnswer } from './fullRead';
 
 /** Canvas x the level axis's turned title is centred on, in the gutter left of its tick labels. */
@@ -296,17 +298,12 @@ const signed = signedText;
  * A value of `view` as every readout and headline writes it (R4, R7): a Δ signed, in dB or in the view's own unit; a
  * level to 0.1 dB in the plot's level unit; any other amount (a coherence, a roughness) to 3 figures in its unit.
  */
-function valueText(view: StageView, value: number, diff: boolean, levelUnit?: string): string {
+function valueText(view: StageView, value: Whole, diff: boolean, levelUnit?: string): string {
     if (diff) return signed(value, isDb(view), view.unit);
     return isDb(view) ? levelText(value, levelUnit ?? view.unit ?? '') : amountText(value, view.unit);
 }
 const quefrency = quefrencyText;
 const lag = lagText;
-
-/** Where along its axis a point of the picture is, for the readout and the headline. */
-function atText(view: StageView, index: number, row?: number): string {
-    return atValue(view, view.xs?.[index] ?? 0, row === undefined ? undefined : view.ys?.[row] ?? 0, spacingAt(view.xs, index), row === undefined ? undefined : spacingAt(view.ys, row));
-}
 
 /** The gap from a point to its nearer neighbour, so a readout writes the digits that tell the two apart (R7). */
 function spacingAt(values: readonly number[] | undefined, index: number): number | undefined {
@@ -321,8 +318,8 @@ function spacingAt(values: readonly number[] | undefined, index: number): number
  */
 export const timeDigits = (step?: number): number => spacingDecimals(step, 2, 9);
 
-/** A point of `view`'s axes in their units: "1 kHz", "1.00 s · 100 Hz". */
-function atValue(view: StageView, x: number, y?: number, xStep?: number, yStep?: number): string {
+/** A point of the full data on `view`'s axes, in their units: "1 kHz", "1.00 s · 100 Hz". Never a drawn point's place (R7). */
+function atValue(view: StageView, x: Whole, y?: Whole, xStep?: number, yStep?: number): string {
     const along = view.x === 'time' ? secondsText(x, timeDigits(xStep)) : view.x === 'quefrency' ? quefrency(x, xStep) : view.x === 'lag' ? lag(x, xStep) : hz(x, xStep);
     if (y === undefined) return along;
     return `${along} · ${view.yAxis === 'bark' ? barkText(y) : view.yAxis === 'quefrency' ? quefrency(y, yStep) : hz(y, yStep)}`;
@@ -337,9 +334,9 @@ export function stageHeadline(diff: StageView | null, strings: Pick<StageStrings
     // Zoomed, the backend's peak is of the window on screen (stage_combine._on_screen) once that window's difference
     // is in; until then no point is named (C4), never one off screen or of an earlier window.
     if (!ofWindow) return '';
-    const peak = diff?.peak;
+    const peak = diff ? backendPeak(diff) : undefined;
     if (!diff || !peak) return strings.stageNoDelta;
-    const at = atValue(diff, peak.x, diff.matrix ? peak.y ?? 0 : undefined, peak.xStep, peak.yStep);
+    const at = atValue(diff, peak.x, diff.matrix ? peak.y : undefined, peak.xStep, peak.yStep);
     return strings.stageMaxDelta.replace('{at}', at).replace('{delta}', valueText(diff, peak.value, true));
 }
 
@@ -743,7 +740,7 @@ export interface StageLayer {
     ofEvents?: true;
     /** What the readout says of the point at `index` of the drawn line (−1 for a point of the full data, at `point.x`), in place of where and how much (a histogram's bin and its count, a dot's recording, a spectrum's level in its unit). */
     /** `step`: for a point of the full data, the spacing of its real neighbours (the digits a place needs, R7). */
-    readout?: (index: number, point: { x: number; value: number; step?: number }) => string[];
+    readout?: (index: number, point: { x: Whole; value: Whole; step?: number }) => string[];
     /**
      * Where every number read of this picture comes from (R7, fullRead.ts), required of every layer: a source the
      * webview holds every value of (InlineFullSource: bars, a pair spectrum's bins, a histogram's), or one the backend
@@ -1661,9 +1658,9 @@ export interface StageRead {
     away?: number;
     /** Read from the layer's full data (fullRead.ts), not from what it draws: where it is on its axes and its value. */
     full?: boolean;
-    at?: number;
-    row?: number;
-    value?: number;
+    at?: Whole;
+    row?: Whole;
+    value?: Whole;
     /** An image cell's row spacing (a spectrogram's bin width), so neighbouring rows read apart. */
     rowStep?: number;
     /** The spacing along the horizontal axis of the points around the one read (a signal's samples, an image's frames). */
@@ -1678,7 +1675,7 @@ export interface StageRead {
 }
 
 /** A point a plot reads: where it is drawn, its value, where it is along its axis and its index in the drawn line. */
-type ReadPoint = { index: number; time?: number; x: number; y: number; value: number; at: number; step?: number; full?: boolean };
+type ReadPoint = { index: number; time?: number; x: number; y: number; value: Whole; at: Whole; step?: number; full?: boolean };
 
 /** Whether a layer drawn on a plot was given its full data (R7): every one is, held or fetched; nothing to read is none. */
 export function declaresFullRead(layer: StageLayer): boolean {
@@ -1785,7 +1782,7 @@ function lineRead(plot: StagePlot, layer: StageLayer, point: ReadPoint, away?: n
     }
     if (layer.readout) return { ...readoutOf(layer, point, layer.label ?? '', layer.readout(point.index, { x: point.at, value: point.value, ...(point.full && point.step !== undefined ? { step: point.step } : {}) })), index: point.index, away, ...full };
     const amount = valueText(view, point.value, plot.diff, plot.levelUnit);
-    const where = point.full ? atValue(view, point.at, undefined, point.step) : atText(view, point.index);
+    const where = atValue(view, point.at, undefined, point.step);
     return { ...readoutOf(layer, point, layer.label || (plot.diff ? 'Δ' : ''), [where, amount]), index: point.index, away, ...full };
 }
 

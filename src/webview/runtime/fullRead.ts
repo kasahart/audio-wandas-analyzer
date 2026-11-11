@@ -14,7 +14,9 @@
  * keeps what came, and says when it is in (`ready`): until then the plot shows its marks and no number.
  */
 import { answerKey, createAnswerStore, type AnswerKey } from './answerStore';
-import type { StagePoints, StageRead, StageView } from '../../shared/protocol/backendProtocol';
+import type { StagePoints, StageRead } from '../../shared/protocol/backendProtocol';
+import { wholeOf, type Whole } from '../../shared/provenance';
+import { mintWhole, mintWholeRows, mintWholes, mintWholesOrGaps } from '../../shared/wholeMint';
 
 /** A line's points between two places of its horizontal axis (its own units), with `beyond` more past each end. */
 export interface LineQuery {
@@ -71,9 +73,9 @@ export interface LevelQuery {
     square: boolean;
 }
 
-/** The mean power of the `count` finite values a LevelQuery takes (full_read.read_level). */
+/** The mean power of the `count` finite values a LevelQuery takes (full_read.read_level): of the full data. */
 export interface LevelSum {
-    power: number;
+    power: Whole;
     count: number;
 }
 
@@ -95,11 +97,55 @@ export function levelOfValues(xs: ArrayLike<number>, values: ArrayLike<number | 
         power += valuePower(value, query.square);
         count += 1;
     }
-    return { power: count ? power / count : 0, count };
+    // The caller holds every value (see localLine): their mean is of the full data.
+    return { power: mintWhole(count ? power / count : 0), count };
 }
 
-/** Points as full_read.py gives them; an image's cells may name their rows (the entry overview's recordings). */
-export type FullPoints = StagePoints & { rowNames?: readonly string[]; offset?: number };
+/**
+ * Points as full_read.py gives them, every value of the full data (`Whole`): what a readout may write. An image's
+ * cells may name their rows (the entry overview's recordings).
+ */
+export interface FullPoints {
+    xs: Whole[];
+    values?: (Whole | null)[];
+    ys?: Whole[];
+    matrix?: (Whole | null)[][];
+    start: number | null;
+    end: number | null;
+    complete: boolean;
+    under?: number;
+    /**
+     * For a line: each point's distance to its nearer neighbour in the SOURCE data (null: it has none), as the source
+     * says (full_read.source_steps, sourceSteps). A readout's digits come of this, never of the gap between the
+     * points sent (display rules R7).
+     */
+    steps?: (number | null)[];
+    level?: LevelSum;
+    rowNames?: readonly string[];
+    offset?: number;
+}
+
+/** The level of no values: what a line with nothing to measure answers. */
+export const NO_LEVEL: LevelSum = Object.freeze({ power: mintWhole(0), count: 0 });
+
+/**
+ * Points of the full data as `FullPoints`: the backend's answer to a full read (full_read.py), or a window a source
+ * cuts from values the webview holds every one of (an InlineFullSource written by hand, as the entry strip's cells).
+ * As with localLine, calling it is the claim that none of them is a thinned point.
+ */
+export function fullPointsOf(points: StagePoints & Pick<FullPoints, 'rowNames' | 'offset'>): FullPoints {
+    return {
+        ...(points.rowNames ? { rowNames: points.rowNames } : {}),
+        ...(points.offset !== undefined ? { offset: points.offset } : {}),
+        xs: mintWholes(points.xs), start: points.start, end: points.end, complete: points.complete,
+        ...(points.values ? { values: mintWholesOrGaps(points.values) } : {}),
+        ...(points.ys ? { ys: mintWholes(points.ys) } : {}),
+        ...(points.matrix ? { matrix: mintWholeRows(points.matrix) } : {}),
+        ...(points.under !== undefined ? { under: points.under } : {}),
+        ...(points.steps ? { steps: points.steps } : {}),
+        ...(points.level ? { level: { power: mintWhole(points.level.power), count: points.level.count } } : {}),
+    };
+}
 
 /** undefined: being fetched (`ready` is called once it is in); null: there is no full data to read. */
 export type FullAnswer = FullPoints | null | undefined;
@@ -165,7 +211,7 @@ export function sourceSteps(xs: readonly number[], first: number, after: number)
 }
 
 /** A seek (LineQuery.seek) in a line held whole: as full_read._seek_line answers it. */
-function seekIn(xs: readonly number[], values: readonly (number | null)[], n: number, x: number, direction: -1 | 1, beyond: number, plain = false): FullPoints {
+function seekIn(xs: readonly Whole[], values: readonly (Whole | null)[], n: number, x: number, direction: -1 | 1, beyond: number, plain = false): FullPoints {
     let found = -1;
     if (direction > 0) { for (let index = firstFrom(xs, x, true); index < n && found < 0; index++) if (readableValue(values[index], plain)) found = index; }
     else for (let index = firstFrom(xs, x) - 1; index >= 0 && found < 0; index--) if (readableValue(values[index], plain)) found = index;
@@ -174,8 +220,15 @@ function seekIn(xs: readonly number[], values: readonly (number | null)[], n: nu
     return { xs: xs.slice(first, after), values: values.slice(first, after), start: first > 0 ? xs[first] : null, end: after < n ? xs[after - 1] : null, complete: true, offset: first, steps: sourceSteps(xs, first, after) };
 }
 
-/** A line the webview holds every point of (ascending `xs`): its full data, read as the backend reads one. */
-export function localLine(xs: readonly number[], values: readonly (number | null)[]): InlineFullSource {
+/**
+ * A line the webview holds every point of (ascending `xs`): its full data, read as the backend reads one.
+ *
+ * Calling this is the claim "these arrays are every value, none thinned": what it answers is `Whole`. A picture's
+ * points cannot be passed (`Drawn` is not a number, provenance.ts); bars the backend sends whole go through
+ * wholeAnswers.ts `wholeBars`.
+ */
+export function localLine(held: readonly number[], heldValues: readonly (number | null)[]): InlineFullSource {
+    const xs = mintWholes(held), values = mintWholesOrGaps(heldValues);
     return {
         held: 'inline',
         line(query) {
@@ -189,13 +242,12 @@ export function localLine(xs: readonly number[], values: readonly (number | null
     };
 }
 
-/** A band table's bars, which the backend sends whole (every band, none thinned): read from their every value. */
-export function wholeBars(view: StageView | null | undefined): InlineFullSource | undefined {
-    return view?.kind === 'bar' ? localLine(view.xs ?? [], view.values ?? []) : undefined;
-}
-
-/** An image the webview holds every cell of: `matrix` rows over ascending `ys`, columns over ascending `xs`. */
-export function localCells(xs: readonly number[], ys: readonly number[], matrix: ReadonlyArray<ReadonlyArray<number | null>>, rowNames?: readonly string[]): InlineFullSource {
+/**
+ * An image the webview holds every cell of: `matrix` rows over ascending `ys`, columns over ascending `xs`. As with
+ * localLine, calling it is the claim that the cells are every one, none thinned.
+ */
+export function localCells(heldXs: readonly number[], heldYs: readonly number[], heldMatrix: ReadonlyArray<ReadonlyArray<number | null>>, rowNames?: readonly string[]): InlineFullSource {
+    const xs = mintWholes(heldXs), ys = mintWholes(heldYs), matrix = mintWholeRows(heldMatrix);
     const nearest = (axis: readonly number[], value: number): number => {
         const at = Math.max(1, Math.min(axis.length - 1, firstFrom(axis, value)));
         return axis.length < 2 ? 0 : Math.abs(axis[at - 1] - value) <= Math.abs(axis[at] - value) ? at - 1 : at;
@@ -301,7 +353,7 @@ export function fetchedSource(fetch: (read: StageRead, done: (points: StagePoint
             // undefined: no answer (the backend let the data go and the picture is scanned again): nothing is kept and
             // nothing is asked again until the plot reads anew, once its picture is back.
             if (points === undefined) { next = null; nextLevel = null; return; }
-            keep(key, read, points);
+            keep(key, read, points ? fullPointsOf(points) : null);
             // The pointer's read first, then the level: the first not answered meanwhile is asked.
             const unanswered = (item: { key: string } | null): boolean => !!item && kept.state(keyOf(item.key)) === 'missing';
             const queued = unanswered(next) ? next : unanswered(nextLevel) ? nextLevel : null;
@@ -457,7 +509,7 @@ export function mappedSource(source: FullSource, to: (x: number) => number, from
     // Each point's step in the source data (FullPoints.steps) is carried to this axis as its place is: the same gap, mapped.
     const stepBack = (x: number, step: number | null): number | null => (step === null ? null : Math.abs(from(x + step) - from(x)));
     const back = (points: FullAnswer): FullAnswer => (points ? {
-        ...points, xs: points.xs.map(from), start: points.start === null ? null : from(points.start), end: points.end === null ? null : from(points.end),
+        ...points, xs: points.xs.map(x => wholeOf(from, x)), start: points.start === null ? null : from(points.start), end: points.end === null ? null : from(points.end),
         ...(points.steps ? { steps: points.steps.map((step, index) => stepBack(points.xs[index], step)) } : {}),
     } : points);
     return {

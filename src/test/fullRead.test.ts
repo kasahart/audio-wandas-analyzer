@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { assertNotDrawn, nearestOf } from './fullNotDrawn';
 import { FAILED_RETRY_MS as FAILED_HOLD_MS } from '../webview/runtime/answerStore';
-import { fetchedSource, localCells, localLine, mappedSource, NO_FULL_DATA, STEP_AHEAD, wholeBars, type FullSource, type LineQuery } from '../webview/runtime/fullRead';
+import { fetchedSource, localCells, localLine, mappedSource, NO_FULL_DATA, STEP_AHEAD, type FullSource, type LineQuery } from '../webview/runtime/fullRead';
+import { wholeValue } from './helpers/whole';
+import { wholeBars } from '../webview/runtime/wholeAnswers';
 import { declaresFullRead, stageHover, stageStep, type StagePlot, type StageRead } from '../webview/runtime/stagePanes';
 import { HOVER_PICK_RADIUS_PX } from '../webview/runtime/plotHover';
 import { createStageReader } from '../webview/runtime/stageReader';
@@ -381,7 +383,7 @@ test('an arrow key crosses a silence of any length in one read the backend answe
     assert.equal(back?.at, 10);
     assert.equal(asked.length, before + 2);
     // Past the last value there is nothing: one read says so, and it is not asked again.
-    const last = { ...(here), at: 1_999_299 };
+    const last = { ...(here), at: wholeValue(1_999_299) };
     assert.equal(step(last, 1), null);
     const asking = asked.length;
     assert.equal(step(last, 1), null);

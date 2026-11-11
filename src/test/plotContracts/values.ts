@@ -26,7 +26,7 @@ export const VALUE_HELPERS: readonly string[] = [
     'src/webview/draw/canvasDrawers.ts:formatHz',
     ...['laneAmplitudeTicks', 'laneTimeTicks'].map(name => `src/webview/runtime/laneAxes.ts:${name}`),
     'src/webview/runtime/figureModel.ts:laneAmplitudeRange',
-    ...['valueTickTexts', 'valueAxisTicks', 'rowAxisTicks', 'alongAxisTicks', 'tickTexts', 'timeDigits', 'colourEndText', 'ticks', 'stageRange', 'stageDiffRange', 'roundEdge', 'robustEdge', 'overlayOrder', 'byLevel', 'levelBinsOf', 'timeText', 'atValue', 'atText', 'drawnLevelsText', 'readoutOf'].map(name => `${SP}:${name}`),
+    ...['valueTickTexts', 'valueAxisTicks', 'rowAxisTicks', 'alongAxisTicks', 'tickTexts', 'timeDigits', 'colourEndText', 'ticks', 'stageRange', 'stageDiffRange', 'roundEdge', 'robustEdge', 'overlayOrder', 'byLevel', 'levelBinsOf', 'timeText', 'atValue', 'drawnLevelsText', 'readoutOf'].map(name => `${SP}:${name}`),
 ];
 
 /** Functions that write a number nobody reads as a value of a chart, each with why. */
@@ -41,7 +41,6 @@ export const NOT_CHART_VALUES: Readonly<Record<string, string>> = {
     'src/webview/runtime/entryRuntime.ts:syncColumns': 'the table\'s column count for the layout (data-cols), not shown',
     'src/webview/runtime/offsetInlineEditor.ts:openOffsetEditor': 'the offset field\'s starting text, the user\'s own setting in milliseconds',
     'src/webview/runtime/pairSpectrumPanel.ts:noteCursorHz': 'the data-cursor-hz attribute for the linked-cursor tests, not shown',
-    'src/webview/runtime/plotHoverLayer.ts:notePlotRead': 'the data-plot-read-* attributes for the plot contract tests (the readout itself is readoutOf\'s), not shown',
     'src/webview/runtime/separatorKeys.ts:syncHandle': 'a splitter\'s aria-valuenow / min / max in pixels, for assistive technology: a layout position, not a value',
     'src/webview/runtime/spectrogramSettingsPopover.ts:syncFromSettings': 'the STFT and display settings fields\' text, the user\'s own settings',
     'src/shared/analysis/calibrationModel.ts:validateCalibrationFactorInput': 'the calibration form\'s own error message about the factor typed',
@@ -143,7 +142,7 @@ export const DRAWN_READERS: Readonly<Record<string, DrawnReader>> = {
     [`${SP}:shownValues`]: { use: 'draws', why: 'whether a line is a signal drawn as itself, to name its amplitude range as the values on screen' },
     [`${SP}:fullPoint`]: { use: 'draws', why: 'whether the layer is a signal drawn as itself, to place a full point on its range' },
     ['src/webview/runtime/figureModel.ts:pictureSet']: { use: 'draws', why: 'whether a stage picture has anything drawn, to leave an empty one out of the base set with why' },
-    ['src/webview/runtime/fullRead.ts:wholeBars']: { use: 'whole', why: 'a band table\'s bars, which the backend sends whole (every band), held as their InlineFullSource', proof: { file: 'src/test/fullRead.test.ts', name: 'every layer a plot draws is given its full data, held or fetched: one given none is marked and reads no number, bars too (R7)' } },
+    ['src/webview/runtime/wholeAnswers.ts:wholeBars']: { use: 'whole', why: 'a band table\'s bars, which the backend sends whole (every band), held as their InlineFullSource', proof: { file: 'src/test/fullRead.test.ts', name: 'every layer a plot draws is given its full data, held or fetched: one given none is marked and reads no number, bars too (R7)' } },
     [`${SP}:isEventsView`]: { use: 'draws', why: 'whether a picture is a trigger\'s events' },
     [`${SP}:lineRead`]: { use: 'draws', why: 'whether the layer is a signal drawn as itself' },
     [`${SP}:paint`]: { use: 'draws', why: 'draws a signal\'s envelope' },

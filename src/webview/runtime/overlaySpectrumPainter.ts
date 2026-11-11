@@ -3,7 +3,7 @@ import { binFrequencyHz } from '../draw/canvasDrawers';
 import { levelBinsOf, paintOverlay, type StageLayer, type StagePlot } from './stagePanes';
 import type { StageView } from '../../shared/protocol/backendProtocol';
 import { minMaxLine } from './comparePanes';
-import { localLine, NO_FULL_DATA, type FullSource } from './fullRead';
+import { localLine, NO_FULL_DATA, NO_LEVEL, type FullSource } from './fullRead';
 import {
     OVERLAY_SPECTRUM_PAD,
     overlayLevelAxes,
@@ -36,7 +36,7 @@ export interface OverlaySpectrumPaint {
 const STAND_IN_READ: Record<NonNullable<SpectrumSeries['slice']['standIn']>, FullSource> = {
     pending: { held: 'fetched', line: () => undefined, level: () => undefined },
     // No point to read there: an empty window (null would be a read that failed, which no other line stands in for).
-    silence: { held: 'fetched', line: () => ({ xs: [], values: [], start: null, end: null, complete: true }), level: () => ({ power: 0, count: 0 }) },
+    silence: { held: 'fetched', line: () => ({ xs: [], values: [], start: null, end: null, complete: true }), level: () => NO_LEVEL },
 };
 
 /** Marks the right-hand axis in the legend. */
