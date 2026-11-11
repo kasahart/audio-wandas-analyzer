@@ -640,6 +640,8 @@ DEFINITIONS: dict[str, Schema] = {
             "start": {"anyOf": [_NUMBER, _NULL]},
             "end": {"anyOf": [_NUMBER, _NULL]},
             "complete": {"type": "boolean"},
+            # Of a dense window read at the pointer's place: the index in ``xs`` of the point under the pointer.
+            "under": {"type": "integer", "minimum": 0},
             # A level read's answer: the mean power of the window's ``count`` finite values.
             "level": {
                 "type": "object",

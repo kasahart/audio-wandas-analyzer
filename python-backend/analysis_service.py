@@ -381,7 +381,7 @@ class AnalysisService:
         else:
             spectrum = analysis_frame[:, start_sample:end_sample].fft(n_fft=window_size, window=window_name)
             max_frequency_hz = float(spectrum.freqs[-1])
-            # float64, as wandas gives it: its level range, the order of overlaid slices and the readout take it as it is.
+            # float64, as wandas gives it: its level range, the overlay's order and the readout take it as it is.
             rows = np.asarray(spectrum.dB, dtype=np.float64).reshape(analysis_frame.n_channels, -1)
             self.engine.put_spectrum_slice(cached, slice_key, rows, max_frequency_hz)
         frequencies_hz = None

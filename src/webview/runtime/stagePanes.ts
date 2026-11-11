@@ -1711,6 +1711,10 @@ function fullLineNear(plot: StagePlot, layer: StageLayer, source: FullSource, x:
         if (Math.abs(point.x - x) <= radius && onPlot(plot, point.x, (plot.lineYAt ?? plot.yAt)(point.value))) near.push(point);
         if (!at || Math.abs(point.x - x) < Math.abs(at.x - x)) at = point;
     }
+    // A window too dense to send whole names the real point under the pointer (`under`, full_read._nearest_along): the
+    // one read when no point is near the pointer on screen, never the nearest of the few points sent for the columns.
+    const under = got.under !== undefined ? fullPoint(plot, layer, got, got.under) : null;
+    if (under) at = under;
     // Past the line's ends the pointer is over no point of it.
     const first = plot.xAt(got.xs[0]), last = plot.xAt(got.xs[got.xs.length - 1]);
     if ((got.start === null && x < first - 0.5) || (got.end === null && x > last + 0.5)) at = null;

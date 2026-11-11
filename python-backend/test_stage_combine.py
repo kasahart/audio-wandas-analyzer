@@ -25,9 +25,9 @@ from stage_combine import (
     draw,
     level_bins,
     read_points,
-    value_range,
     stage_data,
     time_axis,
+    value_range,
 )
 from stage_view import stage_view
 

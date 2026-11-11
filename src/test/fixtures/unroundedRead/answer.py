@@ -8,7 +8,8 @@ serves a comparison's read, one JSON answer per line. A compared recording is th
 
 A read with ``"fixture": "signal"`` is of three signals of eight samples at 1 kHz instead: a base group of 0.5 and
 0.5 + 2⁻²⁴ (a float32 step apart; their median 0.5 + 2⁻²⁵ is no float32) and a compared one at 0.5 + 2⁻²⁴, whose
-difference from the median is 2⁻²⁵ at every sample.
+difference from the median is 2⁻²⁵ at every sample. With ``"fixture": "dense"``: one signal of 20 000 samples at
+1 kHz (``sin(0.37 n) cos(0.011 n) 0.9``), too many for a hover's window to be sent whole.
 """
 
 from __future__ import annotations
@@ -42,7 +43,12 @@ def main() -> None:
     for raw in sys.argv[1:]:
         read = json.loads(raw)
         diff = read.get("of") == "diff"
-        if read.pop("fixture", None) == "signal":
+        fixture = read.pop("fixture", None)
+        if fixture == "dense":
+            index = np.arange(20_000)
+            dense = StageData(mode="signal", view=signal, xs=np.empty(0), values=np.sin(index * 0.37) * np.cos(index * 0.011) * 0.9, rate=1000.0)  # type: ignore[arg-type]
+            print(json.dumps(read_points([dense], None, read)))
+        elif fixture == "signal":
             print(json.dumps(read_points([samples(0.5), samples(0.5 + step)], samples(0.5 + step) if diff else None, read)))
         else:
             print(json.dumps(read_points([data], compared if diff else None, read)))

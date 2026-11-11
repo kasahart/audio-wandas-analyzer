@@ -666,12 +666,15 @@ def _drawn_part(data: StageData, detail: StageDetail | None) -> np.ndarray | Non
 
 def floored(view: StageView | dict, diff: bool = False) -> bool:
     """Whether a picture's values have a silent floor (SILENT_DB and below is silence, left out of its range): only a
-    level or a gain in dB, which the backend floors at MIN_LEVEL_DB (stage_view.floored_db). A difference has none (a
-    Δ of −260 dB is a Δ), nor any other quantity (a plain value, a coherence, a cepstrum): the webview's ``floorless``."""
+    level or a gain in dB, which the backend floors at MIN_LEVEL_DB (stage_view.floored_db). A difference has none
+    (a Δ of −260 dB is a Δ), nor any other quantity (a plain value, a coherence, a cepstrum): the webview's
+    ``floorless``."""
     return not diff and view.get("quantity", "level") in DB_QUANTITIES
 
 
-def value_range(data: StageData | None, detail: StageDetail | None = None, *, diff: bool = False) -> StageValueRange | None:
+def value_range(
+    data: StageData | None, detail: StageDetail | None = None, *, diff: bool = False
+) -> StageValueRange | None:
     """The lowest and highest of every full-resolution value ``draw`` draws of ``data`` (the part ``detail`` names),
     silence (a level at the floor) and undefined values left out as the plot leaves them out; a cepstrogram's colour
     edge too (the 99th percentile of its magnitudes). From these, never from the thinned line or the cells averaged to

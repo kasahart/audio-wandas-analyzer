@@ -119,3 +119,21 @@ test('a median and a difference are taken in float64 end to end: of 0.5 and 0.5 
     assert.equal(hover(plot('base'), 30, 49)?.value, 0.5 + 2 ** -25, 'the median of 0.5 and 0.5 + 2⁻²⁴, which float32 rounds to one of them');
     assert.equal(hover(plot('diff'), 30, 49)?.value, 2 ** -25, 'the Δ of 0.5 + 2⁻²⁴ from that median');
 });
+
+test('a dense window read beyond the pick radius of every point reads the real sample under the pointer, which the backend sends (R7)', { timeout: 120_000 }, t => {
+    if (!backendReady()) { t.skip('no Python backend'); return; }
+    const count = 20_000;
+    const signal = Array.from({ length: count }, (_, n) => Math.sin(n * 0.37) * Math.cos(n * 0.011) * 0.9);
+    // 50 samples a pixel, the pointer 60 pixels above the plot's top: no sample is within the pick radius.
+    const view = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs: [0, (count - 1) / 1000], values: [0, 0] } as unknown as StageView;
+    const asked: unknown[] = [];
+    const full = fetchedSource((read, done) => { asked.push(read); done(backendAnswer({ ...read, fixture: 'dense' })); });
+    const drawn: StagePlot = { frame: { left: 0, top: 0, width: 400, height: 100 }, xAt: s => s * 1000 / 50, xOf: x => x * 50 / 1000, yAt: value => 50 - value * 40, levelOf: y => (50 - y) / 40, ratioStep: 1.12, diff: false, lines: [{ view, color: 'blue', full }] };
+    for (const x of [100, 100.3, 257.7]) {
+        const read = hover(drawn, x, -60);
+        const under = Math.round(x * 50);
+        assert.equal(Math.round((read?.at ?? NaN) * 1000), under, `the sample under the pointer at x = ${x}`);
+        assert.equal(read?.value, signal[under]);
+    }
+    assert.ok(asked.some(read => (read as { columns?: number }).columns), 'read as a dense window, not whole');
+});
