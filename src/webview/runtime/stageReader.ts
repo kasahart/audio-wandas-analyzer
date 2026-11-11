@@ -7,7 +7,8 @@
 import type { CompareCombineMessage, ComparePublication } from '../../shared/analysis/entryScan';
 import type { StagePoints, StageRead, StageView } from '../../shared/protocol/backendProtocol';
 import { answerKey, createAnswerStore } from './answerStore';
-import { fetchedSource, wholeBars, type FullRead, type FullSource } from './fullRead';
+import { fetchedSource, type FullRead, type FullSource } from './fullRead';
+import { wholeBars } from './wholeAnswers';
 
 export interface StageReader {
     /** A recording's own picture's full data, by the key its scan kept it under (a band table's own bars); undefined without one. */

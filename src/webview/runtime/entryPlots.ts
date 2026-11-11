@@ -8,7 +8,7 @@ import type { StageView } from '../../shared/protocol/backendProtocol';
 import { BAND_CENTERS_HZ, type EntryRow } from './entryTable';
 import { FULL_PLOT_WINDOW, type PlotMargins, type PlotWindow } from './plotInteraction';
 import { paintOverlay, type StagePlot } from './stagePanes';
-import type { InlineFullSource } from './fullRead';
+import { fullPointsOf, type InlineFullSource } from './fullRead';
 import { emptyFigure, heatmapRange, levelTitle, plainNames, plainTitle, type FigureRange } from './figureModel';
 
 /** The strip's margins: its row axis at the left, the frequency axis below, the colour bar inside the plot's top right. */
@@ -128,12 +128,13 @@ export function overviewCells(rows: ReadonlyArray<OverviewRow>, bands: ReadonlyM
             // Up the axis: the lowest table row (the largest index) first.
             const indices: number[] = [];
             for (let index = Math.min(n - 1, row + 2); index >= Math.max(0, row - 2); index--) indices.push(index);
-            return {
+            // Every table row's every band is held: the cells cut here are of the full data.
+            return fullPointsOf({
                 xs: BAND_CENTERS_HZ.slice(c0, c1), ys: indices.map(index => -(index + 0.5)),
                 matrix: indices.map(index => { const levels = bands.get(rows[index].key ?? rows[index].filePath); return BAND_CENTERS_HZ.slice(c0, c1).map((_, band) => levels?.[c0 + band] ?? null); }),
                 rowNames: indices.map(index => rowName(rows[index], wordOf)),
                 start: c0 > 0 ? BAND_CENTERS_HZ[c0] : null, end: c1 < BAND_CENTERS_HZ.length ? BAND_CENTERS_HZ[c1 - 1] : null, complete: true,
-            };
+            });
         },
     };
 }

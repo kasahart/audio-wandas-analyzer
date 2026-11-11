@@ -23,7 +23,8 @@ import { createDetailPlanner } from './stageDetail';
 import { createCombineSource, createLastFine, noDeltaNote, TOO_LARGE_COMBINED } from './combineSource';
 import { createStageSource, stageBasis, type StageSpec } from './stageSource';
 import { createStageReader } from './stageReader';
-import { localLine, NO_FULL_DATA, wholeBars, type FullRead } from './fullRead';
+import { localLine, NO_FULL_DATA, type FullRead } from './fullRead';
+import { wholeBars } from './wholeAnswers';
 import { recipeWithout, stepChipLabel, stepLimits } from './stepBar';
 import { withChannel } from '../../shared/recipe/channelSelection';
 

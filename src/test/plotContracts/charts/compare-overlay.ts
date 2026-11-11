@@ -10,7 +10,7 @@ export const compareOverlay: ChartContract = {
     rows: [
         {
             id: 'compare-overlay.readout', value: 'readout', what: '線の読み値（位置と値）',
-            computedIn: [`${SP}:stageHover`, `${SP}:lineRead`, `${SP}:atValue`, `${SP}:atText`, `${SP}:timeText`, 'src/webview/runtime/trackStagePainter.ts:overlayLayers', 'python-backend/full_read.py:read_line'],
+            computedIn: [`${SP}:stageHover`, `${SP}:lineRead`, `${SP}:atValue`, `${SP}:timeText`, 'src/webview/runtime/trackStagePainter.ts:overlayLayers', 'python-backend/full_read.py:read_line'],
             from: 'full', trace: '各層の full は stageReader.of（compare-combine の read）。バックエンドが保持した段の全ビン・全サンプルからマウスのまわりの窓を返す（full_read.py）。描いた間引きの線は読まない。',
             tests: [
                 t('src/test/fullRead.test.ts', 'every layer a plot draws is given its full data, held or fetched: one given none is marked and reads no number, bars too (R7)'),
@@ -52,7 +52,7 @@ export const compareOverlay: ChartContract = {
         },
         {
             id: 'compare-overlay.readout-bands', value: 'readout', what: '1/3 オクターブ帯（棒）の読み値',
-            computedIn: [`${SP}:lineRead`, 'python-backend/stage_view.py:_noct_view', 'src/webview/runtime/fullRead.ts:wholeBars', 'src/webview/runtime/stageReader.ts:createStageReader'],
+            computedIn: [`${SP}:lineRead`, 'python-backend/stage_view.py:_noct_view', 'src/webview/runtime/wholeAnswers.ts:wholeBars', 'src/webview/runtime/stageReader.ts:createStageReader'],
             from: 'whole', trace: '帯は間引かない（NOctFrame の全帯）。バックエンドが全データの鍵を付けない帯の表は、stageReader が wholeBars で全帯を InlineFullSource にして読む。全データのない層は読み値を出さない（NO_FULL_DATA）。',
             tests: [
                 t('src/test/fullRead.test.ts', 'every layer a plot draws is given its full data, held or fetched: one given none is marked and reads no number, bars too (R7)'),
