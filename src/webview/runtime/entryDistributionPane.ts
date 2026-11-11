@@ -272,7 +272,8 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
         if (!scale || event.altKey || !current()) return undefined;
         const bounds = canvas.getBoundingClientRect();
         const dot = dotAt(canvas, event.clientX - bounds.left, event.clientY - bounds.top);
-        if (dot) { deps.dot(dot); return undefined; }
+        // A dot's row too, once no double click (a zoom reset only) follows.
+        if (dot) return () => deps.dot(dot);
         const plot = groups.querySelector<HTMLElement>('[data-entry-dist-plot]');
         const x = event.clientX - (plot ?? canvas).getBoundingClientRect().left;
         const range = pickedRange(scale, x, x, false);

@@ -81,10 +81,10 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
      * The trigger's event whose line is under the pointer (within a few pixels), if any. Read from the events' full
      * data (R7): undefined while it is fetched (`ready` is called once it is in).
      */
-    const eventAt = (plot: HTMLElement, clientX: number, clientY: number, ready?: () => void, on?: StagePlot): { id: number; source: string; out: boolean } | null | undefined => {
+    const eventAt = (plot: HTMLElement, clientX: number, clientY: number, ready?: () => void, on?: StagePlot, box?: { left: number; top: number }): { id: number; source: string; out: boolean } | null | undefined => {
         const drawn = on ?? drawnOn.get(plot)?.plot;
         if (!drawn || !plot.isConnected) return null;
-        const rect = plot.getBoundingClientRect();
+        const rect = box ?? plot.getBoundingClientRect();
         const hit = stageHover(drawn, clientX - rect.left, clientY - rect.top, ready);
         if (hit?.pending) return undefined;
         return hit && !hit.failed && hit.layer.event && Math.abs(hit.y - (clientY - rect.top)) <= EVENT_PICK_PX ? hit.layer.event : null;
@@ -119,10 +119,12 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
         const { clientX, clientY } = event;
         // Decided on the plot as it was clicked: a redraw meanwhile (a zoom by the wheel, which is no press) draws other
         // lines under that pixel, and the click is of the line it was on (R7).
+        // Where the plot was on screen as clicked too: a scroll meanwhile moves it, never the line clicked on.
         const clicked = drawnPlot(plot) ?? undefined;
+        const { left, top } = plot.getBoundingClientRect();
         const decide = (): void => {
             if (!current() || !state.on) return;
-            const line = eventAt(plot, clientX, clientY, decide, clicked);
+            const line = eventAt(plot, clientX, clientY, decide, clicked, { left, top });
             if (line === undefined) return;
             const edit = line ? toggle(line) : undefined;
             edit?.();
@@ -150,9 +152,12 @@ export function attachStageGestures(surface: HTMLElement, root: HTMLElement, doc
         },
         clearHover() { hovered = null; hideHover(); },
         tap,
+        // A picture on its way (or none yet) is no drawing: the readout keeps the keys for it (R7).
+        takesKeys: plot => state.on && plot.matches(selector) && !plot.closest('[hidden]'),
         stepFrom(plot, delta, arrived) {
-            const drawn = drawnOn.get(plot)?.plot;
-            return state.on && drawn && deps.painted() ? marks.stepFrom(plot, drawn, delta, arrived) : null;
+            if (!state.on) return null;
+            const drawn = drawnOn.get(plot)?.plot ?? null;
+            return marks.stepFrom(plot, deps.painted() ? drawn : null, delta, arrived);
         },
         showBox(plot, from, to) {
             const rect = plotBox(plot);

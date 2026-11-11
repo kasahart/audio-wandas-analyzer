@@ -200,18 +200,19 @@ function twoSurfaces() {
     for (const id of ['one', 'two']) {
         attachPlotInteraction(element(id), doc, '.plot', {
             locate: (target, clientX, clientY) => {
+                // Each surface finds its own plots only, as every owner's does.
                 const plot = (target as HTMLElement | null)?.closest?.<HTMLElement>('.plot');
-                return plot ? { plot, point: point(clientX, clientY), axis: null } : null;
+                return plot && element(id).contains(plot) ? { plot, point: point(clientX, clientY), axis: null } : null;
             },
             pointOn: (_plot, clientX, clientY) => point(clientX, clientY),
             window: () => FULL_PLOT_WINDOW,
-            setWindow: () => undefined,
+            setWindow: plot => { done.push(`window:${plot.id}`); },
             hover: (_event, hit) => { if (hit) done.push(`hover:${hit.plot.id}`); },
             clearHover: () => undefined,
             showBox: () => undefined,
             hideBox: () => undefined,
             openAxisRange: () => false,
-            stepFrom: () => null,
+            stepFrom: plot => { done.push(`step:${plot.id}`); return null; },
             // The click is decided at the press (its x on the plot as clicked), done once no double click follows.
             tap: (plot, event) => { const x = event.clientX; return () => { done.push(`tap:${plot.id}:${x}`); }; },
         });
@@ -221,7 +222,8 @@ function twoSurfaces() {
     };
     const click = (id: string, clientX: number, detail = 1): void => { mouse(element(id), 'mousedown', clientX, { detail }); mouse(doc, 'mouseup', clientX, { detail }); };
     const wait = (): Promise<void> => new Promise(resolve => { setTimeout(resolve, PLOT_DOUBLE_CLICK_MS + 60); });
-    return { doc, element, done, mouse, click, wait };
+    const key = (code: string, keyName = code): void => { doc.body.dispatchEvent(new window.KeyboardEvent('keydown', { code, key: keyName, bubbles: true, cancelable: true })); };
+    return { doc, element, done, mouse, click, wait, key };
 }
 
 test('one arbitration of a click for every plot: done once no double click follows, a double click does none, and the next press anywhere (a drag, another plot\'s click) takes its place (R13)', async () => {
@@ -259,4 +261,28 @@ test('a drag under way on one surface reads nothing on another: no hover until i
     done.length = 0;
     mouse(element('b'), 'mousemove', 55);
     assert.ok(done.includes('hover:b'), 'read again once let go');
+});
+
+test('during a drag on one surface the keys over another plot step and zoom nothing; let go there, it reads where it was let go without a move (R7)', () => {
+    const { doc, element, done, mouse, key } = twoSurfaces();
+    mouse(element('a'), 'mousedown', 20);
+    mouse(doc, 'mousemove', 70);
+    // The pointer over b (a drag carried across): its hover is not read meanwhile.
+    element('b').dispatchEvent(new (doc.defaultView as Window & typeof globalThis).MouseEvent('mousemove', { bubbles: true, clientX: 60, clientY: 50 }));
+    done.length = 0;
+    key('ArrowRight');
+    key('Equal', '=');
+    assert.deepEqual(done.filter(call => call.startsWith('step:') || call.startsWith('window:b')), [], 'no step and no zoom of b while the drag is under way');
+    // Let go over b, the pointer still: b reads there.
+    element('b').dispatchEvent(new (doc.defaultView as Window & typeof globalThis).MouseEvent('mouseup', { bubbles: true, clientX: 60, clientY: 50, button: 0 }));
+    assert.ok(done.includes('hover:b'), `read where it was let go: ${done.join(', ')}`);
+});
+
+test('a press moved within the drag threshold and let go reads where it was let go, as the time lines go there (R7)', () => {
+    const { doc, element, done, mouse } = twoSurfaces();
+    mouse(element('a'), 'mousedown', 20);
+    done.length = 0;
+    mouse(doc, 'mousemove', 22);
+    element('a').dispatchEvent(new (doc.defaultView as Window & typeof globalThis).MouseEvent('mouseup', { bubbles: true, clientX: 22, clientY: 50, button: 0, detail: 1 }));
+    assert.ok(done.includes('hover:a'), `read at the release: ${done.join(', ')}`);
 });
