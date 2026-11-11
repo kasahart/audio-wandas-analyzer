@@ -28,6 +28,10 @@ module-level stores. A comparison is not a value: it is a decision (``C``), foll
 today are in KNOWN_FLOWS, each with its gap in the contract table (src/test/plotContracts): the list only shrinks.
 A flow not listed fails, and so does a listed one no longer found.
 
+The contract table's backend readers classified 'draws' (DRAWN_READERS in values.ts) are checked too: what each
+returns of drawn points carries its name wherever it goes, and the reader fails if its own code, or any code its
+result reaches, makes a flow of it (another field, a reduction, a decision): drawing is only putting it in a picture.
+
 Run: ``python scripts/check_decimation_flow.py`` (exit 1 on a problem); ``--list`` prints every flow found.
 """
 
@@ -47,6 +51,8 @@ BACKEND = ROOT / "python-backend"
 VALUES_TS = ROOT / "src" / "test" / "plotContracts" / "values.ts"
 
 WHOLE = "*"
+#: The source of a 'draws' reader's result in a flow (``draws=module:function``).
+TAG = "draws="
 DRAWN, POSITIONS, BUCKET, THINNED, DECIDED = "D", "P", "B", "T", "C"
 
 #: The backend's functions that thin data to draw it: what kind their result is and which of its fields are thinned
@@ -240,7 +246,12 @@ class Flow:
 
     @property
     def sources(self) -> list[str]:
-        return sorted({source_of(origin) for origin in self.origins})
+        return sorted({source_of(origin) for origin in self.origins if not source_of(origin).startswith(TAG)})
+
+    @property
+    def tags(self) -> list[str]:
+        """The 'draws' readers (``module:function``) whose result this flow is made of."""
+        return sorted({source_of(origin)[len(TAG) :] for origin in self.origins if source_of(origin).startswith(TAG)})
 
 
 @dataclass
@@ -285,7 +296,9 @@ EMPTY = Summary(frozenset(), [], [])
 class Program:
     """The backend's modules, functions and what flows between them."""
 
-    def __init__(self, sources: dict[str, str]) -> None:
+    def __init__(self, sources: dict[str, str], tagged: Iterable[str] = ()) -> None:
+        #: The 'draws' readers (``module:function``): what each returns of drawn points also carries its name.
+        self.tagged = frozenset(tagged)
         self.modules = {name: Module(name, ast.parse(text)) for name, text in sorted(sources.items())}
         self.functions: dict[str, Function] = {}
         #: The backend's classes (dataclasses, NamedTuples, TypedDicts) by ``module:Class``: their fields in order.
@@ -300,7 +313,6 @@ class Program:
         #: The functions whose own code computes with drawn, thinned or decided points (arithmetic, a comparison, a
         #: reduction, a numeric call), by ``module:function``: with the decimators those points came from.
         self.readers: dict[str, set[str]] = {}
-        #: Where each reader computes with them (``line: code``), for ``--readers --where``.
 
     def _index(self, module: Module) -> None:
         for node in ast.walk(module.tree):
@@ -407,6 +419,9 @@ class Walker:
         self.env: dict[str, Taint] = {}
         self.local_defs: dict[str, ast.FunctionDef | ast.AsyncFunctionDef] = {}
         self.inside: set[str] = set()
+        #: Names bound to a literal of field names (``same = ("kind", "x")``) and the loop names over one
+        #: (``for key in same``): ``view.get(key)`` is those fields, not the whole view.
+        self.names: dict[str, tuple[str, ...]] = {}
         self.returned: Taint = CLEAN
         self.flows: list[Flow] = []
         #: What this function puts in a store of its parameters' values, for its caller to store as its own.
@@ -422,7 +437,7 @@ class Walker:
         """This function's own code computes with ``taint``: a reader of drawn points, if any are in it."""
         used = frozenset(origin for _, origin in taint if kind_of(origin) in (DRAWN, THINNED, DECIDED))
         if used:
-            given = {source_of(origin) for origin in used if not origin.startswith("@")}
+            given = {source_of(origin) for origin in used if not origin.startswith(("@", TAG))}
             self.program.readers.setdefault(self.function.name, set()).update(given or {"(its caller's)"})
 
     def flow(self, node: ast.AST, what: str, taint: Taint) -> None:
@@ -448,7 +463,10 @@ class Walker:
         for _ in range(3):
             before = dict(self.env)
             if bind is not None:
+                names = self.names.get(bind.id) if isinstance(bind, ast.Name) else None
                 self.assign(bind, taint, None)
+                if names is not None and isinstance(bind, ast.Name):
+                    self.names[bind.id] = names
             self.branches(body, [])
             if self.env == before:
                 break
@@ -478,6 +496,7 @@ class Walker:
             self.expr(node.test)
             self.branches(node.body, node.orelse)
         elif isinstance(node, (ast.For, ast.AsyncFor)):
+            self.key_of(node.target, node.iter)
             self.loop(node.body, node.target, self.expr(node.iter))
             self.block(node.orelse)
         elif isinstance(node, ast.While):
@@ -502,9 +521,43 @@ class Walker:
                 if isinstance(child, ast.expr):
                     self.expr(child)
 
+    def field_names(self, node: ast.expr | None) -> tuple[str, ...] | None:
+        """The field names ``node`` is a literal of (or a name bound to one), if it is."""
+        if isinstance(node, ast.Name):
+            return self.names.get(node.id)
+        if isinstance(node, (ast.Tuple, ast.List, ast.Set)) and node.elts:
+            items = [self.constant(item) for item in node.elts]
+            if all(isinstance(item, str) for item in items):
+                return tuple(str(item) for item in items)
+        return None
+
+    def key_of(self, target: ast.expr, iterated: ast.expr) -> None:
+        """``target`` bound by a loop over ``iterated``: each of its field names, if it is a literal of them."""
+        names = self.field_names(iterated)
+        if isinstance(target, ast.Name):
+            if names is not None:
+                self.names[target.id] = names
+            else:
+                self.names.pop(target.id, None)
+
+    def element_at(self, taint: Taint, key: ast.expr) -> Taint:
+        """``value[key]``: a field by a constant name, or each field a loop name takes."""
+        names = self.names.get(key.id) if isinstance(key, ast.Name) else None
+        if names is None:
+            return element(taint, self.constant(key))
+        out: Taint = CLEAN
+        for name in names:
+            out |= element(taint, name)
+        return out
+
     def assign(self, target: ast.expr, taint: Taint, value: ast.expr | None) -> None:
         if isinstance(target, ast.Name):
             self.env[target.id] = taint
+            names = self.field_names(value) if value is not None and not isinstance(value, ast.Name) else None
+            if names is not None:
+                self.names[target.id] = names
+            else:
+                self.names.pop(target.id, None)
         elif isinstance(target, (ast.Tuple, ast.List)):
             same = isinstance(value, (ast.Tuple, ast.List)) and len(value.elts) == len(target.elts)
             for index, item in enumerate(target.elts):
@@ -653,7 +706,7 @@ class Walker:
         return element(self.expr(node.value), node.attr)
 
     def _Subscript(self, node: ast.Subscript) -> Taint:
-        value = element(self.expr(node.value), self.constant(node.slice))
+        value = self.element_at(self.expr(node.value), node.slice)
         index = self.expr(node.slice)
         # Values taken at a bucket's positions are that bucket; at drawn points' indices, drawn points.
         return value | flat(rekind(index, lambda kind: BUCKET if kind == POSITIONS else kind))
@@ -708,6 +761,7 @@ class Walker:
         saved = dict(self.env)
         for generator in generators:
             self.assign(generator.target, self.expr(generator.iter), None)
+            self.key_of(generator.target, generator.iter)
             for condition in generator.ifs:
                 self.expr(condition)
         return saved
@@ -849,7 +903,7 @@ class Walker:
             what = f"{_short(func.value)}.{name}()"
             return self.reduction(node, what, receiver, self.along_axis(node, name) or bool(node.args)) | flat(every)
         if name == "get" and node.args:
-            return element(receiver, self.constant(node.args[0])) | (args[1] if len(args) > 1 else CLEAN)
+            return self.element_at(receiver, node.args[0]) | (args[1] if len(args) > 1 else CLEAN)
         if name == "update":
             stored = CLEAN
             for taint in args:
@@ -925,7 +979,15 @@ class Walker:
                 self.flows.append(Flow(flow.where, flow.line, flow.what, real, path))
         for where, taint in summary.stores:
             self.store(where, own(taint))
-        return own(summary.returned)
+        returned = own(summary.returned)
+        if target in self.program.tagged:
+            # A 'draws' reader's result of drawn points: followed as its own, to every field it reaches.
+            returned |= frozenset(
+                (name, f"{TAG}{target}|{kind_of(origin)}")
+                for name, origin in returned
+                if kind_of(origin) in (DRAWN, THINNED, DECIDED)
+            )
+        return returned
 
     def local_call(self, name: str, args: list[Taint], keywords: dict[str | None, Taint]) -> Taint:
         """A def inside this function: its body followed here, with the closure as it is now."""
@@ -979,6 +1041,38 @@ def find_flows(sources: dict[str, str]) -> list[Flow]:
     return program.run()
 
 
+def draws_problems(sources: dict[str, str], readers: Iterable[str]) -> list[str]:
+    """The backend readers the contract table calls 'draws' (``module:function``) that do more than draw: one
+    whose own code makes a number of drawn points, or whose result of drawn points reaches anything but a drawn
+    field (DRAWN_KEYS) wherever it goes: another field (a headline, a peak, a range), a reduction, a comparison."""
+    named = set(readers)
+    program = Program(sources, tagged=named)
+    by_last = {name.split(":")[0] + ":" + name.split(":")[1].split(".")[-1]: name for name in program.functions}
+    missing = sorted(name for name in named if name not in program.functions and name not in by_last)
+    out = [f"python-backend/{name.replace(':', '.py:', 1)}: 'draws', but there is no such function" for name in missing]
+    tagged = {by_last.get(name, name) for name in named}
+    program.tagged = frozenset(tagged)
+    for flow in program.run():
+        module, function = flow.where.split(":")
+        at = f"python-backend/{module}.py:{flow.line} {function}"
+        if flow.where in tagged:
+            out.append(f"python-backend/{module}.py:{function.split('.')[-1]}: 'draws', but {flow.what} ({at})")
+        for reader in flow.tags:
+            if reader == flow.where:
+                continue
+            mod, func = reader.split(":")
+            out.append(
+                f"python-backend/{mod}.py:{func.split('.')[-1]}: 'draws', but its result becomes {flow.what} ({at})"
+            )
+    return sorted(set(out))
+
+
+def contract_draws(text: str) -> set[str]:
+    """The contract table's backend readers classified 'draws' (DRAWN_READERS in values.ts), as ``module:function``."""
+    pattern = r"\['python-backend/(\w+)\.py:(\w+)'\]:\s*\{\s*use:\s*'draws'"
+    return {f"{module}:{name}" for module, name in re.findall(pattern, text)}
+
+
 def contract_decimators(text: str) -> set[str]:
     """The contract table's PY_DECIMATORS (values.ts), as ``module:function``."""
     block = re.search(r"export const PY_DECIMATORS[^=]*=\s*\[(.*?)\n\];", text, re.S)
@@ -1026,6 +1120,12 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
     flows = find_flows(backend_sources())
+    misclassified = draws_problems(backend_sources(), contract_draws(VALUES_TS.read_text(encoding="utf-8")))
+    for problem in misclassified:
+        print(problem, file=sys.stderr)
+    if misclassified:
+        print(f"check_decimation_flow: {len(misclassified)} 'draws' reader(s) do more than draw", file=sys.stderr)
+        return 1
     if options.list:
         for flow in flows:
             print(f"{flow.key}  [{', '.join(flow.sources)}] line {flow.line}  {' ← '.join(flow.path)}")
