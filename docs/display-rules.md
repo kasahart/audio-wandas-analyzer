@@ -240,7 +240,18 @@
 
 読み値と見出しの数字は、どのグラフでも同じ書き方です（`src/webview/plot/plotText.ts`）。周波数は 1 kHz 未満は Hz（整数でないときは小数 1 桁）、1 kHz 以上は kHz で 1 Hz まで（「1.016 kHz」「3.15 kHz」）書きます。ビンの間隔が 1 Hz より細かいときは、その間隔を見分けられる桁まで書く（0.73 Hz 間隔なら「1.0027 kHz」）ので、隣のビンが同じ数字になりません。レベルは 0.1 dB まで単位付き（単位はそのレベルの軸やカラーバーと同じ基準の「dBFS」「dB SPL re 20 µPa」で、素の「dB」は差だけ）、時刻は秒で、少なくとも 10 ms まで、点の間隔が細かいときはその間隔を見分けられる桁まで書きます（48 kHz で 256 ずつの熱図の列、5.3 ms 間隔なら「1.008 s」「1.013 s」）。ほかの値は大きさによらず有効数字 3 桁です（「12.3」「1230」、100 万以上と 0.001 未満は指数）。桁の決め方は 1 つで、隣の点（サンプル・ビン・フレーム・ラグ）や隣の目盛りと同じ数にならない桁まで書きます（`plotText.ts` の `spacingDecimals`）。波形の時刻はサンプルの間隔から、ケフレンシーとラグも点の間隔から、軸の目盛りは隣の目盛りとの間隔から（対数の周波数軸を狭く拡大したら窓の中の切りのよい値に目盛りを置き、「1.002k」のようにその位置の値を書く。1 kHz をまたぐ 10 倍未満の窓は全部 k で書き、「1000」と「1k」を混ぜない）、値の軸の目盛りは指数で書くときも隣の目盛りを見分けられる有効数字まで（0.0897 の付近を数百万分の 1 に拡大しても「8.96728e−2」「8.96730e−2」）、軸の範囲の入力欄は範囲の幅の 1/1000 まで、CSV とレポートの領域の始めと終わりは区間の表記と同じく 10 ms まで、短い区間では長さの 1/10 を見分けられる桁まで書きます。桁の上限（時刻・周波数の目盛りは 9 桁）より細かい窓では、同じ数の目盛りを 2 つ書かず 1 つにまとめます。軸の種類と拡大の段階を格子で総当たりして、隣の目盛りや隣の点が同じ数にならないことを単体テストで確かめます（`src/test/plotText.test.ts`）。UI テスト全件で、1 本の軸に同じ数の目盛りが 2 つ描かれたら、そのテストを失敗にします（`src/test/uiSmoke/canvasAudit.ts`）。ラグ・ケフレンシー・Bark・符号付きの差も同じファイルの書き方で、ラグとケフレンシーは軸の名前と同じ秒で書きます（「+0.00125 s」「0.0125 s」。軸が [s] なのに読み値を ms で書かない）。入口の分布図の読み値も表の列の書き方ではなくこの決まりで書きます（ピーク周波数は「3.15 kHz」）。分布図のビンの範囲と読み値は、ビンの幅を見分けられる桁まで書くので、隣のビンが同じ数字になりません。負の数はハイフンではなく本物のマイナス記号（−）で書きます。マイナス記号を手で付けるコード（ハイフンの置き換えや、`'−'` だけの文字列で符号を選ぶもの）は lint で止めます（`scripts/lint-webview-patterns.js`）。Markdown のレポートと、それが比較台と共有する書式（`src/shared/report/`、`src/shared/utils/format.ts`）も同じで、数を文字にするときは `plotText.ts`（`levelText`、`withMinus`）を通し（「−1.8 dBFS」）、通さずに `toFixed` などで書く行は同じ lint で止めます。
 
+セル（熱図の列と行）と棒の区切りは、どのグラフでも 1 つの規則（`fullRead.cellEdges`）で決め、描く絵、マウスが読むセル、← / → の先が同じ区切りを使います。対数軸では隣り合う 2 点の幾何平均（√(f1·f2)：100 Hz と 125 Hz の境は 112.50 Hz ではなく 111.80 Hz）、線形軸では中点です。帯の間隔が一定でなくても、棒は自分のセルの幅に描きます（`stagePanes.barEdges`）。
+
+単位は読み値と見出しから落としません（`stagePanes.valueText`）。dB でない熱図（ラフネスの asper/Bark など）の値も、dB でない量の Δ（「+0.300 Pa」）も、その単位で書きます。
+
+縦軸を拡大した密な線では、バックエンドは画面に見えている値の範囲（`shown`）の中から、マウスに一番近い点とマウスの下の点を選びます（`full_read._on_screen`）。軸の外の点を候補にしてから webview で捨てると、画面の中の本当の最寄りの点を読み落とすからです。
+
 - テスト: `src/test/plotText.test.ts` › every tick and readout takes its digits from the spacing of its neighbours: no two read the same, none reads a value it is not at (C3)
+- テスト: `src/test/cellEdges.test.ts` › a heatmap on a log x axis draws and reads its columns by the geometric edges: 112 Hz is the 125 Hz column, drawn and read alike (R7)
+- テスト: `src/test/cellEdges.test.ts` › bars on a log axis span their cells by the same geometric edges, however unevenly the bands are spaced (R7)
+- テスト: `src/test/cellEdges.test.ts` › a readout and a headline keep the unit of a non-dB heatmap and of a non-dB Δ (R4, R7)
+- テスト: `src/test/unroundedRead.test.ts` › on a value axis zoomed in, a dense window reads the nearest sample on screen, never one past the axis left out after (R7)
+- テスト: `python-backend/test_full_read.py` › test_a_dense_window_picks_its_nearest_and_under_points_among_the_values_on_screen
 - テスト: `src/test/stagePanes.test.ts` › a time is written to the digits that tell it from the next point: frames 5.3 ms apart never read the same (R7)
 - テスト: `src/test/plotText.test.ts` › a frequency reads in Hz below 1 kHz and in kHz to the hertz from there, so neighbouring bins never read the same (R7)
 - テスト: `src/test/plotText.test.ts` › a frequency read among points finer than 1 Hz apart gets the digits that tell neighbouring bins apart (R7)

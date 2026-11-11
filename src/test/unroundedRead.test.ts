@@ -137,3 +137,21 @@ test('a dense window read beyond the pick radius of every point reads the real s
     }
     assert.ok(asked.some(read => (read as { columns?: number }).columns), 'read as a dense window, not whole');
 });
+
+test('on a value axis zoomed in, a dense window reads the nearest sample on screen, never one past the axis left out after (R7)', { timeout: 120_000 }, t => {
+    if (!backendReady()) { t.skip('no Python backend'); return; }
+    // 50 samples a pixel, the axis shown from −1 to 0.9: the sample under the pointer (0.95 at n = 5003) is just past
+    // its top, and the one on screen nearest the pointer is 0.8 at n = 5010, seven samples on.
+    const view = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs: [0, 19.999], values: [0, 0] } as unknown as StageView;
+    const asked: Array<{ shown?: number[] }> = [];
+    const full = fetchedSource((read, done) => { asked.push(read); done(backendAnswer({ ...read, fixture: 'zoomed' })); });
+    const drawn: StagePlot = {
+        frame: { left: 0, top: 0, width: 400, height: 100 }, xAt: s => s * 1000 / 50, xOf: x => x * 50 / 1000,
+        yAt: value => (0.9 - value) / 0.019, levelOf: y => 0.9 - y * 0.019, ratioStep: 1.12, diff: false, lines: [{ view, color: 'blue', full }],
+    };
+    const read = hover(drawn, 5003 / 50, (0.9 - 0.89) / 0.019);
+    assert.equal(Math.round((read?.at ?? NaN) * 1000), 5010, 'the nearest sample on screen');
+    assert.equal(read?.value, 0.8);
+    const shown = asked.find(item => item.shown)?.shown;
+    assert.ok(shown && Math.abs(shown[0] + 1) < 1e-9 && Math.abs(shown[1] - 0.9) < 1e-9, `the values shown are asked for: ${JSON.stringify(shown)}`);
+});

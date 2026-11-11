@@ -132,7 +132,12 @@ export function signedNumberText(value: number, digits = 1): string {
     return `${value >= 0 || Number(magnitude) === 0 ? '+' : '−'}${magnitude}`;
 }
 
-/** A signed difference: dB to a tenth with its unit, other values to three significant figures ("+3.2 dB", "−0.125"). */
-export function signedText(value: number, db = true): string {
-    return db ? `${signedNumberText(value)} dB` : `${value >= 0 ? '+' : '−'}${significant(Math.abs(value))}`;
+/**
+ * A signed difference: dB to a tenth with its unit, other values to three significant figures in their own unit
+ * when they have one ("+3.2 dB", "−0.125", "+0.0312 asper/Bark", "+3.5°"): a Δ never drops the unit its values are in.
+ */
+export function signedText(value: number, db = true, unit?: string | null): string {
+    if (db) return `${signedNumberText(value)} dB`;
+    const number = `${value >= 0 ? '+' : '−'}${significant(Math.abs(value))}`;
+    return unit ? `${number}${unit === '°' ? '°' : ` ${unit}`}` : number;
 }

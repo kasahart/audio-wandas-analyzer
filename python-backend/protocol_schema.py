@@ -619,6 +619,8 @@ DEFINITIONS: dict[str, Schema] = {
             "log": {"type": "boolean"},
             "at": _NUMBER,
             "pixels": {"type": "array", "items": _NUMBER},
+            # The values the plot shows (its level or amplitude axis, zoomed): a dense window's nearest is on screen.
+            "shown": {"type": "array", "items": _NUMBER},
             "seek": {"type": "integer", "enum": [-1, 1]},
             "plain": {"type": "boolean"},
             "event": {"type": "integer", "minimum": 0},

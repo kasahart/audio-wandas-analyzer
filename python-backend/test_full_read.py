@@ -365,3 +365,24 @@ def test_a_dense_window_sends_the_point_under_the_pointer_and_names_it() -> None
     log = {**read, "x": [1.0, 20_000.0], "near": -20.0, "log": True}
     points = read_line(uniform_axis(20_000, 1.0, 1.0), lambda a, b: levels[a:b], log)  # type: ignore[arg-type]
     assert points["xs"][points["under"]] == 5004.0
+
+
+def test_a_dense_window_picks_its_nearest_and_under_points_among_the_values_on_screen() -> None:
+    """With the value axis zoomed (``shown``), the point nearest the pointer and the one under it are of the points
+    on screen: a point past the axis, nearer the pointer, is no candidate, so the true nearest on screen is sent."""
+    rng = np.random.default_rng(3)
+    values = rng.uniform(-0.1, 0.1, 20_000)
+    values[5003] = 0.95  # under the pointer, just past the axis's top (0.9): off screen
+    values[5010] = 0.8  # on screen, the nearest the pointer of those shown
+    read = {"x": [0.0, 19_999.0], "near": 0.93, "columns": 41, "at": 5003.0, "pixels": [0.02, 40.0]}
+    read["shown"] = [-1.0, 0.9]
+    points = read_line(uniform_axis(20_000, 0.0, 1.0), lambda a, b: values[a:b], read)  # type: ignore[arg-type]
+    assert not points["complete"]
+    assert first_violation(DEFINITIONS["StageRead"], read) is None
+    xs, sent = np.asarray(points["xs"]), np.asarray(points["values"], dtype=np.float64)
+    # The nearest point on screen, as the plot then picks it among the points sent, is the brute force's.
+    shown = (sent >= -1.0) & (sent <= 0.9)
+    away = np.hypot((xs - 5003.0) * 0.02, (sent - 0.93) * 40.0)
+    assert xs[np.argmin(np.where(shown, away, np.inf))] == 5010.0
+    # The point under the pointer is one on screen beside it, never the one past the axis.
+    assert points["xs"][points["under"]] in (5002.0, 5004.0)

@@ -218,7 +218,7 @@ test('a spectrogram\'s hover asks the backend once for a block around the pointe
             cellAt: () => ({ column: -1, row: -1 }),
             valueAt: (x, y) => ({ x: x / width * columns * 0.01, y: 100 + (1 - y / height) * 630 }),
             placeOf: (x, y) => ({ x: x / (columns * 0.01) * width, y: (1 - (y - 100) / 630) * height }),
-            rowLog: false,
+            rowLog: false, columnLog: false,
         },
     };
     const at = (column: number, row: number): [number, number] => { const place = plot.image?.placeOf(xs[column], ys[row]); return [place?.x ?? 0, place?.y ?? 0]; };
@@ -251,7 +251,7 @@ test('a spectrogram is read at its real cells, never the cells averaged to draw 
             cellAt: (x, y) => ({ column: Math.min(drawnXs.length - 1, Math.floor(x / width * drawnXs.length)), row: Math.round((rowAt(y) - 100) / 100) }),
             valueAt: (x, y) => ({ x: timeAt(x), y: rowAt(y) }),
             placeOf: (x, y) => ({ x: x / (columns * 0.01) * width, y: (1 - (y - 100) / 300) * height }),
-            rowLog: false,
+            rowLog: false, columnLog: false,
         },
     };
     let column = 201;
