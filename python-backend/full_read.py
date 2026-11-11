@@ -46,6 +46,9 @@ class StageRead(TypedDict):
     #: nearest the pointer on screen, by its true distance there.
     at: NotRequired[float]
     pixels: NotRequired[list[float]]
+    #: The values the plot shows ([low, high], its level or amplitude axis zoomed): a dense window's point nearest the
+    #: pointer, and the one under it, are of the points on screen, never one past the axis the plot then cannot read.
+    shown: NotRequired[list[float]]
     #: An arrow key's read (with ``x`` = [x]): the first point with a value to read strictly past x, toward larger
     #: (1) or smaller (-1) x, however far (a long silence is crossed in one read), with ``beyond`` past it.
     seek: NotRequired[Literal[-1, 1]]
@@ -216,6 +219,16 @@ def _readable(values: np.ndarray, plain: bool = False) -> np.ndarray:
     return finite if plain else finite & (block > SILENT_DB)
 
 
+def _on_screen(read: StageRead, values: np.ndarray) -> np.ndarray:
+    """Which values lie within the values the plot shows (StageRead ``shown``, both ends in); all without it."""
+    block = np.asarray(values, dtype=np.float64)
+    shown = [float(value) for value in read.get("shown", [])]
+    if len(shown) != 2 or not all(math.isfinite(value) for value in shown):
+        return np.ones(block.shape, dtype=bool)
+    with np.errstate(invalid="ignore"):
+        return (block >= min(shown)) & (block <= max(shown))
+
+
 def _seek_line(
     axis: tuple[int, XAt, IndexOf],
     values_in: Callable[[int, int], np.ndarray],
@@ -277,7 +290,7 @@ def _nearest_on_screen(
     along = (np.log(np.maximum(xs, 1e-300)) - math.log(at)) * scale[0] if log else (xs - at) * scale[0]
     across = (window - near) * scale[1]
     away = np.hypot(along, across)
-    readable = _readable(window, plain) & np.isfinite(away)
+    readable = _readable(window, plain) & _on_screen(read, window) & np.isfinite(away)
     if not readable.any():
         return None
     return low + int(np.argmin(np.where(readable, away, np.inf)))
@@ -296,7 +309,7 @@ def _nearest_along(
         return None
     xs = np.asarray(x_at(np.arange(low, high)), dtype=np.float64)
     along = np.abs(np.log(np.maximum(xs, 1e-300)) - math.log(at)) if log else np.abs(xs - at)
-    readable = _readable(window, plain) & np.isfinite(along)
+    readable = _readable(window, plain) & _on_screen(read, window) & np.isfinite(along)
     if not readable.any():
         return None
     return low + int(np.argmin(np.where(readable, along, np.inf)))

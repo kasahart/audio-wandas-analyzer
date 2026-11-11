@@ -9,7 +9,8 @@ serves a comparison's read, one JSON answer per line. A compared recording is th
 A read with ``"fixture": "signal"`` is of three signals of eight samples at 1 kHz instead: a base group of 0.5 and
 0.5 + 2⁻²⁴ (a float32 step apart; their median 0.5 + 2⁻²⁵ is no float32) and a compared one at 0.5 + 2⁻²⁴, whose
 difference from the median is 2⁻²⁵ at every sample. With ``"fixture": "dense"``: one signal of 20 000 samples at
-1 kHz (``sin(0.37 n) cos(0.011 n) 0.9``), too many for a hover's window to be sent whole.
+1 kHz (``sin(0.37 n) cos(0.011 n) 0.9``), too many for a hover's window to be sent whole. With ``"fixture": "zoomed"``:
+20 000 samples of ``0.1 sin(0.37 n)`` at 1 kHz but 0.95 at n = 5003 and 0.8 at n = 5010.
 """
 
 from __future__ import annotations
@@ -44,7 +45,12 @@ def main() -> None:
         read = json.loads(raw)
         diff = read.get("of") == "diff"
         fixture = read.pop("fixture", None)
-        if fixture == "dense":
+        if fixture == "zoomed":
+            values = np.sin(np.arange(20_000) * 0.37) * 0.1
+            values[5003], values[5010] = 0.95, 0.8
+            zoomed = StageData(mode="signal", view=signal, xs=np.empty(0), values=values, rate=1000.0)  # type: ignore[arg-type]
+            print(json.dumps(read_points([zoomed], None, read)))
+        elif fixture == "dense":
             index = np.arange(20_000)
             dense = StageData(mode="signal", view=signal, xs=np.empty(0), values=np.sin(index * 0.37) * np.cos(index * 0.011) * 0.9, rate=1000.0)  # type: ignore[arg-type]
             print(json.dumps(read_points([dense], None, read)))

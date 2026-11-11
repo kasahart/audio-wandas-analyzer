@@ -23,7 +23,7 @@ import { readoutText, type AxisTick, type Palette } from '../../shared/gui-core/
 import { axisName, axisNameParts, fitAxisTitle, fontPixels, scaledFont } from '../plot/axisTitle';
 import { HEATMAP_DB_SPAN, heatmapDbRange, niceRange, niceTicks } from '../../shared/utils/ticks';
 import { amountText, barkText, frequencyText, lagText, levelText, quefrencyText, secondsText, signedText, spacingDecimals, stepText, withMinus } from '../plot/plotText';
-import { cellIndex, NO_FULL_DATA, STEP_AHEAD, type FullPoints, type FullRead, type FullSource, type LevelAnswer } from './fullRead';
+import { axisMeasure, cellEdgeValues, cellEdges, cellIndex, NO_FULL_DATA, STEP_AHEAD, type FullPoints, type FullRead, type FullSource, type LevelAnswer } from './fullRead';
 
 /** Canvas x the level axis's turned title is centred on, in the gutter left of its tick labels. */
 const AXIS_TITLE_X = 10;
@@ -291,6 +291,15 @@ function metricName(strings: StageStrings, unit: string | undefined): string {
 
 const hz = frequencyText;
 const signed = signedText;
+
+/**
+ * A value of `view` as every readout and headline writes it (R4, R7): a Δ signed, in dB or in the view's own unit; a
+ * level to 0.1 dB in the plot's level unit; any other amount (a coherence, a roughness) to 3 figures in its unit.
+ */
+function valueText(view: StageView, value: number, diff: boolean, levelUnit?: string): string {
+    if (diff) return signed(value, isDb(view), view.unit);
+    return isDb(view) ? levelText(value, levelUnit ?? view.unit ?? '') : amountText(value, view.unit);
+}
 const quefrency = quefrencyText;
 const lag = lagText;
 
@@ -331,22 +340,7 @@ export function stageHeadline(diff: StageView | null, strings: Pick<StageStrings
     const peak = diff?.peak;
     if (!diff || !peak) return strings.stageNoDelta;
     const at = atValue(diff, peak.x, diff.matrix ? peak.y ?? 0 : undefined, peak.xStep, peak.yStep);
-    return strings.stageMaxDelta.replace('{at}', at).replace('{delta}', signed(peak.value, isDb(diff)));
-}
-
-/**
- * The edges of each cell along an axis, in its own measure (log on a log axis): halfway between neighbouring points,
- * and half the end step past each end, so a cell holds the values nearest its point.
- */
-function cellEdges(axis: readonly number[], log: boolean): number[] {
-    const n = axis.length;
-    if (!n) return [];
-    const at = (index: number): number => (log ? Math.log(Math.max(axis[index], 1e-12)) : axis[index]);
-    const firstStep = n > 1 ? at(1) - at(0) : 1, lastStep = n > 1 ? at(n - 1) - at(n - 2) : 1;
-    const edges = [at(0) - firstStep / 2];
-    for (let index = 1; index < n; index++) edges.push((at(index - 1) + at(index)) / 2);
-    edges.push(at(n - 1) + lastStep / 2);
-    return edges;
+    return strings.stageMaxDelta.replace('{at}', at).replace('{delta}', valueText(diff, peak.value, true));
 }
 
 /** The cells [first, after) that a stretch from `low` to `high` of the axis (its own measure) overlaps; null for none. */
@@ -769,8 +763,6 @@ export interface StagePlot {
     noReadout?: boolean;
     /** A band's half width as a ratio of its centre, for steps. */
     ratioStep: number;
-    /** On a linear axis, a bar's half width in the axis's values (a histogram's bins): bars are then that wide each side. */
-    halfStep?: number;
     lines: StageLayer[];
     diff: boolean;
     /**
@@ -798,6 +790,8 @@ export interface StagePlot {
         valueAt(x: number, y: number): { x: number; y: number } | null;
         placeOf(x: number, y: number): { x: number; y: number };
         rowLog: boolean;
+        /** Whether the columns' axis is logarithmic: a hover finds its column by the same edges the picture is drawn by. */
+        columnLog: boolean;
     };
     /** Where a heatmap's colour bar was painted (CSS pixels on the canvas). */
     colourBar?: ColourBarBox;
@@ -1103,8 +1097,9 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
         const signedScale = !!options.diff || view.quantity === 'cepstrum';
         // The cells each pixel line covers (none past the picture's ends), worked out once per line, not per pixel,
         // from the axes' values: a detail picture covers only part of them.
-        const rowEdges = cellEdges(ys, yAxis.log), columnEdges = cellEdges(xs, false);
-        const measure = (value: number, log: boolean): number => (log ? Math.log(Math.max(value, 1e-12)) : value);
+        // Both axes by one rule (fullRead.cellEdges): a log axis's cells meet at the geometric mean of their points.
+        const rowEdges = cellEdges(ys, yAxis.log), columnEdges = cellEdges(xs, xAxis.log);
+        const measure = axisMeasure;
         const rowSpans = Array.from({ length: image.height }, (_, py) => cellSpan(rowEdges,
             measure(yAxis.at(1 - (py + 1) / image.height), yAxis.log), measure(yAxis.at(1 - py / image.height), yAxis.log)));
         // A picture with a span (a track's spectrogram on the lanes' axis) paints nothing past it, though its end
@@ -1112,7 +1107,7 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
         const clip = layers.find(layer => layer.view === view)?.span ?? [-Infinity, Infinity];
         const columnSpans = Array.from({ length: image.width }, (_, px) => {
             const low = Math.max(clip[0], xAxis.at(px / image.width)), high = Math.min(clip[1], xAxis.at((px + 1) / image.width));
-            return high > low ? cellSpan(columnEdges, low, high) : null;
+            return high > low ? cellSpan(columnEdges, measure(low, xAxis.log), measure(high, xAxis.log)) : null;
         });
         const pixels = new Uint32Array(image.data.buffer);
         // A cell's colour, packed as the canvas stores it; `dim` for a difference where both levels are far below the loudest.
@@ -1144,6 +1139,7 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
         plot.image = {
             layer: imageLayer,
             rowLog: yAxis.log,
+            columnLog: xAxis.log,
             valueAt: (x, y) => {
                 const fx = (x - left) / plotWidth, fy = (y - top) / plotHeight;
                 return fx < 0 || fx > 1 || fy < 0 || fy > 1 ? null : { x: xAxis.at(fx), y: yAxis.at(1 - fy) };
@@ -1187,7 +1183,6 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
         const linearBars = bars && view.xScale === 'linear';
         const ratioStep = bars && !linearBars && barXs.length > 1 ? Math.sqrt(barXs[1] / barXs[0]) : 1.12;
         plot.ratioStep = ratioStep;
-        if (linearBars) plot.halfStep = barXs.length > 1 ? (barXs[1] - barXs[0]) / 2 : 0.5;
         context.save();
         context.beginPath(); context.rect(left, top, plotWidth, plotHeight); context.clip();
         if (options.highlight) {
@@ -1231,9 +1226,10 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
             if (layer.view.kind === 'bar' && layer.filled) {
                 const floor = options.diff ? yAt(0) : yAt(range.min);
                 context.globalAlpha = (layer.fill ?? 0.3) * (layer.alpha ?? 1);
+                const edges = barEdges(plot, xs);
                 values.forEach((value, index) => {
                     if (value === null) return;
-                    const [x0, x1] = barEdges(plot, xs[index]);
+                    const [x0, x1] = edges[index];
                     context.fillRect(x0, Math.min(floor, yAt(value)), Math.max(1, x1 - x0 - 1), Math.abs(floor - yAt(value)));
                 });
                 context.globalAlpha = layer.alpha ?? 1;
@@ -1550,9 +1546,13 @@ function paintRightAxis(context: CanvasRenderingContext2D, frame: { left: number
     context.restore();
 }
 
-/** Where a bar centred on `x` starts and ends on the canvas: a ratio each side on a log axis, a step on a linear one. */
-export function barEdges(plot: Pick<StagePlot, 'xAt' | 'ratioStep' | 'halfStep'>, x: number): [number, number] {
-    return plot.halfStep !== undefined ? [plot.xAt(x - plot.halfStep), plot.xAt(x + plot.halfStep)] : [plot.xAt(x / plot.ratioStep), plot.xAt(x * plot.ratioStep)];
+/**
+ * Where each bar of `xs` starts and ends on the canvas: its cell's edges by the one rule a heatmap's cells and a hover
+ * use too (fullRead.cellEdges: the geometric mean of two bands on a log axis, the midpoint on a linear one).
+ */
+export function barEdges(plot: Pick<StagePlot, 'xAt' | 'xLog'>, xs: readonly number[]): Array<[number, number]> {
+    const edges = cellEdgeValues(xs, !!plot.xLog);
+    return xs.map((_, index) => [plot.xAt(edges[index]), plot.xAt(edges[index + 1])]);
 }
 
 /** One picture of a pane as its line (or its bands as steps, or its points as marks), `width` wide, clipped to the plot. */
@@ -1582,9 +1582,10 @@ export function strokeStageLine(context: CanvasRenderingContext2D, plot: StagePl
         for (const x of ticks) { context.moveTo(x, frame.top + frame.height); context.lineTo(x, frame.top + frame.height - 5); }
         context.stroke();
     } else if (layer.view.kind === 'bar') {
+        const edges = barEdges(plot, xs);
         values.forEach((value, index) => {
             if (value === null) return;
-            const [x0, x1] = barEdges(plot, xs[index]);
+            const [x0, x1] = edges[index];
             context.beginPath(); context.moveTo(x0, yAt(value)); context.lineTo(x1 - 1, yAt(value)); context.stroke();
         });
     } else {
@@ -1686,6 +1687,17 @@ function fullPoint(plot: StagePlot, layer: StageLayer, points: FullPoints, index
     return { index: points.offset !== undefined ? points.offset + index : -1, at, x: plot.xAt(at), y, value, full: true, ...(layer.view.waveform ? { time: at } : {}), ...(gaps.length ? { step: Math.min(...gaps) } : {}) };
 }
 
+/** The values a plot shows of `layer` (low, high): a signal's amplitude range, else its level axis between the plot's edges. */
+function shownValues(plot: StagePlot, layer: StageLayer): [number, number] | undefined {
+    if (layer.view.waveform) {
+        const range = plot.signal?.range;
+        return range ? [range.min, range.max] : undefined;
+    }
+    if (!plot.levelOf) return undefined;
+    const a = plot.levelOf(plot.frame.top), b = plot.levelOf(plot.frame.top + plot.frame.height);
+    return Number.isFinite(a) && Number.isFinite(b) ? [Math.min(a, b), Math.max(a, b)] : undefined;
+}
+
 /**
  * A line's full-resolution points (R7) near the pointer at (`x`, `y`): those within `radius` and on the plot, and
  * the one nearest across to it (with none that near: zoomed past single points). undefined while they are fetched.
@@ -1698,7 +1710,10 @@ function fullLineNear(plot: StagePlot, layer: StageLayer, source: FullSource, x:
     const lineY = plot.lineYAt ?? plot.yAt;
     const pixels: [number, number] | undefined = level === undefined ? undefined
         : [Math.abs(plot.xLog ? plot.xAt(place * Math.E) - plot.xAt(place) : plot.xAt(place + 1) - plot.xAt(place)), Math.abs(lineY(level + 1) - lineY(level))];
-    const got = source.line({ x0: plot.xOf(x - radius), x1: plot.xOf(x + radius), beyond: 1, near: level, columns: 2 * radius + 1, log: !!plot.xLog, ...(pixels ? { at: place, pixels } : {}), ...(floorless(layer.view, plot.diff) ? { plain: true } : {}) }, ready);
+    // The values on screen (a signal's amplitude range, else the level axis's between the plot's edges), so a dense
+    // window's nearest point is one of those the plot reads, never one past a zoomed axis that is then left out (R7).
+    const shown = shownValues(plot, layer);
+    const got = source.line({ x0: plot.xOf(x - radius), x1: plot.xOf(x + radius), beyond: 1, near: level, columns: 2 * radius + 1, log: !!plot.xLog, ...(pixels ? { at: place, pixels } : {}), ...(shown ? { shown } : {}), ...(floorless(layer.view, plot.diff) ? { plain: true } : {}) }, ready);
     if (got === undefined) return undefined;
     // A read the backend failed is not a line with no points there: nothing is known of it (null), and the read waits.
     if (got === null && source.held === 'fetched') return null;
@@ -1733,9 +1748,7 @@ function lineRead(plot: StagePlot, layer: StageLayer, point: ReadPoint, away?: n
         return { ...readoutOf(layer, point, layer.label ?? '', [timeText(plot, point.time ?? point.at, point.full ? point.step : undefined), amountText(point.value, unit)]), index: -1, time: point.time ?? point.at, away, ...full, ...(point.full && point.step !== undefined ? { step: point.step } : {}) };
     }
     if (layer.readout) return { ...readoutOf(layer, point, layer.label ?? '', layer.readout(point.index, { x: point.at, value: point.value, ...(point.full && point.step !== undefined ? { step: point.step } : {}) })), index: point.index, away, ...full };
-    const amount = plot.diff ? signed(point.value, isDb(view))
-        // Levels to 0.1 dB, as the spectrum overlay reads them; other quantities (a coherence) to 3 figures.
-        : isDb(view) ? levelText(point.value, plot.levelUnit ?? view.unit ?? '') : amountText(point.value, view.unit);
+    const amount = valueText(view, point.value, plot.diff, plot.levelUnit);
     const where = point.full ? atValue(view, point.at, undefined, point.step) : atText(view, point.index);
     return { ...readoutOf(layer, point, layer.label || (plot.diff ? 'Δ' : ''), [where, amount]), index: point.index, away, ...full };
 }
@@ -1838,7 +1851,7 @@ function cellRead(plot: StagePlot, layer: StageLayer, got: FullPoints, column: n
     const value = got.matrix?.[row]?.[column];
     const at = got.xs[column], place = got.ys?.[row];
     if (value === null || value === undefined || at === undefined || place === undefined) return null;
-    const amount = plot.diff ? signed(value, isDb(view)) : isDb(view) ? levelText(value, plot.levelUnit ?? view.unit ?? '') : amountText(value);
+    const amount = valueText(view, value, plot.diff, plot.levelUnit);
     const where = layer.rowName ? atValue(view, at) : atValue(view, at, place, spacingAt(got.xs, column), spacingAt(got.ys, row));
     const name = got.rowNames?.[row] ?? layer.label ?? (plot.diff ? 'Δ' : '');
     const rowStep = spacingAt(got.ys, row), step = spacingAt(got.xs, column);
@@ -1860,7 +1873,7 @@ function imageHover(plot: StagePlot, image: NonNullable<StagePlot['image']>, x: 
     if (got === undefined) return pendingRead(layer, x, y, true);
     if (got === null && source.held === 'fetched') return pendingRead(layer, x, y, true, true);
     if (!got?.xs.length || !got.ys?.length) return null;
-    const column = cellIndex(got.xs, place.x, false, { low: got.start === null, high: got.end === null });
+    const column = cellIndex(got.xs, place.x, image.columnLog, { low: got.start === null, high: got.end === null });
     const row = cellIndex(got.ys, place.y, image.rowLog, { low: true, high: true });
     return column < 0 || row < 0 ? null : cellRead(plot, layer, got, column, row, x, y);
 }
