@@ -310,57 +310,179 @@ function typed(): ts.Program {
     return program;
 }
 
-/** Every webview and shared function that reads drawn points: a DRAWN_FIELDS access on its type, or a DRAWN_ACCESSORS call. */
-function drawnReaders(): Map<string, Set<string>> {
-    const checker = typed().getTypeChecker();
-    const accessors = new Set(DRAWN_ACCESSORS);
-    const found = new Map<string, Set<string>>();
-    const add = (where: string, what: string): void => {
-        const reads = found.get(where) ?? new Set<string>();
-        reads.add(what);
-        found.set(where, reads);
+/** `typed()` with `overlay` (repo-relative path → source) added, or in place of a file's own source: for injections. */
+function typedWith(overlay: ReadonlyMap<string, string>): ts.Program {
+    const base = typed();
+    const options = base.getCompilerOptions();
+    const host = ts.createCompilerHost(options, true);
+    const added = new Map([...overlay].map(([file, text]) => [path.join(repoRoot, file), text]));
+    const own = host.getSourceFile.bind(host), exists = host.fileExists.bind(host), reads = host.readFile.bind(host);
+    host.getSourceFile = (fileName, version, onError, create) => {
+        const text = added.get(path.resolve(fileName));
+        return text !== undefined ? ts.createSourceFile(fileName, text, version, true) : base.getSourceFile(fileName) ?? own(fileName, version, onError, create);
     };
-    for (const file of sourceFiles()) {
-        const source = typed().getSourceFile(path.join(repoRoot, file));
-        if (!source) continue;
-        const local = helpersIn(file, accessors);
+    host.fileExists = fileName => added.has(path.resolve(fileName)) || exists(fileName);
+    host.readFile = fileName => added.get(path.resolve(fileName)) ?? reads(fileName);
+    return ts.createProgram([...new Set([...base.getRootFileNames(), ...added.keys()])], options, host);
+}
+
+/** What the scan of drawn points finds: who reads them (and what), where each read is, and every function by its name. */
+interface DrawnScan {
+    program: ts.Program;
+    found: Map<string, Set<string>>;
+    /** The expressions (and binding names) that read a drawn field or call a drawn accessor, by the function they are in. */
+    reads: Map<string, ts.Node[]>;
+    /** Every function of the scanned files by `file:name`, and its node (a declaration of a variable holds its arrow). */
+    functions: Map<string, ts.FunctionLikeDeclaration>;
+    /** What a call, a callback or an alias names, as `file:name` of a scanned function. */
+    target(node: ts.Expression): string | undefined;
+}
+
+const relative = (source: ts.SourceFile): string => path.relative(repoRoot, source.fileName).split(path.sep).join('/');
+
+/**
+ * Every webview and shared function that reads drawn points, found with the type checker by the symbol of the field
+ * read, whatever its form: `view.values`, `view['values']` (or a key of that literal type), `const { values } = view`,
+ * a parameter `({ values }: StageView)`, a destructuring assignment, on an alias of the type or a Pick of it; a call of
+ * a DRAWN_ACCESSORS function. A reader passes its read on to whoever calls it, in its file or another (an import, an
+ * alias of it, a callback): a private reader that does not only draw, and any reader that is neither 'draws' nor
+ * 'whole' (a 'whole' one is proven to make its number of full data; an exported 'draws' one is checked to only draw).
+ */
+function drawnScan(within: ts.Program = typed(), files: readonly string[] = sourceFiles(), readers: Readonly<Record<string, DrawnReader>> = DRAWN_READERS): DrawnScan {
+    const checker = within.getTypeChecker();
+    const sources = files.map(file => within.getSourceFile(path.join(repoRoot, file))).filter((source): source is ts.SourceFile => !!source);
+    // The declarations of the drawn fields, of every type DRAWN_FIELDS names (both SpectrumSlice types, say).
+    const members = new Map<ts.Node, string>();
+    for (const source of within.getSourceFiles()) {
+        if (source.isDeclarationFile || !relative(source).startsWith('src/')) continue;
+        for (const statement of source.statements) {
+            if (!(ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement)) || !Object.hasOwn(DRAWN_FIELDS, statement.name.text)) continue;
+            const symbol = checker.getSymbolAtLocation(statement.name);
+            if (!symbol) continue;
+            const type = checker.getDeclaredTypeOfSymbol(symbol);
+            for (const field of DRAWN_FIELDS[statement.name.text]) for (const declaration of checker.getPropertyOfType(type, field)?.declarations ?? []) members.set(declaration, `${statement.name.text}.${field}`);
+        }
+    }
+    const fieldOf = (symbol: ts.Symbol | undefined): string | undefined => {
+        for (const declaration of symbol?.declarations ?? []) { const field = members.get(declaration); if (field) return field; }
+        return undefined;
+    };
+    const propertyOf = (type: ts.Type, name: string): string | undefined => {
+        const plain = checker.getNonNullableType(type);
+        for (const part of plain.isUnion() ? plain.types : [plain]) { const field = fieldOf(checker.getPropertyOfType(part, name)); if (field) return field; }
+        return undefined;
+    };
+    /** A key of an element access or a computed name: its literal text, or the literals of its type. */
+    const keysOf = (node: ts.Node): string[] => {
+        if (ts.isStringLiteralLike(node) || ts.isNumericLiteral(node)) return [node.text];
+        const type = checker.getTypeAtLocation(node);
+        return (type.isUnion() ? type.types : [type]).filter(part => part.isStringLiteral()).map(part => (part as ts.StringLiteralType).value);
+    };
+    const nameOf = (name: ts.PropertyName | ts.BindingName): string[] => (ts.isIdentifier(name) || ts.isStringLiteralLike(name) || ts.isNumericLiteral(name) ? [name.text] : ts.isComputedPropertyName(name) ? keysOf(name.expression) : []);
+
+    const functions = new Map<string, ts.FunctionLikeDeclaration>();
+    const byNode = new Map<ts.Node, string>();
+    for (const source of sources) {
+        const file = relative(source);
         each(source, node => {
+            const name = functionName(node);
+            if (!name || !ts.isFunctionLike(node) || !('body' in node)) return;
+            const key = `${file}:${name}`;
+            if (!functions.has(key)) functions.set(key, node as ts.FunctionLikeDeclaration);
+            byNode.set(node, key);
+            if (ts.isVariableDeclaration(node.parent) || ts.isPropertyAssignment(node.parent)) byNode.set(node.parent, key);
+        });
+    }
+    const target = (expression: ts.Expression): string | undefined => {
+        let symbol = checker.getSymbolAtLocation(ts.isPropertyAccessExpression(expression) ? expression.name : expression);
+        for (let hops = 0; symbol && hops < 8; hops++) {
+            if (symbol.flags & ts.SymbolFlags.Alias) { symbol = checker.getAliasedSymbol(symbol); continue; }
+            const declaration = symbol.valueDeclaration ?? symbol.declarations?.[0];
+            if (!declaration) return undefined;
+            const key = byNode.get(declaration);
+            if (key) return key;
+            // A local alias of a function (`const f = reader`, `const f = module.reader`) is the function.
+            const initializer = ts.isVariableDeclaration(declaration) ? declaration.initializer : undefined;
+            if (!initializer || !(ts.isIdentifier(initializer) || ts.isPropertyAccessExpression(initializer))) return undefined;
+            symbol = checker.getSymbolAtLocation(ts.isPropertyAccessExpression(initializer) ? initializer.name : initializer);
+        }
+        return undefined;
+    };
+
+    const found = new Map<string, Set<string>>();
+    const reads = new Map<string, ts.Node[]>();
+    const add = (where: string, what: string, node: ts.Node): void => {
+        const set = found.get(where) ?? new Set<string>();
+        set.add(what);
+        found.set(where, set);
+        reads.set(where, [...(reads.get(where) ?? []), node]);
+    };
+    const accessors = new Set(DRAWN_ACCESSORS);
+    for (const source of sources) {
+        const file = relative(source);
+        each(source, node => {
+            const where = (): string => `${file}:${enclosing(node)}`;
             if (ts.isPropertyAccessExpression(node)) {
-                const type = checker.getNonNullableType(checker.getTypeAtLocation(node.expression));
-                const name = (type.aliasSymbol ?? type.getSymbol())?.getName();
-                if (name && Object.hasOwn(DRAWN_FIELDS, name) && DRAWN_FIELDS[name].includes(node.name.text)) add(`${file}:${enclosing(node)}`, `${name}.${node.name.text}`);
-            }
-            if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
-                const accessor = local.get(node.expression.text);
-                const where = `${file}:${enclosing(node)}`;
-                if (accessor && accessor !== where) add(where, accessor);
+                const field = fieldOf(checker.getSymbolAtLocation(node.name)) ?? propertyOf(checker.getTypeAtLocation(node.expression), node.name.text);
+                if (field) add(where(), field, node);
+            } else if (ts.isElementAccessExpression(node)) {
+                for (const key of keysOf(node.argumentExpression)) { const field = propertyOf(checker.getTypeAtLocation(node.expression), key); if (field) add(where(), field, node); }
+            } else if (ts.isBindingElement(node) && ts.isObjectBindingPattern(node.parent) && !node.dotDotDotToken) {
+                for (const key of nameOf(node.propertyName ?? node.name)) { const field = propertyOf(checker.getTypeAtLocation(node.parent), key); if (field) add(where(), field, node.name); }
+            } else if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isObjectLiteralExpression(node.left)) {
+                // `({ values } = view)`: each name taken from the right-hand side's type.
+                const type = checker.getTypeAtLocation(node.right);
+                for (const property of node.left.properties) {
+                    if (!(ts.isShorthandPropertyAssignment(property) || ts.isPropertyAssignment(property))) continue;
+                    for (const key of nameOf(property.name)) { const field = propertyOf(type, key); if (field) add(where(), field, ts.isPropertyAssignment(property) ? property.initializer : property.name); }
+                }
+            } else if (ts.isCallExpression(node)) {
+                const called = target(node.expression);
+                if (called && accessors.has(called) && called !== where()) add(where(), called, node);
             }
         });
     }
-    // A file's own helper that reads drawn points (not exported: no row names it) passes the read to its callers.
+    // A reader's read reaches whoever calls it, names it as a callback, or calls an alias of it.
+    const passesOn = (where: string): boolean => {
+        const use = readers[where]?.use;
+        if (use === 'draws') return false;
+        const at = where.lastIndexOf(':');
+        const source = within.getSourceFile(path.join(repoRoot, where.slice(0, at)));
+        return !source || !exportedIn(source).has(where.slice(at + 1)) || use !== 'whole';
+    };
     for (let grown = true; grown;) {
         grown = false;
-        for (const file of sourceFiles()) {
-            const exported = exportedOf(file);
-            const privateReaders = new Map([...found.keys()].filter(where => where.startsWith(`${file}:`) && !exported.has(where.slice(file.length + 1)) && DRAWN_READERS[where]?.use !== 'draws').map(where => [where.slice(file.length + 1), where]));
-            if (!privateReaders.size) continue;
-            each(parse(file), node => {
-                if (!ts.isCallExpression(node) || !ts.isIdentifier(node.expression)) return;
-                const reader = privateReaders.get(node.expression.text);
-                const where = `${file}:${enclosing(node)}`;
-                if (!reader || reader === where || found.get(where)?.has(reader)) return;
-                add(where, reader);
-                grown = true;
+        for (const source of sources) {
+            const file = relative(source);
+            each(source, node => {
+                if (!ts.isCallExpression(node)) return;
+                for (const named of [node.expression, ...node.arguments]) {
+                    if (!(ts.isIdentifier(named) || ts.isPropertyAccessExpression(named))) continue;
+                    const reader = target(named);
+                    const where = `${file}:${enclosing(node)}`;
+                    if (!reader || reader === where || !found.has(reader) || !passesOn(reader) || found.get(where)?.has(reader)) continue;
+                    add(where, reader, named === node.expression ? node : named);
+                    grown = true;
+                }
             });
         }
     }
-    return found;
+    return { program: within, found, reads, functions, target };
+}
+
+/** Every webview and shared function that reads drawn points (drawnScan), with what it reads. */
+function drawnReaders(): Map<string, Set<string>> {
+    return drawnScan().found;
 }
 
 /** The names a file exports (functions and variables). */
 function exportedOf(file: string): Set<string> {
+    return exportedIn(parse(file));
+}
+
+function exportedIn(source: ts.SourceFile): Set<string> {
     const names = new Set<string>();
-    for (const statement of parse(file).statements) {
+    for (const statement of source.statements) {
         if (!ts.canHaveModifiers(statement) || !ts.getModifiers(statement)?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword)) continue;
         if (ts.isFunctionDeclaration(statement) && statement.name) names.add(statement.name.text);
         if (ts.isVariableStatement(statement)) for (const declaration of statement.declarationList.declarations) if (ts.isIdentifier(declaration.name)) names.add(declaration.name.text);
@@ -393,6 +515,59 @@ function pythonDrawn(): Map<string, Set<string>> {
     }
     return found;
 }
+
+test('the drawn-points scan finds a read in every form by the field\'s symbol, and passes it on across modules', () => {
+    const a = 'src/webview/runtime/fakeDrawnA.ts', b = 'src/webview/runtime/fakeDrawnB.ts';
+    const overlay = new Map([
+        [a, [
+            "import type { StageView } from '../../shared/protocol/backendProtocol';",
+            'type Picture = StageView;',
+            "const KEY = 'values' as const;",
+            'export function dot(view: StageView): number { return view.values?.length ?? 0; }',
+            "export function bracket(view: StageView): number { return view['values']?.length ?? 0; }",
+            'export function keyed(view: StageView): number { return view[KEY]?.length ?? 0; }',
+            'export function destructured(view: StageView): number { const { values } = view; return values?.length ?? 0; }',
+            'export function renamed(view: StageView): number { const { values: drawn } = view; return drawn?.length ?? 0; }',
+            'export const parameter = ({ values }: StageView): number => values?.length ?? 0;',
+            "export function assigned(view: StageView): number { let values: StageView['values']; ({ values } = view); return values?.length ?? 0; }",
+            'export function aliased(picture: Picture): number { const other = picture; return other.matrix?.length ?? 0; }',
+            "export function picked(view: Pick<StageView, 'events'>): number { return view.events?.length ?? 0; }",
+            'export function none(view: StageView): string { return view.frame + String(view.xs?.length); }',
+        ].join('\n')],
+        [b, [
+            "import type { StageView } from '../../shared/protocol/backendProtocol';",
+            "import { dot as count, bracket } from './fakeDrawnA';",
+            "import * as drawn from './fakeDrawnA';",
+            'const alias = bracket;',
+            'export function imported(view: StageView): number { return count(view); }',
+            'export function viaAlias(view: StageView): number { return alias(view); }',
+            'export function viaNamespace(view: StageView): number { return drawn.keyed(view); }',
+            'export function asCallback(views: StageView[]): number[] { return views.map(drawn.destructured); }',
+            'export function twoAway(view: StageView): number { return imported(view) + 1; }',
+        ].join('\n')],
+    ]);
+    const scan = drawnScan(typedWith(overlay), [a, b], {});
+    const found = Object.fromEntries([...scan.found].map(([where, reads]) => [where, [...reads].sort()]));
+    assert.deepEqual(found, {
+        [`${a}:dot`]: ['StageView.values'],
+        [`${a}:bracket`]: ['StageView.values'],
+        [`${a}:keyed`]: ['StageView.values'],
+        [`${a}:destructured`]: ['StageView.values'],
+        [`${a}:renamed`]: ['StageView.values'],
+        [`${a}:parameter`]: ['StageView.values'],
+        [`${a}:assigned`]: ['StageView.values'],
+        [`${a}:aliased`]: ['StageView.matrix'],
+        [`${a}:picked`]: ['StageView.events'],
+        [`${b}:imported`]: [`${a}:dot`],
+        [`${b}:viaAlias`]: [`${a}:bracket`],
+        [`${b}:viaNamespace`]: [`${a}:keyed`],
+        [`${b}:asCallback`]: [`${a}:destructured`],
+        [`${b}:twoAway`]: [`${b}:imported`],
+    });
+    // A reader classified as only drawing passes nothing on: its callers are not readers (its own flow is checked).
+    const drawsOnly = drawnScan(typedWith(overlay), [a, b], { [`${a}:dot`]: { use: 'draws', why: 'x' } });
+    assert.equal(drawsOnly.found.has(`${b}:imported`), false);
+});
 
 test('every function that reads drawn points says what it does with them, and a row\'s source agrees with what its functions read', () => {
     const scanned = drawnReaders();
