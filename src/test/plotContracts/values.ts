@@ -30,6 +30,19 @@ export const VALUE_HELPERS: readonly string[] = [
 
 /** Functions that write a number nobody reads as a value of a chart, each with why. */
 export const NOT_CHART_VALUES: Readonly<Record<string, string>> = {
+    'src/webview/runtime/comparisonRuntime.ts:drawSpectrogram': 'the lane\'s data-spectrogram-band / -window / data-colour-bar attributes for the plot tests, not shown',
+    'src/webview/runtime/comparisonRuntime.ts:drawTrackWaveform': 'the lane\'s data-waveform-height attribute (CSS px) for the plot tests, not shown',
+    'src/webview/runtime/comparisonRuntime.ts:startComparisonRuntime': 'the page\'s layout markup (buildLayout): toolbar states and counts of the files listed, not a chart\'s value',
+    'src/webview/runtime/comparisonRuntime.ts:syncRoleChips': 'a track\'s role chip (base, compare 1–3): which slot it is, not a value',
+    'src/webview/runtime/roleChip.ts:attachRoleChips': 'the role chip\'s menu of slots (compare 1–3), not a value',
+    'src/webview/runtime/comparisonRuntime.ts:syncSelectionSummary': 'how many of the files listed are shown (3/10) on the folded side panel, a count of files, not a chart\'s value',
+    'src/webview/runtime/entryHeldPlot.ts:paint': 'the held slot\'s number (its key 1–9) in the held plot\'s title, not a value',
+    'src/webview/runtime/entryRuntime.ts:syncColumns': 'the table\'s column count for the layout (data-cols), not shown',
+    'src/webview/runtime/offsetInlineEditor.ts:openOffsetEditor': 'the offset field\'s starting text, the user\'s own setting in milliseconds',
+    'src/webview/runtime/pairSpectrumPanel.ts:noteCursorHz': 'the data-cursor-hz attribute for the linked-cursor tests, not shown',
+    'src/webview/runtime/plotHoverLayer.ts:notePlotRead': 'the data-plot-read-* attributes for the plot contract tests (the readout itself is readoutOf\'s), not shown',
+    'src/webview/runtime/separatorKeys.ts:syncHandle': 'a splitter\'s aria-valuenow / min / max in pixels, for assistive technology: a layout position, not a value',
+    'src/webview/runtime/spectrogramSettingsPopover.ts:syncFromSettings': 'the STFT and display settings fields\' text, the user\'s own settings',
     'src/shared/analysis/calibrationModel.ts:validateCalibrationFactorInput': 'the calibration form\'s own error message about the factor typed',
     'src/webview/draw/canvasDrawers.ts:frequencyAxisTicks': 'the old frequency ticks, used only by the test snapshot (testSnapshot.ts)',
     'src/webview/runtime/laneAxes.ts:markLanePlot': 'the lane\'s data-plot-window attribute for the plot contract test, not shown',
