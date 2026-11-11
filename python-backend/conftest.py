@@ -68,3 +68,16 @@ def make_recipe() -> RecipeFactory:
         return RecipePlan.from_frame(workflow(*frames), input_names=names).to_dict()
 
     return build
+
+
+def assert_not_drawn(answer: Any, drawn: Any) -> None:
+    """The second half of a proof that code computes from the full data (docs/plot-contracts.md): its ``answer`` is
+    not the one the points thinned to draw would give (``drawn``, worked out in the test from the thinned picture).
+
+    A proof test asserts the answer outright first (``assert answer == pytest.approx(expected)``), then calls this.
+    scripts/check_test_proofs.py requires both sides to be made of the test's inputs, never a constant.
+    """
+    same = np.shape(answer) == np.shape(drawn) and bool(
+        np.allclose(np.asarray(answer, dtype=float), np.asarray(drawn, dtype=float), equal_nan=True)
+    )
+    assert not same, "the answer is the one the drawn points give: it must come from the full data"

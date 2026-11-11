@@ -1,4 +1,4 @@
-import { RT, tt, type ChartContract } from '../model';
+import { RT, t, tt, type ChartContract } from '../model';
 
 /** カーソルスペクトルの CSV 書き出し */
 export const spectrumCsv: ChartContract = {
@@ -13,7 +13,7 @@ export const spectrumCsv: ChartContract = {
             computedIn: ['src/webview/runtime/runtimeExports.ts:buildSpectrumCsv', `${RT}:writeCsvWhenDetailed`, 'src/webview/runtime/figureModel.ts:frequencyTitle', 'src/webview/runtime/figureModel.ts:titleOf'],
             from: 'full', trace: 'トラックの中では、バックエンドの全ビンの行だけを書く。表示用に切った行は待つか、書かずにそう言う。',
             tests: [
-                tt('src/test/renderScript.integration.test.ts', 'renderScript: export-csv replaces a cursor spectrum cut for display with every FFT bin'),
+                t('src/test/renderScript.integration.test.ts', 'renderScript: export-csv replaces a cursor spectrum cut for display with every FFT bin'),
                 tt('src/test/runtimeExports.test.ts', 'spectrum CSV writes every FFT bin of a whole row at fs / n_fft spacing'),
             ],
         },

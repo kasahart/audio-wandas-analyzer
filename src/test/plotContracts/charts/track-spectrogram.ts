@@ -14,7 +14,7 @@ export const trackSpectrogram: ChartContract = {
             from: 'full', trace: 'laneReads.spectrogram が本当の STFT のマスを取り寄せる。描くための平均したマスは読まない。',
             tests: [
                 tt('src/test/trackLaneHover.test.ts', 'the pointer on a spectrogram lane reads the real STFT cell under it, not the cell averaged to draw it, and ← / → the next frame (R7)'),
-                tt('src/test/uiSmoke/spectrogramZoom.spec.ts', 'a spectrogram lane boxed to a narrow band asks for that band\'s own bins and draws and reads them, not the whole range\'s rows stretched (R3)'),
+                t('src/test/uiSmoke/spectrogramZoom.spec.ts', 'a spectrogram lane boxed to a narrow band asks for that band\'s own bins and draws and reads them, not the whole range\'s rows stretched (R3)'),
             ],
         },
         {

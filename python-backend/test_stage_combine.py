@@ -13,6 +13,7 @@ import wandas as wd
 from analysis_engine import AnalysisEngine
 from analysis_service import AnalysisService
 from command_dispatch import dispatch, validate_request
+from conftest import assert_not_drawn
 from protocol_schema import DEFINITIONS, first_violation
 from stage_combine import (
     STORE,
@@ -116,7 +117,11 @@ def test_a_narrow_difference_is_taken_bin_by_bin_and_kept_when_drawn(signal: wd.
     rise = raised[at] - base_data.values[at]
     assert rise > 40
     result = combine([base_data], replace(base_data, values=raised))
-    assert max(abs(v) for v in result["diff"]["values"] if v is not None) == pytest.approx(rise, abs=0.01)
+    largest = max(abs(v) for v in result["diff"]["values"] if v is not None)
+    assert largest == pytest.approx(rise, abs=0.01)
+    # Averaged into the picture's points first and then subtracted, the one bin's rise would read far less.
+    thinned = np.array_split(raised - base_data.values, len(result["diff"]["values"]))
+    assert_not_drawn(largest, max(abs(float(np.mean(chunk))) for chunk in thinned))
     assert first_violation(DEFINITIONS["StageView"], result["diff"]) is None
     # A difference zoomed into the range on screen, from every bin there.
     zoomed = combine([base_data], replace(base_data, values=raised), {"x": [2500.0, 3500.0], "points": 200})
@@ -615,6 +620,11 @@ def test_the_headlines_largest_difference_is_found_among_every_value_at_its_own_
         assert peak["y"] == pytest.approx(where["y"])
     assert abs(peak["value"]) == pytest.approx(
         0.4 if name in ("coherence", "correlation", "cepstrum") else 7.0, abs=0.06
+    )
+    # A difference thinned by averaging before its largest value is looked for would read far less.
+    every = np.nan_to_num(np.abs(raised - _f64(data.values))).reshape(-1)
+    assert_not_drawn(
+        abs(peak["value"]), max(float(np.mean(chunk)) for chunk in np.array_split(every, max(1, every.size // 8)))
     )
 
 

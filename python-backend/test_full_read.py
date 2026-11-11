@@ -14,9 +14,10 @@ import wandas as wd
 
 from analysis_engine import AnalysisEngine
 from analysis_service import AnalysisService
+from conftest import assert_not_drawn
 from full_read import READ_POINT_LIMIT, read_cells, read_line, sorted_axis, uniform_axis
 from protocol_schema import DEFINITIONS, first_violation
-from stage_combine import StageData, read_points, stage_data
+from stage_combine import StageData, combine, read_points, stage_data
 from stage_view import stage_view
 
 RATE = 16000
@@ -61,6 +62,9 @@ def test_a_dense_window_gives_each_pixel_columns_real_extremes_and_the_point_nea
         assert int(block[np.argmax(values[block])]) in inside
         assert int(block[np.argmin(values[block])]) in inside
         assert int(block[np.argmin(np.abs(values[block] - 0.123))]) in inside
+    # A line thinned evenly to as many points holds other samples: what is sent is chosen from every sample.
+    evenly = values[np.linspace(1000, 101_000, len(xs)).astype(int)]
+    assert_not_drawn(points["values"], evenly)
 
 
 @pytest.mark.parametrize("log", [False, True])
@@ -149,6 +153,15 @@ def test_an_arrow_keys_seek_crosses_a_silence_of_any_length_to_the_next_value_as
                 assert len(sent) <= 4 + 2
     # Read a chunk at a time, never the whole recording at once.
     assert max(b - a for a, b in calls) <= 1 << 16
+    # A line drawn of this recording has a point per few thousand samples: its next point after 100 is not the
+    # next value, which the seek finds among every sample.
+    points = read_line(axis, values_in, {"x": [100.0], "beyond": 4, "seek": 1})
+    sought = np.asarray(points["xs"], dtype=np.float64)
+    heard = np.asarray([np.nan if value is None else value for value in points["values"]], dtype=np.float64)
+    found_at = float(sought[(sought > 100.0) & np.isfinite(heard) & (heard > -250.0)].min())
+    assert found_at == pytest.approx(750_000.0)
+    drawn_xs = np.arange(0, count, 4096) * 0.5
+    assert_not_drawn(found_at, float(drawn_xs[drawn_xs > 100.0].min()))
 
 
 def test_an_images_cells_are_its_own_around_the_place_read() -> None:
@@ -181,6 +194,11 @@ def test_a_recordings_spectrum_is_read_at_its_own_bins_not_its_picture(signal: w
     assert points is not None and points["complete"]
     assert points["xs"] == pytest.approx(data.xs[at - 4 : at + 5].tolist())
     assert points["values"] == pytest.approx(data.values[at - 4 : at + 5].tolist(), abs=1e-12)
+    # The same spectrum's picture is thinned: its drawn line at these places is not these bins' values.
+    view = stage_view(frame)
+    line = np.array([np.nan if value is None else value for value in view["values"]], dtype=np.float64)
+    assert len(view["xs"]) < data.xs.size
+    assert_not_drawn(points["values"], np.interp(points["xs"], view["xs"], line))
 
 
 def test_a_difference_is_read_bin_by_bin(signal: wd.ChannelFrame) -> None:
@@ -193,6 +211,11 @@ def test_a_difference_is_read_bin_by_bin(signal: wd.ChannelFrame) -> None:
     points = read_points([base], replace(base, values=raised), {"x": [float(base.xs[at])], "beyond": 1, "of": "diff"})
     assert points is not None
     assert points["values"] == pytest.approx([0.0, 30.0, 0.0], abs=1e-6)
+    # The difference as drawn is thinned: its line at these three bins is not their own values.
+    drawn = combine([base], replace(base, values=raised))["diff"]
+    line = np.array([np.nan if value is None else value for value in drawn["values"]], dtype=np.float64)
+    assert len(drawn["xs"]) < base.xs.size
+    assert_not_drawn(points["values"], np.interp(points["xs"], drawn["xs"], line))
 
 
 def test_a_signals_samples_are_read_one_by_one(signal: wd.ChannelFrame) -> None:

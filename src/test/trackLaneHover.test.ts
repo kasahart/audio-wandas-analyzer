@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { N, P, R, T } from './helpers/figure';
 import test from 'node:test';
+import { assertNotDrawn, nearestOf } from './fullNotDrawn';
 import type { SpectrogramData } from '../shared/analysis/analysisTypes';
 import { localCells, localLine } from '../webview/runtime/fullRead';
 import { paintOverlay, stageHover, stageStep, type StagePlot, type StageRead } from '../webview/runtime/stagePanes';
@@ -60,12 +61,18 @@ test('the pointer on a track lane reads the file\'s own sample nearest it, not t
     close(read?.at, laneSeconds(at / (count - 1) * 2), 'the sample under the pointer, on the lanes\' time axis');
     assert.equal(read?.value, samples[at]);
     assert.ok(read?.values.endsWith(' Pa'), read?.values);
+    const drawnValues = [...drawn].map(index => samples[index]);
+    assert.ok(!drawnValues.includes(samples[at]));
+    assertNotDrawn(read?.value, nearestOf(drawnValues, samples[at]), 'not a value of the envelope drawn');
+    const started = at;
     for (const delta of [1, 1, 1, 1, 1, -1, -1, -1] as const) {
         read = read ? stageStep(plot, read, delta) : null;
         at += delta;
         close(read?.at ?? undefined, laneSeconds(at / (count - 1) * 2), `step to sample ${at}`);
         assert.equal(read?.value, samples[at]);
     }
+    // Five keys on and three back: two samples on, never the envelope's second point after.
+    assertNotDrawn(read?.value, samples[[...drawn].filter(index => index > started).sort((a, b) => a - b)[1]], 'not the second drawn point on');
 });
 
 test('a track lane\'s readout names the recording, its time to the digits a pixel tells apart and the amplitude in its unit', () => {

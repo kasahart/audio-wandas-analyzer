@@ -364,7 +364,7 @@ test('no row says a difference or a median is taken of rounded values: rounding 
 
 test('every call of the plot component, and every plot plotRegistry.ts lists, is a chart of the table', () => {
     const painted = new Set(CHARTS.flatMap(chart => chart.paintedBy));
-    assert.deepEqual([...plotCallers()].filter(caller => !painted.has(caller)).sort(), [], 'these functions draw a plot no chart of plotContracts.ts lists');
+    assert.deepEqual([...plotCallers()].filter(caller => !painted.has(caller)).sort(), [], 'Rule: every call of the plot component (paintOverlay, paintStage, paintSideAxis, paintTimeAxis) belongs to a chart of the contract table. These functions call it but no chart lists them. Fix: add each to the paintedBy of its chart in src/test/plotContracts/charts/<chart>.ts, or add a new chart file there (and to index.ts) with a row for every value a user reads off it. See docs/plot-contracts-guide.md.');
     assert.deepEqual([...painted].filter(entry => !exists(entry)).sort(), [], 'a chart is drawn by a function that does not exist');
     const registered = CHARTS.flatMap(chart => chart.registry ?? []);
     assert.deepEqual(PLOTS_PENDING.map(plot => plot.selector).filter(selector => !registered.includes(selector)), [], 'a plot plotRegistry.ts lists is in no chart');
@@ -416,8 +416,8 @@ test('every drawing surface of the webview (a canvas or an SVG made, or a contex
     const painted = new Set(CHARTS.flatMap(chart => chart.paintedBy));
     const charts = new Set(CHARTS.map(chart => chart.id));
     const unlisted = [...found].filter(([where]) => !painted.has(where) && !Object.hasOwn(SURFACES, where)).map(([where, what]) => `${where} (${[...what].join(', ')})`).sort();
-    assert.deepEqual(unlisted, [], 'these functions make a drawing surface no chart lists: a chart drawn there must be drawn by the plot component and be in a chart of plotContracts (or SURFACES says whose it is, or why it is no chart)');
-    assert.deepEqual(Object.keys(SURFACES).filter(where => !found.has(where)).sort(), [], 'SURFACES lists a function that makes no drawing surface');
+    assert.deepEqual(unlisted, [], 'Rule: every canvas or SVG the webview makes or draws on is the plot component\'s, a chart\'s, or explained. These functions make one (a context taken, an element created, <canvas>/<svg> markup) and nothing lists them. Fix: if it shows data, draw it with the plot component (paintOverlay) and add the function to its chart\'s paintedBy in src/test/plotContracts/charts; if it only holds a chart\'s canvas, add it to src/test/plotContracts/surfaces.ts as { charts: [...] }; if it draws no data (an icon, a cursor layer), add it there with one sentence saying why. See docs/plot-contracts-guide.md.');
+    assert.deepEqual(Object.keys(SURFACES).filter(where => !found.has(where)).sort(), [], 'Rule: surfaces.ts lists only functions that make a drawing surface today. Fix: remove these lines from src/test/plotContracts/surfaces.ts (the function was renamed, moved, or no longer makes a canvas or SVG).');
     for (const [where, whose] of Object.entries(SURFACES)) {
         if (typeof whose === 'string') assert.ok(whose.trim().length > 0, `${where}: says no why`);
         else assert.deepEqual(whose.charts.filter(chart => !charts.has(chart)), [], `${where}: no such chart`);
@@ -463,9 +463,9 @@ test('every function that writes a number in the webview is in the table, a valu
     const writers = numberWriters();
     const listed = new Set([...ROWS.flatMap(row => row.computedIn), ...VALUE_HELPERS, ...Object.keys(NOT_CHART_VALUES)]);
     const unlisted = [...writers].filter(([writer]) => !listed.has(writer)).map(([writer, calls]) => `${writer} (${[...calls].sort().join(', ')})`).sort();
-    assert.deepEqual(unlisted, [], 'a new path writes a number: add it to a row of plotContracts.ts (or VALUE_HELPERS, or NOT_CHART_VALUES with why)');
+    assert.deepEqual(unlisted, [], 'Rule: every function that writes a number a user can read belongs to the contract table. These write one (the parentheses say how and where) and nothing lists them. Fix, one of: (1) it is a value of a chart: add the function to computedIn of its row in src/test/plotContracts/charts/<chart>.ts (or add a row); (2) it only formats or computes for others: add it to VALUE_HELPERS in src/test/plotContracts/values.ts; (3) it is not a chart\'s value (a setting\'s field, a test attribute, a CSS size): add it to NOT_CHART_VALUES there with one sentence saying why. See docs/plot-contracts-guide.md.');
     // A function that no longer writes a number is no longer not a chart's value.
-    assert.deepEqual(Object.keys(NOT_CHART_VALUES).filter(entry => !writers.has(entry)).sort(), [], 'NOT_CHART_VALUES lists a function that writes no number');
+    assert.deepEqual(Object.keys(NOT_CHART_VALUES).filter(entry => !writers.has(entry)).sort(), [], 'Rule: NOT_CHART_VALUES lists only functions that write a number today. Fix: remove these lines from src/test/plotContracts/values.ts.');
     for (const [entry, why] of Object.entries(NOT_CHART_VALUES)) assert.ok(why.trim().length > 0, `${entry}: says no why`);
 });
 
@@ -851,8 +851,8 @@ test('every function that reads drawn points says what it does with them, and a 
     // Every def that reads drawn points is classified, the backend's as the webview's, whether a row names it or not.
     const found = new Map([...scanned, ...python]);
     const unclassified = [...found].filter(([where]) => !Object.hasOwn(DRAWN_READERS, where)).map(([where, reads]) => `${where} (${[...reads].sort().join(', ')})`).sort();
-    assert.deepEqual(unclassified, [], 'these read drawn points: add each to DRAWN_READERS with what it does with them');
-    assert.deepEqual(Object.keys(DRAWN_READERS).filter(where => !found.has(where) && !python.has(where)).sort(), [], 'DRAWN_READERS lists a function that reads no drawn points');
+    assert.deepEqual(unclassified, [], 'Rule: every function that reads points thinned to draw (a view\'s values, a waveform envelope, a decimator\'s result) says what it does with them. Fix: add each to DRAWN_READERS in src/test/plotContracts/values.ts as use: \'draws\' (it only draws them; checked by data flow), \'value\' (it makes a number of them: its row must then say from thinned or extremes, and is a gap), or \'whole\' (it is given full data: name a proof test). Prefer computing from the full data instead. See docs/plot-contracts-guide.md.');
+    assert.deepEqual(Object.keys(DRAWN_READERS).filter(where => !found.has(where) && !python.has(where)).sort(), [], 'Rule: DRAWN_READERS lists only functions that read drawn points today. Fix: remove these lines from src/test/plotContracts/values.ts.');
     for (const row of ROWS) {
         const values = row.computedIn.filter(where => DRAWN_READERS[where]?.use === 'value' && (scanned.has(where) || python.has(where)));
         if (row.from === 'extremes' || row.from === 'thinned') {
@@ -1133,7 +1133,7 @@ function drawsFlowProblems(scan: DrawnScan, readers: Readonly<Record<string, Dra
 }
 
 test('every reader classified \'draws\' only draws: no value of its drawn points is returned, written or kept', () => {
-    assert.deepEqual(drawsFlowProblems(drawnScan()), []);
+    assert.deepEqual(drawsFlowProblems(drawnScan()), [], 'Rule: a reader classified use: \'draws\' in DRAWN_READERS may only draw its thinned points. Each line names one that returns, writes or keeps a number made of them. Fix: compute that number from the full data (the backend\'s valueRange / levelBins / a full read), or reclassify the reader as \'value\' and mark its row from thinned. See docs/plot-contracts-guide.md.');
 });
 
 test('the draws check fails on a reader that computes a number of drawn points while said to draw', () => {
@@ -1228,14 +1228,32 @@ function reasons(row: ContractRow): string[] {
  */
 const SELF_REFERENTIAL = ['src/test/uiSmoke/plotContract.spec.ts'];
 
-test('a test said to tell full data from drawn points is about what is thinned', () => {
-    for (const row of ROWS) {
+/**
+ * Every test a row marks `tells` (model.ts `tt`), checked by what it does, not its words: why each is no proof.
+ * `rows` and `check` are parameters for the injections below.
+ */
+function tellsProblems(rows: readonly ContractRow[] = ROWS, check: (targets: readonly string[], proof: Proof) => string | null = proofProblem): string[] {
+    const problems: string[] = [];
+    for (const row of rows) {
         for (const named of row.tests.filter(item => item.tells)) {
-            assert.ok(!SELF_REFERENTIAL.includes(named.file), `${row.id}: "${named.name}" checks the plot against its own answer: it cannot tell full data from drawn`);
-            const found = namedTest(named.file, read(named.file), named.name);
-            assert.ok(found && TELLS.test(`${named.name}\n${found.body}`), `${row.id}: "${named.name}" is said to tell full data from drawn, but says nothing of thinning`);
+            const problem = check(row.computedIn, named);
+            if (problem) problems.push(`${row.id}: ${problem}. ${PROOF_HELP}`);
         }
     }
+    return problems;
+}
+
+/** What a newcomer needs when a proof fails: the rule, and what to write. */
+const PROOF_HELP = [
+    'Rule: a test marked tt(...) in src/test/plotContracts/charts must prove its row is computed from the full data, not the points thinned to draw.',
+    'It must (1) call one of the row\'s computedIn functions (directly, or an exported function of that file or a pytest import that calls it);',
+    '(2) assert the answer outright (assert.equal / deepEqual, or pytest `==`); and',
+    '(3) assert it is not the answer the drawn points give: assertNotDrawn(answer, drawnAnswer) from src/test/fullNotDrawn.ts (pytest: assert_not_drawn from conftest.py), where drawnAnswer is worked out in the test from the thinned data, never null or a constant.',
+    'If this test cannot do that, mark it t(...) instead and give the row another tt(...) test that does. See docs/plot-contracts-guide.md.',
+].join(' ');
+
+test('every test a row says tells full data from drawn points proves it: it reaches the row\'s code and asserts its answer is not the drawn points\' answer', () => {
+    assert.deepEqual(tellsProblems(), []);
 });
 
 /** What each function of a file calls or names (a command table's entry), by the function it is in. */
@@ -1282,30 +1300,86 @@ function wholeProofProblems(readers: Readonly<Record<string, DrawnReader>>): str
     const problems: string[] = [];
     for (const [where, entry] of Object.entries(readers)) {
         if (entry.use !== 'whole') continue;
-        const proof = entry.proof;
-        if (!proof) { problems.push(`${where}: 'whole' names no test showing it is given full data`); continue; }
-        if (!existsSync(path.join(repoRoot, proof.file))) { problems.push(`${where}: no file ${proof.file}`); continue; }
-        if (SELF_REFERENTIAL.includes(proof.file)) { problems.push(`${where}: "${proof.name}" checks the plot against its own answer`); continue; }
-        const problem = testProblem(proof.file, read(proof.file), proof.name);
-        if (problem) { problems.push(`${where}: ${problem}`); continue; }
-        const body = namedTest(proof.file, read(proof.file), proof.name)?.body ?? '';
-        if (!TELLS.test(`${proof.name}\n${body}`)) problems.push(`${where}: "${proof.name}" does not tell the full data from the drawn points`);
-        const at = where.lastIndexOf(':');
-        const file = where.slice(0, at), name = where.slice(at + 1);
-        const reach = reachersOf(file, name);
-        const exported = exportedOf(file);
-        const module = path.basename(file, '.ts');
-        const imports = new RegExp(`from ['"][^'"]*/${escapeRe(module)}['"]`).test(read(proof.file));
-        const called = imports && [...reach].some(caller => exported.has(caller) && new RegExp(`\\b${escapeRe(caller)}\\(`).test(body));
-        const mapped = proof.via ? new RegExp(`['"]${escapeRe(proof.via)}['"]\\s*:\\s*(\\w+)\\b`).exec(read(file))?.[1] : undefined;
-        const commanded = !!proof.via && body.includes(proof.via) && !!mapped && reach.has(mapped);
-        if (!called && !commanded) problems.push(`${where}: "${proof.name}" never reaches it`);
-        else if (!distinguishes(proof.file, proof.name, commanded ? null : reach)) problems.push(`${where}: "${proof.name}" asserts no case where the full data and the drawn points give different answers`);
+        if (!entry.proof) { problems.push(`${where}: 'whole' names no test showing it is given full data`); continue; }
+        const problem = proofProblem([where], entry.proof);
+        if (problem) problems.push(`${where}: ${problem}`);
     }
     return problems;
 }
 
-const NEGATIVE_ASSERTS = new Set(['notEqual', 'notDeepEqual', 'notStrictEqual', 'notDeepStrictEqual', 'doesNotMatch']);
+/** A test given as proof that code computes from the full data, not the drawn points. */
+interface Proof { file: string; name: string; via?: string }
+
+/**
+ * Why `proof` does not show that one of `targets` (`file:function`, a webview function or a backend def) is given
+ * the full data where the drawn points differ, or null: it must run and assert, speak of what is thinned (TELLS),
+ * reach a target (call an exported function of its file that calls it, or send the command `via` its file maps to
+ * one; a pytest calls a def of its module that reaches it), and assert the code's answer outright and not equal to
+ * an answer made of other inputs (distinguishes / python_proof.py).
+ */
+function proofProblem(targets: readonly string[], proof: Proof): string | null {
+    if (!existsSync(path.join(repoRoot, proof.file))) return `no file ${proof.file}`;
+    if (SELF_REFERENTIAL.includes(proof.file)) return `"${proof.name}" checks the plot against its own answer`;
+    if (proof.file.endsWith('.py')) return pythonProofs([{ targets, proof }])[0] ?? null;
+    const problem = testProblem(proof.file, read(proof.file), proof.name);
+    if (problem) return problem;
+    const own = namedTest(proof.file, read(proof.file), proof.name)?.body ?? '';
+    if (!TELLS.test(`${proof.name}\n${own}`)) return `"${proof.name}" does not tell the full data from the drawn points`;
+    // The test file's own helpers the test calls (a `lanes(...)` that paints) are part of what it runs.
+    const helpers = new Map<string, string>();
+    for (const statement of parse(proof.file).statements) {
+        if (ts.isFunctionDeclaration(statement) && statement.name) helpers.set(statement.name.text, statement.getText());
+        if (ts.isVariableStatement(statement)) for (const declaration of statement.declarationList.declarations) if (ts.isIdentifier(declaration.name) && declaration.initializer && ts.isFunctionLike(declaration.initializer)) helpers.set(declaration.name.text, declaration.getText());
+    }
+    const used = new Set<string>();
+    let body = own;
+    for (let grown = true; grown;) {
+        grown = false;
+        for (const [name, text] of helpers) if (!used.has(name) && new RegExp(`\\b${escapeRe(name)}\\(`).test(body)) { used.add(name); body += `\n${text}`; grown = true; }
+    }
+    const reach = new Set<string>();
+    let commanded = false;
+    for (const target of targets) {
+        if (target.endsWith('.py') || target.includes('.py:')) continue;
+        const at = target.lastIndexOf(':');
+        const file = target.slice(0, at), name = target.slice(at + 1);
+        if (!existsSync(path.join(repoRoot, file))) continue;
+        const reachers = reachersOf(file, name);
+        const exported = exportedOf(file);
+        const module = path.basename(file, '.ts');
+        const imports = new RegExp(`from ['"][^'"]*/${escapeRe(module)}['"]`).test(read(proof.file));
+        for (const caller of reachers) if (imports && exported.has(caller) && new RegExp(`\\b${escapeRe(caller)}\\(`).test(body)) reach.add(caller);
+        const mapped = proof.via ? new RegExp(`['"]${escapeRe(proof.via)}['"]\\s*:\\s*(\\w+)\\b`).exec(read(file))?.[1] : undefined;
+        if (!!proof.via && body.includes(proof.via) && !!mapped && reachers.has(mapped)) commanded = true;
+    }
+    // A UI smoke test drives the whole app: what it reads off the page is the code's answer, whichever function made it.
+    if (proof.file.startsWith('src/test/uiSmoke/')) commanded = true;
+    // A UI smoke test drives the whole app: what it reads off the page is the code's answer, whichever function made it.
+    if (proof.file.startsWith('src/test/uiSmoke/')) commanded = true;
+    if (!reach.size && !commanded) return `"${proof.name}" never reaches it`;
+    // What a reached function is called by in the test: every reacher of every target (the test may call another).
+    const callable = new Set<string>();
+    for (const target of targets) {
+        const at = target.lastIndexOf(':');
+        if (!target.includes('.py:') && existsSync(path.join(repoRoot, target.slice(0, at)))) for (const caller of reachersOf(target.slice(0, at), target.slice(at + 1))) callable.add(caller);
+    }
+    // A helper of the test file that calls the code gives its answer too.
+    for (const name of used) if ([...callable].some(caller => new RegExp(`\\b${escapeRe(caller)}\\(`).test(helpers.get(name) ?? ''))) callable.add(name);
+    if (!distinguishes(proof.file, proof.name, commanded ? null : callable)) return `"${proof.name}" asserts no case where the full data and the drawn points give different answers`;
+    return null;
+}
+
+/** What scripts/check_test_proofs.py finds of each pytest given as proof (its problem, or null), in order. */
+function pythonProofs(items: ReadonlyArray<{ targets: readonly string[]; proof: Proof }>): Array<string | null> {
+    const venv = path.join(repoRoot, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
+    const python = existsSync(venv) ? venv : process.platform === 'win32' ? 'python' : 'python3';
+    const input = JSON.stringify(items.map(({ targets, proof }) => ({ targets, file: proof.file, name: proof.name })));
+    const run = spawnSync(python, ['scripts/check_test_proofs.py'], { cwd: repoRoot, encoding: 'utf8', input });
+    assert.equal(run.status, 0, `check_test_proofs.py: ${run.stderr}`);
+    return JSON.parse(run.stdout) as Array<string | null>;
+}
+
+const NEGATIVE_ASSERTS = new Set(['assertNotDrawn', 'notEqual', 'notDeepEqual', 'notStrictEqual', 'notDeepStrictEqual', 'doesNotMatch']);
 const POSITIVE_ASSERTS = new Set(['equal', 'deepEqual', 'strictEqual', 'deepStrictEqual', 'match', 'toEqual', 'toBe', 'toBeCloseTo', 'toStrictEqual', 'toHaveText', 'toContain', 'toMatch']);
 
 /**
@@ -1343,7 +1417,11 @@ function distinguishes(file: string, name: string, reach: ReadonlySet<string> | 
     for (let grown = true; grown;) {
         grown = false;
         each(body, node => {
-            if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer && !answers.has(node.name.text) && answer(node.initializer)) { answers.add(node.name.text); grown = true; }
+            if (!ts.isVariableDeclaration(node) || !node.initializer || !answer(node.initializer)) return;
+            // `const range = f(...)`, and every name of `const { drawn, canvases } = f(...)`.
+            const bound: string[] = [];
+            each(node.name, inner => { if (ts.isIdentifier(inner) && !(ts.isBindingElement(inner.parent) && inner.parent.propertyName === inner)) bound.push(inner.text); });
+            for (const name of bound) if (!answers.has(name)) { answers.add(name); grown = true; }
         });
     }
     // A side with no name in it but constants (null, a number, a pattern, a literal of those, a local holding one) is
@@ -1354,10 +1432,25 @@ function distinguishes(file: string, name: string, reach: ReadonlySet<string> | 
         each(node, inner => { if (ts.isIdentifier(inner) && !constants.has(inner.text) && !((ts.isPropertyAccessExpression(inner.parent) || ts.isPropertyAssignment(inner.parent)) && inner.parent.name === inner)) named = true; });
         return !named;
     };
+    // A local holding a literal that the test also hands on (to the code under test, or into other data) is an
+    // input, not a constant: only one used in assertions alone tells nothing.
+    const inputs = new Set<string>();
+    const inAssertion = (node: ts.Node): boolean => {
+        for (let at: ts.Node | undefined = node.parent; at && at !== body; at = at.parent) {
+            if (ts.isCallExpression(at)) {
+                const text = at.expression.getText();
+                if (/^(?:assert\b|expect\b)/u.test(text) || NEGATIVE_ASSERTS.has(text)) return true;
+            }
+        }
+        return false;
+    };
+    each(body, node => {
+        if (ts.isIdentifier(node) && !(ts.isVariableDeclaration(node.parent) && node.parent.name === node) && !((ts.isPropertyAccessExpression(node.parent) || ts.isPropertyAssignment(node.parent)) && node.parent.name === node) && !inAssertion(node)) inputs.add(node.text);
+    });
     for (let grown = true; grown;) {
         grown = false;
         each(body, node => {
-            if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer && !constants.has(node.name.text) && constant(node.initializer)) { constants.add(node.name.text); grown = true; }
+            if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer && !constants.has(node.name.text) && !inputs.has(node.name.text) && constant(node.initializer)) { constants.add(node.name.text); grown = true; }
         });
     }
     let negative = false, positive = false;
@@ -1370,15 +1463,24 @@ function distinguishes(file: string, name: string, reach: ReadonlySet<string> | 
         const subject = (negated ? ((callee).expression as ts.PropertyAccessExpression).expression : ts.isPropertyAccessExpression(callee) ? callee.expression : undefined);
         const expectArgs = subject && ts.isCallExpression(subject) && ts.isIdentifier(subject.expression) && subject.expression.text === 'expect' ? subject.arguments : undefined;
         const args = [...node.arguments, ...(expectArgs ?? [])];
-        const asserting = (ts.isPropertyAccessExpression(callee) && ts.isIdentifier(callee.expression) && callee.expression.text === 'assert') || !!expectArgs || (ts.isIdentifier(callee) && callee.text === 'assert');
+        const asserting = (ts.isPropertyAccessExpression(callee) && ts.isIdentifier(callee.expression) && callee.expression.text === 'assert') || !!expectArgs || (ts.isIdentifier(callee) && (callee.text === 'assert' || NEGATIVE_ASSERTS.has(callee.text)));
         if (!asserting || !args.some(answer)) return;
         const first = node.arguments[0];
-        const inequality = (method === 'ok' || method === 'assert') && first && ts.isBinaryExpression(first) && [ts.SyntaxKind.ExclamationEqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsToken].includes(first.operatorToken.kind);
+        const inequality = (method === 'ok' || method === 'assert') && first && ts.isBinaryExpression(first) && [ts.SyntaxKind.ExclamationEqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsToken, ts.SyntaxKind.LessThanToken, ts.SyntaxKind.GreaterThanToken].includes(first.operatorToken.kind);
         if (NEGATIVE_ASSERTS.has(method) || negated || inequality) {
             // Told apart only when one side is an answer of the code under test and the other is made of the test's
             // inputs too (the drawn points' answer), never the same expression: `notEqual(result, null)`, or a match
             // against a constant or a local holding one, tells nothing.
-            const sides = inequality && ts.isBinaryExpression(first) ? [first.left, first.right] : negated ? [expectArgs?.[0], node.arguments[0]] : [...node.arguments.slice(0, 2)];
+            // `ok(answer - drawn > 3)` or `ok(Math.abs(answer - drawn) > 3)`: apart by more than a margin.
+            const gapOf = (node: ts.Expression): ts.BinaryExpression | undefined => {
+                let inner = node;
+                while (ts.isParenthesizedExpression(inner)) inner = inner.expression;
+                if (ts.isCallExpression(inner) && inner.expression.getText() === 'Math.abs' && inner.arguments[0]) inner = inner.arguments[0];
+                while (ts.isParenthesizedExpression(inner)) inner = inner.expression;
+                return ts.isBinaryExpression(inner) && inner.operatorToken.kind === ts.SyntaxKind.MinusToken ? inner : undefined;
+            };
+            const gap = inequality && ts.isBinaryExpression(first) && first.operatorToken.kind === ts.SyntaxKind.GreaterThanToken ? gapOf(first.left) : undefined;
+            const sides = gap ? [gap.left, gap.right] : inequality && ts.isBinaryExpression(first) ? [first.left, first.right] : negated ? [expectArgs?.[0], node.arguments[0]] : [...node.arguments.slice(0, 2)];
             const [left, right] = sides;
             if (left && right && !constant(left) && !constant(right) && (answer(left) || answer(right)) && left.getText() !== right.getText()) negative = true;
         } else if (POSITIVE_ASSERTS.has(method)) positive = true;
@@ -1387,7 +1489,7 @@ function distinguishes(file: string, name: string, reach: ReadonlySet<string> | 
 }
 
 test('every reader classified \'whole\' names a test that gives it full data where the drawn points differ, and reaches it', () => {
-    assert.deepEqual(wholeProofProblems(DRAWN_READERS), []);
+    assert.deepEqual(wholeProofProblems(DRAWN_READERS), [], `Rule: a reader classified use: 'whole' in DRAWN_READERS names a proof test showing it is given full data. ${PROOF_HELP}`);
 });
 
 test('the whole-reader check fails on a misclassified reader: one that makes a number of drawn points called \'whole\'', () => {
@@ -1450,6 +1552,23 @@ test('the whole-reader check fails on a proof that reaches its reader and speaks
             "    assert.notDeepEqual(stageRange([line([-43, -12], { min: -61, max: -2 })]), stageRange([line([-43, -12])]));",
         ]);
         assert.deepEqual(check(), []);
+        // The same holds for a row's tt(...) test: the shared helper with the drawn points' answer proves it; with
+        // null, or with nothing told apart, the row's proof fails and says what to write.
+        const row = (): string[] => {
+            parsed.delete(file);
+            return tellsProblems([{ id: 'injected.range', chart: 'injected', value: 'range', what: 'x', computedIn: [range], from: 'full', trace: 'x', tests: [{ file, name, tells: true }] }]);
+        };
+        const helper = "    const { assertNotDrawn } = require('./fullNotDrawn') as typeof import('./fullNotDrawn');";
+        const full = "    const full = stageRange([line([-43, -12], { min: -61, max: -2 })]);";
+        write([helper, full, "    assert.deepEqual(full, stageRange([line([-61, -2])]));", "    assertNotDrawn(full, stageRange([line([-43, -12])]));"]);
+        assert.deepEqual(row(), []);
+        write([helper, full, "    assert.deepEqual(full, stageRange([line([-61, -2])]));", "    assertNotDrawn(full, null);"]);
+        assert.match(row().join('\n'), /injected\.range: .* asserts no case where the full data and the drawn points give different answers\. Rule: .*assertNotDrawn\(answer, drawnAnswer\)/u);
+        write([helper, full, "    assert.deepEqual(full, stageRange([line([-61, -2])]));"]);
+        assert.match(row().join('\n'), /asserts no case/u);
+        // A test that never calls the row's code proves nothing of it, whatever it asserts.
+        write([helper, "    const full = { min: -61, max: -2 }, drawn = [full].map(range => ({ ...range, min: -43 }))[0];", "    assert.deepEqual(full, { min: -61, max: -2 });", "    assertNotDrawn(full, drawn);"]);
+        assert.match(row().join('\n'), /never reaches it/u);
     } finally {
         rmSync(path.join(repoRoot, file), { force: true });
         parsed.delete(file);

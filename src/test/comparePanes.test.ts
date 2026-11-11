@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { assertNotDrawn, averagedInto } from './fullNotDrawn';
 import { compareOf } from './helpers/compareInput';
 import { binnedAnswers } from '../webview/runtime/entryBase';
 import { scanAnswer } from '../webview/runtime/answerStore';
@@ -313,6 +314,10 @@ test('a spectrum drawn from its bins carries every bin\'s lowest and highest val
     // Zoomed: the bins between the ends and one beyond each, not the whole spectrum's.
     assert.deepEqual(binsView(bins, 'diff', [4000, 5000], 8)!.valueRange, inSpan(diff, 3998, 5002, false));
     assert.deepEqual(binsView(bins, 'base', [1000, 1500], 8)!.valueRange, inSpan(base, 998, 1502, true));
+    // A line thinned by averaging to as many points loses the one-bin extremes: its range is not these.
+    const averagedRange = (values: number[]): { min: number; max: number } => ({ min: Math.min(...averagedInto(values, 16)), max: Math.max(...averagedInto(values, 16)) });
+    assertNotDrawn(binsView(bins, 'base', undefined, 8)!.valueRange, averagedRange(base), 'the range holds every bin');
+    assertNotDrawn(binsView(bins, 'diff', undefined, 8)!.valueRange, averagedRange(diff), 'the Δ range holds every bin');
 });
 
 test('a line decimated for drawing keeps each bucket\'s lowest and highest value at their own places', () => {
@@ -485,5 +490,7 @@ test('the report\'s overlay figure orders base and compared by every bin\'s powe
     const drawnMean = (values: readonly (number | null)[]) => 10 * Math.log10(values.reduce<number>((sum, value) => sum + 10 ** ((value ?? -250) / 10), 0) / values.length);
     assert.ok(drawnMean(baseView.values ?? []) > -30, 'the drawn points alone would make the base the louder');
     const layers = [{ view: baseView, color: 'base', full: binsSource(bins, 'base') ?? NO_FULL_DATA }, { view: compareView, color: 'compare', full: binsSource(bins, 'compare') ?? NO_FULL_DATA }];
-    assert.deepEqual(byLevel(layers, baseView).map(layer => layer.color), ['compare', 'base'], 'drawn loudest first: the quieter base last, on top');
+    const order = byLevel(layers, baseView).map(layer => layer.color);
+    assert.deepEqual(order, ['compare', 'base'], 'drawn loudest first: the quieter base last, on top');
+    assertNotDrawn(order, [...layers].sort((a, b) => drawnMean(b.view.values ?? []) - drawnMean(a.view.values ?? [])).map(layer => layer.color), 'not the order of the points drawn');
 });

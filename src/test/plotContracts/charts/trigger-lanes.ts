@@ -14,7 +14,8 @@ export const triggerLanes: ChartContract = {
             from: 'full', trace: 'frame.fullOf（stageReader.of）で録音の全サンプルを読む。',
             tests: [
                 t('src/test/uiSmoke/plotContract.spec.ts', 'a trigger\'s events plot and the lanes under it answer the same gestures as every plot (R13)'),
-                tt('python-backend/test_full_read.py', 'test_a_signals_samples_are_read_one_by_one'),
+                t('python-backend/test_full_read.py', 'test_a_signals_samples_are_read_one_by_one'),
+                tt('src/test/triggerLanes.test.ts', 'a trigger lane is read at every sample: the pointer reads a sample between the envelope\'s points, and ← / → go one sample at a time (R7)'),
             ],
         },
         {

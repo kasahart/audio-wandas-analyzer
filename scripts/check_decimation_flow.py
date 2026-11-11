@@ -1124,7 +1124,13 @@ def main(argv: list[str] | None = None) -> int:
     for problem in misclassified:
         print(problem, file=sys.stderr)
     if misclassified:
-        print(f"check_decimation_flow: {len(misclassified)} 'draws' reader(s) do more than draw", file=sys.stderr)
+        print(
+            f"check_decimation_flow: {len(misclassified)} 'draws' reader(s) do more than draw. Rule: a backend "
+            "function classified use: 'draws' in DRAWN_READERS (src/test/plotContracts/values.ts) may put its thinned "
+            "points only into a picture's drawn fields (DRAWN_KEYS in this script). Fix: compute the number from the "
+            "full data, or reclassify the function as 'value'. See docs/plot-contracts-guide.md.",
+            file=sys.stderr,
+        )
         return 1
     if options.list:
         for flow in flows:
@@ -1133,7 +1139,12 @@ def main(argv: list[str] | None = None) -> int:
     for problem in found:
         print(problem, file=sys.stderr)
     if found:
-        print(f"check_decimation_flow: {len(found)} problem(s)", file=sys.stderr)
+        print(
+            f"check_decimation_flow: {len(found)} problem(s). Rule: what the backend thins to draw never becomes a "
+            "number sent to the app. Fix: take the number from the full data before thinning (as value_range and "
+            "difference_peak do). See docs/plot-contracts-guide.md.",
+            file=sys.stderr,
+        )
         return 1
     print(f"check_decimation_flow: OK ({len(flows)} known flow(s), each held by a gap)")
     return 0

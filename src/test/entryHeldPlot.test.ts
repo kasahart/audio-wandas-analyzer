@@ -1,6 +1,7 @@
 import type { CurrentAnswers, ShownAnswers } from '../webview/runtime/answerStore';
 import { R } from './helpers/figure';
 import assert from 'node:assert/strict';
+import { assertNotDrawn, nthAfter } from './fullNotDrawn';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 import { getStrings } from '../shared/i18n/strings';
@@ -379,8 +380,9 @@ test('← / → on a held slot\'s Δ step to the next of every bin, not the next
     const line = drawn.lines[0];
     const points = line?.view.values?.length ?? 0;
     assert.ok(points > 0 && points < BINS / 4, `the Δ is thinned to be drawn (${points} points of ${BINS} bins)`);
-    // The pointer in the middle of the plot: the bin read there, then → and ← one bin at a time.
-    const read = stageHover(drawn, drawn.frame.left + drawn.frame.width / 2, drawn.frame.top + drawn.frame.height / 2);
+    // The pointer near the plot's right end, where many bins share a pixel (the axis is logarithmic: on the left
+    // every bin is drawn): the bin read there, then → and ← one bin at a time.
+    const read = stageHover(drawn, drawn.frame.left + drawn.frame.width * 0.95, drawn.frame.top + drawn.frame.height / 2);
     assert.ok(read?.full, 'read from every bin');
     assert.ok(read.at !== undefined);
     const bin = Math.round(read.at / HZ);
@@ -393,4 +395,9 @@ test('← / → on a held slot\'s Δ step to the next of every bin, not the next
         assert.equal(next.value, deltaAt(expected), 'the value of that bin');
         at = next;
     }
+    // Ten keys on are ten bins on: the tenth point drawn after it is further.
+    let tenth = read;
+    for (let key = 0; key < 10; key++) tenth = stageStep(drawn, tenth, 1) ?? tenth;
+    assert.equal(Math.round((tenth.at ?? NaN) / HZ), bin + 10);
+    assertNotDrawn(tenth.at, nthAfter(line?.view.xs ?? [], read.at, 10), 'not the tenth drawn point on');
 });

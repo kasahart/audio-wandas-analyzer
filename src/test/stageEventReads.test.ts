@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { N, R } from './helpers/figure';
 import test from 'node:test';
+import { assertNotDrawn, nearestOf, nthAfter } from './fullNotDrawn';
 import type { StageView } from '../shared/protocol/backendProtocol';
 import { localLine, type FullSource } from '../webview/runtime/fullRead';
 import { eventLayers, paintOverlay, stageHover, stageStep } from '../webview/runtime/stagePanes';
@@ -35,6 +36,8 @@ test('a trigger\'s event lines are each read at that event\'s every sample, neve
     assert.equal(read.layer.label, 'b.wav #2 @ 2.00 s');
     assert.equal(read.at, times[at]);
     assert.equal(read.value, samples[1][at]);
+    const drawnTimes = drawnAt.map(index => times[index]);
+    assertNotDrawn(read.at, nearestOf(drawnTimes, times[at]), 'not the nearest point of the line drawn');
     let step = read;
     for (let k = 1; k <= 6; k++) {
         const next = stageStep(plot, step, 1);
@@ -44,4 +47,5 @@ test('a trigger\'s event lines are each read at that event\'s every sample, neve
         assert.equal(next.value, samples[1][at + k]);
         step = next;
     }
+    assertNotDrawn(step.at, nthAfter(drawnTimes, times[at], 6), 'six keys on are six samples on, not six drawn points');
 });

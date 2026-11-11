@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { assertNotDrawn } from './fullNotDrawn';
 import test from 'node:test';
 import { buildMarkdownReport, buildNotebook, type ReportTrack } from '../shared/report/analysisReport';
 
@@ -63,5 +64,8 @@ test('the markdown report writes every sample\'s peak and level and the file\'s 
     // The backend's peak of every sample (0.8125 FS, −1.8 dBFS), not the envelope's 0.3; the length is the file's.
     assert.match(report, /\| spike\.wav \| [^|]+ \| 48000 Hz \| 12\.500 ?s \| 1 \| −1\.8 dBFS \|/);
     assert.match(report, /\| 0\.813 FS \| −1\.8 dBFS \(uncalibrated\) \|/);
+    const written = /\| (\d+\.\d+) FS \|/u.exec(report)?.[1];
+    assert.equal(written, '0.813');
+    assertNotDrawn(written, Math.max(...thinned.max, ...thinned.min.map(Math.abs)).toFixed(3), 'not the peak of the envelope drawn');
     assert.doesNotMatch(report, /\b0\.30\b/);
 });

@@ -24,6 +24,7 @@ from analyzer import (
     spectrogram_frame_centers,
     spectrogram_window_frames,
 )
+from conftest import assert_not_drawn
 from stage_view import log_buckets, min_max_indices, rows_bucket_count
 
 _SCALE = level_scale_metadata(wd.from_numpy(np.zeros((1, 8)), sampling_rate=8).channels[0].level_reference, "STFT")
@@ -249,6 +250,8 @@ def test_spectrogram_colour_range_is_every_full_cells_not_the_cells_averaged_to_
     assert drawn.max() < -20.0 and drawn.min() > -70.0
     assert spec["maxDb"] == -3.5
     assert spec["minDb"] == -97.25
+    assert_not_drawn(spec["maxDb"], float(drawn.max()))
+    assert_not_drawn(spec["minDb"], float(drawn.min()))
 
 
 def test_spectrogram_colour_range_counts_digital_silence_as_its_own_level() -> None:
@@ -651,3 +654,7 @@ def test_channel_peak_is_every_samples_largest_magnitude_not_the_envelope_drawn(
     assert channel["peakAbsolute"] == pytest.approx(float(np.max(np.abs(read))))
     assert channel["peakAbsolute"] == pytest.approx(0.8125)
     assert channel["peakLevelDb"] == pytest.approx(20 * math.log10(0.8125), abs=1e-6)
+    # A waveform thinned by averaging to as many points as are drawn never holds the one sample.
+    width = len(read) // len(channel["waveform"]["max"])
+    averaged = np.abs(read[: len(read) // width * width].reshape(-1, width).mean(axis=1))
+    assert_not_drawn(channel["peakAbsolute"], float(averaged.max()))

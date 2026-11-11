@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { assertNotDrawn, nearestOf, nthAfter } from './fullNotDrawn';
 import { JSDOM } from 'jsdom';
 import { getStrings } from '../shared/i18n/strings';
 import type { StageView } from '../shared/protocol/backendProtocol';
@@ -265,11 +266,13 @@ test('side by side, each lane is read at its own full data, never the line thinn
         assert.equal(read?.full, true, `${track.filePath}: read from its full data`);
         assert.equal(read?.at, xs[bin]);
         assert.equal(read?.value, values[bin], `${track.filePath}: the bin thinned out of the line drawn`);
+        assertNotDrawn(read?.at, nearestOf(views[track.filePath].xs ?? [], xs[bin]), 'not the nearest point of the line drawn');
         for (let step = 1; step <= 10; step++) {
             read = read ? stageStep(plot, read, 1) ?? null : null;
             assert.equal(read?.at, xs[bin + step], `${track.filePath}: step ${step} is the next bin`);
             assert.equal(read?.value, values[bin + step]);
         }
+        assertNotDrawn(read?.at, nthAfter(views[track.filePath].xs ?? [], xs[bin], 10), 'ten keys on are ten bins on, not ten drawn points');
     }
 });
 

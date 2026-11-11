@@ -3,6 +3,7 @@ import { N, R, T } from './helpers/figure';
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
+import { assertNotDrawn } from './fullNotDrawn';
 import { held } from './helpers/heldSource';
 import { spectrumLayer } from '../webview/runtime/overlaySpectrumPainter';
 import { axisNameParts, fontPixels } from '../webview/plot/axisTitle';
@@ -486,6 +487,12 @@ test('zoomed, lines are ordered by every value on screen: a loud peak just off s
     // Drawn again as each comes in (one read is on its way at a time): last with both, the quieter on top.
     assert.deepEqual(strokes.filter(color => color === 'flat' || color === 'peaked').slice(-2), expected, 'drawn again once measured, the quieter on top');
     assert.equal(canvas.dataset.plotOrder, '-35.00,-40.00');
+    // Counted by the stretches drawn (the one the edge cuts, its off-screen peak in), the peaked line would be the louder.
+    const withCut = (values: number[]): number => {
+        const inside = values.filter((_, index) => xs[index] >= x0 && xs[index] <= 10031.25);
+        return 10 * Math.log10(inside.reduce((sum, value) => sum + 10 ** (value / 10), 0) / inside.length);
+    };
+    assertNotDrawn(canvas.dataset.plotOrder, [withCut(flat), withCut(peaked)].sort((a, b) => b - a).map(level => level.toFixed(2)).join(','), 'not the levels of the stretches drawn');
     // Over the whole axis every stretch is on screen: its levelBins give the order at once, with nothing fetched.
     strokes.length = 0;
     paintOverlay(canvas, { layers: [layer('peaked', peaked), layer('flat', flat)] }, R({ min: -80, max: 0 }), N({ x: 'Frequency [Hz]', y: 'Level [dB]' }), { axisView: axis });

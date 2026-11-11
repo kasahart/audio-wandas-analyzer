@@ -1,6 +1,7 @@
 import { P, T } from './helpers/figure';
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { assertNotDrawn, nearestOf, nthAfter } from './fullNotDrawn';
 import { frequencyFraction, type CanvasDrawCtx } from '../webview/draw/canvasDrawers';
 import { paintOverlaySpectrum, renderSpectrumAxisLegend, spectrumLayer, SECONDARY_AXIS_DASH, SECONDARY_AXIS_MARK } from '../webview/runtime/overlaySpectrumPainter';
 import { screenLevels, stageHover, stageStep, type StagePlot } from '../webview/runtime/stagePanes';
@@ -100,6 +101,7 @@ test('a slice too dense to draw whole is read at its real bins: a bin thinned ou
     assert.equal(read?.at, binHz(bin));
     assert.equal(read?.value, values[bin]);
     assert.equal(read?.text, spectrumReadoutText('A', slice, binHz(bin), values[bin]));
+    assertNotDrawn(read?.at, nearestOf(drawn, binHz(bin)), 'not the nearest point of the line drawn');
     // ← / → visit every bin in turn, however many share a pixel.
     for (const delta of [1, -1] as const) {
         for (let step = 1; step <= 40; step++) {
@@ -108,6 +110,7 @@ test('a slice too dense to draw whole is read at its real bins: a bin thinned ou
             assert.equal(read?.at, binHz(bin), `step ${step} (${delta})`);
             assert.equal(read?.value, values[bin]);
         }
+        if (delta === 1) assertNotDrawn(read?.at, nthAfter(drawn, binHz(bin - 40), 40), 'forty keys on are forty bins on, not forty drawn points');
     }
 });
 

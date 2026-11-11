@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { assertNotDrawn, nearestOf } from './fullNotDrawn';
 import { FAILED_RETRY_MS as FAILED_HOLD_MS } from '../webview/runtime/answerStore';
 import { fetchedSource, localCells, localLine, mappedSource, NO_FULL_DATA, STEP_AHEAD, wholeBars, type FullSource, type LineQuery } from '../webview/runtime/fullRead';
 import { declaresFullRead, stageHover, stageStep, type StagePlot, type StageRead } from '../webview/runtime/stagePanes';
@@ -174,6 +175,7 @@ test('a window too dense to send whole is read where the pointer is: the point n
         const read = first?.pending ? stageHover(lane, x, y) : first;
         assert.equal(read?.full, true);
         assert.equal(read?.at, nearest(50, x, y), `the true nearest sample at (${x}, ${y})`);
+        assertNotDrawn(read?.at, nearestOf(envelope().xs ?? [], x * 50), 'not a point of the line drawn');
         assert.equal(signal[read?.at], read?.value, 'a real sample');
     }
     // Beyond the pick radius of every sample (the pointer far above the line): the sample under the pointer, not

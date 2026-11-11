@@ -15,7 +15,7 @@ export const cursorSpectrum: ChartContract = {
             tests: [
                 tt('src/test/overlaySpectrumPainter.test.ts', 'a slice too dense to draw whole is read at its real bins: a bin thinned out of the line, and every bin by the arrow keys (R7)'),
                 tt('src/test/fullRead.test.ts', 'a cursor spectrum read at its real bins writes its frequency to the digits those bins need, not the drawn points\' (R7)'),
-                tt('python-backend/test_known_answers.py', 'test_the_cursor_spectrums_cut_row_and_every_bin_row_read_the_same_peaks'),
+                t('python-backend/test_known_answers.py', 'test_the_cursor_spectrums_cut_row_and_every_bin_row_read_the_same_peaks'),
             ],
         },
         {
@@ -23,7 +23,7 @@ export const cursorSpectrum: ChartContract = {
             computedIn: ['src/webview/spectrum/cursorSpectrum.ts:extractSpectrumAtCursor', 'src/webview/spectrum/cursorSpectrum.ts:makeSilentSpectrumSlice', `${RT}:cursorSpectrumFor`, 'src/webview/runtime/overlaySpectrumPainter.ts:spectrumLayer'],
             from: 'full', trace: 'このカーソルのスライス（同じ設定で、このカーソルで変換したもの。sliceIsAtCursor）がまだないとき、前のカーソルのスライスがキャッシュにあってもそれは使わず、レーンの表示用スペクトログラムのカーソルの列を描くだけで（帯は前の帯を描くだけで）、standIn: \'pending\' の印を付ける。spectrumLayer はその線を読まない（読み値は届くまで空、R7）し、その値から levelBins を作らない。トラックの終わりの後の床は standIn: \'silence\' で、読みも測りもしない（帯も線として描き、描いたままは読まない）。届いたスライスは全ビンから読む。',
             tests: [
-                tt('src/test/overlaySpectrumPainter.test.ts', 'until the backend\'s slice comes, the cursor spectrum draws the lane\'s averaged spectrogram column and reads nothing of it; past the end, nothing (R7)'),
+                t('src/test/overlaySpectrumPainter.test.ts', 'until the backend\'s slice comes, the cursor spectrum draws the lane\'s averaged spectrogram column and reads nothing of it; past the end, nothing (R7)'),
                 t('src/test/cursorSpectrum.test.ts', 'extractSpectrumAtCursor: cursor in middle picks middle bin'),
                 tt('src/test/cursorSpectrum.test.ts', 'a cached slice from an earlier cursor is never drawn or read as this cursor\'s (R7)'),
             ],

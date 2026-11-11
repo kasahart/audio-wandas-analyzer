@@ -14,7 +14,7 @@ export const compareDelta: ChartContract = {
             from: 'full', trace: 'バックエンドが全ビン・全サンプルで引いてから描くために間引く。単位や校正やサンプリング周波数が違えば出さない。',
             tests: [
                 tt('python-backend/test_stage_combine.py', 'test_a_narrow_difference_is_taken_bin_by_bin_and_kept_when_drawn'),
-                tt('python-backend/test_stage_combine.py', 'test_a_time_signals_difference_is_compare_minus_base_sample_by_sample'),
+                t('python-backend/test_stage_combine.py', 'test_a_time_signals_difference_is_compare_minus_base_sample_by_sample'),
                 t('python-backend/test_stage_combine.py', 'test_values_in_other_units_have_no_difference_whatever_the_frame'),
             ],
         },
@@ -45,7 +45,8 @@ export const compareDelta: ChartContract = {
             tests: [
                 t('src/test/plotHoverLayer.test.ts', 'an arrow key reads the next point of the line read, as the pointer on it would; with none read, the plot\'s left edge (R7)'),
                 t('src/test/fullRead.test.ts', 'an arrow key crosses silent points past one fetched window to the next point with a value (R7)'),
-                tt('python-backend/test_full_read.py', 'test_a_difference_is_read_bin_by_bin'),
+                t('python-backend/test_full_read.py', 'test_a_difference_is_read_bin_by_bin'),
+                tt('src/test/entryHeldPlot.test.ts', '← / → on a held slot\'s Δ step to the next of every bin, not the next point drawn of the Δ thinned to the plot\'s width (R7)'),
                 t('src/test/uiSmoke/plotContract.spec.ts', 'every plot the comparison shows answers the same gestures: readout above it, ← / → step it, Ctrl+wheel zoom, double-click reset, axis range, both axes named (R13)'),
             ],
         },
@@ -54,10 +55,10 @@ export const compareDelta: ChartContract = {
             computedIn: [`${SP}:stageHeadline`, `${SP}:atValue`, 'python-backend/stage_combine.py:difference_peak'],
             from: 'full', trace: 'バックエンドが画面に見えている部分の全データの Δ から |Δ| が最大の位置と値を探し（difference_peak、STFT の詰め物の列とケフレンシー 0 は除く）、Δ の peak として送る。拡大中は、ズームが落ち着いてから webview が画面の窓そのもの（peakX、熱図は peakY も）を送り、詳細の周りの余白ではなくその窓だけで探す（_on_screen）。その窓の Δ が届くまで、見出しは位置を書かない。',
             tests: [
-                tt('src/test/stagePanes.test.ts', 'the Δ pane\'s headline writes the backend\'s largest difference, found before thinning, never the largest point drawn'),
+                t('src/test/stagePanes.test.ts', 'the Δ pane\'s headline writes the backend\'s largest difference, found before thinning, never the largest point drawn'),
                 tt('python-backend/test_stage_combine.py', 'test_the_headlines_largest_difference_is_found_among_every_value_at_its_own_place'),
-                tt('python-backend/test_stage_combine.py', 'test_the_headline_is_found_before_rounding'),
-                tt('python-backend/test_stage_combine.py', 'test_zoomed_the_headlines_peak_is_looked_for_in_the_window_on_screen_alone_not_its_margin'),
+                t('python-backend/test_stage_combine.py', 'test_the_headline_is_found_before_rounding'),
+                t('python-backend/test_stage_combine.py', 'test_zoomed_the_headlines_peak_is_looked_for_in_the_window_on_screen_alone_not_its_margin'),
                 t('src/test/stagePanes.test.ts', 'zoomed, the Δ pane\'s headline names no point until the backend has looked for it in this window (A21, C4)'),
                 t('python-backend/test_stage_combine.py', 'test_the_headline_leaves_out_padding_columns_the_zero_quefrency_and_whatever_is_off_screen'),
             ],
@@ -68,7 +69,7 @@ export const compareDelta: ChartContract = {
             from: 'full', trace: 'バックエンドが全データの Δ（間引く前）の最小と最大を valueRange として Δ の絵に付け、stageDiffRange はその端から ± を決める。',
             tests: [
                 tt('src/test/stagePanes.test.ts', 'every range is set from the full data\'s lowest and highest value (valueRange), never the points drawn or the cells averaged to draw an image (R1, R9)'),
-                tt('python-backend/test_stage_combine.py', 'test_a_median_and_a_difference_carry_their_full_datas_value_range'),
+                t('python-backend/test_stage_combine.py', 'test_a_median_and_a_difference_carry_their_full_datas_value_range'),
             ],
         },
         {
@@ -77,7 +78,7 @@ export const compareDelta: ChartContract = {
             from: 'full', trace: 'Δ の熱図の matrix はブロックごとに平均したマスだが、両端の数は平均する前の全マスの Δ の valueRange から決める。',
             tests: [
                 tt('src/test/stagePanes.test.ts', 'every range is set from the full data\'s lowest and highest value (valueRange), never the points drawn or the cells averaged to draw an image (R1, R9)'),
-                tt('python-backend/test_stage_combine.py', 'test_a_median_and_a_difference_carry_their_full_datas_value_range'),
+                t('python-backend/test_stage_combine.py', 'test_a_median_and_a_difference_carry_their_full_datas_value_range'),
             ],
         },
         {

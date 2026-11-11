@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { assertNotDrawn, averagedInto, peaksInto } from './fullNotDrawn';
 import test, { mock } from 'node:test';
 import { JSDOM } from 'jsdom';
 import { getStrings } from '../shared/i18n/strings';
@@ -707,6 +708,8 @@ test('the pair view\'s gain axis opens at round ends holding every bin on screen
     assert.ok(gain.max < 40, 'a bin off screen does not stretch it');
     // Round ends by the dB line rule (R9): 10 dB steps here.
     assert.deepEqual(gain, { min: -40, max: 10 });
+    // A line thinned by averaging loses the one-bin notch: a range of it would open at −10.
+    assertNotDrawn(gain.min, Math.floor(Math.min(...averagedInto(shown, 200)) / 10) * 10, 'the range holds the notch');
 });
 
 test('the pair view\'s gain axis keeps the dB line rule the comparison\'s transfer-function step keeps: the same range for the same gains, never wider than 100 dB (R9)', () => {
@@ -734,5 +737,10 @@ test('the pair view orders its gains by every bin on screen: the quieter respons
     const bucketed = (layer: typeof quietLayer) => layer.view.levelBins?.count.reduce((sum, n) => sum + n, 0);
     assert.equal(bucketed(quietLayer), bins, 'every bin is measured');
     assert.equal(bucketed(loudLayer), bins);
-    assert.deepEqual(byLevel([quietLayer, loudLayer], lanes[0].layers[0].view).map(layer => layer.label), ['loud', 'quiet']);
+    const order = byLevel([quietLayer, loudLayer], lanes[0].layers[0].view).map(layer => layer.label);
+    assert.deepEqual(order, ['loud', 'quiet']);
+    // Judged on a line thinned to each bucket's peak, the one loud bin would make the quiet response the louder.
+    const drawnPower = (values: number[]): number => peaksInto(values, 32).reduce((sum, value) => sum + 10 ** (value / 10), 0) / 32;
+    const byDrawn = [{ label: 'quiet', values: quiet }, { label: 'loud', values: loud }].sort((a, b) => drawnPower(b.values) - drawnPower(a.values)).map(item => item.label);
+    assertNotDrawn(order, byDrawn, 'not the order of the points drawn');
 });

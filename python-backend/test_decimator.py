@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 
+from conftest import assert_not_drawn
 from decimator import decimated_waveform
 
 
@@ -48,6 +49,17 @@ def test_absolute_peak():
     samples = np.array([0.3, -0.9, 0.5], dtype=np.float64)
     result = decimated_waveform(samples, 3, 0, 3)
     assert result["absolutePeak"] == pytest.approx(0.9)
+
+
+def test_absolute_peak_is_every_samples_not_a_line_thinned_by_averaging():
+    # One sample far above a quiet tone, thinned to 50 points: the peak is that sample's.
+    samples = 0.1 * np.sin(np.arange(5000) * 0.3)
+    samples[3210] = -0.95
+    result = decimated_waveform(samples, 50, 0, 5000)
+    assert len(result["max"]) < samples.size
+    assert result["absolutePeak"] == pytest.approx(0.95)
+    averaged = np.abs(samples.reshape(50, -1).mean(axis=1))
+    assert_not_drawn(result["absolutePeak"], float(averaged.max()))
 
 
 def test_point_limit_zero_returns_empty():

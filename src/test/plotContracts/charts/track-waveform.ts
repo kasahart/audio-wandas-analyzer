@@ -14,8 +14,8 @@ export const trackWaveform: ChartContract = {
             from: 'full', trace: 'laneReads.waveform がファイルの全サンプルからマウスのまわりを取り寄せる。描いた包絡は読まない。',
             tests: [
                 tt('src/test/trackLaneHover.test.ts', 'the pointer on a track lane reads the file\'s own sample nearest it, not the envelope drawn, and ← / → every sample in turn (R7)'),
-                tt('src/test/fullRead.test.ts', 'a dense waveform is read at its real samples: a sample not drawn, and every sample by the arrow keys (R7)'),
-                tt('python-backend/test_full_read.py', 'test_a_lane_reads_its_files_own_samples_and_stft_cells'),
+                t('src/test/fullRead.test.ts', 'a dense waveform is read at its real samples: a sample not drawn, and every sample by the arrow keys (R7)'),
+                t('python-backend/test_full_read.py', 'test_a_lane_reads_its_files_own_samples_and_stft_cells'),
             ],
         },
         {
@@ -41,7 +41,7 @@ export const trackWaveform: ChartContract = {
             computedIn: [`${RT}:laneAmplitudeAxis`, `${RT}:amplitudeScaleFor`, 'src/webview/runtime/figureModel.ts:laneAmplitudeRange', 'python-backend/decimator.py:decimated_waveform'],
             from: 'full', trace: 'absolutePeak（全サンプルの絶対値の最大、間引く前に求める）か、つないだ録音で共有するピークから決める。',
             tests: [
-                tt('python-backend/test_decimator.py', 'test_absolute_peak'),
+                tt('python-backend/test_decimator.py', 'test_absolute_peak_is_every_samples_not_a_line_thinned_by_averaging'),
                 t('src/test/laneAxes.test.ts', 'a waveform lane\'s amplitude ticks sit where the waveform draws their values, zoomed or not'),
             ],
         },

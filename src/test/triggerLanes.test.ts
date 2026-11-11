@@ -1,6 +1,7 @@
 import { N } from './helpers/figure';
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { assertNotDrawn, averagedInto, nearestOf, nthAfter } from './fullNotDrawn';
 import type { StageView } from '../shared/protocol/backendProtocol';
 import { localLine } from '../webview/runtime/fullRead';
 import { stageHover, stageStep } from '../webview/runtime/stagePanes';
@@ -68,6 +69,8 @@ test('the trigger lanes of one level identity share a range holding every sample
     // The loud one's one-sample spike (−0.93 FS) is its peak: the range holds it whole, both ways round 0.
     assert.ok(range.min <= -0.93 && range.max >= 0.93, `${range.min}..${range.max}`);
     assert.ok(range.max < 1.2, 'no wider than the peak and a margin');
+    // A line thinned by averaging never holds the one-sample spike: a range of it would stop at the tone's 0.2.
+    assertNotDrawn(range.max, Math.max(...averagedInto(loud.samples, 200).map(Math.abs)), 'the range holds the spike');
     // A trigger level above every sample stays in sight.
     const high = lanes(1.5, { '/a.wav': loud }).drawn.values().next().value?.range;
     assert.ok(high && high.max >= 1.5, `${high?.max}`);
@@ -104,6 +107,8 @@ test('a trigger lane is read at every sample: the pointer reads a sample between
     let step = read;
     const index = loud.times.indexOf(read.at as number);
     assert.ok(index >= 0);
+    assert.equal(read.at, loud.times[at], 'the sample under the pointer');
+    assertNotDrawn(read.at, nearestOf(drawnTimes, loud.times[at]), 'not the nearest point of the envelope drawn');
     for (let n = 1; n <= 5; n++) {
         const next = stageStep(plot, step, 1);
         assert.ok(next);
@@ -111,4 +116,5 @@ test('a trigger lane is read at every sample: the pointer reads a sample between
         assert.equal(next.value, loud.samples[index + n]);
         step = next;
     }
+    assertNotDrawn(step.at, nthAfter(drawnTimes, loud.times[at], 5), 'five keys on are five samples on, not five drawn points');
 });

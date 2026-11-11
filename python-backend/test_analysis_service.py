@@ -19,6 +19,7 @@ from analysis_engine import AnalysisEngine, compute_spectrogram
 from analysis_service import AnalysisService
 from analyzer import SPECTRUM_DISPLAY_POINT_LIMIT, normalize_stft_options
 from backend_errors import InputError
+from conftest import assert_not_drawn
 
 
 def _write_sine_wav(path: Path, seconds: float = 0.5, sample_rate: int = 16000) -> None:
@@ -125,6 +126,11 @@ def test_cursor_spectrum_level_range_is_every_bins_not_the_row_cut_for_display(t
         assert cut["maxDb"] == pytest.approx(float(every.max()))
         assert whole["minDb"] == pytest.approx(float(every.min()))
         assert whole["maxDb"] == pytest.approx(float(every.max()))
+        # A row thinned by averaging to the points drawn loses the notch and the tone's top: not this range.
+        width = every.size // len(cut["values"])
+        averaged = every[: every.size // width * width].reshape(-1, width).mean(axis=1)
+        assert_not_drawn(cut["minDb"], float(averaged.min()))
+        assert_not_drawn(cut["maxDb"], float(averaged.max()))
 
 
 def test_service_exposes_all_use_cases_without_server_loop(tmp_path: Path) -> None:

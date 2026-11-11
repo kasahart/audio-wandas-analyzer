@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { assertNotDrawn } from './fullNotDrawn';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 import { getStrings } from '../shared/i18n/strings';
@@ -301,6 +302,8 @@ test('the strip\'s colour range holds every table row\'s level, not only the row
     // Zoomed to rows that hold neither end, the colours still span every row.
     const zoomed = overviewPicture(rows, bands, { x: FULL_PLOT_WINDOW.x, y: { start: 0, end: 0.1 } }, 10);
     assert.deepEqual(zoomed?.range, { min: -100, max: 0 });
+    const zoomedDrawn = (zoomed?.view.matrix ?? []).flat().filter((value): value is number => value !== null);
+    assertNotDrawn(zoomed?.range.min, Math.floor(Math.min(...zoomedDrawn) / 10) * 10, 'not the range of the rows the window draws');
 });
 
 test('the strip\'s colours reach no more than 100 dB under its loudest level: a digitally silent recording (−300 dB) does not set the bottom (R9)', () => {
