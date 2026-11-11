@@ -105,8 +105,14 @@ const COUNT_QUANTITIES = (['en', 'ja'] as const).map(language => getStrings(lang
 /**
  * The next point to the right of the one the plot reads, in the full-resolution data that point is read from (R7):
  * the layer's full source (fullRead.ts: StageLayer.full, which every layer has, bars too), asked as the plot asks
- * it, never the points it draws. A line's next point is the next with a value to read (not a gap, nor the
- * silent floor below −250 dB that it draws as a gap); an image's, the next column (time frame, band) on its row.
+ * it, never the points it draws. The expectation follows the one rule the arrow keys follow (stagePanes.ts stageStep),
+ * so the two cannot drift apart:
+ * - a line is asked with a seek (LineQuery.seek): the first point with a value to read past the one read, however
+ *   long the gap or the silence before it (a fixed look-ahead would stop inside a long silence);
+ * - the silent floor (−250 dB and below, drawn as a gap) is skipped only on a line that has one, a level or a gain;
+ *   a Δ and a plain value read −250 and below as the value it is (stagePanes.ts `floorless`, which the plot notes
+ *   for the line read as data-plot-read-floorless; fullRead.ts `readableValue` is the same test);
+ * - an image's next point is the next column (time frame, band) on its row.
  * Null where the plot reads no point of its data.
  */
 async function nextPoint(plot: Locator): Promise<number | null> {
@@ -133,10 +139,13 @@ async function nextPoint(plot: Locator): Promise<number | null> {
             const column = xs.findIndex(x => x === at);
             return column >= 0 && column + 1 < xs.length ? xs[column + 1] : null;
         }
-        // Far enough past it to hold the next value however many empty bins (a histogram's) come first.
-        const got = source.line ? await ask(ready => source.line!({ x0: at, x1: at, beyond: 512 }, ready)) : null;
+        // Whether the line read has no silent floor, as the plot itself decided it for this line (notePlotRead).
+        const plain = canvas.getAttribute('data-plot-read-floorless') === 'true';
+        // The keys' own query: a seek to the first readable point past `at`, with the same floor rule.
+        const got = source.line ? await ask(ready => source.line!({ x0: at, x1: at, beyond: 512, seek: 1, ...(plain ? { plain: true } : {}) }, ready)) : null;
         if (!got) return null;
-        const readable = (value: number | null | undefined): boolean => value !== null && value !== undefined && Number.isFinite(value) && !(value <= -250 && layer.view.quantity !== 'value');
+        // fullRead.ts readableValue, written out: this runs in the page, where the module is not imported.
+        const readable = (value: number | null | undefined): boolean => value !== null && value !== undefined && Number.isFinite(value) && (plain || value > -250);
         const index = got.xs.findIndex((x, i) => x > at && readable(got.values?.[i]));
         return index >= 0 ? got.xs[index] : null;
     });
@@ -598,7 +607,7 @@ async function expectContract(page: Page, name: string, plot: Locator): Promise<
     const passed = await contract(page, plot);
     const gaps = KNOWN_GAPS[name] ?? [];
     const checks: Check[] = ['readout', 'step', 'zoom', 'reset', 'zoom keys', 'axis wheel', 'box zoom', 'lost release', 'axis range', 'x range', 'axes'];
-    expect.soft(checks.filter(check => !passed.has(check) && !gaps.includes(check)), `${name}: fails the plot contract (R13)`).toEqual([]);
+    expect.soft(checks.filter(check => !passed.has(check) && !gaps.includes(check)), `${name}: fails these checks of the plot contract (docs/display-rules.md R13; each is a block in contract() above whose comment states the rule it checks, e.g. 'lost release' is R7's drag whose release never reaches the page)`).toEqual([]);
     expect.soft(gaps.filter(check => passed.has(check)), `${name}: now passes; take it off KNOWN_GAPS`).toEqual([]);
 }
 

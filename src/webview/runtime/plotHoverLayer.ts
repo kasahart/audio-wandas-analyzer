@@ -10,7 +10,7 @@
  * the point it reads (the next full-resolution point, however many share a pixel), not just where it is on screen:
  * stepFrom gives the place, and the show at that place reads that very point.
  */
-import { STAGE_MARGINS, stageHover, stageReadAgain, stageStep, strokeStageLine, type StagePlot, type StageRead } from './stagePanes';
+import { STAGE_MARGINS, floorless, stageHover, stageReadAgain, stageStep, strokeStageLine, type StagePlot, type StageRead } from './stagePanes';
 import { hidePlotReadout, paintHoverMarks, showPlotReadout } from './plotHover';
 
 /** A place on screen (client pixels) for the pointer, or an arrow key's step, to read. */
@@ -251,7 +251,7 @@ export function createPlotHoverLayer(document: Document, className = '', parent:
             if (noted && noted !== plot) note(noted, null);
             noted = plot;
             last = found ? { plot, drawn, ...found } : null;
-            note(plot, hit);
+            note(plot, hit, drawn);
             for (const other of filled) if (other !== slot) hidePlotReadout(other);
             filled.clear();
             if (waits(hit)) {
@@ -360,12 +360,18 @@ export function createPlotHoverLayer(document: Document, className = '', parent:
  */
 export type PlotReadNoted = HTMLElement & { __plotRead?: StageRead | null };
 
-/** Writes on a plot what it reads (R7), for the tests of every plot: where the number is from and the point read. */
-export function notePlotRead(plot: HTMLElement, read: StageRead | null): void {
+/**
+ * Writes on a plot what it reads (R7), for the tests of every plot: where the number is from and the point read.
+ * `drawn` is the drawing it was read on: with it, `data-plot-read-floorless` says whether the line read has no silent
+ * floor (stagePanes' `floorless`: a Δ, a plain value), which is the rule ← / → seek by, so the browser's contract test
+ * (plotContract.spec.ts nextPoint) expects the next point by the very rule the keys follow.
+ */
+export function notePlotRead(plot: HTMLElement, read: StageRead | null, drawn?: Pick<StagePlot, 'diff'> | null): void {
     if (!plot.dataset) return;
     (plot as PlotReadNoted).__plotRead = read && !read.pending && !read.failed ? read : null;
     plot.dataset.plotRead = !read ? '' : read.pending ? 'pending' : read.failed ? 'failed' : read.full ? 'full' : 'drawn';
     plot.dataset.plotReadAt = read?.full && read.at !== undefined ? String(read.at) : '';
     plot.dataset.plotReadRow = read?.full && read.row !== undefined ? String(read.row) : '';
     plot.dataset.plotReadValue = read?.full && read.value !== undefined ? String(read.value) : '';
+    plot.dataset.plotReadFloorless = read && !read.pending && !read.failed && !read.image ? String(floorless(read.layer.view, !!drawn?.diff)) : '';
 }

@@ -286,3 +286,62 @@ test('a press moved within the drag threshold and let go reads where it was let 
     element('a').dispatchEvent(new (doc.defaultView as Window & typeof globalThis).MouseEvent('mouseup', { bubbles: true, clientX: 22, clientY: 50, button: 0, detail: 1 }));
     assert.ok(done.includes('hover:a'), `read at the release: ${done.join(', ')}`);
 });
+
+/**
+ * The ways a press ends without its mouseup reaching the page (docs/display-rules.md R7, "離した知らせが届かない"):
+ * each must end the drag, or every plot stays silent (no readout, no keys) until the next full click.
+ */
+const LOST_RELEASES: ReadonlyArray<{ name: string; lose: (doc: Document, over: HTMLElement) => void }> = [
+    { name: 'pointercancel', lose: doc => { doc.dispatchEvent(new (doc.defaultView as Window & typeof globalThis).Event('pointercancel', { bubbles: true })); } },
+    { name: 'lostpointercapture', lose: (doc, over) => { over.dispatchEvent(new (doc.defaultView as Window & typeof globalThis).Event('lostpointercapture', { bubbles: true })); } },
+    { name: 'the window\'s blur', lose: doc => { (doc.defaultView as Window).dispatchEvent(new (doc.defaultView as Window & typeof globalThis).Event('blur')); } },
+    {
+        name: 'the page hidden (visibilitychange)',
+        lose: doc => {
+            Object.defineProperty(doc, 'hidden', { configurable: true, get: () => true });
+            doc.dispatchEvent(new (doc.defaultView as Window & typeof globalThis).Event('visibilitychange'));
+            Object.defineProperty(doc, 'hidden', { configurable: true, get: () => false });
+        },
+    },
+    // Let go outside the page: the next move the page sees has no button down.
+    { name: 'a move with no button down', lose: (doc, over) => { over.dispatchEvent(new (doc.defaultView as Window & typeof globalThis).MouseEvent('mousemove', { bubbles: true, buttons: 0, clientX: 60, clientY: 50 })); } },
+];
+
+test('a drag whose release never reaches the page ends there with nothing done: every plot reads and takes keys again, and no box is zoomed into (R7)', async () => {
+    for (const { name, lose } of LOST_RELEASES) {
+        const { doc, element, done, mouse, key, wait } = twoSurfaces();
+        const fix = `Fix: end the press in plotInteraction.ts's abandon() for this event (trackPointerEvents.ts listens for it); see docs/display-rules.md R7.`;
+        mouse(element('a'), 'mousedown', 20);
+        mouse(doc, 'mousemove', 70);
+        lose(doc, element('b'));
+        done.length = 0;
+        // The pointer over the other surface's plot, no button down: it reads and steps as if no drag had been.
+        element('b').dispatchEvent(new (doc.defaultView as Window & typeof globalThis).MouseEvent('mousemove', { bubbles: true, buttons: 0, clientX: 60, clientY: 50 }));
+        assert.ok(done.includes('hover:b'), `after ${name} the plot under the pointer shows no readout: the lost drag still silences every plot. ${fix} Got: ${done.join(', ') || 'nothing'}`);
+        key('ArrowRight');
+        assert.ok(done.includes('step:b'), `after ${name} ← / → do not step the plot under the pointer: the lost drag still takes the keys. ${fix} Got: ${done.join(', ')}`);
+        key('Equal', '=');
+        assert.ok(done.includes('window:b'), `after ${name} + does not zoom the plot under the pointer. ${fix} Got: ${done.join(', ')}`);
+        // A release that does arrive late, and the double-click wait, do nothing more: no box zoom, no click.
+        mouse(doc, 'mouseup', 70);
+        await wait();
+        assert.deepEqual(done.filter(call => call.startsWith('window:a') || call.startsWith('tap:')), [], `after ${name} the abandoned drag still zoomed or clicked: a press whose release was lost must do nothing. ${fix}`);
+    }
+});
+
+test('a lost release tells the press\'s owner it ended: an Alt+drag is ended where it last was, and a plain press is told it is no click (R7)', () => {
+    for (const { name, lose } of LOST_RELEASES) {
+        const calls: string[] = [];
+        const taps: boolean[] = [];
+        const { doc, element, mouse } = surface({ altDrag: recorder(calls, 'alt'), tap: (_plot, _event, current) => { taps.push(current()); return undefined; } });
+        const fix = 'Fix: plotInteraction.ts abandon() must call the drag\'s end(), or tap() with current() false, so the owner drops what it kept of the press (the lanes\' lanePress); see docs/display-rules.md R7.';
+        mouse(element('a'), 'mousedown', 20, { altKey: true });
+        mouse(doc, 'mousemove', 60, { altKey: true });
+        lose(doc, element('a'));
+        assert.deepEqual(calls, ['alt:start:a', 'alt:move', 'alt:end:true'], `after ${name} the Alt+drag's owner was not told the drag ended. ${fix}`);
+        // A press that had not moved: its owner is told it ended and is not a click.
+        mouse(element('a'), 'mousedown', 20);
+        lose(doc, element('a'));
+        assert.deepEqual(taps, [false], `after ${name} the owner of a plain press was not told it ended as no click. ${fix}`);
+    }
+});
