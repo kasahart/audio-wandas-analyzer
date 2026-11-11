@@ -366,7 +366,7 @@ export function createFailureHold(now: () => number = () => Date.now(), retried?
 export type ScanAnswer = Answer<ScanResult & { ok: true }>;
 
 /** What a scan without a file read says its levels are in: nothing known, so uncalibrated full scale. */
-const UNREAD_LEVEL: AnswerIdentity['level'] = { unit: '', ref: 1, levelReferenceLabel: '', calibrationStatus: 'uncalibrated', fullScale: true };
+export const UNREAD_LEVEL: AnswerIdentity['level'] = { unit: '', ref: 1, levelReferenceLabel: '', calibrationStatus: 'uncalibrated', fullScale: true };
 
 /**
  * A file's scan as an answer, with the identity the scan gives it: its file version (input.id), calibration status,
@@ -387,6 +387,16 @@ export function scanAnswer(path: string, result: ScanResult | undefined, under?:
     if (!result) return { state: 'pending', identity };
     if (!result.ok) return { state: 'failed', identity };
     return { state: 'ready', value: result as ScanResult & { ok: true }, identity };
+}
+
+/**
+ * What a step's picture of a file is of: its scan's identity (scanAnswer: file version, calibration status, level,
+ * condition), the full recipe and region asked, and beside the condition what the picture was asked under (its spec
+ * and the file's basis then), so two pictures of one scan under other asks are never one identity.
+ */
+export function pictureIdentity(path: string, result: ScanResult | undefined, under: { recipeKey: string; region: string; asked: string }): AnswerIdentity {
+    const { identity } = scanAnswer(path, result, under);
+    return { ...identity, conditionId: JSON.stringify([identity.conditionId, under.asked]) };
 }
 
 declare const currentBrand: unique symbol;
