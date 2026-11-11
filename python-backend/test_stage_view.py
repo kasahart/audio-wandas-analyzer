@@ -386,9 +386,9 @@ def test_spectrum_decimation_matches_the_shared_cases_the_webview_is_held_to() -
 
 
 def test_a_spectrums_channels_are_power_averaged_before_their_level_is_rounded(signal: wd.ChannelFrame) -> None:
-    """Rounding only what is sent: two channels at 50.0051 and 49.9951 dB (written 50.01 and 50.00) power-average to
-    50.0001, written 50.00 — not 50.01, the power mean of their written levels. Checked against numpy over the
-    Frame's own dB."""
+    """Rounding only what is written: two channels at 50.0051 and 49.9951 dB (written 50.01 and 50.00) power-average to
+    50.0001, sent as it is (the webview writes 50.0) — not 50.01, the power mean of their written levels. Checked
+    against numpy over the Frame's own dB."""
     import dask.array as da
 
     stereo = signal.fft()
@@ -413,10 +413,11 @@ def test_a_spectrums_channels_are_power_averaged_before_their_level_is_rounded(s
     frame = made(data)
     raw = np.asarray(frame.dB, dtype=np.float64)[:, at]
     assert raw == pytest.approx([50.0051, 49.9951], abs=1e-9)
-    expected = round(float(10 * np.log10(np.mean(10 ** (raw / 10)))), spec.DB_DECIMALS)
+    expected = float(10 * np.log10(np.mean(10 ** (raw / 10))))
     view = stage_view(frame)
     drawn = dict(zip(view["xs"], view["values"], strict=True))
-    assert drawn.get(float(xs[at])) == pytest.approx(expected) == pytest.approx(50.0)
+    # Sent unrounded (only the text the webview writes rounds it, to 50.0): the power mean of the Frame's own dB.
+    assert drawn.get(float(xs[at])) == pytest.approx(expected, abs=1e-9) == pytest.approx(50.0001, abs=1e-4)
 
 
 def test_every_pictures_value_range_is_its_full_datas_not_the_points_or_cells_drawn() -> None:

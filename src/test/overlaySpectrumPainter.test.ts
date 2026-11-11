@@ -376,6 +376,9 @@ test('the cursor spectrum orders a slice cut for display by every bin on screen,
     await new Promise(resolve => setTimeout(resolve, 0));
     assert.deepEqual(strokes.filter(color => color === 'spiky' || color === 'steady'), expected, 'drawn again with every bin: the quieter on top');
     assert.equal(canvas.dataset.plotOrder, `${(10 * Math.log10(mean(steady))).toFixed(2)},${(10 * Math.log10(mean(spiky))).toFixed(2)}`);
+    // Not the order of the points kept to draw it, where the spike makes the spiky one the louder (drawn under).
+    const keptLevels = [spiky, steady].map(values => 10 * Math.log10(mean(kept.map(bin => values[bin])))).sort((a, b) => b - a);
+    assert.notEqual(canvas.dataset.plotOrder, keptLevels.map(level => level.toFixed(2)).join(','));
 });
 
 test('until the backend\'s slice comes, the cursor spectrum draws the lane\'s averaged spectrogram column and reads nothing of it; past the end, nothing (R7)', () => {

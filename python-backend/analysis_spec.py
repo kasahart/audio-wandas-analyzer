@@ -34,8 +34,7 @@ THIRD_OCTAVE_CENTERS_HZ: tuple[float, ...] = (
 )  # fmt: skip
 # MoSQITo rejects band centres above 0.88 × Nyquist.
 THIRD_OCTAVE_NYQUIST_FRACTION = 0.88
-# Reported decimals: levels in dB, frequencies in whole Hz, crest factor as a ratio.
-DB_DECIMALS = 2
+# Levels are sent to the webview unrounded, except a scan's (below): only the text it writes rounds them (R1, R7).
 # A scan's levels, which the webview takes channel means, medians and every Δ from: kept to 1e-4 dB, so each is off
 # by at most 5e-5 dB, a thousandth of the 0.1 dB a level or Δ is shown to (never rounded to what is shown first).
 SCAN_DB_DECIMALS = 4

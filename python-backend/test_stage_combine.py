@@ -147,9 +147,10 @@ def _at_levels(frame: wd.SpectralFrame, levels: dict[int, float]) -> wd.Spectral
 def test_a_difference_median_level_and_readout_are_taken_before_rounding_only_their_numbers_are_rounded(
     signal: wd.ChannelFrame,
 ) -> None:
-    """Levels that round alike still differ (R1): −10.004 and −9.996 dB both write −10.00, but their Δ is 0.008,
-    written 0.01, and a group's median, the Δ's headline, the readout and a level are all taken from the Frame's
-    unrounded dB; only the numbers sent are rounded. Checked against numpy over the Frames' own dB."""
+    """Levels that round alike still differ (R1): −10.004 and −9.996 dB both write −10.00, but their Δ is 0.008
+    (written 0.01 by the webview), and a group's median, the Δ's headline, the readout and a level are all taken from
+    the Frame's unrounded dB and sent unrounded: only the text the webview writes rounds them. Checked against numpy
+    over the Frames' own dB."""
     plain = signal.fft()
     xs = np.asarray(plain.freqs, dtype=np.float64)
     at = int(np.argmin(np.abs(xs - 3000)))
@@ -167,10 +168,10 @@ def test_a_difference_median_level_and_readout_are_taken_before_rounding_only_th
     result = combine([base], compare)
     peak = result["diff"]["peak"]
     assert peak["x"] == pytest.approx(xs[at])
-    assert peak["value"] == pytest.approx(round(float(delta[at]), 2)) == pytest.approx(0.01)
-    assert max(abs(v) for v in result["diff"]["values"] if v is not None) == pytest.approx(0.01)
+    assert peak["value"] == pytest.approx(float(delta[at]), abs=1e-12) == pytest.approx(0.008, abs=1e-9)
+    assert max(abs(v) for v in result["diff"]["values"] if v is not None) == pytest.approx(0.008, abs=1e-9)
     read = read_points([base], compare, {"x": [float(xs[at])], "beyond": 0, "of": "diff"})
-    assert read is not None and read["values"] == pytest.approx([0.01])
+    assert read is not None and read["values"] == pytest.approx([float(delta[at])], abs=1e-12)
     # The level the overlay orders lines by: every bin's power, from the unrounded dB.
     window = [float(xs[at - 3]), float(xs[at + 3])]
     level = read_points([base], None, {"x": window, "level": "db"})
@@ -192,9 +193,9 @@ def test_a_difference_median_level_and_readout_are_taken_before_rounding_only_th
     expected_delta = np.asarray(louder_frame.dB, dtype=np.float64).reshape(-1) - median
     grouped = combine(members, louder)  # type: ignore[arg-type]
     assert grouped["diff"]["peak"]["x"] == pytest.approx(xs[at])
-    assert grouped["diff"]["peak"]["value"] == pytest.approx(round(float(expected_delta[at]), 2)) == pytest.approx(0.01)
+    assert grouped["diff"]["peak"]["value"] == pytest.approx(float(expected_delta[at]), abs=1e-12)
     read = read_points(members, louder, {"x": [float(xs[at])], "beyond": 0, "of": "base"})  # type: ignore[arg-type]
-    assert read is not None and read["values"] == pytest.approx([round(float(median[at]), 2)])
+    assert read is not None and read["values"] == pytest.approx([float(median[at])], abs=1e-12)
 
 
 def test_a_dense_readout_picks_its_points_from_unrounded_levels(signal: wd.ChannelFrame) -> None:
@@ -215,7 +216,7 @@ def test_a_dense_readout_picks_its_points_from_unrounded_levels(signal: wd.Chann
     assert true_low == lowest
     low_at = int(np.argmin([v if v is not None else np.inf for v in read["values"]]))
     assert read["xs"][low_at] == pytest.approx(xs[lowest])
-    assert read["values"][low_at] == pytest.approx(round(float(raw[lowest]), 2))
+    assert read["values"][low_at] == pytest.approx(float(raw[lowest]), abs=1e-12)
 
 
 def test_a_groups_median_is_taken_bin_by_bin_before_it_is_drawn(signal: wd.ChannelFrame) -> None:

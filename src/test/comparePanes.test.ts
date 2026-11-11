@@ -409,6 +409,7 @@ test('the report\'s Δ figure without bins draws the 1/3-octave Δ, its range ho
     assert.equal(binned.binned, true);
     assert.equal(binned.view?.kind, 'line');
     assert.ok(binned.range.max >= 14, 'the band steps stay inside the range');
+    assert.notEqual(binned.range.max, Math.max(...(binned.view?.values ?? []).map(value => value ?? -Infinity)), 'not the drawn bins\' highest');
     // A narrow dip in one bin, among 8192 drawn in 640 buckets, sets the range's other end.
     diff[3001] = -31;
     const dipped = deltaFigure({ bins: { hz: 1, nyquist: 8191, base: null, compare: null, diff }, bandDeltas, frequencies });

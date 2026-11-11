@@ -118,19 +118,15 @@ def _limited(read: StageRead, key: Literal["beyond", "columns", "rows"], default
     return max(0, min(limit, int(read.get(key, default))))
 
 
-def _as_is(values: np.ndarray) -> np.ndarray:
-    return values
-
-
 def read_line(
     axis: tuple[int, XAt, IndexOf],
     values_in: Callable[[int, int], np.ndarray],
     read: StageRead,
-    shown: Callable[[np.ndarray], np.ndarray] = _as_is,
 ) -> StagePoints:
     """A line's points for ``read`` (see the module): ``values_in(a, b)`` gives the values at indices [a, b),
-    unrounded; the points are picked and a level taken from those, and only the values sent are ``shown`` (rounded
-    as the plot writes them)."""
+    unrounded. The points are picked, a level taken and the values sent from those as they are: a read carries no
+    rounding, so the webview picks the nearest point, tells silence and steps the arrow keys on the values
+    themselves, and only the text it writes rounds them (plotText)."""
     count, x_at, index_of = axis
     bounds = [float(value) for value in read["x"]]
     x0, x1 = min(bounds), max(bounds)
@@ -147,7 +143,7 @@ def read_line(
     seek = read.get("seek")
     plain = bool(read.get("plain"))
     if seek in (-1, 1):
-        return _seek_line(axis, values_in, x0, int(seek), beyond, shown, plain)
+        return _seek_line(axis, values_in, x0, int(seek), beyond, plain)
     first, after = max(0, low - beyond), min(count, max(high, low) + beyond)
     if high - low <= READ_POINT_LIMIT or "near" not in read:
         # Few enough to send whole (a read with no level asked for is a step's, which never spans a window).
@@ -187,7 +183,7 @@ def read_line(
         complete = False
     return {
         "xs": [float(value) for value in np.asarray(x_at(picked), dtype=np.float64).tolist()],
-        "values": json_values(shown(np.asarray(picked_values, dtype=np.float64))),
+        "values": json_values(np.asarray(picked_values, dtype=np.float64)),
         "start": float(x_at(np.asarray(first))) if first > 0 and complete else None,
         "end": float(x_at(np.asarray(after - 1))) if after < count and complete else None,
         "complete": complete,
@@ -212,7 +208,6 @@ def _seek_line(
     x: float,
     direction: int,
     beyond: int,
-    shown: Callable[[np.ndarray], np.ndarray],
     plain: bool = False,
 ) -> StagePoints:
     """An arrow key's read (StageRead ``seek``): the first point with a value strictly past ``x`` toward
@@ -244,7 +239,7 @@ def _seek_line(
     picked = np.arange(first, after)
     return {
         "xs": [float(value) for value in np.asarray(x_at(picked), dtype=np.float64).tolist()],
-        "values": json_values(shown(np.asarray(values_in(first, after), dtype=np.float64))),
+        "values": json_values(np.asarray(values_in(first, after), dtype=np.float64)),
         "start": float(x_at(np.asarray(first))) if first > 0 else None,
         "end": float(x_at(np.asarray(after - 1))) if after < count else None,
         "complete": True,
@@ -290,12 +285,11 @@ def read_cells(
     ys: np.ndarray,
     cells_in: Callable[[slice, slice], np.ndarray],
     read: StageRead,
-    shown: Callable[[np.ndarray], np.ndarray] = _as_is,
 ) -> StagePoints:
     """An image's real cells around ``read``'s place: the column nearest ``x[0]`` and ``beyond`` columns past it on
     each side, the row nearest ``y[0]`` and ``rows`` (two unless asked) past it on each side (the plot picks the
     cell whose edges hold the pointer). ``cells_in(rows, columns)`` gives the values, rows over ``ys``, columns
-    over ``xs``."""
+    over ``xs``, unrounded, and are sent as they are."""
     times, rows_axis = np.asarray(xs, dtype=np.float64), np.asarray(ys, dtype=np.float64)
     if not times.size or not rows_axis.size:
         return {"xs": [], "ys": [], "matrix": [], "start": None, "end": None, "complete": True}
@@ -310,7 +304,7 @@ def read_cells(
     columns = slice(max(0, column - beyond), min(times.size, column + beyond + 1))
     either = _limited(read, "rows", 2, READ_ROW_LIMIT)
     rows = slice(max(0, row - either), min(rows_axis.size, row + either + 1))
-    matrix = np.asarray(shown(np.asarray(cells_in(rows, columns), dtype=np.float64)), dtype=np.float64)
+    matrix = np.asarray(cells_in(rows, columns), dtype=np.float64)
     return {
         "xs": [float(value) for value in times[columns].tolist()],
         "ys": [float(value) for value in rows_axis[rows].tolist()],

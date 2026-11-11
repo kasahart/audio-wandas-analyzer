@@ -85,6 +85,7 @@ test('every range is set from the full data\'s lowest and highest value (valueRa
     assert.equal(stageRange([cep(0.71)]).max, niceRange(-0.71, 0.71).high);
     // A difference's ± from the full Δ.
     assert.deepEqual(stageDiffRange({ ...line([-2, 3]), valueRange: { min: -19, max: 7 } }), stageDiffRange(line([-19, 7])));
+    assert.notDeepEqual(stageDiffRange({ ...line([-2, 3]), valueRange: { min: -19, max: 7 } }), stageDiffRange(line([-2, 3])), 'not the drawn points\' ±');
 });
 
 test('a heatmap\'s colours reach no more than 100 dB under its loudest value: digital silence (−240 dB) does not set the bottom (R9)', () => {
@@ -194,6 +195,8 @@ test('a trigger\'s events are each a line of their slot, on one amplitude range,
     assert.ok(stageRange([events([-500])]).min <= -500);
     // Two recordings' events are not one another's: no Δ, and the headline counts them instead.
     assert.equal(stageEventCounts(base, compare, { stageEventCounts: '{base} / {compare}' }), '2 / 1');
+    // Its events, every one of which the picture carries: not the points of the line drawn (three each).
+    assert.notEqual(stageEventCounts(base, compare, { stageEventCounts: '{base} / {compare}' }), `${base.values?.length} / ${compare.values?.length}`);
     // A level nothing crosses: 0 counted, and the empty plot says to lower the level instead of 'cannot be shown'.
     const none = events([]);
     assert.equal(stageEventCounts(none, compare, { stageEventCounts: '{base} / {compare}' }), '0 / 1');
@@ -500,6 +503,15 @@ test('a line the webview holds every value of is ordered at once by its values o
     const window = { start: x0 / 24000, end: x1 / 24000 };
     assert.deepEqual(byLevel([layer('peaked', peaked), layer('flat', flat)], axis, window).map(item => item.color),
         expectedOrder([{ color: 'peaked', xs, values: peaked }, { color: 'flat', xs, values: flat }], x0, x1));
+    // A loud bin on screen (7031 Hz) that a line thinned to every 16th bin leaves out: held whole, the peaked line is
+    // the louder there (under); judged by the thinned points, it would be the quieter (on top).
+    const loud = xs.map((_, i) => (i === 600 ? 0 : -40));
+    const thin = (values: number[]): { xs: number[]; values: number[] } => ({ xs: xs.filter((_, i) => i % 16 === 0), values: values.filter((_, i) => i % 16 === 0) });
+    const thinned = (color: string, values: number[]) => ({ color, full: localLine(thin(values).xs, thin(values).values),
+        view: { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'level', ...thin(values), levelBins: levelBinsOf(thin(values).xs, thin(values).values, [0, 24000], false) } as StageView });
+    const whole = byLevel([layer('peaked', loud), layer('flat', flat)], axis, window).map(item => item.color);
+    assert.deepEqual(whole, expectedOrder([{ color: 'peaked', xs, values: loud }, { color: 'flat', xs, values: flat }], x0, x1));
+    assert.notDeepEqual(whole, byLevel([thinned('peaked', loud), thinned('flat', flat)], axis, window).map(item => item.color), 'not the order of the thinned points');
 });
 
 test('a level drawn with no levels from its values before thinning is written as unmeasured, for the audit to fail (R6)', () => {
