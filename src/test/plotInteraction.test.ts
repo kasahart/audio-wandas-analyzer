@@ -200,8 +200,9 @@ function twoSurfaces() {
     for (const id of ['one', 'two']) {
         attachPlotInteraction(element(id), doc, '.plot', {
             locate: (target, clientX, clientY) => {
+                // Each surface finds its own plots only, as every owner's does.
                 const plot = (target as HTMLElement | null)?.closest?.<HTMLElement>('.plot');
-                return plot ? { plot, point: point(clientX, clientY), axis: null } : null;
+                return plot && element(id).contains(plot) ? { plot, point: point(clientX, clientY), axis: null } : null;
             },
             pointOn: (_plot, clientX, clientY) => point(clientX, clientY),
             window: () => FULL_PLOT_WINDOW,
