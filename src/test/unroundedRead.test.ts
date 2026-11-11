@@ -4,7 +4,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { fetchedSource } from '../webview/runtime/fullRead';
-import { stageHover, stageStep, type StagePlot, type StageRead } from '../webview/runtime/stagePanes';
+import { stageDiffRange, stageHover, stageStep, strokeStageLine, type StagePlot, type StageRead } from '../webview/runtime/stagePanes';
 import type { StagePoints, StageView } from '../shared/protocol/backendProtocol';
 import { backendPython } from './uiSmoke/realBackend';
 
@@ -73,4 +73,35 @@ test('the backend\'s read is unrounded end to end: of −10.004 and −9.996 dB 
     const after = next ? step(drawn, next, 1) : null;
     assert.equal(after?.at, 800, 'then past the silent bins');
     assert.equal(after ? step(drawn, after, -1)?.at : undefined, 500, 'and back onto it');
+});
+
+test('a Δ of −260 dB is a Δ, not silence: the backend\'s difference is read, stepped onto, drawn and ranged at −260 dB (R1, R7)', { timeout: 120_000 }, t => {
+    if (!backendReady()) { t.skip('no Python backend'); return; }
+    // The difference of answer.py's compared recording (−269.996 dB at 300 Hz) and its base (−9.996 dB): 0 dB at every
+    // bin but −260 dB at 300 Hz. A level of the same picture at −260 dB would be silence; its Δ is not.
+    const xs = [100, 200, 300, 400, 500, 600, 700, 800];
+    const values = xs.map(hz => (hz === 300 ? -260 : 0));
+    const view = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'level', unit: 'Pa', xs, values, valueRange: { min: -260, max: 0 } } as unknown as StageView;
+    const full = fetchedSource((read, done) => { done(backendAnswer({ ...read, of: 'diff' })); }, { of: 'diff' });
+    const drawn: StagePlot = {
+        frame: { left: 0, top: 0, width: 100, height: 100 }, xAt: hz => hz / 10, xOf: x => x * 10,
+        yAt: value => -value / 3, levelOf: y => -y * 3, ratioStep: 1.12, diff: true, levelUnit: 'dB',
+        lines: [{ view, color: 'red', full }],
+    };
+    const read = hover(drawn, 30, 86);
+    assert.equal(read?.at, 300, 'the Δ under the pointer');
+    assert.equal(read?.value, -260);
+    // → from 200 Hz onto it, and on past it.
+    const from = hover(drawn, 20, 0);
+    assert.equal(from?.at, 200);
+    const onto = from ? step(drawn, from, 1) : null;
+    assert.equal(onto?.at, 300, 'stepped onto the Δ of −260 dB, not past it');
+    assert.equal(onto?.value, -260);
+    // Drawn as a point of the line, not a gap.
+    const points: Array<[number, number]> = [];
+    const context = new Proxy({}, { get: (_target, key) => (key === 'lineTo' || key === 'moveTo' ? (x: number, y: number) => { points.push([x, y]); } : () => undefined), set: () => true }) as unknown as CanvasRenderingContext2D;
+    strokeStageLine(context, drawn, drawn.lines[0], 1);
+    assert.ok(points.some(([x, y]) => Math.abs(x - 30) < 1e-9 && Math.abs(y - drawn.yAt(-260)) < 1e-9), `drawn at −260 dB: ${JSON.stringify(points)}`);
+    // And the Δ's range holds it, as the backend's valueRange of the difference does.
+    assert.ok(stageDiffRange({ ...view, valueRange: undefined }).min <= -260);
 });

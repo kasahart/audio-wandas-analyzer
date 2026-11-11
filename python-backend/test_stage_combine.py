@@ -25,6 +25,7 @@ from stage_combine import (
     draw,
     level_bins,
     read_points,
+    value_range,
     stage_data,
     time_axis,
 )
@@ -771,3 +772,21 @@ def test_a_time_axis_key_agrees_with_what_aligned_combines() -> None:
         assert time_axis(same[0]) != time_axis(other)
     signal = StageData("signal", view, np.empty(0), np.zeros(4), start=0.0, rate=48_000.0)  # type: ignore[arg-type]
     assert time_axis(signal) == {"start": 0.0, "step": 1 / 48_000}
+
+
+def test_a_difference_has_no_silent_floor_its_range_and_reads_hold_a_delta_of_minus_260_db() -> None:
+    """Only a level has a silent floor (SILENT_DB and below): a Δ of −260 dB is a Δ, in its range and its readout,
+    while a level's silence (−300 dB) stays out of the level's range."""
+    xs = np.arange(1.0, 9.0) * 100.0
+    base_levels = np.array([-300.0, -10.0, -9.996, -300.0, -20.0, -30.0, -40.0, -50.0])
+    compared = base_levels.copy()
+    compared[2] = -269.996
+    view = {"frame": "SpectralFrame", "kind": "line", "x": "frequency", "xScale": "linear", "quantity": "level"}
+    base = StageData(mode="spectrum", view=view, xs=xs, values=base_levels, nyquist=float(xs[-1]))  # type: ignore[arg-type]
+    compare = StageData(mode="spectrum", view=view, xs=xs, values=compared, nyquist=float(xs[-1]))  # type: ignore[arg-type]
+    result = combine([base], compare, {"x": [100.0, 800.0], "points": 64})
+    assert result["diff"]["valueRange"]["min"] == pytest.approx(-260.0)
+    # A level's own range leaves out its silence (−300 dB, and −269.996 dB too): the floor is a level's only.
+    assert value_range(compare, {"x": [100.0, 800.0], "points": 64})["min"] == pytest.approx(-50.0)  # type: ignore[index]
+    seek = read_points([base], compare, {"x": [100.0], "seek": 1, "beyond": 1, "of": "diff", "plain": True})
+    assert seek is not None and seek["values"][seek["xs"].index(300.0)] == pytest.approx(-260.0)

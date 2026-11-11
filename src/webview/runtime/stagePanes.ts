@@ -85,28 +85,35 @@ export function eventLayers(layer: StageLayer): StageLayer[] {
 }
 
 /**
- * Whether a line's values have no silent floor: a plain value (a signal's samples, a metric over time and their Δ, a
- * trigger's events' amplitudes) reads −250 and below as the value it is. A level's floor (−300 dB) is silence. The
- * pointer, the arrow keys' seek (fullRead.ts, full_read.py: LineQuery.plain) and the drawing take this one definition.
+ * Whether a line's values have no silent floor. Only a level (or a gain) in dB has one: the backend floors silence and
+ * an undefined level at −300 dB, and −250 and below is that silence. Every other value reads −250 and below as the
+ * value it is, decided by what the picture measures: a difference (`diff`, a Δ of levels too: −260 dB is a Δ), a plain
+ * value (a signal's samples, a metric over time, a trigger's events' amplitudes), a coherence, a cepstrum, a
+ * correlation, a roughness. The pointer, the arrow keys' seek (fullRead.ts, full_read.py: LineQuery.plain), the
+ * drawing and the range take this one definition (as the backend's value_range does).
  */
-export const floorless = (view: Pick<StageView, 'quantity' | 'waveform'>): boolean => view.quantity === 'value' || !!view.waveform;
+export const floorless = (view: Pick<StageView, 'quantity' | 'waveform'>, diff = false): boolean =>
+    diff || !!view.waveform || !FLOORED_QUANTITIES.includes(view.quantity ?? 'level');
 
-/** A silent stretch at the floor (−300 dB) is drawn as a gap; a plain value has no floor (floorless). */
-const silent = (view: StageView, value: number): boolean => value <= -250 && !floorless(view);
+/** The quantities floored at −300 dB by the backend (a level, a gain; a picture that names none is a level). */
+const FLOORED_QUANTITIES: ReadonlyArray<NonNullable<StageView['quantity']>> = ['level', 'gain'];
+
+/** A silent stretch at the floor (−300 dB) is drawn as a gap; a value with no floor (floorless) is drawn. */
+const silent = (view: StageView, value: number, diff = false): boolean => value <= -250 && !floorless(view, diff);
 
 /**
  * The lowest and highest value of the pictures: each one's every full-resolution value (`valueRange`, which the
  * backend takes before any is thinned or averaged into a cell, R1), or for a picture the webview made whole (a band
  * table, a level line) the values it draws, which are all of them.
  */
-function extent(views: ReadonlyArray<StageView | null>): { low: number; high: number } {
+function extent(views: ReadonlyArray<StageView | null>, diff = false): { low: number; high: number } {
     let low = Infinity, high = -Infinity;
     for (const view of views) {
         if (!view) continue;
         if (view.valueRange) { low = Math.min(low, view.valueRange.min); high = Math.max(high, view.valueRange.max); continue; }
         for (const value of points(view)) {
             // Silent stretches sit at the floor (−300 dB): they would squash every other level into one line.
-            if (value === null || !Number.isFinite(value) || silent(view, value)) continue;
+            if (value === null || !Number.isFinite(value) || silent(view, value, diff)) continue;
             low = Math.min(low, value); high = Math.max(high, value);
         }
     }
@@ -176,7 +183,7 @@ function roundEdge(edge: number): number {
 
 /** ± an edge with whole-number quarters, for a difference in dB; ± the largest difference otherwise. */
 export function stageDiffRange(view: StageView | null): PaneRange {
-    const { low, high } = extent([view]);
+    const { low, high } = extent([view], true);
     if (view && !isDb(view)) {
         const edge = roundEdge((Number.isFinite(high) ? Math.max(Math.abs(low), Math.abs(high)) * 1.05 : 0) || 1);
         return { min: -edge, max: edge };
@@ -1586,7 +1593,7 @@ export function strokeStageLine(context: CanvasRenderingContext2D, plot: StagePl
         let run = 0, lastX = 0, lastY = 0;
         const closeRun = (): void => { if (run === 1) context.lineTo(lastX + 1, lastY); run = 0; };
         values.forEach((value, index) => {
-            if (value === null || silent(layer.view, value)) { closeRun(); return; }
+            if (value === null || silent(layer.view, value, plot.diff)) { closeRun(); return; }
             const x = xAt(xs[index]), y = yAt(value);
             if (run) context.lineTo(x, y); else context.moveTo(x, y);
             run += 1; lastX = x; lastY = y;
@@ -1668,7 +1675,7 @@ export function declaresFullRead(layer: StageLayer): boolean {
 function fullPoint(plot: StagePlot, layer: StageLayer, points: FullPoints, index: number, clipped: 'skip' | 'edge' = 'skip'): ReadPoint | null {
     const value = points.values?.[index];
     const at = points.xs[index];
-    if (value === null || value === undefined || at === undefined || silent(layer.view, value)) return null;
+    if (value === null || value === undefined || at === undefined || silent(layer.view, value, plot.diff)) return null;
     const shown = layer.view.waveform ? plot.signal?.range : undefined;
     const off = !!shown && (value < shown.min || value > shown.max);
     if (off && clipped === 'skip') return null;
@@ -1691,7 +1698,7 @@ function fullLineNear(plot: StagePlot, layer: StageLayer, source: FullSource, x:
     const lineY = plot.lineYAt ?? plot.yAt;
     const pixels: [number, number] | undefined = level === undefined ? undefined
         : [Math.abs(plot.xLog ? plot.xAt(place * Math.E) - plot.xAt(place) : plot.xAt(place + 1) - plot.xAt(place)), Math.abs(lineY(level + 1) - lineY(level))];
-    const got = source.line({ x0: plot.xOf(x - radius), x1: plot.xOf(x + radius), beyond: 1, near: level, columns: 2 * radius + 1, log: !!plot.xLog, ...(pixels ? { at: place, pixels } : {}), ...(floorless(layer.view) ? { plain: true } : {}) }, ready);
+    const got = source.line({ x0: plot.xOf(x - radius), x1: plot.xOf(x + radius), beyond: 1, near: level, columns: 2 * radius + 1, log: !!plot.xLog, ...(pixels ? { at: place, pixels } : {}), ...(floorless(layer.view, plot.diff) ? { plain: true } : {}) }, ready);
     if (got === undefined) return undefined;
     // A read the backend failed is not a line with no points there: nothing is known of it (null), and the read waits.
     if (got === null && source.held === 'fetched') return null;
@@ -1799,7 +1806,7 @@ export function stageStep(plot: StagePlot, read: StageRead, delta: -1 | 1, ready
         // silence before it: one read finds it (`seek`, full_read._seek_line) and brings STEP_AHEAD more past it, so
         // the next keys need none. Past the plot's side, or the data's end, there is nothing further to read.
         const at = read.at;
-        const got = source.line?.({ x0: at, x1: at, beyond: STEP_AHEAD, seek: delta, ...(floorless(read.layer.view) ? { plain: true } : {}) }, ready);
+        const got = source.line?.({ x0: at, x1: at, beyond: STEP_AHEAD, seek: delta, ...(floorless(read.layer.view, plot.diff) ? { plain: true } : {}) }, ready);
         if (got === undefined) return undefined;
         // The seek failed (not the data's end): the step waits for it to be asked again once the store's pause is over
         // (`ready`), and the keys pressed meanwhile with it (R7).
