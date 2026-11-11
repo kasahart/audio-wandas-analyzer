@@ -18,7 +18,8 @@
  * plot component writes the levels of the lines it compared, in the order it drew them (`data-plot-order`); they
  * never rise, so the quietest line is on top on every plot, and each is measured from every value on screen before
  * thinning (`levelBins`, or the line's full data), never from the drawn points ('?'); a level still being fetched
- * ('…') is judged once it is in, and a plot that stays so fails.
+ * ('…'), or whose read failed and is asked again after the answer store's pause ('!'), is judged once it is in, and
+ * a plot that stays so fails.
  *
  * And (R7): a plot on screen that draws a layer without saying where its full data is read (`data-plot-full`
  * "missing: …", fullRead.ts) fails it: its readout would read the points thinned to be drawn.
@@ -430,8 +431,9 @@ function installCanvasAudit({ settle, measureMs, others, drawnOutside, svgCharts
     const rises = (order: string): boolean => order.split(';').some(axis => {
         // A compared level ordered with no levels from the values before thinning ('?', drawnLevelsText) fails too.
         if (axis.split(',').includes('?')) return true;
-        // A level still being fetched ('…') is not judged yet: the plot draws itself again once it is in.
-        if (axis.split(',').includes('…')) return false;
+        // A level still being fetched ('…'), or whose read failed and is asked again ('!'), is not judged yet: the
+        // plot draws itself again once it is in.
+        if (axis.split(',').some(level => level === '…' || level === '!')) return false;
         const levels = axis.split(',').map(level => (level === '-inf' ? -Infinity : Number(level)));
         return levels.some((level, index) => index > 0 && level > levels[index - 1]);
     });
@@ -463,11 +465,11 @@ function installCanvasAudit({ settle, measureMs, others, drawnOutside, svgCharts
                 const name = `order ${canvasName(canvas)}: ${order}`;
                 if (!reported.has(name)) { reported.add(name); misordered.push(`${canvasName(canvas)} drew levels ${order}`); }
             }
-            if (order?.includes('…') && canvas.hasAttribute('data-plot') && shownBox(canvas)) {
+            if (order && /[…!]/u.test(order) && canvas.hasAttribute('data-plot') && shownBox(canvas)) {
                 const since = measuringSince.get(canvas) ?? now;
                 measuringSince.set(canvas, since);
                 const name = `measuring ${canvasName(canvas)}`;
-                if (now - since > measureMs && !reported.has(name)) { reported.add(name); misordered.push(`${canvasName(canvas)} never measured its levels on screen: ${order}`); }
+                if (now - since > measureMs && !reported.has(name)) { reported.add(name); misordered.push(`${canvasName(canvas)} never measured its levels on screen: ${order} ('…': the level read was not answered; '!': it failed. Look at the backend's answer to the read with "level" for this plot, full_read.read_level)`); }
             } else measuringSince.delete(canvas);
             if (shownBox(canvas)) reportUnseen(canvas, 'drawn before it was a plot, or off the page');
             const axes = canvas.getAttribute('data-plot-axes');

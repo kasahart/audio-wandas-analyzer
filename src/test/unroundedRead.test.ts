@@ -134,6 +134,9 @@ test('a dense window read beyond the pick radius of every point reads the real s
         const under = Math.round(x * 50);
         assert.equal(Math.round((read?.at ?? NaN) * 1000), under, `the sample under the pointer at x = ${x}`);
         assert.equal(read?.value, signal[under]);
+        // Its digits are those of the source's own step (1 ms a sample), which the backend sends (StagePoints.steps):
+        // not of the gap between the few points a dense window sends. The time is written to the millisecond.
+        assert.match(read?.values ?? '', new RegExp(`${(under / 1000).toFixed(3)} s`, 'u'));
     }
     assert.ok(asked.some(read => (read as { columns?: number }).columns), 'read as a dense window, not whole');
 });
@@ -154,4 +157,21 @@ test('on a value axis zoomed in, a dense window reads the nearest sample on scre
     assert.equal(read?.value, 0.8);
     const shown = asked.find(item => item.shown)?.shown;
     assert.ok(shown && Math.abs(shown[0] + 1) < 1e-9 && Math.abs(shown[1] - 0.9) < 1e-9, `the values shown are asked for: ${JSON.stringify(shown)}`);
+});
+
+test('on a value axis zoomed in, with no sample near the pointer the dense window reads the sample under it though it is past the axis: its true value, at the plot\'s edge (R7)', { timeout: 120_000 }, t => {
+    if (!backendReady()) { t.skip('no Python backend'); return; }
+    // The same signal and axis (−1 to 0.9, 50 samples a pixel), the pointer at n = 5003 but down at −0.9: every sample
+    // on screen (within ±0.1, and 0.8 at n = 5010) is over 40 px away, past the pick radius. The sample under the
+    // pointer is n = 5003 itself, 0.95, past the axis's top: it is read all the same, as an arrow key would read it.
+    const view = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs: [0, 19.999], values: [0, 0] } as unknown as StageView;
+    const full = fetchedSource((read, done) => { done(backendAnswer({ ...read, fixture: 'zoomed' })); });
+    const drawn: StagePlot = {
+        frame: { left: 0, top: 0, width: 400, height: 100 }, xAt: s => s * 1000 / 50, xOf: x => x * 50 / 1000,
+        yAt: value => (0.9 - value) / 0.019, levelOf: y => 0.9 - y * 0.019, ratioStep: 1.12, diff: false, lines: [{ view, color: 'blue', full }],
+    };
+    const read = hover(drawn, 5003 / 50, (0.9 + 0.9) / 0.019);
+    assert.equal(Math.round((read?.at ?? NaN) * 1000), 5003, 'the sample under the pointer, whatever its value (full_read._nearest_along)');
+    assert.equal(read?.value, 0.95, 'its true value');
+    assert.equal(read?.y, 0, 'its mark held at the plot\'s edge');
 });
