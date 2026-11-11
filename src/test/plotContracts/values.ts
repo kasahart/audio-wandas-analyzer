@@ -163,6 +163,15 @@ export const DRAWN_READERS: Readonly<Record<string, DrawnReader>> = {
     ['python-backend/stage_view.py:spectrum_line']: { use: 'draws', why: "a spectrum's drawn buckets (min_max_line)" },
     ['python-backend/analysis_service.py:spectrum_slice']: { use: 'draws', why: 'cuts the row to draw it (min_max_spectrum); minDb / maxDb are every bin\'s, taken before (cursor-spectrum.range)' },
     ['python-backend/analyzer.py:_build_spectrogram']: { use: 'draws', why: 'resamples the cells to draw them; minDb / maxDb are every full cell\'s, taken before (track-spectrogram.range)' },
+    // Found by check_decimation_flow.py's data flow (not by a decimator called by name): each computes with drawn
+    // points it is handed only to make the picture, which the flow check holds (no number of them is sent).
+    ['python-backend/stage_combine.py:_aligned']: { use: 'draws', why: "compares the pictures' kind, axis, quantity and unit to decide whether they combine; it returns the full data cut to their common part, never a number of drawn points" },
+    ['python-backend/stage_combine.py:_band_peaks']: { use: 'draws', why: "thins a difference image's rows to its bands (each band's largest magnitude) to draw it; the headline peak is of the full difference" },
+    ['python-backend/stage_combine.py:_significant']: { use: 'draws', why: 'rounds the drawn difference values to significant figures to send them; computes no number of its own' },
+    ['python-backend/stage_view.py:_linear_extremes']: { use: 'draws', why: "picks each bucket's lowest and highest index (min_max_indices on a linear axis) to draw a line; positions, not a value" },
+    ['python-backend/stage_view.py:band_levels']: { use: 'draws', why: "power-averages a picture's bins into its drawn bands; handed full levels it is the scan's band levels, handed drawn cells only a picture" },
+    ['python-backend/stage_view.py:floored_db']: { use: 'draws', why: 'floors levels at MIN_LEVEL_DB; drawn points stay drawn points' },
+    ['python-backend/stage_view.py:power_mean_db']: { use: 'draws', why: "power-averages levels along an axis (a block or a band of a picture); along an axis it still makes the picture" },
     ['python-backend/stage_view.py:_spectrogram_view']: { use: 'draws', why: 'power-averages the cells per time block to draw them; the colour range is every full cell\'s (valueRange, compare-overlay.range-image)' },
     ['src/shared/protocol/backendProtocol.ts:hasAlignedEnvelopeArrays']: { use: 'draws', why: 'checks an answer\'s envelope arrays line up; shows nothing' },
     ['src/shared/protocol/backendProtocol.ts:hasSpectrogramShape']: { use: 'draws', why: 'checks an answer\'s spectrogram shape; shows nothing' },
