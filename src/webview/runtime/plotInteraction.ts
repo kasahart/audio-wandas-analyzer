@@ -205,7 +205,7 @@ export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 
         if (event.timeStamp - draggedAt < 300) { event.stopPropagation(); event.preventDefault(); }
         draggedAt = -Infinity;
     }, true);
-    let press: { plot: HTMLElement; from: PlotPoint; clientX: number; clientY: number; isDrag: boolean; to: PlotPoint; drag: PlotDrag | null } | null = null;
+    let press: { plot: HTMLElement; from: PlotPoint; clientX: number; clientY: number; isDrag: boolean; to: PlotPoint; drag: PlotDrag | null; last: { clientX: number; clientY: number } } | null = null;
     let lastDouble: PlotHit | null = null;
     // The window these gestures last set is named on the plot they were made on, so one test reads every plot's
     // gestures the same way (R13). Other ways to the window (an axis's range, a pane sharing it) do not write it.
@@ -261,8 +261,11 @@ export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 
             return !!lastDouble?.axis && deps.openAxisRange(lastDouble, clientX, clientY, element);
         },
         hover(event) {
-            // A drag under way, on this surface or another, reads nothing (R7).
-            if (press?.isDrag || presses.dragging) return;
+            // A drag under way, on this surface or another, reads nothing (R7); a move with the button up is no drag
+            // (its release was lost: the press is let go on this very move, plotInteraction's abandon).
+            const up = (event as Partial<MouseEvent>).buttons === 0;
+            if ((press?.isDrag || presses.dragging) && !up) return;
+            if (press?.isDrag) return;
             const hit = deps.locate(event.target, event.clientX, event.clientY);
             if (hit) hit.plot.dataset.plotYAxis = vertical;
             deps.hover(event, hit);
@@ -276,13 +279,14 @@ export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 
             // Shift+drag moves what the plot shows along it.
             const drag = (event.altKey ? deps.altDrag : undefined) ?? (event.shiftKey ? deps.shiftDrag : undefined) ?? null;
             presses.count += 1;
-            press = { plot: hit.plot, from: hit.point, to: hit.point, clientX: event.clientX, clientY: event.clientY, isDrag: false, drag };
+            press = { plot: hit.plot, from: hit.point, to: hit.point, clientX: event.clientX, clientY: event.clientY, isDrag: false, drag, last: { clientX: event.clientX, clientY: event.clientY } };
             deps.pressed?.(hit, event);
             drag?.start(hit, event);
             event.preventDefault();
         },
         drag(event) {
             if (!press) return;
+            press.last = { clientX: event.clientX, clientY: event.clientY };
             if (!press.isDrag && exceedsDragThreshold(event.clientX - press.clientX, event.clientY - press.clientY)) {
                 press.isDrag = true;
                 presses.dragging = true;
@@ -293,6 +297,25 @@ export function attachPlotInteraction(surface: HTMLElement, doc: Pick<Document, 
             if (press.drag) { press.drag.move(event); return; }
             press.to = deps.pointOn(press.plot, event.clientX, event.clientY);
             deps.showBox(press.plot, press.from, press.to);
+        },
+        abandon(event) {
+            // Its release lost: the press ends with nothing done (no zoom, no click), its owner told so (a drag's end,
+            // a click no longer current), and every plot reads and takes keys again (R7).
+            const done = press;
+            press = null;
+            if (presses.dragging && done) presses.dragging = false;
+            if (!done) return;
+            const MouseEventOf = surface.ownerDocument.defaultView?.MouseEvent;
+            const end = event ?? (MouseEventOf ? new MouseEventOf('mouseup', { clientX: done.last.clientX, clientY: done.last.clientY }) : null);
+            if (done.isDrag && !done.drag) deps.hideBox();
+            if (end) {
+                if (done.drag) done.drag.end(end, done.isDrag);
+                else deps.tap?.(done.plot, end, () => false);
+            }
+            if (event && onSurface(event.target)) {
+                const hit = deps.locate(event.target, event.clientX, event.clientY);
+                if (hit && !hit.axis) { hit.plot.dataset.plotYAxis = vertical; deps.hover(event, hit); }
+            }
         },
         release(event) {
             const done = press;

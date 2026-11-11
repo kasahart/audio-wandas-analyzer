@@ -19,7 +19,7 @@ const STR_EN = getStrings('en');
  * A plot that does not pass one yet is listed in KNOWN_GAPS with the deviation of the unified plot spec it waits
  * for; a gap that is fixed fails here until it is taken off, so the list only shrinks.
  */
-type Check = 'readout' | 'step' | 'zoom' | 'reset' | 'zoom keys' | 'axis wheel' | 'box zoom' | 'axis range' | 'x range' | 'axes';
+type Check = 'readout' | 'step' | 'zoom' | 'reset' | 'zoom keys' | 'axis wheel' | 'box zoom' | 'lost release' | 'axis range' | 'x range' | 'axes';
 const KNOWN_GAPS: Record<string, readonly Check[]> = {};
 
 const FULL = '0.000 1.000 0.000 1.000';
@@ -105,8 +105,14 @@ const COUNT_QUANTITIES = (['en', 'ja'] as const).map(language => getStrings(lang
 /**
  * The next point to the right of the one the plot reads, in the full-resolution data that point is read from (R7):
  * the layer's full source (fullRead.ts: StageLayer.full, which every layer has, bars too), asked as the plot asks
- * it, never the points it draws. A line's next point is the next with a value to read (not a gap, nor the
- * silent floor below −250 dB that it draws as a gap); an image's, the next column (time frame, band) on its row.
+ * it, never the points it draws. The expectation follows the one rule the arrow keys follow (stagePanes.ts stageStep),
+ * so the two cannot drift apart:
+ * - a line is asked with a seek (LineQuery.seek): the first point with a value to read past the one read, however
+ *   long the gap or the silence before it (a fixed look-ahead would stop inside a long silence);
+ * - the silent floor (−250 dB and below, drawn as a gap) is skipped only on a line that has one, a level or a gain;
+ *   a Δ and a plain value read −250 and below as the value it is (stagePanes.ts `floorless`, which the plot notes
+ *   for the line read as data-plot-read-floorless; fullRead.ts `readableValue` is the same test);
+ * - an image's next point is the next column (time frame, band) on its row.
  * Null where the plot reads no point of its data.
  */
 async function nextPoint(plot: Locator): Promise<number | null> {
@@ -133,10 +139,13 @@ async function nextPoint(plot: Locator): Promise<number | null> {
             const column = xs.findIndex(x => x === at);
             return column >= 0 && column + 1 < xs.length ? xs[column + 1] : null;
         }
-        // Far enough past it to hold the next value however many empty bins (a histogram's) come first.
-        const got = source.line ? await ask(ready => source.line!({ x0: at, x1: at, beyond: 512 }, ready)) : null;
+        // Whether the line read has no silent floor, as the plot itself decided it for this line (notePlotRead).
+        const plain = canvas.getAttribute('data-plot-read-floorless') === 'true';
+        // The keys' own query: a seek to the first readable point past `at`, with the same floor rule.
+        const got = source.line ? await ask(ready => source.line!({ x0: at, x1: at, beyond: 512, seek: 1, ...(plain ? { plain: true } : {}) }, ready)) : null;
         if (!got) return null;
-        const readable = (value: number | null | undefined): boolean => value !== null && value !== undefined && Number.isFinite(value) && !(value <= -250 && layer.view.quantity !== 'value');
+        // fullRead.ts readableValue, written out: this runs in the page, where the module is not imported.
+        const readable = (value: number | null | undefined): boolean => value !== null && value !== undefined && Number.isFinite(value) && (plain || value > -250);
         const index = got.xs.findIndex((x, i) => x > at && readable(got.values?.[i]));
         return index >= 0 ? got.xs[index] : null;
     });
@@ -432,6 +441,34 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
     }
     await page.mouse.dblclick(middle.x, middle.y);
     await settled(page);
+    // A drag whose release never reaches the page ends there with nothing done (R7): the window loses the focus
+    // mid-drag, or the button is let go outside the page (the next move finds it up). The plot reads and steps again
+    // under the pointer, and shows what it showed before the press (no box zoomed into).
+    let lostEnds = true;
+    for (const lose of ['blur', 'move with the button up'] as const) {
+        const windowBefore = await plot.getAttribute('data-plot-window');
+        await page.mouse.move(box.x + box.width * 0.3, middle.y);
+        await page.mouse.down();
+        await page.mouse.move(box.x + box.width * 0.5, middle.y + 6, { steps: 4 });
+        if (lose === 'blur') await page.evaluate(() => window.dispatchEvent(new FocusEvent('blur')));
+        else await plot.evaluate((canvas, at) => canvas.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: at.x, clientY: at.y, buttons: 0 })), { x: box.x + box.width * 0.5, y: middle.y + 6 });
+        // Playwright's button is still down: its moves now are no drag, the press having ended.
+        await page.mouse.move(middle.x - 3, middle.y);
+        await page.mouse.move(middle.x, middle.y);
+        await settled(page);
+        const reads = await pointRead(plot);
+        // The press gave a lane the keyboard's focus, where ← / → move its time cursor (A47): the readout's step is asked
+        // with the focus elsewhere, as every other plot's is.
+        await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.());
+        await page.keyboard.press('ArrowRight');
+        await settled(page);
+        const steps = reads ? await pointRead(plot, reads) : null;
+        await page.mouse.up();
+        await settled(page);
+        const kept = (await plot.getAttribute('data-plot-window')) === windowBefore;
+        if (!reads || !steps || (steps.at === reads.at && steps.row === reads.row) || !kept) lostEnds = false;
+    }
+    if (lostEnds) passed.add('lost release');
     // A double-click on an axis opens its range. The range is applied, not only offered: bounds narrowed to the middle
     // half of the ones it shows are typed in and applied, and the plot shows another part (its picture changes; the
     // window attribute is only the gestures'), then Auto gives the whole back (the picture changes again).
@@ -569,8 +606,8 @@ async function expectContract(page: Page, name: string, plot: Locator): Promise<
     checkedPlots.add(await plot.evaluate(plotName));
     const passed = await contract(page, plot);
     const gaps = KNOWN_GAPS[name] ?? [];
-    const checks: Check[] = ['readout', 'step', 'zoom', 'reset', 'zoom keys', 'axis wheel', 'box zoom', 'axis range', 'x range', 'axes'];
-    expect.soft(checks.filter(check => !passed.has(check) && !gaps.includes(check)), `${name}: fails the plot contract (R13)`).toEqual([]);
+    const checks: Check[] = ['readout', 'step', 'zoom', 'reset', 'zoom keys', 'axis wheel', 'box zoom', 'lost release', 'axis range', 'x range', 'axes'];
+    expect.soft(checks.filter(check => !passed.has(check) && !gaps.includes(check)), `${name}: fails these checks of the plot contract (docs/display-rules.md R13; each is a block in contract() above whose comment states the rule it checks, e.g. 'lost release' is R7's drag whose release never reaches the page)`).toEqual([]);
     expect.soft(gaps.filter(check => passed.has(check)), `${name}: now passes; take it off KNOWN_GAPS`).toEqual([]);
 }
 
