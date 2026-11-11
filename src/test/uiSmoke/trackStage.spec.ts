@@ -112,6 +112,8 @@ test('the track view\'s steps mode draws every track as the chosen step\'s Frame
     expect((await stageScans(page)).at(-1)!.filePaths).toEqual([first]);
     // As many points as the whole picture, at other frequencies: until the base has its detail too, Δ stays the whole pictures'.
     const zoomed = { ...view, xs: [400, 500, 600], values: [-35, -31, -33] };
+    // The whole pictures' Δ is read once it is written, not while the headline is still being painted.
+    await expect(page.locator('[data-stage-diff-headline]')).not.toHaveText('');
     const wholeDelta = await page.locator('[data-stage-diff-headline]').textContent();
     await answer(page, zoomed);
     await expect.poll(async () => (await stageScans(page)).at(-1)!.filePaths.length).toBeGreaterThan(1);
