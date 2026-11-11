@@ -60,8 +60,6 @@ SPECTRUM_LINE_BUCKETS = 640
 CEPSTRUM_DECIMALS = 5
 # Every lag of a new step's ±0.1 s at 48 kHz, so its delay peak is at its own lag.
 LAG_POINTS = 9601
-# Normalized cross-correlation coefficients lie in [-1, 1].
-CORRELATION_DECIMALS = 4
 #: Points per event of a trigger's segments: each bucket's lowest and highest sample, so a hit keeps both its peaks.
 EVENT_POINTS = 400
 
@@ -202,11 +200,6 @@ def floored_db(values: np.ndarray) -> np.ndarray:
     from (a power mean, a median, a difference, the point a read picks), so a rounding never moves a result."""
     floored = np.nan_to_num(values, nan=spec.MIN_LEVEL_DB, neginf=spec.MIN_LEVEL_DB, posinf=-spec.MIN_LEVEL_DB)
     return np.maximum(floored, spec.MIN_LEVEL_DB)
-
-
-def rounded_db(values: np.ndarray) -> np.ndarray:
-    """Levels as the app shows them (floored_db to DB_DECIMALS): only for the values sent, never computed with."""
-    return np.round(floored_db(values), spec.DB_DECIMALS)
 
 
 def band_levels(levels_db: np.ndarray, freqs: np.ndarray, edges: np.ndarray) -> np.ndarray:
@@ -463,7 +456,7 @@ def _channel_view(frame: ChannelFrame) -> StageView:
             "quantity": "level",
             "unit": frame.channels[0].unit or "",
             "xs": _axis(xs),
-            "values": _json(rounded_db(values)),
+            "values": _json(floored_db(values)),
         }
         # The level of what: an RMS over a window, or a time-weighted one, for its axis to name (never "amplitude").
         level_of = signal_measure(frame, in_db=True)
@@ -632,13 +625,12 @@ def _spectral_view(frame: Any) -> StageView:
     if quantity == "coherence":
         # As a spectrum's line: each bucket's lowest and highest bin at its own frequency, so a dip stays.
         centres, line = spectrum_line(freqs, values[0], [spec.SPECTRUM_MIN_HZ, nyquist], SPECTRUM_LINE_BUCKETS)
-        line = np.round(line, 4)
     else:
         # The bins kept are picked from the unrounded levels; only the levels sent are rounded.
         centres, line = spectrum_line(
             freqs, _power_mean(floored_db(values)), [spec.SPECTRUM_MIN_HZ, nyquist], SPECTRUM_LINE_BUCKETS
         )
-        line = rounded_db(line)
+        line = floored_db(line)
     view: StageView = {
         "frame": type(frame).__name__,
         "kind": "line",
@@ -664,7 +656,7 @@ def _noct_view(frame: NOctFrame) -> StageView:
         "xScale": "log",
         "quantity": "level",
         "xs": _axis(np.asarray(frame.freqs, dtype=np.float64)),
-        "values": _json(rounded_db(_power_mean(floored_db(_rows(frame.dB, frame.n_channels))))),
+        "values": _json(floored_db(_power_mean(floored_db(_rows(frame.dB, frame.n_channels))))),
     }
 
 
@@ -780,7 +772,7 @@ def _cepstral_view(frame: CepstralFrame) -> StageView:
         "xScale": "linear",
         "quantity": "cepstrum",
         "xs": _axis(xs),
-        "values": _json(np.round(values, CEPSTRUM_DECIMALS)),
+        "values": _json(values),
     }
 
 
@@ -805,7 +797,7 @@ def _correlation_view(frame: CrossCorrelationFrame) -> StageView:
         "xScale": "linear",
         "quantity": "correlation",
         "xs": _axis(lags),
-        "values": _json(np.round(values, CORRELATION_DECIMALS)),
+        "values": _json(values),
         "pair": _pair_of(frame, row),
     }
 
@@ -887,7 +879,7 @@ def _detail_view(frame: object, coarse: StageView, detail: StageDetail) -> Stage
         view.update(
             {
                 "xs": _axis(xs),
-                "values": _json(np.round(values, 4 if coarse.get("quantity") == "coherence" else spec.DB_DECIMALS)),
+                "values": _json(values),
             }
         )
         return view
@@ -898,7 +890,7 @@ def _detail_view(frame: object, coarse: StageView, detail: StageDetail) -> Stage
         # As the whole picture's (_channel_view): dB levels power-averaged over channels, other values averaged.
         if _in_db(frame):
             xs, values = _envelope(times[keep], _power_mean(data[:, keep]), points)
-            values = rounded_db(values)
+            values = floored_db(values)
         else:
             xs, values = _envelope(times[keep], np.mean(data[:, keep], axis=0), points)
         view.update({"xs": _axis(xs), "values": _json(values)})
@@ -911,7 +903,7 @@ def _detail_view(frame: object, coarse: StageView, detail: StageDetail) -> Stage
         drawn = _correlation_rows(frame)
         if drawn is not None and keep.any():
             xs, values = _envelope(lags[keep], drawn[1][keep], points)
-            view.update({"xs": _axis(xs), "values": _json(np.round(values, CORRELATION_DECIMALS))})
+            view.update({"xs": _axis(xs), "values": _json(values)})
             return view
         return coarse
     if isinstance(frame, CepstralFrame):
@@ -920,7 +912,7 @@ def _detail_view(frame: object, coarse: StageView, detail: StageDetail) -> Stage
         xs, values = _cepstrum_envelope(
             quefrencies[keep], np.mean(_rows(frame.data, frame.n_channels), axis=0)[keep], points
         )
-        view.update({"xs": _axis(xs), "values": _json(np.round(values, CEPSTRUM_DECIMALS))})
+        view.update({"xs": _axis(xs), "values": _json(values)})
         return view
     if isinstance(frame, (SpectrogramFrame, CepstrogramFrame, RoughnessFrame)):
         rows_bounds = [float(value) for value in detail.get("y", [-np.inf, np.inf])]

@@ -362,7 +362,7 @@ def _line(data: StageData, detail: StageDetail | None, diff: bool) -> tuple[np.n
             )
         else:
             line = sv.spectrum_line(data.xs, data.values, bounds, points // 2)
-        return (line[0], np.round(line[1], 4)) if mode == "coherence" else line
+        return line
     xs, values = data.xs, data.values
     if bounds is not None:
         keep = sv._inside(xs, bounds)
@@ -383,11 +383,9 @@ def _line(data: StageData, detail: StageDetail | None, diff: bool) -> tuple[np.n
     if mode == "series":
         return sv._envelope(xs, values, points or sv.LEVEL_SERIES_MIN_SAMPLES)
     if mode == "cepstrum":
-        line = sv._cepstrum_envelope(xs, values, points or sv.QUEFRENCY_POINTS)
-        return line[0], np.round(line[1], sv.CEPSTRUM_DECIMALS)
+        return sv._cepstrum_envelope(xs, values, points or sv.QUEFRENCY_POINTS)
     if mode == "correlation":
-        line = sv._envelope(xs, values, points or sv.LAG_POINTS)
-        return line[0], np.round(line[1], sv.CORRELATION_DECIMALS)
+        return sv._envelope(xs, values, points or sv.LAG_POINTS)
     if mode == "events":
         return sv._envelope(xs, values, points or sv.EVENT_POINTS)
     raise ValueError(f"not a line: {mode}")
@@ -589,7 +587,7 @@ def draw(data: StageData, detail: StageDetail | None = None, *, diff: bool = Fal
     else:
         xs, values = _line(data, detail, diff)
         view = dict(data.view)  # type: ignore[assignment]
-        view.update({"xs": sv._axis(xs), "values": sv._json(_shown(data, values, diff))})
+        view.update({"xs": sv._axis(xs), "values": sv._json(_sent(data, values, diff))})
         if data.mode == "signal":
             # Drawn as the recordings are: a waveform, by the lanes' own decimation, over the range on screen.
             bounds, points = _bounds(detail)
@@ -836,7 +834,7 @@ def difference_peak(data: StageData, values: np.ndarray, detail: StageDetail | N
         index = high if abs(float(part[high])) >= abs(float(part[low])) else low
         signal_peak: StagePeak = {
             "x": data.start + (first + index) / data.rate,
-            "value": float(_shown(data, part[index : index + 1], True)[0]),
+            "value": float(_sent(data, part[index : index + 1], True)[0]),
         }
         if data.rate > 0:
             signal_peak["xStep"] = 1 / data.rate
@@ -874,7 +872,7 @@ def difference_peak(data: StageData, values: np.ndarray, detail: StageDetail | N
                 row, column = int(row_at[at // block.shape[1]]), int(column_at[start + at % block.shape[1]])
         if best < 0:
             return None
-        value = float(_shown(data, np.asarray(values)[row : row + 1, column : column + 1], True)[0, 0])
+        value = float(_sent(data, np.asarray(values)[row : row + 1, column : column + 1], True)[0, 0])
         peak: StagePeak = {"x": float(data.xs[column]), "y": float(ys[row]), "value": value}
         x_step, y_step = _step_at(data.xs, int(column)), _step_at(ys, int(row))
     else:
@@ -893,7 +891,7 @@ def difference_peak(data: StageData, values: np.ndarray, detail: StageDetail | N
         if not line.size or float(line.max()) < 0:
             return None
         index = int(at[int(np.argmax(line))])
-        peak = {"x": float(xs[index]), "value": float(_shown(data, np.asarray(values)[index : index + 1], True)[0])}
+        peak = {"x": float(xs[index]), "value": float(_sent(data, np.asarray(values)[index : index + 1], True)[0])}
         x_step, y_step = _step_at(xs, index), None
     if x_step is not None:
         peak["xStep"] = x_step
@@ -902,23 +900,16 @@ def difference_peak(data: StageData, values: np.ndarray, detail: StageDetail | N
     return peak
 
 
-def _shown(data: StageData, values: np.ndarray, diff: bool) -> np.ndarray:
-    """Values as the plot writes them, rounded only here, at the end: everything is computed from the unrounded
-    values (a median, a difference, its peak, a level, the point a read picks) and only the numbers sent are
-    rounded."""
+def _sent(data: StageData, values: np.ndarray, diff: bool) -> np.ndarray:
+    """A line's values or a peak as they are sent to the webview: unrounded (a level floored at MIN_LEVEL_DB as it is
+    computed with, stage_view.floored_db). A read's points (read_points) are sent as the Frame has them, an undefined
+    one as null. A line drawn, a read and a peak alike carry the values themselves: the webview
+    picks the nearest point, tells silence, orders lines and steps the arrow keys on them, and only the text it writes
+    rounds them (R1, R7). Only an image's cells, which are drawn as colours and never read (the readout reads the full
+    cells, read_cells), are rounded to keep the picture small."""
     values = _f64(values)
-    if diff:
-        return _rounded(values, data.view.get("quantity"), True)
-    if data.mode == "coherence":
-        return np.round(values, 4)
-    if data.mode in ("cepstrum", "cepstrogram"):
-        return np.round(values, sv.CEPSTRUM_DECIMALS)
-    if data.mode == "correlation":
-        return np.round(values, sv.CORRELATION_DECIMALS)
-    if data.mode == "spectrogram":
-        return np.round(sv.floored_db(values), 1)
-    if data.mode in ("spectrum", "bands"):
-        return sv.rounded_db(values)
+    if not diff and data.mode in ("spectrogram", "spectrum", "bands"):
+        return sv.floored_db(values)
     return values
 
 
@@ -958,28 +949,20 @@ def read_points(base: list[StageData], compare: StageData | None, read: StageRea
     if first.mode in ("spectrogram", "roughness", "cepstrogram"):
         ys = first.ys if first.ys is not None else np.empty(0)
         return read_cells(
-            first.xs,
-            ys,
-            lambda rows, columns: combined(lambda item: item.values[rows, columns]),
-            read,
-            lambda values: _shown(first, values, diff),
+            first.xs, ys, lambda rows, columns: combined(lambda item: item.values[rows, columns]), read
         )
     if first.mode == "events" and "event" in read:
         # One event's own line: a recording's, as the plot draws each event of it.
         if len(group) != 1 or diff or first.rows is None or int(read["event"]) not in first.event_ids:
             return None
         row = first.rows[first.event_ids.index(int(read["event"]))]
-        return read_line(
-            sorted_axis(first.xs), lambda a, b: row[a:b], read, lambda values: _shown(first, values, False)
-        )
+        return read_line(sorted_axis(first.xs), lambda a, b: row[a:b], read)
     if first.mode == "signal":
         count = min(item.values.size for item in aligned)
         axis = uniform_axis(count, first.start, 1.0 / first.rate if first.rate > 0 else 0.0)
     else:
         axis = sorted_axis(first.xs)
-    return read_line(
-        axis, lambda a, b: combined(lambda item: item.values[a:b]), read, lambda values: _shown(first, values, diff)
-    )
+    return read_line(axis, lambda a, b: combined(lambda item: item.values[a:b]), read)
 
 
 def combine_keys(

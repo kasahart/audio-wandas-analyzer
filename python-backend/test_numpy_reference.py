@@ -308,8 +308,11 @@ def test_a_read_of_the_difference_is_the_frames_unrounded_difference_bin_by_bin(
     assert points["complete"]
     inside = (freqs >= window[0]) & (freqs <= window[1])
     np.testing.assert_allclose(points["xs"], freqs[inside], atol=1e-9)
-    # Rounded once, for the readout's 0.01 dB, from the Frame's unrounded difference: never rounded before it.
-    np.testing.assert_allclose(_floats(points["values"]), np.round(delta[inside], 2), atol=1e-9)
+    # The Frame's unrounded difference itself (to the reference's own float32 arithmetic): only the text the webview
+    # writes rounds it, never the read (two levels 0.008 dB apart are read apart, not both at the same 0.01 dB).
+    values = _floats(points["values"])
+    np.testing.assert_allclose(values, delta[inside], rtol=0, atol=5e-4)
+    assert np.mean(np.abs(values - np.round(values, 2)) > 1e-3) > 0.5
 
 
 @pytest.fixture(scope="module")

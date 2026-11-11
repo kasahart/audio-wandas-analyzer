@@ -16,7 +16,7 @@ from analysis_engine import AnalysisEngine
 from analysis_service import AnalysisService
 from full_read import READ_POINT_LIMIT, read_cells, read_line, sorted_axis, uniform_axis
 from protocol_schema import DEFINITIONS, first_violation
-from stage_combine import read_points, stage_data
+from stage_combine import StageData, read_points, stage_data
 from stage_view import stage_view
 
 RATE = 16000
@@ -180,7 +180,7 @@ def test_a_recordings_spectrum_is_read_at_its_own_bins_not_its_picture(signal: w
     points = read_points([data], None, {"x": [float(data.xs[at])], "beyond": 4})
     assert points is not None and points["complete"]
     assert points["xs"] == pytest.approx(data.xs[at - 4 : at + 5].tolist())
-    assert points["values"] == pytest.approx(np.round(data.values[at - 4 : at + 5], 2).tolist(), abs=1e-9)
+    assert points["values"] == pytest.approx(data.values[at - 4 : at + 5].tolist(), abs=1e-12)
 
 
 def test_a_difference_is_read_bin_by_bin(signal: wd.ChannelFrame) -> None:
@@ -322,3 +322,27 @@ def test_the_point_nearest_the_pointer_on_screen_is_a_value_below_minus_250_on_p
     read = {"x": [0.0, 2.0], "at": 1.0, "pixels": [1.0, 1.0]}
     assert _nearest_on_screen(read, window, axis[1], 0, 3, -400.0, False, True) == 1
     assert _nearest_on_screen(read, window, axis[1], 0, 3, -400.0, False, False) != 1
+
+
+def test_a_read_sends_the_values_unrounded_so_the_webview_picks_tells_silence_and_steps_on_them() -> None:
+    """A read carries the values themselves, never rounded to what is written (R1, R7): −10.004 and −9.996 dB, which
+    both write −10.0, arrive apart, so the pointer picks the one it is nearest; −249.999 dB, above the silent floor,
+    arrives as −249.999 (rounded to −250.00 it would be silence), so an arrow key's seek stops on it and the webview
+    reads it. Through the stage read the comparison serves (read_points) as through read_line itself."""
+    xs = np.arange(1.0, 9.0) * 100.0
+    levels = np.array([-300.0, -10.004, -9.996, -300.0, -249.999, -300.0, -300.0, -20.0])
+    whole = read_line(sorted_axis(xs), lambda a, b: levels[a:b], {"x": [150.0, 350.0], "beyond": 1})
+    assert whole["xs"] == [100.0, 200.0, 300.0, 400.0] and whole["values"] == [-300.0, -10.004, -9.996, -300.0]
+    view = {"frame": "SpectralFrame", "kind": "line", "x": "frequency", "xScale": "log", "quantity": "level"}
+    data = stage_data_of(xs, levels, view)
+    sent = read_points([data], None, {"x": [200.0, 300.0], "beyond": 0})
+    assert sent is not None and sent["values"] == [-10.004, -9.996]
+    # The seek from the silence after −9.996 dB: the first readable point is −249.999 dB, sent as it is.
+    seek = read_points([data], None, {"x": [400.0], "seek": 1, "beyond": 2})
+    assert seek is not None and seek["complete"]
+    found = seek["xs"].index(500.0)
+    assert seek["values"][found] == -249.999
+
+
+def stage_data_of(xs: np.ndarray, values: np.ndarray, view: dict) -> StageData:
+    return StageData(mode="spectrum", view=view, xs=xs, values=values, nyquist=float(xs[-1]))  # type: ignore[arg-type]

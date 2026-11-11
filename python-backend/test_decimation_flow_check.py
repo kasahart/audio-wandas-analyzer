@@ -91,8 +91,8 @@ MUTATIONS = {
     ),
     "Δ field sent from the drawn line": (
         "stage_view",
-        '        "values": _json(rounded_db(values)),\n',
-        '        "values": _json(rounded_db(values)),\n        "delta": _json(values),\n',
+        '        "values": _json(floored_db(values)),\n',
+        '        "values": _json(floored_db(values)),\n        "delta": _json(values),\n',
         "stage_view:_channel_view: field 'delta'",
     ),
 }
