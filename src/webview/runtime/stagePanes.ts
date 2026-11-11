@@ -1288,7 +1288,7 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
     plot.levelTicks = levelTicks;
     if (options.axisCanvas) paintSideAxis(options.axisCanvas, levelTicks, axes.y, { muted, text });
     else if (!lane && options.yAxisLabels !== false) {
-        const titleRight = paintValueTitle(context, frame, axes.y, text, AXIS_TITLE_X);
+        const titleRight = paintValueTitle(context, frame, axes.y, text, AXIS_TITLE_X, { min: 0, max: frame.left })?.right ?? 0;
         paintValueTicks(context, frame, levelTicks, muted, titleRight);
     }
     // The right-hand axis has its own round ticks, each written where its own value is (never the left axis's places
@@ -1313,7 +1313,7 @@ export function paintSideAxis(canvas: HTMLCanvasElement, ticks: readonly AxisTic
         context.clearRect(0, 0, canvas.width, canvas.height);
         const frame = { left: canvas.width, top: 0, width: 0, height: canvas.height };
         context.font = PLOT_TEXT_FONT;
-        const titleRight = paintValueTitle(context, frame, title, colors.text, AXIS_TITLE_X);
+        const titleRight = paintValueTitle(context, frame, title, colors.text, AXIS_TITLE_X, { min: 0, max: frame.left })?.right ?? 0;
         paintValueTicks(context, frame, spacedTicks(ticks, canvas.height), colors.muted, titleRight);
     });
 }
@@ -1391,24 +1391,33 @@ function paintingAxis(canvas: HTMLCanvasElement, paint: () => void): void {
 /**
  * A value axis's name up the gutter at canvas x `x`, in `color`, fitted to the frame's height: smaller, on two lines
  * or with its quantity shortened, but always its quantity and its unit (R4).
+ * The name is always drawn inside its canvas (R4): along the axis it is fitted to the frame's height (fitAxisTitle
+ * never returns a name longer than the room it is given), and across the gutter its centre is moved in from `x` as far
+ * as its lines need to stay between `gutter.min` and `gutter.max` (the canvas's edge and the plot's side; two lines at
+ * the full font are wider than the gutter's usual centre allows). Returns its sides across the gutter; null with no name.
  */
-function paintValueTitle(context: CanvasRenderingContext2D, frame: { top: number; height: number }, title: string, color: string, x: number): number {
-    if (!title) return 0;
+function paintValueTitle(context: CanvasRenderingContext2D, frame: { top: number; height: number }, title: string, color: string, x: number, gutter: { min: number; max: number }): { left: number; right: number } | null {
+    if (!title) return null;
     const font = context.font;
     const fitted = fitAxisTitle(title, frame.height, part => context.measureText(part).width, { lines: 2 });
+    const size = fontPixels(font) * fitted.scale;
+    const step = size * 1.1;
+    // Half of what the lines take across the gutter: from the first line's far side to the last line's.
+    const half = ((fitted.lines.length - 1) * step + size) / 2;
+    // The canvas's edge wins where the gutter is narrower than the name (min for a left gutter, max for a right one).
+    const centre = gutter.min === 0 ? Math.max(gutter.min + half, Math.min(gutter.max - half, x)) : Math.min(gutter.max - half, Math.max(gutter.min + half, x));
     context.save();
     context.fillStyle = color;
     context.font = scaledFont(font, fitted.scale);
-    context.translate(x, frame.top + frame.height / 2);
+    context.translate(centre, frame.top + frame.height / 2);
     context.rotate(-Math.PI / 2);
     context.textAlign = 'center';
     context.textBaseline = 'middle';
     // Two lines side by side across the gutter, read as one: the quantity on the left, then the unit.
-    const step = fontPixels(font) * fitted.scale * 1.1;
     fitted.lines.forEach((line, index) => context.fillText(line, 0, (index - (fitted.lines.length - 1) / 2) * step));
     context.restore();
-    // Its right edge: the last line's centre and half a line (turned, a line's height runs across the gutter).
-    return x + ((fitted.lines.length - 1) / 2) * step + (fontPixels(font) * fitted.scale) / 2;
+    // Its sides across the gutter (turned, a line's height runs across it): the numbers are written clear of them.
+    return { left: centre - half, right: centre + half };
 }
 
 /**
@@ -1529,8 +1538,7 @@ function paintRightAxis(context: CanvasRenderingContext2D, frame: { left: number
     // Its name first, so its numbers are written clear of it: all smaller where the widest would reach it (A36, R4),
     // as the left axis's are.
     const centre = width - AXIS_TITLE_X;
-    const titleRight = paintValueTitle(context, frame, title, colors.text, centre);
-    const titleLeft = title ? 2 * centre - titleRight : width;
+    const titleLeft = paintValueTitle(context, frame, title, colors.text, centre, { min: x, max: width })?.left ?? width;
     context.fillStyle = colors.muted;
     context.textAlign = 'left';
     const shown = range.max > range.min ? ticks : [];
@@ -1799,10 +1807,29 @@ export function stageReadAgain(plot: StagePlot, read: StageRead, ready: () => vo
     // Its read failed on the new drawing (the backend's passing failure): the point is kept, read as failed until it is
     // asked again (`ready`, once the store's pause is over), never let go for a point that is not drawn.
     if (got === null && layer.full.held === 'fetched') return { ...read, layer, failed: true };
-    const index = got?.xs.indexOf(at) ?? -1;
+    // Of points sharing this x (two recordings of one value), the very one read, by its place in the data.
+    const place = read.index ?? -1;
+    const placed = got?.offset !== undefined && place >= 0 && got.xs[place - got.offset] === at ? place - got.offset : -1;
+    const index = placed >= 0 ? placed : got?.xs.indexOf(at) ?? -1;
     const point = got && index >= 0 ? fullPoint(plot, layer, got, index, 'edge') : null;
     if (!point || point.x < plot.frame.left || point.x > plot.frame.left + plot.frame.width) return null;
     return lineRead(plot, layer, point);
+}
+
+/**
+ * Where in `got` an arrow key's step from the point at `at` starts looking (R7). By place when the point's place among
+ * the source's every point is known (`from`) and the answer is numbered (`offset`): the neighbour in the data's order,
+ * one at the same x too, so recordings of one value are each stepped onto once. Otherwise by x: the first point
+ * strictly past `at` (a backend line's x never repeats). −1 with none.
+ */
+export function stepStart(got: Pick<FullPoints, 'xs' | 'offset'>, at: number, delta: -1 | 1, from?: number): number {
+    if (from !== undefined && got.offset !== undefined && got.xs[from - got.offset] === at) {
+        const next = from - got.offset + delta;
+        return next >= 0 && next < got.xs.length ? next : -1;
+    }
+    if (delta > 0) return got.xs.findIndex(x => x > at);
+    for (let back = got.xs.length - 1; back >= 0; back--) if (got.xs[back] < at) return back;
+    return -1;
 }
 
 /**
@@ -1823,15 +1850,16 @@ export function stageStep(plot: StagePlot, read: StageRead, delta: -1 | 1, ready
         // silence before it: one read finds it (`seek`, full_read._seek_line) and brings STEP_AHEAD more past it, so
         // the next keys need none. Past the plot's side, or the data's end, there is nothing further to read.
         const at = read.at;
-        const got = source.line?.({ x0: at, x1: at, beyond: STEP_AHEAD, seek: delta, ...(floorless(read.layer.view, plot.diff) ? { plain: true } : {}) }, ready);
+        // A source that numbers its points (FullPoints.offset: one the webview holds whole) is stepped by place, so
+        // points sharing one x are each visited once, in the data's order (LineQuery.from); see stepStart.
+        const from = read.index !== undefined && read.index >= 0 && source.held === 'inline' ? read.index : undefined;
+        const got = source.line?.({ x0: at, x1: at, beyond: STEP_AHEAD, seek: delta, ...(from !== undefined ? { from } : {}), ...(floorless(read.layer.view, plot.diff) ? { plain: true } : {}) }, ready);
         if (got === undefined) return undefined;
         // The seek failed (not the data's end): the step waits for it to be asked again once the store's pause is over
         // (`ready`), and the keys pressed meanwhile with it (R7).
         if (got === null && source.held === 'fetched') return undefined;
         if (!got) return null;
-        let index = -1;
-        if (delta > 0) index = got.xs.findIndex(x => x > at);
-        else for (let back = got.xs.length - 1; back >= 0 && index < 0; back--) if (got.xs[back] < at) index = back;
+        let index = stepStart(got, at, delta, from);
         for (; index >= 0 && index < got.xs.length; index += delta) {
             const point = fullPoint(plot, read.layer, got, index, 'edge');
             if (!point) continue;

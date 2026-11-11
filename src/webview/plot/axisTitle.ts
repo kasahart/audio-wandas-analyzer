@@ -46,7 +46,10 @@ export function shortQuantities(quantity: string): string[] {
  * The name as it fits along `length` pixels, `measure` giving a text's width at the font's own size: whole on one
  * line, down to MIN_TITLE_SCALE of the font; then on two lines (when `lines` is 2), quantity then unit; then with the
  * quantity shortened (shortQuantities) at the smallest size.
- * When even the shortest form does not fit it is still drawn, so the axis never loses its quantity or its unit.
+ * When even the shortest form does not fit at that size, it is drawn smaller still, as small as it takes to fit
+ * `length` (no floor): the axis never loses its quantity or its unit, and the name is never drawn past the room it
+ * was given, so never outside its canvas (R4; every caller passes the room it really has). A reader of a plot that
+ * small sees a tiny name, which says "make the plot larger" better than a name cut off at the canvas's edge.
  */
 export function fitAxisTitle(name: string, length: number, measure: (text: string) => number, options: { lines?: 1 | 2; minScale?: number } = {}): FittedAxisTitle {
     const parts = axisNameParts(name);
@@ -64,12 +67,17 @@ export function fitAxisTitle(name: string, length: number, measure: (text: strin
         for (const lines of forms(quantity)) if (fits(lines, smallest)) return { lines, scale: smallest };
     }
     const last = forms(shortest[shortest.length - 1] ?? parts.quantity);
-    return { lines: last[last.length - 1], scale: smallest };
+    const lines = last[last.length - 1];
+    const widest = Math.max(...lines.map(measure));
+    return { lines, scale: widest > 0 && length > 0 ? Math.min(smallest, length / widest) : smallest };
 }
 
-/** `font` with its pixel size times `scale`: "10px sans-serif" at 0.8 is "8px sans-serif". */
+/**
+ * `font` with its pixel size times `scale`: "10px sans-serif" at 0.8 is "8px sans-serif". To a tenth of a pixel,
+ * never rounded up: a name fitted to its room at `scale` (fitAxisTitle) must not be drawn wider than it was measured.
+ */
 export function scaledFont(font: string, scale: number): string {
-    return scale === 1 ? font : font.replace(/(\d+(?:\.\d+)?)px/u, (_, size: string) => `${Math.round(Number(size) * scale * 10) / 10}px`);
+    return scale === 1 ? font : font.replace(/(\d+(?:\.\d+)?)px/u, (_, size: string) => `${Math.floor(Number(size) * scale * 10 + 1e-6) / 10}px`);
 }
 
 /** A font's size in pixels: "10px sans-serif" is 10. */

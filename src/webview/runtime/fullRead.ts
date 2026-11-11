@@ -43,6 +43,14 @@ export interface LineQuery {
      */
     seek?: -1 | 1;
     /**
+     * With `seek`: the place of the point read among the source's every point (FullPoints.offset + its index), where
+     * the reader knows it. Points may share one x (two recordings of the same value on the distribution): by x alone a
+     * seek "strictly past x" would jump over all of them, so the seek then goes by place: the next readable point after
+     * (or before) `from` in the data's own order, every point visited once, → and ← through the same ones (R7).
+     * Only a source that numbers its points (`offset`) is asked so; the backend's lines never share an x.
+     */
+    from?: number;
+    /**
      * A line of plain values (stagePanes' `floorless`: a signal, a metric over time, their Δ): −250 and below is a
      * value to read, not the silent floor, for the seek and a dense window's nearest point alike.
      */
@@ -152,10 +160,13 @@ function firstFrom(xs: ArrayLike<number>, x: number, after = false): number {
 }
 
 /** A seek (LineQuery.seek) in a line held whole: as full_read._seek_line answers it. */
-function seekIn(xs: readonly number[], values: readonly (number | null)[], n: number, x: number, direction: -1 | 1, beyond: number, plain = false): FullPoints {
+function seekIn(xs: readonly number[], values: readonly (number | null)[], n: number, x: number, direction: -1 | 1, beyond: number, plain = false, from?: number): FullPoints {
     let found = -1;
-    if (direction > 0) { for (let index = firstFrom(xs, x, true); index < n && found < 0; index++) if (readableValue(values[index], plain)) found = index; }
-    else for (let index = firstFrom(xs, x) - 1; index >= 0 && found < 0; index--) if (readableValue(values[index], plain)) found = index;
+    // From a known place, the very next point in the data's order, one at the same x too (LineQuery.from); else the
+    // first strictly past x.
+    const placed = from !== undefined && from >= 0 && from < n && xs[from] === x;
+    if (direction > 0) { for (let index = placed ? from + 1 : firstFrom(xs, x, true); index < n && found < 0; index++) if (readableValue(values[index], plain)) found = index; }
+    else for (let index = placed ? from - 1 : firstFrom(xs, x) - 1; index >= 0 && found < 0; index--) if (readableValue(values[index], plain)) found = index;
     if (found < 0) return { xs: [], values: [], start: null, end: null, complete: true };
     const first = Math.max(0, found - (direction > 0 ? 1 : beyond)), after = Math.min(n, found + (direction > 0 ? beyond : 1) + 1);
     return { xs: xs.slice(first, after), values: values.slice(first, after), start: first > 0 ? xs[first] : null, end: after < n ? xs[after - 1] : null, complete: true, offset: first };
@@ -167,7 +178,7 @@ export function localLine(xs: readonly number[], values: readonly (number | null
         held: 'inline',
         line(query) {
             const n = Math.min(xs.length, values.length);
-            if (query.seek) return seekIn(xs, values, n, query.x0, query.seek, query.beyond, !!query.plain);
+            if (query.seek) return seekIn(xs, values, n, query.x0, query.seek, query.beyond, !!query.plain, query.from);
             const low = firstFrom(xs, Math.min(query.x0, query.x1)), high = firstFrom(xs, Math.max(query.x0, query.x1), true);
             const first = Math.max(0, low - query.beyond), after = Math.min(n, Math.max(low, high) + query.beyond);
             return { xs: xs.slice(first, after), values: values.slice(first, after), start: first > 0 ? xs[first] : null, end: after < n ? xs[after - 1] : null, complete: true, offset: first };

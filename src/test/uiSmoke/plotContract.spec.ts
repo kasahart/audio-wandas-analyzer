@@ -19,7 +19,7 @@ const STR_EN = getStrings('en');
  * A plot that does not pass one yet is listed in KNOWN_GAPS with the deviation of the unified plot spec it waits
  * for; a gap that is fixed fails here until it is taken off, so the list only shrinks.
  */
-type Check = 'readout' | 'step' | 'zoom' | 'reset' | 'zoom keys' | 'axis wheel' | 'box zoom' | 'lost release' | 'axis range' | 'x range' | 'axes';
+type Check = 'readout' | 'step' | 'zoom' | 'reset' | 'zoom keys' | 'axis wheel' | 'box zoom' | 'lost release' | 'axis range' | 'x range' | 'axes' | 'names inside';
 const KNOWN_GAPS: Record<string, readonly Check[]> = {};
 
 const FULL = '0.000 1.000 0.000 1.000';
@@ -526,6 +526,10 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
         : { x: xAxisBox.x + xAxisBox.width / 2, y: xAxisIsPlot ? xAxisBox.y + xAxisBox.height - 6 : xAxisBox.y + xAxisBox.height / 2 };
     if (await rangeApplies(xAt)) passed.add('x range');
     await page.mouse.move(1, 1);
+    // Through every gesture above (zoomed, boxed, ranged, reset), no axis name was drawn outside its canvas (R4): the
+    // audit judges each name as it is drawn (canvasAudit.ts __titleAudit; the fix is in the shared component, see
+    // docs/display-rules.md R4 "軸名はキャンバスの中に"). What it found stays on the page and fails the test at its end too.
+    if ((await page.evaluate(() => window.__titleAudit ?? [])).length === 0) passed.add('names inside');
     return passed;
 }
 
@@ -606,8 +610,8 @@ async function expectContract(page: Page, name: string, plot: Locator): Promise<
     checkedPlots.add(await plot.evaluate(plotName));
     const passed = await contract(page, plot);
     const gaps = KNOWN_GAPS[name] ?? [];
-    const checks: Check[] = ['readout', 'step', 'zoom', 'reset', 'zoom keys', 'axis wheel', 'box zoom', 'lost release', 'axis range', 'x range', 'axes'];
-    expect.soft(checks.filter(check => !passed.has(check) && !gaps.includes(check)), `${name}: fails these checks of the plot contract (docs/display-rules.md R13; each is a block in contract() above whose comment states the rule it checks, e.g. 'lost release' is R7's drag whose release never reaches the page)`).toEqual([]);
+    const checks: Check[] = ['readout', 'step', 'zoom', 'reset', 'zoom keys', 'axis wheel', 'box zoom', 'lost release', 'axis range', 'x range', 'axes', 'names inside'];
+    expect.soft(checks.filter(check => !passed.has(check) && !gaps.includes(check)), `${name}: fails these checks of the plot contract (docs/display-rules.md R13; each is a block in contract() above whose comment states the rule it checks, e.g. 'lost release' is R7's drag whose release never reaches the page, 'names inside' is R4's axis names inside their canvas)`).toEqual([]);
     expect.soft(gaps.filter(check => passed.has(check)), `${name}: now passes; take it off KNOWN_GAPS`).toEqual([]);
 }
 
@@ -1040,6 +1044,90 @@ test('every ui-smoke test fails on a plot on screen whose axis name is in its at
     // Taken away, with the audit's record cleared, so this test itself passes the audit.
     await page.evaluate(() => { document.querySelector('.unnamed-axis')?.remove(); window.__unitAudit?.splice(0); });
 });
+
+test('every ui-smoke test fails on an axis name drawn outside its canvas, on a plot or a plot\'s axis canvas (R4)', async ({ page }) => {
+    await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });
+    // A plot whose value axis's name runs off its left edge and whose unit's line runs off its top.
+    await page.evaluate(() => {
+        const plot = document.createElement('canvas');
+        plot.className = 'name-outside';
+        plot.setAttribute('data-plot', '');
+        plot.width = 120; plot.height = 60;
+        Object.assign(plot.style, { position: 'fixed', left: '0', top: '0', width: '120px', height: '60px' });
+        document.body.append(plot);
+        const context = plot.getContext('2d')!;
+        const scope = window as { __plotPainting?: number };
+        scope.__plotPainting = (scope.__plotPainting ?? 0) + 1;
+        context.fillText('Inside [s]', 40, 50);
+        context.fillText('Off the side [Pa]', -30, 30);
+        context.save();
+        context.translate(10, 30); context.rotate(-Math.PI / 2); context.textAlign = 'center';
+        context.fillText('A quantity too long for sixty pixels', 0, 0);
+        context.fillText('[dB SPL re 20 µPa]', 0, 11);
+        context.restore();
+        scope.__plotPainting -= 1;
+    });
+    const found = await page.evaluate(() => window.__titleAudit ?? []);
+    expect(found.filter(text => text.includes('name-outside')).map(text => /"([^"]+)"/u.exec(text)?.[1]).sort(), 'the audit (canvasAudit.ts) must report each name, and each line of a two-line name, whose ink leaves the bitmap, and no name inside it')
+        .toEqual(['A quantity too long for sixty pixels', 'Off the side [Pa]', '[dB SPL re 20 µPa]']);
+    // Taken away, with the audit's record cleared, so this test itself passes the audit.
+    await page.evaluate(() => { document.querySelector('.name-outside')?.remove(); window.__titleAudit?.splice(0); });
+});
+
+/**
+ * docs/display-rules.md R4, "軸名はキャンバスの中に": on every screen, with the page narrow and short, every axis name the
+ * plots draw stays inside its canvas. The audit (canvasAudit.ts __titleAudit) judges each name as it is drawn; these
+ * tests put the plots at the sizes where a name is hardest to fit. A new screen with plots is added to NAME_SCREENS.
+ */
+const NAME_SIZES = [{ width: 1280, height: 900 }, { width: 520, height: 900 }, { width: 1280, height: 340 }, { width: 420, height: 320 }];
+const NAME_SCREENS: ReadonlyArray<{ name: string; open: (page: Page) => Promise<void> }> = [
+    { name: 'the track view (lanes, cursor spectrum)', open: async page => { await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' }); } },
+    { name: 'the track view with two level references', open: async page => { await page.setContent(buildUiSmokeCalibrationHtml(), { waitUntil: 'domcontentloaded' }); } },
+    { name: 'the pair view', open: async page => { await page.setContent(buildExtensionHostPathUiSmokeHtml(), { waitUntil: 'domcontentloaded' }); await page.locator('[data-action="set-pair-reference"]').first().click(); await expect(page.locator('[data-pair-lane][data-plot]')).toHaveCount(3); } },
+    { name: 'the comparison (overlay and Δ)', open: async page => { await openComparison(page, scanned!); await page.locator('[data-action="stage-diff"]').click(); await expect(page.locator('[data-stage-diff]')).toBeVisible(); } },
+    { name: 'the comparison in lanes', open: async page => { await openComparison(page, scanned!); await page.locator('[data-action="stage-layout"]').click(); await expect(page.locator('.track-stage')).toHaveAttribute('data-layout', 'lanes'); } },
+];
+for (const screen of NAME_SCREENS) {
+    test(`every axis name stays inside its canvas on narrow and short plots too: ${screen.name} (R4)`, async ({ page }) => {
+        test.skip(!scanned, 'no Python backend with wandas for the entry100 fixture');
+        await page.setViewportSize(NAME_SIZES[0]);
+        await screen.open(page);
+        await settled(page);
+        const plots = await page.evaluate(() => Array.from(document.querySelectorAll<HTMLCanvasElement>('canvas[data-plot][data-plot-axes]')).filter(canvas => canvas.checkVisibility()).length);
+        expect(plots, `${screen.name}: no plot with named axes is on screen, so this test checks nothing; open the screen as the other tests of this file do`).toBeGreaterThan(0);
+        for (const size of NAME_SIZES) {
+            await page.setViewportSize(size);
+            await settled(page);
+            expect.soft(await page.evaluate(() => window.__titleAudit ?? []), `${screen.name} at ${size.width}×${size.height}: an axis name was drawn outside its canvas (docs/display-rules.md R4). `
+                + 'Fix it in the shared plot component, never per chart: fitAxisTitle (src/webview/plot/axisTitle.ts) must be given the room the name really has, and stagePanes.ts paintValueTitle must keep it inside its gutter.').toEqual([]);
+        }
+        // Every resize edge of the screen at its smallest, then at its largest (a waveform lane at its smallest share
+        // of a short track is the shortest plot there is), from the keyboard as a user sets them (Home / End on a
+        // focused edge, separatorKeys.ts). The sidebar's edge is left alone: its End hands the page to the table.
+        const edges = page.locator('[role="separator"][data-action]:visible');
+        for (const key of ['Home', 'End'] as const) {
+            const actions = new Set<string>();
+            for (let index = 0; index < await edges.count(); index++) {
+                const edge = edges.nth(index);
+                const action = (await edge.getAttribute('data-action')) ?? '';
+                if (actions.has(action)) continue;
+                actions.add(action);
+                await edge.focus();
+                await page.keyboard.press(key);
+                await settled(page);
+            }
+            await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.());
+            for (const size of NAME_SIZES) {
+                await page.setViewportSize(size);
+                await settled(page);
+                expect.soft(await page.evaluate(() => window.__titleAudit ?? []), `${screen.name} at ${size.width}×${size.height} with every resize edge at its ${key === 'Home' ? 'smallest' : 'largest'}: `
+                    + 'an axis name was drawn outside its canvas (docs/display-rules.md R4). Fix it in the shared plot component (axisTitle.ts fitAxisTitle, stagePanes.ts paintValueTitle), never per chart.').toEqual([]);
+            }
+        }
+        // Reported above with the size it happened at; cleared so the end-of-test audit does not report it again.
+        await page.evaluate(() => { window.__titleAudit?.splice(0); });
+    });
+}
 
 test('every ui-smoke test fails on a plot on screen that drew a louder compared line over a quieter one (R6)', async ({ page }) => {
     await page.setContent(buildUiSmokeHtml(), { waitUntil: 'domcontentloaded' });

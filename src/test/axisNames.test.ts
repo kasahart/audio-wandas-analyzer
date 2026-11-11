@@ -4,7 +4,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { getStrings, type UiStrings } from '../shared/i18n/strings';
 import type { StageView } from '../shared/protocol/backendProtocol';
-import { axisNameParts, DIMENSIONLESS, fitAxisTitle, shortQuantities } from '../webview/plot/axisTitle';
+import { axisNameParts, DIMENSIONLESS, fitAxisTitle, fontPixels, scaledFont, shortQuantities } from '../webview/plot/axisTitle';
 import { paneAxes, type LevelInput } from '../webview/runtime/comparePanes';
 import { csvAxisName } from '../webview/runtime/entryDistributionPane';
 import { pairLanes } from '../webview/runtime/pairSpectrum';
@@ -115,12 +115,38 @@ test('a name too long for its axis keeps its quantity and its unit: smaller, on 
     // A quantity ending in its symbol is shortened to the symbol first.
     assert.deepEqual(fitAxisTitle('Coherence γ² [–]', 30, measure, { lines: 2 }), { lines: ['γ² [–]'], scale: 0.8 });
     assert.deepEqual(fitAxisTitle('Gain [dB]', 20, measure, { lines: 1 }).lines, ['G… [dB]']);
-    // Even when nothing fits, the quantity (shortened) and the unit are both drawn.
+    // Even when nothing fits at the smallest size, the quantity (shortened) and the unit are both drawn, smaller
+    // still: as small as fits the room (the next test), never past it.
     const tiny = fitAxisTitle('Amplitude, uncalibrated [FS]', 4, measure, { lines: 2 });
-    assert.deepEqual(tiny, { lines: ['A…', '[FS]'], scale: 0.8 });
+    assert.deepEqual(tiny.lines, ['A…', '[FS]']);
+    assert.ok(tiny.scale < 0.8 && tiny.scale > 0);
     assert.deepEqual(shortQuantities('Coherence γ² · ch2 / ch1').slice(0, 1), ['Coherence γ² · ch2 / ch…'], 'a channel is no symbol');
     // A name without a unit (none should reach a plot) is drawn as given.
     assert.deepEqual(fitAxisTitle('', 10, measure), { lines: [], scale: 1 });
+});
+
+/**
+ * docs/display-rules.md R4, "軸名はキャンバスの中に": the shared fit never returns a name longer than the room it was
+ * given, so no caller can draw an axis name past its canvas however narrow or short the plot is.
+ */
+test('a fitted axis name is never longer than the room it was given, at any size and on one line or two; and the font is never rounded up (R4)', () => {
+    const measure = (text: string): number => [...text].length * 5.6;
+    const names = ['Phase [°]', 'Coherence γ² [–]', 'Level [dB SPL re 20 µPa]', 'Amplitude, uncalibrated [FS]', 'Sound pressure level, A-weighted [dB SPL re 20 µPa]', '音圧レベル [dB SPL re 20 µPa]'];
+    for (const name of names) {
+        for (const lines of [1, 2] as const) {
+            for (let room = 1; room <= 400; room += room < 60 ? 1 : 17) {
+                const fitted = fitAxisTitle(name, room, measure, { lines });
+                const parts = axisNameParts(name)!;
+                const longest = Math.max(...fitted.lines.map(measure)) * fitted.scale;
+                assert.ok(longest <= room + 1e-9, `"${name}" fitted to ${room} px on ${lines} line(s) is ${longest.toFixed(1)} px long (${JSON.stringify(fitted)}): it would be drawn past its canvas. `
+                    + 'Fix: fitAxisTitle (src/webview/plot/axisTitle.ts) must return a scale at which every line fits the length it was given; see docs/display-rules.md R4.');
+                assert.ok(fitted.lines.join(' ').includes(`[${parts.unit}]`) && fitted.lines.join(' ').trim() !== `[${parts.unit}]`, `"${name}" fitted to ${room} px lost its quantity or its unit (${JSON.stringify(fitted)}): shorten or shrink it, never drop a part (R4).`);
+                // The font the name is drawn in is the measured one times a scale no larger than the fitted one.
+                const drawnSize = fontPixels(scaledFont('10px sans-serif', fitted.scale));
+                assert.ok(drawnSize <= 10 * fitted.scale + 1e-9, `scaledFont rounded ${10 * fitted.scale} px up to ${drawnSize} px: the name would be drawn wider than it was fitted. Fix: scaledFont must round down (axisTitle.ts).`);
+            }
+        }
+    }
 });
 
 test('no plot names an axis through gui-core\'s drawValueAxis or fittedAxisTitle, which keep only the unit when the name is long: every name is fitted by axisTitle.ts, quantity and unit (R4)', () => {
