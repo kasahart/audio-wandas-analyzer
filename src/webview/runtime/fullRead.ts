@@ -33,6 +33,11 @@ export interface LineQuery {
     at?: number;
     pixels?: readonly [number, number];
     /**
+     * The values the plot shows, low and high (its level or amplitude axis, zoomed): a dense window's point nearest the
+     * pointer and the one under it are of the points on screen (full_read._on_screen), never one the plot cannot read.
+     */
+    shown?: readonly [number, number];
+    /**
      * An arrow key's read (x0 = x1): the first point with a value to read strictly past x toward larger (1) or smaller
      * (-1) x, however far, with `beyond` past it (and the point before it), as one complete window.
      */
@@ -334,6 +339,7 @@ export function fetchedSource(fetch: (read: StageRead, done: (points: StagePoint
                 ...(query.near !== undefined && Number.isFinite(query.near) ? { near: query.near } : {}),
                 ...(columns ? { columns } : {}), ...(query.log ? { log: true } : {}),
                 ...(pointer && query.pixels ? { at: query.at, pixels: [...query.pixels] } : {}),
+                ...(query.shown && query.shown.every(Number.isFinite) ? { shown: [Math.min(...query.shown), Math.max(...query.shown)] } : {}),
                 ...(query.seek ? { seek: query.seek } : {}), ...(query.plain ? { plain: true } : {}) };
             // An arrow key's seek is answered by a kept window that runs on, every point, from x to a point to read
             // past it (or to the data's end): the next keys after one seek need no request.
@@ -341,7 +347,8 @@ export function fetchedSource(fetch: (read: StageRead, done: (points: StagePoint
             // A window too dense to send whole comes as each pixel column's lowest, highest and the point nearest the
             // level under the pointer, with the one point nearest the pointer on screen: it answers only a read at
             // that place, level and scale. Elsewhere its nearest point is another's: the read waits for its own.
-            const same = (asked: StageRead): boolean => asked.near === read.near && asked.at === read.at && asked.pixels?.[0] === read.pixels?.[0] && asked.pixels?.[1] === read.pixels?.[1];
+            const same = (asked: StageRead): boolean => asked.near === read.near && asked.at === read.at && asked.pixels?.[0] === read.pixels?.[0] && asked.pixels?.[1] === read.pixels?.[1]
+                && asked.shown?.[0] === read.shown?.[0] && asked.shown?.[1] === read.shown?.[1];
             return answer(JSON.stringify(read), read, ready, (points, asked) => covers(points, x0, x1, query.beyond)
                 || (!points.complete && query.columns !== undefined && holdsDense(asked, x0, x1, query.columns, log) && same(asked)));
         },
@@ -376,18 +383,41 @@ export function fetchedSource(fetch: (read: StageRead, done: (points: StagePoint
  * -1 past the first or last cell's outer half when the axis ends there (`open`), else the nearest end cell.
  */
 export function cellIndex(axis: readonly number[], value: number, log: boolean, open: { low: boolean; high: boolean }): number {
-    const measure = (at: number): number => (log ? Math.log(Math.max(at, 1e-12)) : at);
+    const edges = cellEdges(axis, log);
     const n = axis.length;
     if (!n) return -1;
-    const v = measure(value);
-    for (let index = 0; index < n; index++) {
-        const here = measure(axis[index]);
-        const below = index > 0 ? (measure(axis[index - 1]) + here) / 2 : n > 1 ? here - (measure(axis[1]) - here) / 2 : here - 0.5;
-        const above = index < n - 1 ? (here + measure(axis[index + 1])) / 2 : n > 1 ? here + (here - measure(axis[n - 2])) / 2 : here + 0.5;
-        if (v >= below && v <= above) return index;
-        if (index === 0 && v < below) return open.low ? -1 : 0;
-    }
-    return open.high ? -1 : n - 1;
+    const v = axisMeasure(value, log);
+    if (v < edges[0]) return open.low ? -1 : 0;
+    if (v > edges[n]) return open.high ? -1 : n - 1;
+    // The first cell whose upper edge is at or past the value: a value on an edge is the lower cell's.
+    let lo = 0, hi = n - 1;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (edges[mid + 1] < v) lo = mid + 1; else hi = mid; }
+    return lo;
+}
+
+/** A value of an axis in the axis's own measure: its log on a log axis, so a cell's edges are where the screen halves it. */
+export const axisMeasure = (value: number, log: boolean): number => (log ? Math.log(Math.max(value, 1e-12)) : value);
+
+/**
+ * The edges of each cell along an axis, in its own measure (axisMeasure): halfway between neighbouring points, and half
+ * the end step past each end, so a cell holds the values nearest its point on screen. On a log axis that is the
+ * geometric mean of two points (√(f1·f2): 100 and 125 Hz meet at 111.8 Hz, not 112.5). The one rule every chart
+ * draws, hovers and steps a cell or a bar by (a heatmap's columns and rows, a band's bar, cellIndex).
+ */
+export function cellEdges(axis: readonly number[], log: boolean): number[] {
+    const n = axis.length;
+    if (!n) return [];
+    const at = (index: number): number => axisMeasure(axis[index], log);
+    const firstStep = n > 1 ? at(1) - at(0) : 1, lastStep = n > 1 ? at(n - 1) - at(n - 2) : 1;
+    const edges = [at(0) - firstStep / 2];
+    for (let index = 1; index < n; index++) edges.push((at(index - 1) + at(index)) / 2);
+    edges.push(at(n - 1) + lastStep / 2);
+    return edges;
+}
+
+/** cellEdges back in the axis's values (a log axis's edges exponentiated). */
+export function cellEdgeValues(axis: readonly number[], log: boolean): number[] {
+    return cellEdges(axis, log).map(edge => (log ? Math.exp(edge) : edge));
 }
 
 /**

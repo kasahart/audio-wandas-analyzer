@@ -1369,6 +1369,12 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                         "type": "number"
                     }
                 },
+                "shown": {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    }
+                },
                 "seek": {
                     "type": "integer",
                     "enum": [
@@ -2646,6 +2652,7 @@ export interface StageRead {
     log?: boolean;
     at?: number;
     pixels?: number[];
+    shown?: number[];
     seek?: -1 | 1;
     plain?: boolean;
     event?: number;

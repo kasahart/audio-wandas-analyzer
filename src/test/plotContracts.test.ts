@@ -10,6 +10,7 @@ import type { ContractRow } from './plotContracts/model';
 import { CONTRACT_DOC, renderContractDoc } from './plotContracts/render';
 import { NOT_SHOWN, SCHEMA_FIELDS } from './plotContracts/schema';
 import { DRAWN_ACCESSORS, DRAWN_FIELDS, DRAWN_READERS, NOT_CHART_VALUES, PY_DECIMATORS, VALUE_HELPERS, type DrawnReader } from './plotContracts/values';
+import { SURFACES } from './plotContracts/surfaces';
 import { PLOTS_PENDING } from './uiSmoke/plotRegistry';
 
 const repoRoot = path.resolve(__dirname, '..', '..');
@@ -182,7 +183,145 @@ function numberWriters(): Map<string, Set<string>> {
     for (const [writer, calls] of writers) if ([...calls].some(call => call.startsWith('Math.'))) helpers.add(writer);
     writers.clear();
     for (const file of sourceFiles()) writersIn(file, helpers, writers);
+    // And every number written into text a user reads, by its type (String(n), `${n}`, n + ' Hz', a number itself).
+    // Text made by a function a row already names (`loopRegionClockText`) is that row's: writing it is not a new path.
+    const registered = new Set(ROWS.flatMap(row => row.computedIn));
+    for (const [writer, how] of numericTextWriters(typed(), sourceFiles())) {
+        const fresh = [...how].filter(call => !registered.has(call.split(' ')[0]));
+        if (!fresh.length) continue;
+        const calls = writers.get(writer) ?? new Set<string>();
+        for (const call of fresh) calls.add(call);
+        writers.set(writer, calls);
+    }
     return writers;
+}
+
+/** Properties whose value is text a user reads: an element's text or markup, a field's value, a tooltip. */
+const TEXT_PROPERTIES = new Set(['textContent', 'innerText', 'innerHTML', 'outerHTML', 'nodeValue', 'value', 'title', 'placeholder', 'alt', 'ariaLabel', 'ariaValueText', 'ariaValueNow']);
+/** Calls whose argument (by index) is text a user reads: canvas text, a text node, an attribute, inserted content. */
+const TEXT_CALLS: Readonly<Record<string, readonly number[]>> = {
+    fillText: [0], strokeText: [0], createTextNode: [0], setAttribute: [1], setAttributeNS: [2], insertAdjacentText: [1], insertAdjacentHTML: [1],
+    append: [0, 1, 2, 3], prepend: [0, 1, 2, 3], replaceChildren: [0, 1, 2, 3], after: [0, 1, 2], before: [0, 1, 2], replaceWith: [0, 1, 2], write: [0],
+};
+
+/**
+ * Every function of `files` that writes a number into text a user reads, found by type, not by a call's name: a
+ * number-typed value given to a text sink (TEXT_PROPERTIES, TEXT_CALLS, a `data-` attribute), or text made of one
+ * (`String(n)`, `${n}`, `n + ' Hz'`, `n.toString()`, a join of numbers), directly or through a local, or returned by
+ * a function that makes such text (then whoever writes its result writes a number, by that function).
+ */
+function numericTextWriters(program: ts.Program, files: readonly string[]): Map<string, Set<string>> {
+    const checker = program.getTypeChecker();
+    const numeric = (node: ts.Node): boolean => {
+        const type = checker.getTypeAtLocation(node);
+        const parts = type.isUnion() ? type.types : [type];
+        return parts.some(part => (part.flags & (ts.TypeFlags.NumberLike | ts.TypeFlags.BigIntLike)) !== 0);
+    };
+    const numericArray = (node: ts.Node): boolean => {
+        const type = checker.getTypeAtLocation(node);
+        const element = checker.isArrayType(type) ? checker.getTypeArguments(type as ts.TypeReference)[0] : undefined;
+        return !!element && ((element.isUnion() ? element.types : [element]).some(part => (part.flags & ts.TypeFlags.NumberLike) !== 0));
+    };
+    const sources = files.map(file => program.getSourceFile(path.join(repoRoot, file))).filter((source): source is ts.SourceFile => !!source);
+    const fileOf = (node: ts.Node): string => path.relative(repoRoot, node.getSourceFile().fileName).split(path.sep).join('/');
+    const nameOf = (node: ts.Node): string => `${fileOf(node)}:${enclosing(node)}`;
+    // Functions whose result is text made of a number, by their declaration: found to a fixed point.
+    const makers = new Map<ts.Node, string>();
+    const declarationOf = (callee: ts.Expression): ts.Node | undefined => {
+        let symbol = checker.getSymbolAtLocation(callee);
+        if (symbol && symbol.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol);
+        const declaration = symbol?.valueDeclaration;
+        if (declaration && ts.isVariableDeclaration(declaration) && declaration.initializer && ts.isFunctionLike(declaration.initializer)) return declaration.initializer;
+        return declaration;
+    };
+    const seen = new Set<ts.Node>();
+    /** What makes `node` text of a number, if anything does: a conversion's name, or a maker's `file:function`. */
+    const textOfNumber = (node: ts.Node): string | undefined => {
+        if (seen.has(node)) return undefined;
+        seen.add(node);
+        try {
+            if (ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isNonNullExpression(node)) return textOfNumber(node.expression);
+            if (ts.isTemplateExpression(node)) {
+                for (const span of node.templateSpans) if (numeric(span.expression)) return 'a template of a number';
+                for (const span of node.templateSpans) { const inner = textOfNumber(span.expression); if (inner) return inner; }
+                return undefined;
+            }
+            if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken && !numeric(node)) {
+                if (numeric(node.left) || numeric(node.right)) return 'a number joined to text';
+                return textOfNumber(node.left) ?? textOfNumber(node.right);
+            }
+            if (ts.isConditionalExpression(node)) return textOfNumber(node.whenTrue) ?? textOfNumber(node.whenFalse);
+            if (ts.isBinaryExpression(node) && [ts.SyntaxKind.BarBarToken, ts.SyntaxKind.QuestionQuestionToken].includes(node.operatorToken.kind)) return textOfNumber(node.left) ?? textOfNumber(node.right);
+            if (ts.isCallExpression(node)) {
+                const callee = node.expression;
+                if (ts.isIdentifier(callee) && callee.text === 'String' && node.arguments[0] && numeric(node.arguments[0])) return 'String of a number';
+                if (ts.isPropertyAccessExpression(callee) && callee.name.text === 'toString' && numeric(callee.expression)) return 'a number\'s toString';
+                if (ts.isPropertyAccessExpression(callee) && callee.name.text === 'join' && numericArray(callee.expression)) return 'a join of numbers';
+                const declaration = declarationOf(callee);
+                const maker = declaration ? makers.get(declaration) : undefined;
+                if (maker) return maker;
+                return undefined;
+            }
+            if (ts.isIdentifier(node)) {
+                const declaration = declarationOf(node);
+                if (declaration && ts.isVariableDeclaration(declaration) && declaration.initializer && declaration.getSourceFile() === node.getSourceFile()) return textOfNumber(declaration.initializer);
+            }
+            return undefined;
+        } finally {
+            seen.delete(node);
+        }
+    };
+    /** Where each maker's text of a number is made, first: what a write through it is told by. */
+    const roots = new Map<string, string>();
+    for (let grown = true; grown;) {
+        grown = false;
+        for (const source of sources) each(source, node => {
+            if (!ts.isFunctionLike(node) || makers.has(node) || !functionName(node)) return;
+            const body = (node as ts.FunctionLikeDeclaration).body;
+            if (!body) return;
+            const returned: ts.Expression[] = [];
+            if (!ts.isBlock(body)) returned.push(body);
+            else each(body, inner => { if (ts.isReturnStatement(inner) && inner.expression && enclosingFunction(inner) === node) returned.push(inner.expression); });
+            const making = returned.find(expression => !numeric(expression) && textOfNumber(expression));
+            if (making) {
+                const name = `${fileOf(node)}:${functionName(node)}`;
+                makers.set(node, name);
+                const reason = textOfNumber(making) ?? '';
+                roots.set(name, roots.get(reason) ?? `${reason} at ${fileOf(making)}:${making.getSourceFile().getLineAndCharacterOfPosition(making.getStart()).line + 1}`);
+                grown = true;
+            }
+        });
+    }
+    const writers = new Map<string, Set<string>>();
+    const write = (at: ts.Node, value: ts.Expression): void => {
+        const how = numeric(value) ? 'a number' : textOfNumber(value);
+        if (!how) return;
+        const writer = nameOf(at);
+        if (writer === how) return;
+        const calls = writers.get(writer) ?? new Set<string>();
+        const root = roots.get(how);
+        calls.add(`${how}${root ? ` (${root})` : ''} at line ${at.getSourceFile().getLineAndCharacterOfPosition(at.getStart()).line + 1}`);
+        writers.set(writer, calls);
+    };
+    for (const source of sources) each(source, node => {
+        if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken && (ts.isPropertyAccessExpression(node.left) || ts.isElementAccessExpression(node.left))) {
+            const target = node.left;
+            const property = ts.isPropertyAccessExpression(target) ? target.name.text : undefined;
+            const dataset = ts.isPropertyAccessExpression(target.expression) && target.expression.name.text === 'dataset';
+            if ((property && TEXT_PROPERTIES.has(property)) || dataset) write(node, node.right);
+        }
+        if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+            const indices = Object.hasOwn(TEXT_CALLS, node.expression.name.text) ? TEXT_CALLS[node.expression.name.text] : undefined;
+            if (indices) for (const index of indices) if (node.arguments[index]) write(node, node.arguments[index]);
+        }
+    });
+    return writers;
+}
+
+/** The function node a node is in, if any. */
+function enclosingFunction(node: ts.Node): ts.Node | undefined {
+    for (let at = node.parent as ts.Node | undefined; at; at = at.parent) if (ts.isFunctionLike(at)) return at;
+    return undefined;
 }
 
 /** Every call of the plot component outside it, by the function that makes it. */
@@ -230,6 +369,79 @@ test('every call of the plot component, and every plot plotRegistry.ts lists, is
     const registered = CHARTS.flatMap(chart => chart.registry ?? []);
     assert.deepEqual(PLOTS_PENDING.map(plot => plot.selector).filter(selector => !registered.includes(selector)), [], 'a plot plotRegistry.ts lists is in no chart');
     assert.deepEqual(registered.filter(selector => !PLOTS_PENDING.some(plot => plot.selector === selector)), [], 'a chart lists a canvas plotRegistry.ts does not');
+});
+
+/**
+ * Every place in `files` that makes a drawing surface, by the function it is in: a canvas's context taken (by the
+ * receiver's type, HTMLCanvasElement or OffscreenCanvas), a canvas or an SVG element created (createElement,
+ * createElementNS with the SVG namespace, new OffscreenCanvas), or written as markup (`<canvas`, `<svg` in a string or
+ * a template). A chart that bypasses the plot component still needs one, so it cannot be drawn without being found.
+ */
+function drawingSurfaces(program: ts.Program, files: readonly string[]): Map<string, Set<string>> {
+    const checker = program.getTypeChecker();
+    const found = new Map<string, Set<string>>();
+    const add = (node: ts.Node, what: string): void => {
+        const where = `${path.relative(repoRoot, node.getSourceFile().fileName).split(path.sep).join('/')}:${enclosing(node)}`;
+        const line = node.getSourceFile().getLineAndCharacterOfPosition(node.getStart()).line + 1;
+        const set = found.get(where) ?? new Set<string>();
+        set.add(`${what} at line ${line}`);
+        found.set(where, set);
+    };
+    const canvasTyped = (node: ts.Expression): boolean => {
+        const type = checker.getNonNullableType(checker.getTypeAtLocation(node));
+        return (type.isUnion() ? type.types : [type]).some(part => ['HTMLCanvasElement', 'OffscreenCanvas'].includes(part.getSymbol()?.getName() ?? ''));
+    };
+    for (const file of files) {
+        const source = program.getSourceFile(path.join(repoRoot, file));
+        if (!source) continue;
+        each(source, node => {
+            if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+                const method = node.expression.name.text;
+                const first = node.arguments[0];
+                if (method === 'getContext' && canvasTyped(node.expression.expression)) add(node, 'a canvas\'s context');
+                if (method === 'createElement' && first && ts.isStringLiteralLike(first) && ['canvas', 'svg'].includes(first.text.toLowerCase())) add(node, `a ${first.text} created`);
+                if (method === 'createElementNS' && first && ts.isStringLiteralLike(first) && first.text.includes('svg')) add(node, 'an SVG element created');
+            }
+            if (ts.isNewExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'OffscreenCanvas') add(node, 'an OffscreenCanvas');
+            const text = ts.isStringLiteralLike(node) ? node.text : ts.isTemplateHead(node) || ts.isTemplateMiddle(node) || ts.isTemplateTail(node) ? node.text : undefined;
+            const tag = text !== undefined ? /<(canvas|svg)\b/iu.exec(text)?.[1] : undefined;
+            if (tag) add(node, `<${tag.toLowerCase()}> markup`);
+        });
+    }
+    return found;
+}
+
+test('every drawing surface of the webview (a canvas or an SVG made, or a context taken) is the plot component\'s, a chart\'s, or says why it is no chart', () => {
+    const found = drawingSurfaces(typed(), sourceFiles().filter(file => file !== STAGE_PANES));
+    const painted = new Set(CHARTS.flatMap(chart => chart.paintedBy));
+    const charts = new Set(CHARTS.map(chart => chart.id));
+    const unlisted = [...found].filter(([where]) => !painted.has(where) && !Object.hasOwn(SURFACES, where)).map(([where, what]) => `${where} (${[...what].join(', ')})`).sort();
+    assert.deepEqual(unlisted, [], 'these functions make a drawing surface no chart lists: a chart drawn there must be drawn by the plot component and be in a chart of plotContracts (or SURFACES says whose it is, or why it is no chart)');
+    assert.deepEqual(Object.keys(SURFACES).filter(where => !found.has(where)).sort(), [], 'SURFACES lists a function that makes no drawing surface');
+    for (const [where, whose] of Object.entries(SURFACES)) {
+        if (typeof whose === 'string') assert.ok(whose.trim().length > 0, `${where}: says no why`);
+        else assert.deepEqual(whose.charts.filter(chart => !charts.has(chart)), [], `${where}: no such chart`);
+    }
+});
+
+test('the surface scan finds a chart drawn its own way: a canvas made and drawn, an SVG chart, markup of either', () => {
+    const file = 'src/webview/runtime/fakeChart.ts';
+    const program = typedWith(new Map([[file, [
+        'export function ownCanvas(host: HTMLElement): void { const canvas = document.createElement("canvas"); host.append(canvas); canvas.getContext("2d")?.fillRect(0, 0, 4, 4); }',
+        'export function drawsOn(canvas: HTMLCanvasElement | null): void { const ctx = canvas?.getContext("2d"); ctx?.stroke(); }',
+        'export function svgChart(host: HTMLElement): void { host.append(document.createElementNS("http://www.w3.org/2000/svg", "svg")); }',
+        'export function markup(height: number): string { return `<div><canvas height="${height}"></canvas></div>`; }',
+        "export function svgMarkup(): string { return '<svg viewBox=\"0 0 4 4\"><path d=\"M0 0L4 4\"/></svg>'; }",
+        'export function offscreen(): void { new OffscreenCanvas(4, 4).getContext("2d"); }',
+        // A context of anything else, and words, are no surface.
+        'export function other(element: { getContext(kind: string): unknown }): void { element.getContext("2d"); }',
+        'export function words(): string { return "a canvas of svg"; }',
+    ].join('\n')]]));
+    const found = drawingSurfaces(program, [file]);
+    assert.deepEqual([...found.keys()].map(name => name.slice(file.length + 1)).sort(), ['drawsOn', 'markup', 'offscreen', 'ownCanvas', 'svgChart', 'svgMarkup']);
+    // Not in a chart, not in SURFACES: the inventory test fails on each.
+    const painted = new Set(CHARTS.flatMap(chart => chart.paintedBy));
+    assert.ok([...found.keys()].every(where => !painted.has(where) && !Object.hasOwn(SURFACES, where)));
 });
 
 test('every test the table names runs and asserts something', () => {
@@ -289,6 +501,27 @@ test('the detector finds a number written by a primitive, a helper imported unde
     }
 });
 
+
+test('the detector finds a number written into text by its type: String(n), a template, n + text, a local, a function that makes such text, and a number itself', () => {
+    const file = 'src/webview/runtime/fakeText.ts';
+    const program = typedWith(new Map([[file, [
+        'export function viaString(el: HTMLElement, value: number): void { el.textContent = String(value); }',
+        'export function viaTemplate(el: HTMLElement, value: number): void { el.textContent = `${value} dB`; }',
+        "export function viaJoin(ctx: CanvasRenderingContext2D, value: number): void { ctx.fillText(value + ' Hz', 0, 0); }",
+        'export function viaLocal(el: HTMLElement, value: number): void { const label = `${value}`; el.title = label; }',
+        'function made(value: number): string { return `${value.toString()} s`; }',
+        'export function viaMaker(el: HTMLElement, value: number): void { el.innerHTML = `<b>${made(value)}</b>`; }',
+        'export function viaAttribute(el: HTMLElement, value: number): void { el.setAttribute(\'aria-valuetext\', String(value)); el.dataset.level = `${value}`; }',
+        'export function viaNumbers(el: HTMLElement, values: number[]): void { el.append(values.join(\', \')); }',
+        'export function itself(input: HTMLInputElement, value: number): void { input.valueAsNumber = value; (input as unknown as { textContent: number }).textContent = value; }',
+        // Words, and a number given to a style, are no number a user reads.
+        'export function words(el: HTMLElement, name: string, width: number): void { el.textContent = `${name}!`; el.style.width = `${width}px`; }',
+    ].join('\n')]]));
+    const found = numericTextWriters(program, [file]);
+    const names = [...found.keys()].map(name => name.slice(file.length + 1)).sort();
+    assert.deepEqual(names, ['itself', 'viaAttribute', 'viaJoin', 'viaLocal', 'viaMaker', 'viaNumbers', 'viaString', 'viaTemplate'], [...found].map(([name, how]) => `${name}: ${[...how].join(', ')}`).join('\n'));
+    assert.match([...found.get(`${file}:viaMaker`) ?? []].join(), /fakeText\.ts:made/u);
+});
 
 test('every chart\'s file in plotContracts/charts is gathered by index.ts, and holds only its own rows\' gaps', () => {
     const files = readdirSync(path.join(repoRoot, 'src/test/plotContracts/charts')).filter(name => name.endsWith('.ts')).map(name => name.replace(/\.ts$/, '')).sort();
