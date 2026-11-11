@@ -203,7 +203,7 @@ async function stepThenPlus(page: Page, plot: Locator, across = 0.45, down = 0.5
     const before = await plot.getAttribute('data-plot-window');
     await page.keyboard.press('=');
     await expect.poll(() => plot.getAttribute('data-plot-window')).not.toBe(before);
-    await page.waitForTimeout(250);
+    await settled(page);
     expect((await readFull(plot)).at, 'the point stepped to, on the plot drawn anew').toBe(stepped.at);
 }
 const snapshotUi = (page: Page): Promise<{ cursorNorm: number; entry?: { focused: string | null; dist: { range: unknown } | null } }> => page.evaluate(() => {
@@ -583,7 +583,7 @@ const ROWS: Row[] = [
             const windowBefore = await gain.getAttribute('data-plot-window');
             await page.keyboard.press('ArrowRight');
             await page.keyboard.press('=');
-            await page.waitForTimeout(200);
+            await settled(page);
             expect((await noted(gain)).read, 'no step read while the drag is under way').not.toBe('full');
             expect(await gain.getAttribute('data-plot-window'), 'no zoom while the drag is under way').toBe(windowBefore);
             // Let go over the gain, the pointer still: it reads there.
@@ -692,7 +692,7 @@ const ROWS: Row[] = [
             await expect(page.locator('#spectrum-freq-readout')).toContainText(/\d/u);
             const before = await spectrum.getAttribute('data-plot-window');
             await page.keyboard.press('=');
-            await page.waitForTimeout(200);
+            await settled(page);
             expect(await spectrum.getAttribute('data-plot-window'), '+ does not zoom a plot the pointer is not on').toBe(before);
             expect((await noted(spectrum)).at).toBe(second.at);
         },
@@ -708,7 +708,7 @@ const ROWS: Row[] = [
             await splitter.focus();
             for (let key = 0; key < 4; key++) await page.keyboard.press('ArrowUp');
             await expect.poll(async () => Math.abs((await spectrum.boundingBox())!.y - top), { message: 'the plot moved' }).toBeGreaterThan(4);
-            await page.waitForTimeout(250);
+            await settled(page);
             expect((await readFull(spectrum)).at, 'the point stepped to, not the one now under the pointer').toBe(stepped.at);
         },
     },
@@ -727,7 +727,7 @@ const ROWS: Row[] = [
             const before = (await snapshotUi(page)).cursorNorm;
             await page.keyboard.press('ArrowRight');
             await page.keyboard.press('ArrowRight');
-            await page.waitForTimeout(200);
+            await settled(page);
             expect((await snapshotUi(page)).cursorNorm, 'the focused lane\'s time cursor stays').toBe(before);
         },
     },
@@ -755,7 +755,7 @@ const ROWS: Row[] = [
             await page.mouse.down();
             await page.mouse.move(at.x + 3, at.y);
             await page.mouse.up();
-            await page.waitForTimeout(500);
+            await settled(page);
             const read = await readFull(lane);
             expect(read.at, 'read at the release').toBe(released.at);
             // The clock shows hundredths: the time lines are at the release, as a hover there puts them.
@@ -882,7 +882,7 @@ const ROWS: Row[] = [
             expect(dot, 'a dot of another row').toBeTruthy();
             const at = (await dotCanvas.boundingBox())!;
             await page.mouse.dblclick(at.x + dot!.x, at.y + dot!.y);
-            await page.waitForTimeout(600);
+            await settled(page);
             expect(await focused(), 'the table stays on its row').toBe(before);
         },
     },
