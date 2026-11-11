@@ -48,6 +48,15 @@ function pointerPlotOf(doc: object): PointerPlot {
     return holder[POINTER_PLOT] ??= { plot: null, event: null };
 }
 
+/**
+ * The plot under the pointer, of any surface, whether or not its gestures answer it now (a spectrum with no data yet):
+ * a key over it is never another surface's, a focused lane's time cursor (R7).
+ */
+export function plotUnderPointer(doc: object): Element | null {
+    const plot = pointerPlotOf(doc).plot;
+    return plot && plot.isConnected ? plot : null;
+}
+
 /** Wheel events further apart than this start a new swipe. */
 const SWIPE_PAUSE_MS = 150;
 
@@ -159,14 +168,18 @@ export function attachTrackPointerListeners(tracksWrapper: PointerSurface, doc: 
             // A plot that only has the focus takes the arrows only while the pointer is over no other plot (A47): the
             // plot under the pointer, on another surface too, is the one they step.
             const elsewhere = shared.plot && shared.plot.isConnected && !tracksWrapper.contains(shared.plot);
-            const plot = underPointer() ?? (elsewhere ? null : plotOf(e.target));
-            if (plot && plot !== over && pointer) over = plot;
+            // With the pointer on no plot (a header of this surface, a gap), the focused plot steps from its own
+            // point, read at its place: the pointer's place there is no point of it, and it does not become the
+            // pointer's plot (+ / − / 0 stay the view's).
+            const under = underPointer();
+            const plot = under ?? (elsewhere ? null : plotOf(e.target));
+            if (under && under !== over) over = under;
             // A key goes to the focused element: a lane with the focus moves its cursor, as its arrows always have.
             if (!plot || (selectors.focusKeepsArrows && plot === e.target)) return false;
             // The plot's readout steps; one that cannot (nothing read, an end, the edge of what is on screen) keeps the
             // key all the same: it never moves another surface's cursor, a focused lane's time (R7).
             // Where the pointer really is, with it on that plot: the step is read there, its own place kept apart (R7).
-            if (handlers.step(plot, delta, over === plot && pointer ? { clientX: pointer.x, clientY: pointer.y } : null) === null) return false;
+            if (handlers.step(plot, delta, under === plot && pointer ? { clientX: pointer.x, clientY: pointer.y } : null) === null) return false;
             e.preventDefault();
             return true;
         },

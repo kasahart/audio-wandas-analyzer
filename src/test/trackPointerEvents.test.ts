@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 import { keyRouterFor } from '../webview/runtime/keyRouter';
-import { attachTrackPointerListeners, type PlotSelectors } from '../webview/runtime/trackPointerEvents';
+import { attachTrackPointerListeners, plotUnderPointer, type PlotSelectors } from '../webview/runtime/trackPointerEvents';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 
 /** `selectors`: the lanes' own when left out (a focused lane keeps its arrows); a pane's (plotInteraction.ts) otherwise. */
 function setup(axisOpens = false, steps = true, selectors?: PlotSelectors, zooms = true) {
@@ -259,6 +261,43 @@ test('an arrow over a plot these gestures do not answer now (another mode\'s ges
     doc.body.dispatchEvent(event);
     assert.deepEqual(calls, ['steps:lane', 'lanes:lane'], 'the lanes answer it');
     assert.equal(event.defaultPrevented, true, 'and keep it, stepped or not');
+    // Neither answering it (a plot that shows nothing yet): the plot is still the one under the pointer, so the view's
+    // keys behind (a focused lane's time cursor, comparisonRuntime's stepCursor) leave the key alone (R7).
+    calls.length = 0;
+    const none = new JSDOM('<!doctype html><body><div id="lanes"><canvas class="track-canvas" id="lane"></canvas></div></body>').window;
+    const noneDoc = none.document;
+    attachTrackPointerListeners(noneDoc.getElementById('lanes') as HTMLElement, noneDoc, keyRouterFor(none), handlers('empty', null), { plot: '.track-canvas' });
+    (noneDoc.getElementById('lane') as HTMLElement).dispatchEvent(new none.MouseEvent('mousemove', { bubbles: true }));
+    const passed = new none.KeyboardEvent('keydown', { code: 'ArrowRight', key: 'ArrowRight', bubbles: true, cancelable: true });
+    noneDoc.body.dispatchEvent(passed);
+    assert.equal(passed.defaultPrevented, false, 'not this plot\'s gestures\' now');
+    assert.equal(plotUnderPointer(noneDoc)?.id, 'lane', 'but the plot under the pointer, for the keys behind');
+    const runtime = readFileSync(path.resolve(__dirname, '..', '..', 'src', 'webview', 'runtime', 'comparisonRuntime.ts'), 'utf8');
+    const cursor = runtime.slice(runtime.indexOf('stepCursor(direction, shiftKey, active) {'), runtime.indexOf('arrowReleased:'));
+    assert.match(cursor, /const under = plotUnderPointer\(document\);\s*if \(under && under !== active\) \{\s*return;/u, 'the lanes\' time cursor leaves a key over another plot alone');
+});
+
+test('a focused plot with the pointer on a header of its surface: → steps the focused plot\'s own point (no pointer place given), and + / − / 0 are not that plot\'s (R7)', () => {
+    const { window } = new JSDOM('<!doctype html><body><div id="pane"><div id="header">readout</div><canvas class="plot" id="plot" tabindex="0"></canvas></div></body>');
+    const doc = window.document;
+    const calls: string[] = [];
+    attachTrackPointerListeners(doc.getElementById('pane') as HTMLElement, doc, keyRouterFor(window), {
+        step: (plot, delta, pointer) => { calls.push(`step:${plot.id}:${delta}:${pointer ? 'pointer' : 'place'}`); return true; },
+        resetZoom: () => undefined, openAxisRange: () => false, hover: () => undefined, clearHover: () => undefined,
+        press: () => undefined, drag: () => undefined, release: () => undefined, zoomWheel: () => undefined, panWheel: () => undefined,
+        zoomKey: (plot, action) => { calls.push(`zoom:${plot.id}:${action}`); return true; },
+    }, { plot: '.plot' });
+    const plot = doc.getElementById('plot') as HTMLElement;
+    (doc as unknown as { elementFromPoint: () => Element | null }).elementFromPoint = () => doc.getElementById('header');
+    (doc.getElementById('header') as HTMLElement).dispatchEvent(new window.MouseEvent('mousemove', { bubbles: true, clientX: 30, clientY: 5 }));
+    plot.focus();
+    calls.length = 0;
+    const key = keyIn(window, doc);
+    assert.equal(key('ArrowRight', {}, plot), true);
+    assert.equal(key('ArrowRight', {}, plot), true);
+    assert.deepEqual(calls, ['step:plot:1:place', 'step:plot:1:place'], 'the focused plot steps from its own point, every key');
+    assert.equal(key('=', { key: '=' }, plot), false, 'a zoom key is not the focused plot\'s');
+    assert.deepEqual(calls.filter(call => call.startsWith('zoom')), []);
 });
 
 test('on a surface inside another (the steps\' plots inside the lanes\' wrapper), a lane given the focus with the pointer on the inner plot neither reads where it starts nor, let go, takes the inner plot\'s readout away (A47, R7)', () => {

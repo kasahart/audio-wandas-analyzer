@@ -435,13 +435,17 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
     // A double-click on an axis opens its range. The range is applied, not only offered: bounds narrowed to the middle
     // half of the ones it shows are typed in and applied, and the plot shows another part (its picture changes; the
     // window attribute is only the gestures'), then Auto gives the whole back (the picture changes again).
+    /** The axis a range popover last opened for: its name and the bounds it offered. */
+    let opened: { name: string; low: number; high: number } | null = null;
     const rangeApplies = async (at: { x: number; y: number }): Promise<boolean> => {
         await page.mouse.dblclick(at.x, at.y);
         const popover = page.locator('[id$="range-popover"]:visible');
         let done = false;
+        opened = null;
         if (await popover.count()) {
             const min = popover.locator('input[id$="-min"]'), max = popover.locator('input[id$="-max"]');
             const low = Number(await min.inputValue()), high = Number(await max.inputValue());
+            opened = { name: (await popover.first().evaluate(element => element.querySelector('[id$="-axis-badge"]')?.textContent ?? '')).trim(), low, high };
             const pictureBefore = await picture();
             if (Number.isFinite(low) && Number.isFinite(high) && high > low) {
                 await min.fill(String(low + (high - low) / 4));
@@ -465,9 +469,15 @@ async function contract(page: Page, plot: Locator): Promise<Set<Check>> {
     const axisId = await plot.getAttribute('data-plot-axis');
     const axisBox = axisId ? await page.locator(`[id="${axisId}"]`).boundingBox() : null;
     const leftRange = await rangeApplies({ x: axisBox ? axisBox.x + axisBox.width / 2 : box.x + 8, y: axisBox ? axisBox.y + axisBox.height / 2 : middle.y });
-    // The right-hand level axis opens a range too (A48), as every axis does.
+    const leftOpened = opened as { name: string; low: number; high: number } | null;
+    // The right-hand level axis opens its own range (A48), as every axis does: named as that axis, over the levels it
+    // shows, never the left one's.
     const rightAt = await rightAxis();
-    if (leftRange && (!rightAt || await rangeApplies(rightAt))) passed.add('axis range');
+    const rightRange = rightAt ? await rangeApplies(rightAt) : true;
+    const rightOpened = opened as { name: string; low: number; high: number } | null;
+    const ownRight = !rightAt || (!!leftOpened && !!rightOpened && rightOpened.name !== leftOpened.name
+        && (rightOpened.low !== leftOpened.low || rightOpened.high !== leftOpened.high));
+    if (leftRange && rightRange && ownRight) passed.add('axis range');
     // The horizontal axis: the plot's own bottom margin, or the element that holds the axis it shares with the plots
     // stacked on it (data-plot-x-axis): a canvas of its own (the lanes' ruler, the distribution's value axis), in its
     // middle, or the plot at the bottom of the stack, in its bottom margin (the pair view's frequency axis).

@@ -301,20 +301,25 @@ for (const [kind, view] of Object.entries(KINDS)) {
                 assert.ok(near(reading()?.at, stepped), `${kind}: the same point after a resize`);
                 const shown = reading();
                 assert.ok(shown && shown.x >= drawn.frame.left - 0.5 && shown.x <= drawn.frame.left + drawn.frame.width + 0.5, 'on the plot');
-                // Moved on screen (a resize that shifts it) under the still pointer: the step is let go and the true
-                // pointer read, never the step's place.
+                // Moved on screen by a resize (no scroll) under the still pointer: the point stepped to is read on
+                // (only a scroll lets it go, R7), where it is drawn now.
                 {
                     const moved = createPlotHoverLayer(document);
                     const truePointer = pointer!;
                     moved.show(canvas, drawn, truePointer.x, truePointer.y, null);
-                    const step = moved.stepFrom(canvas, drawn, 1);
-                    if (step && moved.reading()) {
+                    const stepTo = moved.stepFrom(canvas, drawn, 1);
+                    const steppedTo = moved.reading();
+                    if (stepTo && steppedTo) {
+                        moved.show(canvas, drawn, truePointer.x, truePointer.y, null);
+                        const at = moved.reading()?.at;
                         box.left += 24;
-                        moved.show(canvas, drawn, step.clientX, step.clientY, null);
-                        const there = fresh(truePointer.x, truePointer.y);
-                        assert.equal(moved.reading()?.at, there?.at, `${kind}: moved, the true pointer is read`);
+                        drawn = draw();
+                        moved.show(canvas, drawn, truePointer.x, truePointer.y, null);
+                        assert.ok(near(moved.reading()?.at, at), `${kind}: moved by a resize, the point stepped to is still read`);
                         box.left -= 24;
+                        drawn = draw();
                     }
+                    moved.hide();
                 }
                 // + / −: zoomed off the point stepped to, it is let go: never read off the plot (the pointer's place is read).
                 const shownAt = (shown.x - drawn.frame.left) / drawn.frame.width;
@@ -366,6 +371,7 @@ for (const [kind, view] of Object.entries(KINDS)) {
                 key(1);
                 rendered();
                 box.top += 30;
+                document.dispatchEvent(new window.Event('scroll'));
                 frame();
                 const scrolled = fresh(pointer!.x, pointer!.y);
                 assert.equal(reading()?.at, scrolled?.at, `${kind}: after a scroll, the point under the pointer`);
