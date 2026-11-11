@@ -12,9 +12,10 @@ import { stageAxes, stageHover, stageStep } from '../webview/runtime/stagePanes'
 import type { Combined } from '../webview/runtime/combineSource';
 import { calibrationWords } from '../webview/runtime/figureModel';
 import { byReference, overlayLayers, overlayLegendItems, paintBaseGate, paintNoPicture, paintStageControls, paintStageLanes, paintStageOverlay, stageDom, stageModeHeadline, writeStageLegend, type Drawn, type StageFrame, type StageTrack } from '../webview/runtime/trackStagePainter';
+import { ranged } from './helpers/heldSource';
 
 const strings = getStrings('en');
-const line = (values: Array<number | null>): StageView => ({ kind: 'line', x: 'frequency', quantity: 'level', xScale: 'log', xs: values.map((_, index) => 100 * 2 ** index), values } as StageView);
+const line = (values: Array<number | null>): StageView => ranged({ kind: 'line', x: 'frequency', quantity: 'level', xScale: 'log', xs: values.map((_, index) => 100 * 2 ** index), values } as StageView);
 
 /** The mode's markup on a page, its canvases answering getContext with nothing (jsdom draws nothing). */
 function page() {

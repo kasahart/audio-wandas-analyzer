@@ -1,5 +1,5 @@
 /**
- * The answer store's boundary (layers-design: 答えの置き場): answers are kept in answerStore.ts alone. The webview and the
+ * The answer store's boundary (docs/plot-layers.md, layer 1): answers are kept in answerStore.ts alone. The webview and the
  * host's side (src/extension, src/shared) are both read: a host's cache of answers (a stored scan, a track's analysis)
  * is an answer kept too. Outside the store no code keeps a Map, WeakMap, Set or array that outlives a call (a closure's, a class's or a module's) unless it is listed
  * in NOT_ANSWERS with what it holds instead (a request's callbacks, a canvas's drawing, a gesture's state); and no code

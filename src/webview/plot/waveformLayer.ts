@@ -4,6 +4,7 @@
  * pipeline (computeViewRange → decimateBuckets → paintDecimatedPoints). The comparison's ChannelFrame panes use it.
  */
 import type { StageView } from '../../shared/protocol/backendProtocol';
+import { drawableLine } from '../../shared/drawnPoints';
 import { niceRange } from '../../shared/utils/ticks';
 import { computeViewRange, decimateBuckets, makeCoordTransform, paintDecimatedPoints, type WaveformEnv } from '../waveform/waveformRenderer';
 
@@ -31,7 +32,7 @@ function envelopeOn(waveform: StageWaveform, low: number, span: number): Wavefor
     if (kept && kept.low === low && kept.span === span) return kept.env;
     const norm = (times: ReadonlyArray<number | null>): number[] => times.map(time => ((time ?? low) - low) / span);
     const value = (values: ReadonlyArray<number | null>): number[] => values.map(item => item ?? 0);
-    const env = { min: value(waveform.min), max: value(waveform.max), minT: norm(waveform.minT), maxT: norm(waveform.maxT), absolutePeak: waveform.absolutePeak };
+    const env = { min: value(drawableLine(waveform.min)), max: value(drawableLine(waveform.max)), minT: norm(drawableLine(waveform.minT)), maxT: norm(drawableLine(waveform.maxT)), absolutePeak: waveform.absolutePeak };
     envelopes.set(waveform, { low, span, env });
     return env;
 }

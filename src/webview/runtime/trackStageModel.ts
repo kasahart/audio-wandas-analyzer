@@ -135,13 +135,6 @@ export function holdStageSpec(recipe: StageRecipe | null, id: string | null, ste
     return { key: `hold|${recipeKey(without)}|${regionKey(region)}|${shownOf}`, message: { recipe: without, ...(region ? { region } : {}), stage: shownOf } };
 }
 
-/** How many points of a picture have a level (silence floors at −300 dB), and their median. */
-export function pictureSummary(view: StageView | null | undefined): { stageValues: number; stageMedian: number | null } {
-    const values = (view?.values ?? view?.matrix?.flat() ?? []).filter((value): value is number => value !== null && value > -250);
-    const sorted = [...values].sort((a, b) => a - b);
-    return { stageValues: values.length, stageMedian: sorted.length ? sorted[Math.floor(sorted.length / 2)] : null };
-}
-
 /**
  * The pictures of one paint: the base, the compared file's, the other tracks' and the compared file's difference from
  * the base. A base group of signals has no median signal: `baseMembers` are its files' own

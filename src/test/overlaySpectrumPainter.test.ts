@@ -1,4 +1,5 @@
 import { P, T } from './helpers/figure';
+import { drawableBuckets } from '../shared/drawnPoints';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { assertNotDrawn, nearestOf, nthAfter } from './fullNotDrawn';
@@ -197,7 +198,7 @@ test('paintOverlaySpectrum: with one level axis a point read still names its ref
         const paint = paintOverlaySpectrum(canvasOf(ctx), 400, 200, [series], fullView);
         const plot = paint.plot;
         assert.ok(plot);
-        const peak = Math.max(...series.slice.values);
+        const peak = Math.max(...drawableBuckets(series.slice.values));
         const read = stageHover(plot, plot.xAt(1000 / 3), plot.yAt(peak));
         assert.ok(read?.text.endsWith(unit), read?.text);
     }
@@ -417,7 +418,7 @@ test('until the backend\'s slice comes, the cursor spectrum draws the lane\'s av
     assert.ok(floor, 'the floor is drawn');
     // Silence has no power: the quietest, measured (not ordered by its drawn floor, nor left unmeasured).
     assert.deepEqual(screenLevels([floor], floor.view).get(floor), { level: -Infinity, state: 'exact' });
-    const onFloor = stageHover(both, both.xAt(2000 / 3), both.yAt(silence.values[2]));
+    const onFloor = stageHover(both, both.xAt(2000 / 3), both.yAt(drawableBuckets(silence.values)[2]));
     assert.notEqual(onFloor?.layer.color, '#ff0000', 'the floor past the end is never read as a level');
     assert.ok(!onFloor || onFloor.text === spectrumReadoutText('B', real, 2000 / 3, -50));
     const stepped = stageStep(both, { ...(stageHover(both, both.xAt(1000 / 3), both.yAt(-30)) as NonNullable<ReturnType<typeof stageHover>>) }, 1);

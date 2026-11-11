@@ -37,7 +37,7 @@ def test_the_backend_as_it_is_passes(backend: dict[str, str]) -> None:
 
 
 def test_the_thinning_functions_are_the_contract_tables(backend: dict[str, str]) -> None:
-    listed = check.contract_decimators(check.VALUES_TS.read_text(encoding="utf-8"))
+    listed = check.contract_decimators(check.contract())
     assert listed == set(check.SOURCES) - check.BUCKET_RULE
 
 
@@ -224,7 +224,7 @@ def _draws(sources: dict[str, str], readers: set[str]) -> list[str]:
 
 
 def test_every_reader_the_contract_table_calls_draws_only_draws(backend: dict[str, str]) -> None:
-    readers = check.contract_draws(check.VALUES_TS.read_text(encoding="utf-8"))
+    readers = check.contract_draws(check.contract())
     assert "stage_view:floored_db" in readers, "the table's backend 'draws' readers are read"
     assert _draws(backend, readers) == []
 

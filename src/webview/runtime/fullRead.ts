@@ -140,6 +140,22 @@ export function fullPointsOf(points: StagePoints & Pick<FullPoints, 'rowNames' |
     };
 }
 
+/**
+ * The `valueRange` of a picture the webview makes of values it holds every one of (a band table, a threshold): their
+ * lowest and highest, as the backend sends with its pictures (R1). A plot's range is set from `valueRange` alone,
+ * never from the points drawn, so a picture made in the webview carries one or has no range of its own.
+ * `floored`: of a level, whose silent floor (−300 dB) is no value.
+ */
+export function heldValueRange(values: Iterable<number | null>, floored: boolean): { valueRange?: { min: number; max: number } } {
+    let min = Infinity, max = -Infinity;
+    for (const value of values) {
+        if (value === null || !Number.isFinite(value) || (floored && value <= -250)) continue;
+        if (value < min) min = value;
+        if (value > max) max = value;
+    }
+    return max >= min ? { valueRange: { min, max } } : {};
+}
+
 /** undefined: being fetched (`ready` is called once it is in); null: there is no full data to read. */
 export type FullAnswer = FullPoints | null | undefined;
 

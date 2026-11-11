@@ -1,3 +1,5 @@
+import { drawableBuckets } from '../../shared/drawnPoints';
+import type { Drawn } from '../../shared/provenance';
 import { mappedSource, NO_FULL_DATA, type FullSource } from './fullRead';
 import type { SpectrogramData, WaveformEnvelope } from '../../shared/analysis/analysisTypes';
 import { viridis, type AxisTick } from '../../shared/gui-core/index';
@@ -90,8 +92,8 @@ function laneWaveform(part: WaveformPaintSource, place: LanePlacement, unit: str
     const count = Math.max(envelope.min?.length ?? 0, envelope.max?.length ?? 0, envelope.samples?.length ?? 0);
     const range = part.dataEnd - part.dataStart;
     // A bucket without its times sits at its place across the part's stretch, as the lanes always placed it.
-    const times = (given: readonly number[] | undefined): number[] => Array.from({ length: count }, (_, index) => toSec(given?.[index] ?? part.dataStart + index / Math.max(1, count) * range));
-    const values = (given: readonly number[] | undefined): number[] => Array.from({ length: count }, (_, index) => given?.[index] ?? envelope.samples?.[index] ?? 0);
+    const times = (given: readonly Drawn[] | undefined): number[] => Array.from({ length: count }, (_, index) => toSec((given && drawableBuckets(given)[index]) ?? part.dataStart + index / Math.max(1, count) * range));
+    const values = (given: readonly Drawn[] | undefined): Drawn[] => Array.from({ length: count }, (_, index) => given?.[index] ?? envelope.samples?.[index] ?? 0);
     // The axis is in the channel's unit: the amplitude scale the lane's range was made from is the peak's.
     const waveform: LaneWaveform = { min: values(envelope.min), max: values(envelope.max), minT: times(envelope.minT), maxT: times(envelope.maxT),
         absolutePeak: part.amplitudeScale ?? envelope.absolutePeak, unit, ref: 1 };
@@ -129,7 +131,7 @@ export interface LaneSpectrogramTitles {
     time: PlainTitle;
 }
 
-const laneMatrices = new WeakMap<SpectrogramData, number[][]>();
+const laneMatrices = new WeakMap<SpectrogramData, Drawn[][]>();
 
 /**
  * A track's spectrogram as a heatmap picture on the lanes' time axis (R13): its frames' centres in seconds there, its

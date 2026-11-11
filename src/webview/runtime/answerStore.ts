@@ -1,6 +1,6 @@
 /**
  * The answer store: the one place the webview keeps what the host answered, under which key, and whether it is still
- * right (layers-design: 答えの置き場). Every cache of answers (a step's pictures, a combination, a read of the full
+ * right (docs/plot-layers.md, layer 1). Every cache of answers (a step's pictures, a combination, a read of the full
  * data, a scan's result, a header) is one of these, so what an answer is keyed by, how long a failure stands, and what
  * an answer that never comes does are decided here alone:
  *

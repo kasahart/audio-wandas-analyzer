@@ -6,6 +6,7 @@ import test from 'node:test';
 import { fetchedSource } from '../webview/runtime/fullRead';
 import { stageDiffRange, stageHover, stageStep, strokeStageLine, type StagePlot, type StageRead } from '../webview/runtime/stagePanes';
 import type { StagePoints, StageView } from '../shared/protocol/backendProtocol';
+import { ranged } from './helpers/heldSource';
 import { backendPython } from './uiSmoke/realBackend';
 
 const repoRoot = path.resolve(__dirname, '..', '..');
@@ -103,7 +104,7 @@ test('a Δ of −260 dB is a Δ, not silence: the backend\'s difference is read,
     strokeStageLine(context, drawn, drawn.lines[0], 1);
     assert.ok(points.some(([x, y]) => Math.abs(x - 30) < 1e-9 && Math.abs(y - drawn.yAt(-260)) < 1e-9), `drawn at −260 dB: ${JSON.stringify(points)}`);
     // And the Δ's range holds it, as the backend's valueRange of the difference does.
-    assert.ok(stageDiffRange({ ...view, valueRange: undefined }).min <= -260);
+    assert.ok(stageDiffRange(ranged({ ...view, valueRange: undefined }, true)).min <= -260);
 });
 
 test('a median and a difference are taken in float64 end to end: of 0.5 and 0.5 + 2⁻²⁴ the median reads 0.5 + 2⁻²⁵, and the Δ of 0.5 + 2⁻²⁴ from it 2⁻²⁵, never 0 (R1)', { timeout: 120_000 }, t => {

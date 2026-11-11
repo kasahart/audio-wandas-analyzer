@@ -1,6 +1,7 @@
 import { binFrequencyHz } from '../draw/canvasDrawers';
 import type { FigureTitle, PlainTitle } from './figureModel';
 import type { SpectrumSlice } from './types';
+import { everyBin } from './wholeAnswers';
 
 export interface CsvSpectrumTrack {
     name: string;
@@ -44,7 +45,8 @@ export function buildSpectrumCsv(tracks: CsvSpectrumTrack[], frequencyTitle: Pla
         tracks.forEach(function (t) {
             const fBins = t.slice.frequencyBins || 0;
             cols.push(bin < fBins ? binFrequencyHz(t.slice, bin).toFixed(4) : '');
-            const v = t.slice.values[bin];
+            // Only a slice that holds every bin is written (R7): one cut for display has no value to export.
+            const v = everyBin(t.slice)?.[bin];
             cols.push(v !== undefined && v !== null ? v.toFixed(6) : '');
         });
         rows.push(cols.join(','));

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { drawableLine } from '../shared/drawnPoints';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
@@ -8,7 +9,8 @@ import type { StageView } from '../shared/protocol/backendProtocol';
 import { INPUT_STAGE, runnableRecipe } from '../webview/runtime/stepBarModel';
 import { FULL_PLOT_WINDOW } from '../webview/runtime/plotInteraction';
 import { stageCacheKey } from '../webview/runtime/stageSource';
-import { channelRecipe, chosenStage, comparedPath, enterStageState, holdStageSpec, initialStageState, liveRegion, openStageState, pictureSummary, plotsOf, combineRequest, regionStageSpec, stageSpec } from '../webview/runtime/trackStageModel';
+import { pictureSummary } from '../webview/runtime/pictureSummary';
+import { channelRecipe, chosenStage, comparedPath, enterStageState, holdStageSpec, initialStageState, liveRegion, openStageState, plotsOf, combineRequest, regionStageSpec, stageSpec } from '../webview/runtime/trackStageModel';
 
 const entry = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', 'python-backend', 'recipes', 'entry-scan.recipe.json'), 'utf8')) as RecipeDocument;
 const limits = { sampleRate: 16000 };
@@ -166,5 +168,5 @@ test('a base group of waveforms is drawn each as it is: no median signal, its ti
     assert.deepEqual(plots.baseMembers, [{ path: 'a', view: views.a }, { path: 'b', view: views.b }]);
     assert.equal(plots.base?.waveform, undefined);
     assert.deepEqual(plotsOf(path => views[path], [{ filePath: 'c' }], 'c', ['a'], undefined).baseMembers, [], 'one base file is the base itself');
-    assert.deepEqual(plotsOf(path => line([views[path].values?.[0] ?? 0]), [{ filePath: 'c' }], 'c', ['a', 'b'], undefined).baseMembers, [], 'levels have a median');
+    assert.deepEqual(plotsOf(path => line([drawableLine(views[path].values ?? [])[0] ?? 0]), [{ filePath: 'c' }], 'c', ['a', 'b'], undefined).baseMembers, [], 'levels have a median');
 });

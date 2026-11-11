@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { drawableLine } from '../shared/drawnPoints';
 import { assertNotDrawn, averagedInto } from './fullNotDrawn';
 import { compareOf } from './helpers/compareInput';
 import { binnedAnswers } from '../webview/runtime/entryBase';
@@ -437,7 +438,7 @@ test('the report\'s Δ figure without bins draws the 1/3-octave Δ, its range ho
     assert.equal(binned.binned, true);
     assert.equal(binned.view?.kind, 'line');
     assert.ok(binned.range.max >= 14, 'the band steps stay inside the range');
-    assert.notEqual(binned.range.max, Math.max(...(binned.view?.values ?? []).map(value => value ?? -Infinity)), 'not the drawn bins\' highest');
+    assert.notEqual(binned.range.max, Math.max(...drawableLine(binned.view?.values ?? []).map(value => value ?? -Infinity)), 'not the drawn bins\' highest');
     // A narrow dip in one bin, among 8192 drawn in 640 buckets, sets the range's other end.
     diff[3001] = -31;
     const dipped = deltaFigure({ bins: { hz: 1, nyquist: 8191, base: null, compare: null, diff }, bandDeltas, frequencies });
@@ -488,9 +489,9 @@ test('the report\'s overlay figure orders base and compared by every bin\'s powe
     assert.ok(baseView && compareView);
     assert.ok((baseView.xs?.length ?? 0) < count / 20, 'the line is thinned to be drawn');
     const drawnMean = (values: readonly (number | null)[]) => 10 * Math.log10(values.reduce<number>((sum, value) => sum + 10 ** ((value ?? -250) / 10), 0) / values.length);
-    assert.ok(drawnMean(baseView.values ?? []) > -30, 'the drawn points alone would make the base the louder');
+    assert.ok(drawnMean(drawableLine(baseView.values ?? [])) > -30, 'the drawn points alone would make the base the louder');
     const layers = [{ view: baseView, color: 'base', full: binsSource(bins, 'base') ?? NO_FULL_DATA }, { view: compareView, color: 'compare', full: binsSource(bins, 'compare') ?? NO_FULL_DATA }];
     const order = byLevel(layers, baseView).map(layer => layer.color);
     assert.deepEqual(order, ['compare', 'base'], 'drawn loudest first: the quieter base last, on top');
-    assertNotDrawn(order, [...layers].sort((a, b) => drawnMean(b.view.values ?? []) - drawnMean(a.view.values ?? [])).map(layer => layer.color), 'not the order of the points drawn');
+    assertNotDrawn(order, [...layers].sort((a, b) => drawnMean(drawableLine(b.view.values ?? [])) - drawnMean(drawableLine(a.view.values ?? []))).map(layer => layer.color), 'not the order of the points drawn');
 });

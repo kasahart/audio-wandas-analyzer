@@ -40,6 +40,7 @@ SUPPORTED_KEYWORDS = frozenset(
         "items",
         "anyOf",
         "x-tsType",
+        "x-drawn",
     }
 )
 # ``anyOf`` is limited to the nullable form ``{"anyOf": [schema, {"type": "null"}]}`` with no siblings, so
@@ -63,6 +64,13 @@ _BROWSER_LIMIT_KEYS = (
 _NUMBER: Schema = {"type": "number"}
 _NUMBERS: Schema = {"type": "array", "items": _NUMBER}
 _NULLABLE_NUMBERS: Schema = {"type": "array", "items": {"anyOf": [_NUMBER, _NULL]}}
+# A point thinned to be drawn (a line's buckets, an image's averaged cells, a waveform's envelope). ``x-drawn`` carries
+# no constraint: it makes the generated TypeScript type ``Drawn`` (src/shared/provenance.ts), which no code can
+# compute with or write as text, so a number a user reads is never taken of these arrays. Mark every array the
+# backend thins to draw; a value of the full data (StagePoints, valueRange, peak, levelBins) is a plain number.
+_DRAWN: Schema = {"type": "number", "x-drawn": True}
+_DRAWN_LINE: Schema = {"type": "array", "items": _DRAWN}
+_DRAWN_GAPPED: Schema = {"type": "array", "items": {"anyOf": [_DRAWN, _NULL]}}
 
 DEFINITIONS: dict[str, Schema] = {
     # Deep calibration validation stays in calibration_profile.py / calibrationModel.ts.
@@ -88,10 +96,10 @@ DEFINITIONS: dict[str, Schema] = {
         "type": "object",
         "required": ["min", "max", "samples", "absolutePeak"],
         "properties": {
-            "min": _NUMBERS,
-            "max": _NUMBERS,
-            "minT": _NUMBERS,
-            "maxT": _NUMBERS,
+            "min": _DRAWN_LINE,
+            "max": _DRAWN_LINE,
+            "minT": _DRAWN_LINE,
+            "maxT": _DRAWN_LINE,
             "samples": _NUMBERS,
             "absolutePeak": _NUMBER,
         },
@@ -153,7 +161,7 @@ DEFINITIONS: dict[str, Schema] = {
             "maxDb",
         ],
         "properties": {
-            "values": {"type": "array", "items": _NUMBERS},
+            "values": {"type": "array", "items": _DRAWN_LINE},
             "timeBins": {"type": "integer"},
             "frequencyBins": {"type": "integer"},
             "windowSize": {"type": "integer"},
@@ -342,7 +350,7 @@ DEFINITIONS: dict[str, Schema] = {
         "required": ["channelIndex", "values", "minDb", "maxDb"],
         "properties": {
             "channelIndex": {"type": "integer"},
-            "values": _NUMBERS,
+            "values": _DRAWN_LINE,
             "minDb": _NUMBER,
             "maxDb": _NUMBER,
             "unit": {"type": "string"},
@@ -672,8 +680,8 @@ DEFINITIONS: dict[str, Schema] = {
             "xLimits": _NUMBERS,
             "ys": _NUMBERS,
             "yAxis": {"type": "string", "enum": ["frequency", "bark", "quefrency"]},
-            "values": _NULLABLE_NUMBERS,
-            "matrix": {"type": "array", "items": _NULLABLE_NUMBERS},
+            "values": _DRAWN_GAPPED,
+            "matrix": {"type": "array", "items": _DRAWN_GAPPED},
             "whole": {"type": "array", "items": {"type": "boolean"}},
             # A cross-channel Frame's one drawn pair: the compared channel (output) over the reference (input), from 1.
             "pair": {
@@ -696,10 +704,10 @@ DEFINITIONS: dict[str, Schema] = {
                 "type": "object",
                 "required": ["min", "max", "minT", "maxT", "absolutePeak", "unit", "ref"],
                 "properties": {
-                    "min": _NULLABLE_NUMBERS,
-                    "max": _NULLABLE_NUMBERS,
-                    "minT": _NULLABLE_NUMBERS,
-                    "maxT": _NULLABLE_NUMBERS,
+                    "min": _DRAWN_GAPPED,
+                    "max": _DRAWN_GAPPED,
+                    "minT": _DRAWN_GAPPED,
+                    "maxT": _DRAWN_GAPPED,
                     "absolutePeak": _NUMBER,
                     "unit": {"type": "string"},
                     "ref": _NUMBER,
@@ -750,7 +758,7 @@ DEFINITIONS: dict[str, Schema] = {
                         "time": _NUMBER,
                         # The event's own times from the trigger, one per value.
                         "xs": _NUMBERS,
-                        "values": _NULLABLE_NUMBERS,
+                        "values": _DRAWN_GAPPED,
                     },
                 },
             },
@@ -834,7 +842,7 @@ DEFINITIONS: dict[str, Schema] = {
             "input": {"$ref": "#/$defs/ScanInput"},
             "leqDbA": _NUMBERS,
             "peakHz": _NUMBERS,
-            "spectrumDb": {"type": "array", "items": _NUMBERS},
+            "spectrumDb": {"type": "array", "items": _DRAWN_LINE},
             # Every Welch bin per channel (bin k at k × spectrumBinHz), for medians and differences.
             "spectrumBinsDb": {"type": "array", "items": _NUMBERS},
             "spectrumBinHz": _NUMBER,

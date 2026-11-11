@@ -1,4 +1,5 @@
 import { N } from './helpers/figure';
+import { drawableLine } from '../shared/drawnPoints';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { assertNotDrawn, averagedInto, nearestOf, nthAfter } from './fullNotDrawn';
@@ -100,7 +101,7 @@ test('a trigger lane is read at every sample: the pointer reads a sample between
     const plot = drawn.get(canvases['/a.wav'])?.plot;
     assert.ok(plot);
     const at = 3005;
-    const drawnTimes = new Set([...(loud.view.waveform?.minT ?? []), ...(loud.view.waveform?.maxT ?? [])]);
+    const drawnTimes = new Set([...drawableLine(loud.view.waveform?.minT ?? []), ...drawableLine(loud.view.waveform?.maxT ?? [])]);
     assert.ok(!drawnTimes.has(loud.times[at]), 'the sample is thinned out of the envelope drawn');
     const read = stageHover(plot, plot.xAt(loud.times[at]), (plot.lineYAt ?? plot.yAt)(loud.samples[at]));
     assert.ok(read && read.full, 'read from every sample');

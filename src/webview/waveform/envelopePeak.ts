@@ -3,11 +3,14 @@
  * level trigger on that channel can reach there. The envelope's minT/maxT are positions in the recording (0–1);
  * without them, or without a region, it is the whole recording's peak.
  */
+import { drawableBuckets } from '../../shared/drawnPoints';
+import type { Drawn } from '../../shared/provenance';
+
 export interface PeakEnvelope {
-    min: readonly number[];
-    max: readonly number[];
-    minT?: readonly number[];
-    maxT?: readonly number[];
+    min: readonly Drawn[];
+    max: readonly Drawn[];
+    minT?: readonly Drawn[];
+    maxT?: readonly Drawn[];
     absolutePeak: number;
 }
 
@@ -23,7 +26,8 @@ export function envelopePeak(envelope: PeakEnvelope | undefined, durationS: numb
             if (t !== undefined && t >= from && t <= to && Number.isFinite(value)) peak = Math.max(peak, Math.abs(value));
         });
     };
-    take(envelope.min, envelope.minT);
-    take(envelope.max, envelope.maxT);
+    // A min/max envelope keeps every bucket's extremes, so its largest is the samples' peak; only its time is the bucket's.
+    take(drawableBuckets(envelope.min), drawableBuckets(envelope.minT));
+    take(drawableBuckets(envelope.max), drawableBuckets(envelope.maxT));
     return peak;
 }

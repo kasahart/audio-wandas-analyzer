@@ -126,7 +126,7 @@ export const compareOverlay: ChartContract = {
         },
         {
             id: 'compare-overlay.range-image', value: 'range', what: '熱図の色の自動の範囲（カラーバーの両端の数）',
-            computedIn: [`${SP}:stageRange`, `${SP}:points`, `${SP}:robustEdge`, 'python-backend/stage_view.py:_spectrogram_view', 'python-backend/stage_combine.py:value_range', 'src/webview/runtime/figureModel.ts:dataRange'],
+            computedIn: [`${SP}:stageRange`, `${SP}:robustEdge`, 'python-backend/stage_view.py:_spectrogram_view', 'python-backend/stage_combine.py:value_range', 'src/webview/runtime/figureModel.ts:dataRange'],
             from: 'full', trace: '熱図の matrix は時間のブロックごとに平均したマスだが、色の範囲はバックエンドが平均する前の全マスから求めた valueRange（ケプストログラムは全係数の絶対値の 99 パーセント点 robust）から決める。dB の熱図は上を全データの最大、下を max(全データの最小, 上 − 100 dB) にする（heatmapDbRange、R9）。',
             tests: [
                 tt('src/test/stagePanes.test.ts', 'every range is set from the full data\'s lowest and highest value (valueRange), never the points drawn or the cells averaged to draw an image (R1, R9)'),

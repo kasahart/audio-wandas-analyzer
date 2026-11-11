@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { drawableLine } from '../shared/drawnPoints';
 import test from 'node:test';
 import type { SpectrogramData, WaveformEnvelope } from '../shared/analysis/analysisTypes';
 import { hexToRgba, laneSpectrogramView, laneWaveformOverlay, onColourBar, paintTrackSpectrogram } from '../webview/runtime/trackCanvasPainter';
@@ -28,8 +29,8 @@ test('a lane\'s waveform is one signal layer, its bucket times placed in seconds
     assert.equal(layer.color, '#00ff00');
     assert.equal(layer.span, undefined);
     const signal = layer.view.waveform!;
-    assert.deepEqual(signal.minT.map(t => +t!.toFixed(6)), [11.2, 12.2]);
-    assert.deepEqual(signal.maxT.map(t => +t!.toFixed(6)), [11.4, 12.4]);
+    assert.deepEqual(drawableLine(signal.minT).map(t => +t!.toFixed(6)), [11.2, 12.2]);
+    assert.deepEqual(drawableLine(signal.maxT).map(t => +t!.toFixed(6)), [11.4, 12.4]);
     assert.deepEqual([signal.min, signal.max, signal.unit, signal.absolutePeak], [[-0.5, -0.2], [0.5, 0.2], 'Pa', 0.8]);
     // Buckets without times sit across the part's stretch, as the lanes placed them.
     const untimed = laneWaveformOverlay({ waveform: { min: [0, 0], max: [1, 1], samples: [], absolutePeak: 1 }, dataStart: 0.5, dataEnd: 1, amplitudeScale: undefined }, place, '#00ff00', '');
@@ -149,6 +150,6 @@ test('a lane\'s waveform points are placed once per envelope and place, and plac
     assert.equal(laneWaveformOverlay(source, place, '#00ff00', 'Pa').overlay.layers[0].view.waveform, first);
     const moved = laneWaveformOverlay(source, { ...place, offsetNorm: 0.5 }, '#00ff00', 'Pa').overlay.layers[0].view.waveform!;
     assert.notEqual(moved, first);
-    assert.deepEqual(moved.minT.map(t => +t!.toFixed(6)), [12.2, 13.2]);
+    assert.deepEqual(drawableLine(moved.minT).map(t => +t!.toFixed(6)), [12.2, 13.2]);
     assert.deepEqual(laneWaveformOverlay(source, place, '#00ff00', 'V').overlay.layers[0].view.waveform!.unit, 'V');
 });

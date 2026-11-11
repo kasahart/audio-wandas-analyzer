@@ -1,3 +1,4 @@
+import type { Drawn } from '../../shared/provenance';
 import type { PanelMessage } from '../../shared/protocol/panelMessages';
 import type {
     AnalysisUpdateMessage,
@@ -44,7 +45,8 @@ export type HostInboundMessage =
         type: 'spectrum-slice-result';
         channels: Array<{
             channelIndex: number;
-            values: number[];
+            /** As drawn: every bin unless the slice was cut for display (wholeAnswers.ts everyBin). */
+            values: Drawn[];
             minDb: number;
             maxDb: number;
             unit?: string;

@@ -1,9 +1,10 @@
 /**
  * What the contract test scans the code for: the functions that write a number (VALUE_HELPERS and the number
- * primitives), and the functions that read drawn (thinned) arrays (DRAWN_FIELDS, DRAWN_ACCESSORS, PY_DECIMATORS),
- * each classified in DRAWN_READERS so a row's `from` is checked against what its functions read.
+ * primitives), and the backend's functions that compute with thinned points (PY_DECIMATORS, BACKEND_READERS).
  */
-import { SP, type TestRef } from './model';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { SP } from './model';
 
 /**
  * The functions that only turn a number into text, or compute a range, an order or a statistic for the functions that
@@ -84,130 +85,17 @@ export const NOT_CHART_VALUES: Readonly<Record<string, string>> = {
 };
 
 /**
- * The arrays the backend or the webview thinned to draw, by the type that carries them: a property access of one of
- * these on a value of that type is a read of drawn points (found with the type checker).
+ * The backend's side of "thinned points are only drawn" (python-backend/drawn_points_contract.json): the functions
+ * that thin data to draw it, and every function that computes with thinned points with what it does with them.
+ * The webview needs no such list: there a thinned point is typed `Drawn` (src/shared/provenance.ts) and the compiler
+ * refuses to compute with it. Python has no such type, so scripts/check_decimation_flow.py follows the data instead,
+ * and reads the same JSON file.
  */
-export const DRAWN_FIELDS: Readonly<Record<string, readonly string[]>> = {
-    StageView: ['values', 'matrix', 'waveform', 'events'],
-    SpectrumSlice: ['values'],
-    SpectrogramData: ['values'],
-    WaveformEnvelope: ['min', 'max'],
-    // A signal's envelope as a picture carries it (StageView['waveform'], named so where a lane draws it).
-    LaneWaveform: ['min', 'max'],
-    // A scan's 192-point spectrum: every Welch bin power-averaged into log-spaced points (scan_service.log_spectrum), to draw.
-    ScanResult: ['spectrumDb'],
-};
-
-/** Functions whose result is drawn points: a call of one is a read of drawn points too. Each reads DRAWN_FIELDS itself. */
-export const DRAWN_ACCESSORS: readonly string[] = [`${SP}:points`, 'src/webview/runtime/trackStageMode.ts:events', 'src/webview/plot/waveformLayer.ts:envelopeOn'];
-
-/** The backend's functions that thin data to draw it: a def that calls one reads (or makes) drawn points. */
-export const PY_DECIMATORS: readonly string[] = [
-    ...['decimated_waveform'].map(name => `python-backend/decimator.py:${name}`),
-    ...['min_max_indices', 'min_max_line', 'min_max_rows', 'spectrum_line', 'samples_waveform', '_time_blocks', '_block_peaks', '_signed_peaks', '_envelope', '_cepstrum_envelope'].map(name => `python-backend/stage_view.py:${name}`),
-    ...['resample_frequency_bins', '_resample_time_bins', 'min_max_spectrum'].map(name => `python-backend/analyzer.py:${name}`),
-    ...['log_spectrum'].map(name => `python-backend/scan_service.py:${name}`),
-];
-
-export type DrawnUse =
-    /** Reads drawn points only to draw them, place marks, or tell what kind of picture it is: no number comes of them. */
-    | 'draws'
-    /** Reads drawn points as values only where they are every point (a band table's bars, events drawn whole). */
-    | 'whole'
-    /** A number shown comes of drawn points: its rows are from 'extremes' or 'thinned'. */
-    | 'value';
-
-/**
- * Every function the scan finds reading drawn points (and every backend def that calls a decimator), with
- * what it does with them. A row from full data may name no 'value' reader; a row from thinned points must name one.
- */
-/**
- * A reader's classification. A 'whole' one names its proof: a test that gives it (or a function of its file that
- * calls it, or the command its file maps to it: `via`) data whose drawn points differ from the full data and checks
- * the number is the full data's. The table alone would not tell a decimated array reaching it.
- */
-export interface DrawnReader {
-    use: DrawnUse;
+export interface BackendReader {
+    /** 'draws': it only makes the picture (checked by data flow). 'value': a number is made of thinned points (a gap). */
+    use: 'draws' | 'value';
     why: string;
-    proof?: TestRef & { via?: string };
 }
-
-const RANGES = { file: 'src/test/stagePanes.test.ts', name: 'every range is set from the full data\'s lowest and highest value (valueRange), never the points drawn or the cells averaged to draw an image (R1, R9)' };
-
-export const DRAWN_READERS: Readonly<Record<string, DrawnReader>> = {
-    [`${SP}:emptyStageText`]: { use: 'draws', why: 'whether a picture has events, for its empty note' },
-    [`${SP}:eventLayers`]: { use: 'draws', why: 'a layer per event drawn; its readout reads the event\'s full samples' },
-    [`${SP}:extent`]: { use: 'whole', why: 'the lowest and highest value: the full data\'s valueRange; the drawn points only of a picture the webview holds whole (a band table, a level line)', proof: RANGES },
-    [`${SP}:floorless`]: { use: 'draws', why: 'whether a line is a signal (a waveform), whose values have no silent floor' },
-    [`${SP}:shownValues`]: { use: 'draws', why: 'whether a line is a signal drawn as itself, to name its amplitude range as the values on screen' },
-    [`${SP}:fullPoint`]: { use: 'draws', why: 'whether the layer is a signal drawn as itself, to place a full point on its range' },
-    ['src/webview/runtime/figureModel.ts:pictureSet']: { use: 'draws', why: 'whether a stage picture has anything drawn, to leave an empty one out of the base set with why' },
-    ['src/webview/runtime/wholeAnswers.ts:wholeBars']: { use: 'whole', why: 'a band table\'s bars, which the backend sends whole (every band), held as their InlineFullSource', proof: { file: 'src/test/fullRead.test.ts', name: 'every layer a plot draws is given its full data, held or fetched: one given none is marked and reads no number, bars too (R7)' } },
-    [`${SP}:isEventsView`]: { use: 'draws', why: 'whether a picture is a trigger\'s events' },
-    [`${SP}:lineRead`]: { use: 'draws', why: 'whether the layer is a signal drawn as itself' },
-    [`${SP}:paint`]: { use: 'draws', why: 'draws a signal\'s envelope' },
-    [`${SP}:paintPlot`]: { use: 'draws', why: 'draws the pictures' },
-    [`${SP}:points`]: { use: 'whole', why: 'every drawn value of a picture, for the range of one without valueRange (which the webview holds whole)', proof: RANGES },
-    [`${SP}:screenLevels`]: { use: 'whole', why: 'a line\'s level on screen from its values only where the webview holds every value; else levelBins or its full read (R6)', proof: { file: 'src/test/stagePanes.test.ts', name: 'a line the webview holds every value of is ordered at once by its values on screen, the stretch cut by the edge too (R6)' } },
-    [`${SP}:stageAxes`]: { use: 'draws', why: 'whether a picture is a signal, for the amplitude axis\'s name' },
-    [`${SP}:stageDiffRange`]: { use: 'whole', why: 'the Δ\'s auto range from extent: the full Δ\'s valueRange', proof: RANGES },
-    [`${SP}:stageEventCounts`]: { use: 'whole', why: 'counts a picture\'s events, every one of which it carries', proof: { file: 'src/test/stagePanes.test.ts', name: 'a trigger\'s events are each a line of their slot, on one amplitude range, with no difference between recordings' } },
-    [`${SP}:stageHeadline`]: { use: 'draws', why: 'whether the Δ is an image, to write the backend\'s peak with a y' },
-    [`${SP}:stageRange`]: { use: 'whole', why: 'an auto range from extent: the full data\'s valueRange (a signal\'s from its absolute peak)', proof: RANGES },
-    [`${SP}:strokeStageLine`]: { use: 'draws', why: 'draws a line' },
-    ['python-backend/analyzer.py:build_waveform_envelope']: { use: 'draws', why: "thins the lanes' samples to draw them (decimated_waveform); the readout reads the full samples (track-waveform)" },
-    ['python-backend/analyzer.py:min_max_spectrum']: { use: 'draws', why: "cuts a spectrum row to its drawn buckets (min_max_rows); its range is every bin's, taken before" },
-    ['python-backend/stage_combine.py:_image']: { use: 'draws', why: "reduces a combined picture's cells to draw them (_signed_peaks); its colour range is the full cells' (with_value_range)" },
-    ['python-backend/stage_combine.py:_line']: { use: 'draws', why: 'thins a combined line to draw it; its range, level bins and Δ peak are of the full data (with_value_range, with_level_bins, difference_peak)' },
-    ['python-backend/stage_combine.py:_signal_line']: { use: 'draws', why: 'picks the samples of a combined signal to draw (min_max_indices); its readout reads the full samples' },
-    ['python-backend/stage_combine.py:difference_line']: { use: 'draws', why: "a difference's drawn buckets (min_max_line); its headline's peak is of the full difference (difference_peak)" },
-    ['python-backend/stage_combine.py:draw']: { use: 'draws', why: 'a combined picture as drawn (samples_waveform of the full samples); every number of it is of the full data' },
-    ['python-backend/stage_view.py:_cepstral_view']: { use: 'draws', why: "draws a cepstrum's envelope; its readout reads the full coefficients" },
-    ['python-backend/stage_view.py:_cepstrogram_view']: { use: 'draws', why: "reduces a cepstrogram's cells to draw them; its colour range is every full cell's" },
-    ['python-backend/stage_view.py:_cepstrum_envelope']: { use: 'draws', why: "a cepstrum's drawn envelope (_envelope)" },
-    ['python-backend/stage_view.py:_channel_view']: { use: 'draws', why: 'draws a series over time as its envelope; its readout and range are of the full series' },
-    ['python-backend/stage_view.py:_correlation_view']: { use: 'draws', why: "draws a correlation's envelope; its readout reads the full lags" },
-    ['python-backend/stage_view.py:_detail_view']: { use: 'draws', why: 'draws the part on screen again finer; every number is read from the full data (full_read)' },
-    ['python-backend/stage_view.py:_envelope']: { use: 'draws', why: "a line's drawn envelope (min_max_line)" },
-    ['python-backend/stage_view.py:_events_view']: { use: 'draws', why: "draws each event's line and their mean as envelopes; the readout reads each event's full samples" },
-    ['python-backend/stage_view.py:_roughness_view']: { use: 'draws', why: "averages roughness cells per time block to draw them; its colour range is every full cell's" },
-    ['python-backend/stage_view.py:_signed_peaks']: { use: 'draws', why: "a block's drawn extreme (_block_peaks)" },
-    ['python-backend/stage_view.py:_spectral_view']: { use: 'draws', why: 'draws a spectrum line (spectrum_line); its readout and range are of every bin' },
-    ['python-backend/stage_view.py:_waveform']: { use: 'draws', why: "draws the signal by the lanes' decimation (samples_waveform); its readout reads the full samples" },
-    ['python-backend/stage_view.py:min_max_line']: { use: 'draws', why: "a line's drawn buckets (min_max_indices)" },
-    ['python-backend/stage_view.py:min_max_rows']: { use: 'draws', why: "a row's drawn buckets" },
-    ['python-backend/stage_view.py:samples_waveform']: { use: 'draws', why: "a waveform's drawn envelope; its absolute peak is of the samples it is given, whole" },
-    ['python-backend/stage_view.py:spectrum_line']: { use: 'draws', why: "a spectrum's drawn buckets (min_max_line)" },
-    ['python-backend/analysis_service.py:spectrum_slice']: { use: 'draws', why: 'cuts the row to draw it (min_max_spectrum); minDb / maxDb are every bin\'s, taken before (cursor-spectrum.range)' },
-    ['python-backend/analyzer.py:_build_spectrogram']: { use: 'draws', why: 'resamples the cells to draw them; minDb / maxDb are every full cell\'s, taken before (track-spectrogram.range)' },
-    // Found by check_decimation_flow.py's data flow (not by a decimator called by name): each computes with drawn
-    // points it is handed only to make the picture, which the flow check holds (no number of them is sent).
-    ['python-backend/stage_combine.py:_band_peaks']: { use: 'draws', why: "thins a difference image's rows to its bands (each band's largest magnitude) to draw it; the headline peak is of the full difference" },
-    ['python-backend/stage_combine.py:_significant']: { use: 'draws', why: 'rounds the drawn difference values to significant figures to send them; computes no number of its own' },
-    ['python-backend/stage_view.py:_linear_extremes']: { use: 'draws', why: "picks each bucket's lowest and highest index (min_max_indices on a linear axis) to draw a line; positions, not a value" },
-    ['python-backend/stage_view.py:band_levels']: { use: 'draws', why: "power-averages a picture's bins into its drawn bands; handed full levels it is the scan's band levels, handed drawn cells only a picture" },
-    ['python-backend/stage_view.py:floored_db']: { use: 'draws', why: 'floors levels at MIN_LEVEL_DB; drawn points stay drawn points' },
-    ['python-backend/stage_view.py:power_mean_db']: { use: 'draws', why: "power-averages levels along an axis (a block or a band of a picture); along an axis it still makes the picture" },
-    ['python-backend/stage_view.py:_spectrogram_view']: { use: 'draws', why: 'power-averages the cells per time block to draw them; the colour range is every full cell\'s (valueRange, compare-overlay.range-image)' },
-    ['src/shared/protocol/backendProtocol.ts:hasAlignedEnvelopeArrays']: { use: 'draws', why: 'checks an answer\'s envelope arrays line up; shows nothing' },
-    ['src/shared/protocol/backendProtocol.ts:isScanResult']: { use: 'draws', why: 'checks a scan\'s per-channel arrays line up with its channels; shows nothing' },
-    ['src/shared/recipe/channelSelection.ts:channelResult']: { use: 'draws', why: 'keeps one channel\'s row of a scan\'s 192 drawn points, still a ScanResult to draw; no number of it' },
-    ['python-backend/scan_service.py:measure']: { use: 'draws', why: "a scan's 192-point spectrum, to draw (log_spectrum); every level, median and Δ is of every Welch bin (spectrumBinsDb) or the scan's own band levels" },
-    ['src/shared/protocol/backendProtocol.ts:hasSpectrogramShape']: { use: 'draws', why: 'checks an answer\'s spectrogram shape; shows nothing' },
-    ['src/webview/runtime/compareReport.ts:deltaFigure']: { use: 'whole', why: 'the report Δ figure\'s range: every bin\'s Δ (binsView\'s valueRange) and every band\'s (report-delta.range)', proof: { file: 'src/test/comparePanes.test.ts', name: 'the report\'s Δ figure without bins draws the 1/3-octave Δ, its range holding every band (R1)' } },
-    ['src/webview/runtime/comparisonRuntime.ts:exportCsv']: { use: 'whole', why: 'starts writeCsvWhenDetailed', proof: { file: 'src/test/renderScript.integration.test.ts', name: 'renderScript: export-csv replaces a cursor spectrum cut for display with every FFT bin', via: 'export-csv' } },
-    ['src/webview/runtime/comparisonRuntime.ts:writeCsvWhenDetailed']: { use: 'whole', why: 'writes a slice only when it holds every bin, else waits or leaves it out (spectrum-csv.export)', proof: { file: 'src/test/renderScript.integration.test.ts', name: 'renderScript: export-csv replaces a cursor spectrum cut for display with every FFT bin', via: 'export-csv' } },
-    ['src/webview/runtime/overlaySpectrumPainter.ts:spectrumLayer']: { use: 'whole', why: 'reads a slice\'s values as every bin when it has no frequenciesHz, and a cut one from laneReads; a stand-in (the lane spectrogram\'s column meanwhile, the floor past the end) is drawn and never read or measured (cursor-spectrum.pending)', proof: { file: 'src/test/overlaySpectrumPainter.test.ts', name: 'the cursor spectrum orders a slice cut for display by every bin on screen, not by the points kept to draw it (R6, R2)' } },
-    ['src/webview/runtime/runtimeExports.ts:buildSpectrumCsv']: { use: 'whole', why: 'writes a slice that holds every bin (spectrum-csv.export)', proof: { file: 'src/test/runtimeExports.test.ts', name: 'spectrum CSV writes every FFT bin of a whole row at fs / n_fft spacing' } },
-    ['src/webview/plot/waveformLayer.ts:envelopeOn']: { use: 'draws', why: 'a signal\'s envelope placed on screen (a drawn accessor), kept per picture to draw it again' },
-    ['src/webview/plot/waveformLayer.ts:paintWaveformLayer']: { use: 'draws', why: 'draws a signal\'s envelope' },
-    ['src/webview/runtime/trackCanvasPainter.ts:laneSpectrogramView']: { use: 'draws', why: 'the lane\'s picture of its display spectrogram' },
-    ['src/webview/runtime/trackCanvasPainter.ts:laneWaveform']: { use: 'draws', why: 'the lane\'s picture of its envelope' },
-    ['src/webview/runtime/trackStageMode.ts:events']: { use: 'draws', why: 'the events drawn, for the exclusion marks' },
-    ['src/webview/runtime/trackStageMode.ts:paintNow']: { use: 'draws', why: 'whether a picture is a signal, to paint it' },
-    ['src/webview/runtime/trackStageMode.ts:snapshot']: { use: 'value', why: 'a test hook\'s summary of what is drawn (pictureSummary), which no plot or readout shows (no row names it)' },
-    ['src/webview/runtime/trackStageModel.ts:pictureSummary']: { use: 'value', why: 'a test hook\'s count and median of the drawn points, which no plot or readout shows (no row names it)' },
-    ['src/webview/runtime/trackStageModel.ts:plotsOf']: { use: 'draws', why: 'whether pictures are signals, to choose how to draw them' },
-    ['src/webview/runtime/trackStagePainter.ts:eventsOf']: { use: 'draws', why: 'the events drawn, as layers' },
-    ['src/webview/spectrum/cursorSpectrum.ts:extractSpectrumAtCursor']: { use: 'draws', why: 'until the backend\'s slice at this cursor is in (a cached slice of an earlier cursor is not it: sliceIsAtCursor), the lane\'s display spectrogram column is drawn, marked a stand-in that is never read (cursor-spectrum.pending)' },
-};
+const BACKEND_CONTRACT = JSON.parse(readFileSync(path.resolve(__dirname, '..', '..', '..', 'python-backend', 'drawn_points_contract.json'), 'utf8')) as { decimators: string[]; readers: Record<string, BackendReader> };
+export const PY_DECIMATORS: readonly string[] = BACKEND_CONTRACT.decimators;
+export const BACKEND_READERS: Readonly<Record<string, BackendReader>> = BACKEND_CONTRACT.readers;

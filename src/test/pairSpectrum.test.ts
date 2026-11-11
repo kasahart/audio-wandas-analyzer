@@ -717,7 +717,7 @@ test('the pair view\'s gain axis keeps the dB line rule the comparison\'s transf
     for (const [low, high] of [[-3.2, 12.7], [-160, 4], [-0.4, 0.3], [-37.3, 8.4], [10, 10], [-61, -2]] as const) {
         const gainDb = Array.from({ length: bins }, (_, bin) => low + (high - low) * bin / (bins - 1));
         const range = pairLanes({ frequencyBins: bins, maxFrequencyHz: 24000, curves: [curve({ gainDb, phaseRad: gainDb.map(() => 0), coherence: gainDb.map(() => 1) })] }, { frequencyMin: 0, frequencyMax: 24000 }, en)[0].range;
-        const step: StageView = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'gain', xs: [0, 24000], values: [low, high] };
+        const step: StageView = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'gain', xs: [0, 24000], values: [low, high], valueRange: { min: low, max: high } };
         assert.deepEqual({ min: range.min, max: range.max }, stageRange([step]), `${low}..${high}`);
         assert.ok(range.max - range.min <= 100, `${low}..${high}: at most 100 dB`);
         assert.ok(range.max >= high, `${low}..${high}: the top holds the loudest bin`);

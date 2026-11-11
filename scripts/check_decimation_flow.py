@@ -28,7 +28,7 @@ module-level stores. A comparison is not a value: it is a decision (``C``), foll
 today are in KNOWN_FLOWS, each with its gap in the contract table (src/test/plotContracts): the list only shrinks.
 A flow not listed fails, and so does a listed one no longer found.
 
-The contract table's backend readers classified 'draws' (DRAWN_READERS in values.ts) are checked too: what each
+The backend readers classified 'draws' in python-backend/drawn_points_contract.json are checked too: what each
 returns of drawn points carries its name wherever it goes, and the reader fails if its own code, or any code its
 result reaches, makes a flow of it (another field, a reduction, a decision): drawing is only putting it in a picture.
 
@@ -48,7 +48,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BACKEND = ROOT / "python-backend"
-VALUES_TS = ROOT / "src" / "test" / "plotContracts" / "values.ts"
+CONTRACT = ROOT / "python-backend" / "drawn_points_contract.json"
 
 WHOLE = "*"
 #: The source of a 'draws' reader's result in a flow (``draws=module:function``).
@@ -56,7 +56,7 @@ TAG = "draws="
 DRAWN, POSITIONS, BUCKET, THINNED, DECIDED = "D", "P", "B", "T", "C"
 
 #: The backend's functions that thin data to draw it: what kind their result is and which of its fields are thinned
-#: (WHOLE: all of it). Every one but the bucket rule's (BUCKET_RULE) is the contract table's PY_DECIMATORS too.
+#: (WHOLE: all of it). Every one but the bucket rule's (BUCKET_RULE) is a decimator of drawn_points_contract.json too.
 SOURCES: dict[str, tuple[str, frozenset[str]]] = {
     "decimator:decimated_waveform": (DRAWN, frozenset({"min", "max", "minT", "maxT", "samples"})),
     "decimator:bucket_starts": (POSITIONS, frozenset({WHOLE})),
@@ -1067,22 +1067,35 @@ def draws_problems(sources: dict[str, str], readers: Iterable[str]) -> list[str]
     return sorted(set(out))
 
 
-def contract_draws(text: str) -> set[str]:
-    """The contract table's backend readers classified 'draws' (DRAWN_READERS in values.ts), as ``module:function``."""
-    pattern = r"\['python-backend/(\w+)\.py:(\w+)'\]:\s*\{\s*use:\s*'draws'"
-    return {f"{module}:{name}" for module, name in re.findall(pattern, text)}
+def contract() -> dict[str, object]:
+    """The backend's drawn-points contract (python-backend/drawn_points_contract.json), which the TS table reads too."""
+    return json.loads(CONTRACT.read_text(encoding="utf-8"))
 
 
-def contract_decimators(text: str) -> set[str]:
-    """The contract table's PY_DECIMATORS (values.ts), as ``module:function``."""
-    block = re.search(r"export const PY_DECIMATORS[^=]*=\s*\[(.*?)\n\];", text, re.S)
-    if block is None:
-        raise SystemExit("check_decimation_flow: PY_DECIMATORS not found in values.ts")
-    found: set[str] = set()
-    pattern = r"\[([^\]]*)\]\.map\(name => `python-backend/(\w+)\.py:\$\{name\}`\)"
-    for names, module in re.findall(pattern, block.group(1)):
-        found.update(f"{module}:{name}" for name in re.findall(r"'(\w+)'", names))
-    return found
+def _module_function(entry: str) -> str:
+    """``python-backend/module.py:function`` as ``module:function``."""
+    path, name = entry.rsplit(":", 1)
+    return f"{Path(path).stem}:{name}"
+
+
+def contract_draws(data: dict[str, object]) -> set[str]:
+    """The contract's readers classified 'draws', as ``module:function``."""
+    readers = data.get("readers")
+    if not isinstance(readers, dict):
+        raise SystemExit(f"check_decimation_flow: no 'readers' object in {CONTRACT.name}")
+    return {
+        _module_function(entry)
+        for entry, reader in readers.items()
+        if isinstance(reader, dict) and reader.get("use") == "draws"
+    }
+
+
+def contract_decimators(data: dict[str, object]) -> set[str]:
+    """The contract's decimators, as ``module:function``."""
+    listed = data.get("decimators")
+    if not isinstance(listed, list):
+        raise SystemExit(f"check_decimation_flow: no 'decimators' list in {CONTRACT.name}")
+    return {_module_function(str(entry)) for entry in listed}
 
 
 def problems(flows: list[Flow], known: dict[str, str] = KNOWN_FLOWS) -> Iterator[str]:
@@ -1110,23 +1123,25 @@ def main(argv: list[str] | None = None) -> int:
     if options.readers:
         print(json.dumps(find_readers(backend_sources())))
         return 0
-    listed = contract_decimators(VALUES_TS.read_text(encoding="utf-8"))
+    data = contract()
+    listed = contract_decimators(data)
     expected = set(SOURCES) - BUCKET_RULE
     if listed != expected:
         print(
-            "check_decimation_flow: SOURCES and the contract table's PY_DECIMATORS (values.ts) differ: "
-            f"only here {sorted(expected - listed)}, only in values.ts {sorted(listed - expected)}",
+            f"check_decimation_flow: SOURCES here and 'decimators' in {CONTRACT.name} differ: "
+            f"only here {sorted(expected - listed)}, only in the contract {sorted(listed - expected)}. "
+            "Fix: list every function that thins data to draw it in both.",
             file=sys.stderr,
         )
         return 1
     flows = find_flows(backend_sources())
-    misclassified = draws_problems(backend_sources(), contract_draws(VALUES_TS.read_text(encoding="utf-8")))
+    misclassified = draws_problems(backend_sources(), contract_draws(data))
     for problem in misclassified:
         print(problem, file=sys.stderr)
     if misclassified:
         print(
             f"check_decimation_flow: {len(misclassified)} 'draws' reader(s) do more than draw. Rule: a backend "
-            "function classified use: 'draws' in DRAWN_READERS (src/test/plotContracts/values.ts) may put its thinned "
+            "function classified use: 'draws' in python-backend/drawn_points_contract.json may put its thinned "
             "points only into a picture's drawn fields (DRAWN_KEYS in this script). Fix: compute the number from the "
             "full data, or reclassify the function as 'value'. See docs/plot-contracts-guide.md.",
             file=sys.stderr,

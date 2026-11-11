@@ -1,3 +1,4 @@
+import type { Drawn } from '../../shared/provenance';
 import type { FullSource } from './fullRead';
 import type { UiStrings } from '../../shared/i18n/strings';
 import type {
@@ -118,7 +119,8 @@ export interface TrackRuntimeState {
 }
 
 export interface SpectrumSlice {
-    values: number[];
+    /** As drawn: every bin when the slice has no `frequenciesHz`, else cut for display (wholeAnswers.ts everyBin). */
+    values: Drawn[];
     frequencyBins: number;
     maxFrequencyHz: number;
     minDb: number;
@@ -160,10 +162,7 @@ export interface WaveformRangeCache {
     channels: RangeWaveform[];
 }
 
-export interface RangeWaveform extends WaveformEnvelope {
-    minT?: number[];
-    maxT?: number[];
-}
+export type RangeWaveform = WaveformEnvelope;
 
 export interface LazyRequestState {
     trackId: TrackId;

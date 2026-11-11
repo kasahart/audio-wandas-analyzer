@@ -5,6 +5,7 @@
  */
 import type { ScanResult, StageView } from '../../shared/protocol/backendProtocol';
 import type { UiStrings } from '../../shared/i18n/strings';
+import type { Drawn } from '../../shared/provenance';
 import type { ChannelSummary } from '../../shared/analysis/analysisTypes';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { uncalibratedUnits } from '../../shared/utils/format';
@@ -13,7 +14,7 @@ import { baseName } from '../../shared/analysis/entryMetadata';
 import { median } from '../../shared/dataset/distribution';
 import { powerMeanDb, powerMeanOrNull } from '../../shared/utils/levels';
 import { axisValueAt, levelBinsOf } from './stagePanes';
-import { localLine, type InlineFullSource } from './fullRead';
+import { heldValueRange, localLine, type InlineFullSource } from './fullRead';
 import { noNegativeZero, signedNumberText, withMinus } from '../plot/plotText';
 import { excludedFor, levelKeyOf, medianInputOf, setExclusionText, type FigureSet } from './figureModel';
 import type { Answer } from './answerTypes';
@@ -316,7 +317,7 @@ export const SPECTRUM_LINE_BUCKETS = 640;
  * own x (stage_view.min_max_line), so a peak or a narrow difference keeps its height. Fewer values than two per
  * bucket are all kept; non-finite values and x ≤ 0 are left out.
  */
-export function minMaxLine(xs: readonly number[], values: readonly number[], buckets: number, span: readonly [number, number]): { xs: number[]; values: number[] } {
+export function minMaxLine(xs: readonly number[], values: readonly number[], buckets: number, span: readonly [number, number]): { xs: number[]; values: Drawn[] } {
     const count = Math.max(1, buckets);
     const [low, high] = [Math.min(...span), Math.max(...span)];
     const kept: number[] = [];
@@ -390,7 +391,7 @@ export function deltaViews(comparison: Pick<CompareModel, 'bins' | 'bandDeltas' 
     const bandsDelta = (): StageView | null => {
         const count = bandCount(comparison.frequencies);
         const values = comparison.bandDeltas.slice(0, count);
-        return values.some(value => value !== null) ? { frame: 'NOctFrame', kind: 'bar', x: 'band', xScale: 'log', quantity: 'level', xs: BAND_CENTERS_HZ.slice(0, count), values } : null;
+        return values.some(value => value !== null) ? { frame: 'NOctFrame', kind: 'bar', x: 'band', xScale: 'log', quantity: 'level', xs: BAND_CENTERS_HZ.slice(0, count), values, ...heldValueRange(values, false) } : null;
     };
     const picture = comparison.bins?.diff ? binsView(comparison.bins, 'diff') : bandsDelta();
     if (!picture || !comparison.bins || !zoom || (zoom.start <= 0 && zoom.end >= 1)) return { picture, view: picture };
@@ -451,7 +452,7 @@ export function sideView(side: Pick<CompareSide, 'bands'> | null | undefined, fr
     // Only the bands up to Nyquist: the rest are empty for every file.
     const count = bandCount(frequencies);
     const xs = BAND_CENTERS_HZ.slice(0, count), values = side.bands.slice(0, count);
-    return { frame: 'NOctFrame', kind: 'bar', x: 'band', xScale: 'log', quantity: 'level', xs, values, levelBins: levelBinsOf(xs, values, [xs[0] ?? 1, xs[xs.length - 1] ?? 1], true) };
+    return { frame: 'NOctFrame', kind: 'bar', x: 'band', xScale: 'log', quantity: 'level', xs, values, ...heldValueRange(values, true), levelBins: levelBinsOf(xs, values, [xs[0] ?? 1, xs[xs.length - 1] ?? 1], true) };
 }
 
 /** How many 1/3-octave bands lie below the spectra's top edge (Nyquist). */

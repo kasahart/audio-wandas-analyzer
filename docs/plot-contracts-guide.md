@@ -15,7 +15,10 @@ and `python scripts/check_decimation_flow.py`).
 | File | What it holds |
 | --- | --- |
 | `src/test/plotContracts/charts/<chart>.ts` | One file per chart: the chart, and a row for every value a user reads off it (where it is computed, from what, which tests hold it). |
-| `src/test/plotContracts/values.ts` | `VALUE_HELPERS`, `NOT_CHART_VALUES`, `DRAWN_READERS`, `PY_DECIMATORS`: how the scanned functions are classified. |
+| `src/test/plotContracts/values.ts` | `VALUE_HELPERS`, `NOT_CHART_VALUES`: how the functions that write a number are classified. |
+| `src/shared/provenance.ts` | The types `Whole` (a value of the full data) and `Drawn` (a point thinned to be drawn). |
+| `src/test/provenanceBoundary.test.ts` | What the compiler cannot check of those types: who may mint, who may unwrap, casts and coercions. |
+| `python-backend/drawn_points_contract.json` | The backend functions that thin data, and those that compute with thinned points. Read by the Python checker and the TS table. |
 | `src/test/plotContracts/surfaces.ts` | `SURFACES`: every function outside the plot component that makes a canvas or SVG, and whose it is. |
 | `src/test/plotContracts.test.ts` | The checks. |
 | `scripts/check_decimation_flow.py` | Follows thinned values through the backend and fails where one becomes a number. |
@@ -102,10 +105,29 @@ found. Outside `stagePanes.ts`, the function that does it must be:
 
 ## Reading thinned points
 
-A function that reads a picture's drawn arrays (`view.values`, a waveform envelope; in the backend, a decimator's
-result) is listed in `DRAWN_READERS`:
+**In the webview** the compiler does this. The arrays the backend thins to draw (`StageView.values`, `matrix`, the
+waveform envelope, events, a cursor-spectrum slice, the lane spectrogram, a scan's 192-point spectrum) are typed
+`Drawn`. A `Drawn` is not a number, so this does not compile:
 
-- `draws`: it only draws them. Checked by data flow in both languages: returning, writing or keeping a number made
-  of them fails.
-- `value`: it makes a number of them. Its row is then a gap.
-- `whole`: it is given full data; it names a proof test as above.
+```ts
+const top = Math.max(...view.values);          // error: Drawn is not a number
+label.textContent = view.values[i].toFixed(1); // error: toFixed does not exist on Drawn
+```
+
+- To **draw** the points, call `drawable` / `drawableLine` from `src/shared/drawnPoints.ts`. Only the modules listed
+  in `DRAWING_MODULES` (`src/test/provenanceBoundary.test.ts`) may; add yours there, with what it draws, if it draws.
+- To **show, compute or export a number**, do not unwrap. Read it from the full data: the layer's `FullSource`, the
+  picture's `valueRange` / `peak` / `levelBins`, or an adapter in `wholeAnswers.ts`.
+
+A new thinned array from the backend is marked in `python-backend/protocol_schema.py` (`_DRAWN_LINE`,
+`_DRAWN_GAPPED`); regenerate the types with `node scripts/generate-protocol-types.mjs --write`.
+
+**In the backend** there are no such types, so `scripts/check_decimation_flow.py` follows the data. A function that
+calls a decimator, or is handed its result and computes with it, is listed in
+`python-backend/drawn_points_contract.json` under `readers`:
+
+- `draws`: it only makes the picture. The checker fails if a number made of the thinned points is returned in any
+  other field, reduced (`max`, `mean`) or used in a decision.
+- `value`: it makes a number of them. Its row is then a gap, and `GAP_CEILING` does not go up.
+
+A new decimator is added to `decimators` in that file and to `SOURCES` in the checker.

@@ -7,13 +7,13 @@
  * in its comment which Python function takes it. Nothing else may mint (provenanceBoundary.test.ts).
  */
 import type { StageView } from '../../shared/protocol/backendProtocol';
-import type { Whole } from '../../shared/provenance';
-import { mintWhole } from '../../shared/wholeMint';
+import type { Drawn, Whole } from '../../shared/provenance';
+import { mintWhole, mintWholeBins, mintWholeDrawn } from '../../shared/wholeMint';
 import { localLine, type InlineFullSource } from './fullRead';
 
 /** A band table's bars, which the backend sends whole (every band, none thinned): read from their every value. */
 export function wholeBars(view: StageView | null | undefined): InlineFullSource | undefined {
-    return view?.kind === 'bar' ? localLine(view.xs ?? [], view.values ?? []) : undefined;
+    return view?.kind === 'bar' ? localLine(view.xs ?? [], mintWholeDrawn(view.values ?? [])) : undefined;
 }
 
 /** Where a Δ is largest and its value there (stage_combine.difference_peak): found among every value before thinning (R2). */
@@ -21,4 +21,15 @@ export function backendPeak(view: StageView): { x: Whole; y?: Whole; value: Whol
     const peak = view.peak;
     if (!peak) return undefined;
     return { x: mintWhole(peak.x), value: mintWhole(peak.value), ...(peak.y !== undefined ? { y: mintWhole(peak.y) } : {}), ...(peak.xStep !== undefined ? { xStep: peak.xStep } : {}), ...(peak.yStep !== undefined ? { yStep: peak.yStep } : {}) };
+}
+
+/**
+ * A cursor-spectrum slice's values when they are every bin of it (or every band): the backend sends a slice whole
+ * unless it cut it for display, which it marks with `frequenciesHz`. null for a cut slice and for a stand-in (drawn
+ * while the real slice is on its way: none of its values is a bin). What a slice's readout, order and CSV take.
+ */
+export function everyBin(slice: { values: readonly Drawn[]; frequenciesHz?: readonly number[]; bandCentersHz?: readonly number[]; standIn?: string }): Whole[] | null {
+    if (slice.standIn) return null;
+    if (slice.frequenciesHz && !slice.bandCentersHz?.length) return null;
+    return mintWholeBins(slice.values);
 }

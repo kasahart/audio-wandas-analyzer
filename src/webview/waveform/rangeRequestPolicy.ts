@@ -81,7 +81,7 @@ export function computeReqBounds(
 export interface RangeCacheEntry {
     startNorm: number;
     endNorm: number;
-    channels: Array<{ min?: number[]; max?: number[]; samples?: number[] }>;
+    channels: Array<{ min?: readonly unknown[]; max?: readonly unknown[]; samples?: readonly unknown[] }>;
 }
 
 export function waveformPointCount(waveform: RangeCacheEntry['channels'][number] | null | undefined): number {

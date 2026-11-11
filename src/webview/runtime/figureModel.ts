@@ -8,7 +8,7 @@ import { channelResult } from '../../shared/recipe/channelSelection';
 import type { UiStrings } from '../../shared/i18n/strings';
 
 /**
- * The figure model (layers-design.md): what a figure draws of its answers and what it writes. Every figure's axes,
+ * The figure model (docs/plot-layers.md, layer 2): what a figure draws of its answers and what it writes. Every figure's axes,
  * their names and their ranges, the calibration word a line carries, and which files a figure counts are decided
  * here, the same for the screen, the report's PNGs and the CSVs. It is pure: it keeps nothing between calls and holds
  * no answer (answerStore.ts does). paintOverlay takes only the names and ranges made here (FigureNames, FigureRange),

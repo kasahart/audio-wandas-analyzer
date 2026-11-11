@@ -1,9 +1,11 @@
+import type { Drawn } from '../../shared/provenance';
 import type { SpectrogramData } from '../../shared/analysis/analysisTypes';
 import type { SpectrumStandIn } from '../runtime/types';
 import { spectrogramTimeBinAt, spectrogramTimeBinEdges } from './spectrogramTimeBins';
 
 export interface SpectrumSlice {
-    values: number[];
+    /** As drawn: every bin when the slice has no `frequenciesHz`, else cut for display (wholeAnswers.ts everyBin). */
+    values: Drawn[];
     frequencyBins: number;
     maxFrequencyHz: number;
     minDb: number;

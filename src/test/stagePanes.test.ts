@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
+import { drawableLine, drawableRows } from '../shared/drawnPoints';
 import { N, R, T } from './helpers/figure';
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { assertNotDrawn } from './fullNotDrawn';
-import { held } from './helpers/heldSource';
+import { held, ranged } from './helpers/heldSource';
 import { spectrumLayer } from '../webview/runtime/overlaySpectrumPainter';
 import { axisNameParts, fontPixels } from '../webview/plot/axisTitle';
 import { heatmapDbRange, niceRange } from '../shared/utils/ticks';
@@ -14,15 +15,16 @@ import { getStrings } from '../shared/i18n/strings';
 import { fetchedSource, localCells, localLine, NO_FULL_DATA } from '../webview/runtime/fullRead';
 import { gainAxisName } from '../webview/runtime/figureModel';
 
-const line = (values: number[], quantity: StageView['quantity'] = 'level'): StageView => ({ frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity, xs: [100, 1000, 10000], values });
+const line = (values: number[], quantity: StageView['quantity'] = 'level'): StageView => ranged({ frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity, xs: [100, 1000, 10000], values });
 const strings = { stageNoDelta: 'none', stageMaxDelta: '{at} {delta}' };
 
 /** compare − base point by point, as the backend's difference of two pictures already at full resolution is. */
 function minus(base: StageView, compare: StageView): StageView {
     const sub = (a: number | null, b: number | null | undefined): number | null => (a === null || b === null || b === undefined ? null : Math.round((a - b) * 1e6) / 1e6);
-    return compare.matrix
-        ? { ...compare, matrix: compare.matrix.map((row, r) => row.map((value, c) => sub(value, base.matrix?.[r]?.[c]))) }
-        : { ...compare, values: (compare.values ?? []).map((value, index) => sub(value, base.values?.[index])) };
+    // The difference's own range, as the backend sends with it.
+    return ranged(compare.matrix
+        ? { ...compare, matrix: drawableRows(compare.matrix).map((row, r) => row.map((value, c) => sub(value, drawableRows(base.matrix ?? [])[r]?.[c]))) }
+        : { ...compare, values: drawableLine(compare.values ?? []).map((value, index) => sub(value, drawableLine(base.values ?? [])[index])) }, true);
 }
 
 test('the Δ pane\'s headline writes the backend\'s largest difference, found before thinning, never the largest point drawn', () => {
@@ -144,7 +146,7 @@ test('a heatmap names what its colour measures, with its unit and reference, for
     assert.equal(stageAxes(names, heat('level'), undefined, true).colour, names.axisDelta);
 });
 
-const cepstrum = (values: number[]): StageView => ({ frame: 'CepstralFrame', kind: 'line', x: 'quefrency', xScale: 'linear', quantity: 'cepstrum', xs: [0, 0.001, 0.002, 0.003], values });
+const cepstrum = (values: number[]): StageView => ranged({ frame: 'CepstralFrame', kind: 'line', x: 'quefrency', xScale: 'linear', quantity: 'cepstrum', xs: [0, 0.001, 0.002, 0.003], values });
 
 test('a cepstrum is drawn on a quefrency axis, symmetric about zero without its zero-quefrency coefficient', () => {
     const view = cepstrum([-8.5, 0.01, -0.02, 0.005]);
@@ -177,7 +179,7 @@ test('a cross-correlation is drawn over a signed lag axis on the fixed [-1, 1] c
 });
 
 test('a trigger\'s events are each a line of their slot, on one amplitude range, with no difference between recordings', () => {
-    const events = (peaks: number[]): StageView => ({
+    const events = (peaks: number[]): StageView => ranged({
         frame: 'ChannelFrameSegments', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', unit: 'Pa', xs: [-0.01, 0, 0.1],
         values: [0, peaks.reduce((a, b) => a + b, 0) / peaks.length, 0], events: peaks.map((peak, id) => ({ id: id * 2, time: id, xs: [-0.01, 0, 0.1], values: [0, peak, 0] })),
     });
@@ -234,7 +236,7 @@ test('a spectrum drawn as its own bins spans its stated limits, not edges read o
 });
 
 /** A view with the levelBins the backend gives it, from `full` (its values before thinning; its drawn values by default). */
-function measured(view: StageView, full: number[] = (view.values ?? []).map(value => value ?? Number.NaN)): StageView {
+function measured(view: StageView, full: number[] = drawableLine(view.values ?? []).map(value => value ?? Number.NaN)): StageView {
     const xs = view.xs ?? [];
     return { ...view, levelBins: levelBinsOf(xs, full, [xs[0], xs[xs.length - 1]], view.xScale === 'log') };
 }
@@ -627,7 +629,7 @@ function pick(hit: ReturnType<typeof stageHover>): { x: number; y: number } | nu
 }
 
 test('a colour or value range not in dB is widened to round ends, as a dB range is', () => {
-    const view = (values: number[], quantity: StageView['quantity']): StageView => ({ frame: 'SpectralFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity, xs: [0, 1], values: [], matrix: [values] });
+    const view = (values: number[], quantity: StageView['quantity']): StageView => ranged({ frame: 'SpectralFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity, xs: [0, 1], values: [], matrix: [values] });
     assert.deepEqual(stageRange([view([3.21, 17.4], 'roughness')]), { min: 2, max: 19 });
     assert.deepEqual(stageRange([view([0.13, 0.87], 'value')]), { min: 0.05, max: 0.95 });
     assert.deepEqual(stageDiffRange(view([-0.37, 0.12], 'value')), { min: -0.4, max: 0.4 });

@@ -2,6 +2,9 @@ import { plainNames, plainRange, withTitle, type FigureTitle, type PlainTitle } 
 import { binFrequencyHz } from '../draw/canvasDrawers';
 import { levelBinsOf, paintOverlay, type StageLayer, type StagePlot } from './stagePanes';
 import type { StageView } from '../../shared/protocol/backendProtocol';
+import { drawableLine } from '../../shared/drawnPoints';
+import type { Drawn } from '../../shared/provenance';
+import { everyBin } from './wholeAnswers';
 import { minMaxLine } from './comparePanes';
 import { localLine, NO_FULL_DATA, NO_LEVEL, type FullSource } from './fullRead';
 import {
@@ -49,7 +52,10 @@ export const SECONDARY_AXIS_MARK = '▶';
 export function spectrumLayer(series: SpectrumSeries, cutoffHz: number, visible?: { frequencyMin: number; frequencyMax: number; buckets: number; logFrequency?: boolean }, levelUnit?: string): StageLayer {
     const { slice } = series;
     const bands = !!slice.bandCentersHz?.length;
-    let xs: number[] = [], values: number[] = [];
+    let xs: number[] = [], values: Drawn[] = [];
+    // Every bin (or band) of the slice, when it holds them: what is read, ordered and thinned. null for a slice cut
+    // for display or a stand-in, which is only drawn.
+    const every = everyBin(slice);
     let levelBins: StageView['levelBins'];
     for (let index = 0; index < slice.frequencyBins && index < slice.values.length; index++) {
         const hz = binFrequencyHz(slice, index);
@@ -63,7 +69,8 @@ export function spectrumLayer(series: SpectrumSeries, cutoffHz: number, visible?
     // A stand-in is drawn only: none of its values is a bin of a slice.
     const standIn = slice.standIn ? STAND_IN_READ[slice.standIn] : undefined;
     // Bands are every band of the slice; a slice cut for display without its every bin (series.full) has none to read.
-    const full = standIn ?? series.full ?? (slice.frequenciesHz && !bands ? NO_FULL_DATA : localLine(xs, values));
+    const held = every ? every.slice(0, xs.length) : null;
+    const full = standIn ?? series.full ?? (held ? localLine(xs, held) : NO_FULL_DATA);
     // Ordered among the overlaid slices by every bin's power before thinning (R6), over the axis drawn.
     // Over the frequencies on screen when known (the whole slice is in hand: measured again at every zoom), on the axis
     // drawn: a linear one keeps the 0 Hz bin, a log one starts at the first bin above it. A slice cut for display holds
@@ -72,13 +79,14 @@ export function spectrumLayer(series: SpectrumSeries, cutoffHz: number, visible?
     const log = bands || (visible ? !!visible.logFrequency : true);
     const span: [number, number] | null = visible ? [log ? Math.max(visible.frequencyMin, firstPositive ?? visible.frequencyMin) : visible.frequencyMin, visible.frequencyMax]
         : xs.length ? [log ? firstPositive ?? xs[0] : xs[0], xs[xs.length - 1]] : null;
-    if (!slice.frequenciesHz && !standIn && span && span[1] > span[0]) levelBins = levelBinsOf(xs, values, span, log);
+    if (!slice.frequenciesHz && held && span && span[1] > span[0]) levelBins = levelBinsOf(xs, held, span, log);
     // A slice at full resolution (asked for while zoomed in, R3) is thinned here, only to be drawn, by the rule every
     // spectrum is thinned by (R2: each bucket's lowest and highest bin), between the frequencies on screen and a bin
     // past each, so the line reaches the plot's edges.
     if (!bands && visible && !slice.frequenciesHz && xs.length > 2 * visible.buckets && xs.length > 1) {
         const binHz = xs[1] - xs[0];
-        const line = minMaxLine(xs, values, visible.buckets, [Math.max(binHz, visible.frequencyMin - binHz), visible.frequencyMax + binHz]);
+        // A stand-in is thinned as it is drawn; no number is read of it.
+        const line = minMaxLine(xs, held ?? drawableLine(values).map(value => value ?? Number.NaN), visible.buckets, [Math.max(binHz, visible.frequencyMin - binHz), visible.frequencyMax + binHz]);
         const dc = visible.frequencyMin <= 0 && xs[0] === 0 ? 1 : 0;
         xs = [...xs.slice(0, dc), ...line.xs];
         values = [...values.slice(0, dc), ...line.values];

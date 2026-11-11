@@ -95,7 +95,7 @@ function scan(leq: number, level: Partial<LevelInput> & { fs?: number } = {}): S
 const SPL = { unit: 'Pa', ref: 2e-5, levelReferenceLabel: 'dB SPL re 20 µPa', calibrationStatus: 'calibrated', fullScale: false } as const;
 const FAILED = { ok: false, error: 'failed' } as unknown as ScanResult;
 
-test('a figure counts only its ready answers of its identity and axis: pending, stale, failed, another reference\'s and another axis\'s are excluded with why (layers-design)', () => {
+test('a figure counts only its ready answers of its identity and axis: pending, stale, failed, another reference\'s and another axis\'s are excluded with why (docs/plot-layers.md)', () => {
     const stale = scanAnswer('/old.wav', scan(-19));
     const answers: Array<Answer<ScanResult & { ok: true }>> = [
         scanAnswer('/a.wav', scan(-20)), scanAnswer('/b.wav', scan(-21)), scanAnswer('/p.wav', undefined), scanAnswer('/x.wav', FAILED), scanAnswer('/s.wav', scan(60, SPL)),
@@ -238,7 +238,7 @@ const NOT_FIGURE_ROWS: Readonly<Record<string, string>> = {
     'entry-table.count': 'the table head\'s counts of files in the folder and the filters, not a figure\'s n',
 };
 
-test('every chart\'s level axis, range and file count row says it is computed in figureModel.ts (layers-design)', () => {
+test('every chart\'s level axis, range and file count row says it is computed in figureModel.ts (docs/plot-layers.md)', () => {
     const rows = ROWS.filter(row => row.value === 'axis' || row.value === 'range' || row.value === 'count');
     assert.ok(rows.length >= 30, String(rows.length));
     const outside = rows.filter(row => !row.computedIn.some(where => where.startsWith('src/webview/runtime/figureModel.ts:'))).map(row => row.id).sort();
@@ -356,7 +356,7 @@ function sources(): Array<{ rel: string; source: string }> {
     return files;
 }
 
-test('outside figureModel.ts nothing builds an axis name, calls an axis builder, keys by level identity, applies a range rule, counts files for n or defaults a reference, but the exact list; figureModel.ts only its own definitions (layers-design)', () => {
+test('outside figureModel.ts nothing builds an axis name, calls an axis builder, keys by level identity, applies a range rule, counts files for n or defaults a reference, but the exact list; figureModel.ts only its own definitions (docs/plot-layers.md)', () => {
     const files = sources();
     assert.ok(files.length > 100, String(files.length));
     assert.deepEqual(figureSites(files), ALLOWED);

@@ -20,6 +20,8 @@ export interface SchemaNode {
     anyOf?: readonly [SchemaNode, SchemaNode];
     /** A definition the generated types take from the hand-written contracts; it carries no constraint. */
     'x-tsType'?: string;
+    /** A number thinned to be drawn: generated as `Drawn` (provenance.ts); it carries no constraint. */
+    'x-drawn'?: boolean;
 }
 
 const DEFINITIONS: Readonly<Record<string, SchemaNode>> = BACKEND_PROTOCOL_SCHEMA.$defs;

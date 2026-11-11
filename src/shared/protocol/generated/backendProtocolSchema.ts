@@ -2,6 +2,8 @@
 // Do not edit; change the Python schema and run `node scripts/generate-protocol-types.mjs --write`.
 import type { CalibrationProfile } from '../../analysis/analysisTypes';
 
+import type { Drawn } from '../../provenance';
+
 export const BACKEND_PROTOCOL_SCHEMA = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$defs": {
@@ -58,25 +60,29 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "min": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-drawn": true
                     }
                 },
                 "max": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-drawn": true
                     }
                 },
                 "minT": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-drawn": true
                     }
                 },
                 "maxT": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-drawn": true
                     }
                 },
                 "samples": {
@@ -204,7 +210,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                     "items": {
                         "type": "array",
                         "items": {
-                            "type": "number"
+                            "type": "number",
+                            "x-drawn": true
                         }
                     }
                 },
@@ -648,7 +655,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "values": {
                     "type": "array",
                     "items": {
-                        "type": "number"
+                        "type": "number",
+                        "x-drawn": true
                     }
                 },
                 "minDb": {
@@ -1589,7 +1597,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                     "items": {
                         "anyOf": [
                             {
-                                "type": "number"
+                                "type": "number",
+                                "x-drawn": true
                             },
                             {
                                 "type": "null"
@@ -1604,7 +1613,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                         "items": {
                             "anyOf": [
                                 {
-                                    "type": "number"
+                                    "type": "number",
+                                    "x-drawn": true
                                 },
                                 {
                                     "type": "null"
@@ -1668,7 +1678,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                             "items": {
                                 "anyOf": [
                                     {
-                                        "type": "number"
+                                        "type": "number",
+                                        "x-drawn": true
                                     },
                                     {
                                         "type": "null"
@@ -1681,7 +1692,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                             "items": {
                                 "anyOf": [
                                     {
-                                        "type": "number"
+                                        "type": "number",
+                                        "x-drawn": true
                                     },
                                     {
                                         "type": "null"
@@ -1694,7 +1706,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                             "items": {
                                 "anyOf": [
                                     {
-                                        "type": "number"
+                                        "type": "number",
+                                        "x-drawn": true
                                     },
                                     {
                                         "type": "null"
@@ -1707,7 +1720,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                             "items": {
                                 "anyOf": [
                                     {
-                                        "type": "number"
+                                        "type": "number",
+                                        "x-drawn": true
                                     },
                                     {
                                         "type": "null"
@@ -1849,7 +1863,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                                 "items": {
                                     "anyOf": [
                                         {
-                                            "type": "number"
+                                            "type": "number",
+                                            "x-drawn": true
                                         },
                                         {
                                             "type": "null"
@@ -2041,7 +2056,8 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                     "items": {
                         "type": "array",
                         "items": {
-                            "type": "number"
+                            "type": "number",
+                            "x-drawn": true
                         }
                     }
                 },
@@ -2316,10 +2332,10 @@ export interface StftOptions {
 }
 
 export interface WaveformEnvelope {
-    min: number[];
-    max: number[];
-    minT?: number[];
-    maxT?: number[];
+    min: Drawn[];
+    max: Drawn[];
+    minT?: Drawn[];
+    maxT?: Drawn[];
     samples: number[];
     absolutePeak: number;
 }
@@ -2350,7 +2366,7 @@ export interface ChannelMeasurementContext {
 }
 
 export interface SpectrogramData {
-    values: number[][];
+    values: Drawn[][];
     timeBins: number;
     frequencyBins: number;
     windowSize: number;
@@ -2473,7 +2489,7 @@ export interface RangeResult {
 
 export interface SpectrumSliceChannel {
     channelIndex: number;
-    values: number[];
+    values: Drawn[];
     minDb: number;
     maxDb: number;
     unit?: string;
@@ -2687,8 +2703,8 @@ export interface StageView {
     xLimits?: number[];
     ys?: number[];
     yAxis?: "frequency" | "bark" | "quefrency";
-    values?: (number | null)[];
-    matrix?: ((number | null)[])[];
+    values?: (Drawn | null)[];
+    matrix?: ((Drawn | null)[])[];
     whole?: boolean[];
     pair?: {
     output: number;
@@ -2698,10 +2714,10 @@ export interface StageView {
     detail?: boolean;
     measure?: "rms" | "timeWeightedRms" | "power";
     waveform?: {
-    min: (number | null)[];
-    max: (number | null)[];
-    minT: (number | null)[];
-    maxT: (number | null)[];
+    min: (Drawn | null)[];
+    max: (Drawn | null)[];
+    minT: (Drawn | null)[];
+    maxT: (Drawn | null)[];
     absolutePeak: number;
     unit: string;
     ref: number;
@@ -2732,7 +2748,7 @@ export interface StageView {
     id: number;
     time: number;
     xs: number[];
-    values: (number | null)[];
+    values: (Drawn | null)[];
 }[];
 }
 
@@ -2773,7 +2789,7 @@ export interface ScanResult {
     input?: ScanInput;
     leqDbA?: number[];
     peakHz?: number[];
-    spectrumDb?: number[][];
+    spectrumDb?: Drawn[][];
     spectrumBinsDb?: number[][];
     spectrumBinHz?: number;
     thirdOctDb?: ((number | null)[])[];

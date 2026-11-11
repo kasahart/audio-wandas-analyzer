@@ -24,6 +24,7 @@ import { axisName, axisNameParts, fitAxisTitle, fontPixels, scaledFont } from '.
 import { HEATMAP_DB_SPAN, heatmapDbRange, niceRange, niceTicks } from '../../shared/utils/ticks';
 import { amountText, barkText, frequencyText, lagText, levelText, quefrencyText, secondsText, signedText, spacingDecimals, stepText, withMinus } from '../plot/plotText';
 import type { Whole } from '../../shared/provenance';
+import { drawableLine, drawableRows } from '../../shared/drawnPoints';
 import { backendPeak } from './wholeAnswers';
 import { axisMeasure, cellEdgeValues, cellEdges, cellIndex, NO_FULL_DATA, STEP_AHEAD, type FullPoints, type FullRead, type FullSource, type LevelAnswer } from './fullRead';
 
@@ -34,12 +35,6 @@ export type StageStrings = Pick<UiStrings, 'axisFrequency' | 'axisTime' | 'axisT
 
 const DB_QUANTITIES = ['level', 'gain'];
 const isDb = (view: StageView | null): boolean => DB_QUANTITIES.includes(view?.quantity ?? '');
-
-/**
- * A cepstrum's first coefficient (zero quefrency) is the mean log magnitude, hundreds of times the rest:
- * the ranges leave it out, as wandas' cepstrogram plot leaves it out of its colour scale.
- */
-const skipsFirst = (view: StageView): boolean => view.quantity === 'cepstrum';
 
 /** A trigger's events in the row above the plots: how many each recording found, which tells them apart first. */
 export function stageEventCounts(base: StageView | null, compare: StageView | null, strings: Pick<StageStrings, 'stageEventCounts'>): string {
@@ -57,13 +52,6 @@ export function isEventsView(view: StageView | null | undefined): boolean {
 /** What an empty plot says: a trigger that found no event says so (and what to do), else that the step is not drawn. */
 export function emptyStageText(strings: Pick<StageStrings, 'stepNotDrawable' | 'stageNoEvents'>, picture: StageView | null | undefined): string {
     return picture?.events ? strings.stageNoEvents : strings.stepNotDrawable.replace('{frame}', picture?.frame ?? '');
-}
-
-function points(view: StageView): Array<number | null> {
-    const skip = skipsFirst(view) ? 1 : 0;
-    // A trigger's events are each drawn: the range holds every one of them.
-    if (view.events) return view.events.flatMap(event => event.values);
-    return view.matrix ? view.matrix.slice(skip).flat() : (view.values ?? []).slice(skip);
 }
 
 /**
@@ -104,20 +92,17 @@ const FLOORED_QUANTITIES: ReadonlyArray<NonNullable<StageView['quantity']>> = ['
 const silent = (view: StageView, value: number, diff = false): boolean => value <= -250 && !floorless(view, diff);
 
 /**
- * The lowest and highest value of the pictures: each one's every full-resolution value (`valueRange`, which the
- * backend takes before any is thinned or averaged into a cell, R1), or for a picture the webview made whole (a band
- * table, a level line) the values it draws, which are all of them.
+ * The lowest and highest value of the pictures: each one's `valueRange`, taken of its every full-resolution value
+ * before any is thinned or averaged into a cell (R1). The backend sends one with every picture
+ * (stage_combine.value_range: silence and a cepstrum's zero quefrency left out); a picture the webview makes of
+ * values it holds whole carries its own (fullRead.heldValueRange). A picture without one adds nothing: the points
+ * drawn are typed `Drawn` and never set a range.
  */
-function extent(views: ReadonlyArray<StageView | null>, diff = false): { low: number; high: number } {
+function extent(views: ReadonlyArray<StageView | null>): { low: number; high: number } {
     let low = Infinity, high = -Infinity;
     for (const view of views) {
-        if (!view) continue;
-        if (view.valueRange) { low = Math.min(low, view.valueRange.min); high = Math.max(high, view.valueRange.max); continue; }
-        for (const value of points(view)) {
-            // Silent stretches sit at the floor (−300 dB): they would squash every other level into one line.
-            if (value === null || !Number.isFinite(value) || silent(view, value, diff)) continue;
-            low = Math.min(low, value); high = Math.max(high, value);
-        }
+        if (!view?.valueRange) continue;
+        low = Math.min(low, view.valueRange.min); high = Math.max(high, view.valueRange.max);
     }
     return { low, high };
 }
@@ -185,7 +170,7 @@ function roundEdge(edge: number): number {
 
 /** ± an edge with whole-number quarters, for a difference in dB; ± the largest difference otherwise. */
 export function stageDiffRange(view: StageView | null): PaneRange {
-    const { low, high } = extent([view], true);
+    const { low, high } = extent([view]);
     if (view && !isDb(view)) {
         const edge = roundEdge((Number.isFinite(high) ? Math.max(Math.abs(low), Math.abs(high)) * 1.05 : 0) || 1);
         return { min: -edge, max: edge };
@@ -1125,7 +1110,7 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
             const level = Math.round(fraction * 255);
             return packRgb(level, level, level);
         };
-        const matrix = view.matrix;
+        const matrix = drawableRows(view.matrix);
         const loud = options.loud;
         const raster = rasterizeHeatmap({
             matrix, width: image.width, height: image.height, rowSpans, columnSpans, signed: signedScale,
@@ -1195,7 +1180,7 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
         // Signals drawn as themselves share an amplitude axis: a picture without a signal (a group's median level) is left out.
         const signals = layers.some(layer => layer.view.waveform);
         for (const layer of layers) {
-            const values = layer.view.values ?? [];
+            const values = drawableLine(layer.view.values ?? []);
             const xs = layer.view.xs ?? [];
             if (layer.view.kind === 'heatmap' || layer.view.kind === 'none' || (signals && !layer.view.waveform)) continue;
             if (layer.view.waveform) {
@@ -1558,7 +1543,7 @@ export function strokeStageLine(context: CanvasRenderingContext2D, plot: StagePl
     const { frame, xAt } = plot;
     // Past the level axis a line leaves the plot (clipped), not along its edge.
     const yAt = plot.lineYAt ?? plot.yAt;
-    const values = layer.view.values ?? [], xs = layer.view.xs ?? [];
+    const values = drawableLine(layer.view.values ?? []), xs = layer.view.xs ?? [];
     context.save();
     context.beginPath(); context.rect(frame.left, frame.top, frame.width, frame.height); context.clip();
     context.strokeStyle = layer.color;
