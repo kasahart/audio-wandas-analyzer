@@ -2631,6 +2631,7 @@ test('renderScript: export-csv replaces a cursor spectrum cut for display with e
     };
     try {
         // The cursor spectra on screen: rows cut for display, each point at its own frequency.
+        const drawn = { values: [-90, 3, -70], frequenciesHz: [0, 123.25, 20000] };
         for (let round = 0; round < 10; round++) {
             const open = env.postedMessages.filter((msg: any) => msg.type === 'request-spectrum-slice' && !msg.answered);
             open.forEach((request: any) => {
@@ -2638,8 +2639,8 @@ test('renderScript: export-csv replaces a cursor spectrum cut for display with e
                 env.dom.window.dispatchEvent(new env.dom.window.MessageEvent('message', { data: {
                     type: 'spectrum-slice-result', requestId: request.requestId, analysisId: request.analysisId,
                     settingsSignature: request.settingsSignature, trackIndex: request.trackIndex, filePath: request.filePath,
-                    channels: [{ channelIndex: 0, values: [-90, 3, -70], minDb: -90, maxDb: 3 }],
-                    frequencyBins: 3, maxFrequencyHz: 22050, frequenciesHz: [0, 123.25, 20000],
+                    channels: [{ channelIndex: 0, values: drawn.values, minDb: -90, maxDb: 3 }],
+                    frequencyBins: drawn.values.length, maxFrequencyHz: 22050, frequenciesHz: drawn.frequenciesHz,
                 } }));
             });
             await nextAnimationFrame(env.dom);
@@ -2656,7 +2657,8 @@ test('renderScript: export-csv replaces a cursor spectrum cut for display with e
         const rows = decodeDataUriPayload(anchor.href).split('\n');
         // Four evenly spaced bins per track from the every-bin answer; the cut row's 123.25 Hz point is not written.
         assert.equal(rows.length, 1 + 4);
-        assert.notEqual(rows.length, 1 + 3, 'not the three points of the row cut for display');
+        // Not the frequencies of the row cut for display: the CSV of the drawn points would list those.
+        assert.notDeepEqual(rows.slice(1).map(row => row.split(',')[0]), drawn.frequenciesHz.map(hz => hz.toFixed(4)), 'not the three points of the row cut for display');
         assert.equal(rows[2].split(',')[0], '7350.0000');
         assert.ok(!rows.some(row => row.includes('123.2500')));
     } finally {

@@ -8,7 +8,8 @@ backend's own code (python-backend, not its tests) and fails where one becomes a
 - a reduction of drawn points (``np.median``, ``np.max``, ``np.percentile``, ``np.argmax``, ``np.interp``,
   ``sorted``, ``.max()``, …): a median, extreme, range, order, readout or headline of what is drawn;
 - a difference of two drawn values (``a - b``, ``np.subtract``): a Δ of drawn points;
-- a field of an answer that is not a drawn one (``"minDb"``, ``"peak"``, ``"value"``, …) given drawn points.
+- a field of an answer that is not a drawn one (``"minDb"``, ``"peak"``, ``"value"``, …) given drawn points;
+- a decision made of drawn points (a comparison) sent, counted or used to pick what is reduced.
 
 Values carry what they are:
 
@@ -17,12 +18,15 @@ Values carry what they are:
 - ``B`` bucket: the values of one bucket (``times[block]``). Reducing a bucket is how a picture is thinned (``T``).
 - ``T`` thinned: values made of buckets (a block average). Thinning them further along an axis (a band's power
   mean, an interpolated narrow band) still makes the picture; reducing them to one number is a flow.
+- ``C`` decided: a comparison of drawn points (``drawn > level``, ``bool(...)``). A mask drawn as the picture's own
+  field is drawing; sent in any other field, counted or summed (``np.sum(mask)``, ``any(...)``), or used to pick
+  values that are then reduced, it is a number decided by drawn points: a flow.
 
 The analysis follows values through assignments, tuples, containers (a dict's fields one by one), calls into the
 backend's own functions (with what each argument carries), ``dataclasses.replace``, attributes set on ``self`` and
-module-level stores. A comparison is a mask or a decision, not a value. Flows the backend has today are in
-KNOWN_FLOWS, each with its gap in the contract table (src/test/plotContracts): the list only shrinks. A flow not
-listed fails, and so does a listed one no longer found.
+module-level stores. A comparison is not a value: it is a decision (``C``), followed as one. Flows the backend has
+today are in KNOWN_FLOWS, each with its gap in the contract table (src/test/plotContracts): the list only shrinks.
+A flow not listed fails, and so does a listed one no longer found.
 
 Run: ``python scripts/check_decimation_flow.py`` (exit 1 on a problem); ``--list`` prints every flow found.
 """
@@ -31,6 +35,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import json
 import re
 import sys
 from collections.abc import Callable, Iterable, Iterator
@@ -42,7 +47,7 @@ BACKEND = ROOT / "python-backend"
 VALUES_TS = ROOT / "src" / "test" / "plotContracts" / "values.ts"
 
 WHOLE = "*"
-DRAWN, POSITIONS, BUCKET, THINNED = "D", "P", "B", "T"
+DRAWN, POSITIONS, BUCKET, THINNED, DECIDED = "D", "P", "B", "T", "C"
 
 #: The backend's functions that thin data to draw it: what kind their result is and which of its fields are thinned
 #: (WHOLE: all of it). Every one but the bucket rule's (BUCKET_RULE) is the contract table's PY_DECIMATORS too.
@@ -114,14 +119,20 @@ AXIS_SECOND = REDUCERS - {
 #: Reductions along an axis by nature (a value per x, not one number).
 ALONG_AXIS = frozenset({"interp"})
 BUILTIN_REDUCERS = frozenset({"max", "min", "sorted", "sum"})
+#: NumPy calls that arrange, convert, round or test values without computing a number of them: drawn points given
+#: to these are still drawn (the picture's own form), not a reader's computation.
+ARRANGING = frozenset(
+    {
+        *("asarray", "array", "stack", "vstack", "hstack", "concatenate", "round", "nan_to_num", "take_along_axis"),
+        *("reshape", "isfinite", "isnan", "copy", "full_like", "zeros_like", "ascontiguousarray", "where", "unique"),
+    }
+)
 #: Attributes of an array that are not its values.
 SHAPE_ATTRIBUTES = frozenset({"size", "shape", "ndim", "dtype", "nbytes", "itemsize"})
 #: Methods that put their argument into their receiver (a list, a cache, a store), by how their names start.
 STORING_METHODS = ("append", "extend", "insert", "add", "put", "set", "store", "cache", "remember", "__setitem__")
 #: Calls whose result carries nothing of their arguments' values.
-CLEAN_BUILTINS = frozenset(
-    {"len", "isinstance", "callable", "type", "id", "hash", "range", "bool", "str", "repr", "all", "any", "getattr"}
-)
+CLEAN_BUILTINS = frozenset({"len", "isinstance", "callable", "type", "id", "hash", "range", "str", "repr", "getattr"})
 
 #: Flows the backend has today, by ``module:function: what``, with the contract table's gap that holds each (or, for
 #: a number the app does not show, why). Fix the flow and remove its line; never add one to let a new flow through.
@@ -196,6 +207,16 @@ def element(taint: Taint, key: object) -> Taint:
 def bare(taint: Taint) -> Taint:
     """The pairs that are the value itself (or a tuple's item), not a field of a container in it."""
     return frozenset(pair for pair in taint if pair[0] == WHOLE or re.fullmatch(r"#\d+", pair[0]))
+
+
+def decided(taint: Taint) -> Taint:
+    """A comparison (or a truth) of ``taint``: a decision made of its drawn points, as one value."""
+    return frozenset((WHOLE, with_kind(origin, DECIDED)) for _, origin in taint if kind_of(origin) in (DRAWN, DECIDED))
+
+
+def decisions_of(taint: Taint) -> Taint:
+    """The pairs that are decisions made of drawn points."""
+    return frozenset(pair for pair in taint if kind_of(pair[1]) == DECIDED)
 
 
 def values_of(taint: Taint) -> Taint:
@@ -276,6 +297,10 @@ class Program:
         #: Values kept on an object or a module-level store, by ``module:Class.attr`` / ``module:NAME``.
         self.stores: dict[str, Taint] = {}
         self.stores_changed = False
+        #: The functions whose own code computes with drawn, thinned or decided points (arithmetic, a comparison, a
+        #: reduction, a numeric call), by ``module:function``: with the decimators those points came from.
+        self.readers: dict[str, set[str]] = {}
+        #: Where each reader computes with them (``line: code``), for ``--readers --where``.
 
     def _index(self, module: Module) -> None:
         for node in ast.walk(module.tree):
@@ -392,6 +417,13 @@ class Walker:
         mine = frozenset(pair for pair in taint if pair[1].startswith("@"))
         if mine:
             self.pending.append((where, mine))
+
+    def computes(self, taint: Taint, node: ast.AST | None = None) -> None:
+        """This function's own code computes with ``taint``: a reader of drawn points, if any are in it."""
+        used = frozenset(origin for _, origin in taint if kind_of(origin) in (DRAWN, THINNED, DECIDED))
+        if used:
+            given = {source_of(origin) for origin in used if not origin.startswith("@")}
+            self.program.readers.setdefault(self.function.name, set()).update(given or {"(its caller's)"})
 
     def flow(self, node: ast.AST, what: str, taint: Taint) -> None:
         self.flows.append(Flow(self.function.name, getattr(node, "lineno", 0), what, frozenset(o for _, o in taint)))
@@ -535,11 +567,17 @@ class Walker:
         drawn = bare(values_of(taint))
         if isinstance(key, str) and key not in DRAWN_KEYS and drawn:
             self.flow(node, f"field {key!r} = drawn points", drawn)
+        decided = bare(decisions_of(taint))
+        if isinstance(key, str) and key not in DRAWN_KEYS and decided:
+            self.flow(node, f"field {key!r} = decided by drawn points", decided)
 
     def reduction(self, node: ast.Call, what: str, taint: Taint, along_axis: bool) -> Taint:
         """A reduction of ``taint``: a flow if it reduces drawn points, or thinned ones to one number."""
+        self.computes(taint, node)
         flowing = frozenset(
-            pair for pair in taint if kind_of(pair[1]) == DRAWN or (kind_of(pair[1]) == THINNED and not along_axis)
+            pair
+            for pair in taint
+            if kind_of(pair[1]) in (DRAWN, DECIDED) or (kind_of(pair[1]) == THINNED and not along_axis)
         )
         if flowing:
             self.flow(node, what, flowing)
@@ -574,11 +612,21 @@ class Walker:
         return CLEAN
 
     def _Compare(self, node: ast.Compare) -> Taint:
-        # A mask or a decision, not a value: a number made of drawn points was already found where it was made.
-        self.expr(node.left)
+        # Not a value but a decision: of drawn points, it is followed as one (C) to where it is sent or counted. A
+        # presence test (``is None``, ``in``, ``== []``) says only whether there is anything: no decision of values.
+        taint = self.expr(node.left)
         for comparator in node.comparators:
-            self.expr(comparator)
-        return CLEAN
+            taint |= self.expr(comparator)
+        presence = all(isinstance(op, (ast.Is, ast.IsNot, ast.In, ast.NotIn)) for op in node.ops) or any(
+            isinstance(side, (ast.Constant, ast.List, ast.Tuple, ast.Dict))
+            and not getattr(side, "elts", None)
+            and not isinstance(getattr(side, "value", None), (int, float))
+            for side in [node.left, *node.comparators]
+        )
+        if presence:
+            return CLEAN
+        self.computes(taint, node)
+        return decided(taint)
 
     def _UnaryOp(self, node: ast.UnaryOp) -> Taint:
         taint = self.expr(node.operand)
@@ -639,6 +687,7 @@ class Walker:
 
     def _BinOp(self, node: ast.BinOp) -> Taint:
         left, right = self.expr(node.left), self.expr(node.right)
+        self.computes(left | right, node)
         if isinstance(node.op, ast.Sub):
             self.difference(node, left, right)
         return flat(left | right)
@@ -757,6 +806,9 @@ class Walker:
             return self.local_call(name, args, keywords)
         if name in BUILTIN_REDUCERS:
             return self.reduction(node, f"{name}({', '.join(_short(a) for a in node.args)})", every, False)
+        if name in ("bool", "all", "any"):
+            # A truth of drawn points: a decision, followed to where it is sent or counted (a branch on it is not).
+            return decided(every)
         if name in CLEAN_BUILTINS:
             return CLEAN
         if name == "enumerate" and args:
@@ -789,6 +841,8 @@ class Walker:
                 return self.reduction(node, what, every, self.along_axis(node, name))
             if name == "subtract" and len(args) >= 2:
                 self.difference(node, args[0], args[1])
+            if name not in ARRANGING:
+                self.computes(every, node)
             return flat(every)
         receiver = self.expr(func.value)
         if name in REDUCERS:
@@ -901,6 +955,21 @@ def backend_sources(root: Path = BACKEND) -> dict[str, str]:
     return found
 
 
+def find_readers(sources: dict[str, str]) -> dict[str, list[str]]:
+    """Every backend function whose own code computes with drawn points, by ``python-backend/module.py:function``
+    (the contract table's names), with the decimators they came from: followed through returns, calls, containers
+    and stores across modules, not only where a decimator is called."""
+    program = Program(sources)
+    program.run()
+    out: dict[str, list[str]] = {}
+    for name, origins in program.readers.items():
+        module, function = name.split(":")
+        if name in SOURCES:
+            continue
+        out[f"python-backend/{module}.py:{function.split('.')[-1]}"] = sorted(origins)
+    return dict(sorted(out.items()))
+
+
 def find_flows(sources: dict[str, str]) -> list[Flow]:
     """Every flow of drawn points into a number in ``sources`` (module name → its text)."""
     program = Program(sources)
@@ -940,7 +1009,13 @@ def problems(flows: list[Flow], known: dict[str, str] = KNOWN_FLOWS) -> Iterator
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
     parser.add_argument("--list", action="store_true", help="print every flow found")
+    parser.add_argument(
+        "--readers", action="store_true", help="print, as JSON, every function computing with drawn points"
+    )
     options = parser.parse_args(argv)
+    if options.readers:
+        print(json.dumps(find_readers(backend_sources())))
+        return 0
     listed = contract_decimators(VALUES_TS.read_text(encoding="utf-8"))
     expected = set(SOURCES) - BUCKET_RULE
     if listed != expected:

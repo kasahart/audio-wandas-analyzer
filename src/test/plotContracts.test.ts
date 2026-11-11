@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
@@ -506,15 +507,40 @@ function pythonDefs(): Map<string, string> {
     return defs;
 }
 
-/** The backend's defs that call a decimator (PY_DECIMATORS), with the ones they call. */
-function pythonDrawn(): Map<string, Set<string>> {
+/**
+ * The backend's defs that read drawn points: those that call a decimator (PY_DECIMATORS), and every def whose own
+ * code computes with drawn points however they reached it (a returned view's values, a dict, an attribute, a
+ * subscript, a call in another module), as check_decimation_flow.py follows them through the backend's AST.
+ */
+function pythonDrawn(readers: Readonly<Record<string, readonly string[]>> = pythonFlowReaders()): Map<string, Set<string>> {
     const found = new Map<string, Set<string>>();
     const decimators = PY_DECIMATORS.map(entry => ({ entry, name: entry.slice(entry.lastIndexOf(':') + 1) }));
     for (const [def, body] of pythonDefs()) {
         const calls = decimators.filter(item => item.entry !== def && new RegExp(`\\b${item.name}\\(`).test(body.slice(body.indexOf('\n'))));
         if (calls.length) found.set(def, new Set(calls.map(item => item.entry)));
     }
+    for (const [def, origins] of Object.entries(readers)) {
+        if (PY_DECIMATORS.includes(def)) continue;
+        found.set(def, new Set([...(found.get(def) ?? []), ...origins]));
+    }
     return found;
+}
+
+/** check_decimation_flow.py's readers: every backend def computing with drawn points, by the AST data flow. */
+function pythonFlowReaders(sources?: Readonly<Record<string, string>>): Record<string, string[]> {
+    const venv = path.join(repoRoot, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
+    const python = existsSync(venv) ? venv : process.platform === 'win32' ? 'python' : 'python3';
+    const script = sources
+        ? ['-c', 'import json,sys; sys.path.insert(0, "scripts"); import check_decimation_flow as c; print(json.dumps(c.find_readers(json.load(sys.stdin))))']
+        : ['scripts/check_decimation_flow.py', '--readers'];
+    const run = spawnSync(python, script, { cwd: repoRoot, encoding: 'utf8', input: sources ? JSON.stringify(sources) : undefined });
+    assert.equal(run.status, 0, `check_decimation_flow.py --readers: ${run.stderr}`);
+    return JSON.parse(run.stdout) as Record<string, string[]>;
+}
+
+/** The backend's modules (not its tests), by module name, as check_decimation_flow.py reads them. */
+function pythonSources(): Record<string, string> {
+    return Object.fromEntries(readdirSync(path.join(repoRoot, PYTHON)).filter(item => item.endsWith('.py') && !item.startsWith('test_') && item !== 'conftest.py').map(name => [name.slice(0, -3), read(`${PYTHON}/${name}`)]));
 }
 
 test('the drawn-points scan finds a read in every form by the field\'s symbol, and passes it on across modules', () => {
@@ -568,6 +594,20 @@ test('the drawn-points scan finds a read in every form by the field\'s symbol, a
     // A reader classified as only drawing passes nothing on: its callers are not readers (its own flow is checked).
     const drawsOnly = drawnScan(typedWith(overlay), [a, b], { [`${a}:dot`]: { use: 'draws', why: 'x' } });
     assert.equal(drawsOnly.found.has(`${b}:imported`), false);
+});
+
+test('the backend\'s readers are found by data flow: a def that takes a returned view\'s values and sends their max is one, with no decimator call in it', () => {
+    const sources = pythonSources();
+    // Injected (Codex round 1, P2): no decimator is called here; the drawn values come back from stage_view.
+    sources.scan_service += '\n\ndef _peak_of(frame):\n    view = stage_view(frame)\n    return {"peakDb": float(np.max(view["values"]))}\n';
+    sources.stage_combine += '\n\ndef _top_of(view):\n    return max(view["values"])\n';
+    sources.scan_service += '\n\nfrom stage_combine import _top_of\n\n\ndef _send_top(frame):\n    return {"peakDb": _top_of({"p": stage_view(frame)}["p"])}\n';
+    const found = pythonFlowReaders(sources);
+    assert.ok(found['python-backend/scan_service.py:_peak_of']?.some(origin => origin.startsWith('stage_view:')), JSON.stringify(found['python-backend/scan_service.py:_peak_of']));
+    assert.ok(found['python-backend/stage_combine.py:_top_of'], 'a helper in another module given the drawn view through a dict is a reader');
+    // As the contract test reads them, both are unclassified readers: the injection fails it.
+    const python = pythonDrawn(found);
+    assert.deepEqual(['python-backend/scan_service.py:_peak_of', 'python-backend/stage_combine.py:_top_of'].filter(def => python.has(def) && !Object.hasOwn(DRAWN_READERS, def)), ['python-backend/scan_service.py:_peak_of', 'python-backend/stage_combine.py:_top_of']);
 });
 
 test('every function that reads drawn points says what it does with them, and a row\'s source agrees with what its functions read', () => {
@@ -680,10 +720,40 @@ function drawsFlowProblems(scan: DrawnScan, readers: Readonly<Record<string, Dra
             if (own(node)) { if (!returns) returnedAt = where(node); returns = true; return; }
             let at: ts.Node | undefined = node.parent;
             while (at && !ts.isFunctionLike(at)) at = at.parent;
+            // A local function handed by name to an array method (`values.map(toLevel)`): its result is what the
+            // method makes at each place it was handed.
+            for (const site of (at && callbackSites.get(at)) ?? []) {
+                const method = ts.isPropertyAccessExpression(site.expression) ? site.expression.name.text : '';
+                if (primitive(node) || ['map', 'flatMap', 'reduce', 'reduceRight'].includes(method)) taint(site);
+            }
             if (!at || !inside(at) || !(ts.isArrowFunction(at) || ts.isFunctionExpression(at)) || !ts.isCallExpression(at.parent) || !at.parent.arguments.includes(at)) return;
             // A test of a field's presence (`views.every(view => view.waveform)`) is no value; map's result is what it returns.
             const method = ts.isPropertyAccessExpression(at.parent.expression) ? at.parent.expression.name.text : '';
             if (primitive(node) || ['map', 'flatMap', 'reduce', 'reduceRight'].includes(method)) taint(at.parent);
+        };
+        /** A local function handed by name as a callback, to the array-method calls it was handed to. */
+        const callbackSites = new Map<ts.Node, ts.CallExpression[]>();
+        /**
+         * A callback handed by name (`values.map(toLevel)`, `values.reduce(maxOf, -Infinity)`), not written inline: a
+         * local function's parameters are bound as an inline one's; a scanned function of another place is followed as
+         * a call given the points at that parameter (reduce's second: its first is the running result).
+         */
+        const namedCallback = (argument: ts.Expression, site: ts.CallExpression, method: string): void => {
+            const index = method === 'reduce' || method === 'reduceRight' ? 1 : 0;
+            const symbol = checker.getSymbolAtLocation(ts.isPropertyAccessExpression(argument) ? argument.name : argument);
+            const resolved = symbol && symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol;
+            const declaration = resolved?.declarations?.[0];
+            const local = declaration && inside(declaration) ? (ts.isFunctionDeclaration(declaration) ? declaration : ts.isVariableDeclaration(declaration) && declaration.initializer && (ts.isArrowFunction(declaration.initializer) || ts.isFunctionExpression(declaration.initializer)) ? declaration.initializer : undefined) : undefined;
+            if (local) {
+                const parameters = method === 'reduce' || method === 'reduceRight' ? local.parameters.slice(0, 2) : local.parameters.slice(0, 1);
+                parameters.forEach(parameter => bind(parameter.name));
+                callbackSites.set(local, [...(callbackSites.get(local) ?? []), site]);
+                return;
+            }
+            const result = followCall(argument, index);
+            if (result === undefined) { taint(site); return; }
+            for (const inner of result.problems) found.push(`passes it to ${scan.target(argument)}, which ${inner}`);
+            if (result.returns && ['map', 'flatMap', 'reduce', 'reduceRight', 'find', 'findLast'].includes(method)) taint(site);
         };
         /** Counts of drawn points (`values.length`, and locals holding one): compared, they check an answer's shape. */
         const counts = new Set<ts.Symbol>();
@@ -713,22 +783,8 @@ function drawsFlowProblems(scan: DrawnScan, readers: Readonly<Record<string, Dra
             if (name === 'String' || (ts.isIdentifier(callee) && PRESENCE_CALLS.has(name))) { if (name === 'String') problem(node, 'writes it as text'); return; }
             const called = scan.target(callee);
             if (called && helpers.has(called)) { problem(node, `writes it as text (${called})`); return; }
-            const fn2 = called ? scan.functions.get(called) : undefined;
-            if (called && fn2 && !stack.has(called)) {
-                const parameter = fn2.parameters[Math.min(index, fn2.parameters.length - 1)];
-                if (!parameter) return;
-                const memoKey = `${called}#${index}`;
-                let result = memo.get(memoKey);
-                if (!result) {
-                    const seeds2: ts.Node[] = [];
-                    const collect = (name: ts.BindingName): void => {
-                        if (ts.isIdentifier(name)) { const symbol = checker.getSymbolAtLocation(name); each(fn2, ref => { if (ts.isIdentifier(ref) && ref !== name && checker.getSymbolAtLocation(ref) === symbol) seeds2.push(ref); }); }
-                        else for (const element of name.elements) if (ts.isBindingElement(element)) collect(element.name);
-                    };
-                    collect(parameter.name);
-                    result = follow(called, fn2, seeds2, new Set([...stack, called]));
-                    memo.set(memoKey, result);
-                }
+            const result = followCall(callee, index);
+            if (result !== undefined) {
                 for (const inner of result.problems) found.push(`passes it to ${called}, which ${inner}`);
                 if (result.returns) taint(node);
                 return;
@@ -736,6 +792,31 @@ function drawsFlowProblems(scan: DrawnScan, readers: Readonly<Record<string, Dra
             // Anything else (Math.max, a library): what it makes of them is made of drawn points too.
             taint(node);
         };
+        /**
+         * A scanned function (`callee` resolves to one) given drawn points at parameter `index`, followed (memoised):
+         * null when it takes no such parameter or is already being followed, undefined when it is no scanned one.
+         */
+        function followCall(callee: ts.Expression, index: number): { returns: boolean; returnedAt: string; problems: string[] } | undefined {
+            const called = scan.target(callee);
+            const fn2 = called ? scan.functions.get(called) : undefined;
+            if (!called || !fn2) return undefined;
+            if (stack.has(called)) return { returns: false, returnedAt: '', problems: [] };
+            const parameter = fn2.parameters[Math.min(index, fn2.parameters.length - 1)];
+            if (!parameter) return { returns: false, returnedAt: '', problems: [] };
+            const memoKey = `${called}#${index}`;
+            let result = memo.get(memoKey);
+            if (!result) {
+                const seeds2: ts.Node[] = [];
+                const collect = (name: ts.BindingName): void => {
+                    if (ts.isIdentifier(name)) { const symbol = checker.getSymbolAtLocation(name); each(fn2, ref => { if (ts.isIdentifier(ref) && ref !== name && checker.getSymbolAtLocation(ref) === symbol) seeds2.push(ref); }); }
+                    else for (const element of name.elements) if (ts.isBindingElement(element)) collect(element.name);
+                };
+                collect(parameter.name);
+                result = follow(called, fn2, seeds2, new Set([...stack, called]));
+                memo.set(memoKey, result);
+            }
+            return result;
+        }
         seeds.forEach(taint);
         while (queue.length) {
             const node = queue.pop()!;
@@ -748,7 +829,11 @@ function drawsFlowProblems(scan: DrawnScan, readers: Readonly<Record<string, Dra
                 if (ts.isCallExpression(parent.parent) && parent.parent.expression === parent) {
                     // A method of the drawn points: its callbacks are given them, and what it makes is made of them.
                     if (TEXT_METHODS.has(name)) { problem(parent.parent, 'writes it as text'); continue; }
-                    for (const argument of parent.parent.arguments) if (ts.isArrowFunction(argument) || ts.isFunctionExpression(argument)) argument.parameters.slice(0, name === 'reduce' ? 2 : 1).forEach(parameter => bind(parameter.name));
+                    for (const argument of parent.parent.arguments) {
+                        if (ts.isArrowFunction(argument) || ts.isFunctionExpression(argument)) argument.parameters.slice(0, name === 'reduce' ? 2 : 1).forEach(parameter => bind(parameter.name));
+                        // A callback handed by name is followed as the inline one (its parameters, what it returns).
+                        else if ((ts.isIdentifier(argument) || ts.isPropertyAccessExpression(argument)) && argument === parent.parent.arguments[0]) namedCallback(argument, parent.parent, name);
+                    }
                     // map, flatMap and reduce make what their callbacks return (followed there); the rest are of the points.
                     if (!['forEach', 'map', 'flatMap', 'reduce', 'reduceRight', 'every', 'some', 'findIndex', 'findLastIndex'].includes(name)) taint(parent.parent);
                 } else if (name === 'length' || !primitive(parent) || ts.isArrayTypeNode(parent)) taint(parent);
@@ -831,6 +916,12 @@ test('the draws check fails on a reader that computes a number of drawn points w
         'export function keeps(view: StageView): void { for (const value of view.values ?? []) if (value !== null) kept.push(value); }',
         'function largest(values: readonly (number | null)[]): number { return Math.max(...values.map(value => value ?? -Infinity)); }',
         "export function handsOn(view: StageView): number { return largest(view['values'] ?? []); }",
+        'const toLevel = (value: number | null): number => value ?? -Infinity;',
+        'export function viaNamed(view: StageView): number { return Math.max(...(view.values ?? []).map(toLevel)); }',
+        'function maxOf(top: number, value: number | null): number { return Math.max(top, value ?? -Infinity); }',
+        'export function viaReduce(view: StageView): number { return (view.values ?? []).reduce(maxOf, -Infinity); }',
+        'const levels = { of: (value: number | null): number => value ?? -Infinity };',
+        'export function viaMember(view: StageView): number[] { return (view.values ?? []).map(levels.of); }',
         'export function strokes(context: CanvasRenderingContext2D, view: StageView): boolean {',
         '    const values = view.values ?? [];',
         '    values.forEach((value, index) => { if (value === null || !Number.isFinite(value)) return; context.lineTo(index, value * 2); });',
@@ -838,7 +929,7 @@ test('the draws check fails on a reader that computes a number of drawn points w
         '}',
     ].join('\n')]]);
     const program = typedWith(overlay);
-    const names = ['peak', 'loud', 'label', 'chosen', 'keeps', 'handsOn', 'strokes'];
+    const names = ['peak', 'loud', 'label', 'chosen', 'keeps', 'handsOn', 'viaNamed', 'viaReduce', 'viaMember', 'strokes'];
     const readers = Object.fromEntries(names.map(name => [`${a}:${name}`, { use: 'draws' as const, why: 'x' }]));
     const problems = drawsFlowProblems(drawnScan(program, [a], readers), readers).join('\n');
     assert.match(problems, /fakeDraws\.ts:peak: 'draws', but returns/u, problems);
@@ -847,6 +938,10 @@ test('the draws check fails on a reader that computes a number of drawn points w
     assert.match(problems, /fakeDraws\.ts:chosen: 'draws', but returns/u);
     assert.match(problems, /fakeDraws\.ts:keeps: 'draws', but keeps it outside the function/u);
     assert.match(problems, /fakeDraws\.ts:handsOn: 'draws', but returns/u);
+    // A callback passed by name (a const arrow, a function, a member) is followed as an inline one is.
+    assert.match(problems, /fakeDraws\.ts:viaNamed: 'draws', but returns/u);
+    assert.match(problems, /fakeDraws\.ts:viaReduce: 'draws', but returns/u);
+    assert.match(problems, /fakeDraws\.ts:viaMember: 'draws', but returns/u);
     // Drawing them, and saying whether there are events, is drawing.
     assert.doesNotMatch(problems, /fakeDraws\.ts:strokes/u);
 });
@@ -984,7 +1079,9 @@ const POSITIVE_ASSERTS = new Set(['equal', 'deepEqual', 'strictEqual', 'deepStri
  * Whether the test `name` of `file` tells the full data from the drawn points by what it asserts, not its words: it
  * asserts the answer of the code under test (a call of one of `reach`, or of anything for a test that sends a
  * command) is not what another case gives (notEqual, notDeepEqual, doesNotMatch, `.not.`, `ok(a !== b)`: the drawn
- * points' answer), and asserts an answer outright (equal, deepEqual, toBe…: the full data's).
+ * points' answer), and asserts an answer outright (equal, deepEqual, toBe…: the full data's). Both sides of that
+ * negative assertion must be answers of the code under test, and not the same expression: a comparison against null
+ * or a constant does not tell one input from the other.
  */
 function distinguishes(file: string, name: string, reach: ReadonlySet<string> | null): boolean {
     let body: ts.Node | undefined;
@@ -1016,6 +1113,20 @@ function distinguishes(file: string, name: string, reach: ReadonlySet<string> | 
             if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer && !answers.has(node.name.text) && answer(node.initializer)) { answers.add(node.name.text); grown = true; }
         });
     }
+    // A side with no name in it but constants (null, a number, a pattern, a literal of those, a local holding one) is
+    // no input's answer.
+    const constants = new Set(['undefined', 'NaN', 'Infinity']);
+    const constant = (node: ts.Node): boolean => {
+        let named = false;
+        each(node, inner => { if (ts.isIdentifier(inner) && !constants.has(inner.text) && !((ts.isPropertyAccessExpression(inner.parent) || ts.isPropertyAssignment(inner.parent)) && inner.parent.name === inner)) named = true; });
+        return !named;
+    };
+    for (let grown = true; grown;) {
+        grown = false;
+        each(body, node => {
+            if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer && !constants.has(node.name.text) && constant(node.initializer)) { constants.add(node.name.text); grown = true; }
+        });
+    }
     let negative = false, positive = false;
     each(body, node => {
         if (!ts.isCallExpression(node)) return;
@@ -1028,9 +1139,16 @@ function distinguishes(file: string, name: string, reach: ReadonlySet<string> | 
         const args = [...node.arguments, ...(expectArgs ?? [])];
         const asserting = (ts.isPropertyAccessExpression(callee) && ts.isIdentifier(callee.expression) && callee.expression.text === 'assert') || !!expectArgs || (ts.isIdentifier(callee) && callee.text === 'assert');
         if (!asserting || !args.some(answer)) return;
-        const inequality = (method === 'ok' || method === 'assert') && node.arguments[0] && ts.isBinaryExpression(node.arguments[0]) && [ts.SyntaxKind.ExclamationEqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsToken].includes(node.arguments[0].operatorToken.kind);
-        if (NEGATIVE_ASSERTS.has(method) || negated || inequality) negative = true;
-        else if (POSITIVE_ASSERTS.has(method)) positive = true;
+        const first = node.arguments[0];
+        const inequality = (method === 'ok' || method === 'assert') && first && ts.isBinaryExpression(first) && [ts.SyntaxKind.ExclamationEqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsToken].includes(first.operatorToken.kind);
+        if (NEGATIVE_ASSERTS.has(method) || negated || inequality) {
+            // Told apart only when one side is an answer of the code under test and the other is made of the test's
+            // inputs too (the drawn points' answer), never the same expression: `notEqual(result, null)`, or a match
+            // against a constant or a local holding one, tells nothing.
+            const sides = inequality && ts.isBinaryExpression(first) ? [first.left, first.right] : negated ? [expectArgs?.[0], node.arguments[0]] : [...node.arguments.slice(0, 2)];
+            const [left, right] = sides;
+            if (left && right && !constant(left) && !constant(right) && (answer(left) || answer(right)) && left.getText() !== right.getText()) negative = true;
+        } else if (POSITIVE_ASSERTS.has(method)) positive = true;
     });
     return negative && positive;
 }
@@ -1081,6 +1199,18 @@ test('the whole-reader check fails on a proof that reaches its reader and speaks
         // Words of a difference without asserting one are no better.
         write(["    // the drawn points differ from the full data", "    assert.ok(stageRange([line([-61, -2])]).max >= -2);"]);
         assert.match(check().join('\n'), /asserts no case/u);
+        // Told apart from null, or from a constant, is not told apart from the drawn points.
+        write([
+            "    assert.deepEqual(stageRange([line([-43, -12], { min: -61, max: -2 })]), stageRange([line([-61, -2])]));",
+            "    const full = stageRange([line([-43, -12], { min: -61, max: -2 })]);",
+            "    assert.notEqual(full, null);",
+            "    assert.notDeepEqual(full, { min: 0, max: 0 });",
+            "    assert.ok(full !== undefined);",
+            "    assert.notDeepEqual(full, full);",
+            "    const zero = { min: 0, max: 0 };",
+            "    assert.notDeepEqual(full, zero);",
+        ]);
+        assert.match(check().join('\n'), /stageRange: .* asserts no case where the full data and the drawn points give different answers/u);
         // A drawn line whose extremes were thinned away, its full range asserted and told from the drawn points': proven.
         write([
             "    assert.deepEqual(stageRange([line([-43, -12], { min: -61, max: -2 })]), stageRange([line([-61, -2])]));",

@@ -163,3 +163,57 @@ def test_a_picture_s_other_fields_and_its_full_data_stay_clean() -> None:
         "    return {'unit': shown['unit'], 'peak': shown['peak'], 'values': shown['values']}\n"
     )
     assert _toy(body) == []
+
+
+# Codex round 1 (P2): a drawn view returned by one function and read by another, in another module, through a dict,
+# an attribute or a subscript, and a decision made of its points, each fail where they become a number sent.
+FOLLOWED = {
+    "a max of a returned view's values, sent": (
+        {
+            "scan_service": (
+                "\n\ndef _peak_of(frame):\n    view = stage_view(frame)\n"
+                '    return {"peakDb": float(np.max(view["values"]))}\n'
+            )
+        },
+        " _peak_of: np.max(",
+    ),
+    "a helper in another module given the drawn view": (
+        {
+            "stage_combine": '\n\ndef _top_of(view):\n    return max(view["values"])\n',
+            "scan_service": (
+                "\n\nfrom stage_combine import _top_of\n\n\ndef _send_top(frame):\n"
+                '    return {"peakDb": _top_of({"picture": stage_view(frame)}["picture"])}\n'
+            ),
+        },
+        " _top_of: max(view['values'])",
+    ),
+    "a view kept on self and reduced later": (
+        {
+            "scan_service": (
+                "\n\nclass _Kept:\n    def keep(self, frame):\n        self.view = stage_view(frame)\n\n"
+                '    def send(self):\n        return {"peakDb": float(np.max(self.view["values"]))}\n'
+            )
+        },
+        " _Kept.send: np.max(",
+    ),
+    "a comparison of drawn points sent": (
+        {"scan_service": '\n\ndef _loud(frame):\n    return {"loud": bool(stage_view(frame)["values"][0] > -20)}\n'},
+        " _loud: field 'loud' = decided by drawn points",
+    ),
+    "drawn points counted over a level": (
+        {
+            "scan_service": (
+                '\n\ndef _count(frame):\n    return {"n": int(np.sum(np.asarray(stage_view(frame)["values"]) > -20))}\n'
+            )
+        },
+        " _count: np.sum(",
+    ),
+}
+
+
+@pytest.mark.parametrize("name", FOLLOWED)
+def test_drawn_points_are_followed_across_functions_modules_and_decisions(backend: dict[str, str], name: str) -> None:
+    added, expected = FOLLOWED[name]
+    sources = {**backend, **{module: backend[module] + text for module, text in added.items()}}
+    found = _new_problems(sources)
+    assert any(expected in problem for problem in found), f"{name}: {found}"

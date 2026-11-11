@@ -44,10 +44,11 @@ test('spectrum CSV writes every FFT bin of a whole row at fs / n_fft spacing', (
     const nFft = 8192;
     const values = Array.from({ length: nFft / 2 + 1 }, (_, bin) => -1 - bin / 100);
     // The display may cap the plotted range; the file still lists every bin up to Nyquist.
-    const csv = buildSpectrumCsv([{ name: 'a', slice: slice(values, { maxFrequencyHz: 2000, originalMaxFrequencyHz: sampleRateHz / 2 }), levelTitle: T('Level, uncalibrated [dBFS]') }], P('Frequency [Hz]'));
+    const shown = slice(values, { maxFrequencyHz: 2000, originalMaxFrequencyHz: sampleRateHz / 2 });
+    const csv = buildSpectrumCsv([{ name: 'a', slice: shown, levelTitle: T('Level, uncalibrated [dBFS]') }], P('Frequency [Hz]'));
     const rows = csv.split('\n').slice(1).map(row => row.split(',').map(Number));
     assert.equal(rows.length, nFft / 2 + 1);
-    assert.notEqual(Math.round(rows[rows.length - 1][0]), 2000, 'up to Nyquist, not the range the display draws');
+    assert.notEqual(Math.round(rows[rows.length - 1][0]), shown.maxFrequencyHz, 'up to Nyquist, not the range the display draws');
     rows.forEach(([frequencyHz, level], bin) => {
         assert.ok(Math.abs(frequencyHz - bin * sampleRateHz / nFft) < 1e-4);
         assert.ok(Math.abs(level - values[bin]) < 1e-6);
