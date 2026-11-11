@@ -83,6 +83,7 @@ export const SCHEMA_FIELDS: Readonly<Record<string, readonly string[] | string>>
     'StagePoints.ys': ['compare-overlay.readout', 'compare-overlay.readout-image', 'compare-overlay.readout-dense', 'compare-overlay.step', 'compare-delta.readout'],
     'StagePoints.matrix': ['compare-overlay.readout', 'compare-overlay.readout-image', 'compare-overlay.readout-dense', 'compare-overlay.step', 'compare-delta.readout'],
     'StagePoints.under': ['compare-overlay.readout-dense'],
+    'StagePoints.steps': ['compare-overlay.readout', 'compare-overlay.readout-dense', 'compare-overlay.step', 'compare-delta.readout'],
     'StagePoints.start': ['compare-overlay.step'],
     'StagePoints.end': ['compare-overlay.step'],
     'StagePoints.level.power': ['compare-overlay.order', 'cursor-spectrum.order'],

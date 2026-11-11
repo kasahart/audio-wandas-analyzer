@@ -390,22 +390,62 @@ def test_a_dense_window_sends_the_point_under_the_pointer_and_names_it() -> None
     assert points["xs"][points["under"]] == 5004.0
 
 
-def test_a_dense_window_picks_its_nearest_and_under_points_among_the_values_on_screen() -> None:
-    """With the value axis zoomed (``shown``), the point nearest the pointer and the one under it are of the points
-    on screen: a point past the axis, nearer the pointer, is no candidate, so the true nearest on screen is sent."""
+@pytest.mark.parametrize(
+    ("kind", "log", "plain"),
+    [("waveform", False, True), ("spectrum", True, False), ("level trend", False, False), ("difference", False, True)],
+)
+def test_a_dense_window_names_the_point_under_the_pointer_whatever_its_value_and_the_nearest_among_those_on_screen(
+    kind: str, log: bool, plain: bool
+) -> None:
+    """Display rules R7, one rule for every kind of line. With the value axis zoomed (``shown``):
+
+    - the point under the pointer (``under``) is the line's point at the pointer's place, on screen or past the axis;
+    - the point nearest the pointer (picked within the pick radius) is one of the points on screen.
+    """
     rng = np.random.default_rng(3)
-    values = rng.uniform(-0.1, 0.1, 20_000)
-    values[5003] = 0.95  # under the pointer, just past the axis's top (0.9): off screen
-    values[5010] = 0.8  # on screen, the nearest the pointer of those shown
-    read = {"x": [0.0, 19_999.0], "near": 0.93, "columns": 41, "at": 5003.0, "pixels": [0.02, 40.0]}
-    read["shown"] = [-1.0, 0.9]
-    points = read_line(uniform_axis(20_000, 0.0, 1.0), lambda a, b: values[a:b], read)  # type: ignore[arg-type]
-    assert not points["complete"]
-    assert first_violation(DEFINITIONS["StageRead"], read) is None
+    floor = -60.0  # a level's values are dB; a signal's and a difference's are read the same way here
+    values = floor + rng.uniform(-0.1, 0.1, 20_000)
+    values[5002] = floor + 0.95  # at x = 5003 under the pointer, just past the axis's top (floor + 0.9): off screen
+    values[5009] = floor + 0.8  # at x = 5010, on screen: the nearest the pointer of the points shown
+    read = {"x": [1.0, 20_000.0], "near": floor + 0.93, "columns": 41, "at": 5003.0, "pixels": [0.02, 40.0]}
+    read.update({"shown": [floor - 1.0, floor + 0.9], "log": log, "plain": plain})
+    if log:
+        # A log axis's scale is pixels per natural-log unit: the same 0.02 px per Hz at the pointer.
+        read["pixels"] = [0.02 * 5003.0, 40.0]
+    assert first_violation(DEFINITIONS["StageRead"], read) is None, kind
+    points = read_line(uniform_axis(20_000, 1.0, 1.0), lambda a, b: values[a:b], read)  # type: ignore[arg-type]
+    assert not points["complete"], kind
     xs, sent = np.asarray(points["xs"]), np.asarray(points["values"], dtype=np.float64)
-    # The nearest point on screen, as the plot then picks it among the points sent, is the brute force's.
-    shown = (sent >= -1.0) & (sent <= 0.9)
-    away = np.hypot((xs - 5003.0) * 0.02, (sent - 0.93) * 40.0)
-    assert xs[np.argmin(np.where(shown, away, np.inf))] == 5010.0
-    # The point under the pointer is one on screen beside it, never the one past the axis.
-    assert points["xs"][points["under"]] in (5002.0, 5004.0)
+    # Under the pointer: the point at x = 5003 itself, though its value is past the axis.
+    assert points["xs"][points["under"]] == 5003.0, kind
+    assert points["values"][points["under"]] == pytest.approx(floor + 0.95), kind
+    # Nearest on screen, as the plot picks it among the points sent: the brute force's, x = 5010.
+    shown = (sent >= floor - 1.0) & (sent <= floor + 0.9)
+    along = np.log(xs / 5003.0) * 0.02 * 5003.0 if log else (xs - 5003.0) * 0.02
+    away = np.hypot(along, (sent - (floor + 0.93)) * 40.0)
+    assert xs[np.argmin(np.where(shown, away, np.inf))] == 5010.0, kind
+
+
+def test_every_line_answer_sends_each_points_step_in_the_source_data_not_the_gap_between_the_points_sent() -> None:
+    """A readout's digits come of the source's own step (StagePoints ``steps``): in a dense window the points sent are
+    a few per pixel column, hundreds of samples apart, and their gaps say nothing of the data's step."""
+    values = _values(20_000)
+    step = 1 / 48_000
+    axis = uniform_axis(20_000, 0.0, step)
+    dense = read_line(axis, lambda a, b: values[a:b], {"x": [0.0, 19_999 * step], "near": 5.0, "columns": 41})  # type: ignore[arg-type]
+    assert not dense["complete"]
+    assert min(np.diff(dense["xs"])) >= step and max(np.diff(dense["xs"])) > 50 * step
+    assert dense["steps"] == pytest.approx([step] * len(dense["xs"]))
+    assert first_violation(DEFINITIONS["StagePoints"], dense) is None
+    # A whole window and an arrow key's seek alike; a point at the data's end has its one neighbour's gap.
+    whole = read_line(axis, lambda a, b: values[a:b], {"x": [0.0, 3 * step], "beyond": 0})  # type: ignore[arg-type]
+    assert whole["steps"] == pytest.approx([step] * len(whole["xs"]))
+    seek = read_line(axis, lambda a, b: values[a:b], {"x": [5 * step], "seek": 1, "beyond": 2})  # type: ignore[arg-type]
+    assert seek["steps"] == pytest.approx([step] * len(seek["xs"]))
+    # Unevenly spaced points (bands): each one's nearer neighbour in the data, though only some are sent.
+    bands = np.array([100.0, 125.0, 160.0, 200.0, 250.0])
+    levels = np.full(5, -20.0)
+    some = read_line(sorted_axis(bands), lambda a, b: levels[a:b], {"x": [150.0, 170.0], "beyond": 0})  # type: ignore[arg-type]
+    assert some["xs"] == [160.0] and some["steps"] == [35.0]
+    alone = read_line(sorted_axis(bands[:1]), lambda a, b: levels[a:b], {"x": [0.0, 500.0]})  # type: ignore[arg-type]
+    assert alone["steps"] == [None]

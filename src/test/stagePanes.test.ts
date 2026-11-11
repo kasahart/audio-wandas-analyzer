@@ -12,6 +12,7 @@ import { alongAxisTicks, axisFractionOf, colourEndText, drawnLevelsText, type St
 import type { StageView } from '../shared/protocol/backendProtocol';
 import { getStrings } from '../shared/i18n/strings';
 import { fetchedSource, localCells, localLine, NO_FULL_DATA } from '../webview/runtime/fullRead';
+import { FAILED_RETRY_MS } from '../webview/runtime/answerStore';
 import { gainAxisName } from '../webview/runtime/figureModel';
 
 const line = (values: number[], quantity: StageView['quantity'] = 'level'): StageView => ({ frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'log', quantity, xs: [100, 1000, 10000], values });
@@ -448,6 +449,51 @@ test('while a line\'s level on screen is on its way, the plot keeps the order it
     while (held.length) held.shift()?.();
     await new Promise(resolve => setTimeout(resolve, 0));
     assert.deepEqual(lines(strokes).slice(-2), expectedOrder([{ color: 'peaked', xs, values: peaked }, { color: 'flat', xs, values: flat }], x0, x1));
+    assert.deepEqual(lines(strokes).slice(-2), ['flat', 'peaked']);
+    assert.equal(canvas.dataset.plotOrder, '-35.00,-40.00');
+});
+
+test('a level read that failed leaves the order unsettled and written "!": never the order of the estimate, and it is asked again after the answer store\'s pause (R6)', async () => {
+    // The same two spectra as above, zoomed to 5–10 kHz. The stretch the right edge cuts holds the peaked line's
+    // off-screen peak, so an estimate from the stretches would call the peaked line the louder; on screen it is the quieter.
+    const xs = Array.from({ length: 2049 }, (_, i) => i * 24000 / 2048);
+    const x0 = 5000, x1 = 10000, peakBin = 854;
+    const peaked = xs.map((_, i) => (i === peakBin ? 0 : -40)), flat = xs.map(() => -35);
+    // The backend fails every level read while `failing`, and the store's clock is this test's.
+    let failing = true, clock = 1_000_000, asked = 0;
+    const backend = (values: readonly number[]) => fetchedSource((read, done) => {
+        asked++;
+        const inside = values.filter((_, index) => xs[index] >= read.x[0] && xs[index] <= read.x[1]);
+        const answer = failing ? null : { xs: [], start: null, end: null, complete: false, level: { power: inside.reduce((sum, value) => sum + 10 ** (value / 10), 0) / inside.length, count: inside.length } };
+        setTimeout(() => { done(answer); }, 0);
+    }, {}, () => clock);
+    const sources = { flat: backend(flat), peaked: backend(peaked) };
+    const layer = (color: 'flat' | 'peaked', values: number[]) => ({ color, width: 2, full: sources[color],
+        view: { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'level', xs: xs.filter((_, i) => i % 16 === 0), values: values.filter((_, i) => i % 16 === 0),
+            levelBins: levelBinsOf(xs, values, [0, 24000], false) } as StageView });
+    const axis: StageView = { frame: 'spectrum', kind: 'line', xs: [0, 24000], xLimits: [0, 24000], xScale: 'linear' };
+    const lines = (strokes: string[]) => strokes.filter(color => color === 'flat' || color === 'peaked');
+    const zoomed = { axisView: axis, window: { x: { start: x0 / 24000, end: x1 / 24000 } } };
+    const paint = (): void => { paintOverlay(canvas, { layers: [layer('flat', flat), layer('peaked', peaked)] }, R({ min: -80, max: 0 }), N({ x: 'Frequency [Hz]', y: 'Level [dB]' }), zoomed); };
+    const { canvas, strokes } = strokingCanvas();
+    paint();
+    await new Promise(resolve => setTimeout(resolve, 10));
+    // Both reads failed. The order is the caller's (flat, peaked), not the estimate's (peaked under), and says so.
+    assert.equal(asked, 2, 'each line\'s level asked for once');
+    assert.deepEqual(lines(strokes).slice(-2), ['flat', 'peaked'], 'a failed level read must not settle the order: screenLevels gave an estimate for a failed read (see ScreenLevel \'failed\')');
+    assert.equal(canvas.dataset.plotOrder, '!,!', 'a failed level read is written "!" in data-plot-order (drawnLevelsText)');
+    // Within the store's pause a repaint asks nothing again.
+    failing = false;
+    clock += FAILED_RETRY_MS - 1;
+    paint();
+    await new Promise(resolve => setTimeout(resolve, 10));
+    assert.equal(asked, 2, 'not asked again before the answer store\'s pause is over');
+    assert.equal(canvas.dataset.plotOrder, '!,!');
+    // Past it the same reads are asked again, by the store's rule alone, and the order is judged on every value.
+    clock += 2;
+    paint();
+    await new Promise(resolve => setTimeout(resolve, 10));
+    assert.equal(asked, 4, 'asked again once the pause is over');
     assert.deepEqual(lines(strokes).slice(-2), ['flat', 'peaked']);
     assert.equal(canvas.dataset.plotOrder, '-35.00,-40.00');
 });

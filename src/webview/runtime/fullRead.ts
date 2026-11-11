@@ -151,6 +151,19 @@ function firstFrom(xs: ArrayLike<number>, x: number, after = false): number {
     return low;
 }
 
+/**
+ * For the points [first, after) of ascending `xs`: each one's distance to its nearer neighbour among ALL of `xs`
+ * (null for a point with none), as full_read.source_steps gives it. A readout's digits come of this (FullPoints.steps).
+ */
+export function sourceSteps(xs: readonly number[], first: number, after: number): Array<number | null> {
+    const steps: Array<number | null> = [];
+    for (let index = first; index < after; index++) {
+        const gaps = [xs[index] - xs[index - 1], xs[index + 1] - xs[index]].filter(gap => Number.isFinite(gap) && gap > 0);
+        steps.push(gaps.length ? Math.min(...gaps) : null);
+    }
+    return steps;
+}
+
 /** A seek (LineQuery.seek) in a line held whole: as full_read._seek_line answers it. */
 function seekIn(xs: readonly number[], values: readonly (number | null)[], n: number, x: number, direction: -1 | 1, beyond: number, plain = false): FullPoints {
     let found = -1;
@@ -158,7 +171,7 @@ function seekIn(xs: readonly number[], values: readonly (number | null)[], n: nu
     else for (let index = firstFrom(xs, x) - 1; index >= 0 && found < 0; index--) if (readableValue(values[index], plain)) found = index;
     if (found < 0) return { xs: [], values: [], start: null, end: null, complete: true };
     const first = Math.max(0, found - (direction > 0 ? 1 : beyond)), after = Math.min(n, found + (direction > 0 ? beyond : 1) + 1);
-    return { xs: xs.slice(first, after), values: values.slice(first, after), start: first > 0 ? xs[first] : null, end: after < n ? xs[after - 1] : null, complete: true, offset: first };
+    return { xs: xs.slice(first, after), values: values.slice(first, after), start: first > 0 ? xs[first] : null, end: after < n ? xs[after - 1] : null, complete: true, offset: first, steps: sourceSteps(xs, first, after) };
 }
 
 /** A line the webview holds every point of (ascending `xs`): its full data, read as the backend reads one. */
@@ -170,7 +183,7 @@ export function localLine(xs: readonly number[], values: readonly (number | null
             if (query.seek) return seekIn(xs, values, n, query.x0, query.seek, query.beyond, !!query.plain);
             const low = firstFrom(xs, Math.min(query.x0, query.x1)), high = firstFrom(xs, Math.max(query.x0, query.x1), true);
             const first = Math.max(0, low - query.beyond), after = Math.min(n, Math.max(low, high) + query.beyond);
-            return { xs: xs.slice(first, after), values: values.slice(first, after), start: first > 0 ? xs[first] : null, end: after < n ? xs[after - 1] : null, complete: true, offset: first };
+            return { xs: xs.slice(first, after), values: values.slice(first, after), start: first > 0 ? xs[first] : null, end: after < n ? xs[after - 1] : null, complete: true, offset: first, steps: sourceSteps(xs, first, after) };
         },
         level: query => levelOfValues(xs, values, query),
     };
@@ -441,7 +454,12 @@ function mappedLine(query: LineQuery, to: (x: number) => number): LineQuery {
  * lane on the lanes' time axis reads a source over its file's 0..1.
  */
 export function mappedSource(source: FullSource, to: (x: number) => number, from: (x: number) => number): FullSource {
-    const back = (points: FullAnswer): FullAnswer => (points ? { ...points, xs: points.xs.map(from), start: points.start === null ? null : from(points.start), end: points.end === null ? null : from(points.end) } : points);
+    // Each point's step in the source data (FullPoints.steps) is carried to this axis as its place is: the same gap, mapped.
+    const stepBack = (x: number, step: number | null): number | null => (step === null ? null : Math.abs(from(x + step) - from(x)));
+    const back = (points: FullAnswer): FullAnswer => (points ? {
+        ...points, xs: points.xs.map(from), start: points.start === null ? null : from(points.start), end: points.end === null ? null : from(points.end),
+        ...(points.steps ? { steps: points.steps.map((step, index) => stepBack(points.xs[index], step)) } : {}),
+    } : points);
     return {
         held: source.held,
         ...(source.line ? { line: (query: LineQuery, ready: () => void) => back(source.line?.(mappedLine(query, to), ready)) } : {}),
