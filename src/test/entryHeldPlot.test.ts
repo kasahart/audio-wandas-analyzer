@@ -293,6 +293,31 @@ test('a held slot asks once for every bin of its file and its base, then draws i
     assert.equal(calls.filter(([kind]) => kind === 'post').length, 1, 'held again, nothing is asked anew');
 });
 
+test('a held slot whose files\' bins failed says so and draws no band Δ in their place, nor asks again during the pause (V7)', () => {
+    const binnedScan = (level: number): ScanResult => ({ ...scanned(), spectrumBinsDb: [[-40, level, -40, -40]], spectrumBinHz: 4000 });
+    const results = new Map<string, ScanResult>([['/d/a.wav', scanned()], ['/d/b.wav', scanned()], ['/d/c.wav', scanned()]]);
+    const { window, held, title, plot, calls, state, compared } = setup(results);
+    state.slots = [null, '/d/a.wav', null, null];
+    plot.press(1);
+    window.advance(TAP_MS);
+    plot.paint();
+    const asked = calls.filter(([kind]) => kind === 'post').map(([, message]) => message as { requestId: string });
+    // The backend restarted meanwhile: one file's every-bin scan fails for a reason that may pass.
+    plot.handle({ type: 'compare-scan-result', requestId: asked[0].requestId, filePath: '/d/a.wav', result: binnedScan(-28) } as { type: string });
+    plot.handle({ type: 'compare-scan-result', requestId: asked[0].requestId, filePath: '/d/b.wav', result: { ok: false, reason: 'backend restarted' } } as { type: string });
+    plot.handle({ type: 'compare-scan-result', requestId: asked[0].requestId, filePath: '/d/c.wav', result: binnedScan(-40) } as { type: string });
+    plot.handle({ type: 'compare-scan-done', requestId: asked[0].requestId } as { type: string });
+    compared.length = 0;
+    plot.paint();
+    assert.ok(held.classList.contains('is-failed'));
+    assert.match(title.textContent ?? '', /could not be measured: b\.wav \(backend restarted\)/);
+    assert.equal(plot.picture()?.drawn ?? null, null, 'no band Δ of the table\'s scans stands in');
+    assert.ok(compared.every(item => item.over === results), 'nothing compared from part of the files\' bins');
+    // Released and held again later, a plain hold shows no failure left over.
+    plot.paint();
+    assert.equal(calls.filter(([kind]) => kind === 'post').length, 1, 'not asked again during the pause');
+});
+
 test('a file scanned again since its bins were kept is asked for again, once, so a hold does not stay at 192 points', () => {
     // Another version of the file whose 192 drawn points happen to be alike: told apart by its condition alone.
     const rescanned = (): ScanResult => ({ ...scanned(), conditionId: 'changed-on-disk' });

@@ -54,12 +54,63 @@ const AUDIT = {
 const SVG_CHART_MIN = { width: 64, height: 40 };
 
 declare global {
-    interface Window { __canvasAudit?: string[]; __readoutAudit?: string[]; __plotAudit?: string[]; __drawnAudit?: string[]; __svgAudit?: string[]; __orderAudit?: string[]; __fullAudit?: string[]; __unitAudit?: string[]; __tickAudit?: string[]; __plotPainting?: number }
+    interface Window { __canvasAudit?: string[]; __readoutAudit?: string[]; __plotAudit?: string[]; __drawnAudit?: string[]; __svgAudit?: string[]; __orderAudit?: string[]; __fullAudit?: string[]; __unitAudit?: string[]; __tickAudit?: string[]; __plotPainting?: number; __settle?: SettleTracker }
+}
+
+/** What the page still has to do in answer to what it was given: its frames and short timers not yet run (settled()). */
+interface SettleTracker {
+    busy(): number;
+    frame(callback: () => void): void;
+    /** Requests of these types the page posts are answered from outside it (a real backend, realBackend.ts): each is waited for until `answered`. */
+    awaitHost(types: readonly string[]): void;
+    answered(requestId: string): void;
+}
+/** The longest timer the page is waiting on as part of its answer (a debounce, a reply posted later); longer ones (a retry after 5 s) are not. */
+const SETTLE_TIMER_MS = 1000;
+
+/**
+ * Runs in the page, before its own scripts: counts the animation frames it asked for and the short timers it set that
+ * have not run yet, so a test waits for the page to finish answering an input (settled()) instead of a fixed time.
+ * The audit's own frames are not counted.
+ */
+function installSettleTracker(timerMs: number): void {
+    if (window.__settle) return;
+    const nativeFrame = window.requestAnimationFrame.bind(window), nativeCancelFrame = window.cancelAnimationFrame.bind(window);
+    const nativeTimeout = window.setTimeout.bind(window), nativeClear = window.clearTimeout.bind(window);
+    const frames = new Set<number>(), timers = new Set<number>();
+    window.requestAnimationFrame = (callback: FrameRequestCallback): number => {
+        const id: number = nativeFrame(time => { frames.delete(id); callback(time); });
+        frames.add(id);
+        return id;
+    };
+    window.cancelAnimationFrame = (id: number): void => { frames.delete(id); nativeCancelFrame(id); };
+    window.setTimeout = ((handler: TimerHandler, ms?: number, ...args: unknown[]): number => {
+        if (typeof handler !== 'function' || (ms ?? 0) > timerMs) return nativeTimeout(handler, ms, ...args);
+        const id: number = nativeTimeout(() => { timers.delete(id); (handler as (...rest: unknown[]) => void)(...args); }, ms);
+        timers.add(id);
+        return id;
+    }) as typeof window.setTimeout;
+    window.clearTimeout = ((id?: number): void => { if (id !== undefined) timers.delete(id); nativeClear(id); }) as typeof window.clearTimeout;
+    // Requests the test answers from outside the page: posted (the stand-in host's __uiSmokePostedMessages) and not answered yet.
+    const awaited = new Set<string>(), answered = new Set<string>();
+    const unanswered = (): number => {
+        if (!awaited.size) return 0;
+        const posted = (window as unknown as { __uiSmokePostedMessages?: Array<{ type?: string; requestId?: string }> }).__uiSmokePostedMessages ?? [];
+        return posted.filter(message => awaited.has(message.type ?? '') && !answered.has(message.requestId ?? '')).length;
+    };
+    window.__settle = {
+        busy: () => frames.size + timers.size + unanswered(),
+        frame: callback => { nativeFrame(() => callback()); },
+        awaitHost: types => { for (const type of types) awaited.add(type); },
+        answered: requestId => { answered.add(requestId); },
+    };
 }
 
 /** Runs in the page: samples the canvases on screen and records each one that stayed at another size. */
 function installCanvasAudit({ settle, measureMs, others, drawnOutside, svgCharts, svgMin }: { settle: { frames: number; ms: number }; measureMs: number; others: string; drawnOutside: string; svgCharts: string; svgMin: { width: number; height: number } }): void {
     if (window.__canvasAudit) return;
+    // The audit samples every frame on frames of its own, which the page's settling does not wait for.
+    const nextFrame = (callback: () => void): void => { if (window.__settle) window.__settle.frame(callback); else window.requestAnimationFrame(callback); };
     const canvasName = (canvas: HTMLCanvasElement): string => (canvas.id ? `#${canvas.id}` : `canvas${Array.from(canvas.attributes).filter(a => a.name === 'class' || (a.name.startsWith('data-') && !a.name.startsWith('data-plot'))).map(a => (a.name === 'class' ? `.${a.value.trim().split(/\s+/).join('.')}` : `[${a.name}]`)).join('')}`);
     // What drew each plot: a draw into a canvas the plot component marked, made while the component is not drawing,
     // is recorded. A picture copied in from another canvas (drawImage) is a draw too: only the component, while it
@@ -421,8 +472,8 @@ function installCanvasAudit({ settle, measureMs, others, drawnOutside, svgCharts
             if (!reported.has(`plot ${name}`)) { reported.add(`plot ${name}`); unregistered.push(name); }
         }
     };
-    const tick = (): void => { sample(); sampleReadouts(); samplePlots(); sampleSvgs(); window.requestAnimationFrame(tick); };
-    window.requestAnimationFrame(tick);
+    const tick = (): void => { sample(); sampleReadouts(); samplePlots(); sampleSvgs(); nextFrame(tick); };
+    nextFrame(tick);
 }
 
 /** The page with the audit installed by its first script, before any of its own run. */
@@ -430,12 +481,36 @@ export function withAuditFirst(html: string): string {
     const first = html.search(/<script\b/u);
     if (first < 0) return html;
     const nonce = /<script nonce="([^"]+)"/u.exec(html)?.[1];
-    const script = `<script${nonce ? ` nonce="${nonce}"` : ''}>(${installCanvasAudit.toString()})(${JSON.stringify({ ...AUDIT, svgMin: SVG_CHART_MIN })});</script>`;
+    const script = `<script${nonce ? ` nonce="${nonce}"` : ''}>(${installSettleTracker.toString()})(${SETTLE_TIMER_MS});(${installCanvasAudit.toString()})(${JSON.stringify({ ...AUDIT, svgMin: SVG_CHART_MIN })});</script>`;
     return html.slice(0, first) + script + html.slice(first);
+}
+
+/**
+ * Waits until the page has answered what the test just did: two frames in a row with no frame it asked for and no
+ * short timer it set still to run (a redraw, a debounce, a reply the stand-in host posts later, the next step of a
+ * read). Use it where a test would otherwise wait a fixed time before reading what the page shows: a slow machine
+ * then waits longer and a fast one less, and the page read is the one the input led to. A page that keeps drawing
+ * (playback) never settles: after `timeoutMs` the wait ends, and the read is the page as it is then.
+ */
+export async function settled(page: import('@playwright/test').Page, timeoutMs = 10_000): Promise<boolean> {
+    return page.evaluate(timeout => new Promise<boolean>(resolve => {
+        const tracker = window.__settle;
+        if (!tracker) { resolve(false); return; }
+        const start = performance.now();
+        let quiet = 0;
+        const check = (): void => {
+            quiet = tracker.busy() === 0 ? quiet + 1 : 0;
+            if (quiet >= 2) resolve(true);
+            else if (performance.now() - start > timeout) resolve(false);
+            else tracker.frame(check);
+        };
+        tracker.frame(check);
+    }), timeoutMs);
 }
 
 export const test = base.extend<{ canvasAudit: void }>({
     canvasAudit: [async ({ page }, use) => {
+        await page.addInitScript(installSettleTracker, SETTLE_TIMER_MS);
         await page.addInitScript(installCanvasAudit, { ...AUDIT, svgMin: SVG_CHART_MIN });
         // setContent writes the document without a navigation, so the init script does not run for it: the audit goes
         // in as the document's first script (with the page's nonce), so the first drawing is audited too.

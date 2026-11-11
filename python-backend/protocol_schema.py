@@ -513,6 +513,14 @@ DEFINITIONS: dict[str, Schema] = {
     },
     # Nothing to report; the reply only settles the request.
     "ReleaseTrackDetailResult": {"type": "object", "properties": {}},
+    "ScanSpecPayload": {"type": "object", "properties": {}},
+    # What decides a scan's numbers besides the file, its calibration and the Recipe:
+    # a stored scan of another is not reused.
+    "ScanSpecResult": {
+        "type": "object",
+        "required": ["specVersion", "wandasVersion"],
+        "properties": {"specVersion": {"type": "integer"}, "wandasVersion": {"type": "string"}},
+    },
     "RecipeChannel": {
         "type": "object",
         "required": ["filePath", "channelIndex"],
@@ -920,6 +928,7 @@ COMMANDS: dict[str, dict[str, str]] = {
     "release-track-detail": {"payload": "ReleaseTrackDetailPayload", "result": "ReleaseTrackDetailResult"},
     "build-recipe": {"payload": "BuildRecipePayload", "result": "BuildRecipeResult"},
     "scan": {"payload": "ScanPayload", "result": "ScanResult"},
+    "scan-spec": {"payload": "ScanSpecPayload", "result": "ScanSpecResult"},
     "stage-combine": {"payload": "StageCombinePayload", "result": "StageCombineResult"},
 }
 

@@ -995,3 +995,11 @@ def test_a_step_over_the_store_budget_is_not_named_by_a_key_it_was_refused(tmp_p
     finally:
         STORE.resize(STAGE_BUDGET)
         STORE.clear()
+
+
+def test_scan_spec_names_what_decides_a_scans_numbers_beside_file_and_recipe(tmp_path: Path) -> None:
+    """The host keeps stored scans under it (entryScan.ts): a scan of another analysis spec or wandas is not reused."""
+    service = AnalysisService(AnalysisEngine())
+    answer = dispatch(validate_request({"cmd": "scan-spec", "requestId": "r"}), service)
+    assert answer == {"specVersion": spec.ANALYSIS_SPEC_VERSION, "wandasVersion": wd.__version__}
+    assert first_violation(DEFINITIONS["ScanSpecResult"], dict(answer)) is None

@@ -90,12 +90,21 @@ type Posted = Record<string, unknown> & { type: string; requestId: string };
  * the combine is held off. Returns a stop function, which resolves to the backend's refusals.
  */
 export async function bridgeComparison(page: Page, backend: RealBackend, entryRecipe: Record<string, unknown>): Promise<() => Promise<string[]>> {
-    await page.evaluate(() => { (window as unknown as { __uiSmokeHoldCombine: boolean }).__uiSmokeHoldCombine = true; });
+    await page.evaluate(types => {
+        (window as unknown as { __uiSmokeHoldCombine: boolean }).__uiSmokeHoldCombine = true;
+        // The page has not answered what it asked until the backend has (canvasAudit.ts settled()).
+        (window as unknown as { __settle?: { awaitHost(types: readonly string[]): void } }).__settle?.awaitHost(types);
+    }, ['compare-scan', 'compare-combine']);
     let seen = 0;
     let stopped = false;
     const failures: string[] = [];
     const pending: Array<Promise<void>> = [];
     const post = (message: unknown): Promise<void> => page.evaluate(data => window.postMessage(data, '*'), message);
+    /** The request's last answer, after which settled() no longer waits for it. */
+    const close = (requestId: string, message: unknown): Promise<void> => page.evaluate(({ data, requestId }) => {
+        window.postMessage(data, '*');
+        (window as unknown as { __settle?: { answered(requestId: string): void } }).__settle?.answered(requestId);
+    }, { data: message, requestId });
     const answer = async (message: Posted): Promise<void> => {
         if (message.type === 'compare-scan') {
             const { requestId, filePaths, recipe, region, stage, detail, reference, spectrumBins } = message as Posted & { filePaths: string[] };
@@ -105,11 +114,11 @@ export async function bridgeComparison(page: Page, backend: RealBackend, entryRe
                 const result = await backend.request({ cmd: 'scan', filePath, ...fields });
                 if (!stopped) await post({ type: 'compare-scan-result', requestId, filePath, result });
             }
-            if (!stopped) await post({ type: 'compare-scan-done', requestId });
+            if (!stopped) await close(requestId, { type: 'compare-scan-done', requestId });
         } else if (message.type === 'compare-combine') {
             const { type: _type, requestId, ...fields } = message;
             const result = await backend.request({ cmd: 'stage-combine', ...fields });
-            if (!stopped) await post({ type: 'compare-combine-result', requestId, result });
+            if (!stopped) await close(requestId, { type: 'compare-combine-result', requestId, result });
         }
     };
     const poll = async (): Promise<void> => {

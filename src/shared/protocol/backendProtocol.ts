@@ -18,6 +18,8 @@ import type {
     ReleaseTrackDetailPayload,
     ScanPayload,
     ScanResult,
+    ScanSpecPayload,
+    ScanSpecResult,
     SpectrumSlicePayload,
     SpectrumSliceResult,
     StageCombinePayload,
@@ -55,6 +57,8 @@ export type {
     ReleaseTrackDetailPayload,
     ScanPayload,
     ScanResult,
+    ScanSpecPayload,
+    ScanSpecResult,
     SpectrumSlicePayload,
     SpectrumSliceResult,
     StageCombinePayload,
@@ -84,6 +88,7 @@ export interface BackendCommandMap {
     'export-wav-loop': { payload: ExportWavLoopPayload; result: ExportWavLoopResult };
     'build-recipe': { payload: BuildRecipePayload; result: BuildRecipeResult };
     scan: { payload: ScanPayload; result: ScanResult };
+    'scan-spec': { payload: ScanSpecPayload; result: ScanSpecResult };
     'stage-combine': { payload: StageCombinePayload; result: StageCombineResult };
 }
 
@@ -97,6 +102,7 @@ export const BACKEND_COMMANDS = [
     'export-wav-loop',
     'build-recipe',
     'scan',
+    'scan-spec',
     'stage-combine',
 ] as const satisfies ReadonlyArray<keyof BackendCommandMap>;
 
@@ -272,6 +278,13 @@ function isScanResult(value: unknown): value is ScanResult {
         && (result.spectrumBinsDb === undefined || (result.spectrumBinsDb.length === channels && typeof result.spectrumBinHz === 'number'));
 }
 
+/** A scan's spec as the stored index keeps it: the analysis spec and wandas versions it names (a scan result, or the backend's scan-spec). */
+export const scanSpecOf = (spec: { specVersion?: number; wandasVersion?: string }): string => `${spec.specVersion ?? ''}|${spec.wandasVersion ?? ''}`;
+
+function isScanSpecResult(value: unknown): value is ScanSpecResult {
+    return schemaViolation('ScanSpecResult', value) === null;
+}
+
 function isStageCombineResult(value: unknown): value is StageCombineResult {
     if (schemaViolation('StageCombineResult', value) !== null) return false;
     const result = value as StageCombineResult;
@@ -291,6 +304,7 @@ const RESULT_VALIDATORS: { [K in BackendCommand]: ResultValidator<K> } = {
     'export-wav-loop': isExportWavLoopResult,
     'build-recipe': isBuildRecipeResult,
     scan: isScanResult,
+    'scan-spec': isScanSpecResult,
     'stage-combine': isStageCombineResult,
 };
 

@@ -22,6 +22,8 @@ export interface DirectorySelectionState {
     extraFilePaths?: string[];
     selectedFilePaths: string[];
     cachedResultsByFilePath: Map<string, AnalysisResultWithError>;
+    /** What each cached analysis was made under (the STFT asked and the file's version on disk), beside it. */
+    cachedUnderByFilePath?: Map<string, string>;
 }
 
 export class PanelSession<P extends PanelPort = PanelPort> {
@@ -30,6 +32,11 @@ export class PanelSession<P extends PanelPort = PanelPort> {
     activeResultPaths: string[] = [];
     private readonly generation = new SessionRequests();
     private cachedResults = new SourceResults<AnalysisResultWithError>();
+    /**
+     * What each cached analysis was made under (analysedUnder: the STFT asked and the file's version on disk): a
+     * file selected again is shown from the cache only under the same, never an analysis of another STFT or version.
+     */
+    private cachedUnder = new Map<string, string>();
 
     get latestRequestId(): string | undefined { return this.generation.latestRequestId; }
     private messageDisposable: DisposableLike | null = null;
@@ -48,6 +55,7 @@ export class PanelSession<P extends PanelPort = PanelPort> {
         this.invalidateState();
         this.directorySelection = selection;
         this.cachedResults = new SourceResults(selection.cachedResultsByFilePath);
+        this.cachedUnder = selection.cachedUnderByFilePath ??= new Map<string, string>();
         this.activeResultPaths = [];
     }
 
@@ -55,23 +63,33 @@ export class PanelSession<P extends PanelPort = PanelPort> {
         this.activeResultPaths = [...filePaths];
     }
 
-    cacheResults(results: AnalysisResultWithError[]): void {
+    /** Keeps analyses for the folder's files, each under what it was made under (`under`: analysedUnder). */
+    cacheResults(results: AnalysisResultWithError[], under: (filePath: string) => string): void {
         if (!this.directorySelection) { return; }
         for (const result of results) {
             this.cachedResults.set(result.filePath, result);
+            this.cachedUnder.set(result.filePath, under(result.filePath));
         }
     }
 
-    hasCachedResult(filePath: string, expectedAnalysisRevision: number): boolean {
-        return this.directorySelection !== null && this.cachedResults.hasRevision(
-            filePath, expectedAnalysisRevision, result => result.analysisRevision ?? 0,
-        );
+    /** Whether a file's cached analysis is of this calibration revision and made under `under`; one that is not is let go. */
+    hasCachedResult(filePath: string, expectedAnalysisRevision: number, under: string): boolean {
+        if (this.directorySelection === null) return false;
+        if (this.cachedUnder.get(filePath) !== under) { this.forgetCached(filePath); return false; }
+        return this.cachedResults.hasRevision(filePath, expectedAnalysisRevision, result => result.analysisRevision ?? 0);
+    }
+
+    /** A file written on disk: its cached analysis is of the old version. */
+    forgetCached(filePath: string): void {
+        this.cachedResults.delete(filePath);
+        this.cachedUnder.delete(filePath);
     }
 
     clearDirectorySelection(): void {
         this.invalidateState();
         this.directorySelection = null;
         this.cachedResults = new SourceResults();
+        this.cachedUnder = new Map();
     }
 
     getActiveFilePaths(): string[] {

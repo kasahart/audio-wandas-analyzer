@@ -140,6 +140,11 @@ def region_label(region: Mapping[str, float] | None) -> str:
     return f"{region['start']:.3f}-{region['end']:.3f}"
 
 
+def scan_spec() -> dict[str, object]:
+    """What decides a scan's numbers besides its file, calibration and Recipe (part of every condition ID)."""
+    return {"specVersion": spec.ANALYSIS_SPEC_VERSION, "wandasVersion": wd.__version__}
+
+
 def condition_id(
     *,
     input_id: str,

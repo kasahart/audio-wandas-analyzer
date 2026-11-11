@@ -192,6 +192,13 @@
         ],
         "calibration": null
       }
+    },
+    {
+      "command": "scan-spec",
+      "request": {
+        "cmd": "scan-spec",
+        "requestId": "r1"
+      }
     }
   ],
   "invalidRequests": [
@@ -731,6 +738,14 @@
         "requestId": "scan",
         "ok": false,
         "reason": "Unable to read audio: Error in WAV file. No 'data' chunk marker."
+      }
+    },
+    {
+      "command": "scan-spec",
+      "response": {
+        "requestId": "scan-spec",
+        "specVersion": 1,
+        "wandasVersion": "0.9.0"
       }
     }
   ],

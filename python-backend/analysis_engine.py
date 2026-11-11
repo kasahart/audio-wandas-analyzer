@@ -170,8 +170,11 @@ class AnalysisEngine:
         hop_length: int,
         window: str,
         calibration_profile: object = None,
+        source_version: object = None,
     ) -> wd.SpectrogramFrame:
-        cached, analysis_frame, resolved = self.get_analysis(file_path, calibration_profile)
+        # Of the version the caller read (source_version): a file written between its read and this one is refused,
+        # never computed from the new content under the old version's name.
+        cached, analysis_frame, resolved = self.get_analysis(file_path, calibration_profile, source_version)
         if analysis_frame.n_samples < n_fft // 2:
             # SciPy's padded STFT needs at least half a window of samples.
             raise AnalysisSettingsError("Audio is too short for this STFT window; choose a smaller window")
@@ -198,8 +201,9 @@ class AnalysisEngine:
         hop_length: int,
         window: str,
         calibration_profile: object = None,
+        source_version: object = None,
     ) -> wd.SpectrogramFrame | None:
-        cached, _analysis_frame, resolved = self.get_analysis(file_path, calibration_profile)
+        cached, _analysis_frame, resolved = self.get_analysis(file_path, calibration_profile, source_version)
         return cached.spectrograms.get((resolved.signature, n_fft, hop_length, window))
 
     def is_cached(self, file_path: str | Path) -> bool:

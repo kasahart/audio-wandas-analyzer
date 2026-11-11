@@ -1079,6 +1079,27 @@ export const BACKEND_PROTOCOL_SCHEMA = {
             "properties": {},
             "additionalProperties": false
         },
+        "ScanSpecPayload": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+        },
+        "ScanSpecResult": {
+            "type": "object",
+            "required": [
+                "specVersion",
+                "wandasVersion"
+            ],
+            "properties": {
+                "specVersion": {
+                    "type": "integer"
+                },
+                "wandasVersion": {
+                    "type": "string"
+                }
+            },
+            "additionalProperties": false
+        },
         "RecipeChannel": {
             "type": "object",
             "required": [
@@ -2258,6 +2279,10 @@ export const BACKEND_PROTOCOL_SCHEMA = {
             "payload": "ScanPayload",
             "result": "ScanResult"
         },
+        "scan-spec": {
+            "payload": "ScanSpecPayload",
+            "result": "ScanSpecResult"
+        },
         "stage-combine": {
             "payload": "StageCombinePayload",
             "result": "StageCombineResult"
@@ -2272,7 +2297,7 @@ export const BACKEND_PROTOCOL_SCHEMA = {
     ]
 } as const;
 
-export type SchemaCommand = 'analyze' | 'track-detail' | 'range' | 'spectrum-slice' | 'pair-spectrum' | 'export-wav-loop' | 'release-track-detail' | 'build-recipe' | 'scan' | 'stage-combine';
+export type SchemaCommand = 'analyze' | 'track-detail' | 'range' | 'spectrum-slice' | 'pair-spectrum' | 'export-wav-loop' | 'release-track-detail' | 'build-recipe' | 'scan' | 'scan-spec' | 'stage-combine';
 
 export interface StftOptions {
     nFft: number;
@@ -2546,6 +2571,15 @@ export interface ReleaseTrackDetailPayload {
 
 export interface ReleaseTrackDetailResult {
 
+}
+
+export interface ScanSpecPayload {
+
+}
+
+export interface ScanSpecResult {
+    specVersion: number;
+    wandasVersion: string;
 }
 
 export interface RecipeChannel {

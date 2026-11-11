@@ -132,6 +132,8 @@ export interface FolderKeys {
      * content at open (to hash it) would read a folder of 10-minute recordings in full before showing a row.
      */
     identity(path: string): string | undefined;
+    /** A picked file's content (SHA-256), what the stored scans are kept under; undefined (never reused) without one. */
+    contentIdentity(path: string): Promise<string | undefined>;
 }
 
 const FOLDER_KEY = /^awa\.(scanIndex|session|sessionCsv)\./;
@@ -151,6 +153,17 @@ export function createFolderKeys(folder: ReadonlyMap<string, File>): FolderKeys 
     return {
         isFolderKey: key => FOLDER_KEY.test(key),
         identity,
+        async contentIdentity(path) {
+            const file = folder.get(path);
+            const subtle = globalThis.crypto?.subtle;
+            if (!file || !subtle) return undefined;
+            try {
+                const digest = new Uint8Array(await subtle.digest('SHA-256', await file.arrayBuffer()));
+                return `${file.name}|${file.size}|${Array.from(digest, byte => byte.toString(16).padStart(2, '0')).join('')}`;
+            } catch {
+                return undefined;
+            }
+        },
         tagged(key) {
             const root = key.slice(key.indexOf(':') + 1);
             const paths = [...folder.keys()].filter(path => !root || path.startsWith(`${root}/`)).sort();

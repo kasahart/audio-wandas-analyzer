@@ -23,8 +23,9 @@ import { createFilterPopover } from './entryFilterPopover';
 import { createHeldPlot } from './entryHeldPlot';
 import { signedNumberText } from '../plot/plotText';
 import { createSidePlots } from './entrySidePlots';
-import { binnedAnswers, channelOfRow, createEntryBase, regionAnswers, type AnswerSource } from './entryBase';
+import { binnedAnswers, channelOfRow, createEntryBase, type AnswerSource } from './entryBase';
 import { HostRequests } from './hostRequests';
+import { createRemeasure } from './entryRemeasure';
 import { LARGE_BASE, LARGE_BASE_S } from './trackStageMode';
 import { createStepBar, endsInSpectrum, runnableRecipe, stepLimits, unpairedRecipe } from './stepBar';
 import { entryMeasure, remeasured } from './compareReport';
@@ -324,7 +325,6 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
     }
     /** What the table asked the host for: the folder's stored results or a computation ('scan'), a fixed difference measured again. */
     const requests = new HostRequests<undefined>();
-    const remeasuring = new HostRequests<{ row: DerivedRow; results: Map<string, ScanResult> }>();
     /** Whether the chain cannot run (a step that cannot, and so nothing after it): the table then has no values for it. */
     const broken = (): boolean => { const recipe = recipeState.edited ?? recipeState.standard; return !!recipe && !!brokenStep(recipe, limits()); };
     /**
@@ -932,11 +932,8 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
                 if (next) { const fixed = fixedNow(next); keepDerived(derived.map(item => (item === row ? fixed : item)), fixed); }
                 return;
             }
-            const [start, end] = row.region.split('–').map(Number);
-            const recipe = scanRecipe();
             // Each fixed difference is its own asker: measuring one again never stops another's request on the host.
-            const id = derivedRemeasureId(row, ++requestCount);
-            remeasuring.ask(id, id, derivedKey(row), { row, results: new Map() }, () => deps.post({ type: 'compare-scan', requestId: id, filePaths: [row.parentPath, ...basePaths], region: { start, end }, ...(recipe ? { recipe } : {}) }));
+            remeasure.ask(row);
         });
         deps.saveDerived?.(derived);
     }
@@ -949,17 +946,18 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         comparison: (path, binned) => entryBase.comparison(path, false, binned ? binnedAnswers(store, binned) : undefined), basePaths: path => entryBase.resolve(path).members, scanRecipe: () => scanRecipe(), slotFiles, colorOf: recordingColor, recipe: () => recipeState.edited ?? recipeState.standard, runRecipe: () => runRecipe(), limits, spectral,
         tapped(slot) { if (focus.key && rows.some(row => row.key === focus.key)) setSlot(slot, focus.key); },
     });
-    function handleRemeasure(publication: ComparePublication): boolean {
-        const pending = remeasuring.find(publication.requestId)?.meta;
-        if (!pending) return false;
-        if (publication.type === 'compare-scan-result') { pending.results.set(publication.filePath, publication.result); return true; }
-        remeasuring.settle(publication.requestId);
-        // The region's scans made now, under the current chain: their answers, one set as every count takes it.
-        const [compared, ...base] = regionAnswers(pending.results).answers([pending.row.parentPath, ...(pending.row.base.paths ?? [])]);
-        const next = compared ? remeasured(pending.row, compared, base, recipeKey(scanRecipe())) : null;
-        if (next) setDerived(derived.map(item => (item === pending.row ? fixedNow(next) : item)));
-        return true;
-    }
+    /** Fixed differences over a region measured again (entryRemeasure.ts): found by key, written only under the chain now. */
+    const remeasure = createRemeasure({
+        derived: () => derived, recipe: () => scanRecipe(), fileEpoch, post: message => deps.post(message),
+        requestId: row => derivedRemeasureId(row, ++requestCount), remeasured,
+        replace(row, next) {
+            // Only this row is judged anew: the others keep their objects (and any remeasure on its way for them).
+            const fixed = fixedNow(next);
+            keepDerived(derived.map(item => (item === row ? fixed : item)), fixed);
+            deps.saveDerived?.(derived);
+            rebuild();
+        },
+    });
     function setRecipe(recipe: RecipeDocument): void {
         recipeState.edited = recipe;
         // A new Recipe is tried whole again: a step that failed under the old one may not now.
@@ -1592,7 +1590,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
             setMaximized(true);
         },
         handle(message): boolean {
-            if (message.type.startsWith('compare-')) return heldPlot.handle(message) || handleRemeasure(message as ComparePublication);
+            if (message.type.startsWith('compare-')) return heldPlot.handle(message) || remeasure.handle(message as ComparePublication);
             if (!message.type.startsWith('entry-')) return false;
             if (message.type === 'entry-calibration-changed') {
                 const { filePath } = message as Extract<EntryPublication, { type: 'entry-calibration-changed' }>;
