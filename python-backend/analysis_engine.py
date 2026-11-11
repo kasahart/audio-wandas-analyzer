@@ -20,15 +20,46 @@ from calibration_profile import ResolvedCalibrationProfile, finite_source_channe
 StftKey = tuple[str, int, int, str]
 SpectrumSliceKey = tuple[str, int, str, int, int, int | None]
 PairSpectrumKey = tuple[object, ...]
-AUDIO_CACHE_DTYPE = np.dtype("float32")
-SPECTROGRAM_CACHE_DTYPE = np.dtype("complex64")
+#: A source's samples are cached in a dtype that holds every one of them exactly (source_dtype): float32 where the
+#: source's own format fits in it, float64 otherwise. Every readout, median and Δ is of these samples (R1).
+FLOAT32 = np.dtype("float32")
+FLOAT64 = np.dtype("float64")
+#: The STFT is computed of float64 samples and cached in complex128: the lane's readout and the cursor spectrum read
+#: their numbers from it, so it is never cut to single precision first (R1).
+SPECTROGRAM_CACHE_DTYPE = np.dtype("complex128")
+#: Sample formats (libsndfile subtypes) whose every value a float32 holds exactly: PCM of up to 24 bits, float32, and
+#: the codecs libsndfile decodes in single precision. Any other (64-bit float, 32-bit PCM, a CSV) is read as float64.
+_FLOAT32_EXACT_SUBTYPES = frozenset(
+    {
+        *("PCM_S8", "PCM_U8", "PCM_16", "PCM_24", "FLOAT", "ULAW", "ALAW", "IMA_ADPCM", "MS_ADPCM", "GSM610"),
+        *("VOX_ADPCM", "G721_32", "G723_24", "G723_40", "DWVW_12", "DWVW_16", "DWVW_24", "DPCM_8", "DPCM_16"),
+        *("VORBIS", "OPUS", "ALAC_16", "ALAC_20", "ALAC_24", "MPEG_LAYER_I", "MPEG_LAYER_II", "MPEG_LAYER_III"),
+    }
+)
+
+
+def source_dtype(source: str | Path | bytes, file_type: str | None = None) -> np.dtype:
+    """The dtype that holds every sample of ``source`` exactly: float32 for a format that fits in it (16- or 24-bit
+    PCM convert to float32 exactly, a float32 WAV is one), float64 for any other (a 64-bit float WAV, 32-bit PCM, a
+    CSV's decimal values). A source whose format cannot be told is read in float64."""
+    suffix = (file_type or (Path(source).suffix if isinstance(source, str | Path) else "")).lower()
+    if suffix == ".csv":
+        return FLOAT64
+    try:
+        subtype = wd.inspect(source, file_type=file_type).get("subtype")
+    except (sf.LibsndfileError, OSError, RuntimeError, ValueError):
+        return FLOAT64
+    return FLOAT32 if subtype in _FLOAT32_EXACT_SUBTYPES else FLOAT64
 
 
 def compute_spectrogram(frame: wd.ChannelFrame, n_fft: int, hop_length: int, window: str) -> wd.SpectrogramFrame:
     # Auto display sampling can leave gaps between windows on long desktop files; Wandas then computes only the
     # kept frames, at their physical centres, rather than a dense STFT whose frames would be discarded.
+    # Of float64 samples, so the STFT is complex128: its cells are read as numbers (the lane's readout, R1).
+    # (A float64 frame's cast is the same Dask array; a float32 one's is cast block by block as the STFT reads it.)
+    samples = frame.astype(FLOAT64)
     # wandas annotates its transform mixin's self as TransformFrameProtocol, which ChannelFrame does not satisfy.
-    return frame.stft(  # pyright: ignore[reportAttributeAccessIssue]
+    return samples.stft(  # pyright: ignore[reportAttributeAccessIssue]
         n_fft=n_fft, hop_length=hop_length, window=window, allow_sparse=hop_length > n_fft
     )
 
@@ -127,7 +158,8 @@ class AnalysisEngine:
                     self._files.move_to_end(path)
                     return cached
             try:
-                frame = wd.read(path, dtype=AUDIO_CACHE_DTYPE).cache()
+                dtype = source_dtype(path)
+                frame = wd.read(path, dtype=dtype).cache()
             except sf.LibsndfileError as error:
                 raise UnreadableFileError(f"Unable to read audio: {error.error_string}") from error
             except (OSError, RuntimeError, ValueError) as error:
@@ -137,7 +169,7 @@ class AnalysisEngine:
                 path=path,
                 frame=frame,
                 identity=identity,
-                frame_nbytes=int(np.prod(frame.shape)) * AUDIO_CACHE_DTYPE.itemsize,
+                frame_nbytes=int(np.prod(frame.shape)) * dtype.itemsize,
                 source_peaks=source_peaks,
                 input_id=json.dumps([str(path), *identity]),
             )

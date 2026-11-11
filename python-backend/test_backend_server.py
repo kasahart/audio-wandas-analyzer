@@ -681,7 +681,8 @@ def test_engine_counts_compact_wandas_cache_storage(tmp_path: Path) -> None:
     key = (resolved.signature, 256, 128, "hann")
 
     assert entry.frame_nbytes == int(np.prod(entry.frame.shape)) * np.dtype("float32").itemsize
-    assert entry.spectrogram_nbytes[key] == int(np.prod(spectrogram.shape)) * np.dtype("complex64").itemsize
+    # The STFT is kept in complex128: its cells are read as numbers (the lane's readout).
+    assert entry.spectrogram_nbytes[key] == int(np.prod(spectrogram.shape)) * np.dtype("complex128").itemsize
     assert entry.nbytes == entry.frame_nbytes + entry.spectrogram_nbytes[key]
 
 
