@@ -105,3 +105,17 @@ test('a Δ of −260 dB is a Δ, not silence: the backend\'s difference is read,
     // And the Δ's range holds it, as the backend's valueRange of the difference does.
     assert.ok(stageDiffRange({ ...view, valueRange: undefined }).min <= -260);
 });
+
+test('a median and a difference are taken in float64 end to end: of 0.5 and 0.5 + 2⁻²⁴ the median reads 0.5 + 2⁻²⁵, and the Δ of 0.5 + 2⁻²⁴ from it 2⁻²⁵, never 0 (R1)', { timeout: 120_000 }, t => {
+    if (!backendReady()) { t.skip('no Python backend'); return; }
+    const xs = Array.from({ length: 8 }, (_, i) => i / 1000);
+    const plot = (of: 'base' | 'diff'): StagePlot => {
+        const view = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs, values: xs.map(() => 0) } as unknown as StageView;
+        const full = fetchedSource((read, done) => { done(backendAnswer({ ...read, of, fixture: 'signal' })); }, { of });
+        // 2⁻²⁵ a pixel about the value read, so the line's points are where the pointer is.
+        const centre = of === 'base' ? 0.5 : 0;
+        return { frame: { left: 0, top: 0, width: 100, height: 100 }, xAt: x => x * 10000, xOf: x => x / 10000, yAt: value => 50 - (value - centre) * 2 ** 25, levelOf: y => centre + (50 - y) / 2 ** 25, ratioStep: 1.12, diff: of === 'diff', lines: [{ view, color: 'blue', full }] };
+    };
+    assert.equal(hover(plot('base'), 30, 49)?.value, 0.5 + 2 ** -25, 'the median of 0.5 and 0.5 + 2⁻²⁴, which float32 rounds to one of them');
+    assert.equal(hover(plot('diff'), 30, 49)?.value, 2 ** -25, 'the Δ of 0.5 + 2⁻²⁴ from that median');
+});

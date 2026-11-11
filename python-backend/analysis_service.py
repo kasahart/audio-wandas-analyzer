@@ -375,13 +375,14 @@ class AnalysisService:
             octave = segment.noct_spectrum(  # pyright: ignore[reportAttributeAccessIssue]
                 fmin=bands.centers_hz[0], fmax=bands.centers_hz[-1], n=bands.bands_per_octave
             )
-            rows = np.asarray(octave.dB, dtype=np.float64).reshape(analysis_frame.n_channels, -1).astype(np.float32)
+            rows = np.asarray(octave.dB, dtype=np.float64).reshape(analysis_frame.n_channels, -1)
             max_frequency_hz = bands.max_frequency_hz
             self.engine.put_spectrum_slice(cached, slice_key, rows, max_frequency_hz)
         else:
             spectrum = analysis_frame[:, start_sample:end_sample].fft(n_fft=window_size, window=window_name)
             max_frequency_hz = float(spectrum.freqs[-1])
-            rows = np.asarray(spectrum.dB, dtype=np.float32).reshape(analysis_frame.n_channels, -1)
+            # float64, as wandas gives it: its level range, the order of overlaid slices and the readout take it as it is.
+            rows = np.asarray(spectrum.dB, dtype=np.float64).reshape(analysis_frame.n_channels, -1)
             self.engine.put_spectrum_slice(cached, slice_key, rows, max_frequency_hz)
         frequencies_hz = None
         # Each channel's level range is every bin's, taken before the row is cut to draw it.
