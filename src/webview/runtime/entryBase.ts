@@ -121,6 +121,8 @@ export interface EntryBase {
 export function createEntryBase(deps: EntryBaseDeps): EntryBase {
     const { strings } = deps;
     const store: AnswerSource = { answers: paths => deps.answersOf(paths) };
+    /** A recording no row of the table lists (its file could not be read): a base group's member that failed. */
+    const unreadable = (filePath: string): boolean => !deps.rows().some(row => row.filePath === filePath);
     const slotRowOf = (filePath: string): DatasetRow | undefined => deps.rowOf(roleKey(deps.slots(), filePath) ?? null);
     /** The row a recording is compared as: its slot's, else the table's first of that file (a focused, unslotted one). */
     const compareRowOf = (filePath: string): DatasetRow | undefined => slotRowOf(filePath) ?? deps.rows().find(row => row.filePath === filePath);
@@ -143,7 +145,9 @@ export function createEntryBase(deps: EntryBaseDeps): EntryBase {
         const table = figureUsed(identityOf(tableAnswers), comparePath ? tableAnswers.slice(1) : tableAnswers, members.fewerPaths.map(path => ({ path, reason: 'no-channel' as const })));
         // Those of another reference or axis by the table's answers are not asked for (nor measured over a region):
         // they stay in the set's left-out list with why, so every heading, CSV and report says them.
-        const known = table.excluded.filter(item => item.reason === 'other-reference' || item.reason === 'other-channels' || item.reason === 'other-axis');
+        // So are those that could not be read at all (failed, no step to blame): a step's picture or a region of them
+        // cannot be had either, so they are counted failed once and never asked again here.
+        const known = table.excluded.filter(item => item.reason === 'other-reference' || item.reason === 'other-channels' || item.reason === 'other-axis' || (item.reason === 'failed' && unreadable(item.path)));
         // Members without the channel compared are left out with why, in the set as every other reason (one count).
         const left = [...known, ...members.fewerPaths.map(path => ({ path, reason: 'no-channel' as const }))];
         const other = known.map(item => item.path);

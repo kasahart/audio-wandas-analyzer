@@ -156,3 +156,26 @@ test('another channel count, an empty answer, an unreadable member are each said
     // V12: a level's distribution counts the drawn channels of the set's recordings alone.
     assert.equal(setDrawnCount(set, [{ filePath: '/b.wav' }], true), 0);
 });
+
+test('an unreadable recording of a base group is counted failed with why and never asked for again (aggregation V8)', () => {
+    const attributes = new Map([['/d/a.wav', { rpm: '900' }], ['/d/b.wav', { rpm: '900' }], ['/d/x.wav', { rpm: '900' }]]);
+    const results = new Map<string, ScanResult>([['/d/a.wav', scan([40])], ['/d/b.wav', scan([42])], ['/d/x.wav', { ok: false, reason: 'unreadable' }]]);
+    const all: DatasetRow[] = datasetRows([...attributes.keys()], '/d', attributes, results);
+    // The table lists only what was read; the base group's pool still has the unreadable one (entryRuntime.basePool).
+    const rows = all.filter(row => row.filePath !== '/d/x.wav');
+    const byKey = new Map(all.map(row => [row.key, row]));
+    const answersOf = (paths: readonly string[]): ScanAnswer[] => paths.map(path => scanAnswer(path, results.get(path)));
+    const deps: EntryBaseDeps = {
+        strings, slots: () => [null, '/d/a.wav', null, null], rows: () => rows, rowOf: key => (key ? byKey.get(key) : undefined), pool: () => all,
+        group: () => 'csv:rpm', baseGroup: () => null, narrowedBy: () => [], groupLabel: id => id.replace(/^csv:/, ''), rowName: key => (byKey.get(key)?.name ?? key),
+        answersOf, reference: () => folderReference(answersOf([...attributes.keys()])),
+    };
+    const resolved = createEntryBase(deps).resolve('/d/a.wav');
+    assert.deepEqual(resolved.paths, ['/d/b.wav']);
+    assert.equal(resolved.definition.left?.failed, 1);
+    assert.ok(resolved.title.includes(strings.dsBaseFailed.replace('{n}', '1')), resolved.title);
+    assert.ok(!resolved.members.includes('/d/x.wav'), 'a step picture or a region of it is never asked for');
+    // Over a region (another answer source), it is still said failed and not asked.
+    const over = createEntryBase(deps).resolve('/d/a.wav', false, undefined, { answers: paths => { assert.ok(!paths.includes('/d/x.wav')); return answersOf(paths); } });
+    assert.equal(over.definition.left?.failed, 1);
+});

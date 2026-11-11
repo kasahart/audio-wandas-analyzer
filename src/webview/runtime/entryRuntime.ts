@@ -1686,7 +1686,7 @@ export function createEntryScreen(deps: EntryScreenDeps): EntryScreen {
         },
         basePaths: (comparePath, byGroup = false) => entryBase.resolve(comparePath, byGroup).members,
         baseTitle: (comparePath, byGroup = false, over) => entryBase.resolve(comparePath, byGroup, undefined, over).title,
-        baseLeft: (comparePath, byGroup) => entryBase.resolve(comparePath, byGroup).set.excluded.filter(item => item.reason === 'other-reference' || item.reason === 'other-channels' || item.reason === 'other-axis' || item.reason === 'no-channel'),
+        baseLeft: (comparePath, byGroup) => entryBase.resolve(comparePath, byGroup).set.excluded.filter(item => item.reason === 'other-reference' || item.reason === 'other-channels' || item.reason === 'other-axis' || item.reason === 'no-channel' || item.reason === 'failed'),
         baseHeading: (comparePath, byGroup, set, each = false) => {
             const base = entryBase.resolve(comparePath, byGroup);
             return set || each ? base.heading(set ?? base.set, each ? strings.entryBaseCount : undefined) : base.title;
