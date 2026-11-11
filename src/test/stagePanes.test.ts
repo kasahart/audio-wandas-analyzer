@@ -40,7 +40,7 @@ test('zoomed, the Δ pane\'s headline names no point until the backend has looke
     const diff: StageView = { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', unit: 'FS', xs: [0.5, 3, 7], values: [0.02, -0.03, 0.5], peak: { x: 7, value: 0.5, xStep: 1 } };
     // A margin's or an earlier window's peak is never named: nothing until the window's own is in.
     assert.equal(stageHeadline(diff, strings, false), '');
-    assert.match(stageHeadline(diff, strings, true), /\+0\.500$/u);
+    assert.match(stageHeadline(diff, strings, true), /\+0\.500 FS$/u);
 });
 
 test('levels share a range of four round steps; coherence keeps 0 to 1', () => {
