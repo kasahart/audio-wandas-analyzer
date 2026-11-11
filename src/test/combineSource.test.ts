@@ -183,3 +183,53 @@ test('the last zoomed answer kept on screen is of the pictures it was taken of: 
     assert.equal(last.of('one.wav|base.wav', { base: ['k-base-calibrated'], compare: 'k-one' }), undefined, 'the base calibrated since: not its');
     assert.equal(last.of('two.wav|base.wav', { base: ['k-base'], compare: 'k-one' }), undefined, 'another pair: not its');
 });
+
+test('a step\'s picture comes out of its source as an answer with the identity it was answered under, never an empty one (B2)', () => {
+    const posted: Array<{ requestId?: string }> = [];
+    const basis = new Map([['/a.wav', 'v1']]);
+    const stages = createStageSource('id-stage', message => posted.push(message), () => undefined, path => basis.get(path) ?? '');
+    const spec = { key: 'spec', message: { recipe: { format: 'wandas.recipe', steps: [] } as never, region: { start: 0, end: 48000 } } };
+    const stage: StageView = { frame: 'SpectralFrame', kind: 'line', x: 'frequency', quantity: 'level', xs: [0], values: [0], data: 'k' };
+    const input = { id: 'ver-1', unit: 'Pa', ref: 2e-5, levelReferenceLabel: '20 µPa', calibrationStatus: 'calibrated', fullScale: false };
+    assert.equal(stages.answer(spec, '/a.wav').state, 'missing');
+    stages.ensure(spec, ['/a.wav']);
+    const pending = stages.answer(spec, '/a.wav');
+    assert.equal(pending.state, 'pending');
+    assert.equal(pending.identity.path, '/a.wav');
+    stages.handle({ type: 'compare-scan-result', requestId: posted[0].requestId, filePath: '/a.wav', result: { ok: true, stage, input, conditionId: 'cond-1' } } as { type: string });
+    const ready = stages.answer(spec, '/a.wav');
+    assert.equal(ready.state, 'ready');
+    assert.equal(ready.state === 'ready' && ready.value, stage);
+    assert.equal(ready.identity.fileVersion, 'ver-1', 'the file version its scan read');
+    assert.equal(ready.identity.calibrationSignature, 'calibrated');
+    assert.equal(ready.identity.level.unit, 'Pa');
+    assert.notEqual(ready.identity.recipeKey, '', 'the full recipe');
+    assert.equal(ready.identity.region, JSON.stringify({ start: 0, end: 48000 }));
+    assert.ok(ready.identity.conditionId.includes('cond-1') && ready.identity.conditionId.includes('v1'), 'the condition and the basis it was asked under');
+    // Another basis: that picture is not this file's now, and nothing ready comes out.
+    basis.set('/a.wav', 'v2');
+    assert.equal(stages.answer(spec, '/a.wav').state, 'missing');
+    basis.set('/a.wav', 'v1');
+    // A step that cannot run on the file is a failure with its identity.
+    stages.ensure({ ...spec, key: 'other' }, ['/a.wav']);
+    stages.handle({ type: 'compare-scan-result', requestId: posted[1].requestId, filePath: '/a.wav', result: { ok: false, failedStep: 'x', reason: 'r', input } } as { type: string });
+    const failed = stages.answer({ ...spec, key: 'other' }, '/a.wav');
+    assert.equal(failed.state, 'failed');
+    assert.equal(failed.identity.fileVersion, 'ver-1');
+});
+
+test('a combination comes out as an answer with what it was combined of (B2)', () => {
+    const posted: CompareCombineMessage[] = [];
+    const source = createCombineSource('id', message => posted.push(message), () => undefined);
+    const request = { base: ['ka', 'kb'], compare: 'kc' };
+    source.get('shown', request, () => undefined);
+    assert.equal(source.answer('shown', request).state, 'pending');
+    source.handle({ type: 'compare-combine-result', requestId: posted[0].requestId, result: { ok: true, diff } } as { type: string });
+    const answer = source.answer('shown', request);
+    assert.equal(answer.state, 'ready');
+    assert.equal(answer.identity.fileVersion, JSON.stringify([['ka', 'kb'], 'kc']), 'the data keys, which name each file\'s version and calibration');
+    assert.equal(answer.identity.conditionId, 'shown');
+    assert.equal(answer.identity.path, 'kc');
+    // Read under another name for the same data keys: still the identity it was answered under, not the reader's.
+    assert.equal(source.answer('read-later', request).identity.conditionId, 'shown');
+});

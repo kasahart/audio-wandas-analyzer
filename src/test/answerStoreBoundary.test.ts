@@ -12,7 +12,7 @@ import path from 'node:path';
 import test from 'node:test';
 import ts from 'typescript';
 import { ANSWER_DECLARATIONS, answerProgram, findAnswerWrites, findFileKeysWithoutVersion, findFilelessKeys, findHeldCollections, findLatestAnswers, findOwnRetryPolicies, type HeldCollection } from './answerBoundary';
-import { FILELESS_KEYS, LATEST_ANSWERS, NOT_ANSWER_WRITES, NOT_ANSWERS } from './answerBoundaryAllowlist';
+import { FILELESS_KEYS, LATEST_ANSWERS, NOT_ANSWER_WRITES, NOT_ANSWERS, UNMIGRATED_CEILING, type Listed } from './answerBoundaryAllowlist';
 
 const repoRoot = path.resolve(__dirname, '..', '..');
 const STORE = new Set(['src/webview/runtime/answerStore.ts', 'src/webview/runtime/answerTypes.ts']);
@@ -45,7 +45,7 @@ test('outside the answer store, every collection that outlives a call is listed 
         + 'and its states hold pending, failed (retried after FAILED_RETRY_MS), empty and missing. A collection that holds no answer goes in NOT_ANSWERS with what it holds.');
     const ids = new Set(found.map(id));
     assert.deepEqual(Object.keys(NOT_ANSWERS).filter(entry => !ids.has(entry)), [], 'an entry that matches nothing any more is taken off NOT_ANSWERS (the list only shrinks)');
-    for (const [entry, reason] of Object.entries(NOT_ANSWERS)) assert.ok(reason.trim().length >= 12, `${entry} says what it holds`);
+    for (const [entry, reason] of Object.entries(NOT_ANSWERS)) assert.ok(reason.why.trim().length >= 12, `${entry} says what it holds`);
 });
 
 test('outside the answer store, no code names a failure pause or retry of its own', () => {
@@ -99,7 +99,7 @@ test('outside the answer store, no host answer is written into a field of an obj
     const found = writesIn(program(), webviewSources());
     assert.deepEqual(found.filter(entry => !(entry in NOT_ANSWER_WRITES)), [], 'An answer is kept in answerStore.ts (createAnswerSlot for one per track), not in an object\'s field or a let');
     assert.deepEqual(Object.keys(NOT_ANSWER_WRITES).filter(entry => !found.includes(entry)), [], 'an entry that matches nothing any more is taken off NOT_ANSWER_WRITES (the list only shrinks)');
-    for (const [entry, reason] of Object.entries(NOT_ANSWER_WRITES)) assert.ok(reason.trim().length >= 12, `${entry} says why`);
+    for (const [entry, reason] of Object.entries(NOT_ANSWER_WRITES)) assert.ok(reason.why.trim().length >= 12, `${entry} says why`);
 });
 
 test('the write check knows an answer by its type, whatever it is called: a field, an element\'s field, an object kept as a cache, a lasting let (mutation)', () => {
@@ -131,11 +131,22 @@ test('the write check knows an answer by its type, whatever it is called: a fiel
     assert.deepEqual(writesIn(checked, [file]).sort(), [`${file}#byPath[event.filePath]`, `${file}#let last`, `${file}#record.kept`, `${file}#target[index].spectrogram`]);
 });
 
-const listed = (found: readonly string[], list: Record<string, string>, what: string): void => {
+const listed = (found: readonly string[], list: Record<string, Listed>, what: string): void => {
     assert.deepEqual(found.filter(entry => !(entry in list)), [], what);
     assert.deepEqual(Object.keys(list).filter(entry => !found.includes(entry)), [], 'an entry that matches nothing any more is taken off the list (it only shrinks)');
-    for (const [entry, reason] of Object.entries(list)) assert.ok(reason.trim().length >= 12, `${entry} says why`);
+    for (const [entry, reason] of Object.entries(list)) assert.ok(reason.why.trim().length >= 12, `${entry} says why`);
 };
+
+test('every listed place says which kind it is, and the places still keeping answers outside the store are UNMIGRATED_CEILING, which only goes down', () => {
+    const lists = { NOT_ANSWERS, NOT_ANSWER_WRITES, FILELESS_KEYS, LATEST_ANSWERS };
+    const all = Object.entries(lists).flatMap(([name, list]) => Object.entries(list).map(([entry, reason]) => ({ at: `${name}: ${entry}`, reason })));
+    for (const { at, reason } of all) assert.ok(['not-answer', 'in-layer', 'unmigrated'].includes(reason.kind), `${at} says its kind`);
+    // A key of no file goes through the store (its key and states are the store's): never "no answer", never outside it.
+    for (const [entry, reason] of Object.entries(FILELESS_KEYS)) assert.equal(reason.kind, 'in-layer', `${entry} is an answerKey: the store's`);
+    const outside = all.filter(({ reason }) => reason.kind === 'unmigrated').map(({ at }) => at);
+    assert.ok(outside.length <= UNMIGRATED_CEILING, `${outside.length} places keep answers outside the store, more than the ${UNMIGRATED_CEILING} allowed: a new one is moved onto the store, not listed\n${outside.join('\n')}`);
+    assert.equal(UNMIGRATED_CEILING, outside.length, `places outside the store are down to ${outside.length}: lower UNMIGRATED_CEILING to it`);
+});
 
 test('an answer of no one file says where its versions are, each such key listed with how', () => {
     listed(sources().flatMap(({ file, source }) => findFilelessKeys(file, source)), FILELESS_KEYS,
