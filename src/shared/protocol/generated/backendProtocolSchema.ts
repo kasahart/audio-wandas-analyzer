@@ -2027,7 +2027,7 @@ export const BACKEND_PROTOCOL_SCHEMA = {
                 "peakHz": {
                     "type": "array",
                     "items": {
-                        "type": "integer"
+                        "type": "number"
                     }
                 },
                 "spectrumDb": {

@@ -831,7 +831,7 @@ DEFINITIONS: dict[str, Schema] = {
             "conditionId": {"type": "string"},
             "input": {"$ref": "#/$defs/ScanInput"},
             "leqDbA": _NUMBERS,
-            "peakHz": {"type": "array", "items": {"type": "integer"}},
+            "peakHz": _NUMBERS,
             "spectrumDb": {"type": "array", "items": _NUMBERS},
             # Every Welch bin per channel (bin k at k × spectrumBinHz), for medians and differences.
             "spectrumBinsDb": {"type": "array", "items": _NUMBERS},

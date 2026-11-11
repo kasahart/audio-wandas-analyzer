@@ -90,7 +90,7 @@ class ScanResult(TypedDict):
     conditionId: NotRequired[str]
     input: NotRequired[ScanInput]
     leqDbA: NotRequired[list[float]]
-    peakHz: NotRequired[list[int]]
+    peakHz: NotRequired[list[float]]
     spectrumDb: NotRequired[list[list[float]]]
     #: The Welch spectrum at full resolution, bin k at k × spectrumBinHz (the median and Δ are taken of these).
     spectrumBinsDb: NotRequired[list[list[float]]]
@@ -472,9 +472,9 @@ def _node_params(recipe: Mapping[str, object], node_id: str) -> dict[str, object
 def _levels(values: np.ndarray) -> np.ndarray:
     if np.isnan(values).any():
         raise InputError("Analysis produced undefined levels")
-    # Kept far finer than shown (SCAN_DB_DECIMALS): the webview takes channel means, medians and Δ from these, so they
-    # are never rounded to what is shown before; only the text written rounds them (R7).
-    return np.round(floored_db(values), spec.SCAN_DB_DECIMALS)
+    # Sent unrounded, as wandas measures them: the webview takes channel means, medians and every Δ from these, so
+    # they are never rounded first; only the text and the CSV written round them (R1, R7).
+    return floored_db(values)
 
 
 def log_spectrum(levels_db: np.ndarray, freqs: np.ndarray, points: int, nyquist: float) -> np.ndarray:
@@ -551,11 +551,12 @@ def measure(
     )
     return {
         "leqDbA": _levels(leq).tolist(),
-        "peakHz": [int(round(peak)) for peak in peaks],
-        "spectrumDb": _levels(spectrum).tolist(),
+        "peakHz": [float(peak) for peak in peaks],
+        # Drawn points only (no number is taken of them, R1): rounded as a picture is, to keep a stored result small.
+        "spectrumDb": np.round(_levels(spectrum), spec.SPECTRUM_DRAWN_DECIMALS).tolist(),
         **full,
         "thirdOctDb": [[None if math.isnan(value) else value for value in row] for row in third.tolist()],
-        "crest": np.round(crest, spec.CREST_DECIMALS).tolist(),
+        "crest": crest.tolist(),
     }
 
 

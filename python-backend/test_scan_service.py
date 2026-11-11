@@ -89,10 +89,13 @@ def test_scan_measures_the_analysis_spec_metrics(tmp_path: Path) -> None:
     assert _band(result, 0, 6300.0) is not None
     assert result["crest"] == pytest.approx([np.sqrt(2)] * 2, abs=0.01)
     assert result["specVersion"] == spec.ANALYSIS_SPEC_VERSION
-    # Sent far finer than shown, never rounded to it first: the webview takes channel means, medians and Δ from these.
-    levels = [*result["leqDbA"], *(value for row in result["spectrumDb"] for value in row)]
-    assert any(value != round(value, 2) for value in levels)
-    assert all(value == round(value, spec.SCAN_DB_DECIMALS) for value in levels)
+    # Sent as wandas measures them, never rounded: the webview takes channel means, medians and every Δ from these.
+    leq = np.asarray(result["leqDbA"])
+    assert any(value != round(value, 4) for value in leq)
+    assert any(value != round(value, 4) for row in result["thirdOctDb"] for value in row if value is not None)
+    assert any(value != round(value, 3) for value in result["crest"])
+    # Only the 192 drawn points are rounded, as a picture (no number is taken of them), to keep a stored result small.
+    assert all(value == round(value, spec.SPECTRUM_DRAWN_DECIMALS) for row in result["spectrumDb"] for value in row)
 
 
 def _pascal(channel: int) -> dict:
