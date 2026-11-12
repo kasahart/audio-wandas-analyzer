@@ -5,6 +5,7 @@ import { expect, settled, test, type Locator, type Page } from './canvasAudit';
 import { buildExtensionHostPathManyTracksHtml, buildExtensionHostPathUiSmokeHtml, buildUiSmokeHtml } from './buildHtml';
 import { backendRequired, entry100Metadata, entry100Results, openEntry, pickCsv, type ScannedFile } from './entryHelpers';
 import { getStrings } from '../../shared/i18n/strings';
+import { waveformRange } from '../../webview/plot/waveformLayer';
 
 /**
  * R7's transitions of the readout, through the real paths of each chart in a real browser: the owner's own handlers
@@ -236,6 +237,99 @@ async function openHeld(page: Page): Promise<Locator> {
     await expect.poll(() => plot.getAttribute('data-plot-axes')).not.toBe('');
     return plot;
 }
+
+
+// ── The steps overlay with two level axes (display rules R14): a signal on the right-hand axis ──
+/**
+ * A level reference for each rpm of the entry100 fixture, as wandas reports one for a scanned channel: no two rpms
+ * share one, so the base (the table's first row) and the compared recording (the first of another rpm, openComparison)
+ * are always on two level axes, whichever rows the table puts first.
+ */
+const RPM_INPUTS: Record<string, { unit: string; ref: number; levelReferenceLabel: string; calibrationStatus: string; fullScale: boolean }> = {
+    '900rpm': { unit: 'FS', ref: 1, levelReferenceLabel: 'dBFS', calibrationStatus: 'uncalibrated', fullScale: true },
+    '1200rpm': { unit: 'Pa', ref: 2e-5, levelReferenceLabel: 'dB SPL re 20 µPa', calibrationStatus: 'calibrated', fullScale: true },
+    '1500rpm': { unit: '', ref: 1, levelReferenceLabel: 'dB re 1 input unit', calibrationStatus: 'uncalibrated', fullScale: false },
+    '1800rpm': { unit: 'm/s^2', ref: 1e-6, levelReferenceLabel: 'dB re 1 µm/s²', calibrationStatus: 'calibrated', fullScale: true },
+    '': { unit: 'V', ref: 1, levelReferenceLabel: 'dB re 1 V', calibrationStatus: 'calibrated', fullScale: true },
+};
+const rpmOf = (filePath: string): string => /_(\d+rpm)_/.exec(filePath)?.[1] ?? '';
+/** 81 samples over 2 s: the base 0.3 sin(πt) on the left axis, the compared 50 cos(πt) on the right one, in their own units. */
+const TWO_AXES_XS = Array.from({ length: 81 }, (_, index) => index * 0.025);
+const twoAxesSignal = (compared: boolean, unit: string): { values: number[]; view: Record<string, unknown> } => {
+    const values = TWO_AXES_XS.map(t => (compared ? 50 * Math.cos(Math.PI * t) : 0.3 * Math.sin(Math.PI * t)));
+    const absolutePeak = Math.max(...values.map(Math.abs));
+    return { values, view: stubStage({ frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', unit, xs: TWO_AXES_XS, values,
+        waveform: { min: values, max: values, minT: TWO_AXES_XS, maxT: TWO_AXES_XS, absolutePeak, unit, ref: 1 } }) };
+};
+/** The right-hand axis as the figure model ranges it (± the signal's peak, rounded out, R9): where its values are drawn. */
+const RIGHT_RANGE = waveformRange([{ min: [], max: [], minT: [], maxT: [], absolutePeak: 50, unit: '', ref: 1 }]);
+/**
+ * The comparison's steps overlay with the base (slot 0) and the compared recording of two level references, each a
+ * signal drawn as itself: the compared signal is on the right-hand axis, with its own range (±60 against the base's
+ * ±0.35). Returns the plot and where the right axis puts a sample of the compared signal, from the plot's frame and
+ * that axis's range alone.
+ */
+async function openTwoAxes(page: Page): Promise<{ overlay: Locator; place: (index: number) => Promise<{ x: number; y: number; t: number; value: number }> }> {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    const files = scanned!.map(file => {
+        const input = file.result['input'] as Record<string, unknown> | undefined;
+        return { ...file, result: { ...file.result, ...(input ? { input: { ...input, ...RPM_INPUTS[rpmOf(file.filePath)] } } : {}) } };
+    });
+    await openComparison(page, files);
+    const base = (await page.locator('[data-entry-rows] tr.entry-row').first().getAttribute('data-file-path')) ?? '';
+    // The high-pass filter's step: a time signal, drawn as itself.
+    await page.locator('.track-stage-bar [data-step-hold="node-0"]').click();
+    await expect.poll(async () => (await stageScans(page)).at(-1)?.stage).toBe('node-0');
+    const request = (await stageScans(page)).at(-1)!;
+    const stages = request.filePaths.map(filePath => twoAxesSignal(filePath !== base, RPM_INPUTS[rpmOf(filePath)].unit).view);
+    await page.evaluate(({ request, stages, files }) => {
+        request.filePaths.forEach((filePath, index) => {
+            const file = files.find(item => item.filePath === filePath)!;
+            window.postMessage({ type: 'compare-scan-result', requestId: request.requestId, filePath, result: { ...file.result, stage: stages[index] } }, '*');
+        });
+        window.postMessage({ type: 'compare-scan-done', requestId: request.requestId }, '*');
+    }, { request, stages, files });
+    const overlay = page.locator('[data-stage-canvas="overlay"]');
+    await expect.poll(() => overlay.getAttribute('data-plot')).toBe('');
+    await expect.poll(async () => (await overlay.getAttribute('data-plot-axes'))?.split('|').length, { message: 'two level axes: the base\'s on the left, the compared recording\'s on the right' }).toBe(3);
+    const compared = twoAxesSignal(true, '').values;
+    const place = async (index: number): Promise<{ x: number; y: number; t: number; value: number }> => {
+        const [left, top, width, height] = (await noted(overlay)).frame;
+        const t = TWO_AXES_XS[index], value = compared[index];
+        return { t, value, x: left + (t / 2) * width, y: top + (1 - (value - RIGHT_RANGE.min) / (RIGHT_RANGE.max - RIGHT_RANGE.min)) * height };
+    };
+    return { overlay, place };
+}
+/**
+ * The overlay reads the compared signal's sample at `at` (its time and value), its read point at the right axis's
+ * place for it, and the line it reads is painted there on the plot's canvas: picked where it is drawn (R14).
+ */
+async function readsRightLineAt(overlay: Locator, at: { x: number; y: number; t: number; value: number }): Promise<void> {
+    const read = await readFull(overlay);
+    expect(same(read.at, at.t, 1e-6), `the point read is the compared signal's sample at ${at.t} s, not ${read.at}`).toBe(true);
+    expect(same(Number(await readValue(overlay)), at.value, 1e-6), `its value ${at.value} is read`).toBe(true);
+    const point = await overlay.evaluate(canvas => {
+        const read = (canvas as HTMLElement & { __plotRead?: { x: number; y: number; layer: { color: string } } | null }).__plotRead;
+        return read ? { x: read.x, y: read.y, color: read.layer.color } : null;
+    });
+    expect(point, 'a point is read').toBeTruthy();
+    expect(Math.abs(point!.y - at.y), `the read mark is at the right axis's place for ${at.value} (y ${at.y.toFixed(1)}), not ${point!.y.toFixed(1)}. R14: mark a point with its own axis's transform`).toBeLessThan(1);
+    // What is drawn there: the line read, in its colour, within 2 px of the point (antialiased).
+    const painted = await overlay.evaluate((canvas, { x, y, color }) => {
+        const ratio = (canvas as HTMLCanvasElement).width / ((canvas as HTMLCanvasElement).clientWidth || 1);
+        const swatch = document.createElement('canvas').getContext('2d')!;
+        swatch.fillStyle = color;
+        swatch.fillRect(0, 0, 1, 1);
+        const [r, g, b] = swatch.getImageData(0, 0, 1, 1).data;
+        const reach = Math.ceil(2 * ratio);
+        const data = (canvas as HTMLCanvasElement).getContext('2d')!.getImageData(Math.round(x * ratio) - reach, Math.round(y * ratio) - reach, 2 * reach + 1, 2 * reach + 1).data;
+        let best = Infinity;
+        for (let index = 0; index < data.length; index += 4) best = Math.min(best, Math.hypot(data[index] - r, data[index + 1] - g, data[index + 2] - b));
+        return best;
+    }, point!);
+    expect(painted, `the line read is painted where it is read (${point!.x.toFixed(1)}, ${point!.y.toFixed(1)}): R14, paint a line with the transform of the axis it is on, never the left axis's`).toBeLessThan(60);
+}
+const TWO_AXES = 'steps overlay with two level axes (a signal on its right-hand axis)';
 
 const ROWS: Row[] = [
     {
@@ -1047,6 +1141,43 @@ const ROWS: Row[] = [
             await stepThenPlus(page, plot, 0.45, 0.3);
         },
     },
+    {
+        chart: TWO_AXES, event: 'a hover on the right-hand axis\'s signal reads its sample where it is drawn', backend: true,
+        async run(page) {
+            const { overlay, place } = await openTwoAxes(page);
+            // At 1 s the compared signal is −50, near the foot of its ±60 axis; the base (0) is in the middle.
+            const at = await place(40);
+            const box = (await overlay.boundingBox())!;
+            await page.mouse.move(box.x + at.x, box.y + at.y);
+            await readsRightLineAt(overlay, at);
+        },
+    },
+    {
+        chart: TWO_AXES, event: '→ from the right-hand axis\'s signal steps to its next sample, read and marked where it is drawn', backend: true,
+        async run(page) {
+            const { overlay, place } = await openTwoAxes(page);
+            const at = await place(40);
+            const box = (await overlay.boundingBox())!;
+            await page.mouse.move(box.x + at.x, box.y + at.y);
+            await readsRightLineAt(overlay, at);
+            await page.keyboard.press('ArrowRight');
+            const next = await place(41);
+            await expect.poll(async () => (await noted(overlay)).at).toBe(next.t);
+            await readsRightLineAt(overlay, next);
+        },
+    },
+    {
+        chart: TWO_AXES, event: 'a click on the right-hand axis\'s signal reads the sample clicked on, where it is drawn', backend: true,
+        async run(page) {
+            const { overlay, place } = await openTwoAxes(page);
+            // At 1.8 s the compared signal is 40.5, high on its axis, and the base −0.17 under the middle: clicked there.
+            const at = await place(72);
+            const box = (await overlay.boundingBox())!;
+            await page.mouse.click(box.x + at.x, box.y + at.y);
+            await settled(page);
+            await readsRightLineAt(overlay, at);
+        },
+    },
 ];
 
 for (const row of ROWS) {
@@ -1063,7 +1194,7 @@ test('the browser table holds a row for each chart the readout runs on, by its f
     // Every chart an owner shows through plotHoverLayer, exactly: one not listed here, or listed and with no row, fails.
     const CHARTS = ['track waveform lane', 'track spectrogram lane', 'cursor spectrum', 'pair gain', 'pair phase', 'pair γ²',
         'steps overlay', 'steps overlay (a trigger\'s events, over its lanes)', 'trigger events overlay inside the lanes\' surface', 'steps difference pane',
-        'steps lanes (no trigger)', 'entry distribution', 'entry held plot', 'entry overview strip'];
+        'steps lanes (no trigger)', 'entry distribution', 'entry held plot', 'entry overview strip', TWO_AXES];
     expect([...new Set(ROWS.map(row => row.chart))].sort()).toEqual([...CHARTS].sort());
     // Each chart is stepped (→) or zoomed (+) under a still pointer in at least one of its rows.
     for (const chart of CHARTS) expect(ROWS.some(row => row.chart === chart && /→|\+/u.test(row.event)), `${chart}: a step or a zoom`).toBe(true);

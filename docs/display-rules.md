@@ -503,3 +503,14 @@
 - テスト: `src/test/entryDistributionPane.test.ts` › Alt+drag on a row picks a range, as Alt+drag is on every plot (plotInteraction.ts); a plain drag is the plot's box zoom, not a pick
 - テスト: `src/test/plotInteraction.test.ts` › + / − zoom the horizontal axis of the plot under the pointer around its middle and 0 shows it whole; the window it set is named on the plot (R13)
 - テスト: `src/test/plotInteraction.test.ts` › Ctrl+wheel over an axis zooms the horizontal axis around its middle; over the plot, around the pointer (R13)
+
+## R14 線は自分の軸の変換で描き、読み、印を付ける
+
+値の軸が 2 本ある図（左と右で基準が違う重ね図）では、線は図の層（`figureModel.ts` の `FigureModel` の axes、`levelAxes`）が割り当てた軸に載ります。その線を描くこと、マウスが点を選ぶこと、読んだ点の印を付けること、値の軸の箱の拡大は、どれもその線の軸の変換で行います。図全体の変換や 1 本目（左）の軸の変換は使いません。左が ±1 FS、右が ±100 Pa のとき、右の 50 Pa は右の軸の上半分のまん中に描かれ、そこにマウスを置くとその 50 Pa を読み、印もそこに付きます。左の変換で描くと、線は画面の外に出て、マウスは描かれていない線を読みます。
+
+- 軸の値と画素の変換を作るのは 1 か所（`stagePanes.ts` の `axisTransform`）だけです。軸の範囲から、点の y（`yAt`、画面の中に留める）、線の y（`lineYAt`、画面の外へ出す）、y の値（`levelOf`）、見えている値（`valueRange`）、そのまま描く信号の波形（`paintSignal`）を作ります。左の軸も右の軸もこれで作り、右の軸の線を読む `StagePlot`（`plot.secondary`）の `signal` も右の軸のものです。左の `signal` を右に写しません。
+- 値の軸の箱の拡大は、軸の割合（0〜1）で窓を決め、左右の軸を同じ割合だけ狭めます（`narrowedRange`）。画素から値に直すときも、その軸の範囲を使います。
+- 変換を足すとき、また変えるときは `axisTransform` を変え、軸ごとに別の写し方を足しません。UI テストの表（`src/test/uiSmoke/readoutTransitions.spec.ts`）の「steps overlay with two level axes (a signal on its right-hand axis)」の行（マウス、→、クリック）が、右の軸の信号を、描かれた画素の上で読むことを確かめます。
+- テスト: `src/test/axisTransform.test.ts` › a waveform and a level line on the right-hand axis are painted, picked and marked with that axis's transform, never the left one's (R14)
+- テスト: `src/test/uiSmoke/readoutTransitions.spec.ts` › the browser table holds a row for each chart the readout runs on, by its full name, and each real path R7 names
+- テスト: `src/test/trackStagePainter.test.ts` › overlaid, a trigger's events are split by level identity as any line, and a vertical zoom narrows the right-hand axis as the left (A43, A45, R13)

@@ -6,7 +6,7 @@
  * (combineSource.ts) and drawn here like any picture; without one the Δ pane says why it is empty. Pure apart
  * from `paintStage`, which only draws.
  */
-import { colourScale, uncalibratedWord, type FigureNames, type FigureRange, type FigureTitle } from './figureModel';
+import { colourScale, uncalibratedWord, type FigureAxis, type FigureNames, type FigureRange, type FigureTitle } from './figureModel';
 import type { StageView } from '../../shared/protocol/backendProtocol';
 import type { UiStrings } from '../../shared/i18n/strings';
 import { BAND_CENTERS_HZ } from './entryTable';
@@ -17,7 +17,7 @@ import { middleEllipsis } from '../../shared/dataset/datasetTable';
 import type { NormalizedRange } from './waveformInteraction';
 import { plotPointIn, type PlotMargins } from './plotInteraction';
 import { HOVER_PICK_RADIUS_PX, nearestPoint } from './plotHover';
-import { paintWaveformLayer, waveformRange, type SignalPointSink } from '../plot/waveformLayer';
+import { paintWaveformLayer, waveformRange, type PlotBox, type SignalPointSink } from '../plot/waveformLayer';
 import { packRgb, paletteColour, rasterizeHeatmap, unpackRgb } from '../plot/heatmapRaster';
 import { readoutText, type AxisTick, type Palette } from '../../shared/gui-core/index';
 import { axisName, axisNameParts, fitAxisTitle, fontPixels, scaledFont } from '../plot/axisTitle';
@@ -915,7 +915,8 @@ export interface StagePaintOptions {
     yTickText?: (value: number) => string;
     /**
      * Lines read against a second level reference, on a level axis of their own at the right: `range` is that
-     * axis' range and `title` its name. They are drawn after the left axis' lines, as lines (not signals).
+     * axis' range and `title` its name. They are drawn after the left axis' lines, by that axis's own transform
+     * (axisTransform, R14): a signal among them as itself, on the right-hand range.
      */
     secondary?: { layers: StageLayer[]; range: FigureRange; title: FigureTitle };
     /**
@@ -1030,6 +1031,53 @@ function recording(context: CanvasRenderingContext2D): CanvasRenderingContext2D 
 /** How many times each canvas was drawn by paintOverlay: a redraw for a fetched level is for the latest only. */
 const paintedGenerations = new WeakMap<HTMLCanvasElement, number>();
 
+/**
+ * A value axis's value-to-pixel transform on a plot (display rules R14), the one every use takes: the lines on the axis
+ * are painted by it (a signal by the lanes' waveform pipeline over its range, any other line by `yAt` / `lineYAt`),
+ * the pointer picks their points and places the read mark by it, and the values it shows are its range. A plot with a
+ * right-hand axis makes one for each axis (FigureModel's axes), and each line takes its own axis's, never the plot's
+ * first one.
+ */
+export interface AxisTransform {
+    /** The axis's ends as painted: what it shows of a line's values, and what its range popover writes. */
+    valueRange: { min: number; max: number };
+    /** A value's y on the canvas, held inside the plot (a point's mark). */
+    yAt: (value: number) => number;
+    /** A value's y without holding it inside the plot, for drawing a line: past the axis it leaves the plot and is clipped. */
+    lineYAt: (value: number) => number;
+    /** The value at a canvas y. */
+    levelOf: (y: number) => number;
+    /** A signal on this axis drawn as itself (its waveform envelope), over this axis's range. */
+    paintSignal: (context: CanvasRenderingContext2D, layer: StageLayer, width: number, onPoint?: SignalPointSink) => void;
+}
+
+/**
+ * `axis`'s transform on the plot `box`, its signals' times on `time` with the part `window` across the plot. The one
+ * place a value axis's range becomes pixels (R14): the left axis and the right-hand one are both made here.
+ */
+export function axisTransform(axis: Pick<FigureAxis<unknown>, 'range'> | { readonly range: PaneRange }, on: { box: PlotBox; time: { low: number; high: number }; window: NormalizedRange }): AxisTransform {
+    const { min, max } = axis.range;
+    const { top, height } = on.box;
+    const span = max - min;
+    return {
+        valueRange: { min, max },
+        yAt: value => top + (1 - (Math.max(min, Math.min(max, value)) - min) / span) * height,
+        // Ten spans past either end is far outside the plot: a line's slope where it crosses the edge stays right.
+        lineYAt: value => top + (1 - (Math.max(min - 10 * span, Math.min(max + 10 * span, value)) - min) / span) * height,
+        levelOf: y => min + (1 - (y - top) / height) * span,
+        paintSignal: (context, layer, width, onPoint) => {
+            if (!layer.view.waveform) return;
+            paintWaveformLayer(context, on.box, layer.view.waveform, on.time, on.window, { min, max }, layer.color, width, { span: layer.span, ...(onPoint ? { onPoint } : {}) });
+        },
+    };
+}
+
+/** A plot's signals on `axis` (StagePlot.signal): their unit as the backend sent it, the axis's range, painted by it. */
+function signalOn(axis: AxisTransform, unit: string): NonNullable<StagePlot['signal']> {
+    // The signal's unit as the backend sent it (stage_view.signal_unit): none sent, none read out.
+    return { unit, range: axis.valueRange, paint: (context, layer, width) => axis.paintSignal(context, layer, width) };
+}
+
 function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: PaneRange, axes: StageAxes, options: StagePaintOptions, ready: () => void): StagePlot | null {
     const lane = options.axisCanvas !== undefined;
     // A lane keeps the size its layout gave its canvas; any other plot is sized to its box at the screen's ratio.
@@ -1138,18 +1186,15 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
     const heatmap = view.kind === 'heatmap';
     // The rows' axis is the picture's own when the whole axes given (a lane's time axis) have no rows.
     const yAxis = heatmap ? windowed(rowScale(axisExtent({ xs: whole.ys, xSource: whole.ySource }) ? whole : view), options.window?.y) : null;
-    const levelAt = (axis: PaneRange) => (value: number): number => top + (1 - (Math.max(axis.min, Math.min(axis.max, value)) - axis.min) / (axis.max - axis.min)) * plotHeight;
-    const yAt = levelAt(range);
-    // Ten spans past either end is far outside the plot: a line's slope where it crosses the edge stays right.
-    const looseAt = (axis: PaneRange) => {
-        const span = axis.max - axis.min;
-        return (value: number): number => top + (1 - (Math.max(axis.min - 10 * span, Math.min(axis.max + 10 * span, value)) - axis.min) / span) * plotHeight;
-    };
+    // Each value axis's one value-to-pixel transform (display rules R14): its lines are painted, picked and marked by it.
+    const box: PlotBox = { left, top, width: plotWidth, height: plotHeight };
+    const wholeAxis = axisScale(whole);
+    const mainAxis = axisTransform({ range }, { box, time: wholeAxis, window: xWindow });
+    const yAt = mainAxis.yAt;
 
     let levelTicks: AxisTick[] = [];
-    const levelOf = (axis: PaneRange) => (y: number): number => axis.min + (1 - (y - top) / plotHeight) * (axis.max - axis.min);
-    const plot: StagePlot = { frame: { left, top, width: plotWidth, height: plotHeight }, xAt, yAt, xOf: x => xAxis.at((x - left) / plotWidth), xLog: xAxis.log, levelOf: levelOf(range),
-        lineYAt: looseAt(range), ratioStep: 1.12, lines: [], diff: !!options.diff, ...(heatmap ? {} : { valueRange: { min: range.min, max: range.max } }), ...(options.readout === false ? { noReadout: true } : {}), ...levelUnitOf(heatmap ? axes.colour : axes.y) };
+    const plot: StagePlot = { frame: { left, top, width: plotWidth, height: plotHeight }, xAt, yAt, xOf: x => xAxis.at((x - left) / plotWidth), xLog: xAxis.log, levelOf: mainAxis.levelOf,
+        lineYAt: mainAxis.lineYAt, ratioStep: 1.12, lines: [], diff: !!options.diff, ...(heatmap ? {} : { valueRange: mainAxis.valueRange }), ...(options.readout === false ? { noReadout: true } : {}), ...levelUnitOf(heatmap ? axes.colour : axes.y) };
     // Where its data is drawn on the canvas (CSS pixels: left, top, width, height), so a gesture test can tell what a
     // drag or a wheel at a pixel should show from the pixel alone, not from the plot's own answer (C6).
     if (canvas.dataset) canvas.dataset.plotFrame = [left, top, plotWidth, plotHeight].map(String).join(' ');
@@ -1272,7 +1317,6 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
             context.restore();
         }
         if (options.bandSteps) paintBandSteps(context, options.bandSteps, xAt, yAt);
-        const wholeAxis = axisScale(whole);
         // Signals drawn as themselves share an amplitude axis: a picture without a signal (a group's median level) is left out.
         const signals = layers.some(layer => layer.view.waveform);
         for (const layer of layers) {
@@ -1281,17 +1325,8 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
             if (layer.view.kind === 'heatmap' || layer.view.kind === 'none' || (signals && !layer.view.waveform)) continue;
             if (layer.view.waveform) {
                 // The signal itself, by the track lanes' own pipeline, on the same axes; the pointer picks it as a line.
-                const box = { left, top, width: plotWidth, height: plotHeight };
-                plot.signal ??= {
-                    // The signal's unit as the backend sent it (stage_view.signal_unit): none sent, none read out.
-                    unit: layer.view.waveform.unit,
-                    range,
-                    paint: (ctx, signal, lineWidth) => { if (signal.view.waveform) paintWaveformLayer(ctx, box, signal.view.waveform, wholeAxis, xWindow, range, signal.color, lineWidth, { span: signal.span }); },
-                };
-                if (layer.view.waveform) {
-                    paintWaveformLayer(context, box, layer.view.waveform, wholeAxis, xWindow, range, layer.color, layer.width ?? 1.5,
-                        { span: layer.span, onPoint: options.onSignalPoint });
-                }
+                plot.signal ??= signalOn(mainAxis, layer.view.waveform.unit);
+                mainAxis.paintSignal(context, layer, layer.width ?? 1.5, options.onSignalPoint);
                 plot.lines.push(layer);
                 drew(layer);
                 continue;
@@ -1327,8 +1362,12 @@ function paintPlot(canvas: HTMLCanvasElement, overlay: StageOverlay, range: Pane
             context.restore();
         }
         if (options.secondary) {
-            const { levelUnit: _main, ...shared } = plot;
-            const secondPlot: StagePlot = { ...shared, valueRange: { min: options.secondary.range.min, max: options.secondary.range.max }, yAt: levelAt(options.secondary.range), levelOf: levelOf(options.secondary.range), lineYAt: looseAt(options.secondary.range), lines: [], ...levelUnitOf(options.secondary.title) };
+            // The right-hand axis's lines on its own transform, a signal among them too: never the left axis's (R14).
+            const { levelUnit: _main, signal: _left, ...shared } = plot;
+            const rightAxis = axisTransform(options.secondary, { box, time: wholeAxis, window: xWindow });
+            const rightSignal = options.secondary.layers.find(layer => layer.view.waveform)?.view.waveform;
+            const secondPlot: StagePlot = { ...shared, valueRange: rightAxis.valueRange, yAt: rightAxis.yAt, levelOf: rightAxis.levelOf, lineYAt: rightAxis.lineYAt, lines: [],
+                ...(rightSignal ? { signal: signalOn(rightAxis, rightSignal.unit) } : {}), ...levelUnitOf(options.secondary.title) };
             plot.secondary = secondPlot;
             // A trigger's events on the right-hand axis are drawn one line each, as on the left (A43).
             for (const layer of secondaryOrder.flatMap(eventLayers)) {
