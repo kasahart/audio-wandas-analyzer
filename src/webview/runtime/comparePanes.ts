@@ -6,7 +6,7 @@
 import { scanWhole } from './wholeAnswers';
 import type { ScanResult, StageView } from '../../shared/protocol/backendProtocol';
 import type { UiStrings } from '../../shared/i18n/strings';
-import type { Drawn, Whole } from '../../shared/provenance';
+import type { Drawn, Whole, WholeLine } from '../../shared/provenance';
 import type { ChannelSummary } from '../../shared/analysis/analysisTypes';
 import { escapeHtml } from '../../shared/utils/webviewEscaping';
 import { uncalibratedUnits } from '../../shared/utils/format';
@@ -15,22 +15,25 @@ import { baseName } from '../../shared/analysis/entryMetadata';
 import { median } from '../../shared/dataset/distribution';
 import { powerMeanDb, powerMeanOrNull } from '../../shared/utils/levels';
 import { axisValueAt, levelBinsOf } from './stagePanes';
-import { heldValueRange, localLine, type InlineFullSource, computedWhole } from './fullRead';
+import { computedLine, gapsLine, heldValueRange, localLine, type InlineFullSource } from './fullRead';
 import { noNegativeZero, signedNumberText, withMinus } from '../plot/plotText';
 import { excludedFor, levelKeyOf, medianInputOf, setExclusionText, type FigureSet } from './figureModel';
 import type { Answer } from './answerTypes';
 
 type ScanOk = ScanResult & { ok: true };
 
+/** Every FFT bin of a spectrum (no gaps), held whole. */
+type BinLine = WholeLine<Whole>;
+
 export interface CompareSide {
     /** Card and pane title: the file name, or "Base group · L3 · 900rpm · 7 files". */
     title: string;
     filePaths: string[];
     /** The Welch spectrum's every bin (channels power-averaged), when the scan gave them: the median and Δ are taken of these. */
-    bins?: Whole[];
+    bins?: BinLine;
     leq: number;
     /** Every 1/3-octave band's level, of the scan's every band (full data: what the bars read, R7). */
-    bands: (Whole | null)[];
+    bands: WholeLine;
     /** Its levels' reference as wandas names it ("dBFS", "dB SPL re 20 µPa"): one for a group, whose median is of one unit. */
     levelLabel?: string;
     /** Its levels' identity (levelIdentityOf: unit, reference value, label): two sides share a reference only by this. */
@@ -54,7 +57,7 @@ export interface CompareModel {
      * the compared file and their difference. Drawn by `binsView`, which decimates only the result. Null where a
      * scan did not give its bins or the files' bins differ (another sample rate or n_fft).
      */
-    bins: { hz: number; nyquist: number; base: Whole[] | null; compare: Whole[] | null; diff: Whole[] | null } | null;
+    bins: { hz: number; nyquist: number; base: BinLine | null; compare: BinLine | null; diff: BinLine | null } | null;
     /** Frequency of each of the scan's SPECTRUM_POINTS spectrum points: log-spaced from 20 Hz to Nyquist (analysis spec v4). */
     frequencies: number[];
     /** Both levels and their difference, taken of the levels before any rounding (R1: only writing rounds). */
@@ -62,7 +65,7 @@ export interface CompareModel {
     /** The three 1/3-octave bands that differ most, largest |Δ| first; only peaks, not a peak's neighbours. */
     topBands: Array<{ band: number; delta: number }>;
     /** Δ per 1/3-octave band (null where either side has none), drawn as steps under the Δ curve. */
-    bandDeltas: (Whole | null)[];
+    bandDeltas: WholeLine;
     /**
      * Why there is no Δ to read: the base is the compared file itself, a group of that one file, or
      * a base averaged over the entry region while the compare is over the comparison's, or a base in another unit,
@@ -124,16 +127,14 @@ function fileSide(result: ScanOk): Omit<CompareSide, 'title' | 'filePaths'> {
     // A scan that succeeded carries its metrics; one without them has no levels to give. Its 192-point spectrum is
     // drawn points (scan_service.log_spectrum) and is never read: every level here is of full data (R1).
     // Its bins and bands come in as full data (wholeAnswers.scanWhole: the schema's x-whole arrays), and a mean over
-    // channels of them is full data too (computedWhole names what each is computed of).
-    const binRows = scanWhole(result, 'spectrumBinsDb');
-    const bandRows = scanWhole(result, 'thirdOctDb') ?? [];
+    // channels of them is full data too (computedLine names the lines each is computed of).
+    const [binRow, ...binRows] = scanWhole(result, 'spectrumBinsDb') ?? [];
+    const [bandRow, ...bandRows] = scanWhole(result, 'thirdOctDb') ?? [];
     return {
-        ...(binRows?.length ? { bins: (binRows[0] ?? []).map((_, bin) => { const of = binRows.map(row => row[bin]); return computedWhole(of, powerMeanDb(of)); }) } : {}),
+        ...(binRow ? { bins: computedLine([binRow, ...binRows], bin => powerMeanDb([binRow, ...binRows].map(row => row[bin]))) } : {}),
         leq: powerMeanDb(result.leqDbA ?? []),
-        bands: BAND_CENTERS_HZ.map((_, band) => {
-            const of = bandRows.map(row => row[band]);
-            return computedWhole(of, powerMeanOrNull(of));
-        }),
+        // One level per band of the app's band table, whatever the scan sent: a band it has none for is a gap.
+        bands: bandRow ? computedLine([bandRow, ...bandRows], band => powerMeanOrNull([bandRow, ...bandRows].map(row => row[band])), BAND_CENTERS_HZ.length) : gapsLine(BAND_CENTERS_HZ.length),
         ...(result.input ? { levelLabel: result.input.levelReferenceLabel, levelKey: levelKeyOf(result.input) } : {}),
         ...(result.input && result.input.calibrationStatus !== 'calibrated' ? { uncalibrated: true } : {}),
     };
@@ -171,18 +172,18 @@ function medianSide(sides: Array<Omit<CompareSide, 'title' | 'filePaths'>>, inpu
     } : undefined;
     // Every bin's median, where every file has the same bins (the same sample rate and n_fft).
     const first = sides[0].bins;
-    const bins = first && sides.every(side => side.bins?.length === first.length)
-        ? first.map((_, bin) => { const of = sides.map(side => (side.bins as Whole[])[bin]); return computedWhole(of, medianOfSome(of)); }) : undefined;
+    const everyBins = sides.flatMap(side => (side.bins && side.bins.length === first?.length ? [side.bins] : []));
+    const bins = first && everyBins.length === sides.length ? computedLine([first, ...everyBins.slice(1)], bin => medianOfSome(everyBins.map(line => line[bin]))) : undefined;
     return {
         ...(spread ? { spread } : {}),
         ...(bins ? { bins } : {}),
         ...(input ? { levelLabel: input.levelReferenceLabel, levelKey: levelKeyOf(input) } : {}),
         ...(input?.calibrationStatus !== 'calibrated' ? { uncalibrated: true } : {}),
         leq: medianOfSome(sides.map(side => side.leq)),
-        bands: BAND_CENTERS_HZ.map((_, band) => {
-            const levels = sides.map(side => side.bands[band]);
-            return levels.some(level => level === null) ? null : computedWhole(levels, medianOfSome(levels as number[]));
-        }),
+        bands: computedLine([sides[0].bands, ...sides.slice(1).map(side => side.bands)], band => {
+            const levels = sides.map(side => side.bands[band] ?? null);
+            return levels.some(level => level === null) ? null : medianOfSome(levels as number[]);
+        }, BAND_CENTERS_HZ.length),
     };
 }
 
@@ -266,11 +267,11 @@ export function buildCompareModel(
     const bins = binsOf(compared, baseValues, base, compare, comparable, fs / 2);
     const leq = comparable ? { base: baseSide.leq, compare: compare.leq, delta: levelDelta(compare.leq, baseSide.leq) } : null;
     const bandDeltas = comparable
-        ? compare.bands.map((level, band) => {
-            const reference = baseSide.bands[band];
-            return level === null || reference === null ? null : computedWhole([level, reference], levelDelta(level, reference));
+        ? computedLine([compare.bands, baseSide.bands], band => {
+            const level = compare.bands[band] ?? null, reference = baseSide.bands[band] ?? null;
+            return level === null || reference === null ? null : levelDelta(level, reference);
         })
-        : [];
+        : gapsLine();
     // A strong tone leaks into the filters of the bands beside it; a band whose neighbour differs more
     // is that leak, so only the peaks of |Δ| across bands are headline material.
     const size = (band: number): number => Math.abs(bandDeltas[band] ?? 0);
@@ -302,7 +303,7 @@ function binsOf(compared: ScanOk | undefined, baseValues: readonly ScanOk[], bas
     if (!hz || spacings.length < read.length || !(nyquist > SPECTRUM_MIN_HZ) || spacings.some(spacing => Math.abs(spacing - hz) > 1e-9 * hz)) return null;
     const baseBins = base?.bins ?? null, compareBins = compare?.bins ?? null;
     if ((base && !baseBins) || (compare && !compareBins) || (baseBins && compareBins && baseBins.length !== compareBins.length)) return null;
-    const diff = comparable && baseBins && compareBins ? compareBins.map((level, bin) => computedWhole([level, baseBins[bin]], level - baseBins[bin])) : null;
+    const diff = comparable && baseBins && compareBins ? computedLine([compareBins, baseBins], bin => compareBins[bin] - baseBins[bin]) : null;
     return { hz, nyquist, base: baseBins, compare: compareBins, diff };
 }
 
@@ -375,9 +376,9 @@ export function binsView(bins: NonNullable<CompareModel['bins']>, which: 'base' 
 }
 
 /** Every 1/3-octave band up to Nyquist of `bands` (a side's levels, or the Δ per band), held whole: what their bars read (R7). */
-export function bandsSource(bands: readonly (Whole | null)[], frequencies: number[]): InlineFullSource {
-    const count = bandCount(frequencies);
-    return localLine(BAND_CENTERS_HZ.slice(0, count), bands.slice(0, count));
+export function bandsSource(bands: WholeLine, frequencies: number[]): InlineFullSource {
+    // The whole line with the places up to Nyquist: only the bands that have a place are read (localLine).
+    return localLine(BAND_CENTERS_HZ.slice(0, bandCount(frequencies)), bands);
 }
 
 /** Every bin of one of the comparison's spectra, held whole (R7): what a plot drawing its binsView reads and orders by. */
@@ -397,7 +398,7 @@ export function deltaViews(comparison: Pick<CompareModel, 'bins' | 'bandDeltas' 
     const bandsDelta = (): StageView | null => {
         const count = bandCount(comparison.frequencies);
         const values = comparison.bandDeltas.slice(0, count);
-        return values.some(value => value !== null) ? { frame: 'NOctFrame', kind: 'bar', x: 'band', xScale: 'log', quantity: 'level', xs: BAND_CENTERS_HZ.slice(0, count), values, ...heldValueRange(values, false) } : null;
+        return values.some(value => value !== null) ? { frame: 'NOctFrame', kind: 'bar', x: 'band', xScale: 'log', quantity: 'level', xs: BAND_CENTERS_HZ.slice(0, count), values, ...heldValueRange(comparison.bandDeltas, false) } : null;
     };
     const picture = comparison.bins?.diff ? binsView(comparison.bins, 'diff') : bandsDelta();
     if (!picture || !comparison.bins || !zoom || (zoom.start <= 0 && zoom.end >= 1)) return { picture, view: picture };
@@ -458,7 +459,7 @@ export function sideView(side: Pick<CompareSide, 'bands'> | null | undefined, fr
     // Only the bands up to Nyquist: the rest are empty for every file.
     const count = bandCount(frequencies);
     const xs = BAND_CENTERS_HZ.slice(0, count), values = side.bands.slice(0, count);
-    return { frame: 'NOctFrame', kind: 'bar', x: 'band', xScale: 'log', quantity: 'level', xs, values, ...heldValueRange(values, true), levelBins: levelBinsOf(xs, values, [xs[0] ?? 1, xs[xs.length - 1] ?? 1], true) };
+    return { frame: 'NOctFrame', kind: 'bar', x: 'band', xScale: 'log', quantity: 'level', xs, values, ...heldValueRange(side.bands, true), levelBins: levelBinsOf(xs, side.bands, [xs[0] ?? 1, xs[xs.length - 1] ?? 1], true) };
 }
 
 /** How many 1/3-octave bands lie below the spectra's top edge (Nyquist). */

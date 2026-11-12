@@ -398,7 +398,7 @@ test('the table\'s results take the bins of a scan of the same condition only, n
 test('the held Δ zoomed in is drawn again from every bin between its ends, not the whole Δ decimated and stretched (R1, R3)', () => {
     // 8192 bins of 1 Hz, each Δ its own: the whole view keeps only a bucket's lowest and highest.
     const diff = Array.from({ length: 8192 }, (_, bin) => Math.sin(bin * 1.7) * 10);
-    const comparison = { bins: { hz: 1, nyquist: 8191, base: null, compare: null, diff: wholeValues(diff) }, bandDeltas: [], frequencies: [] };
+    const comparison = { bins: { hz: 1, nyquist: 8191, base: null, compare: null, diff: wholeValues(diff) }, bandDeltas: wholeValues([]), frequencies: [] };
     const whole = deltaViews(comparison);
     assert.equal(whole.view, whole.picture);
     // Zoomed to the window from 1 kHz up: in it, every bin while there are no more than the buckets.
@@ -425,7 +425,7 @@ test('the held Δ zoomed in is drawn again from every bin between its ends, not 
     assert.deepEqual(banded.picture?.xs, BAND_CENTERS_HZ.slice(0, banded.picture?.xs?.length));
     assert.equal(banded.picture?.values?.[3], 4.5);
     // Nothing to draw without bins or bands.
-    assert.equal(deltaViews({ bins: null, bandDeltas: [], frequencies }).picture, null);
+    assert.equal(deltaViews({ bins: null, bandDeltas: wholeValues([]), frequencies }).picture, null);
 });
 
 test('the report\'s Δ figure without bins draws the 1/3-octave Δ, its range holding every band (R1)', () => {

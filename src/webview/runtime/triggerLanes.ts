@@ -11,7 +11,7 @@ import { uncalibratedUnits } from '../../shared/utils/format';
 import { byLevelKey, dataRange, levelKeyOf, membersOf, narrowedRange, rangeWith, roundedRange, type FigureNames, type FigureRange } from './figureModel';
 import type { Drawn, StageTrack } from './trackStagePainter';
 import type { PlotWindow } from './plotInteraction';
-import { heldValueRange, NO_FULL_DATA, type FullRead } from './fullRead';
+import { NO_FULL_DATA, type FullRead } from './fullRead';
 
 export interface TriggerSettings {
     threshold: number;
@@ -147,5 +147,5 @@ function marksOf(canvas: HTMLCanvasElement): HTMLElement | null {
 
 /** A level as a picture of one point, so the range holds the trigger's line too. */
 function levelView(level: number): StageView {
-    return { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs: [0], values: [level], ...heldValueRange([level], false) };
+    return { frame: 'ChannelFrame', kind: 'line', x: 'time', xScale: 'linear', quantity: 'value', xs: [0], values: [level], valueRange: { min: level, max: level } };
 }

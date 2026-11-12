@@ -1,4 +1,4 @@
-import { testLine, testCells } from './helpers/whole';
+import { testLine, testCells, wholeValues } from './helpers/whole';
 import assert from 'node:assert/strict';
 import { drawableLine, drawableRows } from '../shared/drawnPoints';
 import { N, R, T } from './helpers/figure';
@@ -241,7 +241,7 @@ test('a spectrum drawn as its own bins spans its stated limits, not edges read o
 /** A view with the levelBins the backend gives it, from `full` (its values before thinning; its drawn values by default). */
 function measured(view: StageView, full: number[] = drawableLine(view.values ?? []).map(value => value ?? Number.NaN)): StageView {
     const xs = view.xs ?? [];
-    return { ...view, levelBins: levelBinsOf(xs, full, [xs[0], xs[xs.length - 1]], view.xScale === 'log') };
+    return { ...view, levelBins: levelBinsOf(xs, wholeValues(full), [xs[0], xs[xs.length - 1]], view.xScale === 'log') };
 }
 
 test('overlaid lines are drawn loudest first, the quietest last on top, by their level on screen', () => {
@@ -382,7 +382,7 @@ test('a zoom narrower than one of a line\'s stretches still orders it by the str
     // Two lines measured over 0–24 kHz in 256 stretches (94 Hz each), zoomed to 10 000–10 010 Hz: inside one stretch.
     const xs = Array.from({ length: 2049 }, (_, i) => i * 24000 / 2048);
     const flat = (level: number): StageView => ({ frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'level', xs, values: xs.map(() => level),
-        levelBins: levelBinsOf(xs, xs.map(() => level), [0, 24000], false) });
+        levelBins: levelBinsOf(xs, wholeValues(xs.map(() => level)), [0, 24000], false) });
     const quiet = { view: flat(-60), color: 'quiet', full: held(flat(-60)) }, loud = { view: flat(-20), color: 'loud', full: held(flat(-20)) };
     const axis: StageView = { frame: 'spectrum', kind: 'line', xs: [0, 24000], xLimits: [0, 24000], xScale: 'linear' };
     const window = { start: 10000 / 24000, end: 10010 / 24000 };
@@ -422,7 +422,7 @@ test('while a line\'s level on screen is on its way, the plot keeps the order it
     const sources = { flat: backend(flat), peaked: backend(peaked) };
     const layer = (color: 'flat' | 'peaked', values: number[]) => ({ color, width: 2, full: sources[color],
         view: { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'level', xs: xs.filter((_, i) => i % 16 === 0), values: values.filter((_, i) => i % 16 === 0),
-            levelBins: levelBinsOf(xs, values, [0, 24000], false) } as StageView });
+            levelBins: levelBinsOf(xs, wholeValues(values), [0, 24000], false) } as StageView });
     const axis: StageView = { frame: 'spectrum', kind: 'line', xs: [0, 24000], xLimits: [0, 24000], xScale: 'linear' };
     const lines = (strokes: string[]) => strokes.filter(color => color === 'flat' || color === 'peaked');
     const zoomed = { axisView: axis, window: { x: { start: x0 / 24000, end: x1 / 24000 } } };
@@ -474,7 +474,7 @@ test('a level read that failed leaves the order unsettled and written "!": never
     const sources = { flat: backend(flat), peaked: backend(peaked) };
     const layer = (color: 'flat' | 'peaked', values: number[]) => ({ color, width: 2, full: sources[color],
         view: { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'level', xs: xs.filter((_, i) => i % 16 === 0), values: values.filter((_, i) => i % 16 === 0),
-            levelBins: levelBinsOf(xs, values, [0, 24000], false) } as StageView });
+            levelBins: levelBinsOf(xs, wholeValues(values), [0, 24000], false) } as StageView });
     const axis: StageView = { frame: 'spectrum', kind: 'line', xs: [0, 24000], xLimits: [0, 24000], xScale: 'linear' };
     const lines = (strokes: string[]) => strokes.filter(color => color === 'flat' || color === 'peaked');
     const zoomed = { axisView: axis, window: { x: { start: x0 / 24000, end: x1 / 24000 } } };
@@ -522,7 +522,7 @@ test('zoomed, lines are ordered by every value on screen: a loud peak just off s
     });
     const layer = (color: string, values: number[]) => ({ color, width: 2, full: backend(values),
         view: { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'level', xs: xs.filter((_, i) => i % 16 === 0), values: values.filter((_, i) => i % 16 === 0),
-            levelBins: levelBinsOf(xs, values, [0, 24000], false) } as StageView });
+            levelBins: levelBinsOf(xs, wholeValues(values), [0, 24000], false) } as StageView });
     const axis: StageView = { frame: 'spectrum', kind: 'line', xs: [0, 24000], xLimits: [0, 24000], xScale: 'linear' };
     const expected = expectedOrder([{ color: 'peaked', xs, values: peaked }, { color: 'flat', xs, values: flat }], x0, x1);
     assert.deepEqual(expected, ['flat', 'peaked']);
@@ -555,7 +555,7 @@ test('a line the webview holds every value of is ordered at once by its values o
     const x0 = 5000, x1 = 10000;
     const peaked = xs.map((_, i) => (i === 854 ? 0 : -40)), flat = xs.map(() => -35);
     const layer = (color: string, values: number[]) => ({ color, full: testLine(xs, values),
-        view: { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'level', xs, values, levelBins: levelBinsOf(xs, values, [0, 24000], false) } as StageView });
+        view: { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'level', xs, values, levelBins: levelBinsOf(xs, wholeValues(values), [0, 24000], false) } as StageView });
     const axis: StageView = { frame: 'spectrum', kind: 'line', xs: [0, 24000], xLimits: [0, 24000], xScale: 'linear' };
     const window = { start: x0 / 24000, end: x1 / 24000 };
     assert.deepEqual(byLevel([layer('peaked', peaked), layer('flat', flat)], axis, window).map(item => item.color),
@@ -565,7 +565,7 @@ test('a line the webview holds every value of is ordered at once by its values o
     const loud = xs.map((_, i) => (i === 600 ? 0 : -40));
     const thin = (values: number[]): { xs: number[]; values: number[] } => ({ xs: xs.filter((_, i) => i % 16 === 0), values: values.filter((_, i) => i % 16 === 0) });
     const thinned = (color: string, values: number[]) => ({ color, full: testLine(thin(values).xs, thin(values).values),
-        view: { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'level', ...thin(values), levelBins: levelBinsOf(thin(values).xs, thin(values).values, [0, 24000], false) } as StageView });
+        view: { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'level', ...thin(values), levelBins: levelBinsOf(thin(values).xs, wholeValues(thin(values).values), [0, 24000], false) } as StageView });
     const whole = byLevel([layer('peaked', loud), layer('flat', flat)], axis, window).map(item => item.color);
     assert.deepEqual(whole, expectedOrder([{ color: 'peaked', xs, values: loud }, { color: 'flat', xs, values: flat }], x0, x1));
     assertNotDrawn(whole, byLevel([thinned('peaked', loud), thinned('flat', flat)], axis, window).map(item => item.color), 'not the order of the thinned points');

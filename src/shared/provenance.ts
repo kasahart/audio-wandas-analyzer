@@ -15,6 +15,8 @@
  */
 declare const WHOLE: unique symbol;
 declare const THINNED: unique symbol;
+declare const EVERY: unique symbol;
+declare const DERIVED: unique symbol;
 
 /** A number of the full data. Usable wherever a number is; never made from a plain number outside wholeMint.ts. */
 export type Whole = number & { readonly [WHOLE]: 'whole' };
@@ -27,3 +29,21 @@ export interface Thinned { readonly [THINNED]: 'thinned' }
  * gives no number: arithmetic, comparison, formatting and number parameters refuse it until drawnPoints.ts unwraps it.
  */
 export type Drawn = number | Thinned;
+
+/**
+ * Every value of one line of the full data, in order, none left out (a null is a gap in the data itself). This is
+ * what "the line is held whole" means, and it is a different claim from "each value is whole": a `Whole[]` that was
+ * filtered or sliced still holds whole values, but it is no longer every one, and it is not a `WholeLine`
+ * (`line.filter(…)` answers a plain array). Only the producers make one: a backend array the schema marks
+ * `x-whole` (wholeAnswers.ts), and fullRead.ts (`computedLine`: a line computed value by value of whole lines, as
+ * long as they are). What holds a line as a plot's full data (fullRead.ts `localLine`) takes only this.
+ * It reads as an array of its values.
+ */
+export type WholeLine<V extends Whole | null = Whole | null> = ReadonlyArray<V> & { readonly [EVERY]: 'every value' };
+
+/**
+ * A number the webview computed of whole values (a Δ of two bins, a mean over channels): made only by fullRead.ts
+ * `computedWhole`, which takes what it was computed of. It is a `Whole` (a readout may write it); the type says it
+ * is not a value the backend measured, so a reviewer can find every one.
+ */
+export type Derived = Whole & { readonly [DERIVED]: 'computed of whole values' };

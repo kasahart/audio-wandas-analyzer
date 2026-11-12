@@ -6,7 +6,7 @@ import { drawableLine } from '../../shared/drawnPoints';
 import type { Drawn } from '../../shared/provenance';
 import { everyBin } from './wholeAnswers';
 import { minMaxLine } from './comparePanes';
-import { localLine, NO_FULL_DATA, NO_LEVEL, type FullSource, fullSource } from './fullRead';
+import { localLine, NO_FULL_DATA, NO_LEVEL, PENDING_FULL_DATA, type FullSource, fullSource } from './fullRead';
 import {
     OVERLAY_SPECTRUM_PAD,
     overlayLevelAxes,
@@ -37,7 +37,7 @@ export interface OverlaySpectrumPaint {
  * the track's end there is no point to read, and silence has no power (the quietest, drawn last on top, R6).
  */
 const STAND_IN_READ: Record<NonNullable<SpectrumSeries['slice']['standIn']>, FullSource> = {
-    pending: fullSource('fetched', { line: () => undefined, level: () => undefined }),
+    pending: PENDING_FULL_DATA,
     // No point to read there: an empty window (null would be a read that failed, which no other line stands in for).
     silence: fullSource('fetched', { line: () => ({ xs: [], values: [], start: null, end: null, complete: true }), level: () => NO_LEVEL }),
 };
@@ -69,7 +69,8 @@ export function spectrumLayer(series: SpectrumSeries, cutoffHz: number, visible?
     // A stand-in is drawn only: none of its values is a bin of a slice.
     const standIn = slice.standIn ? STAND_IN_READ[slice.standIn] : undefined;
     // Bands are every band of the slice; a slice cut for display without its every bin (series.full) has none to read.
-    const held = every ? every.slice(0, xs.length) : null;
+    // Given whole with the places on the axis: only the bins that have a place are read (localLine).
+    const held = every;
     const full = standIn ?? series.full ?? (held ? localLine(xs, held) : NO_FULL_DATA);
     // Ordered among the overlaid slices by every bin's power before thinning (R6), over the axis drawn.
     // Over the frequencies on screen when known (the whole slice is in hand: measured again at every zoom), on the axis

@@ -124,7 +124,7 @@ function holds(type: ts.Type, brand: string, checker: ts.TypeChecker, depth = 0,
     });
 }
 
-type Rule = 'mint' | 'mint-kept' | 'layout' | 'test-code' | 'cast' | 'predicate' | 'unwrap' | 'drawn-cast' | 'drawn-predicate' | 'drawn-coerced';
+type Rule = 'mint' | 'mint-kept' | 'layout' | 'empty-read' | 'test-code' | 'cast' | 'predicate' | 'unwrap' | 'drawn-cast' | 'drawn-predicate' | 'drawn-coerced';
 interface Problem { file: string; line: number; rule: Rule; text: string }
 
 /** Whether a value of `type` is itself a `Drawn` (not a holder of one): what arithmetic and text must not take. */
@@ -184,6 +184,21 @@ function provenanceProblems(scanned: ts.Program): Problem[] {
             if (ts.isPrefixUnaryExpression(node) && node.operator === ts.SyntaxKind.PlusToken && drawn(node.operand)) at(node, 'drawn-coerced');
             if (ts.isBinaryExpression(node) && (node.operatorToken.kind === ts.SyntaxKind.PlusToken || node.operatorToken.kind === ts.SyntaxKind.PlusEqualsToken) && (drawn(node.left) || drawn(node.right))) at(node, 'drawn-coerced');
             if (ts.isTemplateSpan(node) && drawn(node.expression)) at(node, 'drawn-coerced');
+            // A read given to a source (fullSource, sourceWith) that can only answer null or nothing reads no data.
+            if (file !== FULL_READ && ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+                const called = checker.getSymbolAtLocation(node.expression);
+                const made = called && called.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(called) : called;
+                const reads = node.arguments[1];
+                if (made && ['fullSource', 'sourceWith'].includes(made.name) && declaredIn(made, FULL_READ) && reads) {
+                    const nothing = ts.TypeFlags.Null | ts.TypeFlags.Undefined | ts.TypeFlags.Void | ts.TypeFlags.Never;
+                    for (const read of checker.getTypeAtLocation(reads).getProperties()) {
+                        if (!['line', 'cells', 'level'].includes(read.name)) continue;
+                        const answers = checker.getTypeOfSymbolAtLocation(read, reads).getCallSignatures().map(signature => signature.getReturnType());
+                        const only = (type: ts.Type): boolean => (type.isUnion() ? type.types.every(only) : !!(type.flags & nothing));
+                        if (answers.length && answers.every(only)) { at(reads, 'empty-read'); break; }
+                    }
+                }
+            }
             if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
                 const signature = checker.getResolvedSignature(node);
                 (node.arguments ?? []).forEach((argument, index) => {
@@ -208,6 +223,7 @@ function provenanceProblems(scanned: ts.Program): Problem[] {
 const FIX: Record<Rule, string> = {
     'mint-kept': 'A module that holds the mint of Whole keeps it: `const mint = claimMint(…)` at the top of the module, not exported, and used only as `mint.value(…)`. Handing the mint to other code would let any number become full data. Export a function that reads or adapts one kind of full data instead (as localLine, backendPeak).',
     layout: 'Only the layout modules (LAYOUT_MODULES in this file) may call layoutLine, which holds plain numbers as a readable line. If these numbers are measurements, take them whole instead: a backend field through wholeAnswers.ts (scanWhole, pairWhole), or computedWhole for a number computed of whole values, then localLine. If they are numbers this module makes to lay a figure out (counts, stacking heights), add the module to LAYOUT_MODULES with what they are.',
+    'empty-read': 'A read given to fullSource / sourceWith here can only answer null or nothing, so the source would be declared as full data and read none. If the layer has no full data, pass NO_FULL_DATA; if its data went out of date (its file changed), pass STALE_FULL_DATA; if it is a stand-in whose real picture is on its way, pass PENDING_FULL_DATA (all in fullRead.ts). A read that can fail must also be able to answer points: give its function the return type FullAnswer.',
     'test-code': 'Product code may not use anything under src/test: the tests\' helpers (such as wholeValue, which makes a Whole of a made-up number) are for tests only. Read the value through a FullSource or an adapter of wholeAnswers.ts.',
     mint: 'Only fullRead.ts and wholeAnswers.ts may use the mint (src/shared/wholeMint.ts). To read a value for a readout, read it through the layer\'s FullSource; for a new backend number taken of every value, add an adapter to wholeAnswers.ts.',
     cast: 'A cast to a type holding `Whole` claims a number is full data without a mint. Take the value from a FullSource or an adapter of wholeAnswers.ts instead.',
@@ -227,14 +243,14 @@ test('a value of the full data (`Whole`) is made only in the mint modules, and a
 // ── The routes are closed: each violation fails the compiler or the scan above ──
 
 const HEAD = [
-    'import type { Whole } from \'../../shared/provenance\';',
+    'import type { Derived, Whole, WholeLine } from \'../../shared/provenance\';',
     'import type { FullPoints } from \'./fullRead\';',
     'import type { StageLayer, StageRead } from \'./stagePanes\';',
     'import type { StageView } from \'../../shared/protocol/backendProtocol\';',
     'import type { WaveformEnvelope } from \'../../shared/analysis/analysisTypes\';',
     'import type { SpectrumSlice } from \'./types\';',
-    'import { computedWhole, localCells, localLine } from \'./fullRead\';',
-    'export type Used = Whole | FullPoints | StageLayer | StageRead | StageView | WaveformEnvelope | SpectrumSlice | typeof localLine | typeof localCells | typeof computedWhole;',
+    'import { computedLine, computedWhole, localCells, localLine } from \'./fullRead\';',
+    'export type Used = Derived | WholeLine | typeof computedLine | Whole | FullPoints | StageLayer | StageRead | StageView | WaveformEnvelope | SpectrumSlice | typeof localLine | typeof localCells | typeof computedWhole;',
 ].join('\n');
 const FIRST = 'const first = (view: StageView) => (view.values ?? [])[0] ?? 0;';
 
@@ -257,8 +273,24 @@ const MUST_NOT_COMPILE: readonly Mutant[] = [
     { what: 'plain numbers held as a line\'s full data', body: 'export const full = (xs: number[], values: number[]) => localLine(xs, values);' },
     { what: 'plain numbers held as cells\' full data', body: 'export const full = (xs: number[], ys: number[], matrix: number[][]) => localCells(xs, ys, matrix);' },
     { what: 'an envelope\'s picked samples (drawn points) held as a line\'s full data', body: 'export const full = (envelope: WaveformEnvelope) => localLine(envelope.samples ?? [], envelope.samples ?? []);' },
-    { what: 'a number computed of drawn points made whole', body: 'export const top = (view: StageView) => computedWhole(view.values ?? [], 3);' },
-    { what: 'a number computed of plain numbers made whole', body: 'export const top = (plain: number[]) => computedWhole(plain, 3);' },
+    { what: 'a number computed of drawn points made whole', body: 'export const top = (view: StageView) => computedWhole([(view.values ?? [])[0]], 3);' },
+    { what: 'a number computed of plain numbers made whole', body: 'export const top = (plain: number) => computedWhole([plain], 3);' },
+    { what: 'a number computed of nothing made whole', body: 'export const top = computedWhole([], 123);' },
+    { what: 'a number computed of a list that may be empty made whole', body: 'export const top = (values: Whole[]) => computedWhole(values, 123);' },
+    { what: 'a number computed of gaps alone made whole', body: 'export const top = computedWhole([null], 123);' },
+    { what: 'a plain number where a computed whole is asked for', body: 'export const top: Derived = 3;' },
+    { what: 'a measured whole value passed off as a computed one', body: 'export const top = (value: Whole): Derived => value;' },
+    { what: 'whole values filtered, then held as the whole line', body: 'export const full = (xs: number[], line: WholeLine) => localLine(xs, line.filter(value => value !== null));' },
+    { what: 'whole values sliced, then held as the whole line', body: 'export const full = (xs: number[], line: WholeLine) => localLine(xs, line.slice(0, 3));' },
+    { what: 'an array of whole values, not known to be every one, held as the whole line', body: 'export const full = (xs: number[], values: Whole[]) => localLine(xs, values);' },
+    { what: 'whole values mapped by hand, then held as the whole line', body: 'export const full = (xs: number[], line: WholeLine<Whole>) => localLine(xs, line.map(value => computedWhole([value], value * 2)));' },
+    { what: 'a line computed of no line', body: 'export const line = computedLine([], () => 1);' },
+    { what: 'a line computed of plain arrays', body: 'export const line = (plain: number[]) => computedLine([plain], bin => plain[bin]);' },
+    { what: 'a range taken of values not known to be every one', imports: 'import { heldValueRange } from \'./fullRead\';', body: 'export const range = (values: Whole[]) => heldValueRange(values, false);' },
+    { what: 'a range taken of plain numbers', imports: 'import { heldValueRange } from \'./fullRead\';', body: 'export const range = (values: number[]) => heldValueRange(values, false);' },
+    { what: 'the order\'s level bins made of plain numbers', imports: 'import { levelBinsOf } from \'./stagePanes\';', body: 'export const bins = (xs: number[], values: number[]) => levelBinsOf(xs, values, [0, 1], false);' },
+    { what: 'the order\'s level bins made of a picture\'s drawn points', imports: 'import { levelBinsOf } from \'./stagePanes\';', body: 'export const bins = (view: StageView) => levelBinsOf(view.xs ?? [], view.values ?? [], [0, 1], false);' },
+    { what: 'a level of the full data summed outside a source', imports: 'import { levelOfValues } from \'./fullRead\';', body: 'export const level = (xs: number[], values: number[]) => levelOfValues(xs, values, { x0: 0, x1: 1, square: false });' },
     { what: 'a full-data source written by hand, which could read nothing', imports: 'import { cannotRead, noEvent, type FullSource } from \'./fullRead\';', body: 'export const none: FullSource = { held: \'fetched\', line: cannotRead, cells: cannotRead, level: cannotRead, event: noEvent };' },
     { what: 'a full-data source made by spreading another', imports: 'import { NO_FULL_DATA, type FullSource } from \'./fullRead\';', body: 'export const none: FullSource = { ...NO_FULL_DATA, held: \'fetched\' };' },
     { what: 'a full-data source made with no read', imports: 'import { fullSource } from \'./fullRead\';', body: 'export const none = fullSource(\'fetched\', {});' },
@@ -271,7 +303,7 @@ const MUST_NOT_COMPILE: readonly Mutant[] = [
 /** The honest forms, which must compile and pass the scan. */
 const ALLOWED: readonly Mutant[] = [
     { what: 'a value read from full points', body: 'export const first = (points: FullPoints): Whole | undefined => points.xs[0];' },
-    { what: 'whole values held as a line, and a number computed of them', body: 'export const full = (xs: number[], values: Whole[]) => localLine(xs, values.map(value => computedWhole([value], value * 2)));' },
+    { what: 'a whole line held, a line computed of it, and a number computed of two of its values', body: 'export const full = (xs: number[], line: WholeLine<Whole>) => [localLine(xs, line), localLine(xs, computedLine([line], bin => line[bin] * 2))];\nexport const delta = (a: Whole, b: Whole): Derived => computedWhole([a, b], a - b);' },
     { what: 'dropping null of what is already whole', body: 'export const kept = (value: Whole | null): Whole => value as Whole;' },
     { what: 'a picture passed on, its gaps dropped and its points counted', body: 'export const copy = (view: StageView): StageView => ({ ...view, values: (view.values ?? []).filter(value => value !== null) });\nexport const count = (view: StageView): number => (view.values ?? []).length;' },
 ];
@@ -285,6 +317,8 @@ const MUST_NOT_PASS: ReadonlyArray<Mutant & { rule: Rule; also?: Rule[] }> = [
     { rule: 'mint', also: ['mint-kept'], what: 'a claimed mint\'s method handed on', imports: 'import { claimMint } from \'../../shared/wholeMint\';', body: 'const mint = claimMint(\'fullRead\');\nexport const make = mint.value;' },
     { rule: 'mint', also: ['mint-kept'], what: 'a claim that is not a const of the module', imports: 'import { claimMint } from \'../../shared/wholeMint\';', body: 'export const made = claimMint(\'fullRead\').value(3);' },
     { rule: 'layout', what: 'plain numbers held as a readable line outside the layout modules', imports: 'import { layoutLine } from \'./fullRead\';', body: 'export const full = (xs: number[], values: number[]) => layoutLine(xs, values);' },
+    { rule: 'empty-read', what: 'a source whose read can only answer null', imports: 'import { fullSource } from \'./fullRead\';', body: 'export const none = fullSource(\'fetched\', { line: () => null });' },
+    { rule: 'empty-read', what: 'a source whose read answers nothing', imports: 'import { fullSource } from \'./fullRead\';', body: 'export const none = fullSource(\'inline\', { cells() { return undefined; }, level: () => null });' },
     { rule: 'test-code', what: 'the tests\' way of making a Whole used in product code', imports: 'import { wholeValue } from \'../../test/helpers/whole\';', body: 'export const made = wholeValue(3);' },
     { rule: 'cast', what: 'a cast to Whole', body: 'export const made = 3 as Whole;' },
     { rule: 'cast', what: 'a cast to Whole through unknown', body: 'export const made = 3 as unknown as Whole;' },

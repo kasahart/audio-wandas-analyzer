@@ -18,7 +18,7 @@ import { attachPlotInteraction, FULL_PLOT_WINDOW, notePlotWindow, plotPointIn, t
 import { createPlotHoverLayer } from './plotHoverLayer';
 import { paintOverlay, type StagePlot } from './stagePanes';
 import { countTitle, csvColumnTitle, plainNames, plainRange, setDrawnCount, setExclusionText, setOver, type FigureSet, type FigureTitle, type PlainTitle } from './figureModel';
-import { localLine } from './fullRead';
+import { NO_POINTS } from './fullRead';
 import { positionPopover } from './settingsPopover';
 
 /** The rows' vertical axis is the count per group, defined to show every count always (R13). */
@@ -219,7 +219,7 @@ export function createDistributionPane(deps: DistributionPaneDeps): Distribution
         // The value axis below them, drawn by the same component: its numbers and name; what a bar's height counts beside it.
         // It holds no values: nothing to read.
         axisCanvas.style.width = `${width}px`;
-        paintOverlay(axisCanvas, { layers: [{ view: axisView, color: '', full: localLine([], []) }] }, plainRange(0, 1), plainNames(axisLabel, countTitle(strings, unit)),
+        paintOverlay(axisCanvas, { layers: [{ view: axisView, color: '', full: NO_POINTS }] }, plainRange(0, 1), plainNames(axisLabel, countTitle(strings, unit)),
             { window: zoom, margins: { left: DIST_MARGINS.left, right: DIST_MARGINS.right, top: 0, bottom: 19 }, yAxisLabels: false });
         countAxis.textContent = strings.dsDistCountAxis.replace('{unit}', unit);
         if (strip && scrollToSlot) {
