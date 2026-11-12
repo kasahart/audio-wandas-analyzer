@@ -235,7 +235,7 @@ def test_a_groups_median_is_taken_bin_by_bin_before_it_is_drawn(signal: wd.Chann
     assert result["base"]["values"] == expected["values"]
     # It is not the median of the members' drawn pictures.
     drawn = np.median(np.stack([np.asarray(draw(m)["values"], dtype=float) for m in members]), axis=0)
-    assert not np.allclose(np.asarray(result["base"]["values"], dtype=float), drawn, atol=0.05)
+    assert_not_drawn(result["base"]["values"], drawn)
     assert "diff" not in result
 
 
@@ -339,6 +339,10 @@ def test_a_spectrums_level_bins_are_every_bins_power_not_the_drawn_points(signal
     full = 10 * np.log10(np.mean(10 ** (data.values[inside] / 10)))
     assert _level(view["levelBins"]) == pytest.approx(full, abs=0.01)
     assert len(view["xs"]) < int(inside.sum())  # the line is thinned, its level is not
+    points = np.asarray(view["values"], dtype=float)[
+        (np.asarray(view["xs"]) >= 20) & (np.asarray(view["xs"]) <= RATE / 2)
+    ]
+    assert_not_drawn(_level(view["levelBins"]), 10 * np.log10(np.mean(10 ** (points / 10))))
 
 
 @pytest.mark.parametrize("name", ["series", "spectrum", "fft", "bands"])

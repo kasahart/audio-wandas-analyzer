@@ -339,6 +339,8 @@ test('the strip is read at the table row under the pointer, never a row its buck
     const at = heat.placeOf(BAND_CENTERS_HZ[0], -(201 + 0.5));
     const read = stageHover(plot, at.x, at.y);
     assert.equal(read?.value, -21.5);
+    const cell = heat.cellAt(at.x, at.y);
+    assertNotDrawn(read?.value, view?.matrix?.[cell.row]?.[cell.column], 'not the row its bucket draws');
     assert.match(read?.text ?? '', /r201\.wav/);
     const next = read ? stageStep(plot, read, 1) : null;
     assert.equal(next?.value, -22.5, '→ is the same row\'s next band');

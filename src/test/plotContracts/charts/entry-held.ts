@@ -13,7 +13,8 @@ export const entryHeld: ChartContract = {
             computedIn: [`${SP}:lineRead`, 'src/webview/runtime/entryHeldPlot.ts:paintStep', 'src/webview/runtime/entryHeldPlot.ts:paintDelta'],
             from: 'full', trace: '手順の絵は reader.of、手順の有無の Δ は reader.combined、スロットの Δ は全ビンの Δ を localLine で読む。全ビンがないときの帯の Δ は棒（全帯）。',
             tests: [
-                tt('src/test/uiSmoke/heldDelta.spec.ts', 'a held slot draws its own channel\'s Δ against its base from every bin the hold asks for (R1, R3, R11)'),
+                tt('src/test/entryHeldPlot.test.ts', '← / → on a held slot\'s Δ step to the next of every bin, not the next point drawn of the Δ thinned to the plot\'s width (R7)'),
+                t('src/test/uiSmoke/heldDelta.spec.ts', 'a held slot draws its own channel\'s Δ against its base from every bin the hold asks for (R1, R3, R11)'),
                 t('src/test/uiSmoke/plotContract.spec.ts', 'the entry\'s held plot answers the same gestures as every plot (R13)'),
             ],
         },

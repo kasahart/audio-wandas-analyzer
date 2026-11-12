@@ -84,13 +84,13 @@ test('every range is set from the full data\'s lowest and highest value (valueRa
     const heat = (matrix: number[][], valueRange?: StageView['valueRange']): StageView => ({ frame: 'SpectrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity: 'level', yAxis: 'frequency', xs: [0, 1], ys: [100, 1000], matrix, ...(valueRange ? { valueRange } : {}) });
     const drawn = [[-40, -20], [-60, -30]];
     assert.deepEqual(stageRange([heat(drawn, { min: -64, max: -3 })]), heatmapDbRange(-64, -3));
-    assert.notDeepEqual(stageRange([heat(drawn, { min: -64, max: -3 })]), stageRange([heat(drawn)]));
+    assertNotDrawn(stageRange([heat(drawn, { min: -64, max: -3 })]), stageRange([heat(drawn)]));
     // A cepstrogram's colour edge: the full coefficients' 99th percentile.
     const cep = (robust?: number): StageView => ({ frame: 'CepstrogramFrame', kind: 'heatmap', x: 'time', xScale: 'linear', quantity: 'cepstrum', yAxis: 'quefrency', xs: [0, 1], ys: [0, 0.001, 0.002], matrix: [[9, 9], [0.1, -0.1], [0.2, 0.05]], ...(robust !== undefined ? { valueRange: { min: -0.9, max: 0.9, robust } } : {}) });
     assert.equal(stageRange([cep(0.71)]).max, niceRange(-0.71, 0.71).high);
     // A difference's ± from the full Δ.
     assert.deepEqual(stageDiffRange({ ...line([-2, 3]), valueRange: { min: -19, max: 7 } }), stageDiffRange(line([-19, 7])));
-    assert.notDeepEqual(stageDiffRange({ ...line([-2, 3]), valueRange: { min: -19, max: 7 } }), stageDiffRange(line([-2, 3])), 'not the drawn points\' ±');
+    assertNotDrawn(stageDiffRange({ ...line([-2, 3]), valueRange: { min: -19, max: 7 } }), stageDiffRange(line([-2, 3])), 'not the drawn points\' ±');
 });
 
 test('a heatmap\'s colours reach no more than 100 dB under its loudest value: digital silence (−240 dB) does not set the bottom (R9)', () => {
@@ -567,7 +567,7 @@ test('a line the webview holds every value of is ordered at once by its values o
         view: { frame: 'SpectralFrame', kind: 'line', x: 'frequency', xScale: 'linear', quantity: 'level', ...thin(values), levelBins: levelBinsOf(thin(values).xs, thin(values).values, [0, 24000], false) } as StageView });
     const whole = byLevel([layer('peaked', loud), layer('flat', flat)], axis, window).map(item => item.color);
     assert.deepEqual(whole, expectedOrder([{ color: 'peaked', xs, values: loud }, { color: 'flat', xs, values: flat }], x0, x1));
-    assert.notDeepEqual(whole, byLevel([thinned('peaked', loud), thinned('flat', flat)], axis, window).map(item => item.color), 'not the order of the thinned points');
+    assertNotDrawn(whole, byLevel([thinned('peaked', loud), thinned('flat', flat)], axis, window).map(item => item.color), 'not the order of the thinned points');
 });
 
 test('a level drawn with no levels from its values before thinning is written as unmeasured, for the audit to fail (R6)', () => {

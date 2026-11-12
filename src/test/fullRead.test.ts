@@ -263,7 +263,7 @@ test('a spectrogram is read at its real cells, never the cells averaged to draw 
     let read = stageHover(plot, plot.image?.placeOf(xs[column], ys[row]).x ?? 0, plot.image?.placeOf(xs[column], ys[row]).y ?? 0);
     assert.equal(read?.full, true);
     assert.equal(read?.value, raw[row][column], 'the cell itself');
-    assert.notEqual(read?.value, drawn[row][Math.floor(column / 4)], 'not the mean drawn');
+    assertNotDrawn(read?.value, drawn[row][Math.floor(column / 4)], 'not the mean drawn');
     assert.equal(read?.at, xs[column]);
     assert.equal(read?.row, ys[row]);
     for (const delta of [1, 1, 1, 1, 1, -1, -1, -1] as const) {
@@ -326,7 +326,9 @@ test('a read of values the backend let go is not kept as empty: their pictures a
 test('a cursor spectrum read at its real bins writes its frequency to the digits those bins need, not the drawn points\' (R7)', () => {
     const slice = { values: [0, 0], frequencyBins: 2, maxFrequencyHz: 4000, minDb: -100, maxDb: 0, frequenciesHz: [0, 1000, 2000] };
     assert.equal(spectrumReadoutValues(slice, 1000, -10)[0], spectrumReadoutValues(slice, 1000.48828125, -10)[0], 'the drawn points\' spacing cannot tell them apart');
-    assert.notEqual(spectrumReadoutValues(slice, 1000, -10, 0.48828125)[0], spectrumReadoutValues(slice, 1000.48828125, -10, 0.48828125)[0]);
+    const atBins = spectrumReadoutValues(slice, 1000.48828125, -10, 0.48828125)[0];
+    assert.notEqual(spectrumReadoutValues(slice, 1000, -10, 0.48828125)[0], atBins);
+    assertNotDrawn(atBins, spectrumReadoutValues(slice, 1000.48828125, -10)[0], 'not the digits the drawn points\' spacing gives');
 });
 
 test('an arrow key crosses silent points past one fetched window to the next point with a value (R7)', () => {

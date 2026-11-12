@@ -4,6 +4,7 @@ import { P } from './helpers/figure';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
+import ts from 'typescript';
 import { scanAnswer } from '../webview/runtime/answerStore';
 import { getStrings } from '../shared/i18n/strings';
 import type { ScanResult } from '../shared/protocol/backendProtocol';
@@ -250,18 +251,43 @@ test('every chart\'s level axis, range and file count row says it is computed in
 
 // ── Structure: nothing outside the layer makes a figure's names, ranges, identities or counts ────────────────────
 
-const PATTERNS: Readonly<Record<string, RegExp>> = {
-    /** An axis's name built from the UI strings of a level, a gain, a Δ or the calibration word: read off any object, or destructured. */
-    'axis-name': /(?<![\w'"])\.?axis(?:Level\w*|Uncalibrated|Gain|TransferLevel|Delta)\b(?!['":?])/gu,
+/**
+ * What only figureModel.ts may do, found three ways, each the strongest the thing allows:
+ *
+ * - GUARDED_FUNCTIONS: a function, followed by the type checker from every use to its declaration. Importing it under
+ *   another name, through a namespace, or handing it on as a value is found all the same.
+ * - GUARDED_PROPERTIES: a UI string read off any object (`s.axisGain`, `s['axisGain']`, `const { axisGain } = s`). A
+ *   property can only be read by its name, so the name is what is looked for, in the syntax tree.
+ * - TEXT_PATTERNS: a shape of code or of a string's content that has no declaration to follow (a template ending in
+ *   " dB", a default of 'dBFS'). These are text, and can be written around; they hold the forms that have been bugs.
+ *
+ * Each match is a site: the names of everything named it is in (a function, a const in it, a property of that).
+ * ALLOWED lists the sites that may match, by name. A new site fails and names itself; so does a listed site that is gone.
+ */
+const GUARDED_FUNCTIONS: Readonly<Record<string, readonly string[]>> = {
+    /** The axis builders and the calibration words. */
+    'axis-builder': ['webview/runtime/comparePanes.ts:paneAxes', 'webview/runtime/stagePanes.ts:stageAxes', 'webview/runtime/figureModel.ts:calibrationWords'],
+    /** Lines or files keyed by level identity. */
+    'identity': ['webview/runtime/comparePanes.ts:levelIdentityOf', 'webview/runtime/figureModel.ts:levelIdentity'],
+    /** R9's range rules. */
+    'range-rule': ['shared/utils/ticks.ts:niceRange', 'shared/utils/ticks.ts:heatmapDbRange', 'webview/runtime/stagePanes.ts:stageRange', 'webview/runtime/stagePanes.ts:stageDiffRange'],
+};
+
+const GUARDED_PROPERTIES: Readonly<Record<string, RegExp>> = {
+    /** An axis's name built from the UI strings of a level, a gain, a Δ or the calibration word. */
+    'axis-name': /^axis(?:Level\w*|Uncalibrated|Gain|TransferLevel|Delta)$/u,
+    /** A CSV level column or reference column named outside the layer. */
+    'csv-column': /^(?:reportLevelReference|reportBaseLevelReference|reportBaseLeq|entryColBandLevel)$/u,
+};
+
+const TEXT_PATTERNS: Readonly<Record<string, RegExp>> = {
     /** A level named in bare dB by a template ("${band} dB"), not a Δ. */
     'bare-db': /`(?![^`]*Δ)[^`]*\$\{[^}]+\} dB`/gu,
-    /** The axis builders and the calibration words, called. */
-    'axis-builder': /\b(?:paneAxes|stageAxes|calibrationWords)\(/gu,
     /**
-     * Lines or files keyed by level identity by hand: levelIdentityOf and the old per-file rules, a key of unit and
-     * reference, units or references compared, and axis names or level labels compared as text.
+     * Lines or files keyed by level identity by hand: a key of unit and reference, units or references compared, and
+     * axis names or level labels compared as text. (The identity functions themselves are in GUARDED_FUNCTIONS.)
      */
-    'identity': /\b(?:levelIdentityOf|levelIdentity|ofOneUnit|oneLevelIdentity)\(|JSON\.stringify\(\[[^\]\n]*\.unit\b[^\]\n]*\.ref\b|\.(?:unit|ref)\s*[!=]==\s*[\w.?]+\.(?:unit|ref)\b|\.(?:axisLabel|levelReferenceLabel)\s*[!=]==/gu,
+    'identity': /JSON\.stringify\(\[[^\]\n]*\.unit\b[^\]\n]*\.ref\b|\.(?:unit|ref)\s*[!=]==\s*[\w.?]+\.(?:unit|ref)\b|\.(?:axisLabel|levelReferenceLabel)\s*[!=]==/gu,
     /** A line read on the first track's reference rather than its own recording's. */
     'first-track-input': /tracks\[0\]\??\.input/gu,
     /** An axis named calibrated only when every one is: the rule is any (axisInputOf), each uncalibrated one saying so. */
@@ -274,8 +300,6 @@ const PATTERNS: Readonly<Record<string, RegExp>> = {
     'table-calibration': /model\.rows[^\n]*\.uncalibrated/gu,
     /** Results over a region mixed with the whole files' (a base recording measured over the other). */
     'mixed-results': /new Map\(\[\.\.\.[\w.]*results, \.\.\.measured\]\)/gu,
-    /** R9's range rules, called. */
-    'range-rule': /\b(?:niceRange|stageRange|stageDiffRange|heatmapDbRange)\(/gu,
     /** A figure's n, a heading's count or a CSV's 基準群 n written from the files asked for, not the figure's set. */
     'file-count': /(?:String\(|count:\s*|eachBaseTitle\([^,\n]+,\s*)[\w.?]*(?:filePaths|basePaths|allBase|paths|members|sides)\??\.length\b|\.filter\([^\n]*?\.ok\b\)\.length\b/gu,
     /**
@@ -283,62 +307,112 @@ const PATTERNS: Readonly<Record<string, RegExp>> = {
      * column or name in "dB(A)" (an A-weighted level is in dB re its channel's reference, R4, R7), not a Δ.
      */
     'default-reference': /(?:\?\?|\|\|)\s*(['"`])dB(?:FS)?\1|\buncalibratedUnits\(true\)\.level\b|(['"`])(?![^'"`\n]*Δ)[^'"`\n]*\bdB\(A\)[^'"`\n]*\2/gu,
-    /** A CSV level column or reference column named outside the layer. */
-    'csv-column': /\b(?:STR|strings)\.(?:reportLevelReference|reportBaseLevelReference|reportBaseLeq|entryColBandLevel)\b/gu,
 };
 
-/**
- * The sites outside figureModel.ts that may match, with their counts: the definitions the layer wraps, and counts
- * that are not a figure's n. Exact: a new site fails, and so does one removed until it is taken off. Only shrinks.
- */
-const ALLOWED: Readonly<Record<string, Readonly<Record<string, number>>>> = {
+type Sites = Record<string, Record<string, string[]>>;
+
+/** The sites outside figureModel.ts that may match, and figureModel.ts's own, each file's with why. */
+const ALLOWED: Sites = {
     // A calibration profile's own equality (its channels' factors and units): which profile applies, not a level identity.
-    'shared/analysis/calibrationModel.ts': { 'identity': 1 },
+    'shared/analysis/calibrationModel.ts': { 'identity': ['profilesEqual'] },
     // Which saved profile is the latest that calibrates anything: a profile's choice, not a line's calibration.
-    'extension/calibrationStore.ts': { 'every-calibrated': 1 },
+    'extension/calibrationStore.ts': { 'every-calibrated': ['persistChannel'] },
     // A gain (one unit's ratio) and a Δ are plain dB: 'Gain [dB]', 'Difference Δ [dB]' in each language.
-    'shared/i18n/strings.ts': { 'bracket-db': 4 },
-    // R9's rule and its rounding, defined (figureModel.ts roundedRange / heatmapRange wrap them).
-    'shared/utils/ticks.ts': { 'range-rule': 1 },
+    'shared/i18n/strings.ts': { 'bracket-db': ['STRINGS.en.axisDelta', 'STRINGS.en.axisGain', 'STRINGS.ja.axisDelta', 'STRINGS.ja.axisGain'] },
+    // R9's rule and its rounding, defined: heatmapDbRange is built on niceRange (figureModel.ts wraps both).
+    'shared/utils/ticks.ts': { 'range-rule': ['heatmapDbRange'] },
     // A histogram's bins, rounded by the same rule: entry-distribution's range is figureModel.ts:plainRange of it.
-    'shared/dataset/distribution.ts': { 'range-rule': 1 },
+    'shared/dataset/distribution.ts': { 'range-rule': ['distribution'] },
     // A signed difference's text ("+1.2 dB"): a Δ, not a level.
-    'webview/plot/plotText.ts': { 'bare-db': 1 },
+    'webview/plot/plotText.ts': { 'bare-db': ['signedText'] },
     // The waveform's range, defined (a lane's amplitude range is figureModel.ts:laneAmplitudeRange).
-    'webview/plot/waveformLayer.ts': { 'range-rule': 1 },
+    'webview/plot/waveformLayer.ts': { 'range-rule': ['waveformRange'] },
     // paneAxes and levelIdentityOf, defined (figureModel.ts paneNames and levelKeyOf wrap them); the Δ headline's
-    // signed "Leq +1.2 dB" (a Δ); a recording's channels read together are calibrated only when every one is.
-    'webview/runtime/comparePanes.ts': { 'axis-name': 5, 'bare-db': 2, 'identity': 1 },
+    // signed "Leq +1.2 dB" (a Δ).
+    'webview/runtime/comparePanes.ts': { 'axis-name': ['levelsHeadline.word', 'paneAxes.delta.y', 'paneAxes.y'], 'bare-db': ['diffHeadline'], 'identity': ['levelIdentityOf'] },
     // "Δ max band dB" (a Δ).
-    'webview/runtime/compareReport.ts': { 'bare-db': 1 },
+    'webview/runtime/compareReport.ts': { 'bare-db': ['reportCsv.header'] },
     // The CSV match's "{matched} of {total}" files (the folder's count) and the test snapshot's scanned count.
-    'webview/runtime/entryRuntime.ts': { 'file-count': 3 },
+    'webview/runtime/entryRuntime.ts': { 'file-count': ['createEntryScreen.paint', 'createEntryScreen.readCsvFile', 'createEntryScreen.snapshot.scanned'] },
     // "Δ max band dB" (a Δ); which part of a ≠ row's identity differs, said once figureModel.scanLevelKey found it differs.
-    'webview/runtime/entryTable.ts': { 'bare-db': 1, 'identity': 1 },
+    'webview/runtime/entryTable.ts': { 'bare-db': ['entryCsv.header'], 'identity': ['mismatchLabel'] },
     // stageAxes and stageRange / stageDiffRange, defined (figureModel.ts stageNames, dataRange, diffRange wrap them).
-    'webview/runtime/stagePanes.ts': { 'axis-builder': 2, 'axis-name': 8, 'range-rule': 3 },
+    'webview/runtime/stagePanes.ts': { 'axis-builder': ['stageAxes.colour', 'stageAxes.y'], 'axis-name': ['amplitudeAxisTitle', 'metricName', 'stageAxes.colour', 'stageAxes.y', 'timeLevelTitle', 'timeLevelTitle.name'], 'range-rule': ['roundEdge', 'stageRange'] },
     // The gate's "analyse the base group's n recordings": how many would be scanned, not a figure's n.
-    'webview/runtime/trackStageMode.ts': { 'file-count': 2 },
+    'webview/runtime/trackStageMode.ts': { 'file-count': ['createTrackStageMode.paintNow.count', 'createTrackStageMode.paintNow.items.count'] },
     // figureModel.ts itself, looked at too: the rules it defines and wraps (its own builders, keys and range rules),
     // and never a default reference ('default-reference'): a guessed reference here would be every figure's.
     // Its definitions: stageAxes/paneAxes/calibrationWords wrapped; the level strings its titles are made of; its CSV
     // columns; medianInputOf, the one place a line of several recordings is calibrated only when every one is; R9's
-    // rules wrapped; levelIdentityOf wrapped by levelKeyOf.
-    // Its calibration rules (sweep 4: `.some(` counted too): medianInputOf's every, calibrationWordsBy's and a folder
-    // reference's any.
-    'webview/runtime/figureModel.ts': { 'axis-builder': 3, 'axis-name': 6, 'csv-column': 5, 'every-calibrated': 3, 'range-rule': 5, 'identity': 1 },
+    // rules wrapped; levelIdentityOf wrapped by levelKeyOf; calibrationWordsBy's and a folder reference's any.
+    'webview/runtime/figureModel.ts': { 'axis-builder': ['legendWords.word', 'paneNames', 'paneNames.axes', 'stageNames'], 'axis-name': ['gainAxisName.name', 'levelTitle', 'uncalibratedWord', 'unknownLevelTitle'], 'csv-column': ['bandLevelColumns', 'bandLevelColumns.level', 'baseLevelColumns', 'levelColumns'], 'every-calibrated': ['calibrationWordsBy', 'folderReference.calibrated', 'medianInputOf.calibrationStatus'], 'identity': ['levelKeyOf.identity', 'pictureSet.of'], 'range-rule': ['dataRange', 'diffRange', 'heatmapRange', 'levelLineRange.auto', 'roundedRange.nice'] },
 };
 
-/** Each file's matches of each pattern, a definition (`function name(`) not counted. */
-function figureSites(files: ReadonlyArray<{ rel: string; source: string }>): Record<string, Record<string, number>> {
-    const sites: Record<string, Record<string, number>> = {};
-    for (const { rel, source } of files) {
-        // Comments say what the code does; only the code is looked at.
-        const code = source.replace(/^\s*(?:\/\/|\/?\*).*$/gmu, '');
-        for (const [name, pattern] of Object.entries(PATTERNS)) {
-            const count = [...code.matchAll(pattern)].filter(match => !/function\s*$/u.test(code.slice(Math.max(0, match.index - 9), match.index))).length;
-            if (count) (sites[rel] ??= {})[name] = count;
+function each(node: ts.Node, visit: (node: ts.Node) => void): void {
+    visit(node);
+    ts.forEachChild(node, child => each(child, visit));
+}
+
+/** Where `node` is, as the names of everything named it is in, outermost first (`paintStage.range`, `STRINGS.ja.axisGain`); `<module>` outside any. */
+function siteOf(node: ts.Node): string {
+    const names: string[] = [];
+    for (let at: ts.Node | undefined = node; at; at = at.parent) {
+        if ((ts.isFunctionDeclaration(at) || ts.isMethodDeclaration(at) || ts.isVariableDeclaration(at) || ts.isPropertyAssignment(at) || ts.isPropertyDeclaration(at)) && at.name && (ts.isIdentifier(at.name) || ts.isStringLiteral(at.name))) names.unshift(at.name.text);
+    }
+    return names.join('.') || '<module>';
+}
+
+function note(sites: Sites, rel: string, group: string, site: string): void {
+    const names = ((sites[rel] ??= {})[group] ??= []);
+    if (!names.includes(site)) names.push(site);
+    names.sort();
+}
+
+/** One file's sites of GUARDED_PROPERTIES and TEXT_PATTERNS: found in its syntax tree and its text, no types needed. */
+function fileSites(rel: string, text: string, sites: Sites = {}): Sites {
+    const source = ts.createSourceFile(rel, text, ts.ScriptTarget.Latest, true);
+    each(source, node => {
+        // A property read: `s.name`, `s['name']`, `const { name } = s` (the property's name, whatever it is bound to).
+        const bound = ts.isBindingElement(node) && ts.isObjectBindingPattern(node.parent) ? node.propertyName ?? node.name : undefined;
+        const read = ts.isPropertyAccessExpression(node) ? node.name : ts.isElementAccessExpression(node) ? node.argumentExpression : bound;
+        if (!read || !(ts.isIdentifier(read) || ts.isStringLiteralLike(read))) return;
+        for (const [group, pattern] of Object.entries(GUARDED_PROPERTIES)) if (pattern.test(read.text)) note(sites, rel, group, siteOf(node));
+    });
+    // Comments say what the code does; only the code is looked at. Blanked in place, so a match keeps its position.
+    const code = text.replace(/^[ \t]*(?:\/\/|\/?\*).*$/gmu, line => ' '.repeat(line.length));
+    for (const [group, pattern] of Object.entries(TEXT_PATTERNS)) {
+        for (const match of code.matchAll(pattern)) {
+            let at: ts.Node = source;
+            for (let inner: ts.Node | undefined = at; inner; inner = ts.forEachChild(at, child => (child.getStart(source) <= match.index && match.index < child.end ? child : undefined))) at = inner;
+            note(sites, rel, group, siteOf(at));
         }
+    }
+    return sites;
+}
+
+/** Every use of a GUARDED_FUNCTIONS function in `program`, by what the name declares. */
+function functionSites(program: ts.Program, sites: Sites = {}): Sites {
+    const checker = program.getTypeChecker();
+    const guarded = new Map<ts.Node, string>();
+    for (const [group, entries] of Object.entries(GUARDED_FUNCTIONS)) {
+        for (const entry of entries) {
+            const [rel, name] = entry.split(':');
+            const declared = program.getSourceFile(path.join(srcRoot, rel))?.statements.find(statement => ts.isFunctionDeclaration(statement) && statement.name?.text === name);
+            assert.ok(declared, `${entry} is not a function of its file any more: name what replaced it in GUARDED_FUNCTIONS (src/test/figureModel.test.ts)`);
+            guarded.set(declared, group);
+        }
+    }
+    for (const source of program.getSourceFiles()) {
+        const rel = path.relative(srcRoot, source.fileName).split(path.sep).join('/');
+        if (rel.startsWith('..') || rel.startsWith('test/') || source.isDeclarationFile) continue;
+        each(source, node => {
+            // An import or export only passes the name on, and a declaration's own name is not a use of it.
+            if (!ts.isIdentifier(node) || ts.isImportSpecifier(node.parent) || ts.isExportSpecifier(node.parent) || ts.isImportClause(node.parent) || (ts.isFunctionDeclaration(node.parent) && node.parent.name === node)) return;
+            let symbol = ts.isShorthandPropertyAssignment(node.parent) ? checker.getShorthandAssignmentValueSymbol(node.parent) : checker.getSymbolAtLocation(node);
+            if (symbol && symbol.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol);
+            const group = symbol?.declarations?.[0] ? guarded.get(symbol.declarations[0]) : undefined;
+            if (group) note(sites, rel, group, siteOf(node));
+        });
     }
     return sites;
 }
@@ -356,15 +430,63 @@ function sources(): Array<{ rel: string; source: string }> {
     return files;
 }
 
+/** The product's sources with their types, `extra` (path under src → text) added: for the injections. */
+function typed(files: ReadonlyArray<{ rel: string }>, extra: Readonly<Record<string, string>> = {}): ts.Program {
+    const config = ts.getParsedCommandLineOfConfigFile(path.join(srcRoot, '..', 'tsconfig.json'), {}, { ...ts.sys, onUnRecoverableConfigFileDiagnostic: () => undefined });
+    const options = { ...config?.options, noEmit: true };
+    const host = ts.createCompilerHost(options, true);
+    const added = new Map(Object.entries(extra).map(([rel, text]) => [path.join(srcRoot, rel), text]));
+    const own = host.getSourceFile.bind(host), exists = host.fileExists.bind(host), reads = host.readFile.bind(host);
+    host.getSourceFile = (fileName, version, onError, create) => {
+        const text = added.get(path.resolve(fileName));
+        return text !== undefined ? ts.createSourceFile(fileName, text, version, true) : own(fileName, version, onError, create);
+    };
+    host.fileExists = fileName => added.has(path.resolve(fileName)) || exists(fileName);
+    host.readFile = fileName => added.get(path.resolve(fileName)) ?? reads(fileName);
+    return ts.createProgram([...files.map(file => path.join(srcRoot, file.rel)), ...added.keys()], options, host);
+}
+
+const INJECTED_FILE = 'webview/runtime/injectedFigure.ts';
+/** Uses of the guarded functions under other names: what a search for their spelling would miss. */
+const INJECTED_USES = [
+    "import * as panes from './stagePanes';",
+    "import { niceRange as nice, heatmapDbRange } from '../../shared/utils/ticks';",
+    "import { levelIdentityOf as keyOf, paneAxes } from './comparePanes';",
+    "import { calibrationWords as words } from './figureModel';",
+    'export const renamed = (low: number, high: number) => nice(low, high);',
+    'export const spaced = () => panes.stageRange([]);',
+    'export const handedOn = [heatmapDbRange].map(rule => rule(0, 1));',
+    'export const diff = panes.stageDiffRange;',
+    'export const identity = (input: Parameters<typeof keyOf>[0]) => keyOf(input);',
+    'export const axes = paneAxes;',
+    'export const builder = panes.stageAxes;',
+    'export const calibration = words;',
+].join('\n');
+
 test('outside figureModel.ts nothing builds an axis name, calls an axis builder, keys by level identity, applies a range rule, counts files for n or defaults a reference, but the exact list; figureModel.ts only its own definitions (docs/plot-layers.md)', () => {
     const files = sources();
     assert.ok(files.length > 100, String(files.length));
-    assert.deepEqual(figureSites(files), ALLOWED);
+    // One program for the real sources and the injected uses: the injected file's sites are taken out and checked apart.
+    const sites = functionSites(typed(files, { [INJECTED_FILE]: INJECTED_USES }));
+    const injected = sites[INJECTED_FILE];
+    delete sites[INJECTED_FILE];
+    for (const { rel, source } of files) fileSites(rel, source, sites);
+    const problems: string[] = [];
+    for (const rel of new Set([...Object.keys(sites), ...Object.keys(ALLOWED)])) {
+        for (const group of new Set([...Object.keys(sites[rel] ?? {}), ...Object.keys(ALLOWED[rel] ?? {})])) {
+            const found = sites[rel]?.[group] ?? [], allowed = ALLOWED[rel]?.[group] ?? [];
+            for (const site of found.filter(name => !allowed.includes(name))) problems.push(`src/${rel}: ${site} does what only the figure layer may (${group}). Take the name, range, identity or count from src/webview/runtime/figureModel.ts (docs/plot-layers.md). If this is not a figure's (say, a definition figureModel.ts wraps), add '${site}' to ALLOWED['${rel}']['${group}'] in src/test/figureModel.test.ts with a comment saying why.`);
+            for (const site of allowed.filter(name => !found.includes(name))) problems.push(`src/${rel}: ${site} no longer matches ${group}: take it off ALLOWED in src/test/figureModel.test.ts (the list only shrinks).`);
+        }
+    }
+    assert.deepEqual(problems, []);
+    // The same scan finds a guarded function used under another name, through a namespace, or handed on as a value.
+    assert.deepEqual(injected, { 'axis-builder': ['axes', 'builder', 'calibration'], 'identity': ['identity'], 'range-rule': ['diff', 'handedOn', 'renamed', 'spaced'] });
 });
 
 test('the structural check fails on each injected bug: every violation of class sweep 1 (reference, aggregation) and the first ones (an axis name, pending in n, two identities on one axis, a CSV header without its reference)', () => {
-    const files = sources();
-    const inject = (rel: string, code: string) => figureSites(files.map(file => (file.rel === rel ? { rel, source: `${file.source}\n${code}\n` } : file)));
+    const files = new Map(sources().map(file => [file.rel, file.source]));
+    const inject = (rel: string, code: string): Sites => fileSites(rel, `${files.get(rel) ?? ''}\n${code}\n`);
     const injected: Array<[string, string, string]> = [
         ['webview/runtime/trackStagePainter.ts', 'const y = `${STR.axisLevelCal} [dB]`;', 'axis-name'],
         ['webview/runtime/trackStagePainter.ts', 'const y = s.axisLevelCal;', 'axis-name'],
@@ -372,8 +494,6 @@ test('the structural check fails on each injected bug: every violation of class 
         // V1: a line without a recording read on the first track's reference.
         ['webview/runtime/trackStagePainter.ts', 'const inputOf = (layer: StageLayer) => tracks[0]?.input;', 'first-track-input'],
         // A1, A3, A7: a base group chosen by hand, of another reference or with pending files kept.
-        ['webview/runtime/entryBase.ts', 'const paths = ofOneUnit(results, members.paths, path => path, like);', 'identity'],
-        ['webview/runtime/triggerLanes.ts', 'const key = (track: StageTrack) => levelIdentityOf(track.input);', 'identity'],
         // V9, B2: rows compared by a key of unit and reference of their own.
         ['webview/runtime/entryTable.ts', 'const key = JSON.stringify([input.channels.length, input.unit, input.ref]);', 'identity'],
         // V8: lines put on an axis by the text of their axis name.
@@ -395,7 +515,6 @@ test('the structural check fails on each injected bug: every violation of class 
         ['shared/i18n/strings.ts', "const preset = { presetLevelGraph: 'A-weighted RMS level [dB]' };", 'bracket-db'],
         // A4, A5: a region's results mixed with the whole files'.
         ['webview/runtime/comparisonRuntime.ts', 'const results = new Map([...data.results, ...measured]);', 'mixed-results'],
-        ['webview/runtime/pairSpectrum.ts', 'const range = stageRange([view]);', 'range-rule'],
         // Class sweep 3: a CSV column in "dB(A)" (V6), a reference defaulted before anything is read (V9), in the layer too.
         ['shared/i18n/strings.ts', "const columns = { entryColLeq: 'Leq dB(A)' };", 'default-reference'],
         ['webview/runtime/entrySidePlots.ts', "const label = folder.label || 'dBFS';", 'default-reference'],
@@ -411,9 +530,9 @@ test('the structural check fails on each injected bug: every violation of class 
         ['webview/runtime/stagePanes.ts', 'const reference = input ?? { levelReferenceLabel: uncalibratedUnits(true).level };', 'default-reference'],
     ];
     for (const [rel, code, pattern] of injected) {
-        const sites = inject(rel, code);
-        assert.notDeepEqual(sites, ALLOWED, `${rel}: ${code}`);
-        assert.ok((sites[rel]?.[pattern] ?? 0) > (ALLOWED[rel]?.[pattern] ?? 0), `${rel}: ${pattern}`);
+        const before = fileSites(rel, files.get(rel) ?? '')[rel]?.[pattern] ?? [];
+        const added = (inject(rel, code)[rel]?.[pattern] ?? []).filter(site => !before.includes(site));
+        assert.equal(added.length, 1, `${rel}: ${pattern}: ${code}`);
     }
 });
 

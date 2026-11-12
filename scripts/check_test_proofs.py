@@ -6,10 +6,12 @@ this script checks, by its code and not its words, that the test:
 - reaches the code: it calls a backend function (imported from its module) that is, or calls, one of the row's
   backend functions (followed through the backend's own calls, and the test module's own helpers);
 - asserts that code's answer outright (``==``, ``pytest.approx``, ``np.testing.assert_allclose`` …);
-- and asserts it is not the answer the drawn points give: ``assert_not_drawn(answer, drawn)`` (conftest.py), or
-  ``!=``, ``<``/``>``, ``answer - drawn > margin``, ``not np.allclose(...)``, ``pytest.raises(AssertionError)``
-  around an equality. One side is the code's answer, the other is made of the test's inputs too: never ``None``, a
-  number, or a name holding a constant, and never the same expression.
+- and asserts it is not the answer the drawn points give, the one way: ``assert_not_drawn(answer, drawn)``
+  (conftest.py), with the code's answer first and, second, something worked out in the test: never ``None``, a number,
+  a name holding a constant, or the first argument again.
+
+What this cannot see: whether ``drawn`` really is what the thinned points would give, and whether the answer asserted
+is the value the row is about. Those are for the reviewer (docs/plot-contracts-guide.md).
 
 Input (stdin): JSON ``[{"targets": ["python-backend/mod.py:func", ...], "file": "python-backend/test_x.py",
 "name": "test_..."}]``. Output: JSON, a problem (text) or null for each.
@@ -203,69 +205,26 @@ class Proof:
         def constant(node: ast.AST) -> bool:
             return not (names_in(node) - constants - {"np", "math", "pytest", "float", "int", "abs"})
 
-        def told_apart(left: ast.AST, right: ast.AST) -> bool:
-            return (
-                not constant(left)
-                and not constant(right)
-                and (answer(left) or answer(right))
-                and ast.dump(left) != ast.dump(right)
-            )
-
         positive = negative = False
         for node in ast.walk(test):
             if isinstance(node, ast.Assert):
-                test_expr = node.test
-                negated = isinstance(test_expr, ast.UnaryOp) and isinstance(test_expr.op, ast.Not)
-                inner = test_expr.operand if negated else test_expr
-                if isinstance(inner, ast.Compare) and len(inner.ops) == 1:
-                    left, right, op = inner.left, inner.comparators[0], inner.ops[0]
-                    # ``answer - drawn > 3`` (or ``abs(answer - drawn) > 3``): the two are apart by more than a margin.
-                    gap = (
-                        left.args[0]
-                        if isinstance(left, ast.Call) and callee_name(left) == "abs" and left.args
-                        else left
-                    )
-                    if (
-                        not negated
-                        and isinstance(op, (ast.Gt, ast.GtE))
-                        and isinstance(gap, ast.BinOp)
-                        and isinstance(gap.op, ast.Sub)
-                        and told_apart(gap.left, gap.right)
-                    ):
-                        negative = True
-                        continue
-                    unequal = isinstance(op, (ast.NotEq, ast.Lt, ast.Gt, ast.LtE, ast.GtE, ast.IsNot))
-                    equal = isinstance(op, (ast.Eq, ast.Is))
-                    if negated:
-                        unequal, equal = equal, unequal
-                    if unequal and isinstance(op, (ast.LtE, ast.GtE)) and not negated:
-                        unequal = False  # ≤ / ≥ allow the two to be equal
-                    if unequal and told_apart(left, right):
-                        negative = True
-                    elif equal and (answer(left) or answer(right)):
-                        positive = True
+                inner = node.test
+                if (
+                    isinstance(inner, ast.Compare)
+                    and len(inner.ops) == 1
+                    and isinstance(inner.ops[0], (ast.Eq, ast.Is))
+                ):
+                    positive = positive or answer(inner.left) or answer(inner.comparators[0])
                 elif isinstance(inner, ast.Call) and callee_name(inner) in EQUALITY_CALLS and len(inner.args) >= 2:
-                    if negated and told_apart(inner.args[0], inner.args[1]):
-                        negative = True
-                    elif not negated and any(answer(arg) for arg in inner.args[:2]):
-                        positive = True
+                    positive = positive or any(answer(arg) for arg in inner.args[:2])
             elif isinstance(node, ast.Call) and callee_name(node) == NOT_DRAWN and len(node.args) >= 2:
-                if told_apart(node.args[0], node.args[1]):
+                mine, drawn = node.args[0], node.args[1]
+                if answer(mine) and not constant(drawn) and ast.dump(mine) != ast.dump(drawn):
                     negative = True
             elif isinstance(node, ast.Call) and callee_name(node) in POSITIVE_CALLS and callee_name(node) != "approx":
                 asserted = callee_name(node).startswith("assert_") and any(answer(arg) for arg in node.args[:2])
                 if asserted and not self.inside_raises(test, node):
                     positive = True
-            if isinstance(node, ast.With) and self.raises_assertion(node):
-                for statement in node.body:
-                    for call in ast.walk(statement):
-                        if (
-                            isinstance(call, ast.Call)
-                            and callee_name(call).startswith("assert_")
-                            and len(call.args) >= 2
-                            and told_apart(call.args[0], call.args[1])
-                        ):
-                            negative = True
         if not (positive and negative):
             return f'"{test.name}" asserts no case where the full data and the drawn points give different answers'
         return None

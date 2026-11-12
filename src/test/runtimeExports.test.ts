@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildSpectrumCsv, wavLoopRegions } from '../webview/runtime/runtimeExports';
 import type { SpectrumSlice } from '../webview/runtime/types';
+import { assertNotDrawn } from './fullNotDrawn';
 import { P, T } from './helpers/figure';
 
 const slice = (values: number[], extra: Partial<SpectrumSlice> = {}): SpectrumSlice => ({
@@ -48,6 +49,7 @@ test('spectrum CSV writes every FFT bin of a whole row at fs / n_fft spacing', (
     const csv = buildSpectrumCsv([{ name: 'a', slice: shown, levelTitle: T('Level, uncalibrated [dBFS]') }], P('Frequency [Hz]'));
     const rows = csv.split('\n').slice(1).map(row => row.split(',').map(Number));
     assert.equal(rows.length, nFft / 2 + 1);
+    assertNotDrawn(rows.length, values.filter((_, bin) => bin * sampleRateHz / nFft <= shown.maxFrequencyHz).length, 'not only the bins of the range the display draws');
     assert.notEqual(Math.round(rows[rows.length - 1][0]), shown.maxFrequencyHz, 'up to Nyquist, not the range the display draws');
     rows.forEach(([frequencyHz, level], bin) => {
         assert.ok(Math.abs(frequencyHz - bin * sampleRateHz / nFft) < 1e-4);

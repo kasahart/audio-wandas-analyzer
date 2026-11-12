@@ -6,9 +6,10 @@ import assert from 'node:assert/strict';
  *
  * A proof test sets up data whose full resolution and drawn points differ, asserts the code's answer outright
  * (`assert.equal(answer, expected)`), and then calls this with the same answer and the answer worked out from the
- * drawn points (the thinned line, the envelope, the averaged cells) in the test itself. The contract test
- * (plotContracts.test.ts, `distinguishes`) requires both sides to be made of the test's inputs: never null, a
- * literal, or the same expression twice.
+ * drawn points (the thinned line, the envelope, the averaged cells) in the test itself. This is the only form the
+ * contract test (plotContracts.test.ts, `proofProblem`) takes as a proof, and it finds the call by this declaration,
+ * not by its name: the answer of the row's code comes first; the second argument is never null, a literal, a local
+ * holding one, or the first argument again.
  */
 export function assertNotDrawn(answer: unknown, drawn: unknown, message?: string): void {
     assert.notDeepEqual(answer, drawn, message ?? 'the answer is the one the drawn points give: it must come from the full data');

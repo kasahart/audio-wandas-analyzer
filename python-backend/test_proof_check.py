@@ -37,10 +37,19 @@ def test_a_proof_that_asserts_the_answer_and_tells_it_from_the_drawn_points_pass
         '    assert_not_drawn(result["absolutePeak"], float(averaged.max()))\n'
     )
     assert _problem(tmp_path, body) is None
-    # The same told apart by a plain inequality, or by a margin.
-    assert _problem(tmp_path, body.replace("assert_not_drawn(", "assert not np.allclose(")) is None
-    by_margin = '    assert result["absolutePeak"] - float(averaged.max()) > 0.5\n'
-    assert _problem(tmp_path, body.rsplit("\n", 2)[0] + "\n" + by_margin) is None
+    # One form only, so every proof reads the same way: another negative assertion, or a margin, is not the helper.
+    for other in (
+        body.replace("assert_not_drawn(", "assert not np.allclose("),
+        body.rsplit("\n", 2)[0] + '\n    assert result["absolutePeak"] - float(averaged.max()) > 0.5\n',
+    ):
+        problem = _problem(tmp_path, other)
+        assert problem is not None and "asserts no case where the full data and the drawn points" in problem, other
+    # The answer comes first: the drawn points' answer told apart from something else proves nothing of the code.
+    swapped = body.replace(
+        'assert_not_drawn(result["absolutePeak"], float(averaged.max()))',
+        "assert_not_drawn(float(averaged.max()), 0.5 * samples[0] + 3)",
+    )
+    assert _problem(tmp_path, swapped) is not None
 
 
 def test_a_proof_with_no_negative_assertion_or_one_against_a_constant_fails(tmp_path: Path) -> None:

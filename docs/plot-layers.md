@@ -37,7 +37,11 @@ drawing), list it in `src/test/answerBoundaryAllowlist.ts` with what it holds.
 The figure model is pure. It turns answers into what a figure shows: `FigureNames` (axis names with quantity, unit
 and reference), `FigureRange` (an axis or colour range) and `FigureSet` (which files are in a figure and which were
 left out, with why). These types are branded and made only in `figureModel.ts`, and `paintOverlay` accepts nothing
-else, so an axis name or a range built elsewhere does not compile. `src/test/figureModel.test.ts` checks the rest.
+else, so an axis name or a range built elsewhere does not compile. `src/test/figureModel.test.ts` checks the rest. It follows the axis builders, the range rules and the
+level-identity functions from every use to their declaration (so an import under another name is found), looks for
+the level strings read off any object, and keeps a short list of code shapes that have been bugs. Each place that
+may still do one of these is listed by name in its `ALLOWED`, with why; a new place fails and the message says what
+to do. The code shapes are matched as text and can be written around: they are a net for known mistakes, not a proof.
 
 A range is always set from the full data: a picture's `valueRange` (the backend takes it of every value before
 thinning) or, for a picture the webview makes of values it holds whole, `heldValueRange` in `fullRead.ts`. The

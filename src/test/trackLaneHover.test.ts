@@ -104,7 +104,7 @@ test('the pointer on a spectrogram lane reads the real STFT cell under it, not t
     let read: StageRead | null | undefined = stageHover(plot, where.x, where.y);
     assert.equal(read?.full, true);
     assert.equal(read?.value, raw[bin][frame], 'the cell itself');
-    assert.notEqual(read?.value, spec.values[Math.floor(frame / 8)][Math.floor(bin / 2)], 'not the mean drawn');
+    assertNotDrawn(read?.value, spec.values[Math.floor(frame / 8)][Math.floor(bin / 2)], 'not the mean drawn');
     close(read?.at, laneSeconds(frames[frame]), 'its frame, on the lanes\' time axis');
     assert.equal(read?.row, bins[bin]);
     assert.equal(read?.rowStep, 500);

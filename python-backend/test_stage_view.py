@@ -5,6 +5,7 @@ import pytest
 import wandas as wd
 
 import analysis_spec as spec
+from conftest import assert_not_drawn
 from protocol_schema import DEFINITIONS, first_violation
 from stage_view import (
     LAG_POINTS,
@@ -442,6 +443,7 @@ def test_every_pictures_value_range_is_its_full_datas_not_the_points_or_cells_dr
     drawn = np.array([[v for v in row if v is not None] for row in view["matrix"]], dtype=object)
     drawn_max = max(max(row) for row in drawn if len(row))
     assert view["valueRange"]["max"] - drawn_max > 3, "the click is averaged down where it is drawn"
+    assert_not_drawn(view["valueRange"]["max"], drawn_max)
     # Zoomed onto the click, the part on screen: its own cells.
     zoomed = stage_view(frame, None, {"x": [1.9, 2.1], "y": [100.0, 4000.0], "points": 400})
     times = np.asarray(frame.times, dtype=np.float64)

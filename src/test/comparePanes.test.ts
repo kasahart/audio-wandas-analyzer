@@ -408,6 +408,9 @@ test('the held Δ zoomed in is drawn again from every bin between its ends, not 
     const inside = (view: typeof whole.view): number => (view?.xs ?? []).filter(x => x >= from + 1 && x <= to - 1).length;
     assert.ok(inside(zoomed.view) >= 98, `zoomed: ${inside(zoomed.view)} bins`);
     assert.ok(inside(whole.picture) < inside(zoomed.view) / 2, `whole: ${inside(whole.picture)} bins`);
+    const between1k = (view: typeof whole.view): number[] => (view?.xs ?? []).filter(x => x >= from + 1 && x <= to - 1);
+    assert.deepEqual(between1k(zoomed.view), Array.from({ length: to - from - 1 }, (_, bin) => from + 1 + bin), 'every bin of the window');
+    assertNotDrawn(between1k(zoomed.view), between1k(whole.picture), 'not the points the whole Δ keeps there');
     // Zoomed between two bins (100.3 to 100.7 Hz of 1 Hz bins), the line between them still crosses the range: the bin
     // beyond each end is kept, for the plot to clip.
     const between = deltaViews(comparison, { start: fraction(100.3), end: fraction(100.7) });

@@ -382,7 +382,7 @@ test('the cursor spectrum orders a slice cut for display by every bin on screen,
     assert.equal(canvas.dataset.plotOrder, `${(10 * Math.log10(mean(steady))).toFixed(2)},${(10 * Math.log10(mean(spiky))).toFixed(2)}`);
     // Not the order of the points kept to draw it, where the spike makes the spiky one the louder (drawn under).
     const keptLevels = [spiky, steady].map(values => 10 * Math.log10(mean(kept.map(bin => values[bin])))).sort((a, b) => b - a);
-    assert.notEqual(canvas.dataset.plotOrder, keptLevels.map(level => level.toFixed(2)).join(','));
+    assertNotDrawn(canvas.dataset.plotOrder, keptLevels.map(level => level.toFixed(2)).join(','));
 });
 
 test('until the backend\'s slice comes, the cursor spectrum draws the lane\'s averaged spectrogram column and reads nothing of it; past the end, nothing (R7)', () => {
@@ -407,6 +407,7 @@ test('until the backend\'s slice comes, the cursor spectrum draws the lane\'s av
     assert.equal(read?.pending, true);
     assert.equal(read?.text, '');
     assert.equal(read?.value, undefined);
+    assertNotDrawn(read?.value, spectrogram.values[0][1], 'not the averaged cell drawn under the pointer');
 
     // Past the track's end: the floor is drawn, and a line beside it with a slice of its own is the one read.
     const silence = extractSpectrumAtCursor(source, 0, 1.5, { startSec: 0, spanSec: 1 }, context);

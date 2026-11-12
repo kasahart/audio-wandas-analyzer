@@ -35,6 +35,38 @@ and `python scripts/check_decimation_flow.py`).
 3. Add a row for every value the chart shows: the kinds in `requires` must each have one.
 4. Regenerate `docs/plot-contracts.md`.
 
+### Worked example: a new chart
+
+Say you add a "kurtosis over time" chart to the comparison. The backend sends a `StageView` for it.
+
+```ts
+// src/webview/runtime/kurtosisPane.ts
+export function paintKurtosis(canvas: HTMLCanvasElement, view: StageView, reader: StageReader, strings: UiStrings): void {
+    const layer: StageLayer = { view, color: '#36c', full: reader.of(view) ?? NO_FULL_DATA };  // full data: required
+    paintOverlay(canvas, { layers: [layer] }, dataRange([view]), stageNames(strings, view, undefined));
+}
+```
+
+- `dataRange` and `stageNames` come from the figure model: `paintOverlay` takes no other range or names.
+- `reader.of(view)` is the layer's full data. With it, the pointer and ← / → read real values with no further code.
+- You wrote no readout, no range rule and no axis name: there is nothing of yours for the checks to doubt.
+
+Then the table (`src/test/plotContracts/charts/kurtosis.ts`, added to `index.ts`):
+
+```ts
+export const kurtosis: ChartContract = {
+    chart: { id: 'kurtosis', name: '尖度の時間変化', paintedBy: ['src/webview/runtime/kurtosisPane.ts:paintKurtosis'], requires: ['readout', 'step', 'range', 'axis'] },
+    rows: [
+        { id: 'kurtosis.readout', value: 'readout', what: '読み値', computedIn: [`${SP}:lineRead`, 'python-backend/full_read.py:read_line'],
+          from: 'full', trace: 'full_read が全サンプルから返す点を読む。', tests: [tt('src/test/kurtosisPane.test.ts', 'the kurtosis readout is a real frame\'s value, not a drawn point\'s')] },
+        // ... one row per kind in `requires`
+    ],
+    knownGaps: {},
+};
+```
+
+Run `npm run compile && node dist/test/plotContracts/render.js && node --test dist/test/plotContracts.test.js`.
+
 ## Adding a number a user reads
 
 The scan finds a number written by a formatter (`toFixed`, a `VALUE_HELPERS` call), by rounding arithmetic, or by
@@ -49,6 +81,36 @@ type: a number given to `textContent`, `value`, `title`, `setAttribute`, `fillTe
 A row says what its value is computed from (`from`). `from: 'full'` needs a proof test (next section). `from:
 'thinned'` or `'extremes'` is recorded as a gap, and the number of gaps (`GAP_CEILING`) only goes down: compute from
 the full data instead.
+
+### Worked example: a new number
+
+Say the kurtosis chart should show "max 7.3 at 1.20 s" above the plot.
+
+The tempting version takes the largest point of the line drawn. It does not compile:
+
+```ts
+const top = Math.max(...view.values);   // error TS2345: 'Drawn' is not assignable to 'number'
+```
+
+That is the point of the type: the line was thinned to a few hundred points, and its largest is not the data's
+largest. Do it in three steps instead.
+
+1. **Backend**: take the number of every value and send it as a plain number, beside the picture
+   (`stage_combine.py` does this for `peak` and `valueRange`). Add the field to `python-backend/protocol_schema.py`
+   as `_NUMBER` (not `_DRAWN`), and regenerate the types.
+2. **`wholeAnswers.ts`**: add one function that names the field and why it is full data:
+
+   ```ts
+   /** The largest kurtosis and where it is (stage_view.kurtosis_peak): found among every frame before thinning. */
+   export function backendKurtosisPeak(view: StageView): { at: Whole; value: Whole } | undefined {
+       return view.kurtosisPeak ? { at: mintWhole(view.kurtosisPeak.x), value: mintWhole(view.kurtosisPeak.value) } : undefined;
+   }
+   ```
+3. **The chart**: write it with the plot's own text functions, and add a `headline` row to the chart's table
+   naming the function that writes it and the Python function that computes it, with a proof test (next section).
+
+If the webview already holds every value (a band table, a histogram's bins), no backend change is needed: read it
+through `localLine(xs, values)`, which is the claim "these are every value".
 
 ### The value's type says where it came from
 
@@ -71,10 +133,15 @@ to `Whole` or a `value is Whole` predicate anywhere else, and says which of thes
 
 A row computed from the full data names at least one test with `tt(file, name)`. That test must:
 
-1. call the row's code: one of its `computedIn` functions, or an exported function of that file that calls it (a
-   pytest: a backend function it imports that calls it). A UI smoke spec counts as reaching the app;
-2. assert the answer outright (`assert.equal(answer, expected)`, pytest `assert answer == expected`);
-3. assert it is **not** the answer the drawn points would give:
+1. use the row's code: one of its `computedIn` functions, a function of that file that calls it, or a helper of the
+   test file that does (a pytest: a backend function it imports that calls it). The check follows each name to its
+   declaration, so an import under another name or through a namespace counts, and a local of the same spelling
+   does not. A UI smoke spec is never the proof: nothing ties what it
+   reads off the page to this row's code. List it with `t(...)` as support;
+2. assert that code's answer outright (`assert.equal(answer, expected)`, pytest `assert answer == expected`);
+3. assert it is **not** the answer the drawn points would give, with the shared helper. This is the only form
+   that counts (`assert.notEqual`, a margin such as `answer - drawn > 3`, or `not np.allclose` do not), so that
+   every proof reads the same way and can be found by searching for the helper:
 
    ```ts
    import { assertNotDrawn, nearestOf } from './fullNotDrawn';
@@ -88,11 +155,34 @@ A row computed from the full data names at least one test with `tt(file, name)`.
    assert_not_drawn(spec["maxDb"], float(drawn.max()))
    ```
 
-   The second argument is worked out in the test from the thinned data (the view's points, an envelope, an averaged
-   line). `null`, a literal, a local used only in assertions, or the same expression twice does not count.
+   The first argument is the answer of the row's code. The second is worked out in the test from the thinned data
+   (the view's points, an envelope, an averaged line). `null`, a literal, a local used only in assertions, or the same expression twice does not count.
    `fullNotDrawn.ts` has helpers for the usual drawn answers: `nearestOf`, `nthAfter`, `averagedInto`, `peaksInto`.
 
 A test that supports a row but cannot do this is listed with `t(...)`, and the row needs another `tt(...)` test.
+
+## When a check fails
+
+Three failures you are likely to meet, and what each one wants.
+
+**1. The compiler: `'Drawn' is not assignable to 'number'`** (or `toFixed does not exist on type 'Drawn'`).
+You are computing with points thinned to be drawn. If the code draws them, see 2. If it shows, exports or decides
+something, read the full data instead (the worked example above). Do not cast: the next check finds casts.
+
+**2. `provenanceBoundary.test.js`: `src/webview/runtime/myPane.ts:41 unwrap: drawableLine(...)`.**
+Only drawing modules may turn a `Drawn` into a number. If `myPane.ts` really draws its own marks on a canvas, add it
+to `DRAWING_MODULES` in that test with one sentence saying what it draws. If it is not drawing, the answer is the
+same as in 1. The other rules of that test (`mint`, `cast`, `drawn-cast`, `drawn-coerced`, ...) print their own fix.
+
+**3. `plotContracts.test.js`: `every function that writes a number in the webview is in the table...` listing
+`src/webview/runtime/myPane.ts:caption`.**
+`caption` formats a number and no row accounts for it. Add `'src/webview/runtime/myPane.ts:caption'` to the
+`computedIn` of the row whose value it writes, or, when it is not a chart's value (a setting's field, a CSS size),
+to `NOT_CHART_VALUES` in `values.ts` with one sentence saying why.
+
+A failure of `scripts/check_decimation_flow.py` names the Python line where a number is made of thinned points and
+the decimator they came from. Take the number before the decimator is called, as `value_range` and
+`difference_peak` do.
 
 ## Adding a canvas or an SVG
 
@@ -131,3 +221,30 @@ calls a decimator, or is handed its result and computes with it, is listed in
 - `value`: it makes a number of them. Its row is then a gap, and `GAP_CEILING` does not go up.
 
 A new decimator is added to `decimators` in that file and to `SOURCES` in the checker.
+
+## What these checks cannot guarantee
+
+They close the routes we know. They do not make a wrong number impossible. Know the limits when you review a change:
+
+- **A mint is a claim, not a proof.** `localLine(xs, values)` says "these are every value"; `wholeAnswers.ts` says
+  "the protocol takes this field of every value". Nothing checks the claim against the backend. When you review a
+  new adapter or a new `localLine` caller, read where its arrays come from.
+- **`x-drawn` must be set by hand.** A new thinned array sent as plain `_NUMBERS` in `protocol_schema.py` is a
+  plain number in the webview, and nothing stops code from computing with it. `check_decimation_flow.py` covers
+  the Python side of this (a decimator's result must stay in a picture's drawn fields).
+- **Inside a drawing module, an unwrapped point is a plain number.** It still cannot reach a readout (those take
+  `Whole`), but it can reach text the module writes itself. Keep drawing modules few and small;
+  `envelopePeak.ts` and `pictureSummary.ts` are on the list for reasons written there, not because they draw.
+- **`any` hides types.** A value that passes through `any` (a `postMessage` payload, `JSON.parse`, an untyped
+  callback such as `values.map(Number)`) loses its brand. The scan catches the direct forms (`Number(v)`,
+  `String(v)`, a template, `typeof`, casts); it does not follow a value through an `any`-typed variable.
+- **A proof test proves one case.** It shows that, for the data it builds, the row's code gives the full data's
+  answer and not the drawn points'. The check confirms the test uses the row's code, asserts its answer, and calls
+  the helper with that answer and something that is not a constant. It cannot confirm that the second argument
+  really is what the thinned points would give, or that the value asserted is the one the row describes. That is
+  the reviewer's job: read the test a row names.
+- **The table lists functions, not values.** A function in a row's `computedIn` may write several numbers. The
+  types above guard each value; the table records where to look.
+- **The backend has no types for this.** Its check follows data flow through the Python source and can miss a flow
+  through code it does not model (dynamic attribute access, a new library call). Its unit tests
+  (`python-backend/test_decimation_flow_check.py`) show the forms it does catch.

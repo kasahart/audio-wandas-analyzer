@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import ts from 'typescript';
@@ -324,13 +324,24 @@ function enclosingFunction(node: ts.Node): ts.Node | undefined {
     return undefined;
 }
 
-/** Every call of the plot component outside it, by the function that makes it. */
-function plotCallers(): Set<string> {
+/**
+ * Every use of the plot component outside it, by the function that makes it. Found by symbol: any name that resolves
+ * to one of stagePanes.ts's painters, whatever it is imported as (`paintOverlay as draw`, `panes.paintOverlay`) and
+ * whether it is called there or handed on as a value.
+ */
+function plotCallers(program: ts.Program = typed(), files: readonly string[] = sourceFiles()): Set<string> {
+    const checker = program.getTypeChecker();
     const callers = new Set<string>();
-    for (const file of sourceFiles()) {
+    for (const file of files) {
         if (file === STAGE_PANES) continue;
-        each(parse(file), node => {
-            if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && PLOT_COMPONENT.has(node.expression.text)) callers.add(`${file}:${enclosing(node)}`);
+        const source = program.getSourceFile(path.join(repoRoot, file));
+        if (!source) continue;
+        each(source, node => {
+            if (!ts.isIdentifier(node) || ts.isImportSpecifier(node.parent) || ts.isExportSpecifier(node.parent)) return;
+            const found = checker.getSymbolAtLocation(node);
+            const target = found && found.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(found) : found;
+            const painter = target?.declarations?.some(declaration => path.relative(repoRoot, declaration.getSourceFile().fileName).split(path.sep).join('/') === STAGE_PANES && PLOT_COMPONENT.has(target.name));
+            if (painter) callers.add(`${file}:${enclosing(node)}`);
         });
     }
     return callers;
@@ -410,6 +421,19 @@ function drawingSurfaces(program: ts.Program, files: readonly string[]): Map<str
     }
     return found;
 }
+
+test('a use of the plot component is found under any name: imported under another, through a namespace, or handed on as a value', () => {
+    const file = 'src/webview/runtime/injectedPainter.ts';
+    const program = typedWith(new Map([[file, [
+        "import { paintOverlay as draw } from './stagePanes';",
+        "import * as panes from './stagePanes';",
+        'export function renamed(...args: Parameters<typeof draw>) { return draw(...args); }',
+        'export function spaced(...args: Parameters<typeof panes.paintStage>) { return panes.paintStage(...args); }',
+        'export function handedOn() { const painter = panes.paintOverlay; return painter; }',
+        "export function unrelated() { const paintOverlay = (): number => 1; return paintOverlay(); }",
+    ].join('\n')]]));
+    assert.deepEqual([...plotCallers(program, [file])].sort(), ['handedOn', 'renamed', 'spaced'].map(name => `${file}:${name}`));
+});
 
 test('every drawing surface of the webview (a canvas or an SVG made, or a context taken) is the plot component\'s, a chart\'s, or says why it is no chart', () => {
     const found = drawingSurfaces(typed(), sourceFiles().filter(file => file !== STAGE_PANES));
@@ -560,21 +584,6 @@ function typedWith(overlay: ReadonlyMap<string, string>): ts.Program {
     return ts.createProgram([...new Set([...base.getRootFileNames(), ...added.keys()])], options, host);
 }
 
-/** The names a file exports (functions and variables). */
-function exportedOf(file: string): Set<string> {
-    return exportedIn(parse(file));
-}
-
-function exportedIn(source: ts.SourceFile): Set<string> {
-    const names = new Set<string>();
-    for (const statement of source.statements) {
-        if (!ts.canHaveModifiers(statement) || !ts.getModifiers(statement)?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword)) continue;
-        if (ts.isFunctionDeclaration(statement) && statement.name) names.add(statement.name.text);
-        if (ts.isVariableStatement(statement)) for (const declaration of statement.declarationList.declarations) if (ts.isIdentifier(declaration.name)) names.add(declaration.name.text);
-    }
-    return names;
-}
-
 const PYTHON = 'python-backend';
 /** Every def of the backend's modules (not its tests), with its body. */
 function pythonDefs(): Map<string, string> {
@@ -681,9 +690,6 @@ test('every number the backend\'s protocol sends back is a value of a row, or sa
 
 // ── Gaps ──
 
-/** A test that tells the full data from the drawn points says so: its title or body speaks of what is thinned or real. */
-const TELLS = new RegExp(['thin', 'decimat', 'drawn', 'averag', 'cut for display', 'not the', 'never the', 'every (?:bin|sample|value|cell|band|frame)', 'real (?:bin|cell|sample)', 'bin by bin', 'sample by sample', 'before (?:it is drawn|thinning|rounding)', 'full', 'own (?:bins|samples|cells|place)', 'one by one', 'narrow', 'not its picture'].map(words => words.replace(/ /g, '[ _]')).join('|'), 'i');
-
 /** Why a row is not yet held, if it is not. */
 function reasons(row: ContractRow): string[] {
     return [
@@ -694,13 +700,6 @@ function reasons(row: ContractRow): string[] {
         ...(row.names && !(row.names.quantity && row.names.unit && row.names.reference !== false) ? ['its axis name lacks its quantity, unit or reference'] : []),
     ];
 }
-
-/**
- * Tests that take their answer from the plot under test itself (the generic UI contract asks the plot's own full
- * source for the next point, and its pages stand the drawn view in for the full data): they hold the wiring
- * together, but cannot tell the full data from the drawn points, whatever words they use.
- */
-const SELF_REFERENTIAL = ['src/test/uiSmoke/plotContract.spec.ts'];
 
 /**
  * Every test a row marks `tells` (model.ts `tt`), checked by what it does, not its words: why each is no proof.
@@ -720,9 +719,9 @@ function tellsProblems(rows: readonly ContractRow[] = ROWS, check: (targets: rea
 /** What a newcomer needs when a proof fails: the rule, and what to write. */
 const PROOF_HELP = [
     'Rule: a test marked tt(...) in src/test/plotContracts/charts must prove its row is computed from the full data, not the points thinned to draw.',
-    'It must (1) call one of the row\'s computedIn functions (directly, or an exported function of that file or a pytest import that calls it);',
-    '(2) assert the answer outright (assert.equal / deepEqual, or pytest `==`); and',
-    '(3) assert it is not the answer the drawn points give: assertNotDrawn(answer, drawnAnswer) from src/test/fullNotDrawn.ts (pytest: assert_not_drawn from conftest.py), where drawnAnswer is worked out in the test from the thinned data, never null or a constant.',
+    'It must (1) use one of the row\'s computedIn functions (itself, a function of its file that calls it, or a helper of the test file that does; a pytest: an import that calls it);',
+    '(2) assert that code\'s answer outright (assert.equal / deepEqual / match, or pytest `==`); and',
+    '(3) assert it is not the answer the drawn points give: assertNotDrawn(answer, drawnAnswer) from src/test/fullNotDrawn.ts (pytest: assert_not_drawn from conftest.py), with the code\'s answer first and drawnAnswer worked out in the test from the thinned data, never null or a constant. No other assertion (notEqual, a margin) counts.',
     'If this test cannot do that, mark it t(...) instead and give the row another tt(...) test that does. See docs/plot-contracts-guide.md.',
 ].join(' ');
 
@@ -762,67 +761,167 @@ function reachersOf(file: string, name: string): Set<string> {
     return reach;
 }
 
-const escapeRe = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
 /** A test given as proof that code computes from the full data, not the drawn points. */
-interface Proof { file: string; name: string; via?: string }
+interface Proof { file: string; name: string }
+
+/** The one way a proof says "not the drawn points' answer": this function, found by its declaration, not its name. */
+const NOT_DRAWN = { file: 'src/test/fullNotDrawn.ts', name: 'assertNotDrawn' };
+/** The node:assert calls that state an answer outright. */
+const OUTRIGHT = new Set(['equal', 'deepEqual', 'strictEqual', 'deepStrictEqual', 'match']);
+
+let proofs: ts.Program | undefined;
+/** The typed program with every TS test a row gives as proof in it, so a name in a test is known by what it declares. */
+function proofProgram(): ts.Program {
+    if (!proofs) {
+        const files = new Set(ROWS.flatMap(row => row.tests).filter(item => item.tells && item.file.endsWith('.ts') && existsSync(path.join(repoRoot, item.file))).map(item => item.file));
+        proofs = typedWith(new Map([...files].map(file => [file, read(file)])));
+    }
+    return proofs;
+}
+
+/** The function a `test('name', () => { … })` call of `source` runs. */
+function testBody(source: ts.SourceFile, name: string): ts.Node | undefined {
+    let body: ts.Node | undefined;
+    each(source, node => {
+        if (body || !ts.isCallExpression(node)) return;
+        const callee = node.expression;
+        const isTest = (ts.isIdentifier(callee) && callee.text === 'test') || (ts.isPropertyAccessExpression(callee) && ts.isIdentifier(callee.expression) && callee.expression.text === 'test');
+        const title = node.arguments[0];
+        if (isTest && title && ts.isStringLiteralLike(title) && title.text === name) body = node.arguments.find(argument => ts.isFunctionLike(argument));
+    });
+    return body;
+}
 
 /**
- * Why `proof` does not show that one of `targets` (`file:function`, a webview function or a backend def) is given
- * the full data where the drawn points differ, or null: it must run and assert, speak of what is thinned (TELLS),
- * reach a target (call an exported function of its file that calls it, or send the command `via` its file maps to
- * one; a pytest calls a def of its module that reaches it), and assert the code's answer outright and not equal to
- * an answer made of other inputs (distinguishes / python_proof.py).
+ * Why `proof` does not show that one of `targets` (`file:function`) is given the full data where the drawn points
+ * differ, or null. Every name is followed to its declaration with the type checker, so an import under another name,
+ * a namespace import or a look-alike local of the same spelling changes nothing. The test must:
+ *
+ * 1. use the code under test: one of the targets, a function of a target's file that reaches one, or a helper of
+ *    the test file that does;
+ * 2. state that code's answer outright with node:assert (OUTRIGHT);
+ * 3. call `assertNotDrawn(answer, drawnAnswer)` (src/test/fullNotDrawn.ts) with that code's answer first and, second,
+ *    something worked out in the test: not a constant, a local holding one, or the first argument again.
+ *
+ * What this cannot see: whether `drawnAnswer` really is what the thinned points would give, and whether the answer
+ * asserted is the value the row is about. Those are for the reviewer (docs/plot-contracts-guide.md).
  */
-function proofProblem(targets: readonly string[], proof: Proof): string | null {
-    if (!existsSync(path.join(repoRoot, proof.file))) return `no file ${proof.file}`;
-    if (SELF_REFERENTIAL.includes(proof.file)) return `"${proof.name}" checks the plot against its own answer`;
-    if (proof.file.endsWith('.py')) return pythonProofs([{ targets, proof }])[0] ?? null;
-    const problem = testProblem(proof.file, read(proof.file), proof.name);
+function proofProblem(targets: readonly string[], proof: Proof, program: ts.Program = proofProgram()): string | null {
+    // A UI test drives the whole app: nothing ties what it reads off the page to this row's code, so it is support
+    // (t(...)), never the proof. The proof is a unit test that calls the row's code with data whose drawn points differ.
+    if (proof.file.startsWith('src/test/uiSmoke/')) return `"${proof.name}" is a UI test, which cannot show which code made the value it reads: mark it t(...) and give the row a unit test as its tt(...) proof`;
+    if (proof.file.endsWith('.py')) return existsSync(path.join(repoRoot, proof.file)) ? pythonProofs([{ targets, proof }])[0] ?? null : `no file ${proof.file}`;
+    const source = program.getSourceFile(path.join(repoRoot, proof.file));
+    if (!source) return `no file ${proof.file}`;
+    const problem = testProblem(proof.file, source.text, proof.name);
     if (problem) return problem;
-    const own = namedTest(proof.file, read(proof.file), proof.name)?.body ?? '';
-    if (!TELLS.test(`${proof.name}\n${own}`)) return `"${proof.name}" does not tell the full data from the drawn points`;
-    // The test file's own helpers the test calls (a `lanes(...)` that paints) are part of what it runs.
-    const helpers = new Map<string, string>();
-    for (const statement of parse(proof.file).statements) {
-        if (ts.isFunctionDeclaration(statement) && statement.name) helpers.set(statement.name.text, statement.getText());
-        if (ts.isVariableStatement(statement)) for (const declaration of statement.declarationList.declarations) if (ts.isIdentifier(declaration.name) && declaration.initializer && ts.isFunctionLike(declaration.initializer)) helpers.set(declaration.name.text, declaration.getText());
+    const body = testBody(source, proof.name);
+    if (!body) return `"${proof.name}" is not written as test('…', () => { … }) in ${proof.file}`;
+    const checker = program.getTypeChecker();
+    const symbolAt = (node: ts.Node): ts.Symbol | undefined => (ts.isShorthandPropertyAssignment(node.parent) ? checker.getShorthandAssignmentValueSymbol(node.parent) : checker.getSymbolAtLocation(node));
+    /** What a name declares, through imports and re-exports. */
+    const declarationOf = (node: ts.Node): ts.Node | undefined => {
+        const symbol = symbolAt(node);
+        return (symbol && symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol)?.declarations?.[0];
+    };
+    const names = (node: ts.Node): ts.Identifier[] => {
+        const found: ts.Identifier[] = [];
+        each(node, inner => { if (ts.isIdentifier(inner)) found.push(inner); });
+        return found;
+    };
+
+    // The code under test: the row's functions, and every function of their files that reaches one.
+    const under = new Set<ts.Node>();
+    for (const target of targets) {
+        const at = target.lastIndexOf(':');
+        const file = target.slice(0, at);
+        const code = file.endsWith('.ts') ? program.getSourceFile(path.join(repoRoot, file)) : undefined;
+        if (!code) continue;
+        const reachers = reachersOf(file, target.slice(at + 1));
+        each(code, node => {
+            const name = functionName(node);
+            // A function is declared by itself; an arrow, by the variable or property it is assigned to.
+            if (name && reachers.has(name)) under.add(ts.isVariableDeclaration(node.parent) || ts.isPropertyAssignment(node.parent) ? node.parent : node);
+        });
     }
-    const used = new Set<string>();
-    let body = own;
+    const reaches = (node: ts.Node): boolean => names(node).some(name => { const declared = declarationOf(name); return !!declared && under.has(declared); });
+    // A helper of the test file that runs the code under test gives its answer too.
     for (let grown = true; grown;) {
         grown = false;
-        for (const [name, text] of helpers) if (!used.has(name) && new RegExp(`\\b${escapeRe(name)}\\(`).test(body)) { used.add(name); body += `\n${text}`; grown = true; }
+        for (const statement of source.statements) {
+            const helpers = ts.isFunctionDeclaration(statement) ? [statement] : ts.isVariableStatement(statement) ? statement.declarationList.declarations.filter(item => item.initializer && ts.isFunctionLike(item.initializer)) : [];
+            for (const helper of helpers) if (!under.has(helper) && reaches(helper)) { under.add(helper); grown = true; }
+        }
     }
-    const reach = new Set<string>();
-    let commanded = false;
-    for (const target of targets) {
-        if (target.endsWith('.py') || target.includes('.py:')) continue;
-        const at = target.lastIndexOf(':');
-        const file = target.slice(0, at), name = target.slice(at + 1);
-        if (!existsSync(path.join(repoRoot, file))) continue;
-        const reachers = reachersOf(file, name);
-        const exported = exportedOf(file);
-        const module = path.basename(file, '.ts');
-        const imports = new RegExp(`from ['"][^'"]*/${escapeRe(module)}['"]`).test(read(proof.file));
-        for (const caller of reachers) if (imports && exported.has(caller) && new RegExp(`\\b${escapeRe(caller)}\\(`).test(body)) reach.add(caller);
-        const mapped = proof.via ? new RegExp(`['"]${escapeRe(proof.via)}['"]\\s*:\\s*(\\w+)\\b`).exec(read(file))?.[1] : undefined;
-        if (!!proof.via && body.includes(proof.via) && !!mapped && reachers.has(mapped)) commanded = true;
+    if (!reaches(body)) return `"${proof.name}" never uses the row's code (${targets.join(', ')})`;
+
+    // The locals that hold an answer of the code under test: bound from it (`const range = stageRange(...)`, every
+    // name of `const { drawn, canvases } = f(...)`), or handed to it to fill (a canvas, a recorder).
+    const answers = new Set<ts.Symbol>();
+    const answer = (node: ts.Node): boolean => reaches(node) || names(node).some(name => { const symbol = symbolAt(name); return !!symbol && answers.has(symbol); });
+    const hold = (name: ts.Node): boolean => {
+        const symbol = symbolAt(name);
+        if (!symbol || answers.has(symbol)) return false;
+        answers.add(symbol);
+        return true;
+    };
+    each(body, node => {
+        if (ts.isCallExpression(node) && reaches(node.expression)) for (const argument of node.arguments) if (ts.isIdentifier(argument)) hold(argument);
+    });
+    for (let grown = true; grown;) {
+        grown = false;
+        each(body, node => {
+            if (!ts.isVariableDeclaration(node) || !node.initializer || !answer(node.initializer)) return;
+            for (const name of names(node.name)) if (!(ts.isBindingElement(name.parent) && name.parent.propertyName === name) && hold(name)) grown = true;
+        });
     }
-    // A UI smoke test drives the whole app: what it reads off the page is the code's answer, whichever function made it.
-    if (proof.file.startsWith('src/test/uiSmoke/')) commanded = true;
-    // A UI smoke test drives the whole app: what it reads off the page is the code's answer, whichever function made it.
-    if (proof.file.startsWith('src/test/uiSmoke/')) commanded = true;
-    if (!reach.size && !commanded) return `"${proof.name}" never reaches it`;
-    // What a reached function is called by in the test: every reacher of every target (the test may call another).
-    const callable = new Set<string>();
-    for (const target of targets) {
-        const at = target.lastIndexOf(':');
-        if (!target.includes('.py:') && existsSync(path.join(repoRoot, target.slice(0, at)))) for (const caller of reachersOf(target.slice(0, at), target.slice(at + 1))) callable.add(caller);
+    const notDrawn = program.getSourceFile(path.join(repoRoot, NOT_DRAWN.file))?.statements.find(statement => ts.isFunctionDeclaration(statement) && statement.name?.text === NOT_DRAWN.name);
+    const isNotDrawn = (call: ts.CallExpression): boolean => !!notDrawn && declarationOf(ts.isPropertyAccessExpression(call.expression) ? call.expression.name : call.expression) === notDrawn;
+    /** Whether `node` is the `assert` of node:assert, by its import. */
+    const isAssert = (node: ts.Node): boolean => {
+        let declared: ts.Node | undefined = ts.isIdentifier(node) ? checker.getSymbolAtLocation(node)?.declarations?.[0] : undefined;
+        while (declared && !ts.isImportDeclaration(declared)) declared = declared.parent;
+        return !!declared && ts.isStringLiteral(declared.moduleSpecifier) && /^(?:node:)?assert(?:\/strict)?$/u.test(declared.moduleSpecifier.text);
+    };
+    const asserting = (node: ts.Node): boolean => {
+        for (let at = node.parent; at !== body; at = at.parent) {
+            if (ts.isCallExpression(at) && (isNotDrawn(at) || isAssert(at.expression) || (ts.isPropertyAccessExpression(at.expression) && isAssert(at.expression.expression)))) return true;
+        }
+        return false;
+    };
+    // A constant: literals, and locals of the test that hold only literals and are used in assertions alone. A local
+    // of literals that the test also hands on (to the code under test, or into other data) is an input, not a constant.
+    const fixed = new Set<ts.Symbol>();
+    const constant = (node: ts.Node): boolean => names(node).every(name => {
+        if (['undefined', 'NaN', 'Infinity'].includes(name.text)) return true;
+        if ((ts.isPropertyAccessExpression(name.parent) || ts.isPropertyAssignment(name.parent)) && name.parent.name === name) return true;
+        const symbol = symbolAt(name);
+        return !!symbol && fixed.has(symbol);
+    });
+    const handedOn = new Set<ts.Symbol>();
+    for (const name of names(body)) {
+        const symbol = (ts.isVariableDeclaration(name.parent) && name.parent.name === name) || asserting(name) ? undefined : symbolAt(name);
+        if (symbol) handedOn.add(symbol);
     }
-    // A helper of the test file that calls the code gives its answer too.
-    for (const name of used) if ([...callable].some(caller => new RegExp(`\\b${escapeRe(caller)}\\(`).test(helpers.get(name) ?? ''))) callable.add(name);
-    if (!distinguishes(proof.file, proof.name, commanded ? null : callable)) return `"${proof.name}" asserts no case where the full data and the drawn points give different answers`;
+    for (let grown = true; grown;) {
+        grown = false;
+        each(body, node => {
+            const symbol = ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer && constant(node.initializer) ? symbolAt(node.name) : undefined;
+            if (symbol && !fixed.has(symbol) && !handedOn.has(symbol)) { fixed.add(symbol); grown = true; }
+        });
+    }
+
+    let outright = false, apart = false;
+    each(body, node => {
+        if (!ts.isCallExpression(node)) return;
+        const callee = node.expression;
+        if (ts.isPropertyAccessExpression(callee) && OUTRIGHT.has(callee.name.text) && isAssert(callee.expression) && node.arguments.some(answer)) outright = true;
+        if (!isNotDrawn(node)) return;
+        const [mine, drawn] = node.arguments;
+        if (mine && drawn && answer(mine) && !constant(drawn) && mine.getText() !== drawn.getText()) apart = true;
+    });
+    if (!outright) return `"${proof.name}" never asserts the answer of the row's code outright (assert.equal, deepEqual or match on what it returns)`;
+    if (!apart) return `"${proof.name}" asserts no case where the full data and the drawn points give different answers`;
     return null;
 }
 
@@ -836,181 +935,53 @@ function pythonProofs(items: ReadonlyArray<{ targets: readonly string[]; proof: 
     return JSON.parse(run.stdout) as Array<string | null>;
 }
 
-const NEGATIVE_ASSERTS = new Set(['assertNotDrawn', 'notEqual', 'notDeepEqual', 'notStrictEqual', 'notDeepStrictEqual', 'doesNotMatch']);
-const POSITIVE_ASSERTS = new Set(['equal', 'deepEqual', 'strictEqual', 'deepStrictEqual', 'match', 'toEqual', 'toBe', 'toBeCloseTo', 'toStrictEqual', 'toHaveText', 'toContain', 'toMatch']);
-
-/**
- * Whether the test `name` of `file` tells the full data from the drawn points by what it asserts, not its words: it
- * asserts the answer of the code under test (a call of one of `reach`, or of anything for a test that sends a
- * command) is not what another case gives (notEqual, notDeepEqual, doesNotMatch, `.not.`, `ok(a !== b)`: the drawn
- * points' answer), and asserts an answer outright (equal, deepEqual, toBe…: the full data's). Both sides of that
- * negative assertion must be answers of the code under test, and not the same expression: a comparison against null
- * or a constant does not tell one input from the other.
- */
-function distinguishes(file: string, name: string, reach: ReadonlySet<string> | null): boolean {
-    let body: ts.Node | undefined;
-    each(parse(file), node => {
-        if (body || !ts.isCallExpression(node)) return;
-        const callee = node.expression;
-        const isTest = (ts.isIdentifier(callee) && callee.text === 'test') || (ts.isPropertyAccessExpression(callee) && ts.isIdentifier(callee.expression) && callee.expression.text === 'test');
-        const title = node.arguments[0];
-        if (isTest && title && ts.isStringLiteralLike(title) && title.text === name) body = node.arguments.find(argument => ts.isFunctionLike(argument));
-    });
-    if (!body) return false;
-    // The locals of the test made of the code under test (`const range = stageRange(...)`).
-    const answers = new Set<string>();
-    const answer = (node: ts.Node): boolean => {
-        let found = reach === null;
-        each(node, inner => {
-            if (ts.isCallExpression(inner) && reach?.has((ts.isPropertyAccessExpression(inner.expression) ? inner.expression.name : inner.expression).getText())) found = true;
-            if (ts.isIdentifier(inner) && answers.has(inner.text)) found = true;
-        });
-        return found;
-    };
-    // A canvas (or a recorder) given to the code under test holds its answer too (`canvas.dataset.plotOrder`).
-    each(body, node => {
-        if (ts.isCallExpression(node) && reach?.has((ts.isPropertyAccessExpression(node.expression) ? node.expression.name : node.expression).getText())) for (const argument of node.arguments) if (ts.isIdentifier(argument)) answers.add(argument.text);
-    });
-    for (let grown = true; grown;) {
-        grown = false;
-        each(body, node => {
-            if (!ts.isVariableDeclaration(node) || !node.initializer || !answer(node.initializer)) return;
-            // `const range = f(...)`, and every name of `const { drawn, canvases } = f(...)`.
-            const bound: string[] = [];
-            each(node.name, inner => { if (ts.isIdentifier(inner) && !(ts.isBindingElement(inner.parent) && inner.parent.propertyName === inner)) bound.push(inner.text); });
-            for (const name of bound) if (!answers.has(name)) { answers.add(name); grown = true; }
-        });
-    }
-    // A side with no name in it but constants (null, a number, a pattern, a literal of those, a local holding one) is
-    // no input's answer.
-    const constants = new Set(['undefined', 'NaN', 'Infinity']);
-    const constant = (node: ts.Node): boolean => {
-        let named = false;
-        each(node, inner => { if (ts.isIdentifier(inner) && !constants.has(inner.text) && !((ts.isPropertyAccessExpression(inner.parent) || ts.isPropertyAssignment(inner.parent)) && inner.parent.name === inner)) named = true; });
-        return !named;
-    };
-    // A local holding a literal that the test also hands on (to the code under test, or into other data) is an
-    // input, not a constant: only one used in assertions alone tells nothing.
-    const inputs = new Set<string>();
-    const inAssertion = (node: ts.Node): boolean => {
-        for (let at: ts.Node | undefined = node.parent; at && at !== body; at = at.parent) {
-            if (ts.isCallExpression(at)) {
-                const text = at.expression.getText();
-                if (/^(?:assert\b|expect\b)/u.test(text) || NEGATIVE_ASSERTS.has(text)) return true;
-            }
-        }
-        return false;
-    };
-    each(body, node => {
-        if (ts.isIdentifier(node) && !(ts.isVariableDeclaration(node.parent) && node.parent.name === node) && !((ts.isPropertyAccessExpression(node.parent) || ts.isPropertyAssignment(node.parent)) && node.parent.name === node) && !inAssertion(node)) inputs.add(node.text);
-    });
-    for (let grown = true; grown;) {
-        grown = false;
-        each(body, node => {
-            if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer && !constants.has(node.name.text) && !inputs.has(node.name.text) && constant(node.initializer)) { constants.add(node.name.text); grown = true; }
-        });
-    }
-    let negative = false, positive = false;
-    each(body, node => {
-        if (!ts.isCallExpression(node)) return;
-        const callee = node.expression;
-        const method = ts.isPropertyAccessExpression(callee) ? callee.name.text : ts.isIdentifier(callee) ? callee.text : '';
-        // expect(x).not.toBe(y): negated; expect(x).toBe(y): outright.
-        const negated = ts.isPropertyAccessExpression(callee) && ts.isPropertyAccessExpression(callee.expression) && callee.expression.name.text === 'not';
-        const subject = (negated ? ((callee).expression as ts.PropertyAccessExpression).expression : ts.isPropertyAccessExpression(callee) ? callee.expression : undefined);
-        const expectArgs = subject && ts.isCallExpression(subject) && ts.isIdentifier(subject.expression) && subject.expression.text === 'expect' ? subject.arguments : undefined;
-        const args = [...node.arguments, ...(expectArgs ?? [])];
-        const asserting = (ts.isPropertyAccessExpression(callee) && ts.isIdentifier(callee.expression) && callee.expression.text === 'assert') || !!expectArgs || (ts.isIdentifier(callee) && (callee.text === 'assert' || NEGATIVE_ASSERTS.has(callee.text)));
-        if (!asserting || !args.some(answer)) return;
-        const first = node.arguments[0];
-        const inequality = (method === 'ok' || method === 'assert') && first && ts.isBinaryExpression(first) && [ts.SyntaxKind.ExclamationEqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsToken, ts.SyntaxKind.LessThanToken, ts.SyntaxKind.GreaterThanToken].includes(first.operatorToken.kind);
-        if (NEGATIVE_ASSERTS.has(method) || negated || inequality) {
-            // Told apart only when one side is an answer of the code under test and the other is made of the test's
-            // inputs too (the drawn points' answer), never the same expression: `notEqual(result, null)`, or a match
-            // against a constant or a local holding one, tells nothing.
-            // `ok(answer - drawn > 3)` or `ok(Math.abs(answer - drawn) > 3)`: apart by more than a margin.
-            const gapOf = (node: ts.Expression): ts.BinaryExpression | undefined => {
-                let inner = node;
-                while (ts.isParenthesizedExpression(inner)) inner = inner.expression;
-                if (ts.isCallExpression(inner) && inner.expression.getText() === 'Math.abs' && inner.arguments[0]) inner = inner.arguments[0];
-                while (ts.isParenthesizedExpression(inner)) inner = inner.expression;
-                return ts.isBinaryExpression(inner) && inner.operatorToken.kind === ts.SyntaxKind.MinusToken ? inner : undefined;
-            };
-            const gap = inequality && ts.isBinaryExpression(first) && first.operatorToken.kind === ts.SyntaxKind.GreaterThanToken ? gapOf(first.left) : undefined;
-            const sides = gap ? [gap.left, gap.right] : inequality && ts.isBinaryExpression(first) ? [first.left, first.right] : negated ? [expectArgs?.[0], node.arguments[0]] : [...node.arguments.slice(0, 2)];
-            const [left, right] = sides;
-            if (left && right && !constant(left) && !constant(right) && (answer(left) || answer(right)) && left.getText() !== right.getText()) negative = true;
-        } else if (POSITIVE_ASSERTS.has(method)) positive = true;
-    });
-    return negative && positive;
-}
-
-test('the proof check fails on a proof that reaches its code and speaks of thinning, but asserts no case where full and drawn differ', () => {
-    // A proof written here for the injection (removed after): it gives the same answer for full and drawn data.
+test('the proof check follows names to what they declare: only a use of the row\'s code, its answer asserted outright, and assertNotDrawn(answer, drawnAnswer) make a proof', () => {
+    // Proofs written here for the injection, compiled over the real sources and never written to disk.
     const file = 'src/test/injectedWholeProof.test.ts';
-    const name = 'a range is the full data\'s, never the points drawn';
-    const write = (assertions: string[]): void => writeFileSync(path.join(repoRoot, file), [
+    const range = 'src/webview/runtime/stagePanes.ts:stageRange';
+    const full = "    const full = stageRange([line([-43, -12], { min: -61, max: -2 })]);";
+    const outright = "    assert.deepEqual(full, stageRange([line([-61, -2])]));";
+    const cases: Array<{ name: string; body: string[]; problem: RegExp | null }> = [
+        // A drawn line whose extremes were thinned away: its full range asserted, and told from the drawn points'.
+        { name: 'proven', body: [full, outright, "    assertNotDrawn(full, stageRange([line([-43, -12])]));"], problem: null },
+        // The same under other names: the import renamed, the code reached through a namespace.
+        { name: 'renamed', body: ["    const full = panes.stageRange([line([-43, -12], { min: -61, max: -2 })]);", "    assert.deepEqual(full, panes.stageRange([line([-61, -2])]));", "    apart(full, panes.stageRange([line([-43, -12])]));"], problem: null },
+        // Full and drawn data that give one answer say nothing of which one the code takes.
+        { name: 'no helper', body: [full, outright], problem: /asserts no case where the full data and the drawn points give different answers/u },
+        // Another negative assertion is not the helper: one form, so a reader finds every proof the same way.
+        { name: 'another assertion', body: [full, outright, "    assert.notDeepEqual(full, stageRange([line([-43, -12])]));"], problem: /asserts no case/u },
+        // A function of the helper's spelling that is not the helper.
+        { name: 'look-alike', body: ["    const assertNotDrawn = (..._: unknown[]): void => undefined;", full, outright, "    assertNotDrawn(full, stageRange([line([-43, -12])]));"], problem: /asserts no case/u },
+        // Told apart from null, a constant, a local holding one, or itself is not told apart from the drawn points.
+        { name: 'null', body: [full, outright, "    assertNotDrawn(full, null);"], problem: /asserts no case/u },
+        { name: 'constant', body: [full, outright, "    assertNotDrawn(full, { min: 0, max: 0 });"], problem: /asserts no case/u },
+        { name: 'local constant', body: [full, outright, "    const zero = { min: 0, max: 0 };", "    assertNotDrawn(full, zero);"], problem: /asserts no case/u },
+        { name: 'itself', body: [full, outright, "    assertNotDrawn(full, full);"], problem: /asserts no case/u },
+        // The answer never stated: only that it differs.
+        { name: 'not outright', body: [full, "    assertNotDrawn(full, stageRange([line([-43, -12])]));"], problem: /never asserts the answer of the row's code outright/u },
+        // A test that never uses the row's code proves nothing of it, whatever it asserts.
+        { name: 'unreached', body: ["    const full = { min: -61, max: -2 }, drawn = [full].map(item => ({ ...item, min: -43 }))[0];", "    assert.deepEqual(full, { min: -61, max: -2 });", "    assertNotDrawn(full, drawn);"], problem: /never uses the row's code/u },
+    ];
+    const program = typedWith(new Map([[file, [
         "import assert from 'node:assert/strict';",
         "import test from 'node:test';",
         "import type { StageView } from '../shared/protocol/backendProtocol';",
         "import { stageRange } from '../webview/runtime/stagePanes';",
+        "import * as panes from '../webview/runtime/stagePanes';",
+        "import { assertNotDrawn, assertNotDrawn as apart } from './fullNotDrawn';",
         "const line = (values: number[], valueRange?: StageView['valueRange']): StageView => ({ frame: 'SpectralFrame', kind: 'line', xs: values.map((_, i) => i), values, ...(valueRange ? { valueRange } : {}) });",
-        `test('${name.replace(/'/gu, "\\'")}', () => {`,
-        ...assertions,
-        '});',
-    ].join('\n'));
-    const range = 'src/webview/runtime/stagePanes.ts:stageRange';
-    const check = (): string[] => {
-        parsed.delete(file);
-        const problem = proofProblem([range], { file, name });
-        return problem ? [`${range}: ${problem}`] : [];
-    };
-    try {
-        // Full and drawn data that give one answer: it says nothing of which one the reader takes.
-        write(["    assert.deepEqual(stageRange([line([-61, -2], { min: -61, max: -2 })]), stageRange([line([-61, -2])]));"]);
-        assert.match(check().join('\n'), /stageRange: .* asserts no case where the full data and the drawn points give different answers/u);
-        // Words of a difference without asserting one are no better.
-        write(["    // the drawn points differ from the full data", "    assert.ok(stageRange([line([-61, -2])]).max >= -2);"]);
-        assert.match(check().join('\n'), /asserts no case/u);
-        // Told apart from null, or from a constant, is not told apart from the drawn points.
-        write([
-            "    assert.deepEqual(stageRange([line([-43, -12], { min: -61, max: -2 })]), stageRange([line([-61, -2])]));",
-            "    const full = stageRange([line([-43, -12], { min: -61, max: -2 })]);",
-            "    assert.notEqual(full, null);",
-            "    assert.notDeepEqual(full, { min: 0, max: 0 });",
-            "    assert.ok(full !== undefined);",
-            "    assert.notDeepEqual(full, full);",
-            "    const zero = { min: 0, max: 0 };",
-            "    assert.notDeepEqual(full, zero);",
-        ]);
-        assert.match(check().join('\n'), /stageRange: .* asserts no case where the full data and the drawn points give different answers/u);
-        // A drawn line whose extremes were thinned away, its full range asserted and told from the drawn points': proven.
-        write([
-            "    assert.deepEqual(stageRange([line([-43, -12], { min: -61, max: -2 })]), stageRange([line([-61, -2])]));",
-            "    assert.notDeepEqual(stageRange([line([-43, -12], { min: -61, max: -2 })]), stageRange([line([-43, -12])]));",
-        ]);
-        assert.deepEqual(check(), []);
-        // The same holds for a row's tt(...) test: the shared helper with the drawn points' answer proves it; with
-        // null, or with nothing told apart, the row's proof fails and says what to write.
-        const row = (): string[] => {
-            parsed.delete(file);
-            return tellsProblems([{ id: 'injected.range', chart: 'injected', value: 'range', what: 'x', computedIn: [range], from: 'full', trace: 'x', tests: [{ file, name, tells: true }] }]);
-        };
-        const helper = "    const { assertNotDrawn } = require('./fullNotDrawn') as typeof import('./fullNotDrawn');";
-        const full = "    const full = stageRange([line([-43, -12], { min: -61, max: -2 })]);";
-        write([helper, full, "    assert.deepEqual(full, stageRange([line([-61, -2])]));", "    assertNotDrawn(full, stageRange([line([-43, -12])]));"]);
-        assert.deepEqual(row(), []);
-        write([helper, full, "    assert.deepEqual(full, stageRange([line([-61, -2])]));", "    assertNotDrawn(full, null);"]);
-        assert.match(row().join('\n'), /injected\.range: .* asserts no case where the full data and the drawn points give different answers\. Rule: .*assertNotDrawn\(answer, drawnAnswer\)/u);
-        write([helper, full, "    assert.deepEqual(full, stageRange([line([-61, -2])]));"]);
-        assert.match(row().join('\n'), /asserts no case/u);
-        // A test that never calls the row's code proves nothing of it, whatever it asserts.
-        write([helper, "    const full = { min: -61, max: -2 }, drawn = [full].map(range => ({ ...range, min: -43 }))[0];", "    assert.deepEqual(full, { min: -61, max: -2 });", "    assertNotDrawn(full, drawn);"]);
-        assert.match(row().join('\n'), /never reaches it/u);
-    } finally {
-        rmSync(path.join(repoRoot, file), { force: true });
-        parsed.delete(file);
+        ...cases.flatMap(item => [`test('${item.name}', () => {`, ...item.body, '});']),
+    ].join('\n')]]));
+    for (const item of cases) {
+        const problem = proofProblem([range], { file, name: item.name }, program);
+        if (item.problem) assert.match(problem ?? 'no problem', item.problem, item.name);
+        else assert.equal(problem, null, item.name);
     }
+    // A row's failure says the rule and what to write.
+    const row = tellsProblems([{ id: 'injected.range', chart: 'injected', value: 'range', what: 'x', computedIn: [range], from: 'full', trace: 'x', tests: [{ file, name: 'null', tells: true }] }], (targets, proof) => proofProblem(targets, proof, program));
+    assert.match(row.join('\n'), /injected\.range: .* asserts no case where the full data and the drawn points give different answers\. Rule: .*assertNotDrawn\(answer, drawnAnswer\)/u);
+    // A UI test is never the proof.
+    assert.match(proofProblem([range], { file: 'src/test/uiSmoke/plotContract.spec.ts', name: 'any' }) ?? '', /is a UI test/u);
 });
 
 test('every gap is in its chart\'s knownGaps at its severity, and a row is a gap until a test holds it from full data', () => {
